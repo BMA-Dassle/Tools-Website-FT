@@ -57,6 +57,10 @@ let cached: { data: CurrentRaces; expiry: number } | null = null;
 
 // ── Operating hours (America/New_York) ───────────────────────────────────────
 /** Returns true if we are currently within FastTrax operating hours in ET. */
+/** Display data stays readable until this hour ET the following morning. */
+const DISPLAY_CLOSE_HOUR = 5;
+const VALID_DAYS = new Set(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
+
 function isOperatingHoursET(): boolean {
   const now = new Date();
   // Format in ET and parse back out — avoids timezone math bugs
@@ -73,26 +77,24 @@ function isOperatingHoursET(): boolean {
   const hm = hour + minute / 60;
 
   // Open times come from the FastTrax hours registry (which carries the
-  // 2026-08-10 Mon–Fri 3 PM move); the CLOSE side stays local and deliberately
-  // generous — we keep stale entries a while past close so a heat called at
-  // 10:50 still displays at 10:55.
-  //   Mon–Thu → open – 12:30 AM. Fri/Sat → open – 2:30 AM. Sun → open – 11:30 PM.
+  // 2026-08-10 Mon–Fri 3 PM move). The CLOSE side is ours, and is deliberately
+  // generous: we keep serving a heat a while past close so one called at 10:50
+  // still displays at 10:55.
+  //
+  // DISPLAY CUT-OFF IS 5 AM (owner 2026-08-11), one rule for every day —
+  // open until 5 AM the following morning. It used to close at 12:30 AM
+  // Mon–Thu, which meant staff finishing a late night, and the lobby TVs, went
+  // dark on real sessions while the building was still busy. Nothing here
+  // sells anything; it only decides how late "Now Checking In" stays readable,
+  // so being generous costs nothing and being stingy loses information people
+  // are actively using.
+  //
+  // Note this is a DISPLAY window, not the racing business day
+  // (RACE_DAY_ROLLOVER_HOUR, still 2 AM) — that one drives kiosk availability
+  // and is deliberately left alone.
   const openHour = fasttraxHoursToday(now).openMinutes / 60;
-  switch (day) {
-    case "Mon":
-    case "Tue":
-    case "Wed":
-    case "Thu":
-      return hm >= openHour || hm < 0.5;
-    case "Fri":
-      return hm >= openHour || hm < 2.5;
-    case "Sat":
-      return hm >= openHour || hm < 2.5;
-    case "Sun":
-      return hm >= openHour && hm < 23.5;
-    default:
-      return false;
-  }
+  if (!VALID_DAYS.has(day)) return false;
+  return hm >= openHour || hm < DISPLAY_CLOSE_HOUR;
 }
 
 /** Seconds until midnight ET — used as Redis TTL for last-race storage. */
@@ -110,9 +112,13 @@ function secondsUntilEndOfDayET(): number {
   const s = parseInt(parts.find((p) => p.type === "second")?.value || "0", 10);
   const secSoFar = h * 3600 + m * 60 + s;
   const secRemaining = 86400 - secSoFar;
-  // Add a little cushion past midnight so Fri/Sat 2 AM closes still carry
-  // through Fri night into Sat morning when read. Floor at 60s.
-  return Math.max(60, secRemaining + 7200);
+  // Cushion past midnight so a night's last heat is still readable the next
+  // morning. Must OUTLIVE the display window (DISPLAY_CLOSE_HOUR) with room to
+  // spare — otherwise the key quietly expires while the endpoint is still
+  // willing to serve it, and the screens go blank for reasons nobody can see.
+  // One extra hour beyond the 5 AM cut-off.
+  const cushionSec = (DISPLAY_CLOSE_HOUR + 1) * 3600;
+  return Math.max(60, secRemaining + cushionSec);
   // void now — kept for readability if we add timezone-debug logging later
   void now;
 }
