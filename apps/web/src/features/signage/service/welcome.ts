@@ -9,10 +9,17 @@ import "server-only";
  *
  * TWO SOURCES, JOINED ON THE BMI PROJECT ID:
  *   - Neon `group_function_quotes` — who they are, how many, which center.
- *   - BMI day planner (via the daily-events service, served from the Redis
- *     cache a cron keeps warm) — WHICH ATTRACTION they start on and when.
+ *   - BMI day planner (via `listDailyEvents`) — WHICH ATTRACTION they start
+ *     on and when.
  * The itinerary genuinely only exists in BMI; nothing persists it locally, so
- * the join is unavoidable. It is cheap because the cache is already warm.
+ * the join is unavoidable.
+ *
+ * IT IS CHEAP ONLY BECAUSE `listDailyEvents` READS REDIS. This comment used to
+ * assert that as a fact and it was false: until 2026-08-11 the cache lived in
+ * the daily-events ROUTES, not the service, so this board went straight to the
+ * Office API — 6 live calls per screen poll, every 15s, ~24/min all day. If you
+ * ever move that cache back out of the service, this board is the thing that
+ * starts hammering `office-api22` again, silently.
  *
  * THE ID IS A STRING AND STAYS ONE. `bmi_reservation_id` is a 17-digit BMI
  * project id; Number()/JSON round-tripping it is this repo's classic

@@ -1,4 +1,5 @@
 import { serializeWithRawIds } from "@ft/db";
+import redis from "@/lib/redis";
 import {
   getAuditLog,
   getContractVersions,
@@ -150,7 +151,73 @@ export function clientKeyForLocation(locationId: number): string | null {
 
 // ── List (port of sms-timing-reservations.ts) ────────────────────────
 
+/**
+ * The Redis key the daily-events board, the kiosk waiver rail, the lobby TV
+ * welcome board and the warm cron ALL share, and the `{success:true,data}`
+ * body shape they all read. Four readers depend on this pair — change one
+ * side and you must change every writer in the same commit.
+ */
+export function dailyEventsCacheKey(locationId: number, date: string, includeAll = false): string {
+  return `de:res:${locationId}:${date}:${includeAll ? 1 : 0}`;
+}
+
+/** Must outlive the cache-warm cron's 5-minute period, or every warm cycle
+ *  races an expired key and the board pays for a live fetch anyway. */
+export const DAILY_EVENTS_CACHE_TTL_SECONDS = 360;
+
+/**
+ * Day list of BMI reservations, SERVED FROM REDIS.
+ *
+ * The cache lives here, in the service, and not only in the routes — because
+ * "call the daily-events service" is what every caller actually writes, and
+ * until 2026-08-11 only the two admin/kiosk ROUTES held a cache. The lobby TV
+ * welcome board called this function directly, believing (it said so in its
+ * own docstring) that it was riding the warm cache, and instead put ~24 live
+ * Office API calls a minute through `office-api22` all day — 6 per screen
+ * poll, every 15 seconds, roughly doubling our entire Office footprint.
+ *
+ * A cache reachable only through one of several front doors is not a cache,
+ * it is a trap. Anything that wants BMI truth for a day now gets the shared
+ * key whichever door it came in by. The ONE caller that must not read it is
+ * the warmer itself — it calls `listDailyEventsUncached` below, because a
+ * warmer that reads its own cache freezes the day's data forever.
+ *
+ * Ids in the result are already digit STRINGS (parseWithRawIds), so the JSON
+ * round-trip through Redis is lossless — the same round-trip the admin route
+ * has done in production since the board shipped. Never let a raw BMI id
+ * reach this cache as a `number`.
+ */
 export async function listDailyEvents(
+  locationId: number,
+  date: string,
+  includeAll?: boolean,
+): Promise<DailyEventsListResult> {
+  const cacheKey = dailyEventsCacheKey(locationId, date, includeAll);
+  const cached = await redis.get(cacheKey).catch(() => null);
+  if (typeof cached === "string" && cached) {
+    try {
+      const parsed = JSON.parse(cached) as { data?: DailyEventsListResult };
+      if (parsed?.data && Array.isArray(parsed.data.reservations)) return parsed.data;
+    } catch {
+      /* corrupt entry — fall through to a live fetch and overwrite it */
+    }
+  }
+
+  const data = await listDailyEventsUncached(locationId, date, includeAll);
+  redis
+    .setex(cacheKey, DAILY_EVENTS_CACHE_TTL_SECONDS, JSON.stringify({ success: true, data }))
+    .catch(() => {
+      /* Redis outage is non-fatal — we just paid for a live fetch, return it */
+    });
+  return data;
+}
+
+/**
+ * The live BMI read, no cache on either side. ONLY the cache-warm cron should
+ * call this: it is the thing that puts truth INTO the cache, so reading the
+ * cache first would make it re-warm its own stale copy in perpetuity.
+ */
+export async function listDailyEventsUncached(
   locationId: number,
   date: string,
   includeAll?: boolean,

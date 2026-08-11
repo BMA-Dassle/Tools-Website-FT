@@ -3,7 +3,11 @@ import { verifyCron } from "@/lib/cron-auth";
 import redis from "@/lib/redis";
 import { LOCATIONS } from "~/features/daily-events/constants";
 import { todayET } from "~/features/daily-events/format";
-import { listDailyEvents } from "~/features/daily-events/service";
+import {
+  dailyEventsCacheKey,
+  listDailyEventsUncached,
+  DAILY_EVENTS_CACHE_TTL_SECONDS,
+} from "~/features/daily-events/service";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -21,7 +25,9 @@ export const maxDuration = 120;
  * non-fatal — a missed cell just falls back to a live fetch on the board.
  */
 
-const TTL_SECONDS = 360;
+// TTL is owned by the daily-events service — the key, the body shape and the
+// lifetime are one contract shared with the board, the kiosk rail and the TV.
+const TTL_SECONDS = DAILY_EVENTS_CACHE_TTL_SECONDS;
 const CONCURRENCY = 6;
 
 function shiftDate(dateStr: string, days: number): string {
@@ -50,9 +56,12 @@ export async function GET(req: NextRequest) {
     await Promise.all(
       cells.slice(i, i + CONCURRENCY).map(async ({ locationId, date }) => {
         try {
-          const data = await listDailyEvents(locationId, date, false);
+          // UNCACHED on purpose — this cron is the writer. Calling the cached
+          // `listDailyEvents` would make it read its own key and re-warm a
+          // stale copy forever, and the board would never see a new booking.
+          const data = await listDailyEventsUncached(locationId, date, false);
           const body = JSON.stringify({ success: true, data });
-          await redis.setex(`de:res:${locationId}:${date}:0`, TTL_SECONDS, body);
+          await redis.setex(dailyEventsCacheKey(locationId, date), TTL_SECONDS, body);
           warmed++;
         } catch (err) {
           failed++;
