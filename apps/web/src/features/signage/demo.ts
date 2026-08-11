@@ -89,6 +89,17 @@ function demoVip(nowMs: number): VipEntry[] {
  */
 export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): TvFeed | null {
   if (!feed || mode === "off") return feed;
+
+  // A PREVIEW IS DETERMINISTIC: press the button, see that scene.
+  //
+  // Live events are cleared while one is running, because interrupts outrank
+  // the rotation — so a birthday fired in the last ninety seconds would keep
+  // the wall and the preview would appear to do nothing at all. That is
+  // correct precedence for a guest moment and useless behaviour for a staff
+  // tool, and it is exactly what "preview VIP is not working" looks like from
+  // the floor. Previews are short-lived and staff-initiated, so nothing real is
+  // lost — the rail refills from Redis the moment the preview expires.
+  feed = { ...feed, kioskEvents: [] };
   if (mode === "event") return { ...feed, events: demoEvents(nowMs) };
   if (mode === "race") {
     // A VIP is on the heat too, so the in-field banner can be reviewed in the

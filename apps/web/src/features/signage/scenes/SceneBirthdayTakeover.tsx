@@ -20,6 +20,11 @@
  * reboots mid-celebration rejoins on the correct beat.
  *
  * Unpaired screens simply run the same thing without the hand-off.
+ *
+ * NO FRAME. An earlier version drew gradient bars along the top and bottom;
+ * with the relay edge down one side they read as a box around the name and
+ * looked stuck on (owner 2026-08-11). The name now sits on the glow alone, and
+ * the only edge is the soft one that carries the hand-off.
  */
 import { IconCake, IconConfetti } from "@tabler/icons-react";
 import { TV_W } from "../constants";
@@ -132,9 +137,6 @@ export function SceneBirthdayTakeover({ decision, config, nowMs }: SceneProps) {
       {/* Edge light on the side facing the other board — the visible end of the
           hand-off, so the pulse reads as crossing the gap. */}
       {count > 1 && <RelayEdge lit={lit} side={position === 0 ? "right" : "left"} />}
-
-      <Ribbon top />
-      <Ribbon />
     </div>
   );
 }
@@ -148,27 +150,10 @@ function RelayEdge({ lit, side }: { lit: boolean; side: "left" | "right" }) {
         top: 0,
         bottom: 0,
         [side]: 0,
-        width: 120,
-        background: `linear-gradient(to ${side === "right" ? "right" : "left"}, transparent, ${withAlpha(BIRTHDAY_GOLD, 0.75)})`,
+        width: 260,
+        background: `linear-gradient(to ${side === "right" ? "right" : "left"}, transparent, ${withAlpha(BIRTHDAY_GOLD, 0.4)})`,
         opacity: lit ? 1 : 0,
         transition: `opacity ${RELAY_MS / 2}ms ease-in-out`,
-      }}
-    />
-  );
-}
-
-function Ribbon({ top }: { top?: boolean }) {
-  return (
-    <div
-      aria-hidden
-      style={{
-        position: "absolute",
-        left: 0,
-        right: 0,
-        [top ? "top" : "bottom"]: 0,
-        height: 14,
-        background: `linear-gradient(90deg, ${BIRTHDAY_PINK}, ${BIRTHDAY_GOLD}, ${BIRTHDAY_PINK})`,
-        boxShadow: `0 0 40px ${withAlpha(BIRTHDAY_PINK, 0.8)}`,
       }}
     />
   );
