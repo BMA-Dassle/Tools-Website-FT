@@ -355,6 +355,25 @@
   }
 }
 
+/* ── scan flash ───────────────────────────────────────────────────────── */
+/* One pulse when somebody checks in. Finite and `both`, on an element that is
+   keyed to the scan id so it plays exactly once per person. */
+
+@keyframes tv-scan-flash {
+  0% {
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.tv-scan-flash {
+  animation: tv-scan-flash 1100ms ease-out both;
+}
+
 /* ── breathing emphasis ───────────────────────────────────────────────── */
 /* Opacity on a pre-painted glow layer — never an animated box-shadow. */
 

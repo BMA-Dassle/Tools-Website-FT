@@ -135,7 +135,9 @@ export function demoCurrentRace(nowMs: number, trackName: string) {
     heatNumber: 59,
     // The e-ticket time is the check-in CUT-OFF, so put it a few minutes out.
     scheduledStart: new Date(nowMs + 6 * 60_000).toISOString(),
-    calledAt: new Date(nowMs - 60_000).toISOString(),
+    // Called two minutes ago, so a default 8-minute window shows ~6:00 left
+    // and can be watched ticking rather than sitting at a round number.
+    calledAt: new Date(nowMs - 2 * 60_000).toISOString(),
     sessionId: 59,
   };
 }

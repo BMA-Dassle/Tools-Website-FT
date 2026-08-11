@@ -23,6 +23,7 @@ import "server-only";
 import { listQuotesByEventDates, type GroupFunctionQuote } from "@/lib/group-function-db";
 import { listDailyEvents } from "~/features/daily-events/service";
 import type { Reservation } from "~/features/daily-events/types";
+import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
 import { VENUE_INFO, type SignageVenue } from "../constants";
 import type { WelcomeEntry } from "../types";
 
@@ -193,12 +194,14 @@ function numOrNull(v: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/**
+ * TIME RULE (lesson 51a47370). Two shapes arrive here and only one helper is
+ * safe for both: BMI day-planner starts are NAIVE ET wall-clock (no zone), while
+ * Neon's event_date is a Z-stamped TIMESTAMPTZ. `new Date(x)` + a
+ * timeZone re-convert double-shifts the first and is the four-hour error that
+ * put "7:00 AM" on a wall for an 11:00 AM opening. toEtWallClock normalizes,
+ * fmtTime12 renders the wall-clock as written.
+ */
 function fmtTime(iso: string): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "";
-  return new Date(t).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "America/New_York",
-  });
+  return fmtTime12(toEtWallClock(iso));
 }

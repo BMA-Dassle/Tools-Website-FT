@@ -151,6 +151,9 @@ export interface ScreenConfig {
    *  advert that quotes a time nobody can honour is worse than one that does
    *  not. */
   showNextAvailable?: boolean;
+  /** How many minutes a racer has to check in, counted from the moment the
+   *  heat was first called. Drives the countdown on the track boards. */
+  checkinWindowMins?: number;
   /** Minutes before an event's first leg that it appears on the welcome board. */
   welcomeLeadMins?: number;
   /** Minutes after the first leg starts that it drops off the welcome board. */

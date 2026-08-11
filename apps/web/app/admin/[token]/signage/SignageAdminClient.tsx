@@ -256,6 +256,7 @@ function ScreenRow({
   busy: boolean;
 }) {
   const [showSetup, setShowSetup] = useState(false);
+  const [showTests, setShowTests] = useState(false);
   const online = lastSeen ? nowMs - Date.parse(lastSeen) < 60_000 : false;
   const scopedTrack = screen.config.scope?.resourceIds?.[0];
   const trackName =
@@ -332,71 +333,8 @@ function ScreenRow({
         <button type="button" onClick={() => setShowSetup((v) => !v)} style={btn}>
           {showSetup ? "Hide setup" : "Setup steps"}
         </button>
-        <button type="button" onClick={onTest} style={btn} disabled={busy}>
-          Fire test celebration
-        </button>
-        <button
-          type="button"
-          onClick={() => onSimulateScan(trackName, {})}
-          style={btn}
-          disabled={busy}
-          title="Publishes a racer-scanned event on the real rail"
-        >
-          Simulate scan
-        </button>
-        <button
-          type="button"
-          onClick={() => onSimulateScan(trackName, { birthday: true })}
-          style={{ ...btn, borderColor: "#ec4899", color: "#ec4899" }}
-          disabled={busy}
-          title="Fires the full birthday takeover on BOTH karting boards"
-        >
-          Simulate birthday
-        </button>
-        <button
-          type="button"
-          onClick={() => onSimulate("simulate-wrong-race", { track: trackName })}
-          style={{ ...btn, borderColor: "#f0b341", color: "#f0b341" }}
-          disabled={busy}
-          title="Somebody scanned for a heat that is not the one checking in"
-        >
-          Simulate wrong race
-        </button>
-        <button
-          type="button"
-          onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "race" })}
-          style={btn}
-          disabled={busy}
-          title="Show a live-looking session ON THIS SCREEN for 90 seconds"
-        >
-          Preview session
-        </button>
-        <button
-          type="button"
-          onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "vip" })}
-          style={{ ...btn, borderColor: "#d4af37", color: "#d4af37" }}
-          disabled={busy}
-          title="Show the VIP takeover on this screen"
-        >
-          Preview VIP
-        </button>
-        <button
-          type="button"
-          onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "event" })}
-          style={btn}
-          disabled={busy}
-          title="Show the party welcome board on this screen"
-        >
-          Preview welcome
-        </button>
-        <button
-          type="button"
-          onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "off" })}
-          style={btn}
-          disabled={busy}
-          title="Return this screen to normal now"
-        >
-          End preview
+        <button type="button" onClick={() => setShowTests((v) => !v)} style={btn} disabled={busy}>
+          {showTests ? "Hide testing" : "Testing"}
         </button>
         <button type="button" onClick={onEdit} style={btn} disabled={busy}>
           Edit
@@ -405,6 +343,94 @@ function ScreenRow({
           Remove
         </button>
       </div>
+
+      {showTests && (
+        <div
+          style={{
+            flexBasis: "100%",
+            marginTop: 4,
+            padding: 16,
+            borderRadius: 8,
+            background: "rgba(0,0,0,0.25)",
+            border: `1px solid ${PORTAL_DARK.border}`,
+          }}
+        >
+          <p style={{ margin: "0 0 4px", fontSize: 13, fontWeight: 600 }}>Testing</p>
+          <p style={{ ...hint, margin: "0 0 12px" }}>
+            Simulations publish to the same rail a real guest does, so what you see here is what
+            will happen for real. Previews land on the screen itself and clear themselves after 90
+            seconds.
+          </p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" onClick={onTest} style={btn} disabled={busy}>
+              Fire test celebration
+            </button>
+            <button
+              type="button"
+              onClick={() => onSimulateScan(trackName, {})}
+              style={btn}
+              disabled={busy}
+              title="Publishes a racer-scanned event on the real rail"
+            >
+              Simulate scan
+            </button>
+            <button
+              type="button"
+              onClick={() => onSimulateScan(trackName, { birthday: true })}
+              style={{ ...btn, borderColor: "#ec4899", color: "#ec4899" }}
+              disabled={busy}
+              title="Fires the full birthday takeover on BOTH karting boards"
+            >
+              Simulate birthday
+            </button>
+            <button
+              type="button"
+              onClick={() => onSimulate("simulate-wrong-race", { track: trackName })}
+              style={{ ...btn, borderColor: "#f0b341", color: "#f0b341" }}
+              disabled={busy}
+              title="Somebody scanned for a heat that is not the one checking in"
+            >
+              Simulate wrong race
+            </button>
+            <button
+              type="button"
+              onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "race" })}
+              style={btn}
+              disabled={busy}
+              title="Show a live-looking session ON THIS SCREEN for 90 seconds"
+            >
+              Preview session
+            </button>
+            <button
+              type="button"
+              onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "vip" })}
+              style={{ ...btn, borderColor: "#d4af37", color: "#d4af37" }}
+              disabled={busy}
+              title="Show the VIP takeover on this screen"
+            >
+              Preview VIP
+            </button>
+            <button
+              type="button"
+              onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "event" })}
+              style={btn}
+              disabled={busy}
+              title="Show the party welcome board on this screen"
+            >
+              Preview welcome
+            </button>
+            <button
+              type="button"
+              onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "off" })}
+              style={btn}
+              disabled={busy}
+              title="Return this screen to normal now"
+            >
+              End preview
+            </button>
+          </div>
+        </div>
+      )}
 
       {showSetup && <SetupSteps screenId={screen.screenId} />}
     </div>
@@ -464,6 +490,7 @@ interface Draft {
   celebrationEnabled: boolean;
   crownEnabled: boolean;
   showNextAvailable: boolean;
+  checkinWindowMins: number;
   trackResourceId: string;
   pairGroupId: string;
   pairPosition: number;
@@ -484,6 +511,7 @@ function newDraft(): Draft {
     celebrationEnabled: true,
     crownEnabled: true,
     showNextAvailable: false,
+    checkinWindowMins: 8,
     trackResourceId: "",
     pairGroupId: "",
     pairPosition: 0,
@@ -507,6 +535,7 @@ function draftFromScreen(s: SignageScreen): Draft {
     celebrationEnabled: c.interrupts?.celebration?.enabled !== false,
     crownEnabled: c.interrupts?.["billboard-crown"]?.enabled === true,
     showNextAvailable: c.showNextAvailable === true,
+    checkinWindowMins: c.checkinWindowMins ?? 8,
     trackResourceId: c.scope?.resourceIds?.[0] ?? "",
     pairGroupId: c.pairing?.groupId ?? "",
     pairPosition: c.pairing?.position ?? 0,
@@ -532,6 +561,7 @@ function draftToConfig(d: Draft): ScreenConfig {
       "billboard-crown": { enabled: d.crownEnabled },
     },
     showNextAvailable: d.showNextAvailable,
+    checkinWindowMins: d.checkinWindowMins,
     scope: d.trackResourceId ? { resourceIds: [d.trackResourceId] } : {},
     ...(d.pairGroupId
       ? { pairing: { groupId: d.pairGroupId, position: d.pairPosition, count: d.pairCount } }
@@ -697,6 +727,28 @@ function ScreenForm({
           hint="Only for a screen physically above a bank of kiosks — it performs as the top of their billboard."
         />
       </fieldset>
+
+      {draft.showRaceCheckin && (
+        <Field label="Check-in countdown">
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 14 }}>Racers get</span>
+            <input
+              type="number"
+              min={1}
+              max={60}
+              value={draft.checkinWindowMins}
+              onChange={(e) => set("checkinWindowMins", Number(e.target.value))}
+              style={{ ...input, width: 90 }}
+            />
+            <span style={{ fontSize: 14 }}>minutes from when the heat is called</span>
+          </div>
+          <p style={hint}>
+            The board counts down from the moment the heat is first called. When it runs out it says
+            &ldquo;Check in now &mdash; see the desk&rdquo; rather than showing a zero, because
+            staff will still check somebody in a minute late.
+          </p>
+        </Field>
+      )}
 
       <Field label="Only react to one track (optional)">
         <select

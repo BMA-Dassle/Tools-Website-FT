@@ -19,6 +19,7 @@ import "server-only";
 import redis from "@/lib/redis";
 import { pausedProductIds } from "~/features/maintenance";
 import { businessDayYmdET } from "@/lib/race-business-day";
+import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
 import { loadSignageScreen } from "../data/signage-screens-db";
 import { parseScreenKey, VENUE_INFO, type SignageVenue } from "../constants";
 import {
@@ -198,13 +199,15 @@ async function buildNextAvailable(venue: SignageVenue): Promise<Record<string, s
       if (!entry?.start) continue;
       // A locked tile never gets a time — see the note above.
       if (parsed.available?.[key] === false) continue;
-      const t = Date.parse(entry.start);
-      if (!Number.isFinite(t)) continue;
-      const time = new Date(t).toLocaleTimeString("en-US", {
-        hour: "numeric",
-        minute: "2-digit",
-        timeZone: "America/New_York",
-      });
+      // TIME RULE (lesson 51a47370). These starts are NAIVE ET wall-clock
+      // ("2026-08-11T11:00:00", no zone). `new Date(...)` parses that as the
+      // SERVER's zone — UTC on Vercel — and converting the result to ET then
+      // shifts it back four hours, which is how an 11:00 AM opening rendered as
+      // "Next available 7:00 AM" on the wall. toEtWallClock + fmtTime12 render
+      // the wall-clock components as written, and also handle the Z-stamped
+      // case correctly, so this is right for either shape.
+      const time = fmtTime12(toEtWallClock(entry.start));
+      if (!time) continue;
       out[key] = entry.freeSpots ? `${entry.freeSpots} left · ${time}` : time;
     }
     return Object.keys(out).length > 0 ? out : null;

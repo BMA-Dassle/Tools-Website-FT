@@ -204,6 +204,8 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
             race={race}
             accent={accent}
             justCalled={justCalled}
+            nowMs={nowMs}
+            windowMins={config.checkinWindowMins}
             standby={!busy}
             checkedIn={feed?.raceCheckin?.checkedIn ?? null}
             total={feed?.raceCheckin?.total ?? null}
@@ -212,8 +214,14 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
           <Idle accent={accent} />
         )}
 
+        {/* A scan should be felt, not just listed. The newest one flashes the
+            whole screen once — keyed to the event id so it fires exactly once
+            per person and cannot re-trigger on a re-render. */}
+        {busy && !wrongRace && <ScanFlash key={scans[0].id} accent={accent} />}
         {wrongRace && <WrongRaceNotice event={wrongRace} />}
-        {busy && !wrongRace && <ScanRail scans={scans} accent={accent} raised={!!vip} />}
+        {busy && !wrongRace && (
+          <ScanRail scans={scans} accent={accent} raised={!!vip} nowMs={nowMs} />
+        )}
         {vip && <VipInfieldBanner names={vip.vipFirstNames} />}
       </div>
     </div>
@@ -233,6 +241,8 @@ function CheckingIn({
   race,
   accent,
   justCalled,
+  nowMs,
+  windowMins,
   standby,
   checkedIn,
   total,
@@ -240,6 +250,8 @@ function CheckingIn({
   race: NonNullable<ReturnType<typeof useTrackStatus>>["currentRaces"]["blue"];
   accent: string;
   justCalled: boolean;
+  nowMs: number;
+  windowMins: number;
   standby: boolean;
   checkedIn: number | null;
   total: number | null;
@@ -297,18 +309,15 @@ function CheckingIn({
         {race.raceType}
       </div>
 
-      {/* The time on the e-ticket is the DEADLINE, so it is stated as one. */}
-      <div style={{ marginTop: 18, display: "flex", alignItems: "baseline", gap: 20 }}>
-        <span className="tv-display" style={{ fontSize: 54, color: accent }}>
-          Check in by
-        </span>
-        <span
-          className="tv-display tv-num"
-          style={{ fontSize: 72, color: "#fff", textShadow: `0 0 40px ${withAlpha(accent, 0.5)}` }}
-        >
-          {fmtTime(race.scheduledStart)}
-        </span>
-      </div>
+      {/* A COUNTDOWN, not a clock time (owner 2026-08-11). Counted from the
+          moment the heat was first called — the instant the racer's phone
+          buzzed — because "6:42 left" moves people and "check in by 7:45" does
+          not. The window is per-screen config, defaulting to 8 minutes.
+
+          It never shows a negative number or a hard zero: staff will still
+          check somebody in at 8:01, so a board announcing they have missed it
+          would be both unkind and untrue. It becomes an instruction instead. */}
+      <Countdown calledAt={race.calledAt} nowMs={nowMs} windowMins={windowMins} accent={accent} />
 
       {/* Only while nobody is scanning — that is exactly when we are waiting on
           people to walk up, and the one moment this line is useful. */}
@@ -399,6 +408,79 @@ function findDelay(
   return { delayMinutes: hit.delayMinutes ?? 0, delayFormatted: hit.delayFormatted ?? "" };
 }
 
+/** mm:ss, never negative. */
+function fmtCountdown(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(total / 60);
+  const sec = total % 60;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+function Countdown({
+  calledAt,
+  nowMs,
+  windowMins,
+  accent,
+}: {
+  calledAt: string | null | undefined;
+  nowMs: number;
+  windowMins: number;
+  accent: string;
+}) {
+  const calledMs = calledAt ? Date.parse(calledAt) : NaN;
+  // No call time means no countdown — better to say nothing than to count down
+  // from a moment we are guessing at.
+  if (!Number.isFinite(calledMs)) return null;
+
+  const remaining = calledMs + windowMins * 60_000 - nowMs;
+  const expired = remaining <= 0;
+  // Amber inside the last minute: urgent without being a failure state.
+  const color = expired ? "#f0b341" : remaining < 60_000 ? "#f0b341" : "#fff";
+
+  return (
+    <div style={{ marginTop: 18, display: "flex", alignItems: "baseline", gap: 24 }}>
+      <span className="tv-display" style={{ fontSize: 54, color: accent }}>
+        {expired ? "Check in now" : "Check in within"}
+      </span>
+      {!expired && (
+        <span
+          className={`tv-display tv-num${remaining < 60_000 ? " tv-blink" : ""}`}
+          style={{ fontSize: 96, color, textShadow: `0 0 44px ${withAlpha(accent, 0.5)}` }}
+        >
+          {fmtCountdown(remaining)}
+        </span>
+      )}
+      {expired && (
+        <span style={{ fontSize: 42, color: "rgba(245,236,238,0.75)" }}>see the desk</span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One bright pulse across the whole screen when somebody checks in.
+ *
+ * Names appearing on a rail is information; a screen that visibly REACTS is
+ * acknowledgement — the racer knows the scan took, and the group watching sees
+ * their person land (owner 2026-08-11). Finite, unmounts itself, transform and
+ * opacity only.
+ */
+function ScanFlash({ accent }: { accent: string }) {
+  return (
+    <div
+      aria-hidden
+      className="tv-scan-flash"
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: `radial-gradient(70% 60% at 50% 80%, ${withAlpha(accent, 0.75)}, transparent 72%)`,
+        pointerEvents: "none",
+        zIndex: 4,
+      }}
+    />
+  );
+}
+
 /* ── the live rail ────────────────────────────────────────────────────── */
 
 /**
@@ -414,10 +496,12 @@ function ScanRail({
   scans,
   accent,
   raised,
+  nowMs,
 }: {
-  scans: { id: string; firstName?: string }[];
+  scans: { id: string; firstName?: string; atMs: number }[];
   accent: string;
   raised: boolean;
+  nowMs: number;
 }) {
   return (
     <div
@@ -439,26 +523,32 @@ function ScanRail({
       >
         Checked in
       </span>
-      {scans.map((s, i) => (
-        <span
-          key={s.id}
-          className="tv-display tv-rise"
-          style={{
-            fontSize: 46,
-            color: "#fff",
-            padding: "12px 26px",
-            borderRadius: 999,
-            border: `2px solid ${withAlpha(accent, 0.55)}`,
-            background: withAlpha(accent, 0.16),
-            // Newest first, and each one arrives a beat after the last so a
-            // burst of scans reads as a wave rather than a jump.
-            animationDelay: `${i * 90}ms`,
-            whiteSpace: "nowrap",
-          }}
-        >
-          {s.firstName || "Racer"}
-        </span>
-      ))}
+      {scans.map((s, i) => {
+        // The person who JUST scanned is the one looking at the screen, so for
+        // a few seconds their name is bigger and lit; the rest are context.
+        const fresh = i === 0 && nowMs - s.atMs < 6_000;
+        return (
+          <span
+            key={s.id}
+            className={`tv-display tv-rise${fresh ? " tv-breathe" : ""}`}
+            style={{
+              fontSize: fresh ? 64 : 46,
+              color: "#fff",
+              padding: fresh ? "14px 34px" : "12px 26px",
+              borderRadius: 999,
+              border: `2px solid ${withAlpha(accent, fresh ? 0.95 : 0.55)}`,
+              background: withAlpha(accent, fresh ? 0.38 : 0.16),
+              boxShadow: fresh ? `0 0 46px ${withAlpha(accent, 0.7)}` : "none",
+              // Newest first, and each one arrives a beat after the last so a
+              // burst of scans reads as a wave rather than a jump.
+              animationDelay: `${i * 90}ms`,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {s.firstName || "Racer"}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -557,15 +647,4 @@ function VipInfieldBanner({ names }: { names: string[] }) {
       </span>
     </div>
   );
-}
-
-function fmtTime(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "";
-  return new Date(t).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "America/New_York",
-  });
 }

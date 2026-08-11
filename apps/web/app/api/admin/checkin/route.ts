@@ -6,6 +6,7 @@ import { lookupMemberMatches } from "~/features/kiosk/license/lookup.server";
 import { getRacerPass } from "~/features/racing/data/racer-wallet-db";
 import { recordSignageEvent } from "~/features/signage/events.server";
 import { trackFromName, TRACK_RESOURCE_IDS } from "~/features/signage/track";
+import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
 import {
   getDepositOverview,
   addDeposit,
@@ -53,13 +54,9 @@ function formatHeatLabel(
   raceType: string | null,
   scheduledStart: string | null,
 ): string | undefined {
-  const time = scheduledStart
-    ? new Date(scheduledStart).toLocaleTimeString("en-US", {
-        hour: "numeric",
-        minute: "2-digit",
-        timeZone: "America/New_York",
-      })
-    : "";
+  // Naive ET wall-clock (lesson 51a47370) — never new Date() + a timeZone
+  // re-convert, which shifts it by the UTC offset.
+  const time = scheduledStart ? fmtTime12(toEtWallClock(scheduledStart)) : "";
   const parts = [track, raceType].filter(Boolean).join(" ");
   if (!parts && !time) return undefined;
   return time ? `${parts} at ${time}`.trim() : parts;

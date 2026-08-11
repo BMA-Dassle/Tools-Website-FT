@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { applyDemo, parseDemoMode } from "./demo";
+import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
 import { resolveScreenConfig } from "./defaults";
 import { resolveActiveScene } from "./director/schedule";
 import { sceneHasData } from "./scenes/registry";
@@ -105,5 +106,25 @@ describe("pushed previews", () => {
   it("off leaves the feed untouched", () => {
     const feed = baseFeed(now);
     expect(applyDemo(feed, "off", now)).toBe(feed);
+  });
+});
+
+describe("times on a wall (lesson 51a47370)", () => {
+  it("renders a NAIVE ET start as written — the 7:00 AM bug", () => {
+    // The availability cache stores "2026-08-11T11:00:00" with no zone. Parsing
+    // that with new Date() on a UTC server and then converting to ET shifted it
+    // back four hours, so an 11 AM opening advertised itself as "Next available
+    // 7:00 AM" on the lobby wall.
+    expect(fmtTime12(toEtWallClock("2026-08-11T11:00:00"))).toBe("11:00 AM");
+    expect(fmtTime12(toEtWallClock("2026-08-11T15:30:00"))).toBe("3:30 PM");
+  });
+
+  it("also handles a Z-stamped time, so one helper is safe for both shapes", () => {
+    // Neon TIMESTAMPTZ serializes with a Z; 15:00 UTC is 11:00 AM EDT.
+    expect(fmtTime12(toEtWallClock("2026-08-11T15:00:00.000Z"))).toBe("11:00 AM");
+  });
+
+  it("is empty rather than wrong when there is no time", () => {
+    expect(fmtTime12(toEtWallClock(""))).toBe("");
   });
 });
