@@ -67,11 +67,7 @@ function canonicalFor(slug: string): string {
   return `https://headpinz.com/deals/${slug}`;
 }
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<Params>;
-}): Promise<Metadata> {
+export async function generateMetadata({ params }: { params: Promise<Params> }): Promise<Metadata> {
   const { slug } = await params;
   const deal = getDeal(slug);
   if (!deal) return { title: "Not found" };
@@ -117,14 +113,22 @@ function productJsonLd(
   offer: DealOffer,
 ) {
   const url = canonicalFor(deal.slug);
-  // Offers need an end date, and a rolling year is the HONEST one here: a
-  // limited offer changes what the pack contains, never what it costs, so the
-  // PRICE has no expiry to declare. Putting the offer's deadline here instead
-  // would tell Google the price expires on a date it demonstrably will not —
-  // structured data has to survive the same scrutiny as the visible page. The
-  // bonus does show up in `additionalProperty` below, via the value lines.
-  const validUntil = new Date();
-  validUntil.setFullYear(validUntil.getFullYear() + 1);
+  // Offers need an end date, and the honest one depends on what is running.
+  // During a genuine sale the advertised price really does expire — on the
+  // sale's own deadline, so that is what Google is told. Outside a sale a
+  // rolling year is the honest default: a bonus-only offer changes what the
+  // pack contains, never what it costs, so the price has no earlier expiry to
+  // declare. Structured data has to survive the same scrutiny as the visible
+  // page in both directions.
+  const discounted = offer.unitPriceCents < offer.regularPriceCents;
+  const validUntil =
+    discounted && offer.endsAt
+      ? new Date(offer.endsAt)
+      : (() => {
+          const d = new Date();
+          d.setFullYear(d.getFullYear() + 1);
+          return d;
+        })();
 
   return {
     "@context": "https://schema.org",
@@ -146,7 +150,11 @@ function productJsonLd(
       priceValidUntil: validUntil.toISOString().slice(0, 10),
       availability: "https://schema.org/InStock",
       itemCondition: "https://schema.org/NewCondition",
-      seller: { "@type": "Organization", name: "HeadPinz", "@id": "https://headpinz.com/#organization" },
+      seller: {
+        "@type": "Organization",
+        name: "HeadPinz",
+        "@id": "https://headpinz.com/#organization",
+      },
       areaServed: deal.locations.map((l) => DEAL_LOCATION_INFO[l].shortLabel),
       // What a walk-in would pay for the same things, so the discount is
       // machine-readable and matches the on-page strikethrough.
@@ -303,6 +311,15 @@ export default async function DealPage({
                   {money(offer.unitPriceCents)}
                 </span>
                 <div className="pb-2">
+                  {/* The sale's before-number, only while a sale genuinely
+                      discounts it — both prices come from the same resolver the
+                      charge re-runs, so this can never claim a markdown the
+                      card would not get. */}
+                  {offer.unitPriceCents < offer.regularPriceCents && (
+                    <span className="block text-base font-semibold text-white/60 line-through">
+                      was {money(offer.regularPriceCents)}
+                    </span>
+                  )}
                   <span className="block text-sm text-white/50">plus tax</span>
                   <span className="block text-base text-white/45 line-through">
                     ${(value.compareAtCents / 100).toFixed(0)} value
@@ -545,15 +562,17 @@ export default async function DealPage({
 
       {/* ── Fine print ───────────────────────────────────────────────── */}
       <section className="mx-auto max-w-4xl px-4 py-14">
-        <h2 className="text-xs font-bold tracking-widest text-white/40 uppercase">The fine print</h2>
+        <h2 className="text-xs font-bold tracking-widest text-white/40 uppercase">
+          The fine print
+        </h2>
         <ul className="mt-4 space-y-2 text-sm text-white/50">
           <li>
             Valid for {deal.expiresMonths} months from purchase at the HeadPinz you select at
             checkout.
           </li>
           <li>
-            Each item on the voucher is single-use, and they&apos;re redeemed independently — use one
-            game card today and come back for the rest.
+            Each item on the voucher is single-use, and they&apos;re redeemed independently — use
+            one game card today and come back for the rest.
           </li>
           <li>
             {attraction?.shortName ?? "Sessions"} run as timed sessions and are subject to

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { COMP_TOKEN_DENOMINATIONS } from "~/features/game-cards/vouchers/grants";
 import { NATIVE_GRANT_DENOMINATIONS } from "~/features/game-cards/service/native-voucher";
-import { DEAL_CATALOG, getDeal, type DealCatalogEntry } from "../catalog";
+import { DEAL_CATALOG, FLASH_SALE_ENDS_AT, getDeal, type DealCatalogEntry } from "../catalog";
 import { dealNeedsSoldCount, dealOfferEndsAt, resolveDealOffer } from "./offer";
 import { NAPLES_OFFER_ENDS_AT } from "~/components/features/deals/naples-offer-window";
 
@@ -38,25 +38,38 @@ const fiftyTokens = (extra: Partial<{ endsAt: string; allocation: number }> = {}
 const noOfferDeal: DealCatalogEntry = { ...laser, limitedOffer: null };
 
 describe("the shipped catalog", () => {
-  it("runs NO limited offer — the 50-token bonus was dropped", () => {
-    // Owner 2026-08-03: "we're ditching the 50 token thing and all the urgency
-    // UI." The mechanism below stays (tested, and the single price authority),
-    // but nothing is configured to use it. This is the guard against a bonus
-    // being switched back on without anyone deciding to.
+  // Owner 2026-08-10: "lets run a flash sale for additional 25% off." This
+  // describe is the guard that an offer is never switched on OR off without
+  // someone deciding to — it pins exactly what is configured, so any edit to
+  // the catalog's `limitedOffer` fields has to come here and say so.
+  it("runs the 25%-off flash sale on both packs, ending Friday 8/14", () => {
     for (const deal of DEAL_CATALOG) {
-      expect(deal.limitedOffer).toBeNull();
+      expect(deal.limitedOffer).not.toBeNull();
+      expect(deal.limitedOffer!.endsAt).toBe(FLASH_SALE_ENDS_AT);
+      expect(deal.limitedOffer!.bonusItems).toEqual([]);
+      // Exactly 25% off, to the cent — both regular prices are divisible by 4.
+      expect(deal.limitedOffer!.salePriceCents).toBe(deal.priceCents * 0.75);
     }
   });
 
-  it("still resolves a stable price for every shipped deal", () => {
+  it("charges the sale price while it runs and the regular price after", () => {
     for (const deal of DEAL_CATALOG) {
-      const now = resolveDealOffer(deal, new Date("2026-08-04T12:00:00-04:00"), 0);
-      const later = resolveDealOffer(deal, new Date("2027-01-01T12:00:00-05:00"), 0);
-      expect(now.unitPriceCents).toBe(deal.priceCents);
-      expect(later.unitPriceCents).toBe(deal.priceCents);
-      expect(now.bonusItems).toEqual([]);
-      expect(now.isOfferLive).toBe(false);
+      const during = resolveDealOffer(deal, new Date("2026-08-10T12:00:00-04:00"), 0);
+      const after = resolveDealOffer(deal, new Date("2026-08-15T12:00:00-04:00"), 0);
+      expect(during.isOfferLive).toBe(true);
+      expect(during.unitPriceCents).toBe(deal.priceCents * 0.75);
+      expect(during.regularPriceCents).toBe(deal.priceCents);
+      expect(after.isOfferLive).toBe(false);
+      expect(after.unitPriceCents).toBe(deal.priceCents);
+      // No bonus rides this sale — nothing extra to mint.
+      expect(during.bonusItems).toEqual([]);
     }
+  });
+
+  it("keeps the flash sale and the Naples popup window on the same instant", () => {
+    // The popup is the ad; the catalog is the price. If these drift apart the
+    // ad either outlives the sale or dies before it — both are wrong.
+    expect(NAPLES_OFFER_ENDS_AT).toBe(FLASH_SALE_ENDS_AT);
   });
 });
 
@@ -66,7 +79,7 @@ describe("the Naples advertising window", () => {
     // make `new Date()` return Invalid Date, and every comparison against NaN is
     // false — the window would read as "never closed". Fail at the typo.
     expect(() => dealOfferEndsAt(NAPLES_OFFER_ENDS_AT)).not.toThrow();
-    expect(dealOfferEndsAt(NAPLES_OFFER_ENDS_AT)).toBe("2026-08-07T23:59:59-04:00");
+    expect(dealOfferEndsAt(NAPLES_OFFER_ENDS_AT)).toBe("2026-08-14T23:59:59-04:00");
   });
 
   it("closes at 11:59 PM Eastern on the advertised day", () => {
@@ -99,19 +112,71 @@ describe("no offer configured", () => {
   });
 });
 
-describe("the price never moves", () => {
-  it("charges the same before, during and after an offer", () => {
+describe("a bonus-only offer never moves the price", () => {
+  it("charges the same before, during and after the offer", () => {
     const deal = fiftyTokens({ allocation: 200 });
     const during = resolveDealOffer(deal, new Date("2026-09-01T12:00:00-04:00"), 5);
     const afterDate = resolveDealOffer(deal, new Date("2026-09-09T12:00:00-04:00"), 5);
     const afterSellout = resolveDealOffer(deal, new Date("2026-09-01T12:00:00-04:00"), 200);
     for (const o of [during, afterDate, afterSellout]) {
       expect(o.unitPriceCents).toBe(3400);
+      expect(o.regularPriceCents).toBe(3400);
     }
     // Only the contents differ.
     expect(during.bonusItems).toHaveLength(1);
     expect(afterDate.bonusItems).toHaveLength(0);
     expect(afterSellout.bonusItems).toHaveLength(0);
+  });
+});
+
+describe("a sale price is a genuine markdown or nothing", () => {
+  const onSale = (salePriceCents: number | null) =>
+    withOffer({
+      bonusItems: [],
+      label: "25% off flash sale",
+      salePriceCents,
+      endsAt: "2026-09-07T23:59:59",
+    });
+  const during = new Date("2026-09-01T12:00:00-04:00");
+  const after = new Date("2026-09-08T12:00:00-04:00");
+
+  it("charges the sale price while live and reverts the instant it ends", () => {
+    const live = resolveDealOffer(onSale(2550), during, 0);
+    expect(live.unitPriceCents).toBe(2550);
+    expect(live.regularPriceCents).toBe(3400);
+    const ended = resolveDealOffer(onSale(2550), after, 0);
+    expect(ended.unitPriceCents).toBe(3400);
+    expect(ended.regularPriceCents).toBe(3400);
+  });
+
+  it("reverts at the exact advertised second, like the bonus does", () => {
+    const endsAtMs = new Date("2026-09-07T23:59:59-04:00").getTime();
+    expect(resolveDealOffer(onSale(2550), new Date(endsAtMs - 1000), 0).unitPriceCents).toBe(2550);
+    expect(resolveDealOffer(onSale(2550), new Date(endsAtMs), 0).unitPriceCents).toBe(3400);
+  });
+
+  it("also ends on a sold-out allocation", () => {
+    const deal = withOffer({
+      bonusItems: [],
+      label: "25% off flash sale",
+      salePriceCents: 2550,
+      allocation: 200,
+    });
+    expect(resolveDealOffer(deal, during, 199).unitPriceCents).toBe(2550);
+    expect(resolveDealOffer(deal, during, 200).unitPriceCents).toBe(3400);
+  });
+
+  it("throws on a zero, negative, fractional or MARK-UP sale price", () => {
+    // This number lands on a Square order line — fail at the typo, never at
+    // the charge.
+    for (const bad of [0, -100, 25.5, 3400, 3900]) {
+      expect(() => resolveDealOffer(onSale(bad), during, 0)).toThrow(/salePriceCents/);
+    }
+  });
+
+  it("reports regular == unit when nothing is discounted", () => {
+    const o = resolveDealOffer(noOfferDeal, during, 0);
+    expect(o.regularPriceCents).toBe(o.unitPriceCents);
   });
 });
 

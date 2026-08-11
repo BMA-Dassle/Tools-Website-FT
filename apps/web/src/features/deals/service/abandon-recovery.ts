@@ -40,9 +40,7 @@ const UNSUB_MAILTO = "mailto:unsubscribe@headpinz.com?subject=Unsubscribe";
 /** CAN-SPAM requires a real postal address in every commercial message. */
 const POSTAL_ADDRESS = "HeadPinz Family Entertainment, 14513 Global Pkwy, Fort Myers, FL 33913";
 
-const ASM_GROUP = process.env.DEALS_ASM_GROUP_ID
-  ? Number(process.env.DEALS_ASM_GROUP_ID)
-  : null;
+const ASM_GROUP = process.env.DEALS_ASM_GROUP_ID ? Number(process.env.DEALS_ASM_GROUP_ID) : null;
 
 function siteOrigin(): string {
   return (process.env.NEXT_PUBLIC_SITE_URL || "https://headpinz.com").replace(/\/$/, "");
@@ -85,12 +83,26 @@ export function abandonReturnUrl(row: DealPurchaseRow): string {
  * to say about timing, so it says nothing — an invented "hurry!" is what makes
  * recovery mail read as spam.
  *
- * Never mentions a price rise, because there is not going to be one. The bonus
- * is what ends, and the line says so out loud rather than leaving a guest to
- * assume the cheaper reading.
+ * Says out loud exactly what ends. A bonus offer ends with the price unchanged,
+ * and the line says so rather than leaving a guest to assume the cheaper
+ * reading. A genuine sale price really does go back up, so THAT line states the
+ * real before-and-after numbers — never a vague "prices going up!".
  */
 export function abandonUrgencyLine(offer: DealOffer): string | null {
-  if (!offer.isOfferLive || !offer.bonusLabel) return null;
+  if (!offer.isOfferLive) return null;
+
+  if (offer.unitPriceCents < offer.regularPriceCents) {
+    const prices = `${money(offer.unitPriceCents)} instead of the regular ${money(offer.regularPriceCents)}`;
+    if (offer.endsAt) {
+      return `Right now it is ${prices}, through ${formatDealDeadline(offer.endsAt)}. After that it goes back to the regular price.`;
+    }
+    if (offer.remaining !== null && offer.remaining > 0) {
+      return `Right now it is ${prices}, on the last ${offer.remaining} packs.`;
+    }
+    return null;
+  }
+
+  if (!offer.bonusLabel || offer.bonusItems.length === 0) return null;
   const same = "The price is the same afterwards — the bonus is what goes.";
   if (offer.endsAt) {
     return `Right now it also includes ${offer.bonusLabel}, through ${formatDealDeadline(
@@ -122,7 +134,9 @@ export function renderAbandonEmail(args: {
   const unsub = unsubUrl();
 
   const subject = urgency
-    ? `Your ${deal.name} is still here — with a bonus that ends soon`
+    ? offer.unitPriceCents < offer.regularPriceCents
+      ? `Your ${deal.name} is still here — and still ${money(offer.unitPriceCents)} for now`
+      : `Your ${deal.name} is still here — with a bonus that ends soon`
     : `You left your ${deal.name} behind`;
 
   // The basket, not just the product. "You had 3 in your basket" is the detail

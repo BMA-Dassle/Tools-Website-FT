@@ -88,7 +88,12 @@ export default async function DealsHubPage() {
       <section className="mx-auto max-w-6xl px-4 pb-24">
         <div className="grid gap-6 md:grid-cols-2">
           {priced.map(({ deal, offer }) => {
-            const value = dealValue(deal, deal.locations[0], offer.unitPriceCents, offer.bonusItems);
+            const value = dealValue(
+              deal,
+              deal.locations[0],
+              offer.unitPriceCents,
+              offer.bonusItems,
+            );
             const accent = ATTRACTIONS[deal.scheduleSlug]?.color ?? "#fd5b56";
             return (
               <Link
@@ -120,6 +125,12 @@ export default async function DealsHubPage() {
                       {money(offer.unitPriceCents)}
                     </span>
                     <span className="pb-1 text-sm text-white/45">
+                      {offer.unitPriceCents < offer.regularPriceCents && (
+                        <>
+                          <span className="line-through">was {money(offer.regularPriceCents)}</span>
+                          {" · "}
+                        </>
+                      )}
                       + tax ·{" "}
                       <span className="line-through">
                         ${(value.compareAtCents / 100).toFixed(0)} value

@@ -301,8 +301,7 @@ export default function DealBuyPanel({
     () => !isGift || (recipientName.trim().length > 0 && /.+@.+\..+/.test(recipientEmail)),
     [isGift, recipientName, recipientEmail],
   );
-  const readyToPay =
-    !!location && !!quote && contactComplete && giftComplete && agreed && !quoting;
+  const readyToPay = !!location && !!quote && contactComplete && giftComplete && agreed && !quoting;
 
   const handleTokenize = useCallback(
     async ({
@@ -447,8 +446,8 @@ export default function DealBuyPanel({
               <>
                 We&apos;ll email {who} on{" "}
                 <strong className="text-white">{formatGiftDate(result.giftSendAt!)}</strong>
-                {recipientPhone.trim() ? " and text them too" : ""}. Nothing for you to do — we
-                send it automatically.
+                {recipientPhone.trim() ? " and text them too" : ""}. Nothing for you to do — we send
+                it automatically.
               </>
             ) : (
               <>
@@ -494,6 +493,11 @@ export default function DealBuyPanel({
       <div>
         <h2 className="font-display text-2xl text-white">Get this deal</h2>
         <p className="mt-1 text-sm text-white/55">
+          {offer.unitPriceCents < offer.regularPriceCents && (
+            <span className="mr-1.5 text-white/35 line-through">
+              {money(offer.regularPriceCents)}
+            </span>
+          )}
           {money(offer.unitPriceCents)} per pack plus tax · limit {maxPerBuyer} per person
         </p>
       </div>
@@ -777,9 +781,9 @@ export default function DealBuyPanel({
               also the typographically correct character — a quantity should never
               be split from its unit across a line break. */}
           I understand this is a prepaid voucher: it&apos;s good for {expiresMonths}&nbsp;months
-          from today at the HeadPinz I picked, each item on it can be used once, and it
-          isn&apos;t refundable once redeemed. Laser tag and gel blaster run as timed sessions
-          subject to availability.
+          from today at the HeadPinz I picked, each item on it can be used once, and it isn&apos;t
+          refundable once redeemed. Laser tag and gel blaster run as timed sessions subject to
+          availability.
         </span>
       </label>
 

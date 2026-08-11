@@ -79,19 +79,23 @@ export interface DealFaq {
 }
 
 /**
- * A time- and/or inventory-limited BONUS on top of a pack. The price never moves.
+ * A time- and/or inventory-limited offer on a pack: bonus items, a genuine sale
+ * price, or both.
  *
- * WHY A BONUS AND NOT A DISCOUNT (owner 2026-08-03: "I don't plan on raising the
- * price"). An advertised deadline has to be attached to something that actually
- * changes, or it is a lie — and a countdown to a price step-up the business will
- * not perform is the exact fake-urgency pattern this page exists to beat rather
- * than copy. Making the BONUS the thing that expires keeps the deadline
- * completely true while leaving the price alone: $34 buys 2 laser tag + 200
- * tokens + 50 bonus tokens today, and $34 buys 2 laser tag + 200 tokens after
- * the date. Strictly less for the same money, which is what makes "limited time"
- * an honest claim about the DEAL rather than a false one about the price. It is
- * also cheaper than a discount — bonus play costs its marginal cost, a price cut
- * costs cash.
+ * THE HONESTY RULE, which outlives every individual offer: an advertised
+ * deadline has to be attached to something that actually changes, or it is a
+ * lie. A countdown to a price step-up the business will not perform is the
+ * exact fake-urgency pattern this page exists to beat rather than copy (owner
+ * 2026-08-03: "I don't plan on raising the price" → the bonus became the thing
+ * that expires). Two shapes satisfy the rule:
+ *
+ *   - `bonusItems` — same price, MORE in the box while it runs. Cheaper than a
+ *     discount: bonus play costs its marginal cost, a price cut costs cash.
+ *   - `salePriceCents` — a REAL markdown (owner 2026-08-10: "flash sale for
+ *     additional 25% off"). Honest because the discount genuinely ends: the
+ *     price returns to `priceCents`, which is permanently on offer to anyone
+ *     who finds the page later. What stays banned is pretending the REGULAR
+ *     price is about to rise.
  *
  * THE LIMIT IS THE POINT. An offer must carry a deadline, an allocation, or both
  * — the type enforces at least one — because a bonus with neither is simply part
@@ -111,8 +115,17 @@ interface DealLimitedOfferBase {
    * and an unrecognised value credits nothing at all, with no error.
    */
   bonusItems: VoucherItem[];
-  /** Short guest-facing name for the bonus, e.g. "50 bonus tokens per pack". */
+  /** Short guest-facing name for the offer, e.g. "50 bonus tokens per pack"
+   *  or "25% off flash sale". */
   label: string;
+  /**
+   * Sale price per pack while the offer runs, in cents — a genuine markdown.
+   * Must be a positive integer BELOW `priceCents`; `resolveDealOffer` throws
+   * otherwise, because this number goes straight onto the Square order line.
+   * Omit (or null) for a bonus-only offer. When the offer ends, every surface
+   * — display AND charge — reverts to `priceCents` through the same resolver.
+   */
+  salePriceCents?: number | null;
 }
 export type DealLimitedOffer =
   | (DealLimitedOfferBase & { endsAt: string; allocation?: number | null })
@@ -125,8 +138,9 @@ export interface DealCatalogEntry {
   name: string;
   /** One-line hook under the H1. */
   tagline: string;
-  /** PRE-TAX price for ONE pack, in cents. The charge authority, and stable —
-   *  a limited offer changes what the pack CONTAINS, never what it costs. */
+  /** PRE-TAX REGULAR price for ONE pack, in cents. The charge authority when no
+   *  offer is discounting it; a running `limitedOffer.salePriceCents` charges
+   *  less THROUGH the resolver, never by editing this number. */
   priceCents: number;
   /**
    * A limited-time bonus on top of the pack, or null for "just the pack".
@@ -189,6 +203,20 @@ export function gameZoneItemDollars(item: VoucherItem): number {
   return (item.tokens + item.bonusTokens) / 10;
 }
 
+/**
+ * FLASH SALE (owner 2026-08-10): 25% off both packs through Friday night ET.
+ *
+ * A genuine markdown — $34 → $25.50 and $45 → $33.75, both exact quarters, and
+ * the prices really return when it ends. Runs at BOTH venues (the offer
+ * mechanism has no per-location support); only the Naples popup advertising it
+ * is venue-scoped. The popup window (`naples-offer-window.ts`) is set to the
+ * same instant — move or end BOTH dates together.
+ *
+ * TO END EARLY: set both deals' `limitedOffer` back to null and pull the popup
+ * window in. TO EXTEND: move both dates out.
+ */
+export const FLASH_SALE_ENDS_AT = "2026-08-14T23:59:59";
+
 const SHARED_FAQS: DealFaq[] = [
   {
     q: "How do I get my game cards?",
@@ -222,7 +250,12 @@ export const DEAL_CATALOG: readonly DealCatalogEntry[] = [
     name: "Laser Tag + Game Card Pack",
     tagline: "Two rounds of multi-level laser tag and $20 in Game Zone Tokens.",
     priceCents: 3400,
-    limitedOffer: null,
+    limitedOffer: {
+      bonusItems: [],
+      label: "25% off flash sale",
+      salePriceCents: 2550, // 25% off $34, exact
+      endsAt: FLASH_SALE_ENDS_AT,
+    },
     items: [admission("laser-tag"), admission("laser-tag"), gameZone(100), gameZone(100)],
     scheduleSlug: "laser-tag",
     locations: DEAL_LOCATIONS,
@@ -257,7 +290,12 @@ export const DEAL_CATALOG: readonly DealCatalogEntry[] = [
     name: "Gel Blaster + Game Card Pack",
     tagline: "Two gel blaster battles and $30 in Game Zone Tokens.",
     priceCents: 4500,
-    limitedOffer: null,
+    limitedOffer: {
+      bonusItems: [],
+      label: "25% off flash sale",
+      salePriceCents: 3375, // 25% off $45, exact
+      endsAt: FLASH_SALE_ENDS_AT,
+    },
     items: [admission("gel-blaster"), admission("gel-blaster"), gameZone(150), gameZone(150)],
     scheduleSlug: "gel-blaster",
     locations: DEAL_LOCATIONS,

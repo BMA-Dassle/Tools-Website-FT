@@ -76,10 +76,13 @@ export function money(cents: number): string {
 /**
  * The fine-print sentence for a running limited offer.
  *
- * Says exactly what ends and exactly when, and — the part that matters — that
- * the PRICE is not what changes. A guest who reads "limited time" beside a
- * countdown will reasonably assume the price is about to go up; leaving that
- * assumption standing when it is false is the same deception as printing it.
+ * Says exactly what ends and exactly when. For a bonus offer, the part that
+ * matters is that the PRICE is not what changes — a guest who reads "limited
+ * time" beside a countdown will reasonably assume the price is about to go up,
+ * and leaving that assumption standing when it is false is the same deception
+ * as printing it. For a genuine sale price, the honest statement is the
+ * opposite one: this IS a discount, and after the date the pack returns to its
+ * regular price — which it really does, through the same resolver that charges.
  *
  * Built rather than templated because the shapes are genuinely different
  * sentences: "whichever comes first" is only true when there ARE two limits, and
@@ -89,11 +92,13 @@ export function money(cents: number): string {
 export function offerFinePrint(offer: {
   isOfferLive: boolean;
   unitPriceCents: number;
+  regularPriceCents: number;
+  bonusItems: readonly unknown[];
   bonusLabel: string | null;
   endsAt: string | null;
   allocation: number | null;
 }): string | null {
-  if (!offer.isOfferLive || !offer.bonusLabel) return null;
+  if (!offer.isOfferLive) return null;
 
   const limits: string[] = [];
   if (offer.endsAt) limits.push(`through ${formatDealDeadline(offer.endsAt)}`);
@@ -101,6 +106,19 @@ export function offerFinePrint(offer: {
   if (limits.length === 0) return null;
 
   const clause = limits.length === 2 ? `${limits.join(" or ")}, whichever comes first` : limits[0];
+
+  if (offer.unitPriceCents < offer.regularPriceCents) {
+    const bonusTail =
+      offer.bonusItems.length > 0 && offer.bonusLabel
+        ? `, and the ${offer.bonusLabel} ends with it`
+        : "";
+    return (
+      `${money(offer.unitPriceCents)} is a limited-time sale price, available ${clause}. ` +
+      `After that the pack returns to its regular ${money(offer.regularPriceCents)}${bonusTail}.`
+    );
+  }
+
+  if (offer.bonusItems.length === 0 || !offer.bonusLabel) return null;
   return (
     `${offer.bonusLabel} is a limited-time extra, included ${clause}. ` +
     `The pack price stays ${money(offer.unitPriceCents)} — after the offer ends, ` +

@@ -2,11 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getDeal, type DealCatalogEntry } from "../catalog";
 import type { DealPurchaseRow } from "../data/deal-purchases-db";
 import { resolveDealOffer } from "./offer";
-import {
-  abandonReturnUrl,
-  abandonUrgencyLine,
-  renderAbandonEmail,
-} from "./abandon-recovery";
+import { abandonReturnUrl, abandonUrgencyLine, renderAbandonEmail } from "./abandon-recovery";
 
 /**
  * The send path itself is exercised by the cron's dryRun and by rendering the
@@ -105,11 +101,7 @@ describe("abandonUrgencyLine", () => {
   });
 
   it("names the real bonus and the real deadline, and denies a price rise", () => {
-    const offer = resolveDealOffer(
-      withOffer(),
-      new Date("2026-09-01T12:00:00-04:00"),
-      0,
-    );
+    const offer = resolveDealOffer(withOffer(), new Date("2026-09-01T12:00:00-04:00"), 0);
     expect(abandonUrgencyLine(offer)).toBe(
       "Right now it also includes 50 bonus tokens per pack, through Monday, September 7. " +
         "The price is the same afterwards — the bonus is what goes.",
@@ -119,7 +111,11 @@ describe("abandonUrgencyLine", () => {
   it("falls back to packs remaining when the offer is allocation-only", () => {
     const allocationOnly = { ...withOffer({ allocation: 200 }) };
     // Strip the deadline so the allocation branch is the one under test.
-    allocationOnly.limitedOffer = { bonusItems: [BONUS_50], label: "50 bonus tokens per pack", allocation: 200 };
+    allocationOnly.limitedOffer = {
+      bonusItems: [BONUS_50],
+      label: "50 bonus tokens per pack",
+      allocation: 200,
+    };
     const offer = resolveDealOffer(allocationOnly, new Date("2026-09-01T12:00:00-04:00"), 188);
     expect(abandonUrgencyLine(offer)).toBe(
       "Right now it also includes 50 bonus tokens per pack, on the last 12 packs. " +
@@ -128,12 +124,29 @@ describe("abandonUrgencyLine", () => {
   });
 
   it("says nothing once the offer is over", () => {
-    const offer = resolveDealOffer(
-      withOffer(),
-      new Date("2026-09-08T12:00:00-04:00"),
-      0,
-    );
+    const offer = resolveDealOffer(withOffer(), new Date("2026-09-08T12:00:00-04:00"), 0);
     expect(abandonUrgencyLine(offer)).toBeNull();
+  });
+
+  it("states the real before-and-after numbers for a genuine sale price", () => {
+    const saleDeal: DealCatalogEntry = {
+      ...laser,
+      limitedOffer: {
+        bonusItems: [],
+        label: "25% off flash sale",
+        salePriceCents: 2550,
+        endsAt: "2026-09-07T23:59:59",
+      },
+    };
+    const offer = resolveDealOffer(saleDeal, new Date("2026-09-01T12:00:00-04:00"), 0);
+    expect(abandonUrgencyLine(offer)).toBe(
+      "Right now it is $25.50 instead of the regular $34, through Monday, September 7. " +
+        "After that it goes back to the regular price.",
+    );
+    // The subject names the price that is about to end, never a vague hurry.
+    expect(renderAbandonEmail({ row: row(), deal: saleDeal, offer }).subject).toBe(
+      "Your Laser Tag + Game Card Pack is still here — and still $25.50 for now",
+    );
   });
 });
 
@@ -164,11 +177,7 @@ describe("renderAbandonEmail", () => {
   });
 
   it("changes the subject line only when there is a real bonus to name", () => {
-    const running = resolveDealOffer(
-      withOffer(),
-      new Date("2026-09-01T12:00:00-04:00"),
-      0,
-    );
+    const running = resolveDealOffer(withOffer(), new Date("2026-09-01T12:00:00-04:00"), 0);
     expect(renderAbandonEmail({ row: row(), deal: withOffer(), offer: running }).subject).toMatch(
       /bonus that ends soon/,
     );
@@ -201,7 +210,7 @@ describe("renderAbandonEmail", () => {
 
   it("escapes a name that contains markup", () => {
     const { html } = renderAbandonEmail({
-      row: row({ buyerName: '<script>alert(1)</script> Reyes' }),
+      row: row({ buyerName: "<script>alert(1)</script> Reyes" }),
       deal: laser,
       offer: noOffer,
     });

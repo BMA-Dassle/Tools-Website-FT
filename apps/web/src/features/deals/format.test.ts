@@ -53,8 +53,19 @@ describe("offerFinePrint", () => {
   const live = {
     isOfferLive: true,
     unitPriceCents: 3400,
+    regularPriceCents: 3400,
+    bonusItems: [{ kind: "gamezone" }] as readonly unknown[],
     bonusLabel: "50 bonus tokens per pack",
     endsAt: "2026-08-06T23:59:59-04:00",
+    allocation: null as number | null,
+  };
+  const sale = {
+    isOfferLive: true,
+    unitPriceCents: 2550,
+    regularPriceCents: 3400,
+    bonusItems: [] as readonly unknown[],
+    bonusLabel: "25% off flash sale",
+    endsAt: "2026-08-14T23:59:59-04:00",
     allocation: null as number | null,
   };
 
@@ -77,7 +88,11 @@ describe("offerFinePrint", () => {
   });
 
   it("never states or implies a price increase", () => {
-    for (const variant of [live, { ...live, allocation: 200 }, { ...live, endsAt: null, allocation: 5 }]) {
+    for (const variant of [
+      live,
+      { ...live, allocation: 200 },
+      { ...live, endsAt: null, allocation: 5 },
+    ]) {
       const text = offerFinePrint(variant)!;
       expect(text).toContain("The pack price stays $34");
       expect(text).not.toMatch(/regular price|goes up|after that it is \$/i);
@@ -87,6 +102,23 @@ describe("offerFinePrint", () => {
   it("says nothing when no offer is running", () => {
     expect(offerFinePrint({ ...live, isOfferLive: false })).toBeNull();
     expect(offerFinePrint({ ...live, bonusLabel: null })).toBeNull();
+    expect(offerFinePrint({ ...sale, isOfferLive: false })).toBeNull();
+  });
+
+  it("states a genuine sale price with the real before-and-after numbers", () => {
+    expect(offerFinePrint(sale)).toBe(
+      "$25.50 is a limited-time sale price, available through Friday, August 14. " +
+        "After that the pack returns to its regular $34.",
+    );
+  });
+
+  it("names the bonus ending with the sale when an offer carries both", () => {
+    const both = {
+      ...sale,
+      bonusItems: [{ kind: "gamezone" }],
+      bonusLabel: "50 bonus tokens per pack",
+    };
+    expect(offerFinePrint(both)).toContain("and the 50 bonus tokens per pack ends with it");
   });
 });
 

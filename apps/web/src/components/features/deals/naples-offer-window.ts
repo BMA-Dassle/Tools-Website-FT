@@ -13,7 +13,7 @@
  * TO EXTEND OR END THE OFFER, change this one line. Past it the modal renders
  * nothing, with no other edit anywhere.
  */
-export const NAPLES_OFFER_ENDS_AT = "2026-08-07T23:59:59";
+export const NAPLES_OFFER_ENDS_AT = "2026-08-14T23:59:59";
 
 /**
  * Is the window still open, as of now?

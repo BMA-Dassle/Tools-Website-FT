@@ -14,10 +14,10 @@
  * past the deadline in the first place, so both a fresh load and a page left
  * open overnight land in the same place.
  *
- * WHAT IT DOES NOT CLAIM: that a price is about to rise. It is not. What ends on
- * Friday is this offer being extended to Naples visitors on a site that links to
- * these packs from nowhere else — see the server shell for the full reasoning.
- * `note` says so in plain words, in the footer, where it is read last.
+ * WHAT IT CLAIMS (2026-08-10 run): a genuine 25% sale price that ends Friday
+ * night, after which the packs really return to their regular prices — see the
+ * server shell for the full reasoning and the honesty rule. `note` states the
+ * before-and-after in plain words, in the footer, where it is read last.
  *
  * Trigger rules live here, not in the layout: 15s dwell or 35% scroll, once per
  * visitor per 3 days, and never over a flow where a modal would be hostile.
@@ -62,6 +62,8 @@ export interface NaplesOfferDeal {
   slug: string;
   name: string;
   priceLabel: string;
+  /** Regular price for the strikethrough, or null when nothing is discounted. */
+  wasLabel: string | null;
   savingsLabel: string;
   savingsPct: number;
   accent: string;
@@ -222,13 +224,13 @@ export function NaplesOfferPopupClient({ content }: { content: NaplesOfferConten
 
         <div className="px-6 pt-7 pb-5 text-center" style={{ background: "rgba(253,91,86,0.12)" }}>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fd5b56] px-3 py-1 text-xs font-bold tracking-[0.18em] text-[#00041b] uppercase">
-            Limited Time · Naples
+            Flash Sale · 25% Off · Naples
           </span>
           <h2
             id="naples-offer-title"
             className="font-display mt-3 text-3xl leading-tight text-white sm:text-4xl"
           >
-            Prepaid packs you won&apos;t find on our site
+            25% off packs you won&apos;t find on our site
           </h2>
           <p className="mt-2 flex items-center justify-center gap-1.5 text-sm font-semibold text-white">
             <IconClockHour4 size={15} style={{ color: ACCENT }} aria-hidden="true" />
@@ -257,6 +259,9 @@ export function NaplesOfferPopupClient({ content }: { content: NaplesOfferConten
                     and the product name is the one thing that has to survive. */}
                 <p className="line-clamp-2 text-sm font-bold text-white">{deal.name}</p>
                 <p className="mt-1 text-xs" style={{ color: BODY }}>
+                  {deal.wasLabel && (
+                    <span className="mr-1 text-white/40 line-through">{deal.wasLabel}</span>
+                  )}
                   {deal.priceLabel} plus tax ·{" "}
                   <span className="font-semibold" style={{ color: deal.accent }}>
                     save {deal.savingsLabel} ({deal.savingsPct}%)

@@ -1,18 +1,25 @@
 /**
  * What a deal pack costs and CONTAINS right now — the single offer authority.
  *
- * The price never moves (owner 2026-08-03). What a limited offer changes is what
- * comes in the pack: while it runs, every pack carries `bonusItems` on top of
- * its normal contents, and when it ends the same money buys strictly less. That
- * is what makes "limited time" an honest claim here — the deadline is attached
- * to something that genuinely changes, rather than to a price step-up nobody
- * intends to perform.
+ * A limited offer can change two things, and both must be GENUINE:
  *
- * It is still the single authority every surface reads through, because the
- * bonus is now the thing that can silently diverge. Get it wrong and we either
- * mint value nobody paid for or, worse, take money for a bonus and never grant
- * it. So the hero, the value strikethrough, the minted voucher, the receipt and
- * the recovery email all resolve here.
+ *   - `bonusItems` — while it runs, every pack carries extras on top of its
+ *     normal contents, and when it ends the same money buys strictly less
+ *     (owner 2026-08-03).
+ *   - `salePriceCents` — a real markdown while it runs (owner 2026-08-10:
+ *     "flash sale for additional 25% off"), after which the price genuinely
+ *     returns to `priceCents`.
+ *
+ * What stays banned is the FAKE version: a countdown to a price step-up nobody
+ * intends to perform. A deadline must be attached to something that actually
+ * changes — a bonus that really ends, or a discount that really ends.
+ *
+ * It is the single authority every surface reads through, because the bonus and
+ * the sale price are the things that can silently diverge. Get it wrong and we
+ * either mint value nobody paid for, charge a price the page never showed, or —
+ * worse — take money for a bonus and never grant it. So the hero, the value
+ * strikethrough, the minted voucher, the receipt and the recovery email all
+ * resolve here, and the charge path re-resolves at charge time.
  *
  * `now` and `packsSold` are ALWAYS INJECTED, never read in here — that is what
  * makes the boundaries (the second the offer ends, the pack that exhausts the
@@ -34,8 +41,13 @@ import { etOffsetFor, type DealCatalogEntry } from "../catalog";
 const LOCAL_TS_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
 
 export interface DealOffer {
-  /** What the card is charged per pack. Stable — an offer never moves this. */
+  /** What the card is charged per pack RIGHT NOW — the sale price while a
+   *  discounted offer runs, the regular price otherwise. */
   unitPriceCents: number;
+  /** The regular price, for "was $34" strikethroughs. Equals `unitPriceCents`
+   *  whenever nothing is discounted, so `unitPriceCents < regularPriceCents`
+   *  is the one test every surface uses for "a sale is on". */
+  regularPriceCents: number;
   /** True while the limited offer is live on BOTH limits. */
   isOfferLive: boolean;
   /** Extra items each pack carries right now. Empty when no offer is running. */
@@ -87,14 +99,24 @@ const NO_OFFER = {
  *   `countPacksSold()`. Only consulted when the offer carries an allocation, so
  *   an uncapped or absent offer costs no query.
  */
-export function resolveDealOffer(
-  deal: DealCatalogEntry,
-  now: Date,
-  packsSold: number,
-): DealOffer {
-  const base = { unitPriceCents: deal.priceCents, packsSold };
+export function resolveDealOffer(deal: DealCatalogEntry, now: Date, packsSold: number): DealOffer {
+  const base = { unitPriceCents: deal.priceCents, regularPriceCents: deal.priceCents, packsSold };
   const offer = deal.limitedOffer;
   if (!offer) return { ...base, ...NO_OFFER };
+
+  // A sale price must be a real markdown. Throw at the typo rather than let a
+  // zero, a negative, a fraction of a cent, or a MARK-UP reach a charge: this
+  // number goes straight onto a Square order line.
+  const salePriceCents = offer.salePriceCents ?? null;
+  if (
+    salePriceCents !== null &&
+    (!Number.isInteger(salePriceCents) || salePriceCents <= 0 || salePriceCents >= deal.priceCents)
+  ) {
+    throw new Error(
+      `deal ${deal.slug}: salePriceCents must be a positive integer below priceCents ` +
+        `(${deal.priceCents}), got ${salePriceCents}`,
+    );
+  }
 
   const endsAt = offer.endsAt ? dealOfferEndsAt(offer.endsAt) : null;
   const allocation = offer.allocation ?? null;
@@ -107,6 +129,7 @@ export function resolveDealOffer(
 
   return {
     ...base,
+    unitPriceCents: isOfferLive && salePriceCents !== null ? salePriceCents : deal.priceCents,
     isOfferLive,
     bonusItems: isOfferLive ? offer.bonusItems : [],
     bonusLabel: offer.label,

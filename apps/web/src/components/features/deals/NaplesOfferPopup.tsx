@@ -1,28 +1,23 @@
 /**
  * HeadPinz Naples limited-time offer modal — SERVER shell.
  *
- * WHY THIS IS A LIMITED-TIME OFFER, AND WHY THAT IS TRUE (owner 2026-08-03):
- * "These deals are NOT available to just anyone and we don't advertise them
- * anywhere on our website… therefore they can be treated as a limited time
- * offer. /deals is a google based offer."
+ * WHAT IT ADVERTISES NOW (owner 2026-08-10): a FLASH SALE — a genuine 25%
+ * markdown configured as `salePriceCents` on the catalog's `limitedOffer`, ending
+ * Friday night. Unlike the 8/3 run (where the only limited thing was ACCESS —
+ * "we don't advertise them anywhere" — and the comments here stressed that the
+ * price was NOT changing), this time the price really is what changes: $25.50
+ * and $33.75 through Friday, $34 and $45 after. The countdown is honest because
+ * the discount genuinely ends, enforced by the same resolver the charge path
+ * re-resolves at charge time. What remains banned is the reverse claim — a
+ * countdown to a REGULAR-price rise nobody intends to perform.
  *
- * That is the whole basis of the claim, and it is worth being precise about what
- * it does and does not say. The PRICE is not changing on Friday — the packs will
- * still be $34/$45 to anyone who reaches `/deals` through search afterwards. What
- * ends is THIS OFFER: the window in which HeadPinz Naples visitors are told the
- * packs exist at all, on a site that otherwise links to them from nowhere. So the
- * copy below advertises exactly that and never implies a price rise. A guest who
- * comes back on Saturday and finds the same price has not been misled — they were
- * told the offer was open through Friday, and through Friday is when it was open
- * to them.
- *
- * NO BONUS, NO ON-PAGE URGENCY. Both were tried and dropped (owner: "we're
- * ditching the 50 token thing and all the urgency UI"). This modal is the single
- * urgency surface that remains, and it is INDEPENDENT — its own flag, its own
- * deadline, no dependency on the deal catalog's offer mechanism.
- *
- * Prices and savings still come from the same resolver and `dealValue` the
- * checkout uses, so an ad can never quote a number the buy panel will not honour.
+ * The modal stays the single urgency surface (owner 2026-08-03: no on-page
+ * urgency), with its own flag and its own window. The window date
+ * (`naples-offer-window.ts`) is kept equal to the catalog's FLASH_SALE_ENDS_AT
+ * so the ad can never outlive the sale it advertises. If the two ever diverge,
+ * the popup shows regular prices — wrong-looking, never wrong-charging, because
+ * prices and savings come from the same resolver and `dealValue` the checkout
+ * uses.
  *
  * Kill switch: `DEALS_NAPLES_POPUP=false` (server-read, no rebuild needed).
  */
@@ -50,9 +45,7 @@ export async function NaplesOfferPopup() {
   // structurally incapable of advertising an offer that has closed.
   if (!(await naplesOfferIsOpen(endsAt))) return null;
 
-  const sellable = DEAL_CATALOG.filter(
-    (d) => dealIsSellable(d) && d.locations.includes(LOCATION),
-  );
+  const sellable = DEAL_CATALOG.filter((d) => dealIsSellable(d) && d.locations.includes(LOCATION));
   if (sellable.length === 0) return null;
 
   const deals: NaplesOfferDeal[] = await Promise.all(
@@ -63,6 +56,9 @@ export async function NaplesOfferPopup() {
         slug: deal.slug,
         name: deal.name,
         priceLabel: money(offer.unitPriceCents),
+        // The strikethrough, present only while a sale genuinely discounts it.
+        wasLabel:
+          offer.unitPriceCents < offer.regularPriceCents ? money(offer.regularPriceCents) : null,
         savingsLabel: money(value.savingsCents),
         savingsPct: value.savingsPct,
         accent: ATTRACTIONS[deal.scheduleSlug]?.color ?? "#fd5b56",
@@ -74,8 +70,8 @@ export async function NaplesOfferPopup() {
   const content: NaplesOfferContent = {
     endsAt,
     deals,
-    // Says what is actually limited. Not "prices go up" — they do not.
-    note: "We don't list these anywhere else on our site. This offer is open to Naples guests through Friday.",
+    // Says what is actually limited: the sale price, with the real after-number.
+    note: "25% off ends Friday night — after that these packs return to their regular prices. We don't list them anywhere else on our site.",
   };
 
   return <NaplesOfferPopupClient content={content} />;
