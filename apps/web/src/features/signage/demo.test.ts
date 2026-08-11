@@ -167,6 +167,26 @@ describe("Mega previews", () => {
     expect(demoIsMegaDay(Date.parse("2026-08-12T17:00:00Z"))).toBe(false);
   });
 
+  it("a race preview KEEPS real events — Simulate scan must land during a preview", () => {
+    // The event/vip previews clear live events for determinism; the race
+    // preview must not, because it is exactly when staff press Simulate scan
+    // and watch for the name (owner: "simulate scan button not working").
+    const now = Date.parse("2026-08-11T17:00:00Z");
+    const feed = baseFeed(now);
+    feed.kioskEvents = [
+      {
+        id: "real-1",
+        kind: "racer-scanned",
+        center: "fort-myers",
+        firstName: "Jayden",
+        atMs: now - 1_000,
+      },
+    ];
+    const decorated = applyDemo(feed, "race", now);
+    expect(decorated?.kioskEvents.some((e) => e.id === "real-1")).toBe(true);
+    expect(decorated?.kioskEvents.length).toBe(7); // 1 real + 6 fixtures
+  });
+
   it("a race preview carries a burst of scans, scoped to the screen's track", () => {
     // The rail and the Mega check-in feed need names to show; deterministic so
     // both boards of a pair fabricate identical fields.

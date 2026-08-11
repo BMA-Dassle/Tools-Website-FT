@@ -119,6 +119,12 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
   // tool, and it is exactly what "preview VIP is not working" looks like from
   // the floor. Previews are short-lived and staff-initiated, so nothing real is
   // lost — the rail refills from Redis the moment the preview expires.
+  //
+  // EXCEPT the race preview, which keeps them: it is exactly when staff press
+  // Simulate scan and watch for the name, and the clearing here is what made
+  // that button do nothing mid-preview (owner 2026-08-11). The clear runs
+  // BEFORE the branches, so the real list must be captured first.
+  const realEvents = feed.kioskEvents;
   feed = { ...feed, kioskEvents: [] };
   if (mode === "event") return { ...feed, events: demoEvents(nowMs) };
   if (mode === "race") {
@@ -142,7 +148,13 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
     }));
     return {
       ...feed,
-      kioskEvents: scans,
+      // MERGE the fixtures with whatever is really happening, real events
+      // first. The event/vip previews clear live events for determinism, but a
+      // race preview is precisely when staff press "Simulate scan" to watch a
+      // name land — replacing the feed made that button do nothing while the
+      // preview ran (owner 2026-08-11: "simulate scan button not working on
+      // mega").
+      kioskEvents: [...realEvents, ...scans.filter((f) => !realEvents.some((e) => e.id === f.id))],
       raceCheckin: {
         track: feed.raceCheckin?.track ?? "blue",
         sessionId: 59,

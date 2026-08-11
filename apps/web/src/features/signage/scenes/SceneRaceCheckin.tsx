@@ -168,6 +168,7 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
         scans={everyone}
         checkedIn={feed?.raceCheckin?.checkedIn ?? null}
         total={feed?.raceCheckin?.total ?? null}
+        showRecordsQr={config.showRecordsQr}
       />
     );
   }
@@ -490,12 +491,14 @@ function CheckinFeed({
   scans,
   checkedIn,
   total,
+  showRecordsQr,
 }: {
   accent: string;
   race: { heatNumber: number; raceType: string } | null;
   scans: { id: string; firstName?: string; atMs: number; headsockDue?: boolean }[];
   checkedIn: number | null;
   total: number | null;
+  showRecordsQr: boolean;
 }) {
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
@@ -551,6 +554,14 @@ function CheckinFeed({
             </span>
           )}
         </header>
+
+        {/* Bottom-right has room even with the strip below it (owner) — the
+            waiting crowd at check-in is exactly the audience for lap records. */}
+        {showRecordsQr && (
+          <div style={{ position: "absolute", right: PAD_X, bottom: 130, zIndex: 1 }}>
+            <RecordsQr url={recordsUrl} accent={accent} />
+          </div>
+        )}
 
         <ActionStrip scans={scans} accent={accent} />
 

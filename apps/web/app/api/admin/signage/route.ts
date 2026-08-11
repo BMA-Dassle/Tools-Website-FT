@@ -16,6 +16,7 @@ import {
 import { parseScreenKey, VENUE_INFO, type SignageVenue } from "~/features/signage/constants";
 import { buildStartupScript, startupScriptFileName } from "~/features/signage/startup-script";
 import type { ScreenConfig } from "~/features/signage/types";
+import { demoIsMegaDay } from "~/features/signage/demo";
 
 /**
  * Screen management for staff.
@@ -206,6 +207,13 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "simulate-scan") {
+    // On a Mega day real scans carry the MEGA resource id and both boards of
+    // the pair accept them. A simulated scan must behave the same, or it lands
+    // on only one board and reads as broken (owner 2026-08-11). Previews and
+    // sims may consult the calendar; live boards deliberately may not.
+    if (demoIsMegaDay(Date.now())) {
+      body.track = "mega";
+    }
     // Pretend a racer just scanned at race check-in.
     //
     // This publishes to the SAME rail the real scan seam will use, so what a
