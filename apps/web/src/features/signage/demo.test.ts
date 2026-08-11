@@ -23,6 +23,8 @@ function baseFeed(now: number): TvFeed {
     vip: null,
     kioskEvents: [],
     raceCheckin: null,
+    briefing: null,
+    briefingRooms: null,
     pausedProductIds: [],
     nextAvailable: null,
     reloadAt: null,

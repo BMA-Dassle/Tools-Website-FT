@@ -105,7 +105,7 @@ const nextConfig: NextConfig = {
             "img-src 'self' data: blob: https: http:",
             "connect-src 'self' https: wss://webserver22.sms-timing.com:10015",
             "frame-src 'self' https:",
-            "media-src 'self' https://wuce3at4k1appcmf.public.blob.vercel-storage.com",
+            "media-src 'self' blob: https://wuce3at4k1appcmf.public.blob.vercel-storage.com",
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self' https:",
@@ -158,7 +158,7 @@ const nextConfig: NextConfig = {
             // so without these the kiosk silently falls back to cloud loads.
             "connect-src 'self' https: wss://webserver22.sms-timing.com:10015 http://127.0.0.1:4599 http://localhost:4599",
             "frame-src 'self' https://www.cognitoforms.com https://kiosk.bmileisure.com https://*.3cx.us https://profile.squareup.com https://squareup.com https://pci-connect.squareup.com https://web.squarecdn.com https:",
-            "media-src 'self' https://wuce3at4k1appcmf.public.blob.vercel-storage.com",
+            "media-src 'self' blob: https://wuce3at4k1appcmf.public.blob.vercel-storage.com",
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self' https://www.cognitoforms.com https:",

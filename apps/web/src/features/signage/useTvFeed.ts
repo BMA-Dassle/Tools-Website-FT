@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { TV_POLL_MS, TV_PULSE_MS } from "./constants";
-import type { TvFeed } from "./types";
+import type { TvFeed, TvPulse } from "./types";
 
 const CACHE_PREFIX = "tv_feed_cache:";
 
@@ -90,7 +90,7 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
      three Redis reads, so it can run every couple of seconds without putting
      the party board's database work on the same cadence. Merged OVER the last
      full feed, so the board data it does not carry is left untouched. */
-  const [pulse, setPulse] = useState<Pulse | null>(null);
+  const [pulse, setPulse] = useState<TvPulse | null>(null);
 
   const pollPulse = useCallback(
     async (signal: AbortSignal) => {
@@ -104,7 +104,7 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
           },
         );
         if (!res.ok) return;
-        const next = (await res.json()) as Pulse;
+        const next = (await res.json()) as TvPulse;
         if (!signal.aborted) setPulse(next);
       } catch {
         /* keep the last pulse — a dropped beat must not clear the rail */
@@ -126,13 +126,11 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
       kioskEvents: pulse.kioskEvents,
       reloadAt: pulse.reloadAt,
       demoMode: pulse.demoMode,
+      // A send must reach a briefing room's wall on the fast lane, not wait out
+      // the 15s full poll — a group is standing in the room. Merged the same way
+      // the scan rail is: pulse wins, and a dropped beat keeps the last known
+      // state rather than clearing a room mid-video.
+      briefingRooms: pulse.briefingRooms ?? feed.briefingRooms,
     };
   }, [feed, pulse]);
-}
-
-interface Pulse {
-  now: number;
-  kioskEvents: TvFeed["kioskEvents"];
-  reloadAt: number | null;
-  demoMode: string | null;
 }

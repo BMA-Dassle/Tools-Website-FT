@@ -132,5 +132,6 @@ export function startupInstructions(screenId: string): string[] {
     `To start it automatically at sign-in: press Win+R, run  regedit , go to HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run , right-click → New → String Value, name it  LobbyTV , and set its data to  C:\\TV\\${file}`,
     `For a locked-down player with no desktop at all, set the shell instead: HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon , edit the  Shell  value from  explorer.exe  to  C:\\TV\\${file} . Do this only on a machine used for nothing else — there is no Start menu afterwards, and you will need another sign-in or Safe Mode to undo it.`,
     `Also worth setting on the player: Settings → System → Power → screen and sleep both set to Never.`,
+    `BRIEFING ROOM SCREENS ONLY: turn the Windows volume up and unmute it, and check the TV's own volume. The briefing video plays with sound — the launcher already allows that, but a muted player is silent with no clue why.`,
   ];
 }

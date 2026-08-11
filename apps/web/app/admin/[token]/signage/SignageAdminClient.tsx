@@ -27,6 +27,7 @@ import {
 } from "~/features/signage/defaults";
 import { startupInstructions, startupScriptFileName } from "~/features/signage/startup-script";
 import type { ScreenConfig, SignageScreen } from "~/features/signage/types";
+import BriefingAssetManager, { type BriefingAssetState } from "./BriefingAssetManager";
 
 /** The build THIS admin page was served from, for comparing against a screen. */
 const CURRENT_BUILD = (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || "dev").slice(0, 8);
@@ -52,6 +53,22 @@ export default function SignageAdminClient({ token }: { token: string }) {
   const [note, setNote] = useState<string | null>(null);
 
   const [loadedAt, setLoadedAt] = useState(0);
+  const [assets, setAssets] = useState<BriefingAssetState | null>(null);
+
+  /** Which briefing films are uploaded. Its own endpoint because the briefing
+   *  rooms are their own subsystem — this page only needs the file list. */
+  const loadAssets = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/briefing?token=${encodeURIComponent(token)}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const json = (await res.json()) as BriefingAssetState;
+      setAssets({ videos: json.videos, helmetPosterUrl: json.helmetPosterUrl });
+    } catch {
+      /* the section simply shows "not uploaded" */
+    }
+  }, [token]);
 
   const load = useCallback(async () => {
     try {
@@ -62,10 +79,14 @@ export default function SignageAdminClient({ token }: { token: string }) {
       // One clock read per load, passed down — so a row's "online" dot is not
       // an impure Date.now() call during render.
       setLoadedAt(Date.now());
+      // Piggy-backed on the same refresh rather than a second effect: the file
+      // list and the screen list are both "what does this page show", and one
+      // poller is one thing to reason about.
+      await loadAssets();
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, loadAssets]);
 
   useEffect(() => {
     void load();
@@ -251,6 +272,8 @@ export default function SignageAdminClient({ token }: { token: string }) {
           </div>
         )}
       </section>
+
+      <BriefingAssetManager token={token} assets={assets} onChanged={() => void loadAssets()} />
     </div>
   );
 }
@@ -301,6 +324,7 @@ function ScreenRow({
   // makes sense where the welcome board runs — and only if VIP pages are on.
   const canVip = canWelcome && resolved.vip.enabled;
   const canCelebrate = resolved.celebration.enabled;
+  const canBriefing = resolved.playlist.some((p) => p.scene === "briefing");
   const online = heartbeat ? nowMs - Date.parse(heartbeat.at) < 60_000 : false;
   const scopedTrack = screen.config.scope?.resourceIds?.[0];
   const trackName =
@@ -486,6 +510,40 @@ function ScreenRow({
                 Preview session
               </button>
             )}
+            {canBriefing && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSimulate(
+                    "preview",
+                    { screenId: screen.screenId, mode: "briefing" },
+                    `Briefing preview pushed to ${screen.screenId} — video, then helmet sizes, then qualifiers.`,
+                  )
+                }
+                style={btn}
+                disabled={busy}
+                title="Runs the whole sequence on this screen, on the real schedule"
+              >
+                Preview briefing
+              </button>
+            )}
+            {canBriefing && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSimulate(
+                    "preview",
+                    { screenId: screen.screenId, mode: "briefing-quals" },
+                    `Levelled-up board pushed to ${screen.screenId}.`,
+                  )
+                }
+                style={btn}
+                disabled={busy}
+                title="Skip straight to the qualification board — no need to sit through the film"
+              >
+                Preview levelled-up
+              </button>
+            )}
             {canVip && (
               <button
                 type="button"
@@ -592,6 +650,9 @@ interface Draft {
   showEventWelcome: boolean;
   showAds: boolean;
   showRaceCheckin: boolean;
+  showBriefing: boolean;
+  /** "" = not a briefing screen. */
+  briefingRoom: "" | "red" | "blue";
   vipEnabled: boolean;
   vipLeadMins: number;
   celebrationEnabled: boolean;
@@ -616,6 +677,8 @@ function newDraft(): Draft {
     showEventWelcome: true,
     showAds: true,
     showRaceCheckin: false,
+    showBriefing: false,
+    briefingRoom: "",
     vipEnabled: true,
     vipLeadMins: 10,
     celebrationEnabled: true,
@@ -641,8 +704,12 @@ function draftFromScreen(s: SignageScreen): Draft {
     name: s.name,
     role: "kiosk-bank",
     showEventWelcome: scenes.has("event-welcome"),
-    showAds: scenes.has("ads") || scenes.size === 0,
+    // A briefing screen shows ONLY the briefing, so ads must not be inferred
+    // from an empty scene set the way they are for an unconfigured screen.
+    showAds: scenes.has("ads") || (scenes.size === 0 && !scenes.has("briefing")),
     showRaceCheckin: scenes.has("race-checkin"),
+    showBriefing: scenes.has("briefing"),
+    briefingRoom: c.briefingRoom === "red" || c.briefingRoom === "blue" ? c.briefingRoom : "",
     vipEnabled: c.interrupts?.["vip-welcome"]?.enabled !== false,
     vipLeadMins: c.interrupts?.["vip-welcome"]?.leadMins ?? 10,
     celebrationEnabled: c.interrupts?.celebration?.enabled !== false,
@@ -662,15 +729,24 @@ function draftFromScreen(s: SignageScreen): Draft {
 /** Draft → the config blob the TV actually reads. */
 function draftToConfig(d: Draft): ScreenConfig {
   const playlist: NonNullable<ScreenConfig["playlist"]> = [];
-  if (d.showRaceCheckin) playlist.push({ scene: "race-checkin", slots: 3 });
-  if (d.showEventWelcome) playlist.push({ scene: "event-welcome", slots: 2, requiresData: true });
-  if (d.showAds) playlist.push({ scene: "ads", slots: 1 });
-  // A screen with everything unticked still shows house ads — a blank wall is
-  // never an acceptable outcome of a form.
-  if (playlist.length === 0) playlist.push({ scene: "ads", slots: 1 });
+  // A BRIEFING SCREEN OWNS ITS WALL. It is ticked alone rather than mixed with
+  // the others: a safety briefing that rotates out to an advert halfway through
+  // is not a briefing, and the room's idle board is content the next group wants
+  // anyway. So this branch returns early rather than appending.
+  if (d.showBriefing) {
+    playlist.push({ scene: "briefing", slots: 1 });
+  } else {
+    if (d.showRaceCheckin) playlist.push({ scene: "race-checkin", slots: 3 });
+    if (d.showEventWelcome) playlist.push({ scene: "event-welcome", slots: 2, requiresData: true });
+    if (d.showAds) playlist.push({ scene: "ads", slots: 1 });
+    // A screen with everything unticked still shows house ads — a blank wall is
+    // never an acceptable outcome of a form.
+    if (playlist.length === 0) playlist.push({ scene: "ads", slots: 1 });
+  }
 
   return {
     playlist,
+    ...(d.showBriefing && d.briefingRoom ? { briefingRoom: d.briefingRoom } : {}),
     interrupts: {
       "vip-welcome": { enabled: d.vipEnabled, leadMins: d.vipLeadMins },
       celebration: { enabled: d.celebrationEnabled },
@@ -712,6 +788,11 @@ function ScreenForm({
       showEventWelcome: scenes.has("event-welcome"),
       showAds: scenes.has("ads"),
       showRaceCheckin: scenes.has("race-checkin"),
+      showBriefing: scenes.has("briefing"),
+      // Picking the briefing role at FastTrax defaults the venue too — the rooms
+      // only exist there, and a briefing screen saved as HeadPinz would get no
+      // briefing data at all (the pulse skips the lookup off-venue).
+      venue: scenes.has("briefing") ? "FT" : draft.venue,
       vipEnabled: preset.config.interrupts?.["vip-welcome"]?.enabled !== false,
       celebrationEnabled: preset.config.interrupts?.celebration?.enabled !== false,
       crownEnabled: preset.config.interrupts?.["billboard-crown"]?.enabled === true,
@@ -815,7 +896,31 @@ function ScreenForm({
           label="Race check-in"
           hint="The session checking in now, and racers as they scan. Ships with the racing-TV release."
         />
+        <Check
+          checked={draft.showBriefing}
+          onChange={(v) => set("showBriefing", v)}
+          label="Briefing room"
+          hint="Plays the safety video for the session staff send to this room, then helmet sizes, then who levelled up in the session before. Takes the whole screen — nothing else shows and nothing interrupts it."
+        />
       </fieldset>
+
+      {draft.showBriefing && (
+        <Field label="Which briefing room is this screen in?">
+          <select
+            value={draft.briefingRoom}
+            onChange={(e) => set("briefingRoom", e.target.value as "" | "red" | "blue")}
+            style={input}
+          >
+            <option value="">Choose a room…</option>
+            <option value="red">Red briefing room</option>
+            <option value="blue">Blue briefing room</option>
+          </select>
+          <p style={hint}>
+            Required. Both rooms read the same feed, so this is what tells the screen which sends
+            are for it — until it is set, the screen shows a setup notice instead of briefings.
+          </p>
+        </Field>
+      )}
 
       <fieldset style={fieldset}>
         <legend style={legend}>What interrupts it</legend>

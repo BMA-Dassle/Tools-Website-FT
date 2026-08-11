@@ -32,7 +32,11 @@ import { resolveScreenConfig } from "../defaults";
 import { trackFromResourceIds } from "../track";
 import { raceCheckinInfo } from "./race-checkin";
 import { buildWelcomeBoard } from "./welcome";
-import type { TvFeed } from "../types";
+import { briefingEnabled } from "../flags";
+import { loadSignageAssetsSafe } from "../data/signage-assets-db";
+import { readBriefingRooms } from "../briefing/state.server";
+import { resolveRoomQuals } from "../briefing/quals.server";
+import type { TvFeed, TvPulse } from "../types";
 
 /** Screens phone home on every poll; the admin page reads these for its
  *  online dots. Never a Neon write per poll — a wall of TVs at 10s each would
@@ -77,6 +81,8 @@ export async function buildTvFeed(
     vip: null,
     kioskEvents: [],
     raceCheckin: null,
+    briefing: null,
+    briefingRooms: null,
     pausedProductIds: safePaused(),
     nextAvailable: null,
     reloadAt: null,
@@ -110,8 +116,12 @@ export async function buildTvFeed(
   // the party board, and a lobby TV has no track — computing both for every
   // screen would double the work for nothing.
   const wantsWelcome = config.playlist.some((p) => p.scene === "event-welcome");
+  const wantsBriefing =
+    briefingEnabled() &&
+    config.briefingRoom !== null &&
+    config.playlist.some((p) => p.scene === "briefing");
 
-  const [raceCheckin, events, nextAvailable] = await Promise.all([
+  const [raceCheckin, events, nextAvailable, briefing] = await Promise.all([
     track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
     wantsWelcome
       ? buildWelcomeBoard(
@@ -125,6 +135,11 @@ export async function buildTvFeed(
     config.showNextAvailable
       ? buildNextAvailable(parsed.venue).catch(() => null)
       : Promise.resolve(null),
+    wantsBriefing
+      ? buildBriefingSection(parsed.venue, config.briefingRoom as "red" | "blue", ymd).catch(
+          () => null,
+        )
+      : Promise.resolve(null),
   ]);
 
   return {
@@ -136,11 +151,67 @@ export async function buildTvFeed(
     raceCheckin,
     events,
     nextAvailable,
+    briefing: briefing?.section ?? null,
+    briefingRooms: briefing?.rooms ?? null,
     // `vip` (the bowling-leg takeover) lands with the next scene.
     vip: null,
     // Null events mean we could not ask — the welcome entry then self-skips
     // and the rotation closes over it rather than showing an empty board.
     degraded: wantsWelcome && events === null,
+  };
+}
+
+/**
+ * What a briefing room's TV needs from the slow feed: the films, the poster, and
+ * the qualification board for the group that is out racing.
+ *
+ * The manifest is read on every full poll rather than cached, because the read is
+ * one small Neon SELECT and the alternative — a cache between an upload and the
+ * wall — is the exact reason a staff member would stand in a briefing room
+ * wondering why the video they just uploaded is not playing.
+ *
+ * Quals resolution needs to know which session the room is briefing NOW, so it
+ * can report on the one before it. That comes from the room's own live state.
+ */
+async function buildBriefingSection(
+  venue: SignageVenue,
+  room: "red" | "blue",
+  ymd: string,
+): Promise<{
+  section: NonNullable<TvFeed["briefing"]>;
+  rooms: TvFeed["briefingRooms"];
+}> {
+  const [assets, rooms] = await Promise.all([
+    loadSignageAssetsSafe(),
+    readBriefingRooms(venue).catch(() => ({ red: null, blue: null })),
+  ]);
+
+  // Quals report on the session BEFORE the one in the room now, so the room's
+  // current session is what gets excluded from the lookup.
+  const current = rooms[room];
+  const quals = await resolveRoomQuals({
+    venue,
+    businessDay: ymd,
+    room,
+    currentSessionId: current?.kind === "timeline" ? current.sessionId || null : null,
+  }).catch(() => null);
+
+  const starter = assets["briefing-video:starter"];
+  const intermediate = assets["briefing-video:intermediate"];
+  const poster = assets["briefing-helmet-poster"];
+
+  return {
+    section: {
+      videos: {
+        starter: starter ? { url: starter.url, durationMs: starter.durationMs } : null,
+        intermediate: intermediate
+          ? { url: intermediate.url, durationMs: intermediate.durationMs }
+          : null,
+      },
+      helmetPosterUrl: poster?.url ?? null,
+      quals,
+    },
+    rooms,
   };
 }
 
@@ -157,33 +228,40 @@ function safePaused(): string[] {
 /**
  * The LIVE half of the feed: only the things that change second to second.
  *
- * Three Redis reads and nothing else — no Neon, no BMI. That is what lets the
- * screens poll it every couple of seconds so a scan lands on the wall while the
- * racer is still standing at the desk, without putting the party board's
- * database work on the same cadence.
+ * Redis reads and nothing else — no Neon, no BMI. That is what lets the screens
+ * poll it every couple of seconds so a scan lands on the wall while the racer is
+ * still standing at the desk, and a briefing reaches a room's TV about two
+ * seconds after staff press send, without putting the party board's database work
+ * on the same cadence.
+ *
+ * DELIBERATELY DOES NOT LOAD THE SCREEN ROW. The briefing state is fetched
+ * per-VENUE (one MGET for both rooms) and each TV picks its own room out of it
+ * client-side, precisely so this stays a fixed handful of Redis reads no matter
+ * how many screens are hanging.
  */
 export async function buildTvPulse(
   screenIdRaw: string | null,
   buildSha?: string | null,
-): Promise<{
-  now: number;
-  kioskEvents: TvFeed["kioskEvents"];
-  reloadAt: number | null;
-  demoMode: string | null;
-}> {
+): Promise<TvPulse> {
   const now = Date.now();
   const parsed = parseScreenKey(screenIdRaw);
-  if (!parsed || !screenIdRaw) return { now, kioskEvents: [], reloadAt: null, demoMode: null };
+  if (!parsed || !screenIdRaw) {
+    return { now, kioskEvents: [], reloadAt: null, demoMode: null, briefingRooms: null };
+  }
 
   const center = VENUE_INFO[parsed.venue]?.center ?? "fort-myers";
   // The pulse is the frequent one, so the build stamp rides it.
   void stampSeen(screenIdRaw, buildSha);
-  const [kioskEvents, reloadAt, demoMode] = await Promise.all([
+  // Briefing rooms exist at FastTrax only. Asking for them at HeadPinz would be
+  // two wasted Redis reads on every pulse of every lobby screen.
+  const wantsBriefing = briefingEnabled() && parsed.venue === "FT";
+  const [kioskEvents, reloadAt, demoMode, briefingRooms] = await Promise.all([
     readSignageEvents(center).catch(() => []),
     reloadRequestedAt(center).catch(() => null),
     demoRequestedFor(screenIdRaw).catch(() => null),
+    wantsBriefing ? readBriefingRooms(parsed.venue).catch(() => null) : Promise.resolve(null),
   ]);
-  return { now, kioskEvents, reloadAt, demoMode };
+  return { now, kioskEvents, reloadAt, demoMode, briefingRooms };
 }
 
 /**

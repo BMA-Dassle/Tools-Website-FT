@@ -1,0 +1,156 @@
+"use client";
+
+/**
+ * Keep this player's copy of the briefing films up to date, and hand the scene a
+ * URL it can play.
+ *
+ * THE CONTRACT WITH THE SCENE: `srcFor(tier)` always returns something playable
+ * the moment a briefing starts. If the film is on disk it is a local object URL
+ * and playback is instant with no network at all; if it is not, it is the blob
+ * URL and Edge streams it while the download continues in the background. That
+ * ordering is deliberate — a cold cache must never be the reason a room full of
+ * people waits.
+ *
+ * BACKGROUND DOWNLOAD, THEN SWAP. A new upload is a new URL (uploads carry a
+ * random suffix), so a changed film is simply a URL we have not cached. The old
+ * one keeps serving until the new one is completely on disk — `cache.put()`
+ * rejects on a mid-stream failure, so there is no partial state to guard against
+ * — and only then is it pruned.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  cachedObjectUrl,
+  cachedUrls,
+  ensureCached,
+  planCacheOps,
+  pruneCache,
+  requestPersistence,
+} from "../video-cache";
+import type { BriefingTier } from "./types";
+import type { TvFeed } from "../types";
+
+/** Re-check after a failed download. Long enough not to hammer venue internet
+ *  while a briefing is playing, short enough to recover within a heat. */
+const RETRY_FLOOR_MS = 60_000;
+
+export interface BriefingAssetSources {
+  /** A playable URL for this tier's film, or null when nothing is uploaded. */
+  srcFor: (tier: BriefingTier) => string | null;
+  /** True when that URL is a local cache copy rather than a network stream. */
+  isLocal: (tier: BriefingTier) => boolean;
+  /** The helmet poster, cached the same way (it is small — this is free). */
+  posterSrc: string | null;
+  /** For the ?debug=1 overlay. */
+  status: { cachedCount: number; pending: number };
+}
+
+export function useBriefingAssets(
+  briefing: TvFeed["briefing"],
+  enabled: boolean,
+): BriefingAssetSources {
+  // url → object URL, for everything we have confirmed on disk.
+  const [local, setLocal] = useState<Record<string, string>>({});
+  const [pending, setPending] = useState(0);
+  // url → last attempt, so a failing download backs off instead of retrying on
+  // every 15-second poll.
+  const attemptedAt = useRef<Record<string, number>>({});
+  // Object URLs we created, so they can be revoked. A blob URL left un-revoked
+  // pins its whole file in memory, and this page runs for weeks.
+  const created = useRef<Set<string>>(new Set());
+
+  const starterUrl = briefing?.videos.starter?.url ?? null;
+  const intermediateUrl = briefing?.videos.intermediate?.url ?? null;
+  const posterUrl = briefing?.helmetPosterUrl ?? null;
+
+  // Primitive dependency rather than the object: the feed is a new object every
+  // poll, and depending on it would restart the sync every 15 seconds.
+  const manifestKey = `${starterUrl ?? ""}|${intermediateUrl ?? ""}|${posterUrl ?? ""}`;
+
+  const sync = useCallback(async () => {
+    if (!enabled) return;
+    const manifest = [starterUrl, intermediateUrl, posterUrl];
+    if (manifest.every((u) => !u)) return;
+
+    await requestPersistence();
+
+    const { fetch: toFetch } = planCacheOps(await cachedUrls(), manifest);
+
+    // Anything already on disk gets an object URL immediately — this is the
+    // fast path on every boot after the first.
+    for (const url of manifest) {
+      if (!url || toFetch.includes(url)) continue;
+      await adopt(url);
+    }
+
+    const now = Date.now();
+    const due = toFetch.filter((url) => {
+      const last = attemptedAt.current[url] ?? 0;
+      return now - last >= RETRY_FLOOR_MS;
+    });
+
+    if (due.length > 0) {
+      setPending(due.length);
+      for (const url of due) {
+        attemptedAt.current[url] = Date.now();
+        // Sequential on purpose. Two hundred-megabyte downloads racing each
+        // other on venue internet finish later than one after the other, and
+        // the first one finishing is what gets a room its video.
+        if (await ensureCached(url)) await adopt(url);
+        setPending((n) => Math.max(0, n - 1));
+      }
+    }
+
+    // Prune only AFTER the new files are safely down — see the header.
+    await pruneCache(manifest);
+
+    async function adopt(url: string) {
+      // Already adopted this exact URL — nothing to do, and re-adopting would
+      // leak an object URL per poll.
+      if (created.current.has(url)) return;
+      const objectUrl = await cachedObjectUrl(url);
+      if (!objectUrl) return;
+      created.current.add(url);
+      setLocal((prev) => ({ ...prev, [url]: objectUrl }));
+    }
+  }, [enabled, starterUrl, intermediateUrl, posterUrl]);
+
+  useEffect(() => {
+    void sync();
+  }, [sync, manifestKey]);
+
+  // Revoke on unmount only. Revoking when a URL leaves the manifest would pull
+  // the film out from under a briefing that is mid-play.
+  useEffect(() => {
+    const urls = created.current;
+    const map = local;
+    return () => {
+      for (const objectUrl of Object.values(map)) {
+        try {
+          URL.revokeObjectURL(objectUrl);
+        } catch {
+          /* nothing to do */
+        }
+      }
+      urls.clear();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return useMemo(() => {
+    const urlFor = (tier: BriefingTier) => (tier === "starter" ? starterUrl : intermediateUrl);
+    return {
+      srcFor: (tier: BriefingTier) => {
+        const url = urlFor(tier);
+        if (!url) return null;
+        // Local copy first; otherwise stream from the store while it downloads.
+        return local[url] ?? url;
+      },
+      isLocal: (tier: BriefingTier) => {
+        const url = urlFor(tier);
+        return !!url && !!local[url];
+      },
+      posterSrc: posterUrl ? (local[posterUrl] ?? posterUrl) : null,
+      status: { cachedCount: Object.keys(local).length, pending },
+    };
+  }, [local, pending, starterUrl, intermediateUrl, posterUrl]);
+}

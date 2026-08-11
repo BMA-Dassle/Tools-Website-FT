@@ -172,7 +172,7 @@ export async function POST(req: NextRequest) {
     const mode = body.mode ?? "";
     if (mode === "off") {
       await clearScreenDemo(body.screenId);
-    } else if (["race", "vip", "event"].includes(mode)) {
+    } else if (["race", "vip", "event", "briefing", "briefing-quals"].includes(mode)) {
       await requestScreenDemo(body.screenId, mode);
     } else {
       return NextResponse.json({ error: "unknown preview mode" }, { status: 400 });

@@ -21,6 +21,7 @@ import { SceneCelebration } from "./SceneCelebration";
 import { SceneBirthdayTakeover } from "./SceneBirthdayTakeover";
 import { SceneEventWelcome } from "./SceneEventWelcome";
 import { SceneVipWelcome } from "./SceneVipWelcome";
+import { SceneBriefing } from "./SceneBriefing";
 
 /**
  * Render whichever scene a decision names.
@@ -40,6 +41,8 @@ export function SceneSlot(props: SceneProps) {
       return <SceneSleep {...props} />;
     case "race-checkin":
       return <SceneRaceCheckin {...props} />;
+    case "briefing":
+      return <SceneBriefing {...props} />;
     case "event-welcome":
       return <SceneEventWelcome {...props} />;
     case "vip-welcome":
@@ -79,6 +82,7 @@ const IMPLEMENTED: ReadonlySet<SceneType> = new Set<SceneType>([
   "ads",
   "sleep",
   "race-checkin",
+  "briefing",
   "event-welcome",
   "vip-welcome",
   "celebration",
@@ -113,6 +117,11 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
       // designed idle state for "no session checking in yet". A track screen
       // whose whole job is this must not rotate away from it just because the
       // track is between heats.
+      return true;
+    case "briefing":
+      // Always true, for the same reason and more strongly: a briefing room's
+      // idle state (helmet sizing) is content the next group actively wants, and
+      // rotating away from it between sends would leave the room with ads.
       return true;
     default:
       return true;

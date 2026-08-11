@@ -17,7 +17,7 @@
 import { VENUE_INFO, type SignageVenue } from "./constants";
 import type { PlaylistEntry, ScreenConfig, SceneType } from "./types";
 
-export type ScreenRole = "kiosk-bank" | "race-checkin" | "ads-only";
+export type ScreenRole = "kiosk-bank" | "race-checkin" | "briefing-room" | "ads-only";
 
 export interface RolePreset {
   role: ScreenRole;
@@ -73,6 +73,26 @@ const RACE_CHECKIN_CONFIG: ScreenConfig = {
   showRecordsQr: true,
 };
 
+/**
+ * A briefing room TV (Red or Blue). One job, one scene, no interrupts.
+ *
+ * NOTHING MAY PREEMPT THIS BOARD. A safety briefing is the one thing on the
+ * estate that a guest is required to watch, and a kiosk celebration cutting into
+ * minute three of it — confetti over a safety film — would be both absurd and a
+ * genuine liability. So every interrupt is explicitly off rather than left to
+ * default, and the playlist is a single scene that owns the wall.
+ *
+ * `briefingRoom` is filled in per screen (there is no sensible default side).
+ */
+const BRIEFING_ROOM_CONFIG: ScreenConfig = {
+  playlist: [{ scene: "briefing", slots: 1 }],
+  interrupts: {
+    "vip-welcome": { enabled: false },
+    celebration: { enabled: false },
+    "billboard-crown": { enabled: false },
+  },
+};
+
 /** The safe fallback: house ads and nothing else. Needs no data at all, which
  *  is exactly why it is what an unprovisioned or degraded screen falls back to. */
 const ADS_ONLY_CONFIG: ScreenConfig = {
@@ -102,6 +122,14 @@ export const ROLE_PRESETS: RolePreset[] = [
     config: RACE_CHECKIN_CONFIG,
   },
   {
+    role: "briefing-room",
+    label: "Briefing room screen (Red or Blue)",
+    description:
+      "In a briefing room. Plays the safety video for the session staff send here, then helmet sizes, then who levelled up in the session before. Nothing interrupts it.",
+    venues: ["FT"],
+    config: BRIEFING_ROOM_CONFIG,
+  },
+  {
     role: "ads-only",
     label: "Advertising only",
     description: "House advertising on a loop. No guest data on screen.",
@@ -110,8 +138,15 @@ export const ROLE_PRESETS: RolePreset[] = [
   },
 ];
 
+/** Look up a preset. Falls back to ads-only — the role that needs no data — for
+ *  a name this deploy does not have. Found BY ROLE rather than by index so
+ *  inserting a preset above it can never silently change the fallback. */
 export function rolePreset(role: ScreenRole): RolePreset {
-  return ROLE_PRESETS.find((p) => p.role === role) ?? ROLE_PRESETS[2];
+  return (
+    ROLE_PRESETS.find((p) => p.role === role) ??
+    ROLE_PRESETS.find((p) => p.role === "ads-only") ??
+    ROLE_PRESETS[ROLE_PRESETS.length - 1]
+  );
 }
 
 /* ── resolution ───────────────────────────────────────────────────────── */
@@ -132,6 +167,8 @@ export interface ResolvedScreenConfig {
   showRecordsQr: boolean;
   welcomeLeadMins: number;
   welcomeTrailMins: number;
+  /** Null for anything that is not a briefing TV — there is no default side. */
+  briefingRoom: "red" | "blue" | null;
 }
 
 function sanitizePlaylist(entries: PlaylistEntry[] | undefined): Required<PlaylistEntry>[] {
@@ -206,6 +243,10 @@ export function resolveScreenConfig(
     showRecordsQr: c.showRecordsQr === true,
     welcomeLeadMins: numOr(c.welcomeLeadMins, 75),
     welcomeTrailMins: numOr(c.welcomeTrailMins, 30),
+    // Only the two literals. Anything else — including a typo'd config or a
+    // value from a newer deploy — resolves to "not a briefing screen", which
+    // shows the designed idle board rather than adopting a room at random.
+    briefingRoom: c.briefingRoom === "red" || c.briefingRoom === "blue" ? c.briefingRoom : null,
   };
 }
 

@@ -14,6 +14,7 @@
  * payments) is the reason there is no version field here at all — a config we
  * cannot fully parse is a config we partially honour, not one we throw away.
  */
+import type { BriefingQualsBoard, BriefingRoomState } from "./briefing/types";
 
 /**
  * A scene is one full-screen visual. Adding a scene type is the only reason
@@ -26,6 +27,9 @@
  *  - `billboard-crown` the TV joining the kiosk bank's billboard as its crown
  *  - `race-checkin`   the racing check-in screen: welcome the racer who just
  *                     scanned + show the session currently checking in
+ *  - `briefing`       a briefing room's TV: the safety video for the session
+ *                     that was just sent here, then helmet sizes, then who
+ *                     levelled up in the session before it
  *  - `sleep`          venue closed — panel/power saver
  */
 export type SceneType =
@@ -35,6 +39,7 @@ export type SceneType =
   | "celebration"
   | "billboard-crown"
   | "race-checkin"
+  | "briefing"
   | "sleep";
 
 /** Scenes a screen rotates through on its base loop (interrupts are separate). */
@@ -42,6 +47,7 @@ export const ROTATION_SCENE_TYPES = [
   "ads",
   "event-welcome",
   "race-checkin",
+  "briefing",
 ] as const satisfies readonly SceneType[];
 
 /** Scenes that PREEMPT the rotation when their trigger fires. */
@@ -166,6 +172,16 @@ export interface ScreenConfig {
   welcomeLeadMins?: number;
   /** Minutes after the first leg starts that it drops off the welcome board. */
   welcomeTrailMins?: number;
+  /**
+   * WHICH BRIEFING ROOM this screen stands in — the one thing a briefing TV
+   * cannot work out for itself.
+   *
+   * Both rooms read the same feed, so the room is what tells a screen which of
+   * the two Redis states is addressed to it. Absent on every screen that is not
+   * a briefing TV, which is why it is optional rather than defaulted to a side:
+   * guessing "red" would put a Red briefing on a lobby wall.
+   */
+  briefingRoom?: "red" | "blue";
 }
 
 /** A provisioned screen — one row of `signage_screens`. */
@@ -298,6 +314,35 @@ export interface TvFeed {
     checkedIn: number | null;
     total: number | null;
   } | null;
+  /**
+   * Briefing-room extra: the films and poster this screen plays, plus the
+   * qualification board for its room. Null for every screen that is not a
+   * briefing TV.
+   *
+   * SLOW HALF. Assets change when somebody uploads — a handful of times a year —
+   * and quals change once a heat, so both ride the 15s feed. The room's live
+   * state is `briefingRooms` below and rides the 2-second pulse instead, so a
+   * send reaches the wall in about two seconds without the player re-reading a
+   * manifest it already has.
+   *
+   * `quals` is resolved lazily server-side: the group it reports on is still out
+   * on track when the send happens. See briefing/quals.server.ts.
+   */
+  briefing: {
+    videos: {
+      starter: { url: string; durationMs: number | null } | null;
+      intermediate: { url: string; durationMs: number | null } | null;
+    };
+    helmetPosterUrl: string | null;
+    quals: BriefingQualsBoard | null;
+  } | null;
+  /**
+   * FAST HALF — what each briefing room is showing right now. Also present on
+   * the pulse (see TvPulse), which is what actually keeps it current; carried on
+   * the full feed too so a cold boot paints the right board on its first frame
+   * instead of idling for two seconds.
+   */
+  briefingRooms: Record<"red" | "blue", BriefingRoomState | null> | null;
   /** Product ids currently off-sale — never advertise a paused product. */
   pausedProductIds: string[];
   /** "Next available" per product key, e.g. { bowling: "3 lanes · 9:30 PM" }.
@@ -311,4 +356,27 @@ export interface TvFeed {
   demoMode: string | null;
   /** True when an upstream failed and sections were dropped. */
   degraded: boolean;
+}
+
+/**
+ * The FAST half of the feed — Redis reads only, polled every couple of seconds.
+ *
+ * Declared here, beside TvFeed, rather than inline in the builder and again in
+ * the hook. The two used to be separate literal types and a field added to one
+ * and not the other is invisible until a wall does not react: exactly the class
+ * of bug that made pushed previews silently decorate nothing (2026-08-11). One
+ * declaration, two importers, no way to drift.
+ */
+export interface TvPulse {
+  now: number;
+  kioskEvents: SignageEvent[];
+  reloadAt: number | null;
+  demoMode: string | null;
+  /**
+   * Both briefing rooms' live state. Null for venues with no briefing rooms —
+   * the key is per-venue rather than per-screen because the pulse deliberately
+   * never loads a screen row (it is three Redis reads and nothing else), so each
+   * TV picks its own room out of this by its `briefingRoom` config.
+   */
+  briefingRooms: Record<"red" | "blue", BriefingRoomState | null> | null;
 }
