@@ -75,10 +75,14 @@ export interface RotationSegment {
 export function buildRotation(
   playlist: ResolvedScreenConfig["playlist"],
   hasData: (scene: SceneType) => boolean,
+  isImplemented: (scene: SceneType) => boolean = () => true,
 ): RotationSegment[] {
   const segments: RotationSegment[] = [];
   let startSlot = 0;
   for (const entry of playlist) {
+    // A scene this deploy cannot render must never be selected — it would paint
+    // as something else and look like the screen ignoring its config.
+    if (!isImplemented(entry.scene)) continue;
     if (entry.requiresData && !hasData(entry.scene)) continue;
     segments.push({ scene: entry.scene, startSlot, slots: entry.slots });
     startSlot += entry.slots;
@@ -285,6 +289,8 @@ export interface DecisionInput {
   seenEventIds: ReadonlySet<string>;
   /** Venue closed — panel saver wins over everything. */
   asleep?: boolean;
+  /** Does this deploy actually have the scene? Defaults to yes. */
+  isImplemented?: (scene: SceneType) => boolean;
 }
 
 /**
@@ -299,6 +305,7 @@ export interface DecisionInput {
  */
 export function resolveActiveScene(input: DecisionInput): SceneDecision {
   const { nowMs, config } = input;
+  const implemented = input.isImplemented ?? (() => true);
 
   if (input.asleep) {
     return { scene: "sleep", startedAtMs: nowMs, durationMs: null, isInterrupt: true };
@@ -324,7 +331,9 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
     };
   }
 
-  const vip = vipTakeoverAt(nowMs, input.vips, config.vip, isBowlingStep);
+  const vip = implemented("vip-welcome")
+    ? vipTakeoverAt(nowMs, input.vips, config.vip, isBowlingStep)
+    : null;
   if (vip) {
     return {
       scene: "vip-welcome",
@@ -335,7 +344,7 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
     };
   }
 
-  if (crownActiveAt(nowMs, config.billboardCrown)) {
+  if (implemented("billboard-crown") && crownActiveAt(nowMs, config.billboardCrown)) {
     const cycleStart = Math.floor(nowMs / SLOT_MS) * SLOT_MS;
     return {
       scene: "billboard-crown",
@@ -345,7 +354,7 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
     };
   }
 
-  const segments = buildRotation(config.playlist, input.hasData);
+  const segments = buildRotation(config.playlist, input.hasData, implemented);
   const { segment, startedAtMs, durationMs } = rotationAt(nowMs, segments);
   return { scene: segment.scene, startedAtMs, durationMs, isInterrupt: false };
 }

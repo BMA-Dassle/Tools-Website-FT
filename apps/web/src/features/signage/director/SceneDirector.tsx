@@ -22,7 +22,7 @@ import type { ResolvedScreenConfig } from "../defaults";
 import type { SignageVenue } from "../constants";
 import type { TvFeed } from "../types";
 import type { DemoMode } from "../demo";
-import { SceneSlot, sceneHasData } from "../scenes/registry";
+import { SceneSlot, sceneHasData, isSceneImplemented } from "../scenes/registry";
 import { resolveActiveScene, type SceneDecision } from "./schedule";
 
 /** How often the decision is re-evaluated. Matches AttractBillboard's cadence:
@@ -73,6 +73,7 @@ export function SceneDirector({
         events: feed?.kioskEvents ?? [],
         seenEventIds: seen,
         asleep,
+        isImplemented: isSceneImplemented,
       }),
     [nowMs, config, feed, asleep, seen],
   );

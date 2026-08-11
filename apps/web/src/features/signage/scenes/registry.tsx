@@ -61,6 +61,34 @@ export function SceneSlot(props: SceneProps) {
 }
 
 /**
+ * Which scenes actually EXIST in this deploy.
+ *
+ * The `default` case below falls through to house ads, which is right for a
+ * scene name we have never heard of — a config written by a newer deploy, or
+ * code rolled back under a live screen. It is badly wrong for a scene we know
+ * about but have not built yet: the scheduler happily selects it, the switch
+ * quietly renders something else, and the screen shows ads for a third of every
+ * cycle with nothing to explain it.
+ *
+ * That is exactly what happened to the HeadPinz board — billboard-crown was
+ * enabled, preempted the rotation, and painted ads (owner 2026-08-11, "those
+ * two options on headpinz still not working"). The scheduler now asks this
+ * before selecting anything.
+ */
+const IMPLEMENTED: ReadonlySet<SceneType> = new Set<SceneType>([
+  "ads",
+  "sleep",
+  "race-checkin",
+  "event-welcome",
+  "vip-welcome",
+  "celebration",
+]);
+
+export function isSceneImplemented(scene: SceneType): boolean {
+  return IMPLEMENTED.has(scene);
+}
+
+/**
  * Whether a data-gated scene has anything worth showing right now. Used by the
  * rotation builder to close over empty scenes instead of rendering a blank
  * panel — see buildRotation.
