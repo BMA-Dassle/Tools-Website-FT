@@ -10,6 +10,11 @@
  * supposed to be a dual board, where is all the check in stuff") — so this
  * component owns no page chrome, no header and no background.
  *
+ * PURELY PRESENTATIONAL. Every piece of state lives in useBriefingControl, one
+ * level up, because the scan flash is an early return that unmounts this whole
+ * subtree for four seconds — see that hook's header for what was lost when the
+ * state lived here.
+ *
  * TWO COLUMNS, RED AND BLUE, mirroring the vendor board staff already read — and
  * mirroring how the venue actually works, because each track feeds the briefing
  * room named after it. A column pairs ONE track with ONE room: the session
@@ -22,18 +27,15 @@
  * individually" requirement falling straight out of the layout rather than
  * needing a mode.
  */
-import { useCallback, useState } from "react";
-import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { useTrackStatus, type CurrentRace, type TrackInfo } from "@/hooks/useTrackStatus";
 import { PORTAL_DARK } from "~/components/features/admin-skin/theme";
 import {
   tierForRaceType,
   type BriefingPhase,
-  type BriefingQualifier,
   type BriefingRoom,
-  type BriefingRoomState,
   type BriefingTier,
 } from "~/features/signage/briefing/types";
+import type { BriefingControl, RoomStatus } from "./useBriefingControl";
 
 /** Room identity, matching the wall boards so the desk and the TV agree. */
 const ROOM_COLOR: Record<BriefingRoom, string> = { red: "#ff3b30", blue: "#2b8fff" };
@@ -46,104 +48,9 @@ const PHASE_LABEL: Record<BriefingPhase, string> = {
   idle: "Idle",
 };
 
-interface QualsBoard {
-  heatNumber: number | null;
-  raceType: string | null;
-  qualifiers: BriefingQualifier[];
-}
-
-interface RoomStatus {
-  room: BriefingRoom;
-  state: BriefingRoomState | null;
-  phase: BriefingPhase;
-  nextInMs: number | null;
-  quals: QualsBoard | null;
-}
-
-interface Assignment {
-  id: string;
-  room: BriefingRoom;
-  track: string;
-  sessionId: string;
-  heatNumber: number | null;
-  raceType: string | null;
-  tier: BriefingTier | null;
-  mode: string;
-  sentAt: string;
-}
-
-interface BoardStatus {
-  now: number;
-  businessDay: string;
-  enabled: boolean;
-  rooms: RoomStatus[];
-  assignments: Assignment[];
-  videos: Record<BriefingTier, { url: string; durationMs: number | null } | null>;
-  helmetPosterUrl: string | null;
-}
-
-export default function RaceControlPanels({ token }: { token: string }) {
+export default function RaceControlPanels({ control }: { control: BriefingControl }) {
   const status = useTrackStatus();
-  const [board, setBoard] = useState<BoardStatus | null>(null);
-  const [note, setNote] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  // Which film staff picked, per ROOM (not per track): on a Mega day both rooms
-  // read one session, and choosing Intermediate for Red must not change Blue.
-  const [tierOverride, setTierOverride] = useState<Record<string, BriefingTier | null>>({});
-
-  const loadBoard = useCallback(
-    async (signal?: AbortSignal) => {
-      try {
-        const res = await fetch(`/api/admin/briefing?token=${encodeURIComponent(token)}`, {
-          cache: "no-store",
-          signal,
-        });
-        if (!res.ok || signal?.aborted) return; // keep the last good board
-        setBoard((await res.json()) as BoardStatus);
-      } catch {
-        /* a dropped poll must not blank the controls */
-      }
-    },
-    [token],
-  );
-
-  // The house poller: no overlapping cycles when an upstream is slow, and a
-  // per-cycle abort. This sits open on the check-in PC all night.
-  useVisibleInterval(async (signal) => {
-    await loadBoard(signal);
-  }, 5_000);
-
-  const post = useCallback(
-    async (body: Record<string, unknown>, successNote: string) => {
-      setBusy(true);
-      setNote(null);
-      try {
-        const res = await fetch(`/api/admin/briefing?token=${encodeURIComponent(token)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const json = (await res.json()) as { error?: string; hasVideo?: boolean; tier?: string };
-        if (!res.ok) {
-          setNote(`✕ ${json.error ?? `Failed (${res.status})`}`);
-          return;
-        }
-        // Say when a send will NOT show a film, rather than leaving staff to
-        // wonder why the room went straight to helmet sizes.
-        setNote(
-          json.hasVideo === false
-            ? `✓ ${successNote} — but no ${json.tier} video is uploaded, so the room opens on helmet sizes.`
-            : `✓ ${successNote}`,
-        );
-        await loadBoard();
-      } catch (err) {
-        setNote(`✕ Could not reach the server${err instanceof Error ? ` — ${err.message}` : ""}`);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [token, loadBoard],
-  );
+  const { board, note, busy } = control;
 
   const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
 
@@ -230,41 +137,29 @@ export default function RaceControlPanels({ token }: { token: string }) {
             race={col.race}
             delay={col.delay}
             status={roomStatus(col.room)}
-            tierOverride={tierOverride[col.room] ?? null}
-            onTierOverride={(tier) => setTierOverride((p) => ({ ...p, [col.room]: tier }))}
+            tierOverride={control.tierOverride[col.room] ?? null}
+            onTierOverride={(tier) => control.setTierOverride(col.room, tier)}
             alreadySent={
               !!col.race &&
               !!board?.assignments.some(
                 (a) =>
                   a.mode === "timeline" &&
                   a.room === col.room &&
-                  a.sessionId === String(col.race!.sessionId),
+                  a.sessionId === String(col.race?.sessionId),
               )
             }
             busy={busy || board?.enabled === false}
             onSend={() =>
-              void post(
-                {
-                  action: "send",
-                  room: col.room,
-                  track: col.track,
-                  sessionId: String(col.race?.sessionId ?? ""),
-                  heatNumber: col.race?.heatNumber ?? null,
-                  raceType: col.race?.raceType ?? null,
-                  tier: tierOverride[col.room] ?? undefined,
-                },
-                `Session ${col.race?.heatNumber ?? ""} sent to the ${col.room} room`,
-              )
+              control.send({
+                room: col.room,
+                track: col.track,
+                sessionId: String(col.race?.sessionId ?? ""),
+                heatNumber: col.race?.heatNumber ?? null,
+                raceType: col.race?.raceType ?? null,
+              })
             }
-            onShowQuals={() =>
-              void post(
-                { action: "show-quals", room: col.room },
-                `Levelled-up board sent to the ${col.room} room`,
-              )
-            }
-            onClear={() =>
-              void post({ action: "clear", room: col.room }, `${col.room} room cleared`)
-            }
+            onShowQuals={() => control.showQuals(col.room)}
+            onClear={() => control.clearRoom(col.room)}
           />
         ))}
       </div>
@@ -467,9 +362,9 @@ function RoomColumn({
         </div>
 
         <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
-          {qualCount > 0
-            ? `Levelled up (session ${status?.quals?.heatNumber ?? "?"}): ${status!
-                .quals!.qualifiers.map((q) => `${q.firstName} — ${q.level}`)
+          {qualCount > 0 && status?.quals
+            ? `Levelled up (session ${status.quals.heatNumber ?? "?"}): ${status.quals.qualifiers
+                .map((q) => `${q.firstName} — ${q.level}`)
                 .join(", ")}`
             : "No qualifiers yet — the board falls back to helmet sizes."}
         </span>

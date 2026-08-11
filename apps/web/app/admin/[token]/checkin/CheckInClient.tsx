@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
 import RaceControlPanels from "./RaceControlPanels";
+import { useBriefingControl } from "./useBriefingControl";
 import {
   ADMIN_SANS,
   ADMIN_MONO,
@@ -86,6 +87,18 @@ interface Props {
 }
 
 export default function CheckInClient({ token, version, boardMode = false }: Props) {
+  /**
+   * Briefing-room state lives HERE, not in the panels.
+   *
+   * The scan flash below is an early return, so the panels unmount for its four
+   * seconds. Held in the panels, a staff member's Starter/Intermediate override
+   * reset to auto on every scan (they could then send the wrong film), the
+   * "sent to the red room" note vanished mid-read, and the room panels repainted
+   * empty until the next poll. This component's own state survives the early
+   * return, so the state and its poller do too.
+   */
+  const briefing = useBriefingControl(token, boardMode);
+
   // Serial port state
   const [connectionState, setConnectionState] = useState<ConnectionState>("idle");
   const [portName, setPortName] = useState<string>("");
@@ -1007,7 +1020,7 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
 
       {/* Race control — briefing rooms. Below the scanner because checking a
           racer in comes first; the send follows once the heat is in. */}
-      {boardMode && <RaceControlPanels token={token} />}
+      {boardMode && <RaceControlPanels control={briefing} />}
 
       {/* Test mode panel */}
       {testMode && (
