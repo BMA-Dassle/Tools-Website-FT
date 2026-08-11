@@ -143,31 +143,17 @@ export interface BriefingRoomState {
   videoDurationMs: number | null;
 }
 
-/** What the TV is showing, derived — never stored. */
 /**
- * `next` used to be a "who levelled up" board. That is PARKED (owner 2026-08-11:
- * "for qualifying just hold on that, there might be a better way… instead of
- * qualifying you could just show the inbound race to that room") — and the probe
- * agreed: qualifying cutoffs exist per-track only, so nobody can qualify off a Mega
- * lap, and Pandora's records API was 503-ing besides. The phase now shows the heat
- * heading for this room, which always has data and is what the room wants to know.
+ * What the TV is showing, derived — never stored.
+ *
+ * A briefing is video → helmet sizes, and then the room is FREE. There is no third
+ * phase, and the wall says NOTHING about a race until that race has been sent here:
+ * a "who levelled up" board is parked (cutoffs are per-track, so nobody can qualify
+ * off a Mega lap), and a "next up" board announced one session in BOTH rooms on a
+ * Mega day when it could only go to one of them (owner 2026-08-11). Idle is helmet
+ * sizes — content the next group wants anyway.
  */
 export type BriefingPhase = "waiting" | "video" | "helmet" | "idle";
-
-/**
- * The heat heading for this room next — what the third phase shows.
- *
- * No names and no ids beyond the session number: a briefing room is full of
- * strangers, and this is a "what is coming" board, not a roster.
- */
-export interface BriefingInbound {
-  heatNumber: number | null;
-  raceType: string | null;
-  /** "Mega Track", "Red Track" — where the incoming group will race. */
-  trackLabel: string | null;
-  /** ISO check-in cut-off for that heat, when known. */
-  scheduledStart: string | null;
-}
 
 /** How long the helmet-sizing board holds after the video (owner: "about 30
  *  seconds"). Long enough to find your size, short enough that a group is not

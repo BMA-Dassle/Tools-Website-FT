@@ -93,9 +93,10 @@ export function briefingTimelineAt(
   // this should clear and be ready for the next"). It used to hold a third phase for
   // half an hour, which left a room that had emptied reading as busy on the board.
   //
-  // Idle is not blank: the room's resting board shows the next heat inbound, the lap
-  // to beat, and where results are posted. "Cleared" and "showing something useful"
-  // are the same state.
+  // Idle is not blank: the room rests on the helmet-sizing board, with the lap to
+  // beat and where results are posted. "Cleared" and "showing something useful" are
+  // the same state — and the wall deliberately says nothing about a race that has
+  // not been sent here.
   return IDLE;
 }
 

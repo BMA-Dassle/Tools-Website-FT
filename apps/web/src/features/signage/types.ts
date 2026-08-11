@@ -14,7 +14,7 @@
  * payments) is the reason there is no version field here at all — a config we
  * cannot fully parse is a config we partially honour, not one we throw away.
  */
-import type { BriefingInbound, BriefingRoomState } from "./briefing/types";
+import type { BriefingRoomState } from "./briefing/types";
 
 /**
  * A scene is one full-screen visual. Adding a scene type is the only reason
@@ -352,8 +352,6 @@ export interface TvFeed {
    * send reaches the wall in about two seconds without the player re-reading a
    * manifest it already has.
    *
-   * `inbound` is the heat coming to this room next, read from the same warmed
-   * Redis last-race keys the track boards use.
    */
   briefing: {
     videos: {
@@ -361,8 +359,6 @@ export interface TvFeed {
       intermediate: { url: string; durationMs: number | null } | null;
     };
     helmetPosterUrl: string | null;
-    /** The heat heading for this room next — the third phase of the timeline. */
-    inbound: BriefingInbound | null;
   } | null;
   /**
    * FAST HALF — what each briefing room is showing right now. Also present on

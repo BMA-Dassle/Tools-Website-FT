@@ -263,19 +263,12 @@ export function demoBriefingRooms(
   return { red: state, blue: state };
 }
 
-/** Fabricated assets + an inbound heat, so the third phase has something to lay
- *  out in a preview. */
+/** Fabricated assets, so a preview has films and a poster to lay out. */
 function demoBriefingSection(feed: TvFeed): TvFeed["briefing"] {
   const real = feed.briefing;
   return {
     videos: real?.videos ?? { starter: null, intermediate: null },
     helmetPosterUrl: real?.helmetPosterUrl ?? null,
-    inbound: {
-      heatNumber: 61,
-      raceType: "Intermediate",
-      trackLabel: "Red Track",
-      scheduledStart: null,
-    },
   };
 }
 

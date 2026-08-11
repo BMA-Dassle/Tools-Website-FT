@@ -27,7 +27,7 @@ import { withAlpha } from "../color";
 import { nextLevelTarget } from "~/features/racing/qualify";
 import { TRACK_ACCENTS, TRACK_LABELS } from "../track";
 import { briefingTimelineAt } from "../briefing/phase";
-import { tierForRaceType, type BriefingInbound, type BriefingRoom } from "../briefing/types";
+import { tierForRaceType, type BriefingRoom } from "../briefing/types";
 import { useBriefingAssets } from "../briefing/useBriefingAssets";
 import { demoBriefingRooms } from "../demo";
 import type { SceneProps } from "../director/types";
@@ -105,8 +105,6 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
   const videoSrc = assets.srcFor(tier);
   const videoUnplayable = !!videoSrc && failedSrc === videoSrc;
 
-  const inbound = feed?.briefing?.inbound ?? null;
-
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
       {timeline.phase === "waiting" ? (
@@ -134,7 +132,6 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
           room={room}
           phase={timeline.phase === "video" ? "helmet" : timeline.phase}
           posterSrc={assets.posterSrc}
-          inbound={inbound}
           heatNumber={state?.heatNumber ?? null}
           // The lap THIS room's group has to beat. They sit through the helmet and
           // next-race boards, which is when there is actually time to read it.
@@ -289,7 +286,6 @@ function Board({
   room,
   phase,
   posterSrc,
-  inbound,
   heatNumber,
   target,
 }: {
@@ -297,16 +293,9 @@ function Board({
   room: BriefingRoom;
   phase: "helmet" | "idle";
   posterSrc: string | null;
-  inbound: BriefingInbound | null;
   heatNumber: number | null;
   target: { level: string; ms: number } | null;
 }) {
-  // A FREE ROOM SHOWS WHAT IS COMING. Idle is the resting state: helmets are done,
-  // the group has gone racing, and the useful thing on the wall is the next heat
-  // inbound. Nothing inbound falls back to helmet sizing, which is always useful —
-  // never an empty panel.
-  const showNext = phase === "idle" && !!inbound && inbound.heatNumber != null;
-
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
       <div
@@ -331,17 +320,20 @@ function Board({
         }}
       />
 
-      {showNext ? (
-        <NextRaceBoard accent={accent} room={room} inbound={inbound!} target={target} />
-      ) : (
-        <HelmetBoard
-          accent={accent}
-          room={room}
-          posterSrc={posterSrc}
-          heatNumber={phase === "helmet" ? heatNumber : null}
-          target={phase === "helmet" ? target : null}
-        />
-      )}
+      {/* A BRIEFING SCREEN SAYS NOTHING ABOUT A RACE UNTIL THAT RACE IS SENT HERE.
+          An earlier pass put the next called heat on the idle board, which on a Mega
+          day announced "NEXT UP Session 32" in BOTH rooms for a session that could
+          only go to one of them (owner 2026-08-11: "this shouldn't show on briefing
+          screen till the race is assigned to that room"). A session that HAS been
+          assigned already has its own board — the take-a-seat one — so there was
+          never a moment this belonged. Idle is helmet sizes. */}
+      <HelmetBoard
+        accent={accent}
+        room={room}
+        posterSrc={posterSrc}
+        heatNumber={phase === "helmet" ? heatNumber : null}
+        target={target}
+      />
     </div>
   );
 }
@@ -439,6 +431,11 @@ function HelmetBoard({
         Find your size on the rack, then take a seat. Staff will fit you before you head out to the
         karts.
       </p>
+      {/* Where results are (owner 2026-08-11). A group leaving the briefing asks it
+          immediately, and the answer is a walk rather than a screen. */}
+      <p style={{ fontSize: 40, color: "rgba(245,236,238,0.6)", margin: 0 }}>
+        Race results are posted outside Red Track.
+      </p>
       {target && <QualifyTarget accent={accent} target={target} />}
 
       <div
@@ -450,75 +447,6 @@ function HelmetBoard({
           background: `linear-gradient(90deg, ${accent}, ${withAlpha(accent, 0)})`,
         }}
       />
-    </div>
-  );
-}
-
-/**
- * WHAT IS COMING TO THIS ROOM NEXT — the third phase.
- *
- * This slot used to be a "who levelled up" board. That is PARKED (owner
- * 2026-08-11: "for qualifying just hold on that, there might be a better way…
- * instead of qualifying you could just show the inbound race to that room"), and
- * the probe backed the decision up: qualifying cutoffs exist per-track only, so
- * nobody can qualify off a Mega lap, and Pandora's records API was 503-ing.
- *
- * The inbound heat always has data, comes from the same warmed keys the track
- * boards read, and is what a room actually wants to know once the film has ended —
- * a group waiting to be called can see how close they are.
- */
-function NextRaceBoard({
-  accent,
-  room,
-  inbound,
-  target,
-}: {
-  accent: string;
-  room: BriefingRoom;
-  inbound: BriefingInbound;
-  target: { level: string; ms: number } | null;
-}) {
-  return (
-    <div
-      style={{
-        position: "absolute",
-        inset: `${PAD_Y}px ${PAD_X}px`,
-        display: "flex",
-        flexDirection: "column",
-        gap: 24,
-        justifyContent: "center",
-      }}
-    >
-      <span className="tv-eyebrow" style={{ color: accent, fontSize: 40 }}>
-        {ROOM_LABEL[room]} · next up
-      </span>
-
-      <div
-        className="tv-display tv-rise"
-        style={{ fontSize: 176, color: "#fff", lineHeight: 0.92 }}
-      >
-        Session {inbound.heatNumber}
-      </div>
-
-      <div style={{ display: "flex", alignItems: "baseline", gap: 28, flexWrap: "wrap" }}>
-        {inbound.raceType && (
-          <span className="tv-display" style={{ fontSize: 78, color: accent }}>
-            {inbound.raceType}
-          </span>
-        )}
-        {inbound.trackLabel && (
-          <span style={{ fontSize: 52, color: "rgba(245,236,238,0.7)" }}>{inbound.trackLabel}</span>
-        )}
-      </div>
-
-      {/* WHERE THE RESULTS ARE (owner 2026-08-11). A group leaving the briefing
-          asks this immediately, and the answer is a walk, not a screen — so the
-          board says it rather than leaving them to find a staff member. */}
-      {target && <QualifyTarget accent={accent} target={target} />}
-
-      <p style={{ fontSize: 44, color: "rgba(245,236,238,0.72)", margin: 0, maxWidth: 1500 }}>
-        Race results are posted outside Red Track.
-      </p>
     </div>
   );
 }
