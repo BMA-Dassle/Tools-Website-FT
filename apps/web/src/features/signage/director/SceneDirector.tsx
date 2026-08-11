@@ -179,6 +179,15 @@ export function SceneDirector({
  * 80-second welcome segment enter once, not once per slot.
  */
 function frameKey(d: SceneDecision): string {
-  const identity = d.event?.id ?? d.vip?.id;
+  // For a takeover the identity is the SET of parties on stage — sorted, so
+  // ordering churn isn't a remount, but a family arriving or leaving is.
+  const identity =
+    d.event?.id ??
+    (d.vips && d.vips.length > 0
+      ? d.vips
+          .map((v) => v.id)
+          .sort()
+          .join("+")
+      : d.vip?.id);
   return identity ? `${d.scene}:${identity}` : `${d.scene}:${d.startedAtMs}`;
 }

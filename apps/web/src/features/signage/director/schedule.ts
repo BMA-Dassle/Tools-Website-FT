@@ -50,8 +50,11 @@ export interface SceneDecision {
   isInterrupt: boolean;
   /** The event a celebration is showing, when that's the decision. */
   event?: SignageEvent;
-  /** The VIP party a takeover is greeting, when that's the decision. */
+  /** The lead VIP party of a takeover (kept for identity/back-compat). */
   vip?: VipEntry;
+  /** EVERY party the takeover is greeting, most urgent first — they all share
+   *  the screen at once (owner 2026-08-11). */
+  vips?: VipEntry[];
 }
 
 /* ── base rotation ────────────────────────────────────────────────────── */
@@ -183,46 +186,39 @@ export function vipCandidatesAt(
   return out;
 }
 
-/** How long each party holds the screen when several are in-window at once. */
-export const VIP_ROTATE_MS = 12_000;
-
 /**
- * Which VIP party is on stage right now, with a STABLE start time.
+ * Everyone on stage right now, with a STABLE start time.
  *
  * Two rules born from the wall, not theory:
  *
- * MULTIPLE PARTIES SHARE THE SCREEN. Two lanes booked in the same hour is
- * normal, and "soonest wins" meant the second party was never greeted at all.
- * With more than one in-window, the stage rotates every VIP_ROTATE_MS on the
- * shared clock — every screen shows the same party at the same moment.
+ * EVERY IN-WINDOW PARTY SHOWS TOGETHER (owner 2026-08-11: "show multiple VIPs
+ * on screen at same time"). Two lanes booked in the same hour is normal;
+ * "soonest wins" meant the second family was never greeted at all, and a
+ * rotation meant whoever glanced up during the other party's turn missed
+ * theirs. The scene lays out however many are in the window; the decision
+ * carries them all, most urgent first.
  *
  * `startedAtMs` MUST NOT TICK. The first version stamped it with `nowMs`, so
  * every 250ms tick looked like a brand-new takeover — the director remounted
  * the scene and replayed its entrance over and over ("the screen is freaking
- * out", owner 2026-08-11). It now anchors to the moment the party's window
- * OPENED (rounded to the minute, so a preview whose fixture drifts a couple of
- * seconds per poll cannot wobble it), or to the rotation boundary when several
- * parties share the stage. Both are pure functions of the clock and the data.
+ * out", owner 2026-08-11). It anchors to the EARLIEST party's window-open
+ * moment, rounded to the minute so a preview fixture that drifts a couple of
+ * seconds per poll cannot wobble it. A pure function of the clock and the
+ * data: it moves only when the set of parties moves, which is a real change.
  */
 export function vipOnStage(
   nowMs: number,
   vips: VipEntry[] | null,
   cfg: ResolvedScreenConfig["vip"],
   stepLabelMatches: (label: string) => boolean,
-): { vip: VipEntry; startedAtMs: number } | null {
+): { vips: VipEntry[]; startedAtMs: number } | null {
   const candidates = vipCandidatesAt(nowMs, vips, cfg, stepLabelMatches);
   if (candidates.length === 0) return null;
 
-  if (candidates.length === 1) {
-    const { vip, minsUntil } = candidates[0];
-    const windowOpenMs = nowMs + minsUntil * 60_000 - cfg.leadMins * 60_000;
-    const startedAtMs = Math.min(nowMs, Math.floor(windowOpenMs / 60_000) * 60_000);
-    return { vip, startedAtMs };
-  }
-
-  const turn = Math.floor(nowMs / VIP_ROTATE_MS);
-  const pick = candidates[((turn % candidates.length) + candidates.length) % candidates.length];
-  return { vip: pick.vip, startedAtMs: turn * VIP_ROTATE_MS };
+  const windowOpens = candidates.map((c) => nowMs + c.minsUntil * 60_000 - cfg.leadMins * 60_000);
+  const earliest = Math.min(...windowOpens);
+  const startedAtMs = Math.min(nowMs, Math.floor(earliest / 60_000) * 60_000);
+  return { vips: candidates.map((c) => c.vip), startedAtMs };
 }
 
 /** Default matcher: the VIP itinerary's bowling leg. */
@@ -239,35 +235,38 @@ export function eventInScope(e: SignageEvent, scopeResourceIds: string[]): boole
 }
 
 /**
- * Is this event big enough to take the WHOLE screen?
+ * Is this event big enough to take THIS screen over?
  *
- * Only the rare, genuinely special ones. Racers scan in bursts — a party of
- * eight can be through the desk in twenty seconds — so a full-screen takeover
- * per scan would queue over a minute of them, bury the session information the
- * screen exists to show, and land the last person's welcome long after they had
- * walked away (owner, 2026-08-11).
+ * The answer depends on which kind of board is asking:
  *
- * Ordinary scans appear instead as a LIVE RAIL of names inside the scene,
- * several at once, while the session stays up. That also earns the takeover its
- * impact: when the whole wall does change, it is somebody's birthday.
+ * KARTING BOARDS celebrate birthdays and nothing else. Racers scan in bursts —
+ * a party of eight is through the desk in twenty seconds — so a takeover per
+ * scan would queue over a minute of them and bury the session the board exists
+ * to show. Ordinary scans live on the rail; the takeover is earned. A birthday
+ * also IGNORES track scope: birthday check-in happens at race check-in
+ * downstairs, which serves both tracks, so both boards run it together
+ * (owner 2026-08-11).
+ *
+ * LOBBY BOARDS celebrate kiosk bookings and check-ins — the guest is standing
+ * at the bank directly below the screen, and reacting to them is the whole
+ * point of hanging it there (owner 2026-08-11: "kiosk interactions can
+ * interrupt"). They do NOT run race-check-in birthdays; that moment belongs to
+ * the boards at the track. In-scope only, so a scoped lobby screen stays
+ * quiet for the far end of the building.
  */
-export function isTakeoverEvent(e: SignageEvent): boolean {
-  return e.birthday === true;
+export function isTakeoverEvent(
+  e: SignageEvent,
+  forRacingBoard: boolean,
+  scopeResourceIds: string[],
+): boolean {
+  if (forRacingBoard) return e.birthday === true; // scope deliberately ignored
+  return (
+    (e.kind === "booking-completed" || e.kind === "checkin-completed") &&
+    eventInScope(e, scopeResourceIds)
+  );
 }
 
-/**
- * The newest event worth taking the whole screen over for.
- *
- * A BIRTHDAY IGNORES TRACK SCOPE. Birthday check-in happens at race check-in
- * downstairs, which serves both tracks — so it is one building-wide moment and
- * BOTH karting boards run it together, whatever track the racer is on and
- * whether or not it is a Mega day (owner 2026-08-11). Scoping it by track is
- * what made only one board light up.
- *
- * But it belongs ONLY to the karting boards — `isRacingBoard`. A lobby TV
- * across the building has no part in a race check-in and must not take itself
- * over for one.
- */
+/** The newest event worth taking this screen over for. */
 export function celebrationAt(
   nowMs: number,
   events: SignageEvent[],
@@ -277,17 +276,15 @@ export function celebrationAt(
   isRacingBoard: boolean,
 ): SignageEvent | null {
   if (!cfg.enabled) return null;
-  if (!isRacingBoard) return null;
   const maxAgeMs = cfg.maxAgeSecs * 1000;
   let best: SignageEvent | null = null;
   for (const e of events) {
     if (seen.has(e.id)) continue;
-    if (!isTakeoverEvent(e)) continue;
+    if (!isTakeoverEvent(e, isRacingBoard, scopeResourceIds)) continue;
     const age = nowMs - e.atMs;
     // Guard both ends: a future-stamped event (clock skew on the writer) is as
     // untrustworthy as an ancient one.
     if (age < -5_000 || age > maxAgeMs) continue;
-    // NB: deliberately no scope check — see the note above.
     if (!best || e.atMs > best.atMs) best = e;
   }
   return best;
@@ -390,7 +387,8 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
       startedAtMs: vip.startedAtMs,
       durationMs: null,
       isInterrupt: true,
-      vip: vip.vip,
+      vip: vip.vips[0],
+      vips: vip.vips,
     };
   }
 

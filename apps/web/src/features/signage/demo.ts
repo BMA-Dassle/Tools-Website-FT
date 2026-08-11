@@ -71,33 +71,34 @@ function demoEvents(nowMs: number): WelcomeEntry[] {
   }));
 }
 
-/** A combo whose bowling leg is 8 minutes out — inside the real takeover
- *  window, so the genuine scheduling logic is what puts it on screen. */
+/** TWO combos inside the takeover window — the preview shows the multi-party
+ *  layout, because that is the case that needs reviewing (owner 2026-08-11:
+ *  "show multiple VIPs on screen at same time"). The real scheduling logic is
+ *  still what puts them on screen. */
 function demoVip(nowMs: number): VipEntry[] {
-  return [
-    {
-      id: "demo-vip",
-      title: "Sarah",
-      comboName: "VIP Experience",
-      playerCount: 6,
-      schedule: [
-        {
-          label: "Starter Race",
-          iso: new Date(nowMs - 40 * 60_000).toISOString(),
-          lane: null,
-          location: "FastTrax Fort Myers",
-          durationMin: 20,
-        },
-        {
-          label: "VIP Bowling",
-          iso: new Date(nowMs + 8 * 60_000).toISOString(),
-          lane: "11",
-          location: "HeadPinz Fort Myers",
-          durationMin: 90,
-        },
-      ],
-    },
-  ];
+  const party = (id: string, title: string, lane: string, bowlInMins: number): VipEntry => ({
+    id,
+    title,
+    comboName: "VIP Experience",
+    playerCount: 6,
+    schedule: [
+      {
+        label: "Starter Race",
+        iso: new Date(nowMs - 40 * 60_000).toISOString(),
+        lane: null,
+        location: "FastTrax Fort Myers",
+        durationMin: 20,
+      },
+      {
+        label: "VIP Bowling",
+        iso: new Date(nowMs + bowlInMins * 60_000).toISOString(),
+        lane,
+        location: "HeadPinz Fort Myers",
+        durationMin: 90,
+      },
+    ],
+  });
+  return [party("demo-vip-a", "Sarah", "11", 8), party("demo-vip-b", "Marcus", "12", 6)];
 }
 
 /**

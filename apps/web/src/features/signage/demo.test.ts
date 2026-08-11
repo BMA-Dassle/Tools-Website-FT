@@ -53,9 +53,9 @@ describe("pushed previews", () => {
     expect(parseDemoMode("nonsense")).toBe("off");
   });
 
-  it("a VIP preview puts a party on the feed", () => {
+  it("a VIP preview puts BOTH demo parties on the feed", () => {
     const decorated = applyDemo(baseFeed(now), "vip", now);
-    expect(decorated?.vip?.length).toBe(1);
+    expect(decorated?.vip?.length).toBe(2);
     expect(sceneHasData("vip-welcome", decorated)).toBe(true);
   });
 
@@ -72,7 +72,9 @@ describe("pushed previews", () => {
       seenEventIds: new Set(),
     });
     expect(decision.scene).toBe("vip-welcome");
-    expect(decision.vip?.title).toBe("Sarah");
+    // Marcus's bowling leg is 6 minutes out to Sarah's 8, so he leads — and
+    // BOTH are on stage at once.
+    expect(decision.vips?.map((v) => v.title)).toEqual(["Marcus", "Sarah"]);
   });
 
   it("a preview WINS over a live birthday — press the button, see that scene", () => {
@@ -113,7 +115,7 @@ describe("pushed previews", () => {
     const mode = effectiveDemoMode(feed, "off");
     expect(mode).toBe("vip");
     const decorated = applyDemo(feed, mode, now);
-    expect(decorated?.vip?.length).toBe(1);
+    expect(decorated?.vip?.length).toBe(2);
     expect(sceneHasData("vip-welcome", decorated)).toBe(true);
   });
 

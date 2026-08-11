@@ -784,7 +784,7 @@ function ScreenForm({
           checked={draft.showAds}
           onChange={(v) => set("showAds", v)}
           label="House advertising"
-          hint="What the kiosks below can sell. Never advertises a product that's currently paused."
+          hint="What the kiosks below can sell; never a paused product. UNTICKED, ads still fill in whenever nothing else has anything to show — a wall never goes blank — so leave this off to make events the priority and ads the fallback."
         />
         <Check
           checked={draft.showRecordsQr}

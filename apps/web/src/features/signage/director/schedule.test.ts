@@ -15,7 +15,6 @@ import {
   recentScans,
   vipCandidatesAt,
   vipOnStage,
-  VIP_ROTATE_MS,
   isBowlingStep,
   minutesUntil,
   resolveActiveScene,
@@ -188,7 +187,7 @@ describe("VIP window + stage", () => {
     vipAt(new Date(now + mins * 60_000).toISOString(), id);
 
   it("greets inside the window", () => {
-    expect(vipOnStage(now, [bowlingIn(8)], cfg, isBowlingStep)?.vip.title).toBe("Sarah");
+    expect(vipOnStage(now, [bowlingIn(8)], cfg, isBowlingStep)?.vips[0].title).toBe("Sarah");
   });
 
   it("stays quiet before the lead", () => {
@@ -234,25 +233,21 @@ describe("VIP window + stage", () => {
     expect(a!.startedAtMs).toBeLessThanOrEqual(now);
   });
 
-  it("BOTH overlapping parties get the stage, sharing it on the clock", () => {
+  it("BOTH overlapping parties are on stage AT ONCE, most urgent first", () => {
     // "Soonest wins" meant a second party booked the same hour was never
-    // greeted at all (owner: "how are you handling multiple VIPs?"). With two
-    // in-window the stage rotates every VIP_ROTATE_MS.
+    // greeted at all, and a rotation meant whoever glanced up during the other
+    // party's turn missed theirs (owner 2026-08-11: "show multiple VIPs on
+    // screen at same time"). The decision carries them all.
     const vips = [bowlingIn(9, "party-a"), bowlingIn(5, "party-b")];
-    const seen = new Set<string>();
-    for (let t = 0; t < VIP_ROTATE_MS * 4; t += VIP_ROTATE_MS) {
-      const on = vipOnStage(now + t, vips, cfg, isBowlingStep);
-      if (on) seen.add(on.vip.id);
-    }
-    expect(seen).toEqual(new Set(["party-a", "party-b"]));
+    const on = vipOnStage(now, vips, cfg, isBowlingStep);
+    expect(on?.vips.map((v) => v.id)).toEqual(["party-b", "party-a"]);
   });
 
-  it("two screens agree who is on stage at the same instant", () => {
+  it("the shared start is stable while the same parties hold the stage", () => {
     const vips = [bowlingIn(9, "party-a"), bowlingIn(5, "party-b")];
-    const t = now + 3_777;
-    expect(vipOnStage(t, vips, cfg, isBowlingStep)?.vip.id).toBe(
-      vipOnStage(t, vips, cfg, isBowlingStep)?.vip.id,
-    );
+    const a = vipOnStage(now, vips, cfg, isBowlingStep);
+    const b = vipOnStage(now + 30_000, vips, cfg, isBowlingStep);
+    expect(a?.startedAtMs).toBe(b?.startedAtMs);
   });
 
   it("is silent when disabled or fed nothing", () => {
@@ -273,7 +268,11 @@ describe("VIP window + stage", () => {
 describe("celebrationAt — full-screen takeovers only", () => {
   const cfg = resolveScreenConfig({}, "HPFM").celebration; // 90s, 8s show
   const now = 1_000_000;
-  const bday = (over: Partial<SignageEvent> = {}) => evt({ birthday: true, ...over });
+  // Birthdays arrive from the race-check-in scan seam, so the fixture carries
+  // that kind — a lobby board must ignore them by KIND, and the booking events
+  // it does celebrate are covered separately below.
+  const bday = (over: Partial<SignageEvent> = {}) =>
+    evt({ kind: "racer-scanned", birthday: true, ...over });
 
   it("does NOT take the screen over for an ordinary scan", () => {
     // Racers scan in bursts. A takeover each would queue a minute of them and
@@ -335,6 +334,47 @@ describe("celebrationAt — full-screen takeovers only", () => {
   it("does NOT fire on a screen that is not a karting board", () => {
     // A lobby TV across the building has no part in a race check-in.
     expect(celebrationAt(now, [bday({ atMs: now - 1_000 })], cfg, [], new Set(), false)).toBeNull();
+  });
+
+  it("a LOBBY board celebrates kiosk bookings and check-ins", () => {
+    // The guest is standing at the bank directly below the screen — reacting
+    // to them is the point of hanging it there (owner: "kiosk interactions can
+    // interrupt").
+    const booking = evt({ kind: "booking-completed", atMs: now - 1_000 });
+    const checkin = evt({ id: "e2", kind: "checkin-completed", atMs: now - 500 });
+    expect(celebrationAt(now, [booking], cfg, [], new Set(), false)?.id).toBe("e1");
+    expect(celebrationAt(now, [checkin], cfg, [], new Set(), false)?.id).toBe("e2");
+  });
+
+  it("a KARTING board ignores kiosk bookings — its takeover is birthdays only", () => {
+    const booking = evt({ kind: "booking-completed", atMs: now - 1_000 });
+    expect(celebrationAt(now, [booking], cfg, [], new Set(), true)).toBeNull();
+  });
+
+  it("an ordinary racer scan is never a takeover anywhere", () => {
+    const scan = evt({ kind: "racer-scanned", atMs: now - 1_000 });
+    expect(celebrationAt(now, [scan], cfg, [], new Set(), true)).toBeNull();
+    expect(celebrationAt(now, [scan], cfg, [], new Set(), false)).toBeNull();
+  });
+});
+
+describe("events-first mode — ads as pure filler", () => {
+  // Ads UNTICKED: the playlist is just the data-gated welcome board. The
+  // owner's ask (2026-08-11): "ads shown only when no events or vips". Pinned
+  // as a contract, not an accident of the empty-playlist fallback.
+  const eventsFirst = resolveScreenConfig(
+    { playlist: [{ scene: "event-welcome", slots: 2, requiresData: true }] },
+    "HPFM",
+  );
+
+  it("with parties today, the board is welcome wall to wall — zero ads", () => {
+    const segs = buildRotation(eventsFirst.playlist, always);
+    expect(segs.map((x) => x.scene)).toEqual(["event-welcome"]);
+  });
+
+  it("with no parties, ads fill in — a wall never goes blank", () => {
+    const segs = buildRotation(eventsFirst.playlist, never);
+    expect(segs.map((x) => x.scene)).toEqual(["ads"]);
   });
 });
 

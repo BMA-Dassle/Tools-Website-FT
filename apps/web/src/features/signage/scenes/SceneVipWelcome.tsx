@@ -22,10 +22,12 @@ const GOLD_SOFT = "#e8b14c";
 const PARTICLES = 36;
 
 export function SceneVipWelcome({ decision }: SceneProps) {
-  const vip = decision.vip;
-  if (!vip) return null;
-
-  const step = bowlingStep(vip);
+  // Every in-window party shares the screen at once (owner 2026-08-11) —
+  // "soonest wins" left the second family ungreeted, and a rotation meant
+  // whoever glanced up during the other party's turn missed their own name.
+  const parties = decision.vips?.length ? decision.vips : decision.vip ? [decision.vip] : [];
+  if (parties.length === 0) return null;
+  const eyebrow = parties[0].comboName || "VIP Experience";
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
@@ -78,34 +80,17 @@ export function SceneVipWelcome({ decision }: SceneProps) {
           className="tv-eyebrow"
           style={{ color: GOLD_SOFT, fontSize: 30, letterSpacing: "0.32em" }}
         >
-          {/* Rebranded 2026-08-10: it is "VIP Experience" now, not "The
-              Ultimate VIP Experience" (owner). The live comboName wins when the
-              feed carries one; this is only the fallback. */}
-          {vip.comboName || "VIP Experience"}
+          {/* Rebranded 2026-08-10: "VIP Experience", not "The Ultimate VIP
+              Experience" (owner). The live comboName wins when the feed
+              carries one; this is only the fallback. */}
+          {eyebrow}
         </div>
 
-        <div
-          className="tv-display tv-rise"
-          style={{
-            fontSize: 180,
-            lineHeight: 0.92,
-            textAlign: "center",
-            whiteSpace: "nowrap",
-            background: `linear-gradient(180deg, #f5ecee 48%, ${GOLD})`,
-            WebkitBackgroundClip: "text",
-            backgroundClip: "text",
-            color: "transparent",
-          }}
-        >
-          {vip.title}
-        </div>
-
-        {/* No countdown (owner 2026-08-11: "doesn't need the in 8 min"). This
-            is a greeting, not a schedule — the party already knows their time,
-            and a number on a gold takeover reads as pressure. */}
-        <div className="tv-display" style={{ fontSize: 62, color: "#fff", textAlign: "center" }}>
-          VIP bowling{step?.lane ? ` · Lane ${step.lane}` : ""}
-        </div>
+        {/* One block per party, all on screen together. No countdown (owner:
+            "doesn't need the in 8 min") — a greeting, not a schedule. */}
+        {parties.map((vip, i) => (
+          <PartyName key={vip.id} vip={vip} count={parties.length} index={i} />
+        ))}
       </div>
     </div>
   );
@@ -113,6 +98,55 @@ export function SceneVipWelcome({ decision }: SceneProps) {
 
 function bowlingStep(vip: VipEntry): VipStep | null {
   return vip.schedule.find((s) => isBowlingStep(s.label)) ?? null;
+}
+
+/**
+ * One party's name and lane. Sized to FIT, painted so it cannot clip.
+ *
+ * Two separate cut-off bugs live in naive versions of this block, and both have
+ * now happened on the real wall (owner 2026-08-11, twice):
+ *
+ *  1. LENGTH. A fixed 180px with nowrap fits "SARAH" and runs off the canvas
+ *     for "Alexandria's". The size is derived from the name length and the
+ *     available width — deterministic, no measuring, same on every screen.
+ *  2. PAINT. background-clip:text with a sub-1 line-height slices glyph paint
+ *     at the line box on a transform-scaled canvas — italic overhang and the
+ *     gradient bottom go missing. Line-height ≥ 1 plus em-padding gives the
+ *     glyphs room; the flex parent does not clip.
+ */
+function PartyName({ vip, count, index }: { vip: VipEntry; count: number; index: number }) {
+  const step = bowlingStep(vip);
+  // Canvas 1920 minus the 96px side padding on each side.
+  const budgetPx = 1920 - 2 * 96;
+  const maxPx = count === 1 ? 180 : count === 2 ? 128 : 96;
+  // Exo 2 800 italic uppercase runs ~0.68em average advance per glyph.
+  const fitted = Math.min(maxPx, Math.floor(budgetPx / (0.68 * Math.max(4, vip.title.length))));
+
+  return (
+    <div className="tv-rise" style={{ textAlign: "center", animationDelay: `${index * 120}ms` }}>
+      <div
+        className="tv-display"
+        style={{
+          fontSize: fitted,
+          lineHeight: 1.04,
+          padding: "0 0.14em",
+          whiteSpace: "nowrap",
+          background: `linear-gradient(180deg, #f5ecee 48%, ${GOLD})`,
+          WebkitBackgroundClip: "text",
+          backgroundClip: "text",
+          color: "transparent",
+        }}
+      >
+        {vip.title}
+      </div>
+      <div
+        className="tv-display"
+        style={{ fontSize: count === 1 ? 62 : 40, color: "#fff", marginTop: count === 1 ? 8 : 2 }}
+      >
+        VIP bowling{step?.lane ? ` · Lane ${step.lane}` : ""}
+      </div>
+    </div>
+  );
 }
 
 /**
