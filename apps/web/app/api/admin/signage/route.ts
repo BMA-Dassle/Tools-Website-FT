@@ -6,7 +6,12 @@ import {
   saveSignageScreen,
   deleteSignageScreen,
 } from "~/features/signage/data/signage-screens-db";
-import { recordSignageEvent, requestScreenReload } from "~/features/signage/events.server";
+import {
+  recordSignageEvent,
+  requestScreenReload,
+  requestScreenDemo,
+  clearScreenDemo,
+} from "~/features/signage/events.server";
 import { parseScreenKey, VENUE_INFO, type SignageVenue } from "~/features/signage/constants";
 import { buildStartupScript, startupScriptFileName } from "~/features/signage/startup-script";
 import type { ScreenConfig } from "~/features/signage/types";
@@ -107,6 +112,7 @@ export async function POST(req: NextRequest) {
     track?: string;
     vip?: boolean;
     birthday?: boolean;
+    mode?: string;
   };
   try {
     body = await req.json();
@@ -134,6 +140,21 @@ export async function POST(req: NextRequest) {
       activityKeys: ["bowling"],
       atMs: Date.now(),
     });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "preview") {
+    // Push a preview ONTO the screen, rather than opening a page here. The
+    // point of a preview is to see it on the wall it is going on.
+    if (!body.screenId) return NextResponse.json({ error: "screenId required" }, { status: 400 });
+    const mode = body.mode ?? "";
+    if (mode === "off") {
+      await clearScreenDemo(body.screenId);
+    } else if (["race", "vip", "event"].includes(mode)) {
+      await requestScreenDemo(body.screenId, mode);
+    } else {
+      return NextResponse.json({ error: "unknown preview mode" }, { status: 400 });
+    }
     return NextResponse.json({ ok: true });
   }
 

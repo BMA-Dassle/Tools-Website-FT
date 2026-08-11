@@ -102,11 +102,19 @@ export const TV_W = 1920;
 export const TV_H = 1080;
 
 /**
- * How often the TV polls /api/tv/feed. 10s matches the reservations board's
- * cadence and bounds celebration latency; the server caches per-center for 30s,
- * so the poll cost is flat no matter how many screens are hanging.
+ * TWO CADENCES, because the two halves of the feed cost very different amounts.
+ *
+ * The PULSE is scans, birthdays, wrong-race notices, reload and preview
+ * commands — three Redis reads, nothing else. It runs fast so a racer's name
+ * reaches the wall while they are still standing at the desk; ten seconds felt
+ * like the screen had not noticed them.
+ *
+ * The FULL feed carries the party board, the VIP roster and the heat's
+ * checked-in count, which touch Neon and BMI. Those change on the order of
+ * minutes and have no business running at the pulse rate.
  */
-export const TV_POLL_MS = 10_000;
+export const TV_PULSE_MS = 2_000;
+export const TV_POLL_MS = 15_000;
 
 /** Deploy-check cadence. A TV has no between-guest boundary like a kiosk, so
  *  it checks on a timer and reloads at a scene boundary (never mid-takeover). */

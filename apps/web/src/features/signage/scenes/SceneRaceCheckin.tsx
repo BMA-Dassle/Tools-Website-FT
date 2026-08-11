@@ -54,6 +54,10 @@ const STANDBY_AFTER_MS = 30_000;
 /** How long a wrong-race notice stays up. Long enough to read twice. */
 const WRONG_RACE_SHOW_MS = 12_000;
 
+/** How long a newly-called heat gets the attention treatment. Long enough for
+ *  someone at the far end of the arcade to look up and read it. */
+const JUST_CALLED_MS = 45_000;
+
 export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
   const status = useTrackStatus();
 
@@ -97,6 +101,13 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
     SCAN_RAIL_WINDOW_MS,
     SCAN_RAIL_LIMIT,
   );
+  // A heat has JUST been called. This is the moment the board has to be seen
+  // from across the room — it is the only warning a racer gets that their race
+  // is up, and someone half-watching from the arcade needs to catch it.
+  const calledAgoMs = race?.calledAt ? nowMs - Date.parse(race.calledAt) : Number.POSITIVE_INFINITY;
+  const justCalled =
+    Number.isFinite(calledAgoMs) && calledAgoMs >= 0 && calledAgoMs < JUST_CALLED_MS;
+
   // Quiet for a while ⇒ standby: clear the rail and give the session the wall.
   const busy = scans.length > 0 && nowMs - scans[0].atMs < STANDBY_AFTER_MS;
 
@@ -115,6 +126,37 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
+      {/* JUST CALLED. A full-frame accent flood breathing over everything, plus
+          a thick border — deliberately hard to ignore, and it retires itself
+          after JUST_CALLED_MS so the board is not shouting all night. */}
+      {justCalled && (
+        <>
+          <div
+            aria-hidden
+            className="tv-breathe"
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: `radial-gradient(80% 70% at 50% 50%, ${withAlpha(accent, 0.55)}, transparent 75%)`,
+              zIndex: 2,
+              pointerEvents: "none",
+            }}
+          />
+          <div
+            aria-hidden
+            className="tv-breathe"
+            style={{
+              position: "absolute",
+              inset: 0,
+              border: `14px solid ${accent}`,
+              boxShadow: `inset 0 0 120px ${withAlpha(accent, 0.7)}`,
+              zIndex: 3,
+              pointerEvents: "none",
+            }}
+          />
+        </>
+      )}
+
       {/* Track identity wash — the screen should read as "Blue" from the door. */}
       <div
         aria-hidden
@@ -158,6 +200,7 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
           <CheckingIn
             race={race}
             accent={accent}
+            justCalled={justCalled}
             standby={!busy}
             checkedIn={feed?.raceCheckin?.checkedIn ?? null}
             total={feed?.raceCheckin?.total ?? null}
@@ -186,12 +229,14 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
 function CheckingIn({
   race,
   accent,
+  justCalled,
   standby,
   checkedIn,
   total,
 }: {
   race: NonNullable<ReturnType<typeof useTrackStatus>>["currentRaces"]["blue"];
   accent: string;
+  justCalled: boolean;
   standby: boolean;
   checkedIn: number | null;
   total: number | null;
@@ -208,8 +253,11 @@ function CheckingIn({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 26 }}>
-        <span className="tv-eyebrow" style={{ color: accent, fontSize: 36 }}>
-          Now checking in
+        <span
+          className={justCalled ? "tv-eyebrow tv-blink" : "tv-eyebrow"}
+          style={{ color: justCalled ? "#fff" : accent, fontSize: justCalled ? 46 : 36 }}
+        >
+          {justCalled ? "Your race is called" : "Now checking in"}
         </span>
         {/* Progress through the heat. Reassuring for a party watching their
             group arrive, and the number the desk actually wants. Hidden rather
@@ -461,10 +509,9 @@ function WrongRaceNotice({ event }: { event: { firstName?: string; theirRaceLabe
 /* ── VIP ──────────────────────────────────────────────────────────────── */
 
 /**
- * VIP parties do not go where everyone else goes — they are met in the VIP room
- * in the in-field. The wording matches the SMS they already received
- * (VIP_WHERE_SMS in the check-in alerts cron), so the screen and the text on
- * their phone say the same thing.
+ * VIP parties do not go where everyone else goes — they head to the in-field
+ * (owner 2026-08-11: "head to the in-field as a VIP", not "the VIP room in the
+ * in-field"). One destination, named the way staff name it on the floor.
  *
  * Names them when we have names, because "Sarah — head to the in-field" is
  * unmistakably for them, where a generic banner is something a VIP party will
@@ -505,7 +552,7 @@ function VipInfieldBanner({ names }: { names: string[] }) {
         }}
       />
       <span className="tv-display" style={{ fontSize: 44, color: gold }}>
-        {who} — head to the VIP room in the in-field
+        {who} — head to the in-field
       </span>
     </div>
   );

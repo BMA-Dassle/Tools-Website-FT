@@ -362,36 +362,42 @@ function ScreenRow({
         >
           Simulate wrong race
         </button>
-        <a
-          href={`/tv?screen=${encodeURIComponent(screen.screenId)}&demo=race`}
-          target="_blank"
-          rel="noreferrer"
-          style={{ ...btn, textDecoration: "none", display: "inline-block" }}
+        <button
+          type="button"
+          onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "race" })}
+          style={btn}
+          disabled={busy}
+          title="Show a live-looking session ON THIS SCREEN for 90 seconds"
         >
-          Preview with a session
-        </a>
-        <a
-          href={`/tv?screen=${encodeURIComponent(screen.screenId)}&demo=vip`}
-          target="_blank"
-          rel="noreferrer"
-          style={{
-            ...btn,
-            textDecoration: "none",
-            display: "inline-block",
-            borderColor: "#d4af37",
-            color: "#d4af37",
-          }}
+          Preview session
+        </button>
+        <button
+          type="button"
+          onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "vip" })}
+          style={{ ...btn, borderColor: "#d4af37", color: "#d4af37" }}
+          disabled={busy}
+          title="Show the VIP takeover on this screen"
         >
           Preview VIP
-        </a>
-        <a
-          href={`/tv?screen=${encodeURIComponent(screen.screenId)}&demo=event`}
-          target="_blank"
-          rel="noreferrer"
-          style={{ ...btn, textDecoration: "none", display: "inline-block" }}
+        </button>
+        <button
+          type="button"
+          onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "event" })}
+          style={btn}
+          disabled={busy}
+          title="Show the party welcome board on this screen"
         >
-          Preview welcome board
-        </a>
+          Preview welcome
+        </button>
+        <button
+          type="button"
+          onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "off" })}
+          style={btn}
+          disabled={busy}
+          title="Return this screen to normal now"
+        >
+          End preview
+        </button>
         <button type="button" onClick={onEdit} style={btn} disabled={busy}>
           Edit
         </button>

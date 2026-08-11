@@ -21,7 +21,12 @@ import { pausedProductIds } from "~/features/maintenance";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { loadSignageScreen } from "../data/signage-screens-db";
 import { parseScreenKey, VENUE_INFO } from "../constants";
-import { signageEventsKey, readSignageEvents, reloadRequestedAt } from "../events.server";
+import {
+  signageEventsKey,
+  readSignageEvents,
+  reloadRequestedAt,
+  demoRequestedFor,
+} from "../events.server";
 import { resolveScreenConfig } from "../defaults";
 import { trackFromResourceIds } from "../track";
 import { raceCheckinInfo } from "./race-checkin";
@@ -63,6 +68,7 @@ export async function buildTvFeed(screenIdRaw: string | null): Promise<TvFeed> {
     raceCheckin: null,
     pausedProductIds: safePaused(),
     reloadAt: null,
+    demoMode: null,
     degraded: false,
   };
 
@@ -80,6 +86,7 @@ export async function buildTvFeed(screenIdRaw: string | null): Promise<TvFeed> {
   // cache TTL. One LRANGE is cheap enough to do per screen per poll.
   const kioskEvents = await readSignageEvents(center).catch(() => []);
   const reloadAt = await reloadRequestedAt(center).catch(() => null);
+  const demoMode = await demoRequestedFor(screen.screenId).catch(() => null);
 
   // Track screens only: who is on the heat checking in right now. Everything
   // else the scene needs it fetches itself from the endpoints the website uses.
@@ -110,6 +117,7 @@ export async function buildTvFeed(screenIdRaw: string | null): Promise<TvFeed> {
     screen,
     kioskEvents,
     reloadAt,
+    demoMode,
     raceCheckin,
     events,
     // `vip` (the bowling-leg takeover) lands with the next scene.
@@ -128,6 +136,33 @@ function safePaused(): string[] {
     // guessing wrong here is one advert for a paused product, not an outage.
     return [];
   }
+}
+
+/**
+ * The LIVE half of the feed: only the things that change second to second.
+ *
+ * Three Redis reads and nothing else — no Neon, no BMI. That is what lets the
+ * screens poll it every couple of seconds so a scan lands on the wall while the
+ * racer is still standing at the desk, without putting the party board's
+ * database work on the same cadence.
+ */
+export async function buildTvPulse(screenIdRaw: string | null): Promise<{
+  now: number;
+  kioskEvents: TvFeed["kioskEvents"];
+  reloadAt: number | null;
+  demoMode: string | null;
+}> {
+  const now = Date.now();
+  const parsed = parseScreenKey(screenIdRaw);
+  if (!parsed || !screenIdRaw) return { now, kioskEvents: [], reloadAt: null, demoMode: null };
+
+  const center = VENUE_INFO[parsed.venue]?.center ?? "fort-myers";
+  const [kioskEvents, reloadAt, demoMode] = await Promise.all([
+    readSignageEvents(center).catch(() => []),
+    reloadRequestedAt(center).catch(() => null),
+    demoRequestedFor(screenIdRaw).catch(() => null),
+  ]);
+  return { now, kioskEvents, reloadAt, demoMode };
 }
 
 export { signageEventsKey };

@@ -285,6 +285,9 @@ export interface TvFeed {
   /** Set when staff asked the screens to reload. A screen reloads if this is
    *  newer than its own boot. Null when nobody has asked. */
   reloadAt: number | null;
+  /** A preview pushed to THIS screen from the admin page. Expires on its own,
+   *  so a wall cannot be left showing fabricated guests. */
+  demoMode: string | null;
   /** True when an upstream failed and sections were dropped. */
   degraded: boolean;
 }

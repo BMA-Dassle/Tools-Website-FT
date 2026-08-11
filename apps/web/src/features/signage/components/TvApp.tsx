@@ -110,8 +110,13 @@ export function TvApp() {
     }
   }, [reloadAt]);
 
-  // Demo fixtures decorate the feed on a TEST screen only, and only in this
-  // tab — never written, never published. See ../demo.ts.
+  // A preview pushed from the admin page wins over a `?demo=` typed into this
+  // tab: the point is that staff can drive a wall from their phone. It carries
+  // its own expiry (Redis TTL), so a screen returns to normal on its own.
+  const effectiveDemo: DemoMode =
+    parseDemoMode(rawFeed?.demoMode ?? null) !== "off"
+      ? parseDemoMode(rawFeed?.demoMode ?? null)
+      : demo;
   // Anchored to the feed's own server timestamp rather than a render-time
   // clock read: stable across re-renders, and it advances with each poll.
   const feed = useMemo(() => applyDemo(rawFeed, demo, rawFeed?.now ?? 0), [rawFeed, demo]);
@@ -152,7 +157,7 @@ export function TvApp() {
           venue={venue}
           config={config}
           asleep={asleep}
-          demo={demo}
+          demo={effectiveDemo}
           onDecision={setDecision}
         />
       </TvShell>

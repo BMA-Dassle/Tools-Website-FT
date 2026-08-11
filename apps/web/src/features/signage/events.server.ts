@@ -106,3 +106,44 @@ export async function reloadRequestedAt(center: string): Promise<number | null> 
     return null;
   }
 }
+
+/* ── pushed preview ───────────────────────────────────────────────────── */
+
+/**
+ * How long a pushed preview lasts. Deliberately short and enforced by the Redis
+ * TTL rather than by anything remembering to clear it: a screen showing
+ * fabricated guests cannot be left that way by a distracted staff member, a
+ * closed laptop, or a crash. It expires on its own.
+ */
+const DEMO_TTL_SECONDS = 90;
+
+function demoKey(screenId: string): string {
+  return `signage:demo:${screenId}`;
+}
+
+/** Put one screen into a preview mode, on the wall, for DEMO_TTL_SECONDS. */
+export async function requestScreenDemo(screenId: string, mode: string): Promise<void> {
+  try {
+    await redis.set(demoKey(screenId), mode, "EX", DEMO_TTL_SECONDS);
+  } catch {
+    /* preview is a convenience — never worth surfacing an error for */
+  }
+}
+
+/** Clear a preview early. */
+export async function clearScreenDemo(screenId: string): Promise<void> {
+  try {
+    await redis.del(demoKey(screenId));
+  } catch {
+    /* it expires on its own regardless */
+  }
+}
+
+/** The preview a screen should currently be showing, if any. */
+export async function demoRequestedFor(screenId: string): Promise<string | null> {
+  try {
+    return await redis.get(demoKey(screenId));
+  } catch {
+    return null;
+  }
+}

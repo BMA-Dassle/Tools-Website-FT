@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { buildTvFeed } from "~/features/signage/service/feed";
+import { buildTvFeed, buildTvPulse } from "~/features/signage/service/feed";
 import { signageEnabled } from "~/features/signage/flags";
 
 /**
@@ -25,6 +25,21 @@ export async function GET(req: NextRequest) {
 
   const screen = req.nextUrl.searchParams.get("screen");
 
+  // Fast lane: the live half only. Screens poll this every couple of seconds so
+  // a scan reaches the wall while the racer is still at the desk; the full
+  // feed, which touches Neon and BMI, stays on a slower cadence.
+  if (req.nextUrl.searchParams.get("pulse")) {
+    try {
+      const pulse = await buildTvPulse(screen);
+      return NextResponse.json(pulse, { headers: { "Cache-Control": "no-store" } });
+    } catch {
+      return NextResponse.json(
+        { now: Date.now(), kioskEvents: [], reloadAt: null, demoMode: null },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+  }
+
   try {
     const feed = await buildTvFeed(screen);
     return NextResponse.json(feed, {
@@ -43,6 +58,7 @@ export async function GET(req: NextRequest) {
         kioskEvents: [],
         pausedProductIds: [],
         reloadAt: null,
+        demoMode: null,
         degraded: true,
       },
       { headers: { "Cache-Control": "no-store" } },
