@@ -1,7 +1,8 @@
 # HeadPinz Birthday Parties — Online Booking (PLAN)
 
 **Status:** PLAN ONLY — no implementation on this branch. Branch `feat/party-catalog` carries this
-write-up so a future session can pick it up at PR-P1.
+write-up so a future session can pick it up at PR-P1. **See § 9 (2026-08-10)** for the BMI
+party-product probe results and the settled BMI-integration decision — it amends § 3/PR-P4/PR-P5.
 **Source:** `HeadPinz_Party_FAQs_Flow_Timeline_1.pdf`, revision of 2026-08-06 (owner-supplied FAQs,
 staff intake script, and two run-of-show timelines).
 **Owner decisions captured:** data model, pricing model, arena inventory, and manage-surface scope
@@ -537,3 +538,89 @@ party row with populated `booking_metadata.party`; `reservation_saved_cards` has
 the full recap; the waiver link resolves (Silver/VIP) and the roster shows the signer. Then force a
 balance decline with a Square test card and confirm it **retries** to the attempt cap before falling
 back to a payment link — the specific bug the GF cron has.
+
+---
+
+## 9. BMI party products + integration decision (2026-08-10 — amends § 3, PR-P4, PR-P5)
+
+Owner created **9 BMI products** for parties (Bronze/Silver/VIP × Group 1-3, **each Group = 10
+guests**) on the private webshop page **"Web - BIrthdays", pageId `58417254`**
+(`booking.bmileisure.com/headpinzftmyers?pageId=58417254`). Probed live the same day —
+reusable tool: [party-bmi-product-probe.mts](../apps/web/scripts/party-bmi-product-probe.mts)
+(read-only sweep; `APPLY=1` runs one book→verify→cancel round-trip).
+
+### Product facts (verified via SMS-rail `page/availability`)
+
+| Tier | Group 1 / 2 / 3 | $/group | Lane resource pool |
+|---|---|---|---|
+| Bronze | 30732175 / 30732328 / 30732339 | $174.50 | 350954 "HP Regular Lanes" |
+| Silver | 30731757 / 30732113 / 30732144 | $214.50 | 350954 "HP Regular Lanes" |
+| VIP | 30645244 / 30725470 / 30731593 | $324.50 | 310752 "HP VIP Lanes" |
+
+Group price = exactly **half** the published 2-lane package price. All kind 2 (Entry), `isCombo`,
+`bookingMode 0`, `saleMode 1`.
+
+### Probe results (VIP verified end-to-end; test bills cancelled)
+
+- **Invisible to both public BMI APIs** — `/products` and `/page?date` return `[]` on
+  `api.bmileisure.com` AND `public-api22`; GET availability-days says FullyBooked every day.
+  The products exist ONLY on the SMS-Timing rail: slots via `POST dayplanner/dayplanner`
+  (`/api/sms` proxy) with `{productId, pageId: '58417254', quantity: 1, dynamicLines: null, date}`.
+- Proposals = (start × lane-session) pairs: **90-min sessions on a 15-min grid, 24 h/day**
+  (ignores center hours — the flow must filter to business hours). Response ignores the
+  requested hour; it's a whole-day list.
+- **Book/cancel round-trip works** (via `/api/bmi` raw-safe proxy `booking/book`): bill
+  `63…547` got schedule "Birthday VIP Bowling" 14:00–15:30 on res 312255; freeSpots 8→7;
+  `DELETE bill/{id}/cancel` → restored. Chaining Group 1+2 on ONE bill (raw-inject
+  `{"orderId":…}`) auto-assigned each group its **own lane resource** (312255, 312258) —
+  no DynamicLines needed; that IS the "asks what lanes" mechanic.
+- **Traps:** `booking/book` returns `schedules:[]`, `prices:[]`, `orderItemId:0` even on
+  success — truth lives in `bill/overview`. The `/api/sms` proxy re-serializes JSON
+  (17-digit id corruption) — book through `/api/bmi`, read display fields only via `/api/sms`.
+- **⚠ Lines book at $0.00** despite page prices — fine if BMI stays calendar-only (Square owns
+  money) but owner must confirm intentional. `persons` records 1, not 10. VIP session is 90 min
+  vs the 3-h VIP party.
+
+### Decision: web-truth + real vendor legs + $0 BMI shadow (GF rail REJECTED)
+
+Owner considered making the web booking create a **complete BMI event riding the GF rail**
+(quote + contract + crons, like sales). Rejected after a line-by-line audit of all 12 `group-*`
+crons: `group_function_quotes` has **no origin column**, and a party row with a real BMI id
+would be selected by most of them — `group-event-reminders` fires SIX wrong-copy email+SMS
+rules; `group-balance-charge` charges on the GF rail, strands money on new GF gift cards, and
+its decline path (`status → balance_link_sent`) removes the row from its own WHERE clause
+forever; `group-quote-sync`'s side-sweep mints a duplicate day-of order that arms
+`group-dayof-pay` to pay/complete a second order; `group-dayof-close` marks it `completed`
+whether or not money moved; and any staffer flipping the project to "Send Contract" makes
+`group-quote-dispatch` email the parent a contract. Also decisive: **the GF rail does NOT give
+staff-editable-in-BMI anyway** — `group-quote-sync` syncs nothing but cancellation (state −4);
+every other BMI edit only lands via the Send-Contract re-quote loop (auto-resign-on-diff was
+deliberately removed 2026-06-08).
+
+**The architecture stands as § 3, with the BMI leg amended:**
+
+- Neon `bowling_reservations` row = the event; Square = all money; QAMF = real $0-value lane
+  hold (unchanged).
+- BMI gets (a) **real arena-seat bookings** for Silver/VIP (unchanged — real capacity, and the
+  projectId powers the waiver link), and (b) **the $0 party-product shadow** — one line per
+  group on one bill — as a disposable, rebuildable calendar-keeper. Changes on our side =
+  cancel + rebook the shadow line (proven cheap). BMI down ≠ booking down; a sweep repairs
+  the shadow later.
+- **Events board comes free:** all four lane resources (312255, 312258, 310752, 350954) are
+  already in the daily-events board's HeadPinz FM mapping
+  (`src/features/daily-events/constants.ts:47-129`), so the shadow project appears on the
+  board, and the board's food-out workflow (`syncBmiNotes`) works on its projectId as-is.
+- Steal the ONE good GF sync behavior: a tiny party-sync cron watching the shadow project for
+  state −4 (staff cancelled in BMI Office) → alert/cancel per policy.
+
+### New open items (join § 7)
+
+9. **Bronze/Silver resource 350954 emits 0 dayplanner proposals** — VIP's 310752 went live
+   while the owner enabled online booking (mid-probe); 350954 never did. Re-sweep with the
+   probe script before relying on it.
+10. **$0 BMI pricing intentional?** (Recommended: yes — keep BMI calendar-only.)
+11. **Board view check:** web-created projects get BMI kind "Online" (−10) and the board's
+    "group" view filter excludes online-kind rows (`daily-events/logic.ts`). Confirm which view
+    ops use; if needed, re-kind the shadow project after booking (one Office call) or seed the
+    board locally (`getLocalDayEvents` pattern).
+12. **Naples has no party page** — 58417254 is FM-only.
