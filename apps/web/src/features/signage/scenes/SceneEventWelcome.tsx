@@ -17,9 +17,10 @@
  * same page at the same moment and a reboot lands where it should.
  */
 import { IconClock, IconUsersGroup, IconMapPin } from "@tabler/icons-react";
-import { TV_W } from "../constants";
+import { TV_W, type SignageVenue } from "../constants";
 import { withAlpha } from "../color";
 import { TV_PHOTOS } from "../assets";
+import { TvBrandLogo } from "../components/TvBrandLogo";
 import { isBowlingStep, vipCandidatesAt } from "../director/schedule";
 import { VipShowcase } from "./SceneVipWelcome";
 import type { WelcomeEntry } from "../types";
@@ -41,7 +42,31 @@ const VIP_GOLD = "#d4af37";
  * scrim now protects only the left rail, where the type lives; the photo owns
  * the right, behind glass cards that carry their own contrast.
  */
-const WELCOME_BACKDROPS = [TV_PHOTOS.kbf, TV_PHOTOS.bowl, TV_PHOTOS.arcade, TV_PHOTOS.gel];
+/**
+ * BOWLING FIRST, and no children (owner 2026-08-11: "don't like the picture of the
+ * kid behind it, use something else bowling related").
+ *
+ * `TV_PHOTOS.kbf` was index 0, and index 0 is not one option of four — with three
+ * or fewer parties there is a single page, `page` is pinned at 0, and the board
+ * showed that one photo permanently. It was `birthday-girl-bowling.jpg`, a
+ * birthday-marketing shot of a child, greeting corporate groups.
+ */
+const WELCOME_BACKDROPS = [TV_PHOTOS.bowl, TV_PHOTOS.arcade, TV_PHOTOS.gel];
+
+/**
+ * Which brand's mark belongs on this card, from the building label the server
+ * sent (a VENUE_INFO label — "HeadPinz Fort Myers", "FastTrax Fort Myers").
+ *
+ * Matched on the brand word rather than an exact label, so a renamed or added
+ * centre still resolves. Null when it is neither, which keeps the text pill as an
+ * honest fallback instead of stamping the wrong logo on a party's card.
+ */
+function buildingVenue(building: string | null): SignageVenue | null {
+  const b = (building ?? "").toLowerCase();
+  if (b.includes("fasttrax")) return "FT";
+  if (b.includes("headpinz")) return b.includes("naples") ? "HPN" : "HPFM";
+  return null;
+}
 
 /** "HeadPinz", not "HeadPinz Fort Myers" — everyone standing in the lobby
  *  knows which town they are in (owner 2026-08-11). */
@@ -117,8 +142,12 @@ export function SceneEventWelcome({ feed, nowMs, venue, config }: SceneProps) {
         {/* Left: the greeting. It never changes, so it anchors the screen while
             the cards page underneath. */}
         <div style={{ width: 560, flexShrink: 0 }}>
-          <div className="tv-eyebrow" style={{ fontSize: 26 }}>
-            Today at {venue === "FT" ? "FastTrax" : "HeadPinz"}
+          {/* The real mark, not the word (owner 2026-08-11: "use actual logos"). */}
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <span className="tv-eyebrow" style={{ fontSize: 26 }}>
+              Today at
+            </span>
+            <TvBrandLogo venue={venue} height={66} />
           </div>
           <div
             className="tv-display"
@@ -204,28 +233,55 @@ function PartyCard({ entry, index }: { entry: WelcomeEntry; index: number }) {
         )}
       </div>
 
-      {building && (
-        <div
-          style={{
-            position: "absolute",
-            right: 28,
-            top: 28,
-            padding: "8px 20px",
-            borderRadius: 999,
-            border: `2px solid ${withAlpha(accent, 0.55)}`,
-            color: accent,
-            fontSize: 26,
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-            whiteSpace: "nowrap",
-            maxWidth: TV_W * 0.2,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {building}
-        </div>
-      )}
+      {/* WHICH BUILDING TO WALK TO — as the venue's real mark rather than its name
+          in caps (owner 2026-08-11: "headpinz on the tile is where I want real
+          logo"). The pill is the one thing on a card a guest uses to navigate, so
+          the logo earns its place here more than anywhere: it is recognised at a
+          glance from across a lobby, where a word has to be read.
+
+          Falls back to the text pill for a building whose brand we cannot resolve
+          — HP Arena and the like are HeadPinz, but a future third brand would
+          otherwise silently lose its label. */}
+      {building &&
+        (buildingVenue(entry.building) ? (
+          <div
+            style={{
+              position: "absolute",
+              right: 28,
+              top: 24,
+              display: "flex",
+              alignItems: "center",
+              padding: "10px 22px",
+              borderRadius: 999,
+              border: `2px solid ${withAlpha(accent, 0.55)}`,
+              background: "rgba(0,0,0,0.22)",
+              maxWidth: TV_W * 0.22,
+            }}
+          >
+            <TvBrandLogo venue={buildingVenue(entry.building)!} height={44} />
+          </div>
+        ) : (
+          <div
+            style={{
+              position: "absolute",
+              right: 28,
+              top: 28,
+              padding: "8px 20px",
+              borderRadius: 999,
+              border: `2px solid ${withAlpha(accent, 0.55)}`,
+              color: accent,
+              fontSize: 26,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              whiteSpace: "nowrap",
+              maxWidth: TV_W * 0.2,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {building}
+          </div>
+        ))}
     </div>
   );
 }

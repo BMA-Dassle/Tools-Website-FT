@@ -14,6 +14,7 @@ import "server-only";
  */
 import redis from "@/lib/redis";
 import { briefingStateTtlSeconds } from "./phase";
+import { parseBriefingRoomState } from "./state-parse";
 import { BRIEFING_ROOMS, type BriefingRoom, type BriefingRoomState } from "./types";
 
 function roomKey(venue: string, room: BriefingRoom): string {
@@ -55,7 +56,7 @@ export async function readBriefingRoom(
 ): Promise<BriefingRoomState | null> {
   try {
     const raw = await redis.get(roomKey(venue, room));
-    return parseState(raw);
+    return parseBriefingRoomState(raw);
   } catch {
     return null;
   }
@@ -72,7 +73,7 @@ export async function readBriefingRooms(
     const values = await redis.mget(...keys);
     const out = { ...empty };
     BRIEFING_ROOMS.forEach((room, i) => {
-      out[room] = parseState(values[i] ?? null);
+      out[room] = parseBriefingRoomState(values[i] ?? null);
     });
     return out;
   } catch {
@@ -129,39 +130,5 @@ export async function clearSessionBriefed(sessionId: string | null): Promise<voi
     await redis.del(briefedKey(sessionId));
   } catch {
     /* it expires on its own */
-  }
-}
-
-/**
- * Validate on the way IN, not on the way out.
- *
- * A state we cannot fully parse is dropped rather than partially honoured — the
- * opposite of the screen-config rule, and deliberately so. A half-understood
- * config still paints something reasonable; a half-understood briefing state
- * could mean playing the wrong safety video to a room, so the right answer is
- * the designed idle board.
- */
-function parseState(raw: string | null): BriefingRoomState | null {
-  if (!raw) return null;
-  try {
-    const p = JSON.parse(raw) as Partial<BriefingRoomState>;
-    if (p.kind !== "timeline" && p.kind !== "quals-only") return null;
-    if (typeof p.triggeredAtMs !== "number" || !Number.isFinite(p.triggeredAtMs)) return null;
-    return {
-      kind: p.kind,
-      tier: p.tier === "starter" || p.tier === "intermediate" ? p.tier : null,
-      track: p.track === "blue" || p.track === "red" || p.track === "mega" ? p.track : "mega",
-      raceType: typeof p.raceType === "string" && p.raceType ? p.raceType : null,
-      sessionId: typeof p.sessionId === "string" ? p.sessionId : "",
-      heatNumber: typeof p.heatNumber === "number" ? p.heatNumber : null,
-      triggeredAtMs: p.triggeredAtMs,
-      videoUrl: typeof p.videoUrl === "string" && p.videoUrl ? p.videoUrl : null,
-      videoDurationMs:
-        typeof p.videoDurationMs === "number" && Number.isFinite(p.videoDurationMs)
-          ? p.videoDurationMs
-          : null,
-    };
-  } catch {
-    return null;
   }
 }

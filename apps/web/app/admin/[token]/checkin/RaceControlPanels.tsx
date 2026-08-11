@@ -4,36 +4,39 @@
  * Race control — the briefing-room half of the check-in station's `?board=1`.
  *
  * EMBEDDED, NOT A PAGE. It renders inside CheckInClient, because the person who
- * checks racers in is the person who sends the heat to a briefing room, standing
- * in the same spot (owner: "this was supposed to be a dual board, where is all
- * the check in stuff"). State lives in useBriefingControl one level up, because
- * the scan flash unmounts this subtree for four seconds.
+ * checks racers in is the person who sends the heat to a briefing room (owner:
+ * "this was supposed to be a dual board, where is all the check in stuff"). State
+ * lives in useBriefingControl one level up, because the scan flash unmounts this
+ * subtree for four seconds.
  *
- * LAYOUT: one column per room, each column TWO BOXES (owner 2026-08-11) —
+ * IT IS A TIMING BOARD FIRST (owner 2026-08-11: "timing is important — checking in
+ * for X minutes, how long the video has been running… delay on track time is
+ * important"). So the layout is built around four numbers, each a labelled tile
+ * with its unit:
  *
- *   CALLED       what the track just called, the film choice, and Send
- *   IN THE ROOM  what that room is showing right now, and the controls for it
+ *   CHECKING IN   how long since the heat was called
+ *   TRACK DELAY   how far behind the track is running
+ *   ELAPSED       how long the film has been playing
+ *   LEFT          how long until the room's board changes
  *
- * Splitting them is what makes the busy case legible. When a second heat is
- * called while a room is still briefing, "what is coming" and "what is happening"
- * are two boxes saying two different things — rather than one box trying to be
- * both, which is where somebody clobbers a running film by accident. Sending into
- * an occupied room still works; it asks first.
+ * Everything else is subordinate to those. An earlier pass made Send a full-width
+ * saturated slab, which read as the most important thing on a board whose actual
+ * job is telling staff where the time has gone ("feels busy and the button is
+ * overwhelming"). Send is now a normal control at the end of its row; the room
+ * colour is a thin spine and a small fill, never a wall of red.
  *
- * TWO PHASES PER SEND. Send assigns the room and holds it on a "take a seat"
- * board; Start rolls the film, because a group still walking over would otherwise
- * miss the opening of a safety briefing. Undo covers a mis-send, Restart covers
- * latecomers and second showings.
+ * TWO BOXES PER ROOM — Called, and In the room. That is what makes the busy case
+ * legible: a second heat called mid-briefing is two boxes saying two different
+ * things, rather than one box trying to be both. Sending into an occupied room
+ * still works; it asks first.
  *
- * EVERY BUTTON ACKNOWLEDGES THE PRESS. Hover, a real pressed state, and a spinner
- * on the button that was actually clicked while its request is in flight — a
- * single global disable told a staff member nothing about whether their press
- * registered (owner: "make the buttons actually show input").
+ * TWO PHASES PER SEND. Send assigns the room and holds a "take a seat" board;
+ * Start rolls the film, because a group still walking over would miss the opening.
+ * Undo covers a mis-send, Restart covers latecomers.
  *
- * THE COUNTDOWN IS COMPUTED HERE, not read off the poll, which arrives every 5
- * seconds and would make a timer jump. It ticks locally and derives the phase with
- * briefingTimelineAt — the SAME pure function the TV runs, so the desk and the
- * wall cannot disagree about what is on screen.
+ * NUMBERS TICK LOCALLY. The board polls every 5 seconds, which would make a timer
+ * visibly jump, so a 1s clock drives the readouts and the phase comes from
+ * briefingTimelineAt — the SAME pure function the TV runs, so desk and wall agree.
  */
 import { useEffect, useState } from "react";
 import { useTrackStatus, type CurrentRace, type TrackInfo } from "@/hooks/useTrackStatus";
@@ -48,49 +51,42 @@ import {
 } from "~/features/signage/briefing/types";
 import type { BriefingControl, RoomStatus } from "./useBriefingControl";
 
-const ROOM_COLOR: Record<BriefingRoom, string> = { red: "#ff3b30", blue: "#2b8fff" };
+const ROOM_COLOR: Record<BriefingRoom, string> = { red: "#ff5a52", blue: "#4a9bff" };
 const MEGA = "#a06bff";
 const GREEN = "#4ade80";
 const AMBER = "#f0b341";
+const INK = "#e8eef7";
 
 const PHASE_LABEL: Record<BriefingPhase, string> = {
   waiting: "Waiting to start",
-  video: "Briefing video",
+  video: "Video playing",
   helmet: "Helmet sizes",
   quals: "Levelled up",
   idle: "Empty",
 };
 
-/**
- * Interaction states, as real CSS.
- *
- * Inline styles cannot express :hover, :active or :focus-visible, and those are
- * exactly what make a button feel like it registered a press. One injected sheet
- * rather than mouse-event handlers on every control.
- */
 const STYLES = `
 .rcb {
-  border: 1px solid transparent;
-  cursor: pointer;
-  font-weight: 700;
-  transition: filter 120ms ease, transform 60ms ease, box-shadow 120ms ease;
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border: 1px solid transparent; cursor: pointer; font-weight: 650;
+  transition: filter 120ms ease, transform 60ms ease, background 120ms ease;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  white-space: nowrap;
 }
-.rcb:hover:not(:disabled) { filter: brightness(1.14); }
-.rcb:active:not(:disabled) { transform: translateY(1px); filter: brightness(0.94); }
-.rcb:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-.rcb:disabled { opacity: 0.4; cursor: not-allowed; filter: none; }
-.rcb[aria-busy="true"] { opacity: 0.85; cursor: progress; }
-.rcb-primary:hover:not(:disabled) { box-shadow: 0 4px 18px rgba(0,0,0,0.45); }
+.rcb:hover:not(:disabled) { filter: brightness(1.15); }
+.rcb:active:not(:disabled) { transform: translateY(1px); filter: brightness(0.93); }
+.rcb:focus-visible { outline: 2px solid ${INK}; outline-offset: 2px; }
+.rcb:disabled { opacity: 0.35; cursor: not-allowed; filter: none; }
+.rcb[aria-busy="true"] { cursor: progress; }
 .rcb-spin {
-  width: 14px; height: 14px; border-radius: 50%;
+  width: 13px; height: 13px; border-radius: 50%;
   border: 2px solid currentColor; border-top-color: transparent;
   animation: rcb-spin 650ms linear infinite;
 }
 @keyframes rcb-spin { to { transform: rotate(360deg); } }
+.rc-num { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 `;
 
-/** A local 1-second clock, so the countdown ticks between 5-second polls. */
+/** A local 1-second clock, so every readout ticks between 5-second polls. */
 function useNowMs(intervalMs = 1_000): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -111,52 +107,82 @@ export default function RaceControlPanels({ control }: { control: BriefingContro
 
   return (
     <section
-      className="flex flex-col px-6 py-4 border-t"
-      style={{ borderColor: PORTAL_DARK.border, flex: 1, minHeight: 0 }}
+      className="flex flex-col border-t"
+      style={{
+        borderColor: PORTAL_DARK.border,
+        flex: 1,
+        minHeight: 0,
+        padding: "14px 20px 16px",
+      }}
       aria-label="Race control"
     >
       <style>{STYLES}</style>
 
-      <header className="flex items-center gap-3 mb-3" style={{ flexWrap: "wrap", flexShrink: 0 }}>
-        <h2 style={{ fontSize: "1rem", fontWeight: 700, margin: 0 }}>Briefing rooms</h2>
+      <header
+        className="flex items-center gap-3"
+        style={{ flexWrap: "wrap", flexShrink: 0, marginBottom: 12 }}
+      >
+        <h2
+          style={{
+            fontSize: 13,
+            fontWeight: 800,
+            letterSpacing: "0.08em",
+            margin: 0,
+            color: PORTAL_DARK.muted,
+            textTransform: "uppercase",
+          }}
+        >
+          Briefing rooms
+        </h2>
         {megaEnabled && (
           <span
             style={{
-              fontSize: 11,
+              fontSize: 10,
               fontWeight: 800,
-              padding: "2px 10px",
-              borderRadius: 999,
-              background: MEGA,
-              color: "#fff",
-              letterSpacing: "0.04em",
+              padding: "2px 9px",
+              borderRadius: 4,
+              background: withAlpha(MEGA, 0.2),
+              border: `1px solid ${withAlpha(MEGA, 0.5)}`,
+              color: MEGA,
+              letterSpacing: "0.06em",
             }}
           >
             MEGA DAY
           </span>
         )}
-        <span style={{ fontSize: 12, color: PORTAL_DARK.muted, marginLeft: "auto" }}>
-          Send them over, then press Start once they are seated.
-        </span>
+        {note && (
+          <span
+            role="status"
+            style={{
+              marginLeft: "auto",
+              fontSize: 12,
+              color: note.startsWith("✕") ? AMBER : GREEN,
+            }}
+          >
+            {note}
+          </span>
+        )}
       </header>
 
-      {board && !board.enabled && (
-        <Banner tone="warn">
-          Briefing rooms are switched off (NEXT_PUBLIC_BRIEFING_ENABLED=false). Sends are refused.
-        </Banner>
+      {(board?.enabled === false || noVideos) && (
+        <div style={{ display: "grid", gap: 6, marginBottom: 10, flexShrink: 0 }}>
+          {board?.enabled === false && (
+            <Note>Briefing rooms are switched off — sends are refused.</Note>
+          )}
+          {noVideos && (
+            <Note>
+              No briefing videos uploaded — rooms show helmet sizes. Add them on the Lobby TVs page.
+            </Note>
+          )}
+        </div>
       )}
-      {noVideos && (
-        <Banner tone="warn">
-          No briefing videos uploaded — rooms will show helmet sizes. Add them on the Lobby TVs
-          page.
-        </Banner>
-      )}
-      {note && <Banner tone={note.startsWith("✕") ? "warn" : "ok"}>{note}</Banner>}
 
       <div
         style={{
           display: "grid",
-          gap: 18,
-          gridTemplateColumns: "repeat(auto-fit,minmax(400px,1fr))",
+          gap: 14,
+          gridTemplateColumns: "repeat(auto-fit,minmax(430px,1fr))",
+          alignItems: "stretch",
           flex: 1,
           minHeight: 0,
         }}
@@ -195,23 +221,24 @@ export default function RaceControlPanels({ control }: { control: BriefingContro
       </div>
 
       {(board?.assignments.length ?? 0) > 0 && (
-        <details style={{ marginTop: 12, flexShrink: 0 }}>
-          <summary style={{ cursor: "pointer", fontSize: 12, color: PORTAL_DARK.muted }}>
+        <details style={{ marginTop: 10, flexShrink: 0 }}>
+          <summary style={{ cursor: "pointer", fontSize: 11, color: PORTAL_DARK.muted }}>
             Sent today ({board?.assignments.length})
           </summary>
-          <div style={{ marginTop: 8, display: "grid", gap: 3 }}>
-            {board?.assignments.slice(0, 12).map((a) => (
+          <div style={{ marginTop: 6, display: "grid", gap: 2 }}>
+            {board?.assignments.slice(0, 10).map((a) => (
               <div
                 key={a.id}
-                style={{ display: "flex", gap: 10, fontSize: 12, color: PORTAL_DARK.muted }}
+                className="rc-num"
+                style={{ display: "flex", gap: 10, fontSize: 11, color: PORTAL_DARK.muted }}
               >
-                <span style={{ color: ROOM_COLOR[a.room], fontWeight: 800, minWidth: 42 }}>
+                <span style={{ color: ROOM_COLOR[a.room], fontWeight: 800, minWidth: 38 }}>
                   {a.room.toUpperCase()}
                 </span>
-                <span style={{ minWidth: 96 }}>
-                  {a.mode === "quals-only" ? "Levelled-up board" : `Session ${a.heatNumber ?? "?"}`}
+                <span style={{ minWidth: 90 }}>
+                  {a.mode === "quals-only" ? "Levelled-up" : `Session ${a.heatNumber ?? "?"}`}
                 </span>
-                <span style={{ minWidth: 100 }}>{a.raceType ?? ""}</span>
+                <span style={{ minWidth: 90 }}>{a.raceType ?? ""}</span>
                 <span style={{ marginLeft: "auto" }}>{clockTime(a.sentAt)}</span>
               </div>
             ))}
@@ -222,7 +249,7 @@ export default function RaceControlPanels({ control }: { control: BriefingContro
   );
 }
 
-/* ── one room: a called box and an in-room box ─────────────────────────── */
+/* ── one room ──────────────────────────────────────────────────────────── */
 
 function RoomColumn({
   room,
@@ -247,7 +274,6 @@ function RoomColumn({
   nowMs: number;
   tierOverride: BriefingTier | null;
   onTierOverride: (tier: BriefingTier | null) => void;
-  /** The kill switch is off — sends and starts are refused server-side anyway. */
   locked: boolean;
   pending: string | null;
   onSend: () => void;
@@ -262,42 +288,71 @@ function RoomColumn({
   const tier = tierOverride ?? autoTier;
   const sameSessionInRoom = !!race && state?.sessionId === String(race.sessionId);
 
+  const calledMs = race?.calledAt ? Date.parse(race.calledAt) : NaN;
+  const checkingInMs = Number.isFinite(calledMs) ? Math.max(0, nowMs - calledMs) : null;
+  const delayMins = delay?.delayMinutes ?? null;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-        <span
-          aria-hidden
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: "50%",
-            background: color,
-            boxShadow: `0 0 10px ${color}`,
-          }}
-        />
-        <strong style={{ fontSize: 18, color }}>{cap(room)} room</strong>
-        <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
-          fed by {cap(track)} Track
-          {delay && delay.delayMinutes > 0 ? ` · ${delay.delayFormatted} behind` : ""}
-        </span>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+        minHeight: 0,
+        borderLeft: `3px solid ${color}`,
+        paddingLeft: 12,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "baseline", gap: 9, flexShrink: 0 }}>
+        <strong style={{ fontSize: 15, color, letterSpacing: "0.02em" }}>
+          {cap(room).toUpperCase()} ROOM
+        </strong>
+        <span style={{ fontSize: 11, color: PORTAL_DARK.muted }}>{cap(track)} Track</span>
       </div>
 
-      {/* ── BOX 1: CALLED ── */}
-      <Box label="Called" accent={color} dim={!race}>
+      {/* ── CALLED ── */}
+      <Panel label="Called" flat>
         {race ? (
           <>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 34, fontWeight: 800, lineHeight: 1 }}>
-                Session {race.heatNumber}
-              </span>
-              <span style={{ fontSize: 16, color: PORTAL_DARK.muted }}>{race.raceType}</span>
-              <span style={{ fontSize: 11, color: PORTAL_DARK.muted, marginLeft: "auto" }}>
-                {race.calledAt ? timeAgoShort(race.calledAt) : ""}
-              </span>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+              <div style={{ minWidth: 150 }}>
+                <div
+                  className="rc-num"
+                  style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.05, color: INK }}
+                >
+                  Session {race.heatNumber}
+                </div>
+                <div style={{ fontSize: 14, color: PORTAL_DARK.muted, marginTop: 2 }}>
+                  {race.raceType}
+                </div>
+              </div>
+
+              {/* The two numbers that matter before a send. */}
+              <Stat
+                label="Checking in"
+                value={checkingInMs != null ? formatClock(checkingInMs) : "—"}
+                unit="since called"
+              />
+              <Stat
+                label="Track delay"
+                value={delayMins != null ? (delayMins > 0 ? `+${delayMins}` : "0") : "—"}
+                unit={delayMins && delayMins > 0 ? "min behind" : "on time"}
+                tone={delayMins && delayMins > 0 ? AMBER : undefined}
+              />
             </div>
 
-            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-              <span style={{ fontSize: 11, color: PORTAL_DARK.muted }}>Video</span>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
+                marginTop: 2,
+              }}
+            >
+              <span style={{ fontSize: 10, color: PORTAL_DARK.muted, letterSpacing: "0.06em" }}>
+                VIDEO
+              </span>
               {(["starter", "intermediate"] as BriefingTier[]).map((t) => (
                 <button
                   key={t}
@@ -306,79 +361,75 @@ function RoomColumn({
                   onClick={() => onTierOverride(t === autoTier ? null : t)}
                   aria-pressed={tier === t}
                   style={{
-                    padding: "4px 12px",
-                    borderRadius: 999,
-                    borderColor: tier === t ? color : PORTAL_DARK.border,
-                    background: tier === t ? withAlpha(color, 0.25) : "transparent",
-                    color: tier === t ? "#fff" : PORTAL_DARK.muted,
+                    padding: "4px 11px",
+                    borderRadius: 5,
+                    borderColor: tier === t ? withAlpha(color, 0.8) : PORTAL_DARK.border,
+                    background: tier === t ? withAlpha(color, 0.16) : "transparent",
+                    color: tier === t ? INK : PORTAL_DARK.muted,
                     fontSize: 11,
                   }}
                 >
                   {cap(t)}
-                  {t === autoTier ? " ·auto" : ""}
+                  {t === autoTier ? " · auto" : ""}
                 </button>
               ))}
-            </div>
 
-            {sameSessionInRoom ? (
-              <p style={{ fontSize: 12, color: GREEN, margin: 0 }}>
-                Already in the {room} room — see below.
-              </p>
-            ) : (
-              <ActionButton
-                variant="primary"
-                tone={occupied ? AMBER : color}
-                outline={occupied}
-                pendingKey={`send:${room}`}
-                pending={pending}
-                disabled={!race.sessionId || locked}
-                pendingLabel={occupied ? "Replacing…" : "Sending…"}
-                onClick={() => {
-                  if (
-                    occupied &&
-                    !window.confirm(
-                      `The ${room} room is showing ${PHASE_LABEL[timeline.phase].toLowerCase()} for session ${
-                        state?.heatNumber ?? "?"
-                      }.\n\nReplace it with Session ${race.heatNumber}?`,
-                    )
-                  ) {
-                    return;
-                  }
-                  onSend();
-                }}
-              >
-                {occupied ? `Replace what is in the ${room} room` : `Send to ${cap(room)} briefing`}
-              </ActionButton>
-            )}
+              {sameSessionInRoom ? (
+                <span style={{ marginLeft: "auto", fontSize: 11, color: GREEN }}>
+                  ✓ in the {room} room
+                </span>
+              ) : (
+                <span style={{ marginLeft: "auto" }}>
+                  <ActionButton
+                    tone={occupied ? AMBER : color}
+                    outline={occupied}
+                    size="md"
+                    pendingKey={`send:${room}`}
+                    pending={pending}
+                    disabled={!race.sessionId || locked}
+                    pendingLabel={occupied ? "Replacing…" : "Sending…"}
+                    onClick={() => {
+                      if (
+                        occupied &&
+                        !window.confirm(
+                          `The ${room} room is showing ${PHASE_LABEL[
+                            timeline.phase
+                          ].toLowerCase()} for session ${state?.heatNumber ?? "?"}.\n\nReplace it with Session ${race.heatNumber}?`,
+                        )
+                      ) {
+                        return;
+                      }
+                      onSend();
+                    }}
+                  >
+                    {occupied ? "Replace" : `Send to ${cap(room)} →`}
+                  </ActionButton>
+                </span>
+              )}
+            </div>
           </>
         ) : (
-          <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: "6px 0" }}>
+          <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: "2px 0" }}>
             Nothing called on {cap(track)} Track.
           </p>
         )}
-      </Box>
+      </Panel>
 
-      {/* ── BOX 2: IN THE ROOM ── */}
-      <Box
+      {/* ── IN THE ROOM ── */}
+      <Panel
         label="In the room"
-        accent={color}
-        dim={!occupied}
         grow
+        accent={occupied ? phaseColor(timeline.phase, color) : undefined}
         badge={
           <span
             style={{
               display: "inline-flex",
               alignItems: "center",
               gap: 6,
-              fontSize: 11,
-              fontWeight: 700,
-              padding: "2px 10px",
-              borderRadius: 999,
-              border: `1px solid ${occupied ? withAlpha(phaseColor(timeline.phase, color), 0.6) : PORTAL_DARK.border}`,
-              background: occupied
-                ? withAlpha(phaseColor(timeline.phase, color), 0.18)
-                : "transparent",
-              color: occupied ? "#fff" : PORTAL_DARK.muted,
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: "0.05em",
+              color: occupied ? phaseColor(timeline.phase, color) : PORTAL_DARK.muted,
             }}
           >
             <span
@@ -390,7 +441,7 @@ function RoomColumn({
                 background: phaseColor(timeline.phase, color),
               }}
             />
-            {PHASE_LABEL[timeline.phase]}
+            {PHASE_LABEL[timeline.phase].toUpperCase()}
           </span>
         }
       >
@@ -400,17 +451,18 @@ function RoomColumn({
           state={state}
           timeline={timeline}
           quals={status?.quals ?? null}
+          nowMs={nowMs}
           locked={locked}
           pending={pending}
           onStart={onStart}
           onUndo={onUndo}
         />
-      </Box>
+      </Panel>
     </div>
   );
 }
 
-/* ── the in-room body: what is on that TV, per phase ──────────────────── */
+/* ── the in-room body ──────────────────────────────────────────────────── */
 
 function InRoom({
   room,
@@ -418,6 +470,7 @@ function InRoom({
   state,
   timeline,
   quals,
+  nowMs,
   locked,
   pending,
   onStart,
@@ -428,6 +481,7 @@ function InRoom({
   state: BriefingRoomState | null;
   timeline: BriefingTimeline;
   quals: RoomStatus["quals"];
+  nowMs: number;
   locked: boolean;
   pending: string | null;
   onStart: (restart: boolean) => void;
@@ -438,41 +492,42 @@ function InRoom({
   const running = phase === "video" || phase === "helmet" || phase === "quals";
   const pct =
     timeline.videoMs > 0 ? Math.min(100, (timeline.videoOffsetMs / timeline.videoMs) * 100) : 0;
+  const waitingMs = state ? Math.max(0, nowMs - state.triggeredAtMs) : 0;
+
+  if (phase === "idle") {
+    return (
+      <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
+        Empty — the TV is showing helmet sizes.
+      </p>
+    );
+  }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1, minHeight: 0 }}>
-      {phase !== "idle" && (
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 22, fontWeight: 800, lineHeight: 1 }}>
-            {state?.heatNumber != null ? `Session ${state.heatNumber}` : "Briefing"}
-          </span>
-          {state?.tier && (
-            <span style={{ fontSize: 13, color: PORTAL_DARK.muted }}>{cap(state.tier)} video</span>
-          )}
-        </div>
-      )}
-
-      {phase === "idle" && (
-        <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: "4px 0" }}>
-          Empty — the TV is showing helmet sizes.
-        </p>
-      )}
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color: INK }}>
+          {state?.heatNumber != null ? `Session ${state.heatNumber}` : "Briefing"}
+        </span>
+        {state?.raceType && (
+          <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{state.raceType}</span>
+        )}
+        {state?.tier && (
+          <span style={{ fontSize: 11, color: PORTAL_DARK.muted }}>· {state.tier} film</span>
+        )}
+      </div>
 
       {phase === "waiting" && (
         <>
+          <Stat label="Waiting" value={formatClock(waitingMs)} unit="since sent" tone={AMBER} big />
           <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
-            Holding on a &ldquo;take a seat&rdquo; board.
+            TV is holding a &ldquo;take a seat&rdquo; board.
+            {!state?.videoUrl && " No film for this tier — Start skips to helmet sizes."}
           </p>
-          {!state?.videoUrl && (
-            <p style={{ fontSize: 11, color: AMBER, margin: 0 }}>
-              No film for this tier — Start goes straight to helmet sizes.
-            </p>
-          )}
-          <div style={{ marginTop: "auto", display: "grid", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, marginTop: "auto", alignItems: "center" }}>
             <ActionButton
-              variant="primary"
               tone={GREEN}
-              textColor="#04240f"
+              textColor="#052e14"
+              size="lg"
               pendingKey={`start:${room}`}
               pending={pending}
               disabled={locked}
@@ -482,7 +537,7 @@ function InRoom({
               ▶ Start video
             </ActionButton>
             <ActionButton
-              variant="ghost"
+              size="sm"
               pendingKey={`clear:${room}`}
               pending={pending}
               disabled={locked}
@@ -491,7 +546,7 @@ function InRoom({
                 if (window.confirm(`Undo the send to the ${room} room?`)) onUndo();
               }}
             >
-              Undo send
+              Undo
             </ActionButton>
           </div>
         </>
@@ -499,98 +554,86 @@ function InRoom({
 
       {running && (
         <>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 14, flexWrap: "wrap" }}>
-            <div>
-              <div
-                style={{
-                  fontSize: 46,
-                  fontWeight: 800,
-                  lineHeight: 1,
-                  fontVariantNumeric: "tabular-nums",
-                  color: "#fff",
-                }}
-              >
-                {timeline.nextInMs != null ? formatClock(timeline.nextInMs) : "—"}
-              </div>
-              <div style={{ fontSize: 11, color: PORTAL_DARK.muted, marginTop: 3 }}>
-                {phase === "video"
-                  ? "left in the briefing video"
-                  : phase === "helmet"
-                    ? "until the levelled-up board"
-                    : "until the room goes idle"}
-              </div>
-            </div>
-
-            {phase === "video" && timeline.videoMs > 0 && (
-              <div
-                style={{
-                  marginLeft: "auto",
-                  textAlign: "right",
-                  fontSize: 12,
-                  color: PORTAL_DARK.muted,
-                  fontVariantNumeric: "tabular-nums",
-                }}
-              >
-                <div>
-                  {formatClock(timeline.videoOffsetMs)} played of {formatClock(timeline.videoMs)}
-                </div>
-                <div style={{ fontSize: 11 }}>{Math.round(pct)}% through</div>
-              </div>
+          {/* THE TIMING ROW. */}
+          <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
+            {phase === "video" ? (
+              <>
+                <Stat
+                  label="Elapsed"
+                  value={formatClock(timeline.videoOffsetMs)}
+                  unit={`of ${formatClock(timeline.videoMs)}`}
+                  big
+                />
+                <Stat
+                  label="Left"
+                  value={timeline.nextInMs != null ? formatClock(timeline.nextInMs) : "—"}
+                  unit="of the film"
+                  big
+                  tone={color}
+                />
+              </>
+            ) : (
+              <Stat
+                label="Left"
+                value={timeline.nextInMs != null ? formatClock(timeline.nextInMs) : "—"}
+                unit={phase === "helmet" ? "until levelled-up board" : "until the room clears"}
+                big
+                tone={phase === "quals" ? GREEN : color}
+              />
             )}
           </div>
 
           {phase === "video" && timeline.videoMs > 0 && (
-            <div
-              style={{
-                height: 8,
-                borderRadius: 999,
-                background: "rgba(255,255,255,0.10)",
-                overflow: "hidden",
-              }}
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={Math.round(pct)}
-              aria-label="Briefing video progress"
-            >
+            <div>
               <div
                 style={{
-                  width: `${pct}%`,
-                  height: "100%",
-                  background: color,
-                  transition: "width 1s linear",
+                  height: 6,
+                  borderRadius: 999,
+                  background: "rgba(255,255,255,0.09)",
+                  overflow: "hidden",
                 }}
-              />
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(pct)}
+                aria-label="Briefing video progress"
+              >
+                <div
+                  style={{
+                    width: `${pct}%`,
+                    height: "100%",
+                    background: color,
+                    transition: "width 1s linear",
+                  }}
+                />
+              </div>
+              <div
+                className="rc-num"
+                style={{ fontSize: 10, color: PORTAL_DARK.muted, marginTop: 4 }}
+              >
+                {Math.round(pct)}% · then helmet sizes → levelled up
+              </div>
             </div>
           )}
 
           {phase === "quals" && (
-            <span style={{ fontSize: 13, color: qualCount > 0 ? GREEN : PORTAL_DARK.muted }}>
+            <span style={{ fontSize: 12, color: qualCount > 0 ? GREEN : PORTAL_DARK.muted }}>
               {qualCount > 0 && quals
-                ? `On screen — ${quals.qualifiers.map((q) => `${q.firstName} (${q.level})`).join(", ")}`
-                : "Nobody levelled up, so it fell back to helmet sizes."}
+                ? `On screen: ${quals.qualifiers.map((q) => `${q.firstName} (${q.level})`).join(", ")}`
+                : "Nobody levelled up — fell back to helmet sizes."}
             </span>
           )}
 
-          <span style={{ fontSize: 11, color: PORTAL_DARK.muted }}>
-            {phase === "video"
-              ? "then helmet sizes → levelled up"
-              : phase === "helmet"
-                ? "then levelled up"
-                : ""}
-          </span>
-
           <div style={{ marginTop: "auto" }}>
             <ActionButton
-              variant="ghost"
+              size="sm"
               tone={color}
               pendingKey={`restart:${room}`}
               pending={pending}
               disabled={locked}
               pendingLabel="Restarting…"
               onClick={() => onStart(true)}
-              title="Play the briefing from the top — latecomers, or a second showing"
-              full
+              title="Play from the top — latecomers, or a second showing"
             >
               ⟲ Restart video
             </ActionButton>
@@ -603,106 +646,84 @@ function InRoom({
 
 /* ── pieces ───────────────────────────────────────────────────────────── */
 
-/**
- * A button that acknowledges its own press.
- *
- * `pendingKey` is compared against the one action actually in flight, so THIS
- * button spins while the others simply go inert — the difference between "did that
- * work?" and knowing it did.
- */
-function ActionButton({
-  children,
-  onClick,
-  variant,
+/** A labelled number with its unit. The board is read at a glance, so the value is
+ *  large and tabular and the words around it are small. */
+function Stat({
+  label,
+  value,
+  unit,
   tone,
-  textColor,
-  outline,
-  pendingKey,
-  pending,
-  disabled,
-  pendingLabel,
-  title,
-  full,
+  big,
 }: {
-  children: React.ReactNode;
-  onClick: () => void;
-  variant: "primary" | "ghost";
+  label: string;
+  value: string;
+  unit?: string;
   tone?: string;
-  textColor?: string;
-  outline?: boolean;
-  pendingKey: string;
-  pending: string | null;
-  disabled?: boolean;
-  pendingLabel: string;
-  title?: string;
-  full?: boolean;
+  big?: boolean;
 }) {
-  const isPending = pending === pendingKey;
-  const primary = variant === "primary";
-  // ONLY this button's own request disables it (plus a genuinely invalid state).
-  // A single global `busy` locked the whole board on every press, so a staff
-  // member could not queue Blue while Red was still saving (owner 2026-08-11:
-  // "make sure buttons are available when they're supposed to be").
-  const isDisabled = isPending || disabled === true;
   return (
-    <button
-      type="button"
-      className={primary ? "rcb rcb-primary" : "rcb"}
-      onClick={onClick}
-      title={title}
-      aria-busy={isPending}
-      disabled={isDisabled}
-      style={{
-        width: full || primary ? "100%" : undefined,
-        padding: primary ? "15px 18px" : "8px 14px",
-        borderRadius: primary ? 9 : 7,
-        fontSize: primary ? 17 : 12,
-        background: outline ? "transparent" : primary ? tone : "transparent",
-        borderColor: outline ? tone : primary ? "transparent" : (tone ?? PORTAL_DARK.border),
-        color: outline ? tone : primary ? (textColor ?? "#fff") : PORTAL_DARK.fg,
-      }}
-    >
-      {isPending && <span aria-hidden className="rcb-spin" />}
-      {isPending ? pendingLabel : children}
-    </button>
+    <div style={{ minWidth: big ? 118 : 96 }}>
+      <div
+        style={{
+          fontSize: 9,
+          fontWeight: 800,
+          letterSpacing: "0.10em",
+          textTransform: "uppercase",
+          color: PORTAL_DARK.muted,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        className="rc-num"
+        style={{
+          fontSize: big ? 40 : 28,
+          fontWeight: 800,
+          lineHeight: 1.1,
+          color: tone ?? INK,
+        }}
+      >
+        {value}
+      </div>
+      {unit && <div style={{ fontSize: 10, color: PORTAL_DARK.muted }}>{unit}</div>}
+    </div>
   );
 }
 
-function Box({
+function Panel({
   label,
-  accent,
   badge,
-  dim,
+  accent,
   grow,
+  flat,
   children,
 }: {
   label: string;
-  accent: string;
   badge?: React.ReactNode;
-  dim?: boolean;
+  accent?: string;
   grow?: boolean;
+  flat?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div
       style={{
-        border: `1px solid ${PORTAL_DARK.border}`,
-        borderLeft: `3px solid ${dim ? PORTAL_DARK.border : accent}`,
-        background: PORTAL_DARK.card,
-        borderRadius: 10,
-        padding: "12px 14px",
+        border: `1px solid ${accent ? withAlpha(accent, 0.35) : PORTAL_DARK.border}`,
+        background: flat ? "transparent" : PORTAL_DARK.card,
+        borderRadius: 8,
+        padding: "10px 12px 12px",
         display: "flex",
         flexDirection: "column",
-        gap: 9,
-        ...(grow ? { flex: 1, minHeight: 0 } : {}),
+        gap: 8,
+        ...(grow ? { flex: 1, minHeight: 0 } : { flexShrink: 0 }),
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span
           style={{
-            fontSize: 10,
+            fontSize: 9,
             fontWeight: 800,
-            letterSpacing: "0.10em",
+            letterSpacing: "0.12em",
             textTransform: "uppercase",
             color: PORTAL_DARK.muted,
           }}
@@ -716,23 +737,75 @@ function Box({
   );
 }
 
-function Banner({ tone, children }: { tone: "warn" | "ok"; children: React.ReactNode }) {
-  const color = tone === "warn" ? AMBER : GREEN;
+function Note({ children }: { children: React.ReactNode }) {
   return (
     <div
       role="status"
       style={{
-        marginBottom: 10,
-        padding: "8px 12px",
-        borderRadius: 8,
-        border: `1px solid ${withAlpha(color, 0.45)}`,
-        background: withAlpha(color, 0.1),
-        fontSize: 13,
-        flexShrink: 0,
+        padding: "6px 10px",
+        borderRadius: 6,
+        border: `1px solid ${withAlpha(AMBER, 0.35)}`,
+        background: withAlpha(AMBER, 0.08),
+        fontSize: 12,
+        color: INK,
       }}
     >
       {children}
     </div>
+  );
+}
+
+/** A button that acknowledges its own press: only the in-flight one disables, and
+ *  it is the one that spins. */
+function ActionButton({
+  children,
+  onClick,
+  tone,
+  textColor,
+  outline,
+  size,
+  pendingKey,
+  pending,
+  disabled,
+  pendingLabel,
+  title,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  tone?: string;
+  textColor?: string;
+  outline?: boolean;
+  size: "sm" | "md" | "lg";
+  pendingKey: string;
+  pending: string | null;
+  disabled?: boolean;
+  pendingLabel: string;
+  title?: string;
+}) {
+  const isPending = pending === pendingKey;
+  const pad = size === "lg" ? "11px 20px" : size === "md" ? "9px 16px" : "6px 12px";
+  const font = size === "lg" ? 15 : size === "md" ? 13 : 11;
+  const solid = !!tone && !outline && size !== "sm";
+  return (
+    <button
+      type="button"
+      className="rcb"
+      onClick={onClick}
+      title={title}
+      aria-busy={isPending}
+      disabled={isPending || disabled === true}
+      style={{
+        padding: pad,
+        borderRadius: 6,
+        fontSize: font,
+        background: solid ? tone : "transparent",
+        borderColor: solid ? "transparent" : tone ? withAlpha(tone, 0.55) : PORTAL_DARK.border,
+        color: solid ? (textColor ?? "#0b1220") : (tone ?? PORTAL_DARK.fg),
+      }}
+    >
+      {isPending && <span aria-hidden className="rcb-spin" />}
+      {isPending ? pendingLabel : children}
+    </button>
   );
 }
 
@@ -748,8 +821,8 @@ function findDelay(tracks: TrackInfo[] | undefined, track: string): TrackInfo | 
   return tracks.find((t) => (t.trackName || "").toLowerCase().includes(track)) ?? null;
 }
 
-/** `m:ss`. Ceiled — a timer reading 0:00 while a film is still playing is worse
- *  than one that rounds up. */
+/** `m:ss`, ceiled — a timer reading 0:00 while a film still plays is worse than one
+ *  that rounds up. */
 function formatClock(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
@@ -780,13 +853,4 @@ function clockTime(iso: string): string {
     minute: "2-digit",
     timeZone: "America/New_York",
   });
-}
-
-function timeAgoShort(iso: string): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "—";
-  const mins = Math.round((Date.now() - t) / 60_000);
-  if (mins < 1) return "called just now";
-  if (mins === 1) return "called 1 min ago";
-  return `called ${mins} min ago`;
 }

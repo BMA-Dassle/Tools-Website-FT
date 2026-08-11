@@ -25,6 +25,7 @@ import { listDailyEvents } from "~/features/daily-events/service";
 import type { Reservation } from "~/features/daily-events/types";
 import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
 import { VENUE_INFO, type SignageVenue } from "../constants";
+import { formatResourceList } from "../lanes";
 import type { WelcomeEntry } from "../types";
 
 /** Statuses that are not a real, still-happening event. */
@@ -139,7 +140,16 @@ async function firstLegsByProject(
       const prev = out.get(projectId);
       // Keep the EARLIEST leg across both buildings — that is the first stop.
       if (prev && prev.startIso && startIso && prev.startIso <= startIso) continue;
-      const resource = r.resourceName || r.allResourceNames?.[0] || "";
+      // EVERY resource on the booking, folded into one phrase — a group function
+      // books one schedule line PER LANE, so reading `resourceName` (which is
+      // schedules[0]) or `allResourceNames[0]` showed "Lane 5" for a party holding
+      // Lanes 5–10 (owner 2026-08-11). formatResourceList collapses the run the
+      // same way the daily-events schedule tab does, so the wall and the admin
+      // page describe a booking identically.
+      const resource =
+        formatResourceList(
+          r.allResourceNames?.length ? r.allResourceNames : [r.resourceName ?? ""],
+        ) ?? "";
       out.set(projectId, {
         startIso,
         label: resource ? `First up: ${resource}` : "First up: see the front desk",
@@ -161,18 +171,33 @@ function buildingFor(locationId: number): string {
 /**
  * What the wall calls this party.
  *
- * First names only (owner) — never a surname on a public screen. The stored
- * `event_name` has already been cleaned of venue prefixes and dates at ingest,
- * but it can still carry a full name, so the contact's first name is preferred
- * and the event name is only used when it clearly is not a person's name.
+ * THE GROUP'S OWN NAME WINS (owner 2026-08-11). Contract H3231 is the Gartner
+ * booking, and the board was greeting "Kristine's Party" — the name of whoever
+ * happened to phone it in. A company arriving for their event wants to see their
+ * event, and the person who booked it is rarely even in the room.
+ *
+ * `event_name` is the right field for that and needs no cleaning here: ingest has
+ * already run it through the AI normaliser (lib/event-name-format.ts), which is
+ * built to return the bare client name — it strips venue prefixes, dates and
+ * invented event types, and its own examples are of the form
+ * "HeadPinz Welcomes Water Medic!" → "Water Medic". The old code read it only as
+ * an unreachable fallback: `guest_first_name` is always populated at dispatch, so
+ * the `event_name` branch could never run.
+ *
+ * PII POSTURE, since this prints on a public wall: `event_name` is the name the
+ * VENUE gave the booking and puts on its own contracts, not a guest surname
+ * harvested from a form — "Gartner" here is the account. The possessive
+ * first-name form remains the fallback for a booking with no event name, which is
+ * the private-party case, and that stays first-name-only.
  */
 function displayTitle(q: GroupFunctionQuote): string {
+  const eventName = String(q.event_name ?? "").trim();
+  if (eventName) return eventName;
   const first = String(q.guest_first_name ?? "")
     .trim()
     .split(/\s+/)[0];
   if (first) return `${first}'s Party`;
-  const name = String(q.event_name ?? "").trim();
-  return name || "Welcome!";
+  return "Welcome!";
 }
 
 function withinWindow(iso: string | null, nowMs: number, w: WelcomeWindow): boolean {

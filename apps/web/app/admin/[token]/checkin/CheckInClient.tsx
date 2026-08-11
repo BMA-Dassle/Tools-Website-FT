@@ -99,6 +99,11 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
    */
   const briefing = useBriefingControl(token, boardMode);
 
+  // Declared HERE, above every reader. It used to sit just before the return, and
+  // the board-mode header below reads it — a const referenced above its own
+  // declaration is a runtime ReferenceError rather than a type error.
+  const serialSupported = typeof window !== "undefined" && "serial" in navigator;
+
   // Serial port state
   const [connectionState, setConnectionState] = useState<ConnectionState>("idle");
   const [portName, setPortName] = useState<string>("");
@@ -779,8 +784,6 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
 
   // --------------- Render: Idle / Ready ---------------
 
-  const serialSupported = typeof window !== "undefined" && "serial" in navigator;
-
   return (
     <div
       className="min-h-screen flex flex-col"
@@ -804,6 +807,44 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
           </p>
         </div>
         <div className="flex items-center gap-3" style={{ flexWrap: "wrap" }}>
+          {/* BOARD MODE: the scanner lives up here as a strip, not as a
+              full-height hero in the middle of the page — the briefing rooms are
+              what the screen is for (owner 2026-08-11: "get that connect scanner
+              out of there and up to the top bar, utilize full screen"). */}
+          {boardMode && serialSupported && (
+            <>
+              {connectionState === "ready" ? (
+                <span
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs"
+                  style={{ borderColor: "#14532d", color: "#4ade80", borderRadius: 8 }}
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  Scanner ready
+                  <button
+                    type="button"
+                    onClick={disconnect}
+                    className="underline"
+                    style={{ color: PORTAL_DARK.muted }}
+                  >
+                    disconnect
+                  </button>
+                </span>
+              ) : connectionState === "connecting" ? (
+                <span className="text-xs" style={{ color: PORTAL_DARK.muted }}>
+                  Connecting scanner…
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={requestPort}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold"
+                  style={{ backgroundColor: PORTAL_BLUE, color: "#fff", borderRadius: 8 }}
+                >
+                  {connectionState === "error" ? "Retry scanner" : "Connect scanner"}
+                </button>
+              )}
+            </>
+          )}
           <button
             type="button"
             onClick={runSelfTest}
@@ -935,12 +976,11 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
       )}
 
       {/* Main content */}
+      {/* The scanner's own area. In board mode it is gone — its status moved to the
+          header — so the briefing rooms fill the page. */}
       <div
-        className={
-          boardMode
-            ? "flex flex-col items-center justify-center px-6 py-5"
-            : "flex-1 flex flex-col items-center justify-center px-6"
-        }
+        className="flex-1 flex flex-col items-center justify-center px-6"
+        style={boardMode ? { display: "none" } : undefined}
       >
         {!serialSupported ? (
           <div className="text-center">
