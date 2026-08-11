@@ -85,15 +85,13 @@ async function token(clientKey: string): Promise<string> {
 
 /** Raw Pandora probe — returns the HTTP status too, which bmi-scan throws away. */
 async function pandora(locationID: string, reservationId: string) {
-  const res = await fetch(`${PANDORA_BASE}/v2/bmi/reservation`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.SWAGGER_ADMIN_KEY || ""}`,
+  const res = await fetch(
+    `${PANDORA_BASE}/v2/bmi/reservation/${encodeURIComponent(locationID)}/${encodeURIComponent(reservationId)}`,
+    {
+      headers: { Authorization: `Bearer ${process.env.SWAGGER_ADMIN_KEY || ""}` },
+      signal: AbortSignal.timeout(20_000),
     },
-    body: JSON.stringify({ locationID, reservationId }),
-    signal: AbortSignal.timeout(20_000),
-  });
+  );
   const text = await res.text();
   let parsed: any = null;
   try {

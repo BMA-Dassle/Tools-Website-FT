@@ -159,15 +159,13 @@ export async function fetchReservationDetail(
     PANDORA_LOCATION_IDS[centerOrHermesCenter] || HERMES_TO_PANDORA_LOCATION[centerOrHermesCenter];
   if (!locationID) return null;
   const key = process.env.SWAGGER_ADMIN_KEY || "";
-  const res = await fetch(`${PANDORA_BASE}/v2/bmi/reservation`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
+  const res = await fetch(
+    `${PANDORA_BASE}/v2/bmi/reservation/${encodeURIComponent(locationID)}/${encodeURIComponent(reservationId)}`,
+    {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(15_000),
     },
-    body: JSON.stringify({ locationID, reservationId }),
-    signal: AbortSignal.timeout(15_000),
-  });
+  );
   if (!res.ok) return null;
   const body = await res.json();
   if (!body.success) return null;

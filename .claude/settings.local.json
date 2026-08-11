@@ -279,7 +279,9 @@
       "Bash(git rev-list *)",
       "Bash(git stash *)",
       "WebFetch(domain:www.leg.state.fl.us)",
-      "PowerShell(git fetch origin 2>$null)"
+      "PowerShell(git fetch origin 2>$null)",
+      "Bash(curl -s --max-time 20 https://bma-pandora-api.azurewebsites.net/swagger/v1/swagger.json -o __TRACKED_VAR__/pandora-swagger.json)",
+      "Bash(curl -s --max-time 20 \"https://bma-pandora-api.azurewebsites.net/swagger/v1/swagger.json\")"
     ],
     "additionalDirectories": [
       "\\tmp"

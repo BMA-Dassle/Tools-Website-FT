@@ -216,12 +216,13 @@ function normalizeDate(raw) {
 async function fetchReservation(pandoraLoc, reservationId) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch(`${PANDORA_BASE}/v2/bmi/reservation`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SWAGGER_KEY}` },
-        body: JSON.stringify({ locationID: pandoraLoc, reservationId }),
-        signal: AbortSignal.timeout(30_000),
-      });
+      const res = await fetch(
+        `${PANDORA_BASE}/v2/bmi/reservation/${encodeURIComponent(pandoraLoc)}/${encodeURIComponent(reservationId)}`,
+        {
+          headers: { Authorization: `Bearer ${SWAGGER_KEY}` },
+          signal: AbortSignal.timeout(30_000),
+        },
+      );
       if (!res.ok) return null;
       const body = await res.json().catch(() => null);
       if (!body || !body.success) return null;
