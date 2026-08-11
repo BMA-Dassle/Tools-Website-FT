@@ -46,13 +46,26 @@ function authed(req: NextRequest): boolean {
 
 /** Last-seen stamps, written by the feed on every poll. Absent = never seen or
  *  offline for 15+ minutes, which is what the admin dot reports. */
-async function lastSeen(screenIds: string[]): Promise<Record<string, string | null>> {
-  const out: Record<string, string | null> = {};
+async function lastSeen(
+  screenIds: string[],
+): Promise<Record<string, { at: string; build: string | null } | null>> {
+  const out: Record<string, { at: string; build: string | null } | null> = {};
   if (screenIds.length === 0) return out;
   try {
     const values = await redis.mget(...screenIds.map((id) => `signage:seen:${id}`));
     screenIds.forEach((id, i) => {
-      out[id] = values[i] ?? null;
+      const raw = values[i];
+      if (!raw) {
+        out[id] = null;
+        return;
+      }
+      try {
+        const parsed = JSON.parse(raw) as { at?: string; build?: string | null };
+        out[id] = parsed.at ? { at: parsed.at, build: parsed.build ?? null } : null;
+      } catch {
+        // Older heartbeats were a bare ISO string.
+        out[id] = { at: raw, build: null };
+      }
     });
   } catch {
     screenIds.forEach((id) => {

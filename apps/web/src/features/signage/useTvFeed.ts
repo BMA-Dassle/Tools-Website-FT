@@ -20,6 +20,12 @@ import type { TvFeed } from "./types";
 
 const CACHE_PREFIX = "tv_feed_cache:";
 
+/**
+ * The build this tab is running, so the admin page can tell a stale board from
+ * a broken feature. Baked at build time; a reloaded tab reports the new one.
+ */
+const BUILD_SHA = (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || "dev").slice(0, 8);
+
 export function useTvFeed(screenId: string | null): TvFeed | null {
   const [feed, setFeed] = useState<TvFeed | null>(null);
   const lastGood = useRef<TvFeed | null>(null);
@@ -53,10 +59,13 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
     async (signal: AbortSignal) => {
       if (!screenId) return;
       try {
-        const res = await fetch(`/api/tv/feed?screen=${encodeURIComponent(screenId)}`, {
-          cache: "no-store",
-          signal,
-        });
+        const res = await fetch(
+          `/api/tv/feed?screen=${encodeURIComponent(screenId)}&build=${BUILD_SHA}`,
+          {
+            cache: "no-store",
+            signal,
+          },
+        );
         if (!res.ok) return; // keep last good
         const next = (await res.json()) as TvFeed;
         if (signal.aborted) return;
@@ -87,10 +96,13 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
     async (signal: AbortSignal) => {
       if (!screenId) return;
       try {
-        const res = await fetch(`/api/tv/feed?pulse=1&screen=${encodeURIComponent(screenId)}`, {
-          cache: "no-store",
-          signal,
-        });
+        const res = await fetch(
+          `/api/tv/feed?pulse=1&screen=${encodeURIComponent(screenId)}&build=${BUILD_SHA}`,
+          {
+            cache: "no-store",
+            signal,
+          },
+        );
         if (!res.ok) return;
         const next = (await res.json()) as Pulse;
         if (!signal.aborted) setPulse(next);

@@ -39,9 +39,16 @@ import type { TvFeed } from "../types";
  *  be a pointless write storm. */
 const SEEN_TTL_SECONDS = 900;
 
-async function stampSeen(screenId: string): Promise<void> {
+async function stampSeen(screenId: string, buildSha?: string | null): Promise<void> {
   try {
-    await redis.set(`signage:seen:${screenId}`, new Date().toISOString(), "EX", SEEN_TTL_SECONDS);
+    // Record WHICH BUILD the screen is running, not just that it is alive.
+    //
+    // Every confusing hour tonight came down to "is that board on current
+    // code?", and there was no way to answer it without walking to the player.
+    // A heartbeat that says "alive" and nothing else is what let a stale board
+    // look like a broken feature more than once.
+    const payload = JSON.stringify({ at: new Date().toISOString(), build: buildSha ?? null });
+    await redis.set(`signage:seen:${screenId}`, payload, "EX", SEEN_TTL_SECONDS);
   } catch {
     /* a heartbeat is diagnostics, never a reason to fail a feed */
   }
@@ -56,7 +63,10 @@ async function stampSeen(screenId: string): Promise<void> {
  * which is the security property: names only reach screens someone deliberately
  * registered.
  */
-export async function buildTvFeed(screenIdRaw: string | null): Promise<TvFeed> {
+export async function buildTvFeed(
+  screenIdRaw: string | null,
+  buildSha?: string | null,
+): Promise<TvFeed> {
   const now = Date.now();
   const parsed = parseScreenKey(screenIdRaw);
 
@@ -79,7 +89,7 @@ export async function buildTvFeed(screenIdRaw: string | null): Promise<TvFeed> {
   const screen = await loadSignageScreen(screenIdRaw).catch(() => null);
   if (!screen) return base;
 
-  void stampSeen(screen.screenId);
+  void stampSeen(screen.screenId, buildSha);
 
   const center = VENUE_INFO[parsed.venue]?.center ?? screen.center;
 
@@ -152,7 +162,10 @@ function safePaused(): string[] {
  * racer is still standing at the desk, without putting the party board's
  * database work on the same cadence.
  */
-export async function buildTvPulse(screenIdRaw: string | null): Promise<{
+export async function buildTvPulse(
+  screenIdRaw: string | null,
+  buildSha?: string | null,
+): Promise<{
   now: number;
   kioskEvents: TvFeed["kioskEvents"];
   reloadAt: number | null;
@@ -163,6 +176,8 @@ export async function buildTvPulse(screenIdRaw: string | null): Promise<{
   if (!parsed || !screenIdRaw) return { now, kioskEvents: [], reloadAt: null, demoMode: null };
 
   const center = VENUE_INFO[parsed.venue]?.center ?? "fort-myers";
+  // The pulse is the frequent one, so the build stamp rides it.
+  void stampSeen(screenIdRaw, buildSha);
   const [kioskEvents, reloadAt, demoMode] = await Promise.all([
     readSignageEvents(center).catch(() => []),
     reloadRequestedAt(center).catch(() => null),

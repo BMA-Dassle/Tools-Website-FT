@@ -24,13 +24,14 @@ export async function GET(req: NextRequest) {
   }
 
   const screen = req.nextUrl.searchParams.get("screen");
+  const build = req.nextUrl.searchParams.get("build");
 
   // Fast lane: the live half only. Screens poll this every couple of seconds so
   // a scan reaches the wall while the racer is still at the desk; the full
   // feed, which touches Neon and BMI, stays on a slower cadence.
   if (req.nextUrl.searchParams.get("pulse")) {
     try {
-      const pulse = await buildTvPulse(screen);
+      const pulse = await buildTvPulse(screen, build);
       return NextResponse.json(pulse, { headers: { "Cache-Control": "no-store" } });
     } catch {
       return NextResponse.json(
@@ -41,7 +42,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const feed = await buildTvFeed(screen);
+    const feed = await buildTvFeed(screen, build);
     return NextResponse.json(feed, {
       headers: { "Cache-Control": "no-store" },
     });

@@ -28,9 +28,12 @@ import {
 import { startupInstructions, startupScriptFileName } from "~/features/signage/startup-script";
 import type { ScreenConfig, SignageScreen } from "~/features/signage/types";
 
+/** The build THIS admin page was served from, for comparing against a screen. */
+const CURRENT_BUILD = (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || "dev").slice(0, 8);
+
 interface LoadState {
   screens: SignageScreen[];
-  seen: Record<string, string | null>;
+  seen: Record<string, { at: string; build: string | null } | null>;
 }
 
 /** Track resource ids, so the Blue/Red screens can be scoped by picking a name
@@ -71,8 +74,17 @@ export default function SignageAdminClient({ token }: { token: string }) {
     return () => clearInterval(iv);
   }, [load]);
 
+  /**
+   * Every action says what happened.
+   *
+   * Previously only failures spoke, so a working button and a dead one looked
+   * identical — press Preview VIP, see nothing on the page and nothing on a
+   * stale screen, and conclude the feature is broken (owner 2026-08-11: "I get
+   * no feedback on admin page that it was triggered either"). Silence is the
+   * worst possible answer from a tool used to diagnose screens.
+   */
   const post = useCallback(
-    async (body: Record<string, unknown>) => {
+    async (body: Record<string, unknown>, successNote?: string) => {
       setBusy(true);
       setNote(null);
       try {
@@ -83,12 +95,13 @@ export default function SignageAdminClient({ token }: { token: string }) {
         });
         const json = (await res.json()) as { error?: string };
         if (!res.ok) {
-          setNote(json.error ?? "Something went wrong");
+          setNote(`✕ ${json.error ?? `Failed (${res.status})`}`);
           return false;
         }
+        if (successNote) setNote(`✓ ${successNote}`);
         return true;
-      } catch {
-        setNote("Could not reach the server");
+      } catch (err) {
+        setNote(`✕ Could not reach the server${err instanceof Error ? ` — ${err.message}` : ""}`);
         return false;
       } finally {
         setBusy(false);
@@ -207,22 +220,30 @@ export default function SignageAdminClient({ token }: { token: string }) {
                 key={s.screenId}
                 screen={s}
                 token={token}
-                lastSeen={data.seen[s.screenId] ?? null}
+                heartbeat={data.seen[s.screenId] ?? null}
                 nowMs={loadedAt}
                 onEdit={() => setEditing(draftFromScreen(s))}
                 onDelete={() => remove(s.screenId)}
-                onTest={() => post({ action: "test-celebration", center: s.center })}
-                onSimulate={(action, extra) =>
-                  post({ action, center: s.center, firstName: "Marcus", ...extra })
+                onTest={() =>
+                  post(
+                    { action: "test-celebration", center: s.center },
+                    `Celebration sent to ${s.center} — watch the screen.`,
+                  )
                 }
-                onSimulateScan={(track, opts) =>
-                  post({
-                    action: "simulate-scan",
-                    center: s.center,
-                    track,
-                    firstName: "Marcus",
-                    ...opts,
-                  })
+                onSimulate={(action, extra, label) =>
+                  post({ action, center: s.center, firstName: "Marcus", ...extra }, label)
+                }
+                onSimulateScan={(track, opts, label) =>
+                  post(
+                    {
+                      action: "simulate-scan",
+                      center: s.center,
+                      track,
+                      firstName: "Marcus",
+                      ...opts,
+                    },
+                    label,
+                  )
                 }
                 busy={busy}
               />
@@ -239,7 +260,7 @@ export default function SignageAdminClient({ token }: { token: string }) {
 function ScreenRow({
   screen,
   token,
-  lastSeen,
+  heartbeat,
   nowMs,
   onEdit,
   onDelete,
@@ -250,14 +271,18 @@ function ScreenRow({
 }: {
   screen: SignageScreen;
   token: string;
-  lastSeen: string | null;
+  heartbeat: { at: string; build: string | null } | null;
   /** Clock read once per load by the parent — never Date.now() during render. */
   nowMs: number;
   onEdit: () => void;
   onDelete: () => void;
   onTest: () => void;
-  onSimulateScan: (track: string, opts: { vip?: boolean; birthday?: boolean }) => void;
-  onSimulate: (action: string, extra?: Record<string, unknown>) => void;
+  onSimulateScan: (
+    track: string,
+    opts: { vip?: boolean; birthday?: boolean },
+    label?: string,
+  ) => void;
+  onSimulate: (action: string, extra?: Record<string, unknown>, label?: string) => void;
   busy: boolean;
 }) {
   const [showSetup, setShowSetup] = useState(false);
@@ -273,7 +298,7 @@ function ScreenRow({
   const canWelcome = resolved.playlist.some((p) => p.scene === "event-welcome");
   const canVip = resolved.vip.enabled;
   const canCelebrate = resolved.celebration.enabled;
-  const online = lastSeen ? nowMs - Date.parse(lastSeen) < 60_000 : false;
+  const online = heartbeat ? nowMs - Date.parse(heartbeat.at) < 60_000 : false;
   const scopedTrack = screen.config.scope?.resourceIds?.[0];
   const trackName =
     TRACK_OPTIONS.find((t) => t.resourceId === scopedTrack)
@@ -315,13 +340,28 @@ function ScreenRow({
           {VENUE_INFO[screen.venue as SignageVenue]?.label ?? screen.venue} ·{" "}
           {online
             ? "online now"
-            : lastSeen
-              ? `last seen ${timeAgo(lastSeen, nowMs)}`
+            : heartbeat
+              ? `last seen ${timeAgo(heartbeat.at, nowMs)}`
               : "never seen"}
+          {heartbeat?.build ? ` · build ${heartbeat.build}` : ""}
         </p>
         <p style={{ color: PORTAL_DARK.muted, fontSize: 13, margin: "4px 0 0" }}>
           Shows: {scenes.length ? scenes.join(", ") : "ads"}
         </p>
+        {heartbeat?.build && heartbeat.build !== CURRENT_BUILD && (
+          <p
+            style={{
+              margin: "8px 0 0",
+              fontSize: 13,
+              color: "#f0b341",
+              fontWeight: 600,
+            }}
+          >
+            ⚠ This screen is running an older build ({heartbeat.build}, page is {CURRENT_BUILD}).
+            Buttons here may do nothing until it reloads — press Reload screens, or restart the
+            player.
+          </p>
+        )}
         <code
           style={{
             display: "block",
@@ -386,7 +426,9 @@ function ScreenRow({
             {canRaceCheckin && (
               <button
                 type="button"
-                onClick={() => onSimulateScan(trackName, {})}
+                onClick={() =>
+                  onSimulateScan(trackName, {}, `Scan sent on ${trackName} — Marcus should appear.`)
+                }
                 style={btn}
                 disabled={busy}
                 title="Publishes a racer-scanned event on the real rail"
@@ -397,7 +439,13 @@ function ScreenRow({
             {canRaceCheckin && (
               <button
                 type="button"
-                onClick={() => onSimulateScan(trackName, { birthday: true })}
+                onClick={() =>
+                  onSimulateScan(
+                    trackName,
+                    { birthday: true },
+                    "Birthday sent — BOTH karting boards take over.",
+                  )
+                }
                 style={{ ...btn, borderColor: "#ec4899", color: "#ec4899" }}
                 disabled={busy}
                 title="Fires the full birthday takeover on BOTH karting boards"
@@ -408,7 +456,9 @@ function ScreenRow({
             {canRaceCheckin && (
               <button
                 type="button"
-                onClick={() => onSimulate("simulate-wrong-race", { track: trackName })}
+                onClick={() =>
+                  onSimulate("simulate-wrong-race", { track: trackName }, "Wrong-race notice sent.")
+                }
                 style={{ ...btn, borderColor: "#f0b341", color: "#f0b341" }}
                 disabled={busy}
                 title="Somebody scanned for a heat that is not the one checking in"
@@ -419,7 +469,13 @@ function ScreenRow({
             {canRaceCheckin && (
               <button
                 type="button"
-                onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "race" })}
+                onClick={() =>
+                  onSimulate(
+                    "preview",
+                    { screenId: screen.screenId, mode: "race" },
+                    `Session preview pushed to ${screen.screenId} for 90s.`,
+                  )
+                }
                 style={btn}
                 disabled={busy}
                 title="Show a live-looking session ON THIS SCREEN for 90 seconds"
@@ -430,7 +486,13 @@ function ScreenRow({
             {canVip && (
               <button
                 type="button"
-                onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "vip" })}
+                onClick={() =>
+                  onSimulate(
+                    "preview",
+                    { screenId: screen.screenId, mode: "vip" },
+                    `VIP preview pushed to ${screen.screenId} for 90s.`,
+                  )
+                }
                 style={{ ...btn, borderColor: "#d4af37", color: "#d4af37" }}
                 disabled={busy}
                 title="Show the VIP takeover on this screen"
@@ -441,7 +503,13 @@ function ScreenRow({
             {canWelcome && (
               <button
                 type="button"
-                onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "event" })}
+                onClick={() =>
+                  onSimulate(
+                    "preview",
+                    { screenId: screen.screenId, mode: "event" },
+                    `Welcome preview pushed to ${screen.screenId} for 90s.`,
+                  )
+                }
                 style={btn}
                 disabled={busy}
                 title="Show the party welcome board on this screen"
@@ -451,7 +519,13 @@ function ScreenRow({
             )}
             <button
               type="button"
-              onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "off" })}
+              onClick={() =>
+                onSimulate(
+                  "preview",
+                  { screenId: screen.screenId, mode: "off" },
+                  `${screen.screenId} back to normal.`,
+                )
+              }
               style={btn}
               disabled={busy}
               title="Return this screen to normal now"
