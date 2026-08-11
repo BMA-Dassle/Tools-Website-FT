@@ -3,11 +3,13 @@
 /**
  * The track check-in screen: who is checking in right now, and what time.
  *
- * THE ONE THING THIS SCREEN MUST GET RIGHT is that the time on it is the
- * CHECK-IN time, not the green flag. Racing check-in opens 30 minutes ahead of a
- * race (RACING_CHECKIN_LEAD_MIN), so a bare time on a wall reads as "your race
- * is at 7:45" to a guest who has never been here before — and they wander off.
- * The copy says which is which in as many words.
+ * THE ONE THING THIS SCREEN MUST GET RIGHT is what the time on it MEANS.
+ *
+ * The time on a racer's e-ticket is their check-in CUT-OFF — the moment they
+ * must already be checked in by (owner, 2026-08-11). It is not the green flag,
+ * and it is not when check-in opens. A bare time on a wall reads as "my race is
+ * at 7:45" to anyone who has not been here before, so they relax and miss the
+ * cut. Every time on this screen is therefore labelled as a deadline.
  *
  * DATA COMES FROM THE SAME PLACE THE WEBSITE'S DOES. `useTrackStatus()` polls
  * /api/track-status and /api/pandora/races-current?prefer=cache — the exact two
@@ -16,7 +18,6 @@
  * hand is worse than no wall. Nothing here re-derives a session or a delay.
  */
 import { useTrackStatus } from "@/hooks/useTrackStatus";
-import { RACING_CHECKIN_LEAD_MIN } from "~/features/kiosk/checkin/itinerary";
 import { withAlpha } from "../color";
 import {
   TRACK_ACCENTS,
@@ -50,10 +51,22 @@ const STANDBY_AFTER_MS = 30_000;
 
 export function SceneRaceCheckin({ feed, nowMs, config }: SceneProps) {
   const status = useTrackStatus();
+
   const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
 
   const screenTrack = trackFromResourceIds(config.scope.resourceIds);
-  const track = effectiveTrack(screenTrack, megaEnabled) ?? "blue";
+  let track = effectiveTrack(screenTrack, megaEnabled) ?? "blue";
+
+  // Data beats configuration. On a Mega day the barrier between Blue and Red
+  // comes out and racing moves to the combined circuit — but the delay service
+  // that reports `megaTrackEnabled` is external and does not flip the instant
+  // the day turns over. If this screen's own track has nothing checking in and
+  // Mega does, follow Mega: the alternative is a board sitting on "no session"
+  // while a heat is genuinely checking in feet away.
+  if (!status?.currentRaces?.[track] && status?.currentRaces?.mega) {
+    track = "mega";
+  }
+
   const accent = TRACK_ACCENTS[track];
 
   const race = status?.currentRaces?.[track] ?? null;
@@ -179,12 +192,16 @@ function CheckingIn({
         {race.raceType}
       </div>
 
-      <div style={{ marginTop: 18, display: "flex", alignItems: "baseline", gap: 24 }}>
+      {/* The time on the e-ticket is the DEADLINE, so it is stated as one. */}
+      <div style={{ marginTop: 18, display: "flex", alignItems: "baseline", gap: 20 }}>
         <span className="tv-display" style={{ fontSize: 54, color: accent }}>
-          This is your check-in time
+          Check in by
         </span>
-        <span className="tv-num" style={{ fontSize: 44, color: "rgba(245,236,238,0.7)" }}>
-          Race {fmtTime(race.scheduledStart)}
+        <span
+          className="tv-display tv-num"
+          style={{ fontSize: 72, color: "#fff", textShadow: `0 0 40px ${withAlpha(accent, 0.5)}` }}
+        >
+          {fmtTime(race.scheduledStart)}
         </span>
       </div>
 
@@ -216,7 +233,7 @@ function Idle({ accent }: { accent: string }) {
         checking in
       </div>
       <p style={{ fontSize: 44, color: "rgba(245,236,238,0.6)", margin: 0 }}>
-        Check-in opens {RACING_CHECKIN_LEAD_MIN} minutes before your race.
+        The time on your e-ticket is your check-in cut-off — be checked in by then.
       </p>
       <div
         aria-hidden
