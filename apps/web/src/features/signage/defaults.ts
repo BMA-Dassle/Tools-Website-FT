@@ -123,6 +123,7 @@ export interface ResolvedScreenConfig {
   scope: { resourceIds: string[]; gfCenterCodes: string[] };
   pairing: { groupId: string; position: number; count: number } | null;
   adSet: string | null;
+  showNextAvailable: boolean;
   welcomeLeadMins: number;
   welcomeTrailMins: number;
 }
@@ -191,6 +192,7 @@ export function resolveScreenConfig(
           }
         : null,
     adSet: typeof c.adSet === "string" && c.adSet ? c.adSet : null,
+    showNextAvailable: c.showNextAvailable === true,
     welcomeLeadMins: numOr(c.welcomeLeadMins, 75),
     welcomeTrailMins: numOr(c.welcomeTrailMins, 30),
   };

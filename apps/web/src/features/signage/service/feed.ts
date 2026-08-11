@@ -20,7 +20,7 @@ import redis from "@/lib/redis";
 import { pausedProductIds } from "~/features/maintenance";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { loadSignageScreen } from "../data/signage-screens-db";
-import { parseScreenKey, VENUE_INFO } from "../constants";
+import { parseScreenKey, VENUE_INFO, type SignageVenue } from "../constants";
 import {
   signageEventsKey,
   readSignageEvents,
@@ -67,6 +67,7 @@ export async function buildTvFeed(screenIdRaw: string | null): Promise<TvFeed> {
     kioskEvents: [],
     raceCheckin: null,
     pausedProductIds: safePaused(),
+    nextAvailable: null,
     reloadAt: null,
     demoMode: null,
     degraded: false,
@@ -99,7 +100,7 @@ export async function buildTvFeed(screenIdRaw: string | null): Promise<TvFeed> {
   // screen would double the work for nothing.
   const wantsWelcome = config.playlist.some((p) => p.scene === "event-welcome");
 
-  const [raceCheckin, events] = await Promise.all([
+  const [raceCheckin, events, nextAvailable] = await Promise.all([
     track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
     wantsWelcome
       ? buildWelcomeBoard(
@@ -109,6 +110,9 @@ export async function buildTvFeed(screenIdRaw: string | null): Promise<TvFeed> {
           { leadMins: config.welcomeLeadMins, trailMins: config.welcomeTrailMins },
           now,
         ).catch(() => null)
+      : Promise.resolve(null),
+    config.showNextAvailable
+      ? buildNextAvailable(parsed.venue).catch(() => null)
       : Promise.resolve(null),
   ]);
 
@@ -120,6 +124,7 @@ export async function buildTvFeed(screenIdRaw: string | null): Promise<TvFeed> {
     demoMode,
     raceCheckin,
     events,
+    nextAvailable,
     // `vip` (the bowling-leg takeover) lands with the next scene.
     vip: null,
     // Null events mean we could not ask — the welcome entry then self-skips
@@ -163,6 +168,49 @@ export async function buildTvPulse(screenIdRaw: string | null): Promise<{
     demoRequestedFor(screenIdRaw).catch(() => null),
   ]);
   return { now, kioskEvents, reloadAt, demoMode };
+}
+
+/**
+ * "Next available" per product, for the ad slides.
+ *
+ * Reads the SAME Redis entry the kiosks read (`kiosk:avail:v4:{center}`, the
+ * three-minute cache behind /api/kiosk/availability) rather than recomputing.
+ * Two reasons, and both matter: the compute fans out across BMI and QAMF and
+ * has a 60-second ceiling, which has no business on a screen's poll; and
+ * sharing the cache is what guarantees a wall quoting a time and the machine
+ * below it selling that time cannot disagree.
+ *
+ * Never computes on a miss. No cache means no times on the slides — an advert
+ * promising a slot the kiosk will then refuse is worse than one with no time
+ * on it at all.
+ */
+async function buildNextAvailable(venue: SignageVenue): Promise<Record<string, string> | null> {
+  try {
+    const center = VENUE_INFO[venue].center;
+    const raw = await redis.get(`kiosk:avail:v4:${center}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      available?: Record<string, boolean>;
+      firstOpen?: Record<string, { start?: string; freeSpots?: number }>;
+    };
+    const out: Record<string, string> = {};
+    for (const [key, entry] of Object.entries(parsed.firstOpen ?? {})) {
+      if (!entry?.start) continue;
+      // A locked tile never gets a time — see the note above.
+      if (parsed.available?.[key] === false) continue;
+      const t = Date.parse(entry.start);
+      if (!Number.isFinite(t)) continue;
+      const time = new Date(t).toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "America/New_York",
+      });
+      out[key] = entry.freeSpots ? `${entry.freeSpots} left · ${time}` : time;
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  } catch {
+    return null;
+  }
 }
 
 export { signageEventsKey };

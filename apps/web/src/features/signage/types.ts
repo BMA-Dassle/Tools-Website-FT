@@ -147,6 +147,10 @@ export interface ScreenConfig {
   pairing?: ScreenPairing;
   /** Which ad slide set to run. Defaults to the venue's own. */
   adSet?: string;
+  /** Put "Next available" times on the ad slides. Off unless asked for — an
+   *  advert that quotes a time nobody can honour is worse than one that does
+   *  not. */
+  showNextAvailable?: boolean;
   /** Minutes before an event's first leg that it appears on the welcome board. */
   welcomeLeadMins?: number;
   /** Minutes after the first leg starts that it drops off the welcome board. */
@@ -282,6 +286,9 @@ export interface TvFeed {
   } | null;
   /** Product ids currently off-sale — never advertise a paused product. */
   pausedProductIds: string[];
+  /** "Next available" per product key, e.g. { bowling: "3 lanes · 9:30 PM" }.
+   *  Only populated for screens that asked for it. */
+  nextAvailable: Record<string, string> | null;
   /** Set when staff asked the screens to reload. A screen reloads if this is
    *  newer than its own boot. Null when nobody has asked. */
   reloadAt: number | null;

@@ -15,7 +15,8 @@
  * 1200. Quality stays 75 — the ONLY value in Next 16's default
  * `images.qualities`, so anything else would be silently coerced.
  */
-import { KIOSK_PHOTOS } from "~/features/kiosk/assets";
+import { KIOSK_PHOTOS, kioskAdSlidesFor } from "~/features/kiosk/assets";
+import type { Brand, CenterCode } from "~/features/booking/types";
 import type { SignageVenue } from "./constants";
 
 const BLOB_HOST = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
@@ -205,6 +206,71 @@ const AD_SETS: Record<SignageVenue, TvAdSlide[]> = {
  * rotation would leave the screen with nothing at all, and a stale advert is a
  * smaller failure than a dead panel.
  */
+/**
+ * The slides the kiosks below are showing, as TV slides.
+ *
+ * A screen bolted above a bank of kiosks advertising something different from
+ * the machines underneath it looks broken, so the TV runs the SAME catalog in
+ * the SAME order (owner 2026-08-11). Only the presentation differs — the wall
+ * gets a fuller line of copy where we have one, because it is read from further
+ * away and has room for it.
+ *
+ * Falls back to the TV's own set if the kiosk catalog is ever empty, so the
+ * screen can never end up with nothing to show.
+ */
+export function kioskMatchedAdSlides(center: CenterCode, brand: Brand): TvAdSlide[] {
+  const kioskSlides = kioskAdSlidesFor(center, brand);
+  if (kioskSlides.length === 0) return [];
+  return kioskSlides.map((k, i) => {
+    const copy = TV_LINE_BY_ACCENT[k.accent];
+    return {
+      key: `kiosk-${i}`,
+      // The kiosk title reads "Bowling starts here"; on a wall nobody is about
+      // to touch, the activity alone is the stronger headline.
+      word: copy?.word ?? k.title.replace(/\s+starts here$/i, ""),
+      line: copy?.line ?? "Book it at any kiosk below.",
+      accent: k.accent,
+      photo: tvImg(k.photo) ?? k.photo,
+      productKeys: copy?.productKeys,
+    };
+  });
+}
+
+/** Richer wall copy, keyed by the kiosk slide's accent — the one stable
+ *  identifier a kiosk slide carries for what it is selling. */
+const TV_LINE_BY_ACCENT: Record<string, { word: string; line: string; productKeys?: string[] }> = {
+  "#e53935": {
+    word: "Racing",
+    line: "Electric karts. Two indoor tracks. Real lap times.",
+    productKeys: ["racing"],
+  },
+  "#00e2e5": {
+    word: "Bowling",
+    line: "Glow lanes, big screens, and no rain delays.",
+    productKeys: ["bowling"],
+  },
+  "#46d68c": {
+    word: "Gel Blasters",
+    line: "Team up. Take cover. Blast away.",
+    productKeys: ["gel-blaster"],
+  },
+  "#f800c6": {
+    word: "Laser Tag",
+    line: "Two levels, one dark arena, zero mercy.",
+    productKeys: ["laser-tag"],
+  },
+  "#f0b341": {
+    word: "Game Zone",
+    line: "Hundreds of games. Load a card and go.",
+    productKeys: ["game-zone"],
+  },
+  "#4fa9ff": {
+    word: "Duckpin",
+    line: "Little balls, no holes, surprisingly competitive.",
+    productKeys: ["duckpin"],
+  },
+};
+
 export function tvAdSlides(venue: SignageVenue, pausedProductIds: string[] = []): TvAdSlide[] {
   const all = AD_SETS[venue] ?? HPFM_ADS;
   if (pausedProductIds.length === 0) return all;

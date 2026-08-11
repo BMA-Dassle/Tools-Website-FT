@@ -463,6 +463,7 @@ interface Draft {
   vipLeadMins: number;
   celebrationEnabled: boolean;
   crownEnabled: boolean;
+  showNextAvailable: boolean;
   trackResourceId: string;
   pairGroupId: string;
   pairPosition: number;
@@ -482,6 +483,7 @@ function newDraft(): Draft {
     vipLeadMins: 10,
     celebrationEnabled: true,
     crownEnabled: true,
+    showNextAvailable: false,
     trackResourceId: "",
     pairGroupId: "",
     pairPosition: 0,
@@ -504,6 +506,7 @@ function draftFromScreen(s: SignageScreen): Draft {
     vipLeadMins: c.interrupts?.["vip-welcome"]?.leadMins ?? 10,
     celebrationEnabled: c.interrupts?.celebration?.enabled !== false,
     crownEnabled: c.interrupts?.["billboard-crown"]?.enabled === true,
+    showNextAvailable: c.showNextAvailable === true,
     trackResourceId: c.scope?.resourceIds?.[0] ?? "",
     pairGroupId: c.pairing?.groupId ?? "",
     pairPosition: c.pairing?.position ?? 0,
@@ -528,6 +531,7 @@ function draftToConfig(d: Draft): ScreenConfig {
       celebration: { enabled: d.celebrationEnabled },
       "billboard-crown": { enabled: d.crownEnabled },
     },
+    showNextAvailable: d.showNextAvailable,
     scope: d.trackResourceId ? { resourceIds: [d.trackResourceId] } : {},
     ...(d.pairGroupId
       ? { pairing: { groupId: d.pairGroupId, position: d.pairPosition, count: d.pairCount } }
@@ -643,6 +647,12 @@ function ScreenForm({
           onChange={(v) => set("showAds", v)}
           label="House advertising"
           hint="What the kiosks below can sell. Never advertises a product that's currently paused."
+        />
+        <Check
+          checked={draft.showNextAvailable}
+          onChange={(v) => set("showNextAvailable", v)}
+          label="Show next available times on ads"
+          hint="Puts a real next-available time on each advert, read from the same availability the kiosks use. A locked or unknown product simply shows no time."
         />
         <Check
           checked={draft.showRaceCheckin}
