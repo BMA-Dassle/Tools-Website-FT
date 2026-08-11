@@ -13,7 +13,7 @@
 import { IconCrown } from "@tabler/icons-react";
 import { withAlpha } from "../color";
 import { TV_PHOTOS } from "../assets";
-import { minutesUntil, isBowlingStep } from "../director/schedule";
+import { isBowlingStep } from "../director/schedule";
 import type { VipEntry, VipStep } from "../types";
 import type { SceneProps } from "../director/types";
 
@@ -21,22 +21,26 @@ const GOLD = "#d4af37";
 const GOLD_SOFT = "#e8b14c";
 const PARTICLES = 36;
 
-export function SceneVipWelcome({ decision, nowMs }: SceneProps) {
+export function SceneVipWelcome({ decision }: SceneProps) {
   const vip = decision.vip;
   if (!vip) return null;
 
   const step = bowlingStep(vip);
-  const mins = minutesUntil(step?.iso, nowMs);
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
+      {/* NOT the HyperBowling photo. That shot's lane screens carry their own
+          marketing slogan ("NO MATTER WHO YOU ARE…"), which on a wall reads as
+          OUR copy, garbled (owner 2026-08-11: "the background says no matter
+          who you are instead of a nice image"). A photo with words in it is a
+          photo that talks over the scene. */}
       <div
         aria-hidden
         className="tv-kenburns"
         style={{
           position: "absolute",
           inset: "-6%",
-          backgroundImage: `url(${TV_PHOTOS.vipLanes})`,
+          backgroundImage: `url(${TV_PHOTOS.bowl})`,
           backgroundSize: "cover",
           backgroundPosition: "center",
           opacity: 0.5,
@@ -74,7 +78,10 @@ export function SceneVipWelcome({ decision, nowMs }: SceneProps) {
           className="tv-eyebrow"
           style={{ color: GOLD_SOFT, fontSize: 30, letterSpacing: "0.32em" }}
         >
-          {vip.comboName || "The Ultimate VIP Experience"}
+          {/* Rebranded 2026-08-10: it is "VIP Experience" now, not "The
+              Ultimate VIP Experience" (owner). The live comboName wins when the
+              feed carries one; this is only the fallback. */}
+          {vip.comboName || "VIP Experience"}
         </div>
 
         <div
@@ -93,23 +100,12 @@ export function SceneVipWelcome({ decision, nowMs }: SceneProps) {
           {vip.title}
         </div>
 
+        {/* No countdown (owner 2026-08-11: "doesn't need the in 8 min"). This
+            is a greeting, not a schedule — the party already knows their time,
+            and a number on a gold takeover reads as pressure. */}
         <div className="tv-display" style={{ fontSize: 62, color: "#fff", textAlign: "center" }}>
           VIP bowling{step?.lane ? ` · Lane ${step.lane}` : ""}
         </div>
-
-        {mins != null && (
-          <div
-            className="tv-display tv-num"
-            style={{
-              marginTop: 6,
-              fontSize: 104,
-              color: GOLD,
-              textShadow: `0 0 50px ${withAlpha(GOLD, 0.6)}`,
-            }}
-          >
-            {mins >= 1 ? `In ${Math.round(mins)} min` : "Starting now"}
-          </div>
-        )}
       </div>
     </div>
   );

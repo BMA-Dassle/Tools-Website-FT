@@ -78,7 +78,7 @@ function demoVip(nowMs: number): VipEntry[] {
     {
       id: "demo-vip",
       title: "Sarah",
-      comboName: "The Ultimate VIP Experience",
+      comboName: "VIP Experience",
       playerCount: 6,
       schedule: [
         {

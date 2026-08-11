@@ -13,7 +13,9 @@ import {
   celebrationAt,
   isRacingBoard,
   recentScans,
-  vipTakeoverAt,
+  vipCandidatesAt,
+  vipOnStage,
+  VIP_ROTATE_MS,
   isBowlingStep,
   minutesUntil,
   resolveActiveScene,
@@ -26,7 +28,7 @@ function vipAt(iso: string, id = "v1"): VipEntry {
   return {
     id,
     title: "Sarah",
-    comboName: "Ultimate VIP Experience",
+    comboName: "VIP Experience",
     playerCount: 6,
     schedule: [
       {
@@ -179,24 +181,25 @@ describe("crownActiveAt", () => {
   });
 });
 
-describe("vipTakeoverAt", () => {
+describe("VIP window + stage", () => {
   const cfg = resolveScreenConfig({}, "HPFM").vip; // lead 10, floor 3
   const now = Date.parse("2026-08-11T23:00:00.000Z");
-  const bowlingIn = (mins: number) => vipAt(new Date(now + mins * 60_000).toISOString());
+  const bowlingIn = (mins: number, id = "v1") =>
+    vipAt(new Date(now + mins * 60_000).toISOString(), id);
 
   it("greets inside the window", () => {
-    expect(vipTakeoverAt(now, [bowlingIn(8)], cfg, isBowlingStep)?.vip.title).toBe("Sarah");
+    expect(vipOnStage(now, [bowlingIn(8)], cfg, isBowlingStep)?.vip.title).toBe("Sarah");
   });
 
   it("stays quiet before the lead", () => {
-    expect(vipTakeoverAt(now, [bowlingIn(20)], cfg, isBowlingStep)).toBeNull();
+    expect(vipOnStage(now, [bowlingIn(20)], cfg, isBowlingStep)).toBeNull();
   });
 
   it("stops once they're walking up (past the floor)", () => {
-    // Deliberate: a countdown that says "1 minute" to someone already at the
-    // lanes is worse than showing nothing.
-    expect(vipTakeoverAt(now, [bowlingIn(2)], cfg, isBowlingStep)).toBeNull();
-    expect(vipTakeoverAt(now, [bowlingIn(-5)], cfg, isBowlingStep)).toBeNull();
+    // Deliberate: a takeover greeting someone already at the lanes is worse
+    // than showing nothing.
+    expect(vipOnStage(now, [bowlingIn(2)], cfg, isBowlingStep)).toBeNull();
+    expect(vipOnStage(now, [bowlingIn(-5)], cfg, isBowlingStep)).toBeNull();
   });
 
   it("ignores non-bowling legs", () => {
@@ -215,12 +218,41 @@ describe("vipTakeoverAt", () => {
         },
       ],
     };
-    expect(vipTakeoverAt(now, [raceOnly], cfg, isBowlingStep)).toBeNull();
+    expect(vipCandidatesAt(now, [raceOnly], cfg, isBowlingStep)).toHaveLength(0);
   });
 
-  it("greets the most urgent party when two overlap", () => {
-    const picked = vipTakeoverAt(now, [bowlingIn(9), bowlingIn(5)], cfg, isBowlingStep);
-    expect(picked?.minsUntil).toBeCloseTo(5, 5);
+  it("startedAtMs is STABLE across ticks — the freak-out regression", () => {
+    // The first version stamped startedAtMs with nowMs, so every 250ms tick
+    // read as a brand-new takeover and the scene replayed its entrance over
+    // and over ("the screen is freaking out", owner 2026-08-11).
+    const vips = [bowlingIn(8)];
+    const a = vipOnStage(now, vips, cfg, isBowlingStep);
+    const b = vipOnStage(now + 250, vips, cfg, isBowlingStep);
+    const c = vipOnStage(now + 30_000, vips, cfg, isBowlingStep);
+    expect(a?.startedAtMs).toBe(b?.startedAtMs);
+    expect(a?.startedAtMs).toBe(c?.startedAtMs);
+    expect(a!.startedAtMs).toBeLessThanOrEqual(now);
+  });
+
+  it("BOTH overlapping parties get the stage, sharing it on the clock", () => {
+    // "Soonest wins" meant a second party booked the same hour was never
+    // greeted at all (owner: "how are you handling multiple VIPs?"). With two
+    // in-window the stage rotates every VIP_ROTATE_MS.
+    const vips = [bowlingIn(9, "party-a"), bowlingIn(5, "party-b")];
+    const seen = new Set<string>();
+    for (let t = 0; t < VIP_ROTATE_MS * 4; t += VIP_ROTATE_MS) {
+      const on = vipOnStage(now + t, vips, cfg, isBowlingStep);
+      if (on) seen.add(on.vip.id);
+    }
+    expect(seen).toEqual(new Set(["party-a", "party-b"]));
+  });
+
+  it("two screens agree who is on stage at the same instant", () => {
+    const vips = [bowlingIn(9, "party-a"), bowlingIn(5, "party-b")];
+    const t = now + 3_777;
+    expect(vipOnStage(t, vips, cfg, isBowlingStep)?.vip.id).toBe(
+      vipOnStage(t, vips, cfg, isBowlingStep)?.vip.id,
+    );
   });
 
   it("is silent when disabled or fed nothing", () => {
@@ -228,8 +260,8 @@ describe("vipTakeoverAt", () => {
       { interrupts: { "vip-welcome": { enabled: false } } },
       "HPFM",
     ).vip;
-    expect(vipTakeoverAt(now, [bowlingIn(8)], off, isBowlingStep)).toBeNull();
-    expect(vipTakeoverAt(now, null, cfg, isBowlingStep)).toBeNull();
+    expect(vipOnStage(now, [bowlingIn(8)], off, isBowlingStep)).toBeNull();
+    expect(vipOnStage(now, null, cfg, isBowlingStep)).toBeNull();
   });
 
   it("tolerates an unparseable time", () => {

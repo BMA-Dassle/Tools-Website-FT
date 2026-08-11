@@ -163,8 +163,22 @@ export function SceneDirector({
   );
 }
 
-/** Distinct per (scene, start) so React remounts — and CSS enter animations
- *  replay — on a real change, but not on every 250ms tick. */
+/**
+ * When does a decision count as a NEW frame (remount + entrance replay)?
+ *
+ * IDENTITY FIRST, timestamp only as a fallback. A decision that carries an
+ * intrinsic identity — which celebration, which VIP party — is the same frame
+ * for as long as that identity holds, however its timestamps wobble. Keying on
+ * startedAtMs alongside the id is what made the VIP takeover remount and replay
+ * its entrance every beat ("the screen is freaking out", owner 2026-08-11):
+ * the preview fixture's times drift a little with every poll, and the old key
+ * treated each drift as a brand-new takeover.
+ *
+ * Rotation segments and the crown have no identity of their own, so their
+ * (stable, slot-derived) start time is the right key — it is what makes an
+ * 80-second welcome segment enter once, not once per slot.
+ */
 function frameKey(d: SceneDecision): string {
-  return `${d.scene}:${d.startedAtMs}:${d.event?.id ?? d.vip?.id ?? ""}`;
+  const identity = d.event?.id ?? d.vip?.id;
+  return identity ? `${d.scene}:${identity}` : `${d.scene}:${d.startedAtMs}`;
 }

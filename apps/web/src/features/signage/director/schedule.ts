@@ -151,33 +151,78 @@ export function minutesUntil(iso: string | null | undefined, nowMs: number): num
 }
 
 /**
- * The VIP party to greet right now, if any.
+ * Every VIP party inside the greeting window right now, most urgent first.
  *
  * Window is (floorMins, leadMins]: we start greeting at ~10 minutes out and
- * STOP at ~3, because by then they are walking up and a countdown telling them
+ * STOP at ~3, because by then they are walking up and a screen telling them
  * they're late is worse than silence. The bowling step is what matters — that's
  * the leg the guest has to be somewhere for.
  */
-export function vipTakeoverAt(
+export function vipCandidatesAt(
   nowMs: number,
   vips: VipEntry[] | null,
   cfg: ResolvedScreenConfig["vip"],
   stepLabelMatches: (label: string) => boolean,
-): { vip: VipEntry; minsUntil: number } | null {
-  if (!cfg.enabled || !vips || vips.length === 0) return null;
-  let best: { vip: VipEntry; minsUntil: number } | null = null;
+): { vip: VipEntry; minsUntil: number }[] {
+  if (!cfg.enabled || !vips || vips.length === 0) return [];
+  const out: { vip: VipEntry; minsUntil: number }[] = [];
   for (const vip of vips) {
     for (const step of vip.schedule) {
       if (!stepLabelMatches(step.label)) continue;
       const mins = minutesUntil(step.iso, nowMs);
       if (mins == null) continue;
       if (mins > cfg.floorMins && mins <= cfg.leadMins) {
-        // Soonest wins when two parties overlap — the more urgent greeting.
-        if (!best || mins < best.minsUntil) best = { vip, minsUntil: mins };
+        out.push({ vip, minsUntil: mins });
+        break; // one entry per party, on its soonest matching leg
       }
     }
   }
-  return best;
+  // Soonest first; id as the tie-break so the order is total and two screens
+  // can never disagree about it.
+  out.sort((a, b) => a.minsUntil - b.minsUntil || a.vip.id.localeCompare(b.vip.id));
+  return out;
+}
+
+/** How long each party holds the screen when several are in-window at once. */
+export const VIP_ROTATE_MS = 12_000;
+
+/**
+ * Which VIP party is on stage right now, with a STABLE start time.
+ *
+ * Two rules born from the wall, not theory:
+ *
+ * MULTIPLE PARTIES SHARE THE SCREEN. Two lanes booked in the same hour is
+ * normal, and "soonest wins" meant the second party was never greeted at all.
+ * With more than one in-window, the stage rotates every VIP_ROTATE_MS on the
+ * shared clock — every screen shows the same party at the same moment.
+ *
+ * `startedAtMs` MUST NOT TICK. The first version stamped it with `nowMs`, so
+ * every 250ms tick looked like a brand-new takeover — the director remounted
+ * the scene and replayed its entrance over and over ("the screen is freaking
+ * out", owner 2026-08-11). It now anchors to the moment the party's window
+ * OPENED (rounded to the minute, so a preview whose fixture drifts a couple of
+ * seconds per poll cannot wobble it), or to the rotation boundary when several
+ * parties share the stage. Both are pure functions of the clock and the data.
+ */
+export function vipOnStage(
+  nowMs: number,
+  vips: VipEntry[] | null,
+  cfg: ResolvedScreenConfig["vip"],
+  stepLabelMatches: (label: string) => boolean,
+): { vip: VipEntry; startedAtMs: number } | null {
+  const candidates = vipCandidatesAt(nowMs, vips, cfg, stepLabelMatches);
+  if (candidates.length === 0) return null;
+
+  if (candidates.length === 1) {
+    const { vip, minsUntil } = candidates[0];
+    const windowOpenMs = nowMs + minsUntil * 60_000 - cfg.leadMins * 60_000;
+    const startedAtMs = Math.min(nowMs, Math.floor(windowOpenMs / 60_000) * 60_000);
+    return { vip, startedAtMs };
+  }
+
+  const turn = Math.floor(nowMs / VIP_ROTATE_MS);
+  const pick = candidates[((turn % candidates.length) + candidates.length) % candidates.length];
+  return { vip: pick.vip, startedAtMs: turn * VIP_ROTATE_MS };
 }
 
 /** Default matcher: the VIP itinerary's bowling leg. */
@@ -308,7 +353,10 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
   const implemented = input.isImplemented ?? (() => true);
 
   if (input.asleep) {
-    return { scene: "sleep", startedAtMs: nowMs, durationMs: null, isInterrupt: true };
+    // startedAtMs 0, NOT nowMs: sleep has no meaningful start, and a ticking
+    // start would remount the scene every decision tick (the VIP freak-out,
+    // same mechanism).
+    return { scene: "sleep", startedAtMs: 0, durationMs: null, isInterrupt: true };
   }
 
   const event = celebrationAt(
@@ -332,12 +380,14 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
   }
 
   const vip = implemented("vip-welcome")
-    ? vipTakeoverAt(nowMs, input.vips, config.vip, isBowlingStep)
+    ? vipOnStage(nowMs, input.vips, config.vip, isBowlingStep)
     : null;
   if (vip) {
     return {
       scene: "vip-welcome",
-      startedAtMs: nowMs,
+      // Stable across ticks — see vipOnStage. A ticking start here is what made
+      // the takeover remount and replay its entrance every beat.
+      startedAtMs: vip.startedAtMs,
       durationMs: null,
       isInterrupt: true,
       vip: vip.vip,

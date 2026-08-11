@@ -83,8 +83,14 @@ export function SceneEventWelcome({ feed, nowMs, venue }: SceneProps) {
             className="tv-display"
             style={{
               marginTop: 18,
-              fontSize: 168,
+              // 108px: sized to FIT the 560px rail. At 168px the word ran
+              // ~730px, and the overflow disappeared UNDER the first party
+              // card's opaque glass — the wall read "WELCO" (owner 2026-08-11,
+              // "graphic is fucked"). Type on a fixed canvas is measured
+              // against its container, never eyeballed against the viewport.
+              fontSize: 108,
               lineHeight: 0.9,
+              whiteSpace: "nowrap",
               background: `linear-gradient(180deg, #f5ecee 52%, ${CYAN})`,
               WebkitBackgroundClip: "text",
               backgroundClip: "text",
