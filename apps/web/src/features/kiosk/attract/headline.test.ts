@@ -17,7 +17,7 @@ import {
   billboardPhase,
   billboardStage,
 } from "./billboard";
-import { AD_ROTATE_MS, slidePlaysVideo, vehiclePhaseMs } from "./rotation";
+import { AD_ROTATE_MS, VEHICLE_CROSS_FRACTION, slidePlaysVideo, vehiclePhaseMs } from "./rotation";
 
 const VENUES = ["fort-myers", "naples"] as const;
 
@@ -134,8 +134,27 @@ describe("vehicle relay hands off across the bank", () => {
     expect(phases[0]).toBe(0);
     for (const ph of phases) expect(ph).toBeLessThan(AD_ROTATE_MS);
     // Even spacing — the wave should not bunch up at one end of the row.
+    const spread = AD_ROTATE_MS * (1 - VEHICLE_CROSS_FRACTION);
     const gaps = phases.slice(1).map((ph, i) => ph - phases[i]);
-    for (const g of gaps) expect(Math.abs(g - AD_ROTATE_MS / count)).toBeLessThanOrEqual(1);
+    for (const g of gaps) expect(Math.abs(g - spread / (count - 1))).toBeLessThanOrEqual(1);
+  });
+
+  it("the relay fits one cycle — the next lap never starts mid-crossing", () => {
+    // The bug this pins: with starts spread over the FULL cycle, any bank
+    // bigger than four had the leftmost screen still crossing when the
+    // rightmost began its next lap — two vehicles on the row at once
+    // (owner 2026-08-10). Largest phase = earliest wall-clock start, so the
+    // leftmost screen (phase 0) must finish by the cycle boundary: every
+    // start phase must leave room for the crossing itself.
+    const crossMs = AD_ROTATE_MS * VEHICLE_CROSS_FRACTION;
+    for (const count of [2, 4, 5, 7, 9]) {
+      const phases = Array.from({ length: count }, (_, p) => vehiclePhaseMs(p, count, p + 1));
+      for (const ph of phases) {
+        expect(ph, `bank of ${count}: phase ${ph} overruns the cycle`).toBeLessThanOrEqual(
+          AD_ROTATE_MS - crossMs,
+        );
+      }
+    }
   });
 
   it("the rightmost screen fires first, so the wave travels right to left", () => {

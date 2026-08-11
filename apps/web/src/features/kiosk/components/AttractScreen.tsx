@@ -424,11 +424,10 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
             </div>
             {/* FastTrax only: the race car drives ALONG the banner (rendered after
             it → on top, like it's the road) once per slide. Clock-locked like
-            the other glow fx, but STAGGERED per kioskNumber so the bank of
-            kiosks hands the car off screen-to-screen, highest number → lowest
-            (right to left, matching the physical lineup): each kiosk starts
-            its 2s crossing 2s after the next-higher one. 4 crossings fill the
-            8s cycle, so numbers wrap mod 4 if there are ever >4. */}
+            the other glow fx, but STAGGERED by bank position so the bank of
+            kiosks hands the car off screen-to-screen, right to left (matching
+            the physical lineup). Starts are spread so the whole relay fits
+            one 8s cycle — see vehiclePhaseMs. */}
             {config.brand === "fasttrax" && (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img

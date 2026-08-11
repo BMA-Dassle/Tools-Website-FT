@@ -9,6 +9,11 @@
  *  KIOSK_GLOW_PERIODS_MS are locked to this — change all three together. */
 export const AD_ROTATE_MS = 8000;
 
+/** Fraction of the cycle the vehicle is actually on screen — the
+ *  kiosk-racecar / kiosk-bowlball keyframes run the crossing over the LAST
+ *  quarter (75% → 100%) of the cycle. Locked to kiosk.css like AD_ROTATE_MS. */
+export const VEHICLE_CROSS_FRACTION = 0.25;
+
 /**
  * Phase offset for THIS screen's vehicle crossing, so the bank hands the car
  * (or ball) along the row instead of every screen firing at once.
@@ -17,8 +22,16 @@ export const AD_ROTATE_MS = 8000;
  * `(position % 4) * 2000` predates FastTrax having seven kiosks: with 7
  * screens it hands out only 4 distinct phases, so kiosks 1&5, 2&6 and 3&7
  * crossed simultaneously — which reads as "they all roll at the same time"
- * (owner 2026-07-28). Dividing the cycle by the bank size gives every screen
- * its own slot: 7 screens → ~1143ms apart, 5 → 1600ms, 4 → 2000ms.
+ * (owner 2026-07-28).
+ *
+ * The relay must also FIT the cycle. Starts are spread across the cycle MINUS
+ * the crossing itself — `slot × (0.75·cycle)/(count−1)` — so the leftmost
+ * screen's crossing ends exactly at the cycle boundary, right as the
+ * rightmost begins its next lap. The earlier `slot × cycle/count` spread
+ * overshot on any bank bigger than four: FastTrax's seventh screen was still
+ * mid-crossing 857ms into the next lap, so two vehicles were on the row at
+ * once (owner 2026-08-10: "starting before it ends on the last kiosk").
+ * 7 screens → 1000ms apart, 5 → 1500ms, 4 → 2000ms.
  *
  * A larger phase is FURTHER ALONG the shared cycle, so it fires EARLIER
  * (syncGlowPhase seeks to `(now + phase) % period`). Position 0 is the
@@ -43,7 +56,9 @@ export function vehiclePhaseMs(
   const count = Math.max(1, bankCount);
   const raw = position ?? kioskNumber - 1;
   const slot = (((raw % count) + count) % count) | 0; // negatives → in range
-  return Math.round(slot * (cycleMs / count));
+  if (count === 1) return 0;
+  const spreadMs = cycleMs * (1 - VEHICLE_CROSS_FRACTION);
+  return Math.round(slot * (spreadMs / (count - 1)));
 }
 
 /**
