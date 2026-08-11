@@ -84,10 +84,13 @@ export const BOOKING_ADDONS: BookingAddon[] = [
     priceCents: 300, // $3 — matches the e-ticket HeadsockNotice copy
     chargeLineKey: "addon-headsock",
     squareCatalogObjectId: SQ.HEADSOCK,
-    // "Headsock Pre-Purchase" — owner-created 2026-08-10 on the same BMI page
-    // as the $0 POV product, so the reservation bill shows the sock was
-    // pre-bought (the Pandora credit remains the check-in fulfillment signal).
-    bmiZeroProductId: "48952128",
+    // "Headsock" — owner-created 2026-08-10 on the same BMI page as the $0
+    // POV product, so the reservation bill shows the sock was pre-bought (the
+    // Pandora credit remains the check-in fulfillment signal). MUST be a
+    // $0-PRICED BMI product: the first attempt ("Headsock Pre-Purchase"
+    // 48952128) carried a price, which un-zeroed the bill and failed the
+    // owner's live booking — the money lives ONLY on Square, like POV.
+    bmiZeroProductId: "58450977",
     attribution: "per-racer",
     eligibility: "has-license",
     i18nPrefix: "addon.headsock",
