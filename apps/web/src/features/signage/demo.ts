@@ -135,6 +135,9 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
       firstName,
       resourceId,
       activityKeys: ["racing"],
+      // Ava owes a headsock, so the feed board's action strip has that state
+      // to demonstrate too.
+      headsockDue: i === 1,
       atMs: nowMs - i * 25_000,
     }));
     return {

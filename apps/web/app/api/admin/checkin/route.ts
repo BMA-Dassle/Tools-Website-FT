@@ -922,6 +922,7 @@ export async function POST(req: NextRequest) {
         resourceId: trackKey ? TRACK_RESOURCE_IDS[trackKey] : undefined,
         activityKeys: ["racing"],
         birthday: birthday === true,
+        headsockDue: headsock.detected === true,
         atMs: Date.now(),
       });
     }

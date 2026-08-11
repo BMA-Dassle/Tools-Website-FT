@@ -217,6 +217,9 @@ export interface SignageEvent {
   /** It's their birthday. Triggers the full two-board takeover on the karting
    *  check-in screens — the biggest thing either wall ever does. */
   birthday?: boolean;
+  /** This racer has a headsock waiting at the desk — the check-in feed's
+   *  action strip says so, so staff and racer both see it. */
+  headsockDue?: boolean;
   /** For a wrong-race scan: when their heat actually is, already formatted.
    *  Pre-formatted rather than an ISO string because the board must not do
    *  timezone maths to tell somebody where to be. */

@@ -138,7 +138,14 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
     Number.isFinite(calledAgoMs) && calledAgoMs >= 0 && calledAgoMs < JUST_CALLED_MS;
 
   // Quiet for a while ⇒ standby: clear the rail and give the session the wall.
-  const busy = scans.length > 0 && nowMs - scans[0].atMs < STANDBY_AFTER_MS;
+  //
+  // ON MEGA THE SESSION BOARD CARRIES NO NAMES AT ALL (owner 2026-08-11: "take
+  // the check in people off the session screen for mega"). The pair splits the
+  // job — the feed board lists everyone, so names here would be a smaller
+  // duplicate of the wall next to it. The flash goes with the rail: no rail,
+  // nothing for the flash to announce.
+  const railSuppressed = track === "mega" && config.megaRole === "session";
+  const busy = !railSuppressed && scans.length > 0 && nowMs - scans[0].atMs < STANDBY_AFTER_MS;
 
   // MEGA SPLIT (owner 2026-08-11). On a Mega day both boards read the same
   // single session, so a pair showing identical content wastes a screen. A
@@ -297,8 +304,10 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
             nowMs={nowMs}
             windowMins={config.showCheckinCountdown ? config.checkinWindowMins : null}
             standby={!busy}
-            checkedIn={feed?.raceCheckin?.checkedIn ?? null}
-            total={feed?.raceCheckin?.total ?? null}
+            // On Mega the count lives on the FEED board's header (owner) — the
+            // session board carries no check-in state at all.
+            checkedIn={railSuppressed ? null : (feed?.raceCheckin?.checkedIn ?? null)}
+            total={railSuppressed ? null : (feed?.raceCheckin?.total ?? null)}
           />
         ) : (
           <Idle accent={accent} />
@@ -484,7 +493,7 @@ function CheckinFeed({
 }: {
   accent: string;
   race: { heatNumber: number; raceType: string } | null;
-  scans: { id: string; firstName?: string; atMs: number }[];
+  scans: { id: string; firstName?: string; atMs: number; headsockDue?: boolean }[];
   checkedIn: number | null;
   total: number | null;
 }) {
@@ -543,6 +552,8 @@ function CheckinFeed({
           )}
         </header>
 
+        <ActionStrip scans={scans} accent={accent} />
+
         {scans.length === 0 ? (
           <div
             style={{
@@ -587,6 +598,69 @@ function CheckinFeed({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The feed board's bottom edge: what just happened, said to the person it
+ * happened to (owner 2026-08-11: "use the bottom to flash headsock due and
+ * welcome Racer, etc."). The newest scan gets a strip for a few seconds —
+ * "WELCOME, MARCUS", or amber "AVA — HEADSOCK DUE · grab yours at the desk"
+ * when a sock is waiting. Keyed to the scan id, so it plays once per person.
+ *
+ * (Racer photos belong here eventually, but the event rail is polled every two
+ * seconds by every screen — base64 portraits would bloat it badly, so pictures
+ * need their own fetch path before they ride this strip.)
+ */
+function ActionStrip({
+  scans,
+  accent,
+}: {
+  scans: { id: string; firstName?: string; atMs: number; headsockDue?: boolean }[];
+  accent: string;
+}) {
+  const newest = scans[0];
+  if (!newest) return null;
+  const sock = newest.headsockDue === true;
+  const color = sock ? "#f0b341" : accent;
+  const name = (newest.firstName || "Racer").toUpperCase();
+  return (
+    <div
+      key={newest.id}
+      className="tv-rise"
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        padding: "22px 34px",
+        display: "flex",
+        alignItems: "center",
+        gap: 22,
+        background: "rgba(0,4,24,0.92)",
+        borderTop: `4px solid ${color}`,
+      }}
+    >
+      <span
+        aria-hidden
+        className="tv-blink"
+        style={{
+          width: 16,
+          height: 16,
+          borderRadius: "50%",
+          background: color,
+          boxShadow: `0 0 18px ${color}`,
+        }}
+      />
+      <span className="tv-display" style={{ fontSize: 46, color }}>
+        {sock ? `${name} — headsock due` : `Welcome, ${name}`}
+      </span>
+      {sock && (
+        <span style={{ fontSize: 32, color: "rgba(245,236,238,0.75)" }}>
+          Grab yours at the desk
+        </span>
+      )}
     </div>
   );
 }
