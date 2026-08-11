@@ -114,10 +114,7 @@ export function TvApp() {
   // tab — never written, never published. See ../demo.ts.
   // Anchored to the feed's own server timestamp rather than a render-time
   // clock read: stable across re-renders, and it advances with each poll.
-  const feed = useMemo(
-    () => applyDemo(rawFeed, demo, isTest, rawFeed?.now ?? 0),
-    [rawFeed, demo, isTest],
-  );
+  const feed = useMemo(() => applyDemo(rawFeed, demo, rawFeed?.now ?? 0), [rawFeed, demo]);
 
   const config = useMemo(
     () => resolveScreenConfig(feed?.screen?.config ?? null, venue),
@@ -155,6 +152,7 @@ export function TvApp() {
           venue={venue}
           config={config}
           asleep={asleep}
+          demo={demo}
           onDecision={setDecision}
         />
       </TvShell>

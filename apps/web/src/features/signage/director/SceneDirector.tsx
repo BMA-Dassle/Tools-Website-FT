@@ -21,6 +21,7 @@ import { syncTvPhase } from "../clock";
 import type { ResolvedScreenConfig } from "../defaults";
 import type { SignageVenue } from "../constants";
 import type { TvFeed } from "../types";
+import type { DemoMode } from "../demo";
 import { SceneSlot, sceneHasData } from "../scenes/registry";
 import { resolveActiveScene, type SceneDecision } from "./schedule";
 
@@ -37,6 +38,7 @@ export function SceneDirector({
   venue,
   config,
   asleep,
+  demo,
   onDecision,
 }: {
   feed: TvFeed | null;
@@ -44,6 +46,7 @@ export function SceneDirector({
   venue: SignageVenue;
   config: ResolvedScreenConfig;
   asleep: boolean;
+  demo: DemoMode;
   /** Lets the shell know whether it is safe to reload for a new deploy. */
   onDecision?: (d: SceneDecision) => void;
 }) {
@@ -123,7 +126,7 @@ export function SceneDirector({
     syncTvPhase(rootRef.current, offset);
   }, [offset, current.scene, current.startedAtMs]);
 
-  const props = { feed, nowMs, offset, venue, config };
+  const props = { feed, nowMs, offset, venue, config, demo };
 
   return (
     <div ref={rootRef} style={{ position: "absolute", inset: 0 }}>

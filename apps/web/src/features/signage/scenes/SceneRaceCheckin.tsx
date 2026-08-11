@@ -27,6 +27,7 @@ import {
   type TrackKey,
 } from "../track";
 import { recentScans } from "../director/schedule";
+import { demoCurrentRace } from "../demo";
 import type { SceneProps } from "../director/types";
 
 const PAD_X = 96;
@@ -49,7 +50,7 @@ const SCAN_RAIL_LIMIT = 6;
  */
 const STANDBY_AFTER_MS = 30_000;
 
-export function SceneRaceCheckin({ feed, nowMs, config }: SceneProps) {
+export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
   const status = useTrackStatus();
 
   const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
@@ -69,7 +70,14 @@ export function SceneRaceCheckin({ feed, nowMs, config }: SceneProps) {
 
   const accent = TRACK_ACCENTS[track];
 
-  const race = status?.currentRaces?.[track] ?? null;
+  // races-current reports nothing overnight on purpose, so a stale "Now
+  // Checking In" cannot sit on a wall until morning. `?demo=race` substitutes a
+  // fabricated session so the board can be reviewed outside operating hours —
+  // deliberate, client-only, and gone on the next reload.
+  const race =
+    status?.currentRaces?.[track] ??
+    null ??
+    (demo === "race" ? demoCurrentRace(nowMs, TRACK_LABELS[track]) : null);
   const delay = findDelay(status?.trackStatus.tracks, track);
 
   // VIPs DO NOT SCAN IN — they are met and escorted (owner 2026-08-11). The

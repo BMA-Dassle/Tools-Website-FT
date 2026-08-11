@@ -6,11 +6,13 @@
  * poor way to review a design, so `?demo=…` injects fabricated data on a test
  * screen (number 99).
  *
- * TWO HARD RULES, because fake guest data on a real wall would be a genuine
- * incident:
- *   1. Accepted ONLY on a test screen. `applyDemo` is a no-op anywhere else,
- *      whatever the URL says.
- *   2. Purely client-side. Nothing here is ever written, published, or sent to
+ * SAFETY, because fake guest data on a real wall would be a genuine incident:
+ *   1. It takes a deliberate `?demo=` in the URL. Nothing enables it by
+ *      accident.
+ *   2. It does not survive a reload. The boot resolver rewrites the address to
+ *      its canonical `/tv?screen=…` form, so the parameter is gone the moment
+ *      the page reloads or self-updates — a screen can never be left in demo.
+ *   3. Purely client-side. Nothing here is ever written, published, or sent to
  *      the server — it decorates one browser tab's copy of the feed.
  *
  * The fixtures feed the REAL scenes through the REAL code paths (the VIP one is
@@ -19,10 +21,10 @@
  */
 import type { TvFeed, VipEntry, WelcomeEntry } from "./types";
 
-export type DemoMode = "event" | "vip" | "off";
+export type DemoMode = "event" | "vip" | "race" | "off";
 
 export function parseDemoMode(raw: string | null): DemoMode {
-  if (raw === "event" || raw === "vip") return raw;
+  if (raw === "event" || raw === "vip" || raw === "race") return raw;
   return "off";
 }
 
@@ -85,13 +87,42 @@ function demoVip(nowMs: number): VipEntry[] {
  * Decorate a feed with demo data. Returns the feed untouched unless this is a
  * test screen AND a mode was asked for.
  */
-export function applyDemo(
-  feed: TvFeed | null,
-  mode: DemoMode,
-  isTestScreen: boolean,
-  nowMs: number,
-): TvFeed | null {
-  if (!feed || mode === "off" || !isTestScreen) return feed;
+export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): TvFeed | null {
+  if (!feed || mode === "off") return feed;
   if (mode === "event") return { ...feed, events: demoEvents(nowMs) };
+  if (mode === "race") {
+    // A VIP is on the heat too, so the in-field banner can be reviewed in the
+    // same pass.
+    return {
+      ...feed,
+      raceCheckin: {
+        track: feed.raceCheckin?.track ?? "blue",
+        sessionId: 59,
+        vipOnHeat: true,
+        vipFirstNames: ["Sarah"],
+      },
+    };
+  }
   return { ...feed, vip: demoVip(nowMs) };
+}
+
+/**
+ * A fabricated "now checking in" session, for reviewing the track board outside
+ * operating hours.
+ *
+ * /api/pandora/races-current deliberately reports nothing overnight so a stale
+ * "Now Checking In" cannot sit on a wall (or an e-ticket) until morning — which
+ * is correct, and also means the board cannot be seen working at 2am without
+ * this.
+ */
+export function demoCurrentRace(nowMs: number, trackName: string) {
+  return {
+    trackName,
+    raceType: "Pro",
+    heatNumber: 59,
+    // The e-ticket time is the check-in CUT-OFF, so put it a few minutes out.
+    scheduledStart: new Date(nowMs + 6 * 60_000).toISOString(),
+    calledAt: new Date(nowMs - 60_000).toISOString(),
+    sessionId: 59,
+  };
 }
