@@ -1,4 +1,5 @@
 import redis from "@/lib/redis";
+import { businessDayYmdET } from "@/lib/race-business-day";
 import type { GuardianContact } from "@/lib/participant-contact";
 
 /**
@@ -142,6 +143,25 @@ export async function upsertCameraAssignment(a: CameraAssignment): Promise<void>
   // that is still <= video.created_at.
   pipeline.zadd(hist, historyScore, watchPayload);
   pipeline.expire(hist, TTL_SECONDS);
+  // Daily scan enumeration for the liveness cron — the per-camera and
+  // per-session keys above can't be listed without SCAN, and "which
+  // scanned cameras never uploaded" needs the whole day's scans (the
+  // 8/9 incident had three cameras dead ALL DAY that nothing surfaced).
+  // Keyed by racing business day (2 AM ET rollover), 48h TTL.
+  const scanLog = `camera-scan-log:${businessDayYmdET()}`;
+  pipeline.zadd(
+    scanLog,
+    historyScore,
+    JSON.stringify({
+      sys: a.systemNumber,
+      sid: String(a.sessionId),
+      pid: String(a.personId),
+      fn: a.firstName,
+      ln: a.lastName,
+      at: a.assignedAt,
+    }),
+  );
+  pipeline.expire(scanLog, 48 * 60 * 60);
   await pipeline.exec();
 }
 

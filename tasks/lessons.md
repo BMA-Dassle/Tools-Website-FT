@@ -1,5 +1,34 @@
 # Lessons Learned
 
+## A matcher shipped on an unverified timestamp assumption ran wrong for 3.5 months (2026-08-10)
+
+**What happened:** the POV video matcher (built 4/23 in one day) paired each video to
+"whoever was scanned on that camera at `created_at`" — assuming `created_at` was capture
+time. It is dock/upload time, and VT3 has no recording-start field. Combined with cameras
+that routinely miss captures, the earliest-unfilled walk delivered other heats' footage
+for months: **95 wrong videos on 8/9 alone (87 texted), 15 more on 8/10** — juniors'
+videos to a VIP group, purchases of strangers' races. Three patch rounds (5/2 staleness
+gate, 7/12 FIFO ordering, 8/2 junk quarantine) each fixed the symptom that surfaced and
+never tested the assumption underneath.
+
+**The rules:**
+1. **A load-bearing assumption about vendor data gets verified against live payloads
+   BEFORE shipping, not during the third incident.** "created_at ≈ capture time" was
+   checkable in ten minutes on day one; it was finally checked 8/2.
+2. **Audit by mechanism, not by complaint volume.** The 8/2 investigation NAMED the
+   missing-capture cascade (Hunter May heat-46) and still deferred its fix because that
+   week's complaints pointed at junk clips. One more 40-line census (footage window vs
+   labeled heat — the data was already in hand) would have shown double-digit wrong
+   deliveries EVERY day. When an investigation identifies a mechanism, measure its full
+   base rate before triaging it to a backlog.
+3. **Correctness data both sides of a join must actually be joined.** Every scan carried
+   `heatNumber`/`scheduledStart`; every video carried `created_at`+`duration`. The
+   plausibility check was one subtraction and one overlap test that nobody wrote for
+   3.5 months. If two records claim to describe the same event, verify they agree.
+
+**Fixes:** plausibility gate (`feat/video-match-plausibility`), late-aware scan guard
+(`feat/camera-assign-heat-guard`), liveness alerts (`feat/video-liveness-alerts`).
+
 ## A kiosk unwind that "releases holds" cancelled a bill $420.68 had already been captured against (2026-08-10)
 
 **What happened:** a guest paid for a 5-person Ultimate VIP at the FastTrax kiosk
