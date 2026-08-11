@@ -21,7 +21,7 @@
  * helmet sizing, because the next group walks in and starts looking for their
  * size before anybody presses anything.
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { withAlpha } from "../color";
 import { nextLevelTarget } from "~/features/racing/qualify";
@@ -86,6 +86,10 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
    * return is a rules-of-hooks crash, not a lint nit.
    */
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  // Stable for the component's life — takes the offending src as an argument
+  // instead of closing over it, so BriefingVideo's effect can depend on it
+  // honestly rather than hiding it behind a ref or a lint suppression.
+  const markUnplayable = useCallback((badSrc: string) => setFailedSrc(badSrc), []);
 
   // A screen configured as a briefing TV with no room chosen cannot know which
   // of the two states is addressed to it. Say so, quietly, rather than adopting
@@ -122,7 +126,7 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
           key={`${state?.sessionId ?? "none"}:${state?.triggeredAtMs ?? 0}`}
           src={videoSrc}
           seekToMs={timeline.videoOffsetMs}
-          onUnplayable={() => setFailedSrc(videoSrc)}
+          onUnplayable={markUnplayable}
         />
       ) : (
         <Board
@@ -159,19 +163,41 @@ function BriefingVideo({
 }: {
   src: string;
   seekToMs: number;
-  /** This player cannot decode the file — hand the wall back to the scene. */
-  onUnplayable: () => void;
+  /** This player cannot decode the file — hand the wall back to the scene. Takes
+   *  the src so the parent needs no per-render closure. */
+  onUnplayable: (src: string) => void;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
+
+  /**
+   * THE SEEK OFFSET AND THE CALLBACK ARE HELD IN REFS, and that is the whole fix
+   * for the bug that made a briefing never play at all.
+   *
+   * `seekToMs` is derived from the shared clock, so it changes on every director
+   * tick — about four times a second. `onUnplayable` was a fresh closure each
+   * render. Both were in this effect's dependency array, so the effect re-ran ~4×/s,
+   * and past the two-second mark each run RE-SEEKED the element. The media pipeline
+   * was reset four times a second: new range requests, aborted reads, and a picture
+   * that could never start. Three HARs off the Blue player show exactly that
+   * (owner 2026-08-11).
+   *
+   * The effect now depends only on `src` and a STABLE callback — one mount, one
+   * seek, one play. The offset is captured on first render, which is the only moment
+   * it means anything: "where should this film start", asked once. A remount for a
+   * genuinely new briefing is handled by the `key` on the element in the scene above.
+   */
+  const seekOnceToMs = useRef(seekToMs);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    const fail = () => onUnplayable(src);
     // Only seek a genuine rejoin. Seeking to ~0 on a normal start can cost a
     // keyframe decode for nothing.
-    if (seekToMs > 2_000) {
+    const startAtMs = seekOnceToMs.current;
+    if (startAtMs > 2_000) {
       try {
-        el.currentTime = seekToMs / 1000;
+        el.currentTime = startAtMs / 1000;
       } catch {
         /* not seekable yet — playback simply starts from the beginning */
       }
@@ -187,7 +213,7 @@ function BriefingVideo({
           el.muted = true;
           await el.play();
         } catch {
-          onUnplayable();
+          fail();
         }
       }
     };
@@ -229,11 +255,12 @@ function BriefingVideo({
 
       if (Date.now() - lastProgressAt > STALL_GIVE_UP_MS) {
         clearInterval(poll);
-        onUnplayable();
+        fail();
       }
     }, 2_000);
     return () => clearInterval(poll);
-  }, [seekToMs, src, onUnplayable]);
+    // NO clock-derived value in this list — that is what caused the reseek loop.
+  }, [src, onUnplayable]);
 
   return (
     /* CAPTIONS: no caption file exists for the briefing films yet. Worth having —
@@ -249,7 +276,7 @@ function BriefingVideo({
       playsInline
       // NOT muted, NOT looping. It is a briefing: it is heard once, and it ends.
       controls={false}
-      onError={onUnplayable}
+      onError={() => onUnplayable(src)}
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
     />
   );
