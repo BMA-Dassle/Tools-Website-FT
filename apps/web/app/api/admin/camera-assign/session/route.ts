@@ -37,6 +37,10 @@ interface PandoraSession {
   scheduledStart: string; // ISO UTC
   type: string;
   heatNumber: number;
+  /** Timing-system actuals (Pandora, added 2026-07-08; same-day only).
+   *  May be absent on stale cache entries — treat as unknown. */
+  actualStart?: string | null;
+  actualEnd?: string | null;
 }
 
 interface PandoraGuardian {
@@ -336,8 +340,41 @@ export async function GET(req: NextRequest) {
 
     const allSessions = await sessionsPromise;
 
+    // ── The heat staff should be scanning RIGHT NOW ─────────────────
+    //
+    // Was: earliest session with scheduledStart > now. On a late-
+    // running afternoon that filter drops the heat that is physically
+    // STAGING (its scheduled time is already past, but it hasn't run),
+    // and offers the one after it — on 8/9 the page offered Heat 17 at
+    // 2:06 PM while the late Heat 16 group sat on the grid, staff
+    // scanned them against Heat 17's roster, and every red-track video
+    // for the next hour went to the wrong party (W57384 incident).
+    //
+    // Now: prefer the earliest session that hasn't STARTED per the
+    // timing system's actuals (actualStart null), looking back up to
+    // 30 min of lateness. Fall back to the old scheduled-time rule
+    // when actuals are absent (stale cache) so behavior degrades to
+    // exactly what it was. Also returned to the client as
+    // `expectedNext` so it can warn when staff scan a DIFFERENT heat.
+    const LATE_GRACE_MS = 30 * 60 * 1000;
+    const byScheduled = (
+      a: PandoraSession & { resourceName: string },
+      b: PandoraSession & { resourceName: string },
+    ) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime();
+    const awaitingLaunch = allSessions
+      .filter((s) => !s.actualStart && !s.actualEnd)
+      .filter((s) => {
+        const sched = new Date(s.scheduledStart).getTime();
+        return Number.isFinite(sched) && sched > now - LATE_GRACE_MS;
+      })
+      .sort(byScheduled);
+    const upcomingByScheduleOnly = allSessions
+      .filter((s) => new Date(s.scheduledStart).getTime() > now)
+      .sort(byScheduled);
+    const expectedNext = awaitingLaunch[0] ?? upcomingByScheduleOnly[0];
+
     // Pick the session to surface — either explicitly requested, or the
-    // next upcoming one.
+    // next heat awaiting launch.
     let picked: (PandoraSession & { resourceName: string }) | undefined;
     if (sessionIdParam) {
       picked = allSessions.find((s) => String(s.sessionId) === sessionIdParam);
@@ -356,12 +393,7 @@ export async function GET(req: NextRequest) {
         );
       }
     } else {
-      const upcoming = allSessions
-        .filter((s) => new Date(s.scheduledStart).getTime() > now)
-        .sort(
-          (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
-        );
-      picked = upcoming[0];
+      picked = expectedNext;
     }
 
     if (!picked) {
@@ -515,6 +547,19 @@ export async function GET(req: NextRequest) {
         },
         participants: enriched,
         sessionBlock: blockSnapshot.sessionBlock,
+        // The heat the server believes is staging NOW (late-aware).
+        // Client compares against `session` and warns before the first
+        // scan binds when they differ — the wrong-heat-scan guard.
+        expectedNext: expectedNext
+          ? {
+              sessionId: expectedNext.sessionId,
+              name: expectedNext.name,
+              scheduledStart: expectedNext.scheduledStart,
+              track: expectedNext.resourceName,
+              heatNumber: expectedNext.heatNumber,
+              type: expectedNext.type,
+            }
+          : null,
       },
       { headers: { "Cache-Control": "no-store" } },
     );

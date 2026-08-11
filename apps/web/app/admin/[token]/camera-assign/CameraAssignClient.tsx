@@ -91,6 +91,11 @@ type SessionResponse = {
   participants: Participant[];
   note?: string;
   sessionBlock?: BlockInfo;
+  /** The heat the server believes is staging RIGHT NOW (late-aware:
+   *  earliest session with no timing-system actualStart, up to 30 min
+   *  past its scheduled slot). When this differs from `session`, the
+   *  wrong-heat banner blocks scans until staff confirms. */
+  expectedNext?: SessionInfo | null;
 };
 
 type PastSession = {
@@ -303,6 +308,18 @@ export default function CameraAssignClient({
    *  When `blocked: true`, the participant list paints names red and
    *  the "Block Heat" button flips to "Unblock Heat". */
   const [sessionBlock, setSessionBlock] = useState<BlockInfo>({ blocked: false });
+  /** The heat the server says is staging right now (late-aware). When
+   *  it differs from the loaded session, the wrong-heat banner blocks
+   *  scans until staff explicitly confirms — on 8/9 a whole VIP heat
+   *  was scanned against the NEXT heat's roster (the page's old
+   *  "next upcoming" filter drops a late-running heat at its scheduled
+   *  time) and every red-track video for an hour went to the wrong
+   *  party (W57384 incident). */
+  const [expectedNext, setExpectedNext] = useState<SessionInfo | null>(null);
+  /** sessionId the operator confirmed "scan anyway" for. Keyed by
+   *  session (not a boolean) so switching heats re-arms the guard with
+   *  no reset effect. */
+  const [wrongHeatConfirmedFor, setWrongHeatConfirmedFor] = useState<string | null>(null);
   /** Block-confirm modal state. `target` null → heat-wide, otherwise
    *  the specific racer being blocked. Unblock skips the modal — it's
    *  a safe direction. */
@@ -755,6 +772,7 @@ export default function CameraAssignClient({
         setParticipants(json.participants || []);
         setNote(json.note || null);
         setSessionBlock(json.sessionBlock || { blocked: false });
+        setExpectedNext(json.expectedNext ?? null);
         // Auto-highlight the first UNASSIGNED racer (or first if all assigned)
         const firstUnassigned = (json.participants || []).findIndex((p) => !p.systemNumber);
         setActiveIndex(firstUnassigned >= 0 ? firstUnassigned : 0);
@@ -808,6 +826,10 @@ export default function CameraAssignClient({
         const json = (await res.json()) as SessionResponse;
         const newSession = json.session;
         const newParticipants = json.participants || [];
+        // Keep the wrong-heat banner live — the staging heat moves as
+        // races launch (actualStart stamps), so the 30s poll is what
+        // clears or raises the warning without a manual reload.
+        setExpectedNext(json.expectedNext ?? null);
 
         // No session selected yet — fall through to loadSession.
         if (!session) {
@@ -1072,10 +1094,32 @@ export default function CameraAssignClient({
    *  highlighted racer. The scanned value is the base/dock system ID,
    *  which matches video.system.name on vt3.io and drives the
    *  video-match cron. */
+  /** True when the loaded session is NOT the heat the server says is
+   *  staging. Suppressed in test mode (overrideSessionId) — picking a
+   *  past session there is deliberate. Declared before `assign` so the
+   *  callback's closure sees it (TDZ). */
+  const wrongHeat =
+    !overrideSessionId &&
+    !!session &&
+    !!expectedNext &&
+    String(expectedNext.sessionId) !== String(session.sessionId);
+  const wrongHeatConfirmed = !!session && wrongHeatConfirmedFor === String(session.sessionId);
+
   const assign = useCallback(
     async (systemNumber: string) => {
       const rawScan = systemNumber.trim();
       if (!rawScan) return;
+      // ── Wrong-heat scan guard (2026-08-10, W57384 incident) ──
+      // Refuse to bind scans while the server says a DIFFERENT heat is
+      // staging, until staff confirms in the banner. On 8/9 a whole
+      // VIP heat was scanned against the next heat's roster and every
+      // red-track video for the following hour texted the wrong party.
+      if (wrongHeat && !wrongHeatConfirmed) {
+        setErr(
+          `Heat ${expectedNext?.heatNumber ?? "?"} is staging — you're on Heat ${session?.heatNumber ?? "?"}. Use the banner above to switch heats or confirm.`,
+        );
+        return;
+      }
       if (activeIndex < 0 || activeIndex >= participants.length) {
         setErr("No racer highlighted — can't assign.");
         return;
@@ -1178,7 +1222,16 @@ export default function CameraAssignClient({
         setErr(e instanceof Error ? e.message : "save failed");
       }
     },
-    [participants, activeIndex, session, token, barcodeToCam],
+    [
+      participants,
+      activeIndex,
+      session,
+      token,
+      barcodeToCam,
+      wrongHeat,
+      wrongHeatConfirmed,
+      expectedNext,
+    ],
   );
 
   /** Handle Enter-delimited scan from NFC reader (or manual typing). */
@@ -1968,6 +2021,47 @@ export default function CameraAssignClient({
               </>
             );
           })()}
+
+        {/* Wrong-heat scan guard — the server's late-aware pick says a
+            DIFFERENT heat is staging. Scans are refused (see assign())
+            until staff either switches to that heat or confirms. */}
+        {wrongHeat && !loading && session && expectedNext && (
+          <div
+            role="alert"
+            className="mb-2 rounded-lg border border-orange-500/50 bg-orange-500/10 px-3 py-2.5 text-sm text-orange-200"
+          >
+            <div className="font-semibold">
+              ⚠ Heat {expectedNext.heatNumber} hasn&apos;t run yet — you&apos;re on Heat{" "}
+              {session.heatNumber}.
+            </div>
+            <div className="text-xs text-orange-200/80 mt-1 mb-2">
+              Scans bind cameras to THIS roster. If the group on the grid is Heat{" "}
+              {expectedNext.heatNumber}, every one of their videos will go to the wrong people.
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void loadSession(String(expectedNext.sessionId))}
+                className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded-lg bg-[#3b82f6] text-white hover:opacity-90"
+              >
+                Load Heat {expectedNext.heatNumber}
+              </button>
+              {wrongHeatConfirmed ? (
+                <span className="text-xs text-orange-200/80">
+                  Confirmed — scans bind to Heat {session.heatNumber}.
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setWrongHeatConfirmedFor(String(session.sessionId))}
+                  className="text-xs uppercase tracking-wider font-semibold px-2.5 py-1.5 rounded-lg border border-orange-500/50 text-orange-200 hover:bg-orange-500/20"
+                >
+                  Scan Heat {session.heatNumber} anyway
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Summary line — session info + counter + reload, mirroring
             SMS admin's "N matches · Refresh" strip */}
