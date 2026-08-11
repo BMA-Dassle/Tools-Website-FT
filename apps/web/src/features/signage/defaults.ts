@@ -69,6 +69,8 @@ const RACE_CHECKIN_CONFIG: ScreenConfig = {
     "vip-welcome": { enabled: true, leadMins: 10, floorMins: 0, minShowMs: 30_000 },
     "billboard-crown": { enabled: false },
   },
+  // The audience for lap records is already standing here waiting to check in.
+  showRecordsQr: true,
 };
 
 /** The safe fallback: house ads and nothing else. Needs no data at all, which
@@ -125,6 +127,7 @@ export interface ResolvedScreenConfig {
   adSet: string | null;
   showNextAvailable: boolean;
   checkinWindowMins: number;
+  showRecordsQr: boolean;
   welcomeLeadMins: number;
   welcomeTrailMins: number;
 }
@@ -196,6 +199,7 @@ export function resolveScreenConfig(
     showNextAvailable: c.showNextAvailable === true,
     // 8 minutes from the call (owner 2026-08-11).
     checkinWindowMins: Math.max(1, numOr(c.checkinWindowMins, 8)),
+    showRecordsQr: c.showRecordsQr === true,
     welcomeLeadMins: numOr(c.welcomeLeadMins, 75),
     welcomeTrailMins: numOr(c.welcomeTrailMins, 30),
   };

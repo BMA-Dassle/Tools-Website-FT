@@ -491,6 +491,7 @@ interface Draft {
   crownEnabled: boolean;
   showNextAvailable: boolean;
   checkinWindowMins: number;
+  showRecordsQr: boolean;
   trackResourceId: string;
   pairGroupId: string;
   pairPosition: number;
@@ -512,6 +513,7 @@ function newDraft(): Draft {
     crownEnabled: true,
     showNextAvailable: false,
     checkinWindowMins: 8,
+    showRecordsQr: true,
     trackResourceId: "",
     pairGroupId: "",
     pairPosition: 0,
@@ -536,6 +538,7 @@ function draftFromScreen(s: SignageScreen): Draft {
     crownEnabled: c.interrupts?.["billboard-crown"]?.enabled === true,
     showNextAvailable: c.showNextAvailable === true,
     checkinWindowMins: c.checkinWindowMins ?? 8,
+    showRecordsQr: c.showRecordsQr === true,
     trackResourceId: c.scope?.resourceIds?.[0] ?? "",
     pairGroupId: c.pairing?.groupId ?? "",
     pairPosition: c.pairing?.position ?? 0,
@@ -562,6 +565,7 @@ function draftToConfig(d: Draft): ScreenConfig {
     },
     showNextAvailable: d.showNextAvailable,
     checkinWindowMins: d.checkinWindowMins,
+    showRecordsQr: d.showRecordsQr,
     scope: d.trackResourceId ? { resourceIds: [d.trackResourceId] } : {},
     ...(d.pairGroupId
       ? { pairing: { groupId: d.pairGroupId, position: d.pairPosition, count: d.pairCount } }
@@ -677,6 +681,12 @@ function ScreenForm({
           onChange={(v) => set("showAds", v)}
           label="House advertising"
           hint="What the kiosks below can sell. Never advertises a product that's currently paused."
+        />
+        <Check
+          checked={draft.showRecordsQr}
+          onChange={(v) => set("showRecordsQr", v)}
+          label="Track records QR"
+          hint="A labelled 'Scan for track records' code on the track boards, shown only when the screen is calm — never while a scan is landing or a heat is being called."
         />
         <Check
           checked={draft.showNextAvailable}

@@ -28,6 +28,7 @@ import {
   type TrackKey,
 } from "../track";
 import { recentScans, eventInScope } from "../director/schedule";
+import { RecordsQr } from "../components/RecordsQr";
 import { demoCurrentRace } from "../demo";
 import type { SceneProps } from "../director/types";
 
@@ -57,6 +58,13 @@ const WRONG_RACE_SHOW_MS = 12_000;
 /** How long a newly-called heat gets the attention treatment. Long enough for
  *  someone at the far end of the arcade to look up and read it. */
 const JUST_CALLED_MS = 45_000;
+
+/** Where the records QR points. The public best-times board, which already
+ *  carries the per-track records matrix. */
+const recordsUrl =
+  typeof window !== "undefined"
+    ? `${window.location.origin}/leaderboards`
+    : "https://fasttraxent.com/leaderboards";
 
 export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
   const status = useTrackStatus();
@@ -157,13 +165,41 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
         </>
       )}
 
-      {/* Track identity wash — the screen should read as "Blue" from the door. */}
+      {/* TRACK IDENTITY. A wash alone was not enough to tell the boards apart
+          across a room, so the colour also owns a full-width bar along the top
+          and a floor glow. Someone should know which board they are looking at
+          before they read a single word. */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 16,
+          background: accent,
+          boxShadow: `0 0 60px ${accent}`,
+          zIndex: 1,
+        }}
+      />
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 220,
+          background: `linear-gradient(to top, ${withAlpha(accent, 0.35)}, transparent)`,
+          pointerEvents: "none",
+        }}
+      />
       <div
         aria-hidden
         style={{
           position: "absolute",
           inset: 0,
-          background: `radial-gradient(70% 60% at 50% 40%, ${withAlpha(accent, 0.3)}, transparent 72%)`,
+          background: `radial-gradient(75% 65% at 50% 40%, ${withAlpha(accent, 0.42)}, transparent 74%)`,
         }}
       />
       <div aria-hidden className="tv-sweep" style={{ position: "absolute", inset: 0 }} />
@@ -192,7 +228,15 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
             }}
           />
           <div>
-            <div className="tv-eyebrow" style={{ color: "rgba(245,236,238,0.75)", fontSize: 30 }}>
+            <div
+              className="tv-display"
+              style={{
+                color: accent,
+                fontSize: 52,
+                letterSpacing: "0.04em",
+                textShadow: `0 0 34px ${withAlpha(accent, 0.65)}`,
+              }}
+            >
               {TRACK_LABELS[track]}
             </div>
             <DelayLine delay={delay} />
@@ -221,6 +265,16 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
         {wrongRace && <WrongRaceNotice event={wrongRace} />}
         {busy && !wrongRace && (
           <ScanRail scans={scans} accent={accent} raised={!!vip} nowMs={nowMs} />
+        )}
+
+        {/* Records QR, bottom-right, only when the board is calm. It is an
+            invitation to linger, so it must never compete with a scan landing,
+            a wrong-race notice, or a heat being called — those are all someone
+            needing to act right now. */}
+        {config.showRecordsQr && !busy && !wrongRace && !justCalled && (
+          <div style={{ position: "absolute", right: 0, bottom: vip ? 110 : 0 }}>
+            <RecordsQr url={recordsUrl} accent={accent} />
+          </div>
         )}
         {vip && <VipInfieldBanner names={vip.vipFirstNames} />}
       </div>

@@ -20,11 +20,23 @@ export const TRACK_RESOURCE_IDS: Record<TrackKey, string> = {
   mega: "-1",
 };
 
-/** Track identity colours, matching the racing surfaces already in production. */
+/**
+ * Track identity colours FOR A SCREEN.
+ *
+ * Deliberately brighter than the values the admin check-in station uses. That
+ * console is dark text on a light card at arm's length; these sit on a near
+ * black canvas and have to read as "that is the BLUE board" from across a room
+ * (owner 2026-08-11). The production blue, #004aad, is a deep navy that all but
+ * disappears against the #000418 ground — correct on a form, invisible on a
+ * wall.
+ *
+ * Same identity, turned up: still unmistakably blue, red and purple, just at a
+ * luminance that survives a 55" panel seen from thirty feet.
+ */
 export const TRACK_ACCENTS: Record<TrackKey, string> = {
-  blue: "#004aad",
-  red: "#e53935",
-  mega: "#8652ff",
+  blue: "#2b8fff",
+  red: "#ff3b30",
+  mega: "#a06bff",
 };
 
 export const TRACK_LABELS: Record<TrackKey, string> = {
