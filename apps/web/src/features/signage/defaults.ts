@@ -128,6 +128,7 @@ export interface ResolvedScreenConfig {
   showNextAvailable: boolean;
   checkinWindowMins: number;
   showCheckinCountdown: boolean;
+  megaRole: "session" | "checkin";
   showRecordsQr: boolean;
   welcomeLeadMins: number;
   welcomeTrailMins: number;
@@ -201,6 +202,7 @@ export function resolveScreenConfig(
     // 8 minutes from the call (owner 2026-08-11).
     checkinWindowMins: Math.max(1, numOr(c.checkinWindowMins, 8)),
     showCheckinCountdown: c.showCheckinCountdown !== false,
+    megaRole: c.megaRole === "checkin" ? "checkin" : "session",
     showRecordsQr: c.showRecordsQr === true,
     welcomeLeadMins: numOr(c.welcomeLeadMins, 75),
     welcomeTrailMins: numOr(c.welcomeTrailMins, 30),

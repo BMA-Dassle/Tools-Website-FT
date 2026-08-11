@@ -156,6 +156,10 @@ export interface ScreenConfig {
   checkinWindowMins?: number;
   /** Show that countdown at all. Off = the session shows with no timer. */
   showCheckinCountdown?: boolean;
+  /** What this board does on a MEGA day, when both tracks run as one circuit
+   *  and the pair would otherwise show the same thing: keep showing the
+   *  session, or become a big live check-in feed where names never clear. */
+  megaRole?: "session" | "checkin";
   /** Show a labelled "scan for track records" QR on the track boards. */
   showRecordsQr?: boolean;
   /** Minutes before an event's first leg that it appears on the welcome board. */

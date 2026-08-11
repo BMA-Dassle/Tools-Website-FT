@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyDemo, effectiveDemoMode, parseDemoMode } from "./demo";
+import { applyDemo, demoIsMegaDay, effectiveDemoMode, parseDemoMode } from "./demo";
 import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
 import { resolveScreenConfig } from "./defaults";
 import { resolveActiveScene } from "./director/schedule";
@@ -155,5 +155,29 @@ describe("times on a wall (lesson 51a47370)", () => {
 
   it("is empty rather than wrong when there is no time", () => {
     expect(fmtTime12(toEtWallClock(""))).toBe("");
+  });
+});
+
+describe("Mega previews", () => {
+  it("knows a Mega day in ET, not the browser's zone", () => {
+    // Tuesday 2026-08-11: 03:00Z is still Monday evening in ET; 17:00Z is
+    // Tuesday afternoon. The venue's day is the only one that matters.
+    expect(demoIsMegaDay(Date.parse("2026-08-11T03:00:00Z"))).toBe(false);
+    expect(demoIsMegaDay(Date.parse("2026-08-11T17:00:00Z"))).toBe(true);
+    expect(demoIsMegaDay(Date.parse("2026-08-12T17:00:00Z"))).toBe(false);
+  });
+
+  it("a race preview carries a burst of scans, scoped to the screen's track", () => {
+    // The rail and the Mega check-in feed need names to show; deterministic so
+    // both boards of a pair fabricate identical fields.
+    const feed = baseFeed(Date.parse("2026-08-11T17:00:00Z"));
+    feed.screen = {
+      ...feed.screen!,
+      config: { scope: { resourceIds: ["11208654"] } },
+    };
+    const decorated = applyDemo(feed, "race", feed.now);
+    expect(decorated?.kioskEvents.length).toBe(6);
+    expect(decorated?.kioskEvents.every((e) => e.resourceId === "11208654")).toBe(true);
+    expect(decorated?.kioskEvents[0].firstName).toBe("Marcus");
   });
 });

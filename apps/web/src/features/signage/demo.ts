@@ -123,9 +123,23 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
   if (mode === "event") return { ...feed, events: demoEvents(nowMs) };
   if (mode === "race") {
     // A VIP is on the heat too, so the in-field banner can be reviewed in the
-    // same pass.
+    // same pass — and the rail/check-in feed gets a burst of fabricated scans,
+    // deterministic and scoped to THIS screen's track so its own filter
+    // accepts them.
+    const resourceId = feed.screen?.config?.scope?.resourceIds?.[0];
+    const names = ["Marcus", "Ava", "Kenyon", "Sofia", "Diego", "Aaliyah"];
+    const scans = names.map((firstName, i) => ({
+      id: `demo-scan-${i}`,
+      kind: "racer-scanned" as const,
+      center: feed.screen?.center ?? "fort-myers",
+      firstName,
+      resourceId,
+      activityKeys: ["racing"],
+      atMs: nowMs - i * 25_000,
+    }));
     return {
       ...feed,
+      kioskEvents: scans,
       raceCheckin: {
         track: feed.raceCheckin?.track ?? "blue",
         sessionId: 59,
@@ -148,6 +162,22 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
  * is correct, and also means the board cannot be seen working at 2am without
  * this.
  */
+/**
+ * Is "now" a Mega day (Tuesday, ET)? PREVIEWS ONLY. Live boards follow the
+ * megaTrackEnabled signal and the session data — guessing Mega from the
+ * calendar was deliberately rejected for live use, because a Tuesday that is
+ * not actually run as Mega would strand a board on an empty track. A preview
+ * is fabricated anyway, so the calendar is exactly the right authority: press
+ * Preview session on a Mega day, see a Mega session (owner 2026-08-11).
+ */
+export function demoIsMegaDay(nowMs: number): boolean {
+  return (
+    new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(
+      new Date(nowMs),
+    ) === "Tue"
+  );
+}
+
 export function demoCurrentRace(nowMs: number, trackName: string) {
   return {
     trackName,

@@ -118,10 +118,14 @@ export function VipShowcase({ parties }: { parties: VipEntry[] }) {
                 className="tv-display"
                 style={{
                   fontSize: railFit(word, i === 0 ? 150 : 88),
-                  // ≥1 line-height + em padding: gradient-clipped text with a
-                  // tight line box slices glyph paint on a scaled canvas.
+                  // ≥1 line-height + a little side padding: gradient-clipped
+                  // text with a tight line box slices glyph paint on a scaled
+                  // canvas. FIXED px, not em — em padding scales with the font,
+                  // so the big "VIP" got nearly twice the indent of
+                  // "EXPERIENCE" and the stack read misaligned (owner
+                  // 2026-08-11). Every line now shares one left edge.
                   lineHeight: 1.04,
-                  padding: "0 0.1em",
+                  padding: "0 8px",
                   whiteSpace: "nowrap",
                   background: `linear-gradient(180deg, #f5ecee 48%, ${GOLD})`,
                   WebkitBackgroundClip: "text",

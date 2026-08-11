@@ -23,13 +23,14 @@ import { withAlpha } from "../color";
 import {
   TRACK_ACCENTS,
   TRACK_LABELS,
+  TRACK_RESOURCE_IDS,
   effectiveTrack,
   trackFromResourceIds,
   type TrackKey,
 } from "../track";
 import { recentScans, eventInScope } from "../director/schedule";
 import { RecordsQr } from "../components/RecordsQr";
-import { demoCurrentRace } from "../demo";
+import { demoCurrentRace, demoIsMegaDay } from "../demo";
 import type { SceneProps } from "../director/types";
 
 const PAD_X = 96;
@@ -51,6 +52,12 @@ const SCAN_RAIL_LIMIT = 6;
  * BUSY (names landing) and STANDBY (clean), rather than holding a stale list.
  */
 const STANDBY_AFTER_MS = 30_000;
+
+/** The Mega check-in FEED board keeps everyone listed for the whole session —
+ *  no aging off, no standby clear. The window only exists to stop yesterday
+ *  replaying after an idle day. */
+const FEED_WINDOW_MS = 3 * 3600_000;
+const FEED_LIMIT = 48;
 
 /** How long a wrong-race notice stays up. Long enough to read twice. */
 const WRONG_RACE_SHOW_MS = 12_000;
@@ -84,7 +91,21 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
     track = "mega";
   }
 
+  // Preview session on a Mega day previews a MEGA session (owner 2026-08-11:
+  // "if mega track is enabled and I hit preview session it should show the
+  // right one"). Preview-only — live boards follow the real signals.
+  if (demo === "race" && demoIsMegaDay(nowMs)) track = "mega";
+
   const accent = TRACK_ACCENTS[track];
+
+  // When this board is following Mega, scans arrive stamped with the MEGA
+  // resource id — a Blue-scoped board would silently reject every one of them
+  // and the feed would sit empty on the busiest day of the week. Widen the
+  // accepted ids to include Mega whenever Mega is what we are showing.
+  const scopeIds =
+    track === "mega"
+      ? [...config.scope.resourceIds, TRACK_RESOURCE_IDS.mega]
+      : config.scope.resourceIds;
 
   // races-current reports nothing overnight on purpose, so a stale "Now
   // Checking In" cannot sit on a wall until morning. `?demo=race` substitutes a
@@ -105,7 +126,7 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
   const scans = recentScans(
     nowMs,
     feed?.kioskEvents ?? [],
-    config.scope.resourceIds,
+    scopeIds,
     SCAN_RAIL_WINDOW_MS,
     SCAN_RAIL_LIMIT,
   );
@@ -119,6 +140,31 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
   // Quiet for a while ⇒ standby: clear the rail and give the session the wall.
   const busy = scans.length > 0 && nowMs - scans[0].atMs < STANDBY_AFTER_MS;
 
+  // MEGA SPLIT (owner 2026-08-11). On a Mega day both boards read the same
+  // single session, so a pair showing identical content wastes a screen. A
+  // board whose megaRole is "checkin" becomes a dedicated live check-in feed —
+  // a much bigger format where NAMES NEVER AGE OFF ("we'll have tons of room"):
+  // the whole heat stays listed as they arrive. The other board keeps the
+  // session. Per-screen setting in admin.
+  if (track === "mega" && config.megaRole === "checkin") {
+    const everyone = recentScans(
+      nowMs,
+      feed?.kioskEvents ?? [],
+      scopeIds,
+      FEED_WINDOW_MS,
+      FEED_LIMIT,
+    );
+    return (
+      <CheckinFeed
+        accent={accent}
+        race={race}
+        scans={everyone}
+        checkedIn={feed?.raceCheckin?.checkedIn ?? null}
+        total={feed?.raceCheckin?.total ?? null}
+      />
+    );
+  }
+
   // Somebody scanned for a heat that is not this one. Amber, not red: they have
   // not done anything wrong, they are just early or late, and the screen's job
   // is to tell them when to come back.
@@ -128,7 +174,7 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
         e.kind === "racer-wrong-race" &&
         nowMs - e.atMs < WRONG_RACE_SHOW_MS &&
         nowMs - e.atMs > -5_000 &&
-        eventInScope(e, config.scope.resourceIds),
+        eventInScope(e, scopeIds),
     )
     .sort((a, b) => b.atMs - a.atMs)[0];
 
@@ -415,6 +461,132 @@ function Idle({ accent }: { accent: string }) {
           background: `linear-gradient(90deg, ${accent}, ${withAlpha(accent, 0)})`,
         }}
       />
+    </div>
+  );
+}
+
+/* ── the Mega check-in feed ───────────────────────────────────────────── */
+
+/**
+ * A whole board given to WHO IS CHECKED IN, for Mega days.
+ *
+ * The session context survives as one slim header; everything else is names,
+ * big, wrapping across the full width, newest arriving with a rise and nobody
+ * ever leaving. A racer walks up, scans, and finds themselves on a wall that
+ * already lists their whole heat.
+ */
+function CheckinFeed({
+  accent,
+  race,
+  scans,
+  checkedIn,
+  total,
+}: {
+  accent: string;
+  race: { heatNumber: number; raceType: string } | null;
+  scans: { id: string; firstName?: string; atMs: number }[];
+  checkedIn: number | null;
+  total: number | null;
+}) {
+  return (
+    <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: `radial-gradient(80% 70% at 50% 20%, ${withAlpha(accent, 0.35)}, transparent 72%)`,
+        }}
+      />
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 16,
+          background: accent,
+          boxShadow: `0 0 60px ${accent}`,
+        }}
+      />
+
+      <div
+        style={{
+          position: "absolute",
+          inset: `${PAD_Y}px ${PAD_X}px`,
+          display: "flex",
+          flexDirection: "column",
+          gap: 30,
+        }}
+      >
+        <header style={{ display: "flex", alignItems: "baseline", gap: 28 }}>
+          <span className="tv-display" style={{ fontSize: 58, color: accent }}>
+            Checked in
+          </span>
+          {race && (
+            <span className="tv-display" style={{ fontSize: 40, color: "rgba(245,236,238,0.75)" }}>
+              Mega · Session {race.heatNumber} · {race.raceType}
+            </span>
+          )}
+          {checkedIn != null && total != null && total > 0 && (
+            <span
+              className="tv-display tv-num"
+              style={{
+                marginLeft: "auto",
+                fontSize: 44,
+                color: checkedIn >= total ? "#46d68c" : "#fff",
+              }}
+            >
+              {checkedIn} of {total}
+            </span>
+          )}
+        </header>
+
+        {scans.length === 0 ? (
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <span className="tv-display" style={{ fontSize: 72, color: "rgba(245,236,238,0.5)" }}>
+              Scan to check in
+            </span>
+          </div>
+        ) : (
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexWrap: "wrap",
+              alignContent: "flex-start",
+              gap: 20,
+            }}
+          >
+            {scans.map((s, i) => (
+              <span
+                key={s.id}
+                className="tv-display tv-rise"
+                style={{
+                  fontSize: scans.length > 24 ? 44 : scans.length > 12 ? 54 : 66,
+                  color: "#fff",
+                  padding: "14px 32px",
+                  borderRadius: 999,
+                  border: `2px solid ${withAlpha(accent, i === 0 ? 0.95 : 0.45)}`,
+                  background: withAlpha(accent, i === 0 ? 0.35 : 0.14),
+                  boxShadow: i === 0 ? `0 0 44px ${withAlpha(accent, 0.65)}` : "none",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {s.firstName || "Racer"}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

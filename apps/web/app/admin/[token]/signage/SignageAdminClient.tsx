@@ -599,6 +599,7 @@ interface Draft {
   showNextAvailable: boolean;
   checkinWindowMins: number;
   showCheckinCountdown: boolean;
+  megaRole: "session" | "checkin";
   showRecordsQr: boolean;
   trackResourceId: string;
   pairGroupId: string;
@@ -622,6 +623,7 @@ function newDraft(): Draft {
     showNextAvailable: false,
     checkinWindowMins: 8,
     showCheckinCountdown: true,
+    megaRole: "session",
     showRecordsQr: true,
     trackResourceId: "",
     pairGroupId: "",
@@ -648,6 +650,7 @@ function draftFromScreen(s: SignageScreen): Draft {
     showNextAvailable: c.showNextAvailable === true,
     checkinWindowMins: c.checkinWindowMins ?? 8,
     showCheckinCountdown: c.showCheckinCountdown !== false,
+    megaRole: c.megaRole === "checkin" ? "checkin" : "session",
     showRecordsQr: c.showRecordsQr === true,
     trackResourceId: c.scope?.resourceIds?.[0] ?? "",
     pairGroupId: c.pairing?.groupId ?? "",
@@ -676,6 +679,7 @@ function draftToConfig(d: Draft): ScreenConfig {
     showNextAvailable: d.showNextAvailable,
     checkinWindowMins: d.checkinWindowMins,
     showCheckinCountdown: d.showCheckinCountdown,
+    megaRole: d.megaRole,
     showRecordsQr: d.showRecordsQr,
     scope: d.trackResourceId ? { resourceIds: [d.trackResourceId] } : {},
     ...(d.pairGroupId
@@ -873,6 +877,24 @@ function ScreenForm({
             The board counts down from the moment the heat is first called. When it runs out it says
             &ldquo;Check in now &mdash; see the desk&rdquo; rather than showing a zero, because
             staff will still check somebody in a minute late.
+          </p>
+        </Field>
+      )}
+
+      {draft.showRaceCheckin && (
+        <Field label="On Mega days, this board shows">
+          <select
+            value={draft.megaRole}
+            onChange={(e) => set("megaRole", e.target.value as "session" | "checkin")}
+            style={input}
+          >
+            <option value="session">Session data (now checking in, cut-off, delay)</option>
+            <option value="checkin">Live check-in feed (every name, never clears)</option>
+          </select>
+          <p style={hint}>
+            On Mega days both tracks run as one circuit, so the pair of boards would show the same
+            thing. Set one to the check-in feed and the pair splits the job: one board carries the
+            session, the other lists everyone as they scan — names never age off.
           </p>
         </Field>
       )}
