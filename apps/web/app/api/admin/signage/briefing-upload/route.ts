@@ -35,7 +35,23 @@ const MAX_VIDEO_BYTES = 1_500 * 1_024 * 1_024;
 /** Posters are a graphic, not a film. */
 const MAX_IMAGE_BYTES = 25 * 1_024 * 1_024;
 
-const VIDEO_TYPES = ["video/mp4"];
+/**
+ * Both accepted, because the briefing films are edited and handed over as .mov
+ * (owner 2026-08-11).
+ *
+ * .MOV IS A CONTAINER, NOT A CODEC, and that is the whole subtlety. QuickTime and
+ * MP4 are both ISO base-media derivatives, so a .mov holding H.264/AAC plays in
+ * Edge exactly like an .mp4 — but the same extension can hold ProRes (never
+ * playable in a browser) or HEVC (needs a paid Microsoft extension the players do
+ * not have). Master exports out of an editor are very often one of those two.
+ *
+ * So the extension is NOT the gate. The real gate is the browser-side decode
+ * probe the admin page runs before the upload starts — see readVideoMeta in
+ * BriefingAssetManager. That runs in the same engine as the players, so if it can
+ * decode a frame, the wall can too. This list only has to be permissive enough to
+ * let a genuine .mov through.
+ */
+const VIDEO_TYPES = ["video/mp4", "video/quicktime"];
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
 function authed(req: NextRequest): boolean {

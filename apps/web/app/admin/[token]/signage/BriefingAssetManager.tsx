@@ -32,15 +32,15 @@ const ROWS: AssetRow[] = [
   {
     key: "briefing-video:starter",
     label: "Starter briefing video",
-    hint: "The full safety briefing. Plays for Starter sessions — and for Pro sessions too, which have no film of their own.",
-    accept: "video/mp4",
+    hint: "The full safety briefing. Plays for Starter sessions — and for Pro sessions too, which have no film of their own. MP4 or MOV, as long as it is H.264 — the check below will tell you before it uploads.",
+    accept: "video/mp4,video/quicktime,.mp4,.mov",
     kind: "video",
   },
   {
     key: "briefing-video:intermediate",
     label: "Intermediate briefing video",
-    hint: "The shorter briefing for racers who have been out before.",
-    accept: "video/mp4",
+    hint: "The shorter briefing for racers who have been out before. MP4 or MOV (H.264).",
+    accept: "video/mp4,video/quicktime,.mp4,.mov",
     kind: "video",
   },
   {
@@ -100,18 +100,25 @@ export default function BriefingAssetManager({
       setNote(null);
       setProgress((p) => ({ ...p, [row.key]: 0 }));
       try {
-        // Length first: if the browser cannot read the file's metadata it is not
-        // a video this player will be able to decode either, so failing here
-        // saves a ten-minute upload of an unusable file.
+        // DECODE PROBE FIRST — before a ten-minute upload of a file the wall
+        // could never play.
+        //
+        // This is what makes accepting .mov safe. The extension says nothing
+        // about the codec: a .mov holding H.264 plays fine, the same .mov holding
+        // ProRes or HEVC does not, and a master export out of an editor is often
+        // one of those. The probe runs in the SAME browser engine as the players,
+        // so "it decoded here" genuinely means "it will decode there".
         let durationMs: number | null = null;
         if (row.kind === "video") {
-          durationMs = await readVideoDurationMs(file);
-          if (durationMs == null) {
-            setNote(
-              "✕ Could not read that video's length. It needs to be an MP4 (H.264) — re-encode it and try again.",
-            );
+          const meta = await readVideoMeta(file);
+          if (!meta.ok) {
+            setNote(`✕ ${describeVideoFailure(meta.reason, file)}`);
             return;
           }
+          durationMs = meta.durationMs;
+          setNote(
+            `Checked: ${meta.width}×${meta.height}, ${formatDuration(meta.durationMs)} — uploading…`,
+          );
         }
 
         const result = await upload(`briefing/${fileSlug(row.key, file.name)}`, file, {
@@ -361,33 +368,84 @@ function AssetSlot({
 
 /* ── helpers ──────────────────────────────────────────────────────────── */
 
+type VideoProbe =
+  | { ok: true; durationMs: number; width: number; height: number }
+  | { ok: false; reason: "undecodable" | "no-video-track" | "no-duration" | "timeout" };
+
 /**
- * A video's length, read from the file itself.
+ * Can this browser actually decode this file, and how long is it?
  *
- * Resolves null rather than throwing for anything the browser cannot decode —
- * which is also the check that catches the most likely bad upload: an HEVC file
- * straight off a phone or a GoPro, which Edge cannot play without a paid
- * extension and would otherwise fail silently on the wall.
+ * THE POINT IS THE VIDEO TRACK, not the container. Three distinct failures get
+ * distinguished, because the fix differs for each and a staff member holding a
+ * 900 MB file deserves to be told which one they have:
+ *
+ *   - `undecodable`     the engine refused it outright. ProRes, or a codec Edge
+ *                       has no decoder for.
+ *   - `no-video-track`  metadata loaded but the picture is 0×0. Classic HEVC on
+ *                       a machine without the paid Microsoft extension, and the
+ *                       nastiest case, because it would have "uploaded fine" and
+ *                       then played as a black rectangle on the wall.
+ *   - `no-duration`     no readable length. The room timeline is derived from
+ *                       duration, so this cannot be waved through.
+ *
+ * `videoWidth` is the load-bearing assertion: it is only non-zero once a frame
+ * has genuinely been decoded.
  */
-function readVideoDurationMs(file: File): Promise<number | null> {
+function readVideoMeta(file: File): Promise<VideoProbe> {
   return new Promise((resolve) => {
     const objectUrl = URL.createObjectURL(file);
     const el = document.createElement("video");
     let settled = false;
-    const done = (value: number | null) => {
+    const done = (value: VideoProbe) => {
       if (settled) return;
       settled = true;
       URL.revokeObjectURL(objectUrl);
+      el.removeAttribute("src");
       resolve(value);
     };
     el.preload = "metadata";
-    el.onloadedmetadata = () =>
-      done(Number.isFinite(el.duration) && el.duration > 0 ? Math.round(el.duration * 1000) : null);
-    el.onerror = () => done(null);
-    // A file the browser will not even open metadata for must not hang the form.
-    setTimeout(() => done(null), 15_000);
+    el.muted = true;
+    el.onloadedmetadata = () => {
+      if (!el.videoWidth || !el.videoHeight) return done({ ok: false, reason: "no-video-track" });
+      if (!Number.isFinite(el.duration) || el.duration <= 0) {
+        return done({ ok: false, reason: "no-duration" });
+      }
+      done({
+        ok: true,
+        durationMs: Math.round(el.duration * 1000),
+        width: el.videoWidth,
+        height: el.videoHeight,
+      });
+    };
+    el.onerror = () => done({ ok: false, reason: "undecodable" });
+    // A file the browser will not even open must not hang the form. Generous,
+    // because reading metadata off a gigabyte on a slow disk is not instant.
+    setTimeout(() => done({ ok: false, reason: "timeout" }), 30_000);
     el.src = objectUrl;
   });
+}
+
+/** Say what is wrong AND what to do about it — this is the message that decides
+ *  whether a staff member can fix it themselves. */
+function describeVideoFailure(reason: string, file: File): string {
+  const isMov = /\.mov$/i.test(file.name);
+  const reencode =
+    "Export it as MP4 / H.264 and try again" +
+    (isMov
+      ? " — a .MOV is fine in itself, but only when what is inside it is H.264, not ProRes or HEVC."
+      : ".");
+  switch (reason) {
+    case "no-video-track":
+      return `This browser loaded the file but cannot decode its picture — almost always HEVC, which Edge will not play without a paid extension. It would upload and then show black on the wall. ${reencode}`;
+    case "undecodable":
+      return `This browser cannot play that file at all — most likely ProRes or another editing codec. ${reencode}`;
+    case "no-duration":
+      return `That file has no readable length, and the briefing rooms time the helmet board off the video's length. ${reencode}`;
+    case "timeout":
+      return "Gave up reading that file (30s). If it is on a network drive, copy it locally first and retry.";
+    default:
+      return `Could not verify that video. ${reencode}`;
+  }
 }
 
 /** A readable, collision-free pathname. The store adds its own random suffix. */

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
-import { fasttraxHoursToday } from "~/lib/constants/fasttrax-hours";
+import { MAX_DISPLAY_AGE_MS, raceStillDisplayable } from "~/features/racing/current-race-freshness";
 
 /**
  * Proxy for Pandora's "currently called races per track" endpoint.
@@ -24,14 +24,14 @@ import { fasttraxHoursToday } from "~/lib/constants/fasttrax-hours";
  * - Pandora auto-expires its own entries 20 min after a heat is called. That
  *   makes tracks disappear from the UI during slow intervals between heats.
  * - We persist each track's last-known race to Redis and fall back to it when
- *   Pandora returns null, so the "Now Checking In" line stays visible through
- *   the rest of operating hours (FastTrax closes midnight Fri/Sat, 11 PM other
- *   days, Sunday 11 PM). Keys expire at venue close each night, so a fresh
- *   day starts with no stale data.
+ *   Pandora returns null, so the "Now Checking In" line stays visible between
+ *   heats. That fallback is gated on the heat's AGE, not on opening hours — group
+ *   events race before the doors open and their heats must display too (owner
+ *   2026-08-11). See ~/features/racing/current-race-freshness.
  * - Server-side 12s in-memory cache layered on top: all browser clients share
  *   one Pandora fetch per cache window.
  * - Redis is kept continuously warm by the every-minute checkin-alerts cron,
- *   so `prefer=cache` reads are at most ~60s stale during operating hours.
+ *   so `prefer=cache` reads are at most ~60s stale.
  */
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
@@ -55,47 +55,18 @@ type CurrentRaces = Record<TrackKey, CurrentRace | null>;
 // ── 12-second response cache (keeps Pandora fetches down) ───────────────────
 let cached: { data: CurrentRaces; expiry: number } | null = null;
 
-// ── Operating hours (America/New_York) ───────────────────────────────────────
-/** Returns true if we are currently within FastTrax operating hours in ET. */
-/** Display data stays readable until this hour ET the following morning. */
-const DISPLAY_CLOSE_HOUR = 5;
-const VALID_DAYS = new Set(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
-
-function isOperatingHoursET(): boolean {
-  const now = new Date();
-  // Format in ET and parse back out — avoids timezone math bugs
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    weekday: "short",
-    hour: "numeric",
-    minute: "numeric",
-    hour12: false,
-  }).formatToParts(now);
-  const day = parts.find((p) => p.type === "weekday")?.value || "";
-  const hour = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
-  const minute = parseInt(parts.find((p) => p.type === "minute")?.value || "0", 10);
-  const hm = hour + minute / 60;
-
-  // Open times come from the FastTrax hours registry (which carries the
-  // 2026-08-10 Mon–Fri 3 PM move). The CLOSE side is ours, and is deliberately
-  // generous: we keep serving a heat a while past close so one called at 10:50
-  // still displays at 10:55.
-  //
-  // DISPLAY CUT-OFF IS 5 AM (owner 2026-08-11), one rule for every day —
-  // open until 5 AM the following morning. It used to close at 12:30 AM
-  // Mon–Thu, which meant staff finishing a late night, and the lobby TVs, went
-  // dark on real sessions while the building was still busy. Nothing here
-  // sells anything; it only decides how late "Now Checking In" stays readable,
-  // so being generous costs nothing and being stingy loses information people
-  // are actively using.
-  //
-  // Note this is a DISPLAY window, not the racing business day
-  // (RACE_DAY_ROLLOVER_HOUR, still 2 AM) — that one drives kiosk availability
-  // and is deliberately left alone.
-  const openHour = fasttraxHoursToday(now).openMinutes / 60;
-  if (!VALID_DAYS.has(day)) return false;
-  return hm >= openHour || hm < DISPLAY_CLOSE_HOUR;
-}
+// ── Display freshness (NOT opening hours) ────────────────────────────────────
+//
+// This USED to gate on FastTrax's public opening hours, which broke group events:
+// a private party's heat called at 1:30 PM on a Tuesday showed nowhere, because
+// the doors do not open to the public until 3 (owner 2026-08-11). A called heat
+// must display whenever it was called.
+//
+// What we actually care about is the heat's own AGE — see
+// ~/features/racing/current-race-freshness, which is pure and unit-tested. The
+// six-hour ceiling there matches what the old 5 AM cut-off already allowed at the
+// end of a night, so this only ADDS the pre-open case; nothing lingers longer
+// than it used to.
 
 /** Seconds until midnight ET — used as Redis TTL for last-race storage. */
 function secondsUntilEndOfDayET(): number {
@@ -112,12 +83,13 @@ function secondsUntilEndOfDayET(): number {
   const s = parseInt(parts.find((p) => p.type === "second")?.value || "0", 10);
   const secSoFar = h * 3600 + m * 60 + s;
   const secRemaining = 86400 - secSoFar;
-  // Cushion past midnight so a night's last heat is still readable the next
-  // morning. Must OUTLIVE the display window (DISPLAY_CLOSE_HOUR) with room to
-  // spare — otherwise the key quietly expires while the endpoint is still
-  // willing to serve it, and the screens go blank for reasons nobody can see.
-  // One extra hour beyond the 5 AM cut-off.
-  const cushionSec = (DISPLAY_CLOSE_HOUR + 1) * 3600;
+  // Cushion past midnight so a night's last heat is still readable into the small
+  // hours. This must OUTLIVE the display window with room to spare — otherwise
+  // the key quietly expires while the endpoint is still willing to serve it, and
+  // the screens go blank for reasons nobody can see. Derived from
+  // MAX_DISPLAY_AGE_MS rather than restated, so the two cannot drift: whatever
+  // the freshness rule allows, the key survives an hour longer.
+  const cushionSec = MAX_DISPLAY_AGE_MS / 1000 + 3600;
   return Math.max(60, secRemaining + cushionSec);
   // void now — kept for readability if we add timezone-debug logging later
   void now;
@@ -133,10 +105,20 @@ async function saveRace(track: TrackKey, race: CurrentRace): Promise<void> {
   }
 }
 
+/**
+ * The stored last-known heat for a track, or null.
+ *
+ * THE FRESHNESS RULE LIVES HERE, in the one function every caller already goes
+ * through — rather than at each of the three call sites, where the fourth one
+ * added later would forget it.
+ */
 async function loadRace(track: TrackKey): Promise<CurrentRace | null> {
   try {
     const raw = await redis.get(REDIS_KEY(track));
-    return raw ? (JSON.parse(raw) as CurrentRace) : null;
+    if (!raw) return null;
+    const race = JSON.parse(raw) as CurrentRace;
+    if (!raceStillDisplayable(race, Date.now())) return null;
+    return race;
   } catch (err) {
     console.error(`[races-current] Redis load ${track}:`, err);
     return null;
@@ -174,23 +156,15 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const operating = isOperatingHoursET();
-
   // ── prefer=cache / cacheOnly=1 fast path ──────────────────────────
   // Skip the live Pandora call when the caller is OK with cache-warmed
   // data. Browser polls in useTrackStatus go through here so confirmation
   // / e-ticket pages never block on a slow Pandora fetch. The
   // checkin-alerts cron (every-minute, default mode) is the warmer.
   if (preferCache || cacheOnly) {
-    if (!operating) {
-      // After-hours: explicit empty (matches the live-path semantics
-      // below — we don't surface stale "Now Checking In" overnight).
-      const empty: CurrentRaces = { blue: null, red: null, mega: null };
-      cached = { data: empty, expiry: Date.now() + CACHE_TTL_MS };
-      return NextResponse.json(empty, {
-        headers: { "X-Cache": "AFTER-HOURS", "Cache-Control": "no-store" },
-      });
-    }
+    // NO HOURS CHECK. Redis is read at any hour and each track is filtered by how
+    // long ago its heat was called, so a group event before opening displays and
+    // last night's finale does not.
     const fromRedis = await loadAllFromRedis();
     const hasAny = fromRedis.blue !== null || fromRedis.red !== null || fromRedis.mega !== null;
     if (hasAny) {
@@ -237,7 +211,7 @@ export async function GET(req: NextRequest) {
       : { blue: null, red: null, mega: null };
 
     // For each track: if Pandora has fresh data, save to Redis. If null,
-    // fall back to last-saved (only during operating hours — after hours, null).
+    // fall back to the last-saved copy, which loadRace age-gates.
     const tracks: TrackKey[] = ["blue", "red", "mega"];
     const merged: CurrentRaces = { blue: null, red: null, mega: null };
     for (const t of tracks) {
@@ -245,10 +219,11 @@ export async function GET(req: NextRequest) {
         merged[t] = pandora[t];
         // Fire and forget — don't block response on Redis write
         saveRace(t, pandora[t] as CurrentRace);
-      } else if (operating) {
-        merged[t] = await loadRace(t);
       } else {
-        merged[t] = null;
+        // Pandora expires its own entry ~20 min after the call, so the stored
+        // copy is what carries a session between heats. Age-gated, not
+        // hours-gated.
+        merged[t] = await loadRace(t);
       }
     }
 
@@ -265,26 +240,20 @@ export async function GET(req: NextRequest) {
     console.error(`[races-current] ${isTimeout ? "TIMEOUT (>5s)" : "fetch error"}:`, err);
 
     // Fall back through layers: in-memory cache → Redis last-known
-    // state per track (during operating hours) → empty.
+    // state per track (age-gated by loadRace).
     if (cached) {
       return NextResponse.json(cached.data, {
         headers: { "X-Cache": isTimeout ? "TIMEOUT" : "ERROR", "Cache-Control": "no-store" },
       });
     }
-    if (operating) {
-      const tracks: TrackKey[] = ["blue", "red", "mega"];
-      const merged: CurrentRaces = { blue: null, red: null, mega: null };
-      for (const t of tracks) merged[t] = await loadRace(t);
-      return NextResponse.json(merged, {
-        headers: {
-          "X-Cache": isTimeout ? "TIMEOUT-REDIS" : "ERROR-REDIS",
-          "Cache-Control": "no-store",
-        },
-      });
-    }
-    return NextResponse.json(
-      { blue: null, red: null, mega: null },
-      { headers: { "X-Cache": isTimeout ? "TIMEOUT" : "ERROR", "Cache-Control": "no-store" } },
-    );
+    const tracks: TrackKey[] = ["blue", "red", "mega"];
+    const merged: CurrentRaces = { blue: null, red: null, mega: null };
+    for (const t of tracks) merged[t] = await loadRace(t);
+    return NextResponse.json(merged, {
+      headers: {
+        "X-Cache": isTimeout ? "TIMEOUT-REDIS" : "ERROR-REDIS",
+        "Cache-Control": "no-store",
+      },
+    });
   }
 }
