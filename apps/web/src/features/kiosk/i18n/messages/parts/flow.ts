@@ -149,9 +149,9 @@ export const flowEn = {
   // `{msg}` is the vendor's / browser's own error text and stays as returned
   // (same convention as the camera errors in misc.ts).
   "flow.err.comboIncludesRacing":
-    "Your Ultimate VIP experience already includes racing — it’s all in one price.",
+    "Your VIP Experience already includes racing — it’s all in one price.",
   "flow.err.comboIncludesVipLane":
-    "Your Ultimate VIP includes a VIP lane. To add a separate lane for extra guests, finish this checkout first, then book bowling as its own order — takes under a minute.",
+    "Your VIP Experience includes a VIP lane. To add a separate lane for extra guests, finish this checkout first, then book bowling as its own order — takes under a minute.",
   "flow.err.finishBeforePremium":
     "Finish or remove your current activities before starting a premium racing experience.",
   "flow.err.finishBeforeBundle":
@@ -335,9 +335,9 @@ export const flowEs: Record<keyof typeof flowEn, string> = {
 
   // --- Guest-facing flow errors ---
   "flow.err.comboIncludesRacing":
-    "Tu experiencia Ultimate VIP ya incluye carreras — todo va en un solo precio.",
+    "Tu Experiencia VIP ya incluye carreras — todo va en un solo precio.",
   "flow.err.comboIncludesVipLane":
-    "Tu Ultimate VIP incluye una pista VIP. Para agregar una pista aparte para invitados adicionales, primero termina este pago y luego reserva el boliche como una orden aparte — toma menos de un minuto.",
+    "Tu Experiencia VIP incluye una pista VIP. Para agregar una pista aparte para invitados adicionales, primero termina este pago y luego reserva el boliche como una orden aparte — toma menos de un minuto.",
   "flow.err.finishBeforePremium":
     "Termina o quita tus actividades actuales antes de empezar una experiencia de carreras premium.",
   "flow.err.finishBeforeBundle":

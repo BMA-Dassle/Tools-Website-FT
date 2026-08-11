@@ -13,7 +13,7 @@ const raceBowl = getComboSpecial("race-bowl")!;
 describe("vipEmailSubject", () => {
   it("welcomes by combo name and keeps the reservation number searchable", () => {
     expect(vipEmailSubject(raceBowl, "12345")).toBe(
-      "Welcome to the Ultimate VIP Experience — Booking #12345",
+      "Welcome to the VIP Experience — Booking #12345",
     );
   });
 });
@@ -110,7 +110,7 @@ describe("buildVipSmsBody", () => {
   it("composes the VIP body and stays within one GSM-7 segment", () => {
     const body = buildVipSmsBody(base);
     expect(body).toBe(
-      "FastTrax: Your Ultimate VIP Experience is booked for Sat Jul 11, 2:00 PM. " +
+      "FastTrax: Your VIP Experience is booked for Sat Jul 11, 2:00 PM. " +
         "View, waiver + POV codes: https://fasttraxent.com/s/abcd1234 See you soon!",
     );
     expect(body!.length).toBeLessThanOrEqual(160);
@@ -148,7 +148,7 @@ describe("buildVipSmsBody", () => {
 
   it("omits the link clause when no short link was minted", () => {
     const body = buildVipSmsBody({ ...base, shortConfirm: "" });
-    expect(body).toBe("FastTrax: Your Ultimate VIP Experience is booked for Sat Jul 11, 2:00 PM.");
+    expect(body).toBe("FastTrax: Your VIP Experience is booked for Sat Jul 11, 2:00 PM.");
   });
 });
 

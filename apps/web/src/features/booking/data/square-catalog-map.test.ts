@@ -51,6 +51,13 @@ describe("lookupCatalogIdByName", () => {
     );
   });
 
+  it("matches BOTH the rebranded 'VIP Experience' line and legacy pre-rebrand 'Ultimate VIP Experience' lines", () => {
+    expect(lookupCatalogIdByName("VIP Experience")).toBe(SQUARE_CATALOG_IDS.ULTIMATE_QUALIFIER);
+    expect(lookupCatalogIdByName("Ultimate VIP Experience (Returning Racer −50%)")).toBe(
+      SQUARE_CATALOG_IDS.ULTIMATE_QUALIFIER,
+    );
+  });
+
   it("returns null for a bare combined race name (resolved by id, not name)", () => {
     // Intentional: "Starter Race" is NOT a NAME_CATALOG_MAP key — adding it would
     // mis-match "Junior Starter Race Blue" to adult Karting. The synthetic id path

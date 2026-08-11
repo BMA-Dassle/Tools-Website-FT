@@ -71,7 +71,7 @@ export function guardActorOutcome(params: {
   if (params.isCombo) {
     throw new CancelGuardError(
       "combo_requires_admin",
-      "Ultimate VIP combos are handled by our team — call the center.",
+      "VIP Experience combos are handled by our team — call the center.",
       403,
     );
   }

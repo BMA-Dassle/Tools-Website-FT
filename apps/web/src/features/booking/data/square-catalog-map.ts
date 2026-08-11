@@ -198,9 +198,11 @@ export const NAME_CATALOG_MAP: Record<string, string> = {
   Headsock: SQ.HEADSOCK,
   "Ultimate Qualifier": SQ.ULTIMATE_QUALIFIER,
   // Combo special (owner 2026-06-11): the day-of order line categorizes under
-  // the Ultimate Qualifier catalog item. Substring match also covers the
-  // per-racer discounted split lines ("Ultimate VIP Experience (… −50%)").
-  "Ultimate VIP Experience": SQ.ULTIMATE_QUALIFIER,
+  // the Ultimate Qualifier catalog item. Substring match covers the per-racer
+  // discounted split lines ("VIP Experience (… −50%)") AND legacy
+  // pre-rebrand lines ("Ultimate VIP Experience …" — the 2026-08-10 rename
+  // kept "VIP Experience" as a substring, so ONE key matches both eras).
+  "VIP Experience": SQ.ULTIMATE_QUALIFIER,
   "Rookie Pack": SQ.ROOKIE_PACK,
   // Standalone POV video line — secondary to the productId map above (the name
   // is globally unique, so no substring collision with other race lines).

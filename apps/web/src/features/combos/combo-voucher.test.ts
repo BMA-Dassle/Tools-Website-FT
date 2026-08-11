@@ -40,7 +40,7 @@ const shuffly = { kind: "attraction" as const, slug: "shuffly", qty: 1 };
 
 const combo = {
   id: "race-bowl-v2",
-  name: "Ultimate VIP Experience",
+  name: "VIP Experience",
   voucherGrant: {
     perGuest: [gz, choice],
     perBooking: [shuffly],

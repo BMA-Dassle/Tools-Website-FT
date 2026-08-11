@@ -290,7 +290,7 @@ export const RACE_RESTRICTION_RULES: RaceRestrictionRule[] = [
   // visible "VIP Reserved" card explains the gap AND markets the package).
   {
     id: "vip-combo-anchor-reserve",
-    label: "All tracks: hold the first heat of each Ultimate VIP combo start hour",
+    label: "All tracks: hold the first heat of each VIP Experience combo start hour",
     get enabled() {
       return vipAnchorReserveEnabled();
     },
@@ -304,7 +304,7 @@ export const RACE_RESTRICTION_RULES: RaceRestrictionRule[] = [
       action: "disable",
       cardLabel: "VIP Reserved",
       tooltip:
-        "This start time is held for Ultimate VIP Experience groups — it opens up one hour before the race if unclaimed.",
+        "This start time is held for VIP Experience groups — it opens up one hour before the race if unclaimed.",
     },
     // Kiosk: anchor holds are HIDDEN outright (owner 2026-07-19) — the greyed
     // "VIP Reserved" card is web marketing; on the walk-up kiosk it read as a
@@ -313,7 +313,7 @@ export const RACE_RESTRICTION_RULES: RaceRestrictionRule[] = [
     kioskPresentation: {
       action: "hide",
       tooltip:
-        "This start time is held for Ultimate VIP Experience groups — it opens up one hour before the race if unclaimed.",
+        "This start time is held for VIP Experience groups — it opens up one hour before the race if unclaimed.",
     },
     reservedComboAnchorTimes: { startMinutes: VIP_COMBO_ANCHOR_MINUTES },
     lastMinuteOverrideMinutes: 60,

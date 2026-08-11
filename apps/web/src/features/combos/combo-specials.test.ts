@@ -31,7 +31,7 @@ const raceBowl = getComboSpecial("race-bowl")!;
 describe("combo-specials registry", () => {
   it("race-bowl is the locked VIP itinerary: starter → 90-min VIP bowl → intermediate", () => {
     expect(raceBowl).not.toBeNull();
-    expect(raceBowl.name).toBe("Ultimate VIP Experience");
+    expect(raceBowl.name).toBe("VIP Experience");
     expect(raceBowl.center).toBe("fort-myers");
     expect(raceBowl.price).toEqual({ weekday: 6500, weekend: 7500 });
     expect(raceBowl.components).toEqual([
@@ -89,7 +89,7 @@ describe("combo-specials registry", () => {
 
   it("comboReservationNote tells ops it's VIP, what's prepaid, the plan, and the lane", () => {
     const memo = comboReservationNote(raceBowl, "28");
-    expect(memo).toContain("ULTIMATE VIP EXPERIENCE (VIP COMBO)");
+    expect(memo).toContain("VIP EXPERIENCE (VIP COMBO)");
     expect(memo).toContain("racing license + POV video + VIP lane perks + shoes INCLUDED");
     expect(memo).toContain("1) Starter Race");
     expect(memo).toContain("2) 1.5hr VIP Bowling at HeadPinz — Lane 28");
@@ -104,7 +104,7 @@ describe("combo-specials registry", () => {
   it("comboReservationNote omits the lane line when none is assigned yet", () => {
     const memo = comboReservationNote(raceBowl, null);
     expect(memo).not.toContain("Lane");
-    expect(memo).toContain("ULTIMATE VIP EXPERIENCE (VIP COMBO)");
+    expect(memo).toContain("VIP EXPERIENCE (VIP COMBO)");
   });
 
   it("comboReservationNote renders the reorder order when given fallbackComponents", () => {

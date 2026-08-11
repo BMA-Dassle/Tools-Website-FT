@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       direction,
       guestName: "Sample Guest (TEST)",
       playerCount: 4,
-      comboName: "Ultimate VIP Experience",
+      comboName: "VIP Experience",
       from: toBowling
         ? {
             icon: "",
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
       direction,
       guestName: "Second Party (TEST)",
       playerCount: 2,
-      comboName: "Ultimate VIP Experience",
+      comboName: "VIP Experience",
       from: toBowling
         ? {
             icon: "",

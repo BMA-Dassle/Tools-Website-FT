@@ -86,7 +86,7 @@ export default function StoreCreditCancelSection({
             `Your booking starts in less than an hour, so online changes are closed. Call us at ${centerPhone} and we'll help right away.`,
           );
         } else if (data.error === "combo_call_center") {
-          setError(`Ultimate VIP combos are handled by our team — call ${centerPhone}.`);
+          setError(`VIP Experience combos are handled by our team — call ${centerPhone}.`);
         } else if (data.error === "already_cancelled") {
           setError("This booking is already cancelled.");
         } else {

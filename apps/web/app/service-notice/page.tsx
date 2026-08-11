@@ -33,7 +33,7 @@ export const metadata: Metadata = {
 const PRODUCT_LABEL: Record<string, string> = {
   race: "Racing",
   "race-pack": "Race Packs",
-  "race-bowl": "the Ultimate VIP Experience",
+  "race-bowl": "the VIP Experience",
   "ultimate-qualifier": "the Ultimate Qualifier",
   "gel-blaster": "Nexus Gel Blaster",
   "laser-tag": "Nexus Laser Tag",
@@ -56,10 +56,8 @@ const PRODUCT_LABEL: Record<string, string> = {
 const PRODUCT_COPY: Record<string, { heading: string; body: string; note: string }> = {
   waiver: {
     heading: "We can’t start your waiver right now",
-    body:
-      "One of our vendors is having a system outage, so we can’t look up your reservation or your account to attach a waiver to. Nothing you’ve entered has been recorded.",
-    note:
-      "You don’t need to do anything before you arrive — you can sign in person when you get here, and our team at Guest Services can help. If you’d rather do it ahead of time, please check back a little later.",
+    body: "One of our vendors is having a system outage, so we can’t look up your reservation or your account to attach a waiver to. Nothing you’ve entered has been recorded.",
+    note: "You don’t need to do anything before you arrive — you can sign in person when you get here, and our team at Guest Services can help. If you’d rather do it ahead of time, please check back a little later.",
   },
 };
 
@@ -148,12 +146,20 @@ export default async function ServiceNoticePage({
             {heading}
           </h1>
 
-          <p className="font-body mt-4 text-white/75" style={{ fontSize: "16px", lineHeight: 1.65 }}>
+          <p
+            className="font-body mt-4 text-white/75"
+            style={{ fontSize: "16px", lineHeight: 1.65 }}
+          >
             {body}
           </p>
 
           <div className="mt-5 flex items-start gap-3 rounded-xl border border-white/10 bg-black/25 px-4 py-3">
-            <IconPhone size={20} stroke={2} className="mt-0.5 shrink-0 text-white/45" aria-hidden="true" />
+            <IconPhone
+              size={20}
+              stroke={2}
+              className="mt-0.5 shrink-0 text-white/45"
+              aria-hidden="true"
+            />
             <p className="font-body text-sm text-white/65" style={{ lineHeight: 1.6 }}>
               {note}
             </p>

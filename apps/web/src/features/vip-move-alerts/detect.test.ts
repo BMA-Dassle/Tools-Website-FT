@@ -32,7 +32,7 @@ function mkGroup(schedule: ComboScheduleStep[], over: Partial<ComboGroup> = {}):
     key: "dep-1",
     comboId: "race-bowl",
     meta: {
-      name: "Ultimate VIP Experience",
+      name: "VIP Experience",
       accentColor: "#d4af37",
       includes: ["Starter Race", "VIP Bowling", "Intermediate Race"],
       center: "fort-myers",

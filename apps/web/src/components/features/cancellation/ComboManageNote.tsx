@@ -16,7 +16,7 @@ export default function ComboManageNote({ phone }: { phone: string }) {
       <p className="text-white/60 text-sm leading-relaxed mt-1 flex items-start gap-1.5">
         <IconPhone className="w-4 h-4 shrink-0 mt-0.5" />
         <span>
-          Ultimate VIP combos are handled by our team — call {phone} and we&apos;ll take care of
+          VIP Experience combos are handled by our team — call {phone} and we&apos;ll take care of
           both parts of your booking.
         </span>
       </p>

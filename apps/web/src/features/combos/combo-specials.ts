@@ -281,7 +281,7 @@ export function comboJuniorMirrorEnabled(): boolean {
 export const COMBO_SPECIALS: ComboSpecial[] = [
   {
     id: "race-bowl",
-    name: "Ultimate VIP Experience",
+    name: "VIP Experience",
     shortDescription:
       "A full 3-hour experience: Starter race, 1.5 hours of VIP bowling, then an Intermediate " +
       "race — license, POV video and VIP lane perks included. One price, one booking.",
@@ -359,7 +359,7 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     ],
     fallbackNote:
       "Both races run first, then your VIP lane — your lane time opens later in the evening.",
-    // Show the cart as one all-inclusive "Ultimate VIP Experience" line, not the
+    // Show the cart as one all-inclusive "VIP Experience" line, not the
     // itemized license/POV/lane parts (charge stays itemized under the hood).
     flatCartDisplay: true,
     transitionMinutes: 15,
@@ -382,7 +382,7 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     revenueSplit: [
       {
         key: "vip-racing",
-        label: "Ultimate VIP Experience",
+        label: "VIP Experience",
         entity: "fasttrax-fm",
         catalogObjectId: SQUARE_CATALOG_IDS.VIP_EXPERIENCE_RACING,
         weekdayCents: 4400,
@@ -391,7 +391,7 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
       },
       {
         key: "vip-bowling",
-        label: "Ultimate VIP Experience",
+        label: "VIP Experience",
         entity: "headpinz-fm",
         catalogObjectId: SQUARE_CATALOG_IDS.VIP_EXPERIENCE_BOWLING,
         weekdayCents: 2100,
@@ -410,7 +410,7 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
   // v1 off and v2 on in one redeploy (see COMBO_RACE_BOWL_V2_ENABLED).
   {
     id: "race-bowl-v2",
-    name: "Ultimate VIP Experience",
+    name: "VIP Experience",
     shortDescription:
       "A 3–4 hour experience: Starter race, 1.5 hours of VIP bowling, then an Intermediate " +
       "race — license, POV video and VIP lane perks included. Plus a $10 Game Zone bonus card, " +
@@ -520,7 +520,7 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     revenueSplit: [
       {
         key: "vip-racing",
-        label: "Ultimate VIP Experience",
+        label: "VIP Experience",
         entity: "fasttrax-fm",
         catalogObjectId: SQUARE_CATALOG_IDS.VIP_EXPERIENCE_RACING,
         weekdayCents: 5100,
@@ -529,7 +529,7 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
       },
       {
         key: "vip-bowling",
-        label: "Ultimate VIP Experience",
+        label: "VIP Experience",
         entity: "headpinz-fm",
         catalogObjectId: SQUARE_CATALOG_IDS.VIP_EXPERIENCE_BOWLING,
         weekdayCents: 2800,
@@ -565,7 +565,7 @@ export function getComboSpecial(id: string): ComboSpecial | null {
 }
 
 /**
- * The LIVE Ultimate VIP pack — v2 today; v1 only if explicitly revived.
+ * The LIVE VIP Experience pack — v2 today; v1 only if explicitly revived.
  * Consumers that used to hardcode "race-bowl" (kiosk availability, the
  * anchor-reserve rule, the attract chip) resolve through THIS so a pack
  * cutover is a flag concern, never a call-site hunt. Null = no VIP pack on
@@ -573,9 +573,8 @@ export function getComboSpecial(id: string): ComboSpecial | null {
  */
 export function activeVipCombo(): ComboSpecial | null {
   return (
-    COMBO_SPECIALS.find(
-      (c) => c.enabled && (c.id === "race-bowl-v2" || c.id === "race-bowl"),
-    ) ?? null
+    COMBO_SPECIALS.find((c) => c.enabled && (c.id === "race-bowl-v2" || c.id === "race-bowl")) ??
+    null
   );
 }
 
@@ -588,12 +587,14 @@ export function comboAdminLabel(comboSpecialId: string | null | undefined): stri
 }
 
 /**
- * Is this booking an Ultimate VIP Experience? Drives the BMI "Confirmation -
+ * Is this booking a VIP Experience? Drives the BMI "Confirmation -
  * VIP" state stamp (`~/features/combos/vip-state.server`) as well as any other
  * "treat this as VIP" decision.
  *
  * Every combo special shipped to date IS a VIP pack — `race-bowl` and
- * `race-bowl-v2` are both literally named "Ultimate VIP Experience" — and
+ * `race-bowl-v2` are both literally named "VIP Experience" (rebranded from
+ * "Ultimate VIP Experience" 2026-08-10; historical Square/BMI rows keep the
+ * old name, which still contains the new one as a substring) — and
  * `comboAdminLabel` above already assumes the same for ids that have left the
  * registry, so historical rows keep their badge. Keying off "has a
  * comboSpecialId" therefore also covers legacy rows a registry lookup misses.

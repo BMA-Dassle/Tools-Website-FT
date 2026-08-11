@@ -126,12 +126,17 @@ export async function GET(req: NextRequest) {
     const combo = getComboSpecial("race-bowl");
     const startTimeLabel = fmtClock(new Date(Date.now() + WINDOW_MIN * 60_000).toISOString());
     const email = buildVipAlmostHereEmail({
-      comboName: combo?.name ?? "Ultimate VIP Experience",
+      comboName: combo?.name ?? "VIP Experience",
       guestFirstName: "Test",
       startTimeLabel,
     });
     if (test.includes("@")) {
-      const res = await sendEmail({ to: test, subject: `[TEST] ${email.subject}`, html: email.html, text: email.text });
+      const res = await sendEmail({
+        to: test,
+        subject: `[TEST] ${email.subject}`,
+        html: email.html,
+        text: email.text,
+      });
       return NextResponse.json({ ok: res.ok, test: "email", to: test, error: res.error });
     }
     const smsOk = await sendSms(test, buildVipAlmostHereSms());
@@ -206,16 +211,21 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const guestEmail = group.anchor.guestEmail || group.legs.find((l) => l.guestEmail)?.guestEmail;
+      const guestEmail =
+        group.anchor.guestEmail || group.legs.find((l) => l.guestEmail)?.guestEmail;
       const guestPhone = group.guestPhone || group.legs.find((l) => l.guestPhone)?.guestPhone;
-      const comboName = group.meta?.name ?? "Ultimate VIP Experience";
+      const comboName = group.meta?.name ?? "VIP Experience";
       const startTimeLabel = fmtClock(first.iso);
 
       let emailOk = false;
       let smsOk = false;
       try {
         if (guestEmail) {
-          const email = buildVipAlmostHereEmail({ comboName, guestFirstName: guestFirst, startTimeLabel });
+          const email = buildVipAlmostHereEmail({
+            comboName,
+            guestFirstName: guestFirst,
+            startTimeLabel,
+          });
           const res = await sendEmail({
             to: guestEmail,
             toName: group.guestName || undefined,
@@ -243,7 +253,10 @@ export async function GET(req: NextRequest) {
           group.legs.find((l) => l.productKind === "race" && l.bmiBillId) ??
           group.legs.find((l) => l.bmiBillId);
         if (memoLeg) {
-          const channels = [smsOk ? `SMS to ${guestPhone}` : null, emailOk ? `email to ${guestEmail}` : null]
+          const channels = [
+            smsOk ? `SMS to ${guestPhone}` : null,
+            emailOk ? `email to ${guestEmail}` : null,
+          ]
             .filter(Boolean)
             .join("; ");
           const logged = await appendBookingMemoLine(

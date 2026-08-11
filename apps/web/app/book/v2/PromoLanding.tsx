@@ -770,9 +770,7 @@ function UnavailableCta({ note }: { note?: string }) {
   return (
     <div className="w-full rounded-xl border border-white/15 bg-white/[0.04] px-4 py-3 text-center">
       <div className="text-sm font-bold text-white/70">Temporarily unavailable</div>
-      {note && (
-        <div className="font-body mt-1 text-xs leading-snug text-white/45">{note}</div>
-      )}
+      {note && <div className="font-body mt-1 text-xs leading-snug text-white/45">{note}</div>}
     </div>
   );
 }
@@ -847,7 +845,7 @@ function ComboCard({
             <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
               <path d="M10 2l2.39 4.84L18 8l-4 3.9.94 5.5L10 14.77 5.06 17.4 6 11.9 2 8l5.61-1.16L10 2z" />
             </svg>
-            {premium ? "Ultimate VIP" : "Best Value"}
+            {premium ? "VIP Experience" : "Best Value"}
           </span>
         </div>
         {premium && combo.durationLabel && (

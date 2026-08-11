@@ -23,7 +23,7 @@ describe("buildVipAlmostHereSms", () => {
 
 describe("buildVipAlmostHereEmail", () => {
   const args = {
-    comboName: "Ultimate VIP Experience",
+    comboName: "VIP Experience",
     guestFirstName: "Jordan",
     startTimeLabel: "6:00 PM",
   };
@@ -36,7 +36,7 @@ describe("buildVipAlmostHereEmail", () => {
   it("html greets by name, names the combo, and spells out the full check-in route", () => {
     const { html } = buildVipAlmostHereEmail(args);
     expect(html).toContain("Hey Jordan!");
-    expect(html).toContain("Ultimate VIP Experience");
+    expect(html).toContain("VIP Experience");
     expect(html).toContain("6:00 PM");
     expect(html).toContain("Your VIP Experience Is Almost Here!");
     expect(html).toContain("side door of FastTrax on the first floor");

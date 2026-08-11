@@ -696,7 +696,7 @@ export default function FortMyersPage() {
                   textShadow: "0 0 40px rgba(255,215,0,0.3)",
                 }}
               >
-                The Ultimate VIP Experience
+                The VIP Experience
               </h2>
               <div
                 className="mx-auto h-1 w-24 rounded-full mb-10"

@@ -237,13 +237,13 @@ describe("comboItemizedLines — collapsed per-center split (sums to the flat pe
       quantity: 2,
       unitCents: 4400,
       entity: "fasttrax-fm",
-      name: "Ultimate VIP Experience",
+      name: "VIP Experience",
     });
     expect(byKey["vip-bowling"]).toMatchObject({
       quantity: 2,
       unitCents: 2100,
       entity: "headpinz-fm",
-      name: "Ultimate VIP Experience",
+      name: "VIP Experience",
     });
     // 2 × $65 = $130
     const total = lines.reduce((s, l) => s + l.unitCents * l.quantity, 0);
@@ -361,7 +361,7 @@ describe("buildRaceChargeLines — combo integration (display == charge seam)", 
     const lines = buildRaceChargeLines(newComboSession());
     const names = lines.map((l) => l.name);
     // Two collapsed lines, both the experience name (one per center).
-    expect(names.filter((n) => n === "Ultimate VIP Experience")).toHaveLength(2);
+    expect(names.filter((n) => n === "VIP Experience")).toHaveLength(2);
     // No itemized parts, no legacy prefix, no separate license/POV.
     expect(names.some((n) => n.startsWith("VIP Exp - "))).toBe(false);
     expect(names).not.toContain("POV Race Video");
@@ -374,7 +374,7 @@ describe("buildRaceChargeLines — combo integration (display == charge seam)", 
     const s = newComboSession();
     (s.items[1] as BowlingItem).durationMinutes = 60; // breaks the gate
     const names = buildRaceChargeLines(s).map((l) => l.name);
-    expect(names).not.toContain("Ultimate VIP Experience");
+    expect(names).not.toContain("VIP Experience");
     expect(names.length).toBeGreaterThan(0);
   });
 
@@ -433,7 +433,7 @@ describe("USA250 — combo reduction (owner: combos DO get the discount)", () =>
     const s = newComboSession(SAT);
     s.appliedPromo = promoFor(SAT);
     const racing = buildRaceChargeLines(s).find(
-      (l) => l.name === "Ultimate VIP Experience" && l.comboEntity === "fasttrax-fm",
+      (l) => l.name === "VIP Experience" && l.comboEntity === "fasttrax-fm",
     )!;
     expect(racing.amount).toBeCloseTo(73.5, 2); // 2 × $36.75
     expect(racing.originalAmount).toBeCloseTo(98.0, 2); // 2 × $49.00

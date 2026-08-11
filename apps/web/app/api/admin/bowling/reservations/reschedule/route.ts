@@ -199,7 +199,7 @@ export async function POST(req: NextRequest) {
     chatAlerted = await sendBowlingTimeChangedAlert({
       guestName: existing.guestName ?? "Guest",
       playerCount: existing.playerCount,
-      comboName: getComboSpecial(existing.comboSpecialId)?.name ?? "Ultimate VIP",
+      comboName: getComboSpecial(existing.comboSpecialId)?.name ?? "VIP Experience",
       oldIso: existing.bookedAt,
       newIso: bookedAt,
       lane: existing.dayofOrderLane,

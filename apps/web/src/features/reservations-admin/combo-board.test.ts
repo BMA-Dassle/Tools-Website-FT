@@ -36,7 +36,7 @@ function res(partial: Partial<Reservation>): Reservation {
 
 const META: Record<string, ComboMeta> = {
   "race-bowl": {
-    name: "Ultimate VIP Experience",
+    name: "VIP Experience",
     accentColor: "#d4af37",
     includes: ["Starter Race", "VIP Bowling", "Intermediate Race"],
     center: "fort-myers",
@@ -351,11 +351,36 @@ describe("buildComboGroups", () => {
       playerCount: 14, // heat-slot count, NOT people
       bookingMetadata: {
         heats: [
-          { heatId: "2026-07-06T18:00:00", track: "Blue Track", tier: "starter", category: "junior" },
-          { heatId: "2026-07-06T18:00:00", track: "Blue Track", tier: "starter", category: "junior" },
-          { heatId: "2026-07-06T18:12:00", track: "Blue Track", tier: "starter", category: "adult" },
-          { heatId: "2026-07-06T20:36:00", track: "Blue Track", tier: "intermediate", category: "junior" },
-          { heatId: "2026-07-06T20:48:00", track: "Blue Track", tier: "intermediate", category: "adult" },
+          {
+            heatId: "2026-07-06T18:00:00",
+            track: "Blue Track",
+            tier: "starter",
+            category: "junior",
+          },
+          {
+            heatId: "2026-07-06T18:00:00",
+            track: "Blue Track",
+            tier: "starter",
+            category: "junior",
+          },
+          {
+            heatId: "2026-07-06T18:12:00",
+            track: "Blue Track",
+            tier: "starter",
+            category: "adult",
+          },
+          {
+            heatId: "2026-07-06T20:36:00",
+            track: "Blue Track",
+            tier: "intermediate",
+            category: "junior",
+          },
+          {
+            heatId: "2026-07-06T20:48:00",
+            track: "Blue Track",
+            tier: "intermediate",
+            category: "adult",
+          },
         ],
       },
     });
@@ -430,7 +455,7 @@ describe("buildComboScheduleIndex + mergeComboRows", () => {
   it("indexes every deposit + day-of order id a leg carries", () => {
     const { race, bowl } = splitCombo();
     const idx = buildComboScheduleIndex(buildComboGroups([race, bowl], META, NOW));
-    expect(idx.get("DEP1")?.name).toBe("Ultimate VIP Experience");
+    expect(idx.get("DEP1")?.name).toBe("VIP Experience");
     expect(idx.get("RACEORD")).toBeDefined();
     expect(idx.get("BOWLORD")).toBeDefined();
   });

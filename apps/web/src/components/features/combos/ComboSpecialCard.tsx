@@ -72,7 +72,7 @@ export default function ComboSpecialCard({ combo }: { combo: ComboSpecial }) {
                 <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                   <path d="M10 2l2.39 4.84L18 8l-4 3.9.94 5.5L10 14.77 5.06 17.4 6 11.9 2 8l5.61-1.16L10 2z" />
                 </svg>
-                Ultimate VIP
+                VIP Experience
               </span>
               {combo.durationLabel && (
                 <span
