@@ -192,6 +192,49 @@ describe("addonPurchaseIntents", () => {
   });
 });
 
+describe("headsock eligibility — has-license rule (owner 2026-08-10)", () => {
+  it("a brand-new racer is never offered, charged, or granted — their first sock rides the license", () => {
+    const item = raceItem({ addonSelections: sel(["newbie", "vet"]) });
+    const s = sessionWith(
+      [item],
+      [
+        { id: "newbie", firstName: "Nova" },
+        { id: "vet", firstName: "Dana", bmiPersonId: "16045822052840512" },
+      ],
+    );
+    (s.party[0] as { isNewRacer: boolean }).isNewRacer = true;
+    (s.party[1] as { licenseActive?: boolean }).licenseActive = true;
+    const lines = addonChargeLines(s);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].name).toContain("Dana");
+    expect(addonPurchaseIntents(s)).toHaveLength(1);
+    expect(estimateAddonsTotal(item, s)).toBe(3);
+  });
+
+  it("a LAPSED returning racer (owes a renewal today) is excluded too — the renewal includes the sock", () => {
+    const s = sessionWith(
+      [raceItem({ addonSelections: sel(["lapsed"]) })],
+      [{ id: "lapsed", firstName: "Leo" }],
+    );
+    (s.party[0] as { licenseActive?: boolean }).licenseActive = false;
+    expect(addonChargeLines(s)).toHaveLength(0);
+  });
+
+  it("all-new party: zero lines even with selections present (stale/doctored session)", () => {
+    const s = sessionWith(
+      [raceItem({ addonSelections: sel(["a", "b"]) })],
+      [
+        { id: "a", firstName: "A" },
+        { id: "b", firstName: "B" },
+      ],
+    );
+    for (const m of s.party) (m as { isNewRacer: boolean }).isNewRacer = true;
+    expect(addonChargeLines(s)).toHaveLength(0);
+    expect(addonPurchaseIntents(s)).toHaveLength(0);
+    expect(estimateAddonsTotal(s.items[0] as never, s)).toBe(0);
+  });
+});
+
 describe("resolveAddonSelections", () => {
   it("orders memberIds by party order for stable Square idempotency bodies", () => {
     const s = sessionWith(

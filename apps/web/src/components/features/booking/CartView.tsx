@@ -28,8 +28,11 @@ import {
   type KioskPackSelection,
 } from "~/features/booking/service/race-pack-kiosk";
 import { redeemedHeatSet } from "~/features/booking/data/race-credits";
-import { getBookingAddon, offerableAddons } from "~/features/booking/data/addon-catalog";
-import { estimateAddonsTotal } from "~/features/booking/service/addon-charge";
+import { getBookingAddon } from "~/features/booking/data/addon-catalog";
+import {
+  estimateAddonsTotal,
+  offerableAddonsForParty,
+} from "~/features/booking/service/addon-charge";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { racerNeedsLicense } from "~/features/booking/service/license";
@@ -753,7 +756,9 @@ function RaceCartCard({
         !combo &&
         (() => {
           const povMissing = item.povQuantity === 0 && !raceItemFullyPackaged(item, session.party);
-          const cartAddons = offerableAddons("race", item).filter(
+          // Party-aware: never tease an add-on nobody in this party can buy
+          // (all-new party vs the headsock's has-license rule).
+          const cartAddons = offerableAddonsForParty("race", item, session.party).filter(
             (a) => !item.addonSelections?.some((s) => s.slug === a.slug && s.memberIds.length > 0),
           );
           if (!povMissing && cartAddons.length === 0) return null;

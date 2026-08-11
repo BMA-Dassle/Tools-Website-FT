@@ -6,7 +6,7 @@ import { modalBackdropProps } from "@/lib/a11y";
 import type { RaceItem, StepDef } from "~/features/booking";
 import { raceItemFullyPackaged } from "~/features/booking";
 import { povUncoveredRacerCount, povUncoveredRacers } from "~/features/booking/service/race";
-import { offerableAddons } from "~/features/booking/data/addon-catalog";
+import { offerableAddonsForParty } from "~/features/booking/service/addon-charge";
 import { useT } from "~/features/kiosk/i18n";
 import { AddonCard, NameChipPicker } from "./AddonCard";
 
@@ -74,7 +74,9 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({
   const eligible = povUncoveredRacers(item, session.party);
   const showPov = !raceItemFullyPackaged(item, session.party) && eligible.length > 0;
   const coveredCount = session.party.length - eligible.length;
-  const addons = offerableAddons("race", item);
+  // Party-aware: an addon with no eligible racer (all-new party vs the
+  // headsock's has-license rule) renders no card at all — web AND kiosk.
+  const addons = offerableAddonsForParty("race", item, session.party);
 
   const eligibleIds = new Set(eligible.map((m) => m.id));
   const selected = new Set((item.povMemberIds ?? []).filter((id) => eligibleIds.has(id)));
@@ -317,7 +319,10 @@ export const RacePovStep: StepDef<RaceItem> = {
     const povVisible =
       !raceItemFullyPackaged(item, session.party) &&
       povUncoveredRacerCount(item, session.party) > 0;
-    return povVisible || offerableAddons("race", item).length > 0;
+    // Party-aware add-on gate: an all-new-racer party has no headsock
+    // eligibility (their first one rides the license), so with POV also
+    // hidden the whole step must skip — same rule on web and kiosk.
+    return povVisible || offerableAddonsForParty("race", item, session.party).length > 0;
   },
   canAdvance: () => true,
 };

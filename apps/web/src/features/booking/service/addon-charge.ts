@@ -16,13 +16,43 @@
  */
 import type { BillLine } from "./checkout";
 import type { AddonPurchaseIntent } from "../data/addon-purchases-db";
-import type { BookingSession, RaceItem } from "../state/types";
+import type { BookingSession, PartyMember, RaceItem } from "../state/types";
+import { racerNeedsLicense } from "./license";
 import {
   bookingAddonsEnabled,
   getBookingAddon,
   offerableAddons,
   type BookingAddon,
 } from "../data/addon-catalog";
+
+/**
+ * The party members an add-on may be sold FOR — the ONE eligibility seam the
+ * offer UI (AddonCard chips, step visibility, cart teaser), the charge lines,
+ * the grant intents, and the $0 BMI plan all share, so a racer the card never
+ * offered can never be charged (and vice versa).
+ *
+ * "has-license" (the headsock): a racer who OWES a license with this booking
+ * (racerNeedsLicense — brand-new, or lapsed and renewing) gets a fresh
+ * headsock included with that license, so the $3 "replacement" is never
+ * offered to them (owner 2026-08-10). Active licence holders and race-pack
+ * prepaid racers qualify.
+ */
+export function addonEligibleMembers(addon: BookingAddon, party: PartyMember[]): PartyMember[] {
+  if (addon.eligibility === "has-license") return party.filter((m) => !racerNeedsLicense(m));
+  return party;
+}
+
+/** The add-ons a surface can offer THIS party right now — offerableAddons
+ *  narrowed to entries with at least one eligible racer. Drives the extras
+ *  step's visibility and the cart teaser (an all-new-racer party must not see
+ *  a headsock card it can't buy — web AND kiosk). */
+export function offerableAddonsForParty(
+  surface: "race",
+  item: RaceItem,
+  party: PartyMember[],
+): BookingAddon[] {
+  return offerableAddons(surface, item).filter((a) => addonEligibleMembers(a, party).length > 0);
+}
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -42,7 +72,6 @@ export interface ResolvedAddonSelection {
  */
 export function resolveAddonSelections(session: BookingSession): ResolvedAddonSelection[] {
   if (!bookingAddonsEnabled()) return [];
-  const partyIds = new Set(session.party.map((m) => m.id));
   const bySlug = new Map<string, Set<string>>();
   for (const item of session.items) {
     if (item.kind !== "race") continue;
@@ -50,13 +79,17 @@ export function resolveAddonSelections(session: BookingSession): ResolvedAddonSe
     // selections must not resolve either (offer side blocks them too).
     if (offerableAddons("race", item).length === 0) continue;
     for (const sel of item.addonSelections ?? []) {
-      if (!getBookingAddon(sel.slug)) continue;
+      const addon = getBookingAddon(sel.slug);
+      if (!addon) continue;
+      // Same eligibility filter the offer UI applies — a pointer for an
+      // ineligible racer (stale session, doctored client) never charges.
+      const eligibleIds = new Set(addonEligibleMembers(addon, session.party).map((m) => m.id));
       let set = bySlug.get(sel.slug);
       if (!set) {
         set = new Set<string>();
         bySlug.set(sel.slug, set);
       }
-      for (const id of sel.memberIds) if (partyIds.has(id)) set.add(id);
+      for (const id of sel.memberIds) if (eligibleIds.has(id)) set.add(id);
     }
   }
   const out: ResolvedAddonSelection[] = [];
@@ -127,12 +160,12 @@ export function addonPurchaseIntents(session: BookingSession): AddonPurchaseInte
 export function estimateAddonsTotal(item: RaceItem, session: BookingSession): number {
   if (!bookingAddonsEnabled()) return 0;
   if (offerableAddons("race", item).length === 0) return 0;
-  const partyIds = new Set(session.party.map((m) => m.id));
   let total = 0;
   for (const sel of item.addonSelections ?? []) {
     const addon = getBookingAddon(sel.slug);
     if (!addon) continue;
-    const count = new Set(sel.memberIds.filter((id) => partyIds.has(id))).size;
+    const eligibleIds = new Set(addonEligibleMembers(addon, session.party).map((m) => m.id));
+    const count = new Set(sel.memberIds.filter((id) => eligibleIds.has(id))).size;
     total += (addon.priceCents / 100) * count;
   }
   return round2(total);

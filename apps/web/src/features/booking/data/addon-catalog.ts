@@ -42,6 +42,17 @@ export interface BookingAddon {
    *  through SQUARE_CATALOG_MAP[chargeLineKey]; keep the two in sync). */
   squareCatalogObjectId: string;
   attribution: AddonAttribution;
+  /**
+   * Per-racer eligibility rule, resolved by service/addon-charge.ts
+   * `addonEligibleMembers` (the ONE seam the offer UI, the charge lines, the
+   * grant intents, and the $0 BMI plan all share):
+   *   - "has-license": only racers NOT owed a license by this booking
+   *     (!racerNeedsLicense) — a racer buying their first license today gets
+   *     a fresh headsock included with it, so a "replacement" is noise
+   *     (owner 2026-08-10: "if all new racers this shouldn't be showing").
+   *   - undefined: every party member.
+   */
+  eligibility?: "has-license";
   /** $0 BMI product to record this add-on on the reservation bill (rides the
    *  same booking/sell call as the $0 POV line, money stays on Square). Omit
    *  for add-ons ops shouldn't see on the BMI bill. */
@@ -78,6 +89,7 @@ export const BOOKING_ADDONS: BookingAddon[] = [
     // pre-bought (the Pandora credit remains the check-in fulfillment signal).
     bmiZeroProductId: "48952128",
     attribution: "per-racer",
+    eligibility: "has-license",
     i18nPrefix: "addon.headsock",
     grant: { depositKindId: HEADSOCK_DEPOSIT_KIND_ID, amountPerUnit: 1 },
     surfaces: ["race"],

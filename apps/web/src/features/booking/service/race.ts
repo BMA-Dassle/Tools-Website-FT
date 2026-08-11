@@ -27,6 +27,7 @@ import {
 import { registerContact } from "./bmi-register";
 import { getPackage } from "./packages";
 import { bookingAddonsEnabled, getBookingAddon } from "../data/addon-catalog";
+import { addonEligibleMembers } from "./addon-charge";
 import {
   evaluateRaceRestrictions,
   type RestrictionBlock,
@@ -736,19 +737,21 @@ async function sellLicense(billId: string, quantity: number): Promise<boolean> {
 
 /** The $0 BMI lines owed for this item's retail add-on selections — one entry
  *  per catalog add-on that carries a `bmiZeroProductId` (v1: "Headsock
- *  Pre-Purchase" 48952128), qty = valid selected racers. Money stays on
- *  Square; this is ops visibility on the reservation bill, same as $0 POV. */
+ *  Pre-Purchase" 48952128), qty = ELIGIBLE selected racers (the same
+ *  addonEligibleMembers seam the charge uses — the BMI record must never
+ *  exceed what Square charged). Money stays on Square; this is ops
+ *  visibility on the reservation bill, same as $0 POV. */
 export function addonZeroSellPlan(
   item: RaceItem,
-  party: Array<{ id: string }>,
+  party: PartyMember[],
 ): Array<{ slug: string; productId: string; quantity: number }> {
   if (!bookingAddonsEnabled()) return [];
-  const partyIds = new Set(party.map((m) => m.id));
   const out: Array<{ slug: string; productId: string; quantity: number }> = [];
   for (const sel of item.addonSelections ?? []) {
     const addon = getBookingAddon(sel.slug);
     if (!addon?.bmiZeroProductId) continue;
-    const quantity = new Set(sel.memberIds.filter((id) => partyIds.has(id))).size;
+    const eligibleIds = new Set(addonEligibleMembers(addon, party).map((m) => m.id));
+    const quantity = new Set(sel.memberIds.filter((id) => eligibleIds.has(id))).size;
     if (quantity > 0) out.push({ slug: sel.slug, productId: addon.bmiZeroProductId, quantity });
   }
   return out;

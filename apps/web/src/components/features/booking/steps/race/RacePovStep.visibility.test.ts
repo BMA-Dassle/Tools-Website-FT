@@ -82,6 +82,18 @@ describe("RacePovStep visibility — video + retail extras", () => {
     expect(isVisible(it_, s)).toBe(true);
   });
 
+  it("ALL-NEW party + fully packaged → hidden: nobody is headsock-eligible (first sock rides the license)", () => {
+    const it_ = item({
+      packageIdAdult: "ultimate-qualifier-weekday",
+      packageIdJunior: "ultimate-qualifier-weekday-junior",
+    });
+    const s = session([
+      { id: "a", category: "adult", isNewRacer: true } as never,
+      { id: "j", category: "junior", isNewRacer: true } as never,
+    ]);
+    expect(isVisible(it_, s)).toBe(false);
+  });
+
   it("legacy BMI add-ons rail (addons qty>0) suppresses the retail extras — flag-off equivalence", () => {
     // Items on the legacy BMI-priced rail never run buildRaceChargeLines, so
     // offerableAddons returns [] for them — with a fully-packaged party the

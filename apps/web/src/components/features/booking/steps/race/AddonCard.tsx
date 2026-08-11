@@ -2,6 +2,7 @@
 
 import type { BookingSession, RaceItem } from "~/features/booking";
 import type { BookingAddon } from "~/features/booking/data/addon-catalog";
+import { addonEligibleMembers } from "~/features/booking/service/addon-charge";
 import { useT } from "~/features/kiosk/i18n";
 
 /**
@@ -73,11 +74,15 @@ export function AddonCard({
   compact?: boolean;
 }) {
   const t = useT();
+  // Chips list ELIGIBLE racers only (has-license rule: a racer buying their
+  // first license today gets a headsock with it) — the charge applies the
+  // same filter, so the card and the money can't disagree.
+  const members = addonEligibleMembers(addon, session.party);
   const selections = item.addonSelections ?? [];
   const selected = new Set(
     selections
       .find((s) => s.slug === addon.slug)
-      ?.memberIds.filter((id) => session.party.some((m) => m.id === id)) ?? [],
+      ?.memberIds.filter((id) => members.some((m) => m.id === id)) ?? [],
   );
   const price = addon.priceCents / 100;
   // i18nPrefix keys are typed MessageKey values for the shipped catalog; the
@@ -89,7 +94,7 @@ export function AddonCard({
     if (next.has(memberId)) next.delete(memberId);
     else next.add(memberId);
     // Party order for a stable pointer list (stable Square line order too).
-    const memberIds = session.party.map((m) => m.id).filter((id) => next.has(id));
+    const memberIds = members.map((m) => m.id).filter((id) => next.has(id));
     onChange({
       addonSelections: [
         ...selections.filter((s) => s.slug !== addon.slug),
@@ -99,6 +104,7 @@ export function AddonCard({
   };
 
   if (addon.attribution !== "per-racer") return null; // qty merch arrives with its first entry
+  if (members.length === 0) return null; // nobody eligible (e.g. all-new party) — no card
 
   return (
     <div
@@ -122,7 +128,7 @@ export function AddonCard({
         <p className="text-xs font-bold tracking-widest text-white/40 uppercase">
           {t(key("pickerLabel"))}
         </p>
-        <NameChipPicker members={session.party} selected={selected} onToggle={toggle} />
+        <NameChipPicker members={members} selected={selected} onToggle={toggle} />
         {selected.size > 0 ? (
           <div className="flex items-center justify-between pt-1">
             <span className="text-xs text-white/30">{t(key("perRacerHint"))}</span>

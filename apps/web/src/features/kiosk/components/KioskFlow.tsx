@@ -66,7 +66,7 @@ import {
 } from "../service/qualification-refresh-client";
 import { useKioskConfig } from "../KioskConfigContext";
 import { useLocale, type MessageKey, type Translate } from "../i18n";
-import { gameZoneCapability } from "../config";
+import { gameZoneCapability, isTestKiosk } from "../config";
 import {
   kioskMergedCheckoutEnabled,
   kioskCheckoutUpsellEnabled,
@@ -356,6 +356,9 @@ export function KioskFlow({
         context: {
           ...(config ? { center: config.center } : {}),
           kiosk: true,
+          // Test rig (kiosk 99): lets shared steps offer test-only affordances
+          // (e.g. the heat grid rolls to tomorrow when today's races are done).
+          ...(isTestKiosk(config) ? { kioskTest: true as const } : {}),
           ...(bowlingV3 ? { bowlingV3: true } : {}),
           ...(kioskVoucher ? { voucherRedeem: true } : {}),
         },

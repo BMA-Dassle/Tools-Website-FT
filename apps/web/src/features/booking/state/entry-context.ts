@@ -76,6 +76,13 @@ export interface EntryContext {
    */
   kiosk?: true;
   /**
+   * Session started on a TEST kiosk (kiosk 99 — isTestKiosk). Test-rig
+   * affordances only, never guest behavior: e.g. the race heat grid rolls to
+   * the NEXT day when today's races have run out (owner 2026-08-10: after
+   * close there is nothing to test against), phone requirements relax, etc.
+   */
+  kioskTest?: true;
+  /**
    * Preview opt-in for the single-time-pick bowling flow (`?bowlingV3=1`) —
    * activates the v3 Date/Experience/Time steps for this session while the
    * env flag is still dark. See src/features/booking/flags.ts.
