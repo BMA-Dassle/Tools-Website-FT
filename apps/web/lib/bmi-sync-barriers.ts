@@ -97,6 +97,84 @@ export async function personCloudBarrier(
 }
 
 /**
+ * Is the WHOLE PARTY ready — every member visible on the center's local server
+ * AND carrying a valid waiver?
+ *
+ * Owner 2026-08-12: the Confirmation → "Confirmation Kiosk"/"Confirmation -
+ * Express" flip "should happen only when the rest of the party has sync'ed and
+ * we have verified all have the waivers". Staff read that state as "this party
+ * is here and checked in", so stamping it while a member was still invisible
+ * locally or unwaivered made it a claim we could not back (lessons § "a status
+ * field IS a claim"). Gating it here means the state arriving IS the signal that
+ * the on-site work finished — the owner's words: "would show sync is done".
+ *
+ * ONE READ PER MEMBER answers both halves: Pandora's person record carries
+ * `waiverExpiry`, so presence and waiver validity come from the same GET. Note
+ * the asymmetry with `personLocalBarrier`: there a 500 counts as OPEN (present
+ * but unreadable is exactly what the repair handler fixes), but here a 500 is
+ * NOT good enough — an unreadable record cannot prove a waiver, and this gate
+ * exists to prove one. So this barrier needs a real 200 for every member.
+ *
+ * Fails CLOSED on anything unclear (unreadable member, unparseable expiry, no
+ * members supplied) — never stamp a state on a maybe.
+ */
+export async function partyReadyBarrier(
+  locationId: string,
+  personIds: string[],
+): Promise<BarrierResult> {
+  const key = process.env.SWAGGER_ADMIN_KEY || "";
+  if (!key) return errored("SWAGGER_ADMIN_KEY missing");
+  const ids = [...new Set(personIds.filter(Boolean).map(String))];
+  // No party to verify = nothing to claim. Closed, not open: an empty list is a
+  // caller bug, and stamping on it would be the exact false claim this prevents.
+  if (ids.length === 0) return closed("no party members to verify");
+
+  const notLocal: string[] = [];
+  const unreadable: string[] = [];
+  const noWaiver: string[] = [];
+  const now = Date.now();
+
+  for (const id of ids) {
+    try {
+      const res = await fetch(
+        `${PANDORA_BASE}/bmi/person/${encodeURIComponent(locationId)}/${encodeURIComponent(id)}`,
+        { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15_000) },
+      );
+      if (res.status === 404) {
+        notLocal.push(id);
+        continue;
+      }
+      if (!res.ok) {
+        // Includes the null-birthdate 500: present, but its waiver cannot be read.
+        unreadable.push(id);
+        continue;
+      }
+      const body = (await res.json().catch(() => null)) as {
+        success?: boolean;
+        data?: { waiverExpiry?: string | null };
+      } | null;
+      if (body?.success !== true) {
+        unreadable.push(id);
+        continue;
+      }
+      const expiry = body.data?.waiverExpiry ? Date.parse(body.data.waiverExpiry) : NaN;
+      if (!Number.isFinite(expiry) || expiry <= now) noWaiver.push(id);
+    } catch {
+      unreadable.push(id);
+    }
+  }
+
+  if (notLocal.length === 0 && unreadable.length === 0 && noWaiver.length === 0) {
+    return open(`all ${ids.length} member(s) local with a valid waiver`);
+  }
+  const bits: string[] = [];
+  if (notLocal.length) bits.push(`${notLocal.length} not synced local`);
+  if (unreadable.length) bits.push(`${unreadable.length} unreadable`);
+  if (noWaiver.length) bits.push(`${noWaiver.length} without a valid waiver`);
+  return closed(`${bits.join(", ")} of ${ids.length}`);
+}
+
+/**
  * Has the reservation/project synced DOWN to the center's local server?
  *
  * `GET /bmi/reservation/{locationID}/{reservationId}` is a GET with PATH params

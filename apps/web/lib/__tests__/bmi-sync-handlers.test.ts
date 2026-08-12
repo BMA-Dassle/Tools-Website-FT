@@ -12,7 +12,8 @@ vi.mock("@/lib/bmi-person-update", () => ({
     (person.patchBmiPersonBirthdate as (...a: unknown[]) => unknown)(...a),
 }));
 const memberships = { addMembership: vi.fn() };
-vi.mock("@/lib/pandora-memberships", () => ({
+vi.mock("@/lib/pandora-memberships", async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
   addMembership: (...a: unknown[]) =>
     (memberships.addMembership as (...a: unknown[]) => unknown)(...a),
 }));
@@ -138,6 +139,30 @@ describe("add-membership", () => {
     const r = await h(row({ kind: "add-membership", payload: { personId: "1" } }));
     expect(r.ok).toBe(true);
     expect(r.detail).toContain("777");
+  });
+
+  /**
+   * The load-bearing test. Owner 2026-08-12: "use default registration for
+   * everyone, not license — license is taken care of with the BMI product."
+   * addMembership's OWN default is the licence (11260957), so a handler that
+   * simply omitted the kind would hand a paid entitlement to everyone who
+   * checks in. It must pass Customer Registration explicitly.
+   */
+  it("defaults to Customer Registration (479317), NOT License Fee (11260957)", async () => {
+    memberships.addMembership.mockResolvedValueOnce("778");
+    await h(row({ kind: "add-membership", payload: { personId: "1" } }));
+    const arg = memberships.addMembership.mock.calls[0][0] as { membershipKindId?: string };
+    expect(arg.membershipKindId).toBe("479317");
+    expect(arg.membershipKindId).not.toBe("11260957");
+  });
+
+  it("still honours an explicit kind when a caller names one", async () => {
+    memberships.addMembership.mockResolvedValueOnce("779");
+    await h(
+      row({ kind: "add-membership", payload: { personId: "1", membershipKindId: "12213012" } }),
+    );
+    const arg = memberships.addMembership.mock.calls[0][0] as { membershipKindId?: string };
+    expect(arg.membershipKindId).toBe("12213012");
   });
 
   it("a missing membership-kind id is CONFIGURATION → terminal", async () => {

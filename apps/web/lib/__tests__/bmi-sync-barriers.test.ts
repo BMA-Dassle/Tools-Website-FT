@@ -132,3 +132,94 @@ describe("projectLocalBarrier (cloud→local reservation sync)", () => {
     expect((await projectLocalBarrier("LAB52GY480CJF", "1")).verdict).toBe("error");
   });
 });
+
+// ── partyReadyBarrier — the gate on the Confirmation Kiosk/Express flip ──────
+// Owner 2026-08-12: the flip "should happen only when the rest of the party has
+// sync'ed and we have verified all have the waivers". Staff read that state as
+// "party is here and checked in", so it must never be stamped on a maybe. Note
+// the deliberate asymmetry with personLocalBarrier: there a 500 is OPEN (present
+// but unreadable is what the repair fixes); HERE a 500 is closed, because an
+// unreadable record cannot prove a waiver and proving one is the whole job.
+import { partyReadyBarrier } from "../bmi-sync-barriers";
+
+const person = (waiverExpiry: string | null, status = 200) =>
+  ({
+    status,
+    ok: status >= 200 && status < 300,
+    json: async () => ({ success: status === 200, data: { waiverExpiry } }),
+    text: async () => "",
+  }) as unknown as Response;
+
+const future = new Date(Date.now() + 86_400_000).toISOString();
+const past = new Date(Date.now() - 86_400_000).toISOString();
+
+describe("partyReadyBarrier", () => {
+  beforeEach(() => {
+    process.env.SWAGGER_ADMIN_KEY = "k";
+  });
+
+  it("opens only when EVERY member is local with a live waiver", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => person(future)),
+    );
+    const r = await partyReadyBarrier("LAB52GY480CJF", ["1", "2", "3"]);
+    expect(r.verdict).toBe("open");
+    expect(r.detail).toContain("3");
+  });
+
+  it("one member not yet synced closes the gate", async () => {
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => (++n === 2 ? person(null, 404) : person(future))),
+    );
+    const r = await partyReadyBarrier("LAB52GY480CJF", ["1", "2", "3"]);
+    expect(r.verdict).toBe("closed");
+    expect(r.detail).toMatch(/not synced local/);
+  });
+
+  it("one member without a waiver closes the gate — the state would be a false claim", async () => {
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => (++n === 3 ? person(null) : person(future))),
+    );
+    const r = await partyReadyBarrier("LAB52GY480CJF", ["1", "2", "3"]);
+    expect(r.verdict).toBe("closed");
+    expect(r.detail).toMatch(/without a valid waiver/);
+  });
+
+  it("an EXPIRED waiver is not a waiver", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => person(past)),
+    );
+    expect((await partyReadyBarrier("LAB52GY480CJF", ["1"])).verdict).toBe("closed");
+  });
+
+  it("a 500 (present but unreadable) closes HERE, unlike personLocalBarrier", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => person(null, 500)),
+    );
+    const r = await partyReadyBarrier("LAB52GY480CJF", ["1"]);
+    expect(r.verdict).toBe("closed");
+    expect(r.detail).toMatch(/unreadable/);
+  });
+
+  it("an empty party list closes — stamping on nothing is the false claim we are preventing", async () => {
+    const f = vi.fn();
+    vi.stubGlobal("fetch", f);
+    const r = await partyReadyBarrier("LAB52GY480CJF", []);
+    expect(r.verdict).toBe("closed");
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("dedupes members so one person on two rows is asked about once", async () => {
+    const f = vi.fn(async () => person(future));
+    vi.stubGlobal("fetch", f);
+    await partyReadyBarrier("LAB52GY480CJF", ["7", "7", "7"]);
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+});

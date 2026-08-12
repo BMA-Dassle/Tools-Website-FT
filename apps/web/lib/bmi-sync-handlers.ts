@@ -20,7 +20,7 @@
  * (see lib/bmi-sync-barriers.ts).
  */
 import { patchBmiPersonBirthdate } from "@/lib/bmi-person-update";
-import { addMembership } from "@/lib/pandora-memberships";
+import { addMembership, DEFAULT_REGISTRATION_MEMBERSHIP_KIND_ID } from "@/lib/pandora-memberships";
 import { registerProjectPersonServer } from "~/features/kiosk/waiver/bmi-attach";
 import type { SyncKind, SyncQueueRow } from "@/lib/bmi-sync-queue";
 
@@ -116,22 +116,25 @@ async function pushWaiverSignature(row: SyncQueueRow): Promise<HandlerResult> {
 }
 
 /**
- * Grant a membership on Pandora — in practice, the LICENCE the guest bought.
+ * Grant the DEFAULT REGISTRATION membership on Pandora — "Customer Registration"
+ * (479317), never the licence.
  *
- * Owner 2026-08-12: "if they bought a license can we give them that instead of
- * the default membership". Worth stating plainly because the naming used to
- * imply otherwise: **there is no generic "default" membership.**
- * `LICENSE_MEMBERSHIP_KIND_ID` (the FastTrax "License Fee", Firebird kind
- * 11260957) is the only kind wired, and `addMembership` already defaults to it —
- * so a row of this kind has always meant "grant the racing licence". The payload
- * may still name a different `membershipKindId` explicitly if one is ever added,
- * and `purchaseRef` records WHICH purchase justified the grant so an entitlement
- * is always traceable to the money that bought it.
+ * Owner correction 2026-08-12: "We need to use default registration for everyone,
+ * not license. License is taken care of with the BMI product." That distinction
+ * is the whole point of this handler:
+ *   - The LICENCE (`License Fee`, 11260957) is bought as a BMI product. Granting
+ *     it here would hand a paid entitlement to someone who may not have paid, and
+ *     `race-pack-license.server.ts` already owns that money path with its own
+ *     obligation ledger.
+ *   - `Qualified Intermediate`/`Pro`/`Junior *` are EARNED on track by lap time
+ *     (the timing system writes them) — never granted by us either.
+ *   - What every guest legitimately needs is the registration record, which is
+ *     what this writes.
+ * A caller may still name an explicit `membershipKindId`, but the DEFAULT here is
+ * deliberately the registration kind, so forgetting to pass one cannot silently
+ * hand out licences.
  *
- * NOT money itself: this writes a membership row, it does not move a balance.
- * The $4.99 licence CHARGE stays on the Square rail with its own obligation
- * ledger (`race_license_grants`); this records the entitlement once the person
- * is locally visible.
+ * NOT money: this writes a membership row, it does not move a balance.
  */
 async function addMembershipHandler(row: SyncQueueRow): Promise<HandlerResult> {
   const personId = str(row.payload.personId) ?? row.barrierRef;
@@ -141,8 +144,10 @@ async function addMembershipHandler(row: SyncQueueRow): Promise<HandlerResult> {
     const id = await addMembership({
       personId,
       locationId: row.locationId ?? undefined,
-      // Omitted → LICENSE_MEMBERSHIP_KIND_ID, i.e. the racing licence.
-      membershipKindId: str(row.payload.membershipKindId) ?? undefined,
+      // Explicit default: the REGISTRATION kind. Never fall through to
+      // addMembership's own default, which is the licence.
+      membershipKindId:
+        str(row.payload.membershipKindId) ?? DEFAULT_REGISTRATION_MEMBERSHIP_KIND_ID,
       // Omitted → now + 1 year (Pandora does NOT default `expires`).
       expires: str(row.payload.expires) ?? undefined,
       activates: str(row.payload.activates) ?? undefined,
@@ -193,9 +198,72 @@ async function attachProjectPerson(row: SyncQueueRow): Promise<HandlerResult> {
   }
 }
 
+/**
+ * Stamp the BMI project's kiosk / express confirmation state — reached ONLY
+ * after the `party-ready` barrier proved every member is local AND waivered
+ * (owner 2026-08-12).
+ *
+ * That gate is the whole point: staff read "Confirmation Kiosk" as "this party
+ * is here and checked in", and it used to be stamped unconditionally at
+ * check-in, which made it a claim about work that had not finished. Now the
+ * state's ARRIVAL is the signal that the on-site sync completed — the owner's
+ * words, "would show sync is done".
+ *
+ * VIP wins over kiosk wherever they collide (owner 2026-08-02), so a combo
+ * reservation routes through `stampVipStateIfCombo`, which does its own
+ * read-then-compare against the claimable states before writing.
+ *
+ * `ensureAttempts` matters here: by the time this runs, other writers (the
+ * reserve flow's inline `-3`, race-confirm-reconcile) may still be propagating
+ * through Pandora and can clobber a custom state that landed first — the
+ * documented 2026-07-22 race. The re-assert window is the guard.
+ */
+async function stampConfirmationState(row: SyncQueueRow): Promise<HandlerResult> {
+  const projectId = str(row.payload.officeProjectId) ?? row.barrierRef;
+  const centerCode = str(row.payload.centerCode) ?? "fasttrax";
+  const stateId = str(row.payload.stateId);
+  const label = str(row.payload.label) ?? "Confirmation Kiosk (sync-gated)";
+  const comboSpecialId = str(row.payload.comboSpecialId);
+  if (!projectId) return dead("no officeProjectId in payload");
+  try {
+    if (comboSpecialId) {
+      const { stampVipStateIfCombo } = await import("~/features/combos/vip-state.server");
+      const result = await stampVipStateIfCombo({
+        comboSpecialId,
+        centerCode,
+        officeProjectId: projectId,
+        tag: "sync-queue",
+        label: "Confirmation - VIP (sync-gated)",
+        ensureAttempts: 3,
+      });
+      if (result.outcome === "stamped" || result.outcome === "already") {
+        return done(`VIP state ${result.outcome}`);
+      }
+      // `left-alone` means the project holds a state we must not claim over —
+      // terminal, because retrying cannot change another writer's decision.
+      if (result.outcome === "left-alone") return dead("project holds a non-claimable state");
+      return again(`VIP stamp ${result.outcome}`);
+    }
+    if (!stateId) return dead("no stateId in payload (and not a VIP combo)");
+    const { setProjectState } = await import("@/lib/bmi-office-actions");
+    await setProjectState({
+      centerCode,
+      projectId,
+      stateId,
+      label,
+      // Out-wait a late cross-rail `-3` that would revert the custom state.
+      ensureAttempts: 3,
+    });
+    return done(`state ${stateId} stamped`);
+  } catch (err) {
+    return again(err instanceof Error ? err.message.slice(0, 200) : "state stamp failed");
+  }
+}
+
 export const SYNC_HANDLERS: Record<SyncKind, (row: SyncQueueRow) => Promise<HandlerResult>> = {
   "repair-person-details": repairPersonDetails,
   "push-waiver-signature": pushWaiverSignature,
   "add-membership": addMembershipHandler,
   "attach-project-person": attachProjectPerson,
+  "stamp-confirmation-state": stampConfirmationState,
 };

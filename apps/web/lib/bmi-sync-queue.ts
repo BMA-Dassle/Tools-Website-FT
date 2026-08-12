@@ -57,7 +57,12 @@ export type SyncKind =
    *  the money that bought it. */
   | "add-membership"
   /** public-booking registerProjectPerson: attach a person to an order. */
-  | "attach-project-person";
+  | "attach-project-person"
+  /** Stamp the BMI project's "Confirmation Kiosk" / "Confirmation - Express"
+   *  custom state — but ONLY once the whole party is local AND waivered (owner
+   *  2026-08-12). Staff read that state as "party is here and checked in", so its
+   *  ARRIVAL is now the signal that the on-site sync finished. */
+  | "stamp-confirmation-state";
 
 /** What must be VISIBLE before the handler may run. */
 export type SyncBarrier =
@@ -67,6 +72,10 @@ export type SyncBarrier =
   | "person-cloud"
   /** The reservation/project has synced DOWN to the local server. */
   | "project-local"
+  /** EVERY party member (payload.personIds) is local AND has a valid waiver.
+   *  Stricter than person-local: needs a real 200 per member, because an
+   *  unreadable record cannot prove a waiver. */
+  | "party-ready"
   /** Fire immediately. */
   | "none";
 
@@ -104,6 +113,9 @@ export const GIVE_UP_MINUTES: Record<SyncKind, number> = {
   "push-waiver-signature": 720, // a waiver is worth chasing all day
   "add-membership": 720,
   "attach-project-person": 120,
+  // Long: a party can legitimately take a while to finish signing, and the state
+  // arriving late is the POINT. Ends well before the business day does.
+  "stamp-confirmation-state": 480,
 };
 
 export const MAX_ATTEMPTS = 40;

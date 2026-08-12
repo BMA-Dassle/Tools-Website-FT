@@ -31,6 +31,27 @@ const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
  *  (11253570). Env-overridable. Confirm with the live diag smoke. */
 export const LICENSE_MEMBERSHIP_KIND_ID = process.env.RACE_LICENSE_MEMBERSHIP_KIND_ID || "11260957";
 
+/**
+ * "Customer Registration" (F_MSK_ID 479317) — the DEFAULT REGISTRATION every
+ * guest should carry, and what the sync queue grants.
+ *
+ * Owner 2026-08-12: "We need to use default registration for everyone, not
+ * license. License is taken care of with the BMI product." So we must NOT grant
+ * LICENSE_MEMBERSHIP_KIND_ID ourselves — a purchased licence arrives with the
+ * BMI product, and granting it here would entitle someone who may not have paid.
+ *
+ * Chosen from the live `membershipKinds` catalogue (23 kinds, read off Office
+ * `/metadata`) against a 25-guest sample of recent kiosk check-ins:
+ *   479317  Customer Registration   12/25   ← this one (owner picked)
+ *   479319  Default Membership       9/25
+ *   96353   Default                  0/25   (legacy/unused)
+ *   11260957 License Fee            25/25   (the BMI product buys it)
+ *   12213012 Qualified Intermediate 20/25   (EARNED on track, never granted)
+ * Env-overridable so a catalogue change is a config edit, not a deploy.
+ */
+export const DEFAULT_REGISTRATION_MEMBERSHIP_KIND_ID =
+  process.env.DEFAULT_REGISTRATION_MEMBERSHIP_KIND_ID || "479317";
+
 /** The license term. Pandora won't default `expires`, so we always send now + 1yr. */
 export function oneYearFromNow(from: Date = new Date()): string {
   const d = new Date(from);

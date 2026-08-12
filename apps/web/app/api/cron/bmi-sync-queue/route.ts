@@ -12,6 +12,7 @@ import {
   personLocalBarrier,
   personCloudBarrier,
   projectLocalBarrier,
+  partyReadyBarrier,
   type BarrierResult,
 } from "@/lib/bmi-sync-barriers";
 import { SYNC_HANDLERS } from "@/lib/bmi-sync-handlers";
@@ -68,6 +69,14 @@ async function probeBarrier(row: SyncQueueRow): Promise<BarrierResult> {
     case "project-local":
       if (!ref) return { verdict: "open", detail: "no barrierRef — treating as unbarriered" };
       return projectLocalBarrier(row.locationId || "LAB52GY480CJF", ref);
+    case "party-ready": {
+      // The member list lives in the PAYLOAD, not barrierRef — this gate is
+      // about N people, and an empty list closes rather than waving through.
+      const ids = Array.isArray(row.payload.personIds)
+        ? (row.payload.personIds as unknown[]).map(String).filter(Boolean)
+        : [];
+      return partyReadyBarrier(row.locationId || "LAB52GY480CJF", ids);
+    }
     default:
       // Unknown barrier value (a row written by a newer deploy, say). Do NOT run
       // the handler blind — that is the whole class of bug this exists to stop.

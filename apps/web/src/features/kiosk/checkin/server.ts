@@ -31,13 +31,8 @@ import { ATTRACTIONS } from "@/lib/attractions-data";
 import { registerProjectPersonServer } from "~/features/kiosk/waiver/bmi-attach";
 import { CENTER_TO_BMI_LOCATION_IDS } from "~/features/kiosk/waiver/locations";
 import { getReservationDetail } from "~/features/daily-events/service";
-import {
-  setProjectState,
-  appendProjectPrivateNote,
-  KIOSK_CONFIRMATION_STATE_IDS,
-} from "@/lib/bmi-office-actions";
+import { appendProjectPrivateNote, KIOSK_CONFIRMATION_STATE_IDS } from "@/lib/bmi-office-actions";
 import { isVipComboBooking } from "~/features/combos/combo-specials";
-import { stampVipStateIfCombo } from "~/features/combos/vip-state.server";
 import { kioskCheckinAttachEnabled, kioskVoucherPrefillEnabled } from "../flags";
 import { listJoinsForProject } from "../data/kiosk-waiver-joins-db";
 import { officeProjectIdFromBillId } from "@/lib/bmi-office-ids";
@@ -1342,6 +1337,12 @@ export interface CompleteResult {
   schedulePending?: number;
   scheduleUnlinked?: string[];
   stateStamped?: boolean;
+  /** True when the "Confirmation Kiosk"/VIP state stamp was QUEUED behind the
+   *  party-ready barrier (whole party synced + waivers verified). The state
+   *  arriving in BMI is the signal that the on-site sync finished — owner
+   *  2026-08-12: "state arriving later would be fine and would show sync is
+   *  done". */
+  stateQueued?: boolean;
   laneOpenEnabled?: boolean;
   reason?: "cancelled" | "busy";
 }
@@ -1493,7 +1494,10 @@ export async function completeCheckin(args: {
     // Persons CONFIRMED on the session this call — the staff memo's honest count
     // (guest-facing `scheduled` adds the syncing ones on top).
     let scheduledLinked = 0;
-    let stateStamped = false;
+    /** The state stamp is no longer done here — it is QUEUED behind the
+     *  party-ready barrier and lands once everyone is synced and waivered. This
+     *  records that the followup was accepted, not that BMI shows the state. */
+    let stateQueued = false;
 
     if (attachEnabled && hasRacing) {
       // Assign the added people to open heat slots (no bmiPersonId). The guest's
@@ -1741,29 +1745,70 @@ export async function completeCheckin(args: {
     // below, which is written on the same rail either way.
     const comboSpecialId = group.find((r) => r.comboSpecialId)?.comboSpecialId ?? null;
     const kioskStateId = KIOSK_CONFIRMATION_STATE_IDS[stateCenterCode];
-    if (attachEnabled && hasRacing && officeProjectId && isVipComboBooking(comboSpecialId)) {
-      const result = await stampVipStateIfCombo({
-        comboSpecialId,
-        centerCode: stateCenterCode,
-        officeProjectId,
-        tag: "kiosk-checkin",
-        label: "Confirmation - VIP (check-in)",
-        // Nothing is writing -3 at check-in time, so no propagation race to
-        // out-wait — one read-then-compare write is enough.
-        ensureAttempts: 0,
-      });
-      stateStamped = result.outcome === "stamped" || result.outcome === "already";
-    } else if (attachEnabled && hasRacing && officeProjectId && kioskStateId) {
-      try {
-        await setProjectState({
-          centerCode: stateCenterCode,
-          projectId: officeProjectId,
-          stateId: kioskStateId,
-          label: "Confirmation Kiosk (check-in)",
-        });
-        stateStamped = true;
-      } catch (err) {
-        console.error("[kiosk-checkin] Confirmation Kiosk stamp failed (non-fatal):", err);
+    /**
+     * THE STATE IS NOW SYNC-GATED (owner 2026-08-12): "the flip from confirmation
+     * to confirmation (kiosk - express) should happen only when the rest of the
+     * party has sync'ed and we have verified all have the waivers."
+     *
+     * It used to be stamped right here, unconditionally — which made it a claim
+     * about work that had not finished. Staff read "Confirmation Kiosk" as "this
+     * party is here and checked in", so a stamp landing while a racer was still
+     * invisible on the center's server (or unwaivered) said something we could
+     * not back.
+     *
+     * So the stamp becomes a queue row behind the `party-ready` barrier: every
+     * member local AND holding a valid waiver. It therefore arrives LATER, and
+     * that is the feature — owner: "state arriving later would be fine and would
+     * show sync is done". A reservation that never flips is now a visible signal
+     * (the board's on-site pill and the BMI sync panel) instead of a wrong state.
+     *
+     * The party we verify is the people this check-in actually bound, keyed on
+     * the id Pandora can answer for (short id first, Office id as fallback).
+     */
+    if (attachEnabled && hasRacing && officeProjectId) {
+      const partyIds = [
+        ...new Set(
+          allPeople.map((p) => p.pandoraPersonId || p.personId).filter((v): v is string => !!v),
+        ),
+      ];
+      const isVip = isVipComboBooking(comboSpecialId);
+      if (partyIds.length === 0) {
+        console.warn(
+          `[kiosk-checkin] ${billId}: no resolvable party ids — state stamp NOT queued (nothing to verify)`,
+        );
+      } else if (!isVip && !kioskStateId) {
+        console.warn(`[kiosk-checkin] no kiosk state id for ${stateCenterCode} — stamp skipped`);
+      } else {
+        try {
+          const { enqueueSync } = await import("@/lib/bmi-sync-queue");
+          await enqueueSync({
+            kind: "stamp-confirmation-state",
+            // Per reservation per business day: a resumed check-in refreshes the
+            // party list rather than queuing a second stamp.
+            idempotencyKey: `state-stamp:${billId}:${businessDate}`,
+            barrier: "party-ready",
+            barrierRef: officeProjectId,
+            // Racing lives on the FastTrax Pandora location — the same one
+            // schedule-racers posts to, so the party barrier probes where the
+            // grid actually is.
+            locationId: "LAB52GY480CJF",
+            reservationRef: billId,
+            payload: {
+              officeProjectId,
+              centerCode: stateCenterCode,
+              stateId: isVip ? null : kioskStateId,
+              comboSpecialId: isVip ? comboSpecialId : null,
+              label: "Confirmation Kiosk (check-in, sync-gated)",
+              personIds: partyIds,
+            },
+          });
+          stateQueued = true;
+          console.log(
+            `[kiosk-checkin] ${billId}: state stamp QUEUED behind party-ready (${partyIds.length} member(s))`,
+          );
+        } catch (err) {
+          console.error("[kiosk-checkin] could not queue the state stamp (non-fatal):", err);
+        }
       }
     }
 
@@ -1807,7 +1852,11 @@ export async function completeCheckin(args: {
     if (event) {
       await completeCheckinEvent(
         event.id,
-        stateStamped ? "set" : attachEnabled && hasRacing ? "failed" : "pending",
+        // 'pending' is now the honest value for a racing check-in: the stamp is
+        // OWED (queued behind party-ready), not set and not failed. The sync
+        // queue flips BMI when the party is actually ready; the board's on-site
+        // pill and the BMI sync panel are where that progress is visible.
+        stateQueued ? "pending" : attachEnabled && hasRacing ? "failed" : "pending",
       );
     }
 
@@ -1831,7 +1880,10 @@ export async function completeCheckin(args: {
       // sending the guest to the desk is what created the hand-seat duplicates.
       scheduleUnlinked: [...new Set([...memoFailures, ...unplaced])],
       schedulePending: waitingNames.length,
-      stateStamped,
+      // False by design at this point — see stateQueued. Kept so callers that
+      // read it keep compiling; `stateQueued` is the fact that changed.
+      stateStamped: false,
+      stateQueued,
       laneOpenEnabled: attachEnabled,
     };
   } finally {
