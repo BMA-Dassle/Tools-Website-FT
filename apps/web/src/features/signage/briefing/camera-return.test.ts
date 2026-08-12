@@ -389,6 +389,52 @@ describe("robustness", () => {
   });
 });
 
+describe("the maintenance bench", () => {
+  // The filter itself lives in the resolver (it needs Neon), but the contract it
+  // relies on is here: a camera simply absent from `scans` must leave no trace in
+  // any count, order or section. That is why the resolver filters at the scan
+  // level rather than stripping boxes afterwards.
+  it("a filtered-out camera leaves no trace anywhere", () => {
+    const all = [
+      scan("3", "S58", T - m(20)),
+      scan("6", "S58", T - m(19)),
+      scan("23", "S58", T - m(18)),
+    ];
+    const fin = finishes([["S58", T - m(6), 58, "blue"]]);
+    const args = {
+      finishes: fin,
+      seen: new Map<string, number>(),
+      calledHeats: called([["blue", 59]]),
+      nowMs: T,
+    };
+
+    const withBench = cameraReturnStripAt({ scans: all, ...args });
+    expect(withBench.stillOut.map((b) => b.camera)).toEqual(["3", "6", "23"]);
+    expect(withBench.outCount).toBe(3);
+
+    // Same night with 3 and 6 on the bench.
+    const filtered = cameraReturnStripAt({
+      scans: all.filter((s) => s.camera !== "3" && s.camera !== "6"),
+      ...args,
+    });
+    expect(filtered.stillOut.map((b) => b.camera)).toEqual(["23"]);
+    expect(filtered.outCount).toBe(1);
+  });
+
+  it("benching every scanned camera reads as a genuine all-clear", () => {
+    const r = cameraReturnStripAt({
+      scans: [],
+      finishes: finishes([["S58", T - m(6), 58, "blue"]]),
+      seen: new Map(),
+      calledHeats: called([["blue", 59]]),
+      nowMs: T,
+    });
+    expect(r.stillOut).toEqual([]);
+    expect(r.incoming).toEqual([]);
+    expect(r.outCount).toBe(0);
+  });
+});
+
 describe("cameraBarHeight", () => {
   it("reserves nothing when the strip is off the rail", () => {
     expect(cameraBarHeight(null)).toBe(0);

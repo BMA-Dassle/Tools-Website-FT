@@ -28,6 +28,7 @@ import "server-only";
 import redis from "@/lib/redis";
 import { businessDayYmdET, calendarYmdET } from "@/lib/race-business-day";
 import { scanLogKey, cameraSeenKey } from "@/lib/camera-assign";
+import { listCamerasOutOfService } from "@/lib/camera-maintenance";
 import {
   fetchTrackSessions,
   fetchTrackWatermarks,
@@ -172,7 +173,22 @@ export async function resolveCameraReturn(venue: string, nowMs: number): Promise
       return empty;
     }
 
+    /**
+     * CAMERAS ON THE BENCH ARE NOT MISSING (owner 2026-08-12 — the strip found
+     * six units that had filmed nothing in 8 to 89 days, so 3, 6 and 31 went on a
+     * maintenance list). A known-broken camera never registers, so without this it
+     * would sit red every night forever, and permanent reds are how a board
+     * teaches staff to ignore it.
+     *
+     * Filtered at the SCAN level rather than at the end, so a benched camera
+     * cannot leak into a count, an order or a section boundary. Cached 30s in
+     * lib/camera-maintenance, and an empty set on failure means the wall behaves
+     * exactly as it did before the list existed.
+     */
+    const benched = await listCamerasOutOfService().catch(() => new Set<string>());
+
     const scans: CameraScan[] = [];
+    let skippedBenched = 0;
     for (const r of raw) {
       let e: ScanLogEntry;
       try {
@@ -184,11 +200,23 @@ export async function resolveCameraReturn(venue: string, nowMs: number): Promise
       const sessionId = String(e.sid ?? "").trim();
       const assignedAtMs = e.at ? Date.parse(e.at) : Number.NaN;
       if (!camera || !sessionId || !Number.isFinite(assignedAtMs)) continue;
+      if (benched.has(camera)) {
+        skippedBenched += 1;
+        continue;
+      }
       scans.push({ camera, sessionId, assignedAtMs });
     }
     // Entries existed but none survived parsing — the index is corrupt, not
-    // empty, so say stale rather than all-clear.
-    if (scans.length === 0) return STALE;
+    // empty, so say stale rather than all-clear. Unless the only thing filtered
+    // was benched cameras, which is a genuine all-clear.
+    if (scans.length === 0) {
+      const resolved: CameraReturnStrip = { stillOut: [], incoming: [], outCount: 0 };
+      const answer: CameraReturnFeed = skippedBenched > 0 ? resolved : STALE;
+      await redis
+        .set(cacheKey(venue), JSON.stringify(answer), "EX", CACHE_TTL_SECONDS)
+        .catch(() => void 0);
+      return answer;
+    }
 
     // ── 2. which of those races have finished ────────────────────────
     const sessionIds = [...new Set(scans.map((s) => s.sessionId))];

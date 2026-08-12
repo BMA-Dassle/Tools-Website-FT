@@ -1,19 +1,23 @@
 /**
  * READ-ONLY: what does the briefing-room camera strip say right now, and why?
  *
- * The command-line twin of the strip along the bottom of the briefing TVs
- * (src/features/signage/briefing/camera-return.ts). Run it when a camera is red
- * and nobody believes it, or green and nobody believes that either — it prints
- * the three facts behind every box, so you can see WHICH of them is missing:
+ * The command-line twin of the strip along the bottom of the briefing TVs. Run it
+ * when a camera is red and nobody believes it, or absent and nobody believes that
+ * either: it prints the FACTS behind every box, so you can see which one is
+ * missing.
  *
- *   the scan     camera-scan-log:{businessDay}    did staff scan it out?
- *   the flag     briefing:race-finished:{id}      did the bridge tell us the
- *                                                 race ended?
- *   the sighting camera-seen:{camera}             has it registered since?
+ *   the scan     camera-scan-log:{businessDay}     did staff scan it out?
+ *   the flag     briefing:race-finished:{id}       did we learn the race ended?
+ *   the call     pandora:last-race:fasttrax:{trk}  has the next heat gone up?
+ *   the sighting camera-seen:{camera}              has it registered since?
+ *   the bench    camera_maintenance                is it known-broken?
+ *
+ * THE VERDICT COMES FROM THE SHIPPED FUNCTION — `cameraReturnStripAt` is imported,
+ * not reimplemented, so this tool cannot drift from the wall. An earlier cut kept
+ * its own copy of the rules and was wrong within a day of the model changing.
  *
  *   npx tsx scripts/camera-return-peek.mts            # today
  *   DAY=2026-08-11 npx tsx scripts/camera-return-peek.mts
- *   npx tsx scripts/camera-return-peek.mts --all      # incl. settled cameras
  *
  * Run from apps/web (it reads .env.local from the working directory). NO WRITES.
  */
@@ -23,9 +27,21 @@ for (const line of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
   if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^"(.*)"$/, "$1");
 }
 import Redis from "ioredis";
+import { neon } from "@neondatabase/serverless";
+import type {
+  CameraScan,
+  CameraTrack,
+  SessionFinish,
+} from "../src/features/signage/briefing/camera-return";
+
+// Dynamic: a .mts entry point will not statically link a .ts module through tsx's
+// ESM loader, and importing the REAL decision function is the whole point.
+const { cameraReturnStripAt, formatSinceFlag } =
+  await import("../src/features/signage/briefing/camera-return");
 
 const redis = new Redis(process.env.REDIS_URL || "", { maxRetriesPerRequest: 3 });
-const SHOW_ALL = process.argv.includes("--all");
+const sql = neon(process.env.DATABASE_URL!);
+const TRACKS: CameraTrack[] = ["blue", "red", "mega"];
 
 const et = (ms: number) =>
   new Date(ms).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour12: true });
@@ -49,23 +65,27 @@ function businessDayYmdET(now = new Date()): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Same numbers as the pure module — keep in step with camera-return.ts. */
-const GREEN_HOLD_MS = 90_000;
-const SEEN_SKEW_MS = 60_000;
-
-function sinceFlag(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 60_000) return "just now";
-  const mins = Math.floor(ms / 60_000);
-  if (mins < 60) return `${mins} min`;
-  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
-}
-
 async function main() {
   const day = process.env.DAY || businessDayYmdET();
   const nowMs = Date.now();
   console.log(`\n=== camera return strip · business day ${day} · ${et(nowMs)} ET ===\n`);
 
-  const raw = await redis.zrange(`camera-scan-log:${day}`, 0, -1, "WITHSCORES");
+  // ── the bench ────────────────────────────────────────────────────────
+  const benchRows = (await sql`
+    SELECT camera_number, reason FROM camera_maintenance WHERE cleared_at IS NULL
+    ORDER BY camera_number
+  `.catch(() => [])) as Array<{ camera_number: number; reason: string | null }>;
+  const benched = new Set(benchRows.map((b) => String(b.camera_number)));
+  if (benchRows.length) {
+    console.log(`ON THE MAINTENANCE BENCH — hidden from the strip:`);
+    for (const b of benchRows) {
+      console.log(`  cam ${String(b.camera_number).padStart(3)}  ${b.reason ?? "—"}`);
+    }
+    console.log();
+  }
+
+  // ── the scans ────────────────────────────────────────────────────────
+  const raw = await redis.zrange(`camera-scan-log:${day}`, 0, -1);
   if (raw.length === 0) {
     console.log(`camera-scan-log:${day} is EMPTY.`);
     console.log(`  Either no camera has been scanned out yet on this racing day, or the`);
@@ -75,44 +95,65 @@ async function main() {
     return;
   }
 
-  interface Scan {
-    camera: string;
-    sessionId: string;
-    assignedAtMs: number;
-    racer: string;
-  }
-  const scans: Scan[] = [];
-  for (let i = 0; i < raw.length; i += 2) {
+  const scans: CameraScan[] = [];
+  const racerFor = new Map<string, string>();
+  let skippedBenched = 0;
+  for (const r of raw) {
     try {
-      const e = JSON.parse(raw[i]);
-      const at = Date.parse(String(e.at ?? "")) || Number(raw[i + 1]);
+      const e = JSON.parse(r);
+      const at = Date.parse(String(e.at ?? ""));
       if (!e.sys || !e.sid || !Number.isFinite(at)) continue;
-      scans.push({
-        camera: String(e.sys),
-        sessionId: String(e.sid),
-        assignedAtMs: at,
-        racer: `${e.fn ?? ""} ${e.ln ?? ""}`.trim(),
-      });
+      const camera = String(e.sys);
+      if (benched.has(camera)) {
+        skippedBenched += 1;
+        continue;
+      }
+      scans.push({ camera, sessionId: String(e.sid), assignedAtMs: at });
+      racerFor.set(`${camera}:${e.sid}`, `${e.fn ?? ""} ${e.ln ?? ""}`.trim());
     } catch {
       /* skip */
     }
   }
-  console.log(`${scans.length} scans, ${new Set(scans.map((s) => s.camera)).size} distinct cameras\n`);
+  const cameras = [...new Set(scans.map((s) => s.camera))];
+  console.log(
+    `${scans.length} scans, ${cameras.length} cameras` +
+      (skippedBenched ? `  (${skippedBenched} scans hidden — benched cameras)` : ""),
+  );
 
+  // ── the flags ────────────────────────────────────────────────────────
   const sessionIds = [...new Set(scans.map((s) => s.sessionId))];
-  const markers = new Map<string, { endedAtMs: number; heatNumber: number | null; heatName?: string }>();
+  const finishes = new Map<string, SessionFinish>();
   const markerRaws = await redis.mget(...sessionIds.map((s) => `briefing:race-finished:${s}`));
   markerRaws.forEach((v, i) => {
     if (!v) return;
     try {
       const m = JSON.parse(v);
-      if (Number.isFinite(m.endedAtMs)) markers.set(sessionIds[i], m);
+      if (!Number.isFinite(m.endedAtMs)) return;
+      const t = m.track;
+      finishes.set(sessionIds[i], {
+        endedAtMs: m.endedAtMs,
+        heatNumber: m.heatNumber ?? null,
+        track: t === "blue" || t === "red" || t === "mega" ? t : null,
+      });
     } catch {
       /* skip */
     }
   });
 
-  const cameras = [...new Set(scans.map((s) => s.camera))];
+  // ── the calls ────────────────────────────────────────────────────────
+  const calledHeats = new Map<CameraTrack, number>();
+  const markVals = await redis.mget(...TRACKS.map((t) => `pandora:last-race:fasttrax:${t}`));
+  TRACKS.forEach((t, i) => {
+    if (!markVals[i]) return;
+    try {
+      const h = JSON.parse(markVals[i]!).heatNumber;
+      if (typeof h === "number") calledHeats.set(t, h);
+    } catch {
+      /* skip */
+    }
+  });
+
+  // ── the sightings ────────────────────────────────────────────────────
   const seen = new Map<string, number>();
   const seenRaws = await redis.mget(...cameras.map((c) => `camera-seen:${c}`));
   seenRaws.forEach((v, i) => {
@@ -122,82 +163,96 @@ async function main() {
   });
 
   console.log(
-    `finish markers: ${markers.size}/${sessionIds.length} sessions   sightings: ${seen.size}/${cameras.length} cameras\n`,
+    `flags: ${finishes.size}/${sessionIds.length} sessions finished   ` +
+      `sightings: ${seen.size}/${cameras.length} cameras   ` +
+      `called: ${[...calledHeats].map(([t, h]) => `${t} ${h}`).join(", ") || "nothing"}\n`,
   );
 
-  // Same decision as the pure module, spelled out per scan so the reason shows.
-  const rows: Array<{ cam: string; verdict: string; detail: string; sortAt: number }> = [];
-  const openByCam = new Map<string, Scan & { endedAtMs: number; heatNumber: number | null }>();
-  const doneByCam = new Map<string, Scan & { endedAtMs: number; seenAtMs: number }>();
+  // ── THE SHIPPED VERDICT ──────────────────────────────────────────────
+  const strip = cameraReturnStripAt({ scans, finishes, seen, calledHeats, nowMs });
 
-  for (const s of scans) {
-    const mk = markers.get(s.sessionId);
-    if (!mk) {
-      if (SHOW_ALL) {
-        rows.push({
-          cam: s.camera,
-          verdict: "not shown",
-          detail: `session ${s.sessionId} has NO finish marker — still racing, or the bridge dropped it`,
-          sortAt: s.assignedAtMs,
-        });
-      }
-      continue;
+  if (strip.stillOut.length + strip.incoming.length === 0) {
+    console.log(`THE STRIP IS CLEAR — it shows "Cameras all in".\n`);
+  }
+  if (strip.stillOut.length) {
+    console.log(`STILL OUT (${strip.outCount}) — red, left of the divider:\n`);
+    for (const b of strip.stillOut) {
+      const s = seen.get(b.camera);
+      console.log(
+        `  cam ${b.camera.padStart(3)}  heat ${String(b.heatNumber ?? "?").padStart(3)} ${String(b.track ?? "?").padEnd(5)}` +
+          `  ${formatSinceFlag(b.sinceFlagMs).padEnd(9)} since the flag  ` +
+          (s ? `last seen ${et(s)} — BEFORE it` : `never seen today`),
+      );
     }
-    const seenAtMs = seen.get(s.camera);
-    const settled = seenAtMs != null && seenAtMs >= mk.endedAtMs - SEEN_SKEW_MS;
-    if (settled) {
-      const prev = doneByCam.get(s.camera);
-      if (!prev || s.assignedAtMs > prev.assignedAtMs) {
-        doneByCam.set(s.camera, { ...s, endedAtMs: mk.endedAtMs, seenAtMs: seenAtMs! });
-      }
-    } else {
-      const prev = openByCam.get(s.camera);
-      if (!prev || s.assignedAtMs < prev.assignedAtMs) {
-        openByCam.set(s.camera, { ...s, endedAtMs: mk.endedAtMs, heatNumber: mk.heatNumber ?? null });
-      }
+    console.log();
+  }
+  if (strip.incoming.length) {
+    const backN = strip.incoming.filter((b) => b.state === "back").length;
+    console.log(`INCOMING (${backN} of ${strip.incoming.length} back) — right of the divider:\n`);
+    for (const b of strip.incoming) {
+      const s = seen.get(b.camera);
+      console.log(
+        `  cam ${b.camera.padStart(3)}  heat ${String(b.heatNumber ?? "?").padStart(3)} ${String(b.track ?? "?").padEnd(5)}` +
+          `  ${b.state === "back" ? "GREEN" : "grey "}  ` +
+          (s && b.state === "back" ? `registered ${et(s)}` : `nothing since the flag`),
+      );
     }
+    console.log();
   }
 
-  for (const [cam, s] of openByCam) {
-    rows.push({
-      cam,
-      verdict: "RED",
-      detail:
-        `heat ${s.heatNumber ?? "?"} flagged ${et(s.endedAtMs)} (${sinceFlag(nowMs - s.endedAtMs)} ago), ` +
-        (seen.has(cam)
-          ? `last seen ${et(seen.get(cam)!)} — BEFORE the flag`
-          : `never seen today`) +
-        (s.racer ? `  · was ${s.racer}` : ""),
-      sortAt: s.assignedAtMs,
-    });
+  /**
+   * WHY EVERY OTHER CAMERA IS ABSENT, split by reason — the two look identical on
+   * the wall and mean opposite things, so the tool must not blur them:
+   *
+   *   cleared      it came back and its next race has been called. Nothing owed.
+   *   not yet due  no session it went out on has a finish record, so as far as
+   *                this strip knows it is still on track. If that is wrong, the
+   *                missing fact is the FLAG, not the camera.
+   *
+   * Note this script reads finish MARKERS only. The shipped resolver also falls
+   * back to Pandora's actualEnd, so a camera listed "not yet due" here can be
+   * correctly due on the wall. `flags: N/M` above is the tell.
+   */
+  const shown = new Set([...strip.stillOut, ...strip.incoming].map((b) => b.camera));
+  const absent = cameras.filter((c) => !shown.has(c));
+  const noFlag = absent.filter(
+    (c) => !scans.some((s) => s.camera === c && finishes.has(s.sessionId)),
+  );
+  const cleared = absent.filter((c) => !noFlag.includes(c));
+  const asc = (a: string, b: string) => Number(a) - Number(b);
+  if (cleared.length) {
+    console.log(`cleared (came back, next race called): ${cleared.sort(asc).join(", ")}`);
   }
-  for (const [cam, s] of doneByCam) {
-    if (openByCam.has(cam)) continue;
-    const holding = nowMs - s.seenAtMs <= GREEN_HOLD_MS;
-    if (!holding && !SHOW_ALL) continue;
-    rows.push({
-      cam,
-      verdict: holding ? "GREEN" : "settled",
-      detail: `registered ${et(s.seenAtMs)}${holding ? ` — green for another ${Math.round((GREEN_HOLD_MS - (nowMs - s.seenAtMs)) / 1000)}s` : " — off the strip"}`,
-      sortAt: s.assignedAtMs,
-    });
+  if (noFlag.length) {
+    console.log(
+      `not yet due (no finish record for their heat): ${noFlag.sort(asc).join(", ")}` +
+        `\n  ${finishes.size}/${sessionIds.length} sessions have one — the rest are running, or the flag never arrived.`,
+    );
   }
+  if (cleared.length || noFlag.length) console.log();
 
-  rows.sort((a, b) => a.sortAt - b.sortAt || Number(a.cam) - Number(b.cam));
-  const onStrip = rows.filter((r) => r.verdict === "RED" || r.verdict === "GREEN");
-  if (onStrip.length === 0) {
-    console.log(`THE STRIP IS CLEAR — it would show "All in".\n`);
-  } else {
-    console.log(`ON THE STRIP (left to right), ${openByCam.size} still out:\n`);
-  }
-  for (const r of rows) {
-    console.log(`  ${r.verdict.padEnd(9)} cam ${r.cam.padStart(3)}  ${r.detail}`);
+  // A benched camera handed to a racer anyway: that racer has no video, and
+  // nothing else in the estate will ever say so.
+  const handedOut = benchRows.filter((b) =>
+    raw.some((r) => {
+      try {
+        return String(JSON.parse(r).sys) === String(b.camera_number);
+      } catch {
+        return false;
+      }
+    }),
+  );
+  if (handedOut.length) {
+    console.log(
+      `!! BENCHED CAMERAS SCANNED TO A RACER TODAY: ${handedOut.map((b) => b.camera_number).join(", ")}` +
+        `\n   Those racers have no video and nothing else will say so.\n`,
+    );
   }
 
   const bridge = await redis.get("vt3:bridge:last-event");
   const kart = await redis.get("kart:bridge:last-event");
-  console.log(`\nbridges — vt3 ${bridge ?? "DEAD"} · kart ${kart ?? "DEAD"}`);
-  console.log(`(a dead kart bridge means missing finish markers, so cameras never go red;`);
+  console.log(`bridges — vt3 ${bridge ?? "DEAD"} · kart ${kart ?? "DEAD"}`);
+  console.log(`(a dead kart bridge means missing flags, so cameras never come due;`);
   console.log(` a dead vt3 bridge means missing sightings, so they never go green.)\n`);
 
   await redis.quit();
