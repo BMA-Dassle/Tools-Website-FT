@@ -21,6 +21,7 @@ import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { withAlpha } from "../color";
 import { nextLevelTarget } from "~/features/racing/qualify";
+import { LiveSessionChip } from "../live-session";
 import {
   TRACK_ACCENTS,
   TRACK_LABELS,
@@ -358,6 +359,12 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
               {TRACK_LABELS[track]}
             </div>
             <DelayLine delay={delay} />
+          </div>
+          {/* The heat ON TRACK right now, live from the timing system — the same
+              clock /leaderboards shows (owner 2026-08-11: "add to the sign-in
+              board view for each track"). Renders nothing between heats. */}
+          <div style={{ marginLeft: "auto" }}>
+            <LiveSessionChip track={track} accent={accent} />
           </div>
         </header>
 
@@ -715,18 +722,24 @@ function CheckinFeed({
               Mega · Session {race.heatNumber} · {race.raceType}
             </span>
           )}
-          {checkedIn != null && total != null && total > 0 && (
-            <span
-              className="tv-display tv-num"
-              style={{
-                marginLeft: "auto",
-                fontSize: 44,
-                color: checkedIn >= total ? "#46d68c" : "#fff",
-              }}
-            >
-              {checkedIn} of {total}
-            </span>
-          )}
+          <span
+            style={{ marginLeft: "auto", display: "inline-flex", gap: 24, alignItems: "center" }}
+          >
+            {/* Live clock for the heat on track — the feed board is the busiest
+                wall on a Mega night and the first place people look for it. */}
+            <LiveSessionChip track="mega" accent={accent} />
+            {checkedIn != null && total != null && total > 0 && (
+              <span
+                className="tv-display tv-num"
+                style={{
+                  fontSize: 44,
+                  color: checkedIn >= total ? "#46d68c" : "#fff",
+                }}
+              >
+                {checkedIn} of {total}
+              </span>
+            )}
+          </span>
         </header>
 
         {/* Bottom-right has room even with the strip below it (owner) — the

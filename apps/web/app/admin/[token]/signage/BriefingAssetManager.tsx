@@ -63,6 +63,7 @@ export interface BriefingAssetState {
   videos: {
     starter: { url: string; durationMs: number | null } | null;
     intermediate: { url: string; durationMs: number | null } | null;
+    pro: { url: string; durationMs: number | null } | null;
   };
   helmetPosterUrl: string | null;
 }
@@ -85,6 +86,11 @@ export default function BriefingAssetManager({
       if (!assets) return null;
       if (key === "briefing-video:starter") return assets.videos.starter?.url ?? null;
       if (key === "briefing-video:intermediate") return assets.videos.intermediate?.url ?? null;
+      // EXPLICIT per key — the old two-video fallthrough made the new Pro slot
+      // display the HELMET POSTER's url, so the row claimed a Pro film was
+      // uploaded when none was (owner 2026-08-11: "says there is one uploaded
+      // and there is not").
+      if (key === "briefing-video:pro") return assets.videos.pro?.url ?? null;
       return assets.helmetPosterUrl;
     },
     [assets],
@@ -96,6 +102,7 @@ export default function BriefingAssetManager({
       if (key === "briefing-video:starter") return assets.videos.starter?.durationMs ?? null;
       if (key === "briefing-video:intermediate")
         return assets.videos.intermediate?.durationMs ?? null;
+      if (key === "briefing-video:pro") return assets.videos.pro?.durationMs ?? null;
       return null;
     },
     [assets],

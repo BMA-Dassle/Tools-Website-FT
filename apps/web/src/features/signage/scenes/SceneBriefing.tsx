@@ -28,6 +28,8 @@ import { nextLevelTarget } from "~/features/racing/qualify";
 import { TRACK_ACCENTS, TRACK_LABELS } from "../track";
 import { briefingTimelineAt } from "../briefing/phase";
 import { tierForRaceType, type BriefingRoom } from "../briefing/types";
+import { LiveSessionChip } from "../live-session";
+import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { useBriefingAssets } from "../briefing/useBriefingAssets";
 import { demoBriefingRooms } from "../demo";
 import type { SceneProps } from "../director/types";
@@ -57,6 +59,14 @@ const ROOM_LABEL: Record<BriefingRoom, string> = { red: "Red Briefing", blue: "B
 
 export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
   const room = config.briefingRoom;
+
+  // Which track this room's live clock follows: its own on a normal day, the
+  // combined circuit on a Mega day — the same effective-track rule every other
+  // board uses. Polled at the website's cadence; the clock itself is a direct
+  // websocket to the timing system (see live-session.tsx).
+  const trackStatus = useTrackStatus();
+  const megaEnabled = trackStatus?.trackStatus.megaTrackEnabled ?? false;
+  const liveTrack = room ? (megaEnabled ? ("mega" as const) : room) : null;
 
   // Room state is read BEFORE the assets hook, because whether a film is playing
   // right now decides whether we may use the link to download one.
@@ -151,6 +161,15 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
           target={state?.track ? nextLevelTarget(state.track, state.raceType) : null}
         />
       )}
+
+      {/* THE LIVE SESSION CLOCK — at all times, every phase, the film included
+          (owner 2026-08-11: "I'd like this on the briefing room screens at all
+          times"). Bottom-left, because every board here composes from the top
+          and TvShell owns the bottom-right corner. Renders nothing when no heat
+          is live, so an idle track costs the wall nothing. */}
+      <div style={{ position: "absolute", left: PAD_X, bottom: 40, zIndex: 6 }}>
+        <LiveSessionChip track={liveTrack} accent={accent} />
+      </div>
     </div>
   );
 }
