@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { listRecentVideos, setVideoDisabled, linkCustomerEmail, type Vt3Video } from "@/lib/vt3";
+import { stampCameraSeen } from "@/lib/camera-assign";
 import { matchVideoToAssignment } from "@/lib/video-event-processor";
 import {
   updateVideoMatch,
@@ -267,6 +268,34 @@ export async function GET(req: NextRequest) {
       if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) return at - bt;
       return a.id - b.id;
     });
+
+    /**
+     * THE PERIODIC CHECK BEHIND THE BRIEFING-ROOM CAMERA STRIP (owner 2026-08-12:
+     * "what if we miss a webhook could we do a periodic check?").
+     *
+     * The strip turns a camera green off `camera-seen`, which the VT3 webhook
+     * stamps. A dropped webhook — the bridge has had multi-hour holes — would
+     * leave a camera red on the wall all evening despite its footage sitting in
+     * VT3, and staff would go looking for a camera that is on the shelf.
+     *
+     * This poll is already the backstop for the whole video pipeline and already
+     * has every recent video in hand, so the repair is free: stamp every camera
+     * this batch mentions. Forward-only inside stampCameraSeen, so re-stamping
+     * what the webhook already recorded is a no-op, and it runs BEFORE the
+     * matching loop below so a video that fails to match still clears its camera.
+     *
+     * Both keys, exactly as the webhook does — the scanned number lands in
+     * `camera` for some records and `system.name` for others.
+     */
+    for (const v of videos) {
+      const at = Date.parse(v.created_at);
+      if (!Number.isFinite(at)) continue;
+      if (typeof v.camera === "number") void stampCameraSeen(String(v.camera), at);
+      const sysName = v.system?.name;
+      if (sysName && String(sysName) !== String(v.camera)) {
+        void stampCameraSeen(String(sysName), at);
+      }
+    }
 
     // Only advance lastSeenId past videos we actually finished with
     // (either matched, ready-but-no-assignment, or fatal error). Videos

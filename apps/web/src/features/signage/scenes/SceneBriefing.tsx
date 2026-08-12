@@ -196,8 +196,8 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
           strip is permanent staff chrome, so the clock belongs in it. */}
       {cameraReturn && (
         <CameraReturnBar
-          boxes={cameraReturn.boxes}
-          outCount={cameraReturn.outCount}
+          stillOut={cameraReturn.stillOut}
+          incoming={cameraReturn.incoming}
           stale={cameraReturn.stale}
           padX={PAD_X}
           clockTrack={liveTrack}

@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   cameraReturnStripAt,
   formatSinceFlag,
-  GREEN_HOLD_MS,
+  INCOMING_FALLBACK_MS,
   SEEN_SKEW_MS,
-  OVERDUE_MS,
   type CameraScan,
+  type CameraTrack,
   type SessionFinish,
 } from "./camera-return";
 import { cameraBarHeight, CAMERA_BAR_H, CAMERA_BAR_CLEAR_H } from "../components/CameraReturnBar";
@@ -16,14 +16,34 @@ const m = (n: number) => n * 60_000;
 function scan(camera: string, sessionId: string, atMs: number): CameraScan {
   return { camera, sessionId, assignedAtMs: atMs };
 }
-function finishes(entries: Array<[string, number, number | null]>): Map<string, SessionFinish> {
-  return new Map(entries.map(([sid, endedAtMs, heatNumber]) => [sid, { endedAtMs, heatNumber }]));
+
+/** [sessionId, endedAtMs, heatNumber, track?] */
+function finishes(
+  entries: Array<[string, number, number | null, (CameraTrack | null)?]>,
+): Map<string, SessionFinish> {
+  return new Map(
+    entries.map(([sid, endedAtMs, heatNumber, track]) => [
+      sid,
+      { endedAtMs, heatNumber, track: track ?? null },
+    ]),
+  );
 }
+function called(entries: Array<[CameraTrack, number]>): Map<CameraTrack, number> {
+  return new Map(entries);
+}
+const NONE_CALLED = new Map<CameraTrack, number>();
 
 describe("cameraReturnStripAt", () => {
   it("is empty when nothing has been scanned", () => {
-    const r = cameraReturnStripAt({ scans: [], finishes: new Map(), seen: new Map(), nowMs: T });
-    expect(r.boxes).toEqual([]);
+    const r = cameraReturnStripAt({
+      scans: [],
+      finishes: new Map(),
+      seen: new Map(),
+      calledHeats: NONE_CALLED,
+      nowMs: T,
+    });
+    expect(r.stillOut).toEqual([]);
+    expect(r.incoming).toEqual([]);
     expect(r.outCount).toBe(0);
   });
 
@@ -32,284 +52,340 @@ describe("cameraReturnStripAt", () => {
       scans: [scan("23", "S1", T - m(20))],
       finishes: new Map(),
       seen: new Map(),
+      calledHeats: called([["blue", 60]]),
       nowMs: T,
     });
-    expect(r.boxes).toEqual([]);
+    expect(r.stillOut).toEqual([]);
+    expect(r.incoming).toEqual([]);
+  });
+});
+
+describe("the incoming section", () => {
+  it("puts a just-finished camera in INCOMING as waiting, not still-out", () => {
+    const r = cameraReturnStripAt({
+      scans: [scan("23", "S58", T - m(20))],
+      finishes: finishes([["S58", T - m(2), 58, "blue"]]),
+      seen: new Map(),
+      // Heat 58 is still the last one called — the next has not gone up.
+      calledHeats: called([["blue", 58]]),
+      nowMs: T,
+    });
+    expect(r.stillOut).toEqual([]);
+    expect(r.incoming).toHaveLength(1);
+    expect(r.incoming[0]).toMatchObject({ camera: "23", state: "waiting", track: "blue" });
+    expect(r.outCount).toBe(0);
   });
 
-  it("shows a camera red once its race has finished with no sighting", () => {
+  it("turns it green once it registers, and keeps it in INCOMING", () => {
     const r = cameraReturnStripAt({
-      scans: [scan("23", "S1", T - m(20))],
-      finishes: finishes([["S1", T - m(3), 58]]),
-      seen: new Map(),
+      scans: [scan("23", "S58", T - m(20))],
+      finishes: finishes([["S58", T - m(2), 58, "blue"]]),
+      seen: new Map([["23", T - m(1)]]),
+      calledHeats: called([["blue", 58]]),
       nowMs: T,
     });
-    expect(r.boxes).toHaveLength(1);
-    expect(r.boxes[0]).toMatchObject({ camera: "23", state: "out", heatNumber: 58 });
-    expect(r.boxes[0].sinceFlagMs).toBe(m(3));
-    expect(r.outCount).toBe(1);
+    expect(r.incoming[0].state).toBe("back");
+    expect(r.stillOut).toEqual([]);
+  });
+
+  it("green persists past any old timer — it waits for the next call", () => {
+    // The 90-second green hold is gone. A camera that came back stays green for
+    // as long as its group is the one that just came off track.
+    const r = cameraReturnStripAt({
+      scans: [scan("23", "S58", T - m(40))],
+      finishes: finishes([["S58", T - m(25), 58, "blue"]]),
+      seen: new Map([["23", T - m(24)]]),
+      calledHeats: called([["blue", 58]]),
+      nowMs: T,
+    });
+    expect(r.incoming[0].state).toBe("back");
   });
 
   it("a sighting BEFORE the flag does not count — a previous heat's late upload", () => {
-    // The camera's earlier clip registered two minutes before this heat even
-    // ended. That says nothing about whether it came back from THIS heat.
     const r = cameraReturnStripAt({
-      scans: [scan("23", "S1", T - m(20))],
-      finishes: finishes([["S1", T - m(3), 58]]),
+      scans: [scan("23", "S58", T - m(20))],
+      finishes: finishes([["S58", T - m(3), 58, "blue"]]),
       seen: new Map([["23", T - m(5)]]),
+      calledHeats: called([["blue", 58]]),
       nowMs: T,
     });
-    expect(r.boxes[0].state).toBe("out");
-    expect(r.outCount).toBe(1);
-  });
-
-  it("a sighting AFTER the flag turns it green", () => {
-    const r = cameraReturnStripAt({
-      scans: [scan("23", "S1", T - m(20))],
-      finishes: finishes([["S1", T - m(3), 58]]),
-      seen: new Map([["23", T - m(1)]]),
-      nowMs: T,
-    });
-    expect(r.boxes[0].state).toBe("back");
-    expect(r.outCount).toBe(0);
+    expect(r.incoming[0].state).toBe("waiting");
   });
 
   it("tolerates clock skew between the venue stamp and VT3", () => {
-    // A minute of disagreement between the venue's clock and VT3's must not
-    // strand a camera that plainly came back. Asserted on outCount rather than
-    // on a green box: a sighting this old is already past the green hold, so
-    // "accounted for" correctly shows nothing at all.
     const flag = T - m(3);
-    const outCountFor = (seenAt: number) =>
+    const stateFor = (seenAt: number) =>
       cameraReturnStripAt({
-        scans: [scan("23", "S1", T - m(20))],
-        finishes: finishes([["S1", flag, 58]]),
+        scans: [scan("23", "S58", T - m(20))],
+        finishes: finishes([["S58", flag, 58, "blue"]]),
         seen: new Map([["23", seenAt]]),
+        calledHeats: called([["blue", 58]]),
         nowMs: T,
-      }).outCount;
-    expect(outCountFor(flag - (SEEN_SKEW_MS - 1_000))).toBe(0);
-    expect(outCountFor(flag - (SEEN_SKEW_MS + 1_000))).toBe(1);
+      }).incoming[0].state;
+    expect(stateFor(flag - (SEEN_SKEW_MS - 1_000))).toBe("back");
+    expect(stateFor(flag - (SEEN_SKEW_MS + 1_000))).toBe("waiting");
   });
+});
 
-  it("drops the green box once the hold expires", () => {
-    const seenAt = T - GREEN_HOLD_MS - 1_000;
+describe("the next race being called", () => {
+  it("moves an unregistered camera left into STILL OUT", () => {
     const r = cameraReturnStripAt({
-      scans: [scan("23", "S1", T - m(20))],
-      finishes: finishes([["S1", T - m(10), 58]]),
-      seen: new Map([["23", seenAt]]),
+      scans: [scan("23", "S58", T - m(20))],
+      finishes: finishes([["S58", T - m(6), 58, "blue"]]),
+      seen: new Map(),
+      // Heat 59 is up — 58's cameras should have been handed back by now.
+      calledHeats: called([["blue", 59]]),
       nowMs: T,
     });
-    expect(r.boxes).toEqual([]);
+    expect(r.incoming).toEqual([]);
+    expect(r.stillOut).toHaveLength(1);
+    expect(r.stillOut[0]).toMatchObject({ camera: "23", state: "still-out" });
+    expect(r.outCount).toBe(1);
   });
 
-  it("keeps the green box while the hold is still running", () => {
-    const seenAt = T - GREEN_HOLD_MS + 5_000;
+  it("clears a registered camera off the strip entirely", () => {
     const r = cameraReturnStripAt({
-      scans: [scan("23", "S1", T - m(20))],
-      finishes: finishes([["S1", T - m(10), 58]]),
-      seen: new Map([["23", seenAt]]),
+      scans: [scan("23", "S58", T - m(20))],
+      finishes: finishes([["S58", T - m(6), 58, "blue"]]),
+      seen: new Map([["23", T - m(4)]]),
+      calledHeats: called([["blue", 59]]),
       nowMs: T,
     });
-    expect(r.boxes).toHaveLength(1);
-    expect(r.boxes[0].state).toBe("back");
+    expect(r.stillOut).toEqual([]);
+    expect(r.incoming).toEqual([]);
   });
 
+  it("only the SAME track's call settles a camera", () => {
+    // Red heat 70 being called says nothing about a Blue heat 58's cameras.
+    const r = cameraReturnStripAt({
+      scans: [scan("23", "S58", T - m(20))],
+      finishes: finishes([["S58", T - m(2), 58, "blue"]]),
+      seen: new Map(),
+      calledHeats: called([["red", 70]]),
+      nowMs: T,
+    });
+    expect(r.incoming).toHaveLength(1);
+    expect(r.stillOut).toEqual([]);
+  });
+
+  it("an EARLIER call does not settle it — heat numbers only go up", () => {
+    const r = cameraReturnStripAt({
+      scans: [scan("23", "S58", T - m(20))],
+      finishes: finishes([["S58", T - m(2), 58, "blue"]]),
+      seen: new Map(),
+      calledHeats: called([["blue", 57]]),
+      nowMs: T,
+    });
+    expect(r.incoming).toHaveLength(1);
+  });
+
+  it("falls back to a time bound when the heat has no number", () => {
+    // A group event or custom race: nothing to compare a call against, so a
+    // camera must not be pinned in incoming for the rest of the night.
+    const build = (sinceFlag: number) =>
+      cameraReturnStripAt({
+        scans: [scan("23", "S58", T - m(60))],
+        finishes: finishes([["S58", T - sinceFlag, null, "blue"]]),
+        seen: new Map(),
+        calledHeats: called([["blue", 59]]),
+        nowMs: T,
+      });
+    expect(build(INCOMING_FALLBACK_MS - m(1)).incoming).toHaveLength(1);
+    expect(build(INCOMING_FALLBACK_MS + m(1)).stillOut).toHaveLength(1);
+  });
+
+  it("falls back to the time bound when nothing has been called on that track", () => {
+    const build = (sinceFlag: number) =>
+      cameraReturnStripAt({
+        scans: [scan("23", "S58", T - m(60))],
+        finishes: finishes([["S58", T - sinceFlag, 58, "blue"]]),
+        seen: new Map(),
+        calledHeats: NONE_CALLED,
+        nowMs: T,
+      });
+    expect(build(m(2)).incoming).toHaveLength(1);
+    expect(build(INCOMING_FALLBACK_MS + m(1)).stillOut).toHaveLength(1);
+  });
+});
+
+describe("one box per camera, oldest debt first", () => {
   it("reports the OLDEST unresolved heat when a camera went out twice", () => {
-    // Camera 8 never came back from heat 56, then got scanned onto heat 58.
-    // It must keep reporting 56 — a newer scan cannot reset the debt.
     const r = cameraReturnStripAt({
       scans: [scan("8", "S56", T - m(40)), scan("8", "S58", T - m(12))],
       finishes: finishes([
-        ["S56", T - m(30), 56],
-        ["S58", T - m(2), 58],
+        ["S56", T - m(30), 56, "blue"],
+        ["S58", T - m(2), 58, "blue"],
       ]),
       seen: new Map(),
+      calledHeats: called([["blue", 58]]),
       nowMs: T,
     });
-    expect(r.boxes).toHaveLength(1);
-    expect(r.boxes[0]).toMatchObject({ camera: "8", state: "out", heatNumber: 56 });
-    expect(r.boxes[0].sinceFlagMs).toBe(m(30));
+    // 58 has been called, so heat 56's debt is settled-by-call and reads red. One
+    // box for camera 8, and it reports the older debt rather than the newer scan.
+    expect(r.stillOut).toHaveLength(1);
+    expect(r.stillOut[0]).toMatchObject({ camera: "8", heatNumber: 56 });
+    expect(r.incoming).toEqual([]);
   });
 
-  it("an old debt survives a later scan whose race is still running", () => {
-    // Camera 8 never came back from heat 56 and has since been scanned onto
-    // heat 58, which has not finished. 58 contributes nothing (rule 1) and the
-    // camera must keep reporting the debt it actually owes.
+  it("an open debt outranks a settled one on the same camera", () => {
     const r = cameraReturnStripAt({
       scans: [scan("8", "S56", T - m(40)), scan("8", "S58", T - m(12))],
-      finishes: finishes([["S56", T - m(30), 56]]),
+      finishes: finishes([["S56", T - m(30), 56, "blue"]]),
       seen: new Map(),
+      calledHeats: called([["blue", 58]]),
       nowMs: T,
     });
-    expect(r.boxes).toHaveLength(1);
-    expect(r.boxes[0]).toMatchObject({ state: "out", heatNumber: 56 });
-    expect(r.boxes[0].sinceFlagMs).toBe(m(30));
+    expect(r.stillOut).toHaveLength(1);
+    expect(r.stillOut[0].heatNumber).toBe(56);
   });
 
   it("a sighting after a later flag settles the earlier heat too", () => {
-    // Physical truth, and worth pinning: being at a base station after heat 58
-    // ended means the camera is in the building, which retires heat 56's debt
-    // as well. Anything else would leave a permanent red box for a camera
-    // sitting on the shelf.
+    // Physically true and worth pinning: at a base station after heat 58 ended
+    // means the camera is in the building, which retires 56's debt as well.
     const r = cameraReturnStripAt({
       scans: [scan("8", "S56", T - m(40)), scan("8", "S58", T - m(12))],
       finishes: finishes([
-        ["S56", T - m(30), 56],
-        ["S58", T - m(2), 58],
+        ["S56", T - m(30), 56, "blue"],
+        ["S58", T - m(2), 58, "blue"],
       ]),
       seen: new Map([["8", T - m(1)]]),
+      calledHeats: called([["blue", 58]]),
       nowMs: T,
     });
-    expect(r.outCount).toBe(0);
-    expect(r.boxes).toHaveLength(1);
-    expect(r.boxes[0]).toMatchObject({ camera: "8", state: "back", heatNumber: 58 });
+    expect(r.stillOut).toEqual([]);
+    expect(r.incoming).toHaveLength(1);
+    expect(r.incoming[0]).toMatchObject({ camera: "8", state: "back", heatNumber: 58 });
   });
 
-  it("orders by when the camera went out, so a box does not move when it turns green", () => {
-    const scans = [
-      scan("44", "S58", T - m(12)),
-      scan("8", "S56", T - m(40)),
-      scan("17", "S58", T - m(13)),
-    ];
-    const fin = finishes([
-      ["S56", T - m(30), 56],
-      ["S58", T - m(2), 58],
-    ]);
-    const before = cameraReturnStripAt({ scans, finishes: fin, seen: new Map(), nowMs: T });
-    expect(before.boxes.map((b) => b.camera)).toEqual(["8", "17", "44"]);
-
-    // 17 checks in. Its position must be identical, only its colour changes.
-    const after = cameraReturnStripAt({
-      scans,
-      finishes: fin,
-      seen: new Map([["17", T - m(1)]]),
-      nowMs: T,
-    });
-    expect(after.boxes.map((b) => b.camera)).toEqual(["8", "17", "44"]);
-    expect(after.boxes.map((b) => b.state)).toEqual(["out", "back", "out"]);
-    expect(after.outCount).toBe(2);
-  });
-
-  it("breaks an exact assignedAt tie by camera number, not insertion order", () => {
+  it("orders each section oldest-first, ties broken by camera number", () => {
     const at = T - m(10);
     const r = cameraReturnStripAt({
       scans: [scan("94", "S1", at), scan("12", "S1", at), scan("54", "S1", at)],
-      finishes: finishes([["S1", T - m(2), 26]]),
+      finishes: finishes([["S1", T - m(4), 26, "red"]]),
       seen: new Map(),
+      calledHeats: called([["red", 27]]),
       nowMs: T,
     });
-    expect(r.boxes.map((b) => b.camera)).toEqual(["12", "54", "94"]);
+    expect(r.stillOut.map((b) => b.camera)).toEqual(["12", "54", "94"]);
+  });
+});
+
+describe("track identity", () => {
+  it("carries the circuit on both sections", () => {
+    const r = cameraReturnStripAt({
+      scans: [scan("10", "SOLD", T - m(40)), scan("20", "SNEW", T - m(10))],
+      finishes: finishes([
+        ["SOLD", T - m(30), 40, "red"],
+        ["SNEW", T - m(2), 41, "mega"],
+      ]),
+      seen: new Map(),
+      calledHeats: called([
+        ["red", 41],
+        ["mega", 41],
+      ]),
+      nowMs: T,
+    });
+    expect(r.stillOut[0]).toMatchObject({ camera: "10", track: "red" });
+    expect(r.incoming[0]).toMatchObject({ camera: "20", track: "mega" });
   });
 
+  it("is null when the finish record never named a track", () => {
+    const r = cameraReturnStripAt({
+      scans: [scan("23", "S1", T - m(20))],
+      finishes: finishes([["S1", T - m(2), 58]]),
+      seen: new Map(),
+      calledHeats: called([["blue", 58]]),
+      nowMs: T,
+    });
+    expect(r.incoming[0].track).toBeNull();
+  });
+});
+
+describe("robustness", () => {
   it("survives junk without throwing or emitting a box", () => {
     const r = cameraReturnStripAt({
       scans: [scan("", "S1", T), scan("23", "S1", Number.NaN)],
-      finishes: finishes([["S1", T - m(2), 26]]),
+      finishes: finishes([["S1", T - m(2), 26, "red"]]),
       seen: new Map(),
+      calledHeats: NONE_CALLED,
       nowMs: T,
     });
-    expect(r.boxes).toEqual([]);
+    expect(r.stillOut).toEqual([]);
+    expect(r.incoming).toEqual([]);
   });
 
   it("ignores a finish with an unusable end stamp", () => {
     const r = cameraReturnStripAt({
       scans: [scan("23", "S1", T - m(10))],
-      finishes: new Map([["S1", { endedAtMs: Number.NaN, heatNumber: 26 }]]),
+      finishes: new Map([["S1", { endedAtMs: Number.NaN, heatNumber: 26, track: null }]]),
       seen: new Map(),
+      calledHeats: NONE_CALLED,
       nowMs: T,
     });
-    expect(r.boxes).toEqual([]);
+    expect(r.incoming).toEqual([]);
   });
 
   it("never reports negative time for an end stamp in the future", () => {
     const r = cameraReturnStripAt({
       scans: [scan("23", "S1", T - m(10))],
-      finishes: finishes([["S1", T + m(1), 26]]),
+      finishes: finishes([["S1", T + m(1), 26, "red"]]),
       seen: new Map(),
+      calledHeats: called([["red", 26]]),
       nowMs: T,
     });
-    expect(r.boxes[0].sinceFlagMs).toBe(0);
+    expect(r.incoming[0].sinceFlagMs).toBe(0);
   });
 
-  it("handles a real heat: five cameras out, three back", () => {
+  it("handles a real heat: five out, three back, next race not yet called", () => {
     const flag = T - m(3);
     const scans = ["12", "15", "23", "54", "94"].map((c, i) =>
       scan(c, "S26", T - m(12) + i * 1_000),
     );
     const r = cameraReturnStripAt({
       scans,
-      finishes: finishes([["S26", flag, 26]]),
+      finishes: finishes([["S26", flag, 26, "red"]]),
       seen: new Map([
         ["12", flag + m(2)],
         ["15", flag + m(2)],
         ["23", flag + m(2)],
       ]),
+      calledHeats: called([["red", 26]]),
       nowMs: T,
     });
-    expect(r.boxes.map((b) => b.camera)).toEqual(["12", "15", "23", "54", "94"]);
-    expect(r.outCount).toBe(2);
-    expect(r.boxes.filter((b) => b.state === "out").map((b) => b.camera)).toEqual(["54", "94"]);
-  });
-});
-
-describe("the overdue split", () => {
-  it("marks a camera overdue only past the threshold", () => {
-    const build = (sinceFlag: number) =>
-      cameraReturnStripAt({
-        scans: [scan("23", "S1", T - m(20))],
-        finishes: finishes([["S1", T - sinceFlag, 58]]),
-        seen: new Map(),
-        nowMs: T,
-      }).boxes[0];
-    expect(build(OVERDUE_MS - 1_000).overdue).toBe(false);
-    expect(build(OVERDUE_MS + 1_000).overdue).toBe(true);
+    expect(r.stillOut).toEqual([]);
+    expect(r.incoming.map((b) => b.camera)).toEqual(["12", "15", "23", "54", "94"]);
+    expect(r.incoming.filter((b) => b.state === "back").map((b) => b.camera)).toEqual([
+      "12",
+      "15",
+      "23",
+    ]);
+    expect(r.incoming.filter((b) => b.state === "waiting").map((b) => b.camera)).toEqual([
+      "54",
+      "94",
+    ]);
+    expect(r.outCount).toBe(0);
   });
 
-  it("never marks a returned camera overdue, however old its race", () => {
-    // A camera on the shelf is nobody's problem — it must not be drawn as part
-    // of the chase list just because its heat ended an hour ago.
-    const r = cameraReturnStripAt({
-      scans: [scan("23", "S1", T - m(90))],
-      finishes: finishes([["S1", T - m(80), 58]]),
-      seen: new Map([["23", T - 30_000]]),
-      nowMs: T,
-    });
-    expect(r.boxes[0]).toMatchObject({ state: "back", overdue: false });
-    expect(r.overdueCount).toBe(0);
-  });
-
-  it("groups overdue to the left, then orders by when each went out", () => {
-    const scans = [
-      scan("44", "S58", T - m(12)), // recent heat
-      scan("8", "S56", T - m(50)), // long overdue
-      scan("26", "S58", T - m(11)),
-      scan("12", "S57", T - m(30)), // overdue
-    ];
+  it("that same heat settles the moment heat 27 is called", () => {
+    const flag = T - m(3);
+    const scans = ["12", "15", "23", "54", "94"].map((c, i) =>
+      scan(c, "S26", T - m(12) + i * 1_000),
+    );
     const r = cameraReturnStripAt({
       scans,
-      finishes: finishes([
-        ["S56", T - m(40), 56],
-        ["S57", T - m(20), 57],
-        ["S58", T - m(2), 58],
+      finishes: finishes([["S26", flag, 26, "red"]]),
+      seen: new Map([
+        ["12", flag + m(2)],
+        ["15", flag + m(2)],
+        ["23", flag + m(2)],
       ]),
-      seen: new Map(),
+      calledHeats: called([["red", 27]]),
       nowMs: T,
     });
-    expect(r.boxes.map((b) => b.camera)).toEqual(["8", "12", "44", "26"]);
-    expect(r.boxes.map((b) => b.overdue)).toEqual([true, true, false, false]);
-    expect(r.overdueCount).toBe(2);
-    expect(r.outCount).toBe(4);
-  });
-
-  it("reports zero overdue when everything is fresh", () => {
-    const r = cameraReturnStripAt({
-      scans: [scan("23", "S1", T - m(12))],
-      finishes: finishes([["S1", T - m(2), 58]]),
-      seen: new Map(),
-      nowMs: T,
-    });
-    expect(r.overdueCount).toBe(0);
-    expect(r.outCount).toBe(1);
+    // The three that registered are gone; the two that never did are now red.
+    expect(r.incoming).toEqual([]);
+    expect(r.stillOut.map((b) => b.camera)).toEqual(["54", "94"]);
+    expect(r.outCount).toBe(2);
   });
 });
 
@@ -319,15 +395,14 @@ describe("cameraBarHeight", () => {
     expect(cameraBarHeight(undefined)).toBe(0);
   });
 
-  it("collapses to a whisper when everything is accounted for", () => {
-    // Owner 2026-08-12: "I want the all cameras in to be very small and less
-    // noticeable" — the clear state must not cost the helmet poster 104px.
-    expect(cameraBarHeight({ boxes: [] })).toBe(CAMERA_BAR_CLEAR_H);
+  it("collapses to a whisper when there is nothing in either section", () => {
+    expect(cameraBarHeight({ stillOut: [], incoming: [] })).toBe(CAMERA_BAR_CLEAR_H);
     expect(CAMERA_BAR_CLEAR_H).toBeLessThan(CAMERA_BAR_H / 2);
   });
 
-  it("takes the full band as soon as there is a box to show", () => {
-    expect(cameraBarHeight({ boxes: [{}] })).toBe(CAMERA_BAR_H);
+  it("takes the full band for either section having content", () => {
+    expect(cameraBarHeight({ stillOut: [{}], incoming: [] })).toBe(CAMERA_BAR_H);
+    expect(cameraBarHeight({ stillOut: [], incoming: [{}] })).toBe(CAMERA_BAR_H);
   });
 });
 

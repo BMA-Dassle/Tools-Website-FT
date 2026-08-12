@@ -1,5 +1,5 @@
 /**
- * WHICH POV CAMERAS ARE STILL OUT. PURE — facts in, boxes out.
+ * WHICH POV CAMERAS ARE STILL OUT. PURE — facts in, two sections out.
  *
  * THE PROBLEM THIS EXISTS FOR (owner 2026-08-12): "when a race finishes we would
  * turn those camera numbers RED. They would not turn green till we see them check
@@ -12,49 +12,73 @@
  * the door looks exactly like one that came back fine — until the next group is
  * handed it and their race goes unfilmed.
  *
- * THREE FACTS ALREADY EXIST, and this file only decides what they mean together:
+ * ── TWO SECTIONS, AND THE NEXT RACE BEING CALLED IS WHAT MOVES A CAMERA ──
+ *
+ * The first cut had one row of red and green boxes, and green did not read: the
+ * owner watched six of them on a wall and asked what they meant. It also leaned on
+ * two invented numbers — a ten-minute "overdue" line and a ninety-second green
+ * hold — to decide when a camera stopped being interesting. Both are gone. The
+ * owner's model replaced them (2026-08-12):
+ *
+ *   INCOMING   the group whose race has just finished. Every camera they took out
+ *              starts GREY — expected back, nothing seen yet — and turns GREEN the
+ *              moment it registers.
+ *   STILL OUT  when the NEXT race on that track is called, the incoming section
+ *              settles: anything green has been accounted for and simply leaves,
+ *              and anything still grey moves left into STILL OUT, in red.
+ *
+ * That is better than a timer in every way that matters. It is a real venue event
+ * rather than a guess at one; it is exactly the moment the answer starts to matter
+ * (cameras are about to be handed to the next group); and green now means
+ * something a person can say out loud — "came back from the race that just ran" —
+ * instead of "was seen at some point in the last ninety seconds".
+ *
+ * ── THE THREE FACTS, all of which already existed ──
  *
  *   WHO WENT OUT      `camera-scan-log:{businessDay}` — the scan staff already do
  *                     (lib/camera-assign.ts). Camera, session, when.
  *   WHETHER IT IS DUE  the venue's own RaceFinish stamp, a Redis marker written
- *                     seconds after the flag (race-finish.server.ts) — the same
- *                     fast path the welcome-back board reads.
+ *                     seconds after the flag (race-finish.server.ts), with
+ *                     Pandora's actualEnd as the backstop when the bridge drops a
+ *                     push — which it measurably does.
  *   WHETHER IT IS BACK `camera-seen:{camera}` — VT3 registering a clip off that
  *                     camera, which can only happen once it has reached a base
  *                     station, plus a staff re-scan onto the next racer.
  *
+ * Plus one more, purely to decide WHICH SECTION: the last heat CALLED on each
+ * track (`fetchTrackWatermarks`).
+ *
  * DERIVED, NEVER REMEMBERED — the same doctrine as phase.ts and room-return.ts.
  * There is no camera-status record to get stuck, nothing to reconcile, and a
- * restart or a redeploy loses nothing. The strip is a view of three facts.
+ * restart or a redeploy loses nothing.
  *
  * FOUR RULES IT MUST NOT BREAK:
  *
- *  1. A CAMERA STILL ON TRACK IS NOT A PROBLEM. Only a FINISHED race puts a
- *     camera on this strip (owner: "those that were just returning and those who
- *     returned earlier but still haven't scanned in"). No finish marker ⇒ absent.
+ *  1. A CAMERA STILL ON TRACK IS NOT ON THE STRIP AT ALL. Only a FINISHED race
+ *     puts a camera here (owner: "those that were just returning and those who
+ *     returned earlier but still haven't scanned in"). No finish record ⇒ absent.
  *  2. THE SIGHTING MUST POST-DATE THE FLAG, not the scan. A camera's PREVIOUS
  *     heat's footage can register minutes after this heat's scan — measuring
  *     against `assignedAt` would let that stale upload mark this heat's camera
- *     as returned. Against `endedAtMs` it cannot.
+ *     as returned. Against the end stamp it cannot.
  *  3. ONE BOX PER CAMERA, AND THE OLDEST DEBT WINS. A camera scanned out again
  *     while still unaccounted for from an earlier heat must keep reporting the
- *     earlier heat — that is exactly the case the owner asked to keep visible,
- *     and a newer scan must not quietly reset it.
- *  4. NOTHING MOVES. Boxes are ordered by when the camera went out and hold that
- *     position through a state change, because the wall does not blink and does
- *     not reflow (owner: never blink). A box that jumped left on turning green
- *     would be the motion we just removed.
+ *     earlier heat, and a newer scan must not quietly reset it.
+ *  4. NOTHING BLINKS, PULSES OR SLIDES (owner: never blink — no motion on a
+ *     guest-facing safety screen). A box changes colour, and it changes section
+ *     when the next race is called. That is all the movement there is.
  */
 
 /**
- * How long a camera holds its green box after we see it, before dropping off.
+ * How long a camera may sit in INCOMING when we cannot tell whether the next race
+ * has been called — an unnumbered heat (a group event, a custom race), or a track
+ * we never learned.
  *
- * Green is a CONFIRMATION, not a resting state. Without a hold, a returned
- * camera's box would simply vanish between two 15s polls and "we saw it check
- * in" — the half of the owner's sentence the red state cannot express — would
- * never actually appear on the wall.
+ * A last-resort bound only. Without it, one heat with no number would pin cameras
+ * in the incoming section for the rest of the night, and the section that means
+ * "these are coming back right now" would fill with cameras that are not.
  */
-export const GREEN_HOLD_MS = 90_000;
+export const INCOMING_FALLBACK_MS = 15 * 60_000;
 
 /**
  * Tolerance on "the sighting came after the flag".
@@ -65,21 +89,6 @@ export const GREEN_HOLD_MS = 90_000;
  * cannot swallow a real miss.
  */
 export const SEEN_SKEW_MS = 60_000;
-
-/**
- * WHEN "STILL WALKING BACK" BECOMES "GO AND FIND IT".
- *
- * Owner 2026-08-12, looking at the live board: "I like having separation show on
- * bottom." Six identical red boxes were six equal alarms, and they were not equal
- * — two were four minutes old (a group still handing kit in) while three were
- * cameras that have not produced a clip in 8, 18 and 84 days. Presenting those the
- * same way is how a board gets ignored: the transient ones dilute the real ones.
- *
- * Ten minutes, which is comfortably past the ~2 minute median return plus a slow
- * walk from the far end of the track, and short enough that a genuinely lost
- * camera separates itself out inside one heat.
- */
-export const OVERDUE_MS = 10 * 60_000;
 
 /** One scan, as it comes out of `camera-scan-log:{businessDay}`. */
 export interface CameraScan {
@@ -92,10 +101,15 @@ export interface CameraScan {
   assignedAtMs: number;
 }
 
-/** What we know about a session's end — `null` entry means "not finished". */
+export type CameraTrack = "blue" | "red" | "mega";
+
+/** What we know about a session's end. Absent from the map ⇒ not finished. */
 export interface SessionFinish {
   endedAtMs: number;
   heatNumber: number | null;
+  /** Which circuit the heat ran on. Null when the record named none — the box
+   *  then wears a neutral outline rather than a guessed circuit's colour. */
+  track: CameraTrack | null;
 }
 
 export interface CameraReturnInput {
@@ -105,13 +119,19 @@ export interface CameraReturnInput {
   finishes: Map<string, SessionFinish>;
   /** camera → last sighting ms. */
   seen: Map<string, number>;
+  /** track → the last heat CALLED on it. What settles the incoming section. */
+  calledHeats: Map<CameraTrack, number>;
   nowMs: number;
 }
 
 export type CameraBoxState =
-  /** Race finished, no sighting since. Solid red. */
-  | "out"
-  /** Seen since the flag, inside the green hold. */
+  /** Its race has finished, the next one has been called, and it never came
+   *  back. Red, in the left-hand section. */
+  | "still-out"
+  /** Its race has just finished and we have not seen it yet. Grey, on the right. */
+  | "waiting"
+  /** Seen since the flag, and the next race has not been called yet. Green, on
+   *  the right, where it stays until the next call clears it. */
   | "back";
 
 export interface CameraBox {
@@ -119,137 +139,152 @@ export interface CameraBox {
   state: CameraBoxState;
   /** Heat this camera went out on — what staff would say out loud. */
   heatNumber: number | null;
-  /** How long since the flag, ms. What the box prints under the number. */
+  /** The circuit it went out on, so a box can wear that track's colour and staff
+   *  know where to walk (owner 2026-08-12). */
+  track: CameraTrack | null;
+  /** How long since the flag, ms. What a red box prints under its number. */
   sinceFlagMs: number;
-  /** Past OVERDUE_MS with no sighting — the chase list, drawn solid and grouped
-   *  to the left of the ones still legitimately on their way back. Always false
-   *  for a `back` box: a camera that has checked in is nobody's problem. */
-  overdue: boolean;
-  /** Ordering key: when the camera went out. Kept so the caller can prove
-   *  position stability in a test rather than trusting the sort. */
+  /** Ordering key: when the camera went out. */
   assignedAtMs: number;
 }
 
 export interface CameraReturnStrip {
-  /** Ordered oldest-out first. Empty when everything is accounted for. */
-  boxes: CameraBox[];
-  /** How many are genuinely unaccounted for — the number the strip prints.
-   *  NOT `boxes.length`, which also counts the green ones still holding. */
+  /** RED, left section. Its race is over, the next has been called, never seen. */
+  stillOut: CameraBox[];
+  /** GREY then GREEN, right section. The group that has just come off track. */
+  incoming: CameraBox[];
+  /** What the strip prints. `stillOut.length`, named so the caller does not have
+   *  to know that — and so it can never accidentally count the incoming ones. */
   outCount: number;
-  /** How many of those are past OVERDUE_MS. The strip draws a divider after them,
-   *  so the caller does not have to re-derive the group boundary. */
-  overdueCount: number;
 }
 
 /**
- * Turn the three facts into the strip.
+ * Has a heat LATER than this one been called on the same track?
  *
- * ORDER OF BUSINESS matters: resolve the oldest unresolved debt per camera
- * FIRST (rule 3), and only then ask whether that debt has been settled. Doing it
- * the other way round — picking the newest scan and then testing it — is how a
- * camera missing since heat 20 disappears the moment it is scanned onto heat 30.
+ * Heat numbers only go up through a day, which is what makes the comparison safe
+ * — the same reasoning room-return.ts uses to tell "ours has not gone green yet"
+ * from "ours finished and we missed the stamp".
+ *
+ * Unknowable (no track, no heat number, or nothing called yet on that track) ⇒
+ * fall back to the time bound, so a camera cannot sit in incoming all evening.
+ */
+function nextRaceCalled(
+  box: {
+    track: CameraTrack | null;
+    heatNumber: number | null;
+    sinceFlagMs: number;
+  },
+  calledHeats: Map<CameraTrack, number>,
+): boolean {
+  if (box.track === null || box.heatNumber === null) {
+    return box.sinceFlagMs > INCOMING_FALLBACK_MS;
+  }
+  const called = calledHeats.get(box.track);
+  if (called === undefined) return box.sinceFlagMs > INCOMING_FALLBACK_MS;
+  return called > box.heatNumber;
+}
+
+/**
+ * Turn the facts into the two sections.
+ *
+ * ORDER OF BUSINESS matters: resolve the oldest unresolved debt per camera FIRST
+ * (rule 3), and only then ask whether that debt has been settled. Doing it the
+ * other way round — picking the newest scan and then testing it — is how a camera
+ * missing since heat 20 disappears the moment it is scanned onto heat 30.
  */
 export function cameraReturnStripAt(input: CameraReturnInput): CameraReturnStrip {
-  const { scans, finishes, seen, nowMs } = input;
+  const { scans, finishes, seen, calledHeats, nowMs } = input;
 
-  /** Per camera, the oldest scan whose race has finished and which is still
-   *  unresolved — or, if all are resolved, the newest resolved one (so it can
-   *  show its green hold). */
+  /** Per camera: the oldest finished scan that has NOT been settled by a sighting,
+   *  and separately the newest that HAS (so it can show its green while the
+   *  incoming window is open). */
   const oldestOpen = new Map<string, { scan: CameraScan; finish: SessionFinish }>();
-  const newestDone = new Map<
-    string,
-    { scan: CameraScan; finish: SessionFinish; seenAtMs: number }
-  >();
+  const newestDone = new Map<string, { scan: CameraScan; finish: SessionFinish }>();
 
   for (const scan of scans) {
     if (!scan.camera || !Number.isFinite(scan.assignedAtMs)) continue;
     const finish = finishes.get(scan.sessionId);
-    // Rule 1 — still on track, or the bridge never told us it finished. Either
-    // way there is nothing to chase, so the camera is not on the strip.
+    // Rule 1 — still on track, or nobody ever told us it finished. Either way
+    // there is nothing to chase, so the camera is not on the strip.
     if (!finish || !Number.isFinite(finish.endedAtMs)) continue;
 
     const seenAtMs = seen.get(scan.camera);
     // Rule 2 — the sighting has to post-date THIS race's flag.
     const settled = seenAtMs != null && seenAtMs >= finish.endedAtMs - SEEN_SKEW_MS;
 
-    if (settled) {
-      const prev = newestDone.get(scan.camera);
-      if (!prev || scan.assignedAtMs > prev.scan.assignedAtMs) {
-        newestDone.set(scan.camera, { scan, finish, seenAtMs: seenAtMs! });
-      }
+    const bucket = settled ? newestDone : oldestOpen;
+    const prev = bucket.get(scan.camera);
+    const better = settled
+      ? !prev || scan.assignedAtMs > prev.scan.assignedAtMs
+      : !prev || scan.assignedAtMs < prev.scan.assignedAtMs;
+    if (better) bucket.set(scan.camera, { scan, finish });
+  }
+
+  const stillOut: CameraBox[] = [];
+  const incoming: CameraBox[] = [];
+
+  const box = (
+    scan: CameraScan,
+    finish: SessionFinish,
+    state: CameraBoxState,
+    sinceFlagMs: number,
+  ): CameraBox => ({
+    camera: scan.camera,
+    state,
+    heatNumber: finish.heatNumber,
+    track: finish.track,
+    sinceFlagMs,
+    assignedAtMs: scan.assignedAtMs,
+  });
+
+  for (const [, { scan, finish }] of oldestOpen) {
+    const sinceFlagMs = Math.max(0, nowMs - finish.endedAtMs);
+    const settledByCall = nextRaceCalled(
+      { track: finish.track, heatNumber: finish.heatNumber, sinceFlagMs },
+      calledHeats,
+    );
+    if (settledByCall) {
+      stillOut.push(box(scan, finish, "still-out", sinceFlagMs));
+    } else {
+      incoming.push(box(scan, finish, "waiting", sinceFlagMs));
+    }
+  }
+
+  for (const [camera, { scan, finish }] of newestDone) {
+    // An open debt on the same camera outranks a settled one: the camera is still
+    // missing from an earlier heat even though a later clip registered.
+    if (oldestOpen.has(camera)) continue;
+    const sinceFlagMs = Math.max(0, nowMs - finish.endedAtMs);
+    // Accounted for AND the next race has been called — nothing left to say, so
+    // it leaves the strip entirely rather than sitting there in green.
+    if (
+      nextRaceCalled(
+        { track: finish.track, heatNumber: finish.heatNumber, sinceFlagMs },
+        calledHeats,
+      )
+    ) {
       continue;
     }
-
-    const prev = oldestOpen.get(scan.camera);
-    if (!prev || scan.assignedAtMs < prev.scan.assignedAtMs) {
-      oldestOpen.set(scan.camera, { scan, finish });
-    }
+    incoming.push(box(scan, finish, "back", sinceFlagMs));
   }
 
-  const boxes: CameraBox[] = [];
+  // Oldest debt leftmost in both sections; camera number breaks an exact tie so
+  // two cameras scanned in the same millisecond still order stably.
+  const byAge = (a: CameraBox, b: CameraBox) =>
+    a.assignedAtMs - b.assignedAtMs || Number(a.camera) - Number(b.camera);
+  stillOut.sort(byAge);
+  incoming.sort(byAge);
 
-  for (const [camera, { scan, finish }] of oldestOpen) {
-    const sinceFlagMs = Math.max(0, nowMs - finish.endedAtMs);
-    boxes.push({
-      camera,
-      state: "out",
-      heatNumber: finish.heatNumber,
-      sinceFlagMs,
-      overdue: sinceFlagMs >= OVERDUE_MS,
-      assignedAtMs: scan.assignedAtMs,
-    });
-  }
-
-  for (const [camera, { scan, finish, seenAtMs }] of newestDone) {
-    // An open debt on the same camera outranks a settled one — the camera is
-    // still missing from an earlier heat even though a later clip registered.
-    if (oldestOpen.has(camera)) continue;
-    if (nowMs - seenAtMs > GREEN_HOLD_MS) continue;
-    boxes.push({
-      camera,
-      state: "back",
-      heatNumber: finish.heatNumber,
-      sinceFlagMs: Math.max(0, nowMs - finish.endedAtMs),
-      // A camera that has checked in is nobody's problem, however long its race
-      // has been over — it must never be drawn as part of the chase list.
-      overdue: false,
-      assignedAtMs: scan.assignedAtMs,
-    });
-  }
-
-  /**
-   * OVERDUE FIRST, then by when the camera went out.
-   *
-   * Rule 4 said position must not depend on state, and this bends it in exactly
-   * one place: a box crosses the divider once, when it passes OVERDUE_MS. That is
-   * a real change of meaning — "still coming back" became "go and find it" — and
-   * it is what the separation is for. Turning GREEN still moves nothing, which is
-   * the case rule 4 was written about.
-   *
-   * Camera number breaks ties so two cameras scanned in the same millisecond
-   * still order stably.
-   */
-  boxes.sort(
-    (a, b) =>
-      Number(b.overdue) - Number(a.overdue) ||
-      a.assignedAtMs - b.assignedAtMs ||
-      Number(a.camera) - Number(b.camera),
-  );
-
-  return {
-    boxes,
-    outCount: boxes.filter((b) => b.state === "out").length,
-    overdueCount: boxes.filter((b) => b.overdue).length,
-  };
+  return { stillOut, incoming, outCount: stillOut.length };
 }
 
 /**
  * "18 min" / "2 min" / "just now" — what a red box prints under its number.
  *
- * With blinking ruled out this figure is the ONLY urgency signal on the strip,
- * so it counts from the chequered flag and not from when anyone last looked.
- * Whole minutes: seconds ticking on a wall board is motion, and nobody chases a
- * camera to the second.
+ * With blinking ruled out this figure is the only urgency signal on the strip, so
+ * it counts from the chequered flag and not from when anyone last looked. Whole
+ * minutes: seconds ticking on a wall board is motion, and nobody chases a camera
+ * to the second.
  */
 export function formatSinceFlag(ms: number): string {
   if (!Number.isFinite(ms) || ms < 60_000) return "just now";

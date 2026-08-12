@@ -317,6 +317,40 @@ export interface VipEntry {
 }
 
 /**
+ * THE CAMERA RETURN STRIP as it travels on the wire — carried on BOTH the 15s
+ * feed and the 2s pulse, so it is named once here rather than written twice.
+ *
+ * No PII, same posture as briefingRooms: camera numbers, a heat number and a
+ * track, never the racer the camera was scanned to.
+ */
+/** One camera on the strip. No PII, same posture as briefingRooms: a number, a
+ *  heat and a track, never the racer it was scanned to. */
+export interface CameraReturnFeedBox {
+  camera: string;
+  state: "still-out" | "waiting" | "back";
+  heatNumber: number | null;
+  /** Circuit it went out on — the colour a calm box wears, so staff know which
+   *  track to walk to. Null when the finish record named none. */
+  track: "blue" | "red" | "mega" | null;
+  sinceFlagMs: number;
+  assignedAtMs: number;
+}
+
+export interface CameraReturnFeedStrip {
+  /** RED, left section: race over, next race called, never came back. */
+  stillOut: CameraReturnFeedBox[];
+  /** GREY then GREEN, right section: the group just off track. Settles when the
+   *  next race is called — green ones leave, grey ones move to stillOut. */
+  incoming: CameraReturnFeedBox[];
+  /** What the strip prints. `stillOut.length`, named so no caller has to know
+   *  that, and so it can never accidentally count the incoming ones. */
+  outCount: number;
+  /** The facts could not be read this poll. Holds the strip's space and says so,
+   *  rather than claiming an all-clear it cannot stand behind. */
+  stale?: boolean;
+}
+
+/**
  * What /api/tv/feed returns.
  *
  * `null` on a data section means "we could not build this right now" and its
@@ -424,23 +458,7 @@ export interface TvFeed {
      * NO PII on this rail, same as briefingRooms: camera numbers and a heat
      * number, never the racer the camera was scanned to.
      */
-    cameraReturn: {
-      boxes: Array<{
-        camera: string;
-        state: "out" | "back";
-        heatNumber: number | null;
-        sinceFlagMs: number;
-        /** Past the overdue mark with no sighting — the chase list, drawn solid
-         *  and grouped left of a divider from the ones still on their way back. */
-        overdue: boolean;
-        assignedAtMs: number;
-      }>;
-      outCount: number;
-      overdueCount: number;
-      /** The facts could not be read this poll. Holds the strip's space and says
-       *  so, rather than claiming an all-clear it cannot stand behind. */
-      stale?: boolean;
-    } | null;
+    cameraReturn: CameraReturnFeedStrip | null;
   } | null;
   /**
    * FAST HALF — what each briefing room is showing right now. Also present on
@@ -496,4 +514,15 @@ export interface TvPulse {
    * TV picks its own room out of this by its `briefingRoom` config.
    */
   briefingRooms: Record<"red" | "blue", BriefingRoomState | null> | null;
+  /**
+   * The camera return strip, on the FAST lane (owner 2026-08-12: "when we see a
+   * register can we clear it pretty fast on the screen?").
+   *
+   * Affordable here despite being derived from three Redis reads, because the
+   * build is cached per venue — a pulse is one GET of that cache, and the rebuild
+   * happens at most once every CACHE_TTL_SECONDS however many screens are asking.
+   * Per-venue for the same reason briefingRooms is: the pulse never loads a
+   * screen row.
+   */
+  cameraReturn: CameraReturnFeedStrip | null;
 }

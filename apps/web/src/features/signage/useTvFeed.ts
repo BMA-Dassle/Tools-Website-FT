@@ -131,6 +131,15 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
       // the scan rail is: pulse wins, and a dropped beat keeps the last known
       // state rather than clearing a room mid-video.
       briefingRooms: pulse.briefingRooms ?? feed.briefingRooms,
+      // THE CAMERA STRIP, same fast-lane treatment and for the same reason: a
+      // camera that has just registered should clear within seconds, not on the
+      // next 15s poll (owner 2026-08-12). Overlaid onto the briefing section
+      // rather than replacing it, so the films and the welcome-back board keep
+      // coming from the full feed; a dropped pulse leaves the last known strip up
+      // rather than clearing the wall.
+      briefing: feed.briefing
+        ? { ...feed.briefing, cameraReturn: pulse.cameraReturn ?? feed.briefing.cameraReturn }
+        : feed.briefing,
     };
   }, [feed, pulse]);
 }

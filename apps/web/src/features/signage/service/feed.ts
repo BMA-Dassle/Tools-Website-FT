@@ -213,9 +213,9 @@ async function buildBriefingSection(
     // `stale` instead, so the strip never collapses and re-expands on the wall.
     cameraReturnBarEnabled()
       ? resolveCameraReturn(venue, Date.now()).catch(() => ({
-          boxes: [],
+          stillOut: [],
+          incoming: [],
           outCount: 0,
-          overdueCount: 0,
           stale: true,
         }))
       : Promise.resolve(null),
@@ -281,7 +281,14 @@ export async function buildTvPulse(
   const now = Date.now();
   const parsed = parseScreenKey(screenIdRaw);
   if (!parsed || !screenIdRaw) {
-    return { now, kioskEvents: [], reloadAt: null, demoMode: null, briefingRooms: null };
+    return {
+      now,
+      kioskEvents: [],
+      reloadAt: null,
+      demoMode: null,
+      briefingRooms: null,
+      cameraReturn: null,
+    };
   }
 
   const center = VENUE_INFO[parsed.venue]?.center ?? "fort-myers";
@@ -290,13 +297,21 @@ export async function buildTvPulse(
   // Briefing rooms exist at FastTrax only. Asking for them at HeadPinz would be
   // two wasted Redis reads on every pulse of every lobby screen.
   const wantsBriefing = briefingEnabled() && parsed.venue === "FT";
-  const [kioskEvents, reloadAt, demoMode, briefingRooms] = await Promise.all([
+  const [kioskEvents, reloadAt, demoMode, briefingRooms, cameraReturn] = await Promise.all([
     readSignageEvents(center).catch(() => []),
     reloadRequestedAt(center).catch(() => null),
     demoRequestedFor(screenIdRaw).catch(() => null),
     wantsBriefing ? readBriefingRooms(parsed.venue).catch(() => null) : Promise.resolve(null),
+    // THE CAMERA STRIP ON THE FAST LANE, so a registration clears in seconds
+    // rather than waiting out the 15s full poll (owner 2026-08-12). Normally one
+    // Redis GET of the shared per-venue cache; it only pays the three-read
+    // rebuild when that cache has aged past CACHE_TTL_SECONDS, whatever the
+    // number of screens polling. FastTrax only, like the rooms above.
+    wantsBriefing && cameraReturnBarEnabled()
+      ? resolveCameraReturn(parsed.venue, now).catch(() => null)
+      : Promise.resolve(null),
   ]);
-  return { now, kioskEvents, reloadAt, demoMode, briefingRooms };
+  return { now, kioskEvents, reloadAt, demoMode, briefingRooms, cameraReturn };
 }
 
 /**
