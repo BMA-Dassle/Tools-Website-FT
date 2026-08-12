@@ -4,7 +4,11 @@ import { signageEnabled, cameraMonitorEnabled } from "~/features/signage/flags";
 import { loadSignageScreen } from "~/features/signage/data/signage-screens-db";
 import { resolveScreenConfig } from "~/features/signage/defaults";
 import { parseScreenKey, type SignageVenue } from "~/features/signage/constants";
-import { fetchCameraFrame, nxConfigured } from "~/features/signage/nx/camera.server";
+import {
+  fetchCameraFrame,
+  nxConfigured,
+  briefingRoomCameraId,
+} from "~/features/signage/nx/camera.server";
 
 /**
  * ONE still frame for a camera-monitor board.
@@ -13,10 +17,13 @@ import { fetchCameraFrame, nxConfigured } from "~/features/signage/nx/camera.ser
  * held-open stream: this runs on serverless, where a long-lived proxy is a
  * function killed at its duration cap. Each call returns one JPEG and ends.
  *
- * ALLOWLIST BY SCREEN, NOT BY CAMERA ID. The only input is `screen`; the camera
- * is read from that screen's saved config server-side. So the endpoint can never
- * be pointed at an arbitrary camera by guessing an id — it serves exactly the one
- * an admin put on the board, and nothing else.
+ * ALLOWLIST, NOT ARBITRARY CAMERA IDS. Two addressing modes, both constrained:
+ *   - `?screen=FT:5` — the camera is read from that screen's saved config
+ *     server-side (what an admin put on the board), never from the client.
+ *   - `?room=blue|red` — resolves to one of the two fixed briefing-room cameras
+ *     (BRIEFING_ROOM_CAMERAS), for the check-in board's in-room panel. No other
+ *     camera is reachable this way.
+ * Either way a client can only ever reach a camera someone deliberately wired up.
  *
  * PUBLIC, like /api/tv/feed: a TV player has no login. What leaks is one frame of
  * a camera staff already chose to put on a wall, never the Nx token (which stays
@@ -59,7 +66,11 @@ export async function GET(req: NextRequest) {
   }
 
   const screenId = req.nextUrl.searchParams.get("screen");
-  if (!screenId || !parseScreenKey(screenId)) {
+  const roomParam = req.nextUrl.searchParams.get("room");
+  if (!screenId && !roomParam) {
+    return new NextResponse(null, { status: 400 });
+  }
+  if (screenId && !parseScreenKey(screenId)) {
     return new NextResponse(null, { status: 400 });
   }
   if (!nxConfigured()) {
@@ -68,7 +79,9 @@ export async function GET(req: NextRequest) {
     return new NextResponse(null, { status: 503 });
   }
 
-  const deviceId = await resolveDeviceId(screenId);
+  // Screen mode resolves through the saved config (cached); room mode maps to a
+  // fixed briefing camera. Both refuse anything they do not recognise.
+  const deviceId = screenId ? await resolveDeviceId(screenId) : briefingRoomCameraId(roomParam);
   if (!deviceId) return new NextResponse(null, { status: 404 });
 
   const w = numParam(req.nextUrl.searchParams.get("w"));

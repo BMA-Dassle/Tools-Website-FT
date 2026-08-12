@@ -38,7 +38,7 @@
  * visibly jump, so a 1s clock drives the readouts and the phase comes from
  * briefingTimelineAt — the SAME pure function the TV runs, so desk and wall agree.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTrackStatus, type CurrentRace, type TrackInfo } from "@/hooks/useTrackStatus";
 import { PORTAL_DARK } from "~/components/features/admin-skin/theme";
 import { briefingTimelineAt, type BriefingTimeline } from "~/features/signage/briefing/phase";
@@ -555,143 +555,242 @@ function InRoom({
     timeline.videoMs > 0 ? Math.min(100, (timeline.videoOffsetMs / timeline.videoMs) * 100) : 0;
   const waitingMs = state ? Math.max(0, nowMs - state.triggeredAtMs) : 0;
 
-  if (phase === "idle") {
-    return (
-      <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
-        Empty — the TV is showing helmet sizes.
-      </p>
-    );
-  }
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-        <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color: INK }}>
-          {state?.heatNumber != null ? `Session ${state.heatNumber}` : "Briefing"}
-        </span>
-        {state?.raceType && (
-          <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{state.raceType}</span>
-        )}
-        {state?.tier && (
-          <span style={{ fontSize: 11, color: PORTAL_DARK.muted }}>· {state.tier} film</span>
-        )}
-      </div>
-
-      {phase === "waiting" && (
+      {/* The live room (owner: "camera view on the in-room section"). Shown in
+          every phase — including idle, so staff can watch the room fill before a
+          send — backed by the same frame proxy the TV boards use. */}
+      <RoomCamera room={room} />
+      {phase === "idle" ? (
+        <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
+          Empty — the TV is showing helmet sizes.
+        </p>
+      ) : (
         <>
-          <Stat label="Waiting" value={formatClock(waitingMs)} unit="since sent" tone={AMBER} big />
-          <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
-            TV is holding a &ldquo;take a seat&rdquo; board.
-            {!state?.videoUrl && " No film for this tier — Start skips to helmet sizes."}
-          </p>
-          <div style={{ display: "flex", gap: 8, marginTop: "auto", alignItems: "center" }}>
-            <ActionButton
-              tone={GREEN}
-              textColor="#052e14"
-              size="lg"
-              pendingKey={`start:${room}`}
-              pending={pending}
-              disabled={locked}
-              pendingLabel="Starting…"
-              onClick={() => onStart(false)}
-            >
-              ▶ Start video
-            </ActionButton>
-            <ActionButton
-              size="sm"
-              pendingKey={`clear:${room}`}
-              pending={pending}
-              disabled={locked}
-              pendingLabel="Undoing…"
-              onClick={() => {
-                if (window.confirm(`Undo the send to the ${room} room?`)) onUndo();
-              }}
-            >
-              Undo
-            </ActionButton>
-          </div>
-        </>
-      )}
-
-      {running && (
-        <>
-          {/* THE TIMING ROW. */}
-          <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
-            {phase === "video" ? (
-              <>
-                <Stat
-                  label="Elapsed"
-                  value={formatClock(timeline.videoOffsetMs)}
-                  unit={`of ${formatClock(timeline.videoMs)}`}
-                  big
-                />
-                <Stat
-                  label="Left"
-                  value={timeline.nextInMs != null ? formatClock(timeline.nextInMs) : "—"}
-                  unit="of the film"
-                  big
-                  tone={color}
-                />
-              </>
-            ) : (
-              <Stat
-                label="Left"
-                value={timeline.nextInMs != null ? formatClock(timeline.nextInMs) : "—"}
-                unit="until the room is free"
-                big
-                tone={color}
-              />
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+            <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color: INK }}>
+              {state?.heatNumber != null ? `Session ${state.heatNumber}` : "Briefing"}
+            </span>
+            {state?.raceType && (
+              <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{state.raceType}</span>
+            )}
+            {state?.tier && (
+              <span style={{ fontSize: 11, color: PORTAL_DARK.muted }}>· {state.tier} film</span>
             )}
           </div>
 
-          {phase === "video" && timeline.videoMs > 0 && (
-            <div>
-              <div
-                style={{
-                  height: 6,
-                  borderRadius: 999,
-                  background: "rgba(255,255,255,0.09)",
-                  overflow: "hidden",
-                }}
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={Math.round(pct)}
-                aria-label="Briefing video progress"
-              >
-                <div
-                  style={{
-                    width: `${pct}%`,
-                    height: "100%",
-                    background: color,
-                    transition: "width 1s linear",
+          {phase === "waiting" && (
+            <>
+              <Stat
+                label="Waiting"
+                value={formatClock(waitingMs)}
+                unit="since sent"
+                tone={AMBER}
+                big
+              />
+              <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
+                TV is holding a &ldquo;take a seat&rdquo; board.
+                {!state?.videoUrl && " No film for this tier — Start skips to helmet sizes."}
+              </p>
+              <div style={{ display: "flex", gap: 8, marginTop: "auto", alignItems: "center" }}>
+                <ActionButton
+                  tone={GREEN}
+                  textColor="#052e14"
+                  size="lg"
+                  pendingKey={`start:${room}`}
+                  pending={pending}
+                  disabled={locked}
+                  pendingLabel="Starting…"
+                  onClick={() => onStart(false)}
+                >
+                  ▶ Start video
+                </ActionButton>
+                <ActionButton
+                  size="sm"
+                  pendingKey={`clear:${room}`}
+                  pending={pending}
+                  disabled={locked}
+                  pendingLabel="Undoing…"
+                  onClick={() => {
+                    if (window.confirm(`Undo the send to the ${room} room?`)) onUndo();
                   }}
-                />
+                >
+                  Undo
+                </ActionButton>
               </div>
-              <div
-                className="rc-num"
-                style={{ fontSize: 10, color: PORTAL_DARK.muted, marginTop: 4 }}
-              >
-                {Math.round(pct)}% · then helmet sizes, then free
-              </div>
-            </div>
+            </>
           )}
 
-          <div style={{ marginTop: "auto" }}>
-            <ActionButton
-              size="sm"
-              tone={color}
-              pendingKey={`restart:${room}`}
-              pending={pending}
-              disabled={locked}
-              pendingLabel="Restarting…"
-              onClick={() => onStart(true)}
-              title="Play from the top — latecomers, or a second showing"
-            >
-              ⟲ Restart video
-            </ActionButton>
-          </div>
+          {running && (
+            <>
+              {/* THE TIMING ROW. */}
+              <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
+                {phase === "video" ? (
+                  <>
+                    <Stat
+                      label="Elapsed"
+                      value={formatClock(timeline.videoOffsetMs)}
+                      unit={`of ${formatClock(timeline.videoMs)}`}
+                      big
+                    />
+                    <Stat
+                      label="Left"
+                      value={timeline.nextInMs != null ? formatClock(timeline.nextInMs) : "—"}
+                      unit="of the film"
+                      big
+                      tone={color}
+                    />
+                  </>
+                ) : (
+                  <Stat
+                    label="Left"
+                    value={timeline.nextInMs != null ? formatClock(timeline.nextInMs) : "—"}
+                    unit="until the room is free"
+                    big
+                    tone={color}
+                  />
+                )}
+              </div>
+
+              {phase === "video" && timeline.videoMs > 0 && (
+                <div>
+                  <div
+                    style={{
+                      height: 6,
+                      borderRadius: 999,
+                      background: "rgba(255,255,255,0.09)",
+                      overflow: "hidden",
+                    }}
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(pct)}
+                    aria-label="Briefing video progress"
+                  >
+                    <div
+                      style={{
+                        width: `${pct}%`,
+                        height: "100%",
+                        background: color,
+                        transition: "width 1s linear",
+                      }}
+                    />
+                  </div>
+                  <div
+                    className="rc-num"
+                    style={{ fontSize: 10, color: PORTAL_DARK.muted, marginTop: 4 }}
+                  >
+                    {Math.round(pct)}% · then helmet sizes, then free
+                  </div>
+                </div>
+              )}
+
+              <div style={{ marginTop: "auto" }}>
+                <ActionButton
+                  size="sm"
+                  tone={color}
+                  pendingKey={`restart:${room}`}
+                  pending={pending}
+                  disabled={locked}
+                  pendingLabel="Restarting…"
+                  onClick={() => onStart(true)}
+                  title="Play from the top — latecomers, or a second showing"
+                >
+                  ⟲ Restart video
+                </ActionButton>
+              </div>
+            </>
+          )}
         </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The live briefing-room camera, small, on the desk board (owner: "camera view on
+ * the in-room section"). Same ~1fps still-refresh and the same /api/tv/camera
+ * proxy the TV boards use, addressed by room. Double-buffered so it never blanks
+ * between frames; greys out and says so if the feed drops.
+ */
+function RoomCamera({ room }: { room: BriefingRoom }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [offline, setOffline] = useState(false);
+  const lastOkRef = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = () => {
+      const url = `/api/tv/camera?room=${room}&w=640&t=${Date.now()}`;
+      const img = new Image();
+      img.onload = () => {
+        if (cancelled) return;
+        lastOkRef.current = Date.now();
+        setSrc(url);
+        setOffline(false);
+        timer = setTimeout(tick, 1000);
+      };
+      img.onerror = () => {
+        if (cancelled) return;
+        if (Date.now() - lastOkRef.current > 6000) setOffline(true);
+        timer = setTimeout(tick, 2000);
+      };
+      img.src = url;
+    };
+    tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [room]);
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: "100%",
+        height: 200,
+        borderRadius: 8,
+        overflow: "hidden",
+        background: "#05070d",
+        border: `1px solid ${PORTAL_DARK.border}`,
+        flexShrink: 0,
+      }}
+    >
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={`${room} briefing room`}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "contain",
+            filter: offline ? "grayscale(0.6) brightness(0.6)" : "none",
+          }}
+        />
+      ) : (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 11,
+            color: PORTAL_DARK.muted,
+          }}
+        >
+          Connecting to camera…
+        </div>
+      )}
+      {offline && (
+        <span style={{ position: "absolute", bottom: 6, left: 8, fontSize: 10, color: AMBER }}>
+          Reconnecting…
+        </span>
       )}
     </div>
   );
