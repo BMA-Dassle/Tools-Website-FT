@@ -340,6 +340,11 @@ export interface TvFeed {
   raceCheckin: {
     track: string;
     sessionId: number | null;
+    /** How the heat is NAMED on a wall — "Session 59", "Pro" — read from the same
+     *  record as `sessionId`, so the send announcement below can identify the heat
+     *  it is talking to even after the client's own session poll has moved on. */
+    heatNumber: number | null;
+    raceType: string | null;
     vipOnHeat: boolean;
     vipFirstNames: string[];
     /** How many of the heat's racers are checked in, and how many there are.

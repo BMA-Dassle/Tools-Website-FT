@@ -369,7 +369,16 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
         </header>
 
         {announcing ? (
-          <ProceedToBriefing room={briefedRoom} accent={accent} />
+          <ProceedToBriefing
+            room={briefedRoom}
+            accent={accent}
+            // The heat named by the SAME feed record the send is keyed on, not by
+            // the client's session poll: the poll can already have rolled to the
+            // next heat, and labelling this instruction with the following
+            // session would send the wrong group to a briefing room.
+            heatNumber={feed?.raceCheckin?.heatNumber ?? null}
+            raceType={feed?.raceCheckin?.raceType ?? null}
+          />
         ) : race ? (
           <CheckingIn
             race={race}
@@ -557,8 +566,24 @@ function CheckingIn({
  * where to go verbally, and this is what they look up and confirm against. The
  * room's own colour carries it, so "red" and "blue" are unmistakable across a room
  * even to somebody who has not read a word.
+ *
+ * IT NAMES THE SESSION (owner 2026-08-12). An instruction with no addressee is
+ * read by everybody in the arcade, including the heat that has NOT been called
+ * yet — and the board is at its most obeyed in exactly this minute. "Session 59"
+ * across the top is who this is for, in the same words the board was using for
+ * that heat thirty seconds earlier, so a group can match it without thinking.
  */
-function ProceedToBriefing({ room, accent }: { room: "red" | "blue" | null; accent: string }) {
+function ProceedToBriefing({
+  room,
+  accent,
+  heatNumber,
+  raceType,
+}: {
+  room: "red" | "blue" | null;
+  accent: string;
+  heatNumber: number | null;
+  raceType: string | null;
+}) {
   // A room we could not resolve still gets an instruction — "see the desk" is
   // useless, but "your briefing room" at least moves them off the check-in point.
   const roomAccent = room ? TRACK_ACCENTS[room] : accent;
@@ -584,6 +609,29 @@ function ProceedToBriefing({ room, accent }: { room: "red" | "blue" | null; acce
         }}
       />
       <div style={{ position: "relative", zIndex: 1, display: "grid", gap: 22 }}>
+        {/* WHO THIS IS FOR, first — before the instruction it is attached to.
+            Carries the track's own colour rather than the room's: it names the
+            heat that just checked in here, and the room colour below is doing a
+            different job. Renders nothing rather than "Session —" when the heat
+            could not be read; the instruction is still correct without it. */}
+        {heatNumber != null && (
+          <div style={{ display: "flex", alignItems: "baseline", gap: 20 }}>
+            <span
+              className="tv-display"
+              style={{
+                fontSize: 76,
+                color: accent,
+                lineHeight: 1,
+                textShadow: `0 0 40px ${withAlpha(accent, 0.6)}`,
+              }}
+            >
+              Session {heatNumber}
+            </span>
+            {raceType && (
+              <span style={{ fontSize: 44, color: "rgba(245,236,238,0.7)" }}>{raceType}</span>
+            )}
+          </div>
+        )}
         <span className="tv-eyebrow tv-blink" style={{ color: "#fff", fontSize: 46 }}>
           You&rsquo;re checked in
         </span>
@@ -611,7 +659,14 @@ function ProceedToBriefing({ room, accent }: { room: "red" | "blue" | null; acce
           </div>
         )}
         <p style={{ fontSize: 46, color: "rgba(245,236,238,0.72)", margin: 0 }}>
-          Your safety briefing starts shortly — take a seat.
+          Your safety briefing starts shortly.
+        </p>
+        {/* THE ONE THING STAFF ASK THIS GROUP EVERY SINGLE TIME (owner
+            2026-08-12), so it goes on the wall they are already reading rather
+            than being repeated by voice in every room. Brighter than the line
+            above it: it is an instruction, not reassurance. */}
+        <p style={{ fontSize: 52, color: "#fff", margin: 0 }}>
+          Please do not put on helmets before the video.
         </p>
       </div>
     </div>

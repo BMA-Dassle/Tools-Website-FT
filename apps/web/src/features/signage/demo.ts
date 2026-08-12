@@ -174,6 +174,10 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
       raceCheckin: {
         track: feed.raceCheckin?.track ?? "blue",
         sessionId: 59,
+        // Same heat the previewed session is (demoCurrentRace) — a preview whose
+        // header and whose send announcement disagreed would be its own bug report.
+        heatNumber: 59,
+        raceType: "Pro",
         vipOnHeat: true,
         vipFirstNames: ["Sarah"],
         checkedIn: 5,

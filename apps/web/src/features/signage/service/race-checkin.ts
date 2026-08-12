@@ -6,7 +6,9 @@ import "server-only";
  * The scene gets its session and its delay client-side from `useTrackStatus()` —
  * the same two endpoints the website and the e-tickets use, so a wall can never
  * disagree with the ticket in a guest's hand. This module supplies only the
- * remainder: whether anyone on the heat currently checking in is a VIP.
+ * remainder: whether anyone on the heat currently checking in is a VIP, and how
+ * far through the roster the desk has got (that count comes from the shared
+ * counter in ./checkin-progress, so every board in the building agrees).
  *
  * WHY THIS CANNOT COME FROM THE SCAN RAIL (owner, 2026-08-11): **VIPs do not
  * scan in.** They are met and escorted. So VIP presence has to be read off the
@@ -21,6 +23,7 @@ import "server-only";
  */
 import redis from "@/lib/redis";
 import { vipComboPersonLegsOnDate } from "@/lib/bowling-db";
+import { sessionCheckinCounts } from "./checkin-progress";
 import type { TrackKey } from "../track";
 
 /** Pandora location id for FastTrax — the only venue with tracks. */
@@ -29,6 +32,16 @@ const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
 export interface RaceCheckinInfo {
   track: TrackKey;
   sessionId: number | null;
+  /**
+   * How the heat is NAMED on a wall — "Session 59", "Pro".
+   *
+   * Carried here, next to the sessionId the briefing send is keyed on, so the
+   * "proceed to the red room" announcement can say WHICH session it is talking
+   * to without re-reading a session from a separate client poll that may
+   * already have rolled to the next heat.
+   */
+  heatNumber: number | null;
+  raceType: string | null;
   /** Someone on the heat checking in right now is on a VIP combo today. */
   vipOnHeat: boolean;
   /** Their first names, for a personal greeting. Empty when we have none. */
@@ -42,13 +55,16 @@ export interface RaceCheckinInfo {
 interface CachedRace {
   sessionId?: number;
   heatNumber?: number;
+  raceType?: string;
   scheduledStart?: string;
 }
 
 interface CachedParticipant {
   personId?: string | number;
   firstName?: string;
-  checkedIn?: boolean;
+  /** A TIMESTAMP, not a flag — see participantCheckedIn in ../checkin-progress.
+   *  Typed `boolean` here once, which made the count below always zero. */
+  checkedIn?: string | boolean | null;
 }
 
 /**
@@ -94,6 +110,8 @@ export async function raceCheckinInfo(
   const empty: RaceCheckinInfo = {
     track,
     sessionId: null,
+    heatNumber: null,
+    raceType: null,
     vipOnHeat: false,
     vipFirstNames: [],
     checkedIn: null,
@@ -112,15 +130,36 @@ export async function raceCheckinInfo(
   const sessionId = typeof race?.sessionId === "number" ? race.sessionId : null;
   if (sessionId == null) return empty;
 
-  const people = await roster(sessionId);
-  if (people.length === 0) return { ...empty, sessionId };
-
   // "8 of 12 checked in" — the single most useful number on the board for the
   // staff member working the desk, and reassuring for a party watching their
   // group arrive.
-  const total = people.length;
-  const checkedIn = people.filter((p) => p.checkedIn === true).length;
-  const counted = { ...empty, sessionId, checkedIn, total };
+  //
+  // COUNTED BY THE SHARED COUNTER, not from the cached roster below, for two
+  // reasons. It used to read `p.checkedIn === true` against a field Pandora
+  // sends as a TIMESTAMP STRING, so this board reported 0 of N for every heat
+  // it ever showed. And the roster cache stops being warmed once a heat has
+  // been alerted on — while staff are still scanning — so a number taken from
+  // it freezes mid-group. sessionCheckinCounts reads live and memoises, so the
+  // track board and the briefing-room camera boards cannot disagree about the
+  // same heat.
+  //
+  // The cached roster is still read, in parallel, for the VIP names: those need
+  // personIds and first names, which the count does not.
+  const [people, counts] = await Promise.all([
+    roster(sessionId),
+    sessionCheckinCounts(String(sessionId), Date.now()).catch(() => null),
+  ]);
+  const counted = {
+    ...empty,
+    sessionId,
+    // From the SAME record the sessionId came from — the heat's name and the id
+    // the briefing send is keyed on can never describe two different heats.
+    heatNumber: typeof race?.heatNumber === "number" ? race.heatNumber : null,
+    raceType: race?.raceType?.trim() || null,
+    checkedIn: counts?.checkedIn ?? null,
+    total: counts?.total ?? null,
+  };
+  if (people.length === 0) return counted;
 
   // personIds stay STRINGS end to end — BMI ids exceed Number.MAX_SAFE_INTEGER
   // and Number()/JSON round-tripping them is this repo's classic off-by-one.
