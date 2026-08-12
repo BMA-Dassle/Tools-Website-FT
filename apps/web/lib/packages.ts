@@ -19,6 +19,7 @@
  * Intentionally stateless data — every consumer pulls a definition
  * by id (`getPackage`) and reads only the fields it cares about.
  */
+import { etOffsetForLocalDate } from "./et-time";
 
 // ── Shared component prices ─────────────────────────────────────────────────
 // Stays here so PovUpsell, OrderSummary, the cart sync, and the
@@ -49,6 +50,11 @@ export type PackageId =
   | "ultimate-qualifier-weekday-junior"
   | "ultimate-qualifier-weekend"
   | "ultimate-qualifier-weekend-junior"
+  // BOGO flash sale (2026-08-12 → EOD 2026-08-13). Kept in the union after the
+  // sale ends: `getPackageIgnoreFlag` resolves ids on the confirmation page for
+  // bookings made during the sale, so removing these would break those pages.
+  | "bogo-weekday"
+  | "bogo-weekday-junior"
   | "rookie-pack"; // legacy alias kept for confirmation-page back-compat
 export type Schedule = "weekday" | "weekend" | "mega";
 
@@ -126,6 +132,37 @@ export interface PackageDefinition {
   longDescription: string;
   /** Env-flag-aware feature gate. */
   enabled: boolean;
+  /**
+   * Limited-time bundle: not OFFERED after this ET wall-clock instant
+   * ("YYYY-MM-DDTHH:mm:ss", no offset — the ET offset is derived per date).
+   * Omitted = always offered, which is every standing package.
+   *
+   * Checked per-request in `eligiblePackages`, NOT baked into `enabled`:
+   * `enabled` is a module-load constant, so a long-lived serverless instance
+   * that booted before the deadline would keep offering an expired bundle.
+   *
+   * Deliberately NOT checked in `getPackage`. That looks like the safer place
+   * until you read the charge path: `raceItemChargeLines` does
+   * `const pkg = getPackage(pkgId); if (!pkg) continue;`, which DROPS the
+   * category's heats from the Square lines while BMI still books them at $0.
+   * Expiring a package there would hand out FREE races to anyone mid-checkout
+   * at the deadline, rather than refusing them. Gating the OFFER is the
+   * fail-safe direction; the residual risk is a forged session id pricing at
+   * the sale rate after the sale, which costs the sale discount, not the race.
+   */
+  bookableUntil?: string;
+  /**
+   * Short marketing flag rendered on the picker card, e.g. "FLASH SALE" — the
+   * one thing that makes a limited-time bundle read differently from the
+   * standing ones at a glance, on both the web picker and the kiosk pay-mode
+   * screen. Omitted on every standing package.
+   *
+   * Kept as DATA rather than a UI heuristic keyed off the package id, for the
+   * same reason `recommended` is: moving or retiring the flag is a registry
+   * edit, not a component change. Guest-facing, so the kiosk renders it through
+   * the i18n catalog (EN + ES) rather than printing this string raw.
+   */
+  badge?: string;
   /** Eligibility — `"any"` matches both new and existing racers. */
   racerType: "new" | "existing" | "any";
   /** When this package is bookable. Empty array means never. */
@@ -244,6 +281,37 @@ const UQ_DISCLAIMERS: PackageDefinition["disclaimers"] = {
   ],
   billMemo:
     "** ULTIMATE QUALIFIER ** Customer is a NEW racer — has NOT yet qualified for Intermediate. STAFF: verify level-up before assigning kart to the Intermediate race. If customer did not qualify: offer additional Starter (if available) OR issue race credit. NO cash refunds — customer acknowledged disclaimer at booking.",
+};
+
+const BOGO_LONG =
+  "Buy one race, get one free. You'll book two heats back-to-back: your Starter race, then an Intermediate race once you level up. Two races for the price of one — flash sale, today and tomorrow only.";
+
+/**
+ * BOGO carries the SAME conditional-Intermediate risk as the Ultimate Qualifier
+ * — a new racer's second heat is reserved on the assumption they qualify in
+ * their Starter — so it gets its own acknowledgment block rather than shipping
+ * without one. Cloning UQ_DISCLAIMERS verbatim would have shown a guest the
+ * words "Ultimate Qualifier" on a BOGO booking and promised a license and POV
+ * this bundle does not include.
+ *
+ * The no-cash-refund term reads differently here, and the copy says so plainly:
+ * at $20.99 a racer who doesn't level up has paid the ordinary single-race price
+ * for the Starter they ran. Nothing was lost — so the remedy (another Starter,
+ * or credit) is a genuine make-good rather than a consolation for a bundle they
+ * only half-received. That framing is the honest one AND the one that survives a
+ * chargeback dispute.
+ */
+const BOGO_DISCLAIMERS: PackageDefinition["disclaimers"] = {
+  title: "Heads Up — BOGO Races",
+  body: "Your second race in this deal is an Intermediate heat, reserved on the assumption you qualify in your Starter race. About 75% of new racers level up on their first try. If you don't, you'll have paid the regular price of a single race — nothing extra — and we'll make it right. Please read before continuing:",
+  acks: [
+    "I understand the second (Intermediate) race is reserved only if I qualify (level up) in my Starter race",
+    "If I don't qualify, FastTrax will offer me another Starter race (if available) OR race credit toward a future visit — no cash refunds for this deal",
+    "I understand this deal does NOT include the FastTrax license, POV video, or appetizer",
+    "I have read and accept these terms",
+  ],
+  billMemo:
+    "** BOGO RACES (FLASH SALE) ** Customer is a NEW racer — has NOT yet qualified for Intermediate. Paid ONE race price for TWO heats. NO license, NO POV, NO appetizer included — do not comp these. STAFF: verify level-up before assigning kart to the Intermediate race. If customer did not qualify: offer additional Starter (if available) OR issue race credit. NO cash refunds — customer acknowledged disclaimer at booking.",
 };
 
 // No appetizer since 2026-08-04 (owner) — the Ultimate Qualifier keeps one.
@@ -617,6 +685,128 @@ const PACKAGES: PackageDefinition[] = [
     disclaimers: UQ_DISCLAIMERS,
   },
 
+  // ── BOGO Races — Weekday (Adult, Red + Blue) ──────────────────────────────
+  // FLASH SALE 2026-08-12 → EOD 2026-08-13 (owner). Two races for the price of
+  // one, for NEW racers. Structurally the Ultimate Qualifier — the same Starter
+  // + Intermediate components, the same package-only Intermediate SKUs, the same
+  // gap rule — but stripped of the license, POV and appetizer, and priced at a
+  // single race instead of the auto-summed bundle.
+  //
+  // Returning racers get the equivalent offer as a 2-race CREDIT pack
+  // (features/booking/data/packs.ts BOGO_SALE_SLUGS) rather than this package,
+  // because they may already hold the Intermediate qualification this bundle is
+  // built to earn — `maxQualifiedTier: "starter"` is what keeps the two from
+  // ever being offered to the same racer.
+  //
+  // ⚠ `bookableUntil` MUST stay equal to BOGO_SALE_ENDS_AT in
+  // features/booking/data/packs.ts — the two halves of one advertised sale must
+  // end on the same instant. A test pins them equal; it is not a stylistic nit.
+  {
+    id: "bogo-weekday",
+    maxQualifiedTier: "starter",
+    name: "BOGO Races",
+    shortDescription: "Two races for the price of one — Starter + Intermediate",
+    longDescription: BOGO_LONG,
+    enabled: true,
+    bookableUntil: "2026-08-13T23:59:59",
+    badge: "FLASH SALE",
+    racerType: "new",
+    schedules: ["weekday"],
+    category: "adult",
+    races: [
+      {
+        sequence: 1,
+        ref: "starter",
+        label: "Starter Race",
+        tier: "starter",
+        tracks: [
+          { track: "Red", productId: "24960859", pageId: "24961568", price: 20.99 },
+          { track: "Blue", productId: "24960393", pageId: "24961568", price: 20.99 },
+        ],
+      },
+      {
+        sequence: 2,
+        ref: "intermediate",
+        label: "Intermediate Race",
+        tier: "intermediate",
+        tracks: [
+          { track: "Red", productId: "45810802", pageId: "25850629", price: 20.99 },
+          { track: "Blue", productId: "45811366", pageId: "25850629", price: 20.99 },
+        ],
+        minMinutesAfterEndOf: { ref: "starter", minutes: 60, sameTrackMinutes: 30 },
+      },
+    ],
+    includesLicense: false,
+    includesPov: false,
+    // EXPLICIT price — the auto-sum helper would total the two components to
+    // $41.98. That total is the `retailPrice` here, i.e. exactly what the guest
+    // is saving, which is the whole pitch.
+    price: 20.99,
+    retailPrice: 41.98,
+    cartLineKey: "bogo-weekday",
+    // Above the Ultimate Qualifier's 10 so the sale leads the picker. UQ keeps
+    // `recommended` (the ribbon) — see the junior variant's note.
+    displayOrder: 5,
+    disclaimers: BOGO_DISCLAIMERS,
+  },
+
+  // ── BOGO Races — Weekday Junior (Blue) ────────────────────────────────────
+  // Juniors race Blue only on weekdays, same as the UQ junior variant. Priced
+  // off the JUNIOR single-race rate ($15.99, vs $20.99 adult) so each tier gets
+  // a true buy-one-get-one rather than one flat price that shortchanges juniors.
+  //
+  // Retail is 2 × the junior single-race rate ($15.99), so the saving reads as
+  // exactly half the two-race total — the price of the free race, which is what
+  // "buy one get one" means and what every other BOGO SKU shows (owner).
+  //
+  // Note this UNDERSTATES the true value: the junior Intermediate weekday SKU
+  // actually lists at $20.99 (see the UQ junior note above), so the real retail
+  // is $36.98 and the guest saves $20.99. Understating a discount is safe;
+  // overstating one is the thing this page must never do. Taking the smaller,
+  // consistent number is deliberate on both counts.
+  //
+  // No `recommended` on either BOGO variant — the Ultimate Qualifier is the
+  // house recommendation and at most one package per category should carry the
+  // ribbon ("the first match wins"). Taking it for a 2-day sale is a marketing
+  // call, not a technical one; `displayOrder: 5` already puts BOGO on top.
+  {
+    id: "bogo-weekday-junior",
+    maxQualifiedTier: "starter",
+    name: "BOGO Races",
+    shortDescription: "Two junior races for the price of one — Starter + Intermediate",
+    longDescription: BOGO_LONG,
+    enabled: true,
+    bookableUntil: "2026-08-13T23:59:59",
+    badge: "FLASH SALE",
+    racerType: "new",
+    schedules: ["weekday"],
+    category: "junior",
+    races: [
+      {
+        sequence: 1,
+        ref: "starter",
+        label: "Junior Starter Race Blue",
+        tier: "starter",
+        tracks: [{ track: "Blue", productId: "24960106", pageId: "24961568", price: 15.99 }],
+      },
+      {
+        sequence: 2,
+        ref: "intermediate",
+        label: "Junior Intermediate Race Blue",
+        tier: "intermediate",
+        tracks: [{ track: "Blue", productId: "45811531", pageId: "25850629", price: 20.99 }],
+        minMinutesAfterEndOf: { ref: "starter", minutes: 60, sameTrackMinutes: 30 },
+      },
+    ],
+    includesLicense: false,
+    includesPov: false,
+    price: 15.99,
+    retailPrice: 31.98,
+    cartLineKey: "bogo-weekday-junior",
+    displayOrder: 5,
+    disclaimers: BOGO_DISCLAIMERS,
+  },
+
   // ── Ultimate Qualifier — Weekend (Adult, Red + Blue) ──────────────────────
   // Weekend Starter / Intermediate pricing is $26.99 (vs. $20.99 weekday).
   // Heat picker spans both tracks in one merged grid — same UX as the
@@ -790,9 +980,27 @@ export interface EligibilityContext {
    *  ever run Starter, even when they are returning racers. Omitted = "starter"
    *  (nothing qualified), which keeps existing callers behaving as before. */
   qualifiedTier?: PackageTier;
+  /** Evaluation instant for `bookableUntil`. Defaults to now; inject in tests
+   *  so window boundaries are assertable without a clock. */
+  now?: Date;
 }
 
 const QUAL_RANK: Record<PackageTier, number> = { starter: 0, intermediate: 1, pro: 2 };
+
+/**
+ * Is a limited-time bundle still offered at `now`? ET wall-clock via
+ * `etOffsetForLocalDate` — never a hardcoded offset (that is the Dec-19
+ * 6pm→5pm bug). THROWS on a malformed `bookableUntil`: an Invalid Date
+ * compares false against everything, so a typo would silently read as
+ * "already over" and the bundle would never appear at all.
+ */
+function withinBookableWindow(bookableUntil: string, now: Date): boolean {
+  const ends = new Date(`${bookableUntil}${etOffsetForLocalDate(bookableUntil)}`);
+  if (Number.isNaN(ends.getTime())) {
+    throw new Error(`package bookableUntil is not a valid date: ${bookableUntil}`);
+  }
+  return now.getTime() <= ends.getTime();
+}
 
 /** Filters the registry to packages bookable in the current context.
  *  Used by the product picker to render its "packages" row. Sorted
@@ -801,6 +1009,9 @@ const QUAL_RANK: Record<PackageTier, number> = { starter: 0, intermediate: 1, pr
 export function eligiblePackages(ctx: EligibilityContext): PackageDefinition[] {
   return PACKAGES.filter((p) => {
     if (!p.enabled) return false;
+    if (p.bookableUntil && !withinBookableWindow(p.bookableUntil, ctx.now ?? new Date())) {
+      return false;
+    }
     if (p.racerType !== "any" && ctx.racerType && p.racerType !== ctx.racerType) return false;
     if (
       p.maxQualifiedTier &&

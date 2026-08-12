@@ -39,6 +39,41 @@ export interface PackEligibleMember {
   id: string;
   firstName: string;
   lastName?: string;
+  /** Racer tier. Gates tier-restricted SKUs (the BOGO adult/junior split);
+   *  undefined reads as "adult", matching every other category read in the flow. */
+  category?: "adult" | "junior";
+  /** First-time racer. Gates returning-only SKUs (BOGO credit packs — new racers
+   *  are offered the BOGO PACKAGE instead, which books both heats outright). */
+  isNewRacer?: boolean;
+}
+
+/**
+ * Can this pack land on this racer? Mirrors the fail-closed checks in
+ * `resolveKioskPacks` — the server is the enforcement point, this keeps the
+ * guest from ever building a selection it will refuse at payment.
+ *
+ * A pack with neither restriction (every standing 3/5/10 SKU) matches everyone,
+ * so this is a no-op for them.
+ */
+function packFitsMember(pack: RacePack, m: PackEligibleMember): boolean {
+  if (pack.category && (m.category ?? "adult") !== pack.category) return false;
+  if (pack.racerType === "existing" && m.isNewRacer) return false;
+  return true;
+}
+
+/**
+ * What the guest is actually saving, in dollars.
+ *
+ * Sale SKUs pin their own `regularPrice`; everything else compares against
+ * `SINGLE_RACE_BASELINE`. That distinction is load-bearing, not cosmetic: the
+ * baseline is the WEEKEND adult rate ($26.99), so running BOGO through it would
+ * advertise a $32.99 saving on a deal that actually saves $20.99 — and $37.99 on
+ * the junior SKU, which saves $15.99. Overstating a discount is the one thing
+ * this page must never do.
+ */
+export function packSavings(pack: RacePack): number {
+  if (typeof pack.regularPrice === "number") return pack.regularPrice - pack.price;
+  return pack.raceCount * SINGLE_RACE_BASELINE - pack.price;
 }
 
 function nameOf(members: PackEligibleMember[], memberId: string): string {
@@ -153,6 +188,22 @@ export function RacePackPicker({
 
   const holdersOf = (slug: string) => picks.filter((p) => p.slug === slug).map((p) => p.memberId);
 
+  /**
+   * Who the OPEN tile's pack may actually land on. A tier/history-restricted SKU
+   * (the BOGO variants) narrows the checkbox row to matching racers, so the
+   * guest can't build a selection `resolveKioskPacks` will refuse at payment —
+   * the server stays the enforcement point, this just stops the dead end.
+   * Unrestricted packs return the full list, unchanged.
+   *
+   * Declared as a plain function (hoisted) rather than a const arrow because
+   * `toggleEveryone` below closes over it — a const would be in the temporal
+   * dead zone for any earlier closure.
+   */
+  function assignableFor(slug: string | null): PackEligibleMember[] {
+    const pack = slug ? getRacePack(slug) : null;
+    return pack ? eligible.filter((m) => packFitsMember(pack, m)) : eligible;
+  }
+
   const pickTile = (slug: string) => {
     // One-person party: the tile itself is the toggle — no panel ceremony.
     if (eligible.length === 1) {
@@ -177,7 +228,8 @@ export function RacePackPicker({
   };
 
   const toggleEveryone = () => {
-    setPendingIds((cur) => (cur.length === eligible.length ? [] : eligible.map((m) => m.id)));
+    const ids = assignableFor(pendingSlug).map((m) => m.id);
+    setPendingIds((cur) => (cur.length === ids.length ? [] : ids));
   };
 
   const apply = () => {
@@ -206,7 +258,14 @@ export function RacePackPicker({
   const dayTypes = [...new Set(skus.map((p) => p.dayType))];
   const heldDay = picks.map((p) => getRacePack(p.slug)?.dayType).find(Boolean);
   const [day, setDay] = useState<RacePackDayType>(heldDay ?? dayTypes[0] ?? "anytime");
-  const shown = skus.filter((p) => p.dayType === day);
+  // Hide a tier/history-restricted SKU when NOBODY in the party could receive
+  // it — an all-adult party never sees the junior BOGO tile, and a party of
+  // first-timers never sees the returning-only one. Without this the row grows
+  // two near-identical "2 races" tiles that differ only by price, and half of
+  // them refuse every racer on the panel.
+  const shown = skus.filter((p) => p.dayType === day && eligible.some((m) => packFitsMember(p, m)));
+  /** Racers the OPEN tile's pack can land on — the checkbox row's source. */
+  const assignable = assignableFor(pendingSlug);
 
   return (
     <div>
@@ -251,19 +310,35 @@ export function RacePackPicker({
         {shown.map((p) => {
           const holders = picks.filter((x) => x.slug === p.slug);
           const selected = holders.length > 0 || pendingSlug === p.slug;
-          const save = p.raceCount * SINGLE_RACE_BASELINE - p.price;
+          const save = packSavings(p);
           return (
             <button
               key={p.slug}
               type="button"
               onClick={() => pickTile(p.slug)}
               aria-pressed={selected}
-              className={`relative rounded-xl border-2 px-3 py-2.5 text-center transition-all duration-150 ${
+              className={`relative rounded-xl border-2 px-3 text-center transition-all duration-150 ${
+                p.badge ? "pb-2.5 pt-4" : "py-2.5"
+              } ${
                 selected
-                  ? "border-[#00E2E5] bg-[#00E2E5]/5"
-                  : "border-white/10 bg-white/[0.03] hover:border-white/30"
+                  ? p.badge
+                    ? "border-amber-400 bg-amber-400/10"
+                    : "border-[#00E2E5] bg-[#00E2E5]/5"
+                  : p.badge
+                    ? "border-amber-400/60 bg-amber-400/5 hover:border-amber-400"
+                    : "border-white/10 bg-white/[0.03] hover:border-white/30"
               }`}
             >
+              {/* Sale ribbon. Amber, not the picker's cyan, so a limited-time
+                  SKU is distinguishable at a glance from the standing packs —
+                  the ONLY visual difference between them otherwise is price.
+                  Copy goes through the catalog: `p.badge` is the registry's
+                  English marker, never printed raw on a Spanish kiosk. */}
+              {p.badge && (
+                <span className="absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-amber-400 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-[#3d2600]">
+                  {t("racePack.picker.flashSale")}
+                </span>
+              )}
               {/* Deliberately squat: this row has to fit under three product
                   cards without the body scrolling (owner 2026-08-04). Count and
                   price on one line, savings under it, per-race price dropped —
@@ -274,8 +349,22 @@ export function RacePackPicker({
                   {t("racePack.picker.racesWord")}
                 </span>
               </div>
-              <div className="mt-1 text-xl font-extrabold leading-tight tabular-nums">
-                ${p.price.toFixed(2)}
+              {/* Tier marker — only on a tier-restricted SKU. A mixed party sees
+                  the adult AND junior BOGO tiles side by side, and they are
+                  otherwise identical but for price. Standing packs carry no
+                  category, so nothing changes for them. */}
+              {p.category === "junior" && (
+                <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/50">
+                  {t("racePack.picker.juniorTier")}
+                </div>
+              )}
+              <div className="mt-1 flex items-baseline justify-center gap-1.5 leading-tight">
+                {typeof p.regularPrice === "number" && (
+                  <span className="text-xs font-semibold tabular-nums text-white/40 line-through">
+                    ${p.regularPrice.toFixed(2)}
+                  </span>
+                )}
+                <span className="text-xl font-extrabold tabular-nums">${p.price.toFixed(2)}</span>
               </div>
               <div className="text-xs font-bold text-amber-400">
                 {t("racePack.picker.save", { amount: `$${save.toFixed(2)}` })}
@@ -298,16 +387,16 @@ export function RacePackPicker({
             <button
               type="button"
               onClick={toggleEveryone}
-              aria-pressed={pendingIds.length === eligible.length}
+              aria-pressed={pendingIds.length === assignable.length}
               className={`rounded-full border border-dashed px-4 py-2 text-sm font-semibold transition-colors ${
-                pendingIds.length === eligible.length
+                pendingIds.length === assignable.length
                   ? "border-[#00E2E5] bg-[#00E2E5]/10 text-white"
                   : "border-white/25 bg-white/5 text-white/70 hover:border-[#00E2E5] hover:text-white"
               }`}
             >
               {t("racePack.picker.everyone")}
             </button>
-            {eligible.map((m) => {
+            {assignable.map((m) => {
               const on = pendingIds.includes(m.id);
               return (
                 <button

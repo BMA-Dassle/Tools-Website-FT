@@ -15,6 +15,26 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.22.0 — BOGO RACES FLASH SALE, 8/12 → EOD 8/13 (owner 2026-08-12). Buy one
+ *         race, get one free, shipped as TWO instruments so it reaches both
+ *         kinds of racer. RETURNING racers see a 2-race credit pack on the
+ *         pack picker (adult $20.99 / junior $15.99, credits land on the
+ *         Mon–Thu kind so the free race is weekday-locked by the existing
+ *         redeem rail). NEW racers instead get a "BOGO Races" PACKAGE on the
+ *         pay-mode screen — Starter + Intermediate, the Ultimate Qualifier's
+ *         structure and 60/30 gap rule minus the license, POV and appetizer —
+ *         because a credit can't be redeemed by someone who isn't a returning
+ *         racer yet. `maxQualifiedTier` keeps a racer from ever being offered
+ *         both halves. Sale SKUs wear an amber FLASH SALE ribbon with a
+ *         was/now price so they read apart from the standing packs at a
+ *         glance, and the tier-restricted ones narrow the "who's this for?"
+ *         row to racers who can actually receive them. Savings now compare
+ *         against a sale SKU's own regular price rather than the weekend-adult
+ *         baseline — that baseline would have advertised $32.99 off a deal
+ *         that saves $20.99. Both halves speak EN+ES. The window is enforced
+ *         server-side (the offered-slug list feeds resolveKioskPacks, and
+ *         eligiblePackages re-checks bookableUntil per request), so a cached
+ *         screen can't sell it on 8/14.
  * 1.21.0 — THE VIDEO SCREEN NOW SELLS EXTRAS TOO (owner 2026-08-10). "Race
  *         Video & Extras": the POV pitch is unchanged on top, and below it the
  *         first retail add-on — a $3 replacement headsock ("your first one is
@@ -917,7 +937,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.21.0";
+export const KIOSK_VERSION = "1.22.0";
 
 let bootVersion: string | null = null;
 let captured = false;

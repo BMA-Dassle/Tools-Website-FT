@@ -76,6 +76,11 @@ export const racepackEn = {
   // --- PICKER (tiles + who's-this-for panel + assignment rows) ---
   "racePack.picker.racesWord": "RACES",
   "racePack.picker.save": "Save {amount}",
+  // Limited-time SKU ribbon + tier marker. The registry's `badge` string is an
+  // ENGLISH marker for the code to branch on — it is never printed, so a
+  // Spanish kiosk always reads these.
+  "racePack.picker.flashSale": "Flash Sale",
+  "racePack.picker.juniorTier": "Junior",
   "racePack.picker.dayNoteWeekday": "Cheapest — good on Mon–Thu visits",
   "racePack.picker.dayNoteAny": "Use them any day of the week",
   "racePack.picker.whoFor": "Who’s this pack for?",
@@ -207,6 +212,10 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   // --- PICKER (tarjetas + panel de para quién + filas asignadas) ---
   "racePack.picker.racesWord": "CARRERAS",
   "racePack.picker.save": "Ahorra {amount}",
+  // "Junior" se mantiene en inglés: es el nombre de la categoría de carrera que
+  // ya usan el personal y la señalización del centro.
+  "racePack.picker.flashSale": "Oferta Relámpago",
+  "racePack.picker.juniorTier": "Junior",
   "racePack.picker.dayNoteWeekday": "Más barato — válido en visitas de lun–jue",
   "racePack.picker.dayNoteAny": "Úsalas cualquier día de la semana",
   "racePack.picker.whoFor": "¿Para quién es este pack?",

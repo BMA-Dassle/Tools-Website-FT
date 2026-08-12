@@ -34,7 +34,7 @@ import {
 } from "~/features/booking/service/race-pack-kiosk";
 import { activeComboSpecial } from "~/features/combos/combo-pricing";
 import { useT } from "~/features/kiosk/i18n";
-import { RacePackPicker, SINGLE_RACE_BASELINE } from "./RacePackPicker";
+import { RacePackPicker, SINGLE_RACE_BASELINE, packSavings } from "./RacePackPicker";
 
 /** The teaser's render gate, exported so the product step and the pay-mode
  *  page can decide what to show without duplicating these rules (they must
@@ -68,7 +68,10 @@ export function RacePackTeaser({
 
   const picks = item.creditPacks ?? [];
   const cheapest = skus[0];
-  const maxSave = Math.max(...skus.map((p) => p.raceCount * SINGLE_RACE_BASELINE - p.price));
+  // Same savings rule the tiles use — sale SKUs compare against their own
+  // `regularPrice`, not the weekend-adult baseline, so the teaser's headline
+  // number can never advertise more than a tile will show.
+  const maxSave = Math.max(...skus.map(packSavings));
   // "3 · 5 · 10" — the sizes actually on sale right now, deduped in catalog
   // order (smallest first). A digit list needs no translation.
   const sizes = [...new Set(skus.map((p) => p.raceCount))].join(" · ");

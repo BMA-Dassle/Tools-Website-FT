@@ -18,7 +18,14 @@
  * Everything money-facing stays server-re-derived from RACE_PACKS by slug —
  * the session/UI carries pointers only (displayed == charged rule).
  */
-import { RACE_PACKS, getRacePack, racePackLabel, type RacePack } from "../data/packs";
+import {
+  RACE_PACKS,
+  BOGO_SALE_SLUGS,
+  bogoSaleActive,
+  getRacePack,
+  racePackLabel,
+  type RacePack,
+} from "../data/packs";
 import { dayBucket, memberEligibleCreditTotal } from "../data/race-credits";
 import { getRaceProductById } from "./race-products";
 import type { RaceHeatAssignment } from "../state/types";
@@ -67,6 +74,20 @@ const KIOSK_PACK_SLUGS: readonly string[] = [
   "10-race-anytime",
 ];
 
+/**
+ * The standing catalog plus any live limited-time SKUs, at `now`.
+ *
+ * ONE list feeds both the sell surfaces AND `resolveKioskPacks`'s fail-closed
+ * slug check, so the sale window is enforced on the SERVER by construction: a
+ * cached page or a hand-rolled POST that still names a BOGO slug after the
+ * deadline gets "isn't available" from the resolver rather than a discounted
+ * charge. That is also why the window is not merely a UI condition — the
+ * session carries slug pointers only, and the server re-derives the price.
+ */
+function packSlugsAt(now: Date): readonly string[] {
+  return bogoSaleActive(now) ? [...KIOSK_PACK_SLUGS, ...BOGO_SALE_SLUGS] : KIOSK_PACK_SLUGS;
+}
+
 /** Is the center's local day a weekend day for pack purposes? Owner rule:
  *  Fri/Sat/Sun — the Mon–Thu pack is HIDDEN (not warned) on those days.
  *  Both centers are US-Eastern. */
@@ -85,7 +106,8 @@ export function isWeekendForPacks(now: Date = new Date()): boolean {
  *  can be days away, and the day rule is about the RACE day. */
 export function kioskPackSkus(now: Date = new Date()): RacePack[] {
   const weekend = isWeekendForPacks(now);
-  return KIOSK_PACK_SLUGS.map((slug) => RACE_PACKS.find((p) => p.slug === slug))
+  return packSlugsAt(now)
+    .map((slug) => RACE_PACKS.find((p) => p.slug === slug))
     .filter((p): p is RacePack => !!p)
     .filter((p) => !(weekend && p.dayType === "weekday"))
     .sort((a, b) => a.raceCount - b.raceCount || a.price - b.price);
@@ -105,7 +127,8 @@ export function packSkusForRaceDate(
 ): RacePack[] {
   if (!raceDate) return kioskPackSkus(now);
   const weekend = dayBucket(raceDate) === "weekend";
-  return KIOSK_PACK_SLUGS.map((slug) => RACE_PACKS.find((p) => p.slug === slug))
+  return packSlugsAt(now)
+    .map((slug) => RACE_PACKS.find((p) => p.slug === slug))
     .filter((p): p is RacePack => !!p)
     .filter((p) => !(weekend && p.dayType === "weekday"))
     .sort((a, b) => a.raceCount - b.raceCount || a.price - b.price);
@@ -162,7 +185,16 @@ export interface ResolvedKioskPack {
  */
 export function resolveKioskPacks(
   selections: KioskPackSelection[],
-  party: Array<{ id: string; firstName: string; lastName?: string; bmiPersonId?: string | null }>,
+  party: Array<{
+    id: string;
+    firstName: string;
+    lastName?: string;
+    bmiPersonId?: string | null;
+    /** Racer tier — gates `pack.category` (the BOGO adult/junior split). */
+    category?: "adult" | "junior";
+    /** First-time racer — gates `pack.racerType`. */
+    isNewRacer?: boolean;
+  }>,
   opts: { now?: Date; raceDate?: string | null } = {},
 ): ResolvedKioskPack[] {
   if (selections.length === 0) return [];
@@ -183,6 +215,25 @@ export function resolveKioskPacks(
     const memberName = `${member.firstName} ${member.lastName ?? ""}`.trim();
     if (!member.bmiPersonId) {
       throw new Error(`${memberName} needs a racer account before a pack can load onto it.`);
+    }
+    // Tier-restricted pack (the BOGO adult/junior split). Without this an adult
+    // could put the cheaper junior SKU on their own selection and redeem those
+    // credits against adult heats — the session carries slug pointers only, so
+    // hiding the tile is not a control. Defaults to "adult", matching how every
+    // other category read in the booking flow treats a missing value.
+    if (pack.category && (member.category ?? "adult") !== pack.category) {
+      throw new Error(
+        `${racePackLabel(pack)} is for ${pack.category} racers — ${memberName} isn't one.`,
+      );
+    }
+    // History-restricted pack (BOGO is returning-racers-only; new racers get the
+    // `bogo-weekday` PACKAGE instead, which books both heats outright). Belt and
+    // braces: a credit is also the wrong instrument for a new racer, since
+    // redemption requires `!isNewRacer` and would refuse them in-session.
+    if (pack.racerType === "existing" && member.isNewRacer) {
+      throw new Error(
+        `${racePackLabel(pack)} is for returning racers — ${memberName} is racing with us for the first time.`,
+      );
     }
     // One pack per person (owner) — the UI enforces replace semantics; this is
     // the server-side backstop.
@@ -218,7 +269,22 @@ export function kioskPacksTotalCents(packs: ResolvedKioskPack[]): number {
 export function resolveSessionPacks(
   session: {
     items: Array<{ kind: string; date?: string | null; creditPacks?: KioskPackSelection[] }>;
-    party: Array<{ id: string; firstName: string; lastName?: string; bmiPersonId?: string | null }>;
+    /**
+     * MUST carry `category` + `isNewRacer`. They are optional on
+     * `resolveKioskPacks`'s party, so a narrower type here still compiles — and
+     * silently defeats the checks: `category` would default to "adult" (refusing
+     * a junior their own junior pack) and `isNewRacer` would read falsy (letting
+     * a new racer buy a returning-only pack). Structural typing gives no warning,
+     * so the fields are named explicitly rather than inherited by accident.
+     */
+    party: Array<{
+      id: string;
+      firstName: string;
+      lastName?: string;
+      bmiPersonId?: string | null;
+      category?: "adult" | "junior";
+      isNewRacer?: boolean;
+    }>;
   },
   now?: Date,
 ): ResolvedKioskPack[] {
