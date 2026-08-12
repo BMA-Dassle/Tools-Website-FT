@@ -32,27 +32,11 @@ import { LiveSessionChip } from "../live-session";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { useBriefingAssets } from "../briefing/useBriefingAssets";
 import { demoBriefingRooms } from "../demo";
-import { CameraReturnBar, CAMERA_BAR_H } from "../components/CameraReturnBar";
+import { CameraReturnBar, cameraBarHeight } from "../components/CameraReturnBar";
 import type { SceneProps } from "../director/types";
 
 const PAD_X = 96;
 const PAD_Y = 54;
-
-/**
- * The camera return strip's height, reserved at the bottom of EVERY phase while
- * the strip is on the rail — the film, the hold board, helmet sizes and the
- * welcome-back board all lay out above it.
- *
- * A FIXED RESERVE, not a reaction to content. A strip that only appeared once a
- * camera went red would shove the safety film upward mid-briefing in front of a
- * room full of people; reserving it always means the wall never reflows, only
- * recolours (owner 2026-08-12 asked for no motion at all on this).
- *
- * The film keeps `objectFit: cover`, so surrendering this band crops it a little
- * rather than letterboxing it — no black bands, no shrunken picture, and nothing
- * of ours sitting on top of titles burned into the bottom of the frame.
- */
-const BAR_H = CAMERA_BAR_H;
 
 /**
  * How long a film may make NO progress at all before the room gives up on it.
@@ -137,9 +121,18 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
   const videoSrc = assets.srcFor(tier);
   const videoUnplayable = !!videoSrc && failedSrc === videoSrc;
 
-  // The strip is on the rail unless the kill switch is off. Preview modes get it
-  // too, from demo data, so the 104 px reserve can be reviewed off a laptop.
+  /**
+   * The strip is on the rail unless the kill switch is off. Preview modes get it
+   * too, from demo data, so it can be reviewed off a laptop.
+   *
+   * The band it occupies is 104 px with cameras out and a 44 px whisper when
+   * everything is accounted for (cameraBarHeight owns that decision, so the
+   * reserve below and the bar itself cannot disagree). Every phase lays out above
+   * it, the safety film included: the group about to be handed kit is the one
+   * sitting in front of the film.
+   */
   const cameraReturn = feed?.briefing?.cameraReturn ?? null;
+  const barH = cameraBarHeight(cameraReturn);
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
@@ -149,14 +142,7 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
           shifted up for free, the accent bars and radial washes stay bounded to
           the picture area instead of bleeding under the strip, and the film's
           `objectFit: cover` simply crops to the smaller box. */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          bottom: cameraReturn ? BAR_H : 0,
-          overflow: "hidden",
-        }}
-      >
+      <div style={{ position: "absolute", inset: 0, bottom: barH, overflow: "hidden" }}>
         {timeline.phase === "waiting" ? (
           <TakeASeat
             accent={accent}

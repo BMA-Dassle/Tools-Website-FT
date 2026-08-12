@@ -31,8 +31,30 @@
  */
 import { formatSinceFlag } from "../briefing/camera-return";
 
-/** Canvas px. Matches BRIEFING_BAR_H in SceneBriefing — change both together. */
+/**
+ * TWO HEIGHTS, because the strip should only take the room it has earned.
+ *
+ * With cameras out it needs 104 px for a 72 px box plus its minutes line. With
+ * nothing to say it collapses to a 44 px whisper (owner 2026-08-12: "I think I
+ * want the all cameras in to be very small and less noticeable") — the first cut
+ * gave the all-clear the same big italic treatment as a problem and spent a
+ * sixth of the helmet poster saying nothing was wrong.
+ *
+ * THE ONE REFLOW THIS ALLOWS is the strip growing when a camera actually goes
+ * red, and it is worth it: it happens at a moment that deserves attention, the
+ * film is `objectFit: cover` so it re-crops rather than letterboxing, and it is
+ * one transition rather than a flicker (which is what `stale` exists to prevent —
+ * a failed read holds the height it already had).
+ */
 const BAR_H = 104;
+const BAR_CLEAR_H = 44;
+
+/** The height the scene must reserve for a given strip. ONE definition, so the
+ *  wrapper's bottom inset and the bar itself can never disagree. */
+export function cameraBarHeight(strip: { boxes: unknown[] } | null | undefined): number {
+  if (!strip) return 0;
+  return strip.boxes.length > 0 ? BAR_H : BAR_CLEAR_H;
+}
 
 /** Fixed, not flex: see note 1. Wide enough for three digits (the fleet runs
  *  1–96, and the barcode API accepts up to 999). */
@@ -71,7 +93,47 @@ export function CameraReturnBar({
    *  above it rather than floating at its own inset. */
   padX: number;
 }) {
-  const clear = !stale && boxes.length === 0;
+  const quiet = boxes.length === 0;
+
+  /**
+   * NOTHING TO SAY, SAID QUIETLY. One small dim line, no display type, no
+   * sentence — a room full of guests should not be reading an inventory notice,
+   * and staff only need to be able to tell the strip is alive rather than
+   * switched off. `stale` shares this treatment but not its wording: it must not
+   * claim an all-clear it cannot stand behind.
+   */
+  if (quiet) {
+    return (
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: BAR_CLEAR_H,
+          zIndex: 7,
+          display: "flex",
+          alignItems: "center",
+          // Right of the version stamp in the corner, aligned with the boards above.
+          padding: `0 ${Math.max(24, padX - 66)}px`,
+          background: "rgba(0, 4, 24, 0.72)",
+          borderTop: "1px solid rgba(245, 236, 238, 0.07)",
+        }}
+      >
+        <span
+          style={{
+            fontSize: 20,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            color: "rgba(245, 236, 238, 0.28)",
+          }}
+        >
+          {stale ? "Cameras — list unavailable" : "Cameras all in"}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -98,30 +160,16 @@ export function CameraReturnBar({
         >
           Cameras
         </span>
-        <span
-          className="tv-display tv-num"
-          style={{
-            fontSize: 38,
-            color: stale || clear ? "rgba(245, 236, 238, 0.5)" : "#ff4b45",
-          }}
-        >
-          {stale ? "Checking" : clear ? "All in" : `${outCount} still out`}
+        <span className="tv-display tv-num" style={{ fontSize: 38, color: "#ff4b45" }}>
+          {outCount} still out
         </span>
       </div>
 
-      {stale || clear ? (
-        <span style={{ fontSize: 30, color: "rgba(245, 236, 238, 0.42)", letterSpacing: "0.06em" }}>
-          {stale
-            ? "Camera list unavailable right now — check the desk board."
-            : "Every camera from tonight’s races is accounted for."}
-        </span>
-      ) : (
-        <div style={{ display: "flex", flex: "0 1 auto", gap: 9, overflow: "hidden" }}>
-          {boxes.map((b) => (
-            <CameraBox key={b.camera} box={b} />
-          ))}
-        </div>
-      )}
+      <div style={{ display: "flex", flex: "0 1 auto", gap: 9, overflow: "hidden" }}>
+        {boxes.map((b) => (
+          <CameraBox key={b.camera} box={b} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -177,4 +225,4 @@ function CameraBox({ box }: { box: CameraReturnBox }) {
   );
 }
 
-export { BAR_H as CAMERA_BAR_H };
+export { BAR_H as CAMERA_BAR_H, BAR_CLEAR_H as CAMERA_BAR_CLEAR_H };

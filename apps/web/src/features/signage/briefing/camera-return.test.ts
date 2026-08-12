@@ -7,6 +7,7 @@ import {
   type CameraScan,
   type SessionFinish,
 } from "./camera-return";
+import { cameraBarHeight, CAMERA_BAR_H, CAMERA_BAR_CLEAR_H } from "../components/CameraReturnBar";
 
 const T = Date.parse("2026-08-12T23:00:00.000Z");
 const m = (n: number) => n * 60_000;
@@ -247,6 +248,24 @@ describe("cameraReturnStripAt", () => {
     expect(r.boxes.map((b) => b.camera)).toEqual(["12", "15", "23", "54", "94"]);
     expect(r.outCount).toBe(2);
     expect(r.boxes.filter((b) => b.state === "out").map((b) => b.camera)).toEqual(["54", "94"]);
+  });
+});
+
+describe("cameraBarHeight", () => {
+  it("reserves nothing when the strip is off the rail", () => {
+    expect(cameraBarHeight(null)).toBe(0);
+    expect(cameraBarHeight(undefined)).toBe(0);
+  });
+
+  it("collapses to a whisper when everything is accounted for", () => {
+    // Owner 2026-08-12: "I want the all cameras in to be very small and less
+    // noticeable" — the clear state must not cost the helmet poster 104px.
+    expect(cameraBarHeight({ boxes: [] })).toBe(CAMERA_BAR_CLEAR_H);
+    expect(CAMERA_BAR_CLEAR_H).toBeLessThan(CAMERA_BAR_H / 2);
+  });
+
+  it("takes the full band as soon as there is a box to show", () => {
+    expect(cameraBarHeight({ boxes: [{}] })).toBe(CAMERA_BAR_H);
   });
 });
 
