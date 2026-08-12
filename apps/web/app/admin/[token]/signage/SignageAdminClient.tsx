@@ -533,15 +533,15 @@ function ScreenRow({
                 onClick={() =>
                   onSimulate(
                     "preview",
-                    { screenId: screen.screenId, mode: "briefing-quals" },
-                    `Levelled-up board pushed to ${screen.screenId}.`,
+                    { screenId: screen.screenId, mode: "briefing-return" },
+                    `Welcome-back board pushed to ${screen.screenId}.`,
                   )
                 }
                 style={btn}
                 disabled={busy}
-                title="Skip straight to the qualification board — no need to sit through the film"
+                title="Skip straight to the welcome-back board — no need to sit through the film"
               >
-                Preview levelled-up
+                Preview welcome back
               </button>
             )}
             {canVip && (

@@ -361,6 +361,17 @@ export interface TvFeed {
       pro: { url: string; durationMs: number | null } | null;
     };
     helmetPosterUrl: string | null;
+    /**
+     * The room's group has FINISHED racing — the timing system stamped their
+     * session's actualEnd — and is walking back in to return kit. Shown only
+     * while the room is otherwise idle; any live timeline outranks it. Carries
+     * no names (the who-qualified board is parked, owner 2026-08-11).
+     */
+    welcomeBack: {
+      heatNumber: number | null;
+      raceType: string | null;
+      track: "blue" | "red" | "mega";
+    } | null;
   } | null;
   /**
    * FAST HALF — what each briefing room is showing right now. Also present on

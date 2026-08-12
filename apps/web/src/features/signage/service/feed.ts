@@ -35,6 +35,7 @@ import { buildWelcomeBoard } from "./welcome";
 import { briefingEnabled } from "../flags";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
 import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
+import { resolveWelcomeBack } from "../briefing/welcome-back.server";
 import type { TvFeed, TvPulse } from "../types";
 
 /** Screens phone home on every poll; the admin page reads these for its
@@ -134,7 +135,11 @@ export async function buildTvFeed(
     config.showNextAvailable
       ? buildNextAvailable(parsed.venue).catch(() => null)
       : Promise.resolve(null),
-    wantsBriefing ? buildBriefingSection(parsed.venue).catch(() => null) : Promise.resolve(null),
+    wantsBriefing
+      ? buildBriefingSection(parsed.venue, config.briefingRoom as "red" | "blue", ymd).catch(
+          () => null,
+        )
+      : Promise.resolve(null),
   ]);
 
   // Has the heat on the track board already been sent to a briefing room? One
@@ -177,13 +182,20 @@ export async function buildTvFeed(
  * wondering why the video they just uploaded is not playing.
  *
  */
-async function buildBriefingSection(venue: SignageVenue): Promise<{
+async function buildBriefingSection(
+  venue: SignageVenue,
+  room: "red" | "blue",
+  businessDay: string,
+): Promise<{
   section: NonNullable<TvFeed["briefing"]>;
   rooms: TvFeed["briefingRooms"];
 }> {
-  const [assets, rooms] = await Promise.all([
+  const [assets, rooms, welcomeBack] = await Promise.all([
     loadSignageAssetsSafe(),
     readBriefingRooms(venue).catch(() => ({ red: null, blue: null })),
+    // The group's return — from the timing system's own actualEnd, via the same
+    // cron-warmed reader the VIP board uses. Null while they are still out.
+    resolveWelcomeBack(venue, room, businessDay).catch(() => null),
   ]);
 
   const starter = assets["briefing-video:starter"];
@@ -201,6 +213,13 @@ async function buildBriefingSection(venue: SignageVenue): Promise<{
         pro: pro ? { url: pro.url, durationMs: pro.durationMs } : null,
       },
       helmetPosterUrl: poster?.url ?? null,
+      welcomeBack: welcomeBack
+        ? {
+            heatNumber: welcomeBack.heatNumber,
+            raceType: welcomeBack.raceType,
+            track: welcomeBack.track,
+          }
+        : null,
     },
     rooms,
   };

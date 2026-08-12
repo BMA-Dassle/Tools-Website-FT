@@ -239,7 +239,7 @@ describe("demoBriefingRooms — the anchor is stable across ticks", () => {
   it("switching preview modes re-anchors immediately", () => {
     const t0 = 1_760_200_000_000;
     const film = demoBriefingRooms(t0, null, "briefing").red!.triggeredAtMs;
-    const quals = demoBriefingRooms(t0 + 250, null, "briefing-quals").red!.triggeredAtMs;
+    const quals = demoBriefingRooms(t0 + 250, null, "briefing-return").red!.triggeredAtMs;
     expect(quals).not.toBe(film);
   });
 });

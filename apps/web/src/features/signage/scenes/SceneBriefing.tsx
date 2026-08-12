@@ -60,7 +60,7 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
 
   // Room state is read BEFORE the assets hook, because whether a film is playing
   // right now decides whether we may use the link to download one.
-  const previewRooms = demo === "briefing" || demo === "briefing-quals";
+  const previewRooms = demo === "briefing" || demo === "briefing-return";
   const roomsNow = previewRooms ? demoBriefingRooms(nowMs, feed, demo) : feed?.briefingRooms;
   const stateNow = room ? (roomsNow?.[room] ?? null) : null;
   // Downloads hold during "waiting" too: the group is walking over, Start is
@@ -131,6 +131,14 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
           seekToMs={timeline.videoOffsetMs}
           onUnplayable={markUnplayable}
         />
+      ) : timeline.phase === "idle" && feed?.briefing?.welcomeBack ? (
+        // THE GROUP IS BACK (owner 2026-08-11): their session's actualEnd is
+        // stamped and the room is idle, so the wall greets them — kit return, the
+        // qualifying time, where scores are posted. NO names (who-qualified is
+        // parked). Strictly idle-only: a playing video, a take-a-seat hold and
+        // the helmet phase all outrank it, and it stays up until the next
+        // briefing occupies the room.
+        <WelcomeBack accent={accent} room={room} info={feed.briefing.welcomeBack} />
       ) : (
         <Board
           accent={accent}
@@ -463,7 +471,7 @@ function HelmetBoard({
       {/* Where results are (owner 2026-08-11). A group leaving the briefing asks it
           immediately, and the answer is a walk rather than a screen. */}
       <p style={{ fontSize: 40, color: "rgba(245,236,238,0.6)", margin: 0 }}>
-        Race results are posted outside Red Track.
+        Race scores are posted outside the briefing room, near check-in and Red Track.
       </p>
       {target && <QualifyTarget accent={accent} target={target} />}
 
@@ -608,6 +616,88 @@ function QualifyTarget({
       <span style={{ fontSize: compact ? 26 : 34, color: "rgba(245,236,238,0.78)" }}>
         to qualify {target.level}
       </span>
+    </div>
+  );
+}
+
+/**
+ * WELCOME BACK — the group has raced and is walking in to return kit.
+ *
+ * Everything on it is something they need in the next two minutes: where the
+ * helmets and cameras go, the time they were chasing, and where the scores are.
+ * Deliberately NO names — who actually levelled up is parked (owner 2026-08-11)
+ * — and no timers: it holds until the next briefing occupies the room.
+ */
+function WelcomeBack({
+  accent,
+  room,
+  info,
+}: {
+  accent: string;
+  room: BriefingRoom;
+  info: { heatNumber: number | null; raceType: string | null; track: "blue" | "red" | "mega" };
+}) {
+  const target = nextLevelTarget(info.track, info.raceType);
+  return (
+    <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 16,
+          background: accent,
+          boxShadow: `0 0 60px ${accent}`,
+        }}
+      />
+      <div
+        aria-hidden
+        className="tv-breathe"
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: `radial-gradient(75% 65% at 50% 40%, ${withAlpha(accent, 0.4)}, transparent 74%)`,
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          inset: `${PAD_Y}px ${PAD_X}px`,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          gap: 26,
+        }}
+      >
+        <span className="tv-eyebrow" style={{ color: accent, fontSize: 40 }}>
+          {ROOM_LABEL[room]}
+          {info.heatNumber != null ? ` · Session ${info.heatNumber}` : ""}
+        </span>
+        <div
+          className="tv-display tv-rise"
+          style={{ fontSize: 170, color: "#fff", lineHeight: 0.92 }}
+        >
+          Welcome back!
+        </div>
+
+        {/* Kit return — the two things staff otherwise repeat to every group. */}
+        <div style={{ display: "grid", gap: 10 }}>
+          <p style={{ fontSize: 54, color: "rgba(245,236,238,0.85)", margin: 0 }}>
+            Return helmets to the shelves.
+          </p>
+          <p style={{ fontSize: 54, color: "rgba(245,236,238,0.85)", margin: 0 }}>
+            Cameras go back to the attendant.
+          </p>
+        </div>
+
+        {target && <QualifyTarget accent={accent} target={target} />}
+
+        <p style={{ fontSize: 42, color: "rgba(245,236,238,0.62)", margin: 0 }}>
+          Race scores are posted outside the briefing room, near check-in and Red Track.
+        </p>
+      </div>
     </div>
   );
 }
