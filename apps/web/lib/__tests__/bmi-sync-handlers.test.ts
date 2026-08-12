@@ -129,12 +129,12 @@ describe("repair-person-details", () => {
   });
 });
 
-describe("add-default-membership", () => {
-  const h = SYNC_HANDLERS["add-default-membership"];
+describe("add-membership", () => {
+  const h = SYNC_HANDLERS["add-membership"];
 
   it("grants and reports the membership id", async () => {
     memberships.addMembership.mockResolvedValueOnce("777");
-    const r = await h(row({ kind: "add-default-membership", payload: { personId: "1" } }));
+    const r = await h(row({ kind: "add-membership", payload: { personId: "1" } }));
     expect(r.ok).toBe(true);
     expect(r.detail).toContain("777");
   });
@@ -143,13 +143,13 @@ describe("add-default-membership", () => {
     memberships.addMembership.mockRejectedValueOnce(
       new Error("addMembership: membership-kind id not set (RACE_LICENSE_MEMBERSHIP_KIND_ID)"),
     );
-    const r = await h(row({ kind: "add-default-membership", payload: { personId: "1" } }));
+    const r = await h(row({ kind: "add-membership", payload: { personId: "1" } }));
     expect(r.retry).toBe(false);
   });
 
   it("anything else is retryable", async () => {
     memberships.addMembership.mockRejectedValueOnce(new Error("timeout"));
-    const r = await h(row({ kind: "add-default-membership", payload: { personId: "1" } }));
+    const r = await h(row({ kind: "add-membership", payload: { personId: "1" } }));
     expect(r.retry).toBe(true);
   });
 });
@@ -255,7 +255,7 @@ describe("handler contract", () => {
     for (const k of [
       "repair-person-details",
       "push-waiver-signature",
-      "add-default-membership",
+      "add-membership",
       "attach-project-person",
     ] as const) {
       expect(typeof SYNC_HANDLERS[k]).toBe("function");

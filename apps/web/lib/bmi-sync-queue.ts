@@ -48,8 +48,14 @@ export type SyncKind =
   /** Pandora POST /bmi/waiver: create the waiver RECORD for a signature we
    *  already hold in Neon. */
   | "push-waiver-signature"
-  /** Pandora addMembership: the default/licence membership. */
-  | "add-default-membership"
+  /** Pandora addMembership — the FastTrax racing LICENCE ("License Fee",
+   *  LICENSE_MEMBERSHIP_KIND_ID) is the only kind wired today, so a row here means
+   *  "grant the licence this guest paid for". Was called add-default-membership,
+   *  which implied a generic default that does not exist (owner 2026-08-12: "if
+   *  they bought a license give them that instead of the default membership").
+   *  The payload carries the purchase ref so a granted licence is traceable to
+   *  the money that bought it. */
+  | "add-membership"
   /** public-booking registerProjectPerson: attach a person to an order. */
   | "attach-project-person";
 
@@ -92,7 +98,7 @@ export interface SyncQueueRow {
 export const GIVE_UP_MINUTES: Record<SyncKind, number> = {
   "repair-person-details": 120,
   "push-waiver-signature": 720, // a waiver is worth chasing all day
-  "add-default-membership": 720,
+  "add-membership": 720,
   "attach-project-person": 120,
 };
 

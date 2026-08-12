@@ -116,25 +116,38 @@ async function pushWaiverSignature(row: SyncQueueRow): Promise<HandlerResult> {
 }
 
 /**
- * Grant the default / licence membership on Pandora.
+ * Grant a membership on Pandora — in practice, the LICENCE the guest bought.
  *
- * NOT money: `addMembership` writes a membership row, it does not move a
- * balance. The $4.99 licence CHARGE stays on the Square rail with its own
- * obligation ledger (`race_license_grants`); this only records the entitlement
- * once the person is locally visible.
+ * Owner 2026-08-12: "if they bought a license can we give them that instead of
+ * the default membership". Worth stating plainly because the naming used to
+ * imply otherwise: **there is no generic "default" membership.**
+ * `LICENSE_MEMBERSHIP_KIND_ID` (the FastTrax "License Fee", Firebird kind
+ * 11260957) is the only kind wired, and `addMembership` already defaults to it —
+ * so a row of this kind has always meant "grant the racing licence". The payload
+ * may still name a different `membershipKindId` explicitly if one is ever added,
+ * and `purchaseRef` records WHICH purchase justified the grant so an entitlement
+ * is always traceable to the money that bought it.
+ *
+ * NOT money itself: this writes a membership row, it does not move a balance.
+ * The $4.99 licence CHARGE stays on the Square rail with its own obligation
+ * ledger (`race_license_grants`); this records the entitlement once the person
+ * is locally visible.
  */
-async function addDefaultMembership(row: SyncQueueRow): Promise<HandlerResult> {
+async function addMembershipHandler(row: SyncQueueRow): Promise<HandlerResult> {
   const personId = str(row.payload.personId) ?? row.barrierRef;
   if (!personId) return dead("no personId in payload");
+  const purchaseRef = str(row.payload.purchaseRef);
   try {
     const id = await addMembership({
       personId,
       locationId: row.locationId ?? undefined,
+      // Omitted → LICENSE_MEMBERSHIP_KIND_ID, i.e. the racing licence.
       membershipKindId: str(row.payload.membershipKindId) ?? undefined,
+      // Omitted → now + 1 year (Pandora does NOT default `expires`).
       expires: str(row.payload.expires) ?? undefined,
       activates: str(row.payload.activates) ?? undefined,
     } as Parameters<typeof addMembership>[0]);
-    return done(`membership ${id}`);
+    return done(`membership ${id}${purchaseRef ? ` for purchase ${purchaseRef}` : ""}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "addMembership failed";
     // A missing kind id is configuration, not weather — retrying cannot fix it.
@@ -183,6 +196,6 @@ async function attachProjectPerson(row: SyncQueueRow): Promise<HandlerResult> {
 export const SYNC_HANDLERS: Record<SyncKind, (row: SyncQueueRow) => Promise<HandlerResult>> = {
   "repair-person-details": repairPersonDetails,
   "push-waiver-signature": pushWaiverSignature,
-  "add-default-membership": addDefaultMembership,
+  "add-membership": addMembershipHandler,
   "attach-project-person": attachProjectPerson,
 };
