@@ -37,6 +37,10 @@ const SQ = {
   HEADSOCK: "IRKUPTF2ITBTTDPHMOIIIQVE",
   RACE_PACK: "YYOV5QCHQSJKZS7DDIALGU7Z",
   ULTIMATE_QUALIFIER: "X4RZPTPJEJ45OG3S3HMDMCHZ",
+  // BOGO Races flash sale — owner-created 2026-08-12. Its own item so the sale
+  // breaks out in Square and the QBO journal sync instead of disappearing into
+  // the general Karting line.
+  BOGO_RACES: "RA3LYFWABUMGPD34VDHZ4C3F",
   ROOKIE_PACK: "37MC3KLD5JMMBHGYG6JILZ7P",
   GEL_BLASTER: "IPAKRTMOYX37ATF7UBJCXQSP",
   LASER_TAG: "TXNWQI43HNMX2EHP72ZPUVXU",
@@ -136,6 +140,8 @@ export const SQUARE_CATALOG_MAP: Record<string, string> = {
   "rookie-pack": SQ.ROOKIE_PACK,
   "rookie-pack-weekday-junior": SQ.ROOKIE_PACK,
   "rookie-pack-weekend-junior": SQ.ROOKIE_PACK,
+  "bogo-weekday": SQ.BOGO_RACES,
+  "bogo-weekday-junior": SQ.BOGO_RACES,
 
   // ── Booking add-ons (charge line carries the addon chargeLineKey) ───
   // Retail extras from data/addon-catalog.ts — same synthetic-key pattern as

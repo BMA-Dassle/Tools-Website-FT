@@ -80,6 +80,12 @@ describe("integration: every package cartLineKey resolves to its OWN catalog ite
     expect(id).not.toBe(SQUARE_CATALOG_IDS.KARTING);
   });
 
+  it("bogo keys map to the BOGO Races item", () => {
+    for (const key of keys.filter((k) => k.startsWith("bogo"))) {
+      expect(lookupCatalogId(key)).toBe(SQUARE_CATALOG_IDS.BOGO_RACES);
+    }
+  });
+
   it("ultimate-qualifier keys map to the Ultimate Qualifier item", () => {
     for (const key of keys.filter((k) => k.startsWith("ultimate-qualifier"))) {
       expect(lookupCatalogId(key)).toBe(SQUARE_CATALOG_IDS.ULTIMATE_QUALIFIER);

@@ -55,7 +55,7 @@ export interface PackEligibleMember {
  * A pack with neither restriction (every standing 3/5/10 SKU) matches everyone,
  * so this is a no-op for them.
  */
-function packFitsMember(pack: RacePack, m: PackEligibleMember): boolean {
+export function packFitsMember(pack: RacePack, m: PackEligibleMember): boolean {
   if (pack.category && (m.category ?? "adult") !== pack.category) return false;
   if (pack.racerType === "existing" && m.isNewRacer) return false;
   return true;

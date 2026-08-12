@@ -61,7 +61,7 @@ import {
 import { racerNeedsLicense } from "~/features/booking/service/license";
 import { useT, type Translate } from "~/features/kiosk/i18n";
 import { racePackTeaserVisible } from "./RacePackTeaser";
-import { RacePackPicker } from "./RacePackPicker";
+import { RacePackPicker, packFitsMember } from "./RacePackPicker";
 import { IncludedList } from "./PackageCard";
 import {
   livePerRacerPrice,
@@ -555,7 +555,16 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
     const others = bundles.filter((p) => p !== hero);
 
     const packsOn = racePackTeaserVisible(session, item.date) && kioskRacePacksEnabled();
-    const skus = packsOn ? packSkusForRaceDate(item.date) : [];
+    // Day-filtered AND party-filtered. `packSkusForRaceDate` only knows the
+    // race date, so a tier-restricted SKU it returns may be unbuyable by anyone
+    // present — and the cheapest such SKU was setting the headline price. An
+    // adults-only party was quoted "from $15.99", the JUNIOR sale price, for a
+    // pack no one in the party can hold. Filtering here fixes the collapsed
+    // "Race Packs" line, the promoted sale row and the picker tiles at once,
+    // because all three read this list.
+    const skus = packsOn
+      ? packSkusForRaceDate(item.date).filter((p) => eligible.some((m) => packFitsMember(p, m)))
+      : [];
     const eligible = session.party.filter((m) => !!m.bmiPersonId);
     const picks = item.creditPacks ?? [];
 
@@ -737,7 +746,12 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
             Disappears with the sale, because `skus` is already window-filtered. */}
         {packsOn &&
           (() => {
-            const sale = skus.filter((p) => p.badge);
+            // Only SKUs someone in THIS party can actually buy. `skus` is
+            // day-filtered, not party-filtered, so an adults-only party was
+            // being quoted the junior sale price ($15.99) for a pack only a
+            // junior can hold — a price they would never be charged. Quoting
+            // low is worse than quoting high: it reads as a switch at checkout.
+            const sale = skus.filter((p) => p.badge && eligible.some((m) => packFitsMember(p, m)));
             if (sale.length === 0 || packOpen) return null;
             const lead = sale.reduce((a, b) => (b.price < a.price ? b : a));
             return (
