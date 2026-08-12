@@ -1,5 +1,34 @@
 # Open Tasks
 
+## Camera return strip on the briefing TVs (2026-08-12) — PUSHED, `feat/camera-return-strip`
+
+Nothing recorded a POV camera coming back: the out-side is the grid scan, the return was
+only ever inferred days later when a video turned up. A camera left in a kart looked
+exactly like one returned fine, until the next group was handed it. Owner: "when a race
+finishes we would turn those camera numbers RED. They would not turn green till we see
+them check into one of the systems." Mockup approved before building.
+
+Derived from three facts, never remembered — the scan log, the finish marker, and a new
+`camera-seen` stamp. See `src/features/signage/briefing/camera-return.ts` for the rules.
+
+- [x] Day-scoped scan index — `camera-scan-log:{businessDay}`, key/member/TTL **verbatim
+      from `02528335`** so `feat/video-liveness-alerts` still merges cleanly.
+- [x] `camera-seen:{camera}` off VT3's **registration** time, not the upload (owner: "we're
+      watching for the registered time…not waiting for the video to finish upload").
+      Measured +2 min median after the flag; 12/12 cameras over three heats.
+- [x] Pandora `actualEnd` backstop for the flag — **not optional**: only 5 of 17 already-run
+      sessions had a bridge marker on 8/12 (heartbeat 23 min stale).
+- [x] Outstanding-only boxes, no blinking, 104 px reserved in every phase incl. the film.
+- [x] Kill switch `SIGNAGE_CAMERA_RETURN_ENABLED`, SIGNAGE_VERSION 0.3.0, demo data.
+- [x] `scripts/camera-return-peek.mts` — traces a disputed box to scan / flag / sighting.
+- [ ] **Merge, then ONE LIVE RACE NIGHT.** The scan index must deploy before the strip has
+      anything to show, so a wall smoke before that proves nothing.
+- [ ] Probe `sys.vt3.io` for a camera/system status collection — owner asked to "check the
+      socket for cameras"; VT3 creds are Vercel-only so it could not be run locally.
+      `scripts/_vt3-camera-surface-probe.mts` is written and ready.
+- [ ] The same strip on the camera-assign station, which is where cameras go OUT. Higher
+      operational value than the briefing TVs; deliberately a separate PR.
+
 ## Check-in board: room camera, overdue flashing, and the briefing LOG (2026-08-12) — ON MAIN
 
 Owner's live pass over `/admin/{token}/checkin?board=1` while the venue was open. All of it
