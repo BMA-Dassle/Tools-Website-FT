@@ -555,6 +555,12 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
     const others = bundles.filter((p) => p !== hero);
 
     const packsOn = racePackTeaserVisible(session, item.date) && kioskRacePacksEnabled();
+    // MUST stay above `skus` — that filter reads it synchronously. When this sat
+    // below, the read hit the temporal dead zone and threw a ReferenceError that
+    // took out the whole packages page. tsc does NOT catch it: the reference is
+    // inside a .filter() callback, so the compiler can't know it runs during
+    // initialisation rather than later.
+    const eligible = session.party.filter((m) => !!m.bmiPersonId);
     // Day-filtered AND party-filtered. `packSkusForRaceDate` only knows the
     // race date, so a tier-restricted SKU it returns may be unbuyable by anyone
     // present — and the cheapest such SKU was setting the headline price. An
@@ -565,7 +571,6 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
     const skus = packsOn
       ? packSkusForRaceDate(item.date).filter((p) => eligible.some((m) => packFitsMember(p, m)))
       : [];
-    const eligible = session.party.filter((m) => !!m.bmiPersonId);
     const picks = item.creditPacks ?? [];
 
     // Cheapest single race for this category, from the same registry the product

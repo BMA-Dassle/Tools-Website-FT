@@ -15,6 +15,11 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.22.1 — HOTFIX: the packages page crashed on load. The party-eligibility
+ *         filter added in 1.22.0 read `eligible` one line before it was
+ *         declared — a temporal-dead-zone ReferenceError that took out the
+ *         whole screen. tsc cannot catch it: the read sits inside a .filter()
+ *         callback, so the compiler cannot know it runs during init.
  * 1.22.0 — BOGO RACES FLASH SALE, 8/12 → EOD 8/13 (owner 2026-08-12). Buy one
  *         race, get one free, shipped as TWO instruments so it reaches both
  *         kinds of racer. RETURNING racers see a 2-race credit pack on the
@@ -937,7 +942,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.22.0";
+export const KIOSK_VERSION = "1.22.1";
 
 let bootVersion: string | null = null;
 let captured = false;
