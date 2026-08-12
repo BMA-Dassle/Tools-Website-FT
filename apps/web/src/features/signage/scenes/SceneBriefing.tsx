@@ -143,11 +143,11 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
         />
       ) : timeline.phase === "idle" && feed?.briefing?.welcomeBack ? (
         // THE GROUP IS BACK (owner 2026-08-11): their session's actualEnd is
-        // stamped and the room is idle, so the wall greets them — kit return, the
-        // qualifying time, where scores are posted. NO names (who-qualified is
-        // parked). Strictly idle-only: a playing video, a take-a-seat hold and
-        // the helmet phase all outrank it, and it stays up until the next
-        // briefing occupies the room.
+        // stamped and the room is idle, so the wall greets them — kit return,
+        // who levelled up and who didn't (from the end-of-race capture), the
+        // qualifying time, where scores are posted. Strictly idle-only: a
+        // playing video, a take-a-seat hold and the helmet phase all outrank
+        // it, and it stays up until the next briefing occupies the room.
         <WelcomeBack accent={accent} room={room} info={feed.briefing.welcomeBack} />
       ) : (
         <Board
