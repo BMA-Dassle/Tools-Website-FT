@@ -162,12 +162,12 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
         />
       )}
 
-      {/* THE LIVE SESSION CLOCK — at all times, every phase, the film included
-          (owner 2026-08-11: "I'd like this on the briefing room screens at all
-          times"). Bottom-left, because every board here composes from the top
-          and TvShell owns the bottom-right corner. Renders nothing when no heat
-          is live, so an idle track costs the wall nothing. */}
-      <div style={{ position: "absolute", left: PAD_X, bottom: 40, zIndex: 6 }}>
+      {/* THE LIVE SESSION CLOCK — at all times, every phase, the film included.
+          TOP-RIGHT (owner 2026-08-11: "move on track timer to top right") — the
+          bottom edge is where subtitle tracks burn into the film, and the
+          helmet board's own chips now cluster left so this corner is the
+          clock's on every board. Renders nothing when no heat is live. */}
+      <div style={{ position: "absolute", right: PAD_X, top: 40, zIndex: 6 }}>
         <LiveSessionChip track={liveTrack} accent={accent} />
       </div>
     </div>
@@ -429,15 +429,17 @@ function HelmetBoard({
             2026-08-11: "grab your helmet looks out of place"). Solid dark chip
             backgrounds rather than backdrop blur: these players are mini PCs and
             a blur over a full-screen image is compositor work they can feel. */}
+        {/* Chips cluster LEFT — the top-right corner belongs to the live
+              session clock on every board (owner 2026-08-11). */}
         <div
           style={{
             position: "absolute",
             top: 40,
             left: PAD_X,
-            right: PAD_X,
+            right: PAD_X + 460,
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
+            justifyContent: "flex-start",
             gap: 20,
             flexWrap: "wrap",
             zIndex: 3,
@@ -580,8 +582,10 @@ function TakeASeat({
             {raceType}
           </div>
         )}
+        {/* The instruction that matters in the hold: groups were suiting up
+            before anyone briefed them (owner 2026-08-11). */}
         <p style={{ fontSize: 50, color: "rgba(245,236,238,0.72)", margin: 0 }}>
-          Take a seat — your briefing starts in a moment.
+          Please do not get geared up. We&rsquo;ll help you after the briefing video.
         </p>
 
         {target && <QualifyTarget accent={accent} target={target} />}

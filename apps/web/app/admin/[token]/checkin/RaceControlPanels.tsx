@@ -50,6 +50,8 @@ import {
   type BriefingTier,
 } from "~/features/signage/briefing/types";
 import type { BriefingControl, RoomStatus } from "./useBriefingControl";
+import { formatRemaining, useLiveSessionClock } from "~/features/signage/live-session";
+import type { TrackKey } from "~/features/signage/track";
 
 const ROOM_COLOR: Record<BriefingRoom, string> = { red: "#ff5a52", blue: "#4a9bff" };
 const MEGA = "#a06bff";
@@ -296,6 +298,10 @@ function RoomColumn({
   onUndo: () => void;
 }) {
   const color = ROOM_COLOR[room];
+  // The heat ON TRACK right now, live from the timing system — the same clock
+  // the TVs and /leaderboards show (owner 2026-08-11: "add a race timer to
+  // checkin?board=1"). In the identity row so it reads even between check-ins.
+  const liveClock = useLiveSessionClock(track as TrackKey);
   const state = status?.state ?? null;
   const timeline = briefingTimelineAt(state, nowMs);
   const occupied = timeline.phase !== "idle";
@@ -327,6 +333,34 @@ function RoomColumn({
           {cap(room).toUpperCase()} ROOM
         </strong>
         <span style={{ fontSize: 11, color: PORTAL_DARK.muted }}>{cap(track)} Track</span>
+        {liveClock && (
+          <span
+            className="rc-num"
+            style={{
+              marginLeft: "auto",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              fontSize: 13,
+              fontWeight: 800,
+              color: liveClock.state === "paused" ? AMBER : INK,
+            }}
+          >
+            <span
+              aria-hidden
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                alignSelf: "center",
+                background: liveClock.state === "paused" ? AMBER : GREEN,
+                boxShadow: `0 0 8px ${liveClock.state === "paused" ? AMBER : GREEN}`,
+              }}
+            />
+            {liveClock.state === "paused" ? "PAUSED" : "ON TRACK"}&nbsp;
+            {formatRemaining(liveClock.remainingMs)}
+          </span>
+        )}
       </div>
 
       {/* ── CALLED ── */}

@@ -100,8 +100,18 @@ export function useLiveSessionClock(track: TrackKey | null): LiveSessionClock | 
   const frameRef = useRef<LiveClockFrame | null>(null);
   const syncedAt = useRef(0);
 
-  // Shared by the socket handler and the ticker, so a pause lands instantly
-  // rather than on the next tick.
+  /**
+   * THE TICKER IS THE ONLY WRITER, and the display is quantised to whole
+   * seconds — the two halves of "stop the timer jumping around" (owner
+   * 2026-08-11), and the same discipline the leaderboard landed on. Every
+   * pushed frame arrives with its own network jitter; publishing the display
+   * straight from onmessage made each resync visibly hop the clock back or
+   * forward a beat. Messages now only update the refs; this function runs on
+   * the 200ms ticker, interpolates, and — the second half — only calls
+   * setState when the SECOND (or state) actually changed, so between second
+   * boundaries the shown value cannot move at all and re-renders on a mini PC
+   * happen once a second, not five times.
+   */
   const publish = () => {
     const frame = frameRef.current;
     if (!frame?.hasRace || (frame.state !== "running" && frame.state !== "paused")) {
@@ -109,11 +119,15 @@ export function useLiveSessionClock(track: TrackKey | null): LiveSessionClock | 
       return;
     }
     const elapsed = frame.state === "running" ? Date.now() - syncedAt.current : 0;
-    setClock({
-      state: frame.state,
-      heatName: frame.heatName,
-      remainingMs: Math.max(0, frame.remainingMs - elapsed),
-    });
+    const wholeSeconds = Math.max(0, Math.floor((frame.remainingMs - elapsed) / 1000));
+    setClock((prev) =>
+      prev &&
+      prev.state === frame.state &&
+      prev.heatName === frame.heatName &&
+      prev.remainingMs === wholeSeconds * 1000
+        ? prev
+        : { state: frame.state, heatName: frame.heatName, remainingMs: wholeSeconds * 1000 },
+    );
   };
 
   useEffect(() => {
@@ -143,9 +157,15 @@ export function useLiveSessionClock(track: TrackKey | null): LiveSessionClock | 
           resetStale();
           const parsed = parseLiveFrame(evt.data);
           if (!parsed) return;
+          // Refs ONLY — the ticker is the single writer of the display, which
+          // is what keeps resync jitter from hopping the clock. The one
+          // exception below: a frame that CHANGES whether anything shows
+          // (race appears/ends, pause) publishes immediately, because waiting
+          // out a tick on a state change reads as lag, not smoothness.
+          const before = frameRef.current;
           syncedAt.current = Date.now();
           frameRef.current = parsed;
-          publish();
+          if (before?.hasRace !== parsed.hasRace || before?.state !== parsed.state) publish();
         };
         ws.onclose = () => {
           clearTimeout(staleTimer);
@@ -183,11 +203,11 @@ export function useLiveSessionClock(track: TrackKey | null): LiveSessionClock | 
     };
   }, [track]);
 
-  // Local 500ms ticker so the countdown moves between pushes. Publishing while
-  // nothing is live is a no-op (publish keeps null stable), so an idle track
-  // costs no renders.
+  // 200ms cadence, matching the leaderboard: fine enough that a second flips
+  // within a frame or two of its true instant, and the quantised publish means
+  // ticks between second boundaries are pure no-ops.
   useEffect(() => {
-    const iv = setInterval(publish, 500);
+    const iv = setInterval(publish, 200);
     return () => clearInterval(iv);
   }, []);
 
