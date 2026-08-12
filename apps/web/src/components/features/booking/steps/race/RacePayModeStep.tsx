@@ -468,13 +468,32 @@ function BundleRow({
     >
       <CountBadge n={pkg.races.length || 1} t={t} S={S} />
       <span className={S.rowBody}>
-        <span className={S.rowName}>{pkg.name}</span>
+        <span className={S.rowName}>
+          {pkg.name}
+          {/* The limited-time signal has to travel with the BUNDLE, not with
+              the hero slot. A sale bundle only headlines when it sorts first —
+              a mixed party, a category where it isn't offered, or any future
+              re-sort drops it into these rows, where it would otherwise look
+              like an ordinary permanent option with no urgency and no dates. */}
+          {pkg.badge && (
+            <span className="ml-2 whitespace-nowrap rounded-full bg-amber-400 px-2 py-0.5 align-middle text-[10px] font-black uppercase not-italic tracking-wide text-[#241701]">
+              {t("payMode.flashSale")}
+            </span>
+          )}
+        </span>
         <span className={S.rowSay}>{bundleSay(t, pkg)}</span>
         {blocked && (
           <span className={S.blockedNote}>{t("payMode.blocked", { name: pkg.name })}</span>
         )}
       </span>
-      {!blocked && d != null && d > 0 && <span className={S.deltaPill}>+{money(d)}</span>}
+      {/* A sale bundle shows what it WAS, not a +$delta against the cheapest
+          way to race — the delta framing reads as a surcharge on the one row
+          that is a discount (it rendered "+$14.01" on a deal that saves $20.99). */}
+      {!blocked && pkg.retailPrice != null && pkg.retailPrice > perRacer ? (
+        <span className={`${S.rowPrice} text-white/40 line-through`}>{money(pkg.retailPrice)}</span>
+      ) : (
+        !blocked && d != null && d > 0 && <span className={S.deltaPill}>+{money(d)}</span>
+      )}
       <span className={S.rowPrice}>{money(perRacer)}</span>
     </button>
   );
@@ -708,6 +727,52 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
             </span>
           </button>
         )}
+
+        {/* Flash-sale pack, promoted OUT of the collapsed Race Packs line.
+            The sale is the reason a returning racer is on this page today, and
+            behind "› Race Packs" it was invisible until a tap (owner
+            2026-08-12: "I don't want to have to click into this to find this
+            special"). Same picker, same flow — this is a door, not a second
+            rail: tapping opens the very block below, pre-expanded.
+            Disappears with the sale, because `skus` is already window-filtered. */}
+        {packsOn &&
+          (() => {
+            const sale = skus.filter((p) => p.badge);
+            if (sale.length === 0 || packOpen) return null;
+            const lead = sale.reduce((a, b) => (b.price < a.price ? b : a));
+            return (
+              <button
+                type="button"
+                onClick={() => setPackOpen(true)}
+                className="relative mt-2 flex w-full items-center gap-4 rounded-2xl border-2 border-amber-400 bg-linear-to-br from-amber-400/20 to-amber-400/5 px-5 pb-4 pt-6 text-left"
+              >
+                <span className="absolute -top-3 left-5 rounded-full bg-amber-400 px-3 py-1 text-[11px] font-black uppercase italic tracking-wide text-[#241701]">
+                  {t("payMode.flashSale")}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="font-display block text-lg font-black uppercase leading-tight">
+                    {t("payMode.bogo.title")}
+                  </span>
+                  <span className="mt-0.5 block text-sm text-white/60">
+                    {t("payMode.bogo.sub")}
+                  </span>
+                </span>
+                <span className="shrink-0 text-right">
+                  {typeof lead.regularPrice === "number" && (
+                    <span className="block text-xs font-semibold tabular-nums text-white/40 line-through">
+                      {money(lead.regularPrice)}
+                    </span>
+                  )}
+                  <span className="block text-xl font-extrabold tabular-nums">
+                    {money(lead.price)}
+                  </span>
+                </span>
+                <span aria-hidden className="shrink-0 text-white/50">
+                  ›
+                </span>
+              </button>
+            );
+          })()}
 
         {/* Race packs — one line until tapped */}
         {packsOn && skus.length > 0 && (

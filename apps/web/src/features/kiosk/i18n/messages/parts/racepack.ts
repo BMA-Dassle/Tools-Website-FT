@@ -119,6 +119,9 @@ export const racepackEn = {
   // Replaces the recommended pill while a limited-time bundle holds the hero card.
   "payMode.flashSale": "★ FLASH SALE — AUG 12–13 ONLY",
   "payMode.selected": "✓ Selected",
+  "payMode.bogo.title": "2 Races for the Price of 1",
+  "payMode.bogo.sub":
+    "Buy one race, get one free — the second banks to your account for a Mon–Thu visit.",
   "payMode.raceWord": "{count, plural, one {race} other {races}}",
   "payMode.incl.prefix": "incl. {list}",
   "payMode.incl.license": "license",
@@ -257,6 +260,9 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   "payMode.recommended": "★ Recomendado por FastTrax",
   "payMode.flashSale": "★ OFERTA RELÁMPAGO — SOLO 12–13 DE AGO",
   "payMode.selected": "✓ Seleccionado",
+  "payMode.bogo.title": "2 Carreras por el Precio de 1",
+  "payMode.bogo.sub":
+    "Compra una carrera y llévate otra gratis — la segunda se guarda en tu cuenta para una visita de lun–jue.",
   "payMode.raceWord": "{count, plural, one {carrera} other {carreras}}",
   "payMode.incl.prefix": "incluye {list}",
   "payMode.incl.license": "licencia",

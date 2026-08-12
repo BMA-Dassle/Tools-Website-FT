@@ -73,6 +73,9 @@ import type { BmiProposal } from "../data/bmi";
 import type { Activity, Brand, CenterCode, ContactInfo } from "../types";
 import type { EntryContext } from "./entry-context";
 import type { RaceTier, RaceCategory } from "../service/race-products";
+// Value import (not `import type`): raceItemFullyPackaged reads `includesPov`
+// off the registry. lib/packages.ts imports only ./et-time, so no cycle.
+import { getPackage } from "@/lib/packages";
 
 /* ───────────────────────── PartyMember ─────────────────────────── */
 
@@ -375,10 +378,24 @@ export function racePackageIds(item: RacePackageFields): string[] {
   return [...new Set(ids)];
 }
 
-/** True when EVERY category present in the party has a package selected on the
- *  item. Single seam for "the package covers the whole party" decisions — the
- *  POV upsell step hides on it, and buildRaceChargeLines suppresses the
- *  standalone POV quantity on it — so display and charge can't disagree. */
+/**
+ * True when EVERY category present in the party has a package that ALREADY
+ * INCLUDES THE POV VIDEO. Single seam for "the packages cover the party's
+ * video" decisions — the POV upsell step hides on it, and buildRaceChargeLines
+ * suppresses the standalone POV quantity on it — so display and charge can't
+ * disagree.
+ *
+ * The `includesPov` check is load-bearing, not defensive. This used to mean
+ * merely "has a package", which was indistinguishable from "POV is covered"
+ * while Rookie Pack and Ultimate Qualifier — both `includesPov: true` — were
+ * the only bundles. The BOGO flash sale is the first package that deliberately
+ * excludes video, and under the old rule its guests were never OFFERED the POV
+ * step at all: the upsell silently vanished for exactly the new racers most
+ * likely to want a video of their first race, and no line could ever be
+ * charged because the quantity stayed zero. Every one of this function's
+ * callers is asking the POV question, so tightening it here fixes the step,
+ * the cart row, the estimate and the charge in one place.
+ */
 export function raceItemFullyPackaged(
   item: RacePackageFields,
   party: Array<{ category?: "adult" | "junior" }>,
@@ -386,7 +403,13 @@ export function raceItemFullyPackaged(
   const cats = (["adult", "junior"] as const).filter((c) =>
     party.some((m) => (m.category ?? "adult") === c),
   );
-  return cats.length > 0 && cats.every((c) => !!packageIdForCategory(item, c));
+  return (
+    cats.length > 0 &&
+    cats.every((c) => {
+      const id = packageIdForCategory(item, c);
+      return !!id && !!getPackage(id)?.includesPov;
+    })
+  );
 }
 
 export interface AttractionItem extends BookingItemBase {
