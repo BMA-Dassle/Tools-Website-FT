@@ -3627,3 +3627,129 @@ Reminder that held: guest-facing kiosk copy ships EN + ES in the same commit, an
 data-borne copy counts. The new `attraction.playExperience` key landed in both
 catalogs, and the `es` duration labels in `activities-catalog.ts` moved with the
 English ones.
+
+## A scripted edit that finds nothing changes nothing — and green gates can't tell you (2026-08-11)
+
+Three separate signage failures in one night traced to the same mechanic:
+a python `str.replace` patch targeting a multi-line code shape **after prettier
+had collapsed it to one line**. `replace` on a missing pattern is a silent
+no-op, so the file simply kept its old behaviour.
+
+The trap has two halves, and the second is what makes it dangerous:
+
+1. **The edit no-ops silently.** No error, no diff warning — nothing.
+2. **Every gate stays green.** The worst case was
+   `applyDemo(rawFeed, demo, …)` surviving a rename to `effectiveDemo`: both
+   variables exist and are used elsewhere, so tsc, eslint AND the unit tests
+   all passed while pushed previews decorated nothing on every screen. The
+   probe I wrote to "verify" it passed too — because it *re-implemented* the
+   wiring correctly instead of importing the app's actual wiring. A test that
+   shares no code with the thing it tests can only test the author's intent,
+   never the deployment.
+
+Rules, in force from now on:
+
+- **Every scripted replace carries `assert old in s`.** A patch that can't
+  find its target must fail loudly, not skip politely.
+- **After ANY scripted edit, grep the file for the NEW text** before running
+  gates. Two seconds of `grep -n` beats an hour of production archaeology.
+- **Prefer the Edit tool over python/sed for source patches** — it errors on a
+  missing match instead of no-opping.
+- **When a "does X work?" check matters, the checker must IMPORT the code
+  under test**, not restate it. The fix extracted `effectiveDemoMode()` into
+  demo.ts and made TvApp and the live probe share it — the probe now cannot
+  pass while the app is wrong.
+- **Verification order: hook first, then gates.** Prettier rewrites staged
+  files at commit time; a build that passed *before* the commit validated code
+  that may no longer exist (this also shipped the `?? null ??` deploy
+  failure). Re-run tsc/grep on the committed tree.
+
+Corollary from the same night: heartbeats and health signals must carry a
+**build identifier**, not just "alive". Three "broken feature" reports were
+stale JavaScript, and there was no way to tell without walking to the player.
+
+## A message's channel is an audience decision, not a transport detail (2026-08-11)
+
+The briefing return announcements were specified for Zello target "Track Bot".
+A health check listed only FOH bots, so I silently retargeted the payload to
+FOH — the kiosk's working channel. Owner: "Why are you switching to front of
+house? DON'T DO THAT — this is a specific track announcement." Minutes later
+`FT - Track Bot` appeared OPEN on `/health/zello`: it was a brand-new bot the
+owner had just stood up, and the announcement then played on it live.
+
+Rules, in force from now on:
+
+- **Never reroute a message to a different channel because the requested one
+  looks broken.** Who hears it is a product decision; substituting a "working"
+  audience changes the feature. Report the evidence, ask, wait.
+- **Re-probe live state immediately before concluding a target doesn't
+  exist.** Infra changes mid-evening here; the local soteria checkout and a
+  minutes-old health snapshot were both already stale.
+- **soteria `/radio` 200 = queued, never played.** Silent audio → check the
+  bot's socket on `/health/zello`; cut-off audio → flapping sockets. Neither
+  is a payload problem.
+
+## A 403 that says "not allowed" was a prompt we never answered (2026-08-12)
+
+Sales: "some send contracts are failing because of overbooking." BMI Office
+answers `PUT /api/{ck}/project` with **403 plus a JSON envelope** when the project
+is over a resource's capacity — and the envelope you get depends on the login:
+
+    staff browser   {"IsQuestion":true, "Kind":4, "OperationId":"24f4…",
+                     "Message":"Total persons (12) is higher than the capacity (0) in
+                                HP Arena: … \n Do you want to overbook?"}
+
+    our API2 acct   {"IsQuestion":false,"Kind":4, "OperationId":"8389…",
+                     "Message":"Total persons (12) is higher than the capacity (0) in
+                                HP Arena: …, overbooking is not allowed."}
+
+**"Overbooking is not allowed" is not final.** Re-sending the byte-identical body
+with `confirm:true` returns 200 on that same service account — measured live on
+project 58454076. The account *can* overbook; it is simply never offered the
+dialog. No account-level setting is involved, which matters because the owner did
+not want overbooking enabled globally ("which is not ideal"). The staff retry is
+the same one byte: the two HAR request bodies differ only at `"confirm":false` →
+`"confirm":true`. The `OperationId` is never echoed back.
+
+Our code read `status >= 400` as fatal, so an overbooked group function could not
+leave "Send Contract" at all. The loop guard then did its job — no email, retry
+next pass — and the contract simply never went out. Sales eventually moved the
+project by hand, which took it OUT of "Send Contract", the only state the cron
+scans: **stranded**. Five quotes were sitting in Pending Signed Contract with
+`contract_sent_at` NULL when this was found.
+
+Three rules:
+
+- **A 4xx body is evidence; log it.** Every throw here said `Failed to update
+  project status: 403` and nothing else. The envelope naming the resource, the
+  window and the headcount was discarded at the one place it would have been read.
+  Errors off a vendor call now carry `body.slice(0, 200)`.
+- **Never infer finality from prose.** "…is not allowed" described the default
+  path, not the API's capability. Probe the override before believing the copy —
+  `scripts/office-state-write-rail-probe.mts` exists to do exactly that.
+- **A vendor account can be answered differently from a vendor UI.** When a HAR
+  from a staff browser disagrees with our service account, diff the *login* before
+  diffing the payload. Same endpoint, same body, different envelope.
+
+**This very likely re-diagnoses the 2026-08-03 "vendor write outage"** (see "A
+swallowed loop-breaker…" above). That incident was recorded as BMI 403-ing writes
+account-wide while reads stayed healthy — but an outage does not hit exactly four
+projects and then "self-resolve"; a per-record capacity refusal does, the moment
+staff edit a headcount or a schedule. The 403 body was never logged, so it could
+not be checked then and cannot be proven now. The loop-breaker lesson from that
+day stands unchanged and was correct; only the trigger was misread.
+
+Two follow-ons from the same fix:
+
+- **The Pandora fallback for CUSTOM state ids is gone** (owner: "never fall back
+  to pandora, just leave them in Send Contract"). Pandora 200s and silently no-ops
+  custom ids, so as a fallback it could only do nothing or lie about it — and on
+  2026-08-03 it lied, which is what turned a stalled write into 88 guest emails.
+  A clean throw leaves the project in "Send Contract" to retry next pass.
+- **Open question, deliberately not changed here:** the guest email is still gated
+  on a *vendor* write landing. `contract_sent_at` in Neon is the durable record;
+  BMI state is the trigger AND the loop-breaker, which is why one vendor refusal
+  suppresses the send entirely. Moving the loop-breaker into our own DB is the
+  house-rule-shaped fix (Neon is the source of truth, external APIs are downstream
+  syncs) — but it needs an answer for "sales re-flips to Send Contract to force a
+  resend", which today is indistinguishable from the cron re-scanning a stuck row.

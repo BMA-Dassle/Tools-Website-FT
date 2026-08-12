@@ -107,7 +107,16 @@ function apiHeaders(token: string, clientKey: string) {
   };
 }
 
-// ── Minimal project payload (avoids overbooking validation on PUT) ──
+// ── Minimal project payload ─────────────────────────────────────────
+//
+// Field-for-field the payload the Office UI's own "Save project" button sends
+// (HAR-captured from office.bmileisure.com). Deliberately omits `schedules`,
+// `products`, `projectPersons` and `logs` so a state/name write can never
+// rewrite the booking itself.
+//
+// It does NOT dodge validation — an earlier comment here claimed it "avoids
+// overbooking validation on PUT" and that is false: the 2026-08-12 HAR shows
+// this exact payload drawing the overbook question (see putProject below).
 
 const PROJECT_CORE_FIELDS = [
   "balance",
@@ -154,6 +163,126 @@ function toMinimalProject(
     }
   }
   return minimal;
+}
+
+// ── PUT /project — answering BMI's confirmation questions ───────────
+
+/**
+ * A BMI Office **soft refusal** — a 403 that `confirm:true` overrides.
+ *
+ * When a project PUT would break a capacity rule, Office replies 403 with an
+ * envelope, and WHICH envelope depends on whether the calling login is allowed
+ * to be asked. Both were measured on the same record (project 58454076,
+ * 2026-08-12), and both are overridden by the same flag:
+ *
+ *   staff login (may overbook) — a QUESTION:
+ *     {"IsQuestion":true,"Kind":4,"OperationId":"24f4…",
+ *      "Message":"Total persons (12) is higher than the capacity (0) in HP Arena:
+ *                 8/15/2026 6:30:00 PM - 8/15/2026 6:45:00 PM. \n Do you want to overbook?"}
+ *
+ *   our API2 service account (never asked) — a flat REFUSAL:
+ *     {"IsQuestion":false,"Kind":4,"OperationId":"8389…",
+ *      "Message":"Total persons (12) is higher than the capacity (0) in HP Arena:
+ *                 8/15/2026 6:30:00 PM - 8/15/2026 6:45:00 PM, overbooking is not allowed."}
+ *
+ * "Overbooking is not allowed" reads final and is not: re-sending the identical
+ * body with `confirm:true` returns 200 on that same account. The account CAN
+ * overbook; it simply is not offered the dialog. So `IsQuestion` is NOT the test
+ * — the presence of this envelope is. A genuine 403 (bad token, no permission)
+ * is not JSON in this shape.
+ */
+export interface OfficePrompt {
+  IsQuestion?: boolean;
+  Kind?: number;
+  Message?: string;
+  OperationId?: string;
+}
+
+/**
+ * Decode the soft-refusal envelope out of a 403, or null if it is a real failure.
+ * Pure — exported so the other Office transport (lib/bmi-attraction-cancel.ts,
+ * which carries its own https plumbing) recognises one the same way.
+ */
+export function officePromptFrom(status: number, body: string): OfficePrompt | null {
+  if (status !== 403 || !body) return null;
+  try {
+    const parsed = JSON.parse(body) as OfficePrompt;
+    if (!parsed || typeof parsed !== "object") return null;
+    // The envelope always carries a Message plus at least one of its two markers.
+    const hasMarker = "IsQuestion" in parsed || "OperationId" in parsed;
+    return typeof parsed.Message === "string" && hasMarker ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Collapse a prompt's message to one log-safe line (it carries a literal \n). */
+export function officePromptLine(p: OfficePrompt): string {
+  return `kind ${p.Kind ?? "?"}${p.IsQuestion ? " (question)" : ""}: ${(p.Message ?? "").replace(/\s+/g, " ").trim()}`;
+}
+
+/**
+ * PUT a project, confirming through any soft refusal BMI raises.
+ *
+ * WHY. Office answers an over-capacity save with 403 + the prompt envelope above,
+ * and every caller here treated `status >= 400` as a hard error. So a group
+ * function whose resources are overbooked could not have its state moved AT ALL:
+ * the send-contract rail's `setProjectState` threw, `leaveSendContract` returned
+ * false, and the contract was never sent — re-attempted every 2-minute pass,
+ * forever, until sales gave up and moved the project by hand (which takes it out
+ * of "Send Contract" and strands it: the cron never scans it again).
+ *
+ * Owner decision 2026-08-12: confirm. Overbooking is a judgement the sales desk
+ * already made when they built the event; a state write is not the place to
+ * re-litigate it. Note this needs NO account-level "allow overbooking" setting —
+ * the flag alone is sufficient, verified live on API2.
+ *
+ * HOW. Re-send the IDENTICAL body with `confirm: true` — that is the entire
+ * protocol. Measured against the Office UI's own retry (HAR 2026-08-12, project
+ * 58454076): the two request bodies differ at exactly one byte,
+ * `"confirm":false` → `"confirm":true`. The `OperationId` is never echoed back,
+ * no header changes and no query param is added. Reusing the caller's `headers`
+ * object keeps the same `x-session-id` across both calls, as the UI does.
+ *
+ * Confirming EVERY prompt rather than pattern-matching "overbook" is deliberate:
+ * this payload carries no schedules, products or people, so a confirm cannot
+ * create a conflict that is not already saved on the record — while a prompt we
+ * failed to recognise would reproduce the exact silent stall being fixed here.
+ * Each one is logged with its kind and text, so an unfamiliar prompt shows up in
+ * the run log rather than being waved through in the dark.
+ *
+ * Exactly ONE retry: `confirm` is already true on it, so a repeat would refuse
+ * identically forever.
+ */
+async function putProject(
+  clientKey: string,
+  headers: Record<string, string>,
+  project: Record<string, unknown>,
+): Promise<{ status: number; body: string }> {
+  const path = `/api/${clientKey}/project`;
+  const first = await httpsRequest("PUT", path, headers, JSON.stringify(project));
+  const prompt = officePromptFrom(first.status, first.body);
+  if (!prompt) return first;
+
+  console.log(
+    `[bmi-office] project ${project.id ?? "?"} PUT refused softly — retrying with confirm:true ` +
+      `(${officePromptLine(prompt)})`,
+  );
+  // Spread keeps `confirm` in its original position (overwriting an existing key
+  // never moves it), so the retry is byte-identical to the UI's.
+  const retry = await httpsRequest(
+    "PUT",
+    path,
+    headers,
+    JSON.stringify({ ...project, confirm: true }),
+  );
+  const again = officePromptFrom(retry.status, retry.body);
+  if (again) {
+    throw new Error(
+      `Office project PUT still refused after confirm:true (${officePromptLine(again)})`,
+    );
+  }
+  return retry;
 }
 
 // ── Pandora location IDs (for direct Firebird state updates) ───────
@@ -283,13 +412,11 @@ export async function setProjectState(params: {
     const project = JSON.parse(getRes.body);
     const minimal = toMinimalProject(project);
     minimal.stateId = params.stateId;
-    const putRes = await httpsRequest(
-      "PUT",
-      `/api/${clientKey}/project`,
-      headers,
-      JSON.stringify(minimal),
-    );
-    if (putRes.status >= 400) throw new Error(`Failed to update project status: ${putRes.status}`);
+    const putRes = await putProject(clientKey, headers, minimal);
+    if (putRes.status >= 400)
+      throw new Error(
+        `Failed to update project status: ${putRes.status} ${putRes.body.slice(0, 200)}`,
+      );
     console.log(
       `[bmi-office] project ${params.projectId} state → ${params.stateId} via Office API${params.label ? ` (${params.label})` : ""}`,
     );
@@ -304,40 +431,31 @@ export async function setProjectState(params: {
   // first — that path is proven for them.
   const isCustomState = !params.stateId.startsWith("-");
   if (isCustomState) {
-    let wroteVia: "office" | "pandora" | null = null;
-    try {
-      await viaOfficeApi();
-      wroteVia = "office";
-    } catch (err) {
-      console.warn("[bmi-office] Office-API state update failed, trying Pandora:", err);
-    }
-    if (!wroteVia) {
-      if (await viaPandora()) {
-        console.log(
-          `[bmi-office] project ${params.projectId} state → ${params.stateId} via Pandora (fallback, UNVERIFIED)${params.label ? ` (${params.label})` : ""}`,
-        );
-        wroteVia = "pandora";
-      } else {
-        throw new Error(`state ${params.stateId} update failed on both paths`);
-      }
-    }
+    // OFFICE RAIL ONLY — there is deliberately NO Pandora fallback here (owner
+    // 2026-08-12: "never fall back to pandora, just leave them in Send Contract").
+    //
+    // Pandora 200s and silently NO-OPS custom state ids — documented three times
+    // in tasks/lessons.md. As a fallback it could therefore only ever do one of
+    // two things: nothing, or lie about having done nothing. On 2026-08-03 it did
+    // the second, and the dispatch cron read that lie as its loop-breaker: ~88
+    // duplicate contract emails to 4 guests in 45 minutes.
+    //
+    // The fallback's last apparent justification was the 403s on PUT /project —
+    // now known to be BMI asking "do you want to overbook?" rather than an outage
+    // (see putProject). Those are answered on this rail. What remains is a throw,
+    // which is the right outcome: the project stays in "Send Contract", no guest
+    // email goes out, and the next 2-minute pass retries cleanly. A contract that
+    // arrives one pass late beats one that arrives twenty-five times.
+    await viaOfficeApi();
 
     // CONFIRM the write landed. A 200 is not proof for a custom state id, and
-    // resolving on an unproven write is how this function lied to its callers:
-    // on 2026-08-03 a BMI Office write outage (403 on PUT /project, reads fine)
-    // sent every group-function send down the Pandora fallback, which reported
-    // success while the project never left "Send Contract". The dispatch cron
-    // took that as its loop-breaker, emailed the guest, and repeated on the next
-    // pass — ~88 duplicate contract emails to 4 guests over 45 minutes.
+    // resolving on an unproven write is how this function used to lie to its
+    // callers. Retried with a gap: a state write propagates to Firebird
+    // ASYNCHRONOUSLY (the same reason ensureAttempts exists below).
     //
-    // Retried with a gap because a Pandora write propagates to Firebird
-    // ASYNCHRONOUSLY (same reason ensureAttempts exists below).
-    //
-    // Read failures are judged per PATH, because the two are not equally
-    // trustworthy for custom ids: the Office PUT is the proven path, so an
-    // unreadable verify leaves it assumed-good; Pandora demonstrably 200s and
-    // no-ops these, so silence there is treated as failure. Positively reading a
-    // DIFFERENT state throws either way.
+    // An UNREADABLE verify leaves the write assumed-good — the Office PUT is the
+    // proven path for custom ids and reads can fail on their own. Positively
+    // reading a DIFFERENT state always throws.
     const confirmAttempts = params.confirmAttempts ?? 3;
     const confirmGapMs = params.confirmGapMs ?? 1200;
     let observed: string | null = null;
@@ -346,10 +464,10 @@ export async function setProjectState(params: {
       if (observed === params.stateId) break;
       if (i < confirmAttempts - 1) await new Promise((r) => setTimeout(r, confirmGapMs));
     }
-    if (observed !== params.stateId && !(observed === null && wroteVia === "office")) {
+    if (observed !== params.stateId && observed !== null) {
       throw new Error(
-        `state ${params.stateId} written via ${wroteVia} but project ${params.projectId} reads ` +
-          `${observed ?? "unreadable"} — treating as NOT landed`,
+        `state ${params.stateId} written via office but project ${params.projectId} reads ` +
+          `${observed} — treating as NOT landed`,
       );
     }
     // Self-heal against a late-landing cross-backend `-3` write (the kiosk
@@ -813,13 +931,9 @@ export async function updateProjectName(params: {
   minimal.name = params.name;
   minimal.displayName = params.name;
 
-  const putRes = await httpsRequest(
-    "PUT",
-    `/api/${clientKey}/project`,
-    headers,
-    JSON.stringify(minimal),
-  );
-  if (putRes.status >= 400) throw new Error(`Failed to update project name: ${putRes.status}`);
+  const putRes = await putProject(clientKey, headers, minimal);
+  if (putRes.status >= 400)
+    throw new Error(`Failed to update project name: ${putRes.status} ${putRes.body.slice(0, 200)}`);
 
   console.log(`[bmi-office] updated project name ${params.projectId} → "${params.name}"`);
 }
@@ -903,13 +1017,11 @@ export async function updateProjectPublicNotes(params: {
     publicLog.memo = params.notes;
     const minimal = toMinimalProject(project, ["logs"]);
     minimal.logs = logs;
-    const putRes = await httpsRequest(
-      "PUT",
-      `/api/${clientKey}/project`,
-      headers,
-      JSON.stringify(minimal),
-    );
-    if (putRes.status >= 400) throw new Error(`Failed to update project notes: ${putRes.status}`);
+    const putRes = await putProject(clientKey, headers, minimal);
+    if (putRes.status >= 400)
+      throw new Error(
+        `Failed to update project notes: ${putRes.status} ${putRes.body.slice(0, 200)}`,
+      );
   }
 
   console.log(`[bmi-office] updated public notes for project ${params.projectId}`);
@@ -1142,14 +1254,11 @@ export async function appendProjectPrivateNote(params: {
       privateLog.memo = mergedMemo;
       const minimal = toMinimalProject(project, ["logs"]);
       minimal.logs = logs;
-      const putRes = await httpsRequest(
-        "PUT",
-        `/api/${clientKey}/project`,
-        headers,
-        JSON.stringify(minimal),
-      );
+      const putRes = await putProject(clientKey, headers, minimal);
       if (putRes.status >= 400) {
-        throw new Error(`Failed to update private notes: ${putRes.status}`);
+        throw new Error(
+          `Failed to update private notes: ${putRes.status} ${putRes.body.slice(0, 200)}`,
+        );
       }
     }
     if (await noteVisible()) {

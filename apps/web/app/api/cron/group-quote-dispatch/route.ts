@@ -308,6 +308,14 @@ function parseGansForNote(raw: string): string {
  * over 45 minutes. `setProjectState` now verifies and throws instead of lying;
  * this makes the caller side honour it.
  *
+ * Two follow-ups landed 2026-08-12, when a HAR capture showed what those 403s
+ * actually were. Office replies to an over-capacity project PUT with 403 and a
+ * prompt envelope that `confirm:true` overrides — our service account gets it
+ * worded "overbooking is not allowed", which is NOT final. So: `setProjectState`
+ * now confirms through it, which is what lets an overbooked group function leave
+ * this state at all; and its Pandora fallback for custom ids is gone, because a
+ * rail that can only no-op or lie is worse than a clean failure.
+ *
  * Returns false on failure rather than throwing: the project stays in "Send
  * Contract", nothing is written, and the next pass retries cleanly once BMI
  * recovers. A contract that goes out one minute late is strictly better than one

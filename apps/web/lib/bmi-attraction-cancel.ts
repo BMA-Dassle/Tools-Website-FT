@@ -16,6 +16,8 @@
 import https from "https";
 import { randomUUID } from "crypto";
 
+import { officePromptFrom, officePromptLine } from "@/lib/bmi-office-actions";
+
 // ── Config ──────────────────────────────────────────────────────────────────
 
 const OFFICE_HOST = "office-api22.sms-timing.com";
@@ -203,12 +205,31 @@ export async function cancelBmiAttractions(
       // 2. PUT back with stateId set to cancelled
       project.stateId = STATE_CANCELLED;
 
-      const putRes = await httpsRequest(
+      let putRes = await httpsRequest(
         "PUT",
         `/api/${clientKey}/project`,
         JSON.stringify(project),
         headers,
       );
+
+      // Office answers a capacity violation with 403 + a prompt envelope that
+      // `confirm:true` overrides — even when it is phrased "overbooking is not
+      // allowed" (see putProject in lib/bmi-office-actions.ts for the protocol).
+      // A cancel can never create an overbooking, so a stalled cancel is pure
+      // downside.
+      const prompt = officePromptFrom(putRes.status, putRes.body);
+      if (prompt) {
+        console.log(
+          `[bmi-attraction-cancel] project ${orderId} PUT refused softly — retrying with ` +
+            `confirm:true (${officePromptLine(prompt)})`,
+        );
+        putRes = await httpsRequest(
+          "PUT",
+          `/api/${clientKey}/project`,
+          JSON.stringify({ ...project, confirm: true }),
+          headers,
+        );
+      }
 
       if (putRes.status === 200) {
         console.log(`[bmi-attraction-cancel] cancelled project ${orderId} (${clientKey})`);
