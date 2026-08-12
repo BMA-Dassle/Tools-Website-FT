@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import redis from "@/lib/redis";
 import { handleVenueMessage } from "~/features/signage/briefing/race-finish.server";
 
@@ -97,16 +98,14 @@ export async function POST(req: NextRequest) {
   // Phase 2: act on the race lifecycle. A fresh RaceFinish in this message
   // flips the welcome-back fast path, captures final standings off the timing
   // socket, and fires the return radio call — seconds after the flag instead
-  // of Pandora's ~40s stamp lag plus our polling. Awaited deliberately: a
-  // floating promise on a serverless path can be frozen mid-flight, and the
-  // cost (a ~4s capture) lands only on the one message per race that wins the
-  // claim. The module never throws; the catch is belt on braces, because this
-  // route's 200 is what keeps the bridge from buffering.
-  try {
-    await handleVenueMessage(message);
-  } catch {
-    /* ingest must survive anything the handler does */
-  }
+  // of Pandora's ~40s stamp lag plus our polling. Runs via after() (the
+  // terminal-checkout pattern) so the bridge gets its 200 immediately: the
+  // bridge forwards sequentially, and holding this response through a capture
+  // plus a radio POST would delay every message queued behind it — worsening
+  // the very latency the fast path exists to fix (review 2026-08-12). The
+  // handler never throws; a failure inside after() costs one race the fast
+  // path, and the Pandora fallback still covers it.
+  after(() => handleVenueMessage(message));
 
   console.log(`[kart-webhook] queued type=${messageType}`);
   return NextResponse.json({ ok: true, kind: "queued", messageType });

@@ -91,6 +91,15 @@ export async function resolveWelcomeBack(
   // has since taken the room. The BOARD below still tracks only the latest;
   // announcing and displaying are different questions with different subjects.
   for (const a of roomTimeline.slice(0, ANNOUNCE_LOOKBACK)) {
+    // A group re-sent to a different room has its REAL room in its newest
+    // assignment — the stale row in this room's history must not announce the
+    // same return a second time (review 2026-08-12). `assignments` is the
+    // newest-first list across BOTH rooms.
+    const newestForSession = assignments.find(
+      (x) => x.sessionId === a.sessionId && x.mode === "timeline",
+    );
+    if (newestForSession && newestForSession.room !== room) continue;
+
     // FAST PATH FIRST: the venue broadcast's own RaceFinish, delivered by the
     // bridge seconds after the flag (race-finish.server.ts). When it exists
     // the radio call has normally already fired from the webhook — the

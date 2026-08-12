@@ -92,9 +92,19 @@ describe("parseVenueLocalMs — the ET wall-clock trap", () => {
     expect(parseVenueLocalMs("2026-01-15T18:00:00")).toBe(Date.parse("2026-01-15T23:00:00Z"));
   });
 
-  it("returns null for garbage", () => {
+  it("gets DST-transition NIGHTS right — the offset is read at the stamp's own instant", () => {
+    // Fall-back night 2026-11-01 (clocks repeat 1-2 AM): 00:30 is still EDT.
+    expect(parseVenueLocalMs("2026-11-01T00:30:00")).toBe(Date.parse("2026-11-01T04:30:00Z"));
+    // After the change the same calendar date is EST.
+    expect(parseVenueLocalMs("2026-11-01T03:00:00")).toBe(Date.parse("2026-11-01T08:00:00Z"));
+    // Spring-forward night 2027-03-14: 03:30 is already EDT.
+    expect(parseVenueLocalMs("2027-03-14T03:30:00")).toBe(Date.parse("2027-03-14T07:30:00Z"));
+  });
+
+  it("returns null for garbage — strict about the venue's actual shape", () => {
     expect(parseVenueLocalMs(undefined)).toBeNull();
     expect(parseVenueLocalMs("not a date")).toBeNull();
+    expect(parseVenueLocalMs("2026-08-11")).toBeNull(); // date-only is not a stamp
   });
 });
 
@@ -129,6 +139,10 @@ describe("isActionableFinish — the catch-up-dump gate", () => {
     const [f] = extractRaceFinishes([FINISH_65_UNSTAMPED]);
     const startUtc = f.actualStartMs as number;
     expect(isActionableFinish(f, startUtc + 9 * 60_000)).toBe(true); // pending window
+    // 20-minute ceiling: longest real start→stamp span is ~15 min; beyond it
+    // an unstamped record is a replayed snapshot, and acting on one would
+    // fabricate a fresh end time (review 2026-08-12).
+    expect(isActionableFinish(f, startUtc + 25 * 60_000)).toBe(false);
     expect(isActionableFinish(f, startUtc + 2 * 3600_000)).toBe(false); // stale replay
   });
 

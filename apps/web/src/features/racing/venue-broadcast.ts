@@ -27,7 +27,6 @@
  *
  * PURE — the webhook-side actions live in briefing/race-finish.server.ts.
  */
-import { normalizeEtDate } from "@/lib/et-time";
 import type { TrackKey } from "~/features/signage/track";
 
 /** Venue ResourceId → our track key. Mega is resource -1 (barrier out, one
@@ -52,11 +51,44 @@ export interface VenueRaceFinish {
   actualEndMs: number | null;
 }
 
-/** Venue wall-clock ("2026-08-11T23:05:35.4579", ET, no zone) → epoch ms. */
+const ET_OFFSET_FALLBACK_MINUTES = -300; // EST — the conservative winter offset
+
+/** ET's UTC offset in minutes AT a specific instant (not at noon of its date —
+ *  the distinction that matters after midnight on DST-transition nights, when
+ *  Fri/Sat racing runs to 2 AM and lib/et-time's noon-probed offset is an hour
+ *  wrong for the 12-2 AM stamps; review finding 2026-08-12). */
+function etOffsetMinutesAt(utcMs: number): number {
+  try {
+    const name =
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        timeZoneName: "longOffset",
+      })
+        .formatToParts(new Date(utcMs))
+        .find((p) => p.type === "timeZoneName")?.value ?? "";
+    const m = /GMT([+-])(\d{1,2})(?::(\d{2}))?/.exec(name);
+    if (!m) return ET_OFFSET_FALLBACK_MINUTES;
+    const sign = m[1] === "-" ? -1 : 1;
+    return sign * (Number(m[2]) * 60 + Number(m[3] ?? "0"));
+  } catch {
+    return ET_OFFSET_FALLBACK_MINUTES;
+  }
+}
+
+/** Venue wall-clock ("2026-08-11T23:05:35.4579", ET, no zone) → epoch ms.
+ *  Two-pass: guess the instant assuming the wall time were UTC, read ET's
+ *  offset AT that guessed instant, correct — so a 1:30 AM stamp on fall-back
+ *  night resolves with that night's actual offset, not noon's. Strict about
+ *  the shape the venue actually sends; anything else is null, never a guess. */
 export function parseVenueLocalMs(value: unknown): number | null {
-  if (typeof value !== "string" || !value) return null;
-  const ms = Date.parse(normalizeEtDate(value));
-  return Number.isFinite(ms) ? ms : null;
+  if (typeof value !== "string") return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/.exec(value);
+  if (!m) return null;
+  const [y, mo, d, h, mi, s] = [1, 2, 3, 4, 5, 6].map((i) => Number(m[i]));
+  const ms = m[7] ? Number(m[7].slice(0, 3).padEnd(3, "0")) : 0;
+  const asUtc = Date.UTC(y, mo - 1, d, h, mi, s, ms);
+  const guess = asUtc - etOffsetMinutesAt(asUtc) * 60_000;
+  return asUtc - etOffsetMinutesAt(guess) * 60_000;
 }
 
 /** "67 - Mega Starter" → 67. Distinct from results-frame's parseHeatNumber:
@@ -97,8 +129,11 @@ export function extractRaceFinishes(message: unknown): VenueRaceFinish[] {
 export const FINISH_FRESH_MS = 10 * 60_000;
 
 /** An UNSTAMPED Finished race (pending-finish window) is trusted only while a
- *  race that recently started could plausibly still be wrapping up. */
-const UNSTAMPED_MAX_RACE_AGE_MS = 30 * 60_000;
+ *  race that recently started could plausibly still be wrapping up. Longest
+ *  legitimate start→stamp span observed on real nights is ~15 min (7-12 min
+ *  races + the 5 min pending window); wider invited replayed snapshots to
+ *  fabricate fresh end times (review 2026-08-12, was 30 min). */
+const UNSTAMPED_MAX_RACE_AGE_MS = 20 * 60_000;
 
 /**
  * Should this finish record fire the end-of-race actions right now?

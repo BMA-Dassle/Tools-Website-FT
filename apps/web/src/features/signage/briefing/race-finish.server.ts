@@ -12,9 +12,9 @@ import "server-only";
  *   1. writes a `briefing:race-finished:{sessionId}` marker the welcome-back
  *      resolver reads INSTEAD of polling Pandora (RaceId and sessionId are the
  *      same id space — verified exact match on real assignments),
- *   2. captures the final standings off the timing cloud socket AT THE FINISH
- *      MOMENT — the one instant the frame is guaranteed to still be serving
- *      this heat, which retires the "grab it before the next heat loads"
+ *   2. captures the final standings off the timing cloud socket the moment
+ *      the STAMPED end arrives — the heat is still on the wire and its laps
+ *      are final, which retires the "grab it before the next heat loads"
  *      gamble (the venue broadcast itself carries rosters but NO lap times —
  *      LapCount never fills in; surveyed 2026-08-12),
  *   3. fires the "{heat} returning to {room}" radio call if this race was
@@ -80,44 +80,62 @@ export async function handleVenueMessage(message: unknown): Promise<void> {
     for (const f of finishes) {
       if (!isActionableFinish(f, nowMs)) continue;
 
-      // The marker is idempotent — write it before claiming so a crash between
-      // the two can only cost the side-effects (which Pandora fallback and the
-      // next poll's capture retry both cover), never the fast end signal.
       const marker: RaceFinishedMarker = {
         endedAtMs: f.actualEndMs ?? nowMs,
         heatNumber: f.heatNumber,
         heatName: f.heatName,
         track: f.track,
       };
-      await redis
-        .set(raceFinishedKey(f.raceId), JSON.stringify(marker), "EX", MARKER_TTL_SECONDS)
-        .catch(() => void 0);
+      // A STAMPED marker carries the venue's own end time — a stable value,
+      // safe to overwrite (it also upgrades an earlier unstamped marker). An
+      // UNSTAMPED one carries our receive time, so it writes NX-only: replayed
+      // race-list pushes must neither slide it forward nor clobber the real
+      // stamp with a fabricated "just now" (review 2026-08-12).
+      if (f.actualEndMs !== null) {
+        await redis
+          .set(raceFinishedKey(f.raceId), JSON.stringify(marker), "EX", MARKER_TTL_SECONDS)
+          .catch(() => void 0);
+      } else {
+        await redis
+          .set(raceFinishedKey(f.raceId), JSON.stringify(marker), "EX", MARKER_TTL_SECONDS, "NX")
+          .catch(() => void 0);
+      }
 
-      // One handler per race: the same finish arrives in every subsequent
-      // race-list push all night.
+      // RADIO FIRST — the time-critical, human-facing effect, and the one a
+      // platform kill mid-handler must lose last. The claim only spares the
+      // Neon lookup on the replayed pushes that re-carry this finish all
+      // night; once-only is still the announcer's own per-(room,session)
+      // claim underneath.
       const claimed = await redis
-        .set(`briefing:finish-handled:${f.raceId}`, "1", "EX", 24 * 3600, "NX")
+        .set(`briefing:finish-announce:${f.raceId}`, "1", "EX", 24 * 3600, "NX")
         .catch(() => null);
-      if (claimed !== "OK") continue;
+      if (claimed === "OK") {
+        const assignments = await listBriefingAssignments("FT", businessDayYmdET()).catch(() => []);
+        // Newest-first list: a re-sent group's REAL room is its latest send.
+        const briefed = assignments.find((a) => a.sessionId === f.raceId && a.mode === "timeline");
+        if (briefed) {
+          await announceReturnOnce({
+            room: briefed.room,
+            sessionId: briefed.sessionId,
+            heatNumber: briefed.heatNumber,
+          });
+        }
+      }
 
-      // Final standings, at the moment they are guaranteed to be on the wire.
-      if (f.track !== null && f.heatNumber !== null) {
+      // FINAL standings — only off a STAMPED finish. During the pending
+      // window (unstamped) karts are still completing their last lap, and a
+      // capture then would freeze pre-final laps into the qualification board
+      // for 48h (review 2026-08-12). The stamped push follows within ~a
+      // minute, the frame is still on the wire, and loadOrCaptureResults
+      // self-dedupes (stored record short-circuits; 8s attempt claim), so
+      // every later push and TV poll is a free retry rather than a burned
+      // one-shot.
+      if (f.actualEndMs !== null && f.track !== null && f.heatNumber !== null) {
         await loadOrCaptureResults({
           track: f.track as "blue" | "red" | "mega",
           sessionId: f.raceId,
           heatNumber: f.heatNumber,
         }).catch(() => null);
-      }
-
-      // Radio, only for races we briefed. Once-only is the announcer's claim.
-      const assignments = await listBriefingAssignments("FT", businessDayYmdET()).catch(() => []);
-      const briefed = assignments.find((a) => a.sessionId === f.raceId && a.mode === "timeline");
-      if (briefed) {
-        await announceReturnOnce({
-          room: briefed.room,
-          sessionId: briefed.sessionId,
-          heatNumber: briefed.heatNumber,
-        });
       }
     }
   } catch {

@@ -70,7 +70,12 @@ export async function loadOrCaptureResults(args: {
   }
 
   const frame = await captureTrackResults(args.track);
-  if (!frame || frame.heatNumber !== args.heatNumber) return null;
+  // Heat match AND finished (state >= 3): a frame captured during the
+  // pending-finish window still has karts completing their final lap, and a
+  // best lap set on that final lap is ordinary — recording early would put a
+  // qualifier under "didn't qualify" for 48h (review 2026-08-12). Recording
+  // nothing here is safe: the next push or TV poll simply tries again.
+  if (!frame || frame.heatNumber !== args.heatNumber || frame.state < 3) return null;
 
   const record: RecordedResults = {
     heatName: frame.heatName,
