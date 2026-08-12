@@ -6,9 +6,11 @@ import "server-only";
  * Two reads, both already paid for elsewhere: the room's last briefed session
  * (Neon, `briefing_assignments` — the durable record written at send time), and
  * that session's row in the timing system's per-track sessions list — via the
- * SAME cron-warmed reader the VIP experience board uses
+ * SAME shared reader the VIP experience board uses
  * (reservations-admin/race-live-state.server, owner: "we already know when
- * sessions finish on the VIP experience board"). A session with `actualEnd`
+ * sessions finish on the VIP experience board"; since 2026-08-11 that reader
+ * self-refreshes from Pandora on a 15s fleet-wide claim, so an end reaches
+ * these boards in ~20-45s, not the old 2-3 min). A session with `actualEnd`
  * stamped is finished as a matter of record, not inference.
  *
  * DELIBERATELY CARRIES NO NAMES. The board greets the group, says where kit goes
@@ -35,6 +37,21 @@ export interface WelcomeBackInfo {
   endedAtMs: number;
 }
 
+/** Only ends this fresh get a radio call. Bounds what an announcement can be
+ *  about to "the group walking back in right now" — a deploy, an outage or a
+ *  long-open board can never speak about a race from an hour ago. */
+const ANNOUNCE_FRESH_MS = 10 * 60_000;
+
+/** How many of a room's recent groups the announcer watches. More than one,
+ *  because that is the bug this fixes: on a busy night the NEXT group is sent
+ *  before the previous group's actualEnd becomes visible, so an announcer that
+ *  only watched the latest assignment missed almost every real return — heat
+ *  62's end landed after heat 64 had already replaced it as red's latest
+ *  (probe, 2026-08-11, under the old 2-min cron warm). The sessions reader now
+ *  self-refreshes on a 15s claim, which shrinks that blind spot but cannot
+ *  close it — back-to-back sends can still overtake an end inside one window. */
+const ANNOUNCE_LOOKBACK = 4;
+
 export async function resolveWelcomeBack(
   venue: string,
   room: BriefingRoom,
@@ -42,8 +59,30 @@ export async function resolveWelcomeBack(
 ): Promise<WelcomeBackInfo | null> {
   // Newest-first; the first timeline row for this room is its latest group.
   const assignments = await listBriefingAssignments(venue, businessDay).catch(() => []);
-  const last = assignments.find((a) => a.room === room && a.mode === "timeline") ?? null;
+  const roomTimeline = assignments.filter((a) => a.room === room && a.mode === "timeline");
+  const last = roomTimeline[0] ?? null;
   if (!last) return null;
+
+  // THE ANNOUNCER WATCHES THE LAST FEW GROUPS, not just the latest — each one
+  // gets its radio call once, when its own end stamps, even if a newer group
+  // has since taken the room. The BOARD below still tracks only the latest;
+  // announcing and displaying are different questions with different subjects.
+  for (const a of roomTimeline.slice(0, ANNOUNCE_LOOKBACK)) {
+    const aTrack: TrackKey =
+      a.track === "blue" || a.track === "red" || a.track === "mega" ? a.track : "mega";
+    // fetchTrackSessions memory-caches per track+day for 15s, so this loop costs
+    // one upstream read per track, not one per assignment.
+    const list = await fetchTrackSessions(aTrack, calendarYmdET()).catch(() => null);
+    const row = list?.find((s) => String(s.sessionId) === a.sessionId);
+    const endMs = row?.actualEnd ? Date.parse(row.actualEnd) : NaN;
+    if (!Number.isFinite(endMs)) continue;
+    const sinceEnd = Date.now() - endMs;
+    if (sinceEnd < -60_000 || sinceEnd > ANNOUNCE_FRESH_MS) continue;
+    // Awaited (never throws, 5s timeout): a floating promise on a serverless
+    // path can be frozen mid-flight after the response goes out. The cost lands
+    // on the one poll per session that wins the claim.
+    await announceReturnOnce({ room, sessionId: a.sessionId, heatNumber: a.heatNumber });
+  }
 
   const track: TrackKey =
     last.track === "blue" || last.track === "red" || last.track === "mega" ? last.track : "mega";
@@ -62,17 +101,6 @@ export async function resolveWelcomeBack(
   if (!welcomeBackWindowOpen(Number.isFinite(actualEndMs) ? actualEndMs : null)) {
     return null;
   }
-
-  // "58 returning to blue" on the staff radio — once per return, guarded in
-  // Redis, riding the same signal that flips the board. Awaited (it never
-  // throws and times out at 5s) because a floating promise on a serverless
-  // path can be frozen mid-flight after the response goes out; the cost lands
-  // on exactly one poll per session, the one that wins the claim.
-  await announceReturnOnce({
-    room,
-    sessionId: last.sessionId,
-    heatNumber: last.heatNumber,
-  });
 
   return {
     heatNumber: last.heatNumber,

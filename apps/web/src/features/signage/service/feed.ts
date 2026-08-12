@@ -194,7 +194,7 @@ async function buildBriefingSection(
     loadSignageAssetsSafe(),
     readBriefingRooms(venue).catch(() => ({ red: null, blue: null })),
     // The group's return — from the timing system's own actualEnd, via the same
-    // cron-warmed reader the VIP board uses. Null while they are still out.
+    // self-refreshing (≤15s) reader the VIP board uses. Null while they are out.
     resolveWelcomeBack(venue, room, businessDay).catch(() => null),
   ]);
 

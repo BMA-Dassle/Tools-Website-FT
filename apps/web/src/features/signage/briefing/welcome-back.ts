@@ -10,7 +10,7 @@
  * exactly when a session finishes — don't guess"). The VIP experience board
  * already reads it: Pandora's per-track sessions list stamps actualStart/actualEnd
  * when the timing system starts and ends a heat, and
- * reservations-admin/race-live-state.server keeps a cron-warmed, memory-cached
+ * reservations-admin/race-live-state.server keeps a fresh (≤15s), memory-cached
  * reader over it. A first cut here derived the moment from "the next heat was
  * called" plus elapsed time; that heuristic is deleted, not layered under this.
  *

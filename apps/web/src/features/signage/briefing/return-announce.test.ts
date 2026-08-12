@@ -5,6 +5,8 @@ describe("buildReturnAnnouncement — the exact contract the owner supplied", ()
   it('says "58 returning to blue"', () => {
     expect(buildReturnAnnouncement({ room: "blue", heatNumber: 58 })).toEqual({
       server: "FT",
+      // The venue's new dedicated track-announcements bot — "FT - Track Bot"
+      // on the live service's /health/zello. Never FOH: that's guest assist.
       target: "Track Bot",
       priority: 1,
       message: "58 returning to blue",

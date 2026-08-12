@@ -22,12 +22,21 @@ export const TRACK_RESOURCE: Record<TrackKey, string> = {
   mega: "Mega Track",
 };
 
-/** Per-track session-list cache. 30s: actualStart/actualEnd change constantly
- *  (unlike heat times), so this stays shorter than the 60s liveHeat TTL —
- *  combined with the sessions proxy's 2-min cron warm, a Done flip reaches
- *  the board in ~2-3 min worst case. Failures cache 30s so a Pandora outage
- *  can't hammer. */
+/** Per-track session-list cache. 15s in-memory + the Redis fresh-claim below:
+ *  ANY reader may refresh from Pandora, but a SET NX marker caps the whole
+ *  fleet at one live read per track per 15s (owner 2026-08-11: "we can hit
+ *  that endpoint every 15 seconds" — the 2-min cron warm alone made a Done
+ *  flip take ~2-3 min to reach the welcome-back boards). Worst case now:
+ *  ≤15s claim window + ≤15s memory TTL + the TV's 15s poll ≈ 45s, typically
+ *  ~20-30s. Failures cache 15s so a Pandora outage can't hammer. */
 const trackSessionCache = new Map<string, { sessions: TrackSession[] | null; expiry: number }>();
+
+/** One live Pandora read per track per this many seconds, fleet-wide. */
+const SESSIONS_FRESH_SECONDS = 15;
+const SESSIONS_MEMORY_TTL_MS = 15_000;
+/** Write-through TTL — MUST match app/api/pandora/sessions/route.ts
+ *  REDIS_CACHE_TTL_SECONDS, since both write the same key. */
+const SESSIONS_REDIS_TTL_SECONDS = 30 * 60;
 
 export async function fetchTrackSessions(
   track: TrackKey,
@@ -38,13 +47,12 @@ export async function fetchTrackSessions(
   const cached = trackSessionCache.get(memKey);
   if (cached && Date.now() < cached.expiry) return cached.sessions;
   let sessions: TrackSession[] | null = null;
-  // 1. Redis cache written by the sessions proxy — pre-race-tickets warms it
-  //    every 2 min during operating hours. Key format MUST mirror
+  // 1. Redis cache — written by the sessions proxy (pre-race-tickets cron, every
+  //    2 min) AND by the fresh-claim write-through below. Key format MUST mirror
   //    app/api/pandora/sessions/route.ts cacheKey + the cron's todayETRange.
+  const redisKey = `pandora:sessions:${FASTTRAX_LOCATION_ID}:${resource}:${ymd}T00:00:00:${ymd}T23:59:59`;
   try {
-    const raw = await redis.get(
-      `pandora:sessions:${FASTTRAX_LOCATION_ID}:${resource}:${ymd}T00:00:00:${ymd}T23:59:59`,
-    );
+    const raw = await redis.get(redisKey);
     if (raw) {
       const parsed = JSON.parse(raw) as TrackSession[];
       if (Array.isArray(parsed) && parsed.length) sessions = parsed;
@@ -52,8 +60,27 @@ export async function fetchTrackSessions(
   } catch {
     /* fall through to live */
   }
-  // 2. Direct Pandora read (cache cold — e.g. before the cron's first warm).
-  if (!sessions && PANDORA_KEY) {
+  // 2. Freshness claim. The cron's 2-min warm is too slow for the end-of-session
+  //    consumers (welcome-back board, return radio call), so readers refresh
+  //    Pandora themselves — SET NX makes exactly one caller per track per window
+  //    do the live read while everyone else rides the cache.
+  let readLive = !sessions;
+  if (!readLive && PANDORA_KEY) {
+    try {
+      const claim = await redis.set(
+        `${redisKey}:fresh-claim`,
+        "1",
+        "EX",
+        SESSIONS_FRESH_SECONDS,
+        "NX",
+      );
+      readLive = claim === "OK";
+    } catch {
+      /* Redis flaky — the cached copy we just read is the safer answer */
+    }
+  }
+  // 3. Live Pandora read (won the claim, or the cache was cold).
+  if (readLive && PANDORA_KEY) {
     try {
       const qs = new URLSearchParams({
         startDate: `${ymd}T00:00:00`,
@@ -67,13 +94,22 @@ export async function fetchTrackSessions(
       });
       if (res.ok) {
         const json = await res.json();
-        if (Array.isArray(json?.data)) sessions = json.data as TrackSession[];
+        if (Array.isArray(json?.data)) {
+          sessions = json.data as TrackSession[];
+          // Write-through (non-empty only, mirroring the proxy) so every other
+          // reader and the proxy's cache-first callers see this refresh too.
+          if (sessions.length) {
+            redis
+              .set(redisKey, JSON.stringify(sessions), "EX", SESSIONS_REDIS_TTL_SECONDS)
+              .catch(() => {});
+          }
+        }
       }
     } catch {
-      /* non-fatal — heats keep clock behavior */
+      /* non-fatal — the stale cache read above still stands */
     }
   }
-  trackSessionCache.set(memKey, { sessions, expiry: Date.now() + 30_000 });
+  trackSessionCache.set(memKey, { sessions, expiry: Date.now() + SESSIONS_MEMORY_TTL_MS });
   return sessions;
 }
 

@@ -44,6 +44,20 @@ export interface ReturnAnnouncement {
   cooldown: number;
 }
 
+/**
+ * "Track Bot" is the venue's DEDICATED track-announcements Zello bot, stood up
+ * new for this feature (owner, 2026-08-11) and registered on the live service
+ * as "FT - Track Bot" — visible on its /health/zello. Race returns belong on
+ * the track channel; do NOT retarget these to FOH, that channel is guest
+ * assistance. The caveat that bit us on night one: /radio returns 200 for ANY
+ * target because it only enqueues — audio still depends on this bot's Zello
+ * socket being up, and the whole service was flapping (bots cycling
+ * CLOSED↔OPEN) that first evening, which is what cut the test announcement
+ * off mid-sentence. A cut-off or silent announcement with this code unchanged
+ * means check /health/zello, not this file.
+ */
+const RADIO_TARGET = "Track Bot";
+
 /** The payload, pure — exactly the contract the owner supplied. */
 export function buildReturnAnnouncement(args: {
   room: BriefingRoom;
@@ -51,7 +65,7 @@ export function buildReturnAnnouncement(args: {
 }): ReturnAnnouncement {
   return {
     server: "FT",
-    target: "Track Bot",
+    target: RADIO_TARGET,
     priority: 1,
     // Spoken text: "58 returning to blue". A heat the record lost the number
     // for still gets announced — a nameless race beats a silent radio.
