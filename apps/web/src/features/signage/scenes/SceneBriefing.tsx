@@ -423,20 +423,31 @@ function HelmetBoard({
             background: "#000418",
           }}
         />
-        {/* Overlay chips ride the TOP edge, under the accent bar — the poster
-            owns its bottom (its own title band lives there, and the session pill
-            sitting on it read as part of the artwork gone wrong; owner
-            2026-08-11: "grab your helmet looks out of place"). Solid dark chip
-            backgrounds rather than backdrop blur: these players are mini PCs and
-            a blur over a full-screen image is compositor work they can feel. */}
-        {/* Chips cluster LEFT — the top-right corner belongs to the live
-              session clock on every board (owner 2026-08-11). */}
+        {/* Overlay chips ride the BOTTOM edge, below the poster's own title band
+            (owner 2026-08-12: "move the grab your helmet and qualification to
+            under the helmet size text").
+
+            This reverses the 2026-08-11 placement, and the reason it does is the
+            artwork. Back then the chips sat on top of the poster's title and read
+            as part of it gone wrong ("grab your helmet looks out of place"), so
+            they were moved to the top edge. The current poster ends its title band
+            well above the frame and leaves clear ground under it — so the chips now
+            sit in that band, reading as a caption to the chart rather than as
+            something stuck over it. A poster whose art runs to the bottom edge would
+            put this back in play; judge it against the poster on the wall, not
+            against this comment.
+
+            Solid dark chip backgrounds rather than backdrop blur: these players are
+            mini PCs and a blur over a full-screen image is compositor work they can
+            feel. */}
+        {/* Chips cluster LEFT — the right-hand corners belong to the live session
+              clock (top) and the screen stamp (bottom) on every board. */}
         <div
           style={{
             position: "absolute",
-            top: 40,
+            bottom: 40,
             left: PAD_X,
-            right: PAD_X + 460,
+            right: PAD_X,
             display: "flex",
             alignItems: "center",
             justifyContent: "flex-start",
