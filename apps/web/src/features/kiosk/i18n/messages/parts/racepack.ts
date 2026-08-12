@@ -116,6 +116,9 @@ export const racepackEn = {
   "payMode.sub.first": "Even if you’ve raced elsewhere — one Starter run unlocks the faster karts.",
   "payMode.sub.today": "Prepay and save, or just pay for today. You’ll pick the race next.",
   "payMode.recommended": "★ FastTrax recommended",
+  // Replaces the recommended pill while a limited-time bundle holds the hero card.
+  "payMode.flashSale": "★ FLASH SALE — AUG 12–13 ONLY",
+  "payMode.selected": "✓ Selected",
   "payMode.raceWord": "{count, plural, one {race} other {races}}",
   "payMode.incl.prefix": "incl. {list}",
   "payMode.incl.license": "license",
@@ -252,6 +255,8 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
     "Aunque hayas corrido en otro lugar — una carrera Starter aquí desbloquea los karts más rápidos.",
   "payMode.sub.today": "Prepaga y ahorra, o paga solo lo de hoy. La carrera se elige después.",
   "payMode.recommended": "★ Recomendado por FastTrax",
+  "payMode.flashSale": "★ OFERTA RELÁMPAGO — SOLO 12–13 DE AGO",
+  "payMode.selected": "✓ Seleccionado",
   "payMode.raceWord": "{count, plural, one {carrera} other {carreras}}",
   "payMode.incl.prefix": "incluye {list}",
   "payMode.incl.license": "licencia",

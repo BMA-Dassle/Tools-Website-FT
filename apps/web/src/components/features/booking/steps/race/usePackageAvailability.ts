@@ -58,6 +58,17 @@ export function livePerRacerPrice(
   pkg: PackageDefinition,
   livePrices: Record<string, number>,
 ): number {
+  // A bundle that PINS its own price is sold at that price, full stop — live
+  // component prices describe what the pieces cost separately, which is exactly
+  // what a fixed-price bundle is defined as NOT charging.
+  //
+  // This mirrors `packagePerRacerPrice`, which short-circuits on `pkg.price`
+  // for the same reason. The two must agree: the charge path reads the registry
+  // helper, this one only ever feeds the screen. When they diverged, the BOGO
+  // flash sale rendered at $39.99 (the summed components) while checkout
+  // charged the pinned $20.99 — displayed != charged, and the deal read as a
+  // markup with a "+$14.01" delta against a plain single race.
+  if (typeof pkg.price === "number") return pkg.price;
   return (
     pkg.races.reduce((sum, r) => sum + (livePrices[r.ref] ?? primaryTrack(r).price), 0) +
     (pkg.includesLicense ? LICENSE_PRICE : 0) +

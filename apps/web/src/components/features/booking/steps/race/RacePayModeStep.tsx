@@ -96,7 +96,16 @@ function bundlesFor(
     schedule: scheduleForDate(item.date),
     category,
   });
-  return [...list].sort((a, b) => Number(!!b.recommended) - Number(!!a.recommended));
+  // A live limited-time bundle outranks the standing house recommendation for
+  // the hero slot; `recommended` still decides among everything else, so the
+  // Ultimate Qualifier takes the card straight back when the sale window
+  // closes. Without the badge tier here, `eligiblePackages`' displayOrder is
+  // discarded by this re-sort and a sale bundle lands in the thin rows below
+  // the very card it is meant to headline.
+  return [...list].sort(
+    (a, b) =>
+      Number(!!b.badge) - Number(!!a.badge) || Number(!!b.recommended) - Number(!!a.recommended),
+  );
 }
 
 /**
@@ -357,7 +366,20 @@ function HeroBundleCard({
           : `${S.heroBtn} ${selected ? S.heroRing : ""} ${blocked ? "opacity-60" : ""}`
       }
     >
-      <span className={S.heroPill}>{t("payMode.recommended")}</span>
+      {/* The hero pill names WHY this card is the hero — and says "selected"
+          when it IS the pick. The hero's gold treatment is permanent, so
+          without this it reads as chosen even when the guest has picked
+          something else below it (owner 2026-08-12: "Ultimate Qualifier always
+          seems selected and it's not"). `pkg.badge` is the registry's English
+          marker used only to branch; the visible words always come from the
+          catalog, so a Spanish kiosk never leaks it. */}
+      <span className={S.heroPill}>
+        {selected
+          ? t("payMode.selected")
+          : pkg.badge
+            ? t("payMode.flashSale")
+            : t("payMode.recommended")}
+      </span>
       <CountBadge n={pkg.races.length || 1} gold t={t} S={S} />
       <span className={S.heroBody}>
         <span className={S.heroName}>{pkg.name}</span>

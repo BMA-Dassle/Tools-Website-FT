@@ -151,6 +151,10 @@ export interface PackageDefinition {
    * the sale rate after the sale, which costs the sale discount, not the race.
    */
   bookableUntil?: string;
+  /** Start of the same window. Omitted = "already open". Paired with
+   *  `bookableUntil` because an end-only bound reads as active for all of
+   *  history before the deadline. */
+  bookableFrom?: string;
   /**
    * Short marketing flag rendered on the picker card, e.g. "FLASH SALE" — the
    * one thing that makes a limited-time bundle read differently from the
@@ -708,6 +712,7 @@ const PACKAGES: PackageDefinition[] = [
     shortDescription: "Two races for the price of one — Starter + Intermediate",
     longDescription: BOGO_LONG,
     enabled: true,
+    bookableFrom: "2026-08-12T00:00:00",
     bookableUntil: "2026-08-13T23:59:59",
     badge: "FLASH SALE",
     racerType: "new",
@@ -776,6 +781,7 @@ const PACKAGES: PackageDefinition[] = [
     shortDescription: "Two junior races for the price of one — Starter + Intermediate",
     longDescription: BOGO_LONG,
     enabled: true,
+    bookableFrom: "2026-08-12T00:00:00",
     bookableUntil: "2026-08-13T23:59:59",
     badge: "FLASH SALE",
     racerType: "new",
@@ -994,12 +1000,17 @@ const QUAL_RANK: Record<PackageTier, number> = { starter: 0, intermediate: 1, pr
  * compares false against everything, so a typo would silently read as
  * "already over" and the bundle would never appear at all.
  */
-function withinBookableWindow(bookableUntil: string, now: Date): boolean {
-  const ends = new Date(`${bookableUntil}${etOffsetForLocalDate(bookableUntil)}`);
-  if (Number.isNaN(ends.getTime())) {
-    throw new Error(`package bookableUntil is not a valid date: ${bookableUntil}`);
-  }
-  return now.getTime() <= ends.getTime();
+function withinBookableWindow(pkg: PackageDefinition, now: Date): boolean {
+  const bound = (raw: string, field: string): number => {
+    const d = new Date(`${raw}${etOffsetForLocalDate(raw)}`);
+    if (Number.isNaN(d.getTime())) {
+      throw new Error(`package ${field} is not a valid date: ${raw}`);
+    }
+    return d.getTime();
+  };
+  if (pkg.bookableFrom && now.getTime() < bound(pkg.bookableFrom, "bookableFrom")) return false;
+  if (pkg.bookableUntil && now.getTime() > bound(pkg.bookableUntil, "bookableUntil")) return false;
+  return true;
 }
 
 /** Filters the registry to packages bookable in the current context.
@@ -1009,7 +1020,7 @@ function withinBookableWindow(bookableUntil: string, now: Date): boolean {
 export function eligiblePackages(ctx: EligibilityContext): PackageDefinition[] {
   return PACKAGES.filter((p) => {
     if (!p.enabled) return false;
-    if (p.bookableUntil && !withinBookableWindow(p.bookableUntil, ctx.now ?? new Date())) {
+    if ((p.bookableFrom || p.bookableUntil) && !withinBookableWindow(p, ctx.now ?? new Date())) {
       return false;
     }
     if (p.racerType !== "any" && ctx.racerType && p.racerType !== ctx.racerType) return false;

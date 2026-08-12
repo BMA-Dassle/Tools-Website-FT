@@ -1064,8 +1064,17 @@ export function buildRaceChargeLines(
     // packages) — only racers whose category actually holds a package get the
     // bundled license/POV; e.g. a junior single-race new racer alongside an
     // adult package still pays the $4.99 license below.
+    // Only a package that ACTUALLY bundles the license suppresses the $4.99
+    // line. This used to key off "is there a package at all", which was safe
+    // while every package set includesLicense/includesPov true (Rookie Pack,
+    // Ultimate Qualifier). The BOGO flash sale is the first bundle that
+    // deliberately excludes both, and the old test let three brand-new racers
+    // book it with no licence charged at all — the fee silently deferred to the
+    // counter, which is revenue we never collect online and a surprise at
+    // check-in.
     for (const h of item.heats) {
-      if (h.assignedTo && packageIdForCategory(item, h.category ?? "adult")) {
+      const heatPkgId = packageIdForCategory(item, h.category ?? "adult");
+      if (h.assignedTo && heatPkgId && getPackage(heatPkgId)?.includesLicense) {
         packageRacerIds.add(h.assignedTo);
       }
     }

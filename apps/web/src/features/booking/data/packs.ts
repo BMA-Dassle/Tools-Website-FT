@@ -97,6 +97,7 @@ export interface RacePack {
  * after the deadline the slug is simply not sellable — no separate teardown
  * step, and a stale client that still renders the tile gets a server refusal.
  */
+export const BOGO_SALE_STARTS_AT = "2026-08-12T00:00:00";
 export const BOGO_SALE_ENDS_AT = "2026-08-13T23:59:59";
 
 /** Slugs the sale adds to the catalog while it runs. */
@@ -111,11 +112,17 @@ export const BOGO_SALE_SLUGS = ["bogo-races-adult", "bogo-races-junior"] as cons
  * "sale already over" and the SKUs would never appear at all.
  */
 export function bogoSaleActive(now: Date = new Date()): boolean {
+  const starts = new Date(`${BOGO_SALE_STARTS_AT}${etOffsetForLocalDate(BOGO_SALE_STARTS_AT)}`);
   const ends = new Date(`${BOGO_SALE_ENDS_AT}${etOffsetForLocalDate(BOGO_SALE_ENDS_AT)}`);
-  if (Number.isNaN(ends.getTime())) {
-    throw new Error(`BOGO_SALE_ENDS_AT is not a valid date: ${BOGO_SALE_ENDS_AT}`);
+  if (Number.isNaN(starts.getTime()) || Number.isNaN(ends.getTime())) {
+    throw new Error(
+      `BOGO sale window is not a valid date range: ${BOGO_SALE_STARTS_AT} → ${BOGO_SALE_ENDS_AT}`,
+    );
   }
-  return now.getTime() <= ends.getTime();
+  // BOTH bounds. An end-only check reads as "active" for all of history before
+  // the deadline — which is not a hypothetical: it put the sale SKUs into the
+  // catalog for a July race date and broke the standing-catalog test.
+  return now.getTime() >= starts.getTime() && now.getTime() <= ends.getTime();
 }
 
 export const RACE_PACKS: RacePack[] = [
