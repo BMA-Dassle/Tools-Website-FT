@@ -527,14 +527,24 @@ function CheckinRail({
           {eyebrow}
         </span>
         {waiting != null && (
-          <span
-            className="tv-num"
-            // How long they have been at the desk, counting UP from the call —
-            // the same anchor the track boards count DOWN from, so the two
-            // clocks either side of a wall always add up to the window.
-            style={{ fontSize: 32, fontWeight: 700, opacity: 0.85 }}
-          >
-            {formatRemaining(waiting)}
+          // How long they have been at the desk, counting UP from the call —
+          // the same anchor the track boards count DOWN from, so the two clocks
+          // either side of a wall always add up to the window.
+          //
+          // SAID, NOT JUST SHOWN (owner 2026-08-12: "label that timer waiting").
+          // A bare 06:52 beside a session name is a number a marshal has to
+          // guess at — time on track? until the film? — and every other clock on
+          // this board is captioned ("On track", "Video"). This one is too.
+          <span style={{ display: "inline-flex", alignItems: "baseline", gap: 12 }}>
+            <span
+              className="tv-eyebrow"
+              style={{ fontSize: 26, letterSpacing: "0.14em", color: "inherit", opacity: 0.7 }}
+            >
+              Waiting
+            </span>
+            <span className="tv-num" style={{ fontSize: 32, fontWeight: 700, opacity: 0.9 }}>
+              {formatRemaining(waiting)}
+            </span>
           </span>
         )}
       </div>
