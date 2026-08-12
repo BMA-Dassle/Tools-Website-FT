@@ -150,6 +150,22 @@ async function ensureSchema(): Promise<void> {
       resolved_at     TIMESTAMPTZ
     )
   `;
+  /**
+   * ADDITIVE MIGRATIONS, not just CREATE TABLE.
+   *
+   * `CREATE TABLE IF NOT EXISTS` is a no-op once the table exists, so a column
+   * added to the definition later never reaches a database that already ran the
+   * original — every read of it then fails with `errorMissingColumn`. Caught the
+   * hard way 2026-08-12: `reservation_ref` (the admin board's grouping key) was
+   * added to the CREATE above, the live table already existed from an earlier
+   * run, and the queue-peek tool blew up on the missing column — which is
+   * exactly what the admin panel would have done on deploy.
+   *
+   * So every column added after the first release gets an explicit
+   * ADD COLUMN IF NOT EXISTS here. Cheap, idempotent, and it makes the schema
+   * block the single source of truth for what the table really has.
+   */
+  await q`ALTER TABLE bmi_sync_queue ADD COLUMN IF NOT EXISTS reservation_ref TEXT`;
   await q`
     CREATE UNIQUE INDEX IF NOT EXISTS bmi_sync_queue_idem
     ON bmi_sync_queue (idempotency_key)
