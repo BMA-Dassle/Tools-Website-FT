@@ -64,7 +64,7 @@ export interface CameraReturnFeed extends CameraReturnStrip {
 }
 
 /** Shape returned when the read fails — keeps the strip's 104 px, claims nothing. */
-const STALE: CameraReturnFeed = { boxes: [], outCount: 0, stale: true };
+const STALE: CameraReturnFeed = { boxes: [], outCount: 0, overdueCount: 0, stale: true };
 
 const TRACKS: TrackKey[] = ["blue", "red", "mega"];
 
@@ -137,7 +137,7 @@ export async function resolveCameraReturn(venue: string, nowMs: number): Promise
     // ── 1. who went out today ────────────────────────────────────────
     const raw = await redis.zrange(scanLogKey(businessDayYmdET(new Date(nowMs))), 0, -1);
     if (!raw || raw.length === 0) {
-      const empty: CameraReturnStrip = { boxes: [], outCount: 0 };
+      const empty: CameraReturnStrip = { boxes: [], outCount: 0, overdueCount: 0 };
       await redis
         .set(cacheKey(venue), JSON.stringify(empty), "EX", CACHE_TTL_SECONDS)
         .catch(() => void 0);

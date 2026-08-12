@@ -66,6 +66,21 @@ export const GREEN_HOLD_MS = 90_000;
  */
 export const SEEN_SKEW_MS = 60_000;
 
+/**
+ * WHEN "STILL WALKING BACK" BECOMES "GO AND FIND IT".
+ *
+ * Owner 2026-08-12, looking at the live board: "I like having separation show on
+ * bottom." Six identical red boxes were six equal alarms, and they were not equal
+ * — two were four minutes old (a group still handing kit in) while three were
+ * cameras that have not produced a clip in 8, 18 and 84 days. Presenting those the
+ * same way is how a board gets ignored: the transient ones dilute the real ones.
+ *
+ * Ten minutes, which is comfortably past the ~2 minute median return plus a slow
+ * walk from the far end of the track, and short enough that a genuinely lost
+ * camera separates itself out inside one heat.
+ */
+export const OVERDUE_MS = 10 * 60_000;
+
 /** One scan, as it comes out of `camera-scan-log:{businessDay}`. */
 export interface CameraScan {
   /** The scanned camera number, as text — the field is `sys` on the wire for
@@ -106,6 +121,10 @@ export interface CameraBox {
   heatNumber: number | null;
   /** How long since the flag, ms. What the box prints under the number. */
   sinceFlagMs: number;
+  /** Past OVERDUE_MS with no sighting — the chase list, drawn solid and grouped
+   *  to the left of the ones still legitimately on their way back. Always false
+   *  for a `back` box: a camera that has checked in is nobody's problem. */
+  overdue: boolean;
   /** Ordering key: when the camera went out. Kept so the caller can prove
    *  position stability in a test rather than trusting the sort. */
   assignedAtMs: number;
@@ -117,6 +136,9 @@ export interface CameraReturnStrip {
   /** How many are genuinely unaccounted for — the number the strip prints.
    *  NOT `boxes.length`, which also counts the green ones still holding. */
   outCount: number;
+  /** How many of those are past OVERDUE_MS. The strip draws a divider after them,
+   *  so the caller does not have to re-derive the group boundary. */
+  overdueCount: number;
 }
 
 /**
@@ -167,11 +189,13 @@ export function cameraReturnStripAt(input: CameraReturnInput): CameraReturnStrip
   const boxes: CameraBox[] = [];
 
   for (const [camera, { scan, finish }] of oldestOpen) {
+    const sinceFlagMs = Math.max(0, nowMs - finish.endedAtMs);
     boxes.push({
       camera,
       state: "out",
       heatNumber: finish.heatNumber,
-      sinceFlagMs: Math.max(0, nowMs - finish.endedAtMs),
+      sinceFlagMs,
+      overdue: sinceFlagMs >= OVERDUE_MS,
       assignedAtMs: scan.assignedAtMs,
     });
   }
@@ -186,16 +210,37 @@ export function cameraReturnStripAt(input: CameraReturnInput): CameraReturnStrip
       state: "back",
       heatNumber: finish.heatNumber,
       sinceFlagMs: Math.max(0, nowMs - finish.endedAtMs),
+      // A camera that has checked in is nobody's problem, however long its race
+      // has been over — it must never be drawn as part of the chase list.
+      overdue: false,
       assignedAtMs: scan.assignedAtMs,
     });
   }
 
-  // Rule 4 — position is a function of when the camera went out, never of
-  // state, so a box does not move when it turns green. Camera number breaks
-  // ties so two cameras scanned in the same millisecond still order stably.
-  boxes.sort((a, b) => a.assignedAtMs - b.assignedAtMs || Number(a.camera) - Number(b.camera));
+  /**
+   * OVERDUE FIRST, then by when the camera went out.
+   *
+   * Rule 4 said position must not depend on state, and this bends it in exactly
+   * one place: a box crosses the divider once, when it passes OVERDUE_MS. That is
+   * a real change of meaning — "still coming back" became "go and find it" — and
+   * it is what the separation is for. Turning GREEN still moves nothing, which is
+   * the case rule 4 was written about.
+   *
+   * Camera number breaks ties so two cameras scanned in the same millisecond
+   * still order stably.
+   */
+  boxes.sort(
+    (a, b) =>
+      Number(b.overdue) - Number(a.overdue) ||
+      a.assignedAtMs - b.assignedAtMs ||
+      Number(a.camera) - Number(b.camera),
+  );
 
-  return { boxes, outCount: boxes.filter((b) => b.state === "out").length };
+  return {
+    boxes,
+    outCount: boxes.filter((b) => b.state === "out").length,
+    overdueCount: boxes.filter((b) => b.overdue).length,
+  };
 }
 
 /**

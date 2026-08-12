@@ -223,10 +223,14 @@ export function LiveSessionChip({
   track,
   accent,
   label = "On track",
+  compact,
 }: {
   track: TrackKey | null;
   accent: string;
   label?: string;
+  /** Sized to sit inside a 44px band — the briefing rooms' camera strip when it
+   *  is collapsed to its all-clear whisper. Same pill, two thirds the type. */
+  compact?: boolean;
 }) {
   const clock = useLiveSessionClock(track);
   if (!clock) return null;
@@ -238,8 +242,8 @@ export function LiveSessionChip({
       style={{
         display: "inline-flex",
         alignItems: "baseline",
-        gap: 16,
-        padding: "10px 26px",
+        gap: compact ? 10 : 16,
+        padding: compact ? "3px 16px" : "10px 26px",
         borderRadius: 999,
         background: "rgba(0, 4, 24, 0.82)",
         border: `2px solid ${withAlpha(paused ? "#f0b341" : accent, 0.8)}`,
@@ -248,18 +252,24 @@ export function LiveSessionChip({
       <span
         aria-hidden
         style={{
-          width: 12,
-          height: 12,
+          width: compact ? 9 : 12,
+          height: compact ? 9 : 12,
           borderRadius: "50%",
           alignSelf: "center",
           background: paused ? "#f0b341" : "#46d68c",
           boxShadow: `0 0 10px ${paused ? "#f0b341" : "#46d68c"}`,
         }}
       />
-      <span style={{ fontSize: 26, color: "rgba(245,236,238,0.75)", letterSpacing: "0.04em" }}>
+      <span
+        style={{
+          fontSize: compact ? 17 : 26,
+          color: "rgba(245,236,238,0.75)",
+          letterSpacing: "0.04em",
+        }}
+      >
         {paused ? "Paused" : label}
       </span>
-      <span className="tv-num" style={{ fontSize: 40, color: "#fff" }}>
+      <span className="tv-num" style={{ fontSize: compact ? 26 : 40, color: "#fff" }}>
         {formatRemaining(clock.remainingMs)}
       </span>
     </div>

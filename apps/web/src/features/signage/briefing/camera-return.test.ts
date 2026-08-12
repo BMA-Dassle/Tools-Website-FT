@@ -4,6 +4,7 @@ import {
   formatSinceFlag,
   GREEN_HOLD_MS,
   SEEN_SKEW_MS,
+  OVERDUE_MS,
   type CameraScan,
   type SessionFinish,
 } from "./camera-return";
@@ -248,6 +249,67 @@ describe("cameraReturnStripAt", () => {
     expect(r.boxes.map((b) => b.camera)).toEqual(["12", "15", "23", "54", "94"]);
     expect(r.outCount).toBe(2);
     expect(r.boxes.filter((b) => b.state === "out").map((b) => b.camera)).toEqual(["54", "94"]);
+  });
+});
+
+describe("the overdue split", () => {
+  it("marks a camera overdue only past the threshold", () => {
+    const build = (sinceFlag: number) =>
+      cameraReturnStripAt({
+        scans: [scan("23", "S1", T - m(20))],
+        finishes: finishes([["S1", T - sinceFlag, 58]]),
+        seen: new Map(),
+        nowMs: T,
+      }).boxes[0];
+    expect(build(OVERDUE_MS - 1_000).overdue).toBe(false);
+    expect(build(OVERDUE_MS + 1_000).overdue).toBe(true);
+  });
+
+  it("never marks a returned camera overdue, however old its race", () => {
+    // A camera on the shelf is nobody's problem — it must not be drawn as part
+    // of the chase list just because its heat ended an hour ago.
+    const r = cameraReturnStripAt({
+      scans: [scan("23", "S1", T - m(90))],
+      finishes: finishes([["S1", T - m(80), 58]]),
+      seen: new Map([["23", T - 30_000]]),
+      nowMs: T,
+    });
+    expect(r.boxes[0]).toMatchObject({ state: "back", overdue: false });
+    expect(r.overdueCount).toBe(0);
+  });
+
+  it("groups overdue to the left, then orders by when each went out", () => {
+    const scans = [
+      scan("44", "S58", T - m(12)), // recent heat
+      scan("8", "S56", T - m(50)), // long overdue
+      scan("26", "S58", T - m(11)),
+      scan("12", "S57", T - m(30)), // overdue
+    ];
+    const r = cameraReturnStripAt({
+      scans,
+      finishes: finishes([
+        ["S56", T - m(40), 56],
+        ["S57", T - m(20), 57],
+        ["S58", T - m(2), 58],
+      ]),
+      seen: new Map(),
+      nowMs: T,
+    });
+    expect(r.boxes.map((b) => b.camera)).toEqual(["8", "12", "44", "26"]);
+    expect(r.boxes.map((b) => b.overdue)).toEqual([true, true, false, false]);
+    expect(r.overdueCount).toBe(2);
+    expect(r.outCount).toBe(4);
+  });
+
+  it("reports zero overdue when everything is fresh", () => {
+    const r = cameraReturnStripAt({
+      scans: [scan("23", "S1", T - m(12))],
+      finishes: finishes([["S1", T - m(2), 58]]),
+      seen: new Map(),
+      nowMs: T,
+    });
+    expect(r.overdueCount).toBe(0);
+    expect(r.outCount).toBe(1);
   });
 });
 

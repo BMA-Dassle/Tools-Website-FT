@@ -351,16 +351,64 @@ function demoBriefingSection(feed: TvFeed, mode: DemoMode): TvFeed["briefing"] {
     // camera 8 is two heats stale (the "returned earlier but still hasn't
     // scanned in" case), 17 and 31 are inside their green hold, and ordering is
     // by assignedAt so a reviewer can watch that a box does not move.
+    // Covers every state the strip can be in, so one preview reviews the lot:
+    // two OVERDUE (solid, left of the divider — cameras 8 and 12, out 18 and 14
+    // minutes), three still walking back (outline, right of it), and one holding
+    // its green confirmation. Ordering is overdue-first then by when the camera
+    // went out, which is what a reviewer should see the divider land on.
     cameraReturn: {
       boxes: [
-        { camera: "8", state: "out", heatNumber: 56, sinceFlagMs: 18 * 60_000, assignedAtMs: 1 },
-        { camera: "17", state: "back", heatNumber: 58, sinceFlagMs: 2 * 60_000, assignedAtMs: 2 },
-        { camera: "23", state: "out", heatNumber: 58, sinceFlagMs: 2 * 60_000, assignedAtMs: 3 },
-        { camera: "26", state: "out", heatNumber: 58, sinceFlagMs: 2 * 60_000, assignedAtMs: 4 },
-        { camera: "31", state: "back", heatNumber: 58, sinceFlagMs: 2 * 60_000, assignedAtMs: 5 },
-        { camera: "44", state: "out", heatNumber: 58, sinceFlagMs: 30_000, assignedAtMs: 6 },
+        {
+          camera: "8",
+          state: "out",
+          heatNumber: 56,
+          sinceFlagMs: 18 * 60_000,
+          overdue: true,
+          assignedAtMs: 1,
+        },
+        {
+          camera: "12",
+          state: "out",
+          heatNumber: 57,
+          sinceFlagMs: 14 * 60_000,
+          overdue: true,
+          assignedAtMs: 2,
+        },
+        {
+          camera: "17",
+          state: "back",
+          heatNumber: 58,
+          sinceFlagMs: 2 * 60_000,
+          overdue: false,
+          assignedAtMs: 3,
+        },
+        {
+          camera: "23",
+          state: "out",
+          heatNumber: 58,
+          sinceFlagMs: 2 * 60_000,
+          overdue: false,
+          assignedAtMs: 4,
+        },
+        {
+          camera: "26",
+          state: "out",
+          heatNumber: 58,
+          sinceFlagMs: 2 * 60_000,
+          overdue: false,
+          assignedAtMs: 5,
+        },
+        {
+          camera: "44",
+          state: "out",
+          heatNumber: 58,
+          sinceFlagMs: 30_000,
+          overdue: false,
+          assignedAtMs: 6,
+        },
       ],
-      outCount: 4,
+      outCount: 5,
+      overdueCount: 2,
     },
   };
 }

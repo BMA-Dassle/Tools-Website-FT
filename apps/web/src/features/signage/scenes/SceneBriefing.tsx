@@ -188,23 +188,32 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
           the same reason the clock is: the group about to be handed kit is the
           one sitting in front of the film (owner 2026-08-12). Venue-wide, so
           both rooms show the identical strip. */}
+      {/* WHICH POV CAMERAS ARE STILL OUT, and — at its right end — THE ON-TRACK
+          CLOCK. The clock moved off the top-right corner and into the strip
+          (owner 2026-08-12: "that way its out of the way"), which supersedes the
+          8/11 "move on track timer to top right": that corner was only ever the
+          least-bad option while the alternative was floating over a film. The
+          strip is permanent staff chrome, so the clock belongs in it. */}
       {cameraReturn && (
         <CameraReturnBar
           boxes={cameraReturn.boxes}
           outCount={cameraReturn.outCount}
           stale={cameraReturn.stale}
           padX={PAD_X}
+          clockTrack={liveTrack}
+          accent={accent}
         />
       )}
 
-      {/* THE LIVE SESSION CLOCK — at all times, every phase, the film included.
-          TOP-RIGHT (owner 2026-08-11: "move on track timer to top right") — the
-          bottom edge is where subtitle tracks burn into the film, and the
-          helmet board's own chips now cluster left so this corner is the
-          clock's on every board. Renders nothing when no heat is live. */}
-      <div style={{ position: "absolute", right: PAD_X, top: 40, zIndex: 6 }}>
-        <LiveSessionChip track={liveTrack} accent={accent} />
-      </div>
+      {/* FALLBACK ONLY. With the strip switched off there is no band to hold the
+          clock, so it returns to the corner it used to own rather than vanishing
+          — a briefing room without the on-track time is a downgrade on what
+          shipped 8/11. Renders nothing when no heat is live. */}
+      {!cameraReturn && (
+        <div style={{ position: "absolute", right: PAD_X, top: 40, zIndex: 6 }}>
+          <LiveSessionChip track={liveTrack} accent={accent} />
+        </div>
+      )}
     </div>
   );
 }

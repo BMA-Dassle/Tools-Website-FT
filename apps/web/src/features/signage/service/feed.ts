@@ -215,6 +215,7 @@ async function buildBriefingSection(
       ? resolveCameraReturn(venue, Date.now()).catch(() => ({
           boxes: [],
           outCount: 0,
+          overdueCount: 0,
           stale: true,
         }))
       : Promise.resolve(null),

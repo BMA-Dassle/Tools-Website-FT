@@ -30,6 +30,8 @@
  *     occasionally useful.
  */
 import { formatSinceFlag } from "../briefing/camera-return";
+import { LiveSessionChip } from "../live-session";
+import type { TrackKey } from "~/features/reservations-admin/race-live-state";
 
 /**
  * TWO HEIGHTS, because the strip should only take the room it has earned.
@@ -76,6 +78,9 @@ export interface CameraReturnBox {
   state: "out" | "back";
   heatNumber: number | null;
   sinceFlagMs: number;
+  /** Past the overdue mark with no sighting — solid, and grouped left of the
+   *  divider. See the note on the divider in CameraReturnBar. */
+  overdue: boolean;
   assignedAtMs: number;
 }
 
@@ -84,6 +89,8 @@ export function CameraReturnBar({
   outCount,
   stale,
   padX,
+  clockTrack,
+  accent,
 }: {
   boxes: CameraReturnBox[];
   outCount: number;
@@ -92,6 +99,22 @@ export function CameraReturnBar({
   /** The scene's horizontal padding, so the caption lines up with the eyebrow
    *  above it rather than floating at its own inset. */
   padX: number;
+  /**
+   * THE ON-TRACK CLOCK NOW LIVES HERE, at the right end of the strip (owner
+   * 2026-08-12: "the on track timing on the briefing screens could make it to the
+   * bottom right on the new camera bar that way its out of the way").
+   *
+   * This SUPERSEDES the 2026-08-11 decision that put it top-right on every board
+   * — that was the right answer when the only alternative was the bottom edge of
+   * a film, which is where subtitles burn in. The strip changes the arithmetic:
+   * there is now a permanent chrome band down there that already belongs to
+   * staff, so the clock stops floating over the artwork. Do not "restore" it to
+   * the corner.
+   *
+   * Null track, or no heat running, renders nothing.
+   */
+  clockTrack: TrackKey | null;
+  accent: string;
 }) {
   const quiet = boxes.length === 0;
 
@@ -130,6 +153,9 @@ export function CameraReturnBar({
         >
           {stale ? "Cameras — list unavailable" : "Cameras all in"}
         </span>
+        <div style={{ marginLeft: "auto" }}>
+          <LiveSessionChip track={clockTrack} accent={accent} compact />
+        </div>
       </div>
     );
   }
@@ -165,10 +191,41 @@ export function CameraReturnBar({
         </span>
       </div>
 
-      <div style={{ display: "flex", flex: "0 1 auto", gap: 9, overflow: "hidden" }}>
-        {boxes.map((b) => (
-          <CameraBox key={b.camera} box={b} />
-        ))}
+      {/* THE SEPARATION (owner 2026-08-12: "I like having separation show on
+          bottom"). Everything left of the rule is overdue — go and find it.
+          Everything right of it is a group still handing kit in. Without the
+          split, three dead units and two cameras four minutes old read as five
+          equal alarms, and the real ones get diluted. The rule is only drawn when
+          both sides exist. */}
+      <div style={{ display: "flex", flex: "0 1 auto", alignItems: "center", overflow: "hidden" }}>
+        {boxes.map((b, i) => {
+          const dividerBefore = i > 0 && boxes[i - 1].overdue && !b.overdue;
+          return (
+            <div key={b.camera} style={{ display: "flex", alignItems: "center" }}>
+              {dividerBefore && (
+                <div
+                  aria-hidden
+                  style={{
+                    width: 2,
+                    height: 56,
+                    margin: "0 20px",
+                    borderRadius: 1,
+                    background: "rgba(245, 236, 238, 0.22)",
+                    flex: "0 0 auto",
+                  }}
+                />
+              )}
+              <div style={{ marginLeft: i === 0 || dividerBefore ? 0 : 9 }}>
+                <CameraBox box={b} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* The on-track clock, out of the way at the far right — see clockTrack. */}
+      <div style={{ marginLeft: "auto", flex: "0 0 auto" }}>
+        <LiveSessionChip track={clockTrack} accent={accent} />
       </div>
     </div>
   );
@@ -183,6 +240,16 @@ export function CameraReturnBar({
  */
 function CameraBox({ box }: { box: CameraReturnBox }) {
   const out = box.state === "out";
+  /**
+   * TWO WEIGHTS OF RED, so the wall does not shout equally at everything.
+   *
+   * SOLID is the chase list — past OVERDUE_MS with no sighting. OUTLINE is a
+   * camera whose race has just finished and whose group is still walking back;
+   * present and countable, but not an alarm. Escalating from outline to solid at
+   * the ten-minute mark is the only thing on this strip that changes appearance
+   * over time, and it does so once.
+   */
+  const solid = out && box.overdue;
   return (
     <div
       // Staff read the colour; a screen reader would get "23" with no meaning.
@@ -190,7 +257,7 @@ function CameraBox({ box }: { box: CameraReturnBox }) {
       // nothing and makes the intent legible to the next developer too.
       aria-label={
         out
-          ? `Camera ${box.camera} not back${box.heatNumber != null ? ` from session ${box.heatNumber}` : ""}, ${formatSinceFlag(box.sinceFlagMs)}`
+          ? `Camera ${box.camera} ${box.overdue ? "overdue" : "not back"}${box.heatNumber != null ? ` from session ${box.heatNumber}` : ""}, ${formatSinceFlag(box.sinceFlagMs)}`
           : `Camera ${box.camera} back`
       }
       style={{
@@ -203,11 +270,12 @@ function CameraBox({ box }: { box: CameraReturnBox }) {
         alignItems: "center",
         justifyContent: "center",
         border: `2px solid ${out ? RED_EDGE : GREEN}`,
-        background: out ? RED : GREEN,
-        color: out ? "#fff" : GREEN_INK,
+        background: out ? (solid ? RED : "rgba(229, 57, 53, 0.14)") : GREEN,
+        color: out ? (solid ? "#fff" : RED_EDGE) : GREEN_INK,
         // Painted once and never animated — the 24/7 rulebook in tv.css bans
-        // animating box-shadow, and this one is static so it is free.
-        boxShadow: out ? `0 0 18px rgba(229, 57, 53, 0.7)` : "none",
+        // animating box-shadow, and this one is static so it is free. Only the
+        // chase list gets the glow; the calm ones would fight it for attention.
+        boxShadow: solid ? `0 0 18px rgba(229, 57, 53, 0.7)` : "none",
       }}
     >
       <span className="tv-num" style={{ fontSize: 40, fontWeight: 700, lineHeight: 1 }}>
@@ -216,7 +284,11 @@ function CameraBox({ box }: { box: CameraReturnBox }) {
       {out && (
         <span
           className="tv-num"
-          style={{ fontSize: 18, lineHeight: 1, color: "rgba(255, 255, 255, 0.82)" }}
+          style={{
+            fontSize: 18,
+            lineHeight: 1,
+            color: solid ? "rgba(255, 255, 255, 0.82)" : "rgba(255, 122, 116, 0.85)",
+          }}
         >
           {formatSinceFlag(box.sinceFlagMs)}
         </span>

@@ -430,9 +430,13 @@ export interface TvFeed {
         state: "out" | "back";
         heatNumber: number | null;
         sinceFlagMs: number;
+        /** Past the overdue mark with no sighting — the chase list, drawn solid
+         *  and grouped left of a divider from the ones still on their way back. */
+        overdue: boolean;
         assignedAtMs: number;
       }>;
       outCount: number;
+      overdueCount: number;
       /** The facts could not be read this poll. Holds the strip's space and says
        *  so, rather than claiming an all-clear it cannot stand behind. */
       stale?: boolean;
