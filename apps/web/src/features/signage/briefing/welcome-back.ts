@@ -10,9 +10,10 @@
  * exactly when a session finishes — don't guess"). The VIP experience board
  * already reads it: Pandora's per-track sessions list stamps actualStart/actualEnd
  * when the timing system starts and ends a heat, and
- * reservations-admin/race-live-state.server keeps a fresh (≤15s), memory-cached
- * reader over it. A first cut here derived the moment from "the next heat was
- * called" plus elapsed time; that heuristic is deleted, not layered under this.
+ * reservations-admin/race-live-state.server reads it live per poll for this
+ * board (owner budget: "15 seconds, no more"). A first cut here derived the
+ * moment from "the next heat was called" plus elapsed time; that heuristic is
+ * deleted, not layered under this.
  *
  * The window opens AT the session's actual end and holds long enough for the walk
  * back and the kit return, then the room falls back to helmet sizes — a greeting

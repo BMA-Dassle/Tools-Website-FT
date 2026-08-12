@@ -22,18 +22,30 @@ export const TRACK_RESOURCE: Record<TrackKey, string> = {
   mega: "Mega Track",
 };
 
-/** Per-track session-list cache. 15s in-memory + the Redis fresh-claim below:
- *  ANY reader may refresh from Pandora, but a SET NX marker caps the whole
- *  fleet at one live read per track per 15s (owner 2026-08-11: "we can hit
- *  that endpoint every 15 seconds" — the 2-min cron warm alone made a Done
- *  flip take ~2-3 min to reach the welcome-back boards). Worst case now:
- *  ≤15s claim window + ≤15s memory TTL + the TV's 15s poll ≈ 45s, typically
- *  ~20-30s. Failures cache 15s so a Pandora outage can't hammer. */
-const trackSessionCache = new Map<string, { sessions: TrackSession[] | null; expiry: number }>();
+/** Per-track session-list cache, stamped with WHEN it was fetched so callers
+ *  choose their own staleness budget:
+ *
+ *  - Default callers (admin board, race-dayof-pay, vip-move-alerts) accept 15s
+ *    and share one live Pandora read per track per 15s via the Redis SET NX
+ *    fresh-claim below.
+ *  - `fresh: true` callers (the briefing screens' welcome-back board + return
+ *    radio call) READ THROUGH on every poll: the owner's budget is "a session
+ *    end shows in 15 seconds, no more" (2026-08-11), and the TV's 15s poll
+ *    already spends all of it — any cache window stacked on top blows the
+ *    budget. A 4s reuse window only collapses duplicate reads inside one feed
+ *    build (the announcer's lookback loop) and near-simultaneous polls landing
+ *    on the same instance. Cost ceiling: 2 briefing screens x 4 polls/min =
+ *    ~8 Pandora reads/min/track, only while today's assignments exist.
+ *
+ *  Failures cache for the caller's own window so a Pandora outage can't
+ *  hammer; the stale Redis copy keeps serving meanwhile. */
+const trackSessionCache = new Map<string, { sessions: TrackSession[] | null; fetchedAt: number }>();
 
-/** One live Pandora read per track per this many seconds, fleet-wide. */
+/** One live Pandora read per track per this many seconds for DEFAULT callers. */
 const SESSIONS_FRESH_SECONDS = 15;
 const SESSIONS_MEMORY_TTL_MS = 15_000;
+/** fresh:true reuse window — dedup within one feed build, nothing more. */
+const SESSIONS_LIVE_MAX_AGE_MS = 4_000;
 /** Write-through TTL — MUST match app/api/pandora/sessions/route.ts
  *  REDIS_CACHE_TTL_SECONDS, since both write the same key. */
 const SESSIONS_REDIS_TTL_SECONDS = 30 * 60;
@@ -41,15 +53,19 @@ const SESSIONS_REDIS_TTL_SECONDS = 30 * 60;
 export async function fetchTrackSessions(
   track: TrackKey,
   ymd: string,
+  opts?: { fresh?: boolean },
 ): Promise<TrackSession[] | null> {
+  const fresh = opts?.fresh === true;
   const resource = TRACK_RESOURCE[track];
   const memKey = `${resource}:${ymd}`;
+  const maxAgeMs = fresh ? SESSIONS_LIVE_MAX_AGE_MS : SESSIONS_MEMORY_TTL_MS;
   const cached = trackSessionCache.get(memKey);
-  if (cached && Date.now() < cached.expiry) return cached.sessions;
+  if (cached && Date.now() - cached.fetchedAt < maxAgeMs) return cached.sessions;
   let sessions: TrackSession[] | null = null;
   // 1. Redis cache — written by the sessions proxy (pre-race-tickets cron, every
-  //    2 min) AND by the fresh-claim write-through below. Key format MUST mirror
+  //    2 min) AND by the write-through below. Key format MUST mirror
   //    app/api/pandora/sessions/route.ts cacheKey + the cron's todayETRange.
+  //    Read even on the fresh path: it is the fallback when the live read fails.
   const redisKey = `pandora:sessions:${FASTTRAX_LOCATION_ID}:${resource}:${ymd}T00:00:00:${ymd}T23:59:59`;
   try {
     const raw = await redis.get(redisKey);
@@ -60,11 +76,10 @@ export async function fetchTrackSessions(
   } catch {
     /* fall through to live */
   }
-  // 2. Freshness claim. The cron's 2-min warm is too slow for the end-of-session
-  //    consumers (welcome-back board, return radio call), so readers refresh
-  //    Pandora themselves — SET NX makes exactly one caller per track per window
-  //    do the live read while everyone else rides the cache.
-  let readLive = !sessions;
+  // 2. Who reads live? fresh callers ALWAYS (their budget has no room for a
+  //    shared window). Default callers refresh when the cache is cold or when
+  //    they win the SET NX claim — one live read per track per 15s among them.
+  let readLive = fresh || !sessions;
   if (!readLive && PANDORA_KEY) {
     try {
       const claim = await redis.set(
@@ -79,7 +94,7 @@ export async function fetchTrackSessions(
       /* Redis flaky — the cached copy we just read is the safer answer */
     }
   }
-  // 3. Live Pandora read (won the claim, or the cache was cold).
+  // 3. Live Pandora read.
   if (readLive && PANDORA_KEY) {
     try {
       const qs = new URLSearchParams({
@@ -98,10 +113,17 @@ export async function fetchTrackSessions(
           sessions = json.data as TrackSession[];
           // Write-through (non-empty only, mirroring the proxy) so every other
           // reader and the proxy's cache-first callers see this refresh too.
+          // A fresh caller also stamps the claim: while the briefing screens
+          // are polling live, the default readers get to ride their work.
           if (sessions.length) {
             redis
               .set(redisKey, JSON.stringify(sessions), "EX", SESSIONS_REDIS_TTL_SECONDS)
               .catch(() => {});
+            if (fresh) {
+              redis
+                .set(`${redisKey}:fresh-claim`, "1", "EX", SESSIONS_FRESH_SECONDS)
+                .catch(() => {});
+            }
           }
         }
       }
@@ -109,7 +131,7 @@ export async function fetchTrackSessions(
       /* non-fatal — the stale cache read above still stands */
     }
   }
-  trackSessionCache.set(memKey, { sessions, expiry: Date.now() + SESSIONS_MEMORY_TTL_MS });
+  trackSessionCache.set(memKey, { sessions, fetchedAt: Date.now() });
   return sessions;
 }
 

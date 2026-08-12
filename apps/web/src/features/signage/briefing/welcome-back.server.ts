@@ -8,10 +8,11 @@ import "server-only";
  * that session's row in the timing system's per-track sessions list — via the
  * SAME shared reader the VIP experience board uses
  * (reservations-admin/race-live-state.server, owner: "we already know when
- * sessions finish on the VIP experience board"; since 2026-08-11 that reader
- * self-refreshes from Pandora on a 15s fleet-wide claim, so an end reaches
- * these boards in ~20-45s, not the old 2-3 min). A session with `actualEnd`
- * stamped is finished as a matter of record, not inference.
+ * sessions finish on the VIP experience board") — called with `fresh: true`,
+ * which reads Pandora live on every poll: the owner's budget is "15 seconds,
+ * no more" (2026-08-11), the TV's 15s poll spends all of it, so the data at
+ * poll time must be current. A session with `actualEnd` stamped is finished
+ * as a matter of record, not inference.
  *
  * DELIBERATELY CARRIES NO NAMES. The board greets the group, says where kit goes
  * and where scores are posted, and restates the qualifying time. Who actually
@@ -47,9 +48,9 @@ const ANNOUNCE_FRESH_MS = 10 * 60_000;
  *  before the previous group's actualEnd becomes visible, so an announcer that
  *  only watched the latest assignment missed almost every real return — heat
  *  62's end landed after heat 64 had already replaced it as red's latest
- *  (probe, 2026-08-11, under the old 2-min cron warm). The sessions reader now
- *  self-refreshes on a 15s claim, which shrinks that blind spot but cannot
- *  close it — back-to-back sends can still overtake an end inside one window. */
+ *  (probe, 2026-08-11, under the old 2-min cron warm). Reads are live per poll
+ *  now, which shrinks that blind spot to one poll tick but cannot close it —
+ *  a send and an end can still land inside the same tick. */
 const ANNOUNCE_LOOKBACK = 4;
 
 export async function resolveWelcomeBack(
@@ -70,9 +71,12 @@ export async function resolveWelcomeBack(
   for (const a of roomTimeline.slice(0, ANNOUNCE_LOOKBACK)) {
     const aTrack: TrackKey =
       a.track === "blue" || a.track === "red" || a.track === "mega" ? a.track : "mega";
-    // fetchTrackSessions memory-caches per track+day for 15s, so this loop costs
-    // one upstream read per track, not one per assignment.
-    const list = await fetchTrackSessions(aTrack, calendarYmdET()).catch(() => null);
+    // fresh: live Pandora truth every poll (the 4s reuse window inside the
+    // reader still collapses this loop to one upstream read per track, not
+    // one per assignment).
+    const list = await fetchTrackSessions(aTrack, calendarYmdET(), { fresh: true }).catch(
+      () => null,
+    );
     const row = list?.find((s) => String(s.sessionId) === a.sessionId);
     const endMs = row?.actualEnd ? Date.parse(row.actualEnd) : NaN;
     if (!Number.isFinite(endMs)) continue;
@@ -90,7 +94,9 @@ export async function resolveWelcomeBack(
   // CALENDAR ET day, not the racing business day: the sessions cache is keyed the
   // way its warming cron keys it (todayETRange), and a post-midnight miss only
   // costs the reader its cache — it falls through to a live read on its own.
-  const sessions = await fetchTrackSessions(track, calendarYmdET()).catch(() => null);
+  const sessions = await fetchTrackSessions(track, calendarYmdET(), { fresh: true }).catch(
+    () => null,
+  );
   if (!sessions) return null;
 
   // Compare as STRINGS — the sessions list carries string ids, and the house rule

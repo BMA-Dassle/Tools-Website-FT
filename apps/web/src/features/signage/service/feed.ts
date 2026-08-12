@@ -193,8 +193,8 @@ async function buildBriefingSection(
   const [assets, rooms, welcomeBack] = await Promise.all([
     loadSignageAssetsSafe(),
     readBriefingRooms(venue).catch(() => ({ red: null, blue: null })),
-    // The group's return — from the timing system's own actualEnd, via the same
-    // self-refreshing (≤15s) reader the VIP board uses. Null while they are out.
+    // The group's return — from the timing system's own actualEnd, read LIVE on
+    // every poll (owner: end shows within 15s). Null while they are still out.
     resolveWelcomeBack(venue, room, businessDay).catch(() => null),
   ]);
 
