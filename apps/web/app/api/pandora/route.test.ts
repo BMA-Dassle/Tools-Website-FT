@@ -143,19 +143,41 @@ describe("POST /api/pandora — cloud-first person mint", () => {
     );
   });
 
-  it("with a birthdate it queues NOTHING — an Office mint lands locally readable", async () => {
+  /**
+   * Every new person gets the DEFAULT REGISTRATION membership (owner
+   * 2026-08-12). This assertion exists because the membership handler shipped
+   * with NO enqueuer wired — the machinery looked present while a signer's
+   * Memberships tab stayed empty in BMI, caught live on "Test 14". A mechanism
+   * with no trigger is worse than none, so the trigger is pinned here.
+   */
+  it("always queues the REGISTRATION membership, behind person-local", async () => {
     const { POST } = await import("./route");
     await POST(postReq(NEW_GUEST));
-    expect(queueMock.enqueueSync).not.toHaveBeenCalled();
+    expect(queueMock.enqueueSync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "add-membership",
+        barrier: "person-local",
+        barrierRef: "63000000008163503",
+      }),
+    );
+  });
+
+  it("with a birthdate it does NOT queue a repair — an Office mint lands readable", async () => {
+    const { POST } = await import("./route");
+    await POST(postReq(NEW_GUEST));
+    const kinds = queueMock.enqueueSync.mock.calls.map((c) => (c[0] as { kind: string }).kind);
+    expect(kinds).toContain("add-membership");
+    expect(kinds).not.toContain("repair-person-details");
   });
 
   it("with NO birthdate it queues the repair — that record would read 500 on Pandora forever", async () => {
     const { POST } = await import("./route");
     const noDob = { ...NEW_GUEST, birthdate: undefined };
     await POST(postReq(noDob));
-    expect(queueMock.enqueueSync).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "repair-person-details", barrier: "person-local" }),
-    );
+    const kinds = queueMock.enqueueSync.mock.calls.map((c) => (c[0] as { kind: string }).kind);
+    expect(kinds).toContain("repair-person-details");
+    // …and the registration still rides along.
+    expect(kinds).toContain("add-membership");
   });
 
   it("routes Naples to its own client key", async () => {

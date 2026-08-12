@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   listSyncQueueForAdmin,
+  listRecentGuestAdds,
   syncStateForReservations,
 } from "~/features/reservations-admin/bmi-sync-view";
 
@@ -37,10 +38,21 @@ export async function GET(req: NextRequest) {
   const includeDone = sp.get("includeDone") !== "0";
   const limit = Number(sp.get("limit") || "200");
 
-  const [rows, stateMap] = await Promise.all([
+  /**
+   * The queue alone answers "what is stuck". Guests whose attach + waiver landed
+   * first time produce NO queue rows, so they would be invisible — and "did my
+   * person get added?" is the question this panel exists for. So the feed is the
+   * union, newest first, with anything needing attention floated up.
+   */
+  const [queueRows, guestAdds, stateMap] = await Promise.all([
     listSyncQueueForAdmin({ limit, includeDone }),
+    listRecentGuestAdds(),
     refs.length > 0 ? syncStateForReservations(refs) : Promise.resolve(new Map()),
   ]);
+  const rank = (s: string) => (s === "parked" ? 0 : s === "pending" ? 1 : 2);
+  const rows = [...queueRows, ...guestAdds].sort(
+    (a, b) => rank(a.status) - rank(b.status) || Date.parse(b.createdAt) - Date.parse(a.createdAt),
+  );
 
   return NextResponse.json({
     ok: true,

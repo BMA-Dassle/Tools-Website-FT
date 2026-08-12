@@ -84,6 +84,79 @@ function nameFromPayload(payload: unknown): string | null {
 }
 
 /**
+ * On-site work for RECENTLY ADDED GUESTS, whether or not it had to wait.
+ *
+ * Why this is not just the queue: the queue only holds work that FAILED or is
+ * WAITING, so a guest whose waiver and attach both landed first time produces
+ * NO rows at all. Owner 2026-08-12, after signing two test guests: "I just put
+ * in a person name test again and don't see it here?" — and they were right to
+ * expect it, because the question the panel has to answer is "did my person get
+ * added and is the on-site side done", not "what is in one table".
+ *
+ * So each signer's ATTACH outcome (kiosk_waiver_joins) is folded in as a row of
+ * its own. A successful attach shows as `done` — visible proof rather than
+ * silence — and a failed one shows as needing attention. `attached` rows also
+ * carry the waiver outcome, since a guest who attached but whose waiver never
+ * reached BMI is exactly the case worth seeing.
+ */
+export async function listRecentGuestAdds(minutes = 720, limit = 100): Promise<AdminSyncRow[]> {
+  if (!isDbConfigured()) return [];
+  try {
+    const q = sql();
+    const rows = (await q`
+      SELECT j.project_id, j.person_id, j.display_name, j.bmi_attach_status,
+             j.bmi_attach_error, j.created_at,
+             EXTRACT(EPOCH FROM (now() - j.created_at)) / 60 AS age_min,
+             (SELECT s.outcome FROM waiver_signatures s
+               WHERE s.person_id = j.person_id
+               ORDER BY s.ts DESC LIMIT 1) AS waiver_outcome
+      FROM kiosk_waiver_joins j
+      WHERE j.created_at > now() - (${minutes} * INTERVAL '1 minute')
+      ORDER BY j.created_at DESC
+      LIMIT ${limit}
+    `) as Array<Record<string, unknown>>;
+    return rows.map((r) => {
+      const attach = String(r.bmi_attach_status);
+      const waiver = r.waiver_outcome === null ? null : String(r.waiver_outcome);
+      // 'attached' + a signed/queued waiver is the whole job done. Anything else
+      // is either still moving or wants eyes.
+      const waiverOk = waiver === "signed" || waiver === "salvaged" || waiver === "queued";
+      const status =
+        attach === "attached"
+          ? waiverOk
+            ? "done"
+            : "pending"
+          : attach === "failed"
+            ? "parked"
+            : "pending";
+      return {
+        // Negative ids keep these distinct from real queue rows in React keys.
+        id: -Number(r.person_id ? String(r.person_id).slice(-9) : Math.random() * 1e9),
+        kind: "guest-added",
+        status,
+        barrier: "none",
+        barrierRef: r.person_id === null ? null : String(r.person_id),
+        reservationRef: r.project_id === null ? null : String(r.project_id),
+        attempts: 0,
+        lastError:
+          attach === "attached"
+            ? `attached${waiver ? `, waiver ${waiver}` : ", waiver not recorded yet"}`
+            : `attach ${attach}${r.bmi_attach_error ? `: ${String(r.bmi_attach_error).slice(0, 120)}` : ""}`,
+        createdAt: String(r.created_at),
+        nextAttemptAt: String(r.created_at),
+        giveUpAt: null,
+        resolvedAt: status === "done" ? String(r.created_at) : null,
+        ageMin: Math.round(Number(r.age_min ?? 0)),
+        who: r.display_name === null ? null : String(r.display_name),
+      } satisfies AdminSyncRow;
+    });
+  } catch (err) {
+    console.warn("[bmi-sync-view] recent guest adds failed:", err);
+    return [];
+  }
+}
+
+/**
  * Everything in the table, for the admin panel. Parked first (needs a human),
  * then still-pending, then the resolved tail for context.
  */

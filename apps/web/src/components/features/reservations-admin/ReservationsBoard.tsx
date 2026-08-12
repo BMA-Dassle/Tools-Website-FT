@@ -32,6 +32,7 @@ import type { Reservation } from "~/features/reservations-admin/types";
 import BoardCardList from "./BoardCardList";
 import BoardTable from "./BoardTable";
 import { BmiSyncPanel } from "./BmiSyncPanel";
+import { officeProjectIdFromBillId } from "@/lib/bmi-office-ids";
 import type {
   AdminSyncRow,
   ReservationSyncState,
@@ -296,9 +297,13 @@ export default function ReservationsBoard({
     () =>
       [
         ...new Set(
-          displayRows.flatMap((r) =>
-            [r.bmiBillId, r.bmiReservationNumber].filter((v): v is string => !!v),
-          ),
+          displayRows.flatMap((r) => {
+            // Waiver-join rows are keyed by the OFFICE PROJECT id (billId + 1 —
+            // it is what the waiver link's ?pid= carries), so send that form too
+            // or a reservation's signers never match its pill.
+            const proj = r.bmiBillId ? officeProjectIdFromBillId(r.bmiBillId) : null;
+            return [r.bmiBillId, r.bmiReservationNumber, proj].filter((v): v is string => !!v);
+          }),
         ),
       ].sort(),
     [displayRows],
@@ -325,7 +330,10 @@ export default function ReservationsBoard({
       }
     };
     void load();
-    const t = setInterval(load, 120_000);
+    // 20s, not 2 min: the owner watches this while guests are signing at the
+    // desk ("needs to update live"), and a 2-minute lag reads as "it didn't
+    // work". Cheap — two indexed queries behind one request.
+    const t = setInterval(load, 20_000);
     return () => {
       alive = false;
       clearInterval(t);
@@ -336,6 +344,7 @@ export default function ReservationsBoard({
   const onsiteSyncFor = useCallback(
     (r: Reservation): ReservationSyncState | undefined =>
       (r.bmiBillId ? syncByRes[r.bmiBillId] : undefined) ??
+      (r.bmiBillId ? syncByRes[officeProjectIdFromBillId(r.bmiBillId)] : undefined) ??
       (r.bmiReservationNumber ? syncByRes[r.bmiReservationNumber] : undefined),
     [syncByRes],
   );
@@ -613,6 +622,20 @@ export default function ReservationsBoard({
         }}
       />
 
+      {/* On-site sync watch — a button + modal rather than an always-open panel
+          (owner 2026-08-12), so the board only spends space on it when there is
+          something to say. The badge carries the worst outstanding state. */}
+      <div
+        style={{
+          maxWidth: 1200,
+          margin: "0 auto 0.75rem",
+          display: "flex",
+          justifyContent: "flex-end",
+        }}
+      >
+        <BmiSyncPanel rows={syncRows} />
+      </div>
+
       {/* Content */}
       <div style={{ maxWidth: 1200, margin: "0 auto" }}>
         {loading ? (
@@ -662,7 +685,6 @@ export default function ReservationsBoard({
               onViewEvent={openEventDetail}
               resolvingEventId={resolvingEventId}
             />
-            <BmiSyncPanel rows={syncRows} />
             <BoardCardList
               rows={displayRows}
               comboScheduleFor={comboScheduleFor}

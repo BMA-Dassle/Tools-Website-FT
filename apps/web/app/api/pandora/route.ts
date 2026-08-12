@@ -157,24 +157,55 @@ export async function POST(req: NextRequest) {
         centerCode,
       });
 
-      // Only needed when we minted WITHOUT a birthdate: that record reads 500 on
-      // Pandora forever, and every consumer treats a 500 as "no waiver". With a
-      // DOB the person lands readable and no followup is owed.
-      if (!birthdate) {
-        try {
-          const { enqueueSync } = await import("@/lib/bmi-sync-queue");
+      const locId = (location && LOCATION_MAP[location]) || DEFAULT_LOCATION_ID;
+      try {
+        const { enqueueSync } = await import("@/lib/bmi-sync-queue");
+
+        /**
+         * DEFAULT REGISTRATION for every new person (owner 2026-08-12: "use
+         * default registration for everyone").
+         *
+         * This enqueue is the piece that was missing: the handler and the
+         * registration kind existed, but nothing ever queued a row, so a guest
+         * who signed a waiver ended up with an EMPTY Memberships tab in BMI —
+         * caught live by the owner on Test 14. A mechanism with no trigger does
+         * nothing, which is worse than not having it, because the machinery
+         * looks present.
+         *
+         * It belongs HERE rather than in the waiver flow so every surface that
+         * mints a person is covered by one wire — the same reason the mint switch
+         * lives in this route.
+         *
+         * Behind `person-local`: addMembership is a PANDORA write, so it must
+         * wait the ~10-30s for the cloud-minted person to reach the center's
+         * server. NOT the licence — that arrives with its BMI product.
+         */
+        await enqueueSync({
+          kind: "add-membership",
+          idempotencyKey: `registration:${personId}`,
+          barrier: "person-local",
+          barrierRef: personId,
+          locationId: locId,
+          payload: { personId, firstName, lastName },
+        });
+
+        // Only needed when we minted WITHOUT a birthdate: that record reads 500
+        // on Pandora forever, and every consumer treats a 500 as "no waiver".
+        // With a DOB the person lands readable and no repair is owed.
+        if (!birthdate) {
           await enqueueSync({
             kind: "repair-person-details",
             idempotencyKey: `repair-person:${personId}`,
             barrier: "person-local",
             barrierRef: personId,
-            locationId: (location && LOCATION_MAP[location]) || DEFAULT_LOCATION_ID,
+            locationId: locId,
             payload: { personId, firstName, lastName, email, phone, locationKey: location },
           });
-        } catch (err) {
-          // The queue is a backstop, not the mint's success condition.
-          console.warn(`[pandora] could not enqueue person repair for ${personId}:`, err);
         }
+      } catch (err) {
+        // The queue is a backstop, not the mint's success condition — a guest
+        // must never fail to be created because a followup could not be queued.
+        console.warn(`[pandora] could not enqueue followups for ${personId}:`, err);
       }
       return NextResponse.json({ personId, rail: "office-cloud" });
     }
