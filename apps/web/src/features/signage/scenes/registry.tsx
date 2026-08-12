@@ -22,6 +22,7 @@ import { SceneBirthdayTakeover } from "./SceneBirthdayTakeover";
 import { SceneEventWelcome } from "./SceneEventWelcome";
 import { SceneVipWelcome } from "./SceneVipWelcome";
 import { SceneBriefing } from "./SceneBriefing";
+import { SceneCameraMonitor } from "./SceneCameraMonitor";
 
 /**
  * Render whichever scene a decision names.
@@ -43,6 +44,8 @@ export function SceneSlot(props: SceneProps) {
       return <SceneRaceCheckin {...props} />;
     case "briefing":
       return <SceneBriefing {...props} />;
+    case "camera":
+      return <SceneCameraMonitor {...props} />;
     case "event-welcome":
       return <SceneEventWelcome {...props} />;
     case "vip-welcome":
@@ -83,6 +86,7 @@ const IMPLEMENTED: ReadonlySet<SceneType> = new Set<SceneType>([
   "sleep",
   "race-checkin",
   "briefing",
+  "camera",
   "event-welcome",
   "vip-welcome",
   "celebration",
@@ -122,6 +126,11 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
       // Always true, for the same reason and more strongly: a briefing room's
       // idle state (helmet sizing) is content the next group actively wants, and
       // rotating away from it between sends would leave the room with ads.
+      return true;
+    case "camera":
+      // Always true: a monitor's whole job is the live picture, and it has its
+      // own designed states for "connecting" and "no camera picked". It must
+      // never rotate away to ads.
       return true;
     default:
       return true;

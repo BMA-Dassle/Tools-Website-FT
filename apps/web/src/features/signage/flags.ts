@@ -27,3 +27,20 @@ export function signageEnabled(): boolean {
 export function briefingEnabled(): boolean {
   return process.env.NEXT_PUBLIC_BRIEFING_ENABLED !== "false";
 }
+
+/**
+ * Camera-monitor kill switch — the live-CCTV boards (a briefing room's own
+ * camera on a wall) and the frame proxy that feeds them.
+ *
+ * Same house rule: defaults ON, read at call time. Turning it OFF makes
+ * /api/tv/camera 404, so a camera board falls back to its "camera unavailable"
+ * state rather than hammering the Nx relay — the switch to pull if the venue's
+ * NVR or its cloud link is having a bad day and the boards are timing out.
+ *
+ * NOT a NEXT_PUBLIC_ var: nothing client-side needs to branch on it (the scene
+ * simply asks the proxy and handles a 404), and keeping it server-only means
+ * flipping it is an env change with no rebuild.
+ */
+export function cameraMonitorEnabled(): boolean {
+  return process.env.SIGNAGE_CAMERA_ENABLED !== "false";
+}

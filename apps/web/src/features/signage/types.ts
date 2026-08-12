@@ -30,6 +30,10 @@ import type { BriefingRoomState } from "./briefing/types";
  *  - `briefing`       a briefing room's TV: the safety video for the session
  *                     that was just sent here, then helmet sizes, then who
  *                     levelled up in the session before it
+ *  - `camera`         a live CCTV monitor: one venue camera, full-bleed, refreshed
+ *                     a frame a second (e.g. a briefing room's own camera on a
+ *                     wall so staff can see it fill). Which camera is per-screen
+ *                     config (`cameraMonitor`); nothing else shows on the board
  *  - `sleep`          venue closed — panel/power saver
  */
 export type SceneType =
@@ -40,6 +44,7 @@ export type SceneType =
   | "billboard-crown"
   | "race-checkin"
   | "briefing"
+  | "camera"
   | "sleep";
 
 /** Scenes a screen rotates through on its base loop (interrupts are separate). */
@@ -48,6 +53,7 @@ export const ROTATION_SCENE_TYPES = [
   "event-welcome",
   "race-checkin",
   "briefing",
+  "camera",
 ] as const satisfies readonly SceneType[];
 
 /** Scenes that PREEMPT the rotation when their trigger fires. */
@@ -182,6 +188,22 @@ export interface ScreenConfig {
    * guessing "red" would put a Red briefing on a lobby wall.
    */
   briefingRoom?: "red" | "blue";
+  /**
+   * WHICH CAMERA a `camera` monitor board shows — the one thing that board
+   * cannot work out for itself.
+   *
+   * `deviceId` is an Nx Witness device id (a GUID); `label` is the staff-facing
+   * caption burned onto the corner of the board ("Blue Briefing Room"). Absent on
+   * every screen that is not a camera monitor. This is also the ALLOWLIST: the
+   * frame proxy will only ever serve the camera named here for this screen, so a
+   * board can never be repointed at an arbitrary camera from the client side.
+   *
+   * `track` ties the board to a race track so it can carry that track's live
+   * clocks (session remaining + running-behind), big, along the bottom — a
+   * briefing-room camera is a briefing-room camera FOR a track. Absent on a
+   * camera with no track (a lobby cam), which then just shows picture.
+   */
+  cameraMonitor?: { deviceId: string; label?: string; track?: "blue" | "red" | "mega" };
 }
 
 /** A provisioned screen — one row of `signage_screens`. */

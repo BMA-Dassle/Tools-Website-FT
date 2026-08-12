@@ -127,5 +127,8 @@ export const TV_UPDATE_CHECK_MS = 5 * 60_000;
  *
  * 0.1.0 — Platform + ad rotation. Screen registry, admin management page,
  *         clock-locked scene director, house-ad scene.
+ * 0.2.0 — Camera monitor scene: a live venue camera on a wall (~1fps stills via
+ *         the Nx relay proxy), with that track's session + delay clocks big
+ *         across the bottom.
  */
-export const SIGNAGE_VERSION = "0.1.0";
+export const SIGNAGE_VERSION = "0.2.0";

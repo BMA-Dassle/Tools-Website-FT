@@ -37,6 +37,15 @@ interface LoadState {
   seen: Record<string, { at: string; build: string | null } | null>;
 }
 
+/** One camera in the picker, from GET /api/admin/signage/cameras. */
+interface CameraOption {
+  id: string;
+  name: string;
+  group: string | null;
+  status: string | null;
+}
+type CameraLoad = { list: CameraOption[]; configured: boolean } | null;
+
 /** Track resource ids, so the Blue/Red screens can be scoped by picking a name
  *  rather than by typing an id nobody remembers. */
 const TRACK_OPTIONS: { label: string; resourceId: string }[] = [
@@ -54,6 +63,26 @@ export default function SignageAdminClient({ token }: { token: string }) {
 
   const [loadedAt, setLoadedAt] = useState(0);
   const [assets, setAssets] = useState<BriefingAssetState | null>(null);
+  const [cameras, setCameras] = useState<CameraLoad>(null);
+
+  /** The camera list for the picker. Its own endpoint, and loaded LAZILY — only
+   *  when the form opens — because it calls out to Nx (a second or two) and most
+   *  visits to this page never touch a camera board. */
+  const loadCameras = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/signage/cameras?token=${encodeURIComponent(token)}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setCameras({ list: [], configured: false });
+        return;
+      }
+      const json = (await res.json()) as { cameras?: CameraOption[]; configured?: boolean };
+      setCameras({ list: json.cameras ?? [], configured: json.configured ?? false });
+    } catch {
+      setCameras({ list: [], configured: false });
+    }
+  }, [token]);
 
   /** Which briefing films are uploaded. Its own endpoint because the briefing
    *  rooms are their own subsystem — this page only needs the file list. */
@@ -94,6 +123,17 @@ export default function SignageAdminClient({ token }: { token: string }) {
     const iv = setInterval(() => void load(), 30_000);
     return () => clearInterval(iv);
   }, [load]);
+
+  /** Open the form, and pull the camera list the first time — lazily, from the
+   *  click rather than an effect, so a page view that never edits a screen never
+   *  calls out to Nx. */
+  const openForm = useCallback(
+    (draft: Draft) => {
+      setEditing(draft);
+      if (!cameras) void loadCameras();
+    },
+    [cameras, loadCameras],
+  );
 
   /**
    * Every action says what happened.
@@ -192,7 +232,7 @@ export default function SignageAdminClient({ token }: { token: string }) {
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <button
             type="button"
-            onClick={() => setEditing(newDraft())}
+            onClick={() => openForm(newDraft())}
             style={primaryBtn}
             disabled={busy}
           >
@@ -224,6 +264,7 @@ export default function SignageAdminClient({ token }: { token: string }) {
           onSave={save}
           onCancel={() => setEditing(null)}
           busy={busy}
+          cameras={cameras}
         />
       )}
 
@@ -243,7 +284,7 @@ export default function SignageAdminClient({ token }: { token: string }) {
                 token={token}
                 heartbeat={data.seen[s.screenId] ?? null}
                 nowMs={loadedAt}
-                onEdit={() => setEditing(draftFromScreen(s))}
+                onEdit={() => openForm(draftFromScreen(s))}
                 onDelete={() => remove(s.screenId)}
                 onTest={() =>
                   post(
@@ -653,6 +694,11 @@ interface Draft {
   showBriefing: boolean;
   /** "" = not a briefing screen. */
   briefingRoom: "" | "red" | "blue";
+  showCamera: boolean;
+  cameraDeviceId: string;
+  cameraLabel: string;
+  /** "" = no track clocks (a non-track camera such as a lobby cam). */
+  cameraTrack: "" | "blue" | "red" | "mega";
   vipEnabled: boolean;
   vipLeadMins: number;
   celebrationEnabled: boolean;
@@ -679,6 +725,10 @@ function newDraft(): Draft {
     showRaceCheckin: false,
     showBriefing: false,
     briefingRoom: "",
+    showCamera: false,
+    cameraDeviceId: "",
+    cameraLabel: "",
+    cameraTrack: "",
     vipEnabled: true,
     vipLeadMins: 10,
     celebrationEnabled: true,
@@ -704,12 +754,22 @@ function draftFromScreen(s: SignageScreen): Draft {
     name: s.name,
     role: "kiosk-bank",
     showEventWelcome: scenes.has("event-welcome"),
-    // A briefing screen shows ONLY the briefing, so ads must not be inferred
-    // from an empty scene set the way they are for an unconfigured screen.
-    showAds: scenes.has("ads") || (scenes.size === 0 && !scenes.has("briefing")),
+    // A briefing or camera screen shows ONLY its one scene, so ads must not be
+    // inferred from an empty scene set the way they are for an unconfigured one.
+    showAds:
+      scenes.has("ads") || (scenes.size === 0 && !scenes.has("briefing") && !scenes.has("camera")),
     showRaceCheckin: scenes.has("race-checkin"),
     showBriefing: scenes.has("briefing"),
     briefingRoom: c.briefingRoom === "red" || c.briefingRoom === "blue" ? c.briefingRoom : "",
+    showCamera: scenes.has("camera"),
+    cameraDeviceId: c.cameraMonitor?.deviceId ?? "",
+    cameraLabel: c.cameraMonitor?.label ?? "",
+    cameraTrack:
+      c.cameraMonitor?.track === "blue" ||
+      c.cameraMonitor?.track === "red" ||
+      c.cameraMonitor?.track === "mega"
+        ? c.cameraMonitor.track
+        : "",
     vipEnabled: c.interrupts?.["vip-welcome"]?.enabled !== false,
     vipLeadMins: c.interrupts?.["vip-welcome"]?.leadMins ?? 10,
     celebrationEnabled: c.interrupts?.celebration?.enabled !== false,
@@ -735,6 +795,10 @@ function draftToConfig(d: Draft): ScreenConfig {
   // anyway. So this branch returns early rather than appending.
   if (d.showBriefing) {
     playlist.push({ scene: "briefing", slots: 1 });
+  } else if (d.showCamera) {
+    // A CAMERA MONITOR OWNS ITS WALL too — one live picture, nothing rotating
+    // across it. Ticked alone, same as the briefing board.
+    playlist.push({ scene: "camera", slots: 1 });
   } else {
     if (d.showRaceCheckin) playlist.push({ scene: "race-checkin", slots: 3 });
     if (d.showEventWelcome) playlist.push({ scene: "event-welcome", slots: 2, requiresData: true });
@@ -747,6 +811,15 @@ function draftToConfig(d: Draft): ScreenConfig {
   return {
     playlist,
     ...(d.showBriefing && d.briefingRoom ? { briefingRoom: d.briefingRoom } : {}),
+    ...(d.showCamera && d.cameraDeviceId.trim()
+      ? {
+          cameraMonitor: {
+            deviceId: d.cameraDeviceId.trim(),
+            ...(d.cameraLabel.trim() ? { label: d.cameraLabel.trim() } : {}),
+            ...(d.cameraTrack ? { track: d.cameraTrack } : {}),
+          },
+        }
+      : {}),
     interrupts: {
       "vip-welcome": { enabled: d.vipEnabled, leadMins: d.vipLeadMins },
       celebration: { enabled: d.celebrationEnabled },
@@ -770,12 +843,14 @@ function ScreenForm({
   onSave,
   onCancel,
   busy,
+  cameras,
 }: {
   draft: Draft;
   onChange: (d: Draft) => void;
   onSave: () => void;
   onCancel: () => void;
   busy: boolean;
+  cameras: CameraLoad;
 }) {
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => onChange({ ...draft, [k]: v });
 
@@ -789,6 +864,7 @@ function ScreenForm({
       showAds: scenes.has("ads"),
       showRaceCheckin: scenes.has("race-checkin"),
       showBriefing: scenes.has("briefing"),
+      showCamera: scenes.has("camera"),
       // Picking the briefing role at FastTrax defaults the venue too — the rooms
       // only exist there, and a briefing screen saved as HeadPinz would get no
       // briefing data at all (the pulse skips the lookup off-venue).
@@ -902,6 +978,12 @@ function ScreenForm({
           label="Briefing room"
           hint="Plays the safety video for the session staff send to this room, then helmet sizes, then who levelled up in the session before. Takes the whole screen — nothing else shows and nothing interrupts it."
         />
+        <Check
+          checked={draft.showCamera}
+          onChange={(v) => set("showCamera", v)}
+          label="Camera monitor"
+          hint="A live venue camera on this screen, refreshed about once a second — e.g. a briefing room's own camera so staff can watch it fill. Takes the whole screen; pick the camera below. Nothing else shows and nothing interrupts it."
+        />
       </fieldset>
 
       {draft.showBriefing && (
@@ -920,6 +1002,48 @@ function ScreenForm({
             are for it — until it is set, the screen shows a setup notice instead of briefings.
           </p>
         </Field>
+      )}
+
+      {draft.showCamera && (
+        <fieldset style={fieldset}>
+          <legend style={legend}>Camera</legend>
+          <Field label="Which camera?">
+            <CameraPicker
+              cameras={cameras}
+              value={draft.cameraDeviceId}
+              onChange={(id) => set("cameraDeviceId", id)}
+            />
+            <p style={hint}>
+              The live feed comes through the venue&rsquo;s Nx system. Point a board at a briefing
+              room&rsquo;s own camera so staff can watch it fill from the floor.
+            </p>
+          </Field>
+          <Field label="Caption on the board (optional)">
+            <input
+              type="text"
+              value={draft.cameraLabel}
+              placeholder="Blue Briefing Room"
+              onChange={(e) => set("cameraLabel", e.target.value)}
+              style={input}
+            />
+          </Field>
+          <Field label="Show which track's clocks? (optional)">
+            <select
+              value={draft.cameraTrack}
+              onChange={(e) => set("cameraTrack", e.target.value as Draft["cameraTrack"])}
+              style={input}
+            >
+              <option value="">No clocks</option>
+              <option value="blue">Blue Track</option>
+              <option value="red">Red Track</option>
+              <option value="mega">Mega Track</option>
+            </select>
+            <p style={hint}>
+              Pick a track and the big session and running-behind clocks appear along the bottom,
+              following that track (and Mega on Mega days). Leave blank for a plain camera.
+            </p>
+          </Field>
+        </fieldset>
       )}
 
       <fieldset style={fieldset}>
@@ -1065,6 +1189,64 @@ function ScreenForm({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * The camera dropdown, grouped by venue/area. Handles its own not-yet-loaded,
+ * not-configured and empty states so the form body stays readable. A currently
+ * saved id that is not in the list (a camera renamed or removed in Nx) is kept as
+ * its own option, so editing a screen never silently drops its camera.
+ */
+function CameraPicker({
+  cameras,
+  value,
+  onChange,
+}: {
+  cameras: CameraLoad;
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  if (cameras === null) {
+    return <p style={hint}>Loading cameras…</p>;
+  }
+  if (!cameras.configured) {
+    return (
+      <p style={{ ...hint, color: "#f0b341" }}>
+        Camera bridge not configured on this deploy — set NX_CLOUD_SYSTEM_ID, NX_CLOUD_USERNAME and
+        NX_CLOUD_PASSWORD, then reload.
+      </p>
+    );
+  }
+
+  const groups = new Map<string, CameraOption[]>();
+  for (const c of cameras.list) {
+    const g = c.group || "Other";
+    const list = groups.get(g) ?? [];
+    list.push(c);
+    groups.set(g, list);
+  }
+  const known = cameras.list.some((c) => c.id === value);
+
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} style={input}>
+      <option value="">Choose a camera…</option>
+      {value && !known && (
+        // The saved camera is no longer in the list — keep it selectable rather
+        // than resetting the board's camera out from under it.
+        <option value={value}>Current camera ({value.slice(0, 8)}…)</option>
+      )}
+      {Array.from(groups.entries()).map(([group, list]) => (
+        <optgroup key={group} label={group}>
+          {list.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+              {c.status && c.status !== "Recording" ? ` — ${c.status}` : ""}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
   );
 }
 

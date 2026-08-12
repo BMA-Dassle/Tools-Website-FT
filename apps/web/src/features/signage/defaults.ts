@@ -17,7 +17,12 @@
 import { VENUE_INFO, type SignageVenue } from "./constants";
 import type { PlaylistEntry, ScreenConfig, SceneType } from "./types";
 
-export type ScreenRole = "kiosk-bank" | "race-checkin" | "briefing-room" | "ads-only";
+export type ScreenRole =
+  | "kiosk-bank"
+  | "race-checkin"
+  | "briefing-room"
+  | "camera-monitor"
+  | "ads-only";
 
 export interface RolePreset {
   role: ScreenRole;
@@ -93,6 +98,24 @@ const BRIEFING_ROOM_CONFIG: ScreenConfig = {
   },
 };
 
+/**
+ * A live camera monitor. One job, one scene, no interrupts — like the briefing
+ * board, it OWNS its wall: a kiosk celebration cutting across a security monitor
+ * would be noise on a screen whose whole point is an uninterrupted picture.
+ *
+ * `cameraMonitor.deviceId` is filled in per screen (there is no default camera),
+ * which is why the picker on the admin page is required before the board shows
+ * anything but a setup notice.
+ */
+const CAMERA_MONITOR_CONFIG: ScreenConfig = {
+  playlist: [{ scene: "camera", slots: 1 }],
+  interrupts: {
+    "vip-welcome": { enabled: false },
+    celebration: { enabled: false },
+    "billboard-crown": { enabled: false },
+  },
+};
+
 /** The safe fallback: house ads and nothing else. Needs no data at all, which
  *  is exactly why it is what an unprovisioned or degraded screen falls back to. */
 const ADS_ONLY_CONFIG: ScreenConfig = {
@@ -128,6 +151,14 @@ export const ROLE_PRESETS: RolePreset[] = [
       "In a briefing room. Plays the safety video for the session staff send here, then helmet sizes, then who levelled up in the session before. Nothing interrupts it.",
     venues: ["FT"],
     config: BRIEFING_ROOM_CONFIG,
+  },
+  {
+    role: "camera-monitor",
+    label: "Camera monitor (live CCTV)",
+    description:
+      "A single venue camera, full-bleed and refreshed about once a second — e.g. a briefing room's own camera on a wall so staff can watch it fill. Pick the camera after choosing this. Nothing else shows and nothing interrupts it.",
+    venues: ["FT", "HPFM", "HPN"],
+    config: CAMERA_MONITOR_CONFIG,
   },
   {
     role: "ads-only",
@@ -169,6 +200,14 @@ export interface ResolvedScreenConfig {
   welcomeTrailMins: number;
   /** Null for anything that is not a briefing TV — there is no default side. */
   briefingRoom: "red" | "blue" | null;
+  /** Null for anything that is not a camera monitor, or a monitor whose camera
+   *  has not been picked yet — the board then shows a setup notice. `track` is
+   *  null for a camera with no track (a lobby cam), which shows no clocks. */
+  cameraMonitor: {
+    deviceId: string;
+    label: string | null;
+    track: "blue" | "red" | "mega" | null;
+  } | null;
 }
 
 function sanitizePlaylist(entries: PlaylistEntry[] | undefined): Required<PlaylistEntry>[] {
@@ -247,6 +286,26 @@ export function resolveScreenConfig(
     // value from a newer deploy — resolves to "not a briefing screen", which
     // shows the designed idle board rather than adopting a room at random.
     briefingRoom: c.briefingRoom === "red" || c.briefingRoom === "blue" ? c.briefingRoom : null,
+    // A camera monitor needs a non-empty device id to mean anything; a blank or
+    // malformed one resolves to "not configured yet" so the board shows its
+    // setup notice instead of asking the proxy for a camera that isn't named.
+    cameraMonitor:
+      c.cameraMonitor && typeof c.cameraMonitor.deviceId === "string" && c.cameraMonitor.deviceId
+        ? {
+            deviceId: c.cameraMonitor.deviceId,
+            label:
+              typeof c.cameraMonitor.label === "string" && c.cameraMonitor.label
+                ? c.cameraMonitor.label
+                : null,
+            // Only the three real tracks; anything else means "no track clocks".
+            track:
+              c.cameraMonitor.track === "blue" ||
+              c.cameraMonitor.track === "red" ||
+              c.cameraMonitor.track === "mega"
+                ? c.cameraMonitor.track
+                : null,
+          }
+        : null,
   };
 }
 
