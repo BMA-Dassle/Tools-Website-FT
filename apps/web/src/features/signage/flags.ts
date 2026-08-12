@@ -44,3 +44,22 @@ export function briefingEnabled(): boolean {
 export function cameraMonitorEnabled(): boolean {
   return process.env.SIGNAGE_CAMERA_ENABLED !== "false";
 }
+
+/**
+ * Camera-return-strip kill switch — the row of POV camera numbers along the
+ * bottom of the briefing room TVs (briefing/camera-return.ts).
+ *
+ * Same house rule: defaults ON, read at call time. Turning it OFF stops the feed
+ * carrying the strip, so the boards go back to using the full 1080 px and the
+ * safety film stops being cropped. The switch to pull if the scan log or the
+ * finish markers ever start lying — a strip showing four cameras red that are
+ * sitting on the shelf would teach staff to ignore it, and that costs more than
+ * having no strip.
+ *
+ * NOT a NEXT_PUBLIC_ var: only the server decides whether to put the data on the
+ * rail, and the scene renders nothing when it is absent. Flipping it is an env
+ * change with no rebuild.
+ */
+export function cameraReturnBarEnabled(): boolean {
+  return process.env.SIGNAGE_CAMERA_RETURN_ENABLED !== "false";
+}

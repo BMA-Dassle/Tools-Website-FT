@@ -406,6 +406,37 @@ export interface TvFeed {
         keepPushing: Array<{ name: string; bestMs: number | null }>;
       } | null;
     } | null;
+    /**
+     * WHICH POV CAMERAS ARE STILL OUT — the strip along the bottom of both
+     * briefing TVs. See briefing/camera-return.ts for what the states mean.
+     *
+     * VENUE-WIDE, not room-scoped, unlike `welcomeBack` above: a camera lost on
+     * a Blue heat is just as much a problem for whoever is handing out kit in
+     * Red (owner 2026-08-12), so both rooms carry the identical strip.
+     *
+     * NULL MEANS THE KILL SWITCH IS OFF, and nothing else — the scene then
+     * renders no strip and the boards get their full 1080 px back. A failed read
+     * is reported as `stale` instead, keeping the strip's reserved height so the
+     * wall never springs taller and shrinks again mid-briefing. `boxes: []` with
+     * no `stale` is the third, meaningful state: everything is accounted for,
+     * which paints the all-clear line.
+     *
+     * NO PII on this rail, same as briefingRooms: camera numbers and a heat
+     * number, never the racer the camera was scanned to.
+     */
+    cameraReturn: {
+      boxes: Array<{
+        camera: string;
+        state: "out" | "back";
+        heatNumber: number | null;
+        sinceFlagMs: number;
+        assignedAtMs: number;
+      }>;
+      outCount: number;
+      /** The facts could not be read this poll. Holds the strip's space and says
+       *  so, rather than claiming an all-clear it cannot stand behind. */
+      stale?: boolean;
+    } | null;
   } | null;
   /**
    * FAST HALF — what each briefing room is showing right now. Also present on

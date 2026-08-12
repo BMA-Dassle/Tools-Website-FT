@@ -32,10 +32,27 @@ import { LiveSessionChip } from "../live-session";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { useBriefingAssets } from "../briefing/useBriefingAssets";
 import { demoBriefingRooms } from "../demo";
+import { CameraReturnBar, CAMERA_BAR_H } from "../components/CameraReturnBar";
 import type { SceneProps } from "../director/types";
 
 const PAD_X = 96;
 const PAD_Y = 54;
+
+/**
+ * The camera return strip's height, reserved at the bottom of EVERY phase while
+ * the strip is on the rail — the film, the hold board, helmet sizes and the
+ * welcome-back board all lay out above it.
+ *
+ * A FIXED RESERVE, not a reaction to content. A strip that only appeared once a
+ * camera went red would shove the safety film upward mid-briefing in front of a
+ * room full of people; reserving it always means the wall never reflows, only
+ * recolours (owner 2026-08-12 asked for no motion at all on this).
+ *
+ * The film keeps `objectFit: cover`, so surrendering this band crops it a little
+ * rather than letterboxing it — no black bands, no shrunken picture, and nothing
+ * of ours sitting on top of titles burned into the bottom of the frame.
+ */
+const BAR_H = CAMERA_BAR_H;
 
 /**
  * How long a film may make NO progress at all before the room gives up on it.
@@ -120,45 +137,77 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
   const videoSrc = assets.srcFor(tier);
   const videoUnplayable = !!videoSrc && failedSrc === videoSrc;
 
+  // The strip is on the rail unless the kill switch is off. Preview modes get it
+  // too, from demo data, so the 104 px reserve can be reviewed off a laptop.
+  const cameraReturn = feed?.briefing?.cameraReturn ?? null;
+
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
-      {timeline.phase === "waiting" ? (
-        <TakeASeat
-          accent={accent}
-          heatNumber={state?.heatNumber ?? null}
-          // The session's real level, NOT which film plays — a Pro grid must not
-          // be told they are in a Starter race (owner 2026-08-11).
-          raceType={state?.raceType ?? null}
-          trackLabel={state?.track ? TRACK_LABELS[state.track] : null}
-          target={state?.track ? nextLevelTarget(state.track, state.raceType) : null}
-        />
-      ) : timeline.phase === "video" && videoSrc && !videoUnplayable ? (
-        <BriefingVideo
-          // Keyed on the send, so a NEW briefing remounts the element and starts
-          // its own playback — and a re-render inside one briefing does not.
-          key={`${state?.sessionId ?? "none"}:${state?.triggeredAtMs ?? 0}`}
-          src={videoSrc}
-          seekToMs={timeline.videoOffsetMs}
-          onUnplayable={markUnplayable}
-        />
-      ) : timeline.phase === "idle" && feed?.briefing?.welcomeBack ? (
-        // THE GROUP IS BACK (owner 2026-08-11): their session's actualEnd is
-        // stamped and the room is idle, so the wall greets them — kit return,
-        // who levelled up and who didn't (from the end-of-race capture), the
-        // qualifying time, where scores are posted. Strictly idle-only: a
-        // playing video, a take-a-seat hold and the helmet phase all outrank
-        // it, and it stays up until the next briefing occupies the room.
-        <WelcomeBack accent={accent} room={room} info={feed.briefing.welcomeBack} />
-      ) : (
-        <Board
-          accent={accent}
-          room={room}
-          phase={timeline.phase === "video" ? "helmet" : timeline.phase}
-          posterSrc={assets.posterSrc}
-          heatNumber={state?.heatNumber ?? null}
-          // The lap THIS room's group has to beat. They sit through the helmet and
-          // next-race boards, which is when there is actually time to read it.
-          target={state?.track ? nextLevelTarget(state.track, state.raceType) : null}
+      {/* EVERY PHASE LIVES INSIDE THIS BOX, which is the whole canvas minus the
+          camera strip. One wrapper rather than a bottom-inset threaded through
+          four boards: each branch keeps its own `inset: PAD_Y PAD_X` and is
+          shifted up for free, the accent bars and radial washes stay bounded to
+          the picture area instead of bleeding under the strip, and the film's
+          `objectFit: cover` simply crops to the smaller box. */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          bottom: cameraReturn ? BAR_H : 0,
+          overflow: "hidden",
+        }}
+      >
+        {timeline.phase === "waiting" ? (
+          <TakeASeat
+            accent={accent}
+            heatNumber={state?.heatNumber ?? null}
+            // The session's real level, NOT which film plays — a Pro grid must not
+            // be told they are in a Starter race (owner 2026-08-11).
+            raceType={state?.raceType ?? null}
+            trackLabel={state?.track ? TRACK_LABELS[state.track] : null}
+            target={state?.track ? nextLevelTarget(state.track, state.raceType) : null}
+          />
+        ) : timeline.phase === "video" && videoSrc && !videoUnplayable ? (
+          <BriefingVideo
+            // Keyed on the send, so a NEW briefing remounts the element and starts
+            // its own playback — and a re-render inside one briefing does not.
+            key={`${state?.sessionId ?? "none"}:${state?.triggeredAtMs ?? 0}`}
+            src={videoSrc}
+            seekToMs={timeline.videoOffsetMs}
+            onUnplayable={markUnplayable}
+          />
+        ) : timeline.phase === "idle" && feed?.briefing?.welcomeBack ? (
+          // THE GROUP IS BACK (owner 2026-08-11): their session's actualEnd is
+          // stamped and the room is idle, so the wall greets them — kit return,
+          // who levelled up and who didn't (from the end-of-race capture), the
+          // qualifying time, where scores are posted. Strictly idle-only: a
+          // playing video, a take-a-seat hold and the helmet phase all outrank
+          // it, and it stays up until the next briefing occupies the room.
+          <WelcomeBack accent={accent} room={room} info={feed.briefing.welcomeBack} />
+        ) : (
+          <Board
+            accent={accent}
+            room={room}
+            phase={timeline.phase === "video" ? "helmet" : timeline.phase}
+            posterSrc={assets.posterSrc}
+            heatNumber={state?.heatNumber ?? null}
+            // The lap THIS room's group has to beat. They sit through the helmet and
+            // next-race boards, which is when there is actually time to read it.
+            target={state?.track ? nextLevelTarget(state.track, state.raceType) : null}
+          />
+        )}
+      </div>
+
+      {/* WHICH POV CAMERAS ARE STILL OUT — every phase, the film included, for
+          the same reason the clock is: the group about to be handed kit is the
+          one sitting in front of the film (owner 2026-08-12). Venue-wide, so
+          both rooms show the identical strip. */}
+      {cameraReturn && (
+        <CameraReturnBar
+          boxes={cameraReturn.boxes}
+          outCount={cameraReturn.outCount}
+          stale={cameraReturn.stale}
+          padX={PAD_X}
         />
       )}
 

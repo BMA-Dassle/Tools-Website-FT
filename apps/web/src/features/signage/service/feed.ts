@@ -33,10 +33,11 @@ import { trackFromResourceIds } from "../track";
 import { raceCheckinInfo } from "./race-checkin";
 import { checkinProgress } from "./checkin-progress";
 import { buildWelcomeBoard } from "./welcome";
-import { briefingEnabled } from "../flags";
+import { briefingEnabled, cameraReturnBarEnabled } from "../flags";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
 import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
 import { resolveWelcomeBack } from "../briefing/welcome-back.server";
+import { resolveCameraReturn } from "../briefing/camera-return.server";
 import type { TvFeed, TvPulse } from "../types";
 
 /** Screens phone home on every poll; the admin page reads these for its
@@ -199,12 +200,24 @@ async function buildBriefingSection(
   section: NonNullable<TvFeed["briefing"]>;
   rooms: TvFeed["briefingRooms"];
 }> {
-  const [assets, rooms, welcomeBack] = await Promise.all([
+  const [assets, rooms, welcomeBack, cameraReturn] = await Promise.all([
     loadSignageAssetsSafe(),
     readBriefingRooms(venue).catch(() => ({ red: null, blue: null })),
     // The group's return — from the timing system's own actualEnd, read LIVE on
     // every poll (owner: end shows within 15s). Null while they are still out.
     resolveWelcomeBack(venue, room, businessDay).catch(() => null),
+    // WHICH POV CAMERAS ARE STILL OUT — venue-wide and identical on both TVs
+    // (owner 2026-08-12: a camera lost on Blue is the Red attendant's problem
+    // too), so it is deliberately NOT scoped by `room` the way welcomeBack is.
+    // Null ONLY when the switch is off — the resolver reports a failed read as
+    // `stale` instead, so the strip never collapses and re-expands on the wall.
+    cameraReturnBarEnabled()
+      ? resolveCameraReturn(venue, Date.now()).catch(() => ({
+          boxes: [],
+          outCount: 0,
+          stale: true,
+        }))
+      : Promise.resolve(null),
   ]);
 
   const starter = assets["briefing-video:starter"];
@@ -230,6 +243,7 @@ async function buildBriefingSection(
             results: welcomeBack.results,
           }
         : null,
+      cameraReturn,
     },
     rooms,
   };

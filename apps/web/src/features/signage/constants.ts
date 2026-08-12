@@ -135,5 +135,9 @@ export const TV_UPDATE_CHECK_MS = 5 * 60_000;
  *         (green/amber) below, and the briefing room's session + video-remaining
  *         over the picture. Room-addressed frames (`?room=`) feed the check-in
  *         board's in-room panel too.
+ * 0.3.0 — Camera return strip along the bottom of both briefing room TVs: POV
+ *         cameras whose race has finished but that we have not seen come back,
+ *         red with minutes-out, green for 90s when they check in. Reserves 104px
+ *         in every phase, the safety film included.
  */
-export const SIGNAGE_VERSION = "0.2.1";
+export const SIGNAGE_VERSION = "0.3.0";
