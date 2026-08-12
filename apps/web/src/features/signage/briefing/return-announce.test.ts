@@ -1,5 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { buildReturnAnnouncement } from "./return-announce.server";
+import { buildReturnAnnouncement, shouldAnnounceReturn } from "./return-announce.server";
+
+describe("shouldAnnounceReturn — Mega days only (owner 2026-08-12)", () => {
+  it("announces a Mega-track return", () => {
+    expect(shouldAnnounceReturn("mega")).toBe(true);
+  });
+
+  it("stays SILENT on an ordinary red or blue track day", () => {
+    // The whole point of the gate: the rooms are still named red/blue on a Mega
+    // day, so this must key off the TRACK the session ran on, never the room.
+    expect(shouldAnnounceReturn("red")).toBe(false);
+    expect(shouldAnnounceReturn("blue")).toBe(false);
+  });
+
+  it("stays silent when the track is missing or unrecognised", () => {
+    expect(shouldAnnounceReturn(null)).toBe(false);
+    expect(shouldAnnounceReturn(undefined)).toBe(false);
+    expect(shouldAnnounceReturn("")).toBe(false);
+    expect(shouldAnnounceReturn("Mega")).toBe(false); // stored lowercase; no fuzzy match
+  });
+});
 
 describe("buildReturnAnnouncement — the exact contract the owner supplied", () => {
   it('says "58 returning to blue"', () => {

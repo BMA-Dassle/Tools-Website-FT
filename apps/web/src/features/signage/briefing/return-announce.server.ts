@@ -5,6 +5,16 @@ import "server-only";
  * session ends (owner 2026-08-11), riding the same welcome-back signal that
  * flips the room's TV: the timing system's own actualEnd.
  *
+ * MEGA DAYS ONLY (owner 2026-08-12: "that was meant only for mega"). The first
+ * cut had no day gate at all — every briefed session got a radio call, and the
+ * only reason staff never heard one on a Red/Blue day is that the feature went
+ * live on a Mega Tuesday and no non-Mega briefing had been sent yet. On a Mega
+ * day the two tracks run as one circuit and the field is big enough that a
+ * voice call is how staff learn a group is walking back; on an ordinary
+ * Red/Blue day it is radio noise for a race the track marshal already watched
+ * finish. The gate is on the SESSION'S TRACK, not the room: both rooms serve
+ * Mega, so `red`/`blue` ROOMS still announce — a red/blue TRACK never does.
+ *
  * SAME SERVICE THE KIOSK ASSIST BEACON USES (features/kiosk/assist-alert.ts —
  * bma-soteria-alerts, POST /radio, TTS onto the venue's staff Zello). Payload
  * per the owner: server FT, target "Track Bot", priority 1, cooldown 60. The
@@ -58,6 +68,19 @@ export interface ReturnAnnouncement {
  */
 const RADIO_TARGET = "Track Bot";
 
+/**
+ * Does this return get a radio call at all? Mega track only — see the header.
+ *
+ * Takes the assignment's recorded track (a plain string out of Neon), not the
+ * live `megaTrackEnabled` signal: the announcement is about a race that ALREADY
+ * ran, so the day it ran as is the durable fact stamped on its send row. A
+ * missing or unrecognised track stays SILENT — an unwanted announcement is the
+ * thing being fixed, so the unknown case must not fall back to speaking.
+ */
+export function shouldAnnounceReturn(track: string | null | undefined): boolean {
+  return track === "mega";
+}
+
 /** The payload, pure — exactly the contract the owner supplied. */
 export function buildReturnAnnouncement(args: {
   room: BriefingRoom;
@@ -81,10 +104,16 @@ export function buildReturnAnnouncement(args: {
  *  TV feed's read path, and a radio blip must never cost a wall its feed. */
 export async function announceReturnOnce(args: {
   room: BriefingRoom;
+  /** The session's track, from its `briefing_assignments` row. Required so a new
+   *  call site cannot reintroduce the un-gated behaviour by omission. */
+  track: string | null;
   sessionId: string;
   heatNumber: number | null;
 }): Promise<void> {
   if (!args.sessionId) return;
+  // Gate BEFORE the claim: a Red/Blue-day return must leave no Redis key behind,
+  // so if the day is later corrected the announcement is not already "used up".
+  if (!shouldAnnounceReturn(args.track)) return;
   const claimKey = `briefing:return-announced:${args.room}:${args.sessionId}`;
   try {
     const claimed = await redis.set(claimKey, String(Date.now()), "EX", CLAIM_TTL_SECONDS, "NX");

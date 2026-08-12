@@ -18,7 +18,8 @@ import "server-only";
  *      gamble (the venue broadcast itself carries rosters but NO lap times —
  *      LapCount never fills in; surveyed 2026-08-12),
  *   3. fires the "{heat} returning to {room}" radio call if this race was
- *      briefed in one of our rooms.
+ *      briefed in one of our rooms AND ran on the Mega track (the announcement
+ *      is Mega-only — see return-announce.server.ts).
  *
  * EVERY LAYER BELOW STILL STANDS. The Pandora actualEnd path keeps working
  * untouched, so a bridge outage (the pipe had a 2.5h hole on 8/11) degrades to
@@ -116,6 +117,9 @@ export async function handleVenueMessage(message: unknown): Promise<void> {
         if (briefed) {
           await announceReturnOnce({
             room: briefed.room,
+            // The SEND ROW's track, not the broadcast's `f.track`, so this path
+            // and the TV-poll path feed the Mega-day gate the same value.
+            track: briefed.track,
             sessionId: briefed.sessionId,
             heatNumber: briefed.heatNumber,
           });

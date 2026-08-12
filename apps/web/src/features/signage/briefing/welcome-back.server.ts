@@ -124,7 +124,14 @@ export async function resolveWelcomeBack(
     // Awaited (never throws, 5s timeout): a floating promise on a serverless
     // path can be frozen mid-flight after the response goes out. The cost lands
     // on the one poll per session that wins the claim.
-    await announceReturnOnce({ room, sessionId: a.sessionId, heatNumber: a.heatNumber });
+    // `a.track` carries the Mega-day gate (Mega track only, owner 2026-08-12) —
+    // the announcer itself decides, so both trigger paths cannot disagree.
+    await announceReturnOnce({
+      room,
+      track: a.track,
+      sessionId: a.sessionId,
+      heatNumber: a.heatNumber,
+    });
   }
 
   const track: TrackKey =
