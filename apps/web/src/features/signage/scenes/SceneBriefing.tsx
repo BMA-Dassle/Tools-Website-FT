@@ -472,11 +472,17 @@ function HelmetBoard({
             put this back in play; judge it against the poster on the wall, not
             against this comment.
 
+            THE 40 px IS ABOVE THE CAMERA STRIP, not above the panel edge: every
+            phase renders inside the scene's `bottom: barH` box (see the wrapper in
+            SceneBriefing), so this cluster and the strip can never overlap however
+            the strip resizes. The poster is `contain` inside that same box, so its
+            bottom edge and this cluster's ground are the one line.
+
             Solid dark chip backgrounds rather than backdrop blur: these players are
             mini PCs and a blur over a full-screen image is compositor work they can
             feel. */}
-        {/* Chips cluster LEFT — the right-hand corners belong to the live session
-              clock (top) and the screen stamp (bottom) on every board. */}
+        {/* Chips cluster LEFT — the right-hand corner above them belongs to the
+              live session clock on every board. */}
         <div
           style={{
             position: "absolute",
