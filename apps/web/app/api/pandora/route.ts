@@ -84,7 +84,52 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** Create a new person in BMI via Pandora */
+/**
+ * Create a person in BMI — CLOUD-FIRST (owner 2026-08-12: "cloud is first,
+ * pandora second"; "ALWAYS mint new users via the BMI api… then a Q to go back
+ * once they land local").
+ *
+ * ── WHY THIS ROUTE IS THE SEAM ─────────────────────────────────────────────
+ * Every person mint in the app funnels here: 16 call sites across six surfaces
+ * (unified waiver's KioskPartyManager ×6, kiosk booking's KioskPeopleStep ×6,
+ * mobile join ×2, kiosk check-in, the web group event) all call
+ * `pandoraCreatePerson`/`pandoraOnboardGuest` in lib/pandora.ts, and both of
+ * those POST here. So switching the rail HERE moves every surface at once, with
+ * no per-site edits and no change to the `{ personId }` contract those callers
+ * depend on.
+ *
+ * ── WHY CLOUD ──────────────────────────────────────────────────────────────
+ * A Pandora (LOCAL) mint is born on the side that syncs UP to the vendor cloud,
+ * and that leg is the one that jams for hours — which is how a kiosk-minted
+ * guest ended up attached in the cloud but invisible locally, staff hand-seated
+ * them, and one duplicate T_PROJECT_PERSON stalled Fast WSync for the whole
+ * center (2026-08-11). Minting on the CLOUD reverses the direction: cloud→local
+ * is the healthy leg (~13-32s, measured), and the booking/attach chain that the
+ * guest is waiting on never touches Pandora at all.
+ *
+ * `createOfficePerson` carries `birthDate` + email + mobile, so the person lands
+ * LOCALLY READABLE with no repair needed — the reason this rail beats the
+ * public-booking mint, which has no birthdate field and leaves the record
+ * answering Pandora with 500 until patched.
+ *
+ * ── WHAT STILL WAITS ───────────────────────────────────────────────────────
+ * For ~13-32s after the mint, Pandora cannot see the person. Anything LOCAL is
+ * therefore queued behind a `person-local` barrier rather than fired blind:
+ * the waiver record (`/api/pandora/waiver` enqueues on a not-yet-local person),
+ * deposits (barrier-gated in the deposit sweep), the grid seat (the kiosk sweep).
+ * A birthdate repair is enqueued only when we had no DOB to mint with — that
+ * person WOULD read 500 forever otherwise.
+ *
+ * NOT deduped here on purpose: search-before-create already runs upstream at the
+ * call sites, where a picker can be shown (lookupLicenseMatches →
+ * matchGateVerdict → LicenseMatchPicker, built after the Gipson incident put 13
+ * records on two guests). Adding a blind server-side dedupe would either
+ * duplicate that or silently auto-pick, and the owner's rule is that duplicates
+ * stay VISIBLE.
+ *
+ * Kill switch: `PERSON_MINT_CLOUD_FIRST=false` reverts to the Pandora mint
+ * byte-for-byte (the `mintViaPandora` path below is the old body, untouched).
+ */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -94,41 +139,103 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "firstName and lastName required" }, { status: 400 });
     }
 
-    const locId = (location && LOCATION_MAP[location]) || DEFAULT_LOCATION_ID;
-    const payload: Record<string, string> = {
-      locationID: locId,
-      firstName,
-      lastName,
-    };
-    if (email) payload.email = email;
-    if (phone) payload.phoneNumber = phone.replace(/\D/g, "");
-    if (birthdate) payload.birthdate = birthdate;
-    if (guardianID) payload.guardianID = guardianID;
+    // A GUARDIAN LINK IS A PANDORA-ONLY CONCEPT. `guardianID` ties a minor to
+    // the adult who signs for them and there is no Office-side equivalent in the
+    // create payload, so those mints stay on the local rail — losing the link
+    // would break minor waivers, which is a worse failure than the sync wait.
+    const cloudFirst = process.env.PERSON_MINT_CLOUD_FIRST !== "false" && !guardianID;
 
-    const res = await fetch(`${PANDORA_URL}/bmi/person`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
+    if (cloudFirst) {
+      const { createOfficePerson } = await import("@/lib/bmi-office-actions");
+      const centerCode = location === "naples" ? "naples" : "fort-myers";
+      const { personId } = await createOfficePerson({
+        firstName,
+        lastName,
+        birthdate: birthdate || null,
+        email: email || null,
+        phone: phone || null,
+        centerCode,
+      });
 
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      return NextResponse.json(
-        { error: data.message || "Failed to create person" },
-        { status: res.status || 500 },
-      );
+      // Only needed when we minted WITHOUT a birthdate: that record reads 500 on
+      // Pandora forever, and every consumer treats a 500 as "no waiver". With a
+      // DOB the person lands readable and no followup is owed.
+      if (!birthdate) {
+        try {
+          const { enqueueSync } = await import("@/lib/bmi-sync-queue");
+          await enqueueSync({
+            kind: "repair-person-details",
+            idempotencyKey: `repair-person:${personId}`,
+            barrier: "person-local",
+            barrierRef: personId,
+            locationId: (location && LOCATION_MAP[location]) || DEFAULT_LOCATION_ID,
+            payload: { personId, firstName, lastName, email, phone, locationKey: location },
+          });
+        } catch (err) {
+          // The queue is a backstop, not the mint's success condition.
+          console.warn(`[pandora] could not enqueue person repair for ${personId}:`, err);
+        }
+      }
+      return NextResponse.json({ personId, rail: "office-cloud" });
     }
 
-    return NextResponse.json({ personId: data.data.personID });
+    return await mintViaPandora({
+      firstName,
+      lastName,
+      email,
+      phone,
+      birthdate,
+      guardianID,
+      location,
+    });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Pandora API error" },
       { status: 500 },
     );
   }
+}
+
+/** The pre-cloud-first mint, unchanged — the kill switch's destination, and the
+ *  path guardian-linked minors still take. */
+async function mintViaPandora(args: {
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phone?: string;
+  birthdate?: string;
+  guardianID?: string;
+  location?: string;
+}): Promise<NextResponse> {
+  const locId = (args.location && LOCATION_MAP[args.location]) || DEFAULT_LOCATION_ID;
+  const payload: Record<string, string> = {
+    locationID: locId,
+    firstName: args.firstName,
+    lastName: args.lastName,
+  };
+  if (args.email) payload.email = args.email;
+  if (args.phone) payload.phoneNumber = args.phone.replace(/\D/g, "");
+  if (args.birthdate) payload.birthdate = args.birthdate;
+  if (args.guardianID) payload.guardianID = args.guardianID;
+
+  const res = await fetch(`${PANDORA_URL}/bmi/person`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    return NextResponse.json(
+      { error: data.message || "Failed to create person" },
+      { status: res.status || 500 },
+    );
+  }
+
+  return NextResponse.json({ personId: data.data.personID, rail: "pandora-local" });
 }
 
 /**

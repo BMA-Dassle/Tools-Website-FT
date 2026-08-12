@@ -354,6 +354,62 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    /**
+     * CLOUD-FIRST BACKSTOP (2026-08-12). Before giving up, work out WHY.
+     *
+     * Under cloud-first minting the person is created on the BMI cloud and is
+     * not visible to the center's local server — which is the only thing
+     * Pandora can write a waiver against — for ~13-32s. So a brand-new guest
+     * signing immediately hits a sign that cannot possibly succeed yet. That is
+     * not a lost waiver and must not be reported as one: the signature is
+     * already durable in Neon (stored before the first vendor call), so the
+     * honest move is to hand the push to the sync queue behind a `person-local`
+     * barrier and tell the caller the waiver is accepted.
+     *
+     * `personLocalBarrier` distinguishes the cases: 404 = genuinely not local
+     * yet (queue it), anything else = the person IS there and the failure is a
+     * real vendor problem (report it, exactly as before).
+     */
+    try {
+      const { personLocalBarrier } = await import("@/lib/bmi-sync-barriers");
+      const barrier = await personLocalBarrier(locationID, personID);
+      if (barrier.verdict === "closed") {
+        const { enqueueSync } = await import("@/lib/bmi-sync-queue");
+        const queued = await enqueueSync({
+          kind: "push-waiver-signature",
+          // Keyed per person per DAY: a re-signed waiver on a later visit is a
+          // new followup, while a retried submit on the same visit is not.
+          idempotencyKey: `waiver-push:${personID}:${new Date().toISOString().slice(0, 10)}`,
+          barrier: "person-local",
+          barrierRef: personID,
+          locationId: locationID,
+          payload: {
+            personId: String(personID),
+            name: String(firstName ?? "").trim() || "Guest",
+            locationKey: location ?? null,
+            // The already-stripped base64 (no data: prefix) — the handler
+            // rehydrates it to a Buffer for the multipart upload.
+            signaturePngB64: sigBase64,
+          },
+        });
+        console.log(
+          `[pandora-waiver] person not local yet (${barrier.detail}) — queued waiver push` +
+            ` (row ${queued?.id ?? "n/a"}) for ${personID}. Signature is safe in Neon.`,
+        );
+        await logSignOutcome("queued", 3, null, lastError);
+        return NextResponse.json({
+          ok: true,
+          waiverID: null,
+          /** The vendor record is owed, not lost — Neon holds the signature and
+           *  the sync queue completes the push within a tick or two. */
+          queuedForSync: true,
+          licenceGrant: grant(),
+        });
+      }
+    } catch (err) {
+      console.warn("[pandora-waiver] could not queue the waiver push:", err);
+    }
+
     // The row that matters: the guest signed and has NO waiver.
     await logSignOutcome("failed", 3, null, lastError);
     return NextResponse.json(

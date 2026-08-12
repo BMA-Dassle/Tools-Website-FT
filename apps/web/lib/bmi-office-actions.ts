@@ -447,6 +447,130 @@ export async function recordProjectPayment(params: {
 
 const LOOKUP_CLIENT_KEY = process.env.BMI_CLIENT_KEY || "headpinzftmyers";
 
+/**
+ * CREATE a person on the BMI CLOUD via the Office API — the cloud-first mint
+ * (owner 2026-08-12: "cloud is first, pandora second").
+ *
+ * WHY THIS RAIL. Two cloud mints exist and only this one is complete:
+ *   public-booking `registerContactPerson`/`registerProjectPerson` with no
+ *     personId DOES mint, but has no birthdate field at all — so the person
+ *     lands on the center's local server answering Pandora with 500 "Response
+ *     Validator Error" until a separate PATCH repairs it, and its phone never
+ *     arrives. It also REQUIRES an orderId, so it cannot mint before a booking.
+ *   THIS (`POST /api/{ck}/person`) takes `birthDate` plus addresses[].{email,
+ *     mobile} and needs no order — measured 2026-08-12, the person lands
+ *     READABLE (clean 200 with birthdate + email + phoneNumber, both FM
+ *     locations) in ~28-32s, needing no repair followup at all.
+ *
+ * Payload is the Office UI's own request (HAR-captured from
+ * office.bmileisure.com), kept FIELD-FOR-FIELD including the `-1`/`-5`
+ * sentinels and the nested birthCity/city stubs: this is a full-entity POST and
+ * the UI is the only proven caller, so a trimmed body is an untested body.
+ * Office calls the surname `name`.
+ *
+ * The four consent flags are sent TRUE per the owner (2026-08-12), verified
+ * echoed back true. The booking/waiver flow that collects the guest must carry
+ * the matching consent language — these authorize marketing email and SMS.
+ *
+ * Returns the new 17-digit person id. Parsed with raw-id handling: a bare
+ * JSON.parse would round it (house hard rule).
+ */
+export async function createOfficePerson(params: {
+  firstName: string;
+  lastName: string;
+  /** ISO `YYYY-MM-DD`. Strongly recommended — a person with no birthdate reads
+   *  500 on Pandora forever, which every consumer treats as "no waiver". */
+  birthdate?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  centerCode?: string;
+  /** Office person category. -5 is what the UI sends for a guest record. */
+  personCategoryId?: number;
+  gender?: number;
+}): Promise<{ personId: string }> {
+  const clientKey = CLIENT_KEYS[params.centerCode ?? "fort-myers"] || "headpinzftmyers";
+  const token = await getOfficeToken(clientKey);
+  const digits = String(params.phone ?? "").replace(/\D/g, "");
+  const category = params.personCategoryId ?? -5;
+  const cityStub = { countryId: "-1", name: null, zip: null, region: { name: null } };
+  const body = {
+    id: null,
+    alias: null,
+    bic: null,
+    birthCity: cityStub,
+    firstName: params.firstName,
+    name: params.lastName,
+    name2: null,
+    free1: null,
+    free2: null,
+    // 0 = unspecified; the HAR hardcoded 1 because that UI form had a value.
+    gender: params.gender ?? 0,
+    height: null,
+    iban: null,
+    isAnonymized: false,
+    isChargeMe: false,
+    isCompleted: true,
+    kind: 0,
+    languageId: "-1",
+    nationalityId: "-1",
+    nationalNumber: null,
+    number: null,
+    passport: null,
+    password: null,
+    privateMemo: null,
+    publicMemo: null,
+    publicPicture: true,
+    register: null,
+    restrictProcessing: false,
+    vat: null,
+    visibility: 2,
+    weight: null,
+    personCategoryId: category,
+    originalPersonCategoryId: category,
+    acceptMailCommercial: true,
+    acceptMailScores: true,
+    acceptSmsCommercial: true,
+    acceptSmsScores: true,
+    addresses: [
+      {
+        id: null,
+        kind: 0,
+        email: params.email || null,
+        phone: null,
+        phone2: null,
+        city: cityStub,
+        isAnonymized: false,
+        street: null,
+        number: null,
+        mobile: digits.length >= 10 ? digits : null,
+        box: "",
+      },
+    ],
+    birthDate: params.birthdate || null,
+    memberships: [],
+    tags: [],
+  };
+  const res = await httpsRequest(
+    "POST",
+    `/api/${clientKey}/person`,
+    apiHeaders(token, clientKey),
+    JSON.stringify(body),
+  );
+  if (res.status >= 400) {
+    throw new Error(`Office person create failed: ${res.status} ${res.body.slice(0, 200)}`);
+  }
+  const parsed = parseWithRawIds<{ id?: string }>(res.body);
+  const personId = parsed?.id ? String(parsed.id) : "";
+  if (!/^\d+$/.test(personId)) {
+    throw new Error(`Office person create returned no id: ${res.body.slice(0, 200)}`);
+  }
+  console.log(
+    `[bmi-office] created cloud person ${personId} (${params.firstName} ${params.lastName}` +
+      `${params.birthdate ? `, dob ${params.birthdate}` : ", NO DOB — will read 500 on Pandora"})`,
+  );
+  return { personId };
+}
+
 /** Raw office person record by id (memberships[], tags[], birthDate, …), or
  *  null on any failure. personId is a raw digit string — never Number() it. */
 export async function fetchOfficePerson(

@@ -31,7 +31,13 @@ export type WaiverSignOutcome =
   | "salvaged"
   /** All attempts failed and the waiver is NOT valid. The guest did not get a
    *  waiver; this is the row someone must be able to find. */
-  | "failed";
+  | "failed"
+  /** Pandora could not accept it YET because the person has not synced down to
+   *  the center's local server (cloud-first minting, ~13-32s), so the push was
+   *  handed to bmi_sync_queue behind a person-local barrier. Distinct from
+   *  `failed` on purpose: the signature is durable in Neon and the record is
+   *  owed, not lost — counting these as failures would hide the real ones. */
+  | "queued";
 
 export interface WaiverSignAttempt {
   /** Subject of the waiver (the minor, when a guardian signs). */
