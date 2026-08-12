@@ -189,11 +189,20 @@ function BriefingVideo({
    * genuinely new briefing is handled by the `key` on the element in the scene above.
    */
   const seekOnceToMs = useRef(seekToMs);
+  /**
+   * The src is CAPTURED AT MOUNT and never follows the prop. The cache can finish
+   * adopting mid-film (adoption deliberately runs during playback), which flips
+   * srcFor's answer from the network URL to a blob: URL — and rewriting the src
+   * attribute of a playing element resets it to frame zero. The cached copy is for
+   * the NEXT play; this one finishes on the pipe it started on. A genuinely new
+   * briefing remounts via the element's key, which re-captures.
+   */
+  const [mountSrc] = useState(src);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const fail = () => onUnplayable(src);
+    const fail = () => onUnplayable(mountSrc);
     // Only seek a genuine rejoin. Seeking to ~0 on a normal start can cost a
     // keyframe decode for nothing.
     const startAtMs = seekOnceToMs.current;
@@ -261,8 +270,9 @@ function BriefingVideo({
       }
     }, 2_000);
     return () => clearInterval(poll);
-    // NO clock-derived value in this list — that is what caused the reseek loop.
-  }, [src, onUnplayable]);
+    // NO clock-derived value in this list — that is what caused the reseek loop —
+    // and mountSrc never changes, so this runs exactly once per element.
+  }, [mountSrc, onUnplayable]);
 
   return (
     /* CAPTIONS: no caption file exists for the briefing films yet. Worth having —
@@ -273,7 +283,7 @@ function BriefingVideo({
     // eslint-disable-next-line jsx-a11y/media-has-caption
     <video
       ref={ref}
-      src={src}
+      src={mountSrc}
       autoPlay
       playsInline
       // Buffer ahead rather than stopping at metadata: by the time staff press
@@ -282,7 +292,7 @@ function BriefingVideo({
       preload="auto"
       // NOT muted, NOT looping. It is a briefing: it is heard once, and it ends.
       controls={false}
-      onError={() => onUnplayable(src)}
+      onError={() => onUnplayable(mountSrc)}
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
     />
   );

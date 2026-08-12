@@ -52,6 +52,38 @@ export interface SceneDecision {
   event?: SignageEvent;
 }
 
+/**
+ * When does a decision count as a NEW frame — a remount, an entrance animation,
+ * and the wipe that covers the cut?
+ *
+ * ROTATION FRAMES ARE KEYED BY SCENE ALONE, and the briefing rooms are why. A
+ * single-scene playlist still gets a fresh slot-derived `startedAtMs` from
+ * rotationAt every time the 40-second billboard cycle wraps, so keying rotation
+ * frames on that timestamp remounted the ENTIRE scene — safety film included —
+ * every 40 seconds, on every screen at the same instant, each cut covered by the
+ * white wipe (owner 2026-08-11: "we see the wave of glow go through the video…
+ * multiple screens do it at the same time… it's not downloading or anything").
+ * The film never stalled once; the director was tearing it down on the shared
+ * clock. The track boards (also single-scene playlists) had been silently
+ * re-wiping every 120s the same way.
+ *
+ * Scene-name keying is still correct for real rotations: a transition happens
+ * whenever the CURRENT frame's key differs from the next decision's, and in a
+ * multi-scene playlist the scene name changes at every genuine cut. A segment
+ * re-entering after a full cycle transitions because something else held the
+ * frame in between — not because its timestamp moved.
+ *
+ * INTERRUPTS keep identity-first keying: a decision that carries an intrinsic
+ * identity — which celebration, which VIP party — is the same frame however its
+ * timestamps wobble (the "screen is freaking out" lesson), while the crown keys
+ * on its per-cycle start because replaying its entrance each join is the point.
+ */
+export function frameKey(d: SceneDecision): string {
+  if (!d.isInterrupt) return d.scene;
+  const identity = d.event?.id;
+  return identity ? `${d.scene}:${identity}` : `${d.scene}:${d.startedAtMs}`;
+}
+
 /* ── base rotation ────────────────────────────────────────────────────── */
 
 export interface RotationSegment {

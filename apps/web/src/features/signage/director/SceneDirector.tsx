@@ -23,7 +23,7 @@ import type { SignageVenue } from "../constants";
 import type { TvFeed } from "../types";
 import type { DemoMode } from "../demo";
 import { SceneSlot, sceneHasData, isSceneImplemented } from "../scenes/registry";
-import { resolveActiveScene, type SceneDecision } from "./schedule";
+import { frameKey, resolveActiveScene, type SceneDecision } from "./schedule";
 
 /** How often the decision is re-evaluated. Matches AttractBillboard's cadence:
  *  fine enough that a cut lands within a frame or two of its true instant,
@@ -160,24 +160,4 @@ export function SceneDirector({
       </div>
     </div>
   );
-}
-
-/**
- * When does a decision count as a NEW frame (remount + entrance replay)?
- *
- * IDENTITY FIRST, timestamp only as a fallback. A decision that carries an
- * intrinsic identity — which celebration, which VIP party — is the same frame
- * for as long as that identity holds, however its timestamps wobble. Keying on
- * startedAtMs alongside the id is what made the VIP takeover remount and replay
- * its entrance every beat ("the screen is freaking out", owner 2026-08-11):
- * the preview fixture's times drift a little with every poll, and the old key
- * treated each drift as a brand-new takeover.
- *
- * Rotation segments and the crown have no identity of their own, so their
- * (stable, slot-derived) start time is the right key — it is what makes an
- * 80-second welcome segment enter once, not once per slot.
- */
-function frameKey(d: SceneDecision): string {
-  const identity = d.event?.id;
-  return identity ? `${d.scene}:${identity}` : `${d.scene}:${d.startedAtMs}`;
 }

@@ -17,7 +17,10 @@ import {
   isBowlingStep,
   minutesUntil,
   resolveActiveScene,
+  frameKey,
 } from "./schedule";
+import type { SceneDecision } from "./schedule";
+import type { SceneType } from "../types";
 
 const always = () => true;
 const never = () => false;
@@ -577,5 +580,58 @@ describe("recentScans — one entry per racer", () => {
     const many = Array.from({ length: 12 }, (_, i) => scan(String(i), "60", i * 1_000));
     expect(recentScans(NOW, many, [], 90_000, 6)).toHaveLength(6);
     expect(recentScans(NOW, [scan("111", "60", 200_000)], [], 90_000, 10)).toHaveLength(0);
+  });
+});
+
+describe("frameKey — a scene that stays on screen is ONE frame", () => {
+  const rotation = (scene: SceneType, startedAtMs: number): SceneDecision => ({
+    scene,
+    startedAtMs,
+    durationMs: SLOT_MS,
+    isInterrupt: false,
+  });
+
+  it("REGRESSION: single-scene playlists must not remount on the slot cycle", () => {
+    // The briefing rooms: playlist [briefing:1], so rotationAt re-stamps
+    // startedAtMs every 40s wrap — and the old key remounted the whole scene,
+    // safety film included, on every screen at the same instant, each cut covered
+    // by the white wipe (owner 2026-08-11: "we see the wave of glow go through
+    // the video… multiple screens do it at the same time").
+    expect(frameKey(rotation("briefing", 0))).toBe(frameKey(rotation("briefing", SLOT_MS)));
+    expect(frameKey(rotation("briefing", SLOT_MS))).toBe(
+      frameKey(rotation("briefing", 87 * SLOT_MS)),
+    );
+    // The track boards had the same disease at a 3-slot period.
+    expect(frameKey(rotation("race-checkin", 0))).toBe(
+      frameKey(rotation("race-checkin", 3 * SLOT_MS)),
+    );
+  });
+
+  it("still cuts between different scenes", () => {
+    expect(frameKey(rotation("ads", 0))).not.toBe(frameKey(rotation("event-welcome", 0)));
+  });
+
+  it("keeps identity-first keying for celebrations", () => {
+    const celebration = (id: string, at: number): SceneDecision => ({
+      scene: "celebration",
+      startedAtMs: at,
+      durationMs: 8_000,
+      isInterrupt: true,
+      event: { id, kind: "checkin-completed", center: "fort-myers", atMs: at },
+    });
+    // Same event, wobbling timestamps → same frame (the VIP freak-out lesson).
+    expect(frameKey(celebration("e1", 1_000))).toBe(frameKey(celebration("e1", 2_000)));
+    // A different guest's moment is a new frame.
+    expect(frameKey(celebration("e1", 1_000))).not.toBe(frameKey(celebration("e2", 1_000)));
+  });
+
+  it("keeps per-cycle keying for the crown, whose entrance replay is the point", () => {
+    const crown = (at: number): SceneDecision => ({
+      scene: "billboard-crown",
+      startedAtMs: at,
+      durationMs: CROWN_WINDOW_MS,
+      isInterrupt: true,
+    });
+    expect(frameKey(crown(0))).not.toBe(frameKey(crown(SLOT_MS)));
   });
 });
