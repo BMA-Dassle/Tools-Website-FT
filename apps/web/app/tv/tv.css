@@ -26,6 +26,27 @@
  *   clock.ts). Change one, change the other IN THE SAME COMMIT — a stale entry
  *   silently de-syncs that effect between screens, which is exactly the
  *   2026-07-19 kiosk glow bug.
+ *
+ *   ── ONE BEAT: 1400ms ──
+ *
+ *   Every repeating attention effect on this canvas runs at the beat — 1.4s,
+ *   the same beat as the kiosks' ad beacons — or at exactly 2× it, and every
+ *   one of them crests ON a beat. Two rules, and neither is stylistic:
+ *
+ *     - Unequal periods BEAT against each other. A 1.4s beacon beside a 1.2s
+ *       rail beside a 1.5s birthday halo re-aligns only every 42 seconds; in
+ *       between, the board looks like the 4th of July (owner, 2026-08-12).
+ *     - At the SAME period, polarity has to match too, or one thing peaks
+ *       exactly as its neighbour bottoms out. The 1.4s family therefore all
+ *       crest at 0%/100%. The 2.8s family may crest at 50% — half of 2.8s is
+ *       1.4s, so that crest still lands on a beat.
+ *
+ *   Adding a new looping flash means reusing 1.4s (cresting at 0%) or 2.8s, and
+ *   adding the class to TV_MOTION_PERIODS_MS so it is phase-locked as well as
+ *   same-tempo — an unregistered class flashes at whatever moment its element
+ *   happened to mount, which de-syncs it from an identical element beside it.
+ *   One-shots (tv-enter, tv-wipe, tv-rise, tv-scan-flash, confetti) are exempt:
+ *   they fire once on their own trigger and are gone.
  */
 
 /* ── stage + canvas ───────────────────────────────────────────────────── */
@@ -215,6 +236,9 @@
     opacity: 1;
   }
 }
+/* THE BEAT. 1.4s, bright on the downbeat — every other looping flash on this
+   canvas is tuned to this one (see the rulebook at the top of the file), and it
+   matches kiosk-ad-blink so a TV and the kiosks under it blink together. */
 .tv-blink {
   animation: tv-blink 1.4s ease-in-out infinite;
 }
@@ -233,7 +257,15 @@
 
    `prefers-reduced-motion` already collapses every animation on this canvas to
    one frame (see the media query below), which for these two leaves the SOLID
-   alerting colour up — the state still reads, it just stops pulsing. */
+   alerting colour up — the state still reads, it just stops pulsing.
+
+   BOTH RUN AT THE BEAT (1.4s, solid on the downbeat), not at a colour-specific
+   speed. They were 1.2s and 1.0s, on the reasoning that "more overdue" should
+   feel more urgent — but a green rail on one board and an amber one on the next
+   then flashed against each other and against the beacons beside them, and a
+   hallway of screens each pulsing at its own rate reads as decoration, not as
+   an instruction. Urgency is carried by COLOUR and by the words in the eyebrow;
+   the tempo is the wall's, not the state's. */
 
 @keyframes tv-ready-flash {
   0%,
@@ -247,7 +279,7 @@
   }
 }
 .tv-ready-flash {
-  animation: tv-ready-flash 1.2s ease-in-out infinite;
+  animation: tv-ready-flash 1.4s ease-in-out infinite;
 }
 
 @keyframes tv-overdue-flash {
@@ -262,7 +294,7 @@
   }
 }
 .tv-overdue-flash {
-  animation: tv-overdue-flash 1s ease-in-out infinite;
+  animation: tv-overdue-flash 1.4s ease-in-out infinite;
 }
 
 @keyframes tv-chev {
@@ -276,8 +308,11 @@
     opacity: 1;
   }
 }
+/* 2.8s = 2× the beat, so the chevron reaches the bottom of its drift exactly on
+   a beat rather than sliding through the beacons beside it (it shares a band
+   with .tv-blink in KioskCallout). */
 .tv-chev {
-  animation: tv-chev 2.4s ease-in-out infinite;
+  animation: tv-chev 2.8s ease-in-out infinite;
 }
 
 /* ── scene transitions ────────────────────────────────────────────────── */
@@ -421,7 +456,10 @@
 }
 
 /* ── breathing emphasis ───────────────────────────────────────────────── */
-/* Opacity on a pre-painted glow layer — never an animated box-shadow. */
+/* Opacity on a pre-painted glow layer — never an animated box-shadow.
+   2.8s = 2× the beat: a slow swell that still crests on a beat, so a freshly
+   scanned name breathing on the check-in rail stays in step with the beacons
+   and the birthday halos around it instead of drifting through them. */
 
 @keyframes tv-breathe {
   0%,
@@ -433,7 +471,7 @@
   }
 }
 .tv-breathe {
-  animation: tv-breathe 2.4s ease-in-out infinite;
+  animation: tv-breathe 2.8s ease-in-out infinite;
 }
 
 /* ── burn-in mitigation ───────────────────────────────────────────────── */
@@ -483,20 +521,26 @@
 /* Birthday pill — "glowing lights around it" (owner 2026-08-11). A pulsing
    two-tone halo, pink inner + gold outer, on the racer's name pill wherever it
    appears. Animation lives here because box-shadow cannot animate inline; the
-   pill's own border/background colours stay inline with its other styling. */
+   pill's own border/background colours stay inline with its other styling.
+
+   ON THE BEAT, AND CRESTING WITH IT. Was 1.5s peaking at 50% — a tenth of a
+   second off the beacons, and inverted against them, so on a check-in board
+   with two birthdays in the rail the halos, the beacons and the ready rail were
+   four things pulsing at four different moments. Now 1.4s at full halo on the
+   downbeat: the whole board lights up together. */
 @keyframes tv-bday-glow {
   0%,
   100% {
     box-shadow:
-      0 0 16px rgba(236, 72, 153, 0.8),
-      0 0 44px rgba(212, 175, 55, 0.45);
-  }
-  50% {
-    box-shadow:
       0 0 32px rgba(236, 72, 153, 1),
       0 0 88px rgba(212, 175, 55, 0.75);
   }
+  50% {
+    box-shadow:
+      0 0 16px rgba(236, 72, 153, 0.8),
+      0 0 44px rgba(212, 175, 55, 0.45);
+  }
 }
 .tv-bday-glow {
-  animation: tv-bday-glow 1.5s ease-in-out infinite;
+  animation: tv-bday-glow 1.4s ease-in-out infinite;
 }

@@ -21,18 +21,32 @@ import { syncGlowPhase } from "~/features/kiosk/hooks/useKioskClock";
  * `alternate` animations run forward then reverse, so their seekable cycle is
  * 2× the declared duration.
  *
- * Only effects that must agree ACROSS screens belong here. One-shot animations
- * (tv-enter, tv-wipe, tv-rise) are deliberately absent — they are triggered by
- * a scene change that is itself already clock-derived, so seeking them would
- * fight the transition rather than align it.
+ * EVERY looping flash belongs here, not just the ones that must agree across
+ * screens. An unregistered class is never seeked, so each element carrying it
+ * starts its cycle at whatever instant it mounted — which means two of them on
+ * ONE board flash at different moments, and no amount of matching durations in
+ * the CSS fixes that. That was three of the entries below (the two check-in
+ * rail flashes and the birthday halo) before 2026-08-12.
+ *
+ * One-shot animations (tv-enter, tv-wipe, tv-rise, tv-scan-flash, confetti) are
+ * deliberately absent — they are triggered by a scene change or a scan that is
+ * itself already the event, so seeking them would fight the moment rather than
+ * align it.
  */
 export const TV_MOTION_PERIODS_MS: Record<string, number> = {
   "tv-kenburns": 60000, // 30s ease-in-out alternate → 60s there-and-back
   "tv-sweep": 7500,
   "tv-neon-flicker": 7000,
+
+  // The beat (1.4s) and its half-rate harmonic (2.8s). See the "ONE BEAT"
+  // rulebook at the top of app/tv/tv.css before adding or retuning any of these.
   "tv-blink": 1400,
-  "tv-chev": 2400,
-  "tv-breathe": 2400,
+  "tv-ready-flash": 1400,
+  "tv-overdue-flash": 1400,
+  "tv-bday-glow": 1400,
+  "tv-chev": 2800,
+  "tv-breathe": 2800,
+
   "tv-drift": 600000, // 10-minute burn-in figure-8
 };
 

@@ -13,8 +13,10 @@
  *
  * TICK, DON'T ANIMATE. The 250ms interval only re-evaluates the DECISION. Every
  * moving pixel is a CSS animation on the compositor — there is no
- * requestAnimationFrame loop anywhere in this surface, which is what lets it run
- * for weeks on a mini PC without drifting into jank.
+ * requestAnimationFrame LOOP anywhere in this surface, which is what lets it run
+ * for weeks on a mini PC without drifting into jank. (The phase-seek below does
+ * schedule a one-shot rAF per DOM change to land its seek before paint; it never
+ * re-arms itself, so there is still no frame loop.)
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { syncTvPhase } from "../clock";
@@ -125,6 +127,44 @@ export function SceneDirector({
   useEffect(() => {
     syncTvPhase(rootRef.current, offset);
   }, [offset, current.scene, current.startedAtMs]);
+
+  /* ── and put mid-scene arrivals on the beat too ────────────────────────
+     The seek above fires on a scene change and a clock resync — nothing else.
+     Anything that starts flashing BETWEEN those began its cycle at that instant
+     and stayed there: a name landing on the check-in rail, a rail flipping to
+     "ready to send", a beacon that lights when a heat is called. One board ends
+     up with four flashes at four different moments — the 4th of July (owner,
+     2026-08-12). Matching durations in the CSS only make things flash at the
+     same RATE; this is what makes them flash at the same TIME.
+
+     A MutationObserver rather than another effect because it catches the change
+     whichever component committed it — scenes here hold their own data hooks
+     (SceneRaceCheckin polls useTrackStatus), so a child can re-render, and mount
+     a new flashing element, without the director rendering at all.
+
+     Coalesced into one rAF: at most one seek per frame, scheduled only when the
+     DOM actually changed, and it lands before paint so the new element's first
+     painted frame is already on the beat. Not a render loop — nothing re-arms
+     it, and seeking an animation's currentTime is not itself a DOM mutation. */
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+
+    let queued = 0;
+    const observer = new MutationObserver(() => {
+      if (queued) return;
+      queued = requestAnimationFrame(() => {
+        queued = 0;
+        syncTvPhase(rootRef.current, offset);
+      });
+    });
+    observer.observe(root, { childList: true, subtree: true, attributeFilter: ["class"] });
+
+    return () => {
+      observer.disconnect();
+      if (queued) cancelAnimationFrame(queued);
+    };
+  }, [offset]);
 
   const props = { feed, nowMs, offset, venue, config, demo };
 

@@ -3851,3 +3851,51 @@ as "try again".
 **Owner action still owed:** add a waiver template covering ages 0-7 at HeadPinz
 Naples (or widen the existing `Minor` template, contentID 5958734, down from 8).
 Until then under-8s at Naples must sign at the desk.
+
+## A wall of screens needs ONE beat — same period AND same start (2026-08-12)
+
+Owner, on the check-in board: "make sure flashes take place at same time so we
+don't have the 4th of july going on." Three independent causes, all live at once:
+
+1. **Different periods.** `tv-blink` 1.4s, `tv-ready-flash` 1.2s,
+   `tv-overdue-flash` 1.0s, `tv-bday-glow` 1.5s, `tv-breathe`/`tv-chev` 2.4s.
+   Unequal periods BEAT: 1.4s against 1.2s re-aligns only every 8.4s, and in
+   between every element is at its own point in its own cycle.
+2. **Never registered in the timing table.** `TV_MOTION_PERIODS_MS` drives
+   `syncTvPhase`, which seeks each animation's `currentTime` to the shared
+   clock. Three of the flashes were absent from it, so they were never seeked at
+   all — each element began its cycle at the instant it mounted. Two rails with
+   IDENTICAL CSS still flash at different moments if neither is registered.
+3. **The seek only ran on a scene change.** `SceneDirector` re-seeked on
+   `[offset, scene, startedAtMs]` — nothing else. Everything that starts flashing
+   mid-scene (a name landing on the rail, a rail flipping to "ready to send", a
+   beacon lighting when a heat is called) missed every seek there was.
+
+### How to apply
+
+1. **One beat per canvas: 1400ms, or an exact multiple.** Documented as the "ONE
+   BEAT" rulebook at the top of `app/tv/tv.css`. 2800ms is fine — half of it is
+   1400, so a slow swell still crests on a beat. 1200ms is not, and no amount of
+   phase-locking rescues it.
+2. **Urgency is carried by COLOUR and by words, never by tempo.** "More overdue
+   → faster flash" was the reasoning behind the 1.0s amber rail; what it
+   produced was a hallway where every screen pulsed at its own rate, which reads
+   as decoration rather than as an instruction.
+3. **Same period demands same polarity.** Two 1.4s effects, one cresting at 0%
+   and one at 50%, are exactly out of phase — one peaks as the other bottoms
+   out. The 1.4s family all put the loud frame on 0%/100%.
+4. **Registering the class IS the fix for "same rate, wrong moment".** Matching
+   durations make things flash at the same RATE; the seek is what makes them
+   flash at the same TIME. A new looping animation is not done until its class
+   is in `TV_MOTION_PERIODS_MS`.
+5. **Re-seek on DOM change, not on scene change.** A `MutationObserver` on the
+   director's root (childList + subtree + `class`), coalesced into one rAF,
+   catches mid-scene arrivals whichever component committed them — scenes hold
+   their own data hooks (`SceneRaceCheckin` polls `useTrackStatus`), so a child
+   can mount a new flashing element without the director rendering at all.
+6. **Guard it with a test that reads the real stylesheet.**
+   `src/features/signage/motion.test.ts` parses `tv.css` and asserts every
+   `infinite` animation is registered, that the periods agree both ways, that
+   the beat family is a multiple of 1400ms, and that each beat-family keyframe is
+   one symmetric excursion (0% == 100%, distinct 50%). A test holding its own
+   copy of the durations could not have caught any of this.
