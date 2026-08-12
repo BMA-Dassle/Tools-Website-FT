@@ -14,6 +14,13 @@ import "server-only";
  * poll time must be current. A session with `actualEnd` stamped is finished
  * as a matter of record, not inference.
  *
+ * SINCE 2026-08-12 THE END SIGNAL HAS A FAST PATH: the venue timing server's
+ * own RaceFinish record, delivered by kart-timing-bridge to our webhook within
+ * seconds of the flag and left as a Redis marker (race-finish.server.ts).
+ * When the marker exists this resolver does not touch Pandora at all; the
+ * fresh Pandora read below is the unchanged fallback for a down or late
+ * bridge pipe — a dead bridge costs speed, never correctness.
+ *
  * NOW CARRIES NAMES (owner 2026-08-11, superseding the same day's "park who
  * qualified"): the first poll that finds the window open captures the finished
  * heat's standings off the live timing socket — names and best laps exactly as
@@ -31,6 +38,7 @@ import { listBriefingAssignments } from "./assignments-db";
 import { welcomeBackWindowOpen } from "./welcome-back";
 import { announceReturnOnce } from "./return-announce.server";
 import { loadOrCaptureResults } from "./race-results.server";
+import { readRaceFinishedMarker } from "./race-finish.server";
 import { splitByTarget } from "./results-frame";
 import type { BriefingRoom } from "./types";
 
@@ -83,16 +91,24 @@ export async function resolveWelcomeBack(
   // has since taken the room. The BOARD below still tracks only the latest;
   // announcing and displaying are different questions with different subjects.
   for (const a of roomTimeline.slice(0, ANNOUNCE_LOOKBACK)) {
-    const aTrack: TrackKey =
-      a.track === "blue" || a.track === "red" || a.track === "mega" ? a.track : "mega";
-    // fresh: live Pandora truth every poll (the 4s reuse window inside the
-    // reader still collapses this loop to one upstream read per track, not
-    // one per assignment).
-    const list = await fetchTrackSessions(aTrack, calendarYmdET(), { fresh: true }).catch(
-      () => null,
-    );
-    const row = list?.find((s) => String(s.sessionId) === a.sessionId);
-    const endMs = row?.actualEnd ? Date.parse(row.actualEnd) : NaN;
+    // FAST PATH FIRST: the venue broadcast's own RaceFinish, delivered by the
+    // bridge seconds after the flag (race-finish.server.ts). When it exists
+    // the radio call has normally already fired from the webhook — the
+    // announcer's claim makes this a no-op — and Pandora is not consulted.
+    const aMarker = await readRaceFinishedMarker(a.sessionId);
+    let endMs: number = aMarker ? aMarker.endedAtMs : NaN;
+    if (!aMarker) {
+      const aTrack: TrackKey =
+        a.track === "blue" || a.track === "red" || a.track === "mega" ? a.track : "mega";
+      // fresh: live Pandora truth every poll (the 4s reuse window inside the
+      // reader still collapses this loop to one upstream read per track, not
+      // one per assignment).
+      const list = await fetchTrackSessions(aTrack, calendarYmdET(), { fresh: true }).catch(
+        () => null,
+      );
+      const row = list?.find((s) => String(s.sessionId) === a.sessionId);
+      endMs = row?.actualEnd ? Date.parse(row.actualEnd) : NaN;
+    }
     if (!Number.isFinite(endMs)) continue;
     const sinceEnd = Date.now() - endMs;
     if (sinceEnd < -60_000 || sinceEnd > ANNOUNCE_FRESH_MS) continue;
@@ -105,20 +121,28 @@ export async function resolveWelcomeBack(
   const track: TrackKey =
     last.track === "blue" || last.track === "red" || last.track === "mega" ? last.track : "mega";
 
-  // CALENDAR ET day, not the racing business day: the sessions cache is keyed the
-  // way its warming cron keys it (todayETRange), and a post-midnight miss only
-  // costs the reader its cache — it falls through to a live read on its own.
-  const sessions = await fetchTrackSessions(track, calendarYmdET(), { fresh: true }).catch(
-    () => null,
-  );
-  if (!sessions) return null;
+  // FAST PATH: the venue's own RaceFinish marker means the end is already
+  // known — no Pandora read at all. Fallback below is yesterday's behaviour,
+  // byte for byte, so a dead bridge only ever costs speed.
+  const finishMarker = await readRaceFinishedMarker(last.sessionId);
+  let actualEndMs: number | null = finishMarker ? finishMarker.endedAtMs : null;
 
-  // Compare as STRINGS — the sessions list carries string ids, and the house rule
-  // forbids numeric round-trips on Pandora ids regardless.
-  const session = sessions.find((s) => String(s.sessionId) === last.sessionId);
-  const actualEndMs = session?.actualEnd ? Date.parse(session.actualEnd) : null;
+  if (actualEndMs === null) {
+    // CALENDAR ET day, not the racing business day: the sessions cache is keyed the
+    // way its warming cron keys it (todayETRange), and a post-midnight miss only
+    // costs the reader its cache — it falls through to a live read on its own.
+    const sessions = await fetchTrackSessions(track, calendarYmdET(), { fresh: true }).catch(
+      () => null,
+    );
+    if (!sessions) return null;
 
-  if (!welcomeBackWindowOpen(Number.isFinite(actualEndMs) ? actualEndMs : null)) {
+    // Compare as STRINGS — the sessions list carries string ids, and the house rule
+    // forbids numeric round-trips on Pandora ids regardless.
+    const session = sessions.find((s) => String(s.sessionId) === last.sessionId);
+    actualEndMs = session?.actualEnd ? Date.parse(session.actualEnd) : null;
+  }
+
+  if (!welcomeBackWindowOpen(Number.isFinite(actualEndMs as number) ? actualEndMs : null)) {
     return null;
   }
 

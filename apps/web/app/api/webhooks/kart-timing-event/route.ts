@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
+import { handleVenueMessage } from "~/features/signage/briefing/race-finish.server";
 
 /**
  * Kart timing broadcast webhook — receives messages forwarded by
@@ -92,6 +93,20 @@ export async function POST(req: NextRequest) {
   // Heartbeat — useful for "is the kart bridge alive?" admin checks
   // and any future heartbeat-gated cron, mirroring the VT3 pattern.
   redis.set(HEARTBEAT_KEY, new Date().toISOString(), "EX", HEARTBEAT_TTL).catch(() => void 0);
+
+  // Phase 2: act on the race lifecycle. A fresh RaceFinish in this message
+  // flips the welcome-back fast path, captures final standings off the timing
+  // socket, and fires the return radio call — seconds after the flag instead
+  // of Pandora's ~40s stamp lag plus our polling. Awaited deliberately: a
+  // floating promise on a serverless path can be frozen mid-flight, and the
+  // cost (a ~4s capture) lands only on the one message per race that wins the
+  // claim. The module never throws; the catch is belt on braces, because this
+  // route's 200 is what keeps the bridge from buffering.
+  try {
+    await handleVenueMessage(message);
+  } catch {
+    /* ingest must survive anything the handler does */
+  }
 
   console.log(`[kart-webhook] queued type=${messageType}`);
   return NextResponse.json({ ok: true, kind: "queued", messageType });
