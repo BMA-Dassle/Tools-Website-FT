@@ -20,7 +20,7 @@
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { withAlpha } from "../color";
-import { nextLevelTarget } from "~/features/racing/qualify";
+import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { LiveSessionChip } from "../live-session";
 import {
   TRACK_ACCENTS,
@@ -518,7 +518,7 @@ function CheckingIn({
         >
           <span style={{ fontSize: 32, color: "rgba(245,236,238,0.75)" }}>Beat</span>
           <span className="tv-display tv-num" style={{ fontSize: 52, color: "#fff" }}>
-            {(qualTarget.ms / 1000).toFixed(3)}
+            {formatLap(qualTarget.ms)}
           </span>
           <span style={{ fontSize: 32, color: "rgba(245,236,238,0.75)" }}>
             to qualify {qualTarget.level}

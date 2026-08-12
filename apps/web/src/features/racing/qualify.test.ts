@@ -4,8 +4,12 @@ import {
   nextLevelTarget,
   qualifiesFor,
   QUALIFY_INTERMEDIATE_BLUE,
+  QUALIFY_INTERMEDIATE_MEGA,
   QUALIFY_INTERMEDIATE_RED,
+  QUALIFY_JUNIOR_INTERMEDIATE,
+  QUALIFY_JUNIOR_PRO,
   QUALIFY_PRO_BLUE,
+  QUALIFY_PRO_MEGA,
   QUALIFY_PRO_RED,
 } from "./qualify";
 
@@ -46,11 +50,13 @@ describe("qualifiesFor", () => {
     expect(qualifiesFor(lap, "Blue Track")).toBeNull();
   });
 
-  it("never qualifies a MEGA lap", () => {
-    // The combined circuit is ~twice the length; comparing its laps to a single
-    // track's cutoff would be measuring the wrong distance.
-    expect(qualifiesFor(30_000, "Mega Track")).toBeNull();
-    expect(qualifiesFor(30_000, "mega")).toBeNull();
+  it("judges a MEGA lap against the Mega cutoffs from the public /racing FAQ", () => {
+    // 1:08.5 → Pro, 1:28 → Intermediate. Verified against real heats
+    // 2026-08-11: the Pro grid ran 63-69s, a lower grid 83-90s.
+    expect(qualifiesFor(QUALIFY_PRO_MEGA, "Mega Track")).toBe("Pro");
+    expect(qualifiesFor(QUALIFY_PRO_MEGA + 1, "mega")).toBe("Intermediate");
+    expect(qualifiesFor(QUALIFY_INTERMEDIATE_MEGA, "mega")).toBe("Intermediate");
+    expect(qualifiesFor(QUALIFY_INTERMEDIATE_MEGA + 1, "mega")).toBeNull();
   });
 
   it("rejects nonsense lap times", () => {
@@ -64,6 +70,12 @@ describe("formatLap", () => {
   it("renders milliseconds as seconds with three decimals", () => {
     expect(formatLap(36_785)).toBe("36.785");
     expect(formatLap(32_500)).toBe("32.500");
+  });
+
+  it("renders minute-plus laps the way the leaderboard does — Mega targets", () => {
+    expect(formatLap(88_000)).toBe("1:28.000"); // the Mega Intermediate cutoff
+    expect(formatLap(68_500)).toBe("1:08.500"); // the Mega Pro cutoff
+    expect(formatLap(60_000)).toBe("1:00.000");
   });
 });
 
@@ -95,9 +107,33 @@ describe("nextLevelTarget", () => {
     expect(nextLevelTarget("red", "Junior Pro")).toBeNull();
   });
 
-  it("shows nothing on MEGA — the combined circuit has no comparable cutoff", () => {
-    expect(nextLevelTarget("mega", "Starter")).toBeNull();
-    expect(nextLevelTarget("Mega Track", "Intermediate")).toBeNull();
+  it("gives JUNIOR grids the junior ladder, never the adult cutoff", () => {
+    // Public /racing FAQ: Junior Intermediate needs 1:15, Junior Pro needs 45s.
+    expect(nextLevelTarget("blue", "Junior Starter")).toEqual({
+      level: "Junior Intermediate",
+      ms: QUALIFY_JUNIOR_INTERMEDIATE,
+    });
+    expect(nextLevelTarget("blue", "Junior Intermediate")).toEqual({
+      level: "Junior Pro",
+      ms: QUALIFY_JUNIOR_PRO,
+    });
+    // Same ladder whichever split track the heat runs — the FAQ publishes one
+    // number per step.
+    expect(nextLevelTarget("red", "Junior Starter")).toEqual({
+      level: "Junior Intermediate",
+      ms: QUALIFY_JUNIOR_INTERMEDIATE,
+    });
+  });
+
+  it("gives MEGA grids the Mega cutoffs — the /racing page publishes them", () => {
+    expect(nextLevelTarget("mega", "Starter")).toEqual({
+      level: "Intermediate",
+      ms: QUALIFY_INTERMEDIATE_MEGA,
+    });
+    expect(nextLevelTarget("Mega Track", "Intermediate")).toEqual({
+      level: "Pro",
+      ms: QUALIFY_PRO_MEGA,
+    });
   });
 
   it("shows nothing for a session type it cannot read", () => {
@@ -109,7 +145,7 @@ describe("nextLevelTarget", () => {
   it("agrees with qualifiesFor — the target shown IS the line that decides", () => {
     // The point of sharing the constants: a racer told to beat 41.000 and then
     // judged against a different number would be a broken promise.
-    for (const track of ["blue", "red"]) {
+    for (const track of ["blue", "red", "mega"]) {
       const t = nextLevelTarget(track, "Starter")!;
       expect(qualifiesFor(t.ms, track)).toBe("Intermediate");
       expect(qualifiesFor(t.ms + 1, track)).toBeNull();

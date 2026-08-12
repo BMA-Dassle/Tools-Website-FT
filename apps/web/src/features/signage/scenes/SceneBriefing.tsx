@@ -634,7 +634,7 @@ function QualifyTarget({
     >
       <span style={{ fontSize: compact ? 26 : 34, color: "rgba(245,236,238,0.78)" }}>Beat</span>
       <span className="tv-display tv-num" style={{ fontSize: compact ? 44 : 92, color: "#fff" }}>
-        {(target.ms / 1000).toFixed(3)}
+        {formatLap(target.ms)}
       </span>
       <span style={{ fontSize: compact ? 26 : 34, color: "rgba(245,236,238,0.78)" }}>
         to qualify {target.level}
@@ -672,7 +672,15 @@ function WelcomeBack({
 }) {
   const target = nextLevelTarget(info.track, info.raceType);
   const results = info.results;
-  const hasNames = results !== null && results.levelledUp.length + results.keepPushing.length > 0;
+  // The name board only exists where qualification exists: no target (a Pro
+  // grid — nothing above it) means no split to show, so the plain welcome
+  // board renders instead. NO LAP TIMES on this screen either way (owner
+  // 2026-08-11: "I don't want race times on here — who qualified and who
+  // didn't"); times live on the score screens outside.
+  const hasNames =
+    target !== null &&
+    results !== null &&
+    results.levelledUp.length + results.keepPushing.length > 0;
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
       <div
@@ -702,8 +710,11 @@ function WelcomeBack({
           inset: `${PAD_Y}px ${PAD_X}px`,
           display: "flex",
           flexDirection: "column",
-          justifyContent: "center",
-          gap: hasNames ? 22 : 26,
+          // With names the board owns the whole panel: header at the top, the
+          // name area absorbing the slack, chip and scores anchored at the
+          // bottom (owner 2026-08-11: "utilize full screen").
+          justifyContent: hasNames ? "flex-start" : "center",
+          gap: hasNames ? 30 : 26,
         }}
       >
         <span className="tv-eyebrow" style={{ color: accent, fontSize: 40 }}>
@@ -712,7 +723,7 @@ function WelcomeBack({
         </span>
         <div
           className="tv-display tv-rise"
-          style={{ fontSize: hasNames ? 110 : 170, color: "#fff", lineHeight: 0.92 }}
+          style={{ fontSize: hasNames ? 130 : 170, color: "#fff", lineHeight: 0.92 }}
         >
           Welcome back!
         </div>
@@ -720,7 +731,7 @@ function WelcomeBack({
         {/* Kit return — the two things staff otherwise repeat to every group.
             One line when the name board needs the vertical room. */}
         {hasNames ? (
-          <p style={{ fontSize: 44, color: "rgba(245,236,238,0.85)", margin: 0 }}>
+          <p style={{ fontSize: 46, color: "rgba(245,236,238,0.85)", margin: 0 }}>
             Return helmets to the shelves — cameras go back to the attendant.
           </p>
         ) : (
@@ -734,14 +745,22 @@ function WelcomeBack({
           </div>
         )}
 
-        {hasNames && <ResultsBoard accent={accent} target={target} results={results} />}
+        {hasNames && (
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <ResultsBoard accent={accent} target={target!} results={results!} />
+          </div>
+        )}
 
         {target && <QualifyTarget accent={accent} target={target} />}
 
+        {/* Blinking on purpose (owner 2026-08-11: "blink the race-results line
+            so they pay attention") — the one animated element on the board. */}
         <p
+          className="tv-blink"
           style={{
-            fontSize: hasNames ? 36 : 42,
-            color: "rgba(245,236,238,0.62)",
+            fontSize: hasNames ? 46 : 42,
+            fontWeight: 600,
+            color: "rgba(245,236,238,0.92)",
             margin: 0,
           }}
         >
@@ -753,10 +772,10 @@ function WelcomeBack({
 }
 
 /**
- * The name board: who beat the qualifying time, who didn't, best laps as
- * recorded at the end of the race. Races with no next level (Pro, Mega) have
- * an empty `levelledUp` by construction and show plain final standings —
- * honest, rather than a split nobody could have won.
+ * The name board: WHO QUALIFIED and WHO DIDN'T — names only, no lap times
+ * (owner 2026-08-11: "I don't want race times on here"). The split is decided
+ * server-side against the same qualify.ts cutoffs the level-up texts use; the
+ * bestMs the payload carries is deliberately not rendered here.
  */
 function ResultsBoard({
   accent,
@@ -764,24 +783,20 @@ function ResultsBoard({
   results,
 }: {
   accent: string;
-  target: { level: string; ms: number } | null;
+  target: { level: string; ms: number };
   results: {
     levelledUp: Array<{ name: string; bestMs: number }>;
     keepPushing: Array<{ name: string; bestMs: number | null }>;
   };
 }) {
-  if (!target) {
-    return (
-      <ResultsColumn heading="Final best laps" headingColor={accent} rows={results.keepPushing} />
-    );
-  }
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 44 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 44, height: "100%" }}>
       {results.levelledUp.length > 0 ? (
-        <ResultsColumn
-          heading={`Moved up to ${target.level}`}
+        <NameColumn
+          heading={`Qualified for ${target.level}`}
           headingColor="#46d68c"
-          rows={results.levelledUp}
+          pillBorder="rgba(70, 214, 140, 0.65)"
+          names={results.levelledUp.map((d) => d.name)}
         />
       ) : (
         <div
@@ -798,56 +813,57 @@ function ResultsBoard({
           Nobody beat {formatLap(target.ms)} this race — the time to beat stands.
         </div>
       )}
-      <ResultsColumn
-        heading="Keep pushing"
-        headingColor="rgba(245,236,238,0.65)"
-        rows={results.keepPushing}
-      />
+      {results.keepPushing.length > 0 && (
+        <NameColumn
+          heading="Didn't qualify — next time!"
+          headingColor="rgba(245,236,238,0.65)"
+          pillBorder="rgba(245,236,238,0.25)"
+          names={results.keepPushing.map((d) => d.name)}
+        />
+      )}
     </div>
   );
 }
 
-function ResultsColumn({
+/** A heading and a wrap of name pills — scales from 2 racers to a full grid of
+ *  10 without the column outgrowing the screen the way timed rows did. */
+function NameColumn({
   heading,
   headingColor,
-  rows,
+  pillBorder,
+  names,
 }: {
   heading: string;
   headingColor: string;
-  rows: Array<{ name: string; bestMs: number | null }>;
+  pillBorder: string;
+  names: string[];
 }) {
   return (
-    <div style={{ display: "grid", gap: 8, alignContent: "start" }}>
-      <span className="tv-eyebrow" style={{ fontSize: 30, color: headingColor }}>
+    <div style={{ display: "grid", gap: 18, alignContent: "start", height: "100%" }}>
+      <span className="tv-eyebrow" style={{ fontSize: 32, color: headingColor }}>
         {heading}
       </span>
-      {rows.map((r) => (
-        <div
-          key={`${r.name}-${r.bestMs}`}
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 30,
-            borderBottom: "1px solid rgba(245,236,238,0.14)",
-            paddingBottom: 6,
-          }}
-        >
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignContent: "start" }}>
+        {names.map((name) => (
           <span
+            key={name}
             style={{
-              fontSize: 40,
+              padding: "12px 30px",
+              borderRadius: 999,
+              border: `2px solid ${pillBorder}`,
+              background: "rgba(0, 4, 24, 0.6)",
+              fontSize: 44,
               color: "#fff",
               whiteSpace: "nowrap",
+              maxWidth: 780,
               overflow: "hidden",
               textOverflow: "ellipsis",
             }}
           >
-            {r.name}
+            {name}
           </span>
-          <span className="tv-num" style={{ fontSize: 40, color: "rgba(245,236,238,0.85)" }}>
-            {r.bestMs !== null ? formatLap(r.bestMs) : "—"}
-          </span>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
