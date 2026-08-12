@@ -31,6 +31,7 @@ import {
 import { resolveScreenConfig } from "../defaults";
 import { trackFromResourceIds } from "../track";
 import { raceCheckinInfo } from "./race-checkin";
+import { checkinProgress } from "./checkin-progress";
 import { buildWelcomeBoard } from "./welcome";
 import { briefingEnabled } from "../flags";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
@@ -83,6 +84,7 @@ export async function buildTvFeed(
     raceCheckin: null,
     briefing: null,
     briefingRooms: null,
+    checkinProgress: null,
     pausedProductIds: safePaused(),
     nextAvailable: null,
     reloadAt: null,
@@ -120,8 +122,13 @@ export async function buildTvFeed(
     briefingEnabled() &&
     config.briefingRoom !== null &&
     config.playlist.some((p) => p.scene === "briefing");
+  // A track-tied camera monitor carries the desk's check-in progress along the
+  // bottom of its clock. Gated on the camera's own track rather than on the
+  // playlist alone: a lobby camera has no clock pane to hang it under, and the
+  // heats it would list are in another building. FT-only — the tracks are.
+  const wantsCheckinProgress = parsed.venue === "FT" && config.cameraMonitor?.track != null;
 
-  const [raceCheckin, events, nextAvailable, briefing] = await Promise.all([
+  const [raceCheckin, events, nextAvailable, briefing, checkinRail] = await Promise.all([
     track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
     wantsWelcome
       ? buildWelcomeBoard(
@@ -140,6 +147,7 @@ export async function buildTvFeed(
           () => null,
         )
       : Promise.resolve(null),
+    wantsCheckinProgress ? checkinProgress(now).catch(() => null) : Promise.resolve(null),
   ]);
 
   // Has the heat on the track board already been sent to a briefing room? One
@@ -164,6 +172,7 @@ export async function buildTvFeed(
     nextAvailable,
     briefing: briefing?.section ?? null,
     briefingRooms: briefing?.rooms ?? null,
+    checkinProgress: checkinRail,
     // `vip` (the bowling-leg takeover) lands with the next scene.
     vip: null,
     // Null events mean we could not ask — the welcome entry then self-skips

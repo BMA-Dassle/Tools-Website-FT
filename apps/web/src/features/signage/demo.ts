@@ -183,6 +183,29 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
         briefedAtMs: null,
         briefedRoom: null,
       },
+      // The desk's progress, for the camera monitors' check-in rail. Two heats
+      // with one of them complete, so both states — counting and all-in — can
+      // be reviewed in the same press. Overnight this section is genuinely
+      // empty (nothing has been called), which is the only time anyone is
+      // standing in front of a board reviewing it.
+      checkinProgress: [
+        {
+          track: feed.screen?.config?.cameraMonitor?.track ?? "blue",
+          heatNumber: 29,
+          raceType: "Junior Starter",
+          sessionId: "demo-29",
+          checkedIn: 6,
+          total: 14,
+        },
+        {
+          track: "red",
+          heatNumber: 30,
+          raceType: "Pro",
+          sessionId: "demo-30",
+          checkedIn: 8,
+          total: 8,
+        },
+      ],
     };
   }
   return { ...feed, vip: demoVip(nowMs) };

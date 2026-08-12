@@ -15,6 +15,7 @@
  * cannot fully parse is a config we partially honour, not one we throw away.
  */
 import type { BriefingRoomState } from "./briefing/types";
+import type { CheckinProgressSession } from "./checkin-progress";
 
 /**
  * A scene is one full-screen visual. Adding a scene type is the only reason
@@ -408,6 +409,17 @@ export interface TvFeed {
    * instead of idling for two seconds.
    */
   briefingRooms: Record<"red" | "blue", BriefingRoomState | null> | null;
+  /**
+   * Camera-monitor extra: how far the check-in station has got through EVERY
+   * heat it currently has open — "6 of 14 checked in", per track.
+   *
+   * Distinct from `raceCheckin` above, which is one track's heat and only exists
+   * for screens scoped to a track by resource id. A camera monitor is scoped by
+   * camera, not by resource, so it never had that section; and a marshal in a
+   * briefing room wants the whole desk's picture, not only their own track's.
+   * Null for every screen that is not a track-tied camera monitor.
+   */
+  checkinProgress: CheckinProgressSession[] | null;
   /** Product ids currently off-sale — never advertise a paused product. */
   pausedProductIds: string[];
   /** "Next available" per product key, e.g. { bowling: "3 lanes · 9:30 PM" }.
