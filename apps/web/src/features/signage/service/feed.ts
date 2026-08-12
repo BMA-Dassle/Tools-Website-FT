@@ -218,6 +218,7 @@ async function buildBriefingSection(
             heatNumber: welcomeBack.heatNumber,
             raceType: welcomeBack.raceType,
             track: welcomeBack.track,
+            results: welcomeBack.results,
           }
         : null,
     },

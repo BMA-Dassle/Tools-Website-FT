@@ -14,21 +14,33 @@ import "server-only";
  * poll time must be current. A session with `actualEnd` stamped is finished
  * as a matter of record, not inference.
  *
- * DELIBERATELY CARRIES NO NAMES. The board greets the group, says where kit goes
- * and where scores are posted, and restates the qualifying time. Who actually
- * levelled up is parked for later (owner 2026-08-11: "don't do any of the who
- * qualified on this screen yet").
+ * NOW CARRIES NAMES (owner 2026-08-11, superseding the same day's "park who
+ * qualified"): the first poll that finds the window open captures the finished
+ * heat's standings off the live timing socket — names and best laps exactly as
+ * /leaderboards shows them, no BMI person matching — records them, and every
+ * poll after serves the split: who beat the qualifying time, who didn't.
  *
  * Fails to null, always — a briefing room with a broken upstream shows helmet
- * sizes, never an error.
+ * sizes, never an error; a failed capture shows the board without names.
  */
 import { calendarYmdET } from "@/lib/race-business-day";
 import { fetchTrackSessions } from "~/features/reservations-admin/race-live-state.server";
 import type { TrackKey } from "~/features/reservations-admin/race-live-state";
+import { nextLevelTarget } from "~/features/racing/qualify";
 import { listBriefingAssignments } from "./assignments-db";
 import { welcomeBackWindowOpen } from "./welcome-back";
 import { announceReturnOnce } from "./return-announce.server";
+import { loadOrCaptureResults } from "./race-results.server";
+import { splitByTarget } from "./results-frame";
 import type { BriefingRoom } from "./types";
+
+/** The name board: who levelled up, who didn't, laps as recorded at the end of
+ *  the race. `levelledUp` stays empty when there is no next level (Pro, Mega) —
+ *  the scene shows plain final standings instead of a split. */
+export interface WelcomeBackResults {
+  levelledUp: Array<{ name: string; bestMs: number }>;
+  keepPushing: Array<{ name: string; bestMs: number | null }>;
+}
 
 export interface WelcomeBackInfo {
   heatNumber: number | null;
@@ -36,6 +48,8 @@ export interface WelcomeBackInfo {
   track: "blue" | "red" | "mega";
   /** The timing system's own end stamp, ms — what opened the window. */
   endedAtMs: number;
+  /** Null when capture never landed — the board renders name-less, as before. */
+  results: WelcomeBackResults | null;
 }
 
 /** Only ends this fresh get a radio call. Bounds what an announcement can be
@@ -108,10 +122,31 @@ export async function resolveWelcomeBack(
     return null;
   }
 
+  // The last best times, captured off the live socket the first time this runs
+  // (the finished heat's standings keep being served until the next heat loads)
+  // and read back from Redis every poll after. Heat-number-gated inside — a
+  // frame we cannot prove is ours is never recorded.
+  const recorded = await loadOrCaptureResults({
+    track,
+    sessionId: last.sessionId,
+    heatNumber: last.heatNumber,
+  }).catch(() => null);
+
+  const target = nextLevelTarget(track, last.raceType);
+  const split = recorded ? splitByTarget(recorded.drivers, target?.ms ?? null) : null;
+
   return {
     heatNumber: last.heatNumber,
     raceType: last.raceType,
     track,
     endedAtMs: actualEndMs as number,
+    results: split
+      ? {
+          // bestMs is non-null for every qualifier by construction (a driver
+          // with no lap cannot beat a target), hence the assertion.
+          levelledUp: split.levelledUp.map((d) => ({ name: d.name, bestMs: d.bestMs as number })),
+          keepPushing: split.keepPushing.map((d) => ({ name: d.name, bestMs: d.bestMs })),
+        }
+      : null,
   };
 }

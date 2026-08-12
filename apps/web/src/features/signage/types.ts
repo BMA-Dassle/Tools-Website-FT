@@ -364,13 +364,19 @@ export interface TvFeed {
     /**
      * The room's group has FINISHED racing — the timing system stamped their
      * session's actualEnd — and is walking back in to return kit. Shown only
-     * while the room is otherwise idle; any live timeline outranks it. Carries
-     * no names (the who-qualified board is parked, owner 2026-08-11).
+     * while the room is otherwise idle; any live timeline outranks it.
+     * `results` carries the end-of-race capture (names verbatim from the
+     * timing system, best laps in ms) split against the qualifying time; null
+     * when the capture never landed, and the board renders name-less.
      */
     welcomeBack: {
       heatNumber: number | null;
       raceType: string | null;
       track: "blue" | "red" | "mega";
+      results: {
+        levelledUp: Array<{ name: string; bestMs: number }>;
+        keepPushing: Array<{ name: string; bestMs: number | null }>;
+      } | null;
     } | null;
   } | null;
   /**

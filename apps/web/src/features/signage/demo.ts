@@ -302,7 +302,24 @@ function demoBriefingSection(feed: TvFeed, mode: DemoMode): TvFeed["briefing"] {
     helmetPosterUrl: real?.helmetPosterUrl ?? null,
     welcomeBack:
       mode === "briefing-return"
-        ? { heatNumber: 58, raceType: "Starter", track: "red" }
+        ? {
+            heatNumber: 58,
+            raceType: "Starter",
+            track: "red",
+            // Fabricated split so the preview lays out the name board — laps
+            // straddle the Red Starter→Intermediate cutoff (46.000).
+            results: {
+              levelledUp: [
+                { name: "Marcus Webb", bestMs: 44_812 },
+                { name: "Dana Ruiz", bestMs: 45_990 },
+              ],
+              keepPushing: [
+                { name: "Tyler Nguyen", bestMs: 46_431 },
+                { name: "Priya Shah", bestMs: 48_102 },
+                { name: "Sam Osteen", bestMs: null },
+              ],
+            },
+          }
         : (real?.welcomeBack ?? null),
   };
 }
