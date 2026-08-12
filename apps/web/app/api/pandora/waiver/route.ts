@@ -265,6 +265,84 @@ export async function POST(req: NextRequest) {
       });
     };
 
+    /**
+     * WAIT FOR THE PERSON TO REACH THE LOCAL SERVER, BEFORE SIGNING.
+     *
+     * Pandora writes a waiver against the CENTER'S OWN server, and under
+     * cloud-first the person was just minted on the BMI cloud — invisible
+     * locally for ~10-30s (measured). Signing inside that window cannot
+     * succeed: Pandora answers a generic 500 "Unexpected Error Occured", the
+     * retry ladder burns all three attempts on it, and the guest gets
+     * "Waiver signing failed" on the signature screen. Seen live 2026-08-12 on
+     * kiosk guest "Test 18": minted 09:32:56, signed 09:33:03, three 500s while
+     * the person read 404 locally — then a manual retry at 09:33:10 succeeded
+     * the moment sync caught up.
+     *
+     * Diagnosing this AFTER the attempts (the first version of this fix) is too
+     * late: by then the person has usually appeared, the barrier reads "open",
+     * and the failure looks like a real vendor fault. So the wait belongs here,
+     * in front. The guest is already watching a spinner, and a few seconds of it
+     * is strictly better than an error they have to retry by hand.
+     *
+     * Bounded so the request can never hang: poll to WAIT_MS, then hand the push
+     * to the sync queue and tell the caller the waiver is accepted — the
+     * signature is already durable in Neon (stored before any vendor call).
+     */
+    {
+      const WAIT_MS = 24_000;
+      const STEP_MS = 2_000;
+      const { personLocalBarrier } = await import("@/lib/bmi-sync-barriers");
+      const startedWait = Date.now();
+      let verdict = (await personLocalBarrier(locationID, personID)).verdict;
+      if (verdict === "closed") {
+        console.log(
+          `[pandora-waiver] person ${personID} not on the local server yet — waiting up to ${WAIT_MS / 1000}s before signing`,
+        );
+        while (verdict === "closed" && Date.now() - startedWait < WAIT_MS) {
+          await new Promise((r) => setTimeout(r, STEP_MS));
+          verdict = (await personLocalBarrier(locationID, personID)).verdict;
+        }
+        const waited = ((Date.now() - startedWait) / 1000).toFixed(1);
+        if (verdict === "closed") {
+          // Still not there. Queue the push rather than generating vendor 500s.
+          try {
+            const { enqueueSync } = await import("@/lib/bmi-sync-queue");
+            const queued = await enqueueSync({
+              kind: "push-waiver-signature",
+              idempotencyKey: `waiver-push:${personID}:${new Date().toISOString().slice(0, 10)}`,
+              barrier: "person-local",
+              barrierRef: String(personID),
+              locationId: locationID,
+              payload: {
+                personId: String(personID),
+                name: String(firstName ?? "").trim() || "Guest",
+                locationKey: location ?? null,
+                signaturePngB64: sigBase64,
+              },
+            });
+            console.log(
+              `[pandora-waiver] still not local after ${waited}s — queued waiver push (row ${queued?.id ?? "n/a"}) for ${personID}. Signature is safe in Neon.`,
+            );
+            await logSignOutcome("queued", 0, null, null);
+            return NextResponse.json({
+              ok: true,
+              waiverID: null,
+              queuedForSync: true,
+              licenceGrant: grant(),
+            });
+          } catch (err) {
+            // Could not queue — fall through and let the sign attempts run, so a
+            // queue outage never silently drops the waiver.
+            console.warn("[pandora-waiver] could not queue the waiver push:", err);
+          }
+        } else {
+          console.log(
+            `[pandora-waiver] person ${personID} became visible locally after ${waited}s — signing now`,
+          );
+        }
+      }
+    }
+
     // Pandora (Azure App Service) throws transient 5xx "Unexpected Error
     // Occured" bursts — the same pathology every OTHER Pandora call here
     // already retries (pandoraCreatePerson 3x, getWithRetry, the state -3

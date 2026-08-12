@@ -108,7 +108,9 @@ vi.mock("@/lib/bmi-office-actions", async (orig) => ({
   createOfficePerson: (...a: unknown[]) =>
     (officeMock.createOfficePerson as (...a: unknown[]) => unknown)(...a),
 }));
-const queueMock = { enqueueSync: vi.fn(async () => ({ id: 1 })) };
+const queueMock = {
+  enqueueSync: vi.fn<(args: { kind: string }) => Promise<{ id: number }>>(async () => ({ id: 1 })),
+};
 vi.mock("@/lib/bmi-sync-queue", async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   enqueueSync: (...a: unknown[]) => (queueMock.enqueueSync as (...a: unknown[]) => unknown)(...a),
@@ -165,7 +167,7 @@ describe("POST /api/pandora — cloud-first person mint", () => {
   it("with a birthdate it does NOT queue a repair — an Office mint lands readable", async () => {
     const { POST } = await import("./route");
     await POST(postReq(NEW_GUEST));
-    const kinds = queueMock.enqueueSync.mock.calls.map((c) => (c[0] as { kind: string }).kind);
+    const kinds = queueMock.enqueueSync.mock.calls.map((c) => c[0].kind);
     expect(kinds).toContain("add-membership");
     expect(kinds).not.toContain("repair-person-details");
   });
@@ -174,7 +176,7 @@ describe("POST /api/pandora — cloud-first person mint", () => {
     const { POST } = await import("./route");
     const noDob = { ...NEW_GUEST, birthdate: undefined };
     await POST(postReq(noDob));
-    const kinds = queueMock.enqueueSync.mock.calls.map((c) => (c[0] as { kind: string }).kind);
+    const kinds = queueMock.enqueueSync.mock.calls.map((c) => c[0].kind);
     expect(kinds).toContain("repair-person-details");
     // …and the registration still rides along.
     expect(kinds).toContain("add-membership");
