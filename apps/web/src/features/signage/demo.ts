@@ -345,6 +345,23 @@ function demoBriefingSection(feed: TvFeed, mode: DemoMode): TvFeed["briefing"] {
             },
           }
         : (real?.welcomeBack ?? null),
+    // THE CAMERA STRIP, fabricated so the 104 px reserve and both box states can
+    // be reviewed off a laptop — on a quiet afternoon the real strip is empty and
+    // there is nothing to look at. Deliberately covers the awkward cases:
+    // camera 8 is two heats stale (the "returned earlier but still hasn't
+    // scanned in" case), 17 and 31 are inside their green hold, and ordering is
+    // by assignedAt so a reviewer can watch that a box does not move.
+    cameraReturn: {
+      boxes: [
+        { camera: "8", state: "out", heatNumber: 56, sinceFlagMs: 18 * 60_000, assignedAtMs: 1 },
+        { camera: "17", state: "back", heatNumber: 58, sinceFlagMs: 2 * 60_000, assignedAtMs: 2 },
+        { camera: "23", state: "out", heatNumber: 58, sinceFlagMs: 2 * 60_000, assignedAtMs: 3 },
+        { camera: "26", state: "out", heatNumber: 58, sinceFlagMs: 2 * 60_000, assignedAtMs: 4 },
+        { camera: "31", state: "back", heatNumber: 58, sinceFlagMs: 2 * 60_000, assignedAtMs: 5 },
+        { camera: "44", state: "out", heatNumber: 58, sinceFlagMs: 30_000, assignedAtMs: 6 },
+      ],
+      outCount: 4,
+    },
   };
 }
 

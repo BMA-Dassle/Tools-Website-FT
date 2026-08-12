@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { processVideoEvent, videoEventFromWebhookPayload } from "@/lib/video-event-processor";
+import { stampCameraSeen } from "@/lib/camera-assign";
 import {
   bufferPendingMatch,
   drainDuePendingMatches,
@@ -158,6 +159,38 @@ export async function POST(req: NextRequest) {
   // self-healing backstop. Best-effort — Redis hiccups don't block
   // the response.
   redis.set("vt3:bridge:last-event", new Date().toISOString(), "EX", 3600).catch(() => void 0);
+
+  /**
+   * THE CAMERA IS BACK IN THE BUILDING — recorded here, for the briefing-room
+   * return strip (features/signage/briefing/camera-return.ts).
+   *
+   * VT3 only knows about a clip once the camera has reached a base station, so
+   * the mere existence of this event is the physical fact we want. `createdAt`
+   * is that registration moment; it beats the readiness gate below by minutes
+   * (owner 2026-08-12: "we're watching for the registered time…not waiting for
+   * the video to finish upload" — measured at +2 min median after the flag).
+   *
+   * SO THIS IS DELIBERATELY UNGATED: every event, any `status`, any
+   * `innerType`, `sampleUploadTime` null or not. Gating it on readiness would
+   * be borrowing a guest-notification rule to answer an inventory question and
+   * would leave a returned camera red on the wall for an hour.
+   *
+   * BOTH KEYS, because the scanned number lands in `video.camera` for some
+   * records and `system.name` for others — the same two-key ambiguity
+   * `matchVideoEvent` already has to live with. Stamping both means a sighting
+   * is never missed; the cost of stamping a dock/base-station id that is not a
+   * camera number is a `camera-seen:913` key nothing ever reads.
+   */
+  {
+    const seenAtMs = typeof payload.createdAt === "string" ? Date.parse(payload.createdAt) : NaN;
+    // No parseable registration time — fall back to now. We know the camera is
+    // back; only the precise moment is in doubt.
+    const at = Number.isFinite(seenAtMs) ? seenAtMs : Date.now();
+    if (typeof payload.camera === "number") void stampCameraSeen(String(payload.camera), at);
+    if (system?.name && String(system.name) !== String(payload.camera)) {
+      void stampCameraSeen(String(system.name), at);
+    }
+  }
 
   // ── Live processing path ──
   // PATH-1 work (existing match: overlay refresh, block sync,

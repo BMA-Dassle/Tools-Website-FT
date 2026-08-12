@@ -1,4 +1,5 @@
 import redis from "@/lib/redis";
+import { businessDayYmdET } from "@/lib/race-business-day";
 import type { GuardianContact } from "@/lib/participant-contact";
 
 /**
@@ -88,6 +89,70 @@ function historyKey(systemNumber: string): string {
   return `system-history:${systemNumber}`;
 }
 
+/** Every camera scanned on one racing day, score = assignedAt ms. See the note
+ *  in `upsertCameraAssignment` — shape is fixed by 02528335. */
+export function scanLogKey(businessDay: string): string {
+  return `camera-scan-log:${businessDay}`;
+}
+
+/** Outlives the racing day it describes, so a post-midnight read still sees the
+ *  evening's scans. Matches 02528335. */
+export const SCAN_LOG_TTL_SECONDS = 48 * 60 * 60;
+
+/**
+ * WHEN WE LAST HAD EVIDENCE THIS CAMERA WAS BACK IN THE BUILDING. Epoch ms.
+ *
+ * "Checked into one of the systems" (owner 2026-08-12) — two things write it:
+ * VT3 registering a video off the camera (it reached a base station), and a
+ * staff re-scan onto the next racer. Deliberately NOT gated on
+ * `sampleUploadTime` or on any `status` value: those are the READINESS gate for
+ * texting a guest their video, which is minutes-to-an-hour later. The question
+ * here is only "has the camera come back", and the registration answers that
+ * — measured at +2 min median after the flag against 30h of
+ * `video_decision_log` (owner: "we're watching for the registered time…not
+ * waiting for the video to finish upload").
+ *
+ * Keyed by the SCANNED camera number, which is what `video.camera` carries and
+ * what `system.name` sometimes carries too — the webhook stamps both, for the
+ * same reason `listAssignmentsAtTime` is queried on both.
+ */
+export function cameraSeenKey(cameraNumber: string): string {
+  return `camera-seen:${cameraNumber}`;
+}
+
+/** Long enough that a camera missing since yesterday evening still reads as
+ *  missing this morning rather than silently resetting. */
+export const CAMERA_SEEN_TTL_SECONDS = 48 * 60 * 60;
+
+/**
+ * Record that a camera was seen, keeping the LATEST sighting.
+ *
+ * Last-write-wins is wrong here: VT3 replays and re-sends events for the same
+ * video (`video-updated` fires repeatedly as a clip moves through encoding),
+ * and a later event can carry an EARLIER `created_at` than one already stored.
+ * Rolling backwards would resurrect a camera that has since been accounted for,
+ * so a stale event is dropped rather than written.
+ */
+export async function stampCameraSeen(cameraNumber: string, atMs: number): Promise<void> {
+  const cam = String(cameraNumber || "").trim();
+  if (!cam || !Number.isFinite(atMs)) return;
+  try {
+    const key = cameraSeenKey(cam);
+    const prev = await redis.get(key);
+    const prevMs = prev ? Number(prev) : NaN;
+    if (Number.isFinite(prevMs) && prevMs >= atMs) {
+      // Keep the newer sighting, but refresh the TTL so a camera that keeps
+      // being seen never expires out of the record.
+      await redis.expire(key, CAMERA_SEEN_TTL_SECONDS);
+      return;
+    }
+    await redis.set(key, String(Math.round(atMs)), "EX", CAMERA_SEEN_TTL_SECONDS);
+  } catch {
+    /* best effort — a missed sighting leaves a camera red, which is the safe
+       direction to fail in. It must never break the webhook's 200. */
+  }
+}
+
 /**
  * Persist an assignment. Writes three entries atomically via a pipeline:
  *   1. The primary record keyed by (sessionId, personId)
@@ -142,6 +207,35 @@ export async function upsertCameraAssignment(a: CameraAssignment): Promise<void>
   // that is still <= video.created_at.
   pipeline.zadd(hist, historyScore, watchPayload);
   pipeline.expire(hist, TTL_SECONDS);
+  // Daily scan enumeration — the per-camera and per-session keys above can't be
+  // listed without SCAN, and both "which scanned cameras never uploaded" and
+  // "which cameras went out today and are still not back" need the whole day's
+  // scans (the 8/9 incident had three cameras dead ALL DAY that nothing
+  // surfaced). Keyed by racing business day (2 AM ET rollover), 48h TTL.
+  //
+  // Key name, member shape and TTL are VERBATIM from the liveness work on
+  // feat/video-liveness-alerts (02528335) so that branch still merges cleanly —
+  // do not "improve" them here.
+  const scanLog = scanLogKey(businessDayYmdET());
+  pipeline.zadd(
+    scanLog,
+    historyScore,
+    JSON.stringify({
+      sys: a.systemNumber,
+      sid: String(a.sessionId),
+      pid: String(a.personId),
+      fn: a.firstName,
+      ln: a.lastName,
+      at: a.assignedAt,
+    }),
+  );
+  pipeline.expire(scanLog, SCAN_LOG_TTL_SECONDS);
+  // A RE-SCAN IS A SIGHTING. Staff cannot bind this camera to the next racer
+  // without it being in their hand, so the scan itself proves the camera came
+  // back — and it lands sooner than the video registration does. Without this,
+  // a camera turned round fast for the very next heat would sit red on the
+  // briefing wall until VT3 got round to registering its footage.
+  pipeline.set(cameraSeenKey(a.systemNumber), String(historyScore), "EX", CAMERA_SEEN_TTL_SECONDS);
   await pipeline.exec();
 }
 
