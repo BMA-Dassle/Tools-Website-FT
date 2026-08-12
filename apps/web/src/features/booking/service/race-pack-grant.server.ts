@@ -11,6 +11,7 @@
  */
 import { addDeposit } from "@/lib/pandora-deposits";
 import { enqueueDepositFailure } from "@/lib/bmi-deposit-retry";
+import { personLocalBarrier } from "@/lib/bmi-sync-barriers";
 import redis from "@/lib/redis";
 import type { ResolvedKioskPack } from "./race-pack-kiosk";
 import { markPackGranted, markPackGrantFailed } from "../data/race-pack-purchases-db";
@@ -60,7 +61,22 @@ export async function grantKioskRacePacks(args: {
       out.push({ slug: p.slug, memberId: p.memberId, granted: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "addDeposit failed";
-      console.warn(`[race-pack] grant failed, enqueueing for retry: ${guardKey}: ${msg}`);
+      /**
+       * Classify before shouting. Under cloud-first minting a brand-new racer's
+       * person is not visible to the center's LOCAL server for ~19-32s, so this
+       * first grant is EXPECTED to fail for them — the enqueue below is the
+       * designed path, not an incident, and the barrier-gated
+       * deposit-retry-sweep completes it within a tick or two. Only a failure
+       * with the person already local is a genuine warning.
+       *
+       * The probe runs only on the failure path, so the happy path (returning
+       * racers, already local) pays nothing.
+       */
+      const barrier = await personLocalBarrier(FASTTRAX_LOCATION_ID, p.personId);
+      const expected = barrier.verdict === "closed";
+      const line = `[race-pack] grant ${expected ? "deferred (person not yet synced local)" : "FAILED"}, enqueueing for retry: ${guardKey}: ${msg}`;
+      if (expected) console.log(line);
+      else console.warn(line);
       await markPackGrantFailed(args.purchaseKey, p.personId, p.slug, msg).catch(() => {});
       await enqueueDepositFailure({
         source: "race-pack-kiosk",

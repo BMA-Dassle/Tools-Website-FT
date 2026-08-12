@@ -53,6 +53,10 @@
       "schedule": "*/2 * * * *"
     },
     {
+      "path": "/api/cron/bmi-sync-queue",
+      "schedule": "*/2 * * * *"
+    },
+    {
       "path": "/api/cron/arena-tickets",
       "schedule": "*/2 * * * *"
     },

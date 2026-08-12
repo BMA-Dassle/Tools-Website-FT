@@ -8,6 +8,7 @@ import {
   type DepositFailureRow,
 } from "@/lib/bmi-deposit-retry";
 import { verifyCron } from "@/lib/cron-auth";
+import { personLocalBarrier } from "@/lib/bmi-sync-barriers";
 
 /**
  * BMI deposit retry sweep — drains the `bmi_deposit_failures` table.
@@ -186,10 +187,35 @@ export async function GET(req: NextRequest) {
   let attempted = 0;
   let succeeded = 0;
   let failed = 0;
+  let waitingOnSync = 0;
   const failures: { id: number; source: string; reason: string }[] = [];
 
   for (const row of rows) {
     if (dryRun) continue;
+    /**
+     * SYNC BARRIER before the retry (owner 2026-08-12).
+     *
+     * `addDeposit` is a PANDORA (local) write keyed on personId. Two reasons
+     * this gate has to be here:
+     *
+     * 1. Cloud-first minting: a person created on the BMI cloud is not visible
+     *    to the center's local server for ~19-32s, so a grant fired at them
+     *    fails with "No person found with that ID" through no fault of ours.
+     * 2. It is ALREADY biting: nine rows sat permanently stuck on exactly that
+     *    error and were retried **19,114 times** (see lib/bmi-deposit-retry
+     *    header) because this loop retried blind. A closed barrier is "not yet",
+     *    not a failed attempt — so we skip WITHOUT calling Pandora and WITHOUT
+     *    burning the attempt budget, and the row's own age is what ends it.
+     *
+     * An `error` verdict (we could not even ask) falls through to the normal
+     * retry, because refusing to try on our own monitoring failure would strand
+     * real money-adjacent grants.
+     */
+    const barrier = await personLocalBarrier(row.locationId, row.personId);
+    if (barrier.verdict === "closed") {
+      waitingOnSync++;
+      continue;
+    }
     attempted++;
     const r = await retryDeposit(row);
     if (r.ok) {
@@ -220,7 +246,7 @@ export async function GET(req: NextRequest) {
 
   const elapsedMs = Date.now() - started;
   console.log(
-    `[deposit-retry-sweep] scanned=${rows.length} attempted=${attempted} succeeded=${succeeded} failed=${failed} parked=${parked.length} elapsed=${elapsedMs}ms dryRun=${dryRun}`,
+    `[deposit-retry-sweep] scanned=${rows.length} attempted=${attempted} succeeded=${succeeded} failed=${failed} waitingOnSync=${waitingOnSync} parked=${parked.length} elapsed=${elapsedMs}ms dryRun=${dryRun}`,
   );
   if (parked.length > 0) {
     console.warn(
@@ -237,6 +263,9 @@ export async function GET(req: NextRequest) {
     attempted,
     succeeded,
     failed,
+    /** Rows skipped because the person is not yet visible on the LOCAL server —
+     *  waiting on Fast WSync, not a failure, and no attempt was burned. */
+    waitingOnSync,
     failures: failures.slice(0, 20),
     parked: parked.length,
     elapsedMs,
