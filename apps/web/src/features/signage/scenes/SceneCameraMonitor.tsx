@@ -73,16 +73,6 @@ function findDelay(
   return { delayMinutes: hit.delayMinutes ?? 0, delayFormatted: hit.delayFormatted ?? "" };
 }
 
-/** Time of day, 12-hour with seconds, no AM/PM — "4:20:52". Drives the big clock
- *  between heats so the panel is never blank. */
-function formatClock(ms: number): string {
-  const d = new Date(ms);
-  const h = d.getHours() % 12 || 12;
-  const m = String(d.getMinutes()).padStart(2, "0");
-  const s = String(d.getSeconds()).padStart(2, "0");
-  return `${h}:${m}:${s}`;
-}
-
 export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
   const cam = config.cameraMonitor;
   // The proxy is addressed by SCREEN, not by camera id — the server maps the
@@ -177,7 +167,7 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
         {/* Camera, left. Contained (not cropped) so the whole fisheye reads. */}
         <div style={{ position: "relative", width: "50%", background: "#000" }}>{camera}</div>
         {/* The on-track session clock, HUGE, on the track's colour. */}
-        <ClockPane clock={sessionClock} nowMs={nowMs} accent={accent} />
+        <ClockPane clock={sessionClock} accent={accent} />
       </div>
       <StatusBar trackLabel={TRACK_LABELS[track]} delay={delay} />
     </div>
@@ -340,24 +330,21 @@ function BriefingStrip({
 /* ── the clocks ───────────────────────────────────────────────────────── */
 
 /**
- * The big clock panel. The heat's remaining time ON TRACK while a heat runs; the
- * time of day between heats, so the panel is never a blank colour field.
+ * The big clock panel: the heat's remaining time ON TRACK while a heat runs.
+ *
+ * Between heats it says "No session · Standby" rather than a time of day — a big
+ * wall clock there read as a mystery race timer, and it showed the player PC's
+ * local time (wrong tz) rather than venue time anyway (owner 2026-08-12: "what's
+ * this clock mean… no races running… it's 5am"). A clock only appears when it is
+ * counting something real.
  */
-function ClockPane({
-  clock,
-  nowMs,
-  accent,
-}: {
-  clock: LiveSessionClock | null;
-  nowMs: number;
-  accent: string;
-}) {
+function ClockPane({ clock, accent }: { clock: LiveSessionClock | null; accent: string }) {
   const live = !!clock;
   const paused = clock?.state === "paused";
-  const value = live ? formatRemaining(clock.remainingMs) : formatClock(nowMs);
-  const eyebrow = paused ? "Paused" : live ? "On track" : "Time";
+  const value = live ? formatRemaining(clock.remainingMs) : null;
+  const eyebrow = paused ? "Paused" : live ? "On track" : "No session";
   // A shorter string (MM:SS while racing) can be even bigger than H:MM:SS.
-  const fontSize = value.length <= 5 ? 300 : 230;
+  const fontSize = value && value.length <= 5 ? 300 : 230;
 
   return (
     <div
@@ -382,17 +369,26 @@ function ClockPane({
       >
         {eyebrow}
       </span>
-      <span
-        className="tv-display tv-num"
-        style={{
-          fontSize,
-          lineHeight: 0.9,
-          fontWeight: 800,
-          textShadow: "0 4px 40px rgba(0,0,0,0.35)",
-        }}
-      >
-        {value}
-      </span>
+      {value ? (
+        <span
+          className="tv-display tv-num"
+          style={{
+            fontSize,
+            lineHeight: 0.9,
+            fontWeight: 800,
+            textShadow: "0 4px 40px rgba(0,0,0,0.35)",
+          }}
+        >
+          {value}
+        </span>
+      ) : (
+        <span
+          className="tv-display"
+          style={{ fontSize: 120, fontWeight: 800, color: "rgba(255,255,255,0.5)" }}
+        >
+          Standby
+        </span>
+      )}
     </div>
   );
 }
