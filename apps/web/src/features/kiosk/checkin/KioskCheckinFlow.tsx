@@ -65,7 +65,6 @@ import { useQrScanner } from "../qr-scanner";
 import { heatsConflict } from "~/features/booking/service/conflict";
 import { resolveRaceClass } from "./category";
 import { autoAssignRaces } from "./race-autofill";
-import { pandoraCreatePerson, pandoraCheckWaiver } from "@/lib/pandora";
 import type {
   CheckinActivity,
   CheckinBindMember,
@@ -139,9 +138,8 @@ export function KioskCheckinFlow() {
   const t = useT();
   const hydrated = useHydrated();
   const center = config?.center ?? "fort-myers";
-  // Pandora location for short-id resolution (mirrors KioskPeopleStep).
-  const brandLocation =
-    center === "naples" ? "naples" : config?.brand === "headpinz" ? "headpinz" : "fasttrax";
+  // (No Pandora location needed here any more — check-in no longer mints or
+  // reads a person to resolve an id; it uses the id the cloud already assigned.)
 
   const [stage, setStage] = useState<Stage>("find");
   const [busy, setBusy] = useState(false);
@@ -407,61 +405,35 @@ export function KioskCheckinFlow() {
     setBinding(true);
     setBindMsg(null);
 
-    // Resolve a SHORT Pandora id for every ASSIGNED racer that lacks one. A
-    // returning racer with a valid waiver never signs, so the people flow never
-    // resolved theirs — and /bmi/schedule 500s on a 17-digit Office id, so they'd
-    // be silently dropped from the grid. pandoraCreatePerson is upsert (a known
-    // person resolves to the SAME id), so this never duplicates. Kept local (the
-    // dispatch patch won't be visible synchronously); failures fall through and
-    // completeCheckin memos them for the desk.
+    /**
+     * Pick the id each ASSIGNED racer will be scheduled under. NO MINTING HERE.
+     *
+     * This block used to mint a person for a returning racer who had only a
+     * 17-digit Office id, on the stated assumption that "pandoraCreatePerson is
+     * upsert (a known person resolves to the SAME id), so this never
+     * duplicates." That was true of the Pandora rail. It is FALSE under
+     * cloud-first (2026-08-12): the mint route now calls createOfficePerson,
+     * which ALWAYS creates a brand-new person — so every such racer got a
+     * DUPLICATE, and the duplicate is the one that carried no waiver.
+     *
+     * Caught live on W59931: "Test 5." held person …163524 (waiver 58557849) and
+     * a minted twin …163528 with waiverExpiry null. The party-ready gate checked
+     * the twin, found no waiver, and the check-in state could never flip — while
+     * the duplicate row is exactly the shape that jams Fast WSync.
+     *
+     * So we use the id the racer ALREADY has. The 17-digit worry that justified
+     * minting ("/bmi/schedule 500s on an Office id") is handled where it belongs:
+     * completeCheckin posts short ids and Office ids in SEPARATE batches, so if
+     * Pandora refuses the Office-id batch only those racers are affected and they
+     * land in the staff memo. An unseated racer the desk is told about beats a
+     * duplicate person nobody knows exists.
+     */
     const assignedMemberIds = new Set(Object.values(assignMap));
     const shortIds = new Map<string, string>();
     for (const m of session.party) {
       if (!assignedMemberIds.has(m.id)) continue;
-      if (m.pandoraPersonId) {
-        shortIds.set(m.id, m.pandoraPersonId);
-        continue;
-      }
-      if (m.bmiPersonId && m.bmiPersonId.length <= 12) {
-        shortIds.set(m.id, m.bmiPersonId); // new racers: bmiPersonId IS the short id
-        continue;
-      }
-      // Returning racer on a 17-digit Office id with no short id. The upsert
-      // needs a unique key: prefer local contact, else pull email/phone from
-      // their Pandora record — a name/license-only add captured none. Creating
-      // WITHOUT a key would risk a duplicate person, so if no contact can be
-      // found we leave them for the desk memo (no regression).
-      let email = m.email?.trim() || undefined;
-      let phone = m.phone?.trim() || undefined;
-      let dob = m.dobIso;
-      if (!email && !phone && m.bmiPersonId) {
-        try {
-          const rec = await pandoraCheckWaiver(m.bmiPersonId, brandLocation);
-          email = rec.email?.trim() || undefined;
-          phone = rec.phone?.trim() || undefined;
-          dob = dob || rec.birthdate || undefined;
-        } catch {
-          /* couldn't read their record — fall through to the memo */
-        }
-      }
-      if (email || phone) {
-        try {
-          const { personId } = await pandoraCreatePerson({
-            firstName: m.firstName,
-            lastName: m.lastName ?? "",
-            email,
-            phone,
-            birthdate: dob,
-            location: brandLocation,
-          });
-          if (personId) {
-            shortIds.set(m.id, personId);
-            dispatch({ type: "updatePartyMember", id: m.id, patch: { pandoraPersonId: personId } });
-          }
-        } catch {
-          /* leave unresolved — completeCheckin memos them for the desk */
-        }
-      }
+      const existing = m.pandoraPersonId || m.bmiPersonId;
+      if (existing) shortIds.set(m.id, existing);
     }
     const shortIdFor = (m: PartyMember): string | null =>
       shortIds.get(m.id) ?? m.pandoraPersonId ?? null;
