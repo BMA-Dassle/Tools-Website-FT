@@ -81,6 +81,10 @@ export interface SyncQueueRow {
   barrierRef: string | null;
   /** Pandora location id the barrier probes against (and handlers default to). */
   locationId: string | null;
+  /** The reservation this followup belongs to — a BMI bill id or W-number.
+   *  Purely for GROUPING: it is what lets the admin board show "is the on-site
+   *  work for this reservation done?" without joining through personIds. */
+  reservationRef: string | null;
   payload: Record<string, unknown>;
   attempts: number;
   nextAttemptAt: string;
@@ -122,6 +126,7 @@ async function ensureSchema(): Promise<void> {
       barrier         TEXT NOT NULL DEFAULT 'none',
       barrier_ref     TEXT,
       location_id     TEXT,
+      reservation_ref TEXT,
       payload         JSONB NOT NULL DEFAULT '{}'::jsonb,
       attempts        INTEGER NOT NULL DEFAULT 0,
       next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -145,6 +150,11 @@ async function ensureSchema(): Promise<void> {
     WHERE status = 'pending'
   `;
   await q`
+    CREATE INDEX IF NOT EXISTS bmi_sync_queue_reservation
+    ON bmi_sync_queue (reservation_ref)
+    WHERE reservation_ref IS NOT NULL
+  `;
+  await q`
     CREATE INDEX IF NOT EXISTS bmi_sync_queue_barrier_ref
     ON bmi_sync_queue (barrier_ref)
     WHERE status = 'pending'
@@ -160,6 +170,7 @@ function mapRow(r: Record<string, unknown>): SyncQueueRow {
     barrier: String(r.barrier) as SyncBarrier,
     barrierRef: r.barrier_ref === null ? null : String(r.barrier_ref),
     locationId: r.location_id === null ? null : String(r.location_id),
+    reservationRef: r.reservation_ref === null ? null : String(r.reservation_ref),
     payload: (r.payload ?? {}) as Record<string, unknown>,
     attempts: Number(r.attempts),
     nextAttemptAt: String(r.next_attempt_at),
@@ -179,6 +190,8 @@ export interface EnqueueSyncParams {
   barrier?: SyncBarrier;
   barrierRef?: string | null;
   locationId?: string | null;
+  /** BMI bill id or W-number, for admin grouping. */
+  reservationRef?: string | null;
   payload?: Record<string, unknown>;
   /** Override the per-kind default patience. */
   giveUpMinutes?: number;
@@ -205,17 +218,19 @@ export async function enqueueSync(params: EnqueueSyncParams): Promise<SyncQueueR
   const giveUp = params.giveUpMinutes ?? GIVE_UP_MINUTES[params.kind];
   const rows = (await q`
     INSERT INTO bmi_sync_queue
-      (kind, idempotency_key, barrier, barrier_ref, location_id, payload,
-       next_attempt_at, give_up_at)
+      (kind, idempotency_key, barrier, barrier_ref, location_id, reservation_ref,
+       payload, next_attempt_at, give_up_at)
     VALUES
       (${params.kind}, ${params.idempotencyKey}, ${params.barrier ?? "none"},
        ${params.barrierRef ?? null}, ${params.locationId ?? null},
+       ${params.reservationRef ?? null},
        ${JSON.stringify(params.payload ?? {})}::jsonb,
        now() + (${params.delaySeconds ?? 0} * INTERVAL '1 second'),
        now() + (${giveUp} * INTERVAL '1 minute'))
     ON CONFLICT (idempotency_key) DO UPDATE SET
-      payload    = bmi_sync_queue.payload || EXCLUDED.payload,
-      updated_at = now()
+      payload         = bmi_sync_queue.payload || EXCLUDED.payload,
+      reservation_ref = COALESCE(EXCLUDED.reservation_ref, bmi_sync_queue.reservation_ref),
+      updated_at      = now()
     WHERE bmi_sync_queue.status = 'pending'
     RETURNING *
   `) as Array<Record<string, unknown>>;

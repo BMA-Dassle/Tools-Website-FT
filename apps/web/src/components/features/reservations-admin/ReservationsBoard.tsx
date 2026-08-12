@@ -10,7 +10,7 @@
  * logic is verbatim from that file (the combo math lives in
  * ~/features/reservations-admin/combo-board.ts with unit tests).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   buildComboGroups,
   buildComboScheduleIndex,
@@ -31,6 +31,11 @@ import {
 import type { Reservation } from "~/features/reservations-admin/types";
 import BoardCardList from "./BoardCardList";
 import BoardTable from "./BoardTable";
+import { BmiSyncPanel } from "./BmiSyncPanel";
+import type {
+  AdminSyncRow,
+  ReservationSyncState,
+} from "~/features/reservations-admin/bmi-sync-view";
 import FilterBar from "./FilterBar";
 import GroupEventsSection from "./GroupEventsSection";
 import VipComboCards from "./VipComboCards";
@@ -274,6 +279,65 @@ export default function ReservationsBoard({
   const displayRows = useMemo(
     () => mergeComboRows(filtered, hideCancelled, comboScheduleByKey),
     [filtered, hideCancelled, comboScheduleByKey],
+  );
+
+  /**
+   * BMI SYNC FEED (owner 2026-08-12) — the on-site (Pandora) work still owed for
+   * the reservations on screen, powering both the panel and each row's pill.
+   *
+   * Refreshed on the same cadence the queue's cron runs (2 min) plus whenever
+   * the visible set changes, because a pill that lags the cron is worse than no
+   * pill: staff would trust a stale green. Failures leave the previous data and
+   * hide the pill rather than inventing a verdict.
+   */
+  const [syncRows, setSyncRows] = useState<AdminSyncRow[]>([]);
+  const [syncByRes, setSyncByRes] = useState<Record<string, ReservationSyncState>>({});
+  const visibleRefs = useMemo(
+    () =>
+      [
+        ...new Set(
+          displayRows.flatMap((r) =>
+            [r.bmiBillId, r.bmiReservationNumber].filter((v): v is string => !!v),
+          ),
+        ),
+      ].sort(),
+    [displayRows],
+  );
+  const refsKey = visibleRefs.join(",");
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetch(
+          `/api/admin/bmi-sync?token=${encodeURIComponent(token)}&refs=${encodeURIComponent(refsKey)}`,
+          { cache: "no-store" },
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          rows?: AdminSyncRow[];
+          byReservation?: Record<string, ReservationSyncState>;
+        };
+        if (!alive) return;
+        setSyncRows(data.rows ?? []);
+        setSyncByRes(data.byReservation ?? {});
+      } catch {
+        /* leave the last good data; the pill hides rather than guessing */
+      }
+    };
+    void load();
+    const t = setInterval(load, 120_000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [token, refsKey]);
+
+  /** A reservation's verdict under either id form the enqueuers may have used. */
+  const onsiteSyncFor = useCallback(
+    (r: Reservation): ReservationSyncState | undefined =>
+      (r.bmiBillId ? syncByRes[r.bmiBillId] : undefined) ??
+      (r.bmiReservationNumber ? syncByRes[r.bmiReservationNumber] : undefined),
+    [syncByRes],
   );
 
   // Stats
@@ -598,6 +662,7 @@ export default function ReservationsBoard({
               onViewEvent={openEventDetail}
               resolvingEventId={resolvingEventId}
             />
+            <BmiSyncPanel rows={syncRows} />
             <BoardCardList
               rows={displayRows}
               comboScheduleFor={comboScheduleFor}
@@ -609,6 +674,7 @@ export default function ReservationsBoard({
               onViewOrder={setOrderTarget}
               onViewSchedule={setScheduleTarget}
               onOpenReservation={openManage}
+              onsiteSyncFor={onsiteSyncFor}
             />
             <BoardTable
               rows={displayRows}
@@ -621,6 +687,7 @@ export default function ReservationsBoard({
               onViewSchedule={setScheduleTarget}
               onOpenContact={setContactTarget}
               onOpenReservation={openManage}
+              onsiteSyncFor={onsiteSyncFor}
             />
           </>
         )}

@@ -18,7 +18,8 @@ import { centerShortOf, dollars, fmtClock, ganDisplay } from "~/features/reserva
 import type { ComboMergeInfo, Reservation } from "~/features/reservations-admin/types";
 import { comboAdminLabel } from "~/features/combos/combo-specials";
 import ActionButtons from "./ActionButtons";
-import { SurveyChip } from "./chips";
+import { SurveyChip, OnsiteSyncChip } from "./chips";
+import type { ReservationSyncState } from "~/features/reservations-admin/bmi-sync-view";
 import type { ContactTarget } from "./modals/ContactModal";
 import type { ScheduleTarget } from "./modals/ComboScheduleModal";
 
@@ -35,6 +36,7 @@ export default function BoardTable({
   onViewSchedule,
   onOpenContact,
   onOpenReservation,
+  onsiteSyncFor,
 }: {
   rows: Row[];
   comboScheduleFor: (r: Reservation) => ComboScheduleEntry | undefined;
@@ -47,6 +49,10 @@ export default function BoardTable({
   onOpenContact: (target: ContactTarget) => void;
   /** Row click (anywhere except inner buttons/links) opens the manage modal. */
   onOpenReservation?: (r: Row) => void;
+  /** On-site (Pandora) sync verdict for the pill. Optional so the board renders
+   *  unchanged when the sync feed is unavailable — an absent verdict hides the
+   *  pill rather than claiming anything. */
+  onsiteSyncFor?: (r: Row) => ReservationSyncState | undefined;
 }) {
   return (
     <div className="hidden md:block" style={{ overflowX: "auto" }}>
@@ -173,6 +179,7 @@ export default function BoardTable({
                     {r.survey && (
                       <span style={{ marginLeft: 5 }}>
                         <SurveyChip survey={r.survey} />
+                        <OnsiteSyncChip sync={onsiteSyncFor?.(r)} />
                       </span>
                     )}
                   </div>

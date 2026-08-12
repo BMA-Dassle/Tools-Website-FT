@@ -37,6 +37,7 @@ const row = (over: Partial<SyncQueueRow> = {}): SyncQueueRow => ({
   barrier: "person-local",
   barrierRef: "63000000008158427",
   locationId: "LAB52GY480CJF",
+  reservationRef: null,
   payload: {},
   attempts: 0,
   nextAttemptAt: new Date().toISOString(),
