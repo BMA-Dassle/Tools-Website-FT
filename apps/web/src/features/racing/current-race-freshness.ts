@@ -69,6 +69,47 @@ export function raceStillDisplayable(
   return ageMs <= maxAgeMs;
 }
 
+/** The shape re-call pinning cares about — a `calledAt` plus the session it
+ *  belongs to. sessionId is a number per races/current and a string per the
+ *  sessions list, so it is compared as a string. */
+export interface CalledRaceWithSession extends CalledRaceLike {
+  sessionId?: number | string | null;
+}
+
+/**
+ * THE FIRST CALL IS THE CALL.
+ *
+ * Staff re-announce a heat — a second press in BMI a few minutes after the
+ * first — and Pandora re-stamps `calledAt` on its races/current entry. Every
+ * timer derived from that field (the check-in boards' countdown, the
+ * "just called" takeover, race control's "checking in for X min") silently
+ * restarted mid-heat (owner 2026-08-11: "we need to not do that").
+ *
+ * So: for the SAME session, the earliest known `calledAt` wins, and a re-call
+ * changes nothing downstream. A DIFFERENT session always takes its own
+ * timestamp — heats are distinct sessions, so this can never bleed one heat's
+ * clock into the next. The stored side is age-gated by `raceStillDisplayable`
+ * before it gets here, so yesterday's copy of a re-run session id (if such a
+ * thing existed) could not pin today's.
+ *
+ * If the incoming entry LOST its `calledAt` (or carries an unparseable one)
+ * while the stored one still has it, the stored timestamp is backfilled — the
+ * countdown keeps counting from the moment it always counted from.
+ */
+export function preserveFirstCall<T extends CalledRaceWithSession>(
+  incoming: T,
+  stored: CalledRaceWithSession | null | undefined,
+): T {
+  if (!stored) return incoming;
+  if (incoming.sessionId == null || stored.sessionId == null) return incoming;
+  if (String(incoming.sessionId) !== String(stored.sessionId)) return incoming;
+  const storedMs = stored.calledAt ? Date.parse(stored.calledAt) : NaN;
+  if (!Number.isFinite(storedMs)) return incoming;
+  const incomingMs = incoming.calledAt ? Date.parse(incoming.calledAt) : NaN;
+  if (Number.isFinite(incomingMs) && incomingMs <= storedMs) return incoming;
+  return { ...incoming, calledAt: stored.calledAt };
+}
+
 /** Minutes since the call, for logs and diagnostics. Null when unknown. */
 export function raceAgeMinutes(
   race: CalledRaceLike | null | undefined,

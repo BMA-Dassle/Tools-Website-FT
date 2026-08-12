@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
-import { MAX_DISPLAY_AGE_MS, raceStillDisplayable } from "~/features/racing/current-race-freshness";
+import {
+  MAX_DISPLAY_AGE_MS,
+  preserveFirstCall,
+  raceStillDisplayable,
+} from "~/features/racing/current-race-freshness";
 
 /**
  * Proxy for Pandora's "currently called races per track" endpoint.
@@ -212,18 +216,27 @@ export async function GET(req: NextRequest) {
 
     // For each track: if Pandora has fresh data, save to Redis. If null,
     // fall back to the last-saved copy, which loadRace age-gates.
+    //
+    // RE-CALLS DO NOT RESET CLOCKS. Pandora re-stamps `calledAt` every time
+    // staff call a heat, so a second call was restarting the check-in
+    // countdown on every board in the building. preserveFirstCall pins the
+    // same session to its earliest `calledAt` before it is served OR saved —
+    // this route is the one seam every consumer reads through, so the pin
+    // holds everywhere at once.
+    const stored = await loadAllFromRedis();
     const tracks: TrackKey[] = ["blue", "red", "mega"];
     const merged: CurrentRaces = { blue: null, red: null, mega: null };
     for (const t of tracks) {
       if (pandora[t]) {
-        merged[t] = pandora[t];
+        const race = preserveFirstCall(pandora[t] as CurrentRace, stored[t]);
+        merged[t] = race;
         // Fire and forget — don't block response on Redis write
-        saveRace(t, pandora[t] as CurrentRace);
+        saveRace(t, race);
       } else {
         // Pandora expires its own entry ~20 min after the call, so the stored
         // copy is what carries a session between heats. Age-gated, not
         // hours-gated.
-        merged[t] = await loadRace(t);
+        merged[t] = stored[t];
       }
     }
 

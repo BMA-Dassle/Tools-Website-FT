@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { MAX_DISPLAY_AGE_MS, raceAgeMinutes, raceStillDisplayable } from "./current-race-freshness";
+import {
+  MAX_DISPLAY_AGE_MS,
+  preserveFirstCall,
+  raceAgeMinutes,
+  raceStillDisplayable,
+} from "./current-race-freshness";
 
 const NOW = Date.parse("2026-08-11T17:32:00Z"); // 1:32 PM ET, a Tuesday
 const iso = (msAgo: number) => new Date(NOW - msAgo).toISOString();
@@ -75,6 +80,63 @@ describe("raceStillDisplayable", () => {
       const calledFiveMinsAgo = new Date(now - 5 * 60_000).toISOString();
       expect(raceStillDisplayable({ calledAt: calledFiveMinsAgo }, now)).toBe(true);
     }
+  });
+});
+
+describe("preserveFirstCall", () => {
+  const firstCall = "2026-08-11T19:02:00-04:00";
+  const reCall = "2026-08-11T19:07:30-04:00";
+
+  it("PINS A RE-CALLED HEAT TO ITS FIRST CALL — the boards' timers must not reset", () => {
+    // Staff call heat 58 a second time five minutes in. Pandora re-stamps
+    // calledAt; the 8-minute check-in countdown on both boards restarted
+    // (owner 2026-08-11). Same session ⇒ the original clock survives.
+    const stored = { sessionId: 57900606, calledAt: firstCall };
+    const incoming = { sessionId: 57900606, calledAt: reCall, heatNumber: 58 };
+    expect(preserveFirstCall(incoming, stored)).toEqual({ ...incoming, calledAt: firstCall });
+  });
+
+  it("lets a NEW session take its own call time — one heat's clock never bleeds into the next", () => {
+    const stored = { sessionId: 57900606, calledAt: firstCall };
+    const incoming = { sessionId: 57900777, calledAt: reCall };
+    expect(preserveFirstCall(incoming, stored)).toBe(incoming);
+  });
+
+  it("compares sessionId across the number/string split (races/current vs sessions list)", () => {
+    const stored = { sessionId: "57900606", calledAt: firstCall };
+    const incoming = { sessionId: 57900606, calledAt: reCall };
+    expect(preserveFirstCall(incoming, stored).calledAt).toBe(firstCall);
+  });
+
+  it("is untouched with nothing stored, or with no session ids to match on", () => {
+    const incoming = { sessionId: 57900606, calledAt: reCall };
+    expect(preserveFirstCall(incoming, null)).toBe(incoming);
+    expect(preserveFirstCall(incoming, undefined)).toBe(incoming);
+    expect(preserveFirstCall(incoming, { calledAt: firstCall })).toBe(incoming);
+    expect(preserveFirstCall({ calledAt: reCall }, { sessionId: 1, calledAt: firstCall })).toEqual({
+      calledAt: reCall,
+    });
+  });
+
+  it("keeps the incoming stamp when it is already the earliest (normal first tick)", () => {
+    const stored = { sessionId: 57900606, calledAt: reCall };
+    const incoming = { sessionId: 57900606, calledAt: firstCall };
+    expect(preserveFirstCall(incoming, stored)).toBe(incoming);
+  });
+
+  it("ignores an unparseable stored stamp rather than pinning to garbage", () => {
+    const stored = { sessionId: 57900606, calledAt: "not a date" };
+    const incoming = { sessionId: 57900606, calledAt: reCall };
+    expect(preserveFirstCall(incoming, stored)).toBe(incoming);
+  });
+
+  it("backfills a calledAt the upstream dropped, so the countdown keeps its origin", () => {
+    const stored = { sessionId: 57900606, calledAt: firstCall };
+    const dropped: { sessionId: number; calledAt?: string } = { sessionId: 57900606 };
+    expect(preserveFirstCall(dropped, stored).calledAt).toBe(firstCall);
+    expect(preserveFirstCall({ sessionId: 57900606, calledAt: "garbage" }, stored).calledAt).toBe(
+      firstCall,
+    );
   });
 });
 
