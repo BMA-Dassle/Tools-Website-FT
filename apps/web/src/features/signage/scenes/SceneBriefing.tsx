@@ -27,6 +27,7 @@ import { withAlpha } from "../color";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { TRACK_ACCENTS, TRACK_LABELS } from "../track";
 import { briefingTimelineAt } from "../briefing/phase";
+import { normaliseCameraReturn } from "../briefing/camera-return";
 import { tierForRaceType, type BriefingRoom } from "../briefing/types";
 import { LiveSessionChip } from "../live-session";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
@@ -131,7 +132,10 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
    * it, the safety film included: the group about to be handed kit is the one
    * sitting in front of the film.
    */
-  const cameraReturn = feed?.briefing?.cameraReturn ?? null;
+  // NORMALISED, NOT TRUSTED. The feed can arrive from localStorage written by an
+  // OLDER BUILD — that is what crashed every briefing TV on 2026-08-12 when this
+  // payload's fields were renamed. See normaliseCameraReturn.
+  const cameraReturn = normaliseCameraReturn(feed?.briefing?.cameraReturn);
   const barH = cameraBarHeight(cameraReturn);
 
   return (

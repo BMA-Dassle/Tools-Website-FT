@@ -58,13 +58,25 @@ import type { TrackKey } from "~/features/reservations-admin/race-live-state";
 const BAR_H = 104;
 const BAR_CLEAR_H = 44;
 
-/** The height the scene must reserve. ONE definition, so the wrapper's bottom
- *  inset and the bar itself can never disagree. */
-export function cameraBarHeight(
-  strip: { stillOut: unknown[]; incoming: unknown[] } | null | undefined,
-): number {
-  if (!strip) return 0;
-  return strip.stillOut.length + strip.incoming.length > 0 ? BAR_H : BAR_CLEAR_H;
+/**
+ * The height the scene must reserve. ONE definition, so the wrapper's bottom inset
+ * and the bar itself can never disagree.
+ *
+ * TOTAL BY DESIGN. This exact function white-screened every briefing TV on
+ * 2026-08-13: it read `strip.stillOut.length` on a feed restored from localStorage
+ * that a previous build had written in the old `{ boxes }` shape, threw, and took
+ * the whole app down on every reload. Callers are expected to pass
+ * `normaliseCameraReturn` output and the scene does — but a wall that runs
+ * unattended for weeks must not depend on a caller remembering, so this reads
+ * defensively too.
+ */
+export function cameraBarHeight(strip: unknown): number {
+  if (!strip || typeof strip !== "object") return 0;
+  const s = strip as { stillOut?: unknown; incoming?: unknown };
+  const n =
+    (Array.isArray(s.stillOut) ? s.stillOut.length : 0) +
+    (Array.isArray(s.incoming) ? s.incoming.length : 0);
+  return n > 0 ? BAR_H : BAR_CLEAR_H;
 }
 
 /** Fixed, not flex: see note 1. Wide enough for three digits (the fleet runs

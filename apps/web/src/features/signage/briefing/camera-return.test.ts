@@ -3,6 +3,7 @@ import {
   cameraReturnStripAt,
   formatSinceFlag,
   INCOMING_FALLBACK_MS,
+  normaliseCameraReturn,
   SEEN_SKEW_MS,
   type CameraScan,
   type CameraTrack,
@@ -432,6 +433,116 @@ describe("the maintenance bench", () => {
     expect(r.stillOut).toEqual([]);
     expect(r.incoming).toEqual([]);
     expect(r.outCount).toBe(0);
+  });
+});
+
+describe("normaliseCameraReturn — the 2026-08-12 white-screen", () => {
+  it("does not throw on the OLD wire shape, and neither does cameraBarHeight", () => {
+    // THE ACTUAL CRASH. Players seed from localStorage with a blind
+    // `JSON.parse(raw) as TvFeed`, so on the deploy that renamed `boxes` to
+    // `stillOut`/`incoming` every briefing TV restored this payload and
+    // `strip.stillOut.length` threw — taking down the whole app, on every reload,
+    // until the browser profile was deleted.
+    const legacy = {
+      boxes: [{ camera: "8", state: "out", heatNumber: 56, sinceFlagMs: 60_000, assignedAtMs: 1 }],
+      outCount: 1,
+      overdueCount: 1,
+    };
+    const safe = normaliseCameraReturn(legacy);
+    expect(safe).not.toBeNull();
+    expect(safe!.stillOut).toEqual([]);
+    expect(safe!.incoming).toEqual([]);
+    expect(() => cameraBarHeight(safe)).not.toThrow();
+    // The strip stays PRESENT so the boards do not reflow while the pulse catches
+    // up two seconds later.
+    expect(cameraBarHeight(safe)).toBe(CAMERA_BAR_CLEAR_H);
+  });
+
+  it("passes a current payload through intact", () => {
+    const now = {
+      stillOut: [
+        {
+          camera: "31",
+          state: "still-out",
+          heatNumber: 54,
+          track: "red",
+          sinceFlagMs: 600_000,
+          assignedAtMs: 1,
+        },
+      ],
+      incoming: [
+        {
+          camera: "17",
+          state: "back",
+          heatNumber: 58,
+          track: "mega",
+          sinceFlagMs: 60_000,
+          assignedAtMs: 2,
+        },
+      ],
+      outCount: 1,
+    };
+    const safe = normaliseCameraReturn(now)!;
+    expect(safe.stillOut).toHaveLength(1);
+    expect(safe.stillOut[0]).toMatchObject({ camera: "31", state: "still-out", track: "red" });
+    expect(safe.incoming[0]).toMatchObject({ camera: "17", state: "back", track: "mega" });
+    expect(safe.outCount).toBe(1);
+    expect(cameraBarHeight(safe)).toBe(CAMERA_BAR_H);
+  });
+
+  it("returns null for a switched-off or absent strip", () => {
+    expect(normaliseCameraReturn(null)).toBeNull();
+    expect(normaliseCameraReturn(undefined)).toBeNull();
+    expect(normaliseCameraReturn("nonsense")).toBeNull();
+    expect(normaliseCameraReturn(42)).toBeNull();
+  });
+
+  it("survives every kind of junk inside the arrays", () => {
+    const safe = normaliseCameraReturn({
+      stillOut: [
+        null,
+        "nope",
+        {},
+        { camera: "" },
+        { camera: "1" }, // no state
+        { camera: "2", state: "bogus" },
+        { camera: "3", state: "still-out" }, // minimal but valid
+      ],
+      incoming: "not an array",
+      outCount: "seven",
+    })!;
+    expect(safe.stillOut).toHaveLength(1);
+    expect(safe.stillOut[0]).toMatchObject({
+      camera: "3",
+      state: "still-out",
+      track: null,
+      heatNumber: null,
+      sinceFlagMs: 0,
+    });
+    expect(safe.incoming).toEqual([]);
+    expect(safe.outCount).toBe(0);
+  });
+
+  it("carries `stale` through so the band keeps its height", () => {
+    expect(
+      normaliseCameraReturn({ stillOut: [], incoming: [], outCount: 0, stale: true })!.stale,
+    ).toBe(true);
+    expect(normaliseCameraReturn({ stillOut: [], incoming: [], outCount: 0 })!.stale).toBe(false);
+  });
+
+  it("a real strip round-trips through JSON unchanged", () => {
+    // The path that actually matters: server → JSON → localStorage → normalise.
+    const built = cameraReturnStripAt({
+      scans: [scan("23", "S58", T - m(20))],
+      finishes: finishes([["S58", T - m(2), 58, "blue"]]),
+      seen: new Map(),
+      calledHeats: called([["blue", 58]]),
+      nowMs: T,
+    });
+    const safe = normaliseCameraReturn(JSON.parse(JSON.stringify(built)))!;
+    expect(safe.incoming).toEqual(built.incoming);
+    expect(safe.stillOut).toEqual(built.stillOut);
+    expect(safe.outCount).toBe(built.outCount);
   });
 });
 

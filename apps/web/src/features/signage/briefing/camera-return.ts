@@ -279,6 +279,68 @@ export function cameraReturnStripAt(input: CameraReturnInput): CameraReturnStrip
 }
 
 /**
+ * MAKE A PERSISTED STRIP SAFE TO RENDER. Returns null for anything unusable.
+ *
+ * THE OUTAGE THIS EXISTS FOR (2026-08-12, my regression): the strip's wire shape
+ * changed from `{ boxes }` to `{ stillOut, incoming }`. Every player seeds itself
+ * from `localStorage` (`tv_feed_cache:{screenId}`) with a blind
+ * `JSON.parse(raw) as TvFeed`, so on the deploy that renamed those fields every
+ * briefing TV restored a feed in the OLD shape, `stillOut.length` threw on
+ * undefined, and the thrown render took down the whole app. A hard refresh re-read
+ * the same poisoned entry and crashed again — the owner had to delete the browser
+ * profile to clear it.
+ *
+ * THE RULE THIS BREAKS is already written down: config and cached payloads are
+ * ADDITIVE-ONLY and must never be trusted on shape (types.ts's own header, and the
+ * kiosk CONFIG_VERSION incident that wiped every provisioned kiosk mid-service).
+ * A renamed field in a persisted payload is a breaking change to data that
+ * outlives the code, and the only safe consumer is a total one.
+ *
+ * So this is deliberately TOTAL: any input, no throw, no assumptions. A payload
+ * from an older build simply has no sections, which paints the all-clear whisper
+ * for the two seconds it takes the pulse to replace it — and crucially keeps the
+ * strip PRESENT, so the boards do not reflow on the way through.
+ */
+export function normaliseCameraReturn(
+  input: unknown,
+): (CameraReturnStrip & { stale?: boolean }) | null {
+  if (!input || typeof input !== "object") return null;
+  const raw = input as Record<string, unknown>;
+  return {
+    stillOut: safeBoxes(raw.stillOut),
+    incoming: safeBoxes(raw.incoming),
+    outCount: typeof raw.outCount === "number" && Number.isFinite(raw.outCount) ? raw.outCount : 0,
+    stale: raw.stale === true,
+  };
+}
+
+/** Drop anything that is not a renderable box rather than trusting the array. */
+function safeBoxes(input: unknown): CameraBox[] {
+  if (!Array.isArray(input)) return [];
+  const out: CameraBox[] = [];
+  for (const b of input) {
+    if (!b || typeof b !== "object") continue;
+    const r = b as Record<string, unknown>;
+    const camera = typeof r.camera === "string" ? r.camera : "";
+    if (!camera) continue;
+    const state = r.state;
+    if (state !== "still-out" && state !== "waiting" && state !== "back") continue;
+    const track = r.track;
+    out.push({
+      camera,
+      state,
+      heatNumber: typeof r.heatNumber === "number" ? r.heatNumber : null,
+      track: track === "blue" || track === "red" || track === "mega" ? track : null,
+      sinceFlagMs:
+        typeof r.sinceFlagMs === "number" && Number.isFinite(r.sinceFlagMs) ? r.sinceFlagMs : 0,
+      assignedAtMs:
+        typeof r.assignedAtMs === "number" && Number.isFinite(r.assignedAtMs) ? r.assignedAtMs : 0,
+    });
+  }
+  return out;
+}
+
+/**
  * "18 min" / "2 min" / "just now" — what a red box prints under its number.
  *
  * With blinking ruled out this figure is the only urgency signal on the strip, so

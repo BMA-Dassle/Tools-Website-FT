@@ -1,5 +1,49 @@
 # Lessons (Claude self-correction log)
 
+## 2026-08-12 — Renaming a field in a payload that is CACHED ON THE CLIENT is a breaking change, and it crashes the wall
+
+**Mistake:** the briefing-room camera strip's feed payload changed shape twice in
+one evening — `{ boxes }` became `{ stillOut, incoming }`. Every signage player
+seeds itself from `localStorage` (`tv_feed_cache:{screenId}`) with a blind
+`JSON.parse(raw) as TvFeed`, so on deploy every briefing TV restored a feed
+written by the PREVIOUS build, `cameraBarHeight` read `strip.stillOut.length` on
+`undefined`, threw during render, and React unmounted the whole app. **A hard
+refresh re-read the same poisoned entry and crashed again** — the owner had to
+delete the browser profile to recover, mid-service, on both briefing screens.
+
+**Why every gate passed.** tsc, 4,400 tests, eslint, a11y and a full production
+build were all green, and none of them could have caught it: the poisoned input is
+data written by a DIFFERENT (older) build of the same code. There is no type to
+check and no test fixture, because the bad value only exists on a machine that ran
+yesterday's bundle. `as TvFeed` is a lie the compiler cannot see through.
+
+**The rule was already written down and I walked past it.** `types.ts`'s own
+header: *"ADDITIVE-ONLY, and never discard on shape mismatch. Every field a screen
+config gains must be optional with a sane default resolved at read time"* — with
+the kiosk CONFIG_VERSION incident (every provisioned kiosk wiped mid-service,
+unable to take payment) cited as the reason. I read that file, edited that file,
+and still renamed two required fields in a persisted payload.
+
+**Rules:**
+
+1. **Any payload that crosses a cache — localStorage, Redis, a JSONB column — is a
+   wire protocol with an old client on the other end. YOU. Add fields, never
+   rename or remove them.** If a rename is genuinely right, ship the reader that
+   tolerates both first, then the writer, then remove the old field a deploy later.
+2. **Parse it, do not cast it.** Every consumer of a cached payload gets a total
+   normaliser: `unknown` in, a guaranteed-renderable value out, junk dropped rather
+   than trusted. `JSON.parse(x) as T` is the bug, every time.
+3. **On an unattended 24/7 screen, a render throw is an outage that survives
+   reloads.** The blast radius is not "one bad frame", it is "every wall is white
+   until someone clears browser state by hand". Anything a signage scene reads from
+   a cache must be treated like untrusted input, and the functions that consume it
+   should be total even when the caller is expected to have normalised already.
+4. **A kill switch that reads `pulse.x ?? cached.x` is not a kill switch.** The
+   same change had the server unable to CLEAR a stale strip by sending `null`,
+   because `??` fell straight back to the cached value. Use `"x" in pulse` so an
+   explicit null wins while a payload from an older build still falls back.
+
+
 ## 2026-05-02 — Always run an E2E round-trip on write-path code before pushing
 
 **Mistake:** Built the POV-credit voucher claim feature end-to-end —
