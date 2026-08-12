@@ -24,6 +24,7 @@ import { fetchTrackSessions } from "~/features/reservations-admin/race-live-stat
 import type { TrackKey } from "~/features/reservations-admin/race-live-state";
 import { listBriefingAssignments } from "./assignments-db";
 import { welcomeBackWindowOpen } from "./welcome-back";
+import { announceReturnOnce } from "./return-announce.server";
 import type { BriefingRoom } from "./types";
 
 export interface WelcomeBackInfo {
@@ -61,6 +62,17 @@ export async function resolveWelcomeBack(
   if (!welcomeBackWindowOpen(Number.isFinite(actualEndMs) ? actualEndMs : null)) {
     return null;
   }
+
+  // "58 returning to blue" on the staff radio — once per return, guarded in
+  // Redis, riding the same signal that flips the board. Awaited (it never
+  // throws and times out at 5s) because a floating promise on a serverless
+  // path can be frozen mid-flight after the response goes out; the cost lands
+  // on exactly one poll per session, the one that wins the claim.
+  await announceReturnOnce({
+    room,
+    sessionId: last.sessionId,
+    heatNumber: last.heatNumber,
+  });
 
   return {
     heatNumber: last.heatNumber,
