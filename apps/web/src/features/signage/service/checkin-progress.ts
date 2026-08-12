@@ -21,6 +21,7 @@ import "server-only";
  */
 import redis from "@/lib/redis";
 import { parseWithRawIds } from "@ft/db";
+import { sessionBriefed } from "../briefing/state.server";
 import {
   checkingInTracks,
   countCheckedIn,
@@ -160,9 +161,20 @@ export async function checkinProgress(nowMs: number): Promise<CheckinProgressSes
 
   const rows = await Promise.all(
     open.map(async (heat) => {
-      const counts = await sessionCheckinCounts(heat.sessionId, nowMs);
+      // The send marker rides along, so a board can clear its own rail the
+      // moment staff send the heat — the same one Redis key the track boards
+      // clear on, read once here rather than by each screen.
+      const [counts, briefed] = await Promise.all([
+        sessionCheckinCounts(heat.sessionId, nowMs),
+        sessionBriefed(heat.sessionId).catch(() => null),
+      ]);
       if (!counts || counts.total === 0) return null;
-      return { ...heat, checkedIn: counts.checkedIn, total: counts.total };
+      return {
+        ...heat,
+        checkedIn: counts.checkedIn,
+        total: counts.total,
+        briefed: briefed != null,
+      };
     }),
   );
   return rows.filter((r): r is CheckinProgressSession => r !== null);

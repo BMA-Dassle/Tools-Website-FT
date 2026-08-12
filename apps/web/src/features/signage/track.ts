@@ -45,14 +45,6 @@ export const TRACK_LABELS: Record<TrackKey, string> = {
   mega: "Mega Track",
 };
 
-/** For lists, where the row already sits under a track heading and "Track" on
- *  every line is a word competing with the number beside it. */
-export const TRACK_SHORT_LABELS: Record<TrackKey, string> = {
-  blue: "Blue",
-  red: "Red",
-  mega: "Mega",
-};
-
 const BY_RESOURCE: Record<string, TrackKey> = {
   "11208654": "blue",
   "11208660": "red",

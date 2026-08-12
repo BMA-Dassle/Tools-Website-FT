@@ -19,6 +19,7 @@
  * laser tag would be noise on a screen a marshal reads at a glance.
  */
 import { raceStillDisplayable } from "~/features/racing/current-race-freshness";
+import { checkinAlert } from "./briefing/desk-alerts";
 import type { TrackKey } from "./track";
 
 /** One heat the desk currently has open, with its progress. */
@@ -36,6 +37,24 @@ export interface CheckinProgressSession {
   sessionId: string;
   checkedIn: number;
   total: number;
+  /**
+   * Staff have already sent this heat to a briefing room.
+   *
+   * Which ENDS the rail's job: check-in is over, the group is walking to the
+   * room, and a board still counting them is describing the past (owner
+   * 2026-08-12: "this section can be cleared once they're sent to the room").
+   * The same marker the track boards clear on — one send, every board reacts.
+   */
+  briefed: boolean;
+  /**
+   * When the heat was CALLED, which is when the group started waiting.
+   *
+   * The anchor every check-in clock in the estate counts from — the track
+   * boards' countdown, the desk board's "checking in for X", and now the rail's
+   * count-up. Null when the stored entry carried no usable timestamp; the rail
+   * then shows progress with no clock rather than a made-up one.
+   */
+  calledAtMs: number | null;
 }
 
 /** The stored races-current entry this module reads — anything else is ignored. */
@@ -87,12 +106,19 @@ export function countCheckedIn(rows: CheckinRosterRow[]): { checkedIn: number; t
 export function checkingInTracks(
   byTrack: Partial<Record<TrackKey, CalledRaceRecord | null>>,
   nowMs: number,
-): Array<{ track: TrackKey; sessionId: string; heatNumber: number | null; raceType: string }> {
+): Array<{
+  track: TrackKey;
+  sessionId: string;
+  heatNumber: number | null;
+  raceType: string;
+  calledAtMs: number | null;
+}> {
   const out: Array<{
     track: TrackKey;
     sessionId: string;
     heatNumber: number | null;
     raceType: string;
+    calledAtMs: number | null;
   }> = [];
   for (const track of ["blue", "red", "mega"] as const) {
     const record = byTrack[track];
@@ -100,34 +126,121 @@ export function checkingInTracks(
     if (!raceStillDisplayable(record, nowMs)) continue;
     const sessionId = record.sessionId == null ? "" : String(record.sessionId).trim();
     if (!sessionId) continue;
+    const calledAtMs = record.calledAt ? Date.parse(record.calledAt) : NaN;
     out.push({
       track,
       sessionId,
       heatNumber: typeof record.heatNumber === "number" ? record.heatNumber : null,
       raceType: (record.raceType ?? "").trim(),
+      calledAtMs: Number.isFinite(calledAtMs) ? calledAtMs : null,
     });
   }
   return out;
 }
 
 /**
- * Reading order for a board that belongs to a track: ITS OWN HEAT FIRST.
+ * THIS ROOM'S HEAT, and only this room's (owner 2026-08-12: "only show checking
+ * in status for that room, don't show both tracks").
  *
- * A marshal in the Blue briefing room is asking one question — "how many of mine
- * are still at the desk" — and should not have to scan a list for their own row.
- * Everything else follows by heat number, so the rest reads in the order the
- * night runs. `ownTrack` null (a camera with no track) leaves plain heat order.
+ * A marshal in the Blue briefing room is asking one question — "how many of MINE
+ * are still at the desk". The Red heat's progress is not an answer to it, it is
+ * a second number to read past, and on a wall glanced at from across a room the
+ * cost of the wrong number being the bigger one is real.
+ *
+ * MEGA FALLBACK, the same rule the track boards use (see ./service/race-checkin):
+ * a board scoped to blue or red finds no heat of its own on a Mega day, because
+ * the only session called is the Mega one — and that IS what is checking in for
+ * this room. Exact track first, so an ordinary day never reads a stale mega row.
+ *
+ * A heat already SENT to a room is not checking in any more, so it drops out
+ * here and the rail clears itself — the board goes quiet until the next heat is
+ * called, which is the honest state of the room.
+ *
+ * Null when nothing of this room's is checking in, or the board has no track.
  */
-export function orderCheckinProgress(
+export function roomCheckinProgress(
   sessions: CheckinProgressSession[],
   ownTrack: TrackKey | null,
-): CheckinProgressSession[] {
-  return [...sessions].sort((a, b) => {
-    if (ownTrack) {
-      const aOwn = a.track === ownTrack ? 0 : 1;
-      const bOwn = b.track === ownTrack ? 0 : 1;
-      if (aOwn !== bOwn) return aOwn - bOwn;
-    }
-    return (a.heatNumber ?? Number.MAX_SAFE_INTEGER) - (b.heatNumber ?? Number.MAX_SAFE_INTEGER);
-  });
+): CheckinProgressSession | null {
+  if (!ownTrack) return null;
+  const open = sessions.filter((s) => !s.briefed);
+  const byHeat = (a: CheckinProgressSession, b: CheckinProgressSession) =>
+    (a.heatNumber ?? Number.MAX_SAFE_INTEGER) - (b.heatNumber ?? Number.MAX_SAFE_INTEGER);
+  const mine = open.filter((s) => s.track === ownTrack).sort(byHeat);
+  if (mine.length > 0) return mine[0];
+  const mega = open.filter((s) => s.track === "mega").sort(byHeat);
+  return mega[0] ?? null;
+}
+
+/**
+ * Is this heat ready to be sent — everyone on the roster is in?
+ *
+ * The rail flashes on this (owner 2026-08-12: "if we haven't sent that session
+ * to a room yet, flash green when they're ready"). Guarded on a non-zero total
+ * so an empty roster can never read as a full one.
+ */
+export function readyToSend(session: CheckinProgressSession): boolean {
+  return session.total > 0 && session.checkedIn >= session.total;
+}
+
+/** How long this heat has been at the desk. Null with no call timestamp. */
+export function waitingMs(session: CheckinProgressSession, nowMs: number): number | null {
+  if (session.calledAtMs == null) return null;
+  return Math.max(0, nowMs - session.calledAtMs);
+}
+
+/**
+ * What the rail is SAYING right now.
+ *
+ *   counting  everyone is arriving, nothing to do
+ *   closing   the check-in window is nearly up (the desk board's `warn`)
+ *   ready     all in, nobody has sent them — flash green, it is a thing to DO
+ *   overdue   past the window — they have been at the desk too long (owner
+ *             2026-08-12: "so we know when they've been waiting at check in too
+ *             long to be called to room")
+ *
+ * THE THRESHOLDS ARE THE DESK BOARD'S, imported not copied: `checkinAlert` in
+ * ./briefing/desk-alerts, counting from the call, against the SAME per-screen
+ * `checkinWindowMins` the track TVs count down for guests. A wall that escalated
+ * on its own numbers would eventually contradict the station it is reporting on.
+ *
+ * OVERDUE OUTRANKS READY, because a group that is all present and STILL has not
+ * been sent is the exact failure the owner asked to see; the eyebrow then says
+ * to send them rather than just naming the problem.
+ */
+export type CheckinRailState = "counting" | "closing" | "ready" | "overdue";
+
+export function checkinRailState(
+  session: CheckinProgressSession,
+  nowMs: number,
+  windowMins: number,
+): CheckinRailState {
+  const since = waitingMs(session, nowMs);
+  const alert = since == null ? "none" : checkinAlert(since, windowMins);
+  if (alert === "late") return "overdue";
+  if (readyToSend(session)) return "ready";
+  if (alert === "warn") return "closing";
+  return "counting";
+}
+
+/**
+ * How a heat is NAMED on these boards: "Session 31 · Pro".
+ *
+ * ONE naming, every strip on the wall (owner 2026-08-12: "need to be consistent
+ * on naming"). The camera caption already said "Session 31 · Pro" while the
+ * check-in rail beside it said "Red #31 · Pro" — two names for one heat, six
+ * inches apart. This is that name, and both callers use it.
+ *
+ * The track is NOT in it: the board belongs to one room, so naming its track on
+ * every line says nothing. Mega is the exception and keeps its word, because a
+ * Mega heat in the Blue room genuinely is a different thing.
+ */
+export function sessionLabel(
+  heatNumber: number | null,
+  raceType: string,
+  track?: TrackKey,
+): string {
+  const prefix = track === "mega" ? "Mega session" : "Session";
+  const name = heatNumber != null ? `${prefix} ${heatNumber}` : prefix;
+  return raceType ? `${name} · ${raceType}` : name;
 }

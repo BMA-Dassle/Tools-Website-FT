@@ -219,6 +219,52 @@
   animation: tv-blink 1.4s ease-in-out infinite;
 }
 
+/* ── the check-in rail's two "do something" states ────────────────────────
+   A camera monitor's rail flashes when a heat is READY to be sent to the room
+   (green) and when it has been waiting at the desk past its check-in window
+   (amber) — the same two colours the desk board escalates in, so a marshal and
+   a check-in attendant are reading one language.
+
+   Both animate BACKGROUND AND TEXT together: the rail sits on the track's own
+   colour (blue on one board, red on the next), so a flash that only changed the
+   ground would leave white type unreadable at the bright phase. Children inherit
+   by leaving their colour unset. Anything painting this must not set an inline
+   background — inline wins over the animation and the rail sits there quietly.
+
+   `prefers-reduced-motion` already collapses every animation on this canvas to
+   one frame (see the media query below), which for these two leaves the SOLID
+   alerting colour up — the state still reads, it just stops pulsing. */
+
+@keyframes tv-ready-flash {
+  0%,
+  100% {
+    background-color: #22c55e;
+    color: #0a1005;
+  }
+  50% {
+    background-color: rgba(34, 197, 94, 0.22);
+    color: #ffffff;
+  }
+}
+.tv-ready-flash {
+  animation: tv-ready-flash 1.2s ease-in-out infinite;
+}
+
+@keyframes tv-overdue-flash {
+  0%,
+  100% {
+    background-color: #f0b341;
+    color: #1a1205;
+  }
+  50% {
+    background-color: rgba(240, 179, 65, 0.22);
+    color: #ffffff;
+  }
+}
+.tv-overdue-flash {
+  animation: tv-overdue-flash 1s ease-in-out infinite;
+}
+
 @keyframes tv-chev {
   0%,
   100% {

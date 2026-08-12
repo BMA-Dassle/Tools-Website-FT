@@ -25,8 +25,17 @@ import type { CheckinProgressSession } from "../src/features/signage/checkin-pro
 // an .mts probe reaches its named exports through the interop object rather
 // than by static named import — which silently resolves to nothing here.
 const mod: any = await import("../src/features/signage/checkin-progress");
-const { checkingInTracks, countCheckedIn, orderCheckinProgress } = mod.default ?? mod;
+const {
+  checkingInTracks,
+  countCheckedIn,
+  checkinRailState,
+  roomCheckinProgress,
+  sessionLabel,
+  waitingMs,
+} = mod.default ?? mod;
 
+/** The screens' resolved default, and what both track boards run today. */
+const WINDOW_MINS = 8;
 const PKEY = process.env.SWAGGER_ADMIN_KEY || "";
 const LOC = "LAB52GY480CJF";
 const REDIS_URL = process.env.REDIS_URL || process.env.KV_URL || "";
@@ -79,15 +88,29 @@ for (const heat of open) {
     console.log(`  ${heat.track}: empty roster — DROPPED`);
     continue;
   }
-  rows.push({ ...heat, ...counts });
+  // The send marker — the same key the boards clear their rail on.
+  const briefedRaw = await redis.get(`briefing:sent:${heat.sessionId}`);
+  rows.push({ ...heat, ...counts, briefed: briefedRaw != null });
 }
 
-console.log("\nwhat the Blue camera monitor would show:");
-const ordered = orderCheckinProgress(rows, "blue");
-if (ordered.length === 0) console.log("  (no rail — nothing checking in)");
-for (const s of ordered) {
-  const label = `${s.track}${s.heatNumber != null ? ` #${s.heatNumber}` : ""}${s.raceType ? ` · ${s.raceType}` : ""}`;
-  console.log(`  ${label.padEnd(34)} ${s.checkedIn} / ${s.total}`);
+for (const room of ["blue", "red"] as const) {
+  console.log(`\nwhat the ${room.toUpperCase()} camera monitor would show:`);
+  const s = roomCheckinProgress(rows, room);
+  if (!s) {
+    console.log("  (no rail — nothing of this room's is checking in, or it has been sent)");
+    continue;
+  }
+  const state = checkinRailState(s, now, WINDOW_MINS);
+  const waited = waitingMs(s, now);
+  console.log(
+    `  eyebrow  ${state.toUpperCase()}${state === "ready" ? "  ← flashes green" : ""}${state === "overdue" ? "  ← flashes amber" : ""}`,
+  );
+  console.log(
+    `  ${sessionLabel(s.heatNumber, s.raceType, s.track).padEnd(30)} ${s.checkedIn} / ${s.total}`,
+  );
+  console.log(
+    `  waiting  ${waited == null ? "(no call time)" : `${Math.floor(waited / 60000)}m ${Math.floor((waited % 60000) / 1000)}s`} of a ${WINDOW_MINS} min window`,
+  );
 }
 
 await redis.quit();

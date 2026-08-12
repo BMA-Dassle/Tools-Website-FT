@@ -38,12 +38,18 @@ import { formatRemaining, useLiveSessionClock, type LiveSessionClock } from "../
 import {
   TRACK_ACCENTS,
   TRACK_LABELS,
-  TRACK_SHORT_LABELS,
   effectiveTrack,
   trackFromName,
   type TrackKey,
 } from "../track";
-import { orderCheckinProgress, type CheckinProgressSession } from "../checkin-progress";
+import {
+  checkinRailState,
+  readyToSend,
+  roomCheckinProgress,
+  sessionLabel,
+  waitingMs,
+  type CheckinProgressSession,
+} from "../checkin-progress";
 import { briefingTimelineAt } from "../briefing/phase";
 import type { BriefingRoomState } from "../briefing/types";
 import type { SceneProps } from "../director/types";
@@ -176,7 +182,11 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
         <ClockPane
           clock={sessionClock}
           accent={accent}
-          checkins={orderCheckinProgress(feed?.checkinProgress ?? [], track)}
+          checkin={roomCheckinProgress(feed?.checkinProgress ?? [], track)}
+          nowMs={nowMs}
+          // The SAME window the track boards count down for guests, so the
+          // rail cannot escalate on a deadline the wall opposite disagrees with.
+          windowMins={config.checkinWindowMins}
         />
       </div>
       <StatusBar trackLabel={TRACK_LABELS[track]} delay={delay} />
@@ -351,20 +361,25 @@ function BriefingStrip({
 function ClockPane({
   clock,
   accent,
-  checkins,
+  checkin,
+  nowMs,
+  windowMins,
 }: {
   clock: LiveSessionClock | null;
   accent: string;
-  checkins: CheckinProgressSession[];
+  checkin: CheckinProgressSession | null;
+  nowMs: number;
+  windowMins: number;
 }) {
   const live = !!clock;
   const paused = clock?.state === "paused";
   const value = live ? formatRemaining(clock.remainingMs) : null;
   const eyebrow = paused ? "Paused" : live ? "On track" : "No session";
   // A shorter string (MM:SS while racing) can be even bigger than H:MM:SS. The
-  // clock also gives ground back to the check-in rail when there is one, so the
-  // two never fight for the pane on a heat with three tracks open.
-  const railed = checkins.length > 0;
+  // clock also gives ground back to the check-in rail while a heat is at the
+  // desk, so the two never fight for the pane; it takes it back the moment the
+  // heat is sent and the rail clears.
+  const railed = checkin !== null;
   const fontSize = (value && value.length <= 5 ? 300 : 230) - (railed ? 60 : 0);
 
   return (
@@ -420,7 +435,7 @@ function ClockPane({
           </span>
         )}
       </div>
-      <CheckinRail sessions={checkins} />
+      <CheckinRail session={checkin} nowMs={nowMs} windowMins={windowMins} />
     </div>
   );
 }
@@ -428,101 +443,127 @@ function ClockPane({
 /* ── who is still at the desk ─────────────────────────────────────────── */
 
 /**
- * "Blue #29 · Junior Starter — 6 / 14", one line per heat the check-in station
- * currently has open (owner 2026-08-12).
+ * "Session 31 · Pro — 6 / 14": THIS ROOM'S heat, and only this room's.
  *
  * WHY IT BELONGS ON THIS BOARD. The camera above already answers "is the room
  * filling"; what it cannot answer is "is anyone still coming". A marshal
  * watching four people in a room has no way to tell a group that is nearly all
  * in from one that is half stuck at the desk, and that difference decides
- * whether they start the film or wait. THIS ROOM'S TRACK IS FIRST — the answer
- * they came for should never need looking for.
+ * whether they start the film or wait.
  *
- * Renders NOTHING between heats. An empty rail claiming "0 / 0" would read as a
- * group that never turned up rather than as no group at all, and a heat whose
- * roster could not be read is already dropped server-side for the same reason.
+ * ONE HEAT, NOT A LIST (owner 2026-08-12: "only show checking in status for that
+ * room, don't show both tracks"). The other track's progress is not an answer to
+ * the question this room is asking, and on a wall read from across a room a
+ * second number is one to mistake for the first.
+ *
+ * FOUR STATES, and no fifth:
+ *   counting  — dark ground, "Now checking in", N / M ticking up beside a clock
+ *               counting UP from the call
+ *   closing   — amber, "Window closing": the desk board's `warn`, the last
+ *               minute before the check-in window is up
+ *   ready     — FLASHES GREEN, "Ready to send", because everyone is in and
+ *               nobody has sent them yet; that is a thing for staff to DO
+ *   overdue   — FLASHES AMBER, past the window: they have been standing at the
+ *               desk too long to still be there
+ *   sent/idle — nothing at all. Check-in is over; the board goes quiet and waits
+ *               for the next heat to be called. A rail still counting a group
+ *               already walking to the room is describing the past.
+ *
+ * The escalation is the DESK BOARD'S, not this board's — see checkinRailState.
+ *
+ * A heat whose roster could not be read never gets here — it is dropped
+ * server-side, because a fabricated "0 / 0" reads as a group that never came.
  */
-function CheckinRail({ sessions }: { sessions: CheckinProgressSession[] }) {
-  if (sessions.length === 0) return null;
+function CheckinRail({
+  session,
+  nowMs,
+  windowMins,
+}: {
+  session: CheckinProgressSession | null;
+  nowMs: number;
+  windowMins: number;
+}) {
+  if (!session) return null;
+
+  const state = checkinRailState(session, nowMs, windowMins);
+  const flashing = state === "ready" || state === "overdue";
+  const waiting = waitingMs(session, nowMs);
+  const eyebrow =
+    state === "overdue"
+      ? readyToSend(session)
+        ? "All in — send them now"
+        : "Overdue at check-in"
+      : state === "ready"
+        ? "Ready to send"
+        : state === "closing"
+          ? "Window closing"
+          : "Now checking in";
 
   return (
     <div
+      // A flashing state's background AND text come from the keyframes, so
+      // neither is set inline — an inline background outranks the animation and
+      // the rail would sit there quietly instead of calling for someone.
+      className={
+        state === "ready" ? "tv-ready-flash" : state === "overdue" ? "tv-overdue-flash" : undefined
+      }
       style={{
-        // Its own dark ground, so the rail reads identically over the blue,
+        // Otherwise its own ground, so the rail reads identically over the blue,
         // red and purple accents rather than needing a palette per track.
-        background: "rgba(0,0,0,0.36)",
-        padding: "20px 40px 26px",
+        background: flashing ? undefined : state === "closing" ? BEHIND_AMBER : "rgba(0,0,0,0.36)",
+        color: flashing ? undefined : state === "closing" ? "#1a1205" : "#fff",
+        padding: "18px 40px 24px",
         display: "grid",
-        gap: 12,
+        gap: 8,
       }}
     >
-      <span
-        className="tv-eyebrow"
-        style={{ fontSize: 30, letterSpacing: "0.14em", color: "rgba(255,255,255,0.78)" }}
-      >
-        Checking in now
-      </span>
-      {sessions.map((s) => (
-        <CheckinRow key={s.sessionId} session={s} />
-      ))}
-    </div>
-  );
-}
-
-function CheckinRow({ session }: { session: CheckinProgressSession }) {
-  const allIn = session.total > 0 && session.checkedIn >= session.total;
-
-  return (
-    <div
-      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 24 }}
-    >
-      <span
-        className="tv-display"
-        style={{
-          fontSize: 40,
-          fontWeight: 700,
-          minWidth: 0,
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}
-      >
-        {TRACK_SHORT_LABELS[session.track]}
-        {session.heatNumber != null ? ` #${session.heatNumber}` : ""}
-        {session.raceType && (
-          <span style={{ fontWeight: 500, color: "rgba(255,255,255,0.72)" }}>
-            {` · ${session.raceType}`}
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+        <span
+          className="tv-eyebrow"
+          // Inherits the band's colour in every alerting state; the eyebrow's
+          // stylesheet cyan is invisible on green and on amber alike.
+          style={{ fontSize: 30, letterSpacing: "0.14em", color: "inherit", opacity: 0.85 }}
+        >
+          {eyebrow}
+        </span>
+        {waiting != null && (
+          <span
+            className="tv-num"
+            // How long they have been at the desk, counting UP from the call —
+            // the same anchor the track boards count DOWN from, so the two
+            // clocks either side of a wall always add up to the window.
+            style={{ fontSize: 32, fontWeight: 700, opacity: 0.85 }}
+          >
+            {formatRemaining(waiting)}
           </span>
         )}
-      </span>
-      <span
-        className="tv-display tv-num"
-        style={{
-          flexShrink: 0,
-          fontSize: 54,
-          fontWeight: 800,
-          lineHeight: 1,
-          whiteSpace: "nowrap",
-          // A finished heat carries its own green ground rather than green
-          // text: this pane is blue on one board and red on the next, and
-          // green type on red is the one pairing that reads as an alarm.
-          padding: allIn ? "4px 18px" : 0,
-          borderRadius: allIn ? 999 : 0,
-          background: allIn ? ON_TIME_GREEN : "transparent",
-          color: allIn ? "#0a1005" : "#fff",
-        }}
+      </div>
+      <div
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 24 }}
       >
-        {session.checkedIn}
         <span
+          className="tv-display"
           style={{
-            fontSize: 38,
-            fontWeight: 600,
-            color: allIn ? "rgba(10,16,5,0.7)" : "rgba(255,255,255,0.7)",
+            fontSize: 44,
+            fontWeight: 700,
+            minWidth: 0,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
           }}
         >
-          {` / ${session.total}`}
+          {sessionLabel(session.heatNumber, session.raceType, session.track)}
         </span>
-      </span>
+        <span
+          className="tv-display tv-num"
+          style={{ flexShrink: 0, fontSize: 62, fontWeight: 800, lineHeight: 1 }}
+        >
+          {session.checkedIn}
+          <span style={{ fontSize: 42, fontWeight: 600, opacity: 0.72 }}>
+            {` / ${session.total}`}
+          </span>
+        </span>
+      </div>
     </div>
   );
 }
