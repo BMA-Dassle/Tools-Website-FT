@@ -85,13 +85,6 @@ export function useBriefingAssets(
 
   const sync = useCallback(async () => {
     if (!enabled) return;
-    // Never compete with playback for the link — see `paused` above.
-    if (paused) return;
-    // One controller per run, so the effect below can cut a download off the
-    // instant a film starts.
-    const controller = new AbortController();
-    abortRef.current?.abort();
-    abortRef.current = controller;
     const manifest = [starterUrl, intermediateUrl, posterUrl];
     if (manifest.every((u) => !u)) return;
 
@@ -99,12 +92,23 @@ export function useBriefingAssets(
 
     const { fetch: toFetch } = planCacheOps(await cachedUrls(), manifest);
 
-    // Anything already on disk gets an object URL immediately — this is the
-    // fast path on every boot after the first.
+    // ADOPTION ALWAYS RUNS, paused or not — it is a disk read, not a download.
+    // Gating it behind `paused` meant a page that booted while a briefing was
+    // already running (a self-update mid-film, exactly when reloads resume)
+    // never looked in its own cache: srcFor handed back the network URL and the
+    // player streamed 220 MB over venue wifi while the same bytes sat on disk.
     for (const url of manifest) {
       if (!url || toFetch.includes(url)) continue;
       await adopt(url);
     }
+
+    // DOWNLOADS pause while a room is playing or about to play — see `paused`.
+    if (paused) return;
+    // One controller per run, so the effect below can cut a download off the
+    // instant a film starts.
+    const controller = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = controller;
 
     const now = Date.now();
     const due = toFetch.filter((url) => {

@@ -63,7 +63,12 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
   const previewRooms = demo === "briefing" || demo === "briefing-quals";
   const roomsNow = previewRooms ? demoBriefingRooms(nowMs, feed, demo) : feed?.briefingRooms;
   const stateNow = room ? (roomsNow?.[room] ?? null) : null;
-  const playingNow = briefingTimelineAt(stateNow, nowMs).phase === "video";
+  // Downloads hold during "waiting" too: the group is walking over, Start is
+  // seconds-to-minutes away, and preload="auto" is using the link to get the
+  // element ahead. A prefetch there would be competing with the very play it is
+  // trying to make instant.
+  const phaseNow = briefingTimelineAt(stateNow, nowMs).phase;
+  const playingNow = phaseNow === "video" || phaseNow === "waiting";
 
   // Downloading a film while that same film is streaming starves the player — see
   // the note on `paused` in useBriefingAssets.

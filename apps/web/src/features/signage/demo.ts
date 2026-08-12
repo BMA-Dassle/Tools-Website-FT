@@ -226,6 +226,10 @@ export function demoIsMegaDay(nowMs: number): boolean {
  * Both feed the REAL state shape through the REAL phase calculator, so what a
  * preview shows is what a genuine send will show.
  */
+/** One anchor per preview pass — see the note inside demoBriefingRooms. Module
+ *  state is safe here: this file only ever runs in the browser, per tab. */
+let demoBriefingAnchor: { mode: DemoMode; atMs: number } | null = null;
+
 export function demoBriefingRooms(
   nowMs: number,
   feed: TvFeed | null,
@@ -239,22 +243,49 @@ export function demoBriefingRooms(
   mode: DemoMode,
 ): Record<"red" | "blue", BriefingRoomState | null> {
   const video = feed?.briefing?.videos.starter ?? null;
+  const videoMs = video?.durationMs ?? 5 * 60_000;
+
+  /**
+   * THE ANCHOR IS MEMOISED, and this line is why preview could never play a film.
+   *
+   * `triggeredAtMs` used to be `nowMs - 1_000`, recomputed on every call — and this
+   * runs on every render, four times a second on the director tick. The scene keys
+   * the <video> element on `triggeredAtMs`, so in PREVIEW mode the element was
+   * destroyed and recreated 4×/second, forever. It never survived long enough to
+   * decode a frame: black screen, a storm of instantly-aborted requests, and a
+   * timeline pinned 1s in that never advanced. A REAL send stores its stamp once in
+   * Redis, which is why real briefings were fine while every admin-preview test
+   * failed (owner 2026-08-11, "this is deploy like 8 now" — every one of those
+   * tests went through this path).
+   *
+   * The anchor lives for one preview pass and re-arms when its timeline has run
+   * out, so a preview left up simply plays again — a preview that dies to a blank
+   * board would read as the bug it is trying to disprove.
+   */
+  const fullPassMs = videoMs + 31_000 + 60_000; // film + helmet + a minute of idle
+  if (
+    !demoBriefingAnchor ||
+    demoBriefingAnchor.mode !== mode ||
+    nowMs - demoBriefingAnchor.atMs > fullPassMs
+  ) {
+    demoBriefingAnchor = {
+      mode,
+      // `briefing` starts at the top so the film can be watched running;
+      // `briefing-quals` jumps past the film to the post-video boards, which is
+      // the half staff most want to check and would otherwise sit through a
+      // five-minute film to reach.
+      atMs: mode === "briefing-quals" ? nowMs - (videoMs + 31_000) : nowMs - 1_000,
+    };
+  }
+
   const state: BriefingRoomState = {
-    // `briefing-quals` previews the third phase; it is now the NEXT-RACE board,
-    // so both previews run the same timeline and differ only in where they start.
     kind: "timeline",
     tier: "starter",
     track: "red",
     raceType: "Starter",
     sessionId: "demo-60",
     heatNumber: 60,
-    // `briefing` starts at the top so the film can be watched running;
-    // `briefing-quals` jumps to the third phase, which is the half staff most want
-    // to check and would otherwise sit through a five-minute film to reach.
-    triggeredAtMs:
-      mode === "briefing-quals"
-        ? nowMs - ((video?.durationMs ?? 5 * 60_000) + 31_000)
-        : nowMs - 1_000,
+    triggeredAtMs: demoBriefingAnchor.atMs,
     videoUrl: video?.url ?? null,
     videoDurationMs: video?.durationMs ?? null,
   };

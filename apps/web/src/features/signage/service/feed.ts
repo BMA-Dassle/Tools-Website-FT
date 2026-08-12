@@ -134,9 +134,7 @@ export async function buildTvFeed(
     config.showNextAvailable
       ? buildNextAvailable(parsed.venue).catch(() => null)
       : Promise.resolve(null),
-    wantsBriefing
-      ? buildBriefingSection(parsed.venue, config.briefingRoom as "red" | "blue").catch(() => null)
-      : Promise.resolve(null),
+    wantsBriefing ? buildBriefingSection(parsed.venue).catch(() => null) : Promise.resolve(null),
   ]);
 
   // Has the heat on the track board already been sent to a briefing room? One
@@ -178,13 +176,8 @@ export async function buildTvFeed(
  * wall — is the exact reason a staff member would stand in a briefing room
  * wondering why the video they just uploaded is not playing.
  *
- * Quals resolution needs to know which session the room is briefing NOW, so it
- * can report on the one before it. That comes from the room's own live state.
  */
-async function buildBriefingSection(
-  venue: SignageVenue,
-  room: "red" | "blue",
-): Promise<{
+async function buildBriefingSection(venue: SignageVenue): Promise<{
   section: NonNullable<TvFeed["briefing"]>;
   rooms: TvFeed["briefingRooms"];
 }> {

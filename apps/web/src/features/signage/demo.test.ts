@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { applyDemo, demoIsMegaDay, effectiveDemoMode, parseDemoMode } from "./demo";
+import {
+  applyDemo,
+  demoBriefingRooms,
+  demoIsMegaDay,
+  effectiveDemoMode,
+  parseDemoMode,
+} from "./demo";
 import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
 import { resolveScreenConfig } from "./defaults";
 import { resolveActiveScene } from "./director/schedule";
@@ -201,5 +207,39 @@ describe("Mega previews", () => {
     expect(decorated?.kioskEvents.length).toBe(6);
     expect(decorated?.kioskEvents.every((e) => e.resourceId === "11208654")).toBe(true);
     expect(decorated?.kioskEvents[0].firstName).toBe("Marcus");
+  });
+});
+
+describe("demoBriefingRooms — the anchor is stable across ticks", () => {
+  it("returns the SAME triggeredAtMs while the clock advances", () => {
+    // THE BUG: `triggeredAtMs: nowMs - 1_000`, rebuilt on every render. The scene
+    // keys the <video> on triggeredAtMs and the director ticks nowMs 4×/second, so
+    // in PREVIEW mode the element was destroyed and recreated four times a second —
+    // it could never decode a frame. Every admin-preview test of the briefing rooms
+    // failed on this while real sends (stamp stored once in Redis) worked
+    // (owner 2026-08-11, "this is deploy like 8 now").
+    const t0 = 1_760_000_000_000;
+    const feed = null; // no manifest — nominal durations apply
+    const first = demoBriefingRooms(t0, feed, "briefing").red!.triggeredAtMs;
+    for (const tick of [250, 500, 750, 1_000, 30_000, 120_000]) {
+      expect(demoBriefingRooms(t0 + tick, feed, "briefing").red!.triggeredAtMs).toBe(first);
+    }
+  });
+
+  it("re-arms once the preview's own timeline has fully run out", () => {
+    const t0 = 1_760_100_000_000;
+    const first = demoBriefingRooms(t0, null, "briefing").red!.triggeredAtMs;
+    // Past film (nominal 5:00) + helmet + the idle minute → a fresh pass begins.
+    const later = t0 + 8 * 60_000;
+    const second = demoBriefingRooms(later, null, "briefing").red!.triggeredAtMs;
+    expect(second).not.toBe(first);
+    expect(second).toBeGreaterThan(first);
+  });
+
+  it("switching preview modes re-anchors immediately", () => {
+    const t0 = 1_760_200_000_000;
+    const film = demoBriefingRooms(t0, null, "briefing").red!.triggeredAtMs;
+    const quals = demoBriefingRooms(t0 + 250, null, "briefing-quals").red!.triggeredAtMs;
+    expect(quals).not.toBe(film);
   });
 });
