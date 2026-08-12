@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
 import RaceControlPanels from "./RaceControlPanels";
 import { useBriefingControl } from "./useBriefingControl";
+import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import {
   ADMIN_SANS,
   ADMIN_MONO,
@@ -104,6 +105,19 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
   // declaration is a runtime ReferenceError rather than a type error.
   const serialSupported = typeof window !== "undefined" && "serial" in navigator;
 
+  /**
+   * SELF-UPDATE. This tab is opened once and left open for a shift, so a deploy
+   * reaches it only when somebody thinks to hard-refresh (owner 2026-08-12).
+   *
+   * A RELOAD HERE IS CHEAP, WHICH IS WHY IT CAN BE AUTOMATIC: the scanner
+   * re-attaches with no user gesture — the mount effect reopens a
+   * previously-authorized port from navigator.serial.getPorts() — and every piece
+   * of board state is server-polled, so nothing is lost but the fraction of a
+   * second. What a reload must NOT do is land mid-action, hence the quiet-stretch
+   * rule below rather than reloading the instant a deploy lands.
+   */
+  const buildUpdate = useBuildUpdate(version);
+
   // Serial port state
   const [connectionState, setConnectionState] = useState<ConnectionState>("idle");
   const [portName, setPortName] = useState<string>("");
@@ -126,6 +140,23 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
     return saved ? Number(saved) : 9600;
   });
   const [showSettings, setShowSettings] = useState(false);
+
+  /**
+   * TAKE THE NEW BUILD, BUT ONLY IN A GAP.
+   *
+   * The timer restarts on every change to what the desk is doing, so the reload
+   * needs one unbroken quiet minute: no scan in flight or on the flash screen, no
+   * briefing action posting, no camera viewer open, no settings sheet. On a busy
+   * Friday that gap arrives between heats; on a quiet afternoon it arrives at
+   * once. Either way nobody is mid-send when the page goes.
+   */
+  const deskBusy =
+    scanState !== "idle" || !!briefing.pending || !!briefing.expandedRoom || showSettings;
+  useEffect(() => {
+    if (!buildUpdate.ready || deskBusy) return;
+    const t = setTimeout(() => window.location.reload(), 60_000);
+    return () => clearTimeout(t);
+  }, [buildUpdate.ready, deskBusy]);
 
   // Test mode — ?test=1 opt-in, read at mount like the baud-rate setting
   const [testMode] = useState<boolean>(() => {
@@ -806,6 +837,27 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
             v{version}
           </p>
         </div>
+
+        {/* A NEWER DEPLOY IS LIVE (owner 2026-08-12: "enable this page to grab
+            updates when needed so when we push this goes live"). The board picks
+            it up on its own once the desk goes quiet — but it says so, and offers
+            the button, because a staff member who was just told a fix is live
+            should not have to trust an invisible timer. */}
+        {buildUpdate.ready && (
+          <button
+            type="button"
+            onClick={buildUpdate.reloadNow}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold"
+            style={{ borderColor: PORTAL_BLUE, color: PORTAL_BLUE, borderRadius: 8 }}
+            title={`This tab is on v${version}; v${buildUpdate.serverVersion} is live`}
+          >
+            <span
+              className="w-2 h-2 rounded-full animate-pulse"
+              style={{ background: PORTAL_BLUE }}
+            />
+            New version ready — reload
+          </button>
+        )}
         <div className="flex items-center gap-3" style={{ flexWrap: "wrap" }}>
           {/* BOARD MODE: the scanner lives up here as a strip, not as a
               full-height hero in the middle of the page — the briefing rooms are

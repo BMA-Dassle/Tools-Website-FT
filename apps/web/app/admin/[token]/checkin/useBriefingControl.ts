@@ -30,12 +30,18 @@ import type {
   BriefingRoomState,
   BriefingTier,
 } from "~/features/signage/briefing/types";
+import type { GroupOut } from "~/features/signage/briefing/room-return";
+import type { BriefingRecord } from "~/features/signage/briefing/briefing-log";
 
 export interface RoomStatus {
   room: BriefingRoom;
   state: BriefingRoomState | null;
   phase: BriefingPhase;
   nextInMs: number | null;
+  /** The last group briefed here and whether their race has finished — what stops
+   *  an idle room claiming to be FREE while its group is still on track. See
+   *  ~/features/signage/briefing/room-return.ts. */
+  groupOut: GroupOut | null;
 }
 
 export interface Assignment {
@@ -55,9 +61,15 @@ export interface BoardStatus {
   businessDay: string;
   enabled: boolean;
   rooms: RoomStatus[];
+  /** Minutes a racer has to check in, per track, as configured on the TRACK
+   *  BOARDS — the deadline the Called box turns amber and then red against. */
+  checkinWindowMins: Record<string, number>;
   assignments: Assignment[];
   videos: Record<BriefingTier, { url: string; durationMs: number | null } | null>;
   helmetPosterUrl: string | null;
+  /** Today's briefing log, folded — when each group went in, which film ran, and
+   *  how long they were in the room. The durable insurance record, from Neon. */
+  briefings: BriefingRecord[];
 }
 
 export interface BriefingControl {
@@ -78,6 +90,16 @@ export interface BriefingControl {
    *  session, so choosing Intermediate for Red must not change Blue. */
   tierOverride: Record<string, BriefingTier | null>;
   setTierOverride: (room: BriefingRoom, tier: BriefingTier | null) => void;
+  /**
+   * Which room's camera is open in the full-screen viewer, if any.
+   *
+   * UP HERE FOR THE SAME REASON AS EVERYTHING ELSE IN THIS HOOK: a scan lands
+   * every few seconds on a busy night and takes the panels down with it, so a
+   * viewer whose open/closed state lived in the panel would slam shut in the face
+   * of whoever was watching the room fill.
+   */
+  expandedRoom: BriefingRoom | null;
+  setExpandedRoom: (room: BriefingRoom | null) => void;
   send: (args: {
     room: BriefingRoom;
     track: string;
@@ -96,6 +118,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [tierOverride, setTierOverrideState] = useState<Record<string, BriefingTier | null>>({});
+  const [expandedRoom, setExpandedRoom] = useState<BriefingRoom | null>(null);
 
   const loadBoard = useCallback(
     async (signal?: AbortSignal) => {
@@ -206,6 +229,8 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     pending,
     tierOverride,
     setTierOverride,
+    expandedRoom,
+    setExpandedRoom,
     send,
     start,
     clearRoom,

@@ -1,5 +1,45 @@
 # Lessons Learned
 
+## A derived state name is not an operational claim — "idle" printed FREE while that group was mid-race and coming back (2026-08-12)
+
+**What happened:** the check-in board labelled a briefing room FREE off
+`briefingTimelineAt`'s `idle` phase. `idle` is honest about what the room's TV is
+showing (helmet sizes), and the room's Redis state expires one minute after the
+helmet board — so about a minute after a briefing ended, the desk announced the
+room was free while that group was strapped into karts and due to walk back into
+that same room to hand kit in (the welcome-back rail already knew this). Staff
+reading FREE had no way to see the room was spoken for.
+
+**The rule:** when a display state is DERIVED from one subsystem's phase, check what
+it means operationally before letting it name an availability. A phase says "what is
+on screen"; a badge that says FREE is a claim about "can I put the next group here",
+and those are different questions with different evidence. Where the two diverge,
+name the state after the operational answer and derive it from the operational facts
+(here: the room's own last group, the venue's RaceFinish stamp, the live on-track
+clock) — and bound every "not available" answer so a stale row cannot hold a
+resource all evening.
+
+**Corollary, the Mega trap again:** two rooms serving one circuit means one live
+clock could have BOTH rooms claiming the same returning race — the same shape as the
+"next up in both rooms" bug from 2026-08-11. Any signal shared by two consumers needs
+an identity match (heat number) before either may speak for it, and "cannot
+attribute" must resolve to silence, not to a coin flip.
+
+## Two UI rules from the same desk pass: an affordance must survive with no pointer, and a growing row aligns to nothing (2026-08-12)
+
+**What happened:** (1) A camera preview was made clickable with a hover-revealed
+chip. The desk monitor is a TOUCH screen — there is no hover — so on the machine that
+matters the picture looked like a picture (owner: "make sure it is shown that it can
+be clicked"). (2) The left column's bottom rail was told to align to the bottom of
+the video with `marginTop: auto`, but the row inherited `flex: 1` from a panel that
+grows to fill the board, so the column stretched past the picture and the rail lined
+up with the panel's bottom edge instead of the video's.
+
+**The rules:** any "you can interact with this" signal must be legible at rest —
+hover and focus may only strengthen what is already visible. And when two columns
+must line up, the row has to size to its content: put the growth in a wrapper, or
+`align-items: stretch` measures the container, not the sibling you meant.
+
 ## A kiosk unwind that "releases holds" cancelled a bill $420.68 had already been captured against (2026-08-10)
 
 **What happened:** a guest paid for a 5-person Ultimate VIP at the FastTrax kiosk

@@ -1,5 +1,86 @@
 # Open Tasks
 
+## Check-in board: room camera, overdue flashing, and the briefing LOG (2026-08-12) — ON MAIN
+
+Owner's live pass over `/admin/{token}/checkin?board=1` while the venue was open. All of it
+landed in one push; the insurance log is the part that matters beyond today.
+
+- [x] **In the room is two columns** — session + clocks LEFT, camera RIGHT. The bottom rail
+      (progress, its caption, Restart) is flush with the bottom of the picture, which needed
+      the row to stop inheriting the panel's growth (it was aligning to the panel edge, so
+      it lined up with nothing).
+- [x] **The preview says it is clickable at rest** — pill + ring + zoom cursor, no
+      hover-only affordance (the desk monitor is a touch screen). Click opens ONE
+      full-screen viewer at 1600px: Red/Blue switch, the clocks, and Start / Restart, so
+      staff can watch a room fill and roll the film without closing it. The small preview
+      stops polling while it is open (the proxy's frame cache is keyed by device AND size,
+      so two pollers = two upstream pulls/sec at the same camera).
+- [x] **"FREE" is now earned, not assumed** — an idle room whose group is out counts them
+      back off the live on-track clock: `BACK IN 4:12` → `RETURNING NOW` → `FREE` (owner:
+      free ~1 min after the flag). Rules + bounds in `briefing/room-return.ts` (19 units).
+      Heat-number match keeps two Mega rooms from both claiming one race; a later heat on
+      track, an end stamp, or a 45-min window each close the claim, and Undo revokes it via
+      the session's briefed marker.
+- [x] **Overdue boxes flash** — In the room amber >3 min waiting, red >5, with "Video never
+      started for Session N" across the bottom of the box. Called flashes through the last
+      minute of the check-in window and red once past it, reading `checkinWindowMins` from
+      the TRACK BOARDS' own signage config (8 today, both tracks) so desk and wall escalate
+      on one deadline. Thresholds pure + tested (`briefing/desk-alerts.ts`, 10 units).
+- [x] **INSURANCE LOG (Neon)** — new append-only `briefing_events`: sent / started /
+      restarted / ended, carrying which film and its length. Time in the room and "did the
+      film finish" are DERIVED (`briefing/briefing-log.ts`, 13 units), never stored, and the
+      common no-explicit-end case closes off the film's own length + the helmet phase — so
+      no cron. Written before the Redis state at all three call sites; a write failure fails
+      the action rather than proceeding unrecorded. Surfaced as the board's "Briefing log —
+      today" strip so staff can see it landing, and readable per session from
+      `apps/web/scripts/briefing-log-peek.mts`.
+- [x] **The board self-updates** — `src/hooks/useBuildUpdate.ts` polls the deploy sha every
+      2 min; the board hard-reloads after one unbroken quiet minute (no scan, no pending
+      action, no viewer, no settings sheet) and offers a "New version ready — reload" pill
+      meanwhile. Safe here because the scanner re-attaches from `getPorts()` with no user
+      gesture and all board state is server-polled.
+- [ ] **OWED: one live send through this build** to see the log strip fill (writes only
+      happen on a real Send/Start — today's earlier sends predate the table).
+- [ ] **OWED: guest-facing smoke of the camera viewer** on the real desk monitor (local dev
+      has no `NX_CLOUD_*`, so the frame is blank off Vercel).
+- [ ] Consider: the camera-monitor TV's big pane still shows the ON-TRACK clock while a
+      briefing is live; the briefing session + film countdown are only the small strip over
+      the camera. Owner saw it and moved on — offer the swap if it comes up again.
+
+## Video match three-leg contract (2026-08-10) — A + C BUILT & PUSHED, B deferred
+
+Spec: [video-match-plausibility-spec.md](video-match-plausibility-spec.md). From the 8/9
+W57384 VIP incident (95 wrong-footage matches day-wide, 87 SMS-delivered). Owner approved
+A + C 8/10; B (liveness alerts) deferred; A4 self-heal pulled out of PR A on owner's size
+concern.
+
+- [x] PR A — `feat/video-match-plausibility` PUSHED: plausibility gate in
+      `matchVideoToAssignment` (per-candidate skip so the walk continues to the true
+      owner), verdict = midpoint-or-containment (bare overlap disqualified — 12 of the
+      8/9 wrongs edge-clip past it, incl. all 8 red-h16→h17 mis-sends), ladder actuals →
+      start-only → scan-anchor, `implausible-window` review reason + admin chips,
+      session-actuals write-through, kill switch `VIDEO_MATCH_PLAUSIBLE`. 15 new units;
+      replay on real 8/9 corpus (`scripts/video-plausibility-replay.mts`): 447 plausible /
+      94 implausible / 23 unknown, named cases + stolen-video redirect proofs PASS
+- [x] PR C — `feat/camera-assign-heat-guard` PUSHED (8ad938f5): late-aware picker
+      (earliest heat with no actualStart, 30-min grace) + `expectedNext` on /session +
+      orange wrong-heat banner blocking scan binding until switch-or-confirm
+- [ ] MERGE both + one shadow-watch night (`video-match-shadow.mts --watch`): wrong-window
+      auto-sent must be 0
+- [ ] PR A2 follow-up (deferred from A): self-heal displacement of implausible occupants —
+      after a week of clean metrics
+- [x] PR B — `feat/video-liveness-alerts` PUSHED (02528335; owner un-deferred it 8/10
+      "make it permanent" after Garry Cooley + 19 live wrongs on 8/10): /api/cron/
+      video-liveness every 5 min — wrong-window (email; post-PR-A this is the gate-
+      regression alarm), zero-scan heats (radio+email within 5 min of launch), silent/
+      dead cameras (radio at ≥3/heat; nightly 10 PM digest lists bench-check units) +
+      camera-scan-log:{businessDay} zset. 17-agent adversarial review confirmed 6 defects
+      in the first cut (midnight business-day math, systemNumber vs cameraNumber keys,
+      stale scan-log after redo, dedupe-before-dispatch, SCARD-null-as-zero, radio noise)
+      — all fixed, 15 units green. Kills: VIDEO_LIVENESS_ALERTS / _RADIO
+- [ ] SEPARATE + time-boxed: manual reassign of the 8/9 recoverable videos before VT3
+      expiry ~8/22 (codes in memory `project_vip_0809_video_cascade`)
+
 ## Site nav rode along onto /waiver from the FastTrax menu (2026-08-07) — DONE
 
 **Report:** clicking Waiver in the fasttraxent.com menu renders the site menu bar over the
@@ -1174,3 +1255,42 @@ unhealthy. Now returns null and the caller drops the express path for that tick.
   returns `personId` as a QUOTED STRING — `"personId":"63000000007188906"` —
   so `JSON.parse` round-trips 17-digit ids bit-exact and `typeof` is `string`.
   The proxy, the crons and this sweep never coerce them.
+
+# WSync dup-jam fix — single-writer pipeline with sync barriers (2026-08-12, planned)
+
+Owner directive: the check-in duplicate-projectPerson jam "can't happen" — fix it. Constraints
+set by owner: ONE writer per BMI entity (never write the same thing to both cloud and local);
+after a Pandora-side sign/mint, WAIT for it to reach the Office/cloud side before cloud calls.
+Full audit: tasks/audit-pandora-office-cross-rail-2026-08-12.md. Rule memory:
+feedback_single_writer_per_bmi_entity.
+
+Design (rails stay as-is — attach = public-booking ONLY, seat = Pandora ONLY, no Office writes
+on this path; the fix is barriers + patience, not new writers):
+
+- [ ] PR0 probe A (cheap, closes a stale doc flag): confirm registerProjectPerson against a
+      CONFIRMED project formally. Production evidence 8/11 already shows it working
+      (W59832 attach @17:10, hours post-confirmation, cloud row 63000000008105288) — retire the
+      "unverified against CONFIRMED" banner in kiosk/waiver/bmi-attach.ts + flags.ts if probe
+      agrees (retire-banners rule).
+- [ ] PR0 probe B: timing probe — after Pandora person mint / waiver sign, poll Office person
+      GET until visible; measure local→cloud lag distribution (drives barrier-A budget).
+- [ ] PR0 probe C (optional, biggest prize): inventory whether the Office API exposes a
+      cloud-side schedule-linkage write (the projectPerson add is already proven on the Office
+      rail per the 7/31 remove-probe). If a cloud seat write exists, attach+seat can land on ONE
+      side and WSync delivers both rows down together — the race disappears entirely.
+- [x] PR1: stop manufacturing duplicates — PUSHED 2026-08-12 branch fix/kiosk-bmi-sync-sweep (53f3121d), waiver-join rail folded in per owner —
+      (a) treat `person_not_on_project` as RETRYABLE (vendor-documented), never fold into
+          `schedule_status='failed'` (kiosk/checkin/server.ts:1671);
+      (b) fix count-only responses skipping straggler re-POSTs (schedule-racers.ts:158);
+      (c) wire the never-built async sweep off listPendingScheduleRows — retries spanning
+          minutes, using the documented local-visibility probe
+          (Pandora GET /bmi/reservation/{loc}/{id}: 200=synced down, 404=not yet) as the gate;
+      (d) barrier A on the other direction: after kiosk person mint, gate the cloud attach on
+          Office-side person visibility (same sweep, opposite probe);
+      (e) staff memo only after N minutes of REAL failure, with reason distinguishing
+          "waiting on sync" from "vendor refused" — the current instant
+          "AUTO CHECK-IN INCOMPLETE" memo is what sends staff to hand-seat (= the duplicate).
+- [ ] PR2 (separate, same rule): remove cross-rail write FALLBACKS elsewhere
+      (setProjectState Pandora↔Office, appendProjectPrivateNote's 3-store escalation) — each
+      entity gets one rail; a fallback that writes the other side is a split-brain generator.
+

@@ -20,18 +20,27 @@ import "server-only";
  */
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
+import { listSignageScreens } from "../data/signage-screens-db";
+import { resolveScreenConfig } from "../defaults";
+import type { SignageVenue } from "../constants";
+import { trackFromResourceIds } from "../track";
 import {
   listBriefingAssignments,
   recordBriefingAssignment,
   type BriefingAssignment,
 } from "./assignments-db";
 import { briefingTimelineAt } from "./phase";
+import { listBriefingEvents, recordBriefingEvent } from "./events-db";
+import { foldBriefingLog, type BriefingRecord } from "./briefing-log";
+import { readRaceFinishedMarker } from "./race-finish.server";
+import { GROUP_OUT_WINDOW_MS, type GroupOut } from "./room-return";
 import {
   clearBriefingRoom,
   clearSessionBriefed,
   markSessionBriefed,
   readBriefingRoom,
   readBriefingRooms,
+  sessionBriefed,
   setBriefingRoom,
 } from "./state.server";
 import {
@@ -89,6 +98,13 @@ export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefing
   const tier = resolveFilmTier(requestedTier, (t) => !!assets[assetKeyForTier(t)]?.url);
   const video = assets[assetKeyForTier(tier)] ?? null;
 
+  // WHO IS BEING DISPLACED, read before anything is written. Sending into an
+  // occupied room ends the previous group's occupancy, and that end is a fact the
+  // insurance log has to carry — otherwise their record stays open forever and
+  // reads as "never left the room". Same session ⇒ nobody is displaced (a re-send
+  // of the group already in there, and a Mega group legitimately in both rooms).
+  const displaced = await readBriefingRoom(VENUE, args.room).catch(() => null);
+
   // Durable first — see the header.
   await recordBriefingAssignment({
     venue: VENUE,
@@ -100,6 +116,33 @@ export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefing
     raceType: args.raceType,
     tier,
     mode: "timeline",
+  });
+
+  if (displaced && displaced.sessionId && displaced.sessionId !== args.sessionId) {
+    await recordBriefingEvent({
+      venue: VENUE,
+      businessDay,
+      room: args.room,
+      track: displaced.track,
+      sessionId: displaced.sessionId,
+      heatNumber: displaced.heatNumber,
+      raceType: displaced.raceType,
+      tier: displaced.tier,
+      action: "ended",
+      reason: "replaced",
+    });
+  }
+
+  await recordBriefingEvent({
+    venue: VENUE,
+    businessDay,
+    room: args.room,
+    track: args.track,
+    sessionId: args.sessionId,
+    heatNumber: args.heatNumber,
+    raceType: args.raceType,
+    tier,
+    action: "sent",
   });
 
   const state: BriefingRoomState = {
@@ -154,6 +197,34 @@ export async function startBriefing(
   const tier = resolveFilmTier(current.tier ?? "starter", (t) => !!assets[assetKeyForTier(t)]?.url);
   const video = assets[assetKeyForTier(tier)] ?? null;
 
+  /**
+   * THE INSURANCE RECORD OF THE FILM ITSELF, written BEFORE the room state so a
+   * film cannot roll unrecorded (persist-at-capture, CLAUDE.md).
+   *
+   * RESTART IS DECIDED BY THE ROOM, not by which button was pressed: a room still
+   * `assigned` has never played anything, so pressing Restart on it is a first
+   * start and must be logged as one. The route hands both presses to this same
+   * function precisely so the two can never behave differently — that has to hold
+   * for the log too.
+   *
+   * It carries the film's URL and LENGTH because "which safety video did they
+   * watch, and did it finish" is the question, and the length is what lets
+   * briefing-log.ts derive the end of an occupancy nobody explicitly closed.
+   */
+  await recordBriefingEvent({
+    venue: VENUE,
+    businessDay: businessDayYmdET(),
+    room,
+    track: current.track,
+    sessionId: current.sessionId,
+    heatNumber: current.heatNumber,
+    raceType: current.raceType,
+    tier,
+    action: current.kind === "timeline" ? "restarted" : "started",
+    videoUrl: video?.url ?? null,
+    videoMs: video?.durationMs ?? null,
+  });
+
   await setBriefingRoom(VENUE, room, {
     ...current,
     kind: "timeline",
@@ -175,6 +246,24 @@ export async function startBriefing(
  */
 export async function clearRoom(room: BriefingRoom): Promise<{ ok: true }> {
   const current = await readBriefingRoom(VENUE, room);
+
+  // The one moment the room's occupancy ends on a human decision rather than on
+  // the film running out — so it is stamped, and it outranks any derived end.
+  if (current?.sessionId) {
+    await recordBriefingEvent({
+      venue: VENUE,
+      businessDay: businessDayYmdET(),
+      room,
+      track: current.track,
+      sessionId: current.sessionId,
+      heatNumber: current.heatNumber,
+      raceType: current.raceType,
+      tier: current.tier,
+      action: "ended",
+      reason: "cleared",
+    });
+  }
+
   await clearBriefingRoom(VENUE, room);
 
   // Put the heat back on the check-in board — but ONLY if no other room is still
@@ -200,18 +289,170 @@ export interface BriefingRoomStatus {
   phase: BriefingPhase;
   /** ms until the next phase, for the board's progress readout. */
   nextInMs: number | null;
+  /**
+   * WHO THIS ROOM IS STILL WAITING ON — the last group briefed here, and whether
+   * their race has finished.
+   *
+   * Because an idle room is NOT a free room: the timeline ends a minute after the
+   * helmet board while that group is still on track, and they walk back into this
+   * same room to hand kit in (owner 2026-08-12: "Free might not be right word
+   * here… warn that race is returning in X"). The desk turns this plus the live
+   * on-track clock into the badge — see briefing/room-return.ts, which is where
+   * the rules and their bounds live.
+   *
+   * Null once nobody is outstanding, so the board can say FREE and mean it.
+   */
+  groupOut: GroupOut | null;
 }
+
+/**
+ * How long a racer has to check in, per track, as configured on the TRACK BOARDS.
+ *
+ * READ FROM THE WALL'S OWN CONFIG, never a second copy. Each track check-in screen
+ * counts a guest down from the call by its `checkinWindowMins` (8 today for both
+ * tracks); the desk's Called box now escalates on the same deadline, so staff and
+ * the racer standing in front of that TV are working from one number. A desk that
+ * kept its own constant would drift the day somebody changed the wall.
+ */
+export type CheckinWindows = Record<"blue" | "red" | "mega", number>;
 
 export interface BriefingBoardStatus {
   now: number;
   businessDay: string;
   rooms: BriefingRoomStatus[];
+  /** Minutes per track — what the Called box's amber/red deadline is measured
+   *  against. See CheckinWindows. */
+  checkinWindowMins: CheckinWindows;
   /** Today's sends, newest first. */
   assignments: BriefingAssignment[];
+  /**
+   * TODAY'S BRIEFING LOG, folded — one row per group with when they went in, which
+   * film ran, and how long they were in the room (briefing-log.ts).
+   *
+   * Surfaced on the board deliberately: a record staff cannot see is a record
+   * nobody notices has stopped being written. The desk's log strip is the daily
+   * proof that the insurance data is landing.
+   */
+  briefings: BriefingRecord[];
   /** Which films are uploaded — the board disables a tier with no film rather
    *  than sending a session to a room that will show a poster. */
   videos: Record<BriefingTier, { url: string; durationMs: number | null } | null>;
   helmetPosterUrl: string | null;
+}
+
+/**
+ * The last group this room sent out, if they could still be coming back.
+ *
+ * COSTS ONE REDIS GET, and only while a group is inside the out-window: the send
+ * rows are already in hand (the board lists them anyway) and the end signal is the
+ * venue's own RaceFinish marker, which the timing bridge writes seconds after the
+ * flag. NO PANDORA READ — the desk polls every 5 seconds, and the welcome-back
+ * resolver's live per-poll Pandora read is budgeted for the TV's 15s pulse
+ * (owner: "15 seconds, no more"). A bridge outage therefore costs this badge its
+ * precision, never its correctness: room-return.ts falls back to the later-heat
+ * rule and then to the out-window.
+ *
+ * `assignments` must be NEWEST-FIRST, as listBriefingAssignments returns it.
+ */
+async function lastGroupOut(
+  room: BriefingRoom,
+  assignments: BriefingAssignment[],
+  now: number,
+): Promise<GroupOut | null> {
+  const last = assignments.find((a) => a.room === room && a.mode === "timeline");
+  if (!last) return null;
+
+  // A group re-sent to the other room belongs to THAT room now; this room's older
+  // row must not keep waiting for them. Same guard the welcome-back resolver uses.
+  const newestForSession = assignments.find(
+    (a) => a.sessionId === last.sessionId && a.mode === "timeline",
+  );
+  if (newestForSession && newestForSession.room !== room) return null;
+
+  const sentAtMs = Date.parse(last.sentAt);
+  if (!Number.isFinite(sentAtMs)) return null;
+  // Past the window nothing downstream would claim the room anyway — so skip the
+  // Redis reads rather than paying for an answer that cannot change the outcome.
+  if (now - sentAtMs > GROUP_OUT_WINDOW_MS) return null;
+
+  // UNDO MUST REVOKE THE CLAIM, and this is what makes it do so. The send row is
+  // deliberately permanent — it is the day's record — so a mis-send that staff
+  // undid would otherwise leave this room announcing "out on track" about a group
+  // who never went, for the whole out-window. clearRoom deletes the session's
+  // briefed marker (unless the other room still holds it), so requiring the marker
+  // means the claim dies the moment the send does. Its 6h TTL far outlives the
+  // window, so a legitimate group can never lose its claim to expiry.
+  const briefed = await sessionBriefed(last.sessionId).catch(() => null);
+  if (!briefed || (briefed.room && briefed.room !== room)) return null;
+
+  const marker = await readRaceFinishedMarker(last.sessionId).catch(() => null);
+  return {
+    sessionId: last.sessionId,
+    heatNumber: last.heatNumber,
+    sentAtMs,
+    endedAtMs: marker?.endedAtMs ?? null,
+  };
+}
+
+/**
+ * The per-track check-in windows the track boards are actually showing.
+ *
+ * CACHED IN-MODULE for a minute: the desk polls every 5 seconds and this is one
+ * Neon read of a table that changes when somebody edits a screen in admin — a
+ * cadence measured in weeks. A minute of staleness on a deadline measured in
+ * minutes is invisible; a Neon read every 5 seconds would not be.
+ *
+ * Screens with the countdown SWITCHED OFF are ignored (their wall shows no
+ * deadline to a guest, so the desk should not invent one for that track), and when
+ * two screens serve one track the SHORTER window wins — the desk must never be
+ * laxer than the strictest deadline a racer was shown. No track screen at all
+ * falls back to the config layer's own default rather than a literal here, so the
+ * two cannot drift.
+ */
+const CHECKIN_WINDOW_TTL_MS = 60_000;
+let checkinWindowCache: { at: number; windows: CheckinWindows } | null = null;
+
+async function resolveCheckinWindows(now: number): Promise<CheckinWindows> {
+  if (checkinWindowCache && now - checkinWindowCache.at < CHECKIN_WINDOW_TTL_MS) {
+    return checkinWindowCache.windows;
+  }
+  // Configured values only, so the fallback cannot undercut a track whose wall is
+  // deliberately set LONGER than the default.
+  const found: Record<"blue" | "red" | "mega", number | null> = {
+    blue: null,
+    red: null,
+    mega: null,
+  };
+  let read = false;
+
+  try {
+    for (const screen of await listSignageScreens()) {
+      const config = resolveScreenConfig(screen.config, screen.venue as SignageVenue);
+      if (!config.showCheckinCountdown) continue;
+      const track = trackFromResourceIds(config.scope.resourceIds);
+      if (!track) continue;
+      const mins = config.checkinWindowMins;
+      if (!Number.isFinite(mins) || mins <= 0) continue;
+      const held = found[track];
+      // First screen sets the track's window; a second one can only shorten it.
+      found[track] = held == null ? mins : Math.min(held, mins);
+    }
+    read = true;
+  } catch {
+    // A failed read must not cost the board its poll: the defaults below stand and
+    // nothing is cached, so the next poll tries again.
+  }
+
+  // The default the resolver itself applies to a screen that has never been
+  // configured — taken FROM the resolver so this file owns no copy of it.
+  const fallback = resolveScreenConfig({}, "FT").checkinWindowMins;
+  const windows: CheckinWindows = {
+    blue: found.blue ?? fallback,
+    red: found.red ?? fallback,
+    mega: found.mega ?? fallback,
+  };
+  if (read) checkinWindowCache = { at: now, windows };
+  return windows;
 }
 
 /** Everything the control board polls, in one call. */
@@ -219,16 +460,28 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
   const now = Date.now();
   const businessDay = businessDayYmdET();
 
-  const [rooms, assignments, assets] = await Promise.all([
+  const [rooms, assignments, assets, checkinWindowMins, events] = await Promise.all([
     readBriefingRooms(VENUE).catch(() => ({ red: null, blue: null })),
     listBriefingAssignments(VENUE, businessDay).catch(() => []),
     loadSignageAssetsSafe(),
+    resolveCheckinWindows(now),
+    listBriefingEvents(VENUE, businessDay).catch(() => []),
   ]);
 
-  const roomStatuses = BRIEFING_ROOMS.map((room): BriefingRoomStatus => {
+  const groupsOut = await Promise.all(
+    BRIEFING_ROOMS.map((room) => lastGroupOut(room, assignments, now).catch(() => null)),
+  );
+
+  const roomStatuses = BRIEFING_ROOMS.map((room, i): BriefingRoomStatus => {
     const state = rooms[room];
     const timeline = briefingTimelineAt(state, now);
-    return { room, state, phase: timeline.phase, nextInMs: timeline.nextInMs };
+    return {
+      room,
+      state,
+      phase: timeline.phase,
+      nextInMs: timeline.nextInMs,
+      groupOut: groupsOut[i] ?? null,
+    };
   });
 
   const slot = (
@@ -242,7 +495,9 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     now,
     businessDay,
     rooms: roomStatuses,
+    checkinWindowMins,
     assignments,
+    briefings: foldBriefingLog(events, now),
     videos: {
       starter: slot("briefing-video:starter"),
       intermediate: slot("briefing-video:intermediate"),

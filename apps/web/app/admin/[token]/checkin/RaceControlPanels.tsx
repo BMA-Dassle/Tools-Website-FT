@@ -30,6 +30,33 @@
  * things, rather than one box trying to be both. Sending into an occupied room
  * still works; it asks first.
  *
+ * IN THE ROOM IS TWO COLUMNS — numbers and controls LEFT, camera RIGHT (owner
+ * 2026-08-12: "better organize this screen with the session and timer stuff to
+ * left of video preview"). Stacked, the camera's letterbox band sat exactly where
+ * the readouts belonged and pushed Session / Elapsed / Left down the panel; side by
+ * side, the two halves of the answer — what is running, and who is in there — read
+ * in one look. It wraps back to stacked on a narrow desk monitor. The left
+ * column's bottom rail — progress, its caption, Restart — is flush with the bottom
+ * of the picture (owner: "so it looks even"), which is why the row sizes to the
+ * picture and both camera overlays live inside the frame.
+ *
+ * "FREE" IS A CLAIM THIS BOARD HAS TO EARN (owner 2026-08-12: "Free might not be
+ * right word here… warn that race is returning in X time based on the on track
+ * timer. It can say free about 1 minute after race has finished"). An idle room is
+ * not an empty room: the timeline ends a minute after the helmet board, while that
+ * group is mid-race and due to walk back in with the kit. So an idle room counts
+ * its own group back off the live on-track clock — BACK IN 4:12 → RETURNING NOW →
+ * FREE — and only the last of those means "send the next group here". The rules,
+ * the heat-number match that keeps two Mega rooms from both claiming one race, and
+ * every bound live in briefing/room-return.ts (pure, tested).
+ *
+ * THE PREVIEW EXPANDS. A thumbnail tells you a room has filled; it does not tell
+ * you whether the back row has helmets on. The preview (and its ⤢) opens ONE
+ * full-screen viewer at 1600px that keeps ticking at ~1fps, flips between rooms,
+ * and carries Start / Restart — so staff can watch the room and roll the film
+ * without closing it. Esc or the backdrop closes it. While it is open the small
+ * preview stops polling, so we never pull the same camera twice a second.
+ *
  * TWO PHASES PER SEND. Send assigns the room and holds a "take a seat" board;
  * Start rolls the film, because a group still walking over would miss the opening.
  * Undo covers a mis-send, Restart covers latecomers.
@@ -39,6 +66,7 @@
  * briefingTimelineAt — the SAME pure function the TV runs, so desk and wall agree.
  */
 import { useEffect, useRef, useState } from "react";
+import { IconAlertTriangleFilled, IconMaximize, IconX } from "@tabler/icons-react";
 import { useTrackStatus, type CurrentRace, type TrackInfo } from "@/hooks/useTrackStatus";
 import { PORTAL_DARK } from "~/components/features/admin-skin/theme";
 import { briefingTimelineAt, type BriefingTimeline } from "~/features/signage/briefing/phase";
@@ -49,6 +77,16 @@ import {
   type BriefingRoomState,
   type BriefingTier,
 } from "~/features/signage/briefing/types";
+import {
+  liveHeatNumber,
+  roomReturnStateAt,
+  type RoomReturnState,
+} from "~/features/signage/briefing/room-return";
+import {
+  checkinAlert,
+  waitingAlert,
+  type AlertLevel,
+} from "~/features/signage/briefing/desk-alerts";
 import type { BriefingControl, RoomStatus } from "./useBriefingControl";
 import { formatRemaining, useLiveSessionClock } from "~/features/signage/live-session";
 import type { TrackKey } from "~/features/signage/track";
@@ -57,6 +95,11 @@ const ROOM_COLOR: Record<BriefingRoom, string> = { red: "#ff5a52", blue: "#4a9bf
 const MEGA = "#a06bff";
 const GREEN = "#4ade80";
 const AMBER = "#f0b341";
+/** Overdue. Distinct from ROOM_COLOR.red, which means "the Red room" — a warning
+ *  must not be readable as a room's identity colour. Declared up here because
+ *  STYLES interpolates it at module evaluation (a const below would be in its
+ *  temporal dead zone). */
+const DANGER = "#ff4d4f";
 const INK = "#e8eef7";
 
 const PHASE_LABEL: Record<BriefingPhase, string> = {
@@ -85,6 +128,60 @@ const STYLES = `
 }
 @keyframes rcb-spin { to { transform: rotate(360deg); } }
 .rc-num { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+
+/* THE PREVIEW MUST LOOK PRESSABLE STANDING STILL (owner 2026-08-12: "make sure it
+   is shown that it can be clicked"). A hover-only affordance is invisible on a
+   desk touch monitor, and a camera picture otherwise reads as a picture. So,
+   unconditionally: a solid "CLICK TO ENLARGE" pill, a ring around the frame, and a
+   zoom cursor. Hover and press only strengthen what is already there.
+   Both overlays sit INSIDE the frame, never under it — the left column's bottom
+   rail aligns to this frame, so anything below it would break that line. */
+.rc-cam {
+  position: relative; padding: 0; border: 0; background: none; display: block;
+  width: 100%; cursor: zoom-in; text-align: left;
+  transition: box-shadow 120ms ease, transform 60ms ease;
+}
+.rc-cam:focus-visible { outline: 2px solid ${INK}; outline-offset: 3px; }
+.rc-cam-shot {
+  display: block; position: relative; width: 100%; aspect-ratio: 16 / 9;
+  border-radius: 8px; overflow: hidden; background: #05070d;
+  box-shadow: inset 0 0 0 1px rgba(232,238,247,0.16);
+  transition: box-shadow 120ms ease, transform 60ms ease;
+}
+.rc-cam:hover .rc-cam-shot { box-shadow: inset 0 0 0 2px rgba(232,238,247,0.55); }
+.rc-cam:active .rc-cam-shot { transform: translateY(1px); }
+.rc-cam-chip {
+  transition: background 120ms ease, color 120ms ease;
+  background: rgba(8,12,20,0.86); color: ${INK};
+}
+.rc-cam:hover .rc-cam-chip { background: ${INK}; color: #0b1220; }
+.rc-lb { animation: rc-fade 120ms ease-out; }
+@keyframes rc-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* OVERDUE BOXES FLASH (owner 2026-08-12). Animated declarations outrank inline
+   styles in the cascade, which is what lets these own the border and ground of a
+   Panel that sets both inline — no !important, no duplicated palette.
+   ONE BOX AT A TIME, deliberately: the owner asked for "just that box", and a
+   board where the whole screen pulses teaches staff to stop seeing it. 1.1s is
+   slow enough to read the numbers through and fast enough to catch an eye
+   crossing the room. */
+.rc-flash-warn { animation: rc-flash-warn 1.1s ease-in-out infinite; }
+@keyframes rc-flash-warn {
+  0%, 100% { border-color: ${withAlpha(AMBER, 0.45)}; background-color: ${withAlpha(AMBER, 0.06)}; }
+  50%      { border-color: ${AMBER};                   background-color: ${withAlpha(AMBER, 0.22)}; }
+}
+.rc-flash-late { animation: rc-flash-late 0.75s ease-in-out infinite; }
+@keyframes rc-flash-late {
+  0%, 100% { border-color: ${withAlpha(DANGER, 0.5)}; background-color: ${withAlpha(DANGER, 0.08)}; }
+  50%      { border-color: ${DANGER};                 background-color: ${withAlpha(DANGER, 0.26)}; }
+}
+/* A staff alert must not be motion-only anyway: reduced motion keeps the colour
+   and drops the pulse, so the box still reads as overdue. */
+@media (prefers-reduced-motion: reduce) {
+  .rc-flash-warn, .rc-flash-late { animation: none; }
+  .rc-flash-warn { border-color: ${AMBER}; background-color: ${withAlpha(AMBER, 0.18)}; }
+  .rc-flash-late { border-color: ${DANGER}; background-color: ${withAlpha(DANGER, 0.22)}; }
+}
 `;
 
 /** A local 1-second clock, so every readout ticks between 5-second polls. */
@@ -105,6 +202,12 @@ export default function RaceControlPanels({ control }: { control: BriefingContro
   const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
   const rooms: BriefingRoom[] = ["red", "blue"];
   const noVideos = !!board && !board.videos.starter && !board.videos.intermediate;
+
+  // ONE viewer for both rooms, owned here rather than inside a room's panel — two
+  // independent overlays could both be open, stacked on each other, each pulling
+  // its own 1600px frame every second.
+  const expanded = control.expandedRoom;
+  const expandedStatus = expanded ? (board?.rooms.find((r) => r.room === expanded) ?? null) : null;
 
   return (
     <section
@@ -211,10 +314,16 @@ export default function RaceControlPanels({ control }: { control: BriefingContro
                 )?.room ?? null
               }
               nowMs={nowMs}
+              // 0 until the first poll lands — checkinAlert reads that as "no
+              // deadline known", so a board still connecting never flashes at a
+              // window it is guessing at.
+              checkinWindowMins={board?.checkinWindowMins?.[track] ?? 0}
               tierOverride={control.tierOverride[room] ?? null}
               onTierOverride={(tier) => control.setTierOverride(room, tier)}
               locked={board?.enabled === false}
               pending={pending}
+              cameraExpanded={expanded === room}
+              onExpandCamera={() => control.setExpandedRoom(room)}
               onSend={() =>
                 control.send({
                   room,
@@ -231,30 +340,89 @@ export default function RaceControlPanels({ control }: { control: BriefingContro
         })}
       </div>
 
-      {(board?.assignments.length ?? 0) > 0 && (
+      {/* TODAY'S BRIEFING LOG — the durable record, on screen.
+          Was "Sent today", a list of send times read from the assignment rows.
+          It now reads the Neon event log (owner 2026-08-12: "for insurance
+          purposes, record when each session is briefed and the time they're in
+          the room"), so each line carries what was actually recorded: in at, the
+          film, whether it finished, and how long the room was theirs. Shown
+          because a record nobody can see is a record nobody notices has stopped
+          being written — this strip is the daily proof it is landing. */}
+      {(board?.briefings.length ?? 0) > 0 && (
         <details style={{ marginTop: 10, flexShrink: 0 }}>
           <summary style={{ cursor: "pointer", fontSize: 11, color: PORTAL_DARK.muted }}>
-            Sent today ({board?.assignments.length})
+            Briefing log — today ({board?.briefings.length})
           </summary>
           <div style={{ marginTop: 6, display: "grid", gap: 2 }}>
-            {board?.assignments.slice(0, 10).map((a) => (
+            <div
+              style={{
+                display: "flex",
+                gap: 10,
+                fontSize: 9,
+                fontWeight: 800,
+                letterSpacing: "0.08em",
+                color: PORTAL_DARK.muted,
+                textTransform: "uppercase",
+              }}
+            >
+              <span style={{ minWidth: 38 }}>Room</span>
+              <span style={{ minWidth: 88 }}>Session</span>
+              <span style={{ minWidth: 96 }}>Film</span>
+              <span style={{ minWidth: 76 }}>In at</span>
+              <span style={{ minWidth: 76 }}>Started</span>
+              <span style={{ marginLeft: "auto" }}>In room</span>
+            </div>
+            {board?.briefings.slice(0, 12).map((b) => (
               <div
-                key={a.id}
+                key={`${b.room}:${b.sessionId}`}
                 className="rc-num"
                 style={{ display: "flex", gap: 10, fontSize: 11, color: PORTAL_DARK.muted }}
               >
-                <span style={{ color: ROOM_COLOR[a.room], fontWeight: 800, minWidth: 38 }}>
-                  {a.room.toUpperCase()}
+                <span style={{ color: ROOM_COLOR[b.room], fontWeight: 800, minWidth: 38 }}>
+                  {b.room.toUpperCase()}
                 </span>
-                <span style={{ minWidth: 90 }}>
-                  {a.mode === "quals-only" ? "Levelled-up" : `Session ${a.heatNumber ?? "?"}`}
+                <span style={{ minWidth: 88, color: INK }}>
+                  {b.heatNumber != null ? `Session ${b.heatNumber}` : "—"}
                 </span>
-                <span style={{ minWidth: 90 }}>{a.raceType ?? ""}</span>
-                <span style={{ marginLeft: "auto" }}>{clockTime(a.sentAt)}</span>
+                {/* The film question, answered per group: which tier, and did it
+                    run to the end. "Never started" is the line a claim turns on,
+                    so it is amber rather than another grey cell. */}
+                <span
+                  style={{
+                    minWidth: 96,
+                    color: b.startedAtMs == null ? AMBER : b.filmCompleted ? GREEN : AMBER,
+                  }}
+                >
+                  {b.startedAtMs == null
+                    ? "never started"
+                    : `${b.tier ?? "film"}${b.filmCompleted ? " ✓" : " · cut off"}`}
+                  {b.restarts > 0 ? ` ·${b.restarts + 1}×` : ""}
+                </span>
+                <span style={{ minWidth: 76 }}>{clockTimeMs(b.sentAtMs)}</span>
+                <span style={{ minWidth: 76 }}>
+                  {b.startedAtMs != null ? clockTimeMs(b.startedAtMs) : "—"}
+                </span>
+                <span style={{ marginLeft: "auto", color: b.inRoomMs != null ? INK : AMBER }}>
+                  {b.inRoomMs != null ? formatClock(b.inRoomMs) : "in there now"}
+                </span>
               </div>
             ))}
           </div>
         </details>
+      )}
+
+      {expanded && (
+        <CameraLightbox
+          room={expanded}
+          track={megaEnabled ? "mega" : expanded}
+          state={expandedStatus?.state ?? null}
+          nowMs={nowMs}
+          locked={board?.enabled === false}
+          pending={pending}
+          onStart={(restart) => control.start(expanded, { restart })}
+          onSwitch={(next) => control.setExpandedRoom(next)}
+          onClose={() => control.setExpandedRoom(null)}
+        />
       )}
     </section>
   );
@@ -270,11 +438,14 @@ function RoomColumn({
   status,
   proFilmMissing,
   nowMs,
+  checkinWindowMins,
   sentTo,
   tierOverride,
   onTierOverride,
   locked,
   pending,
+  cameraExpanded,
+  onExpandCamera,
   onSend,
   onStart,
   onUndo,
@@ -287,12 +458,19 @@ function RoomColumn({
   /** No Pro film uploaded — a Pro pick will play the Intermediate film. */
   proFilmMissing: boolean;
   nowMs: number;
+  /** This track's check-in window, from the track board's own config. 0 = not
+   *  known yet (or the countdown is off), which raises no alert. */
+  checkinWindowMins: number;
   /** Which room this called session already went to, if any. */
   sentTo: BriefingRoom | null;
   tierOverride: BriefingTier | null;
   onTierOverride: (tier: BriefingTier | null) => void;
   locked: boolean;
   pending: string | null;
+  /** This room's camera is open in the full-screen viewer — the small preview
+   *  stops pulling frames while it is. */
+  cameraExpanded: boolean;
+  onExpandCamera: () => void;
   onSend: () => void;
   onStart: (restart: boolean) => void;
   onUndo: () => void;
@@ -305,6 +483,23 @@ function RoomColumn({
   const state = status?.state ?? null;
   const timeline = briefingTimelineAt(state, nowMs);
   const occupied = timeline.phase !== "idle";
+  /**
+   * AN IDLE ROOM IS NOT NECESSARILY A FREE ROOM — its group may still be on track,
+   * due to walk back in with the kit (owner 2026-08-12). Same live clock the
+   * identity row above already shows, matched to the room's own group by heat
+   * number; every rule and bound is in room-return.ts.
+   */
+  const returning = roomReturnStateAt({
+    group: status?.groupOut ?? null,
+    liveHeat: liveClock
+      ? { heatNumber: liveHeatNumber(liveClock.heatName), remainingMs: liveClock.remainingMs }
+      : null,
+    // `track` is already "mega" on a Mega day (the parent resolves it), which is
+    // exactly the "two rooms, one circuit" condition the matcher guards.
+    megaDay: track === "mega",
+    nowMs,
+  });
+  const idleBadge = idleBadgeFor(returning, color);
   const autoTier = tierForRaceType(race?.raceType);
   const tier = tierOverride ?? autoTier;
   // The desk says what will REALLY play before the send: a Pro pick with no Pro
@@ -316,6 +511,30 @@ function RoomColumn({
   const calledMs = race?.calledAt ? Date.parse(race.calledAt) : NaN;
   const checkingInMs = Number.isFinite(calledMs) ? Math.max(0, nowMs - calledMs) : null;
   const delayMins = delay?.delayMinutes ?? null;
+
+  /**
+   * THE TWO DEADLINES THIS PANEL IS RESPONSIBLE FOR (owner 2026-08-12).
+   *
+   * Called: the check-in window the TRACK BOARD is counting a racer down against —
+   * amber through its last minute, red once it has passed. Only while the heat is
+   * still waiting to be sent; once it is in a room it has checked in, and a
+   * deadline it has already met must not keep flashing.
+   *
+   * In the room: how long a group has been sitting in front of a "take a seat"
+   * board with nobody pressing Start — amber past 3 minutes, red past 5.
+   */
+  const calledAlert =
+    race && !sentTo && checkingInMs != null
+      ? checkinAlert(checkingInMs, checkinWindowMins)
+      : "none";
+  /** Time left in the check-in window; negative once it has passed. Null when no
+   *  window is known, which is also when no alert can fire. */
+  const checkinRemainingMs =
+    checkinWindowMins > 0 && checkingInMs != null
+      ? checkinWindowMins * 60_000 - checkingInMs
+      : null;
+  const waitingMs = state ? Math.max(0, nowMs - state.triggeredAtMs) : 0;
+  const roomAlert = timeline.phase === "waiting" ? waitingAlert(waitingMs) : "none";
 
   return (
     <div
@@ -364,7 +583,7 @@ function RoomColumn({
       </div>
 
       {/* ── CALLED ── */}
-      <Panel label="Called" flat>
+      <Panel label="Called" flat alert={calledAlert}>
         {race && !sentTo ? (
           <>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
@@ -381,10 +600,21 @@ function RoomColumn({
               </div>
 
               {/* The two numbers that matter before a send. */}
+              {/* Still the ELAPSED number the board is built around, but its unit
+                  line names the deadline once that deadline is close — the desk
+                  should not have to do the subtraction in its head to know how
+                  long a heat has left. */}
               <Stat
                 label="Checking in"
                 value={checkingInMs != null ? formatClock(checkingInMs) : "—"}
-                unit="since called"
+                unit={
+                  calledAlert === "late"
+                    ? `${formatClock(Math.abs(checkinRemainingMs ?? 0))} past the window`
+                    : calledAlert === "warn"
+                      ? `window closes in ${formatClock(checkinRemainingMs ?? 0)}`
+                      : "since called"
+                }
+                tone={calledAlert === "late" ? DANGER : calledAlert === "warn" ? AMBER : undefined}
               />
               <Stat
                 label="Track delay"
@@ -484,9 +714,17 @@ function RoomColumn({
       <Panel
         label="In the room"
         grow
-        accent={occupied ? phaseColor(timeline.phase, color) : undefined}
+        alert={roomAlert}
+        accent={
+          occupied
+            ? phaseColor(timeline.phase, color)
+            : // A room waiting on its group is not a neutral room — the border
+              // carries the warning too, so it reads from across the desk.
+              (idleBadge.accent ?? undefined)
+        }
         badge={
           <span
+            className="rc-num"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -494,7 +732,7 @@ function RoomColumn({
               fontSize: 10,
               fontWeight: 800,
               letterSpacing: "0.05em",
-              color: occupied ? phaseColor(timeline.phase, color) : PORTAL_DARK.muted,
+              color: occupied ? phaseColor(timeline.phase, color) : idleBadge.tone,
             }}
           >
             <span
@@ -503,10 +741,10 @@ function RoomColumn({
                 width: 7,
                 height: 7,
                 borderRadius: "50%",
-                background: phaseColor(timeline.phase, color),
+                background: occupied ? phaseColor(timeline.phase, color) : idleBadge.tone,
               }}
             />
-            {PHASE_LABEL[timeline.phase].toUpperCase()}
+            {occupied ? PHASE_LABEL[timeline.phase].toUpperCase() : idleBadge.label}
           </span>
         }
       >
@@ -518,6 +756,10 @@ function RoomColumn({
           nowMs={nowMs}
           locked={locked}
           pending={pending}
+          cameraExpanded={cameraExpanded}
+          onExpandCamera={onExpandCamera}
+          returning={returning}
+          alert={roomAlert}
           onStart={onStart}
           onUndo={onUndo}
         />
@@ -536,6 +778,10 @@ function InRoom({
   nowMs,
   locked,
   pending,
+  cameraExpanded,
+  onExpandCamera,
+  returning,
+  alert,
   onStart,
   onUndo,
 }: {
@@ -546,6 +792,13 @@ function InRoom({
   nowMs: number;
   locked: boolean;
   pending: string | null;
+  cameraExpanded: boolean;
+  onExpandCamera: () => void;
+  /** Whether the room's last group is still out — only consulted while idle. */
+  returning: RoomReturnState;
+  /** How overdue the wait for Start is — the box is already flashing, so the
+   *  number itself follows rather than staying a calm amber under a red border. */
+  alert: AlertLevel;
   onStart: (restart: boolean) => void;
   onUndo: () => void;
 }) {
@@ -556,173 +809,358 @@ function InRoom({
   const waitingMs = state ? Math.max(0, nowMs - state.triggeredAtMs) : 0;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0 }}>
-      {/* The live room (owner: "camera view on the in-room section"). Shown in
-          every phase — including idle, so staff can watch the room fill before a
-          send — backed by the same frame proxy the TV boards use. */}
-      <RoomCamera room={room} />
-      {phase === "idle" ? (
-        <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
-          Empty — the TV is showing helmet sizes.
-        </p>
-      ) : (
-        <>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-            <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color: INK }}>
-              {state?.heatNumber != null ? `Session ${state.heatNumber}` : "Briefing"}
-            </span>
-            {state?.raceType && (
-              <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{state.raceType}</span>
-            )}
-            {state?.tier && (
-              <span style={{ fontSize: 11, color: PORTAL_DARK.muted }}>· {state.tier} film</span>
-            )}
-          </div>
-
-          {phase === "waiting" && (
+    // THE ROW IS AS TALL AS THE PICTURE, NOT AS TALL AS THE PANEL. The panel grows
+    // to fill the board's height, so a row that grew with it stretched the left
+    // column past the camera and left the bottom rail aligned to a panel edge
+    // instead of the video (owner 2026-08-12: "so it looks even"). This wrapper
+    // takes the growth; the row inside keeps its content height, and stretch then
+    // means "as tall as the taller column" — the camera, normally.
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 16,
+          flexShrink: 0,
+          // Wraps to stacked when the panel is too narrow for both halves — a
+          // squeezed 40px timer is worse than a camera under it.
+          flexWrap: "wrap",
+          alignItems: "stretch",
+        }}
+      >
+        {/* LEFT — the session and the clocks. The reason the board exists. */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+            flex: "1 1 280px",
+            minWidth: 240,
+          }}
+        >
+          {phase === "idle" ? (
+            <IdleBody returning={returning} color={color} />
+          ) : (
             <>
-              <Stat
-                label="Waiting"
-                value={formatClock(waitingMs)}
-                unit="since sent"
-                tone={AMBER}
-                big
-              />
-              <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
-                TV is holding a &ldquo;take a seat&rdquo; board.
-                {!state?.videoUrl && " No film for this tier — Start skips to helmet sizes."}
-              </p>
-              <div style={{ display: "flex", gap: 8, marginTop: "auto", alignItems: "center" }}>
-                <ActionButton
-                  tone={GREEN}
-                  textColor="#052e14"
-                  size="lg"
-                  pendingKey={`start:${room}`}
-                  pending={pending}
-                  disabled={locked}
-                  pendingLabel="Starting…"
-                  onClick={() => onStart(false)}
-                >
-                  ▶ Start video
-                </ActionButton>
-                <ActionButton
-                  size="sm"
-                  pendingKey={`clear:${room}`}
-                  pending={pending}
-                  disabled={locked}
-                  pendingLabel="Undoing…"
-                  onClick={() => {
-                    if (window.confirm(`Undo the send to the ${room} room?`)) onUndo();
-                  }}
-                >
-                  Undo
-                </ActionButton>
-              </div>
-            </>
-          )}
-
-          {running && (
-            <>
-              {/* THE TIMING ROW. */}
-              <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
-                {phase === "video" ? (
-                  <>
-                    <Stat
-                      label="Elapsed"
-                      value={formatClock(timeline.videoOffsetMs)}
-                      unit={`of ${formatClock(timeline.videoMs)}`}
-                      big
-                    />
-                    <Stat
-                      label="Left"
-                      value={timeline.nextInMs != null ? formatClock(timeline.nextInMs) : "—"}
-                      unit="of the film"
-                      big
-                      tone={color}
-                    />
-                  </>
-                ) : (
-                  <Stat
-                    label="Left"
-                    value={timeline.nextInMs != null ? formatClock(timeline.nextInMs) : "—"}
-                    unit="until the room is free"
-                    big
-                    tone={color}
-                  />
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color: INK }}>
+                  {state?.heatNumber != null ? `Session ${state.heatNumber}` : "Briefing"}
+                </span>
+                {state?.raceType && (
+                  <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{state.raceType}</span>
+                )}
+                {state?.tier && (
+                  <span style={{ fontSize: 11, color: PORTAL_DARK.muted }}>
+                    · {state.tier} film
+                  </span>
                 )}
               </div>
 
-              {phase === "video" && timeline.videoMs > 0 && (
-                <div>
-                  <div
-                    style={{
-                      height: 6,
-                      borderRadius: 999,
-                      background: "rgba(255,255,255,0.09)",
-                      overflow: "hidden",
-                    }}
-                    role="progressbar"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.round(pct)}
-                    aria-label="Briefing video progress"
-                  >
-                    <div
-                      style={{
-                        width: `${pct}%`,
-                        height: "100%",
-                        background: color,
-                        transition: "width 1s linear",
+              {phase === "waiting" && (
+                <>
+                  <Stat
+                    label="Waiting"
+                    value={formatClock(waitingMs)}
+                    unit={
+                      alert === "late"
+                        ? "since sent — start it now"
+                        : alert === "warn"
+                          ? "since sent — running long"
+                          : "since sent"
+                    }
+                    tone={alert === "late" ? DANGER : AMBER}
+                    big
+                  />
+                  <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
+                    TV is holding a &ldquo;take a seat&rdquo; board.
+                    {!state?.videoUrl && " No film for this tier — Start skips to helmet sizes."}
+                  </p>
+                  <div style={{ display: "flex", gap: 8, marginTop: "auto", alignItems: "center" }}>
+                    <ActionButton
+                      tone={GREEN}
+                      textColor="#052e14"
+                      size="lg"
+                      pendingKey={`start:${room}`}
+                      pending={pending}
+                      disabled={locked}
+                      pendingLabel="Starting…"
+                      onClick={() => onStart(false)}
+                    >
+                      ▶ Start video
+                    </ActionButton>
+                    <ActionButton
+                      size="sm"
+                      pendingKey={`clear:${room}`}
+                      pending={pending}
+                      disabled={locked}
+                      pendingLabel="Undoing…"
+                      onClick={() => {
+                        if (window.confirm(`Undo the send to the ${room} room?`)) onUndo();
                       }}
-                    />
+                    >
+                      Undo
+                    </ActionButton>
                   </div>
-                  <div
-                    className="rc-num"
-                    style={{ fontSize: 10, color: PORTAL_DARK.muted, marginTop: 4 }}
-                  >
-                    {Math.round(pct)}% · then helmet sizes, then free
-                  </div>
-                </div>
+                </>
               )}
 
-              <div style={{ marginTop: "auto" }}>
-                <ActionButton
-                  size="sm"
-                  tone={color}
-                  pendingKey={`restart:${room}`}
-                  pending={pending}
-                  disabled={locked}
-                  pendingLabel="Restarting…"
-                  onClick={() => onStart(true)}
-                  title="Play from the top — latecomers, or a second showing"
-                >
-                  ⟲ Restart video
-                </ActionButton>
-              </div>
+              {running && (
+                <>
+                  {/* THE TIMING ROW. */}
+                  <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
+                    {phase === "video" ? (
+                      <>
+                        <Stat
+                          label="Elapsed"
+                          value={formatClock(timeline.videoOffsetMs)}
+                          unit={`of ${formatClock(timeline.videoMs)}`}
+                          big
+                        />
+                        <Stat
+                          label="Left"
+                          value={timeline.nextInMs != null ? formatClock(timeline.nextInMs) : "—"}
+                          unit="of the film"
+                          big
+                          tone={color}
+                        />
+                      </>
+                    ) : (
+                      <Stat
+                        label="Left"
+                        value={timeline.nextInMs != null ? formatClock(timeline.nextInMs) : "—"}
+                        unit="until the room is free"
+                        big
+                        tone={color}
+                      />
+                    )}
+                  </div>
+
+                  {/* THE BOTTOM RAIL, flush with the bottom of the camera frame
+                    (owner 2026-08-12: "status bar should align to bottom of video
+                    so it looks even"). Progress, its caption and Restart are ONE
+                    bottom-anchored block rather than three things drifting up the
+                    column: the row is only ever as tall as the picture, so a lone
+                    `marginTop: auto` on the button left the bar floating in the
+                    middle with a gap under it. */}
+                  <div
+                    style={{
+                      marginTop: "auto",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
+                    }}
+                  >
+                    {phase === "video" && timeline.videoMs > 0 && (
+                      <div
+                        style={{
+                          height: 6,
+                          borderRadius: 999,
+                          background: "rgba(255,255,255,0.09)",
+                          overflow: "hidden",
+                        }}
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={Math.round(pct)}
+                        aria-label="Briefing video progress"
+                      >
+                        <div
+                          style={{
+                            width: `${pct}%`,
+                            height: "100%",
+                            background: color,
+                            transition: "width 1s linear",
+                          }}
+                        />
+                      </div>
+                    )}
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      {phase === "video" && timeline.videoMs > 0 && (
+                        <span className="rc-num" style={{ fontSize: 10, color: PORTAL_DARK.muted }}>
+                          {Math.round(pct)}% · then helmet sizes, then free
+                        </span>
+                      )}
+                      <span style={{ marginLeft: "auto" }}>
+                        <ActionButton
+                          size="sm"
+                          tone={color}
+                          pendingKey={`restart:${room}`}
+                          pending={pending}
+                          disabled={locked}
+                          pendingLabel="Restarting…"
+                          onClick={() => onStart(true)}
+                          title="Play from the top — latecomers, or a second showing"
+                        >
+                          ⟲ Restart video
+                        </ActionButton>
+                      </span>
+                    </div>
+                  </div>
+                </>
+              )}
             </>
           )}
-        </>
+        </div>
+
+        {/* RIGHT — the live room (owner: "camera view on the in-room section").
+            Shown in every phase, idle included, so staff can watch a room fill
+            before the send; backed by the same frame proxy the TV boards use. */}
+        <div style={{ flex: "1 1 300px", minWidth: 200 }}>
+          <RoomCamera room={room} paused={cameraExpanded} onExpand={onExpandCamera} />
+        </div>
+      </div>
+
+      {/* THE DIAGNOSIS, ACROSS THE BOTTOM OF THE BOX (owner 2026-08-12: "add text
+          at the bottom — video never started for session #"). A flashing border
+          says something is wrong; this says WHAT, and about WHICH session, so a
+          manager walking past the desk needs no interpretation. It names the
+          session because at 5 minutes overdue the group in the room and the group
+          on the board are not always the same thought. */}
+      {alert !== "none" && (
+        <div
+          style={{
+            marginTop: "auto",
+            paddingTop: 12,
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
+            fontSize: 14,
+            fontWeight: 800,
+            letterSpacing: "0.01em",
+            color: alert === "late" ? DANGER : AMBER,
+          }}
+        >
+          <IconAlertTriangleFilled size={16} aria-hidden />
+          {alert === "late" ? "Video never started for " : "Video not started yet for "}
+          {state?.heatNumber != null ? `Session ${state.heatNumber}` : "this group"}
+        </div>
       )}
     </div>
   );
 }
 
+/* ── an empty room, and whether it is really empty ────────────────────── */
+
 /**
- * The live briefing-room camera, small, on the desk board (owner: "camera view on
- * the in-room section"). Same ~1fps still-refresh and the same /api/tv/camera
- * proxy the TV boards use, addressed by room. Double-buffered so it never blanks
- * between frames; greys out and says so if the feed drops.
+ * The idle badge — the one that used to just say FREE.
+ *
+ * FREE IS NOW A CLAIM THE BOARD HAS TO EARN (owner 2026-08-12: "Free might not be
+ * the right word here… it can say free about 1 minute after the race has
+ * finished"). A room whose group is out on track has that group's return time on
+ * it instead, counted off the live on-track clock; the words only fall back to
+ * FREE once room-return.ts can say nobody is outstanding.
  */
-function RoomCamera({ room }: { room: BriefingRoom }) {
+function idleBadgeFor(
+  returning: RoomReturnState,
+  color: string,
+): { label: string; tone: string; accent?: string } {
+  switch (returning.kind) {
+    case "racing":
+      return { label: `BACK IN ${formatClock(returning.remainingMs)}`, tone: AMBER, accent: AMBER };
+    case "on-grid":
+      return { label: "OUT ON TRACK", tone: AMBER, accent: AMBER };
+    case "returning":
+      return { label: "RETURNING NOW", tone: color, accent: color };
+    default:
+      return { label: "FREE", tone: PORTAL_DARK.muted };
+  }
+}
+
+/**
+ * What an idle room's left column says. Three of the four states are "this room is
+ * spoken for", and each one names the session — a bare "out on track" would leave
+ * staff checking the send log to find out whose kit is about to arrive.
+ */
+function IdleBody({ returning, color }: { returning: RoomReturnState; color: string }) {
+  const session = (heat: number | null) => (heat != null ? `Session ${heat}` : "The last group");
+
+  if (returning.kind === "racing") {
+    return (
+      <>
+        <Stat
+          label="Back in"
+          value={formatClock(returning.remainingMs)}
+          unit={`${session(returning.heatNumber).toLowerCase()} on track`}
+          tone={AMBER}
+          big
+        />
+        <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
+          Helmet sizes are up, but this room is spoken for — they come back here to hand kit in.
+        </p>
+      </>
+    );
+  }
+
+  if (returning.kind === "on-grid") {
+    return (
+      <>
+        <div style={{ fontSize: 15, fontWeight: 800, color: AMBER }}>
+          {session(returning.heatNumber)} is out on track
+        </div>
+        <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
+          Waiting on the flag — no clock on this track yet. They return here afterwards.
+        </p>
+      </>
+    );
+  }
+
+  if (returning.kind === "returning") {
+    return (
+      <>
+        <Stat
+          label="Returning"
+          value="Now"
+          unit={`${session(returning.heatNumber).toLowerCase()} · kit return`}
+          tone={color}
+          big
+        />
+        <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
+          Race finished {formatClock(returning.sinceEndMs)} ago — the TV is on the welcome-back
+          board.
+        </p>
+      </>
+    );
+  }
+
+  return (
+    <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
+      Empty — the TV is showing helmet sizes.
+    </p>
+  );
+}
+
+/* ── the camera ───────────────────────────────────────────────────────── */
+
+/**
+ * A briefing-room camera as a ~1fps still-refresh, from the same /api/tv/camera
+ * proxy the TV boards use, addressed by ROOM (the server maps the room to one
+ * allowlisted device — the client never names a camera).
+ *
+ * DOUBLE-BUFFERED: each frame is decoded off-screen and only swapped in on load,
+ * so the picture never blanks between pulls. A run of failures greys the last good
+ * frame and says so, rather than showing a broken-image icon.
+ *
+ * `enabled` exists so the small preview can stand down while the full-screen
+ * viewer has the same room open. The proxy's frame cache is keyed by device AND
+ * size, so two pollers at two sizes are two upstream pulls a second at the camera.
+ */
+function useCameraFrame(room: BriefingRoom, width: number, enabled: boolean) {
   const [src, setSrc] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
   const lastOkRef = useRef(0);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = () => {
-      const url = `/api/tv/camera?room=${room}&w=640&t=${Date.now()}`;
+      const url = `/api/tv/camera?room=${room}&w=${width}&t=${Date.now()}`;
       const img = new Image();
       img.onload = () => {
         if (cancelled) return;
@@ -743,55 +1181,434 @@ function RoomCamera({ room }: { room: BriefingRoom }) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [room]);
+  }, [room, width, enabled]);
+
+  return { src, offline };
+}
+
+/** The frame itself — shared by the preview and the viewer so they can never
+ *  disagree about what "offline" or "connecting" looks like. */
+function CameraFrame({
+  src,
+  offline,
+  alt,
+  connectingSize,
+}: {
+  src: string | null;
+  offline: boolean;
+  alt: string;
+  connectingSize: number;
+}) {
+  if (!src) {
+    // A span, not a div: this renders inside the preview BUTTON, and a button may
+    // only contain phrasing content.
+    return (
+      <span
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: connectingSize,
+          color: PORTAL_DARK.muted,
+        }}
+      >
+        Connecting to camera…
+      </span>
+    );
+  }
+  return (
+    // A live proxied frame with a cache-busting query, not a static asset
+    // next/image can optimize.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={alt}
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        objectFit: "contain",
+        filter: offline ? "grayscale(0.6) brightness(0.6)" : "none",
+      }}
+    />
+  );
+}
+
+/**
+ * The small in-panel preview. It is a BUTTON, not a picture: the whole frame opens
+ * the viewer, because 300px of fisheye is enough to see that a room has people in
+ * it and not enough to see anything about them.
+ *
+ * AND IT SAYS SO WITHOUT BEING TOUCHED — pill on the frame, caption under it, ring
+ * around it. See the .rc-cam rules; the desk monitor is a touch screen with no
+ * hover, so nothing about "you can click this" may depend on a pointer.
+ */
+function RoomCamera({
+  room,
+  paused,
+  onExpand,
+}: {
+  room: BriefingRoom;
+  /** Viewer has this room open — hold the last frame, stop pulling. */
+  paused: boolean;
+  onExpand: () => void;
+}) {
+  const { src, offline } = useCameraFrame(room, 640, !paused);
+
+  return (
+    <button
+      type="button"
+      className="rc-cam"
+      onClick={onExpand}
+      title={`Enlarge the ${room} room camera`}
+      aria-label={`Enlarge the ${room} room camera`}
+    >
+      <span className="rc-cam-shot">
+        <CameraFrame
+          src={src}
+          offline={offline}
+          alt={`${room} briefing room`}
+          connectingSize={11}
+        />
+        <span
+          className="rc-cam-chip"
+          aria-hidden
+          style={{
+            position: "absolute",
+            top: 7,
+            right: 7,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "4px 9px",
+            borderRadius: 999,
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: "0.06em",
+          }}
+        >
+          <IconMaximize size={12} stroke={2.6} />
+          CLICK TO ENLARGE
+        </span>
+        {/* Liveness bottom-left, INSIDE the frame. It used to be a caption under
+            the picture, which made the camera column taller than the picture and
+            left the left-hand column's bottom rail aligned to nothing (owner
+            2026-08-12: "so it looks even"). On the frame, the column's height IS
+            the frame's height. */}
+        <span
+          className="rc-cam-live"
+          style={{
+            position: "absolute",
+            bottom: 7,
+            left: 8,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "3px 8px",
+            borderRadius: 999,
+            background: "rgba(8,12,20,0.78)",
+            fontSize: 9,
+            fontWeight: 800,
+            letterSpacing: "0.06em",
+            color: offline ? AMBER : PORTAL_DARK.muted,
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: offline ? AMBER : GREEN,
+            }}
+          />
+          {offline ? "RECONNECTING…" : paused ? "IN THE VIEWER" : `LIVE · ${room.toUpperCase()}`}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/**
+ * The full-screen camera viewer (owner 2026-08-12: "need the ability to expand the
+ * camera view to popup and see more").
+ *
+ * IT IS NOT JUST A BIGGER PICTURE. Staff expand the camera to answer a question
+ * they are about to act on — is everyone seated, do they all have helmets — so the
+ * viewer carries the phase, the clocks and the Start / Restart button. Closing it
+ * to press a button on the panel behind it would defeat the point.
+ *
+ * ONE OVERLAY, EITHER ROOM: the header switches rooms in place, so a desk with one
+ * monitor can watch Red then Blue without reopening anything.
+ *
+ * Esc, the ✕, and the backdrop all close it. The picture is capped by both axes so
+ * a fisheye is never cropped and never overflows a short monitor.
+ */
+function CameraLightbox({
+  room,
+  track,
+  state,
+  nowMs,
+  locked,
+  pending,
+  onStart,
+  onSwitch,
+  onClose,
+}: {
+  room: BriefingRoom;
+  track: string;
+  state: BriefingRoomState | null;
+  nowMs: number;
+  locked: boolean;
+  pending: string | null;
+  onStart: (restart: boolean) => void;
+  onSwitch: (room: BriefingRoom) => void;
+  onClose: () => void;
+}) {
+  const { src, offline } = useCameraFrame(room, 1600, true);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const color = ROOM_COLOR[room];
+  const timeline = briefingTimelineAt(state, nowMs);
+  const phase = timeline.phase;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    closeRef.current?.focus();
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   return (
     <div
+      className="rc-lb"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${cap(room)} room camera`}
       style={{
-        position: "relative",
-        width: "100%",
-        height: 200,
-        borderRadius: 8,
-        overflow: "hidden",
-        background: "#05070d",
-        border: `1px solid ${PORTAL_DARK.border}`,
-        flexShrink: 0,
+        position: "fixed",
+        inset: 0,
+        zIndex: 90,
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+        padding: "14px 18px 18px",
       }}
     >
-      {src ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={src}
-          alt={`${room} briefing room`}
+      {/* THE BACKDROP IS A REAL BUTTON, UNDERNEATH. The obvious spelling — onClick
+          on the overlay, stopPropagation on every child — is a click handler on a
+          non-interactive div that no keyboard can reach, and it makes each control
+          responsible for not closing the thing it sits in. One button behind the
+          content closes on backdrop clicks, answers Enter/Space for free, and
+          leaves the children with nothing to guard against. */}
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close camera viewer"
+        style={{
+          position: "absolute",
+          inset: 0,
+          border: 0,
+          background: "rgba(3,6,12,0.93)",
+          cursor: "default",
+        }}
+      />
+
+      <div
+        style={{
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+          gap: 14,
+          flexWrap: "wrap",
+          flexShrink: 0,
+        }}
+      >
+        <strong style={{ fontSize: 18, color, letterSpacing: "0.02em" }}>
+          {cap(room).toUpperCase()} ROOM
+        </strong>
+        <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{cap(track)} Track</span>
+        <span
           style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "contain",
-            filter: offline ? "grayscale(0.6) brightness(0.6)" : "none",
-          }}
-        />
-      ) : (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
+            display: "inline-flex",
             alignItems: "center",
-            justifyContent: "center",
+            gap: 6,
             fontSize: 11,
-            color: PORTAL_DARK.muted,
+            fontWeight: 800,
+            letterSpacing: "0.05em",
+            color: phase === "idle" ? PORTAL_DARK.muted : phaseColor(phase, color),
           }}
         >
-          Connecting to camera…
-        </div>
-      )}
-      {offline && (
-        <span style={{ position: "absolute", bottom: 6, left: 8, fontSize: 10, color: AMBER }}>
-          Reconnecting…
+          <span
+            aria-hidden
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: phaseColor(phase, color),
+            }}
+          />
+          {PHASE_LABEL[phase].toUpperCase()}
         </span>
-      )}
+
+        {/* Either room, without reopening. */}
+        <span style={{ display: "inline-flex", gap: 6, marginLeft: 6 }}>
+          {(["red", "blue"] as BriefingRoom[]).map((r) => (
+            <button
+              key={r}
+              type="button"
+              className="rcb"
+              onClick={() => onSwitch(r)}
+              aria-pressed={r === room}
+              style={{
+                padding: "5px 12px",
+                borderRadius: 5,
+                fontSize: 11,
+                borderColor: r === room ? withAlpha(ROOM_COLOR[r], 0.85) : PORTAL_DARK.border,
+                background: r === room ? withAlpha(ROOM_COLOR[r], 0.18) : "transparent",
+                color: r === room ? INK : PORTAL_DARK.muted,
+              }}
+            >
+              {cap(r)}
+            </button>
+          ))}
+        </span>
+
+        <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 12 }}>
+          {offline && <span style={{ fontSize: 12, color: AMBER }}>Reconnecting…</span>}
+          <button
+            ref={closeRef}
+            type="button"
+            className="rcb"
+            onClick={onClose}
+            title="Close (Esc)"
+            aria-label="Close camera viewer"
+            style={{
+              padding: "6px 12px",
+              borderRadius: 6,
+              fontSize: 12,
+              borderColor: PORTAL_DARK.border,
+              background: "transparent",
+              color: PORTAL_DARK.fg,
+            }}
+          >
+            <IconX size={14} stroke={2.4} />
+            Close
+          </button>
+        </span>
+      </div>
+
+      {/* The picture. Capped on both axes by the flex row, so a fisheye is never
+          cropped and never overflows a short monitor. */}
+      <div
+        style={{
+          position: "relative",
+          flex: 1,
+          minHeight: 0,
+          borderRadius: 10,
+          overflow: "hidden",
+          background: "#05070d",
+          border: `1px solid ${withAlpha(color, 0.3)}`,
+        }}
+      >
+        <CameraFrame
+          src={src}
+          offline={offline}
+          alt={`${room} briefing room, enlarged`}
+          connectingSize={18}
+        />
+      </div>
+
+      {/* The clocks and the one action worth having here. */}
+      <div
+        style={{
+          position: "relative",
+          display: "flex",
+          alignItems: "flex-end",
+          gap: 24,
+          flexWrap: "wrap",
+          flexShrink: 0,
+          minHeight: 62,
+        }}
+      >
+        {phase === "idle" ? (
+          <span style={{ fontSize: 14, color: PORTAL_DARK.muted }}>
+            Nothing in this room — the TV is showing helmet sizes.
+          </span>
+        ) : (
+          <>
+            <div>
+              <div className="rc-num" style={{ fontSize: 22, fontWeight: 800, color: INK }}>
+                {state?.heatNumber != null ? `Session ${state.heatNumber}` : "Briefing"}
+              </div>
+              <div style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
+                {state?.raceType ?? ""}
+                {state?.tier ? ` · ${state.tier} film` : ""}
+              </div>
+            </div>
+            {phase === "waiting" ? (
+              <Stat
+                label="Waiting"
+                value={formatClock(Math.max(0, nowMs - (state?.triggeredAtMs ?? nowMs)))}
+                unit="since sent"
+                tone={AMBER}
+                big
+              />
+            ) : (
+              <>
+                {phase === "video" && (
+                  <Stat
+                    label="Elapsed"
+                    value={formatClock(timeline.videoOffsetMs)}
+                    unit={`of ${formatClock(timeline.videoMs)}`}
+                    big
+                  />
+                )}
+                <Stat
+                  label="Left"
+                  value={timeline.nextInMs != null ? formatClock(timeline.nextInMs) : "—"}
+                  unit={phase === "video" ? "of the film" : "until the room is free"}
+                  big
+                  tone={color}
+                />
+              </>
+            )}
+            <span style={{ marginLeft: "auto" }}>
+              {phase === "waiting" ? (
+                <ActionButton
+                  tone={GREEN}
+                  textColor="#052e14"
+                  size="lg"
+                  pendingKey={`start:${room}`}
+                  pending={pending}
+                  disabled={locked}
+                  pendingLabel="Starting…"
+                  onClick={() => onStart(false)}
+                >
+                  ▶ Start video
+                </ActionButton>
+              ) : (
+                <ActionButton
+                  size="sm"
+                  tone={color}
+                  pendingKey={`restart:${room}`}
+                  pending={pending}
+                  disabled={locked}
+                  pendingLabel="Restarting…"
+                  onClick={() => onStart(true)}
+                  title="Play from the top — latecomers, or a second showing"
+                >
+                  ⟲ Restart video
+                </ActionButton>
+              )}
+            </span>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -848,6 +1665,7 @@ function Panel({
   accent,
   grow,
   flat,
+  alert,
   children,
 }: {
   label: string;
@@ -855,10 +1673,14 @@ function Panel({
   accent?: string;
   grow?: boolean;
   flat?: boolean;
+  /** Overdue — the whole box flashes amber, then red. See the .rc-flash rules. */
+  alert?: AlertLevel;
   children: React.ReactNode;
 }) {
+  const flash = alert === "late" ? "rc-flash-late" : alert === "warn" ? "rc-flash-warn" : undefined;
   return (
     <div
+      className={flash}
       style={{
         border: `1px solid ${accent ? withAlpha(accent, 0.35) : PORTAL_DARK.border}`,
         background: flat ? "transparent" : PORTAL_DARK.card,
@@ -996,12 +1818,15 @@ function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function clockTime(iso: string): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "";
-  return new Date(t).toLocaleTimeString("en-US", {
+/** Venue-local wall time. VENUE TIME, not the desk PC's: a board reading a record
+ *  in the browser's own zone would misdate an insurance answer on any machine
+ *  whose clock is set wrong (the same trap the camera-monitor clock fell into). */
+function clockTimeMs(ms: number): string {
+  if (!Number.isFinite(ms)) return "—";
+  return new Date(ms).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
+    second: "2-digit",
     timeZone: "America/New_York",
   });
 }
