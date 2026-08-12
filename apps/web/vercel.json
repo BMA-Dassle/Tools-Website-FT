@@ -49,6 +49,10 @@
       "schedule": "*/2 * * * *"
     },
     {
+      "path": "/api/cron/kiosk-bmi-sync-sweep",
+      "schedule": "*/2 * * * *"
+    },
+    {
       "path": "/api/cron/arena-tickets",
       "schedule": "*/2 * * * *"
     },

@@ -51,7 +51,12 @@ import {
   setCheckinPersonStatus,
 } from "../data/kiosk-checkins-db";
 import { heatsConflict } from "~/features/booking/service/conflict";
-import { scheduleCheckinRacers, heatStopFor, type ScheduleRacer } from "./schedule-racers";
+import {
+  scheduleCheckinRacers,
+  heatStopFor,
+  type ScheduleRacer,
+  type RacerOutcome,
+} from "./schedule-racers";
 import { checkRacerWaivers } from "./waiver";
 import { isExpressBooking, isExpressRoster } from "./express";
 import { getRaceProductById } from "~/features/booking/service/race-products";
@@ -1278,9 +1283,11 @@ export async function bindPartyMembers(args: {
 }
 
 // ── complete ("check in everyone") — PR3 finalize ────────────────────────────
-// Comfortably longer than the worst-case finalize (schedule withRetry ~15s×3 +
-// the 10s/20s straggler re-POSTs) so a "busy, tap again" retry can't acquire a
-// prematurely-expired lock and re-run the pipeline.
+// Comfortably longer than the worst-case finalize (one ~10s schedule POST per
+// id-batch + the state stamp's confirm reads + the memo round trips) so a
+// "busy, tap again" retry can't acquire a prematurely-expired lock and re-run
+// the pipeline. The old 34s straggler ladder is gone — sync-lag retries live in
+// the kiosk-bmi-sync-sweep cron now, not in this request.
 const LOCK_TTL = 150; // seconds — single-flight per billId
 
 /** Best-effort single-flight lock. Returns a release fn, or null if held. */
@@ -1326,7 +1333,13 @@ export interface CompleteResult {
   /** True when this call finalized people added AFTER an earlier finalize —
    *  the late half of a party checking in separately. */
   resumed?: boolean;
+  /** Guest-facing count: persons confirmed on the session PLUS persons queued
+   *  as 'waiting-sync' (the sweep seats those within minutes — owner 2026-08-12:
+   *  count everyone at the done screen). */
   scheduled?: number;
+  /** How many of `scheduled` are still queued (observability; the kiosk UI
+   *  does not surface this). */
+  schedulePending?: number;
   scheduleUnlinked?: string[];
   stateStamped?: boolean;
   laneOpenEnabled?: boolean;
@@ -1340,9 +1353,14 @@ export interface CompleteResult {
  * earliest-first positional auto-assign — schedules them onto the Pandora
  * session, stamps the BMI project to the "Confirmation Kiosk" custom state, and
  * writes the staff memo. All external writes (schedule / state / memo) are gated
- * behind KIOSK_CHECKIN_ATTACH (default OFF) so the finalize is dark-safe; the
- * local event/record stamps always run. Idempotent: a completed event returns
- * alreadyComplete without re-writing.
+ * behind the KIOSK_CHECKIN_BMI_ATTACH kill switch (default ON — set "0" to go
+ * dark); the local event/record stamps always run. Idempotent: a completed
+ * event returns alreadyComplete without re-writing.
+ *
+ * The schedule step makes ONE fast attempt; anything Pandora reports as
+ * retryable (person_not_on_project — the cloud attach hasn't synced down yet)
+ * is recorded 'waiting-sync' and seated by the kiosk-bmi-sync-sweep cron over
+ * the following minutes. The guest is never held at the kiosk waiting on sync.
  */
 export async function completeCheckin(args: {
   billId: string;
@@ -1462,10 +1480,19 @@ export async function completeCheckin(args: {
           .flatMap((p) => (Array.isArray(p.boundHeats) ? (p.boundHeats as NeonHeat[]) : []));
 
     let scheduled = 0;
-    // Names we must flag to staff: schedule sync-lag failures, people with no
-    // resolved short id, and people who arrived with no open slot to place them.
+    // Names we must flag to staff: TERMINAL failures only — people with no
+    // resolved short id, a vendor refusal, or no open slot. Sync-lag racers are
+    // NOT in here: they go to `waitingNames` and the kiosk-bmi-sync-sweep cron
+    // auto-seats them (memoing staff would send them to hand-seat in the local
+    // client, which is what created the duplicate-projectPerson WSync jams).
     const memoFailures: string[] = [];
+    // Racers handed to the sync sweep ('waiting-sync') — counted as checked in
+    // for the guest (owner 2026-08-12: count everyone, say nothing extra).
+    const waitingNames: string[] = [];
     const unplaced: string[] = [];
+    // Persons CONFIRMED on the session this call — the staff memo's honest count
+    // (guest-facing `scheduled` adds the syncing ones on top).
+    let scheduledLinked = 0;
     let stateStamped = false;
 
     if (attachEnabled && hasRacing) {
@@ -1640,16 +1667,14 @@ export async function completeCheckin(args: {
         const shortBatch = racers.filter((r) => isShortId(r.personId));
         const officeBatch = racers.filter((r) => !isShortId(r.personId));
 
-        const res = { linked: 0, unlinked: [] as string[], unlinkedPersonIds: [] as string[] };
+        const outcomes: RacerOutcome[] = [];
         for (const [label, batch] of [
           ["short", shortBatch],
           ["office-id", officeBatch],
         ] as const) {
           if (batch.length === 0) continue;
           const part = await scheduleCheckinRacers({ reservationNumber, racers: batch });
-          res.linked += part.linked;
-          res.unlinked.push(...part.unlinked);
-          res.unlinkedPersonIds.push(...part.unlinkedPersonIds);
+          outcomes.push(...part.outcomes);
           if (label === "office-id") {
             console.warn(
               `[kiosk-checkin] ${reservationNumber}: repaired-id batch scheduled ` +
@@ -1658,20 +1683,48 @@ export async function completeCheckin(args: {
             );
           }
         }
-        scheduled = res.linked;
-        console.log(
-          `[kiosk-checkin] ${reservationNumber}: scheduled ${res.linked}/${racers.length}` +
-            (res.unlinked.length > 0 ? ` — unlinked: ${res.unlinked.join(", ")}` : ""),
-        );
-        // Per-person status matched by personId (never by name — duplicate first
-        // names would collide, review L6).
-        const failedIds = new Set(res.unlinkedPersonIds);
+        // Per-person verdict across that person's heats, matched by personId
+        // (never by name — duplicate first names would collide, review L6).
+        // Any REFUSED heat is terminal (desk memo); otherwise any WAITING heat
+        // hands the person to the kiosk-bmi-sync-sweep cron ('waiting-sync' —
+        // the vendor's own "retryable, NOT failed"); all-linked is done.
+        let refusedPersons = 0;
         for (const b of bound) {
-          await setCheckinPersonStatus(b.personRowId, {
-            scheduleStatus: failedIds.has(b.personId) ? "failed" : "inserted",
-          });
+          const mine = outcomes.filter((o) => o.personId === b.personId);
+          if (mine.length === 0) continue;
+          const name = mine[0].racerName;
+          const refused = mine.find((o) => o.kind === "refused");
+          const waiting = mine.find((o) => o.kind === "waiting");
+          if (refused) {
+            refusedPersons++;
+            memoFailures.push(name);
+            await setCheckinPersonStatus(b.personRowId, {
+              scheduleStatus: "failed",
+              error: { step: "schedule", message: `refused: ${refused.vendorStatus}` },
+            });
+          } else if (waiting) {
+            waitingNames.push(name);
+            await setCheckinPersonStatus(b.personRowId, {
+              scheduleStatus: "waiting-sync",
+              error: {
+                step: "schedule",
+                message: `retryable: ${waiting.vendorStatus} — kiosk-bmi-sync-sweep re-seats`,
+              },
+            });
+          } else {
+            scheduledLinked++;
+            await setCheckinPersonStatus(b.personRowId, { scheduleStatus: "inserted" });
+          }
         }
-        memoFailures.push(...res.unlinked);
+        // Guest-facing count includes the queued seats (owner 2026-08-12) —
+        // they auto-land within minutes, well before the heat; the memo below
+        // keeps the linked-vs-syncing split honest for staff.
+        scheduled = scheduledLinked + waitingNames.length;
+        console.log(
+          `[kiosk-checkin] ${reservationNumber}: scheduled ${scheduledLinked} person(s), ` +
+            `${waitingNames.length} waiting on sync, ${refusedPersons} refused ` +
+            `(${outcomes.length} racer-heat pairs attempted)`,
+        );
       }
     }
 
@@ -1719,9 +1772,19 @@ export async function completeCheckin(args: {
     if (attachEnabled && hasRacing && officeProjectId) {
       const names = people.map((p) => p.displayName).join(", ") || "party";
       const couldNotAdd = [...new Set(memoFailures)];
+      const syncing = [...new Set(waitingNames)];
       const note =
         `Kiosk check-in${resuming ? " (later arrivals)" : ""} ${etTimeLabel()}: ${names} — waivers ✓` +
-        (scheduled > 0 ? `, ${scheduled} added to session` : "") +
+        (scheduledLinked > 0 ? `, ${scheduledLinked} added to session` : "") +
+        // Syncing ≠ failed: the sweep auto-seats these within minutes. The
+        // wording matters — "please check into session" is what used to send
+        // staff to hand-seat in the local client and mint the duplicate
+        // projectPerson row that jams WSync. Do NOT seat these by hand unless
+        // the heat is genuinely about to start.
+        (syncing.length > 0
+          ? ` — adding to session (sync in progress, auto-retry running): ${syncing.join(", ")}. ` +
+            `No action needed unless the heat is about to start.`
+          : "") +
         (couldNotAdd.length > 0 ? ` — COULD NOT add to session: ${couldNotAdd.join(", ")}` : "") +
         (unplaced.length > 0
           ? ` — no open slot for: ${unplaced.join(", ")} (needs a new booking)`
@@ -1763,7 +1826,11 @@ export async function completeCheckin(args: {
       ok: true,
       ...(resuming ? { resumed: true } : {}),
       scheduled,
+      // TERMINAL failures only — the done screen's amber "needs a hand" box.
+      // Sync-lag racers are deliberately absent: the sweep seats them, and
+      // sending the guest to the desk is what created the hand-seat duplicates.
       scheduleUnlinked: [...new Set([...memoFailures, ...unplaced])],
+      schedulePending: waitingNames.length,
       stateStamped,
       laneOpenEnabled: attachEnabled,
     };

@@ -99,6 +99,21 @@ export function kioskCheckinAttachEnabled(): boolean {
 }
 
 /**
+ * The kiosk-bmi-sync-sweep cron (kill switch, defaults ON, server-side only) —
+ * the queue that finishes what check-in/waiver-join couldn't do inline: seats
+ * 'waiting-sync' racers once the cloud attach crosses to the center's local
+ * server, and re-drives recent failed waiver-join attaches once the person is
+ * visible cloud-side. Turning it OFF returns to the pre-sweep world where a
+ * sync-lagged racer stays unseated until staff notice — an emergency valve if
+ * the sweep misbehaves, never a steady state. The BMI writes inside it ALSO
+ * respect kioskCheckinAttachEnabled / kioskWaiverBmiAttachEnabled, so the
+ * per-rail switches keep working. Set KIOSK_BMI_SYNC_SWEEP=false to stop it.
+ */
+export function kioskBmiSyncSweepEnabled(): boolean {
+  return process.env.KIOSK_BMI_SYNC_SWEEP !== "false";
+}
+
+/**
  * BMI registerProjectPerson attach for kiosk waiver joins — kill switch,
  * defaults ON (owner 2026-07-19), server-side only (the join route is the
  * sole consumer, so no NEXT_PUBLIC prefix). registerProjectPerson is proven

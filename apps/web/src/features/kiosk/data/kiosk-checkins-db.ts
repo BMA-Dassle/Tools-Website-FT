@@ -22,7 +22,18 @@ import { sql, isDbConfigured } from "@/lib/db";
 export type VerifiedVia = "code" | "qr" | "otp" | "browse-otp" | "test-bypass" | "racer";
 export type BmiStateStatus = "pending" | "set" | "failed";
 export type PersonAttachStatus = "pending" | "attached" | "failed" | "skipped";
-export type ScheduleStatus = "pending" | "inserted" | "already_linked" | "failed" | "n/a";
+/** 'waiting-sync' = Pandora said "not yet" (person_not_on_project / no detail) —
+ *  a RETRYABLE outcome the kiosk-bmi-sync-sweep cron re-drives across minutes.
+ *  'failed' is TERMINAL (vendor refused / no usable id) and is what the staff
+ *  memo names. Folding the retryable case into 'failed' is what used to send
+ *  staff to hand-seat racers and jam WSync with duplicate project-persons. */
+export type ScheduleStatus =
+  | "pending"
+  | "waiting-sync"
+  | "inserted"
+  | "already_linked"
+  | "failed"
+  | "n/a";
 export type QamfStatus = "pending" | "synced" | "failed" | "n/a";
 
 export interface KioskCheckinEventRow {
@@ -335,16 +346,43 @@ export async function setCheckinPersonStatus(
   `;
 }
 
-/** Rows whose racer→session schedule POST still needs a retry (PR2 sweep). */
-export async function listPendingScheduleRows(limit = 200): Promise<KioskCheckinPersonRow[]> {
+/** A sweep candidate: the person row plus the event facts the sweep needs to
+ *  act (billId → W-number/project, center → clientKey). */
+export interface PendingScheduleRow extends KioskCheckinPersonRow {
+  billId: string;
+  center: string;
+  eventBusinessDate: string;
+}
+
+/**
+ * Rows whose racer→session schedule still needs the kiosk-bmi-sync-sweep:
+ * scoped to ONE business date (today's) so the historical `failed` backlog is
+ * never resurrected, and to rows that actually carry heats to seat. 'failed'
+ * is deliberately excluded — it is terminal by definition now; the retryable
+ * state is 'waiting-sync' ('pending' kept for safety, though the heat-resync
+ * path that writes it also NULLs bound_heats, which this filter excludes).
+ */
+export async function listPendingScheduleRows(
+  businessDate: string,
+  limit = 200,
+): Promise<PendingScheduleRow[]> {
   if (!isDbConfigured()) return [];
   await ensureSchema();
   const q = sql();
   const rows = (await q`
-    SELECT p.* FROM kiosk_checkin_people p
-    WHERE p.schedule_status IN ('pending', 'failed')
-    ORDER BY p.updated_at DESC
+    SELECT p.*, e.bill_id, e.center, e.business_date AS event_business_date
+    FROM kiosk_checkin_people p
+    JOIN kiosk_checkin_events e ON e.id = p.event_id
+    WHERE e.business_date = ${businessDate}
+      AND p.schedule_status IN ('pending', 'waiting-sync')
+      AND p.bound_heats IS NOT NULL
+    ORDER BY p.created_at ASC
     LIMIT ${limit}
   `) as Array<Record<string, unknown>>;
-  return rows.map(mapPerson);
+  return rows.map((r) => ({
+    ...mapPerson(r),
+    billId: String(r.bill_id),
+    center: String(r.center),
+    eventBusinessDate: String(r.event_business_date),
+  }));
 }

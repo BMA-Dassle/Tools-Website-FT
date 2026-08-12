@@ -180,6 +180,36 @@ export async function listAttachBackfillCandidates(args: {
   return rows.map(mapRow);
 }
 
+/**
+ * Attach failures for the kiosk-bmi-sync-sweep cron — windowed on BOTH edges:
+ * older than `minAgeMinutes` (30 — a fresh in-flight attach must never be
+ * raced while its person is still crossing local→cloud sync; the reconcile
+ * guard reads the roster, and racing a just-fired attach is how a duplicate
+ * projectPerson would happen) and newer than `maxAgeHours` (48 — the historical
+ * backlog stays the manual backfill route's archaeology, never the cron's).
+ * updated_at is the edge that matters: every sweep pass that re-fails a row
+ * bumps it, so a row the vendor keeps refusing naturally backs off out of the
+ * min-age window between passes.
+ */
+export async function listRecentFailedJoins(args: {
+  minAgeMinutes: number;
+  maxAgeHours: number;
+  limit: number;
+}): Promise<KioskWaiverJoinRow[]> {
+  if (!isDbConfigured()) return [];
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    SELECT * FROM kiosk_waiver_joins
+    WHERE bmi_attach_status = 'failed'
+      AND updated_at < now() - (${args.minAgeMinutes} * INTERVAL '1 minute')
+      AND created_at > now() - (${args.maxAgeHours} * INTERVAL '1 hour')
+    ORDER BY updated_at ASC
+    LIMIT ${args.limit}
+  `) as Array<Record<string, unknown>>;
+  return rows.map(mapRow);
+}
+
 /** Attach failures for staff reconciliation / a future retry sweep. */
 export async function listFailedJoins(limit = 100): Promise<KioskWaiverJoinRow[]> {
   if (!isDbConfigured()) return [];

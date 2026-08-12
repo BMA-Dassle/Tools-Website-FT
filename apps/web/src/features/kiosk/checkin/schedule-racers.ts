@@ -5,21 +5,31 @@
  * check-in and kept in the check-in feature so the multi-writer booking service
  * is untouched.
  *
- * Differences from the booking rail, on purpose:
- *  - NO 8s reservation-sync pre-delay: at check-in the reservation synced long
- *    ago; the only lag is a just-registered person's cloud→local sync, handled
- *    by the targeted re-POSTs.
- *  - Idempotent per racer (Pandora returns already_linked) so scheduling the
- *    whole roster re-links nobody twice.
- *  - FastTrax-only: the schedule endpoint is hardcoded to the FastTrax racing
- *    Pandora location — the only racing venue today. The caller only reaches
- *    this for racing reservations (hasRacing), so a Naples booking never posts.
+ * ONE FAST ATTEMPT, THEN THE QUEUE (owner 2026-08-12). This module used to hold
+ * the guest at the kiosk through a ~34s in-request ladder (10s + 20s straggler
+ * re-POSTs) against a cloud→local project-person sync lag measured in MINUTES —
+ * so it gave up, the racer was marked failed, staff hand-seated them in the
+ * local client, and the duplicate T_PROJECT_PERSON row jammed Fast WSync for
+ * the whole center (2026-08-11 incident). Now this makes a single quick attempt
+ * (transport retry only), classifies every racer from Pandora's OWN per-racer
+ * results, and hands anything retryable to the kiosk-bmi-sync-sweep cron, whose
+ * retries span minutes. The guest never waits on sync.
+ *
+ * Per-racer outcome classification (the vendor spec's words, not ours):
+ *  - inserted / already_linked  → linked (idempotent per racer, ≥2.4.57)
+ *  - person_not_on_project      → WAITING — documented "retryable, NOT failed":
+ *    the cloud attach hasn't synced down to the center's Firebird yet
+ *  - schedule_not_found         → REFUSED — the heat block genuinely isn't on
+ *    the local dayplanner (a retime/mismatch, a real bug wanting eyes)
+ *  - anything else / no detail  → WAITING (the re-POST is idempotent, so
+ *    retrying an unknown is safe; treating it as failed is what manufactured
+ *    the hand-seat duplicates)
  *
  * SHORT Pandora ids only — the endpoint 500s on a 17-digit Office id (W52109),
  * and one bad id fails the whole batch, so the CALLER must pre-filter to racers
  * with a resolved short id (see completeCheckin). tier / category / heatStop are
  * REQUIRED strings or it 400s. This module never writes a memo — the caller
- * composes the single staff memo from the returned `unlinked`.
+ * composes the single staff memo from the returned outcomes.
  */
 
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net/v2";
@@ -52,33 +62,61 @@ export function heatStopFor(heatStart: string): string {
   return addMinutesNaive(heatStart, HEAT_DURATION_MIN);
 }
 
-async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 3): Promise<T> {
+async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 2): Promise<T> {
   let lastErr: unknown;
   for (let i = 1; i <= attempts; i++) {
     try {
       return await fn();
     } catch (err) {
       lastErr = err;
-      if (i < attempts) await new Promise((r) => setTimeout(r, 1500 * i));
+      if (i < attempts) await new Promise((r) => setTimeout(r, 1500));
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(`${label} failed`);
 }
 
+export type RacerOutcomeKind =
+  /** Confirmed on the session (inserted or already_linked). */
+  | "linked"
+  /** Not on yet for a RETRYABLE reason (sync lag, transport, no detail) —
+   *  the sweep's work token. Never show this to the guest as a failure. */
+  | "waiting"
+  /** Pandora positively refused (schedule_not_found) — terminal, wants eyes. */
+  | "refused";
+
+export interface RacerOutcome {
+  personId: string;
+  racerName: string;
+  heatStart: string | null;
+  kind: RacerOutcomeKind;
+  /** Pandora's per-racer status word, or our transport-level reason
+   *  ("transport", "count-only-partial", "no-result-row"). */
+  vendorStatus: string;
+}
+
 export interface ScheduleResult {
   attempted: number;
+  /** (person|heat) pairs confirmed on the session. */
   linked: number;
-  /** Racer names that couldn't be linked (sync lag) — caller memos these. */
+  /** One entry per attempted racer-heat pair. */
+  outcomes: RacerOutcome[];
+  /** Racer names not confirmed (waiting + refused) — caller memo/reporting. */
   unlinked: string[];
-  /** Short personIds that couldn't be linked — caller maps to per-person status. */
+  /** Short personIds not confirmed — caller maps to per-person status. */
   unlinkedPersonIds: string[];
 }
 
+interface ScheduleResponseRow {
+  personId?: string;
+  heatStart?: string;
+  status?: string;
+}
+
 /**
- * Schedule racers onto their Pandora sessions for an existing reservation.
+ * Schedule racers onto their Pandora sessions for an existing reservation —
+ * ONE attempt (transport retry only, ~10s cap), per-racer classification.
  * Never throws. The caller must pass only racers with a resolved SHORT
- * pandoraPersonId (a 17-digit Office id 500s the whole batch); this returns the
- * still-unlinked racers for the caller's single composed memo.
+ * pandoraPersonId (a 17-digit Office id 500s the whole batch).
  */
 export async function scheduleCheckinRacers(args: {
   reservationNumber: string; // the W-number (path segment), NOT the 17-digit billId
@@ -88,6 +126,7 @@ export async function scheduleCheckinRacers(args: {
   const result: ScheduleResult = {
     attempted: assignable.length,
     linked: 0,
+    outcomes: [],
     unlinked: [],
     unlinkedPersonIds: [],
   };
@@ -104,15 +143,12 @@ export async function scheduleCheckinRacers(args: {
         method: "POST",
         headers: { Authorization: `Bearer ${pandoraKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ racers: batch }),
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(10_000),
       },
     );
     const data = (await res.json().catch(() => null)) as {
       success?: boolean;
-      data?: {
-        inserted?: number;
-        results?: Array<{ personId?: string; heatStart?: string; status?: string }>;
-      };
+      data?: { inserted?: number; results?: ScheduleResponseRow[] };
     } | null;
     if (!res.ok || !data?.success) {
       throw new Error(
@@ -122,60 +158,54 @@ export async function scheduleCheckinRacers(args: {
     return data.data ?? {};
   };
 
-  const linked = new Set<string>();
-  let hasDetail = false;
-  const applyResults = (
-    batch: ScheduleRacer[],
-    d: { inserted?: number; results?: Array<{ status?: string } & Record<string, unknown>> },
-  ): boolean => {
-    if (Array.isArray(d.results)) {
-      for (const row of d.results) {
-        if (row.status === "inserted" || row.status === "already_linked") {
-          linked.add(rKey(row as { personId?: string; heatStart?: string }));
-        }
-      }
-      return true;
-    }
-    // Count-only response: only trust it if the whole batch inserted (a partial
-    // count-only can't tell us WHICH — re-POSTing blind would double-link).
-    if ((d.inserted ?? 0) >= batch.length) for (const r of batch) linked.add(rKey(r));
-    return false;
+  const outcomeFor = new Map<string, RacerOutcome>();
+  const record = (r: ScheduleRacer, kind: RacerOutcomeKind, vendorStatus: string) => {
+    outcomeFor.set(rKey(r), {
+      personId: r.personId as string,
+      racerName: r.racerName,
+      heatStart: r.heatStart,
+      kind,
+      vendorStatus,
+    });
   };
 
-  let missing = assignable;
   try {
-    hasDetail = applyResults(
-      assignable,
-      await withRetry("checkin schedule", () => postSchedule(assignable)),
-    );
-    missing = assignable.filter((r) => !linked.has(rKey(r)));
+    const d = await withRetry("checkin schedule", () => postSchedule(assignable));
+    if (Array.isArray(d.results)) {
+      const byKey = new Map<string, ScheduleResponseRow>();
+      for (const row of d.results) byKey.set(rKey(row), row);
+      for (const r of assignable) {
+        const status = byKey.get(rKey(r))?.status;
+        if (status === "inserted" || status === "already_linked") {
+          record(r, "linked", status);
+        } else if (status === "schedule_not_found") {
+          record(r, "refused", status);
+        } else {
+          // person_not_on_project (the documented retryable), an unknown word,
+          // or no result row for this racer at all — all WAITING.
+          record(r, "waiting", status ?? "no-result-row");
+        }
+      }
+    } else if ((d.inserted ?? 0) >= assignable.length) {
+      // Count-only response covering the whole batch — everyone landed.
+      for (const r of assignable) record(r, "linked", "count-only");
+    } else {
+      // Count-only PARTIAL: Pandora didn't say WHO. The insert is idempotent
+      // per racer (≥2.4.57 returns already_linked), so the sweep re-POSTs the
+      // whole set safely — mark everyone unconfirmed as waiting. (The old code
+      // skipped retries entirely here, which stranded real racers.)
+      for (const r of assignable) record(r, "waiting", "count-only-partial");
+    }
   } catch (err) {
     console.error("[kiosk-checkin] schedule failed:", err instanceof Error ? err.message : err);
+    for (const r of assignable) record(r, "waiting", "transport");
   }
 
-  // Targeted re-POSTs for stragglers (project-person cloud→local sync lag) —
-  // only when the API named who's missing.
-  if (missing.length > 0 && hasDetail) {
-    for (const backoffMs of [10_000, 20_000]) {
-      await new Promise((r) => setTimeout(r, backoffMs));
-      try {
-        applyResults(missing, await postSchedule(missing));
-      } catch (err) {
-        console.error(
-          "[kiosk-checkin] schedule re-POST failed:",
-          err instanceof Error ? err.message : err,
-        );
-      }
-      missing = assignable.filter((r) => !linked.has(rKey(r)));
-      if (missing.length === 0) break;
-    }
-  }
-
-  result.linked = linked.size;
-  result.unlinked = [...new Set(missing.map((r) => r.racerName))];
-  result.unlinkedPersonIds = [
-    ...new Set(missing.map((r) => r.personId).filter((id): id is string => !!id)),
-  ];
+  result.outcomes = assignable.map((r) => outcomeFor.get(rKey(r))!);
+  result.linked = result.outcomes.filter((o) => o.kind === "linked").length;
+  const notLinked = result.outcomes.filter((o) => o.kind !== "linked");
+  result.unlinked = [...new Set(notLinked.map((o) => o.racerName))];
+  result.unlinkedPersonIds = [...new Set(notLinked.map((o) => o.personId))];
 
   return result;
 }

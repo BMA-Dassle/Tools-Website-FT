@@ -1,15 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import redis from "@/lib/redis";
-import { clientKeyForLocation } from "~/features/daily-events/service";
 import {
   listAttachBackfillCandidates,
-  setJoinAttachStatus,
   type KioskWaiverJoinRow,
 } from "~/features/kiosk/data/kiosk-waiver-joins-db";
-import { registerProjectPersonServer } from "~/features/kiosk/waiver/bmi-attach";
-import { resolveAttachOrderId } from "~/features/kiosk/waiver/attach-order-id";
-import { fetchProjectRawIds } from "@/lib/bmi-office-actions";
-import { rosterCacheKey } from "~/features/kiosk/waiver/cache";
+import { reattachJoinRows } from "~/features/kiosk/waiver/attach-backfill";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -36,55 +30,17 @@ export const maxDuration = 60;
  * Manual/admin-triggered on purpose: this touches BMI Office per row, and the
  * owner should watch the first live run (the A3 attach probe history).
  *
- * ── 2026-08-09: reconcile against BMI before re-POSTing ─────────────────────
- *
- * Two things changed, and the second is why this route was unsafe to run.
- *
- * 1. The order id is resolved by `resolveAttachOrderId`, not by arithmetic. The
- *    old projectId−1 rule described only bookings WE created, so every
- *    group-function row here would have re-failed identically.
- *
- * 2. Every row is checked against the reservation's LIVE projectPersons first.
- *    `bmi_attach_status` is our record of what happened, not a claim about what
- *    BMI holds, and it drifts in both directions: on 2026-08-08 the Fort Myers
- *    counter hand-added 16 of H3194's signers while our rows still said
- *    'failed'. Trusting the column would have re-POSTed all sixteen — and
- *    whether a duplicate projectPerson row results is STILL unproven. Rows BMI
- *    already satisfies are corrected in Neon and never sent.
+ * The reconcile-before-re-POST core (live roster is authority, unreadable ≠
+ * empty, per-project memoization) moved to
+ * ~/features/kiosk/waiver/attach-backfill so the kiosk-bmi-sync-sweep cron
+ * shares the exact same safety rules. RECENT failures (last 48h) are the cron's
+ * job now; this route remains the manual tool for the historical backlog and
+ * for stale-'attached' archaeology, which the cron never touches.
  */
 
 const ADMIN_TOKEN = process.env.ADMIN_CAMERA_TOKEN || "";
 const DEFAULT_ATTACHED_BEFORE = "2026-07-30T00:00:00Z";
 const MAX_LIMIT = 100;
-
-interface RowOutcome {
-  projectId: string;
-  personId: string;
-  displayName: string;
-  priorStatus: string;
-  outcome:
-    | "would-reattach"
-    | "attached"
-    | "failed"
-    /** BMI already has this person — nothing was POSTed; our row was the stale one. */
-    | "already-on-bmi"
-    | "would-mark-attached"
-    | "skipped-no-order"
-    | "skipped-project-unreadable"
-    | "skipped-no-clientkey";
-  detail?: string;
-}
-
-/** Person ids currently on the reservation, per BMI. Empty set ≠ "nobody" — see caller. */
-function projectPersonIds(project: Record<string, unknown>): Set<string> {
-  const rows = (project.projectPersons ?? []) as Array<Record<string, unknown>>;
-  if (!Array.isArray(rows)) return new Set();
-  return new Set(
-    rows
-      .map((r) => (r?.personId === undefined || r?.personId === null ? "" : String(r.personId)))
-      .filter(Boolean),
-  );
-}
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
@@ -106,114 +62,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "query failed" }, { status: 500 });
   }
 
-  const outcomes: RowOutcome[] = [];
-  const touchedProjects = new Set<string>();
-
-  // Per-project memo: the live BMI roster and the resolved order id are project
-  // facts, not row facts — reading them once per project keeps a 20-person party
-  // to one project GET instead of twenty.
-  const rosterByProject = new Map<string, Set<string> | null>();
-  const orderIdByProject = new Map<string, string | null>();
-
-  for (const row of candidates) {
-    const base = {
-      projectId: row.projectId,
-      personId: row.personId,
-      displayName: row.displayName,
-      priorStatus: row.bmiAttachStatus,
-    };
-    const clientKey = clientKeyForLocation(row.locationId);
-    if (!clientKey) {
-      outcomes.push({ ...base, outcome: "skipped-no-clientkey" });
-      continue;
-    }
-
-    /**
-     * RECONCILE BEFORE RE-POSTING.
-     *
-     * `bmi_attach_status` is our record of what happened, not a statement about
-     * what BMI holds, and the two drift in BOTH directions. On 2026-08-08 the
-     * Fort Myers counter added 16 of H3194's signers by hand while our rows still
-     * said 'failed' — so a sweep that trusts the column would have re-POSTed
-     * sixteen people BMI already had, and whether a second POST creates a
-     * DUPLICATE projectPerson row is unproven (kiosk-waiver-attach-probe.mts
-     * step 4 was written to answer that and never recorded a result).
-     *
-     * So the roster is read from BMI first and treated as the authority. A row
-     * that BMI already satisfies is corrected in Neon and never sent.
-     */
-    if (!rosterByProject.has(row.projectId)) {
-      const project = await fetchProjectRawIds(clientKey, row.projectId).catch(() => null);
-      rosterByProject.set(row.projectId, project ? projectPersonIds(project) : null);
-    }
-    const roster = rosterByProject.get(row.projectId) ?? null;
-    if (roster === null) {
-      // Unreadable project — NOT the same as an empty roster. Refuse rather than
-      // re-POST blind; a transient Office failure must never become a duplicate.
-      outcomes.push({ ...base, outcome: "skipped-project-unreadable" });
-      continue;
-    }
-    if (roster.has(row.personId)) {
-      if (dryRun) {
-        outcomes.push({ ...base, outcome: "would-mark-attached" });
-      } else {
-        await setJoinAttachStatus(row.projectId, row.personId, "attached").catch(() => {});
-        touchedProjects.add(row.projectId);
-        outcomes.push({ ...base, outcome: "already-on-bmi" });
-      }
-      continue;
-    }
-
-    if (!orderIdByProject.has(row.projectId)) {
-      const resolved = await resolveAttachOrderId({ clientKey, projectId: row.projectId }).catch(
-        () => null,
-      );
-      orderIdByProject.set(row.projectId, resolved?.orderId ?? null);
-    }
-    const orderId = orderIdByProject.get(row.projectId) ?? null;
-    if (!orderId) {
-      outcomes.push({ ...base, outcome: "skipped-no-order" });
-      continue;
-    }
-    if (dryRun) {
-      outcomes.push({ ...base, outcome: "would-reattach", detail: `orderId ${orderId}` });
-      continue;
-    }
-    try {
-      const result = await registerProjectPersonServer({
-        clientKey,
-        orderId,
-        personId: row.personId,
-        // Old rows may predate the first/last name columns — the display name's
-        // leading token is the best available fallback for BMI's required field.
-        firstName: row.firstName ?? row.displayName.split(" ")[0] ?? "Guest",
-        lastName: row.lastName ?? "",
-      });
-      if (result.ok) {
-        await setJoinAttachStatus(row.projectId, row.personId, "attached").catch(() => {});
-        touchedProjects.add(row.projectId);
-        outcomes.push({ ...base, outcome: "attached" });
-      } else {
-        const detail = `${result.status}: ${result.body.slice(0, 300)}`;
-        await setJoinAttachStatus(row.projectId, row.personId, "failed", detail).catch(() => {});
-        outcomes.push({ ...base, outcome: "failed", detail });
-      }
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : "attach error";
-      await setJoinAttachStatus(row.projectId, row.personId, "failed", detail).catch(() => {});
-      outcomes.push({ ...base, outcome: "failed", detail });
-    }
-  }
-
-  // Bust roster caches for every project whose attach state changed.
-  for (const pid of touchedProjects) {
-    redis.del(rosterCacheKey(pid)).catch(() => {});
-  }
-
-  const counts = outcomes.reduce<Record<string, number>>((acc, o) => {
-    acc[o.outcome] = (acc[o.outcome] ?? 0) + 1;
-    return acc;
-  }, {});
+  const { outcomes, counts } = await reattachJoinRows(candidates, { dryRun });
 
   return NextResponse.json({
     ok: true,
