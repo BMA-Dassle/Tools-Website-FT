@@ -1,6 +1,6 @@
 # Open Tasks
 
-## Camera return strip on the briefing TVs (2026-08-12) — PUSHED, `feat/camera-return-strip`
+## Camera return strip on the briefing TVs (2026-08-12) — ON MAIN `d817e156`, LIVE
 
 Nothing recorded a POV camera coming back: the out-side is the grid scan, the return was
 only ever inferred days later when a video turned up. A camera left in a kart looked
@@ -8,8 +8,16 @@ exactly like one returned fine, until the next group was handed it. Owner: "when
 finishes we would turn those camera numbers RED. They would not turn green till we see
 them check into one of the systems." Mockup approved before building.
 
-Derived from three facts, never remembered — the scan log, the finish marker, and a new
-`camera-seen` stamp. See `src/features/signage/briefing/camera-return.ts` for the rules.
+Derived, never remembered — see `src/features/signage/briefing/camera-return.ts` for the
+rules and why each exists.
+
+**TWO SECTIONS, and the NEXT RACE BEING CALLED is what moves a camera.** The first cut had
+one row of red and green and green did not read — the owner watched six on the wall and
+asked what they meant. It also leaned on two invented numbers (a 10-min overdue line, a 90s
+green hold); both are gone. INCOMING holds the group just off track, grey until a camera
+registers and green once it does; when the next heat on that track is called, incoming
+settles — green ones leave, grey ones move left into STILL OUT in red. Per-track, per-heat
+number, off the same `pandora:last-race:*` watermarks the track boards use.
 
 - [x] Day-scoped scan index — `camera-scan-log:{businessDay}`, key/member/TTL **verbatim
       from `02528335`** so `feat/video-liveness-alerts` still merges cleanly.
@@ -17,15 +25,33 @@ Derived from three facts, never remembered — the scan log, the finish marker, 
       watching for the registered time…not waiting for the video to finish upload").
       Measured +2 min median after the flag; 12/12 cameras over three heats.
 - [x] Pandora `actualEnd` backstop for the flag — **not optional**: only 5 of 17 already-run
-      sessions had a bridge marker on 8/12 (heartbeat 23 min stale).
-- [x] Outstanding-only boxes, no blinking, 104 px reserved in every phase incl. the film.
-- [x] Kill switch `SIGNAGE_CAMERA_RETURN_ENABLED`, SIGNAGE_VERSION 0.3.0, demo data.
-- [x] `scripts/camera-return-peek.mts` — traces a disputed box to scan / flag / sighting.
-- [ ] **Merge, then ONE LIVE RACE NIGHT.** The scan index must deploy before the strip has
-      anything to show, so a wall smoke before that proves nothing.
+      sessions had a bridge marker on 8/12 (kart heartbeat 23 min stale).
+- [x] Periodic backstop for a missed webhook — the 2-min video-match cron stamps every
+      camera in its VT3 poll, before its matching loop, so a dropped event self-heals.
+- [x] On the 2s pulse (per-venue Redis cache makes it one GET), so a registration clears
+      within seconds instead of waiting out the 15s poll.
+- [x] Track colour on the calm boxes; solid red reserved for the chase list because Red
+      Track's accent IS red. Every box carries a word — "due" / "back" / minutes missing.
+- [x] On-track clock moved into the strip's right end — **supersedes** the 8/11 "top right".
+- [x] Maintenance bench (`camera_maintenance`, hand-editable) — 3, 6 and 31 on it.
+- [x] Kill switch `SIGNAGE_CAMERA_RETURN_ENABLED`, SIGNAGE_VERSION 0.3.0, demo fixtures.
+- [x] `scripts/camera-return-peek.mts` — IMPORTS the shipped decision function so it cannot
+      drift; splits "came back" from "no finish record yet"; shouts if a benched camera was
+      scanned to a racer anyway.
+- [x] `scripts/camera-strip-seed.mts` — run ONCE per deploy that introduces either key, or
+      the wall fills with red for cameras sitting on the shelf (19 of 42, measured).
+- [ ] **ONE LIVE RACE NIGHT on the new two-section model.** The single-row version ran live
+      8/12; the sections, the grey state and the next-race-call rule have not.
+- [ ] **Six dead cameras found on night one** — 84 (89d), 3 (84d), 44 (61d), 58 (31d),
+      31 (18d), 6 (8d) silent, out of 69 in rotation. 3/6/31 benched; **44, 58 and 84 are
+      the owner's call.** 58 and 84 were flagged for a bench check after the 8/9 W57384
+      incident and never actioned — a reason to merge `feat/video-liveness-alerts`.
+- [ ] **Camera-assign should refuse/warn on a benched camera.** Three of them were scanned
+      to five racers on 8/12; hiding them from the wall is right, but this is the actual
+      prevention. Small change to that page.
 - [ ] Probe `sys.vt3.io` for a camera/system status collection — owner asked to "check the
       socket for cameras"; VT3 creds are Vercel-only so it could not be run locally.
-      `scripts/_vt3-camera-surface-probe.mts` is written and ready.
+      `scripts/_vt3-camera-surface-probe.mts` is written and ready to run where they exist.
 - [ ] The same strip on the camera-assign station, which is where cameras go OUT. Higher
       operational value than the briefing TVs; deliberately a separate PR.
 

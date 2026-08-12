@@ -52,7 +52,7 @@ payment: the built-in captured-no-reserve resume needs the bill alive (the
 `reserveBaseKey(bmiBillId)`, so once the bill is dead the money can never verify
 against a rebuild. Second occurrence of the class (Chung, 2026-07-28, QAMF 400).
 
-**The rule:** an unwind may only release what is still merely *held*. Before
+**The rule:** an unwind may only release what is still merely _held_. Before
 cancelling a bill, the exit path must check the tender ledger
 (`kiosk_split_tenders` by seed): `state=captured` or non-empty `payment_ids`
 means money moved — park the session for the resume/sweep instead of cancelling.
@@ -188,11 +188,11 @@ blocked message means someone deliberately threw the switch.
 - **A test that asserts "blocked when the var is unset" stops testing anything the moment
   polarity flips — it just re-asserts the new default.** Every such test had to be rewritten
   to set the exact string `"false"`. When you flip a default, grep the tests for `delete
-  process.env` and `= "true"` and check each one still fails for the reason it was written.
+process.env` and `= "true"` and check each one still fails for the reason it was written.
   Same for scripts: `post-dayof-refund-smoke.mts` "proved" the master switch was off by
   deleting the var, which after the flip proved the opposite.
 - **A stale "DO NOT ENABLE" outlives the reason for it.** Both refund switches carried that
-  banner from assumption A1, which was *overturned live on 2026-07-27* — the code comment in
+  banner from assumption A1, which was _overturned live on 2026-07-27_ — the code comment in
   `service.ts` said so, three tracker docs and a memory file still said "DO NOT ENABLE."
   When you overturn an assumption, grep its name and retire every banner in the same commit.
 - **Ship default-on when the failure mode is loud and money-safe.** The QAMF player-DELETE
@@ -213,8 +213,8 @@ The cause is one line in `deductCreditRedemptions`:
 const guardKey = `race-credit-redeemed:${opts.billId}:${r.ref}:${r.depositKindId}`;
 ```
 
-`ref` is the **heat block id**, and `RaceItem.heats` documents that *"multiple racers on
-the same heat share heatId but have distinct entries (one per racer)"*. So all four racers'
+`ref` is the **heat block id**, and `RaceItem.heats` documents that _"multiple racers on
+the same heat share heatId but have distinct entries (one per racer)"_. So all four racers'
 redemptions for the 20:24 heat produced the **same** Redis NX key. The first `SET NX` won;
 the other three logged `already applied, skipping` and never called `addDeposit`. The
 charge path is unaffected — it drops covered heats to $0 off the heat OBJECT set — so the
@@ -237,7 +237,7 @@ guards. Here the operation is "draw one credit from **this person** for **this h
 **this bill**" — three nouns, and the key held two. Before writing a guard key, name the
 operation in a sentence and check that every noun in it appears in the key. A guard that is
 too NARROW double-writes and is caught in testing; a guard that is too WIDE silently
-*skips* work, succeeds, and logs a reassuring "already applied."
+_skips_ work, succeeds, and logs a reassuring "already applied."
 
 **Corollaries:**
 
@@ -278,7 +278,7 @@ Two aggravating details:
   AND the note. Isolate each vendor call in its own try.
 - **State updates survived the outage and payments did not**, because `setProjectState` has
   a Pandora fallback and `recordProjectPayment` is Office-only. A partial fallback makes an
-  outage *look* handled in the logs while money quietly goes missing.
+  outage _look_ handled in the logs while money quietly goes missing.
 
 **The rule:** if you swallow an error on a path where money already moved, you owe the
 system a durable record of what still needs to happen. Non-fatal means **enqueue and
@@ -297,8 +297,8 @@ event (deposit + balance) settle independently instead of cannibalising each oth
 **Also — not every gap is a gap.** The first scan flagged 15 events short in BMI totalling
 $16,646.25. Only 2 were real. The other 13 had `square_settled_order_id` or `dayof_paid_at`
 set: that money settled on a POS check inside BMI's own POS, and `group-square-settled-close`
-writes a *note* only, by design. Recording project payments for those would have
-double-counted $14,532.30. Always classify a reconciliation diff by *how* the money was
+writes a _note_ only, by design. Recording project payments for those would have
+double-counted $14,532.30. Always classify a reconciliation diff by _how_ the money was
 taken before "fixing" it.
 
 Fix: `lib/bmi-project-payment-retry.ts` + `/api/cron/bmi-payment-retry-sweep` (every 5 min),
@@ -318,6 +318,7 @@ carts in 60 days) showed: the gel line WAS booked and never removed; what died w
 line's `scheduledTime`, and the bill showed `totalToDeposit: $51.12 / totalPaid: 0`.
 
 **Root cause — two layers:**
+
 1. BMI flipped the Nexus gel/laser products to REQUIRE a money deposit ~2026-07-22
    (old bills' price rows carry `shortName: null`, new ones `"m"`). No code of ours
    changed; the vendor config moved under us.
@@ -330,6 +331,7 @@ line's `scheduledTime`, and the bill showed `totalToDeposit: $51.12 / totalPaid:
    is in the `toDeposit > 0` group; every healthy one is at 0.
 
 **The rules:**
+
 - A "confirm as $0" gate must prove the WHOLE BILL is $0-model, not just one item kind.
   Pay BMI exactly its own `totalToDeposit` (now surfaced by `getBmiBillStatus`) — never
   assume which deposit kind a product wants; the vendor can change it without notice.
@@ -414,7 +416,7 @@ valid waiver and 33 had none**, and every one of the 33 had walked the racer fun
 (name → DOB → waiver) and, in 30 cases, come out the other side holding a booked heat.
 
 **Root cause — the gate is decorative.** In `app/event/[slug]/page.tsx`, `waiverValid` is
-*read* in exactly three places: the step router, a green/amber "Waiver Signed / Waiver
+_read_ in exactly three places: the step router, a green/amber "Waiver Signed / Waiver
 Pending" badge, and its own setter. **No booking path consults it.** Worse, the session
 restore sets `setWaiverValid(true)` on the sole evidence of a personId in `sessionStorage`
 ("They already signed if they have a personId in session"). So the failure mode is a
@@ -428,9 +430,10 @@ incident (2026-06-18). 32 signed, **32/32 verified by BMI readback**, 32 audit r
 `waiver_acceptances`, every one carrying a real `waiverID`.
 
 **Rules:**
+
 - **A boolean named `xValid` that no branch reads is not a gate, it's a label.** Before
   trusting any "required before participating" step, grep the flag and find the branch that
-  *refuses*. If the only readers are a setter and a badge, there is no gate.
+  _refuses_. If the only readers are a setter and a badge, there is no gate.
 - **Never restore a compliance flag from client storage.** `sessionStorage` proves the guest
   was here before, never that an upstream write landed. Re-probe the system of record
   (`waiverExpiry` on the person) on restore — the cheap GET is the whole point.
@@ -450,8 +453,7 @@ incident (2026-06-18). 32 signed, **32/32 verified by BMI readback**, 32 audit r
 
 ## A readiness gate that covers 3 of 4 item kinds is a hole, not a gate — and a $0 cart leg still calls a vendor (2026-07-28)
 
-**What happened:** A FastTrax kiosk captured **$234.21** (race + 4 race packs, BMI bill
-63000000006468566) and then threw. The guest got the "Payment received — do NOT pay again" screen;
+**What happened:** A FastTrax kiosk captured **$234.21** (race + 4 race packs, BMI bill 63000000006468566) and then threw. The guest got the "Payment received — do NOT pay again" screen;
 the center set the reservation up by hand.
 
 **Root cause chain — four things had to line up, and every one of them was ours:**
@@ -467,13 +469,13 @@ the center set the reservation up by hand.
    and was invisible in the cart total. Nobody — guest or code — could see it in the money.
 4. `unified-reserve` still iterated it and called QAMF with `webOfferId: 0` and
    `BookedAt: new Date().toISOString()` → **400 `{"BookedAt":["Millisecond must be 0."],
-   "Customer.Guest.PhoneNumber"…}`** AFTER capture, taking the PAID race booking down with it.
+"Customer.Guest.PhoneNumber"…}`** AFTER capture, taking the PAID race booking down with it.
 
 Then two things stopped anyone from recovering or even noticing:
 
 - The client's 3-attempt retry could never work. Attempt 1 activated the deposit gift card and
   failed at QAMF; attempts 2-3 failed **earlier**, at `BAD_REQUEST: Gift card must not be
-  activated.` Square does not replay that off the idempotency key — it rejects on card state.
+activated.` Square does not replay that off the idempotency key — it rejects on card state.
 - `qamf-bowling-auth.ts` truncated the vendor body to **200 chars**, cutting the PhoneNumber rule
   mid-field. The single most valuable line in the failure was destroyed by our own logging.
 
@@ -512,11 +514,11 @@ Owner report (W54793, racing that night): the sweep caught "no valid waiver," wr
 `** NO VALID WAIVER ** … send to Guest Services / kiosk to sign before racing` into the
 BMI memo, cleared `fastLane` on the Redis record — and left the reservation sitting in
 **"Confirmation - Kiosk"**. That custom state is only ever reached, on the kiosk rail,
-*after* everyone has signed; staff read it as "waivers are done, send them to the karts."
+_after_ everyone has signed; staff read it as "waivers are done, send them to the karts."
 The row contradicted its own memo, and nothing on the operational screens sided with the memo.
 
 **Root cause:** express lane is granted in TWO places — `fastLane` on the booking record
-*and* the kiosk confirmation state stamped by
+_and_ the kiosk confirmation state stamped by
 `app/api/notifications/booking-confirmation` (owner 2026-07-21, express skips Guest
 Services so staff work it from the kiosk state). The demotion only knew about the first
 one. A grant with two limbs and a revoke with one leaves the louder limb standing.
@@ -531,6 +533,7 @@ keeps half-done rows in scope; the memo rewrite strips its own prior headline in
 stacking a second one), and reports the live state in dry-run.
 
 **Rules:**
+
 - **When a warning and a status field disagree, the status field wins in the room.** Staff
   work from the list column, not the memo body. A demotion that leaves the status asserting
   the opposite of the memo has not demoted anything.
@@ -542,7 +545,6 @@ stacking a second one), and reports the live state in dry-run.
 - **A remediation sweep must be idempotent and self-healing.** Gate on "was ever express,"
   not "is express" — otherwise the rows a half-finished earlier pass created are exactly
   the rows the next run can no longer see.
-
 
 ## A deterministic Square idempotency key locks a customer out after a card DECLINE (2026-07-25)
 
@@ -995,9 +997,9 @@ Incident — party **3354** (group-function reprice, quote id **143**): `/api/gr
 added failure-audit logging — see below) was Square returning **`VALUE_TOO_LONG` — "Field must not be
 greater than 45 length"** on the **payment idempotency_key**.
 
-Square's idempotency_key limits differ per endpoint: **CreatePayment = 45**, **CreateCard = 45**,
+Square's idempotency*key limits differ per endpoint: **CreatePayment = 45**, **CreateCard = 45**,
 gift-card activities = 128, **CreateOrder = 192**. The reprice path built its keys by prefixing a baseKey
-that _itself_ began with `gf-reprice-`:
+that \_itself* began with `gf-reprice-`:
 
 ```js
 const baseKey = `gf-reprice-${quote.id}-${hash16}`; // e.g. gf-reprice-143-26ad0266ecd84a73
@@ -1509,11 +1511,11 @@ carried only `catalog_object_id` and Square used the catalog default. The 2026-0
 
 The 2026-06-05 "fix" was an **overcorrection from a misdiagnosis**: it added
 `fetchCatalogPriceInfo` and dropped the catalog link whenever quote price != catalog price.
-That changed nothing about pricing correctness (base_price_money already guaranteed it) but
+That changed nothing about pricing correctness (base*price_money already guaranteed it) but
 **destroyed Square item-sales attribution** for every override-priced line — race starters,
 birthday packages, extra pizzas, well drinks. By 2026-06-08, 17 line items across live
 day-of orders were ad-hoc purely because of this branch, plus 7 older orders that had gone
-_fully_ ad-hoc via the all-or-nothing fallback.
+\_fully* ad-hoc via the all-or-nothing fallback.
 
 Corrected fix (2026-06-08): `buildSquareLineItem` keeps the catalog link whenever a PLU is
 present and always sends `base_price_money`. No catalog pre-fetch, no price comparison.
@@ -2381,8 +2383,8 @@ showed $449.51 due). Both rows repaired in place.
   balance_cents is ever stale again (same principle as the Statsig displayed-vs-charged rule).
 - Data-repair sweep for this corruption class:
   `SELECT id FROM group_function_quotes WHERE deposit_paid_at IS NOT NULL AND collected_cents > 0
- AND balance_cents <> GREATEST(0, total_cents - collected_cents)
- AND status IN ('deposit_paid','resign_required','balance_charged','balance_link_sent','completed')`
+AND balance_cents <> GREATEST(0, total_cents - collected_cents)
+AND status IN ('deposit_paid','resign_required','balance_charged','balance_link_sent','completed')`
 - Money was never at risk here: resign-settle, the 72h cron (status-gated), and /pay
   (balance_paid_at-gated) all guard correctly. The blast radius was display + stored balance only.
 
@@ -3041,7 +3043,7 @@ Square order. Live proof, 10 days of bookings that recorded sizes:
 go through unified-reserve** — it reuses the web `BowlingWizard`, which POSTs
 `/api/bowling/v2/reserve`. That route persisted `shoe_size` to Neon and never touched the
 Square order. Web worked only because the guest later loads the confirmation page and
-`BowlingPlayersEditor` PATCHes `/reservations/[id]/players`, which *does* sync. The kiosk has
+`BowlingPlayersEditor` PATCHes `/reservations/[id]/players`, which _does_ sync. The kiosk has
 no confirmation page, so nothing ever wrote the sizes. The fix had landed on a producer the
 kiosk never executes — and `tsc`, eslint, and the full build were all green, because a call
 site that is never reached is not a type error.
@@ -3052,13 +3054,14 @@ placeholder rosters, and a strict improvement for web KBF (sizes are pre-filled,
 land at reserve instead of waiting on a page visit).
 
 **Rules:**
+
 - **Before fixing "the kiosk path," prove which endpoint the kiosk calls.** Read the network
   call, or read the runtime log for one real booking. "Kiosk collects it up front" is a UI
   fact; it says nothing about which server route runs. Kiosk flows that reuse a web wizard
   hit the WEB route.
 - **When a helper has N producers, enumerate all N and state the coverage in the commit.**
   `fe7a1e7d`'s own message named a third producer (`bowling-walkin-order.ts`) and left it
-  alone — but never checked that the two it *did* wire were the two that actually run.
+  alone — but never checked that the two it _did_ wire were the two that actually run.
 - **A per-guest side effect is verifiable in bulk — verify it in bulk.** One query joining
   `bowling_reservation_players` to the Square order, grouped by `booking_source`, turned a
   guess into `web 32/32, kiosk 0/8` in one run. Do that BEFORE writing the fix, not after.
@@ -3082,6 +3085,7 @@ add later.
 
 **Rule:** before writing a guest-facing redemption/purchase flow, answer these
 in the plan, not after the first version ships:
+
 - Can the guest present MORE THAN ONE of these at once? (basket vs single)
 - Can ONE of them contain more than one thing? (per-item identity + per-item
   single use, not per-code)
@@ -3110,6 +3114,7 @@ author, not just ones I convert.
 
 **Rule:** any NEW top-level page/route, before sharing a link or calling it
 done:
+
 1. Find a SIBLING page that already renders in the same chrome (here /reload)
    and copy its shell: nav-clearance top padding (`pt-32 sm:pt-36`), dark
    backdrop, white-on-dark colors. Don't invent a standalone light layout.
@@ -3156,6 +3161,7 @@ the head build's /waiver sign-time path. Both sides were right about what they s
 the instructions never pinned the surface. (Owner, fairly: "your steps were not clear.")
 
 **Rule:** when handing the owner a repro for a UI finding:
+
 1. Give the FULL URL (host + path + params), not a route name - on preview, the
    literal vercel.app link.
 2. Name the build fingerprint: what visibly differs in the version under test
@@ -3163,8 +3169,8 @@ the instructions never pinned the surface. (Owner, fairly: "your steps were not 
    ending = wrong page or old build).
 3. Say what a PASS and a FAIL each look like on screen, so "it worked" is
    unambiguous.
-The tell you skipped this: the owner's report describes UI your finding's code path
-cannot render.
+   The tell you skipped this: the owner's report describes UI your finding's code path
+   cannot render.
 
 ## A cutover report's claim about behavior must match a call site, not an intention (2026-07-31)
 
@@ -3196,6 +3202,7 @@ Two compounding details found while fixing it:
    round-trip tests are untouched).
 
 **Rules:**
+
 - When a report asserts "surface X does Y," verify the assertion against the call
   site before relying on it — a report describes the author's model, the tree
   describes the product. Here one grep (`buildWaiverUrl\(` in the page) falsified it.
@@ -3385,7 +3392,7 @@ vendor's writes recovered.
 Two independent faults had to line up, and both were ours:
 
 1. **`setProjectState` reported success it could not prove.** For a custom state
-   id it returned normally as soon as *either* path claimed success — and the
+   id it returned normally as soon as _either_ path claimed success — and the
    Pandora path's claim is known-worthless for exactly these ids. A function whose
    whole job is "make the state be X" must READ BACK that the state is X. It now
    re-reads (retried, because Pandora propagates to Firebird asynchronously) and
@@ -3484,16 +3491,16 @@ not word it two ways.
 ## Platform badges are ASSETS you download, not buttons you build (2026-08-03)
 
 Both `/v/[code]` and the voucher email shipped a hand-rolled pill reading **"Add to Apple or
-Google Wallet"** — our font, our border radius, our copy. Owner caught it: *"shouldn't we be using
-the actual real logos for those?"* Yes, and the same is true of every platform badge we will ever
+Google Wallet"** — our font, our border radius, our copy. Owner caught it: _"shouldn't we be using
+the actual real logos for those?"_ Yes, and the same is true of every platform badge we will ever
 add (App Store, Google Play, Apple/Google Pay).
 
 **Two separate mistakes were in that one pill.**
 
 1. **The wordmark was re-set in our own type.** Both vendors publish downloadable artwork
-   specifically so nobody does this. Google's guidelines are explicit: *"Do not create your own Add
+   specifically so nobody does this. Google's guidelines are explicit: _"Do not create your own Add
    to Google Wallet buttons or alter the font, color, button radius, or padding within the button in
-   any way."*
+   any way."_
 2. **Two brands were merged into one control.** Neither vendor ships a combined badge — every file
    in both packs is single-platform — so a single "Apple **or** Google" button could not have been
    legitimate artwork at any size. Each badge gets its own link, stating its own platform.
@@ -3523,12 +3530,12 @@ writing down):
   widths read as a bug. Never stretch one to match the other — the wordmarks are different lengths.
 - **A light host surface is the legal way to fix contrast.** Apple's badge is drawn for light
   backgrounds and Google's only variant is near-black, so both sit muddily on our `#00041b` pages.
-  The clear-space rules (Google 8 dp, Apple .1X) govern the space *around* a badge, so wrapping the
+  The clear-space rules (Google 8 dp, Apple .1X) govern the space _around_ a badge, so wrapping the
   pair in a white panel is allowed where restyling either badge is not. Render at ≥50px tall to
   clear Google's 48 dp minimum.
 
 **Also: check what main already has before editing a stale tree.** The working tree this was first
-written in was 47 commits behind `origin/main`, where the page had *already* been split into two
+written in was 47 commits behind `origin/main`, where the page had _already_ been split into two
 per-platform buttons using `?platform=`. Committing the stale file would have reverted that. Build
 the change in a worktree off `origin/main`, not on top of whatever the shared tree happens to hold.
 
@@ -3553,7 +3560,7 @@ removed = (excludeRemoved=false) \ (excludeRemoved=true)
 Two consequences worth carrying forward:
 
 1. **Diff-derived facts are positive; absence is not.** `in allStates && !in
-   active` means Pandora affirmatively has that person at state 5. A racer simply
+active` means Pandora affirmatively has that person at state 5. A racer simply
    missing from a payload means nothing — could be a timeout, a partial page, a
    cache fallback. Anything that acts on removal (retraction SMS, cancelling a
    booking, clearing a pass) must key off the positive form and fail closed on
@@ -3594,8 +3601,8 @@ composites to **white-on-white** over BMI's white waiver document. The ink was
 always in the file — 18 KB of it — just never visible on paper.
 
 The tell was already in the codebase: `renderDigitallyAcceptedPng`
-(`lib/waiver-digital.tsx`) carries the comment *"Dark text on white so it reads
-in BMI's waiver viewer."* That path had hit this and fixed it **locally**; the
+(`lib/waiver-digital.tsx`) carries the comment _"Dark text on white so it reads
+in BMI's waiver viewer."_ That path had hit this and fixed it **locally**; the
 interactive pad never got the same treatment. A lesson fixed at one call site is
 not fixed — the same instinct as "a shared helper is not a fix" (2026-07-29).
 
@@ -3636,7 +3643,7 @@ with `scripts/waiver-signed-but-no-expiry-sweep.mts`.
 ## Slot length is not play time (2026-08-08)
 
 Owner correction: Nexus gel blaster / laser tag were described everywhere as a
-**"15 minute session"**. Fifteen minutes is the *slot* — it covers the briefing
+**"15 minute session"**. Fifteen minutes is the _slot_ — it covers the briefing
 and gearing up. Actual arena time is **7 minutes**. The correct guest-facing
 phrasing is **"7 min session · 15 min experience"**, and it must never collapse
 back to one number.
@@ -3646,7 +3653,7 @@ Two traps this exposed:
 1. **A single `durationMin` field silently becomes marketing copy.** `durationMin`
    on `AttractionProductDef` is load-bearing for scheduling — BMI's reservation
    grid, `combo-board` end times, `attraction-session-assign`. But
-   `AttractionProductStep` and `/book/[attraction]` were *also* rendering it
+   `AttractionProductStep` and `/book/[attraction]` were _also_ rendering it
    straight to the guest as "15 min session". One number was answering two
    different questions. Fixed by adding an optional `playMin` alongside it:
    scheduling keeps reading `durationMin`, guest-facing labels render both when
@@ -3659,7 +3666,7 @@ Two traps this exposed:
    `group-events.ts` each restated the duration in their own prose ("15 min
    sessions", "15-minute missions", "15-min battles"). A grep for the exact
    string finds a third of them. When a fact about a product changes, sweep for
-   the *number near the product noun*, not the phrase you happen to remember —
+   the _number near the product noun_, not the phrase you happen to remember —
    and check JSON-LD/SEO descriptions, which are guest-facing to search engines
    and are routinely missed.
 
@@ -3682,7 +3689,7 @@ The trap has two halves, and the second is what makes it dangerous:
    `applyDemo(rawFeed, demo, …)` surviving a rename to `effectiveDemo`: both
    variables exist and are used elsewhere, so tsc, eslint AND the unit tests
    all passed while pushed previews decorated nothing on every screen. The
-   probe I wrote to "verify" it passed too — because it *re-implemented* the
+   probe I wrote to "verify" it passed too — because it _re-implemented_ the
    wiring correctly instead of importing the app's actual wiring. A test that
    shares no code with the thing it tests can only test the author's intent,
    never the deployment.
@@ -3700,7 +3707,7 @@ Rules, in force from now on:
   demo.ts and made TvApp and the live probe share it — the probe now cannot
   pass while the app is wrong.
 - **Verification order: hook first, then gates.** Prettier rewrites staged
-  files at commit time; a build that passed *before* the commit validated code
+  files at commit time; a build that passed _before_ the commit validated code
   that may no longer exist (this also shipped the `?? null ??` deploy
   failure). Re-run tsc/grep on the committed tree.
 
@@ -3745,7 +3752,7 @@ is over a resource's capacity — and the envelope you get depends on the login:
 
 **"Overbooking is not allowed" is not final.** Re-sending the byte-identical body
 with `confirm:true` returns 200 on that same service account — measured live on
-project 58454076. The account *can* overbook; it is simply never offered the
+project 58454076. The account _can_ overbook; it is simply never offered the
 dialog. No account-level setting is involved, which matters because the owner did
 not want overbooking enabled globally ("which is not ideal"). The staff retry is
 the same one byte: the two HAR request bodies differ only at `"confirm":false` →
@@ -3761,14 +3768,14 @@ scans: **stranded**. Five quotes were sitting in Pending Signed Contract with
 Three rules:
 
 - **A 4xx body is evidence; log it.** Every throw here said `Failed to update
-  project status: 403` and nothing else. The envelope naming the resource, the
+project status: 403` and nothing else. The envelope naming the resource, the
   window and the headcount was discarded at the one place it would have been read.
   Errors off a vendor call now carry `body.slice(0, 200)`.
 - **Never infer finality from prose.** "…is not allowed" described the default
   path, not the API's capability. Probe the override before believing the copy —
   `scripts/office-state-write-rail-probe.mts` exists to do exactly that.
 - **A vendor account can be answered differently from a vendor UI.** When a HAR
-  from a staff browser disagrees with our service account, diff the *login* before
+  from a staff browser disagrees with our service account, diff the _login_ before
   diffing the payload. Same endpoint, same body, different envelope.
 
 **This very likely re-diagnoses the 2026-08-03 "vendor write outage"** (see "A
@@ -3787,7 +3794,7 @@ Two follow-ons from the same fix:
   2026-08-03 it lied, which is what turned a stalled write into 88 guest emails.
   A clean throw leaves the project in "Send Contract" to retry next pass.
 - **Open question, deliberately not changed here:** the guest email is still gated
-  on a *vendor* write landing. `contract_sent_at` in Neon is the durable record;
+  on a _vendor_ write landing. `contract_sent_at` in Neon is the durable record;
   BMI state is the trigger AND the loop-breaker, which is why one vendor refusal
   suppresses the send entirely. Moving the loop-breaker into our own DB is the
   house-rule-shaped fix (Neon is the source of truth, external APIs are downstream

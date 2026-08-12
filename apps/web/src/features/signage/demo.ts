@@ -356,59 +356,64 @@ function demoBriefingSection(feed: TvFeed, mode: DemoMode): TvFeed["briefing"] {
     // minutes), three still walking back (outline, right of it), and one holding
     // its green confirmation. Ordering is overdue-first then by when the camera
     // went out, which is what a reviewer should see the divider land on.
+    // Covers every state in one press: two STILL OUT on the left (their next race
+    // has been called and they never came back), and an INCOMING group on the
+    // right — two already registered, two still due. Track colours differ so the
+    // blue/red/mega outlines can all be reviewed at once.
     cameraReturn: {
-      boxes: [
+      stillOut: [
         {
-          camera: "8",
-          state: "out",
-          heatNumber: 56,
-          sinceFlagMs: 18 * 60_000,
-          overdue: true,
+          camera: "31",
+          state: "still-out",
+          heatNumber: 54,
+          track: "red",
+          sinceFlagMs: 128 * 60_000,
           assignedAtMs: 1,
         },
         {
-          camera: "12",
-          state: "out",
-          heatNumber: 57,
-          sinceFlagMs: 14 * 60_000,
-          overdue: true,
+          camera: "6",
+          state: "still-out",
+          heatNumber: 56,
+          track: "blue",
+          sinceFlagMs: 41 * 60_000,
           assignedAtMs: 2,
         },
+      ],
+      incoming: [
         {
           camera: "17",
           state: "back",
           heatNumber: 58,
-          sinceFlagMs: 2 * 60_000,
-          overdue: false,
+          track: "mega",
+          sinceFlagMs: 3 * 60_000,
           assignedAtMs: 3,
         },
         {
           camera: "23",
-          state: "out",
+          state: "waiting",
           heatNumber: 58,
-          sinceFlagMs: 2 * 60_000,
-          overdue: false,
+          track: "mega",
+          sinceFlagMs: 3 * 60_000,
           assignedAtMs: 4,
         },
         {
-          camera: "26",
-          state: "out",
+          camera: "44",
+          state: "back",
           heatNumber: 58,
-          sinceFlagMs: 2 * 60_000,
-          overdue: false,
+          track: "mega",
+          sinceFlagMs: 3 * 60_000,
           assignedAtMs: 5,
         },
         {
-          camera: "44",
-          state: "out",
+          camera: "72",
+          state: "waiting",
           heatNumber: 58,
-          sinceFlagMs: 30_000,
-          overdue: false,
+          track: "mega",
+          sinceFlagMs: 3 * 60_000,
           assignedAtMs: 6,
         },
       ],
-      outCount: 5,
-      overdueCount: 2,
+      outCount: 2,
     },
   };
 }
