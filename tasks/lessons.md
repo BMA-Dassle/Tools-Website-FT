@@ -3753,3 +3753,61 @@ Two follow-ons from the same fix:
   house-rule-shaped fix (Neon is the source of truth, external APIs are downstream
   syncs) — but it needs an answer for "sales re-flips to Send Contract to force a
   resend", which today is indistinguishable from the cron re-scanning a stuck row.
+
+## Mint first, fail later = one guest, five person records (2026-08-12)
+
+`pandoraOnboardGuest` is three steps: **mint the person → check the waiver →
+fetch the age-appropriate template**. Steps 2 and 3 can fail long after step 1
+has already written a BMI record, and every one of those failures surfaces to the
+guest as a generic error. The guest retries. Step 1 runs again.
+
+Under **cloud-first** that is not a rare hazard, it is a guarantee — the Office
+create never resolves an existing record, so retry N produces person N.
+
+Live: **Mattis Poeter, age 6, HeadPinz Naples** — five person records, no waiver
+on any of them.
+
+```
+…906317  dob 2019-08-16  ┐
+…906319  dob 2019-08-16  ├ byte-identical input, three separate records
+…906321  dob 2019-08-16  ┘
+…907988  dob 2018-08-16  ┐ the guest "corrected" the birth YEAR and resubmitted
+…908989  dob 2018-08-16  ┘
+```
+
+Every relative whose onboard succeeded first time got exactly one record.
+
+**What was actually failing: a CENTER CONFIG GAP.** Naples' BMI waiver templates
+start at **age 8** — `GET /v2/bmi/waiver/search?locationID=PPTR5G2N0QXF7&age=6`
+returns `404 {"success":false,"message":"No waiver found."}`, while both Fort
+Myers centers serve age 6 fine. No child under 8 could complete a waiver at
+Naples at all, and the error said "Could not load waiver template", which reads
+as "try again".
+
+### How to apply
+
+1. **A mint is a WRITE. Never put a mint before a step that can fail.** If it
+   must come first, memoise it: keyed by identity, so a retry reuses the id.
+   `mintedThisSession` in `lib/pandora.ts` does this.
+2. **Key the memo on what does NOT change — the name and center, NOT the DOB.**
+   The birthdate is the field a guest edits when the flow errors ("maybe I typed
+   the year wrong"). Keying on it lets every correction mint another twin. A
+   changed DOB on a person we already minted is a CORRECTION → `PATCH`
+   (`pandoraPatchBirthdate`), never a second create.
+3. **A vendor 404 for a per-center resource is a CONFIG GAP, not a blip.** Say so:
+   name the age, point at the desk, tell the guest nothing they typed was wrong.
+   A generic retryable-sounding error turns a config gap into a duplicate factory.
+   Both languages, per the kiosk i18n rule.
+4. **Never read the LOCAL rail for something the CLOUD just minted.** Step 2 read
+   Pandora for a cloud-minted person that cannot be there for ~10-32s. A freshly
+   created record has nothing to refresh from — the only data on it is what the
+   guest just typed. Skip the read (`rail === "office-cloud"`).
+5. **Probe per-center capability across ALL centers, not just the one in front of
+   you.** Ages 6/7/8/10/17/46 × three locations took one script and found the gap
+   in seconds. Anything keyed by locationID or clientKey — membership kinds,
+   waiver templates, project states — differs per center until proven otherwise.
+   Same session, same shape: [BMI membership kinds are client-key scoped].
+
+**Owner action still owed:** add a waiver template covering ages 0-7 at HeadPinz
+Naples (or widen the existing `Minor` template, contentID 5958734, down from 8).
+Until then under-8s at Naples must sign at the desk.

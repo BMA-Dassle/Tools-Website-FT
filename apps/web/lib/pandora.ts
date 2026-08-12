@@ -27,6 +27,19 @@ export interface PandoraPersonCreateInput {
 
 export interface PandoraPersonCreateResult {
   personId: string;
+  /**
+   * WHICH RAIL minted this person — the route reports it and callers must not
+   * throw it away.
+   *
+   * `office-cloud` (cloud-first, the default) means the record was CREATED in
+   * the vendor cloud and is NOT yet in the center's local Firebird — reads
+   * against Pandora will 404 for the next ~10-32s. `pandora-local` means it was
+   * written locally and is readable immediately.
+   *
+   * This is the difference between "check the waiver now" and "you cannot".
+   * See `pandoraOnboardGuest`.
+   */
+  rail?: "office-cloud" | "pandora-local";
 }
 
 // ── Waiver status types ──────────────────────────────────────────────────────
@@ -147,8 +160,14 @@ export async function pandoraCreatePerson(
       lastErr = err; // network/timeout — retry
       continue;
     }
-    const data = await res.json().catch(() => ({}) as { personId?: string; error?: string });
-    if (data.personId) return { personId: data.personId };
+    const data = await res
+      .json()
+      .catch(() => ({}) as { personId?: string; error?: string; rail?: string });
+    if (data.personId) {
+      const rail =
+        data.rail === "office-cloud" || data.rail === "pandora-local" ? data.rail : undefined;
+      return { personId: data.personId, rail };
+    }
     // 4xx = real client error (e.g. missing fields) — fail fast, don't retry.
     if (res.status < 500) throw new Error(data.error || "Failed to create person");
     lastErr = new Error(data.error || `HTTP ${res.status}`); // 5xx — retry
@@ -235,6 +254,23 @@ export async function pandoraFetchWaiverTemplate(
   const res = await getWithRetry(path);
   if (!res.ok) {
     const data = await res.json().catch(() => null);
+    // A 404 means this CENTER has no waiver configured for this age — not a blip.
+    // Live 2026-08-12: HeadPinz Naples' templates start at age 8, so a 6- and
+    // 7-year-old got "No waiver found" while Fort Myers served them fine. The
+    // generic message read as "try again", and each try minted another person.
+    // Say what is actually wrong so the guest stops retrying and asks the desk.
+    // Guest-facing, so both languages (house rule) — `lang` is already the
+    // ambient kiosk locale here.
+    if (res.status === 404) {
+      throw new Error(
+        lang === "es"
+          ? `Este centro no tiene una exoneración disponible para la edad ${age}. ` +
+              `Por favor, acuda al mostrador — allí pueden firmarla por usted. ` +
+              `(No hay ningún error en los datos que ingresó.)`
+          : `This location has no waiver on file for age ${age}. Please see the front desk — ` +
+              `they can sign this waiver for you. (Nothing you typed is wrong.)`,
+      );
+    }
     throw new Error(data?.error || "Could not load waiver template");
   }
   return res.json();
@@ -329,6 +365,48 @@ export function calculateWaiverExpiry(durationYears: number): string {
  * memo. The record's name is the account the guest signed into — callers should
  * store and display it (Title Case it first: CRM rows can be ALL CAPS).
  */
+/**
+ * Persons already minted in THIS page session, keyed by the guest's identity.
+ *
+ * Why this exists: `pandoraOnboardGuest` mints first and can then fail on any
+ * later step (template fetch, waiver read, network). Every one of those failures
+ * surfaces to the guest as "try again" — and the retry ran step 1 again, minting
+ * a SECOND person for the same human. Under cloud-first that is guaranteed
+ * duplication, because the Office create never resolves an existing record.
+ *
+ * Live proof (2026-08-12, HeadPinz Naples): Mattis Poeter, age 6, ended up with
+ * FIVE person records — …906317/…906319/…906321 carrying byte-identical data —
+ * and no waiver on any of them, because his onboard threw after the mint and the
+ * form was resubmitted. Each of his relatives, whose onboard succeeded first
+ * time, got exactly one record.
+ *
+ * So the mint is memoised: a retry for the same name+DOB+center reuses the id we
+ * already have. Keyed by identity, not by form state, so it also survives the
+ * guest re-typing the same person. Session-scoped by design — a real returning
+ * guest on a later visit must still go through BMI's own matching.
+ */
+const mintedThisSession = new Map<string, PandoraPersonCreateResult & { birthdate: string }>();
+
+/**
+ * Identity key for the mint memo: name + center, deliberately NOT the birthdate.
+ *
+ * The birthdate is the field a guest EDITS when the flow errors — Mattis' five
+ * records carry two different birth years (2019-08-16 ×3, 2018-08-16 ×2) because
+ * the retry that followed each failure came with a "corrected" year. Keying on
+ * the DOB would let every correction mint another twin, which is the bug.
+ *
+ * So the same name at the same center is the same human for the length of this
+ * page session, and a changed DOB is a CORRECTION to the record we already
+ * minted — applied with `pandoraPatchBirthdate`, which updates and never creates.
+ */
+function mintKey(input: { firstName: string; lastName: string }, location?: string) {
+  return [
+    location ?? "",
+    input.firstName.trim().toLowerCase(),
+    input.lastName.trim().toLowerCase(),
+  ].join("|");
+}
+
 export async function pandoraOnboardGuest(
   input: PandoraPersonCreateInput & { birthdate: string },
   location?: string,
@@ -354,11 +432,66 @@ export async function pandoraOnboardGuest(
     }
 > {
   // 1. Create person (usually resolves a known person to their existing record;
-  //    NOT a reliable upsert — see the risk note on pandoraCreatePerson)
-  const { personId } = await pandoraCreatePerson({ ...input, location });
+  //    NOT a reliable upsert — see the risk note on pandoraCreatePerson).
+  //    Memoised per identity so a retry after ANY later failure reuses the id
+  //    instead of minting a twin — see `mintedThisSession`.
+  const key = mintKey(input, location);
+  const cached = mintedThisSession.get(key);
+  let minted: PandoraPersonCreateResult;
+  if (cached) {
+    minted = cached;
+    // A retry that carries a DIFFERENT birthdate is the guest correcting the
+    // record we already minted — patch it, never mint a twin. Best-effort: a
+    // failed patch leaves the guest where they were and the queue still owns the
+    // repair (`repair-person-details`).
+    if (cached.birthdate !== input.birthdate) {
+      await pandoraPatchBirthdate({
+        personId: cached.personId,
+        birthdate: input.birthdate,
+        location,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        email: input.email,
+        phone: input.phone,
+      });
+      mintedThisSession.set(key, { ...cached, birthdate: input.birthdate });
+    }
+  } else {
+    minted = await pandoraCreatePerson({ ...input, location });
+    mintedThisSession.set(key, { ...minted, birthdate: input.birthdate });
+  }
+  const { personId, rail } = minted;
 
   // 2. Check if waiver already valid — the response carries the BMI record's
   //    birthdate and name (membership refresh: BMI wins over what was typed).
+  //
+  //    ⚠️ CROSS-RAIL: this reads PANDORA (the center's LOCAL server) for a
+  //    person that cloud-first just minted in the vendor CLOUD. The record does
+  //    not reach local for ~10-32s, so the read 404s and — before this guard —
+  //    threw, the guest saw an error, tapped again, and step 1 minted ANOTHER
+  //    person. Live 2026-08-12: Mattis Poeter got FIVE Naples person records
+  //    (…906317/906319/906321 all with identical data, plus …907988/…908989)
+  //    and never a waiver, while every relative who succeeded first time got
+  //    exactly one.
+  //
+  //    A freshly CREATED record has nothing to refresh from anyway: the only
+  //    data on it is what the guest just typed, and there is no older BMI
+  //    account to prefer. So skip the read entirely for a fresh cloud mint and
+  //    use the typed values. No cross-rail read ⇒ no failure ⇒ no retry ⇒ no
+  //    duplicate. (`repair-person-details` + the queue own the follow-up.)
+  if (rail === "office-cloud") {
+    const age = calculateAge(input.birthdate);
+    const template = await pandoraFetchWaiverTemplate(age, location, lang);
+    return {
+      personId,
+      waiverValid: false,
+      template,
+      birthdate: input.birthdate,
+      firstName: input.firstName,
+      lastName: input.lastName,
+    };
+  }
+
   const status = await pandoraCheckWaiver(personId, location);
   const birthdate = status.birthdate ? String(status.birthdate).slice(0, 10) : input.birthdate;
   const firstName = status.firstName?.trim() || input.firstName;
