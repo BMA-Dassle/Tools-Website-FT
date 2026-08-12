@@ -130,5 +130,10 @@ export const TV_UPDATE_CHECK_MS = 5 * 60_000;
  * 0.2.0 — Camera monitor scene: a live venue camera on a wall (~1fps stills via
  *         the Nx relay proxy), with that track's session + delay clocks big
  *         across the bottom.
+ * 0.2.1 — Camera monitor reworked to the original layout: camera left, on-track
+ *         session clock HUGE on the track's colour, full-width track-status bar
+ *         (green/amber) below, and the briefing room's session + video-remaining
+ *         over the picture. Room-addressed frames (`?room=`) feed the check-in
+ *         board's in-room panel too.
  */
-export const SIGNAGE_VERSION = "0.2.0";
+export const SIGNAGE_VERSION = "0.2.1";

@@ -43,6 +43,22 @@ export function nxConfigured(): boolean {
   return !!(env("NX_CLOUD_SYSTEM_ID") && env("NX_CLOUD_USERNAME") && env("NX_CLOUD_PASSWORD"));
 }
 
+/**
+ * The two FastTrax briefing-room cameras, by room (Nx device ids from the live
+ * device list, verified 2026-08-12). Fixed here so a room-addressed view — the
+ * check-in board's in-room panel — resolves a camera without a provisioned
+ * screen. These are the ONLY cameras `/api/tv/camera?room=` can reach, so the
+ * room shortcut can never be turned into a way to pull an arbitrary camera.
+ */
+export const BRIEFING_ROOM_CAMERAS: Record<"blue" | "red", string> = {
+  blue: "ae9373a3-f070-b2d6-d109-751c26159b6c",
+  red: "dbecf8d8-d543-419a-bafc-bda19f48b689",
+};
+
+export function briefingRoomCameraId(room: string | null | undefined): string | null {
+  return room === "blue" || room === "red" ? BRIEFING_ROOM_CAMERAS[room] : null;
+}
+
 function relayBase(): string {
   return `https://${env("NX_CLOUD_SYSTEM_ID")}.relay.vmsproxy.com`;
 }
