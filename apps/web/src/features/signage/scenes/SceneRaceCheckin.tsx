@@ -33,6 +33,7 @@ import { RecordsQr } from "../components/RecordsQr";
 import { demoCurrentRace, demoIsMegaDay } from "../demo";
 import type { SceneProps } from "../director/types";
 
+const BIRTHDAY_PINK = "#EC4899";
 const PAD_X = 96;
 const PAD_Y = 54;
 
@@ -628,7 +629,13 @@ function CheckinFeed({
 }: {
   accent: string;
   race: { heatNumber: number; raceType: string } | null;
-  scans: { id: string; firstName?: string; atMs: number; headsockDue?: boolean }[];
+  scans: {
+    id: string;
+    firstName?: string;
+    atMs: number;
+    headsockDue?: boolean;
+    birthday?: boolean;
+  }[];
   checkedIn: number | null;
   total: number | null;
   showRecordsQr: boolean;
@@ -724,15 +731,23 @@ function CheckinFeed({
             {scans.map((s, i) => (
               <span
                 key={s.id}
-                className="tv-display tv-rise"
+                // A birthday pill wears its own glowing lights (owner 2026-08-11)
+                // — the animated halo has to be a class, box-shadow cannot
+                // animate inline.
+                className={`tv-display tv-rise${s.birthday ? " tv-bday-glow" : ""}`}
                 style={{
                   fontSize: scans.length > 24 ? 44 : scans.length > 12 ? 54 : 66,
                   color: "#fff",
                   padding: "14px 32px",
                   borderRadius: 999,
-                  border: `2px solid ${withAlpha(accent, i === 0 ? 0.95 : 0.45)}`,
-                  background: withAlpha(accent, i === 0 ? 0.35 : 0.14),
-                  boxShadow: i === 0 ? `0 0 44px ${withAlpha(accent, 0.65)}` : "none",
+                  border: s.birthday
+                    ? `2px solid ${BIRTHDAY_PINK}`
+                    : `2px solid ${withAlpha(accent, i === 0 ? 0.95 : 0.45)}`,
+                  background: s.birthday
+                    ? withAlpha(BIRTHDAY_PINK, 0.3)
+                    : withAlpha(accent, i === 0 ? 0.35 : 0.14),
+                  boxShadow:
+                    !s.birthday && i === 0 ? `0 0 44px ${withAlpha(accent, 0.65)}` : undefined,
                   whiteSpace: "nowrap",
                 }}
               >
@@ -761,7 +776,13 @@ function ActionStrip({
   scans,
   accent,
 }: {
-  scans: { id: string; firstName?: string; atMs: number; headsockDue?: boolean }[];
+  scans: {
+    id: string;
+    firstName?: string;
+    atMs: number;
+    headsockDue?: boolean;
+    birthday?: boolean;
+  }[];
   accent: string;
 }) {
   const newest = scans[0];
@@ -945,7 +966,7 @@ function ScanRail({
   raised,
   nowMs,
 }: {
-  scans: { id: string; firstName?: string; atMs: number }[];
+  scans: { id: string; firstName?: string; atMs: number; birthday?: boolean }[];
   accent: string;
   raised: boolean;
   nowMs: number;
@@ -977,15 +998,19 @@ function ScanRail({
         return (
           <span
             key={s.id}
-            className={`tv-display tv-rise${fresh ? " tv-breathe" : ""}`}
+            className={`tv-display tv-rise${s.birthday ? " tv-bday-glow" : fresh ? " tv-breathe" : ""}`}
             style={{
               fontSize: fresh ? 64 : 46,
               color: "#fff",
               padding: fresh ? "14px 34px" : "12px 26px",
               borderRadius: 999,
-              border: `2px solid ${withAlpha(accent, fresh ? 0.95 : 0.55)}`,
-              background: withAlpha(accent, fresh ? 0.38 : 0.16),
-              boxShadow: fresh ? `0 0 46px ${withAlpha(accent, 0.7)}` : "none",
+              border: s.birthday
+                ? `2px solid ${BIRTHDAY_PINK}`
+                : `2px solid ${withAlpha(accent, fresh ? 0.95 : 0.55)}`,
+              background: s.birthday
+                ? withAlpha(BIRTHDAY_PINK, 0.32)
+                : withAlpha(accent, fresh ? 0.38 : 0.16),
+              boxShadow: !s.birthday && fresh ? `0 0 46px ${withAlpha(accent, 0.7)}` : undefined,
               // Newest first, and each one arrives a beat after the last so a
               // burst of scans reads as a wave rather than a jump.
               animationDelay: `${i * 90}ms`,

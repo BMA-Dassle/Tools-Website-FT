@@ -188,6 +188,7 @@ async function buildBriefingSection(venue: SignageVenue): Promise<{
 
   const starter = assets["briefing-video:starter"];
   const intermediate = assets["briefing-video:intermediate"];
+  const pro = assets["briefing-video:pro"];
   const poster = assets["briefing-helmet-poster"];
 
   return {
@@ -197,6 +198,7 @@ async function buildBriefingSection(venue: SignageVenue): Promise<{
         intermediate: intermediate
           ? { url: intermediate.url, durationMs: intermediate.durationMs }
           : null,
+        pro: pro ? { url: pro.url, durationMs: pro.durationMs } : null,
       },
       helmetPosterUrl: poster?.url ?? null,
     },

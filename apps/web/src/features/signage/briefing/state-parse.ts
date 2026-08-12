@@ -40,7 +40,7 @@ export function parseBriefingRoomState(raw: string | null): BriefingRoomState | 
     if (typeof p.triggeredAtMs !== "number" || !Number.isFinite(p.triggeredAtMs)) return null;
     return {
       kind: p.kind,
-      tier: p.tier === "starter" || p.tier === "intermediate" ? p.tier : null,
+      tier: p.tier === "starter" || p.tier === "intermediate" || p.tier === "pro" ? p.tier : null,
       track: p.track === "blue" || p.track === "red" || p.track === "mega" ? p.track : "mega",
       raceType: typeof p.raceType === "string" && p.raceType ? p.raceType : null,
       sessionId: typeof p.sessionId === "string" ? p.sessionId : "",

@@ -357,6 +357,8 @@ export interface TvFeed {
     videos: {
       starter: { url: string; durationMs: number | null } | null;
       intermediate: { url: string; durationMs: number | null } | null;
+      /** Optional — Pro sessions fall back to the Intermediate film without it. */
+      pro: { url: string; durationMs: number | null } | null;
     };
     helmetPosterUrl: string | null;
   } | null;

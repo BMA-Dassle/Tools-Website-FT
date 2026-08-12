@@ -298,7 +298,7 @@ export function demoBriefingRooms(
 function demoBriefingSection(feed: TvFeed): TvFeed["briefing"] {
   const real = feed.briefing;
   return {
-    videos: real?.videos ?? { starter: null, intermediate: null },
+    videos: real?.videos ?? { starter: null, intermediate: null, pro: null },
     helmetPosterUrl: real?.helmetPosterUrl ?? null,
   };
 }

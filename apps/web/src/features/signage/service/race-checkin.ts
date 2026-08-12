@@ -100,7 +100,15 @@ export async function raceCheckinInfo(
     total: null,
   };
 
-  const race = await currentSession(track);
+  // MEGA FALLBACK, and it is load-bearing for the send-clears-the-board flow.
+  // A track board is scoped to blue or red, but on a Mega day the only warm
+  // last-race key is `mega` — the scoped read returns null, this whole section
+  // came back empty, and the board never received `briefedAtMs`, so sending a
+  // group to a room cleared nothing (owner 2026-08-11, on a Mega night). The
+  // physical board's question is "what is checking in HERE", and on a Mega day
+  // the answer for both boards is the Mega session. Exact track first, so a
+  // normal day never reads the stale mega key.
+  const race = (await currentSession(track)) ?? (await currentSession("mega"));
   const sessionId = typeof race?.sessionId === "number" ? race.sessionId : null;
   if (sessionId == null) return empty;
 

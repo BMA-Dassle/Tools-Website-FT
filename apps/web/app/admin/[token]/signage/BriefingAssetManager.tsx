@@ -32,7 +32,14 @@ const ROWS: AssetRow[] = [
   {
     key: "briefing-video:starter",
     label: "Starter briefing video",
-    hint: "The full safety briefing. Plays for Starter sessions — and for Pro sessions too, which have no film of their own. MP4 or MOV, as long as it is H.264 — the check below will tell you before it uploads.",
+    hint: "The full safety briefing, for Starter sessions. MP4 or MOV, as long as it is H.264 — the check below will tell you before it uploads.",
+    accept: "video/mp4,video/quicktime,.mp4,.mov",
+    kind: "video",
+  },
+  {
+    key: "briefing-video:pro",
+    label: "Pro briefing video",
+    hint: "Optional. Pro sessions play this when it exists — and fall back to the Intermediate film when it doesn't, so nothing breaks while it is missing.",
     accept: "video/mp4,video/quicktime,.mp4,.mov",
     kind: "video",
   },

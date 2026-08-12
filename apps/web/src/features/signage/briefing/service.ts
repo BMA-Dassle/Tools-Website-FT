@@ -37,6 +37,7 @@ import {
 import {
   assetKeyForTier,
   BRIEFING_ROOMS,
+  resolveFilmTier,
   tierForRaceType,
   type BriefingPhase,
   type BriefingRoom,
@@ -72,12 +73,21 @@ export interface SendBriefingResult {
  * Send a called session to a briefing room.
  *
  * The tier decides which film plays and defaults from the session type, with PRO
- * SESSIONS TAKING THE STARTER FILM (owner 2026-08-11) — there is no Pro briefing,
- * and a Pro grid still contains people who have not raced this season.
+ * SESSIONS TAKING THE PRO FILM when one is uploaded, falling back to the
+ * INTERMEDIATE film when it is not (owner 2026-08-11, superseding the earlier
+ * Pro→Starter rule). Staff can still override per send.
  */
 export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefingResult> {
-  const tier = args.tier ?? tierForRaceType(args.raceType);
+  const requestedTier = args.tier ?? tierForRaceType(args.raceType);
   const businessDay = businessDayYmdET();
+
+  // The EFFECTIVE film — a Pro request falls back to the Intermediate film when
+  // no Pro film is uploaded (owner 2026-08-11). Resolved BEFORE the durable
+  // record so the row stores the tier the room actually plays; the manifest read
+  // is a read, so writes still go Neon-first below.
+  const assets = await loadSignageAssetsSafe();
+  const tier = resolveFilmTier(requestedTier, (t) => !!assets[assetKeyForTier(t)]?.url);
+  const video = assets[assetKeyForTier(tier)] ?? null;
 
   // Durable first — see the header.
   await recordBriefingAssignment({
@@ -91,9 +101,6 @@ export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefing
     tier,
     mode: "timeline",
   });
-
-  const assets = await loadSignageAssetsSafe();
-  const video = assets[assetKeyForTier(tier)] ?? null;
 
   const state: BriefingRoomState = {
     // ASSIGNED, not started. The group has to walk to the room and sit down;
@@ -141,8 +148,10 @@ export async function startBriefing(
     return { ok: false, error: "nothing is assigned to that room — send a session first" };
   }
 
-  const tier = current.tier ?? "starter";
   const assets = await loadSignageAssetsSafe();
+  // Re-resolved at Start too: the film may have been uploaded (or removed) while
+  // the group walked over, and a stale answer here would start a silent room.
+  const tier = resolveFilmTier(current.tier ?? "starter", (t) => !!assets[assetKeyForTier(t)]?.url);
   const video = assets[assetKeyForTier(tier)] ?? null;
 
   await setBriefingRoom(VENUE, room, {
@@ -222,8 +231,12 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     return { room, state, phase: timeline.phase, nextInMs: timeline.nextInMs };
   });
 
-  const starter = assets["briefing-video:starter"] ?? null;
-  const intermediate = assets["briefing-video:intermediate"] ?? null;
+  const slot = (
+    key: "briefing-video:starter" | "briefing-video:intermediate" | "briefing-video:pro",
+  ) => {
+    const a = assets[key] ?? null;
+    return a ? { url: a.url, durationMs: a.durationMs } : null;
+  };
 
   return {
     now,
@@ -231,10 +244,9 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     rooms: roomStatuses,
     assignments,
     videos: {
-      starter: starter ? { url: starter.url, durationMs: starter.durationMs } : null,
-      intermediate: intermediate
-        ? { url: intermediate.url, durationMs: intermediate.durationMs }
-        : null,
+      starter: slot("briefing-video:starter"),
+      intermediate: slot("briefing-video:intermediate"),
+      pro: slot("briefing-video:pro"),
     },
     helmetPosterUrl: assets["briefing-helmet-poster"]?.url ?? null,
   };

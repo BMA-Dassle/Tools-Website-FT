@@ -28,31 +28,60 @@ export function parseBriefingRoom(raw: unknown): BriefingRoom | null {
 }
 
 /**
- * Which briefing video to play. Only two exist: a racer's FIRST briefing
- * (Starter) and the shorter one for anyone who has raced before (Intermediate).
+ * Which briefing film to play: a racer's FIRST briefing (Starter), the shorter
+ * one for returning racers (Intermediate), and the Pro briefing — which falls
+ * back to Intermediate until a Pro film is uploaded (owner 2026-08-11).
  */
-export type BriefingTier = "starter" | "intermediate";
+export type BriefingTier = "starter" | "intermediate" | "pro";
 
 export function parseBriefingTier(raw: unknown): BriefingTier | null {
-  return raw === "starter" || raw === "intermediate" ? raw : null;
+  return raw === "starter" || raw === "intermediate" || raw === "pro" ? raw : null;
 }
 
 /**
- * Session tier → which video plays.
+ * Session tier → which film the session ASKS for.
  *
- * PRO SESSIONS GET THE STARTER VIDEO (owner 2026-08-11). There is no Pro
- * briefing film, and the owner's call was the full safety briefing rather than
- * the short one — a Pro grid still contains people who have not been in a kart
- * this season. Staff can override per send.
+ * PRO SESSIONS ASK FOR THE PRO FILM (owner 2026-08-11, superseding the morning's
+ * "Pro plays Starter" rule from before a Pro film existed). Whether the room
+ * actually gets it is resolveFilmTier's decision — a missing Pro film falls back
+ * to the Intermediate one, per the owner: "fall back to intermediate when we
+ * don't have it."
  *
  * Matched loosely because the upstream calls this field a lot of things
- * ("Intermediate", "Intermediate (2)", "Junior Starter").
+ * ("Intermediate", "Intermediate (2)", "Junior Starter"). ORDER MATTERS:
+ * "intermediate" is tested before "pro" so nothing mislabels, and Junior Pro
+ * deliberately lands on the Pro film — the junior distinction changes which heats
+ * they may book (the race-products trap), not which safety briefing fits their
+ * experience.
  */
 export function tierForRaceType(raceType: string | null | undefined): BriefingTier {
   const name = (raceType || "").toLowerCase();
   if (name.includes("intermediate")) return "intermediate";
-  // Starter, Junior Starter, Pro, Junior Pro, and anything unrecognised.
+  if (name.includes("pro")) return "pro";
+  // Starter, Junior Starter, and anything unrecognised.
   return "starter";
+}
+
+/**
+ * The film a room will ACTUALLY play, given what has been uploaded.
+ *
+ * One rule, per the owner: a Pro request falls back to the Intermediate film when
+ * no Pro film exists. Nothing else chains — a missing Intermediate film does not
+ * reach for Starter, because showing first-timer content to an experienced grid
+ * misinforms them, whereas a missing film honestly becomes the helmet board (and
+ * the desk says so before the send).
+ *
+ * Resolved ONCE, server-side, at send/start — and the EFFECTIVE tier is what the
+ * room state carries. The TV then plays `state.tier` off the manifest with no
+ * fallback logic of its own, so the desk, the wall and the cache can never
+ * disagree about which film a room is running.
+ */
+export function resolveFilmTier(
+  requested: BriefingTier,
+  hasFilm: (tier: BriefingTier) => boolean,
+): BriefingTier {
+  if (requested === "pro" && !hasFilm("pro") && hasFilm("intermediate")) return "intermediate";
+  return requested;
 }
 
 /** The three assets a briefing room needs. Keys are stable — they are the
@@ -60,11 +89,13 @@ export function tierForRaceType(raceType: string | null | undefined): BriefingTi
 export type BriefingAssetKey =
   | "briefing-video:starter"
   | "briefing-video:intermediate"
+  | "briefing-video:pro"
   | "briefing-helmet-poster";
 
 export const BRIEFING_ASSET_KEYS: readonly BriefingAssetKey[] = [
   "briefing-video:starter",
   "briefing-video:intermediate",
+  "briefing-video:pro",
   "briefing-helmet-poster",
 ] as const;
 
@@ -73,7 +104,9 @@ export function isBriefingAssetKey(raw: unknown): raw is BriefingAssetKey {
 }
 
 export function assetKeyForTier(tier: BriefingTier): BriefingAssetKey {
-  return tier === "starter" ? "briefing-video:starter" : "briefing-video:intermediate";
+  if (tier === "starter") return "briefing-video:starter";
+  if (tier === "pro") return "briefing-video:pro";
+  return "briefing-video:intermediate";
 }
 
 /** One uploaded asset, as the TV receives it. */
@@ -116,9 +149,10 @@ export interface BriefingRoomState {
    * The session's own level as the timing system words it ("Starter",
    * "Intermediate", "Pro").
    *
-   * DISTINCT FROM `tier`, which is only which of the two films plays — a Pro
-   * session plays the Starter film, so showing `tier` on the wall would tell a Pro
-   * grid they are in a Starter race. The board must show the race they are in.
+   * DISTINCT FROM `tier`, which is only which FILM plays — a Pro session with no
+   * Pro film uploaded plays the Intermediate one, and showing `tier` on the wall
+   * would then tell a Pro grid they are in an Intermediate race. The board must
+   * show the race they are in.
    */
   raceType: string | null;
   /** Pandora session id, as a STRING. Never a number: BMI/Pandora ids can

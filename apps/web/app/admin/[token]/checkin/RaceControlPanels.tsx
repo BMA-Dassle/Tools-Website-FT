@@ -198,6 +198,7 @@ export default function RaceControlPanels({ control }: { control: BriefingContro
               race={race}
               delay={findDelay(status?.trackStatus.tracks, track)}
               status={board?.rooms.find((r) => r.room === room) ?? null}
+              proFilmMissing={!board?.videos.pro}
               // Once a session has gone to EITHER room it leaves the Called boxes
               // (owner 2026-08-11: "once a session is moved to the room it should
               // clear from these top boxes"). It is no longer waiting to be sent, so
@@ -265,6 +266,7 @@ function RoomColumn({
   race,
   delay,
   status,
+  proFilmMissing,
   nowMs,
   sentTo,
   tierOverride,
@@ -280,6 +282,8 @@ function RoomColumn({
   race: CurrentRace | null;
   delay: TrackInfo | null;
   status: RoomStatus | null;
+  /** No Pro film uploaded — a Pro pick will play the Intermediate film. */
+  proFilmMissing: boolean;
   nowMs: number;
   /** Which room this called session already went to, if any. */
   sentTo: BriefingRoom | null;
@@ -297,6 +301,10 @@ function RoomColumn({
   const occupied = timeline.phase !== "idle";
   const autoTier = tierForRaceType(race?.raceType);
   const tier = tierOverride ?? autoTier;
+  // The desk says what will REALLY play before the send: a Pro pick with no Pro
+  // film uploaded runs the Intermediate film (owner 2026-08-11). Availability
+  // comes down as a prop — `board` lives in the parent.
+  const proMissing = tier === "pro" && proFilmMissing;
   const sameSessionInRoom = !!race && state?.sessionId === String(race.sessionId);
 
   const calledMs = race?.calledAt ? Date.parse(race.calledAt) : NaN;
@@ -364,7 +372,7 @@ function RoomColumn({
               <span style={{ fontSize: 10, color: PORTAL_DARK.muted, letterSpacing: "0.06em" }}>
                 VIDEO
               </span>
-              {(["starter", "intermediate"] as BriefingTier[]).map((t) => (
+              {(["starter", "intermediate", "pro"] as BriefingTier[]).map((t) => (
                 <button
                   key={t}
                   type="button"
@@ -384,6 +392,14 @@ function RoomColumn({
                   {t === autoTier ? " · auto" : ""}
                 </button>
               ))}
+              {/* Say what will REALLY play, before the send — the fallback is
+                  server-side, and hiding it would leave staff thinking a Pro grid
+                  is getting a film that does not exist yet. */}
+              {proMissing && (
+                <span style={{ fontSize: 10, color: AMBER }}>
+                  no Pro film yet — plays Intermediate
+                </span>
+              )}
 
               {sameSessionInRoom ? (
                 <span style={{ marginLeft: "auto", fontSize: 11, color: GREEN }}>

@@ -77,15 +77,16 @@ export function useBriefingAssets(
 
   const starterUrl = briefing?.videos.starter?.url ?? null;
   const intermediateUrl = briefing?.videos.intermediate?.url ?? null;
+  const proUrl = briefing?.videos.pro?.url ?? null;
   const posterUrl = briefing?.helmetPosterUrl ?? null;
 
   // Primitive dependency rather than the object: the feed is a new object every
   // poll, and depending on it would restart the sync every 15 seconds.
-  const manifestKey = `${starterUrl ?? ""}|${intermediateUrl ?? ""}|${posterUrl ?? ""}`;
+  const manifestKey = `${starterUrl ?? ""}|${intermediateUrl ?? ""}|${proUrl ?? ""}|${posterUrl ?? ""}`;
 
   const sync = useCallback(async () => {
     if (!enabled) return;
-    const manifest = [starterUrl, intermediateUrl, posterUrl];
+    const manifest = [starterUrl, intermediateUrl, proUrl, posterUrl];
     if (manifest.every((u) => !u)) return;
 
     await requestPersistence();
@@ -141,7 +142,7 @@ export function useBriefingAssets(
       created.current.add(url);
       setLocal((prev) => ({ ...prev, [url]: objectUrl }));
     }
-  }, [enabled, paused, starterUrl, intermediateUrl, posterUrl]);
+  }, [enabled, paused, starterUrl, intermediateUrl, proUrl, posterUrl]);
 
   useEffect(() => {
     void sync();
@@ -183,7 +184,8 @@ export function useBriefingAssets(
   }, []);
 
   return useMemo(() => {
-    const urlFor = (tier: BriefingTier) => (tier === "starter" ? starterUrl : intermediateUrl);
+    const urlFor = (tier: BriefingTier) =>
+      tier === "starter" ? starterUrl : tier === "pro" ? proUrl : intermediateUrl;
     return {
       srcFor: (tier: BriefingTier) => {
         const url = urlFor(tier);
@@ -198,5 +200,5 @@ export function useBriefingAssets(
       posterSrc: posterUrl ? (local[posterUrl] ?? posterUrl) : null,
       status: { cachedCount: Object.keys(local).length, pending },
     };
-  }, [local, pending, starterUrl, intermediateUrl, posterUrl]);
+  }, [local, pending, starterUrl, intermediateUrl, proUrl, posterUrl]);
 }
