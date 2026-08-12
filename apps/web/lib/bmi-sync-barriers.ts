@@ -32,7 +32,20 @@ import { fetchOfficePerson } from "@/lib/bmi-office-actions";
 
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net/v2";
 
-export type BarrierVerdict = "open" | "closed" | "error";
+/**
+ * `impossible` is the verdict that says WAITING CANNOT HELP — the thing this
+ * barrier waits for will never arrive, so the row must park now instead of
+ * burning its give-up window. Distinct from `error` (transient, retry) and from
+ * `closed` (not yet, wait patiently).
+ *
+ * Live case that forced it (2026-08-12): a `push-waiver-signature` row for
+ * Nadine Poeter, person 63000000008163542, was aimed at Naples
+ * (PPTR5G2N0QXF7) — but that person was minted at FORT MYERS and reads 200
+ * there / 404 at Naples. A person id is only valid at its OWN center, so the
+ * barrier would have sat closed until its 02:43 give-up, reporting "not on the
+ * local server yet" as if sync were merely slow.
+ */
+export type BarrierVerdict = "open" | "closed" | "error" | "impossible";
 
 export interface BarrierResult {
   verdict: BarrierVerdict;
@@ -43,6 +56,48 @@ export interface BarrierResult {
 const open = (detail: string): BarrierResult => ({ verdict: "open", detail });
 const closed = (detail: string): BarrierResult => ({ verdict: "closed", detail });
 const errored = (detail: string): BarrierResult => ({ verdict: "error", detail });
+const impossible = (detail: string): BarrierResult => ({ verdict: "impossible", detail });
+
+/** Pandora locationIDs we can look a person up at, with names for the message. */
+const KNOWN_LOCATIONS: Array<[string, string]> = [
+  ["LAB52GY480CJF", "FastTrax"],
+  ["TXBSQN0FEKQ11", "HeadPinz Fort Myers"],
+  ["PPTR5G2N0QXF7", "HeadPinz Naples"],
+];
+
+/** Raw person probe: is this id readable at this location? (404 ⇒ absent.) */
+async function personVisibleAt(locationId: string, personId: string, key: string) {
+  try {
+    const res = await fetch(
+      `${PANDORA_BASE}/bmi/person/${encodeURIComponent(locationId)}/${encodeURIComponent(personId)}`,
+      { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15_000) },
+    );
+    // 500 counts as present — the record exists, its birthdate is just null.
+    return res.status !== 404;
+  } catch {
+    return false; // unreachable ≠ "lives here"
+  }
+}
+
+/**
+ * Does this person live at a DIFFERENT center than the one we are waiting on?
+ *
+ * Only called once a person has 404'd at the target location. Finding them
+ * elsewhere converts an open-ended wait into a diagnosis, because BMI person ids
+ * do not cross centers: no amount of sync will make a Fort Myers person appear
+ * at Naples.
+ */
+async function locateElsewhere(
+  personId: string,
+  excludeLocationId: string,
+  key: string,
+): Promise<string | null> {
+  for (const [locationId, name] of KNOWN_LOCATIONS) {
+    if (locationId === excludeLocationId) continue;
+    if (await personVisibleAt(locationId, personId, key)) return name;
+  }
+  return null;
+}
 
 /**
  * Is this person on the center's LOCAL server (Pandora-visible)?
@@ -63,7 +118,21 @@ export async function personLocalBarrier(
       `${PANDORA_BASE}/bmi/person/${encodeURIComponent(locationId)}/${encodeURIComponent(personId)}`,
       { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15_000) },
     );
-    if (res.status === 404) return closed("404 — not on the local server yet");
+    if (res.status === 404) {
+      // Absent HERE. Before settling in to wait, check whether this person is
+      // simply at ANOTHER center — in which case waiting is futile, because a
+      // person id never crosses centers.
+      const elsewhere = await locateElsewhere(personId, locationId, key);
+      if (elsewhere) {
+        return impossible(
+          `person ${personId} does not exist at this center — they are at ${elsewhere}. ` +
+            `BMI person ids do not cross centers, so this will never sync. ` +
+            `FIX: re-run this followup against ${elsewhere}, or use this center's own ` +
+            `record for the guest.`,
+        );
+      }
+      return closed("404 — not on the local server yet");
+    }
     if (res.status === 500) {
       // Present, unreadable. Distinguished in the detail so the log shows WHY a
       // repair row fired against an apparently-broken record.

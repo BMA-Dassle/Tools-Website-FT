@@ -5,6 +5,7 @@ import {
   listParkedSyncRows,
   markSyncDone,
   markSyncRetry,
+  parkSyncRow,
   syncQueueCounts,
   type SyncQueueRow,
 } from "@/lib/bmi-sync-queue";
@@ -137,6 +138,23 @@ export async function GET(req: NextRequest) {
       // Waiting is NOT an attempt — see the header.
       if (!dryRun)
         await markSyncRetry(row, `barrier closed: ${barrier.detail}`, { countAttempt: false });
+      continue;
+    }
+
+    // The barrier can NEVER open (e.g. the person lives at another center).
+    // Park immediately: sitting closed until the give-up deadline reports
+    // "not synced yet" for hours about something that is not a sync problem.
+    if (barrier.verdict === "impossible") {
+      counts.parked++;
+      outcomes.push({
+        id: row.id,
+        kind: row.kind,
+        barrier: row.barrier,
+        verdict: "impossible",
+        result: dryRun ? "would-park" : "parked",
+        detail: barrier.detail,
+      });
+      if (!dryRun) await parkSyncRow(row, barrier.detail);
       continue;
     }
 

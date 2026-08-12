@@ -41,6 +41,53 @@ describe("personLocalBarrier — 404 vs 500 vs 200", () => {
     expect(r.detail).toMatch(/404/);
   });
 
+  /**
+   * 2026-08-12: a `push-waiver-signature` row for Nadine Poeter (person
+   * …8163542) was aimed at Naples, but that person was minted at FORT MYERS —
+   * 200 there, 404 at Naples. BMI person ids do not cross centers, so the
+   * barrier would have sat "closed: not on the local server yet" until its
+   * 02:43 give-up, describing a data mismatch as slow sync.
+   */
+  it("404 HERE but present at ANOTHER center → impossible, not closed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url.includes("TXBSQN0FEKQ11")
+          ? reply(200, { success: true, data: { id: "63000000008163542" } })
+          : reply(404, { success: false, message: "No person found with that ID." }),
+      ),
+    );
+    const r = await personLocalBarrier("PPTR5G2N0QXF7", "63000000008163542");
+    expect(r.verdict).toBe("impossible");
+    expect(r.detail).toContain("HeadPinz Fort Myers");
+    expect(r.detail).toMatch(/never sync/i);
+  });
+
+  it("404 everywhere stays CLOSED — a fresh mint has simply not landed yet", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => reply(404, { success: false, message: "No person found with that ID." })),
+    );
+    const r = await personLocalBarrier("PPTR5G2N0QXF7", "63000000008999999");
+    expect(r.verdict).toBe("closed");
+  });
+
+  /** A 500 elsewhere still means the record EXISTS there (the 404-vs-500 rule
+   *  applies to the cross-center probe too). */
+  it("a 500 at another center also proves residence → impossible", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url.includes("LAB52GY480CJF")
+          ? reply(500, { success: false, error: "Response Validator Error" })
+          : reply(404, { success: false, message: "No person found with that ID." }),
+      ),
+    );
+    const r = await personLocalBarrier("PPTR5G2N0QXF7", "63000000008163542");
+    expect(r.verdict).toBe("impossible");
+    expect(r.detail).toContain("FastTrax");
+  });
+
   it("500 Response Validator Error is PRESENT → open (so the repair handler can run)", async () => {
     vi.stubGlobal(
       "fetch",

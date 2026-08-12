@@ -328,6 +328,31 @@ export async function markSyncRetry(
   return park ? "parked" : "retry";
 }
 
+/**
+ * Park a row NOW, without spending its patience — for work that is provably
+ * impossible rather than merely not-yet.
+ *
+ * `markSyncRetry` parks only once attempts or the give-up deadline run out,
+ * which is right for "waiting on sync" and wrong for "this can never happen".
+ * A followup aimed at a person who lives at a DIFFERENT center (2026-08-12,
+ * Nadine Poeter …8163542 aimed at Naples, resident at Fort Myers) would
+ * otherwise report "not on the local server yet" for eleven hours.
+ *
+ * The message is the whole point: a parked row is a work order for a human, so
+ * the caller passes the diagnosis, not just the symptom.
+ */
+export async function parkSyncRow(row: SyncQueueRow, reason: string): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureSchema();
+  const q = sql();
+  await q`
+    UPDATE bmi_sync_queue
+    SET status = 'parked', resolved_at = now(), updated_at = now(),
+        last_error = ${reason.slice(0, 500)}
+    WHERE id = ${row.id}
+  `;
+}
+
 /** Rows that ran out of patience. Reported on EVERY cron run — including the
  *  idle one — so a give-up is never mistaken for a clean sweep. */
 export async function listParkedSyncRows(limit = 50): Promise<SyncQueueRow[]> {
