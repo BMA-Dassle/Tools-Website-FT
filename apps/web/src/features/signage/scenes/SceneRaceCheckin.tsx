@@ -20,6 +20,7 @@
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { withAlpha } from "../color";
+import { nextLevelTarget } from "~/features/racing/qualify";
 import {
   TRACK_ACCENTS,
   TRACK_LABELS,
@@ -433,6 +434,10 @@ function CheckingIn({
   total: number | null;
 }) {
   if (!race) return null;
+  // The cutoff for the track this heat actually runs on. trackName is what the
+  // timing system called it ("Blue Track", "Mega") — nextLevelTarget matches
+  // loosely and returns null for Mega and for Pro heats (nothing above Pro).
+  const qualTarget = nextLevelTarget(race.trackName ?? "", race.raceType);
   return (
     <div
       style={{
@@ -484,6 +489,35 @@ function CheckingIn({
       <div className="tv-display" style={{ fontSize: 84, color: withAlpha("#f5ecee", 0.84) }}>
         {race.raceType}
       </div>
+
+      {/* THE LAP TO BEAT, before they drive it (owner 2026-08-11: "you must beat X
+          to make it to intermediate"). Same constants the level-up decision uses,
+          so the number on this wall and the text a racer gets afterwards cannot
+          disagree. Renders nothing on Mega — the combined circuit has no cutoffs
+          and its laps do not count toward levels, so a target here would be a
+          promise the system never keeps. */}
+      {qualTarget && (
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "baseline",
+            gap: 16,
+            alignSelf: "flex-start",
+            padding: "8px 26px",
+            borderRadius: 999,
+            border: `2px solid ${withAlpha(accent, 0.6)}`,
+            background: withAlpha(accent, 0.14),
+          }}
+        >
+          <span style={{ fontSize: 32, color: "rgba(245,236,238,0.75)" }}>Beat</span>
+          <span className="tv-display tv-num" style={{ fontSize: 52, color: "#fff" }}>
+            {(qualTarget.ms / 1000).toFixed(3)}
+          </span>
+          <span style={{ fontSize: 32, color: "rgba(245,236,238,0.75)" }}>
+            to qualify {qualTarget.level}
+          </span>
+        </div>
+      )}
 
       {/* A COUNTDOWN, not a clock time (owner 2026-08-11). Counted from the
           moment the heat was first called — the instant the racer's phone

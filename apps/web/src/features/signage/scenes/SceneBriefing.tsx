@@ -396,34 +396,44 @@ function HelmetBoard({
             background: "#000418",
           }}
         />
+        {/* Overlay chips ride the TOP edge, under the accent bar — the poster
+            owns its bottom (its own title band lives there, and the session pill
+            sitting on it read as part of the artwork gone wrong; owner
+            2026-08-11: "grab your helmet looks out of place"). Solid dark chip
+            backgrounds rather than backdrop blur: these players are mini PCs and
+            a blur over a full-screen image is compositor work they can feel. */}
         <div
           style={{
             position: "absolute",
+            top: 40,
             left: PAD_X,
-            bottom: PAD_Y,
+            right: PAD_X,
             display: "flex",
             alignItems: "center",
+            justifyContent: "space-between",
             gap: 20,
             flexWrap: "wrap",
-            maxWidth: 1700,
             zIndex: 3,
           }}
         >
-          {heatNumber != null && (
+          {heatNumber != null ? (
             <div
               className="tv-display"
               style={{
-                fontSize: 44,
+                fontSize: 40,
                 color: "#fff",
-                padding: "10px 28px",
+                padding: "10px 30px",
                 borderRadius: 999,
-                background: withAlpha(accent, 0.55),
+                background: "rgba(0, 4, 24, 0.82)",
+                border: `2px solid ${withAlpha(accent, 0.8)}`,
               }}
             >
               Session {heatNumber} · grab your helmet
             </div>
+          ) : (
+            <span />
           )}
-          {target && <QualifyTarget accent={accent} target={target} compact />}
+          {target && <QualifyTarget accent={accent} target={target} compact solid />}
         </div>
       </>
     );
@@ -568,11 +578,15 @@ function QualifyTarget({
   accent,
   target,
   compact,
+  solid,
 }: {
   accent: string;
   target: { level: string; ms: number };
   /** Pill form, for sitting alongside other chrome rather than owning a row. */
   compact?: boolean;
+  /** Opaque dark ground — for riding on top of poster artwork, where the
+   *  translucent accent fill vanishes into whatever is behind it. */
+  solid?: boolean;
 }) {
   return (
     <div
@@ -583,8 +597,8 @@ function QualifyTarget({
         alignSelf: "flex-start",
         padding: compact ? "10px 22px" : "18px 34px",
         borderRadius: compact ? 999 : 18,
-        border: `3px solid ${withAlpha(accent, 0.75)}`,
-        background: withAlpha(accent, 0.16),
+        border: `${solid ? 2 : 3}px solid ${withAlpha(accent, solid ? 0.8 : 0.75)}`,
+        background: solid ? "rgba(0, 4, 24, 0.82)" : withAlpha(accent, 0.16),
       }}
     >
       <span style={{ fontSize: compact ? 26 : 34, color: "rgba(245,236,238,0.78)" }}>Beat</span>
