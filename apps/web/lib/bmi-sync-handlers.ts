@@ -20,6 +20,7 @@
  * (see lib/bmi-sync-barriers.ts).
  */
 import { patchBmiPersonBirthdate } from "@/lib/bmi-person-update";
+import { fetchOfficePerson } from "@/lib/bmi-office-actions";
 import { addMembership, DEFAULT_REGISTRATION_MEMBERSHIP_KIND_ID } from "@/lib/pandora-memberships";
 import { registerProjectPersonServer } from "~/features/kiosk/waiver/bmi-attach";
 import type { SyncKind, SyncQueueRow } from "@/lib/bmi-sync-queue";
@@ -58,9 +59,38 @@ const str = (v: unknown): string | null =>
  */
 async function repairPersonDetails(row: SyncQueueRow): Promise<HandlerResult> {
   const personId = str(row.payload.personId) ?? row.barrierRef;
-  const birthdate = str(row.payload.birthdate);
+  let birthdate = str(row.payload.birthdate);
   if (!personId) return dead("no personId in payload");
-  if (!birthdate) return dead("no birthdate in payload — nothing to repair with");
+
+  /**
+   * NO DOB IN THE PAYLOAD? ASK OFFICE BEFORE GIVING UP.
+   *
+   * The mint route enqueues this repair precisely BECAUSE it had no birthdate,
+   * so parking on "nothing to repair with" made the row a guaranteed dead end
+   * (live: Leland Frazier person …163540, parked 3h with an unactionable
+   * message). Office may know a DOB we did not — staff may have typed one since,
+   * or another rail supplied it — so read the record first.
+   *
+   * And when Office has none either, say something a HUMAN CAN ACT ON. A person
+   * with no DOB is not a cosmetic gap: Pandora answers every read of them with
+   * 500, so every waiver check reports "no waiver" and they cannot be scheduled.
+   * That message names the fix (add a DOB in BMI Office) and the likely cause
+   * (a duplicate record — the real one usually has the DOB).
+   */
+  if (!birthdate) {
+    const office = await fetchOfficePerson(personId).catch(() => null);
+    const officeDob = office && typeof office.birthDate === "string" ? office.birthDate : null;
+    if (officeDob) {
+      birthdate = officeDob.slice(0, 10);
+    } else {
+      return dead(
+        `person ${personId} has NO date of birth in Office either — Pandora returns 500 for them, ` +
+          `so every waiver check reads "no waiver" and they cannot be scheduled. ` +
+          `FIX: add a birth date to this person in BMI Office. ` +
+          `Often a DUPLICATE record — check for another with the same name/phone (that one usually has the DOB).`,
+      );
+    }
+  }
   const res = await patchBmiPersonBirthdate(personId, birthdate, {
     locationKey: str(row.payload.locationKey) ?? undefined,
     firstName: str(row.payload.firstName) ?? undefined,

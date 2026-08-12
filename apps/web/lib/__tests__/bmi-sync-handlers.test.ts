@@ -11,6 +11,14 @@ vi.mock("@/lib/bmi-person-update", () => ({
   patchBmiPersonBirthdate: (...a: unknown[]) =>
     (person.patchBmiPersonBirthdate as (...a: unknown[]) => unknown)(...a),
 }));
+const office = {
+  fetchOfficePerson: vi.fn<(id: string) => Promise<Record<string, unknown> | null>>(),
+};
+vi.mock("@/lib/bmi-office-actions", async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  fetchOfficePerson: (...a: unknown[]) =>
+    (office.fetchOfficePerson as (...a: unknown[]) => unknown)(...a),
+}));
 const memberships = { addMembership: vi.fn() };
 vi.mock("@/lib/pandora-memberships", async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
@@ -123,10 +131,32 @@ describe("repair-person-details", () => {
     expect(r.retry).toBe(true);
   });
 
-  it("no birthdate at all is terminal, not an endless retry", async () => {
-    const r = await h(row({ payload: {} }));
+  /**
+   * The mint enqueues this repair BECAUSE it had no birthdate, so parking on
+   * "nothing to repair with" made the row a guaranteed dead end (live: Leland
+   * Frazier …163540 sat parked 3h). Office is asked first.
+   */
+  it("with no birthdate in the payload it takes the DOB from Office and repairs", async () => {
+    office.fetchOfficePerson.mockResolvedValueOnce({ birthDate: "2012-04-06T00:00:00" });
+    person.patchBmiPersonBirthdate.mockResolvedValueOnce({ ok: true, status: 200 });
+    const r = await h(row({ payload: { personId: "63000000008163538" } }));
+    expect(r.ok).toBe(true);
+    expect(person.patchBmiPersonBirthdate).toHaveBeenCalledWith(
+      "63000000008163538",
+      "2012-04-06",
+      expect.anything(),
+    );
+  });
+
+  it("no DOB in Office either → terminal, with a message a HUMAN can act on", async () => {
+    office.fetchOfficePerson.mockResolvedValueOnce({ birthDate: null });
+    const r = await h(row({ payload: { personId: "63000000008163540" } }));
     expect(r.ok).toBe(false);
     expect(r.retry).toBe(false);
+    // Names the consequence, the fix, and the usual cause — not just "can't".
+    expect(r.detail).toMatch(/500/);
+    expect(r.detail).toMatch(/add a birth date/i);
+    expect(r.detail).toMatch(/duplicate/i);
     expect(person.patchBmiPersonBirthdate).not.toHaveBeenCalled();
   });
 });
