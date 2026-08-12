@@ -46,6 +46,25 @@ export interface AdminSyncRow {
   ageMin: number;
   /** Best-effort display name from the payload, so a row reads as a person. */
   who: string | null;
+  /** Which center this work belongs to, spelled out. Never a bare location id —
+   *  a row that says "Naples" is the difference between "the queue is broken" and
+   *  "one center's config is wrong" (owner 2026-08-12: "Add center name"). */
+  center: string | null;
+}
+
+/** Pandora locationID → center name. The same three ids the rest of the app uses
+ *  (`bmi-attraction-cancel.ts`, `bowling-lane-ready-notify.ts`). */
+const CENTER_NAMES: Record<string, string> = {
+  LAB52GY480CJF: "FastTrax",
+  TXBSQN0FEKQ11: "HeadPinz Fort Myers",
+  PPTR5G2N0QXF7: "HeadPinz Naples",
+};
+
+/** Names a center for display. An unmapped id shows AS the id rather than as
+ *  nothing — an unknown center is itself the finding. */
+export function centerName(locationId: string | null | undefined): string | null {
+  if (!locationId) return null;
+  return CENTER_NAMES[locationId] ?? locationId;
 }
 
 /** `green` = every local followup landed. `waiting` = something is still owed.
@@ -105,7 +124,7 @@ export async function listRecentGuestAdds(minutes = 720, limit = 100): Promise<A
     const q = sql();
     const rows = (await q`
       SELECT j.project_id, j.person_id, j.display_name, j.bmi_attach_status,
-             j.bmi_attach_error, j.created_at,
+             j.bmi_attach_error, j.created_at, j.location_id,
              EXTRACT(EPOCH FROM (now() - j.created_at)) / 60 AS age_min,
              (SELECT s.outcome FROM waiver_signatures s
                WHERE s.person_id = j.person_id
@@ -148,6 +167,7 @@ export async function listRecentGuestAdds(minutes = 720, limit = 100): Promise<A
         resolvedAt: status === "done" ? String(r.created_at) : null,
         ageMin: Math.round(Number(r.age_min ?? 0)),
         who: r.display_name === null ? null : String(r.display_name),
+        center: centerName(r.location_id === null ? null : String(r.location_id)),
       } satisfies AdminSyncRow;
     });
   } catch (err) {
@@ -171,6 +191,7 @@ export async function listSyncQueueForAdmin(
     const rows = (await q`
       SELECT id, kind, status, barrier, barrier_ref, reservation_ref, attempts,
              last_error, created_at, next_attempt_at, give_up_at, resolved_at, payload,
+             location_id,
              EXTRACT(EPOCH FROM (now() - created_at)) / 60 AS age_min
       FROM bmi_sync_queue
       WHERE (${includeDone} OR status <> 'done')
@@ -194,6 +215,7 @@ export async function listSyncQueueForAdmin(
       resolvedAt: r.resolved_at === null ? null : String(r.resolved_at),
       ageMin: Math.round(Number(r.age_min ?? 0)),
       who: nameFromPayload(r.payload),
+      center: centerName(r.location_id === null ? null : String(r.location_id)),
     }));
   } catch (err) {
     console.warn("[bmi-sync-view] queue list failed:", err);

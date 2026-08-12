@@ -21,7 +21,7 @@
  */
 import { patchBmiPersonBirthdate } from "@/lib/bmi-person-update";
 import { fetchOfficePerson } from "@/lib/bmi-office-actions";
-import { addMembership, DEFAULT_REGISTRATION_MEMBERSHIP_KIND_ID } from "@/lib/pandora-memberships";
+import { addMembership, registrationKindForLocation } from "@/lib/pandora-memberships";
 import { registerProjectPersonServer } from "~/features/kiosk/waiver/bmi-attach";
 import type { SyncKind, SyncQueueRow } from "@/lib/bmi-sync-queue";
 
@@ -170,14 +170,27 @@ async function addMembershipHandler(row: SyncQueueRow): Promise<HandlerResult> {
   const personId = str(row.payload.personId) ?? row.barrierRef;
   if (!personId) return dead("no personId in payload");
   const purchaseRef = str(row.payload.purchaseRef);
+
+  // Membership kinds are CLIENT-KEY SCOPED — resolve the id for THIS center.
+  // An unknown location yields null rather than Fort Myers' id, because sending
+  // one center's kind id to another is a guaranteed refusal, not weather.
+  const kindId = str(row.payload.membershipKindId) ?? registrationKindForLocation(row.locationId);
+  if (!kindId) {
+    return dead(
+      `no registration membership kind configured for location ${row.locationId ?? "(none)"} — ` +
+        `membership kinds are per-BMI-client-key. FIX: read the center's "Customer Registration" ` +
+        `id from Office /api/{clientKey}/metadata and add it to ` +
+        `REGISTRATION_MEMBERSHIP_KIND_BY_LOCATION (or set the env override).`,
+    );
+  }
+
   try {
     const id = await addMembership({
       personId,
       locationId: row.locationId ?? undefined,
-      // Explicit default: the REGISTRATION kind. Never fall through to
+      // Explicit: the REGISTRATION kind for this center. Never fall through to
       // addMembership's own default, which is the licence.
-      membershipKindId:
-        str(row.payload.membershipKindId) ?? DEFAULT_REGISTRATION_MEMBERSHIP_KIND_ID,
+      membershipKindId: kindId,
       // Omitted → now + 1 year (Pandora does NOT default `expires`).
       expires: str(row.payload.expires) ?? undefined,
       activates: str(row.payload.activates) ?? undefined,
@@ -187,6 +200,16 @@ async function addMembershipHandler(row: SyncQueueRow): Promise<HandlerResult> {
     const msg = err instanceof Error ? err.message : "addMembership failed";
     // A missing kind id is configuration, not weather — retrying cannot fix it.
     if (/membership-kind id not set/i.test(msg)) return dead(msg.slice(0, 200));
+    // Pandora rejecting the KIND is also configuration: the id does not exist in
+    // this center's catalogue, so every retry refuses identically. Park it with
+    // the id we actually sent so the fix is one lookup, not an investigation.
+    if (/no membership found with that id/i.test(msg)) {
+      return dead(
+        `Pandora refused membership kind ${kindId} at location ${row.locationId ?? "(none)"} — ` +
+          `that kind does not exist in this center's catalogue (kinds are per-client-key). ` +
+          `FIX: correct REGISTRATION_MEMBERSHIP_KIND_BY_LOCATION for this center.`,
+      );
+    }
     return again(msg.slice(0, 200));
   }
 }

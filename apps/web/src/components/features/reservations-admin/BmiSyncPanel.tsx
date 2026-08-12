@@ -193,7 +193,7 @@ export function BmiSyncPanel({ rows }: { rows: AdminSyncRow[] }) {
           ) : (
             <div style={{ overflowX: "auto" }}>
               <table
-                style={{ width: "100%", minWidth: 780, borderCollapse: "collapse", fontSize: 13 }}
+                style={{ width: "100%", minWidth: 900, borderCollapse: "collapse", fontSize: 13 }}
               >
                 <thead>
                   <tr
@@ -206,6 +206,7 @@ export function BmiSyncPanel({ rows }: { rows: AdminSyncRow[] }) {
                   >
                     <th style={{ padding: "0.5rem 0.75rem 0.5rem 0", fontWeight: 500 }}>Step</th>
                     <th style={{ padding: "0.5rem 0.75rem 0.5rem 0", fontWeight: 500 }}>Who</th>
+                    <th style={{ padding: "0.5rem 0.75rem 0.5rem 0", fontWeight: 500 }}>Center</th>
                     <th style={{ padding: "0.5rem 0.75rem 0.5rem 0", fontWeight: 500 }}>
                       Reservation
                     </th>
@@ -236,6 +237,15 @@ export function BmiSyncPanel({ rows }: { rows: AdminSyncRow[] }) {
                               {r.barrierRef}
                             </div>
                           )}
+                        </td>
+                        <td
+                          style={{
+                            padding: "0.5rem 0.75rem 0.5rem 0",
+                            opacity: 0.85,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {r.center ?? "—"}
                         </td>
                         <td
                           style={{

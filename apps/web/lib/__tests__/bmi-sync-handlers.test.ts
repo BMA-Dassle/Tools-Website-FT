@@ -203,6 +203,65 @@ describe("add-membership", () => {
     expect(r.retry).toBe(false);
   });
 
+  /**
+   * The 2026-08-12 Naples incident, as a test. Membership kinds are CLIENT-KEY
+   * SCOPED: "Customer Registration" is 479317 at headpinzftmyers and 84079 at
+   * headpinznaples. Eight Naples grants were queued with Fort Myers' id, and
+   * Pandora refused all eight ("No membership found with that ID") six times
+   * each. A per-center id is the fix; a same-id-everywhere handler is the bug.
+   */
+  it("sends NAPLES its own registration kind (84079), not Fort Myers' 479317", async () => {
+    memberships.addMembership.mockResolvedValueOnce("780");
+    await h(
+      row({
+        kind: "add-membership",
+        locationId: "PPTR5G2N0QXF7",
+        payload: { personId: "63000000000906317" },
+      }),
+    );
+    const arg = memberships.addMembership.mock.calls[0][0] as { membershipKindId?: string };
+    expect(arg.membershipKindId).toBe("84079");
+    expect(arg.membershipKindId).not.toBe("479317");
+  });
+
+  it("both Fort Myers centers share the headpinzftmyers kind", async () => {
+    memberships.addMembership.mockResolvedValueOnce("781");
+    await h(
+      row({ kind: "add-membership", locationId: "TXBSQN0FEKQ11", payload: { personId: "1" } }),
+    );
+    const arg = memberships.addMembership.mock.calls[0][0] as { membershipKindId?: string };
+    expect(arg.membershipKindId).toBe("479317");
+  });
+
+  /** An unmapped center must NOT silently borrow Fort Myers' id — that is the
+   *  exact silent-default that produced the stuck rows. Park it instead. */
+  it("an UNKNOWN center parks instead of guessing a kind", async () => {
+    const r = await h(
+      row({ kind: "add-membership", locationId: "ZZNOTACENTER", payload: { personId: "1" } }),
+    );
+    expect(r.retry).toBe(false);
+    expect(r.detail).toContain("per-BMI-client-key");
+    expect(memberships.addMembership).not.toHaveBeenCalled();
+  });
+
+  /** Pandora refusing the kind is configuration too — every retry refuses
+   *  identically, so burning 40 attempts only hides the real message. */
+  it("'No membership found with that ID' is TERMINAL, and names the kind sent", async () => {
+    memberships.addMembership.mockRejectedValueOnce(
+      new Error("Pandora addMembership failed: No membership found with that ID."),
+    );
+    const r = await h(
+      row({
+        kind: "add-membership",
+        locationId: "PPTR5G2N0QXF7",
+        payload: { personId: "1" },
+      }),
+    );
+    expect(r.retry).toBe(false);
+    expect(r.detail).toContain("84079");
+    expect(r.detail).toContain("PPTR5G2N0QXF7");
+  });
+
   it("anything else is retryable", async () => {
     memberships.addMembership.mockRejectedValueOnce(new Error("timeout"));
     const r = await h(row({ kind: "add-membership", payload: { personId: "1" } }));
