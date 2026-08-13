@@ -19,6 +19,7 @@ import "server-only";
  *      control board therefore cannot get out of step with the room.
  */
 import { businessDayYmdET } from "@/lib/race-business-day";
+import { calledAtMsFor, sessionCheckinTimes } from "../service/checkin-progress";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
 import { listSignageScreens } from "../data/signage-screens-db";
 import { resolveScreenConfig } from "../defaults";
@@ -106,6 +107,25 @@ export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefing
   // of the group already in there, and a Mega group legitimately in both rooms).
   const displaced = await readBriefingRoom(VENUE, args.room).catch(() => null);
 
+  /**
+   * THE TWO ANCHORS THAT ONLY EXIST RIGHT NOW (owner 2026-08-12, wait times).
+   *
+   * When the heat was called, and when its racers came through the desk. Both are
+   * live-only: the called-at record ages out ~20 minutes after the call, and the
+   * roster stops being readable once Pandora drops the session. Neither can be
+   * recovered tomorrow, so the send — the one moment both are still on hand — is
+   * where they get written down.
+   *
+   * Started HERE and awaited BELOW, so a Pandora round trip overlaps the durable
+   * write instead of delaying it. Best effort in every direction: a send is a
+   * staff action with a group standing in front of the desk, and it must never
+   * fail, or even feel slow, because a metric could not be read.
+   */
+  const anchorsPromise = Promise.all([
+    calledAtMsFor(args.track, args.sessionId).catch(() => null),
+    sessionCheckinTimes(args.sessionId).catch(() => null),
+  ]);
+
   // Durable first — see the header.
   await recordBriefingAssignment({
     venue: VENUE,
@@ -134,6 +154,7 @@ export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefing
     });
   }
 
+  const [calledAtMs, checkin] = await anchorsPromise;
   await recordBriefingEvent({
     venue: VENUE,
     businessDay,
@@ -144,6 +165,11 @@ export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefing
     raceType: args.raceType,
     tier,
     action: "sent",
+    calledAtMs,
+    checkinFirstAtMs: checkin?.firstMs ?? null,
+    checkinLastAtMs: checkin?.lastMs ?? null,
+    checkinIn: checkin?.checkedIn ?? null,
+    checkinTotal: checkin?.total ?? null,
   });
 
   const state: BriefingRoomState = {

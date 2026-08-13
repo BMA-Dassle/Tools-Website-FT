@@ -29,6 +29,11 @@ function ev(
     videoMs: null,
     photoUrl: null,
     reason: null,
+    calledAtMs: null,
+    checkinFirstAtMs: null,
+    checkinLastAtMs: null,
+    checkinIn: null,
+    checkinTotal: null,
     ...over,
   };
 }
@@ -187,6 +192,35 @@ describe("foldBriefingLog", () => {
 
   it("has nothing to say about a day with no events", () => {
     expect(foldBriefingLog([], T0)).toEqual([]);
+  });
+
+  it("carries the wait-time anchors off the sent row", () => {
+    // They are captured at the send and nowhere else — a later row must not be
+    // able to supply or overwrite them.
+    const events = [
+      ev("sent", T0, {
+        calledAtMs: T0 - 4 * 60_000,
+        checkinFirstAtMs: T0 - 6 * 60_000,
+        checkinLastAtMs: T0 - 60_000,
+        checkinIn: 9,
+        checkinTotal: 12,
+      }),
+      ev("started", T0 + 60_000, { videoMs: FILM_MS, calledAtMs: T0 }),
+    ];
+    const [rec] = foldBriefingLog(events, T0 + 30 * 60_000);
+    expect(rec.calledAtMs).toBe(T0 - 4 * 60_000);
+    expect(rec.checkinFirstAtMs).toBe(T0 - 6 * 60_000);
+    expect(rec.checkinLastAtMs).toBe(T0 - 60_000);
+    expect(rec.checkinIn).toBe(9);
+    expect(rec.checkinTotal).toBe(12);
+  });
+
+  it("leaves the anchors null for a group sent before they were captured", () => {
+    const events = [ev("sent", T0), ev("started", T0 + 60_000, { videoMs: FILM_MS })];
+    const [rec] = foldBriefingLog(events, T0 + 30 * 60_000);
+    expect(rec.calledAtMs).toBeNull();
+    expect(rec.checkinFirstAtMs).toBeNull();
+    expect(rec.checkinTotal).toBeNull();
   });
 
   it("carries the room photo and when it was taken", () => {

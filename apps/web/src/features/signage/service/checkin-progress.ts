@@ -25,6 +25,7 @@ import { sessionBriefed } from "../briefing/state.server";
 import {
   checkingInTracks,
   countCheckedIn,
+  participantCheckedIn,
   type CalledRaceRecord,
   type CheckinProgressSession,
   type CheckinRosterRow,
@@ -142,6 +143,86 @@ export async function sessionCheckinCounts(
   countCache.set(sessionId, { at: nowMs, value });
   pruneCounts(nowMs);
   return value;
+}
+
+/* ── what the wait-time metrics need, captured at the send ──────────────── */
+
+/**
+ * WHEN A CALLED HEAT WAS CALLED — the anchor every wait time is measured from.
+ *
+ * It lives in the same races-current record the boards read, and it is
+ * EPHEMERAL: Pandora drops its own entry ~20 minutes after the call and this
+ * Redis copy ages out behind it. That is fine for a board (nothing is "currently
+ * checking in" an hour later) and useless for a metric, so the send stamps it
+ * into the briefing log while it still exists.
+ *
+ * MATCHED ON SESSION ID, never taken on trust. By the time a group is sent, the
+ * track's record can already have rolled to the NEXT heat — stamping that call
+ * time would silently measure the wrong group and make every average that
+ * consumes it wrong in the same direction.
+ */
+export async function calledAtMsFor(track: TrackKey, sessionId: string): Promise<number | null> {
+  if (!sessionId) return null;
+  try {
+    const raw = await redis.get(`pandora:last-race:fasttrax:${track}`);
+    if (!raw) return null;
+    const rec = JSON.parse(raw) as CalledRaceRecord;
+    if (String(rec.sessionId ?? "") !== sessionId) return null;
+    const ms = rec.calledAt ? Date.parse(rec.calledAt) : NaN;
+    return Number.isFinite(ms) ? ms : null;
+  } catch {
+    return null;
+  }
+}
+
+/** When a session's racers checked in, folded to the two ends that matter. */
+export interface SessionCheckinTimes {
+  /** The first racer through the desk — the start of "time in the check-in area". */
+  firstMs: number | null;
+  /** The last one, at the moment of the send. */
+  lastMs: number | null;
+  checkedIn: number;
+  total: number;
+}
+
+/**
+ * The roster's check-in stamps, folded.
+ *
+ * `Participant.checkedIn` IS A TIMESTAMP and — probed against live rosters
+ * 2026-08-12 — a proper ISO-8601 UTC one ("2026-08-13T02:14:38.000Z"), so
+ * `Date.parse` is safe here. It is NOT the venue wall-clock-with-no-zone format
+ * the timing broadcast sends, which would need parseVenueLocalMs and would be
+ * four hours out if fed to Date.parse.
+ *
+ * FIRST AND LAST COLLAPSE FOR A GROUP CHECK-IN. When staff check a party in as
+ * one action, every racer gets the SAME stamp to the millisecond (observed live:
+ * a 3-racer heat, three identical stamps). The spread is therefore a real signal
+ * for individually-scanned heats and a legitimate zero for group ones — not a
+ * bug, but a thing any reader of the average has to know.
+ *
+ * Aggregates only, never the people. This is the same posture that took the
+ * roster back out of briefing_assignments (owner 2026-08-11): a count and two
+ * timestamps answer the question, so nothing person-level is stored.
+ */
+export async function sessionCheckinTimes(sessionId: string): Promise<SessionCheckinTimes | null> {
+  if (!sessionId) return null;
+  const roster = (await liveRoster(sessionId)) ?? (await cachedRoster(sessionId));
+  if (!roster) return null;
+
+  let firstMs: number | null = null;
+  let lastMs: number | null = null;
+  let checkedIn = 0;
+  for (const row of roster) {
+    if (!participantCheckedIn(row)) continue;
+    checkedIn += 1;
+    // `true` is a legal shape for the flag and carries no time — it counts
+    // towards the tally and contributes nothing to the span.
+    const ms = typeof row.checkedIn === "string" ? Date.parse(row.checkedIn) : NaN;
+    if (!Number.isFinite(ms)) continue;
+    if (firstMs === null || ms < firstMs) firstMs = ms;
+    if (lastMs === null || ms > lastMs) lastMs = ms;
+  }
+  return { firstMs, lastMs, checkedIn, total: roster.length };
 }
 
 /**

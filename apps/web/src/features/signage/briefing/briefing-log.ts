@@ -71,6 +71,18 @@ export interface BriefingRecord {
    */
   photoUrl: string | null;
   photoAtMs: number | null;
+  /**
+   * WAIT-TIME ANCHORS, carried off the `sent` row (see events-db.ts). When the
+   * heat was CALLED — the moment every wait in the building is measured from —
+   * and the two ends of its check-in window. Null for any group sent before
+   * these were captured, which is why every metric that uses them drops a
+   * session rather than assuming a zero.
+   */
+  calledAtMs: number | null;
+  checkinFirstAtMs: number | null;
+  checkinLastAtMs: number | null;
+  checkinIn: number | null;
+  checkinTotal: number | null;
 }
 
 /**
@@ -155,6 +167,11 @@ export function foldBriefingLog(events: BriefingEvent[], nowMs: number): Briefin
       filmCompleted,
       photoUrl: photo?.photoUrl ?? null,
       photoAtMs: photo?.atMs ?? null,
+      calledAtMs: sent?.calledAtMs ?? null,
+      checkinFirstAtMs: sent?.checkinFirstAtMs ?? null,
+      checkinLastAtMs: sent?.checkinLastAtMs ?? null,
+      checkinIn: sent?.checkinIn ?? null,
+      checkinTotal: sent?.checkinTotal ?? null,
     });
   }
 

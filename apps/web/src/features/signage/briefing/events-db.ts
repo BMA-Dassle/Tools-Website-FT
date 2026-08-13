@@ -68,12 +68,27 @@ async function ensureSchema(): Promise<void> {
       video_url     TEXT,
       video_ms      INTEGER,
       photo_url     TEXT,
-      reason        TEXT
+      reason        TEXT,
+      -- WAIT-TIME ANCHORS, on the sent row only. Both are facts we can observe
+      -- exactly once: called_at lives in a Redis record that ages out ~20
+      -- minutes after the call, and the roster's check-in stamps stop being
+      -- readable when Pandora drops the session. Neither is derivable later, so
+      -- neither violates the no-derived-columns rule above.
+      called_at        TIMESTAMPTZ,
+      checkin_first_at TIMESTAMPTZ,
+      checkin_last_at  TIMESTAMPTZ,
+      checkin_in       INTEGER,
+      checkin_total    INTEGER
     )
   `;
   // Added 2026-08-12, after the table already existed on production — CREATE TABLE
   // IF NOT EXISTS above is a no-op there, so the column has to be added on its own.
   await q`ALTER TABLE briefing_events ADD COLUMN IF NOT EXISTS photo_url TEXT`;
+  await q`ALTER TABLE briefing_events ADD COLUMN IF NOT EXISTS called_at TIMESTAMPTZ`;
+  await q`ALTER TABLE briefing_events ADD COLUMN IF NOT EXISTS checkin_first_at TIMESTAMPTZ`;
+  await q`ALTER TABLE briefing_events ADD COLUMN IF NOT EXISTS checkin_last_at TIMESTAMPTZ`;
+  await q`ALTER TABLE briefing_events ADD COLUMN IF NOT EXISTS checkin_in INTEGER`;
+  await q`ALTER TABLE briefing_events ADD COLUMN IF NOT EXISTS checkin_total INTEGER`;
   // The day view (the desk's log strip, and any later report) and the
   // single-session lookup an insurance question actually arrives as.
   await q`
@@ -113,6 +128,23 @@ export interface BriefingEvent {
   /** The room's camera still for this briefing, on a `photo` row. */
   photoUrl: string | null;
   reason: string | null;
+  /** WAIT-TIME ANCHORS, on a `sent` row. When the heat was called, and the two
+   *  ends of its check-in window. Null on every other action, and null on a
+   *  `sent` row written before this existed or when the source had already aged
+   *  out — which the metrics read as "no number for this heat", never as zero. */
+  calledAtMs: number | null;
+  checkinFirstAtMs: number | null;
+  checkinLastAtMs: number | null;
+  checkinIn: number | null;
+  checkinTotal: number | null;
+}
+
+/** A nullable TIMESTAMPTZ as epoch ms. An unparseable stamp is null, never NaN —
+ *  NaN would sail through arithmetic and land in an average as garbage. */
+function msOrNull(value: unknown): number | null {
+  if (value == null) return null;
+  const ms = Date.parse(String(value));
+  return Number.isFinite(ms) ? ms : null;
 }
 
 function toRow(r: Record<string, unknown>): BriefingEvent {
@@ -132,6 +164,11 @@ function toRow(r: Record<string, unknown>): BriefingEvent {
     videoMs: r.video_ms == null ? null : Number(r.video_ms),
     photoUrl: r.photo_url == null ? null : String(r.photo_url),
     reason: r.reason == null ? null : String(r.reason),
+    calledAtMs: msOrNull(r.called_at),
+    checkinFirstAtMs: msOrNull(r.checkin_first_at),
+    checkinLastAtMs: msOrNull(r.checkin_last_at),
+    checkinIn: r.checkin_in == null ? null : Number(r.checkin_in),
+    checkinTotal: r.checkin_total == null ? null : Number(r.checkin_total),
   };
 }
 
@@ -149,6 +186,12 @@ export interface RecordBriefingEventArgs {
   videoMs?: number | null;
   photoUrl?: string | null;
   reason?: BriefingEndReason | null;
+  /** Wait-time anchors — only ever passed on a `sent` row. */
+  calledAtMs?: number | null;
+  checkinFirstAtMs?: number | null;
+  checkinLastAtMs?: number | null;
+  checkinIn?: number | null;
+  checkinTotal?: number | null;
 }
 
 /**
@@ -161,6 +204,11 @@ export interface RecordBriefingEventArgs {
  * exists to prevent — and a Neon that cannot accept an insert is an outage where
  * every other page is already broken.
  */
+/** Epoch ms → an ISO string Postgres will take, or null. */
+function isoOrNull(ms: number | null | undefined): string | null {
+  return ms == null || !Number.isFinite(ms) ? null : new Date(ms).toISOString();
+}
+
 export async function recordBriefingEvent(args: RecordBriefingEventArgs): Promise<void> {
   if (!isDbConfigured()) return;
   await ensureSchema();
@@ -168,12 +216,16 @@ export async function recordBriefingEvent(args: RecordBriefingEventArgs): Promis
   await q`
     INSERT INTO briefing_events
       (venue, business_day, room, track, session_id, heat_number, race_type, tier,
-       action, video_url, video_ms, photo_url, reason)
+       action, video_url, video_ms, photo_url, reason,
+       called_at, checkin_first_at, checkin_last_at, checkin_in, checkin_total)
     VALUES
       (${args.venue}, ${args.businessDay}, ${args.room}, ${args.track}, ${args.sessionId},
        ${args.heatNumber}, ${args.raceType}, ${args.tier}, ${args.action},
        ${args.videoUrl ?? null}, ${args.videoMs ?? null}, ${args.photoUrl ?? null},
-       ${args.reason ?? null})
+       ${args.reason ?? null},
+       ${isoOrNull(args.calledAtMs)}, ${isoOrNull(args.checkinFirstAtMs)},
+       ${isoOrNull(args.checkinLastAtMs)}, ${args.checkinIn ?? null},
+       ${args.checkinTotal ?? null})
   `;
 }
 
@@ -187,7 +239,8 @@ export async function listBriefingEvents(
   const q = sql();
   const rows = (await q`
     SELECT id, venue, business_day, room, track, session_id, heat_number, race_type, tier,
-           action, at, video_url, video_ms, photo_url, reason
+           action, at, video_url, video_ms, photo_url, reason,
+           called_at, checkin_first_at, checkin_last_at, checkin_in, checkin_total
     FROM briefing_events
     WHERE venue = ${venue} AND business_day = ${businessDay}
     ORDER BY at ASC, id ASC
@@ -208,7 +261,8 @@ export async function listBriefingEventsForSession(sessionId: string): Promise<B
   const q = sql();
   const rows = (await q`
     SELECT id, venue, business_day, room, track, session_id, heat_number, race_type, tier,
-           action, at, video_url, video_ms, photo_url, reason
+           action, at, video_url, video_ms, photo_url, reason,
+           called_at, checkin_first_at, checkin_last_at, checkin_in, checkin_total
     FROM briefing_events
     WHERE session_id = ${sessionId}
     ORDER BY at ASC, id ASC
