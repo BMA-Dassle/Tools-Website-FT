@@ -42,7 +42,20 @@ number, off the same `pandora:last-race:*` watermarks the track boards use.
       the wall fills with red for cameras sitting on the shelf (19 of 42, measured).
 - [ ] **ONE LIVE RACE NIGHT on the new two-section model.** The single-row version ran live
       8/12; the sections, the grey state and the next-race-call rule have not.
-- [ ] **Six dead cameras found on night one** — 84 (89d), 3 (84d), 44 (61d), 58 (31d),
+- [x] **EIGHT dead cameras benched 8/12** — 3, 6, 31, 44, 55, 58, 84, 91. Each confirmed by
+      ZERO rows in `video_decision_log` over 30h under EITHER identifier
+      (camera_number OR system_name) while the pipeline logged 1,447 rows across 75
+      cameras — so silence is meaningful, not a keying artefact. Every one of their
+      `camera-seen` stamps came from a staff RE-SCAN, never a registration: handed out,
+      handed back, never filming. 58/84/91 are the units flagged after 8/9 W57384.
+- [ ] **THE REAL COST, and the reason camera-assign needs a guard: 349 races in 14 days
+      were filmed by nothing.** Handouts per camera over 14 days: cam 3 = 88, cam 58 = 87,
+      cam 84 = 75, cam 31 = 52, cam 44 = 42 (those five are 344 of the 349); 6/55/91 are
+      1-2 each. Benching hides them from the WALL but does not stop staff scanning them
+      out — 11 racers were given a dead camera on 8/12 alone. The camera-assign page
+      refusing or warning on a benched camera is the actual prevention and is now the
+      highest-value item in this whole feature.
+- [ ] ~~Six dead cameras found on night one~~ superseded by the two items above: — 84 (89d), 3 (84d), 44 (61d), 58 (31d),
       31 (18d), 6 (8d) silent, out of 69 in rotation. 3/6/31 benched; **44, 58 and 84 are
       the owner's call.** 58 and 84 were flagged for a bench check after the 8/9 W57384
       incident and never actioned — a reason to merge `feat/video-liveness-alerts`.
