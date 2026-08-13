@@ -110,6 +110,18 @@ export interface BriefingControl {
   /** Phase two: roll the film. Also used for "play it again". */
   start: (room: BriefingRoom, opts?: { restart?: boolean }) => void;
   clearRoom: (room: BriefingRoom) => void;
+  /**
+   * A fresh live-stream URL for a room's camera, or null if live is unavailable.
+   *
+   * HERE RATHER THAN IN THE PANEL because the admin token lives in this hook, and
+   * a component that has to be handed the token to fetch anything is a component
+   * that can leak it into a log or a prop tree. The panel asks for a URL and gets
+   * one; it never sees the credential that bought it.
+   *
+   * Each call mints a SINGLE-USE Nx ticket, so every <video> load — first play,
+   * room switch, retry after a drop — needs its own call.
+   */
+  liveCameraUrl: (room: BriefingRoom) => Promise<string | null>;
 }
 
 export function useBriefingControl(token: string, enabled: boolean): BriefingControl {
@@ -158,17 +170,28 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        const json = (await res.json()) as { error?: string; hasVideo?: boolean; tier?: string };
+        const json = (await res.json()) as {
+          error?: string;
+          hasVideo?: boolean;
+          tier?: string;
+          photoSaved?: boolean;
+        };
         if (!res.ok) {
           setNote(`✕ ${json.error ?? `Failed (${res.status})`}`);
           return;
         }
         // Say when a send will NOT show a film, rather than leaving staff to
         // wonder why the room went straight to helmet sizes.
+        //
+        // And say when the room was PHOTOGRAPHED (owner 2026-08-12), because a
+        // record staff do not know is being kept is a record they cannot vouch
+        // for. The log strip below carries the durable version with its
+        // timestamp; this is the receipt at the moment of the press.
+        const photo = json.photoSaved ? " — room photo + timestamp saved for insurance." : "";
         setNote(
           json.hasVideo === false
-            ? `✓ ${successNote} — but no ${json.tier} video is uploaded, so the room opens on helmet sizes.`
-            : `✓ ${successNote}`,
+            ? `✓ ${successNote} — but no ${json.tier} video is uploaded, so the room opens on helmet sizes.${photo}`
+            : `✓ ${successNote}${photo}`,
         );
         await loadBoard();
       } catch (err) {
@@ -222,6 +245,25 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  const liveCameraUrl = useCallback<BriefingControl["liveCameraUrl"]>(
+    async (room) => {
+      try {
+        const res = await fetch(
+          `/api/admin/camera-live?token=${encodeURIComponent(token)}&room=${room}`,
+          { cache: "no-store" },
+        );
+        if (!res.ok) return null;
+        const json = (await res.json()) as { url?: string };
+        return json.url ?? null;
+      } catch {
+        // Live is an upgrade on the still refresh, never a requirement — a failure
+        // here leaves the viewer exactly as good as it was before.
+        return null;
+      }
+    },
+    [token],
+  );
+
   return {
     board,
     note,
@@ -234,5 +276,6 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     send,
     start,
     clearRoom,
+    liveCameraUrl,
   };
 }

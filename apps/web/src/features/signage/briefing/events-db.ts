@@ -19,6 +19,11 @@
  *   sent       the group was sent to the room and walked in
  *   started    staff rolled the film — carries WHICH film and its length
  *   restarted  the film was played again from the top (latecomers, a re-show)
+ *   photo      a camera still of the room, taken as the film started — carries
+ *              the blob URL. Its OWN row rather than a column on `started`,
+ *              because the picture is taken after the film is already rolling and
+ *              this table is append-only: back-filling a stored row would be an
+ *              UPDATE, and an editable log is not evidence.
  *   ended      the room was released: staff cleared it, or another group took it
  *
  * A log you can rewrite is not evidence. It also means no write here can race
@@ -62,9 +67,13 @@ async function ensureSchema(): Promise<void> {
       at            TIMESTAMPTZ NOT NULL DEFAULT now(),
       video_url     TEXT,
       video_ms      INTEGER,
+      photo_url     TEXT,
       reason        TEXT
     )
   `;
+  // Added 2026-08-12, after the table already existed on production — CREATE TABLE
+  // IF NOT EXISTS above is a no-op there, so the column has to be added on its own.
+  await q`ALTER TABLE briefing_events ADD COLUMN IF NOT EXISTS photo_url TEXT`;
   // The day view (the desk's log strip, and any later report) and the
   // single-session lookup an insurance question actually arrives as.
   await q`
@@ -79,7 +88,7 @@ async function ensureSchema(): Promise<void> {
 }
 
 /** What happened. See the header for what each one means. */
-export type BriefingEventAction = "sent" | "started" | "restarted" | "ended";
+export type BriefingEventAction = "sent" | "started" | "restarted" | "photo" | "ended";
 
 /** Why a room was released. `film-complete` is never STORED — it is what
  *  briefing-log.ts infers when no explicit end was ever recorded. */
@@ -101,6 +110,8 @@ export interface BriefingEvent {
   atMs: number;
   videoUrl: string | null;
   videoMs: number | null;
+  /** The room's camera still for this briefing, on a `photo` row. */
+  photoUrl: string | null;
   reason: string | null;
 }
 
@@ -119,6 +130,7 @@ function toRow(r: Record<string, unknown>): BriefingEvent {
     atMs: Date.parse(String(r.at)),
     videoUrl: r.video_url == null ? null : String(r.video_url),
     videoMs: r.video_ms == null ? null : Number(r.video_ms),
+    photoUrl: r.photo_url == null ? null : String(r.photo_url),
     reason: r.reason == null ? null : String(r.reason),
   };
 }
@@ -135,6 +147,7 @@ export interface RecordBriefingEventArgs {
   action: BriefingEventAction;
   videoUrl?: string | null;
   videoMs?: number | null;
+  photoUrl?: string | null;
   reason?: BriefingEndReason | null;
 }
 
@@ -155,11 +168,12 @@ export async function recordBriefingEvent(args: RecordBriefingEventArgs): Promis
   await q`
     INSERT INTO briefing_events
       (venue, business_day, room, track, session_id, heat_number, race_type, tier,
-       action, video_url, video_ms, reason)
+       action, video_url, video_ms, photo_url, reason)
     VALUES
       (${args.venue}, ${args.businessDay}, ${args.room}, ${args.track}, ${args.sessionId},
        ${args.heatNumber}, ${args.raceType}, ${args.tier}, ${args.action},
-       ${args.videoUrl ?? null}, ${args.videoMs ?? null}, ${args.reason ?? null})
+       ${args.videoUrl ?? null}, ${args.videoMs ?? null}, ${args.photoUrl ?? null},
+       ${args.reason ?? null})
   `;
 }
 
@@ -173,7 +187,7 @@ export async function listBriefingEvents(
   const q = sql();
   const rows = (await q`
     SELECT id, venue, business_day, room, track, session_id, heat_number, race_type, tier,
-           action, at, video_url, video_ms, reason
+           action, at, video_url, video_ms, photo_url, reason
     FROM briefing_events
     WHERE venue = ${venue} AND business_day = ${businessDay}
     ORDER BY at ASC, id ASC
@@ -194,7 +208,7 @@ export async function listBriefingEventsForSession(sessionId: string): Promise<B
   const q = sql();
   const rows = (await q`
     SELECT id, venue, business_day, room, track, session_id, heat_number, race_type, tier,
-           action, at, video_url, video_ms, reason
+           action, at, video_url, video_ms, photo_url, reason
     FROM briefing_events
     WHERE session_id = ${sessionId}
     ORDER BY at ASC, id ASC

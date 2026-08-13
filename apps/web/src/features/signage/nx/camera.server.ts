@@ -109,15 +109,18 @@ async function getToken(force = false): Promise<string> {
 }
 
 /**
- * GET a path on the server through the relay, following the relay's cross-host
+ * Request a path on the server through the relay, following the relay's cross-host
  * 307 by hand so the bearer survives it (see the header note up top). Returns the
  * raw Response; callers decide what to do with a non-2xx.
  */
-async function relayGet(path: string, token: string): Promise<Response> {
-  const headers = { Authorization: `Bearer ${token}` };
+async function relayFetch(path: string, token: string, init?: RequestInit): Promise<Response> {
+  const headers = {
+    ...(init?.headers as Record<string, string>),
+    Authorization: `Bearer ${token}`,
+  };
   let url = `${relayBase()}${path}`;
   for (let hop = 0; hop < RELAY_HOP_LIMIT; hop++) {
-    const res = await fetch(url, { headers, redirect: "manual", cache: "no-store" });
+    const res = await fetch(url, { ...init, headers, redirect: "manual", cache: "no-store" });
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get("location");
       if (!location) return res;
@@ -127,6 +130,10 @@ async function relayGet(path: string, token: string): Promise<Response> {
     return res;
   }
   throw new Error("nx relay: too many redirects");
+}
+
+async function relayGet(path: string, token: string): Promise<Response> {
+  return relayFetch(path, token);
 }
 
 export interface CameraFrame {
@@ -169,6 +176,77 @@ export async function fetchCameraFrame(
   if (!res.ok) throw new Error(`nx frame ${deviceId}: ${res.status}`);
   const body = await res.arrayBuffer();
   return { body, contentType: res.headers.get("content-type") || "image/jpeg" };
+}
+
+/* ── live video, played by the BROWSER ────────────────────────────────── */
+
+/**
+ * A LIVE STREAM THE PAGE PLAYS ITSELF, which is the only shape live video can
+ * take here.
+ *
+ * Everything else in this file is one short request that returns one JPEG,
+ * because a serverless function must never hold a stream open (see the header).
+ * That rules out proxying video through us at ANY frame rate — so for a real live
+ * picture the browser has to talk to the relay directly, and the page must not be
+ * handed the bearer to do it.
+ *
+ * Nx's answer is a LOGIN TICKET: a short-lived credential that travels in the URL
+ * and is accepted on media endpoints, so it can sit in a `<video src>` without a
+ * header. PROBED LIVE 2026-08-12 against our own system, because none of this is
+ * worth assuming:
+ *
+ *   • `POST /rest/v4/login/tickets` → `{ token, expiresInS: 599 }`             ✓
+ *   • `media.mp4?_ticket=…` through the relay → 200, video/mp4, bytes flowing  ✓
+ *   • the relay DOES answer CORS — it echoed our Origin back in
+ *     Access-Control-Allow-Origin (older notes here said browser calls were
+ *     blocked outright; they are not)                                          ✓
+ *   • THE TICKET IS SINGLE-USE — a second request with the same ticket 401s.
+ *     So one ticket per <video> load, and a fresh one for every retry.          ✓
+ *   • 720p live ran ~8 KB/s, which is why the viewer can afford it at all.      ✓
+ *
+ * A leaked ticket is one stream of one briefing-room camera for at most ten
+ * minutes, and only until it is used once. That is a far smaller thing to lose
+ * than the bearer, which stays in this module — but it is not nothing, which is
+ * why the route that mints these is admin-token gated rather than public like the
+ * still proxy.
+ */
+export interface CameraLiveStream {
+  /** Fully-formed, ticket-bearing URL for a <video> element. Single use. */
+  url: string;
+  /** Ticket lifetime in seconds, as Nx reported it. */
+  expiresInS: number;
+}
+
+export async function cameraLiveStream(
+  deviceId: string,
+  opts?: { resolution?: "360p" | "480p" | "720p" | "1080p" },
+): Promise<CameraLiveStream> {
+  let token = await getToken();
+  let res = await relayFetch("/rest/v4/login/tickets", token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (res.status === 401) {
+    token = await getToken(true);
+    res = await relayFetch("/rest/v4/login/tickets", token, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (!res.ok) throw new Error(`nx ticket: ${res.status}`);
+
+  // Nx GUIDs and a ticket string — no BMI-style long ids on this rail, so plain
+  // JSON parsing is safe here.
+  const json = (await res.json()) as { token?: string; expiresInS?: number };
+  if (!json.token) throw new Error("nx ticket: no token in response");
+
+  // No `positionMs` ⇒ LIVE. 720p by default: the viewer is full-screen, and at the
+  // measured bitrate the resolution is not what costs anything.
+  const resolution = opts?.resolution ?? "720p";
+  const url =
+    `${relayBase()}/rest/v4/devices/${encodeURIComponent(deviceId)}/media.mp4` +
+    `?resolution=${resolution}&_ticket=${encodeURIComponent(json.token)}`;
+  return { url, expiresInS: Number(json.expiresInS) || 300 };
 }
 
 export interface NxCamera {

@@ -63,6 +63,14 @@ export interface BriefingRecord {
   /** The film ran from its start to its full length without being cut off. False
    *  when it never started, or when the room was cleared or taken over mid-film. */
   filmCompleted: boolean;
+  /**
+   * THE ROOM ITSELF, photographed as the film began — the evidence the rest of
+   * this record cannot supply (see room-photo.server.ts). Null when the camera or
+   * the upload was unavailable, which is a fact worth reading rather than a gap to
+   * paper over: it means we have the log for this briefing and no picture.
+   */
+  photoUrl: string | null;
+  photoAtMs: number | null;
 }
 
 /**
@@ -91,6 +99,10 @@ export function foldBriefingLog(events: BriefingEvent[], nowMs: number): Briefin
     const starts = ordered.filter((e) => e.action === "started" || e.action === "restarted");
     const ended = ordered.find((e) => e.action === "ended");
     const first = ordered[0];
+    // FIRST picture wins. One is written per briefing today, but a re-send into
+    // the same room by the same session would append a second, and the shot that
+    // matters is the one taken as the film first rolled.
+    const photo = ordered.find((e) => e.action === "photo" && !!e.photoUrl) ?? null;
 
     // A group with no `sent` event cannot have its room time measured from the
     // door, so the earliest thing we DO know about it stands in. Only reachable
@@ -141,6 +153,8 @@ export function foldBriefingLog(events: BriefingEvent[], nowMs: number): Briefin
       endKind,
       inRoomMs: endedAtMs != null ? Math.max(0, endedAtMs - sentAtMs) : null,
       filmCompleted,
+      photoUrl: photo?.photoUrl ?? null,
+      photoAtMs: photo?.atMs ?? null,
     });
   }
 

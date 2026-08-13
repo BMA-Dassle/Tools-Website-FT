@@ -32,6 +32,7 @@ import {
 import { briefingTimelineAt } from "./phase";
 import { listBriefingEvents, recordBriefingEvent } from "./events-db";
 import { foldBriefingLog, type BriefingRecord } from "./briefing-log";
+import { captureRoomPhoto } from "./room-photo.server";
 import { readRaceFinishedMarker } from "./race-finish.server";
 import { GROUP_OUT_WINDOW_MS, type GroupOut } from "./room-return";
 import {
@@ -185,7 +186,7 @@ export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefing
  */
 export async function startBriefing(
   room: BriefingRoom,
-): Promise<{ ok: boolean; error?: string; hasVideo?: boolean }> {
+): Promise<{ ok: boolean; error?: string; hasVideo?: boolean; photoSaved?: boolean }> {
   const current = await readBriefingRoom(VENUE, room);
   if (!current) {
     return { ok: false, error: "nothing is assigned to that room — send a session first" };
@@ -196,6 +197,8 @@ export async function startBriefing(
   // the group walked over, and a stale answer here would start a silent room.
   const tier = resolveFilmTier(current.tier ?? "starter", (t) => !!assets[assetKeyForTier(t)]?.url);
   const video = assets[assetKeyForTier(tier)] ?? null;
+  const businessDay = businessDayYmdET();
+  const isRestart = current.kind === "timeline";
 
   /**
    * THE INSURANCE RECORD OF THE FILM ITSELF, written BEFORE the room state so a
@@ -213,14 +216,14 @@ export async function startBriefing(
    */
   await recordBriefingEvent({
     venue: VENUE,
-    businessDay: businessDayYmdET(),
+    businessDay,
     room,
     track: current.track,
     sessionId: current.sessionId,
     heatNumber: current.heatNumber,
     raceType: current.raceType,
     tier,
-    action: current.kind === "timeline" ? "restarted" : "started",
+    action: isRestart ? "restarted" : "started",
     videoUrl: video?.url ?? null,
     videoMs: video?.durationMs ?? null,
   });
@@ -234,7 +237,50 @@ export async function startBriefing(
     videoDurationMs: video?.durationMs ?? null,
   });
 
-  return { ok: true, hasVideo: !!video?.url };
+  /**
+   * THE PICTURE OF THE ROOM, taken now that the film is actually rolling (owner
+   * 2026-08-12). Deliberately AFTER the Redis write: the wall must never wait on a
+   * camera, so the film starts first and the evidence follows a beat later — which
+   * is also the more honest frame, because it shows the room as the video began
+   * rather than as staff reached for the button.
+   *
+   * FIRST START ONLY. A restart is the same group in the same room, already
+   * photographed; a second still would cost storage and prove nothing new.
+   *
+   * Awaited rather than left dangling — this runs on serverless, where work that
+   * outlives the response is simply killed. See room-photo.server.ts for the
+   * timeout that bounds what that costs, and why every failure here is silent.
+   */
+  let photoSaved = false;
+  if (!isRestart) {
+    const photo = await captureRoomPhoto({
+      room,
+      businessDay,
+      sessionId: current.sessionId,
+      heatNumber: current.heatNumber,
+    });
+    if (photo) {
+      await recordBriefingEvent({
+        venue: VENUE,
+        businessDay,
+        room,
+        track: current.track,
+        sessionId: current.sessionId,
+        heatNumber: current.heatNumber,
+        raceType: current.raceType,
+        tier,
+        action: "photo",
+        photoUrl: photo.url,
+      }).catch((err) => {
+        // The blob is written; only its index row failed. Loud, but not fatal —
+        // the start it belongs to already succeeded and is already recorded.
+        console.error("[briefing-photo] event row failed", err);
+      });
+      photoSaved = true;
+    }
+  }
+
+  return { ok: true, hasVideo: !!video?.url, photoSaved };
 }
 
 /**
