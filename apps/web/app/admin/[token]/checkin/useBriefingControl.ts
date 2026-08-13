@@ -130,6 +130,16 @@ export interface BriefingControl {
    * the strip, exactly like the board poll above it.
    */
   waitTimes: WaitTimesBoard | null;
+  /**
+   * THE SAME NUMBERS OVER THE LAST SEVEN DAYS — what today is compared against
+   * (owner 2026-08-12: "tiles so we can compare day to week").
+   *
+   * A wait time means nothing on its own: 9:34 is either a good night or a bad
+   * one depending on what the week looks like, and staff cannot hold last
+   * Tuesday's median in their heads. The tile shows today and says how it
+   * differs; this is the baseline behind that.
+   */
+  waitTimesWeek: WaitTimesBoard | null;
 }
 
 /** What the board strip reads. A subset of /api/admin/wait-times' response —
@@ -147,6 +157,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   const [tierOverride, setTierOverrideState] = useState<Record<string, BriefingTier | null>>({});
   const [expandedRoom, setExpandedRoom] = useState<BriefingRoom | null>(null);
   const [waitTimes, setWaitTimes] = useState<WaitTimesBoard | null>(null);
+  const [waitTimesWeek, setWaitTimesWeek] = useState<WaitTimesBoard | null>(null);
 
   const loadBoard = useCallback(
     async (signal?: AbortSignal) => {
@@ -286,6 +297,31 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     enabled,
   );
 
+  /**
+   * The seven-day baseline, polled every TEN MINUTES.
+   *
+   * A week's median moves by seconds over a shift — it is six other nights plus
+   * today, so today's newest heat can barely shift it. Reading it at the same
+   * cadence as today's number would fold a week of events every minute to watch
+   * a figure that does not move.
+   */
+  useVisibleInterval(
+    async (signal) => {
+      try {
+        const res = await fetch(`/api/admin/wait-times?token=${encodeURIComponent(token)}&days=7`, {
+          cache: "no-store",
+          signal,
+        });
+        if (!res.ok || signal?.aborted) return;
+        setWaitTimesWeek((await res.json()) as WaitTimesBoard);
+      } catch {
+        /* the tiles simply show no comparison */
+      }
+    },
+    600_000,
+    enabled,
+  );
+
   const liveCameraUrl = useCallback<BriefingControl["liveCameraUrl"]>(
     async (room) => {
       try {
@@ -319,5 +355,6 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     clearRoom,
     liveCameraUrl,
     waitTimes,
+    waitTimesWeek,
   };
 }
