@@ -143,6 +143,10 @@ async function pushWaiverSignature(row: SyncQueueRow): Promise<HandlerResult> {
       personId,
       name,
       locationKey: str(row.payload.locationKey),
+      // The row's own location wins over the payload key: it is what the barrier
+      // just proved the person is visible at. A null locationKey would otherwise
+      // silently resolve to FastTrax and write to the wrong center.
+      locationId: row.locationId,
       dateEt: str(row.payload.dateEt) ?? undefined,
       pngBuffer: pngB64 ? Buffer.from(pngB64, "base64") : undefined,
       waiverContentID: str(row.payload.waiverContentId) ?? undefined,

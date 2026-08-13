@@ -125,6 +125,12 @@ export function createWaiverPushConsumer() {
       const out = await signWaiverDigital({
         personId: String(personId),
         name: String(name || "").trim() || "Guest",
+        // WHICH CENTER. Without this, `resolvePandoraLocation(undefined)` falls back
+        // to FastTrax and the write goes to a center where this person id does not
+        // exist — BMI ids do not cross centers. The barrier above already used this
+        // id and passed; only the sign call was missing it, so a HeadPinz Naples
+        // waiver retried for 23 minutes and never filed (#809/#811, 2026-08-13).
+        locationId,
         // Every field the guest was actually shown, straight from the stored row —
         // omitting any of them lets signWaiverDigital's EVENT-waiver defaults win
         // (age-35 adult template, 5-day expiry, self-signed), which is precisely how
