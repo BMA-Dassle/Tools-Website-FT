@@ -32,6 +32,7 @@ import { newPartyMember } from "~/features/booking";
 import { tierFromMemberships } from "~/features/booking/service/race-products";
 import { getComboSpecial, comboMinHeadcount } from "~/features/combos/combo-specials";
 import WaiverSigning from "@/components/pandora/WaiverSigning";
+import { kioskDebug } from "~/features/kiosk/debug/bus";
 import {
   pandoraOnboardGuest,
   pandoraFetchWaiverTemplate,
@@ -1027,6 +1028,15 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
        * `persons-local` barrier is what guarantees that.
        */
       const ownValid = g.waiverValid === true || status.valid;
+      kioskDebug(
+        "guardian",
+        ownValid
+          ? `${g.firstName} is already waivered — source: ${
+              g.waiverValid === true ? "OUR record" : "BMI"
+            }${g.waiverValid === true && !status.valid ? " (BMI has NOT caught up — no second pad)" : ""}. Going straight to the minor's waiver.`
+          : `${g.firstName} has NO waiver in our record or BMI — they sign their own first, then the minor's.`,
+        ownValid ? "good" : "warn",
+      );
       let ownTemplate: PandoraWaiverTemplate | null = null;
       if (!ownValid) {
         // Truly unknown age (no DOB locally OR in BMI) still gets the adult
@@ -2442,6 +2452,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                     submitLabel={t("peopleUi.waiverAgree")}
                     submittingLabel={t("peopleUi.waiverSubmitting")}
                     submittingLongLabel={t("peopleUi.waiverSubmittingLong")}
+                    brand={kioskCfg?.brand}
+                    debug={isTestKiosk(kioskCfg)}
                     agreementNote={t("peopleUi.waiverAgreementNote")}
                     signLabel={t("peopleUi.waiverSignBelow")}
                     clearLabel={t("peopleUi.waiverClear")}

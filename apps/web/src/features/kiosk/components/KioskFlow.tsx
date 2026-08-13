@@ -39,6 +39,8 @@ import { clearBookingSession, usePersistedReducer } from "~/features/booking/hoo
 import { fasttraxQamfDuckpinEnabled } from "~/features/booking/flags";
 import { appendGrantedCredits } from "~/features/booking/data/race-credits";
 import { resetToKiosk } from "../version";
+import { armKioskDebug } from "../debug/bus";
+import KioskDebugPanel from "../debug/KioskDebugPanel";
 import { CartView } from "~/components/features/booking/CartView";
 import { CheckoutStep } from "~/components/features/booking/steps/checkout/CheckoutStep";
 import { HeightAgeConfirmModal } from "~/components/features/booking/steps/race/HeightAgeConfirmModal";
@@ -605,6 +607,18 @@ export function KioskFlow({
     const timer = setInterval(send, 30_000);
     return () => clearInterval(timer);
   }, [assistActive, assistReason, config]);
+
+  /**
+   * ARM THE ON-GLASS DEBUG CONSOLE — kiosk 99 only.
+   *
+   * The bus is inert until this runs, so `kioskDebug()` call sites elsewhere cost
+   * a guest-facing kiosk nothing and can be left in place permanently. Armed here
+   * in the shell rather than per-screen so a step-to-step navigation never loses
+   * the history that explains how the guest got here.
+   */
+  useEffect(() => {
+    if (isTestKiosk(config)) armKioskDebug();
+  }, [config]);
 
   // Silent qualification refresh for the review→pay boundary (the last stop
   // before money): fire-and-forget — the live memberships/credits/waiver
@@ -2884,6 +2898,10 @@ export function KioskFlow({
             sublabel={bookingHeatsProgress || t("flow.loader.oneMoment")}
           />
         )}
+
+      {/* Last child so it layers over every step. Renders nothing anywhere but
+          kiosk 99 — see isTestKiosk. */}
+      {isTestKiosk(config) && <KioskDebugPanel />}
     </>,
     backdropPhoto,
   );

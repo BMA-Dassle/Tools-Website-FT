@@ -125,7 +125,30 @@ export async function POST(req: NextRequest) {
       // Display label for the licence offer on the "you're all set" card. Only
       // ever a label — the grant below is what carries authority.
       firstName,
+      // Kiosk 99 only (the client sets it from `isTestKiosk`). When set, every
+      // response carries `debug: string[]` — this route's own narration — so the
+      // on-glass console can show the half of the story the browser cannot see:
+      // barrier verdicts, which path was taken, what Pandora actually answered.
+      debug,
     } = body;
+
+    /**
+     * Server-side trace for the kiosk debug console. Costs nothing when unasked.
+     *
+     * Convention (see `kioskDebugServerTrace`): a leading "!" marks a problem and
+     * "+" a success, so the server colours its own lines without inventing a
+     * schema. Never put a signature, key, or card detail in here — it crosses the
+     * wire to a screen on the shop floor.
+     */
+    const wantDebug = debug === true;
+    const t0 = Date.now();
+    const dbg: string[] = [];
+    const trace = (line: string) => {
+      if (wantDebug) dbg.push(`[+${((Date.now() - t0) / 1000).toFixed(1)}s] ${line}`);
+    };
+    /** Attach the trace to any response body, so no return path forgets it. */
+    const withDbg = <T extends Record<string, unknown>>(payload: T) =>
+      wantDebug ? { ...payload, debug: dbg } : payload;
 
     /**
      * THIS is the only place a waiver licence grant may be minted, because it is
@@ -233,6 +256,14 @@ export async function POST(req: NextRequest) {
     // Awaited so the capture genuinely precedes the send; its errors are
     // swallowed inside, so a DB outage still cannot cost a guest their waiver.
     // (owner 2026-08-08, W57821. CLAUDE.md § persist guest input at capture.)
+    trace(
+      `signing person ${personID}${
+        String(sigPersonID || personID) === String(personID)
+          ? " (self-sign)"
+          : ` — signer is ${sigPersonID} (guardian)`
+      }, template ${waiverContentID}, expires ${safeInvalidation}`,
+    );
+
     const signatureRowId = await storeWaiverSignature({
       personId: String(personID),
       signerPersonId: String(sigPersonID || personID),
@@ -350,14 +381,19 @@ export async function POST(req: NextRequest) {
       const startedWait = Date.now();
       let barrier = await fastProbe();
       let verdict = barrier.verdict;
+      trace(
+        `signature saved to Neon. local-server check for ${needLocal.length === 1 ? "1 person" : `${needLocal.length} people`}: ${verdict} — ${barrier.detail}`,
+      );
       if (verdict === "closed") {
         console.log(
           `[pandora-waiver] ${who} not on the local server yet (${barrier.detail}) — waiting up to ${WAIT_MS / 1000}s before signing`,
         );
+        trace(`not local yet — waiting up to ${WAIT_MS / 1000}s for BMI cloud→local sync`);
         while (verdict === "closed" && Date.now() - startedWait < WAIT_MS) {
           await new Promise((r) => setTimeout(r, STEP_MS));
           barrier = await fastProbe();
           verdict = barrier.verdict;
+          trace(`re-checked: ${verdict} — ${barrier.detail}`);
         }
         const waited = ((Date.now() - startedWait) / 1000).toFixed(1);
         // Still not there after the wait? Pay for the cross-center diagnosis
@@ -409,12 +445,17 @@ export async function POST(req: NextRequest) {
               `[pandora-waiver] still not local after ${waited}s — queued waiver push (row ${queued?.id ?? "n/a"}) for ${personID}. Signature is safe in Neon.`,
             );
             await logSignOutcome("queued", 0, null, null);
-            return NextResponse.json({
-              ok: true,
-              waiverID: null,
-              queuedForSync: true,
-              licenceGrant: grant(),
-            });
+            trace(
+              `+ handed to the sync queue (row ${queued?.id ?? "n/a"}). Guest is done; BMI catches up.`,
+            );
+            return NextResponse.json(
+              withDbg({
+                ok: true,
+                waiverID: null,
+                queuedForSync: true,
+                licenceGrant: grant(),
+              }),
+            );
           } catch (err) {
             // Could not queue — fall through and let the sign attempts run, so a
             // queue outage never silently drops the waiver.
@@ -450,12 +491,15 @@ export async function POST(req: NextRequest) {
             `[pandora-waiver] salvaged — waiver already valid after failed attempt(s) (${signMeta})`,
           );
           await logSignOutcome("salvaged", attempt, null, lastError);
-          return NextResponse.json({
-            ok: true,
-            waiverID: null,
-            alreadyValid: true,
-            licenceGrant: grant(),
-          });
+          trace(`+ salvaged — BMI already shows a valid waiver despite the error`);
+          return NextResponse.json(
+            withDbg({
+              ok: true,
+              waiverID: null,
+              alreadyValid: true,
+              licenceGrant: grant(),
+            }),
+          );
         }
       }
 
@@ -492,7 +536,8 @@ export async function POST(req: NextRequest) {
           status: res.status,
           message: "",
         });
-        return NextResponse.json({ ok: true, waiverID, licenceGrant: grant() });
+        trace(`+ BMI recorded it: waiverID ${waiverID} on attempt ${attempt}/3`);
+        return NextResponse.json(withDbg({ ok: true, waiverID, licenceGrant: grant() }));
       }
 
       lastError = {
@@ -512,12 +557,15 @@ export async function POST(req: NextRequest) {
     if (await waiverNowValid(locationID, personID)) {
       console.log(`[pandora-waiver] salvaged after final attempt — waiver is valid (${signMeta})`);
       await logSignOutcome("salvaged", 3, null, lastError);
-      return NextResponse.json({
-        ok: true,
-        waiverID: null,
-        alreadyValid: true,
-        licenceGrant: grant(),
-      });
+      trace(`+ salvaged after the last attempt — BMI shows a valid waiver`);
+      return NextResponse.json(
+        withDbg({
+          ok: true,
+          waiverID: null,
+          alreadyValid: true,
+          licenceGrant: grant(),
+        }),
+      );
     }
 
     /**
@@ -570,14 +618,17 @@ export async function POST(req: NextRequest) {
             ` (row ${queued?.id ?? "n/a"}). Signature is safe in Neon.`,
         );
         await logSignOutcome("queued", 3, null, lastError);
-        return NextResponse.json({
-          ok: true,
-          waiverID: null,
-          /** The vendor record is owed, not lost — Neon holds the signature and
-           *  the sync queue completes the push within a tick or two. */
-          queuedForSync: true,
-          licenceGrant: grant(),
-        });
+        trace(`+ handed to the sync queue (row ${queued?.id ?? "n/a"}) after the attempts failed.`);
+        return NextResponse.json(
+          withDbg({
+            ok: true,
+            waiverID: null,
+            /** The vendor record is owed, not lost — Neon holds the signature and
+             *  the sync queue completes the push within a tick or two. */
+            queuedForSync: true,
+            licenceGrant: grant(),
+          }),
+        );
       }
     } catch (err) {
       console.warn("[pandora-waiver] could not queue the waiver push:", err);
@@ -585,10 +636,12 @@ export async function POST(req: NextRequest) {
 
     // The row that matters: the guest signed and has NO waiver.
     await logSignOutcome("failed", 3, null, lastError);
-    return NextResponse.json(
-      { error: lastError?.message || "Waiver signing failed" },
-      { status: lastError?.status || 502 },
+    trace(
+      `! FAILED — ${lastError?.message ?? "unknown"} (HTTP ${lastError?.status ?? "?"}). Signature IS safe in Neon.`,
     );
+    return NextResponse.json(withDbg({ error: lastError?.message || "Waiver signing failed" }), {
+      status: lastError?.status || 502,
+    });
   } catch (err) {
     console.error("[pandora-waiver] sign error:", err);
     return NextResponse.json(

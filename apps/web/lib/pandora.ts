@@ -94,6 +94,9 @@ export interface PandoraSignWaiverInput {
    *  card can label a row without a second lookup. Label only — it carries no
    *  authority (see licence-grant.ts). */
   firstName?: string;
+  /** Kiosk 99 only. Asks the route to return its own step-by-step narration so
+   *  the on-glass debug console can show the server half of the flow. */
+  debug?: boolean;
 }
 
 export interface PandoraSignWaiverResult {
@@ -107,6 +110,9 @@ export interface PandoraSignWaiverResult {
    *  signature is already durable in Neon. A full success to the guest — see
    *  the guard in `pandoraSignWaiver`. */
   queuedForSync?: boolean;
+  /** Server-side narration, present only when `debug` was requested (kiosk 99).
+   *  Replayed into the on-glass console by the caller. */
+  debug?: string[];
 }
 
 // ── Client-side API helpers ──────────────────────────────────────────────────
@@ -321,6 +327,13 @@ export async function pandoraSignWaiver(
   // honest reading: the guest's signature is captured and the vendor record is
   // owed, not lost (owner decision — same "you're all set" card, no new copy).
   if (!res.ok || (!data.waiverID && !data.alreadyValid && !data.queuedForSync)) {
+    // Replay the server's own narration BEFORE throwing — a failure is precisely
+    // the moment the trace is worth having, and the throw unwinds past the
+    // caller's success handling.
+    if (Array.isArray(data.debug)) {
+      const { kioskDebugServerTrace } = await import("~/features/kiosk/debug/bus");
+      kioskDebugServerTrace("waiver", data.debug);
+    }
     throw new Error(data.error || "Waiver signing failed");
   }
   // `licenceGrant` is a server-signed proof that this person's waiver went on
@@ -331,6 +344,7 @@ export async function pandoraSignWaiver(
     waiverID: data.waiverID ?? undefined,
     licenceGrant: typeof data.licenceGrant === "string" ? data.licenceGrant : undefined,
     queuedForSync: data.queuedForSync === true,
+    debug: Array.isArray(data.debug) ? (data.debug as string[]) : undefined,
   };
 }
 

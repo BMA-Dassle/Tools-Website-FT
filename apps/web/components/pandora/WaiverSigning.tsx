@@ -5,7 +5,9 @@ import { SignaturePadWithRef } from "@/components/pandora/SignaturePad";
 import type { SignaturePadRef } from "@/components/pandora/SignaturePad";
 import type { PandoraWaiverTemplate } from "@/lib/pandora";
 import { pandoraSignWaiver, calculateWaiverExpiry } from "@/lib/pandora";
-import TrackLoader from "~/components/ui/TrackLoader";
+import { BrandedLoader } from "~/features/kiosk/components/BrandedLoader";
+import { kioskDebugServerTrace } from "~/features/kiosk/debug/bus";
+import type { Brand } from "~/features/booking";
 
 /**
  * How long the guest stares at "Submitting…" before the label changes.
@@ -60,6 +62,14 @@ export interface WaiverSigningProps {
   /** Replaces `submittingLabel` once the sign has been in flight past
    *  LONG_WAIT_MS. Omit and the label never changes (existing behaviour). */
   submittingLongLabel?: string;
+  /** Kiosk brand. When set, the submit state shows the kiosk's own logo loader
+   *  (`BrandedLoader`) instead of the small inline ring — the house rule since
+   *  2026-07-17 is that anything loading on a kiosk surface shows the logo. The
+   *  group-event page omits it and keeps the compact treatment. */
+  brand?: Brand;
+  /** Kiosk 99 only: ask the sign route for its server-side narration and replay
+   *  it into the on-glass debug console. */
+  debug?: boolean;
   agreementNote?: string;
   signLabel?: string;
   clearLabel?: string;
@@ -81,6 +91,8 @@ export default function WaiverSigning({
   // Additive: callers that don't pass one keep the single-label behaviour they
   // have today, so the event page is untouched.
   submittingLongLabel,
+  brand,
+  debug = false,
   agreementNote = "By signing, you agree to the terms of the waiver above.",
   signLabel = "Sign below",
   clearLabel = "Clear",
@@ -125,8 +137,10 @@ export default function WaiverSigning({
         invalidationDate,
         ...(signerPersonId ? { sigPersonID: signerPersonId } : {}),
         ...(firstName ? { firstName } : {}),
+        ...(debug ? { debug: true } : {}),
       });
 
+      if (result.debug) kioskDebugServerTrace("waiver", result.debug);
       onComplete(result.waiverID, result.licenceGrant);
     } catch (err) {
       console.error("[WaiverSigning] Sign failed:", err);
@@ -186,7 +200,11 @@ export default function WaiverSigning({
       >
         {loading ? (
           <span className={`flex items-center justify-center ${lg ? "gap-4" : "gap-2"}`}>
-            <TrackLoader size={lg ? 44 : 20} label={submittingLabel} />
+            {brand ? (
+              <BrandedLoader brand={brand} size={lg ? 76 : 34} />
+            ) : (
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#000418]/30 border-t-[#000418]" />
+            )}
             {longWait && submittingLongLabel ? submittingLongLabel : submittingLabel}
           </span>
         ) : (
