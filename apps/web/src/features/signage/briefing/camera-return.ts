@@ -93,6 +93,47 @@ export const INCOMING_FALLBACK_MS = 15 * 60_000;
  */
 export const SEEN_SKEW_MS = 60_000;
 
+/**
+ * THE SAME TOLERANCE, AGAINST A DIFFERENT KIND OF STAMP.
+ *
+ * `actualEnd` is not the flag. The bridge marker is written seconds after the
+ * checkered flag; Pandora's `actualEnd` is written when the session record
+ * closes, which is later and by no fixed amount. Measured on 2026-08-13 with the
+ * kart bridge 33 minutes dead, so every finish on the wall came from the
+ * fallback:
+ *
+ *   cam 92  registered 5:13:29 PM   heat 30 actualEnd 5:14:52 PM   83s "early"
+ *   cam 54  registered 3:50:33 PM   heat 23 actualEnd 3:52:14 PM  101s "early"
+ *
+ * Both cameras were physically back and filming. Both sat on the chase list —
+ * 92 missed the 60-second window by 23 seconds and stayed red for the rest of
+ * the evening, because nothing clears a still-out box but another sighting.
+ *
+ * So the tolerance follows the PROVENANCE of the end stamp rather than being one
+ * number. Widening SEEN_SKEW_MS globally would have been the wrong fix: it would
+ * loosen the bridge's flag, which is the accurate stamp and needs no help.
+ *
+ * Three minutes covers both measurements with room, and cannot reach a real
+ * miss: a camera that never came back has its sighting stuck at its own scan
+ * time, which is a full heat — twelve minutes and up — on the wrong side of the
+ * flag. The gap between "back late" and "not back" is an order of magnitude, and
+ * this sits in the middle of it.
+ */
+export const ACTUAL_END_SKEW_MS = 3 * 60_000;
+
+/**
+ * Where a session's end time came from. REQUIRED on SessionFinish, not optional:
+ * an optional field here would default the fallback stamp to the strict flag
+ * tolerance at every construction site that forgot it, which is precisely the
+ * bug this exists to fix.
+ */
+export type FinishSource = "flag" | "actual-end";
+
+/** How much earlier than the recorded end a sighting may land and still count. */
+export function seenSkewFor(source: FinishSource): number {
+  return source === "actual-end" ? ACTUAL_END_SKEW_MS : SEEN_SKEW_MS;
+}
+
 /** One scan, as it comes out of `camera-scan-log:{businessDay}`. */
 export interface CameraScan {
   /** The scanned camera number, as text — the field is `sys` on the wire for
@@ -120,6 +161,9 @@ export interface SessionFinish {
   /** Which circuit the heat ran on. Null when the record named none — the box
    *  then wears a neutral outline rather than a guessed circuit's colour. */
   track: CameraTrack | null;
+  /** Which stamp `endedAtMs` is. Decides how much clock slack a sighting gets —
+   *  see seenSkewFor. */
+  source: FinishSource;
 }
 
 export interface CameraReturnInput {
@@ -241,8 +285,10 @@ export function cameraReturnStripAt(input: CameraReturnInput): CameraReturnStrip
     if (!finish || !Number.isFinite(finish.endedAtMs)) continue;
 
     const seenAtMs = seen.get(scan.camera);
-    // Rule 2 — the sighting has to post-date THIS race's flag.
-    const settled = seenAtMs != null && seenAtMs >= finish.endedAtMs - SEEN_SKEW_MS;
+    // Rule 2 — the sighting has to post-date THIS race's flag, within the slack
+    // that stamp has earned. A bridge flag is exact; Pandora's actualEnd runs
+    // late, so a camera that came back can register before it.
+    const settled = seenAtMs != null && seenAtMs >= finish.endedAtMs - seenSkewFor(finish.source);
 
     const bucket = settled ? newestDone : oldestOpen;
     const prev = bucket.get(scan.camera);

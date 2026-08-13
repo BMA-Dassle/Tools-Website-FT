@@ -1,5 +1,47 @@
 # Lessons Learned
 
+## A tolerance belongs to the STAMP, not to the comparison — and an ops tool that rebuilds from a subset of the server's facts will contradict the wall (2026-08-13)
+
+**What happened:** the briefing wall showed 7 POV cameras on the chase list. Two of
+them (92, 54) were physically back and filming — 92 registered a clip at 5:13:29 PM
+against heat 30's recorded end of 5:14:52 PM. The strip settles a camera whose
+sighting post-dates the flag within `SEEN_SKEW_MS` (60s), so 92 **missed by 23
+seconds** and stayed red for the rest of the evening; nothing clears a still-out box
+but another sighting. The 60s was sized against the kart bridge's
+`briefing:race-finished` marker, which lands seconds after the checkered flag. The
+bridge had been dead 33 minutes, so every end time on the board was Pandora's
+`actualEnd` — written when the session record closes, later than the flag by no fixed
+amount. One tolerance was being applied to two stamps that mean different things.
+
+**The rule:** when a value can arrive from more than one source, the slack you allow
+it is a property of the SOURCE, not of the comparison. Carry the provenance on the
+record (`SessionFinish.source: "flag" | "actual-end"`) and pick the tolerance from it
+— never widen the shared constant, which loosens the accurate stamp to accommodate
+the sloppy one. Make the provenance field REQUIRED: optional here would silently
+default the fallback stamp to the strict tolerance at every construction site that
+forgot it, which is the bug itself. (tsc immediately found an inline test fixture that
+had bypassed the helper.) Sanity-check the new window against the failure it must
+still catch: a camera that never came back has its sighting stuck at its own scan
+time, twelve minutes-plus on the wrong side of the flag, so a 3-minute window cannot
+reach it — the gap between "back late" and "not back" was an order of magnitude.
+
+**The second half, and it is the worse one:** `camera-return-peek.mts` printed "THE
+STRIP IS CLEAR — Cameras all in" while the wall showed seven. Its header claims it
+cannot drift because it *imports the shipped decider* — and it does. But it feeds that
+decider Redis-only facts and skips the mandatory Pandora backstop the server applies,
+so on any night the bridge is flaky the ops tool contradicts the board it exists to
+explain. **Importing the same function is not the same as reproducing the same
+inputs.** A diagnostic must be measured against the artefact it claims to explain
+(here: read the wall's own cached feed —
+`scripts/camera-strip-live-why.mts`), or it will confidently talk you out of a real
+incident.
+
+**Also surfaced:** camera 59 had produced 4 clips in its entire life and was handed to
+a guest that day; 66 and 49 had gone silent 1 and 2 days earlier after ~90 clips/week
+each. A dead unit and a missing camera are the same shape on the strip — only the clip
+history in `video_decision_log` separates them, and it is the first thing to check
+before chasing anybody.
+
 ## A derived state name is not an operational claim — "idle" printed FREE while that group was mid-race and coming back (2026-08-12)
 
 **What happened:** the check-in board labelled a briefing room FREE off

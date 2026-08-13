@@ -140,6 +140,10 @@ async function pandoraFinishes(
         endedAtMs,
         heatNumber: Number.isFinite(s.heatNumber) ? s.heatNumber : null,
         track,
+        // NOT the flag. Written when the session record closes, which is later
+        // than the checkered flag by no fixed amount — so a camera that came
+        // back can register BEFORE this stamp. Earns the wider tolerance.
+        source: "actual-end",
       });
     }
   }
@@ -232,6 +236,9 @@ export async function resolveCameraReturn(venue: string, nowMs: number): Promise
             endedAtMs: m.endedAtMs,
             heatNumber: m.heatNumber ?? null,
             track: narrowTrack(m.track),
+            // The venue's own stamp, seconds after the flag — the accurate one,
+            // so it gets the tight sighting tolerance.
+            source: "flag",
           });
         }
       } catch {

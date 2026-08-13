@@ -135,6 +135,10 @@ async function main() {
         endedAtMs: m.endedAtMs,
         heatNumber: m.heatNumber ?? null,
         track: t === "blue" || t === "red" || t === "mega" ? t : null,
+        // Markers only in this tool — it does not apply the Pandora backstop the
+        // server does, which is why its verdict can disagree with the wall on a
+        // night the kart bridge is dropping pushes. See the header.
+        source: "flag",
       });
     } catch {
       /* skip */

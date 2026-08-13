@@ -6,8 +6,10 @@ import {
   INCOMING_FALLBACK_MS,
   normaliseCameraReturn,
   SEEN_SKEW_MS,
+  ACTUAL_END_SKEW_MS,
   type CameraScan,
   type CameraTrack,
+  type FinishSource,
   type SessionFinish,
   type TrackCall,
 } from "./camera-return";
@@ -26,14 +28,15 @@ function scan(camera: string, sessionId: string, atMs: number): CameraScan {
   return { camera, sessionId, assignedAtMs: atMs };
 }
 
-/** [sessionId, endedAtMs, heatNumber, track?] */
+/** [sessionId, endedAtMs, heatNumber, track?, source?] — source defaults to the
+ *  bridge flag, which is what every fixture predating the fallback assumed. */
 function finishes(
-  entries: Array<[string, number, number | null, (CameraTrack | null)?]>,
+  entries: Array<[string, number, number | null, (CameraTrack | null)?, FinishSource?]>,
 ): Map<string, SessionFinish> {
   return new Map(
-    entries.map(([sid, endedAtMs, heatNumber, track]) => [
+    entries.map(([sid, endedAtMs, heatNumber, track, source]) => [
       sid,
-      { endedAtMs, heatNumber, track: track ?? null },
+      { endedAtMs, heatNumber, track: track ?? null, source: source ?? "flag" },
     ]),
   );
 }
@@ -138,6 +141,43 @@ describe("the incoming section", () => {
       }).incoming[0].state;
     expect(stateFor(flag - (SEEN_SKEW_MS - 1_000))).toBe("back");
     expect(stateFor(flag - (SEEN_SKEW_MS + 1_000))).toBe("waiting");
+  });
+
+  /**
+   * THE STAMP DECIDES THE TOLERANCE. Pandora's `actualEnd` is written when the
+   * session record closes, later than the flag by no fixed amount, so a camera
+   * that came back can register BEFORE it. Live on 2026-08-13 with the kart
+   * bridge 33 minutes dead: cam 92 registered 83s before heat 30's actualEnd,
+   * missed the 60s window by 23 seconds, and sat on the chase list for the rest
+   * of the evening — a camera that was demonstrably back and filming.
+   */
+  describe("a finish that came from actualEnd, not the flag", () => {
+    const stateFor = (seenAt: number, source: FinishSource, flag: number) =>
+      cameraReturnStripAt({
+        scans: [scan("92", "S30", flag - m(13))],
+        finishes: finishes([["S30", flag, 30, "red", source]]),
+        seen: new Map([["92", seenAt]]),
+        calledHeats: called([["red", 30]]),
+        nowMs: T,
+      }).incoming[0].state;
+
+    it("settles cam 92's real return, which the flag tolerance rejected", () => {
+      const flag = T - m(17);
+      const registered = flag - 83_000; // the measured gap
+      expect(stateFor(registered, "actual-end", flag)).toBe("back");
+      // Same sighting against a real flag is still a miss — the accurate stamp
+      // does not get loosened by this.
+      expect(stateFor(registered, "flag", flag)).toBe("waiting");
+    });
+
+    it("still cannot reach a camera that never came back", () => {
+      const flag = T - m(17);
+      // A camera that never returned has its sighting stuck at its own scan
+      // time, a full heat before the flag. The wider window must not touch it.
+      expect(stateFor(flag - m(13), "actual-end", flag)).toBe("waiting");
+      expect(stateFor(flag - (ACTUAL_END_SKEW_MS + 1_000), "actual-end", flag)).toBe("waiting");
+      expect(stateFor(flag - (ACTUAL_END_SKEW_MS - 1_000), "actual-end", flag)).toBe("back");
+    });
   });
 });
 
@@ -389,7 +429,9 @@ describe("robustness", () => {
   it("ignores a finish with an unusable end stamp", () => {
     const r = cameraReturnStripAt({
       scans: [scan("23", "S1", T - m(10))],
-      finishes: new Map([["S1", { endedAtMs: Number.NaN, heatNumber: 26, track: null }]]),
+      finishes: new Map([
+        ["S1", { endedAtMs: Number.NaN, heatNumber: 26, track: null, source: "flag" as const }],
+      ]),
       seen: new Map(),
       calledHeats: NONE_CALLED,
       nowMs: T,
