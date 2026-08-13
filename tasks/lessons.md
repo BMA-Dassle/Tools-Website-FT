@@ -4097,3 +4097,49 @@ own module.
 a bare `fetch` to Pandora does it with no redis. Reaching for the existing helper
 looked like reuse and was really a dependency you could not afford. Reuse is not free
 when the dependency graph is the constraint.
+
+## An optional field on a shared party type silently defeats every guard keyed to it (2026-08-13)
+
+**What happened:** the BOGO flash sale shipped two tier-priced credit SKUs — adult
+$20.99, junior $15.99 — restricted by `category` and `racerType` and enforced
+fail-closed in `resolveKioskPacks`. On the kiosk's STANDALONE attract-screen pack
+flow, a junior tapping the adult tile was CHARGED $20.99, and a junior tapping their
+own $15.99 tile was REFUSED at prepare. Both halves of the guard were inverted on
+that one surface.
+
+**Root cause, two independent holes that lined up:**
+
+1. `resolveStandalone` built the resolver's party with `{ id, firstName, lastName,
+   bmiPersonId }` and nothing else. `category` and `isNewRacer` are OPTIONAL on that
+   party type, so the omission compiled — and `category ?? "adult"` then read EVERY
+   racer as an adult (junior SKU refused for everyone, adult SKU accepted for
+   juniors) while `isNewRacer` read falsy (a first-timer passed a returning-only
+   check). `resolveSessionPacks` carries a comment warning about exactly this, added
+   when the same shape was nearly missed on the booking rail. The warning was in the
+   file; the second caller was never checked against it.
+2. The limited-time SKUs were added to `packSlugsAt`, which fed BOTH catalogs. The
+   standalone screen renders every offered SKU per racer with NO eligibility filter
+   and no tier marker (that filter lives in `RacePackPicker`, which that screen does
+   not use), so the two BOGO SKUs landed as two identical "2 RACES / Mon–Thu" tiles
+   differing only in price.
+
+**The rules:**
+
+1. **A restricted SKU must never reach a surface that cannot filter.** Restriction
+   lives on the DATA, so the catalog is what has to withhold it — not the component.
+   `kioskPackSkus` (standalone) is now the standing catalog only; limited-time SKUs
+   reach in-booking surfaces via `packSkusForRaceDate`, and a test asserts NO SKU with
+   a `category` or `racerType` can ever appear in the standalone list. That guard
+   outlives BOGO: the next sale SKU won't be called BOGO.
+2. **Pass the surface explicitly; never infer it from a field's absence.** The
+   resolver used to pick its catalog by whether `raceDate` was set, which conflated
+   the walk-up rail with an in-booking caller whose date wasn't picked yet. It now
+   takes `surface`, the same `PackSurface` the ledger row already stores.
+3. **When a shared function's party/context type has optional fields that gate
+   money, grep EVERY caller the moment one of them is found to be short.** Structural
+   typing gives no warning, tsc stays green, and the guard reads as present in review
+   because the code that enforces it is right there. Widening the type would be
+   better still where every caller can honestly supply the field.
+4. **A guard that fails closed can still mis-charge, in the other direction.** The
+   refusal (junior → junior SKU) was the visible half and looked like the whole bug;
+   the acceptance (junior → adult SKU, +$5) moved real money and was silent.
