@@ -60,6 +60,28 @@ const KIND_COPY: Record<string, string> = {
 /** Waiting = still owed. Cleared = landed. Attention = gave up, needs a human. */
 type Filter = "waiting" | "cleared" | "attention" | "all";
 
+/**
+ * How long the step actually took, created → resolved.
+ *
+ * Seconds below a minute, because that is the whole point of the comparison now:
+ * the Vercel Queues push settles in ~28s and the old every-2-minutes cron could
+ * not beat 120s. Rounding that to "0m" would hide the only number worth seeing.
+ *
+ * Returns null when there is nothing honest to show — still running, or a derived
+ * row that stamps resolved = created and would read as a meaningless 0s.
+ */
+function tookLabel(createdAt: string, resolvedAt: string | null): string | null {
+  if (!resolvedAt) return null;
+  const ms = Date.parse(resolvedAt) - Date.parse(createdAt);
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return s % 60 ? `${m}m ${s % 60}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
+}
+
 export function BmiSyncPanel({ rows }: { rows: AdminSyncRow[] }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<Filter>("waiting");
@@ -212,6 +234,12 @@ export function BmiSyncPanel({ rows }: { rows: AdminSyncRow[] }) {
                     </th>
                     <th style={{ padding: "0.5rem 0.75rem 0.5rem 0", fontWeight: 500 }}>State</th>
                     <th style={{ padding: "0.5rem 0.75rem 0.5rem 0", fontWeight: 500 }}>Age</th>
+                    <th
+                      title="How long the step took, from enqueue to landed. The queue push settles in seconds; the old cron could not beat two minutes."
+                      style={{ padding: "0.5rem 0.75rem 0.5rem 0", fontWeight: 500 }}
+                    >
+                      Took
+                    </th>
                     <th style={{ padding: "0.5rem 0.75rem 0.5rem 0", fontWeight: 500 }}>Tries</th>
                     <th style={{ padding: "0.5rem 0 0.5rem 0", fontWeight: 500 }}>Last message</th>
                   </tr>
@@ -291,6 +319,11 @@ export function BmiSyncPanel({ rows }: { rows: AdminSyncRow[] }) {
                               background: t.bg,
                               color: t.fg,
                               border: `1px solid ${t.border}`,
+                              // "gave up" is two words in a narrow column and was
+                              // wrapping into a two-line pill. A status pill must
+                              // stay one line or it stops reading as a pill.
+                              display: "inline-block",
+                              whiteSpace: "nowrap",
                             }}
                           >
                             {r.status === "done"
@@ -302,8 +335,24 @@ export function BmiSyncPanel({ rows }: { rows: AdminSyncRow[] }) {
                                   : "waiting"}
                           </span>
                         </td>
-                        <td style={{ padding: "0.5rem 0.75rem 0.5rem 0", opacity: 0.7 }}>
+                        <td
+                          style={{
+                            padding: "0.5rem 0.75rem 0.5rem 0",
+                            opacity: 0.7,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
                           {r.ageMin}m
+                        </td>
+                        <td
+                          style={{
+                            padding: "0.5rem 0.75rem 0.5rem 0",
+                            opacity: 0.7,
+                            whiteSpace: "nowrap",
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {tookLabel(r.createdAt, r.resolvedAt) ?? "—"}
                         </td>
                         <td style={{ padding: "0.5rem 0.75rem 0.5rem 0", opacity: 0.7 }}>
                           {r.attempts}

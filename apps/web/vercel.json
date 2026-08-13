@@ -241,6 +241,22 @@
           "topic": "waiver-push-preview"
         }
       ]
+    },
+    "app/api/queue/bmi-sync/route.ts": {
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "bmi-sync"
+        }
+      ]
+    },
+    "app/api/queue/bmi-sync-preview/route.ts": {
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "bmi-sync-preview"
+        }
+      ]
     }
   }
 }

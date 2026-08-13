@@ -269,7 +269,66 @@ export async function enqueueSync(params: EnqueueSyncParams): Promise<SyncQueueR
   `) as Array<Record<string, unknown>>;
   // No row returned = the conflict hit a non-pending row, which is the correct
   // no-op (already done/parked/cancelled).
+  const row = rows[0] ? mapRow(rows[0]) : null;
+  if (!row) return null;
+
+  /**
+   * HAND IT TO VERCEL QUEUES — one place, every kind.
+   *
+   * This is deliberately here rather than at each call site: `enqueueSync` is the
+   * single door into the queue, so adding the push here lights up all five kinds at
+   * once and no future kind can forget it. The Neon row above is already committed,
+   * which is what makes the push safe to be best-effort.
+   *
+   * On success we LEASE the row (see SYNC_LEASE_SECONDS) so the cron cannot pick up
+   * something the queue is about to run. On failure we change nothing — the row
+   * keeps `next_attempt_at = now()` and the cron takes it exactly as before.
+   */
+  try {
+    const { sendSyncPush, SYNC_LEASE_SECONDS } = await import("@/lib/bmi-sync-push");
+    const messageId = await sendSyncPush(row);
+    if (messageId) {
+      await leaseSyncRow(row.id, SYNC_LEASE_SECONDS);
+      return {
+        ...row,
+        nextAttemptAt: new Date(Date.now() + SYNC_LEASE_SECONDS * 1000).toISOString(),
+      };
+    }
+  } catch (err) {
+    console.warn(`[bmi-sync] push wiring failed for row ${row.id} — cron will handle it:`, err);
+  }
+  return row;
+}
+
+/** One row by id — what a queue message points at. */
+export async function getSyncRowById(id: number): Promise<SyncQueueRow | null> {
+  if (!isDbConfigured()) return null;
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    SELECT * FROM bmi_sync_queue WHERE id = ${Number(id)} LIMIT 1
+  `) as Array<Record<string, unknown>>;
   return rows[0] ? mapRow(rows[0]) : null;
+}
+
+/**
+ * Push `next_attempt_at` out so the cron cannot see a row the queue owns.
+ *
+ * This is the CLAIM. `listDueSyncRows` has no `FOR UPDATE SKIP LOCKED`, so the
+ * existing column doubles as a lease: invisible to the cron while held, and
+ * automatically reaped by it once expired. Only ever moves the time FORWARD, and
+ * only for a still-pending row — it must never resurrect a parked one.
+ */
+export async function leaseSyncRow(id: number, seconds: number): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureSchema();
+  const q = sql();
+  await q`
+    UPDATE bmi_sync_queue
+    SET next_attempt_at = GREATEST(next_attempt_at, now() + (${seconds} * INTERVAL '1 second')),
+        updated_at = now()
+    WHERE id = ${Number(id)} AND status = 'pending'
+  `;
 }
 
 /** Due pending rows, oldest first. */
@@ -308,7 +367,18 @@ export async function markSyncDone(id: number, note?: string): Promise<void> {
 export async function markSyncRetry(
   row: SyncQueueRow,
   error: string,
-  opts?: { countAttempt?: boolean },
+  opts?: {
+    countAttempt?: boolean;
+    /**
+     * Hold the queue's lease instead of handing the row back to the cron.
+     *
+     * A queue-owned retry is redelivered by Vercel in seconds, so scheduling
+     * `next_attempt_at` off `backoffSeconds` would let the cron grab the row in the
+     * gap and run the handler twice. Passing the lease keeps ownership until the
+     * redelivery lands (or the lease expires and the cron correctly reaps it).
+     */
+    leaseSeconds?: number;
+  },
 ): Promise<"retry" | "parked"> {
   if (!isDbConfigured()) return "retry";
   await ensureSchema();
@@ -324,7 +394,7 @@ export async function markSyncRetry(
     UPDATE bmi_sync_queue
     SET attempts = ${attempts},
         status = ${park ? "parked" : "pending"},
-        next_attempt_at = now() + (${backoffSeconds(attempts)} * INTERVAL '1 second'),
+        next_attempt_at = now() + (${opts?.leaseSeconds ?? backoffSeconds(attempts)} * INTERVAL '1 second'),
         last_error = ${error.slice(0, 500)},
         resolved_at = ${park ? new Date().toISOString() : null},
         updated_at = now()

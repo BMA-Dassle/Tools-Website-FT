@@ -9,14 +9,7 @@ import {
   syncQueueCounts,
   type SyncQueueRow,
 } from "@/lib/bmi-sync-queue";
-import {
-  personLocalBarrier,
-  personsLocalBarrier,
-  personCloudBarrier,
-  projectLocalBarrier,
-  partyReadyBarrier,
-  type BarrierResult,
-} from "@/lib/bmi-sync-barriers";
+import { probeBarrier } from "@/lib/bmi-sync-probe";
 import { SYNC_HANDLERS } from "@/lib/bmi-sync-handlers";
 
 /**
@@ -55,47 +48,12 @@ function enabled(): boolean {
   return process.env.BMI_SYNC_QUEUE !== "false";
 }
 
-/** Which barrier a row wants, resolved to a probe. Rows whose barrier needs a
- *  ref it does not have are treated as unbarriered rather than stuck forever. */
-async function probeBarrier(row: SyncQueueRow): Promise<BarrierResult> {
-  const ref = row.barrierRef;
-  switch (row.barrier) {
-    case "none":
-      return { verdict: "open", detail: "no barrier" };
-    case "person-local":
-      if (!ref) return { verdict: "open", detail: "no barrierRef — treating as unbarriered" };
-      return personLocalBarrier(row.locationId || "LAB52GY480CJF", ref);
-    case "person-cloud":
-      if (!ref) return { verdict: "open", detail: "no barrierRef — treating as unbarriered" };
-      return personCloudBarrier(ref, (row.payload.clientKey as string) || undefined);
-    case "project-local":
-      if (!ref) return { verdict: "open", detail: "no barrierRef — treating as unbarriered" };
-      return projectLocalBarrier(row.locationId || "LAB52GY480CJF", ref);
-    case "persons-local": {
-      // Presence of EVERY named person, no waiver required — the guardian-signed
-      // waiver write names both the minor and the signing adult. Falls back to
-      // barrierRef so a row written with a single id still works.
-      const ids = Array.isArray(row.payload.personIds)
-        ? (row.payload.personIds as unknown[]).map(String).filter(Boolean)
-        : ref
-          ? [ref]
-          : [];
-      return personsLocalBarrier(row.locationId || "LAB52GY480CJF", ids);
-    }
-    case "party-ready": {
-      // The member list lives in the PAYLOAD, not barrierRef — this gate is
-      // about N people, and an empty list closes rather than waving through.
-      const ids = Array.isArray(row.payload.personIds)
-        ? (row.payload.personIds as unknown[]).map(String).filter(Boolean)
-        : [];
-      return partyReadyBarrier(row.locationId || "LAB52GY480CJF", ids);
-    }
-    default:
-      // Unknown barrier value (a row written by a newer deploy, say). Do NOT run
-      // the handler blind — that is the whole class of bug this exists to stop.
-      return { verdict: "error", detail: `unknown barrier "${row.barrier}"` };
-  }
-}
+/**
+ * The barrier probe now lives in `@/lib/bmi-sync-probe` so this cron and the Vercel
+ * Queues consumer (`/api/queue/bmi-sync`) ask the SAME question. Two copies drifted
+ * once already — a preview wrote a `persons-local` row that production did not
+ * recognise, and it burned 20 attempts reporting "unknown barrier".
+ */
 
 interface Outcome {
   id: number;
