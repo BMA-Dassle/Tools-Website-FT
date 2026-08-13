@@ -1005,14 +1005,36 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         throw new Error(t("peopleUi.gErr.underAge", { name: g.firstName }));
       }
       if (!g.dobIso && gDobIso) patchPerson(g.id, { dobIso: gDobIso });
+      /**
+       * OUR RECORD WINS OVER PANDORA HERE. (Live 2026-08-13, kiosk 99: an adult
+       * signed their own waiver, was then picked as a minor's guardian, and was
+       * made to sign their OWN waiver a SECOND time before reaching the minor's —
+       * three pads for two waivers, and two duplicate waiver records in BMI.)
+       *
+       * `pandoraCheckWaiver` reads the center's LOCAL server. An adult who signed
+       * seconds ago is precisely the person that read cannot confirm: under
+       * cloud-first their person record may still be 404/500 locally, and if their
+       * own sign took the queue the waiver is not in BMI at all yet (up to ~2min).
+       * So a lagging downstream read was being trusted over a signature we had
+       * just watched them make — and the old line below actively PATCHED our
+       * `waiverValid: true` back to false, erasing the fact.
+       *
+       * House rule: our record is the source of truth, BMI is a downstream sync.
+       * So `waiverValid` may only ever be UPGRADED by this read, never revoked.
+       *
+       * Safe for the minor's waiver either way: Pandora needs the guardian to be
+       * RESOLVABLE as `sigPersonID`, not to hold a waiver — and the sign route's
+       * `persons-local` barrier is what guarantees that.
+       */
+      const ownValid = g.waiverValid === true || status.valid;
       let ownTemplate: PandoraWaiverTemplate | null = null;
-      if (!status.valid) {
+      if (!ownValid) {
         // Truly unknown age (no DOB locally OR in BMI) still gets the adult
         // template — the <18 gate above can't fire without a birthdate.
         ownTemplate = await pandoraFetchWaiverTemplate(gAge ?? 35, brandLocation);
       }
-      if (status.valid !== !!g.waiverValid) patchPerson(g.id, { waiverValid: status.valid });
-      proceedWithGuardian(g, sid, status.valid, ownTemplate, gf);
+      if (status.valid && !g.waiverValid) patchPerson(g.id, { waiverValid: true });
+      proceedWithGuardian(g, sid, ownValid, ownTemplate, gf);
     } catch (err) {
       setGError(err instanceof Error ? err.message : t("peopleUi.gErr.verifyAdultFallback"));
     } finally {

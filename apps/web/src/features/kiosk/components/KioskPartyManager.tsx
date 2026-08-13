@@ -508,10 +508,16 @@ export function KioskPartyManager({
         sid = personId;
       }
       const status = await pandoraCheckWaiver(sid, brandLocation);
-      if (status.valid !== !!guardian.waiverValid) {
-        onUpdateMember(guardian.id, { waiverValid: status.valid });
+      // OUR RECORD WINS — see the long note in KioskPeopleStep.chooseGuardian.
+      // This read hits the center's LOCAL server, so an adult who signed seconds
+      // ago (or whose sign took the sync queue) reads as unwaivered and was made
+      // to sign a SECOND time before reaching the minor's waiver. Upgrade only;
+      // never let a lagging downstream read revoke a signature we hold.
+      const ownValid = guardian.waiverValid === true || status.valid;
+      if (status.valid && !guardian.waiverValid) {
+        onUpdateMember(guardian.id, { waiverValid: true });
       }
-      if (status.valid) {
+      if (ownValid) {
         setWaiverFor({
           memberId: minor.id,
           personId: minorPersonId,
@@ -643,12 +649,16 @@ export function KioskPartyManager({
         );
       }
       if (!g.dobIso && gDobIso) patchPerson(g.id, { dobIso: gDobIso });
+      // OUR RECORD WINS — see the long note in KioskPeopleStep.chooseGuardian.
+      // Upgrade only: a local-server read that has not caught up must never make
+      // an adult sign a waiver they just signed.
+      const ownValid = g.waiverValid === true || status.valid;
       let ownTemplate: PandoraWaiverTemplate | null = null;
-      if (!status.valid) {
+      if (!ownValid) {
         ownTemplate = await pandoraFetchWaiverTemplate(gAge ?? 35, brandLocation);
       }
-      if (status.valid !== !!g.waiverValid) patchPerson(g.id, { waiverValid: status.valid });
-      proceedWithGuardian(g, sid, status.valid, ownTemplate, gf);
+      if (status.valid && !g.waiverValid) patchPerson(g.id, { waiverValid: true });
+      proceedWithGuardian(g, sid, ownValid, ownTemplate, gf);
     } catch (err) {
       // Only OUR messages are guest-facing. Upstream text ("Validation Exception")
       // means nothing to a parent and looks like the site broke, so it is logged
