@@ -108,6 +108,10 @@ export interface SyncQueueRow {
   createdAt: string;
   updatedAt: string;
   resolvedAt: string | null;
+  /** Which rail carried this row: `vercel-queue` once the push leased it, else
+   *  null, which means the cron picked it up. Recorded at enqueue — it cannot be
+   *  derived later, because `next_attempt_at` moves on every retry. */
+  pushTransport: string | null;
 }
 
 /** Per-kind patience. Deliberately generous: the whole point is to out-wait
@@ -171,6 +175,21 @@ async function ensureSchema(): Promise<void> {
    * block the single source of truth for what the table really has.
    */
   await q`ALTER TABLE bmi_sync_queue ADD COLUMN IF NOT EXISTS reservation_ref TEXT`;
+  /**
+   * WHICH RAIL CARRIED THIS ROW — recorded, not guessed.
+   *
+   * The admin board used to hardcode every queue row as "neon-cron", because when
+   * it was written that was the only rail. After the Vercel Queues migration that
+   * label became a lie: rows landing in 16-30s were still reported as cron work,
+   * so the board said the migration had not happened while the Took column proved
+   * it had (owner, 2026-08-13: "a bunch of stuff still going via cron... like grant
+   * registration").
+   *
+   * It cannot be derived after the fact — `next_attempt_at` carries the lease at
+   * enqueue but moves on every retry, so a completed row has no trace of how it
+   * travelled. Stamp it once, at the moment we know.
+   */
+  await q`ALTER TABLE bmi_sync_queue ADD COLUMN IF NOT EXISTS push_transport TEXT`;
   await q`
     CREATE UNIQUE INDEX IF NOT EXISTS bmi_sync_queue_idem
     ON bmi_sync_queue (idempotency_key)
@@ -213,6 +232,7 @@ function mapRow(r: Record<string, unknown>): SyncQueueRow {
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
     resolvedAt: r.resolved_at === null ? null : String(r.resolved_at),
+    pushTransport: r.push_transport === null ? null : String(r.push_transport),
   };
 }
 
@@ -326,6 +346,10 @@ export async function leaseSyncRow(id: number, seconds: number): Promise<void> {
   await q`
     UPDATE bmi_sync_queue
     SET next_attempt_at = GREATEST(next_attempt_at, now() + (${seconds} * INTERVAL '1 second')),
+        -- Only the queue ever leases a row, so holding the lease IS the proof of
+        -- which rail carried it. Stamped here so the board reports what happened
+        -- instead of assuming.
+        push_transport = 'vercel-queue',
         updated_at = now()
     WHERE id = ${Number(id)} AND status = 'pending'
   `;

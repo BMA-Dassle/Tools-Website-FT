@@ -295,7 +295,7 @@ export async function listSyncQueueForAdmin(
     const rows = (await q`
       SELECT id, kind, status, barrier, barrier_ref, reservation_ref, attempts,
              last_error, created_at, next_attempt_at, give_up_at, resolved_at, payload,
-             location_id,
+             location_id, push_transport,
              EXTRACT(EPOCH FROM (now() - created_at)) / 60 AS age_min
       FROM bmi_sync_queue
       WHERE (${includeDone} OR status <> 'done')
@@ -320,7 +320,18 @@ export async function listSyncQueueForAdmin(
       ageMin: Math.round(Number(r.age_min ?? 0)),
       who: nameFromPayload(r.payload),
       center: centerName(r.location_id === null ? null : String(r.location_id)),
-      transport: "neon-cron",
+      /**
+       * REPORTED, not assumed. This was hardcoded to "neon-cron" from when the
+       * table had only one rail, and it kept saying so after the Vercel Queues
+       * migration — the board claimed cron for rows the Took column showed
+       * landing in 16-30s, which no cron can do on a 2-minute tick (owner
+       * 2026-08-13: "a bunch of stuff still going via cron... like grant
+       * registration"). Every one of them had ridden the queue.
+       *
+       * A row that never got a lease genuinely is cron work, so null is the
+       * honest fallback rather than a second guess.
+       */
+      transport: r.push_transport === null ? "neon-cron" : String(r.push_transport),
     }));
   } catch (err) {
     console.warn("[bmi-sync-view] queue list failed:", err);
