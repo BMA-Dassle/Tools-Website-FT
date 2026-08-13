@@ -978,6 +978,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     setGError(null);
     try {
       let sid = shortPandoraId(g);
+      // Whether the signing id EXISTED before this tap — see the ownValid note.
+      const sidPreexisting = !!sid;
       if (!sid) {
         const gPhoneTrim = g.phone?.trim() ?? "";
         const gEmailTrim = g.email?.trim() ?? "";
@@ -1027,7 +1029,22 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
        * RESOLVABLE as `sigPersonID`, not to hold a waiver — and the sign route's
        * `persons-local` barrier is what guarantees that.
        */
-      const ownValid = g.waiverValid === true || status.valid;
+      /**
+       * ONLY trust our own flag when it belongs to the id we are about to SIGN
+       * WITH. (Live on kiosk 99, 2026-08-13: guardian person …451 signed a
+       * minor's waiver while holding NO waiver of their own at either center.)
+       *
+       * `waiverValid` is a MEMBER-level fact — it describes the human, and it was
+       * set true when they signed. But `sid` above may be a record we just MINTED
+       * for that human, which by definition holds no waiver. Trusting the flag
+       * against a fresh id skips the adult's own pad AND records them as the
+       * minor's signer with nothing on file — a worse outcome than the double pad
+       * this replaced.
+       *
+       * So the local flag only counts when the id was ALREADY on the member.
+       * A fresh mint must be judged by BMI alone.
+       */
+      const ownValid = (sidPreexisting && g.waiverValid === true) || status.valid;
       kioskDebug(
         "guardian",
         ownValid

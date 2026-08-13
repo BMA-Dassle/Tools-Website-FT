@@ -489,6 +489,8 @@ export function KioskPartyManager({
         return;
       }
       let sid = shortPandoraId(guardian);
+      // Whether the signing id EXISTED before this tap — see the ownValid note.
+      const sidPreexisting = !!sid;
       if (!sid) {
         const gPhone = guardian.phone?.trim() ?? "";
         const gEmail = guardian.email?.trim() ?? "";
@@ -513,7 +515,22 @@ export function KioskPartyManager({
       // ago (or whose sign took the sync queue) reads as unwaivered and was made
       // to sign a SECOND time before reaching the minor's waiver. Upgrade only;
       // never let a lagging downstream read revoke a signature we hold.
-      const ownValid = guardian.waiverValid === true || status.valid;
+      /**
+       * ONLY trust our own flag when it belongs to the id we are about to SIGN
+       * WITH. (Live on kiosk 99, 2026-08-13: guardian person …451 signed a
+       * minor's waiver while holding NO waiver of their own at either center.)
+       *
+       * `waiverValid` is a MEMBER-level fact — it describes the human, and it was
+       * set true when they signed. But `sid` above may be a record we just MINTED
+       * for that human, which by definition holds no waiver. Trusting the flag
+       * against a fresh id skips the adult's own pad AND records them as the
+       * minor's signer with nothing on file — a worse outcome than the double pad
+       * this replaced.
+       *
+       * So the local flag only counts when the id was ALREADY on the member.
+       * A fresh mint must be judged by BMI alone.
+       */
+      const ownValid = (sidPreexisting && guardian.waiverValid === true) || status.valid;
       if (status.valid && !guardian.waiverValid) {
         onUpdateMember(guardian.id, { waiverValid: true });
       }
@@ -603,6 +620,8 @@ export function KioskPartyManager({
     setGError(null);
     try {
       let sid = shortPandoraId(g);
+      // Whether the signing id EXISTED before this tap — see the ownValid note.
+      const sidPreexisting = !!sid;
       if (!sid) {
         const gPhoneTrim = g.phone?.trim() ?? "";
         const gEmailTrim = g.email?.trim() ?? "";
@@ -652,7 +671,22 @@ export function KioskPartyManager({
       // OUR RECORD WINS — see the long note in KioskPeopleStep.chooseGuardian.
       // Upgrade only: a local-server read that has not caught up must never make
       // an adult sign a waiver they just signed.
-      const ownValid = g.waiverValid === true || status.valid;
+      /**
+       * ONLY trust our own flag when it belongs to the id we are about to SIGN
+       * WITH. (Live on kiosk 99, 2026-08-13: guardian person …451 signed a
+       * minor's waiver while holding NO waiver of their own at either center.)
+       *
+       * `waiverValid` is a MEMBER-level fact — it describes the human, and it was
+       * set true when they signed. But `sid` above may be a record we just MINTED
+       * for that human, which by definition holds no waiver. Trusting the flag
+       * against a fresh id skips the adult's own pad AND records them as the
+       * minor's signer with nothing on file — a worse outcome than the double pad
+       * this replaced.
+       *
+       * So the local flag only counts when the id was ALREADY on the member.
+       * A fresh mint must be judged by BMI alone.
+       */
+      const ownValid = (sidPreexisting && g.waiverValid === true) || status.valid;
       let ownTemplate: PandoraWaiverTemplate | null = null;
       if (!ownValid) {
         ownTemplate = await pandoraFetchWaiverTemplate(gAge ?? 35, brandLocation);
