@@ -319,6 +319,59 @@ export async function POST(req: NextRequest) {
     const who = signerId === String(personID) ? `${personID}` : `${personID}+signer ${signerId}`;
 
     /**
+     * Hand the push off. Vercel Queues FIRST (delayed visibility + push delivery
+     * gets BMI caught up in ~20-30s instead of the cron's 1-4 minutes), with the
+     * Neon `bmi_sync_queue` as the fallback — so a Queues outage, a missing
+     * entitlement, or `WAIVER_QUEUE_VERCEL=false` all degrade to the transport
+     * that has been working, rather than to a failed waiver.
+     *
+     * Returns a label for the log/trace only. Either way the signature is already
+     * durable in Neon, which is what makes falling back safe.
+     */
+    const handOffPush = async (): Promise<string> => {
+      // A Queues message carries only the signature ROW ID, so it is unusable
+      // without one. `storeWaiverSignature` returns null when the Neon write
+      // failed (it swallows its own errors so a DB outage can never cost a guest
+      // their waiver) — in that case the Neon queue is the only viable transport,
+      // because its payload carries the PNG inline.
+      if (signatureRowId != null) {
+        const { sendWaiverPush } = await import("~/features/kiosk/waiver/waiver-queue");
+        const messageId = await sendWaiverPush({
+          signatureRowId,
+          personId: String(personID),
+          signerPersonId: signerId,
+          locationId: locationID,
+          name: String(firstName ?? "").trim() || "Guest",
+        });
+        if (messageId) return `vercel-queue ${messageId}`;
+      } else {
+        console.warn(
+          "[pandora-waiver] no Neon signature row id — Vercel Queues cannot carry this push; using the Neon queue, which holds the image inline.",
+        );
+      }
+
+      const { enqueueSync } = await import("@/lib/bmi-sync-queue");
+      const queued = await enqueueSync({
+        kind: "push-waiver-signature",
+        idempotencyKey: `waiver-push:${personID}:${new Date().toISOString().slice(0, 10)}`,
+        barrier: "persons-local",
+        barrierRef: String(personID),
+        locationId: locationID,
+        payload: {
+          personId: String(personID),
+          personIds: needLocal,
+          signerPersonId: signerId,
+          name: String(firstName ?? "").trim() || "Guest",
+          locationKey: location ?? null,
+          signaturePngB64: sigBase64,
+          waiverContentId: String(waiverContentID),
+          invalidationDate: safeInvalidation,
+        },
+      });
+      return `neon-queue row ${queued?.id ?? "n/a"}`;
+    };
+
+    /**
      * WAIT FOR THE PEOPLE TO REACH THE LOCAL SERVER, BEFORE SIGNING.
      *
      * Pandora writes a waiver against the CENTER'S OWN server, and under
@@ -413,41 +466,12 @@ export async function POST(req: NextRequest) {
         }
         if (diagnosed?.verdict === "closed") {
           try {
-            const { enqueueSync } = await import("@/lib/bmi-sync-queue");
-            const queued = await enqueueSync({
-              kind: "push-waiver-signature",
-              idempotencyKey: `waiver-push:${personID}:${new Date().toISOString().slice(0, 10)}`,
-              // BOTH people, because the write names both. `person-local` on the
-              // minor alone would let the row fire while the guardian is still
-              // cloud-only, and Pandora cannot record a signer it cannot resolve.
-              barrier: "persons-local",
-              barrierRef: String(personID),
-              locationId: locationID,
-              payload: {
-                personId: String(personID),
-                personIds: needLocal,
-                signerPersonId: signerId,
-                name: String(firstName ?? "").trim() || "Guest",
-                locationKey: location ?? null,
-                signaturePngB64: sigBase64,
-                // FILE THE DOCUMENT THE GUEST ACTUALLY SIGNED. Without these two
-                // the handler falls back to `signWaiverDigital`'s event-waiver
-                // defaults — an age-35 (ADULT) template lookup and a 5-day
-                // expiry — so a queued minor's waiver was filed against the
-                // adult contentID they never read, expiring in 5 days instead of
-                // the template's year. See the same fields on the backstop
-                // enqueue below and `pushWaiverSignature`.
-                waiverContentId: String(waiverContentID),
-                invalidationDate: safeInvalidation,
-              },
-            });
+            const where = await handOffPush();
             console.log(
-              `[pandora-waiver] still not local after ${waited}s — queued waiver push (row ${queued?.id ?? "n/a"}) for ${personID}. Signature is safe in Neon.`,
+              `[pandora-waiver] still not local after ${waited}s — push handed to ${where} for ${who}. Signature is safe in Neon.`,
             );
             await logSignOutcome("queued", 0, null, null);
-            trace(
-              `+ handed to the sync queue (row ${queued?.id ?? "n/a"}). Guest is done; BMI catches up.`,
-            );
+            trace(`+ handed to ${where}. Guest is done; BMI catches up.`);
             return NextResponse.json(
               withDbg({
                 ok: true,
@@ -589,36 +613,12 @@ export async function POST(req: NextRequest) {
       const { personsLocalBarrier } = await import("@/lib/bmi-sync-barriers");
       const barrier = await personsLocalBarrier(locationID, needLocal);
       if (barrier.verdict === "closed") {
-        const { enqueueSync } = await import("@/lib/bmi-sync-queue");
-        const queued = await enqueueSync({
-          kind: "push-waiver-signature",
-          // Keyed per person per DAY: a re-signed waiver on a later visit is a
-          // new followup, while a retried submit on the same visit is not.
-          idempotencyKey: `waiver-push:${personID}:${new Date().toISOString().slice(0, 10)}`,
-          barrier: "persons-local",
-          barrierRef: personID,
-          locationId: locationID,
-          payload: {
-            personId: String(personID),
-            personIds: needLocal,
-            signerPersonId: signerId,
-            name: String(firstName ?? "").trim() || "Guest",
-            locationKey: location ?? null,
-            // The already-stripped base64 (no data: prefix) — the handler
-            // rehydrates it to a Buffer for the multipart upload.
-            signaturePngB64: sigBase64,
-            // The template the guest READ and the expiry we PRESENTED — see the
-            // pre-wait enqueue above for why omitting them mis-filed the record.
-            waiverContentId: String(waiverContentID),
-            invalidationDate: safeInvalidation,
-          },
-        });
+        const where = await handOffPush();
         console.log(
-          `[pandora-waiver] ${who} not local yet (${barrier.detail}) — queued waiver push` +
-            ` (row ${queued?.id ?? "n/a"}). Signature is safe in Neon.`,
+          `[pandora-waiver] ${who} not local yet (${barrier.detail}) — push handed to ${where}. Signature is safe in Neon.`,
         );
         await logSignOutcome("queued", 3, null, lastError);
-        trace(`+ handed to the sync queue (row ${queued?.id ?? "n/a"}) after the attempts failed.`);
+        trace(`+ handed to ${where} after the sign attempts failed.`);
         return NextResponse.json(
           withDbg({
             ok: true,

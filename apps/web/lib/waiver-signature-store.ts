@@ -211,6 +211,28 @@ export async function listWaiverSignatures(
   return (rows as unknown as unknown[]).map(toStored);
 }
 
+/**
+ * One signature by its row id, image included.
+ *
+ * The queue carries this ID rather than the base64 PNG — Vercel Queues meters
+ * messages in 4 KiB chunks, so a 7-40KB signature would cost several operations
+ * on the send AND on every delivery, and it would put guest data on a message bus
+ * for no reason. The row is already durable in Neon before anything is sent, so
+ * the id is all the consumer needs.
+ *
+ * By ID, never "latest for this person": a guest who signs twice in a visit has
+ * two rows, and the push must file the one that was actually captured for it.
+ */
+export async function getWaiverSignatureById(id: number): Promise<StoredWaiverSignature | null> {
+  if (!isDbConfigured()) return null;
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    SELECT * FROM waiver_signatures WHERE id = ${Number(id)} LIMIT 1
+  `) as unknown as unknown[];
+  return rows[0] ? toStored(rows[0]) : null;
+}
+
 /** The newest signature image we hold for a person, or null. */
 export async function getLatestWaiverSignature(
   personId: string,
