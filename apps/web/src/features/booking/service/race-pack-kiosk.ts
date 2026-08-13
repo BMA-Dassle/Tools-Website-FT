@@ -57,15 +57,21 @@ export function racePackLicenseEnabled(): boolean {
  *  small reader order. */
 export type PackSurface = "booking" | "standalone";
 
-/** THE kiosk pack catalog — one list for every surface (owner 2026-08-03).
+/** THE STANDING pack catalog — one list for every surface (owner 2026-08-03).
  *  The in-booking teaser used to be 3-packs only ("fast decision mid-booking",
  *  owner 2026-07-19), which left a returning racer who wanted a 5- or 10-pack
  *  with no door at all: mid-flow the teaser was the only pack surface, and the
  *  bigger packs lived exclusively in the standalone flow — reachable only by
  *  abandoning the booking and paying on a second reader tap. Zero 5/10 packs
  *  ever sold through a booking; every one came from standalone. Keeping ONE
- *  list is also what stops the two surfaces from drifting again. */
-const KIOSK_PACK_SLUGS: readonly string[] = [
+ *  list is also what stops the two surfaces from drifting again.
+ *
+ *  LIMITED-TIME SKUs are the one exception, and they are not in this list —
+ *  they reach the in-booking surfaces only, via `packSlugsAt`. The standing
+ *  catalog stays surface-agnostic precisely because none of it is restricted by
+ *  tier or racer history; anything that is cannot be sold by a screen with no
+ *  filter (owner 2026-08-13). */
+const STANDING_PACK_SLUGS: readonly string[] = [
   "3-race-weekday",
   "3-race-anytime",
   "5-race-weekday",
@@ -75,17 +81,41 @@ const KIOSK_PACK_SLUGS: readonly string[] = [
 ];
 
 /**
- * The standing catalog plus any live limited-time SKUs, at `now`.
+ * The standing catalog plus any live limited-time SKUs, at `now` — IN-BOOKING
+ * surfaces only (`packSkusForRaceDate`).
  *
- * ONE list feeds both the sell surfaces AND `resolveKioskPacks`'s fail-closed
- * slug check, so the sale window is enforced on the SERVER by construction: a
- * cached page or a hand-rolled POST that still names a BOGO slug after the
- * deadline gets "isn't available" from the resolver rather than a discounted
- * charge. That is also why the window is not merely a UI condition — the
- * session carries slug pointers only, and the server re-derives the price.
+ * A limited-time SKU is deliberately NOT in the standalone walk-up catalog
+ * (`kioskPackSkus`). The two BOGO SKUs are tier-restricted (adult $20.99 /
+ * junior $15.99) and the standalone screen has no tier to restrict against: it
+ * lists every SKU per racer with no eligibility filter, so both landed as two
+ * identical "2 RACES / Mon–Thu" tiles differing only in price. Live 2026-08-13,
+ * that mis-sold juniors the ADULT price when they tapped the first tile and
+ * dead-ended them at prepare when they tapped their own. Owner: BOGO does not
+ * belong on that screen. In-booking surfaces DO carry a tier (the pay-mode page
+ * is per category, and the picker filters by `packFitsMember`), which is where
+ * the sale is sold.
+ *
+ * ONE list still feeds the in-booking sell surfaces AND `resolveKioskPacks`'s
+ * fail-closed slug check, so the sale window is enforced on the SERVER by
+ * construction: a cached page or a hand-rolled POST that still names a BOGO slug
+ * after the deadline — or on the standalone rail at all — gets "isn't available"
+ * from the resolver rather than a discounted charge. That is also why the window
+ * is not merely a UI condition: the session carries slug pointers only, and the
+ * server re-derives the price.
  */
 function packSlugsAt(now: Date): readonly string[] {
-  return bogoSaleActive(now) ? [...KIOSK_PACK_SLUGS, ...BOGO_SALE_SLUGS] : KIOSK_PACK_SLUGS;
+  return bogoSaleActive(now) ? [...STANDING_PACK_SLUGS, ...BOGO_SALE_SLUGS] : STANDING_PACK_SLUGS;
+}
+
+/** Catalog order for a sell surface: smallest pack first, weekday before
+ *  any-day within a size, and the Mon–Thu SKUs dropped entirely on a weekend
+ *  (owner day rule — hidden, never warned). */
+function skusFor(slugs: readonly string[], weekend: boolean): RacePack[] {
+  return slugs
+    .map((slug) => RACE_PACKS.find((p) => p.slug === slug))
+    .filter((p): p is RacePack => !!p)
+    .filter((p) => !(weekend && p.dayType === "weekday"))
+    .sort((a, b) => a.raceCount - b.raceCount || a.price - b.price);
 }
 
 /** Is the center's local day a weekend day for pack purposes? Owner rule:
@@ -99,39 +129,32 @@ export function isWeekendForPacks(now: Date = new Date()): boolean {
   return day === "Fri" || day === "Sat" || day === "Sun";
 }
 
-/** The packs the kiosk offers RIGHT NOW (day-filtered; smallest pack first,
- *  weekday before any-day within a size). Same answer on every surface.
- *  WALK-UP ONLY (standalone attract flow): purchase day == race day there.
- *  In-booking surfaces must use packSkusForRaceDate — a web booking's race
- *  can be days away, and the day rule is about the RACE day. */
+/** The packs the STANDALONE walk-up flow offers RIGHT NOW (day-filtered;
+ *  smallest pack first, weekday before any-day within a size). Purchase day ==
+ *  race day there, so the day rule reads the wall clock.
+ *
+ *  THE STANDING CATALOG ONLY — no limited-time SKUs (see `packSlugsAt`): that
+ *  screen has no tier to restrict a tier-priced SKU against. In-booking
+ *  surfaces must use packSkusForRaceDate: they carry a category, and a web
+ *  booking's race can be days away, where the day rule is about the RACE day. */
 export function kioskPackSkus(now: Date = new Date()): RacePack[] {
-  const weekend = isWeekendForPacks(now);
-  return packSlugsAt(now)
-    .map((slug) => RACE_PACKS.find((p) => p.slug === slug))
-    .filter((p): p is RacePack => !!p)
-    .filter((p) => !(weekend && p.dayType === "weekday"))
-    .sort((a, b) => a.raceCount - b.raceCount || a.price - b.price);
+  return skusFor(STANDING_PACK_SLUGS, isWeekendForPacks(now));
 }
 
 /**
- * The packs an IN-BOOKING surface may offer for a race on `raceDate`. The
- * Mon–Thu pack hides when the BOOKED race falls Fri–Sun — its first credit
- * covers that race at checkout, and a weekday credit can't (owner day rule;
- * `dayBucket` is the same Fri–Sun split the credit-redeem rail uses). On the
- * kiosk raceDate is always today, so this equals kioskPackSkus there; null
- * (no date picked yet) falls back to the wall clock.
+ * The packs an IN-BOOKING surface may offer for a race on `raceDate` — the
+ * standing catalog PLUS any live limited-time SKU. The Mon–Thu pack hides when
+ * the BOOKED race falls Fri–Sun: its first credit covers that race at checkout,
+ * and a weekday credit can't (owner day rule; `dayBucket` is the same Fri–Sun
+ * split the credit-redeem rail uses). Null (no date picked yet) falls back to
+ * the wall clock.
  */
 export function packSkusForRaceDate(
   raceDate: string | null | undefined,
   now: Date = new Date(),
 ): RacePack[] {
-  if (!raceDate) return kioskPackSkus(now);
-  const weekend = dayBucket(raceDate) === "weekend";
-  return packSlugsAt(now)
-    .map((slug) => RACE_PACKS.find((p) => p.slug === slug))
-    .filter((p): p is RacePack => !!p)
-    .filter((p) => !(weekend && p.dayType === "weekday"))
-    .sort((a, b) => a.raceCount - b.raceCount || a.price - b.price);
+  const weekend = raceDate ? dayBucket(raceDate) === "weekend" : isWeekendForPacks(now);
+  return skusFor(packSlugsAt(now), weekend);
 }
 
 /** A pack purchase pointer as carried by the session/UI — slug + assignee only;
@@ -182,6 +205,13 @@ export interface ResolvedKioskPack {
  * day — a weekday pack against a Fri–Sun race date throws here, at charge
  * time, so displayed can never drift from charged. Standalone walk-up callers
  * omit it (purchase day == race day).
+ *
+ * `opts.surface` picks WHICH CATALOG is sellable, and is passed explicitly
+ * rather than inferred from `raceDate`: "standalone" gets the standing SKUs
+ * only, so a limited-time tier-priced SKU can never be charged on the screen
+ * that has no tier to check it against (see `packSlugsAt`). Inferring it from a
+ * missing raceDate would have conflated the walk-up rail with an in-booking
+ * caller whose date isn't picked yet.
  */
 export function resolveKioskPacks(
   selections: KioskPackSelection[],
@@ -195,13 +225,13 @@ export function resolveKioskPacks(
     /** First-time racer — gates `pack.racerType`. */
     isNewRacer?: boolean;
   }>,
-  opts: { now?: Date; raceDate?: string | null } = {},
+  opts: { now?: Date; raceDate?: string | null; surface?: PackSurface } = {},
 ): ResolvedKioskPack[] {
   if (selections.length === 0) return [];
   const offered = new Set(
-    (opts.raceDate
-      ? packSkusForRaceDate(opts.raceDate, opts.now)
-      : kioskPackSkus(opts.now ?? new Date())
+    (opts.surface === "standalone"
+      ? kioskPackSkus(opts.now ?? new Date())
+      : packSkusForRaceDate(opts.raceDate ?? null, opts.now)
     ).map((p) => p.slug),
   );
   const seen = new Set<string>();

@@ -21,6 +21,9 @@ export async function POST(req: NextRequest) {
             personId: String(p.personId ?? ""),
             memberName: String(p.memberName ?? "").slice(0, 80),
             isNewRacer: p.isNewRacer === true,
+            // Tier gate for restricted SKUs. Anything but "junior" reads adult,
+            // matching every other category read in the flow.
+            category: p.category === "junior" ? ("junior" as const) : ("adult" as const),
             email: p.email == null ? undefined : String(p.email).slice(0, 120),
             phone: p.phone == null ? undefined : String(p.phone).slice(0, 40),
           }))

@@ -6,7 +6,9 @@
  * https://claude.ai/code/artifact/50e2252a-52ca-4363-9b4e-87e131e31bd0).
  *
  * Sells the CREDIT packs — the WHOLE catalog, 3/5/10 races (owner 2026-08-03;
- * Mon–Thu SKUs hidden Fri–Sun — `kioskPackSkus`). It used to offer 3-packs only,
+ * Mon–Thu SKUs hidden Fri–Sun — `packSkusForRaceDate`, the IN-BOOKING catalog,
+ * which is also where a limited-time SKU is sold: this surface filters by racer,
+ * the standalone screen does not). It used to offer 3-packs only,
  * which meant a returning racer mid-booking could not buy a 5- or 10-pack at
  * all: this is the only pack surface inside a booking, and the bigger packs
  * lived exclusively in the standalone attract flow. Every size/price/label here

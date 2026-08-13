@@ -255,7 +255,10 @@ describe("packSkusForRaceDate — the day rule keys off the RACE day, not the pu
     expect(slugs).toContain("10-race-weekday");
   });
 
-  it("no race date yet → wall-clock fallback (kioskPackSkus behavior)", () => {
+  // Same DAY rule as the walk-up catalog, not the same CATALOG: mid-sale this
+  // list also carries the limited-time SKUs, which the standalone screen never
+  // gets (see bogo-sale.test.ts). July is outside every sale window.
+  it("no race date yet → wall-clock fallback for the day rule", () => {
     expect(packSkusForRaceDate(null, SATURDAY_PURCHASE).map((p) => p.slug)).toEqual(
       kioskPackSkus(SATURDAY_PURCHASE).map((p) => p.slug),
     );

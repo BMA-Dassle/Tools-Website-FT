@@ -134,10 +134,10 @@ describe("BOGO — the window is enforced server-side, not just hidden", () => {
   });
 
   it("credit-pack slugs leave the offered catalog when the sale ends", () => {
-    expect(kioskPackSkus(DURING).map((p) => p.slug)).toEqual(
+    expect(packSkusForRaceDate("2026-08-12", DURING).map((p) => p.slug)).toEqual(
       expect.arrayContaining([...BOGO_SALE_SLUGS]),
     );
-    const after = kioskPackSkus(AFTER).map((p) => p.slug);
+    const after = packSkusForRaceDate("2026-08-14", AFTER).map((p) => p.slug);
     for (const slug of BOGO_SALE_SLUGS) expect(after).not.toContain(slug);
   });
 
@@ -231,5 +231,86 @@ describe("BOGO — the two SKUs stay distinguishable in the books", () => {
   it("a weekend race date still hides Mon–Thu SKUs, sale included", () => {
     const sat = packSkusForRaceDate("2026-08-15", DURING).map((p) => p.slug);
     for (const slug of BOGO_SALE_SLUGS) expect(sat).not.toContain(slug);
+  });
+});
+
+/**
+ * The standalone attract-screen flow lists every offered SKU per racer with NO
+ * eligibility filter and no tier marker, so a tier-priced SKU has nothing there
+ * to hold it to its tier. Live 2026-08-13 that showed juniors two identical
+ * "2 RACES / Mon–Thu" tiles: tapping the adult one CHARGED them $20.99 (their
+ * SKU is $15.99), tapping their own dead-ended at prepare. Owner: BOGO does not
+ * belong on that screen.
+ */
+describe("BOGO — never on the standalone walk-up screen", () => {
+  it("the standalone catalog is the standing six, sale or no sale", () => {
+    const during = kioskPackSkus(DURING).map((p) => p.slug);
+    expect(during).toEqual([
+      "3-race-weekday",
+      "3-race-anytime",
+      "5-race-weekday",
+      "5-race-anytime",
+      "10-race-weekday",
+      "10-race-anytime",
+    ]);
+    for (const slug of BOGO_SALE_SLUGS) expect(during).not.toContain(slug);
+  });
+
+  it("no tier- or history-restricted SKU can ever reach that screen", () => {
+    // The durable guard: the next limited-time SKU won't be called BOGO, and
+    // the screen still has no filter. Anything carrying a restriction has no
+    // business in this catalog.
+    for (const p of kioskPackSkus(DURING)) {
+      expect(p.category).toBeUndefined();
+      expect(p.racerType).toBeUndefined();
+    }
+  });
+
+  it("the in-booking catalog still carries the sale on the same instant", () => {
+    // The fix must not have darkened the sale where it IS sold — the pay-mode
+    // page is per category and its picker filters by racer.
+    expect(packSkusForRaceDate("2026-08-12", DURING).map((p) => p.slug)).toEqual(
+      expect.arrayContaining([...BOGO_SALE_SLUGS]),
+    );
+  });
+
+  it("the resolver REFUSES a BOGO slug on the standalone rail mid-sale", () => {
+    // Fail-closed, not merely hidden: a kiosk left on a cached build (or a
+    // hand-rolled POST) still names the slug, and prepare is where money starts.
+    const party = [
+      {
+        id: "123456789012345678",
+        firstName: "Suzy",
+        bmiPersonId: "123456789012345678",
+        category: "junior" as const,
+        isNewRacer: false,
+      },
+    ];
+    for (const slug of BOGO_SALE_SLUGS) {
+      expect(() =>
+        resolveKioskPacks([{ slug, memberId: "123456789012345678" }], party, {
+          now: DURING,
+          surface: "standalone",
+        }),
+      ).toThrow(/isn't available/i);
+    }
+  });
+
+  it("the standing packs still sell on the standalone rail, mid-sale", () => {
+    const party = [
+      {
+        id: "123456789012345678",
+        firstName: "Newt",
+        bmiPersonId: "123456789012345678",
+        category: "adult" as const,
+        isNewRacer: true,
+      },
+    ];
+    const resolved = resolveKioskPacks(
+      [{ slug: "5-race-weekday", memberId: "123456789012345678" }],
+      party,
+      { now: DURING, surface: "standalone" },
+    );
+    expect(resolved[0].priceCents).toBe(7999);
   });
 });

@@ -68,8 +68,13 @@ export interface StandalonePackInput {
   memberName: string;
   /** Client hint: this racer was created fresh at the kiosk (no BMI license).
    *  Only a hint — the server re-verifies via personNeedsLicense before charging
-   *  a license. */
+   *  a license. ALSO fed to `resolveKioskPacks`, where it gates a history-
+   *  restricted SKU. */
   isNewRacer?: boolean;
+  /** Racer tier, from the roster row. Fed to `resolveKioskPacks`, where it gates
+   *  a tier-restricted SKU. Omitting it read as "adult" and let a junior be
+   *  charged an adult-priced SKU (live 2026-08-13). */
+  category?: "adult" | "junior";
   /** Carried onto the license bill's contact registration. */
   email?: string;
   phone?: string;
@@ -89,9 +94,18 @@ function resolveStandalone(packs: StandalonePackInput[]): ResolvedKioskPack[] {
       throw new RacePackHttpError(400, "A racer account couldn't be verified.");
     }
   }
-  // resolveKioskPacks does the rest fail-closed: offered-today check (day
-  // rule), one-pack-per-person, catalog re-derivation of every price. Every
-  // kiosk surface sells the same six SKUs (owner 2026-08-03).
+  // resolveKioskPacks does the rest fail-closed: offered-today check (day rule
+  // + this surface's catalog), one-pack-per-person, catalog re-derivation of
+  // every price. `surface: "standalone"` is what keeps a limited-time
+  // tier-priced SKU off this rail — this screen lists every SKU per racer with
+  // no eligibility filter, so it must not be handed one that needs filtering.
+  //
+  // The party carries `category` + `isNewRacer`. They are OPTIONAL on
+  // resolveKioskPacks' party, so omitting them still compiled — and silently
+  // defeated both guards: `category` defaulted to "adult" (a junior tapping a
+  // junior-only SKU was refused, and tapping the adult SKU was CHARGED the
+  // adult price) and `isNewRacer` read falsy (a first-timer passed a
+  // returning-only check). Live 2026-08-13 on the two BOGO SKUs.
   return resolveKioskPacks(
     packs.map((p) => ({ slug: p.slug, memberId: p.personId })),
     packs.map((p) => ({
@@ -99,7 +113,10 @@ function resolveStandalone(packs: StandalonePackInput[]): ResolvedKioskPack[] {
       firstName: p.memberName.split(" ")[0] || p.memberName,
       lastName: p.memberName.split(" ").slice(1).join(" ") || undefined,
       bmiPersonId: p.personId,
+      category: p.category,
+      isNewRacer: p.isNewRacer === true,
     })),
+    { surface: "standalone" },
   );
 }
 

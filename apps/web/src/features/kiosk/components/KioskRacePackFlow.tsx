@@ -115,6 +115,9 @@ export function KioskRacePackFlow({
       personId: m.bmiPersonId!,
       memberName: `${m.firstName} ${m.lastName ?? ""}`.trim(),
       isNewRacer: m.isNewRacer === true,
+      // The roster row's tier. The server gates tier-restricted SKUs on it;
+      // without it every racer read as "adult" (see resolveStandalone).
+      category: m.category,
       email: m.email ?? undefined,
       phone: m.phone ?? undefined,
     }));
