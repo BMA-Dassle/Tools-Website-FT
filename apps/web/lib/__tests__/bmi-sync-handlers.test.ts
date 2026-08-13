@@ -56,6 +56,9 @@ const row = (over: Partial<SyncQueueRow> = {}): SyncQueueRow => ({
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   resolvedAt: null,
+  // null = the cron picked this row up, which is what every fixture here
+  // predating the push rail describes.
+  pushTransport: null,
   ...over,
 });
 
