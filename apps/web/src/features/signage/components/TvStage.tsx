@@ -16,15 +16,27 @@
  * NOTE: the transform establishes a containing block for descendant
  * position:fixed elements, so overlays rendered inside anchor to the canvas
  * (1920×1080) and scale with it — author them in canvas px, never vh/vw.
+ *
+ * OVERSCAN: some panels crop their own input, so a canvas that fills the
+ * viewport perfectly still loses its bottom edge behind the bezel. `overscanPct`
+ * shrinks the picture inside the same letterbox so the panel's crop eats black
+ * instead of content. It is applied HERE, in a style write, rather than by
+ * re-rendering anything: a screen whose inset changes mid-briefing must not
+ * remount the video that a room full of guests is watching.
  */
 import { useEffect, useRef } from "react";
-import { TV_W, TV_H } from "../constants";
+import { TV_W, TV_H, tvFitScale } from "../constants";
 
 export function TvStage({
   className,
+  overscanPct = 0,
   children,
 }: {
   className?: string;
+  /** Percent inset per edge, for a panel that crops its own input. 0 (the
+   *  default) fills the viewport exactly, as every screen did before this
+   *  existed. See ScreenConfig.overscanPct. */
+  overscanPct?: number;
   children: React.ReactNode;
 }) {
   const fitRef = useRef<HTMLDivElement>(null);
@@ -34,7 +46,7 @@ export function TvStage({
     const apply = () => {
       const vw = window.visualViewport?.width ?? window.innerWidth;
       const vh = window.visualViewport?.height ?? window.innerHeight;
-      const s = Math.min(vh / TV_H, vw / TV_W);
+      const s = tvFitScale(vw, vh, overscanPct);
       if (fitRef.current) {
         fitRef.current.style.width = `${TV_W * s}px`;
         fitRef.current.style.height = `${TV_H * s}px`;
@@ -50,7 +62,11 @@ export function TvStage({
       window.removeEventListener("resize", apply);
       window.visualViewport?.removeEventListener("resize", apply);
     };
-  }, []);
+    // Re-fits when the inset changes, which is the whole live-rollout story: the
+    // config arrives from the feed a moment after boot, and an admin edit lands
+    // on the next poll. Both are a style write on an element that is already
+    // mounted — no reload, so nothing playing on the wall is interrupted.
+  }, [overscanPct]);
 
   return (
     <div className="tv-stage">

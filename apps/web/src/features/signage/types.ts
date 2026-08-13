@@ -205,6 +205,31 @@ export interface ScreenConfig {
    * camera with no track (a lobby cam), which then just shows picture.
    */
   cameraMonitor?: { deviceId: string; label?: string; track?: "blue" | "red" | "mega" };
+  /**
+   * HOW MUCH OF THIS PANEL'S EDGE IS CROPPED — the one thing about a TV that the
+   * TV cannot work out for itself.
+   *
+   * Overscan: a panel that throws away ~2–5% around the edge of the incoming
+   * 1080p signal and zooms the rest, so the bottom of a canvas authored to the
+   * pixel is simply not on the glass. It is a property of THAT PHYSICAL PANEL
+   * (and of whatever HDMI extender is in the run), not of the venue or the role,
+   * which is why it belongs here per screen rather than in a constant.
+   *
+   * FIX THE TV FIRST. Nearly every panel can be told to stop — "Just Scan" on
+   * LG, "Fit to Screen" on Samsung, "Dot by Dot"/"Normal" elsewhere, or naming
+   * the HDMI input "PC" — and that is strictly better than this field, because
+   * overscan is upscaling a crop: turning it off makes the board sharper as well
+   * as complete. This knob exists for the panels whose firmware will not
+   * cooperate (commercial/hotel modes, some HDMI-over-CAT extenders).
+   *
+   * Percent inset per EDGE. 3 scales the canvas to 94% and centres it, so a
+   * 3%-per-edge crop eats letterbox black instead of content. Absent or 0 is
+   * today's behaviour to the pixel — which is why every screen already hanging
+   * is unaffected by this field existing. Clamped to 0–10 at read time
+   * (`tvFitScale`): this number scales the whole wall, and a fat-fingered 100
+   * would otherwise leave a panel unlit.
+   */
+  overscanPct?: number;
 }
 
 /** A provisioned screen — one row of `signage_screens`. */

@@ -101,6 +101,44 @@ export function isTestScreen(screenNumber: number): boolean {
 export const TV_W = 1920;
 export const TV_H = 1080;
 
+/** Most a panel may be inset per edge, in percent. A correction, not a crop
+ *  tool: 10% per edge already gives back a fifth of the wall, and anything
+ *  hungrier than that is a wrongly configured display, not an overscanning one. */
+export const TV_MAX_OVERSCAN_PCT = 10;
+
+/**
+ * A stored inset, made safe. ONE definition of what is legal, shared by the
+ * config resolver and the stage, because the value arrives from a hand-edited
+ * JSONB blob that an older or newer deploy may have written.
+ *
+ * Anything absent, negative, non-numeric or absurd resolves to 0 — "this panel
+ * is fine". That is the safe reading in both directions: an unnecessary inset
+ * only wastes glass, while an unclamped one can leave a wall dark.
+ */
+export function clampOverscanPct(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.min(TV_MAX_OVERSCAN_PCT, Math.max(0, value))
+    : 0;
+}
+
+/**
+ * The scale that fits the 1920×1080 canvas onto a `vw`×`vh` panel, inset by
+ * `overscanPct` on every edge for a TV that crops its own input (see
+ * ScreenConfig.overscanPct).
+ *
+ * Pure, and here rather than inline in TvStage, because it is the one part of
+ * that component worth asserting on: it decides whether a wall reads complete,
+ * letterboxed, or — with a bad number — not at all.
+ */
+export function tvFitScale(vw: number, vh: number, overscanPct: unknown = 0): number {
+  const inset = clampOverscanPct(overscanPct);
+  const fit = Math.min(vh / TV_H, vw / TV_W);
+  // An unmeasurable viewport must never resolve to 0 — a scale of 0 is a wall
+  // showing nothing at all, which is the one outcome worse than a mis-fitted
+  // one. Fall back to 1:1 and let the next resize event correct it.
+  return (Number.isFinite(fit) && fit > 0 ? fit : 1) * (1 - (2 * inset) / 100);
+}
+
 /**
  * TWO CADENCES, because the two halves of the feed cost very different amounts.
  *

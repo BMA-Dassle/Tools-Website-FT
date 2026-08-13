@@ -17,6 +17,7 @@ import {
   SIGNAGE_VENUES,
   VENUE_INFO,
   TEST_SCREEN_NUMBER,
+  TV_MAX_OVERSCAN_PCT,
   type SignageVenue,
 } from "~/features/signage/constants";
 import {
@@ -416,6 +417,14 @@ function ScreenRow({
         <p style={{ color: PORTAL_DARK.muted, fontSize: 13, margin: "4px 0 0" }}>
           Shows: {scenes.length ? scenes.join(", ") : "ads"}
         </p>
+        {resolved.overscanPct > 0 && (
+          // Say it on the row, not only inside the form. A fitting correction is
+          // invisible by design once it is right, and an undocumented one gets
+          // "fixed" by the next person who wonders why this wall is letterboxed.
+          <p style={{ color: PORTAL_DARK.muted, fontSize: 13, margin: "4px 0 0" }}>
+            Picture pulled in {resolved.overscanPct}% per edge (this panel overscans)
+          </p>
+        )}
         {heartbeat?.build && heartbeat.build !== CURRENT_BUILD && (
           <p
             style={{
@@ -712,6 +721,8 @@ interface Draft {
   pairGroupId: string;
   pairPosition: number;
   pairCount: number;
+  /** Percent inset per edge for a panel that crops its own picture. 0 = off. */
+  overscanPct: number;
 }
 
 function newDraft(): Draft {
@@ -742,6 +753,9 @@ function newDraft(): Draft {
     pairGroupId: "",
     pairPosition: 0,
     pairCount: 2,
+    // A new screen assumes a panel that behaves. Nothing is inset until somebody
+    // stands in front of a TV that is cropping and says so.
+    overscanPct: 0,
   };
 }
 
@@ -783,6 +797,10 @@ function draftFromScreen(s: SignageScreen): Draft {
     pairGroupId: c.pairing?.groupId ?? "",
     pairPosition: c.pairing?.position ?? 0,
     pairCount: c.pairing?.count ?? 2,
+    // Read back so that editing anything else on a corrected screen does not
+    // un-correct it — draftToConfig below rebuilds the whole blob, so a field
+    // the form does not carry is a field the next save silently drops.
+    overscanPct: typeof c.overscanPct === "number" ? c.overscanPct : 0,
   };
 }
 
@@ -831,6 +849,10 @@ function draftToConfig(d: Draft): ScreenConfig {
     megaRole: d.megaRole,
     showRecordsQr: d.showRecordsQr,
     scope: d.trackResourceId ? { resourceIds: [d.trackResourceId] } : {},
+    // Omitted entirely at 0 rather than written as a zero, so a screen that has
+    // never needed correcting carries no fitting field at all. `> 0` also eats a
+    // NaN from a cleared input before it can reach the wall.
+    ...(d.overscanPct > 0 ? { overscanPct: d.overscanPct } : {}),
     ...(d.pairGroupId
       ? { pairing: { groupId: d.pairGroupId, position: d.pairPosition, count: d.pairCount } }
       : {}),
@@ -1143,6 +1165,34 @@ function ScreenForm({
         </select>
         <p style={hint}>
           Pick a track so this screen ignores scans on the other one. Leave it open for a lobby TV.
+        </p>
+      </Field>
+
+      <Field label="Is this TV cutting off the edges? (optional)">
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <input
+            type="number"
+            min={0}
+            max={TV_MAX_OVERSCAN_PCT}
+            step={0.5}
+            value={draft.overscanPct}
+            onChange={(e) => set("overscanPct", Number(e.target.value))}
+            style={{ ...input, width: 100 }}
+          />
+          <span style={{ fontSize: 14 }}>% pulled in on every edge</span>
+        </div>
+        <p style={hint}>
+          Leave at 0 for a panel that shows the whole picture. <strong>Try the TV first:</strong>{" "}
+          most sets crop their own input until you turn it off &mdash; &ldquo;Just Scan&rdquo; on
+          LG, Picture Size &rarr; &ldquo;Fit to Screen&rdquo; on Samsung, &ldquo;Dot by Dot&rdquo;
+          or &ldquo;Normal&rdquo; elsewhere, or rename the HDMI input to &ldquo;PC&rdquo;. That is
+          sharper than correcting here, because the TV is zooming a crop.
+        </p>
+        <p style={hint}>
+          If the TV&rsquo;s own menu won&rsquo;t do it, save 3 and watch the screen: it re-fits
+          within about fifteen seconds with no restart &mdash; safe to do mid-service, even during a
+          briefing &mdash; then nudge by 0.5 until the bottom line just clears the bezel. Every
+          percent costs a little picture, so stop at the first value that works.
         </p>
       </Field>
 

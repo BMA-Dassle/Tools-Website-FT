@@ -14,7 +14,7 @@
  * older or newer deploy still boots a screen. There is deliberately no version
  * field to mismatch on.
  */
-import { VENUE_INFO, type SignageVenue } from "./constants";
+import { clampOverscanPct, VENUE_INFO, type SignageVenue } from "./constants";
 import type { PlaylistEntry, ScreenConfig, SceneType } from "./types";
 
 export type ScreenRole =
@@ -208,6 +208,10 @@ export interface ResolvedScreenConfig {
     label: string | null;
     track: "blue" | "red" | "mega" | null;
   } | null;
+  /** Percent inset per edge for a panel that crops its own input. 0 on every
+   *  screen that has not been told otherwise, so the default path is the
+   *  unchanged full-bleed fit. */
+  overscanPct: number;
 }
 
 function sanitizePlaylist(entries: PlaylistEntry[] | undefined): Required<PlaylistEntry>[] {
@@ -306,6 +310,12 @@ export function resolveScreenConfig(
                 : null,
           }
         : null,
+    // Clamped through the same helper the stage uses, so "what inset is legal"
+    // has exactly one definition. 0 for an absent, negative, non-numeric or
+    // absurd value — every one of which means "this panel is fine", which is the
+    // safe reading: an unnecessary inset only wastes glass, whereas an unclamped
+    // one can leave a wall dark.
+    overscanPct: clampOverscanPct(c.overscanPct),
   };
 }
 

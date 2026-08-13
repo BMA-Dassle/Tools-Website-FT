@@ -212,7 +212,7 @@ export function TvApp() {
   }
 
   return (
-    <TvStage>
+    <TvStage overscanPct={config.overscanPct}>
       <TvShell
         screenLabel={isTest ? `TEST · ${label}` : label}
         // Never interrupt a takeover, a celebration, or a BRIEFING to install a
@@ -264,6 +264,12 @@ export function TvApp() {
                 checkinActive ? " — checking in" : ""
               }`,
               `reloads     ${holdReloads ? "HELD (guests on screen)" : "allowed"}`,
+              // What this PANEL actually applied, in the browser actually
+              // running — so a fitting change can be confirmed at the wall
+              // rather than inferred from what the admin form was saved with.
+              `overscan    ${config.overscanPct}% per edge${
+                config.overscanPct ? "" : " (fills the panel)"
+              }`,
             ].join("\n")}
           </pre>
         )}
