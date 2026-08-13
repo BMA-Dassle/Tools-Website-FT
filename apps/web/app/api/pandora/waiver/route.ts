@@ -13,9 +13,11 @@ const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
  * Vercel's implicit default (10-15s by plan) is shorter than the work: an
  * invocation killed mid-poll never reaches the enqueue, which loses the owed
  * push AND fails the guest — the one outcome the queue exists to prevent.
- * 30s is the poll (5s) + ladder + salvage probes with real headroom.
+ * 60s is the 15s poll + the diagnosis probe + the 3-attempt ladder + the salvage
+ * reads, with headroom for a slow Pandora on any one of them. Matches the ceiling
+ * the sync-queue cron already declares.
  */
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 function resolveLocation(key: string | null): string {
   return (key && PANDORA_LOCATION_MAP[key]) || PANDORA_DEFAULT_LOCATION_ID;
@@ -276,7 +278,17 @@ export async function POST(req: NextRequest) {
     };
 
     /**
-     * WAIT FOR THE PERSON TO REACH THE LOCAL SERVER, BEFORE SIGNING.
+     * EVERY id this Pandora write will name — `personID` (whose waiver) plus
+     * `sigPersonID` (who signed) when a guardian is signing for a minor. Both
+     * the pre-sign wait and both queue enqueues barrier on this same list, so
+     * there is exactly one definition of "who has to be local first".
+     */
+    const signerId = String(sigPersonID || personID);
+    const needLocal = [String(personID), signerId];
+    const who = signerId === String(personID) ? `${personID}` : `${personID}+signer ${signerId}`;
+
+    /**
+     * WAIT FOR THE PEOPLE TO REACH THE LOCAL SERVER, BEFORE SIGNING.
      *
      * Pandora writes a waiver against the CENTER'S OWN server, and under
      * cloud-first the person was just minted on the BMI cloud — invisible
@@ -298,12 +310,21 @@ export async function POST(req: NextRequest) {
      * to the sync queue and tell the caller the waiver is accepted — the
      * signature is already durable in Neon (stored before any vendor call).
      *
-     * WAIT_MS is 5s, not the 24s this shipped with (owner 2026-08-12: "lets go
-     * 5s"). 24s was chosen to cover the measured 10-32s sync window, i.e. to win
-     * the race outright — but it made EVERY cloud-first guest sit through a
-     * ~30s spinner to save a queue hop, and the slow tail still fell through to
-     * the queue anyway. Losing the race is cheap now that the queue path is a
-     * real success end-to-end; making the guest wait is not.
+     * WAIT_MS is 15s, down from the 24s this shipped with (owner 2026-08-13).
+     * 24s bought a slightly better chance of winning the sync race at the cost
+     * of a ~31s spinner for EVERY cloud-first guest — and the slow tail fell
+     * through to the queue regardless. 15s keeps a real chance of landing the
+     * waiver in BMI while the guest is still standing there, without the wait
+     * becoming the thing they remember.
+     *
+     * BOTH PEOPLE, NOT JUST ONE. Pandora's waiver write names `personID` (whose
+     * waiver) and `sigPersonID` (who signed), and needs both resolvable locally.
+     * A family arriving together has parent and child cloud-minted seconds
+     * apart, so the minor can land locally while the guardian has not — and a
+     * write naming an unresolvable signer is exactly the guardian-consent record
+     * we cannot afford to get wrong (owner 2026-08-13: "with minors, we need to
+     * make sure we wait for adult to end up local"). So the barrier below covers
+     * every id this write mentions.
      *
      * NO probe on the guest's critical path pays for the cross-center search.
      * `personLocalBarrier`'s 404 branch can also look the person up at the OTHER
@@ -321,20 +342,22 @@ export async function POST(req: NextRequest) {
      * their "all set" card.
      */
     {
-      const WAIT_MS = 5_000;
+      const WAIT_MS = 15_000;
       const STEP_MS = 1_250;
-      const { personLocalBarrier } = await import("@/lib/bmi-sync-barriers");
+      const { personsLocalBarrier } = await import("@/lib/bmi-sync-barriers");
       const fastProbe = () =>
-        personLocalBarrier(locationID, personID, { diagnoseElsewhere: false });
+        personsLocalBarrier(locationID, needLocal, { diagnoseElsewhere: false });
       const startedWait = Date.now();
-      let verdict = (await fastProbe()).verdict;
+      let barrier = await fastProbe();
+      let verdict = barrier.verdict;
       if (verdict === "closed") {
         console.log(
-          `[pandora-waiver] person ${personID} not on the local server yet — waiting up to ${WAIT_MS / 1000}s before signing`,
+          `[pandora-waiver] ${who} not on the local server yet (${barrier.detail}) — waiting up to ${WAIT_MS / 1000}s before signing`,
         );
         while (verdict === "closed" && Date.now() - startedWait < WAIT_MS) {
           await new Promise((r) => setTimeout(r, STEP_MS));
-          verdict = (await fastProbe()).verdict;
+          barrier = await fastProbe();
+          verdict = barrier.verdict;
         }
         const waited = ((Date.now() - startedWait) / 1000).toFixed(1);
         // Still not there after the wait? Pay for the cross-center diagnosis
@@ -344,12 +367,12 @@ export async function POST(req: NextRequest) {
         // until its give-up deadline while reporting "sync is just slow". Let the
         // sign attempts run instead and return the real vendor error.
         const diagnosed =
-          verdict === "closed" ? await personLocalBarrier(locationID, personID) : null;
+          verdict === "closed" ? await personsLocalBarrier(locationID, needLocal) : null;
         if (diagnosed && diagnosed.verdict !== "closed") {
           console.log(
             diagnosed.verdict === "impossible"
-              ? `[pandora-waiver] NOT queueing ${personID} — ${diagnosed.detail}`
-              : `[pandora-waiver] person ${personID} became visible during diagnosis (${diagnosed.detail}) — signing now`,
+              ? `[pandora-waiver] NOT queueing ${who} — ${diagnosed.detail}`
+              : `[pandora-waiver] ${who} became visible during diagnosis (${diagnosed.detail}) — signing now`,
           );
         }
         if (diagnosed?.verdict === "closed") {
@@ -358,11 +381,16 @@ export async function POST(req: NextRequest) {
             const queued = await enqueueSync({
               kind: "push-waiver-signature",
               idempotencyKey: `waiver-push:${personID}:${new Date().toISOString().slice(0, 10)}`,
-              barrier: "person-local",
+              // BOTH people, because the write names both. `person-local` on the
+              // minor alone would let the row fire while the guardian is still
+              // cloud-only, and Pandora cannot record a signer it cannot resolve.
+              barrier: "persons-local",
               barrierRef: String(personID),
               locationId: locationID,
               payload: {
                 personId: String(personID),
+                personIds: needLocal,
+                signerPersonId: signerId,
                 name: String(firstName ?? "").trim() || "Guest",
                 locationKey: location ?? null,
                 signaturePngB64: sigBase64,
@@ -504,13 +532,14 @@ export async function POST(req: NextRequest) {
      * honest move is to hand the push to the sync queue behind a `person-local`
      * barrier and tell the caller the waiver is accepted.
      *
-     * `personLocalBarrier` distinguishes the cases: 404 = genuinely not local
-     * yet (queue it), anything else = the person IS there and the failure is a
-     * real vendor problem (report it, exactly as before).
+     * `personsLocalBarrier` distinguishes the cases: a 404 on ANY named person
+     * (the minor or the signing guardian) = genuinely not local yet (queue it),
+     * anything else = they ARE there and the failure is a real vendor problem
+     * (report it, exactly as before).
      */
     try {
-      const { personLocalBarrier } = await import("@/lib/bmi-sync-barriers");
-      const barrier = await personLocalBarrier(locationID, personID);
+      const { personsLocalBarrier } = await import("@/lib/bmi-sync-barriers");
+      const barrier = await personsLocalBarrier(locationID, needLocal);
       if (barrier.verdict === "closed") {
         const { enqueueSync } = await import("@/lib/bmi-sync-queue");
         const queued = await enqueueSync({
@@ -518,11 +547,13 @@ export async function POST(req: NextRequest) {
           // Keyed per person per DAY: a re-signed waiver on a later visit is a
           // new followup, while a retried submit on the same visit is not.
           idempotencyKey: `waiver-push:${personID}:${new Date().toISOString().slice(0, 10)}`,
-          barrier: "person-local",
+          barrier: "persons-local",
           barrierRef: personID,
           locationId: locationID,
           payload: {
             personId: String(personID),
+            personIds: needLocal,
+            signerPersonId: signerId,
             name: String(firstName ?? "").trim() || "Guest",
             locationKey: location ?? null,
             // The already-stripped base64 (no data: prefix) — the handler
@@ -535,8 +566,8 @@ export async function POST(req: NextRequest) {
           },
         });
         console.log(
-          `[pandora-waiver] person not local yet (${barrier.detail}) — queued waiver push` +
-            ` (row ${queued?.id ?? "n/a"}) for ${personID}. Signature is safe in Neon.`,
+          `[pandora-waiver] ${who} not local yet (${barrier.detail}) — queued waiver push` +
+            ` (row ${queued?.id ?? "n/a"}). Signature is safe in Neon.`,
         );
         await logSignOutcome("queued", 3, null, lastError);
         return NextResponse.json({

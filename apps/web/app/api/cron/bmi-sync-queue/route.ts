@@ -11,6 +11,7 @@ import {
 } from "@/lib/bmi-sync-queue";
 import {
   personLocalBarrier,
+  personsLocalBarrier,
   personCloudBarrier,
   projectLocalBarrier,
   partyReadyBarrier,
@@ -70,6 +71,17 @@ async function probeBarrier(row: SyncQueueRow): Promise<BarrierResult> {
     case "project-local":
       if (!ref) return { verdict: "open", detail: "no barrierRef — treating as unbarriered" };
       return projectLocalBarrier(row.locationId || "LAB52GY480CJF", ref);
+    case "persons-local": {
+      // Presence of EVERY named person, no waiver required — the guardian-signed
+      // waiver write names both the minor and the signing adult. Falls back to
+      // barrierRef so a row written with a single id still works.
+      const ids = Array.isArray(row.payload.personIds)
+        ? (row.payload.personIds as unknown[]).map(String).filter(Boolean)
+        : ref
+          ? [ref]
+          : [];
+      return personsLocalBarrier(row.locationId || "LAB52GY480CJF", ids);
+    }
     case "party-ready": {
       // The member list lives in the PAYLOAD, not barrierRef — this gate is
       // about N people, and an empty list closes rather than waving through.

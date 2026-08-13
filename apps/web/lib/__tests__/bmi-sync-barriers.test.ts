@@ -270,3 +270,90 @@ describe("partyReadyBarrier", () => {
     expect(f).toHaveBeenCalledTimes(1);
   });
 });
+
+import { personsLocalBarrier } from "../bmi-sync-barriers";
+
+/**
+ * The guardian-signed waiver barrier (owner 2026-08-13: "with minors, we need to
+ * make sure we wait for adult to end up local").
+ *
+ * Pandora's waiver write names BOTH the minor (`personID`) and the signing adult
+ * (`sigPersonID`) and needs both resolvable locally. A family arriving together
+ * has parent and child cloud-minted seconds apart, so barriering on the minor
+ * alone let the write fire naming a signer the local server could not resolve.
+ */
+describe("personsLocalBarrier — every named person must be local", () => {
+  const found = () => reply(200, { success: true, data: { waiverExpiry: null } });
+  const absent = () => reply(404, { success: false, message: "No person found with that ID." });
+
+  it("opens only when EVERY person is present", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => found()),
+    );
+    const r = await personsLocalBarrier("LAB52GY480CJF", ["minor-1", "guardian-1"]);
+    expect(r.verdict).toBe("open");
+    expect(r.detail).toMatch(/all 2/);
+  });
+
+  it("stays CLOSED when the guardian has not landed yet, and names them", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => (String(url).includes("guardian-1") ? absent() : found())),
+    );
+    const r = await personsLocalBarrier("LAB52GY480CJF", ["minor-1", "guardian-1"], {
+      diagnoseElsewhere: false,
+    });
+    expect(r.verdict).toBe("closed");
+    expect(r.detail).toContain("guardian-1");
+    expect(r.detail).not.toContain("minor-1");
+  });
+
+  it("stays CLOSED when the MINOR has not landed but the guardian has", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => (String(url).includes("minor-1") ? absent() : found())),
+    );
+    const r = await personsLocalBarrier("LAB52GY480CJF", ["minor-1", "guardian-1"], {
+      diagnoseElsewhere: false,
+    });
+    expect(r.verdict).toBe("closed");
+    expect(r.detail).toContain("minor-1");
+  });
+
+  /**
+   * `impossible` outranks `closed`: one person who can never appear at this
+   * center makes the row futile no matter how the others read, and parking it now
+   * beats waiting out a give-up window that cannot help.
+   */
+  it("impossible on ONE person outranks closed on another", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        // The guardian lives at Naples: 404 at the target, present elsewhere.
+        if (u.includes("guardian-1")) return u.includes("PPTR5G2N0QXF7") ? found() : absent();
+        return absent(); // the minor is merely not synced yet
+      }),
+    );
+    const r = await personsLocalBarrier("LAB52GY480CJF", ["minor-1", "guardian-1"]);
+    expect(r.verdict).toBe("impossible");
+    expect(r.detail).toContain("guardian-1");
+  });
+
+  it("a self-sign collapses to one lookup", async () => {
+    const f = vi.fn(async () => found());
+    vi.stubGlobal("fetch", f);
+    const r = await personsLocalBarrier("LAB52GY480CJF", ["solo-1", "solo-1"]);
+    expect(r.verdict).toBe("open");
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it("an empty list is CLOSED, never open — a waiver with no named person is a bug", async () => {
+    const f = vi.fn(async () => found());
+    vi.stubGlobal("fetch", f);
+    const r = await personsLocalBarrier("LAB52GY480CJF", []);
+    expect(r.verdict).toBe("closed");
+    expect(f).not.toHaveBeenCalled();
+  });
+});

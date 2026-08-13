@@ -158,6 +158,55 @@ export async function personLocalBarrier(
 }
 
 /**
+ * Are ALL of these people on the center's LOCAL server?
+ *
+ * Exists for the guardian-signed waiver. Pandora's waiver write names TWO
+ * people — `personID` (whose waiver it is) and `sigPersonID` (who signed) — and
+ * it needs BOTH resolvable locally. Barriering on the minor alone was a
+ * half-check: a family arriving together has parent and child cloud-minted
+ * seconds apart, so the minor can land locally while the guardian has not, and
+ * the write then names a signer the local server cannot resolve.
+ *
+ * Deliberately NOT `party-ready`, which also demands a valid waiver per member.
+ * That is the right gate for "is this party checked in" and the wrong one here:
+ * this barrier guards the write that CREATES the waiver, so requiring one first
+ * would never open.
+ *
+ * Verdict folding, strictest first — `impossible` beats `closed` beats `error`,
+ * because a single person who can never appear makes the whole row futile no
+ * matter how the others read.
+ */
+export async function personsLocalBarrier(
+  locationId: string,
+  personIds: string[],
+  opts: { diagnoseElsewhere?: boolean } = {},
+): Promise<BarrierResult> {
+  const ids = [...new Set(personIds.filter(Boolean).map(String))];
+  // An empty list is a caller bug. Closed, not open: waving a waiver write
+  // through because nobody said who it was for is the failure this prevents.
+  if (ids.length === 0) return closed("no personIds supplied");
+
+  const results = await Promise.all(
+    ids.map(async (id) => ({ id, r: await personLocalBarrier(locationId, id, opts) })),
+  );
+
+  const imp = results.find((x) => x.r.verdict === "impossible");
+  if (imp) return impossible(`person ${imp.id}: ${imp.r.detail}`);
+
+  const shut = results.filter((x) => x.r.verdict === "closed");
+  if (shut.length > 0) {
+    return closed(
+      `${shut.length}/${ids.length} not local yet — ${shut.map((x) => x.id).join(", ")}`,
+    );
+  }
+
+  const err = results.find((x) => x.r.verdict === "error");
+  if (err) return errored(`person ${err.id}: ${err.r.detail}`);
+
+  return open(`all ${ids.length} present locally`);
+}
+
+/**
  * Is this person visible on the vendor CLOUD (Office)?
  *
  * The mirror-image wait, for followups that write CLOUD-side against a person

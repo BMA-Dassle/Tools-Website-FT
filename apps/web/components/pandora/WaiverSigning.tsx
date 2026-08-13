@@ -1,10 +1,22 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { SignaturePadWithRef } from "@/components/pandora/SignaturePad";
 import type { SignaturePadRef } from "@/components/pandora/SignaturePad";
 import type { PandoraWaiverTemplate } from "@/lib/pandora";
 import { pandoraSignWaiver, calculateWaiverExpiry } from "@/lib/pandora";
+import TrackLoader from "~/components/ui/TrackLoader";
+
+/**
+ * How long the guest stares at "Submitting…" before the label changes.
+ *
+ * The sign route waits up to 15s for a cloud-minted person (and their signing
+ * guardian) to reach the center's local server, so a single static label is on
+ * screen long enough to read as a hung page. Swapping it once, early, is what
+ * turns "is this broken?" into "it's still going" — and it costs no extra
+ * request, only a second string.
+ */
+const LONG_WAIT_MS = 5_000;
 
 /**
  * Reusable waiver signing UI: scrollable waiver text + signature pad + submit.
@@ -45,6 +57,9 @@ export interface WaiverSigningProps {
    *  kiosk passes translated values (repo rule: all guest-facing copy is i18n). */
   submitLabel?: string;
   submittingLabel?: string;
+  /** Replaces `submittingLabel` once the sign has been in flight past
+   *  LONG_WAIT_MS. Omit and the label never changes (existing behaviour). */
+  submittingLongLabel?: string;
   agreementNote?: string;
   signLabel?: string;
   clearLabel?: string;
@@ -63,6 +78,9 @@ export default function WaiverSigning({
   size = "sm",
   submitLabel = "I Agree & Sign Waiver",
   submittingLabel = "Submitting...",
+  // Additive: callers that don't pass one keep the single-label behaviour they
+  // have today, so the event page is untouched.
+  submittingLongLabel,
   agreementNote = "By signing, you agree to the terms of the waiver above.",
   signLabel = "Sign below",
   clearLabel = "Clear",
@@ -71,7 +89,20 @@ export default function WaiverSigning({
   const padRef = useRef<SignaturePadRef | null>(null);
   const [hasSigned, setHasSigned] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [longWait, setLongWait] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Timer lives in an effect keyed on `loading` so it is cleaned up on unmount
+  // and on every finish — a stray timeout here would flip the label on a button
+  // that is no longer submitting.
+  useEffect(() => {
+    if (!loading) {
+      setLongWait(false);
+      return;
+    }
+    const t = setTimeout(() => setLongWait(true), LONG_WAIT_MS);
+    return () => clearTimeout(t);
+  }, [loading]);
 
   const handleSubmit = useCallback(async () => {
     if (!padRef.current || padRef.current.isEmpty()) return;
@@ -154,9 +185,9 @@ export default function WaiverSigning({
         }`}
       >
         {loading ? (
-          <span className="flex items-center justify-center gap-2">
-            <span className="w-4 h-4 border-2 border-[#000418]/30 border-t-[#000418] rounded-full animate-spin" />
-            {submittingLabel}
+          <span className={`flex items-center justify-center ${lg ? "gap-4" : "gap-2"}`}>
+            <TrackLoader size={lg ? 44 : 20} label={submittingLabel} />
+            {longWait && submittingLongLabel ? submittingLongLabel : submittingLabel}
           </span>
         ) : (
           submitLabel

@@ -130,8 +130,13 @@ function buildWaiverMultipart(params: {
   waiverContentID: string;
   invalidationDate: string;
   pngBuffer: Buffer;
+  /** WHO SIGNED. Defaults to the person themselves (an adult accepting for
+   *  themselves, this module's original and only caller). A minor's waiver must
+   *  pass the GUARDIAN's id — see the note in `signWaiverDigital`. */
+  sigPersonID?: string;
 }): Buffer {
   const { boundary, locationID, personID, waiverContentID, invalidationDate, pngBuffer } = params;
+  const signerID = params.sigPersonID?.trim() || personID;
   const parts: Buffer[] = [];
   const field = (name: string, value: string) =>
     parts.push(
@@ -142,7 +147,7 @@ function buildWaiverMultipart(params: {
   field("locationID", locationID);
   field("personID", personID);
   field("waiverContentID", waiverContentID);
-  field("sigPersonID", personID); // adult accepts for themselves
+  field("sigPersonID", signerID);
   field("invalidationDate", invalidationDate);
   parts.push(
     Buffer.from(
@@ -218,6 +223,21 @@ export async function signWaiverDigital(opts: {
    * guest was shown as valid for the template's full year.
    */
   invalidationDate?: string;
+  /**
+   * WHO SIGNED, when that is not the person themselves — a parent or guardian
+   * signing for a minor. Omit for a self-sign.
+   *
+   * This module was written for adults accepting for themselves and hardcoded
+   * the signer to `personId`, so a queued MINOR waiver recorded the child as
+   * their own signer and the guardian's consent vanished from the record. That
+   * is worse than the wrong template or the short expiry: it is the one field
+   * that makes a minor's waiver mean anything.
+   *
+   * Note for callers: Pandora must be able to resolve BOTH ids on the center's
+   * local server, so a guardian-signed push belongs behind the `persons-local`
+   * barrier with both people named — not `person-local` on the minor alone.
+   */
+  signerPersonId?: string;
   /** Skip the push (return skipped:true) if the person already has a valid waiver. */
   skipIfValid?: boolean;
 }): Promise<SignWaiverDigitalResult> {
@@ -270,6 +290,7 @@ export async function signWaiverDigital(opts: {
     waiverContentID: contentID,
     invalidationDate,
     pngBuffer: png,
+    sigPersonID: opts.signerPersonId,
   });
 
   const res = await fetch(`${PANDORA_URL}/bmi/waiver`, {

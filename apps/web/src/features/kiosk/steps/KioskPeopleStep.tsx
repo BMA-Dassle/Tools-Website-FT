@@ -2419,6 +2419,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                     size="lg"
                     submitLabel={t("peopleUi.waiverAgree")}
                     submittingLabel={t("peopleUi.waiverSubmitting")}
+                    submittingLongLabel={t("peopleUi.waiverSubmittingLong")}
                     agreementNote={t("peopleUi.waiverAgreementNote")}
                     signLabel={t("peopleUi.waiverSignBelow")}
                     clearLabel={t("peopleUi.waiverClear")}

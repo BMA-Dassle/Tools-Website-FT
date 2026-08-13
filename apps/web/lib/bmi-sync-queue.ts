@@ -76,6 +76,11 @@ export type SyncBarrier =
    *  Stricter than person-local: needs a real 200 per member, because an
    *  unreadable record cannot prove a waiver. */
   | "party-ready"
+  /** EVERY person in payload.personIds exists on the LOCAL server. Presence
+   *  only — no waiver required, which is what separates it from party-ready.
+   *  Exists for the guardian-signed waiver: Pandora's write names both the
+   *  minor and the signing adult, so both must be resolvable locally. */
+  | "persons-local"
   /** Fire immediately. */
   | "none";
 

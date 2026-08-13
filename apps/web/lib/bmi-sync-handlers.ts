@@ -147,6 +147,12 @@ async function pushWaiverSignature(row: SyncQueueRow): Promise<HandlerResult> {
       pngBuffer: pngB64 ? Buffer.from(pngB64, "base64") : undefined,
       waiverContentID: str(row.payload.waiverContentId) ?? undefined,
       invalidationDate: str(row.payload.invalidationDate) ?? undefined,
+      // WHO SIGNED. A guardian-signed minor waiver is meaningless without it,
+      // and this module's default is to name the person as their own signer —
+      // see signWaiverDigital's `signerPersonId` note. The row's barrier is
+      // `persons-local` over BOTH ids, so by the time this runs Pandora can
+      // resolve the guardian too.
+      signerPersonId: str(row.payload.signerPersonId) ?? undefined,
       skipIfValid: true,
     });
     if (out.skipped) return done("already had a valid waiver — skipped");

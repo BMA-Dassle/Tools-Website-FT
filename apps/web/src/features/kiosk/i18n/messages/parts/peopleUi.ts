@@ -123,6 +123,11 @@ export const peopleUiEn = {
   "peopleUi.waiverClear": "Clear",
   "peopleUi.waiverAgree": "I Agree & Sign Waiver",
   "peopleUi.waiverSubmitting": "Submitting…",
+  // Replaces the line above after ~5s in flight. The sign can wait up to 15s for
+  // a brand-new guest (and their signing guardian) to reach the center's system,
+  // and a label that never changes reads as a frozen screen. Says what to DO —
+  // don't walk away, don't tap again — not what we're waiting on.
+  "peopleUi.waiverSubmittingLong": "Still filing — please keep this screen open…",
   "peopleUi.waiverAgreementNote": "By signing, you agree to the terms of the waiver above.",
 
   // split-payment warning
@@ -273,6 +278,7 @@ export const peopleUiEs: Record<keyof typeof peopleUiEn, string> = {
   "peopleUi.waiverClear": "Borrar",
   "peopleUi.waiverAgree": "Acepto y firmo la exención",
   "peopleUi.waiverSubmitting": "Enviando…",
+  "peopleUi.waiverSubmittingLong": "Seguimos registrándola — mantén esta pantalla abierta…",
   "peopleUi.waiverAgreementNote": "Al firmar, aceptas los términos de la exención anterior.",
 
   // split-payment warning
