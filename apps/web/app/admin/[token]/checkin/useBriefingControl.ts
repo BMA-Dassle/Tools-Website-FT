@@ -122,6 +122,21 @@ export interface BriefingControl {
    * room switch, retry after a drop — needs its own call.
    */
   liveCameraUrl: (room: BriefingRoom) => Promise<string | null>;
+  /**
+   * TODAY'S WAIT TIMES, per track (owner 2026-08-12: "it would be today's times").
+   *
+   * Null until the first read lands, and null again only if it has never
+   * succeeded — a failed poll keeps the last good numbers rather than blanking
+   * the strip, exactly like the board poll above it.
+   */
+  waitTimes: WaitTimesBoard | null;
+}
+
+/** What the board strip reads. A subset of /api/admin/wait-times' response —
+ *  the endpoint returns per-session rows too, which no board needs. */
+export interface WaitTimesBoard {
+  byTrack: Record<string, Record<string, { n: number; medianMs: number | null }>>;
+  sessions: number;
 }
 
 export function useBriefingControl(token: string, enabled: boolean): BriefingControl {
@@ -131,6 +146,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   const [pending, setPending] = useState<string | null>(null);
   const [tierOverride, setTierOverrideState] = useState<Record<string, BriefingTier | null>>({});
   const [expandedRoom, setExpandedRoom] = useState<BriefingRoom | null>(null);
+  const [waitTimes, setWaitTimes] = useState<WaitTimesBoard | null>(null);
 
   const loadBoard = useCallback(
     async (signal?: AbortSignal) => {
@@ -245,6 +261,31 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  /**
+   * The wait-time strip's own poll, at a MINUTE rather than the board's five
+   * seconds. These are today's averages over the whole night: they move when a
+   * heat finishes, not between two blinks, and each read folds the day's events
+   * — so polling it at board speed would be twelve times the work for a number
+   * that had not changed.
+   */
+  useVisibleInterval(
+    async (signal) => {
+      try {
+        const res = await fetch(`/api/admin/wait-times?token=${encodeURIComponent(token)}`, {
+          cache: "no-store",
+          signal,
+        });
+        if (!res.ok || signal?.aborted) return; // keep the last good numbers
+        const json = (await res.json()) as WaitTimesBoard;
+        setWaitTimes(json);
+      } catch {
+        /* a dropped poll must not blank the strip */
+      }
+    },
+    60_000,
+    enabled,
+  );
+
   const liveCameraUrl = useCallback<BriefingControl["liveCameraUrl"]>(
     async (room) => {
       try {
@@ -277,5 +318,6 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     start,
     clearRoom,
     liveCameraUrl,
+    waitTimes,
   };
 }

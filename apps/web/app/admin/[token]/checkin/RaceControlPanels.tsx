@@ -94,7 +94,8 @@ import {
   type AlertLevel,
 } from "~/features/signage/briefing/desk-alerts";
 import { startHoldRemainingMs, startHoldSeconds } from "~/features/signage/briefing/start-hold";
-import type { BriefingControl, RoomStatus } from "./useBriefingControl";
+import { formatWaitMs } from "~/features/racing/wait-times";
+import type { BriefingControl, RoomStatus, WaitTimesBoard } from "./useBriefingControl";
 import { formatRemaining, useLiveSessionClock } from "~/features/signage/live-session";
 import type { TrackKey } from "~/features/signage/track";
 
@@ -226,7 +227,28 @@ function useNowMs(intervalMs = 1_000): number {
   return now;
 }
 
-export default function RaceControlPanels({ control }: { control: BriefingControl }) {
+/** A called heat's check-in progress, as the station polls it. */
+export interface CheckinCount {
+  track: string;
+  sessionId: number | string;
+  checkedIn: number;
+  total: number;
+}
+
+export default function RaceControlPanels({
+  control,
+  checkinCounts = [],
+}: {
+  control: BriefingControl;
+  /**
+   * HOW MANY OF THE HEAT ARE THROUGH THE DESK, moved down here from the top of
+   * the board (owner 2026-08-12: "in board mode move the number checked in down
+   * to the check-in areas"). It belongs beside the heat it counts — the Called
+   * box already names that session — and it frees the top strip for the wait
+   * times. Empty on any surface that does not poll it, which simply hides it.
+   */
+  checkinCounts?: CheckinCount[];
+}) {
   const status = useTrackStatus();
   const nowMs = useNowMs();
   const { board, note, pending } = control;
@@ -300,6 +322,9 @@ export default function RaceControlPanels({ control }: { control: BriefingContro
         )}
       </header>
 
+      {/* TODAY'S WAIT TIMES — the strip the top of the board was freed up for. */}
+      <WaitTimesStrip waitTimes={control.waitTimes} megaDay={megaEnabled} />
+
       {(board?.enabled === false || noVideos) && (
         <div style={{ display: "grid", gap: 6, marginBottom: 10, flexShrink: 0 }}>
           {board?.enabled === false && (
@@ -346,6 +371,14 @@ export default function RaceControlPanels({ control }: { control: BriefingContro
                 )?.room ?? null
               }
               nowMs={nowMs}
+              // Matched on SESSION, never on track: two tracks can have a heat
+              // called at once, and a count against the wrong group is worse
+              // than no count at all.
+              checkedIn={
+                checkinCounts.find(
+                  (c) => !!race && String(c.sessionId) === String(race.sessionId),
+                ) ?? null
+              }
               // 0 until the first poll lands — checkinAlert reads that as "no
               // deadline known", so a board still connecting never flashes at a
               // window it is guessing at.
@@ -492,6 +525,148 @@ export default function RaceControlPanels({ control }: { control: BriefingContro
   );
 }
 
+/* ── today's wait times, per track ─────────────────────────────────────── */
+
+/**
+ * THE TWO NUMBERS THE DESK CAN ACT ON, per track (owner 2026-08-12: "we then can
+ * add some critical wait times — send to room to start of race, total experience
+ * time, both per track… it would be today's times").
+ *
+ * SEND → RACE is the desk's own span: everything between "I sent them" and "they
+ * are racing". It is the one a shift can actually shorten, because both ends are
+ * ours — the send is a press at this desk, and the flag follows the briefing.
+ * TOTAL is called → chequered flag, the guest's whole experience, and it exists
+ * to keep the first number honest: a shift can look fast on send→race while the
+ * night as a whole has slipped.
+ *
+ * MEDIAN, NOT MEAN. One group nobody released drags a mean by minutes and leaves
+ * a median alone, and the desk needs the TYPICAL night to decide anything. The
+ * count behind each number rides along, because "8:20 from two heats" and "8:20
+ * from twenty" are not the same claim.
+ *
+ * SPLIT BY TRACK because blue and red run their own schedules with their own
+ * delays; one merged average would describe a night neither track had. On a Mega
+ * day the data arrives under `mega` and this shows that single column, rather
+ * than two columns of the same number.
+ */
+function WaitTimesStrip({
+  waitTimes,
+  megaDay,
+}: {
+  waitTimes: WaitTimesBoard | null;
+  megaDay: boolean;
+}) {
+  const tracks: Array<{ key: string; label: string; color: string }> = megaDay
+    ? [{ key: "mega", label: "MEGA", color: MEGA }]
+    : [
+        { key: "red", label: "RED TRACK", color: ROOM_COLOR.red },
+        { key: "blue", label: "BLUE TRACK", color: ROOM_COLOR.blue },
+      ];
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gap: 10,
+        gridTemplateColumns: `repeat(${tracks.length}, minmax(0, 1fr))`,
+        flexShrink: 0,
+        marginBottom: 12,
+      }}
+    >
+      {tracks.map(({ key, label, color }) => {
+        const stats = waitTimes?.byTrack?.[key];
+        return (
+          <div
+            key={key}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 18,
+              flexWrap: "wrap",
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: `1px solid ${withAlpha(color, 0.3)}`,
+              background: withAlpha(color, 0.06),
+              borderLeft: `3px solid ${color}`,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 800,
+                letterSpacing: "0.08em",
+                color,
+                minWidth: 74,
+              }}
+            >
+              {label}
+            </span>
+            <WaitStat label="Send → race" stat={stats?.roomToRaceMs} tone={color} />
+            <WaitStat label="Total experience" stat={stats?.calledToRaceEndMs} />
+            <span
+              style={{
+                marginLeft: "auto",
+                fontSize: 9,
+                letterSpacing: "0.06em",
+                color: PORTAL_DARK.muted,
+                textTransform: "uppercase",
+              }}
+            >
+              today · median
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** One wait-time number and the sample size behind it. */
+function WaitStat({
+  label,
+  stat,
+  tone,
+}: {
+  label: string;
+  stat: { n: number; medianMs: number | null } | undefined;
+  tone?: string;
+}) {
+  // No data is said plainly. A tile that showed 0:00 over an empty night would
+  // read as the best night on record.
+  const value = stat?.medianMs != null ? formatWaitMs(stat.medianMs) : "—";
+  return (
+    <div style={{ minWidth: 104 }}>
+      <div
+        style={{
+          fontSize: 9,
+          fontWeight: 800,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: PORTAL_DARK.muted,
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+        <span
+          className="rc-num"
+          style={{
+            fontSize: 24,
+            fontWeight: 800,
+            lineHeight: 1.1,
+            color: stat?.medianMs != null ? (tone ?? INK) : PORTAL_DARK.muted,
+          }}
+        >
+          {value}
+        </span>
+        <span style={{ fontSize: 10, color: PORTAL_DARK.muted }}>
+          {stat?.n ? `${stat.n} heat${stat.n === 1 ? "" : "s"}` : "no data yet"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /* ── one room ──────────────────────────────────────────────────────────── */
 
 function RoomColumn({
@@ -504,6 +679,7 @@ function RoomColumn({
   nowMs,
   checkinWindowMins,
   sentTo,
+  checkedIn,
   tierOverride,
   onTierOverride,
   locked,
@@ -527,6 +703,9 @@ function RoomColumn({
   checkinWindowMins: number;
   /** Which room this called session already went to, if any. */
   sentTo: BriefingRoom | null;
+  /** This heat's check-in progress, for the Called box. Null when the station
+   *  has not reported one for this session. */
+  checkedIn: CheckinCount | null;
   tierOverride: BriefingTier | null;
   onTierOverride: (tier: BriefingTier | null) => void;
   locked: boolean;
@@ -680,6 +859,26 @@ function RoomColumn({
                 }
                 tone={calledAlert === "late" ? DANGER : calledAlert === "warn" ? AMBER : undefined}
               />
+              {/* CHECKED IN, beside the clock it belongs to. Moved down from the
+                  top of the board (owner 2026-08-12) so the number sits with the
+                  heat it counts rather than in a strip of its own. Green once the
+                  whole grid is through the desk — the moment staff can send. */}
+              {checkedIn && (
+                <Stat
+                  label="Checked in"
+                  value={`${checkedIn.checkedIn}/${checkedIn.total}`}
+                  unit={
+                    checkedIn.total > 0 && checkedIn.checkedIn >= checkedIn.total
+                      ? "all here"
+                      : `${Math.max(0, checkedIn.total - checkedIn.checkedIn)} still to scan`
+                  }
+                  tone={
+                    checkedIn.total > 0 && checkedIn.checkedIn >= checkedIn.total
+                      ? GREEN
+                      : undefined
+                  }
+                />
+              )}
               <Stat
                 label="Track delay"
                 value={delayMins != null ? (delayMins > 0 ? `+${delayMins}` : "0") : "—"}
