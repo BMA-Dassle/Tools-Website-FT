@@ -121,6 +121,15 @@ async function repairPersonDetails(row: SyncQueueRow): Promise<HandlerResult> {
  * The PNG rides as base64 in the payload (the queue is JSONB) and is rehydrated
  * to a Buffer here. Dynamic import keeps this module's template cache out of the
  * cron's cold path when no waiver rows are due.
+ *
+ * `waiverContentId` / `invalidationDate` ride along too, and MUST be forwarded.
+ * `signWaiverDigital` was built for the event digital-accept path, so its own
+ * defaults are an age-35 (ADULT) template lookup and a 5-day expiry — right for
+ * an event, wrong for a kiosk guest. Before those fields were carried (added
+ * 2026-08-12 with the 5s sign wait), a queued MINOR's waiver was filed against
+ * the adult contentID nobody had read, expiring in 5 days instead of the
+ * template's year. A row enqueued before that change has neither field; the
+ * fallback stays for those, which is why this forwards rather than requires.
  */
 async function pushWaiverSignature(row: SyncQueueRow): Promise<HandlerResult> {
   const personId = str(row.payload.personId) ?? row.barrierRef;
@@ -136,6 +145,8 @@ async function pushWaiverSignature(row: SyncQueueRow): Promise<HandlerResult> {
       locationKey: str(row.payload.locationKey),
       dateEt: str(row.payload.dateEt) ?? undefined,
       pngBuffer: pngB64 ? Buffer.from(pngB64, "base64") : undefined,
+      waiverContentID: str(row.payload.waiverContentId) ?? undefined,
+      invalidationDate: str(row.payload.invalidationDate) ?? undefined,
       skipIfValid: true,
     });
     if (out.skipped) return done("already had a valid waiver — skipped");

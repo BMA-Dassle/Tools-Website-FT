@@ -106,11 +106,23 @@ async function locateElsewhere(
  * A 500 specifically means "present but the birthdate is null", which is exactly
  * the state a `repair-person-details` followup exists to fix, so that handler
  * MUST be allowed to run on a 500.
+ *
+ * `diagnoseElsewhere` controls the cross-center search that turns a 404 into an
+ * `impossible` verdict. It costs up to TWO extra Pandora GETs (15s timeout each),
+ * so pay for it where its answer CHANGES a decision — a queue row deciding
+ * whether to park, or a poll deciding whether to hand off — and nowhere else.
+ * Every tick of a poll loop is nowhere else: at 2s intervals it tripled each
+ * tick's true cost and was the bulk of the ~30s the kiosk sign path spent
+ * staring at a spinner (2026-08-12). A poll should pass `false` on every probe
+ * on the guest's critical path and diagnose ONCE, at the point it gives up
+ * waiting — see the pre-sign wait in `app/api/pandora/waiver/route.ts`.
  */
 export async function personLocalBarrier(
   locationId: string,
   personId: string,
+  opts: { diagnoseElsewhere?: boolean } = {},
 ): Promise<BarrierResult> {
+  const { diagnoseElsewhere = true } = opts;
   const key = process.env.SWAGGER_ADMIN_KEY || "";
   if (!key) return errored("SWAGGER_ADMIN_KEY missing");
   try {
@@ -122,7 +134,7 @@ export async function personLocalBarrier(
       // Absent HERE. Before settling in to wait, check whether this person is
       // simply at ANOTHER center — in which case waiting is futile, because a
       // person id never crosses centers.
-      const elsewhere = await locateElsewhere(personId, locationId, key);
+      const elsewhere = diagnoseElsewhere ? await locateElsewhere(personId, locationId, key) : null;
       if (elsewhere) {
         return impossible(
           `person ${personId} does not exist at this center — they are at ${elsewhere}. ` +

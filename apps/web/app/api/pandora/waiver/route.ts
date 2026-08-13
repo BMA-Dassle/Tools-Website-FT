@@ -7,6 +7,16 @@ import { signLicenceGrant } from "~/features/racing/wallet/licence-grant";
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
 const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
 
+/**
+ * This route deliberately BLOCKS on cross-rail sync (the local-visibility poll
+ * below) and then runs a 3-attempt retry ladder, so it needs a stated ceiling.
+ * Vercel's implicit default (10-15s by plan) is shorter than the work: an
+ * invocation killed mid-poll never reaches the enqueue, which loses the owed
+ * push AND fails the guest — the one outcome the queue exists to prevent.
+ * 30s is the poll (5s) + ladder + salvage probes with real headroom.
+ */
+export const maxDuration = 30;
+
 function resolveLocation(key: string | null): string {
   return (key && PANDORA_LOCATION_MAP[key]) || PANDORA_DEFAULT_LOCATION_ID;
 }
@@ -287,24 +297,62 @@ export async function POST(req: NextRequest) {
      * Bounded so the request can never hang: poll to WAIT_MS, then hand the push
      * to the sync queue and tell the caller the waiver is accepted — the
      * signature is already durable in Neon (stored before any vendor call).
+     *
+     * WAIT_MS is 5s, not the 24s this shipped with (owner 2026-08-12: "lets go
+     * 5s"). 24s was chosen to cover the measured 10-32s sync window, i.e. to win
+     * the race outright — but it made EVERY cloud-first guest sit through a
+     * ~30s spinner to save a queue hop, and the slow tail still fell through to
+     * the queue anyway. Losing the race is cheap now that the queue path is a
+     * real success end-to-end; making the guest wait is not.
+     *
+     * NO probe on the guest's critical path pays for the cross-center search.
+     * `personLocalBarrier`'s 404 branch can also look the person up at the OTHER
+     * centers to turn "not yet" into `impossible` (a Fort Myers person id will
+     * never appear at Naples, so waiting on one is futile). That diagnosis is
+     * worth real money — it is what stops a doomed row from parking until its
+     * give-up — but it costs two extra Pandora GETs (15s timeout each), and on a
+     * poll tick it bought nothing: at 2s intervals it tripled each tick's true
+     * cost and was the bulk of the spinner the owner was seeing.
+     *
+     * So every probe here runs with it OFF, and it is paid exactly ONCE, at the
+     * decision point below — where the answer actually changes what we do
+     * (queue vs. let the sign attempts surface the real vendor error) and where
+     * one extra second is invisible because the guest is already being handed
+     * their "all set" card.
      */
     {
-      const WAIT_MS = 24_000;
-      const STEP_MS = 2_000;
+      const WAIT_MS = 5_000;
+      const STEP_MS = 1_250;
       const { personLocalBarrier } = await import("@/lib/bmi-sync-barriers");
+      const fastProbe = () =>
+        personLocalBarrier(locationID, personID, { diagnoseElsewhere: false });
       const startedWait = Date.now();
-      let verdict = (await personLocalBarrier(locationID, personID)).verdict;
+      let verdict = (await fastProbe()).verdict;
       if (verdict === "closed") {
         console.log(
           `[pandora-waiver] person ${personID} not on the local server yet — waiting up to ${WAIT_MS / 1000}s before signing`,
         );
         while (verdict === "closed" && Date.now() - startedWait < WAIT_MS) {
           await new Promise((r) => setTimeout(r, STEP_MS));
-          verdict = (await personLocalBarrier(locationID, personID)).verdict;
+          verdict = (await fastProbe()).verdict;
         }
         const waited = ((Date.now() - startedWait) / 1000).toFixed(1);
-        if (verdict === "closed") {
-          // Still not there. Queue the push rather than generating vendor 500s.
+        // Still not there after the wait? Pay for the cross-center diagnosis
+        // ONCE, here, because this is the only place its answer changes what we
+        // do. `impossible` must NEVER be queued: a person who lives at another
+        // center never becomes local at this one, so the row would sit closed
+        // until its give-up deadline while reporting "sync is just slow". Let the
+        // sign attempts run instead and return the real vendor error.
+        const diagnosed =
+          verdict === "closed" ? await personLocalBarrier(locationID, personID) : null;
+        if (diagnosed && diagnosed.verdict !== "closed") {
+          console.log(
+            diagnosed.verdict === "impossible"
+              ? `[pandora-waiver] NOT queueing ${personID} — ${diagnosed.detail}`
+              : `[pandora-waiver] person ${personID} became visible during diagnosis (${diagnosed.detail}) — signing now`,
+          );
+        }
+        if (diagnosed?.verdict === "closed") {
           try {
             const { enqueueSync } = await import("@/lib/bmi-sync-queue");
             const queued = await enqueueSync({
@@ -318,6 +366,15 @@ export async function POST(req: NextRequest) {
                 name: String(firstName ?? "").trim() || "Guest",
                 locationKey: location ?? null,
                 signaturePngB64: sigBase64,
+                // FILE THE DOCUMENT THE GUEST ACTUALLY SIGNED. Without these two
+                // the handler falls back to `signWaiverDigital`'s event-waiver
+                // defaults — an age-35 (ADULT) template lookup and a 5-day
+                // expiry — so a queued minor's waiver was filed against the
+                // adult contentID they never read, expiring in 5 days instead of
+                // the template's year. See the same fields on the backstop
+                // enqueue below and `pushWaiverSignature`.
+                waiverContentId: String(waiverContentID),
+                invalidationDate: safeInvalidation,
               },
             });
             console.log(
@@ -335,7 +392,10 @@ export async function POST(req: NextRequest) {
             // queue outage never silently drops the waiver.
             console.warn("[pandora-waiver] could not queue the waiver push:", err);
           }
-        } else {
+        } else if (!diagnosed) {
+          // Opened during the poll itself — the case the wait exists to catch.
+          // (`diagnosed` non-null already logged its own reason above, so this
+          // stays quiet rather than printing a second, contradictory line.)
           console.log(
             `[pandora-waiver] person ${personID} became visible locally after ${waited}s — signing now`,
           );
@@ -468,6 +528,10 @@ export async function POST(req: NextRequest) {
             // The already-stripped base64 (no data: prefix) — the handler
             // rehydrates it to a Buffer for the multipart upload.
             signaturePngB64: sigBase64,
+            // The template the guest READ and the expiry we PRESENTED — see the
+            // pre-wait enqueue above for why omitting them mis-filed the record.
+            waiverContentId: String(waiverContentID),
+            invalidationDate: safeInvalidation,
           },
         });
         console.log(

@@ -204,6 +204,20 @@ export async function signWaiverDigital(opts: {
   locationKey?: string | null;
   dateEt?: string;
   pngBuffer?: Buffer;
+  /**
+   * The template the signer ACTUALLY read. Omit and this function looks one up
+   * for `age = 35` — an ADULT template — which is correct for the event
+   * digital-accept path it was written for and WRONG for anyone else. The kiosk
+   * sign route passes the contentID it rendered, so a queued minor's waiver is
+   * filed against the minor document rather than an adult one they never saw.
+   */
+  waiverContentID?: string;
+  /**
+   * The expiry we PRESENTED, as "YYYY-MM-DD". Omit and the event-scoped
+   * `WAIVER_VALID_DAYS` (5) wins, which silently shortens a kiosk waiver the
+   * guest was shown as valid for the template's full year.
+   */
+  invalidationDate?: string;
   /** Skip the push (return skipped:true) if the person already has a valid waiver. */
   skipIfValid?: boolean;
 }): Promise<SignWaiverDigitalResult> {
@@ -224,12 +238,17 @@ export async function signWaiverDigital(opts: {
     };
   }
 
-  const tmpl = await getWaiverTemplate(locationID);
+  // A caller that KNOWS which document was signed passes its contentID; only
+  // fall back to the age-35 adult lookup when nobody told us (event path).
+  const contentID = opts.waiverContentID?.trim() || (await getWaiverTemplate(locationID)).contentID;
   // Event-scoped validity (WAIVER_VALID_DAYS), overriding the template's own
   // duration — we don't want a year-long waiver from a one-event acceptance.
-  const invalidationDate = new Date(Date.now() + WAIVER_VALID_DAYS * 864e5)
-    .toISOString()
-    .split("T")[0];
+  // A caller-supplied date wins: it is the expiry the signer was actually shown,
+  // and quietly substituting 5 days for it makes our record disagree with the
+  // one they agreed to.
+  const invalidationDate =
+    opts.invalidationDate?.trim() ||
+    new Date(Date.now() + WAIVER_VALID_DAYS * 864e5).toISOString().split("T")[0];
 
   const dateEt =
     opts.dateEt ||
@@ -248,7 +267,7 @@ export async function signWaiverDigital(opts: {
     boundary,
     locationID,
     personID: personId,
-    waiverContentID: tmpl.contentID,
+    waiverContentID: contentID,
     invalidationDate,
     pngBuffer: png,
   });

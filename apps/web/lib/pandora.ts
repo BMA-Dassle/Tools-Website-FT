@@ -102,6 +102,11 @@ export interface PandoraSignWaiverResult {
   /** Server-signed proof that this person's waiver is on file. Two-hour life.
    *  The ONLY thing that lets a licence be offered with no booking. */
   licenceGrant?: string;
+  /** The vendor record is OWED, not lost: the person had not reached the
+   *  center's local server yet, so the push went to the sync queue. The
+   *  signature is already durable in Neon. A full success to the guest — see
+   *  the guard in `pandoraSignWaiver`. */
+  queuedForSync?: boolean;
 }
 
 // ── Client-side API helpers ──────────────────────────────────────────────────
@@ -288,13 +293,34 @@ export async function pandoraSignWaiver(
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
   });
-  const data = await res.json();
+  // A platform timeout (FUNCTION_INVOCATION_TIMEOUT) answers with an HTML body,
+  // and an unguarded .json() turned that into a SyntaxError shown to the guest as
+  // "Unexpected token '<'". Say what actually happened instead.
+  const data = await res.json().catch(() => null);
+  if (!data) {
+    throw new Error(
+      res.ok
+        ? "Waiver signing failed"
+        : `Waiver signing failed (server error ${res.status}). Please try again.`,
+    );
+  }
   // A missing waiverID means BMI did not record the waiver — fail loudly so the
   // UI keeps the guest on the sign step instead of advancing on a phantom success.
-  // Exception: `alreadyValid` — the API verified the person's waiver is valid
-  // right now (a Pandora write-then-500 salvaged server-side), which is the
-  // outcome we actually need even without a fresh waiverID.
-  if (!res.ok || (!data.waiverID && !data.alreadyValid)) {
+  // TWO exceptions, both of which mean the waiver IS on file or owed:
+  //   `alreadyValid`   — the API verified the person's waiver is valid right now
+  //                      (a Pandora write-then-500 salvaged server-side).
+  //   `queuedForSync`  — the person had not reached the center's local server
+  //                      yet, so the push is queued behind a `person-local`
+  //                      barrier. The signature is already durable in Neon.
+  //
+  // `queuedForSync` was previously unhandled ANYWHERE, so the route's designed
+  // cloud-first path — a 200 with ok:true — reached the guest as "Waiver signing
+  // failed" and dead-ended them on the signature pad: every re-tap waited out
+  // the local-sync poll again and threw again, until sync happened to catch up.
+  // Live 2026-08-12 (owner screenshot). Treating it as a plain success is the
+  // honest reading: the guest's signature is captured and the vendor record is
+  // owed, not lost (owner decision — same "you're all set" card, no new copy).
+  if (!res.ok || (!data.waiverID && !data.alreadyValid && !data.queuedForSync)) {
     throw new Error(data.error || "Waiver signing failed");
   }
   // `licenceGrant` is a server-signed proof that this person's waiver went on
@@ -304,6 +330,7 @@ export async function pandoraSignWaiver(
     ok: true,
     waiverID: data.waiverID ?? undefined,
     licenceGrant: typeof data.licenceGrant === "string" ? data.licenceGrant : undefined,
+    queuedForSync: data.queuedForSync === true,
   };
 }
 
