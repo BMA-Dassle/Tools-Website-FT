@@ -231,7 +231,11 @@
         {
           "type": "queue/v2beta",
           "topic": "waiver-push"
-        },
+        }
+      ]
+    },
+    "app/api/queue/waiver-push-preview/route.ts": {
+      "experimentalTriggers": [
         {
           "type": "queue/v2beta",
           "topic": "waiver-push-preview"
