@@ -41,6 +41,7 @@ import {
   type CameraScan,
   type CameraTrack,
   type SessionFinish,
+  type TrackCall,
 } from "./camera-return";
 
 /**
@@ -261,13 +262,18 @@ export async function resolveCameraReturn(venue: string, nowMs: number): Promise
     // ── 4. what has been CALLED, which is what settles the incoming section ──
     // Reads the same `pandora:last-race:*` keys the track boards' "called" state
     // rides, so the strip and the check-in walls agree about which heat is up.
-    const calledHeats = new Map<CameraTrack, number>();
+    const calledHeats = new Map<CameraTrack, TrackCall>();
     const marks = await fetchTrackWatermarks().catch(
-      (): Partial<Record<TrackKey, { heatNumber: number }>> => ({}),
+      (): Partial<Record<TrackKey, { heatNumber: number; calledAt: string }>> => ({}),
     );
     for (const t of TRACKS) {
       const h = marks[t]?.heatNumber;
-      if (typeof h === "number" && Number.isFinite(h)) calledHeats.set(t, h);
+      if (typeof h !== "number" || !Number.isFinite(h)) continue;
+      // `calledAt` is what makes the call usable — heat numbers run ahead of
+      // finishes, so the TIME is the trigger. A watermark with no parseable
+      // calledAt leaves the camera on the time bound rather than settling it.
+      const calledAtMs = Date.parse(marks[t]?.calledAt ?? "");
+      calledHeats.set(t, { heatNumber: h, calledAtMs });
     }
 
     const strip = cameraReturnStripAt({ scans, finishes, seen, calledHeats, nowMs });

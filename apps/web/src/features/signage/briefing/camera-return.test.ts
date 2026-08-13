@@ -8,6 +8,7 @@ import {
   type CameraScan,
   type CameraTrack,
   type SessionFinish,
+  type TrackCall,
 } from "./camera-return";
 import { cameraBarHeight, CAMERA_BAR_H, CAMERA_BAR_CLEAR_H } from "../components/CameraReturnBar";
 
@@ -29,10 +30,15 @@ function finishes(
     ]),
   );
 }
-function called(entries: Array<[CameraTrack, number]>): Map<CameraTrack, number> {
-  return new Map(entries);
+/** [track, heatNumber, calledAtMs?] — calledAt defaults to NOW, which is after
+ *  every fixture's flag, so a test that only cares about the heat number reads the
+ *  way it always did. */
+function called(entries: Array<[CameraTrack, number, number?]>): Map<CameraTrack, TrackCall> {
+  return new Map(
+    entries.map(([t, heatNumber, calledAtMs]) => [t, { heatNumber, calledAtMs: calledAtMs ?? T }]),
+  );
 }
-const NONE_CALLED = new Map<CameraTrack, number>();
+const NONE_CALLED = new Map<CameraTrack, TrackCall>();
 
 describe("cameraReturnStripAt", () => {
   it("is empty when nothing has been scanned", () => {
@@ -175,6 +181,64 @@ describe("the next race being called", () => {
       finishes: finishes([["S58", T - m(2), 58, "blue"]]),
       seen: new Map(),
       calledHeats: called([["blue", 57]]),
+      nowMs: T,
+    });
+    expect(r.incoming).toHaveLength(1);
+  });
+
+  it("a call that happened BEFORE our flag does not settle us", () => {
+    // THE 2026-08-12 DEFECT. Calls run ahead of finishes: the last call was heat 48
+    // while heats 43-45 were the ones coming back. Comparing heat numbers alone was
+    // always true at the flag, so incoming never populated and every camera went red
+    // one minute after its race — accusing groups still walking to the counter.
+    const flag = T - m(1);
+    const r = cameraReturnStripAt({
+      scans: [scan("71", "S45", T - m(20))],
+      finishes: finishes([["S45", flag, 45, "blue"]]),
+      seen: new Map(),
+      // Heat 48 is a later NUMBER, but it was called nine minutes before we flagged.
+      calledHeats: called([["blue", 48, flag - m(9)]]),
+      nowMs: T,
+    });
+    expect(r.stillOut).toEqual([]);
+    expect(r.incoming).toHaveLength(1);
+    expect(r.incoming[0]).toMatchObject({ camera: "71", state: "waiting" });
+    expect(r.outCount).toBe(0);
+  });
+
+  it("the NEXT call after our flag is what turns us red", () => {
+    const flag = T - m(10);
+    const r = cameraReturnStripAt({
+      scans: [scan("71", "S45", T - m(30))],
+      finishes: finishes([["S45", flag, 45, "blue"]]),
+      seen: new Map(),
+      calledHeats: called([["blue", 48, flag + m(2)]]),
+      nowMs: T,
+    });
+    expect(r.incoming).toEqual([]);
+    expect(r.stillOut).toHaveLength(1);
+    expect(r.outCount).toBe(1);
+  });
+
+  it("a call before our flag still settles us once the bound expires", () => {
+    // Otherwise a night whose calls all ran ahead would hold cameras in incoming
+    // for ever, and the section that means "coming back right now" would lie.
+    const r = cameraReturnStripAt({
+      scans: [scan("71", "S45", T - m(60))],
+      finishes: finishes([["S45", T - INCOMING_FALLBACK_MS - m(1), 45, "blue"]]),
+      seen: new Map(),
+      calledHeats: called([["blue", 48, T - INCOMING_FALLBACK_MS - m(5)]]),
+      nowMs: T,
+    });
+    expect(r.stillOut).toHaveLength(1);
+  });
+
+  it("an unparseable calledAt falls back to the bound rather than settling", () => {
+    const r = cameraReturnStripAt({
+      scans: [scan("71", "S45", T - m(20))],
+      finishes: finishes([["S45", T - m(2), 45, "blue"]]),
+      seen: new Map(),
+      calledHeats: called([["blue", 48, Number.NaN]]),
       nowMs: T,
     });
     expect(r.incoming).toHaveLength(1);

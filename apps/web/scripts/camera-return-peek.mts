@@ -32,6 +32,7 @@ import type {
   CameraScan,
   CameraTrack,
   SessionFinish,
+  TrackCall,
 } from "../src/features/signage/briefing/camera-return";
 
 // Dynamic: a .mts entry point will not statically link a .ts module through tsx's
@@ -141,13 +142,17 @@ async function main() {
   });
 
   // ── the calls ────────────────────────────────────────────────────────
-  const calledHeats = new Map<CameraTrack, number>();
+  // The TIME matters as much as the heat number — calls run ahead of finishes, so
+  // only a call that post-dates a flag settles that heat's cameras.
+  const calledHeats = new Map<CameraTrack, TrackCall>();
   const markVals = await redis.mget(...TRACKS.map((t) => `pandora:last-race:fasttrax:${t}`));
   TRACKS.forEach((t, i) => {
     if (!markVals[i]) return;
     try {
-      const h = JSON.parse(markVals[i]!).heatNumber;
-      if (typeof h === "number") calledHeats.set(t, h);
+      const w = JSON.parse(markVals[i]!);
+      if (typeof w.heatNumber === "number") {
+        calledHeats.set(t, { heatNumber: w.heatNumber, calledAtMs: Date.parse(w.calledAt ?? "") });
+      }
     } catch {
       /* skip */
     }
@@ -165,7 +170,14 @@ async function main() {
   console.log(
     `flags: ${finishes.size}/${sessionIds.length} sessions finished   ` +
       `sightings: ${seen.size}/${cameras.length} cameras   ` +
-      `called: ${[...calledHeats].map(([t, h]) => `${t} ${h}`).join(", ") || "nothing"}\n`,
+      `called: ${
+        [...calledHeats]
+          .map(
+            ([t, c]) =>
+              `${t} heat ${c.heatNumber} at ${Number.isFinite(c.calledAtMs) ? et(c.calledAtMs) : "?"}`,
+          )
+          .join(", ") || "nothing"
+      }\n`,
   );
 
   // ── THE SHIPPED VERDICT ──────────────────────────────────────────────

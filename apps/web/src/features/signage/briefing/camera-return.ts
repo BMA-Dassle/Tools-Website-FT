@@ -103,6 +103,13 @@ export interface CameraScan {
 
 export type CameraTrack = "blue" | "red" | "mega";
 
+/** The last heat called on a track. `calledAtMs` is what makes it usable — see
+ *  the note on `calledHeats`. */
+export interface TrackCall {
+  heatNumber: number;
+  calledAtMs: number;
+}
+
 /** What we know about a session's end. Absent from the map ⇒ not finished. */
 export interface SessionFinish {
   endedAtMs: number;
@@ -119,8 +126,16 @@ export interface CameraReturnInput {
   finishes: Map<string, SessionFinish>;
   /** camera → last sighting ms. */
   seen: Map<string, number>;
-  /** track → the last heat CALLED on it. What settles the incoming section. */
-  calledHeats: Map<CameraTrack, number>;
+  /**
+   * track → the last heat CALLED on it, and WHEN.
+   *
+   * The time is not decoration. Calls run AHEAD of finishes — measured 2026-08-12,
+   * the last call was heat 48 while the heats whose cameras were coming back were
+   * 43 to 45 — so "a later heat has been called" is true the instant any heat
+   * flags. Comparing heat numbers alone sent every camera straight to red at one
+   * minute old, accusing groups who were still walking back. See nextRaceCalled.
+   */
+  calledHeats: Map<CameraTrack, TrackCall>;
   nowMs: number;
 }
 
@@ -159,29 +174,43 @@ export interface CameraReturnStrip {
 }
 
 /**
- * Has a heat LATER than this one been called on the same track?
+ * Has a race been called on this track SINCE ours finished?
  *
- * Heat numbers only go up through a day, which is what makes the comparison safe
- * — the same reasoning room-return.ts uses to tell "ours has not gone green yet"
- * from "ours finished and we missed the stamp".
+ * TWO CONDITIONS, and the second one is the whole lesson. A later heat number is
+ * not enough: calls run ahead of finishes, so on 2026-08-12 the last call was heat
+ * 48 while heats 43-45 were the ones whose cameras were walking back. Heat-number
+ * comparison alone was therefore ALWAYS true at the moment of the flag, incoming
+ * never populated, and cameras went red one minute after their race — the board
+ * accusing people who were still on their way to the counter.
  *
- * Unknowable (no track, no heat number, or nothing called yet on that track) ⇒
- * fall back to the time bound, so a camera cannot sit in incoming all evening.
+ * So the trigger is a call that POST-DATES our flag. That is what the owner
+ * actually described: not "some later heat exists" but "the next race went up while
+ * you still had our camera".
+ *
+ * The heat-number test stays as a guard, because a RE-CALL of an earlier heat
+ * carries a fresh `calledAt` and must not settle anybody.
+ *
+ * Unknowable (no track, no heat number, nothing called yet) ⇒ fall back to the time
+ * bound, so a camera cannot sit in incoming all evening.
  */
 function nextRaceCalled(
-  box: {
-    track: CameraTrack | null;
-    heatNumber: number | null;
-    sinceFlagMs: number;
-  },
-  calledHeats: Map<CameraTrack, number>,
+  box: { track: CameraTrack | null; heatNumber: number | null; sinceFlagMs: number },
+  flagMs: number,
+  calledHeats: Map<CameraTrack, TrackCall>,
 ): boolean {
   if (box.track === null || box.heatNumber === null) {
     return box.sinceFlagMs > INCOMING_FALLBACK_MS;
   }
-  const called = calledHeats.get(box.track);
-  if (called === undefined) return box.sinceFlagMs > INCOMING_FALLBACK_MS;
-  return called > box.heatNumber;
+  const call = calledHeats.get(box.track);
+  if (!call) return box.sinceFlagMs > INCOMING_FALLBACK_MS;
+  if (call.heatNumber <= box.heatNumber) return false;
+  if (!Number.isFinite(call.calledAtMs)) return box.sinceFlagMs > INCOMING_FALLBACK_MS;
+  // The call has to have happened after we came off track.
+  if (call.calledAtMs > flagMs) return true;
+  // A later heat was called BEFORE our flag — the schedule is simply running
+  // ahead. That says nothing about our cameras, so hold them in incoming until
+  // the next call or the bound.
+  return box.sinceFlagMs > INCOMING_FALLBACK_MS;
 }
 
 /**
@@ -241,6 +270,7 @@ export function cameraReturnStripAt(input: CameraReturnInput): CameraReturnStrip
     const sinceFlagMs = Math.max(0, nowMs - finish.endedAtMs);
     const settledByCall = nextRaceCalled(
       { track: finish.track, heatNumber: finish.heatNumber, sinceFlagMs },
+      finish.endedAtMs,
       calledHeats,
     );
     if (settledByCall) {
@@ -260,6 +290,7 @@ export function cameraReturnStripAt(input: CameraReturnInput): CameraReturnStrip
     if (
       nextRaceCalled(
         { track: finish.track, heatNumber: finish.heatNumber, sinceFlagMs },
+        finish.endedAtMs,
         calledHeats,
       )
     ) {
