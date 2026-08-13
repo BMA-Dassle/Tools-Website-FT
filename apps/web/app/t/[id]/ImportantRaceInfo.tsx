@@ -19,18 +19,23 @@ export default function ImportantRaceInfo() {
       <ul className="space-y-2 text-white/85 text-[13px] leading-snug">
         <li>
           The time on your ticket is your{" "}
-          <strong className="text-white">karting check-in cut-off — not your race time</strong>.
-          Arrive at the Karting check-in desk on the 1st Floor at least 5 min early. Miss check-in
-          and we may not be able to reschedule —{" "}
+          <strong className="text-white">karting check-in cut-off — not your race time</strong>. Be
+          at the <strong className="text-white">Karting Desk on the 1st Floor</strong> (by the Red
+          Track) at least 5 min before it. Miss it and we may not be able to reschedule —{" "}
           <strong className="text-white">missed races are non-refundable</strong>.
+        </li>
+        <li>
+          If anyone in your party still needs a waiver, start at{" "}
+          <strong className="text-white">Guest Services on the 2nd Floor</strong> — that is a
+          separate, earlier check-in.
         </li>
         <li>
           Have your e-ticket <strong className="text-white">open and ready</strong> at check-in —
           staff scans the screen, no paper ticket needed.
         </li>
         <li>
-          Allow ~30 min from check-in to race time for briefing, helmet fitting, and prep. Lockers
-          are available in the briefing rooms.{" "}
+          After you check in there is a safety briefing, helmet fitting, and prep before you race.
+          Lockers are available in the briefing rooms.{" "}
           <strong className="text-white">No loose items on the track.</strong>
         </li>
         <li>

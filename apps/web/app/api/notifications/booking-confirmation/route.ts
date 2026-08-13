@@ -680,6 +680,10 @@ export async function POST(req: NextRequest) {
         .replace(/\^\[ReservationName\]\$/g, reservationName || firstName || "Racer")
         .replace(/\^\[ReservationNumber\]\$/g, reservationNumber)
         .replace(/\^\[ReservationDate\]\$/g, reservationDate || "")
+        // A bare "Time:" over a racing booking is the whole defect: that value
+        // is the KARTING check-in cut-off, not the green flag. Non-racing
+        // bookings keep the neutral label.
+        .replace(/\^\[ReservationTimeLabel\]\$/g, isRacingBooking ? "Karting check-in:" : "Time:")
         .replace(/\^\[ReservationTime\]\$/g, reservationTime || "")
         .replace(/\^\[ReservationSchedule\]\$/g, reservationSchedule || "");
 

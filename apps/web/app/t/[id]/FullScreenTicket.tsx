@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
+import { KARTING_CHECKIN_LABEL_SHORT, KARTING_CHECKIN_PLACE } from "@/lib/karting-checkin-copy";
 import type { CardDetails } from "./cards";
 import { formatTime, formatDate } from "./cards";
 
@@ -108,12 +109,17 @@ export default function FullScreenTicket({
 
         {/* Time + date */}
         <div className="mt-6">
-          <p className="text-gray-500 text-xs uppercase tracking-[0.2em] mb-1">Karting Check-In</p>
+          <p className="text-gray-500 text-xs uppercase tracking-[0.2em] mb-1">
+            {KARTING_CHECKIN_LABEL_SHORT}
+          </p>
           <p className="text-black font-bold" style={{ fontSize: "clamp(1.75rem, 6vw, 2.75rem)" }}>
             {formatTime(heat.scheduledStart)}
           </p>
           <p className="text-gray-500 text-base mt-1">{formatDate(heat.scheduledStart)}</p>
-          <p className="text-gray-400 text-xs mt-1">Race starts after check-in</p>
+          <p className="text-gray-500 text-xs mt-1 uppercase tracking-wider">
+            {KARTING_CHECKIN_PLACE}
+          </p>
+          <p className="text-gray-400 text-xs mt-2">Racing starts after your safety briefing</p>
         </div>
 
         {heat.resNumber && (

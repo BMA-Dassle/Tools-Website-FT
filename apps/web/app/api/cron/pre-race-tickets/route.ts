@@ -466,7 +466,7 @@ function buildEmailHtml(
         </td></tr>
         <tr><td style="padding:26px 28px">
           <p style="margin:0 0 12px 0;font-size:16px;line-height:1.5">Hey ${firstName} — your <strong>${raceType} race on the ${track} Track</strong> checks in at <strong>${time}</strong> at the Karting desk, 1st Floor.</p>
-          <p style="margin:0 0 12px 0;font-size:15px;line-height:1.5"><strong>${time} is your karting check-in time, not your race time.</strong> Your race begins about 30 minutes after check-in.</p>
+          <p style="margin:0 0 12px 0;font-size:15px;line-height:1.5"><strong>${time} is your karting check-in time, not your race time.</strong> ${KARTING_CHECKIN_EMAIL_NOTE}</p>
           <p style="margin:0 0 20px 0;font-size:15px;line-height:1.5">Save this email or screenshot your e-ticket. Show the e-ticket screen at check-in — no paper ticket needed.</p>
           <p style="text-align:center;margin:24px 0">
             <a href="${shortUrl}" style="display:inline-block;background:#fd5b56;color:#ffffff;padding:14px 28px;border-radius:999px;text-decoration:none;font-weight:bold;font-size:15px;letter-spacing:1px;text-transform:uppercase">View My E-Ticket</a>

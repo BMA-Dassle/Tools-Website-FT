@@ -121,10 +121,10 @@ function buildWhenYouArriveStandard(): string {
     <tr>
     <td style="padding: 10px 0; border-bottom: 1px solid #EEEEEE;">
       <strong style="color: #004AAD; font-size: 18px;">3.</strong>
-      <strong style="color: #1A1A1A; font-size: 14px;">Check In Downstairs at Your Scheduled Time</strong>
+      <strong style="color: #1A1A1A; font-size: 14px;">Be at the Karting Desk by Your Scheduled Time</strong>
       <p style="margin: 4px 0 0 26px; font-size: 13px; color: #666; line-height: 1.5;">
-        <strong style="color: #D71C1C;">Your scheduled time is your check-in time for karting, not your race start time.</strong>
-        Plan for about 30&ndash;45 minutes from check-in to the end of your race.
+        <strong style="color: #D71C1C;">Your scheduled time is your karting check-in time, not your race start time.</strong>
+        It is on the 1st Floor, by the Red Track. After you check in there is a safety briefing and helmet fitting before you race.
       </p>
     </td>
     </tr>
