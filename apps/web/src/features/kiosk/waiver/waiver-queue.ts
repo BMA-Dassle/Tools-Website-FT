@@ -38,11 +38,24 @@ import { PANDORA_LOCATION_MAP } from "@/lib/pandora-locations";
  * Preview deployments share the production Neon database — we found that out when
  * a preview-written `persons-local` queue row landed in production's table with a
  * barrier production's code did not recognise (2026-08-13). A shared message topic
- * is the same hazard with worse consequences: a preview consumer could receive,
- * push, and ACKNOWLEDGE a real guest's waiver, and production would never see it.
+ * would be the same hazard with worse consequences: a preview consumer receiving,
+ * pushing and ACKNOWLEDGING a real guest's waiver that production never sees.
  *
- * Separate topics make that structurally impossible. Cheaper than reasoning about
- * `Vqs-Deployment-Id` semantics, and it fails safe if I have those wrong.
+ * VERIFIED 2026-08-13 (scripts/vercel-queue-probe.mts, real send + receive round
+ * trip against this account): the SDK ALSO pins every message to the deployment
+ * that sent it by default, so only that deployment's consumer can receive it —
+ * outside a deployment `send()` refuses outright with "No deployment ID available"
+ * unless you pass `deploymentId: null`. That default is kept deliberately: it
+ * guarantees the producer and consumer are the same code version, which is exactly
+ * the skew that bit us on `persons-local`.
+ *
+ * So isolation is now belt AND braces — pinning by default, separate topics on top.
+ * The topics stay because they make the boundary legible in the dashboard and they
+ * survive any future change to pinning behaviour.
+ *
+ * Consequence worth knowing: `sendWaiverPush` cannot work in local `npm run dev`
+ * (no VERCEL_DEPLOYMENT_ID). It throws, the catch below returns null, and the caller
+ * falls back to the Neon queue — correct degradation, not a bug.
  */
 export function waiverTopic(): string {
   return process.env.VERCEL_ENV === "production" ? "waiver-push" : "waiver-push-preview";
