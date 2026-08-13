@@ -15,9 +15,17 @@ import { summariseWaits, summariseWaitsByTrack, waitsForDay } from "~/features/r
  * tested; this route is the thin shell the house convention asks for — parse,
  * authorise, read, delegate.
  *
- *   GET /api/admin/wait-times?token=…              today
+ *   GET /api/admin/wait-times?token=…                     today
  *   GET /api/admin/wait-times?token=…&day=2026-08-12
- *   GET /api/admin/wait-times?token=…&days=7       a rolling window, one summary
+ *   GET /api/admin/wait-times?token=…&days=7              a rolling window
+ *   GET /api/admin/wait-times?token=…&days=7&excludeToday=1   the week BEFORE today
+ *
+ * `excludeToday` is what makes a comparison mean anything. A board showing "today
+ * vs the last seven days" against a window that CONTAINS today is comparing a
+ * number with itself — and on the first day of data it is comparing it with
+ * exactly itself, so every tile reads "about the same" forever. The baseline has
+ * to be the days BEFORE today, and that is a decision this route makes rather
+ * than leaving each caller to do date arithmetic against a 2 AM rollover.
  *
  * DAYS ARE BUSINESS DAYS, ET with the 2 AM rollover — the same day a race night
  * belongs to everywhere else in this codebase. A Friday heat that ran at 1 AM is
@@ -41,13 +49,11 @@ function authed(req: NextRequest): boolean {
   return token === expected;
 }
 
-/** `days` back from today, as a business-day string. */
-function businessDayBack(days: number): string {
-  const today = businessDayYmdET();
-  // Anchored at noon UTC so stepping back a day never trips a DST boundary —
-  // the same discipline race-business-day itself uses.
-  const d = new Date(`${today}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - (days - 1));
+/** `n` business days before `from`. Anchored at noon UTC so stepping back never
+ *  trips a DST boundary — the same discipline race-business-day itself uses. */
+function businessDayMinus(from: string, n: number): string {
+  const d = new Date(`${from}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - n);
   return d.toISOString().slice(0, 10);
 }
 
@@ -60,10 +66,16 @@ export async function GET(req: NextRequest) {
   const days =
     Number.isFinite(daysParam) && daysParam > 1 ? Math.min(MAX_DAYS, Math.floor(daysParam)) : 1;
 
+  // The window's LAST day: today, or yesterday when today is being excluded so
+  // the caller can compare today against the days before it.
+  const excludeToday = params.get("excludeToday") === "1";
+  const today = businessDayYmdET();
+  const toDay = excludeToday ? businessDayMinus(today, 1) : today;
+
   // A single day (today, or a named one) reads that day's events; a window reads
   // the range. Either way the fold and the summary are the same pure functions.
-  const singleDay = days === 1 ? (dayParam ?? businessDayYmdET()) : null;
-  const fromDay = singleDay ?? businessDayBack(days);
+  const singleDay = days === 1 && !excludeToday ? (dayParam ?? today) : null;
+  const fromDay = singleDay ?? businessDayMinus(toDay, days - 1);
   const nowMs = Date.now();
 
   try {
@@ -71,7 +83,7 @@ export async function GET(req: NextRequest) {
       singleDay
         ? listBriefingEvents(VENUE, singleDay)
         : listBriefingEventsRange(VENUE, fromDay, days),
-      singleDay ? listRaceTimings(VENUE, singleDay) : listRaceTimingsSince(VENUE, fromDay),
+      singleDay ? listRaceTimings(VENUE, singleDay) : listRaceTimingsSince(VENUE, fromDay, toDay),
     ]);
 
     const briefings = foldBriefingLog(events, nowMs);
@@ -82,7 +94,7 @@ export async function GET(req: NextRequest) {
       {
         venue: VENUE,
         from: fromDay,
-        to: singleDay ?? businessDayYmdET(),
+        to: singleDay ?? toDay,
         days,
         // What the averages were computed FROM, so a thin night is visible as a
         // thin night rather than read as a confident number.
