@@ -25,7 +25,10 @@
  *              moment it registers.
  *   STILL OUT  when the NEXT race on that track is called, the incoming section
  *              settles: anything green has been accounted for and simply leaves,
- *              and anything still grey moves left into STILL OUT, in red.
+ *              and anything still grey moves left into STILL OUT — same track
+ *              colour it was expected back in, now solid instead of tinted
+ *              (owner 2026-08-13; it used to turn a single alarm red, which lost
+ *              the one thing that tells staff where to walk).
  *
  * That is better than a timer in every way that matters. It is a real venue event
  * rather than a guess at one; it is exactly the moment the answer starts to matter

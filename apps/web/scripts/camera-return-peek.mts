@@ -187,7 +187,9 @@ async function main() {
     console.log(`THE STRIP IS CLEAR — it shows "Cameras all in".\n`);
   }
   if (strip.stillOut.length) {
-    console.log(`STILL OUT (${strip.outCount}) — red, left of the divider:\n`);
+    console.log(
+      `STILL OUT (${strip.outCount}) — solid track colour, left of the divider:\n`,
+    );
     for (const b of strip.stillOut) {
       const s = seen.get(b.camera);
       console.log(

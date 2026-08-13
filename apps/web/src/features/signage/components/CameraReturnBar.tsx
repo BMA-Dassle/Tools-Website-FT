@@ -14,7 +14,8 @@
  * the only review that counts:
  *
  *   STILL OUT   left. Their race is over, the NEXT race has been called, and they
- *               never came back. Red, with how long they have been missing.
+ *               never came back. Their TRACK'S colour, solid, with how long they
+ *               have been missing.
  *   INCOMING    right. The group that has just come off track. GREY until the
  *               camera registers, GREEN once it does. When the next race is
  *               called this section settles: green ones have been accounted for
@@ -26,11 +27,15 @@
  *     as its neighbours come and go is animation by another name). Owner: no
  *     motion on a guest-facing screen. This is why the strip appears nowhere in
  *     tv.css's motion table.
- *  2. A CALM BOX WEARS ITS TRACK'S COLOUR so staff know which way to walk. Only
- *     the calm ones: solid red is reserved for the chase list, because Red
- *     Track's own accent IS red and a still-incoming Red camera painted the same
- *     way would make the one colour that means "go and find it" also mean
- *     "everything is normal".
+ *  2. EVERY BOX WEARS ITS TRACK'S COLOUR so staff know which way to walk —
+ *     including the still-out ones (owner 2026-08-13: keep them the colour we
+ *     expected them back in, not red). LOUDNESS IS THE FILL, NOT THE HUE: a
+ *     waiting box is a 12% tint of its track, a still-out box is the same track
+ *     colour gone solid, glowing, counting. That reads as escalation of the same
+ *     camera rather than a different one, and it keeps the one fact a chase list
+ *     needs — where to walk — on the box the whole time. The earlier rule
+ *     ("solid red is reserved for the chase list") is retired; red now means
+ *     Red Track, plus one fallback, see CameraBox.
  *  3. AN ALL-CLEAR WHISPER, NOT A BLANK. Nothing outstanding collapses the band
  *     to a 44px dim line, because a blank bottom edge cannot be told apart from a
  *     broken feature or a pulled kill switch. Absent data renders nothing at all,
@@ -177,6 +182,9 @@ export function planCameraStrip(
   };
 }
 
+/** THE NO-TRACK FALLBACK for a still-out box, not the still-out colour — a
+ *  camera we cannot attribute to a circuit has no track colour to keep. Distinct
+ *  from Red Track's own #ff3b30 on purpose. */
 const RED = "#e53935";
 const RED_EDGE = "#ff5a53";
 const GREEN = "#46d68c";
@@ -420,23 +428,40 @@ function CameraBox({ box }: { box: CameraReturnBox }) {
   const back = box.state === "back";
 
   /**
-   * A CALM BOX WEARS ITS TRACK'S COLOUR (owner 2026-08-12: "if we're not showing
-   * green or red colors as status why don't we make those the color of the track
-   * they were on last?"). A bare number says nothing about where to walk; the
-   * circuit does. Only the WAITING boxes take it — see note 2 in the header for
-   * why solid red and green stay reserved for status.
+   * A BOX WEARS ITS TRACK'S COLOUR (owner 2026-08-12: "if we're not showing green
+   * or red colors as status why don't we make those the color of the track they
+   * were on last?"). A bare number says nothing about where to walk; the circuit
+   * does.
    */
-  const trackAccent = box.state === "waiting" && box.track ? TRACK_ACCENTS[box.track] : null;
+  const trackAccent = box.track ? TRACK_ACCENTS[box.track] : null;
 
-  const border = missing ? RED_EDGE : back ? GREEN : (trackAccent ?? GREY_EDGE);
+  /**
+   * A STILL-OUT BOX KEEPS THE COLOUR WE WERE EXPECTING IT BACK IN (owner
+   * 2026-08-13). It used to flip to one generic alarm red the moment the next
+   * race was called, which threw away the only thing on the box that tells staff
+   * where to go and look — exactly when they need it. It still shouts, through
+   * the solid fill, the glow and the running clock; it just shouts in its own
+   * track's voice.
+   *
+   * RED IS THE FALLBACK, not the rule: a camera we cannot attribute to a track
+   * has no colour we expected it in, and an uncoloured box on the chase list
+   * would read as calm. GREEN stays status-only — it means "accounted for" and
+   * no track owns it.
+   */
+  const chase = trackAccent ?? RED;
+
+  /** Calm = still expected. Tinted, never solid, so the two never trade places. */
+  const calmAccent = box.state === "waiting" ? trackAccent : null;
+
+  const border = missing ? (trackAccent ?? RED_EDGE) : back ? GREEN : (calmAccent ?? GREY_EDGE);
   const background = missing
-    ? RED
+    ? chase
     : back
       ? GREEN
-      : trackAccent
-        ? withAlpha(trackAccent, 0.12)
+      : calmAccent
+        ? withAlpha(calmAccent, 0.12)
         : GREY_FILL;
-  const ink = missing ? "#fff" : back ? GREEN_INK : (trackAccent ?? GREY_INK);
+  const ink = missing ? "#fff" : back ? GREEN_INK : (calmAccent ?? GREY_INK);
 
   return (
     <div
@@ -463,8 +488,10 @@ function CameraBox({ box }: { box: CameraReturnBox }) {
         color: ink,
         // Painted once and never animated — the 24/7 rulebook in tv.css bans
         // animating box-shadow, and only the chase list gets a glow: the calm
-        // boxes would fight it for attention.
-        boxShadow: missing ? "0 0 18px rgba(229, 57, 53, 0.7)" : "none",
+        // boxes would fight it for attention. The glow follows the box's own
+        // colour, so it reads as that camera being loud rather than a second,
+        // competing status colour laid over it.
+        boxShadow: missing ? `0 0 18px ${withAlpha(chase, 0.7)}` : "none",
       }}
     >
       <span className="tv-num" style={{ fontSize: 40, fontWeight: 700, lineHeight: 1 }}>

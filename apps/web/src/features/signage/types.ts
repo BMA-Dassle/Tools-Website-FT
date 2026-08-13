@@ -354,15 +354,16 @@ export interface CameraReturnFeedBox {
   camera: string;
   state: "still-out" | "waiting" | "back";
   heatNumber: number | null;
-  /** Circuit it went out on — the colour a calm box wears, so staff know which
-   *  track to walk to. Null when the finish record named none. */
+  /** Circuit it went out on — the colour the box wears in every state, so staff
+   *  know which track to walk to. Null when the finish record named none. */
   track: "blue" | "red" | "mega" | null;
   sinceFlagMs: number;
   assignedAtMs: number;
 }
 
 export interface CameraReturnFeedStrip {
-  /** RED, left section: race over, next race called, never came back. */
+  /** SOLID TRACK COLOUR, left section: race over, next race called, never came
+   *  back. Red only when `track` is null — see CameraReturnBar note 2. */
   stillOut: CameraReturnFeedBox[];
   /** GREY then GREEN, right section: the group just off track. Settles when the
    *  next race is called — green ones leave, grey ones move to stillOut. */

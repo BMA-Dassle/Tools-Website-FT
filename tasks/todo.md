@@ -16,7 +16,9 @@ one row of red and green and green did not read — the owner watched six on the
 asked what they meant. It also leaned on two invented numbers (a 10-min overdue line, a 90s
 green hold); both are gone. INCOMING holds the group just off track, grey until a camera
 registers and green once it does; when the next heat on that track is called, incoming
-settles — green ones leave, grey ones move left into STILL OUT in red. Per-track, per-heat
+settles — green ones leave, grey ones move left into STILL OUT, keeping their track's colour
+and going solid (2026-08-13: they used to turn one alarm red, which lost the where-to-walk
+signal exactly when it was needed; red is now only the no-track fallback). Per-track, per-heat
 number, off the same `pandora:last-race:*` watermarks the track boards use.
 
 - [x] Day-scoped scan index — `camera-scan-log:{businessDay}`, key/member/TTL **verbatim
