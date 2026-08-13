@@ -98,16 +98,16 @@ export function parseVenueHeatNumber(name: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-/** Every RaceFinish record in a webhook message (array or single object).
+/** Every record of one `$type` in a webhook message (array or single object).
  *  Anything malformed is skipped, never thrown — this runs on the webhook's
  *  hot path where an exotic message must cost nothing. */
-export function extractRaceFinishes(message: unknown): VenueRaceFinish[] {
+function extractRaceRecords(message: unknown, type: string): VenueRaceFinish[] {
   const records = Array.isArray(message) ? message : [message];
   const out: VenueRaceFinish[] = [];
   for (const rec of records) {
     if (!rec || typeof rec !== "object") continue;
     const r = rec as Record<string, unknown>;
-    if (r["$type"] !== "RaceFinish") continue;
+    if (r["$type"] !== type) continue;
     if (r.RaceId === undefined || r.RaceId === null) continue;
     const heatName = typeof r.Name === "string" ? r.Name : "";
     out.push({
@@ -121,6 +121,33 @@ export function extractRaceFinishes(message: unknown): VenueRaceFinish[] {
     });
   }
   return out;
+}
+
+export function extractRaceFinishes(message: unknown): VenueRaceFinish[] {
+  return extractRaceRecords(message, "RaceFinish");
+}
+
+/**
+ * Every `RaceStart` record — THE FLAG DROPPING, as it happens.
+ *
+ * Owner 2026-08-12: "don't we have race start from the karting websocket?" We do,
+ * and we were not listening for it. Surveyed the ingest FIFO the same night: the
+ * bridge forwards RaceStart (272 of them in the buffer), and it carries the same
+ * shape as a finish minus the end — RaceId, ResourceId, Name, and the venue's own
+ * `ActualStart` with `State: "Started"`.
+ *
+ * WHY IT MATTERS EVEN THOUGH A FINISH ALSO CARRIES ActualStart: the finish only
+ * arrives when the race is OVER. Reading the start from it means a race's start
+ * time is unknown for the seven minutes it is being run — fine for a report
+ * written the next day, useless for a board that says how long the group in
+ * front of you has been waiting. With this, the start lands within seconds of the
+ * flag and the finish merely completes the row.
+ *
+ * `state` is deliberately carried rather than filtered here: this returns what
+ * the wire said, and the caller decides what to act on.
+ */
+export function extractRaceStarts(message: unknown): VenueRaceFinish[] {
+  return extractRaceRecords(message, "RaceStart");
 }
 
 /** How stale a stamped end may be and still trigger the finish actions. Wide

@@ -4,7 +4,7 @@ import { businessDayYmdET } from "@/lib/race-business-day";
 import { listBriefingEvents } from "~/features/signage/briefing/events-db";
 import { foldBriefingLog } from "~/features/signage/briefing/briefing-log";
 import { listRaceTimings, listRaceTimingsSince } from "~/features/racing/data/race-timings-db";
-import { summariseWaits, waitsForDay } from "~/features/racing/wait-times";
+import { summariseWaits, summariseWaitsByTrack, waitsForDay } from "~/features/racing/wait-times";
 
 /**
  * WAIT TIMES — every movement, per group and averaged (owner 2026-08-12).
@@ -89,6 +89,10 @@ export async function GET(req: NextRequest) {
         sessions: waits.length,
         racesRecorded: races.length,
         summary,
+        // Split by track as well as combined: blue and red run their own
+        // schedules with their own delays, so one merged average describes a
+        // night neither track actually had.
+        byTrack: summariseWaitsByTrack(waits),
         waits,
       },
       { headers: { "Cache-Control": "no-store" } },

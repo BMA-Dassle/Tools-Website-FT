@@ -40,6 +40,10 @@ export type BriefingEndKind = "cleared" | "replaced" | "film-complete";
 
 export interface BriefingRecord {
   room: BriefingRoom;
+  /** Which TRACK the group is racing on — blue, red, or mega. Distinct from the
+   *  room: on a Mega day both rooms serve one circuit, so a per-track number that
+   *  read the room would split one track's average across two. */
+  track: string | null;
   sessionId: string;
   heatNumber: number | null;
   raceType: string | null;
@@ -151,6 +155,7 @@ export function foldBriefingLog(events: BriefingEvent[], nowMs: number): Briefin
 
     records.push({
       room: first.room,
+      track: sent?.track ?? first.track,
       sessionId: first.sessionId,
       heatNumber: sent?.heatNumber ?? first.heatNumber,
       raceType: sent?.raceType ?? first.raceType,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   extractRaceFinishes,
+  extractRaceStarts,
   isActionableFinish,
   parseVenueHeatNumber,
   parseVenueLocalMs,
@@ -80,6 +81,58 @@ describe("extractRaceFinishes — against real broadcast records", () => {
     expect(extractRaceFinishes("keep-alive")).toEqual([]);
     expect(extractRaceFinishes([{ $type: "SpeedChange" }, null, 42])).toEqual([]);
     expect(extractRaceFinishes({ $type: "RaceFinish" })).toEqual([]); // no RaceId
+  });
+});
+
+/** A real RaceStart, verbatim from the FIFO (2026-08-12 survey). Same shape as a
+ *  finish minus the end — and it arrives seconds after the flag, not seven
+ *  minutes later when the race is over. */
+const START_52_RED = {
+  $type: "RaceStart",
+  ActualStart: "2026-08-12T21:26:03.6296",
+  DurationTime: "00:07:00",
+  PendingFinishDurationTime: "00:05:00",
+  RaceId: 58509580,
+  ScheduledEnd: "2026-08-12T21:24:00",
+  ScheduledStart: "2026-08-12T21:12:00",
+  State: "Started",
+  RecordVersion: 13431178991416000,
+  ResourceId: 11208660,
+  ResourceName: "Red Track",
+  Name: "52 - Red Starter",
+};
+
+describe("extractRaceStarts — the flag, as it drops", () => {
+  it("reads a real RaceStart off the wire", () => {
+    const [s] = extractRaceStarts([START_52_RED]);
+    expect(s.raceId).toBe("58509580");
+    expect(s.heatNumber).toBe(52);
+    expect(s.track).toBe("red");
+    expect(s.state).toBe("Started");
+    expect(s.actualStartMs).not.toBeNull();
+    // No end on a start record — the finish completes the row later.
+    expect(s.actualEndMs).toBeNull();
+  });
+
+  it("ignores every other record type, finishes included", () => {
+    expect(extractRaceStarts([FINISH_67, ADVICE_67])).toHaveLength(0);
+    // …and the finish extractor still ignores starts, so neither double-counts.
+    expect(extractRaceFinishes([START_52_RED])).toHaveLength(0);
+  });
+
+  it("picks the starts out of a mixed race-list push", () => {
+    const starts = extractRaceStarts([FINISH_67, START_52_RED, ADVICE_67, FINISH_65_UNSTAMPED]);
+    expect(starts.map((s) => s.heatNumber)).toEqual([52]);
+  });
+
+  it("takes a single object as readily as an array", () => {
+    expect(extractRaceStarts(START_52_RED)).toHaveLength(1);
+  });
+
+  it("keeps the id as a string, never a rounded number", () => {
+    const [s] = extractRaceStarts([{ ...START_52_RED, RaceId: 58509580 }]);
+    expect(s.raceId).toBe("58509580");
+    expect(typeof s.raceId).toBe("string");
   });
 });
 

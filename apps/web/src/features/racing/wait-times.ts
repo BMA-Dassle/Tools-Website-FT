@@ -58,6 +58,7 @@ export interface RaceWindow {
  *  metrics do not drag the whole log type (or its imports) around with them. */
 export interface BriefingSpanSource {
   sessionId: string;
+  track: string | null;
   heatNumber: number | null;
   raceType: string | null;
   sentAtMs: number;
@@ -83,6 +84,7 @@ export const MAX_PLAUSIBLE_SPAN_MS = 3 * 3_600_000;
 /** Every movement we can measure for one group, ms. Null = not measurable. */
 export interface SessionWaits {
   sessionId: string;
+  track: string | null;
   heatNumber: number | null;
   raceType: string | null;
   /** First racer through the desk → sent to the briefing room. */
@@ -93,6 +95,9 @@ export interface SessionWaits {
   calledToRoomMs: number | null;
   /** Sent to the room → the film actually rolling (the walk, plus any wait). */
   roomToFilmMs: number | null;
+  /** Sent to the room → the flag drops. The number the desk can actually act on:
+   *  everything between "I sent them" and "they are racing", in one span. */
+  roomToRaceMs: number | null;
   /** Sent → left the room. The insurance log's own in-room time. */
   inRoomMs: number | null;
   /** HOLDING: left the briefing room → the flag drops. */
@@ -122,6 +127,7 @@ export const WAIT_METRICS = [
   "checkinSpreadMs",
   "calledToRoomMs",
   "roomToFilmMs",
+  "roomToRaceMs",
   "inRoomMs",
   "briefingToRaceMs",
   "calledToRaceMs",
@@ -184,12 +190,14 @@ export function sessionWaits(
 
   return {
     sessionId: briefing.sessionId,
+    track: briefing.track,
     heatNumber: briefing.heatNumber,
     raceType: briefing.raceType,
     checkinToRoomMs: at("checkinToRoomMs", briefing.checkinFirstAtMs, briefing.sentAtMs),
     checkinSpreadMs: at("checkinSpreadMs", briefing.checkinFirstAtMs, briefing.checkinLastAtMs),
     calledToRoomMs: at("calledToRoomMs", briefing.calledAtMs, briefing.sentAtMs),
     roomToFilmMs: at("roomToFilmMs", briefing.sentAtMs, briefing.startedAtMs),
+    roomToRaceMs: at("roomToRaceMs", briefing.sentAtMs, raceStartMs),
     inRoomMs: at("inRoomMs", briefing.sentAtMs, briefing.endedAtMs),
     briefingToRaceMs: at("briefingToRaceMs", briefing.endedAtMs, raceStartMs),
     calledToRaceMs: at("calledToRaceMs", briefing.calledAtMs, raceStartMs),
@@ -248,6 +256,29 @@ export function summariseWaits(waits: SessionWaits[]): WaitSummary {
       discarded,
     };
   }
+  return out;
+}
+
+/**
+ * The same summary, split by TRACK — which is how the desk reads it.
+ *
+ * Blue and red run their own schedules with their own delays, so one combined
+ * average describes a night neither track had. A Mega day is its own track key,
+ * not a merge of the two, for the same reason.
+ *
+ * Every track that appears in the data gets a bucket; a track that ran nothing
+ * simply is not there, rather than a row of confident zeros.
+ */
+export function summariseWaitsByTrack(waits: SessionWaits[]): Record<string, WaitSummary> {
+  const byTrack = new Map<string, SessionWaits[]>();
+  for (const w of waits) {
+    const key = w.track ?? "unknown";
+    const bucket = byTrack.get(key);
+    if (bucket) bucket.push(w);
+    else byTrack.set(key, [w]);
+  }
+  const out: Record<string, WaitSummary> = {};
+  for (const [track, rows] of byTrack) out[track] = summariseWaits(rows);
   return out;
 }
 

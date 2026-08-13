@@ -4,6 +4,7 @@ import {
   formatWaitMs,
   sessionWaits,
   summariseWaits,
+  summariseWaitsByTrack,
   waitsForDay,
   type BriefingSpanSource,
   type RaceWindow,
@@ -16,6 +17,7 @@ const MIN = 60_000;
 function group(over: Partial<BriefingSpanSource> = {}): BriefingSpanSource {
   return {
     sessionId: "58509552",
+    track: "red",
     heatNumber: 24,
     raceType: "Starter",
     checkinFirstAtMs: T0,
@@ -46,6 +48,7 @@ describe("sessionWaits", () => {
     expect(w.checkinSpreadMs).toBe(2 * MIN); // how spread out their arrivals were
     expect(w.calledToRoomMs).toBe(3 * MIN); // called → sent
     expect(w.roomToFilmMs).toBe(1 * MIN); // the walk over
+    expect(w.roomToRaceMs).toBe(9 * MIN); // sent → flag: what the desk can act on
     expect(w.inRoomMs).toBe(6 * MIN); // sent → left the room
     expect(w.briefingToRaceMs).toBe(3 * MIN); // HOLDING
     expect(w.calledToRaceMs).toBe(12 * MIN); // called → flag
@@ -201,6 +204,48 @@ describe("summariseWaits", () => {
     expect(s.inRoomMs.discarded).toBe(1); // the impossible one is COUNTED
     // The open room contributes to neither — it was simply never measured.
     expect(s.inRoomMs.n + s.inRoomMs.discarded).toBe(2);
+  });
+});
+
+describe("summariseWaitsByTrack", () => {
+  it("keeps blue and red apart — one merged average describes neither", () => {
+    const rows = waitsForDay(
+      [
+        // Red: sent 6, raced at 15 → 9 min from send to flag.
+        group({ sessionId: "r1", track: "red" }),
+        // Blue running 10 minutes behind on the same night.
+        group({ sessionId: "b1", track: "blue" }),
+      ],
+      [
+        race({ sessionId: "r1" }),
+        race({ sessionId: "b1", startedAtMs: T0 + 25 * MIN, endedAtMs: T0 + 35 * MIN }),
+      ],
+    );
+    const byTrack = summariseWaitsByTrack(rows);
+    expect(byTrack.red.roomToRaceMs.medianMs).toBe(9 * MIN);
+    expect(byTrack.blue.roomToRaceMs.medianMs).toBe(19 * MIN);
+    // …and the combined number is a night neither track had.
+    expect(summariseWaits(rows).roomToRaceMs.medianMs).toBe(14 * MIN);
+  });
+
+  it("gives a Mega day its own bucket rather than merging the two rooms", () => {
+    const rows = waitsForDay(
+      [group({ sessionId: "m1", track: "mega" }), group({ sessionId: "m2", track: "mega" })],
+      [race({ sessionId: "m1" }), race({ sessionId: "m2" })],
+    );
+    const byTrack = summariseWaitsByTrack(rows);
+    expect(Object.keys(byTrack)).toEqual(["mega"]);
+    expect(byTrack.mega.roomToRaceMs.n).toBe(2);
+  });
+
+  it("does not invent a bucket for a track that ran nothing", () => {
+    const byTrack = summariseWaitsByTrack(waitsForDay([group({ track: "red" })], []));
+    expect(byTrack.blue).toBeUndefined();
+  });
+
+  it("files a trackless row under unknown rather than dropping it", () => {
+    const byTrack = summariseWaitsByTrack(waitsForDay([group({ track: null })], []));
+    expect(byTrack.unknown.roomToFilmMs.n).toBe(1);
   });
 });
 
