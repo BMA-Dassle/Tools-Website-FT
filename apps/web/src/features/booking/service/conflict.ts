@@ -105,7 +105,7 @@ export const EXISTING_RESERVATION_CONFLICT_TOOLTIP =
  * Package heat-gap rule: candidate must start at least `minutes` after
  * a previously-picked component finished. Used by v1's Ultimate Qualifier
  * package to enforce "Intermediate must start ≥ 60 min after Starter ends"
- * (qualifying race + buffer for video review + appetizer at Nemo's).
+ * (qualifying race + buffer for video review).
  *
  * v2 ports this as-is because the multi-heat 3-pack day-of products use
  * the same primitive at confirmation time.
@@ -144,7 +144,7 @@ export function violatesMinGapAfter(
  * track CHANGE and keeps the stricter number.
  *
  * Owner rule 2026-08-04: the Ultimate Qualifier's 60-min Starter→Intermediate
- * buffer covers qualifying, the POV review, the appetizer AND the walk to the
+ * buffer covers qualifying, the POV review AND the walk to the
  * other track. Staying on one track drops the walk, so same-track pairs only
  * need 30. Rules without `sameTrackMinutes` stay track-agnostic.
  */
@@ -162,7 +162,7 @@ export function packageGapMinutesFor(
 /** Short tooltip explainer for the package gap rule. The component fills
  *  in the actual minutes / qualifier label at render time. */
 export function packageGapTooltip(minutes: number, refLabel: string): string {
-  return `Available ${minutes} min after your ${refLabel} ends — gives you time to qualify, review your POV video, and grab your appetizer.`;
+  return `Available ${minutes} min after your ${refLabel} ends — gives you time to qualify and review your POV video.`;
 }
 
 // ── Cross-reservation spacing ────────────────────────────────────────────

@@ -70,7 +70,7 @@ export interface SaleEntry {
    *  cohort breakdowns. */
   isNewRacer?: boolean;
   /** True when the racing booking opted into the Rookie Pack
-   *  (license + POV + free appetizer bundle). */
+   *  (license + POV bundle). */
   rookiePack?: boolean;
   /** True when the bill includes a POV race-video product. */
   povPurchased?: boolean;

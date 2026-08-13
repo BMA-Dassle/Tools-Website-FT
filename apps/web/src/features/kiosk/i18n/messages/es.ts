@@ -80,7 +80,7 @@ export const es: Record<CoreKey, string> = {
   "categories.eyebrow.premiumRacing": "Carreras premium",
   "categories.combo.priceLine": "{weekday}/persona lun–jue · {weekend}/persona vie–dom",
   "categories.qualifier.blurb":
-    "Califica en un Starter, luego sube de nivel — video POV, aperitivo gratis y licencia incluidos.",
+    "Califica en un Starter, luego sube de nivel — video POV y licencia incluidos.",
   "categories.qualifier.fromWeekday": "Desde {price}/persona lun–jue",
   "categories.qualifier.fromWeekend": "Desde {price}/persona vie–dom",
   "categories.qualifier.disabled":

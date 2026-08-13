@@ -235,9 +235,9 @@ export async function POST(req: NextRequest) {
       kioskMode,
     } = body;
     const codes: string[] = Array.isArray(povCodes) ? povCodes : [];
-    // Rookie Pack hint — adds a one-liner pointing at the
-    // confirmation link to find the appetizer code. Code itself
-    // never appears in SMS/email so it can't be screenshot-shared.
+    // Legacy Rookie Pack boolean from older callers. Kept only to resolve a
+    // package id (below) and to tag the sales log — it no longer implies any
+    // included freebie of its own.
     const isRookiePack = rookiePack === true;
     // Generic package ID — "rookie-pack", "ultimate-qualifier-mega", etc.
     // Falls back to "rookie-pack" when the legacy rookiePack boolean is set
@@ -920,11 +920,13 @@ export async function POST(req: NextRequest) {
         .replace(/\^ActivityBoxLink\(\)\$/g, "https://smstim.in/headpinzftmyers");
 
       // Free appetizer call-out — appended before </body> for any
-      // package that carries an appetizerCode. Copy adapts to the
-      // package (Rookie Pack = "1 per group", Ultimate Qualifier =
-      // "1 per 3 purchases", different menu items). The actual
-      // coupon code lives on the confirmation page only; this email
-      // just tells the racer to look there.
+      // package that carries an appetizerCode, with the copy adapting to that
+      // package's own note + menu items. DORMANT since 2026-08-12: no package
+      // carries one (Rookie Pack dropped its appetizer 2026-08-04, Ultimate
+      // Qualifier 2026-08-12), so this block never renders today. Left gated so
+      // re-enabling the offer stays a registry data change. The actual coupon
+      // code lives on the confirmation page only; this email would just tell
+      // the racer to look there.
       {
         const { getPackageIgnoreFlag } = await import("@/lib/packages");
         const emailPkg = resolvedPackageId ? getPackageIgnoreFlag(resolvedPackageId) : null;

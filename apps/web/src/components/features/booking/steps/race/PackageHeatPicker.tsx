@@ -607,7 +607,7 @@ export function PackageHeatPicker({
   //
   //   1. Track. The configured value (the Ultimate Qualifier's 60 min after the
   //      Starter) is the cross-track number — it budgets the walk to the other
-  //      track on top of the qualify / POV / appetizer turnaround. A candidate
+  //      track on top of the qualify / POV turnaround. A candidate
   //      that STAYS on the Starter's track drops the walk and only owes
   //      `sameTrackMinutes` (30). Owner 2026-08-04. Single-track variants
   //      (Mega, both juniors) are always "same track", so they're 30 flat.
