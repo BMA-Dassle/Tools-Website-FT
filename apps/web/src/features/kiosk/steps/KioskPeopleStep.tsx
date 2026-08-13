@@ -265,9 +265,26 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
 
   /** The SHORT Pandora id Pandora's waiver-sign accepts (the 17-digit Office id
    *  500s). New-created persons' bmiPersonId IS the short id; a returning-lookup
-   *  id is 17-digit and needs the upsert-create resolve first. */
+   *  id is 17-digit and needs the upsert-create resolve first.
+   *
+   *  NOTE the premise in that first sentence is now known to be WRONG — a
+   *  17-digit id 500s only when the person's BIRTHDATE IS NULL, not because of
+   *  its format (2026-08-07: "the id format was a red herring"). It is left as-is
+   *  because this helper guards "never create this person again", where being
+   *  conservative is the safe direction. Do NOT reuse it to pick a SIGNING id —
+   *  see `guardianSignableId`. */
   const shortPandoraId = (m: PartyMember): string | null =>
     m.pandoraPersonId ?? (m.bmiPersonId && m.bmiPersonId.length <= 12 ? m.bmiPersonId : null);
+
+  /** Any BMI id we already hold for a guardian — short or 17-digit Office.
+   *
+   *  Kept in step with `guardianSignableId` in KioskPartyManager (same rule, two
+   *  screens). Using `shortPandoraId` here is what minted a duplicate person for
+   *  every cloud-first adult who became a guardian, and gave the owner a third
+   *  signature pad on 2026-08-13 — the new record could not hold the waiver the
+   *  human had just signed on their Office id. */
+  const guardianSignableId = (m: PartyMember): string | null =>
+    m.pandoraPersonId ?? m.bmiPersonId ?? null;
 
   // The MAIN (billing contact) always renders first (owner 2026-07-18). Stable
   // sort — everyone else keeps add order.
@@ -977,7 +994,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     setChoosingGuardianId(g.id);
     setGError(null);
     try {
-      let sid = shortPandoraId(g);
+      let sid = guardianSignableId(g);
       // Whether the signing id EXISTED before this tap — see the ownValid note.
       const sidPreexisting = !!sid;
       if (!sid) {

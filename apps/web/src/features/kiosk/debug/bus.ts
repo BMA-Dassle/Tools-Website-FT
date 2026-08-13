@@ -50,6 +50,33 @@ export function isKioskDebugArmed(): boolean {
 }
 
 /**
+ * Force the console on from the URL: `?debug=1`.
+ *
+ * Exists because "kiosk 99" is not always what a browser session actually IS —
+ * the kiosk number lives in stored config, `/kiosk?...` REDIRECTS to
+ * `/kiosk/flow` and drops the query string, and a preview build may predate the
+ * console entirely. All three produce the same symptom: no panel, no explanation.
+ * A flag that survives the redirect removes the guesswork.
+ *
+ * Persisted to sessionStorage on first sight precisely BECAUSE the redirect eats
+ * the param — checking `location.search` alone would arm for one render and then
+ * silently stop.
+ */
+const FORCE_KEY = "kiosk-debug-force";
+export function kioskDebugForced(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    if (new URLSearchParams(window.location.search).get("debug") === "1") {
+      window.sessionStorage.setItem(FORCE_KEY, "1");
+      return true;
+    }
+    return window.sessionStorage.getItem(FORCE_KEY) === "1";
+  } catch {
+    return false; // private mode / storage disabled — never break the kiosk
+  }
+}
+
+/**
  * Record one step. No-op unless armed, so call sites need no guard of their own.
  *
  * `message` should read like a sentence a manager could act on ("guardian

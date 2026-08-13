@@ -39,7 +39,7 @@ import { clearBookingSession, usePersistedReducer } from "~/features/booking/hoo
 import { fasttraxQamfDuckpinEnabled } from "~/features/booking/flags";
 import { appendGrantedCredits } from "~/features/booking/data/race-credits";
 import { resetToKiosk } from "../version";
-import { armKioskDebug } from "../debug/bus";
+import { armKioskDebug, kioskDebugForced } from "../debug/bus";
 import KioskDebugPanel from "../debug/KioskDebugPanel";
 import { CartView } from "~/components/features/booking/CartView";
 import { CheckoutStep } from "~/components/features/booking/steps/checkout/CheckoutStep";
@@ -616,8 +616,14 @@ export function KioskFlow({
    * in the shell rather than per-screen so a step-to-step navigation never loses
    * the history that explains how the guest got here.
    */
+  const [debugOn, setDebugOn] = useState(false);
   useEffect(() => {
-    if (isTestKiosk(config)) armKioskDebug();
+    // `?debug=1` is the escape hatch for when the stored kiosk number is not what
+    // you think it is — see kioskDebugForced().
+    if (isTestKiosk(config) || kioskDebugForced()) {
+      armKioskDebug();
+      setDebugOn(true);
+    }
   }, [config]);
 
   // Silent qualification refresh for the review→pay boundary (the last stop
@@ -2901,7 +2907,7 @@ export function KioskFlow({
 
       {/* Last child so it layers over every step. Renders nothing anywhere but
           kiosk 99 — see isTestKiosk. */}
-      {isTestKiosk(config) && <KioskDebugPanel />}
+      {debugOn && <KioskDebugPanel />}
     </>,
     backdropPhoto,
   );

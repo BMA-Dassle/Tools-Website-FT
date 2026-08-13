@@ -191,6 +191,34 @@ export function shortPandoraId(m: PartyMember): string | null {
   return m.pandoraPersonId ?? (m.bmiPersonId && m.bmiPersonId.length <= 12 ? m.bmiPersonId : null);
 }
 
+/**
+ * The id to sign a GUARDIAN's waiver against — any BMI person id we already hold
+ * for them, short OR 17-digit Office.
+ *
+ * Deliberately more permissive than `shortPandoraId`, and the two must not be
+ * merged. That helper guards "never create this person again", where a false
+ * POSITIVE means signing against an id Pandora may not answer for. Here a false
+ * NEGATIVE is what costs us: it mints a second record for a human we already
+ * know.
+ *
+ * ── WHY (live, kiosk 99, 2026-08-13) ───────────────────────────────────────
+ * `shortPandoraId` returns null for anything longer than 12 chars. Under
+ * cloud-first EVERY new person is a 17-digit Office id, so the guardian path
+ * resolved `null` for every freshly onboarded adult, minted a DUPLICATE Pandora
+ * person, and that new record — by construction — held no waiver. Result: a
+ * third signature pad, every single time, plus a duplicate person. The owner saw
+ * exactly that: "two adults (one after clicking guardian) and minor".
+ *
+ * 17-digit ids ARE signable. Proven live: person 63000000008220447 signed waiver
+ * 58606262 on its Office id. The old belief that Pandora rejects them was wrong —
+ * a 500 means a NULL BIRTHDATE, not a bad format. See the repair path in
+ * submitSetup (2026-08-07): "The id format was a red herring; the missing DOB is
+ * the cause."
+ */
+export function guardianSignableId(m: PartyMember): string | null {
+  return m.pandoraPersonId ?? m.bmiPersonId ?? null;
+}
+
 /** canAdvance shared logic: at least one participant, everyone set up + waivered,
  *  every minor has a guardian. `ids` = the participating member ids.
  *  TODO(i18n): module-scope + shared with canAdvance and checkin/server.ts, so it
@@ -488,7 +516,7 @@ export function KioskPartyManager({
         selfSign();
         return;
       }
-      let sid = shortPandoraId(guardian);
+      let sid = guardianSignableId(guardian);
       // Whether the signing id EXISTED before this tap — see the ownValid note.
       const sidPreexisting = !!sid;
       if (!sid) {
@@ -619,7 +647,7 @@ export function KioskPartyManager({
     setChoosingGuardianId(g.id);
     setGError(null);
     try {
-      let sid = shortPandoraId(g);
+      let sid = guardianSignableId(g);
       // Whether the signing id EXISTED before this tap — see the ownValid note.
       const sidPreexisting = !!sid;
       if (!sid) {
