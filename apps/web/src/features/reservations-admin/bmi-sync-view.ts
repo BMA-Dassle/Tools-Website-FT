@@ -28,7 +28,11 @@
  * Read-only. Never throws — the board must render if the queue is unreachable.
  */
 import { sql, isDbConfigured } from "@/lib/db";
-import { PANDORA_DEFAULT_LOCATION_ID } from "@/lib/pandora-locations";
+
+/** FastTrax racing — where kiosk waiver joins are added, and the same default the
+ *  sync cron and barrier probe use. A person id from another centre simply 404s
+ *  here, which fails closed (still shown as owed) rather than wrongly cleared. */
+const RACING_LOCATION_ID = "LAB52GY480CJF";
 
 export interface AdminSyncRow {
   id: number;
@@ -143,6 +147,37 @@ export function guestAddStatus(attach: string, waiver: string | null): string {
   return waiver === "signed" || waiver === "salvaged" ? "done" : "pending";
 }
 
+/**
+ * Does BMI already hold a CURRENT waiver for this person?
+ *
+ * Read-only, and fails CLOSED: anything other than a 200 with a future
+ * `waiverExpiry` returns false, so the guest keeps showing as owed. A 500 here
+ * means a null birthdate (the record exists but the vendor's own schema rejects
+ * it) — "we cannot tell", never "they are covered".
+ *
+ * `kiosk_waiver_joins.location_id` is a BMI centre code, not a Pandora location id,
+ * so it cannot be used directly; the default racing location is where these guests
+ * are being added.
+ */
+async function bmiHoldsCurrentWaiver(personId: string, _joinLocationId: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `https://bma-pandora-api.azurewebsites.net/v2/bmi/person/${RACING_LOCATION_ID}/${personId}?picture=false&allRelated=false`,
+      {
+        headers: { Authorization: `Bearer ${process.env.SWAGGER_ADMIN_KEY || ""}` },
+        cache: "no-store",
+        signal: AbortSignal.timeout(6000),
+      },
+    );
+    if (!res.ok) return false;
+    const d = (await res.json()) as { success?: boolean; data?: { waiverExpiry?: string | null } };
+    const exp = d?.success && d.data?.waiverExpiry ? Date.parse(d.data.waiverExpiry) : NaN;
+    return Number.isFinite(exp) && exp > Date.now();
+  } catch {
+    return false;
+  }
+}
+
 export async function listRecentGuestAdds(minutes = 720, limit = 100): Promise<AdminSyncRow[]> {
   if (!isDbConfigured()) return [];
   try {
@@ -173,12 +208,21 @@ export async function listRecentGuestAdds(minutes = 720, limit = 100): Promise<A
      * other way.
      *
      * Only the rows that would otherwise read as owed are checked, so a clean board
-     * costs nothing. `waiverValidNow` is Redis-cached for 120s and answers from our
-     * own signature record when Pandora is unreadable, so this cannot regress into
-     * "vendor down = everyone owes a waiver".
+     * costs nothing — and on a busy board that is a handful of rows, not the 100 the
+     * query can return.
+     *
+     * Deliberately a BARE FETCH rather than `waiverValidNow`, whose Redis import
+     * drags `ioredis` (and therefore `tls`) into this module. This file is in the
+     * CLIENT bundle graph — `BmiSyncPanel` imports `guestAddStatus` and
+     * `onsitePillCopy` from it — so a server-only dependency here fails the build
+     * with `Module not found: Can't resolve 'tls'`, which neither tsc nor vitest
+     * catches because neither bundles for the browser (2026-08-13).
+     *
+     * Losing the cache costs nothing here: these rows have NO signature record by
+     * definition, so the vendor's answer is the only one that exists. Unreadable
+     * stays PENDING — never silently "covered" — so a Pandora outage cannot turn
+     * into "nobody owes a waiver".
      */
-    const { waiverValidNow, WAIVER_CHECK_CONCURRENCY } =
-      await import("~/features/kiosk/waiver/valid-count");
     const suspect = rows.filter(
       (r) =>
         String(r.bmi_attach_status) === "attached" &&
@@ -188,14 +232,14 @@ export async function listRecentGuestAdds(minutes = 720, limit = 100): Promise<A
         ) === "pending",
     );
     const coveredAnyway = new Set<string>();
-    for (let i = 0; i < suspect.length; i += WAIVER_CHECK_CONCURRENCY) {
-      const batch = suspect.slice(i, i + WAIVER_CHECK_CONCURRENCY);
+    const CHECK_CONCURRENCY = 5;
+    for (let i = 0; i < suspect.length; i += CHECK_CONCURRENCY) {
+      const batch = suspect.slice(i, i + CHECK_CONCURRENCY);
       await Promise.all(
         batch.map(async (r) => {
           const pid = String(r.person_id ?? "");
           if (!pid) return;
-          const ok = await waiverValidNow(pid, PANDORA_DEFAULT_LOCATION_ID).catch(() => false);
-          if (ok) coveredAnyway.add(pid);
+          if (await bmiHoldsCurrentWaiver(pid, String(r.location_id ?? ""))) coveredAnyway.add(pid);
         }),
       );
     }
