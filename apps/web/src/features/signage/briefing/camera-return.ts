@@ -310,6 +310,42 @@ export function cameraReturnStripAt(input: CameraReturnInput): CameraReturnStrip
 }
 
 /**
+ * INCOMING IS THE ROOM'S OWN. Still out is everyone's.
+ *
+ * Owner 2026-08-12: "incoming cameras should be separated by room. Blue goes to
+ * blue, red goes to red." The two sections answer different questions, so they get
+ * different scopes:
+ *
+ *   INCOMING   is about the group physically walking into THIS room to hand kit in.
+ *              A Red attendant looking at Blue's returning cameras is reading
+ *              somebody else's list.
+ *   STILL OUT  stays venue-wide, unchanged — a camera lost on Blue is just as much
+ *              a problem for whoever hands out kit in Red, which is why the owner
+ *              asked for it that way in the first place.
+ *
+ * MEGA SHOWS IN BOTH, because both rooms serve the one circuit — the same rule
+ * room-return.ts follows. That is not the "claimed in both rooms" bug that killed
+ * the next-up board: this is a physical camera due back at a counter, not a claim
+ * that a particular race belongs to a particular room.
+ *
+ * AN UNATTRIBUTED CAMERA (no track on its finish record — a group event, a custom
+ * race) also shows in both, deliberately. Hiding it would silently drop a camera
+ * from the one board whose job is making sure none go missing, and the cost of
+ * showing it twice is that two attendants both know to look for it.
+ *
+ * Filtered CLIENT-SIDE on purpose: the strip is built once per venue and cached, so
+ * each TV picks its own room out of the shared payload — the identical pattern
+ * `briefingRooms` uses, and the reason one build can serve both walls.
+ */
+export function incomingForRoom<T extends { track: CameraTrack | null }>(
+  incoming: T[],
+  room: "red" | "blue" | null,
+): T[] {
+  if (!room) return incoming;
+  return incoming.filter((b) => b.track === room || b.track === "mega" || b.track === null);
+}
+
+/**
  * MAKE A PERSISTED STRIP SAFE TO RENDER. Returns null for anything unusable.
  *
  * THE OUTAGE THIS EXISTS FOR (2026-08-12, my regression): the strip's wire shape

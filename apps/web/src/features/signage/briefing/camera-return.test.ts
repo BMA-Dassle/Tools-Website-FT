@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   cameraReturnStripAt,
   formatSinceFlag,
+  incomingForRoom,
   INCOMING_FALLBACK_MS,
   normaliseCameraReturn,
   SEEN_SKEW_MS,
@@ -607,6 +608,70 @@ describe("normaliseCameraReturn — the 2026-08-12 white-screen", () => {
     expect(safe.incoming).toEqual(built.incoming);
     expect(safe.stillOut).toEqual(built.stillOut);
     expect(safe.outCount).toBe(built.outCount);
+  });
+});
+
+describe("incomingForRoom", () => {
+  const box = (camera: string, track: CameraTrack | null) => ({ camera, track });
+  const all = [
+    box("10", "blue"),
+    box("20", "red"),
+    box("30", "mega"),
+    box("40", null),
+    box("50", "blue"),
+  ];
+
+  it("gives Blue its own, plus mega and unattributed", () => {
+    // Owner 2026-08-12: "Blue goes to blue, red goes to red."
+    expect(incomingForRoom(all, "blue").map((b) => b.camera)).toEqual(["10", "30", "40", "50"]);
+  });
+
+  it("gives Red its own, plus mega and unattributed", () => {
+    expect(incomingForRoom(all, "red").map((b) => b.camera)).toEqual(["20", "30", "40"]);
+  });
+
+  it("never shows one room the OTHER room's returning cameras", () => {
+    expect(incomingForRoom(all, "red").some((b) => b.track === "blue")).toBe(false);
+    expect(incomingForRoom(all, "blue").some((b) => b.track === "red")).toBe(false);
+  });
+
+  it("shows a mega camera in BOTH rooms — one circuit, two rooms", () => {
+    expect(incomingForRoom(all, "blue").some((b) => b.camera === "30")).toBe(true);
+    expect(incomingForRoom(all, "red").some((b) => b.camera === "30")).toBe(true);
+  });
+
+  it("passes everything through when the screen has no room configured", () => {
+    expect(incomingForRoom(all, null)).toHaveLength(all.length);
+  });
+
+  it("returns empty rather than throwing on an empty section", () => {
+    expect(incomingForRoom([], "blue")).toEqual([]);
+  });
+
+  it("scoping a real strip leaves STILL OUT untouched", () => {
+    // Still out is venue-wide on purpose: a camera lost on Blue is the Red
+    // attendant's problem too. Only incoming is scoped.
+    const built = cameraReturnStripAt({
+      scans: [scan("10", "SBLUE", T - m(40)), scan("20", "SRED", T - m(20))],
+      finishes: finishes([
+        ["SBLUE", T - m(30), 40, "blue"],
+        ["SRED", T - m(2), 41, "red"],
+      ]),
+      seen: new Map(),
+      calledHeats: called([
+        ["blue", 41, T - m(25)],
+        ["red", 41, T],
+      ]),
+      nowMs: T,
+    });
+    // Blue's heat settled (a call came after its flag) so it is still-out; Red's
+    // heat is the live one.
+    expect(built.stillOut.map((b) => b.camera)).toEqual(["10"]);
+    expect(built.incoming.map((b) => b.camera)).toEqual(["20"]);
+    // The RED room sees the venue-wide still-out AND its own incoming.
+    expect(incomingForRoom(built.incoming, "red").map((b) => b.camera)).toEqual(["20"]);
+    // The BLUE room sees the same still-out, but not Red's returning camera.
+    expect(incomingForRoom(built.incoming, "blue")).toEqual([]);
   });
 });
 
