@@ -308,10 +308,14 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   useVisibleInterval(
     async (signal) => {
       try {
-        const res = await fetch(`/api/admin/wait-times?token=${encodeURIComponent(token)}&days=7`, {
-          cache: "no-store",
-          signal,
-        });
+        // excludeToday=1 — the seven days BEFORE today. A baseline that contains
+        // today is today compared with itself, which in the first days of data is
+        // EXACTLY itself: every tile reads "about the same" and the comparison
+        // silently means nothing.
+        const res = await fetch(
+          `/api/admin/wait-times?token=${encodeURIComponent(token)}&days=7&excludeToday=1`,
+          { cache: "no-store", signal },
+        );
         if (!res.ok || signal?.aborted) return;
         setWaitTimesWeek((await res.json()) as WaitTimesBoard);
       } catch {

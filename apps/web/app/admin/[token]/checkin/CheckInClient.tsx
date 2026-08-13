@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
-import RaceControlPanels from "./RaceControlPanels";
+import RaceControlPanels, { WaitTimesStrip } from "./RaceControlPanels";
 import { useBriefingControl } from "./useBriefingControl";
 import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import {
@@ -837,6 +837,15 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
             v{version}
           </p>
         </div>
+
+        {/* TODAY'S WAIT TIMES, IN THE HEADER'S OWN EMPTY SPACE (owner 2026-08-12:
+            "lots of wasted space at top to work with"). This band was a title,
+            three buttons and a wide gap; the gap now carries the metrics, so the
+            board below keeps every pixel for the rooms. Board mode only — the
+            plain check-in station has no race context to compare against. */}
+        {boardMode && (
+          <WaitTimesStrip waitTimes={briefing.waitTimes} waitTimesWeek={briefing.waitTimesWeek} />
+        )}
 
         {/* A NEWER DEPLOY IS LIVE (owner 2026-08-12: "enable this page to grab
             updates when needed so when we push this goes live"). The board picks

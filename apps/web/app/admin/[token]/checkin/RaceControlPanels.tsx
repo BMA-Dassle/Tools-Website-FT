@@ -329,13 +329,6 @@ export default function RaceControlPanels({
         )}
       </header>
 
-      {/* TODAY'S WAIT TIMES — the strip the top of the board was freed up for. */}
-      <WaitTimesStrip
-        waitTimes={control.waitTimes}
-        waitTimesWeek={control.waitTimesWeek}
-        megaDay={megaEnabled}
-      />
-
       {(board?.enabled === false || noVideos) && (
         <div style={{ display: "grid", gap: 6, marginBottom: 10, flexShrink: 0 }}>
           {board?.enabled === false && (
@@ -543,12 +536,12 @@ export default function RaceControlPanels({
  * add some critical wait times — send to room to start of race, total experience
  * time, both per track… it would be today's times").
  *
- * SEND → RACE is the desk's own span: everything between "I sent them" and "they
- * are racing". It is the one a shift can actually shorten, because both ends are
- * ours — the send is a press at this desk, and the flag follows the briefing.
- * TOTAL is called → chequered flag, the guest's whole experience, and it exists
- * to keep the first number honest: a shift can look fast on send→race while the
- * night as a whole has slipped.
+ * ROOM → RACE is the desk's own span: everything between "I sent them to the
+ * room" and "they are racing". It is the one a shift can actually shorten,
+ * because both ends are ours — the send is a press at this desk, and the flag
+ * follows the briefing. TOTAL EXPERIENCE is called → chequered flag, the guest's
+ * whole visit, and it exists to keep the first number honest: a shift can look
+ * quick on room → race while the night as a whole has slipped.
  *
  * MEDIAN, NOT MEAN. One group nobody released drags a mean by minutes and leaves
  * a median alone, and the desk needs the TYPICAL night to decide anything. The
@@ -560,49 +553,91 @@ export default function RaceControlPanels({
  * day the data arrives under `mega` and this shows that single column, rather
  * than two columns of the same number.
  */
-function WaitTimesStrip({
+export function WaitTimesStrip({
   waitTimes,
   waitTimesWeek,
-  megaDay,
 }: {
   waitTimes: WaitTimesBoard | null;
   waitTimesWeek: WaitTimesBoard | null;
-  megaDay: boolean;
 }) {
-  const tracks: Array<{ key: string; label: string; color: string }> = megaDay
-    ? [{ key: "mega", label: "MEGA TRACK", color: MEGA }]
-    : [
-        { key: "red", label: "RED TRACK", color: ROOM_COLOR.red },
-        { key: "blue", label: "BLUE TRACK", color: ROOM_COLOR.blue },
-      ];
+  /**
+   * WHICH TRACKS TO SHOW, read off the data rather than passed in.
+   *
+   * A Mega day is one circuit that both rooms serve, so its heats arrive under
+   * `mega` and red + blue columns would be two tiles of nothing beside one of
+   * everything. Deriving it here also means this component carries no track
+   * status of its own — which is what lets it live up in the page header, away
+   * from the board that knows about tracks.
+   *
+   * Before the night's first heat there is nothing to read, so it falls back to
+   * red + blue: two tiles that fill themselves in, rather than a strip that pops
+   * into existence an hour into the shift.
+   */
+  const ALL: Array<{ key: string; label: string; color: string }> = [
+    { key: "red", label: "RED TRACK", color: ROOM_COLOR.red },
+    { key: "blue", label: "BLUE TRACK", color: ROOM_COLOR.blue },
+    { key: "mega", label: "MEGA TRACK", color: MEGA },
+  ];
+  const ran = ALL.filter((t) => (waitTimes?.byTrack?.[t.key]?.roomToRaceMs?.n ?? 0) > 0);
+  const tracks = ran.length > 0 ? ran : ALL.slice(0, 2);
 
   return (
+    // IN THE PAGE HEADER, filling space that was empty (owner 2026-08-12: "lots of
+    // wasted space at top to work with"). That band was a title, three buttons and
+    // a wide gap; the tiles now live in the gap and cost the board no vertical
+    // space at all — every pixel they do not take is a pixel the room panels keep.
+    // Wraps to its own line on a narrow desk monitor rather than crushing the
+    // buttons.
     <div
       style={{
-        display: "grid",
-        gap: 14,
-        // The SAME track that owns the room column below it — one vertical stack
-        // per track, so the eye reads down a track rather than across the board.
-        gridTemplateColumns: `repeat(${tracks.length}, minmax(0, 1fr))`,
-        flexShrink: 0,
-        marginBottom: 12,
+        display: "flex",
+        gap: 10,
+        flexWrap: "wrap",
+        flex: "1 1 520px",
+        justifyContent: "flex-end",
       }}
     >
       {tracks.map(({ key, label, color }) => {
         const today = waitTimes?.byTrack?.[key];
         const week = waitTimesWeek?.byTrack?.[key];
         return (
-          <div key={key} style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
+          <div
+            key={key}
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 16,
+              border: `1px solid ${withAlpha(color, 0.3)}`,
+              background: PORTAL_DARK.card,
+              borderRadius: 8,
+              padding: "8px 14px 9px",
+            }}
+          >
+            {/* THE TRACK, NAMED ONCE. Two tiles side by side each repeating "RED
+                TRACK" was the loudest thing in the strip and the least
+                informative — the pair belongs to one track, so the card says it
+                once and the numbers inside get the room. */}
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 10,
+                fontWeight: 800,
+                letterSpacing: "0.05em",
+                color,
+                whiteSpace: "nowrap",
+                paddingTop: 3,
+              }}
+            >
+              <span
+                aria-hidden
+                style={{ width: 7, height: 7, borderRadius: "50%", background: color }}
+              />
+              {label}
+            </span>
+            <WaitTile title="Room → race" today={today?.roomToRaceMs} week={week?.roomToRaceMs} />
             <WaitTile
-              track={label}
-              color={color}
-              title="Send → race"
-              today={today?.roomToRaceMs}
-              week={week?.roomToRaceMs}
-            />
-            <WaitTile
-              track={label}
-              color={color}
               title="Total experience"
               today={today?.calledToRaceEndMs}
               week={week?.calledToRaceEndMs}
@@ -635,65 +670,32 @@ function WaitTimesStrip({
  * blunt the one that matters.
  */
 function WaitTile({
-  track,
-  color,
   title,
   today,
   week,
 }: {
-  track: string;
-  color: string;
   title: string;
   today: { n: number; medianMs: number | null } | undefined;
   week: { n: number; medianMs: number | null } | undefined;
 }) {
   const known = today?.medianMs != null;
   return (
-    <div
-      style={{
-        border: `1px solid ${withAlpha(color, 0.3)}`,
-        background: PORTAL_DARK.card,
-        borderRadius: 8,
-        padding: "9px 12px 10px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 2,
-        minWidth: 0,
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            fontSize: 10,
-            fontWeight: 800,
-            letterSpacing: "0.05em",
-            color,
-          }}
-        >
-          <span
-            aria-hidden
-            style={{ width: 7, height: 7, borderRadius: "50%", background: color }}
-          />
-          {track}
-        </span>
-        <span style={{ marginLeft: "auto" }}>
-          <TrendChip todayMs={today?.medianMs ?? null} weekMs={week?.medianMs ?? null} />
-        </span>
-      </div>
-
+    <div style={{ minWidth: 0 }}>
       <div
         style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
           fontSize: 9,
           fontWeight: 800,
           letterSpacing: "0.10em",
           textTransform: "uppercase",
           color: PORTAL_DARK.muted,
+          whiteSpace: "nowrap",
         }}
       >
         {title}
+        <TrendChip todayMs={today?.medianMs ?? null} weekMs={week?.medianMs ?? null} />
       </div>
       {/* No data says so plainly, in the muted em-dash the rest of the board uses
           for "not known". A tile showing 0:00 over an empty night would read as
@@ -701,18 +703,16 @@ function WaitTile({
       <div
         className="rc-num"
         style={{
-          fontSize: 30,
+          fontSize: 26,
           fontWeight: 800,
-          lineHeight: 1.05,
+          lineHeight: 1.1,
           color: known ? INK : PORTAL_DARK.muted,
         }}
       >
         {known ? formatWaitMs(today?.medianMs ?? null) : "—"}
       </div>
-      <div style={{ fontSize: 10, color: PORTAL_DARK.muted }}>
-        {today?.n
-          ? `median · ${today.n} heat${today.n === 1 ? "" : "s"} today`
-          : "no heats yet today"}
+      <div style={{ fontSize: 10, color: PORTAL_DARK.muted, whiteSpace: "nowrap" }}>
+        {today?.n ? `median · ${today.n} heat${today.n === 1 ? "" : "s"}` : "no heats yet"}
       </div>
     </div>
   );
