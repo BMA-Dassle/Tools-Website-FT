@@ -4016,3 +4016,45 @@ and switch `layout.tsx` from `next/font/google` to `next/font/local`. Same rende
 zero build-time network dependency, reproducible builds. Deliberately NOT bundled
 into the queue-migration branch — it touches every page's typography and wants its
 own PR and its own visual check.
+
+## A default that is right 33 times out of 35 hides the bug (2026-08-13)
+
+**What happened:** the day the queued waiver push went to production, 33 of 35
+signatures filed cleanly. The two that did not were both HeadPinz Naples, and both
+were REAL GUESTS — Abbie and Logan Valentine. Their signatures sat `outcome=queued`
+for 23 minutes, retrying, on course to give up with nothing filed at BMI.
+
+**Root cause:** the consumer passed `locationId` to `personsLocalBarrier` — which is
+why the barrier read wide OPEN, Pandora answering 200 for both the minor and the
+signing guardian — and then did NOT pass it to `signWaiverDigital`. That function
+resolves its centre from `locationKey`, and `resolvePandoraLocation(undefined)` falls
+back to FastTrax. So the write went to a centre where a Naples person id does not
+exist, because BMI ids do not cross centres. Throw, retry, give up.
+
+**Why it survived review and a live smoke test:** the fallback was CORRECT for
+FastTrax, which is where every test signature and 33 of 35 production signatures
+happened. A wrong default is invisible for as long as it happens to match. Only a
+Naples signature could expose it, and none existed until real guests arrived.
+
+**The tell we already had and did not read:** the same file's own comments warn that
+"omitting any of them lets signWaiverDigital's EVENT-waiver defaults win" — that note
+was written after the template and expiry defaults bit us the same way. Two fields had
+been fixed. `locationKey` was the third instance of an identical bug and nobody
+generalised the lesson from "check these two fields" to "this function's defaults are
+a trap; pass everything explicitly".
+
+**The rules:**
+1. **The location you PROVE against must be the location you WRITE to.** If a barrier
+   and its write take a centre separately, they can disagree, and the barrier passing
+   makes the failure look like a vendor problem rather than our own.
+2. **A resolver that falls back must not accept an id it does not recognise.**
+   `signWaiverDigital` now takes a resolved `locationId` that wins over `locationKey`
+   and THROWS on an unknown one. Falling back on an unrecognised id is a wrong-centre
+   write waiting to happen — silent, and worse than an error.
+3. **Smoke-test at a centre that is NOT the default.** A single Naples signature would
+   have caught this before a guest did.
+
+**Also proved the recovery rail works:** all five genuinely-unfiled signatures were
+re-enqueued through `bmi_sync_queue` and filed by the production cron within two
+minutes, verified against Pandora (`waiver 8598389` / `8598390` for the Naples pair).
+`skipIfValid: true` makes a re-push safe even if one had landed in the meantime.
