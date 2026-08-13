@@ -3906,3 +3906,74 @@ don't have the 4th of july going on." Three independent causes, all live at once
    the beat family is a multiple of 1400ms, and that each beat-family keyframe is
    one symmetric excursion (0% == 100%, distinct 50%). A test holding its own
    copy of the durations could not have caught any of this.
+
+## A build that fails AFTER the build produces no deployment to look at (2026-08-13)
+
+**What happened:** `fix/kiosk-waiver-5s-wait-and-queued-success` stopped producing
+previews. Two pushes in a row — the commit that bound the Queues consumer to its
+topics, then an empty "retrigger" commit written on the theory that the GitHub →
+Vercel webhook had missed — and the branch alias still served a build from before
+either of them. There was no failed deployment in the dashboard to open, no red
+check, nothing to read. It looked exactly like a webhook problem, which is why the
+second commit was an attempt to poke the webhook rather than a fix.
+
+It was a build error. `vercel.json` bound both topics to the one consumer route:
+
+```json
+"app/api/queue/waiver-push/route.ts": {
+  "experimentalTriggers": [
+    { "type": "queue/v2beta", "topic": "waiver-push" },
+    { "type": "queue/v2beta", "topic": "waiver-push-preview" }
+  ]
+}
+```
+
+Vercel allows exactly ONE `queue/v2beta` trigger per function:
+
+```
+Error: functions["app/api/queue/waiver-push/route.ts"].experimentalTriggers
+       can only have one item for queue/v2beta
+```
+
+The shape is verbatim from the `@vercel/queue` README, which shows a single-element
+array everywhere and never says the array is capped at one. Copying the documented
+shape and adding a second element is the obvious move, and it is wrong.
+
+**Why it was invisible:** the error fires in `onBuildComplete` — Vercel's own
+post-build hook — so it lands AFTER a clean Turbopack compile, after 49s of
+TypeScript, and after all 350 static pages generate. Everything a local `next build`
+or `tsc --noEmit` can check had already passed. Neither gate can reach it: the hook
+is injected by the Vercel Next.js adapter and only runs on a real deployment.
+
+**The rule:** when a branch goes quiet and there is no deployment to open, do not
+theorise about the webhook — reproduce the deployment yourself with
+`npx vercel deploy` from a clean worktree at that exact commit. It runs the same
+server-side validation and prints the error the dashboard never got far enough to
+show you. Four minutes, and it ends the guessing. Two commits and forty minutes went
+into a webhook theory that one CLI deploy disproved.
+
+Corollary: a `vercel.json` change is not covered by any pre-push gate we own. Treat
+it like a migration — deploy it somewhere before you believe it.
+
+**The fix, and why not the easy one:** the easy fix is one topic for both
+environments. Wrong — preview deployments share the production Neon database, and a
+preview consumer receiving, pushing and ACKNOWLEDGING a real guest's waiver that
+production never sees is the `persons-local` hazard with worse consequences. The
+environment split IS the safety property. So each topic gets its own route file and
+both call one factory (`~/features/kiosk/waiver/waiver-push-consumer.ts`); the
+handler is unchanged, only the binding differs.
+
+**Observed, not documented:** once a route carries an `experimentalTriggers`
+binding it stops answering public HTTP — `/api/queue/waiver-push` went from 405 on
+the un-bound build to 404 `X-Matched-Path: /_not-found` on the bound one, while
+every other route was untouched. That reads as Vercel taking queue-triggered
+functions out of the public routing table, which is sensible, but it is inferred
+from two deployments, not from any doc. Don't smoke-test a bound consumer by curling
+it — it will 404 whether it works or not. Test it by sending a message.
+
+**Proof it works** (row #778, the thing the branch could never verify before):
+signature at 07:53:50Z filed as `waiver_id=58606290`, `transport=vercel-queue`,
+settled +28s — inside the predicted 20-30s window. The same table still shows #776
+and #777 from the un-bound previews: `outcome=queued`, never filed. The Neon
+fallback does not catch those, because it only engages when the SEND fails, and
+those sends succeeded.
