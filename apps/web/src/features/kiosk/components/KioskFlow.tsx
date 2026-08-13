@@ -1608,6 +1608,13 @@ export function KioskFlow({
         {children}
       </div>
       {utilityStrip}
+      {/* INSIDE chrome deliberately. There are TWELVE `return chrome(...)` paths in
+          this component, and mounting the console at one of them (the last) meant
+          it never rendered for the wizard steps — three smoke runs reported "no
+          debug screen" because of it. `chrome` is the single wrapper every path
+          shares, so this is the only place it can be mounted once and be true for
+          all of them. */}
+      {debugOn && <KioskDebugPanel />}
       {/* Before <IdleWatcher/>: the idle "Still there?" sheet is the same
           z-[80] — as the later sibling it must paint ON TOP of this confirm. */}
       {confirmSheet}
@@ -2904,10 +2911,6 @@ export function KioskFlow({
             sublabel={bookingHeatsProgress || t("flow.loader.oneMoment")}
           />
         )}
-
-      {/* Last child so it layers over every step. Renders nothing anywhere but
-          kiosk 99 — see isTestKiosk. */}
-      {debugOn && <KioskDebugPanel />}
     </>,
     backdropPhoto,
   );
