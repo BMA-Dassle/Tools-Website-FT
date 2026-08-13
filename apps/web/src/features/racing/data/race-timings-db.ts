@@ -143,19 +143,30 @@ export async function listRaceTimings(venue: string, businessDay: string): Promi
   return rows.map(toRow);
 }
 
-/** A span of business days, for a rolling average. Newest day first is the
- *  caller's problem — the metrics fold does not care about order. */
+/**
+ * A span of business days, for a rolling average. Order is the fold's problem,
+ * not this query's.
+ *
+ * `toBusinessDay` is INCLUSIVE and optional. It exists so a caller can ask for
+ * "the week BEFORE today" — the only window a today-vs-baseline comparison can
+ * honestly use, since a range that ran to today would be comparing today against
+ * itself.
+ */
 export async function listRaceTimingsSince(
   venue: string,
   fromBusinessDay: string,
+  toBusinessDay?: string,
 ): Promise<RaceTiming[]> {
   if (!isDbConfigured()) return [];
   await ensureSchema();
   const q = sql();
+  // Open-ended when no end is named — '9999-12-31' sorts above any business day
+  // this venue will ever write, so one query serves both shapes.
+  const to = toBusinessDay ?? "9999-12-31";
   const rows = (await q`
     SELECT session_id, business_day, track, heat_number, heat_name, started_at, ended_at
     FROM race_timings
-    WHERE venue = ${venue} AND business_day >= ${fromBusinessDay}
+    WHERE venue = ${venue} AND business_day >= ${fromBusinessDay} AND business_day <= ${to}
     ORDER BY business_day ASC, started_at ASC NULLS LAST
     LIMIT 2000
   `) as Array<Record<string, unknown>>;
