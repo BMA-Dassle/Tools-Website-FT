@@ -320,26 +320,6 @@ export default function RaceControlPanels({
             {note}
           </span>
         )}
-
-        {/* THE TWO REFERENCE PANELS, as controls rather than as furniture. Both
-            were permanently on the board and neither is watched — see BoardModal
-            for why that space belongs to the rooms instead. */}
-        <span
-          style={{
-            marginLeft: note ? 0 : "auto",
-            display: "inline-flex",
-            gap: 8,
-            alignItems: "center",
-          }}
-        >
-          <PanelButton onClick={() => control.setOpenPanel("waits")}>Wait times</PanelButton>
-          <PanelButton
-            onClick={() => control.setOpenPanel("log")}
-            count={board?.briefings.length ?? 0}
-          >
-            Briefing log
-          </PanelButton>
-        </span>
       </header>
 
       {(board?.enabled === false || noVideos) && (
@@ -686,55 +666,6 @@ function BoardModal({
         <div style={{ overflowY: "auto", padding: "14px 18px 18px", minHeight: 0 }}>{children}</div>
       </div>
     </div>
-  );
-}
-
-/** A header control that opens a reference panel. Quiet by default — these sit
- *  beside a board whose own buttons perform actions, and an outline button reads
- *  as "look at something" rather than "do something". */
-function PanelButton({
-  onClick,
-  count,
-  children,
-}: {
-  onClick: () => void;
-  /** Shown as a chip when there is something to count, e.g. today's log rows. */
-  count?: number;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className="rcb"
-      onClick={onClick}
-      style={{
-        padding: "5px 11px",
-        borderRadius: 6,
-        fontSize: 11,
-        fontWeight: 700,
-        borderColor: PORTAL_DARK.border,
-        background: "transparent",
-        color: PORTAL_DARK.fg,
-      }}
-    >
-      {children}
-      {count != null && count > 0 && (
-        <span
-          className="rc-num"
-          style={{
-            marginLeft: 2,
-            padding: "1px 6px",
-            borderRadius: 999,
-            background: PORTAL_DARK.muted2,
-            color: PORTAL_DARK.muted,
-            fontSize: 10,
-            fontWeight: 800,
-          }}
-        >
-          {count}
-        </span>
-      )}
-    </button>
   );
 }
 
