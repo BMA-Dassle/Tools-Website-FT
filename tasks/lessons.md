@@ -3977,3 +3977,42 @@ settled +28s — inside the predicted 20-30s window. The same table still shows 
 and #777 from the un-bound previews: `outcome=queued`, never filed. The Neon
 fallback does not catch those, because it only engages when the SEND fails, and
 those sends succeeded.
+
+## A poisoned build cache fails a build your code did not break (2026-08-13)
+
+**What happened:** two consecutive Vercel builds died on
+
+```
+Received response with status 404 when requesting
+  https://fonts.gstatic.com/s/outfit/v15/QGYFz_MVcBeNP4NjuGObqx1XmO1I4TC1…woff2
+Module not found: Can't resolve '@vercel/turbopack-next/internal/font/google/font'
+  → ./apps/web/app/layout.tsx
+```
+
+Nothing in the commit touched fonts. The first failure read as an upstream blip, so
+I retried — and `vercel redeploy` failed identically, which killed the flake theory.
+
+**Root cause: the restored build cache.** `next/font/google` downloads the woff2
+files at BUILD time and caches the resolved URLs in `.next/cache`. Google rotates
+those hashed URLs; once the cached manifest points at a rotated one, every build that
+restores that cache 404s — deterministically, forever, on code that is fine.
+
+Proof, not inference: `npx vercel deploy --force` (skip build cache) on the exact same
+commit went **READY**. Same source, same everything, cache the only variable.
+
+**The recovery, and the order matters:** a successful build WRITES a fresh cache. So
+`--force` once, then a normal `vercel redeploy` — the redeploy inherits the healthy
+cache and goes green. Redeploying first just restores the poison again.
+
+**The rule:** an identical failure on retry is not a flake. Before blaming upstream,
+change exactly one variable — `--force` — and see if the build passes. If it does,
+the cache is the bug and the code is innocent.
+
+**Still owed — this is a production hazard, not a preview annoyance.** Every build is
+one Google URL rotation away from failing, including a production deploy during an
+incident when we can least afford it. The real fix is to stop fetching fonts from a
+third party at build time: download the Outfit weights we actually use into the repo
+and switch `layout.tsx` from `next/font/google` to `next/font/local`. Same rendering,
+zero build-time network dependency, reproducible builds. Deliberately NOT bundled
+into the queue-migration branch — it touches every page's typography and wants its
+own PR and its own visual check.
