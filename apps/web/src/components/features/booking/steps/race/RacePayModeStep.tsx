@@ -54,6 +54,7 @@ import {
   type RacerType,
 } from "~/features/booking/service/race-products";
 import {
+  applyPackSelection,
   coveredMembersPreview,
   kioskRacePacksEnabled,
   packSkusForRaceDate,
@@ -759,11 +760,40 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
             const sale = skus.filter((p) => p.badge && eligible.some((m) => packFitsMember(p, m)));
             if (sale.length === 0 || packOpen) return null;
             const lead = sale.reduce((a, b) => (b.price < a.price ? b : a));
+            const fits = eligible.filter((m) => packFitsMember(lead, m));
+            const held = picks.some((p) => p.slug === lead.slug);
             return (
               <button
                 type="button"
-                onClick={() => setPackOpen(true)}
-                className="relative mt-2 flex w-full items-center gap-4 rounded-2xl border-2 border-amber-400 bg-linear-to-br from-amber-400/20 to-amber-400/5 px-5 pb-4 pt-6 text-left"
+                aria-pressed={held}
+                onClick={() => {
+                  // SELECT it, don't just reveal it. This row IS the offer, so a
+                  // tap that only expanded the picker asked the guest to choose
+                  // the same thing twice. Mirrors the picker's own one-person
+                  // shortcut: a single eligible racer applies straight away, and
+                  // only a party with a real choice to make gets the
+                  // "who's this for?" panel.
+                  if (held) {
+                    onChange({
+                      creditPacks: applyPackSelection(picks, lead.slug, []),
+                    });
+                    return;
+                  }
+                  if (fits.length === 1) {
+                    // A pack IS the payment for today's race — same rule the
+                    // picker applies, so it cancels the "pay per race" row
+                    // rather than stacking with it.
+                    setSingleChosen(false);
+                    onChange({
+                      creditPacks: applyPackSelection(picks, lead.slug, [fits[0].id]),
+                    });
+                    return;
+                  }
+                  setPackOpen(true);
+                }}
+                className={`relative mt-2 flex w-full items-center gap-4 rounded-2xl border-2 border-amber-400 bg-linear-to-br from-amber-400/20 to-amber-400/5 px-5 pb-4 pt-6 text-left ${
+                  held ? "ring-4 ring-amber-400/45" : ""
+                }`}
               >
                 <span className="absolute -top-3 left-5 rounded-full bg-amber-400 px-3 py-1 text-[11px] font-black uppercase italic tracking-wide text-[#241701]">
                   {t("payMode.flashSale")}
@@ -786,8 +816,11 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
                     {money(lead.price)}
                   </span>
                 </span>
-                <span aria-hidden className="shrink-0 text-white/50">
-                  ›
+                <span
+                  aria-hidden
+                  className={`shrink-0 ${held ? "text-amber-300" : "text-white/50"}`}
+                >
+                  {held ? "✓" : "›"}
                 </span>
               </button>
             );

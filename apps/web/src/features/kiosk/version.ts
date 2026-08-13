@@ -15,6 +15,12 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.22.2 — The flash-sale row SELECTS the pack instead of just revealing it.
+ *         Tapping it only expanded the picker, so the guest chose the same
+ *         thing twice. A single eligible racer now applies straight away
+ *         (mirroring the picker own one-person shortcut) and it cancels the
+ *         "pay per race" row like any pack; only a party with a real choice
+ *         still gets the "who is this for?" panel. Tap again to remove.
  * 1.22.1 — HOTFIX: the packages page crashed on load. The party-eligibility
  *         filter added in 1.22.0 read `eligible` one line before it was
  *         declared — a temporal-dead-zone ReferenceError that took out the
@@ -942,7 +948,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.22.1";
+export const KIOSK_VERSION = "1.22.2";
 
 let bootVersion: string | null = null;
 let captured = false;
