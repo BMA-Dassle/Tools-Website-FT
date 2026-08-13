@@ -29,7 +29,12 @@ import "server-only";
  */
 import redis from "@/lib/redis";
 import { businessDayYmdET } from "@/lib/race-business-day";
-import { extractRaceFinishes, isActionableFinish } from "~/features/racing/venue-broadcast";
+import {
+  extractRaceFinishes,
+  extractRaceStarts,
+  isActionableFinish,
+} from "~/features/racing/venue-broadcast";
+import { recordRaceTiming } from "~/features/racing/data/race-timings-db";
 import { listBriefingAssignments } from "./assignments-db";
 import { announceReturnOnce } from "./return-announce.server";
 import { loadOrCaptureResults } from "./race-results.server";
@@ -67,6 +72,34 @@ export async function readRaceFinishedMarker(
 }
 
 /**
+ * Write down every race start in a message.
+ *
+ * Claimed per race so the same start re-arriving (the broadcast repeats itself,
+ * and a reconnect replays the buffer) costs one Neon write rather than one per
+ * push. A start stamp never changes, so the claim needs no version in its key —
+ * unlike the finish claim, where a pending end really does get superseded.
+ *
+ * Never throws: this is metrics riding an ingest webhook.
+ */
+async function recordRaceStarts(message: unknown): Promise<void> {
+  for (const s of extractRaceStarts(message)) {
+    if (s.actualStartMs === null) continue;
+    const claim = await redis
+      .set(`race-timing:${s.raceId}:start`, "1", "EX", 36 * 3600, "NX")
+      .catch(() => null);
+    if (claim !== "OK") continue;
+    await recordRaceTiming({
+      sessionId: s.raceId,
+      track: s.track,
+      heatNumber: s.heatNumber,
+      heatName: s.heatName || null,
+      startedAtMs: s.actualStartMs,
+      endedAtMs: null,
+    }).catch((err) => console.error("[race-timings] start write failed", err));
+  }
+}
+
+/**
  * Act on one webhook message. The broadcast re-sends the whole day's race list
  * on every state change and replays it in reconnect catch-up dumps, so this is
  * gated three deep: the freshness rule (pure, tested), a per-race NX claim,
@@ -74,11 +107,60 @@ export async function readRaceFinishedMarker(
  */
 export async function handleVenueMessage(message: unknown): Promise<void> {
   try {
+    /**
+     * THE FLAG DROPPING, RECORDED AS IT HAPPENS (owner 2026-08-12: "don't we have
+     * race start from the karting websocket?").
+     *
+     * We do — the bridge forwards `RaceStart`, and until now nothing here read
+     * it. A finish carries ActualStart too, but only once the race is OVER, so a
+     * race's start time was unknown for the whole seven minutes it was being run.
+     * This lands it within seconds of the flag; the finish later completes the
+     * same row (the upsert COALESCEs, so neither can blank the other).
+     *
+     * Handled BEFORE the finish loop and independently of it — a message can
+     * carry starts and no finishes at all, which the old early-return dropped.
+     */
+    await recordRaceStarts(message);
+
     const finishes = extractRaceFinishes(message);
     if (finishes.length === 0) return;
     const nowMs = Date.now();
 
     for (const f of finishes) {
+      /**
+       * THE ARCHIVE WRITE, AHEAD OF THE FRESHNESS GATE AND ON PURPOSE.
+       *
+       * Everything below this line is a live effect — a marker a wall reads, a
+       * radio call, a standings capture — and all of it is rightly inert for a
+       * race that finished hours ago. The timing row is the opposite: it is
+       * history, so a replayed race list is exactly how a bridge outage
+       * BACKFILLS the night it missed (the pipe had a 2.5h hole on 8/11). The
+       * upsert COALESCEs, so a replay can only ever fill a gap.
+       *
+       * Claimed per (race, end stamp) so the day's list re-arriving on every
+       * state change costs one Neon write per race, not one per push — and a
+       * CHANGED end stamp still gets through, because the claim key carries it.
+       */
+      if (f.actualEndMs !== null || f.actualStartMs !== null) {
+        const claim = await redis
+          .set(`race-timing:${f.raceId}:${f.actualEndMs ?? "pending"}`, "1", "EX", 36 * 3600, "NX")
+          .catch(() => null);
+        if (claim === "OK") {
+          await recordRaceTiming({
+            sessionId: f.raceId,
+            track: f.track,
+            heatNumber: f.heatNumber,
+            heatName: f.heatName || null,
+            startedAtMs: f.actualStartMs,
+            endedAtMs: f.actualEndMs,
+          }).catch((err) => {
+            // Metrics data, not a guest-facing effect: a Neon blip must never
+            // cost the radio call or the standings capture below it.
+            console.error("[race-timings] write failed", err);
+          });
+        }
+      }
+
       if (!isActionableFinish(f, nowMs)) continue;
 
       const marker: RaceFinishedMarker = {

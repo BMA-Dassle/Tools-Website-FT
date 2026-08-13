@@ -848,10 +848,11 @@ export default function ConfirmationPage() {
           }
         } catch {
           // No hardcoded fallback. This used to assert a Rookie Pack appetizer
-          // when the registry import failed — which is now simply untrue (the
-          // Rookie Pack dropped its appetizer 2026-08-04; the Ultimate Qualifier
-          // keeps one). Promising a freebie the bar won't honour is worse than
-          // showing nothing, and the registry is the only thing that knows.
+          // when the registry import failed — which is now simply untrue: NO
+          // package includes one (Rookie Pack dropped it 2026-08-04, Ultimate
+          // Qualifier 2026-08-12). Promising a freebie the bar won't honour is
+          // worse than showing nothing, and the registry is the only thing
+          // that knows.
         }
 
         // Build race groups — group racers by heat for display tiles

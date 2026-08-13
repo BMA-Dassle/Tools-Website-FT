@@ -127,6 +127,8 @@ export const racepackEn = {
   "payMode.incl.license": "license",
   "payMode.license.plus": "+ {price} license for {names}",
   "payMode.incl.video": "video",
+  // Dormant since 2026-08-12 — no package carries an appetizerCode, so this
+  // chip never renders. Kept so re-enabling the offer is a registry edit only.
   "payMode.incl.appetizer": "appetizer",
   "payMode.say.qualifier":
     "Starter now, then your Intermediate spot saved for later — faster karts, same visit.",

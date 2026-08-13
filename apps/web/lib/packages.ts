@@ -32,9 +32,10 @@ export const POV_PRICE = 4.99;
 // carries a real menu value at Nemo's. Used by the picker card +
 // review hero card to show "you save $X".
 export const POV_CHECKIN_PRICE = 7;
-// $15 menu retail at Nemo's — counts toward the package savings
-// line so customers see the full bundle value vs. piecing the
-// gear together at the counter + ordering an app separately.
+// $15 menu retail at Nemo's — counted toward the package savings line for any
+// bundle carrying an `appetizerCode`. DORMANT since 2026-08-12: no package
+// carries one, so this adds nothing to any savings figure today. Kept with the
+// gated code paths so re-enabling the offer stays a registry data change.
 export const APPETIZER_RETAIL_VALUE = 15;
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -106,7 +107,7 @@ export interface PackageRaceComponent {
    *  `sameTrackMinutes` relaxes the rule when the candidate heat is on
    *  the SAME track as the referenced pick — there's no walk to the
    *  other track, so the buffer only has to cover the qualify / POV
-   *  review / appetizer turnaround (owner 2026-08-04: Ultimate
+   *  review turnaround (owner 2026-08-04: Ultimate
    *  Qualifier same-track drops 60 → 30). Omit it and `minutes` applies
    *  regardless of track. Resolved by `packageGapMinutesFor` in
    *  `heat-conflict.ts` / `features/booking/service/conflict.ts`. */
@@ -185,20 +186,20 @@ export interface PackageDefinition {
   includesLicense: boolean;
   /** Auto-add POV cameras (one per racer) at checkout. */
   includesPov: boolean;
-  /** Free-appetizer redeem code shown on the confirmation page.
-   *  Same for Rookie Pack and Ultimate Qualifier today (RACEAPP);
-   *  the field exists so future packages can diverge. */
-  /** Nemo's appetizer promo code. The Rookie Pack dropped it 2026-08-04 (owner);
-   *  the Ultimate Qualifier keeps it. Everything downstream — the picker
-   *  checklist, the cart row, the confirmation block and the email call-out — is
-   *  driven off this field, so removing it here removes it everywhere. */
+  /** Nemo's appetizer promo code. DORMANT since 2026-08-12: NO package carries
+   *  one. The Rookie Pack dropped its appetizer 2026-08-04 and the Ultimate
+   *  Qualifier dropped its own 2026-08-12 (owner, web + kiosk). Everything
+   *  downstream — the picker checklist, the cart row, the kiosk pay-mode
+   *  "incl." chip, the confirmation block and the email call-out — is gated on
+   *  this field, so setting it here is the ONLY thing that turns the offer back
+   *  on, and clearing it is the only thing that turns it off. Nothing renders
+   *  an appetizer without it; there is deliberately no hardcoded fallback. */
   appetizerCode?: string;
-  /** Per-package qualifier for the appetizer offer. Rookie Pack is
-   *  "1 per group"; Ultimate Qualifier is "1 per 3 purchases". */
+  /** Per-package qualifier for the appetizer offer, e.g. "1 per group" or
+   *  "1 per 3 purchases". Only meaningful alongside `appetizerCode`. */
   appetizerNote?: string;
-  /** Menu items the appetizer code is valid for. Differs between
-   *  packages — Rookie Pack offers the GF variant of Mac & Cheese;
-   *  Ultimate Qualifier lists Bruschetta - Regular instead. */
+  /** Menu items the appetizer code is valid for — per package, since the
+   *  eligible list has differed between bundles. */
   appetizerItems?: string[];
 
   /** Per-racer bundle total. Optional — if omitted, the auto-sum
@@ -263,17 +264,12 @@ const ROOKIE_PACK_ENABLED =
 const ULTIMATE_QUALIFIER_ENABLED =
   (process.env.NEXT_PUBLIC_ULTIMATE_QUALIFIER_ENABLED || "true").toLowerCase() !== "false";
 
-// Shared appetizer items per package — factored out so the picker
-// card, confirmation page, and email all pull from the same list.
-const UQ_APPETIZER_NOTE = "1 per 3 purchases";
-const UQ_APPETIZER_ITEMS = ["Bruschetta - Regular", "Fried Zucchini Sticks", "Mac & Cheese Bites"];
-
 // Shared Ultimate Qualifier copy — the per-track / per-schedule
 // variants only differ in their race component productIds, so the
 // long description, disclaimer body, and bill memo are factored out
 // here. Update once and every variant inherits it.
 const UQ_LONG =
-  "This is the premier FastTrax experience. Think you have what it takes to level up? This isn't for the faint of heart. You'll qualify in one of our Starter races, and if you level up, your Intermediate race will be waiting for you — scheduled 30 minutes later on the same track, or an hour later if you switch tracks. While you wait, you can review the included POV video to get better and enjoy a free appetizer at Nemo's upstairs (1 per 3 purchases, dine-in only). This ultimate pack also includes your license.";
+  "This is the premier FastTrax experience. Think you have what it takes to level up? This isn't for the faint of heart. You'll qualify in one of our Starter races, and if you level up, your Intermediate race will be waiting for you — scheduled 30 minutes later on the same track, or an hour later if you switch tracks. While you wait, you can review the included POV video to get better before you line up again. This ultimate pack also includes your license.";
 
 const UQ_DISCLAIMERS: PackageDefinition["disclaimers"] = {
   title: "Heads Up — Ultimate Qualifier",
@@ -318,7 +314,8 @@ const BOGO_DISCLAIMERS: PackageDefinition["disclaimers"] = {
     "** BOGO RACES (FLASH SALE) ** Customer is a NEW racer — has NOT yet qualified for Intermediate. Paid ONE race price for TWO heats. NO license, NO POV, NO appetizer included — do not comp these. STAFF: verify level-up before assigning kart to the Intermediate race. If customer did not qualify: offer additional Starter (if available) OR issue race credit. NO cash refunds — customer acknowledged disclaimer at booking.",
 };
 
-// No appetizer since 2026-08-04 (owner) — the Ultimate Qualifier keeps one.
+// No appetizer since 2026-08-04 (owner). The Ultimate Qualifier dropped its
+// own 2026-08-12 — no package includes one now.
 const ROOKIE_LONG =
   "Your first race plus everything you need to remember it: FastTrax license and ViewPoint POV camera footage of your run.";
 
@@ -511,9 +508,9 @@ const PACKAGES: PackageDefinition[] = [
   // ── Ultimate Qualifier (Mega) ─────────────────────────────────────────────
   // Premier package for Mega Tuesdays. Books two heats — Starter
   // Mega first, then Intermediate Mega after the Starter ends, with
-  // enough of a gap to qualify, watch the included POV video, and
-  // grab the free appetizer. Both components are Mega-only, so the
-  // same-track relaxation always applies here: 30 min, not 60.
+  // enough of a gap to qualify and watch the included POV video.
+  // Both components are Mega-only, so the same-track relaxation
+  // always applies here: 30 min, not 60.
   //
   // Intermediate productId 45810775 is a NEW BMI SKU minted for this
   // package only — separate from the standalone Intermediate Race
@@ -530,7 +527,7 @@ const PACKAGES: PackageDefinition[] = [
     maxQualifiedTier: "starter",
     recommended: true,
     name: "Ultimate Qualifier",
-    shortDescription: "Starter Mega + Intermediate Mega + license + POV + free appetizer",
+    shortDescription: "Starter Mega + Intermediate Mega + license + POV",
     longDescription: UQ_LONG,
     enabled: ULTIMATE_QUALIFIER_ENABLED,
     // First-time racers only. A returning racer who's already
@@ -569,9 +566,6 @@ const PACKAGES: PackageDefinition[] = [
     ],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: UQ_APPETIZER_NOTE,
-    appetizerItems: UQ_APPETIZER_ITEMS,
     // No explicit `price` — let the auto-sum helper compute it from
     // the components above + license + POV. Update once finalized.
     cartLineKey: "ultimate-qualifier-mega",
@@ -596,7 +590,7 @@ const PACKAGES: PackageDefinition[] = [
     maxQualifiedTier: "starter",
     recommended: true,
     name: "Ultimate Qualifier",
-    shortDescription: "Starter + Intermediate + License + POV + free appetizer",
+    shortDescription: "Starter + Intermediate + License + POV",
     longDescription: UQ_LONG,
     enabled: ULTIMATE_QUALIFIER_ENABLED,
     racerType: "new",
@@ -627,9 +621,6 @@ const PACKAGES: PackageDefinition[] = [
     ],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: UQ_APPETIZER_NOTE,
-    appetizerItems: UQ_APPETIZER_ITEMS,
     cartLineKey: "ultimate-qualifier-weekday",
     displayOrder: 10,
     disclaimers: UQ_DISCLAIMERS,
@@ -649,8 +640,7 @@ const PACKAGES: PackageDefinition[] = [
     maxQualifiedTier: "starter",
     recommended: true,
     name: "Ultimate Qualifier",
-    shortDescription:
-      "Junior Starter Blue + Junior Intermediate Blue + License + POV + free appetizer",
+    shortDescription: "Junior Starter Blue + Junior Intermediate Blue + License + POV",
     longDescription: UQ_LONG,
     enabled: ULTIMATE_QUALIFIER_ENABLED,
     racerType: "new",
@@ -681,9 +671,6 @@ const PACKAGES: PackageDefinition[] = [
     ],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: UQ_APPETIZER_NOTE,
-    appetizerItems: UQ_APPETIZER_ITEMS,
     cartLineKey: "ultimate-qualifier-weekday-junior",
     displayOrder: 10,
     disclaimers: UQ_DISCLAIMERS,
@@ -824,7 +811,7 @@ const PACKAGES: PackageDefinition[] = [
     maxQualifiedTier: "starter",
     recommended: true,
     name: "Ultimate Qualifier",
-    shortDescription: "Starter + Intermediate + License + POV + free appetizer",
+    shortDescription: "Starter + Intermediate + License + POV",
     longDescription: UQ_LONG,
     enabled: ULTIMATE_QUALIFIER_ENABLED,
     racerType: "new",
@@ -855,9 +842,6 @@ const PACKAGES: PackageDefinition[] = [
     ],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: UQ_APPETIZER_NOTE,
-    appetizerItems: UQ_APPETIZER_ITEMS,
     cartLineKey: "ultimate-qualifier-weekend",
     displayOrder: 10,
     disclaimers: UQ_DISCLAIMERS,
@@ -875,8 +859,7 @@ const PACKAGES: PackageDefinition[] = [
     maxQualifiedTier: "starter",
     recommended: true,
     name: "Ultimate Qualifier",
-    shortDescription:
-      "Junior Starter Blue + Junior Intermediate Blue + License + POV + free appetizer",
+    shortDescription: "Junior Starter Blue + Junior Intermediate Blue + License + POV",
     longDescription: UQ_LONG,
     enabled: ULTIMATE_QUALIFIER_ENABLED,
     racerType: "new",
@@ -907,9 +890,6 @@ const PACKAGES: PackageDefinition[] = [
     ],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: UQ_APPETIZER_NOTE,
-    appetizerItems: UQ_APPETIZER_ITEMS,
     cartLineKey: "ultimate-qualifier-weekend-junior",
     displayOrder: 10,
     disclaimers: UQ_DISCLAIMERS,

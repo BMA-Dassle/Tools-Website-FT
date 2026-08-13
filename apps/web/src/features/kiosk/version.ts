@@ -15,6 +15,21 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.22.3 — THE ULTIMATE QUALIFIER NO LONGER INCLUDES THE FREE APPETIZER (owner
+ *         2026-08-12), in-center AND online. Cleared appetizerCode / note /
+ *         items from all five UQ variants in the registry, which is the single
+ *         switch every surface reads: the kiosk pay-mode "incl." chip, the
+ *         picker checklist, the cart row, the web v1 picker + order summary,
+ *         both confirmation pages and the confirmation email all gate on it,
+ *         so one data edit drops the offer everywhere. The copy that spelled it
+ *         out in prose rather than reading the flag was updated too — the five
+ *         UQ short descriptions, the shared long description, and the kiosk
+ *         Experiences-shelf blurb in EN + ES. No package carries an appetizer
+ *         now (the Rookie Pack dropped its own in 1.14.3), so the mechanism is
+ *         dormant rather than deleted — turning it back on is a registry edit.
+ *         No price changes: the appetizer was never in packagePerRacerPrice,
+ *         only in the retail comparison, so the displayed "you save" figure
+ *         drops by $15 and nothing charged moves.
  * 1.22.2 — The flash-sale row SELECTS the pack instead of just revealing it.
  *         Tapping it only expanded the picker, so the guest chose the same
  *         thing twice. A single eligible racer now applies straight away
@@ -948,7 +963,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.22.2";
+export const KIOSK_VERSION = "1.22.3";
 
 let bootVersion: string | null = null;
 let captured = false;

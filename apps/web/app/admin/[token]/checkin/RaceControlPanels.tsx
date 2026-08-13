@@ -61,12 +61,18 @@
  * Start rolls the film, because a group still walking over would miss the opening.
  * Undo covers a mis-send, Restart covers latecomers.
  *
+ * AND THE SECOND PHASE IS HELD FOR TEN SECONDS (owner 2026-08-12: "they are
+ * hitting send to room then hit start video right after each other"). Two presses
+ * a second apart collapse the walk the two phases exist for, and the film opens on
+ * an empty room. Start counts the hold down on its own face — see
+ * briefing/start-hold.ts for the rule and why it is desk-only.
+ *
  * NUMBERS TICK LOCALLY. The board polls every 5 seconds, which would make a timer
  * visibly jump, so a 1s clock drives the readouts and the phase comes from
  * briefingTimelineAt — the SAME pure function the TV runs, so desk and wall agree.
  */
-import { useEffect, useRef, useState } from "react";
-import { IconAlertTriangleFilled, IconMaximize, IconX } from "@tabler/icons-react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { IconAlertTriangleFilled, IconCamera, IconMaximize, IconX } from "@tabler/icons-react";
 import { useTrackStatus, type CurrentRace, type TrackInfo } from "@/hooks/useTrackStatus";
 import { PORTAL_DARK } from "~/components/features/admin-skin/theme";
 import { briefingTimelineAt, type BriefingTimeline } from "~/features/signage/briefing/phase";
@@ -87,7 +93,9 @@ import {
   waitingAlert,
   type AlertLevel,
 } from "~/features/signage/briefing/desk-alerts";
-import type { BriefingControl, RoomStatus } from "./useBriefingControl";
+import { startHoldRemainingMs, startHoldSeconds } from "~/features/signage/briefing/start-hold";
+import { formatWaitMs } from "~/features/racing/wait-times";
+import type { BriefingControl, RoomStatus, WaitTimesBoard } from "./useBriefingControl";
 import { formatRemaining, useLiveSessionClock } from "~/features/signage/live-session";
 import type { TrackKey } from "~/features/signage/track";
 
@@ -101,6 +109,26 @@ const AMBER = "#f0b341";
  *  temporal dead zone). */
 const DANGER = "#ff4d4f";
 const INK = "#e8eef7";
+
+/**
+ * A TEMPORARY MEMO TO THE DESK — added 2026-08-12, delete once the habit sticks.
+ *
+ * The order of operations went inside out on the floor: staff were sending the
+ * room and starting the film in two presses at the desk, THEN going to fetch the
+ * group (owner: "please make sure you send to room before pulling from check in").
+ * The ten-second hold on Start (start-hold.ts) buys the walk; this says why, in
+ * words, because a pause nobody understands is a pause staff learn to wait out
+ * without changing what they do around it.
+ *
+ * IT LIVES ON THE SEND BUTTON, NOT ACROSS THE TOP OF THE BOARD (owner 2026-08-12:
+ * "I don't want as a banner, put somewhere near that button"). A standing banner
+ * is read once and becomes wallpaper by the second heat; a line attached to the
+ * control is read at the moment it is about to be disobeyed, and it is on screen
+ * only while there is actually a session waiting to be sent.
+ *
+ * Disposable by design — one constant, one line that renders it.
+ */
+const STAFF_MEMO = "Send to the room BEFORE you pull them from check-in.";
 
 const PHASE_LABEL: Record<BriefingPhase, string> = {
   waiting: "Waiting to start",
@@ -121,6 +149,11 @@ const STYLES = `
 .rcb:focus-visible { outline: 2px solid ${INK}; outline-offset: 2px; }
 .rcb:disabled { opacity: 0.35; cursor: not-allowed; filter: none; }
 .rcb[aria-busy="true"] { cursor: progress; }
+/* A HELD BUTTON IS NOT AN UNAVAILABLE ONE. The generic disabled treatment fades a
+   control out to say "this is not yours to press"; a Start counting itself down IS
+   yours to press, in eight seconds, and the number on it is the whole point — so
+   it keeps its colour and its weight and only loses a little saturation. */
+.rcb-hold:disabled { opacity: 1; filter: saturate(0.5) brightness(0.88); cursor: wait; }
 .rcb-spin {
   width: 13px; height: 13px; border-radius: 50%;
   border: 2px solid currentColor; border-top-color: transparent;
@@ -194,7 +227,28 @@ function useNowMs(intervalMs = 1_000): number {
   return now;
 }
 
-export default function RaceControlPanels({ control }: { control: BriefingControl }) {
+/** A called heat's check-in progress, as the station polls it. */
+export interface CheckinCount {
+  track: string;
+  sessionId: number | string;
+  checkedIn: number;
+  total: number;
+}
+
+export default function RaceControlPanels({
+  control,
+  checkinCounts = [],
+}: {
+  control: BriefingControl;
+  /**
+   * HOW MANY OF THE HEAT ARE THROUGH THE DESK, moved down here from the top of
+   * the board (owner 2026-08-12: "in board mode move the number checked in down
+   * to the check-in areas"). It belongs beside the heat it counts — the Called
+   * box already names that session — and it frees the top strip for the wait
+   * times. Empty on any surface that does not poll it, which simply hides it.
+   */
+  checkinCounts?: CheckinCount[];
+}) {
   const status = useTrackStatus();
   const nowMs = useNowMs();
   const { board, note, pending } = control;
@@ -314,6 +368,14 @@ export default function RaceControlPanels({ control }: { control: BriefingContro
                 )?.room ?? null
               }
               nowMs={nowMs}
+              // Matched on SESSION, never on track: two tracks can have a heat
+              // called at once, and a count against the wrong group is worse
+              // than no count at all.
+              checkedIn={
+                checkinCounts.find(
+                  (c) => !!race && String(c.sessionId) === String(race.sessionId),
+                ) ?? null
+              }
               // 0 until the first poll lands — checkinAlert reads that as "no
               // deadline known", so a board still connecting never flashes at a
               // window it is guessing at.
@@ -340,19 +402,25 @@ export default function RaceControlPanels({ control }: { control: BriefingContro
         })}
       </div>
 
-      {/* TODAY'S BRIEFING LOG — the durable record, on screen.
-          Was "Sent today", a list of send times read from the assignment rows.
-          It now reads the Neon event log (owner 2026-08-12: "for insurance
-          purposes, record when each session is briefed and the time they're in
-          the room"), so each line carries what was actually recorded: in at, the
-          film, whether it finished, and how long the room was theirs. Shown
-          because a record nobody can see is a record nobody notices has stopped
-          being written — this strip is the daily proof it is landing. */}
-      {(board?.briefings.length ?? 0) > 0 && (
-        <details style={{ marginTop: 10, flexShrink: 0 }}>
-          <summary style={{ cursor: "pointer", fontSize: 11, color: PORTAL_DARK.muted }}>
-            Briefing log — today ({board?.briefings.length})
-          </summary>
+      {/* TODAY'S BRIEFING LOG — the durable record, one button away.
+
+          Shown because a record nobody can see is a record nobody notices has
+          stopped being written: this list is the daily proof the insurance data
+          is landing. It reads the Neon event log (owner 2026-08-12: "for
+          insurance purposes, record when each session is briefed and the time
+          they're in the room"), so each line carries what was actually recorded —
+          in at, the film, whether it finished, the briefing photo, and how long
+          the room was theirs. It lived along the bottom of the board as a
+          details strip; it is a thing staff READ, not watch, so it is now a
+          panel (owner 2026-08-13). */}
+      {control.openPanel === "log" && (
+        <BoardModal
+          title="Briefing log"
+          subtitle={`Today · ${board?.briefings.length ?? 0} briefings${
+            board?.businessDay ? ` · ${board.businessDay}` : ""
+          }`}
+          onClose={() => control.setOpenPanel(null)}
+        >
           <div style={{ marginTop: 6, display: "grid", gap: 2 }}>
             <div
               style={{
@@ -370,6 +438,7 @@ export default function RaceControlPanels({ control }: { control: BriefingContro
               <span style={{ minWidth: 96 }}>Film</span>
               <span style={{ minWidth: 76 }}>In at</span>
               <span style={{ minWidth: 76 }}>Started</span>
+              <span style={{ minWidth: 104 }}>Briefing photo</span>
               <span style={{ marginLeft: "auto" }}>In room</span>
             </div>
             {board?.briefings.slice(0, 12).map((b) => (
@@ -402,13 +471,53 @@ export default function RaceControlPanels({ control }: { control: BriefingContro
                 <span style={{ minWidth: 76 }}>
                   {b.startedAtMs != null ? clockTimeMs(b.startedAtMs) : "—"}
                 </span>
+                {/* THE PICTURE, AND WHEN IT WAS TAKEN (owner 2026-08-12: "you can
+                    say screenshot and timestamp of room saved for insurance on the
+                    check-in board so they know"). The time is the point — it is
+                    what makes the row a record rather than a claim — and it opens
+                    the still, because the first thing anyone asks of a photo is to
+                    see it. Staff-only surface: /admin is token-gated. */}
+                <span style={{ minWidth: 104 }}>
+                  {b.photoUrl ? (
+                    <a
+                      href={b.photoUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        color: GREEN,
+                        textDecoration: "none",
+                      }}
+                      title="Briefing photo saved for insurance — opens the still"
+                    >
+                      <IconCamera size={12} aria-hidden />
+                      {clockTimeMs(b.photoAtMs ?? b.startedAtMs ?? b.sentAtMs)}
+                    </a>
+                  ) : b.startedAtMs != null ? (
+                    <span style={{ color: AMBER }}>no photo</span>
+                  ) : (
+                    "—"
+                  )}
+                </span>
                 <span style={{ marginLeft: "auto", color: b.inRoomMs != null ? INK : AMBER }}>
                   {b.inRoomMs != null ? formatClock(b.inRoomMs) : "in there now"}
                 </span>
               </div>
             ))}
           </div>
-        </details>
+        </BoardModal>
+      )}
+
+      {control.openPanel === "waits" && (
+        <BoardModal
+          title="Wait times"
+          subtitle="Last hour against today and the last seven days, per track"
+          onClose={() => control.setOpenPanel(null)}
+        >
+          <WaitTimesRail waitTimes={control.waitTimes} waitTimesWeek={control.waitTimesWeek} />
+        </BoardModal>
       )}
 
       {expanded && (
@@ -422,9 +531,361 @@ export default function RaceControlPanels({ control }: { control: BriefingContro
           onStart={(restart) => control.start(expanded, { restart })}
           onSwitch={(next) => control.setExpandedRoom(next)}
           onClose={() => control.setExpandedRoom(null)}
+          getLiveUrl={control.liveCameraUrl}
         />
       )}
     </section>
+  );
+}
+
+/* ── today's wait times, per track ─────────────────────────────────────── */
+/**
+ * A REFERENCE PANEL OVER THE BOARD — wait times, today's log.
+ *
+ * Both used to sit ON the board: the metrics as a rail across the top, the log as
+ * a details strip along the bottom. Neither is an ACTION, and neither is watched —
+ * they are things a staff member opens, reads, and dismisses, maybe twice a shift.
+ * Board furniture that earns its space is furniture you look at constantly, and
+ * these were taking permanent room from the rooms and clocks that are the job
+ * (owner 2026-08-13: "move stats to a button, move briefing log to a button as
+ * well with modal").
+ *
+ * Same dialog mechanics as the camera viewer, deliberately: ONE backdrop button
+ * behind the content rather than a click handler on a non-interactive div, so it
+ * answers Enter/Space for free, no keyboard is stranded, and the children have
+ * nothing to guard against. Esc closes, and focus lands on Close when it opens.
+ */
+function BoardModal({
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    closeRef.current?.focus();
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="rc-lb"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 95,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+      }}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label={`Close ${title.toLowerCase()}`}
+        style={{
+          position: "absolute",
+          inset: 0,
+          border: 0,
+          background: "rgba(3,6,12,0.86)",
+          cursor: "default",
+        }}
+      />
+      <div
+        style={{
+          position: "relative",
+          width: "min(1180px, 100%)",
+          maxHeight: "86vh",
+          display: "flex",
+          flexDirection: "column",
+          background: PORTAL_DARK.card,
+          border: `1px solid ${PORTAL_DARK.border}`,
+          borderRadius: 10,
+          boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            gap: 12,
+            padding: "14px 18px",
+            borderBottom: `1px solid ${PORTAL_DARK.border}`,
+            flexShrink: 0,
+          }}
+        >
+          <h3
+            style={{
+              margin: 0,
+              fontSize: 13,
+              fontWeight: 800,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: INK,
+            }}
+          >
+            {title}
+          </h3>
+          {subtitle && <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{subtitle}</span>}
+          <button
+            ref={closeRef}
+            type="button"
+            className="rcb"
+            onClick={onClose}
+            title="Close (Esc)"
+            style={{
+              marginLeft: "auto",
+              padding: "6px 12px",
+              borderRadius: 6,
+              fontSize: 12,
+              borderColor: PORTAL_DARK.border,
+              background: "transparent",
+              color: PORTAL_DARK.fg,
+            }}
+          >
+            <IconX size={14} stroke={2.4} />
+            Close
+          </button>
+        </div>
+        {/* The body scrolls, never the page behind it — a log of fifty heats must
+            not push the dialog off a desk monitor. */}
+        <div style={{ overflowY: "auto", padding: "14px 18px 18px", minHeight: 0 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * TODAY'S WAIT TIMES — a small matrix per track, above that track's own room.
+ *
+ * WHAT THE DESK ACTUALLY ASKS is not "what is our average", it is "are we running
+ * behind right now" (owner 2026-08-13: "I think you need day and last hour so we
+ * know if we're calling behind"). A night's median is the very thing that hides a
+ * shift going wrong at 9pm — twenty good heats bury three bad ones — so the LAST
+ * HOUR is the number in large type, and the day and the week sit under it as the
+ * baselines it is read against.
+ *
+ * A MATRIX, NOT A ROW OF CHIPS. Periods down the side, measures across the top:
+ * every number shares a column with the one above it, so "behind" is a comparison
+ * the eye makes for free rather than one an arrow has to assert. That also
+ * retired the trend chips, the repeated track labels and the "TODAY · MEDIAN"
+ * filler the earlier passes spent width on.
+ *
+ * ALIGNED TO ITS OWN ROOM. Same grid template as the room columns below, so the
+ * red matrix sits directly over RED ROOM and the blue over BLUE ROOM, with the
+ * spine colour carrying down the page. The previous cut floated these in the page
+ * header, where red's numbers sat above the middle of the board and belonged to
+ * nothing — which is exactly why it read as clutter.
+ */
+export function WaitTimesRail({
+  waitTimes,
+  waitTimesWeek,
+}: {
+  waitTimes: WaitTimesBoard | null;
+  waitTimesWeek: WaitTimesBoard | null;
+}) {
+  /**
+   * WHICH TRACKS TO SHOW, read off the data rather than passed in — a Mega day is
+   * one circuit both rooms serve, so its heats arrive under `mega`, and red +
+   * blue would be two columns of nothing beside one of everything. Before the
+   * night's first heat there is nothing to read, so it falls back to red + blue:
+   * a rail that fills itself in rather than one that appears mid-shift.
+   */
+  const ALL: Array<{ key: string; color: string }> = [
+    { key: "red", color: ROOM_COLOR.red },
+    { key: "blue", color: ROOM_COLOR.blue },
+    { key: "mega", color: MEGA },
+  ];
+  const ran = ALL.filter((t) => (waitTimes?.byTrack?.[t.key]?.roomToRaceMs?.n ?? 0) > 0);
+  const tracks = ran.length > 0 ? ran : ALL.slice(0, 2);
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gap: 14,
+        // The room grid's own template — so each matrix lands over its room.
+        gridTemplateColumns: "repeat(auto-fit,minmax(430px,1fr))",
+        flexShrink: 0,
+        marginBottom: 12,
+      }}
+    >
+      {tracks.map(({ key, color }) => (
+        <TrackWaitMatrix
+          key={key}
+          color={color}
+          hour={waitTimes?.lastHourByTrack?.[key]}
+          today={waitTimes?.byTrack?.[key]}
+          week={waitTimesWeek?.byTrack?.[key]}
+        />
+      ))}
+    </div>
+  );
+}
+
+type WaitStat = { n: number; medianMs: number | null } | undefined;
+type TrackStats = Record<string, { n: number; medianMs: number | null }> | undefined;
+
+/** How far the last hour must drift from the day before the board says so. */
+const BEHIND_MS = 30_000;
+
+function TrackWaitMatrix({
+  color,
+  hour,
+  today,
+  week,
+}: {
+  color: string;
+  hour: TrackStats;
+  today: TrackStats;
+  week: TrackStats;
+}) {
+  const rows: Array<{ label: string; stats: TrackStats; lead: boolean }> = [
+    { label: "Last hour", stats: hour, lead: true },
+    { label: "Today", stats: today, lead: false },
+    { label: "Last 7 days", stats: week, lead: false },
+  ];
+
+  return (
+    <div
+      style={{
+        background: PORTAL_DARK.card,
+        border: `1px solid ${PORTAL_DARK.border}`,
+        borderLeft: `3px solid ${color}`,
+        borderRadius: 8,
+        padding: "8px 14px 10px",
+        display: "grid",
+        gridTemplateColumns: "auto 1fr 1fr",
+        columnGap: 18,
+        rowGap: 1,
+        alignItems: "baseline",
+      }}
+    >
+      <span />
+      <ColumnHead>Room → race</ColumnHead>
+      <ColumnHead>Total experience</ColumnHead>
+
+      {rows.map(({ label, stats, lead }) => (
+        <Fragment key={label}>
+          <span
+            style={{
+              fontSize: 9,
+              fontWeight: 800,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: lead ? INK : PORTAL_DARK.muted,
+              whiteSpace: "nowrap",
+              paddingRight: 4,
+            }}
+          >
+            {label}
+            {stats?.roomToRaceMs?.n ? (
+              <span style={{ color: PORTAL_DARK.muted, fontWeight: 700 }}>
+                {" · "}
+                {stats.roomToRaceMs.n}
+              </span>
+            ) : null}
+          </span>
+          <WaitValue
+            stat={stats?.roomToRaceMs}
+            against={lead ? today?.roomToRaceMs : undefined}
+            lead={lead}
+          />
+          <WaitValue
+            stat={stats?.calledToRaceEndMs}
+            against={lead ? today?.calledToRaceEndMs : undefined}
+            lead={lead}
+          />
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+function ColumnHead({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        fontWeight: 800,
+        letterSpacing: "0.10em",
+        textTransform: "uppercase",
+        color: PORTAL_DARK.muted,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+/**
+ * One number in the matrix.
+ *
+ * The LAST HOUR row is the live one, so it is the only row that carries colour,
+ * and it earns it by comparison with today's median: meaningfully slower is AMBER
+ * — that is "we are calling behind" — and meaningfully faster is green. Under
+ * half a minute either way is noise over a night's waits and stays plain, because
+ * a board that changes colour on eight seconds teaches staff to ignore colour.
+ *
+ * NEVER RED: red here means a deadline has been missed (an overdue room, a blown
+ * check-in window), and spending it on a slow stretch blunts the real alarm.
+ *
+ * An unknown value is a THIN dash — the fat 800-weight em-dash the first cut used
+ * read as a broken loading bar, which is worse than saying nothing at all.
+ */
+function WaitValue({ stat, against, lead }: { stat: WaitStat; against: WaitStat; lead: boolean }) {
+  const ms = stat?.medianMs ?? null;
+  if (ms == null) {
+    return (
+      <span
+        style={{
+          fontSize: lead ? 22 : 14,
+          fontWeight: 400,
+          color: PORTAL_DARK.muted,
+          lineHeight: 1.25,
+        }}
+      >
+        —
+      </span>
+    );
+  }
+
+  const baseline = against?.medianMs ?? null;
+  const delta = baseline != null ? ms - baseline : 0;
+  const tone =
+    !lead || baseline == null || Math.abs(delta) < BEHIND_MS
+      ? undefined
+      : delta > 0
+        ? AMBER
+        : GREEN;
+
+  return (
+    <span
+      className="rc-num"
+      style={{
+        fontSize: lead ? 22 : 14,
+        fontWeight: lead ? 800 : 700,
+        lineHeight: 1.25,
+        color: tone ?? (lead ? INK : PORTAL_DARK.muted),
+      }}
+    >
+      {formatWaitMs(ms)}
+    </span>
   );
 }
 
@@ -440,6 +901,7 @@ function RoomColumn({
   nowMs,
   checkinWindowMins,
   sentTo,
+  checkedIn,
   tierOverride,
   onTierOverride,
   locked,
@@ -463,6 +925,9 @@ function RoomColumn({
   checkinWindowMins: number;
   /** Which room this called session already went to, if any. */
   sentTo: BriefingRoom | null;
+  /** This heat's check-in progress, for the Called box. Null when the station
+   *  has not reported one for this session. */
+  checkedIn: CheckinCount | null;
   tierOverride: BriefingTier | null;
   onTierOverride: (tier: BriefingTier | null) => void;
   locked: boolean;
@@ -616,6 +1081,26 @@ function RoomColumn({
                 }
                 tone={calledAlert === "late" ? DANGER : calledAlert === "warn" ? AMBER : undefined}
               />
+              {/* CHECKED IN, beside the clock it belongs to. Moved down from the
+                  top of the board (owner 2026-08-12) so the number sits with the
+                  heat it counts rather than in a strip of its own. Green once the
+                  whole grid is through the desk — the moment staff can send. */}
+              {checkedIn && (
+                <Stat
+                  label="Checked in"
+                  value={`${checkedIn.checkedIn}/${checkedIn.total}`}
+                  unit={
+                    checkedIn.total > 0 && checkedIn.checkedIn >= checkedIn.total
+                      ? "all here"
+                      : `${Math.max(0, checkedIn.total - checkedIn.checkedIn)} still to scan`
+                  }
+                  tone={
+                    checkedIn.total > 0 && checkedIn.checkedIn >= checkedIn.total
+                      ? GREEN
+                      : undefined
+                  }
+                />
+              )}
               <Stat
                 label="Track delay"
                 value={delayMins != null ? (delayMins > 0 ? `+${delayMins}` : "0") : "—"}
@@ -670,7 +1155,32 @@ function RoomColumn({
                   ✓ in the {room} room
                 </span>
               ) : (
-                <span style={{ marginLeft: "auto" }}>
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    display: "inline-flex",
+                    flexDirection: "column",
+                    alignItems: "flex-end",
+                    gap: 4,
+                  }}
+                >
+                  {/* THE MEMO, ON THE BUTTON IT IS ABOUT. Temporary — see
+                      STAFF_MEMO. Above rather than below, because it is an
+                      instruction about what to do BEFORE the press. */}
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: AMBER,
+                      textAlign: "right",
+                    }}
+                  >
+                    <IconAlertTriangleFilled size={13} aria-hidden style={{ flexShrink: 0 }} />
+                    {STAFF_MEMO}
+                  </span>
                   <ActionButton
                     tone={occupied ? AMBER : color}
                     outline={occupied}
@@ -807,6 +1317,9 @@ function InRoom({
   const pct =
     timeline.videoMs > 0 ? Math.min(100, (timeline.videoOffsetMs / timeline.videoMs) * 100) : 0;
   const waitingMs = state ? Math.max(0, nowMs - state.triggeredAtMs) : 0;
+  // The ten seconds Start is held for after a send, so the film cannot start
+  // before the group has left the desk. Ticks with nowMs.
+  const holdMs = startHoldRemainingMs(state, nowMs);
 
   return (
     // THE ROW IS AS TALL AS THE PICTURE, NOT AS TALL AS THE PANEL. The panel grows
@@ -871,7 +1384,9 @@ function InRoom({
                     big
                   />
                   <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
-                    TV is holding a &ldquo;take a seat&rdquo; board.
+                    {holdMs > 0
+                      ? "Go and walk them over — Start unlocks in a moment."
+                      : "TV is holding a “take a seat” board."}
                     {!state?.videoUrl && " No film for this tier — Start skips to helmet sizes."}
                   </p>
                   <div style={{ display: "flex", gap: 8, marginTop: "auto", alignItems: "center" }}>
@@ -882,7 +1397,13 @@ function InRoom({
                       pendingKey={`start:${room}`}
                       pending={pending}
                       disabled={locked}
+                      holdSeconds={startHoldSeconds(holdMs)}
                       pendingLabel="Starting…"
+                      title={
+                        holdMs > 0
+                          ? "Held for 10 seconds after the send — fetch the group from check-in first"
+                          : undefined
+                      }
                       onClick={() => onStart(false)}
                     >
                       ▶ Start video
@@ -1138,22 +1659,46 @@ function IdleBody({ returning, color }: { returning: RoomReturnState; color: str
 /* ── the camera ───────────────────────────────────────────────────────── */
 
 /**
- * A briefing-room camera as a ~1fps still-refresh, from the same /api/tv/camera
- * proxy the TV boards use, addressed by ROOM (the server maps the room to one
+ * A briefing-room camera as a still-refresh, from the same /api/tv/camera proxy
+ * the TV boards use, addressed by ROOM (the server maps the room to one
  * allowlisted device — the client never names a camera).
  *
  * DOUBLE-BUFFERED: each frame is decoded off-screen and only swapped in on load,
  * so the picture never blanks between pulls. A run of failures greys the last good
  * frame and says so, rather than showing a broken-image icon.
  *
+ * CADENCE IS THE CALLER'S CHOICE, because the two views want different things: a
+ * 300px preview only has to show that a room has filled (1s is plenty), while the
+ * full-screen viewer is somebody actually WATCHING the room and wants motion.
+ * Either way the real rate is bounded by the round trip — the next pull is only
+ * ever queued once the previous frame has decoded, so a slow relay throttles this
+ * naturally instead of piling requests up behind each other.
+ *
  * `enabled` exists so the small preview can stand down while the full-screen
  * viewer has the same room open. The proxy's frame cache is keyed by device AND
- * size, so two pollers at two sizes are two upstream pulls a second at the camera.
+ * size, so two pollers at two sizes are two upstream pulls at the camera.
  */
-function useCameraFrame(room: BriefingRoom, width: number, enabled: boolean) {
-  const [src, setSrc] = useState<string | null>(null);
-  const [offline, setOffline] = useState(false);
+function useCameraFrame(room: BriefingRoom, width: number, enabled: boolean, cadenceMs = 1_000) {
+  /**
+   * A NEW CAMERA MUST NOT WEAR THE OLD ONE'S PICTURE (owner 2026-08-12: "when you
+   * switch between rooms on that page we need loading, it just holds the last
+   * camera"). Switching rooms restarts the poll below, but the last frame belonged
+   * to the room we just left — so the viewer showed the RED room under a BLUE room
+   * heading until a new frame decoded, and a staff member could act on the wrong
+   * room entirely.
+   *
+   * The frame therefore CARRIES THE CAMERA IT CAME FROM, and a frame from another
+   * camera simply does not render. Derived rather than reset in an effect: there is
+   * no moment, however brief, where the wrong picture is on screen, and no cascade
+   * of renders to blank it.
+   */
+  const [frame, setFrame] = useState<{ key: string; src: string } | null>(null);
+  const [offlineKey, setOfflineKey] = useState<string | null>(null);
   const lastOkRef = useRef(0);
+
+  const key = `${room}@${width}`;
+  const src = frame?.key === key ? frame.src : null;
+  const offline = offlineKey === key;
 
   useEffect(() => {
     if (!enabled) return;
@@ -1165,14 +1710,16 @@ function useCameraFrame(room: BriefingRoom, width: number, enabled: boolean) {
       img.onload = () => {
         if (cancelled) return;
         lastOkRef.current = Date.now();
-        setSrc(url);
-        setOffline(false);
-        timer = setTimeout(tick, 1000);
+        setFrame({ key, src: url });
+        setOfflineKey(null);
+        timer = setTimeout(tick, cadenceMs);
       };
       img.onerror = () => {
         if (cancelled) return;
-        if (Date.now() - lastOkRef.current > 6000) setOffline(true);
-        timer = setTimeout(tick, 2000);
+        if (Date.now() - lastOkRef.current > 6000) setOfflineKey(key);
+        // Back off on failure whatever the cadence — a camera that is down must
+        // not be hammered at viewer speed.
+        timer = setTimeout(tick, Math.max(2_000, cadenceMs));
       };
       img.src = url;
     };
@@ -1181,9 +1728,84 @@ function useCameraFrame(room: BriefingRoom, width: number, enabled: boolean) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [room, width, enabled]);
+  }, [room, width, enabled, cadenceMs, key]);
 
   return { src, offline };
+}
+
+/**
+ * THE LIVE STREAM, played by the browser itself.
+ *
+ * The still refresh above is a picture a second through our own proxy; this is the
+ * actual camera, straight from Nx's relay (owner 2026-08-12: "when we go full
+ * screen on camera can we switch to live feed?"). Our functions never touch the
+ * video — they only mint the single-use ticket that authorises it, which is why
+ * this can exist on serverless at all. See nx/camera.server.ts.
+ *
+ * IT IS AN UPGRADE, NEVER A REQUIREMENT. Every failure path — no ticket, relay
+ * down, a codec the browser will not take, autoplay refused — simply leaves the
+ * stills showing underneath. A viewer that went black because live broke would be
+ * worse than the thing it replaced.
+ *
+ * A TICKET IS SPENT ON USE, so a re-mint is needed for every load: opening the
+ * viewer, switching rooms, and any recovery after the stream drops. Retries are
+ * capped — a camera that keeps dropping should settle on stills rather than mint
+ * tickets forever.
+ */
+const LIVE_MAX_RETRIES = 2;
+
+function useLiveCamera(room: BriefingRoom, getUrl: (room: BriefingRoom) => Promise<string | null>) {
+  // Both pieces of state CARRY THE ROOM they describe, for the same reason the
+  // still hook does: switching rooms must not leave the blue room's stream playing
+  // under a red heading for the second it takes to mint a new ticket. Derived, so
+  // there is no stale frame to blank and no reset effect to run.
+  const [stream, setStream] = useState<{ room: BriefingRoom; url: string } | null>(null);
+  const [playingRoom, setPlayingRoom] = useState<BriefingRoom | null>(null);
+  const retriesRef = useRef(0);
+
+  // The parent's callback, kept current in a ref so re-creating it cannot restart
+  // a healthy stream. Only the room should do that.
+  const getUrlRef = useRef(getUrl);
+  useEffect(() => {
+    getUrlRef.current = getUrl;
+  });
+
+  const load = useCallback(async (target: BriefingRoom) => {
+    const url = await getUrlRef.current(target);
+    setStream(url ? { room: target, url } : null);
+  }, []);
+
+  useEffect(() => {
+    retriesRef.current = 0;
+    void load(room);
+  }, [room, load]);
+
+  /** The stream dropped or was refused — take one more ticket, then stand down. */
+  const retry = useCallback(() => {
+    setPlayingRoom(null);
+    if (retriesRef.current >= LIVE_MAX_RETRIES) {
+      setStream(null);
+      return;
+    }
+    retriesRef.current += 1;
+    void load(room);
+  }, [load, room]);
+
+  const url = stream?.room === room ? stream.url : null;
+  return {
+    url,
+    playing: playingRoom === room && !!url,
+    onPlaying: () => setPlayingRoom(room),
+    /**
+     * BUFFERING IS NOT A FAILURE. A stall spends no ticket and remounts nothing —
+     * it just stops the board claiming LIVE and lets the still refresh take the
+     * picture back until frames resume. Only a dead stream (`error`, `ended`)
+     * costs a fresh ticket, which is what keeps a jittery relay from burning
+     * through the retry budget in ten seconds.
+     */
+    onWaiting: () => setPlayingRoom(null),
+    retry,
+  };
 }
 
 /** The frame itself — shared by the preview and the viewer so they can never
@@ -1193,11 +1815,16 @@ function CameraFrame({
   offline,
   alt,
   connectingSize,
+  connectingLabel,
 }: {
   src: string | null;
   offline: boolean;
   alt: string;
   connectingSize: number;
+  /** What the blank state says. Defaults to the connecting copy; the viewer names
+   *  the room it is loading, because a switch there is a deliberate act whose
+   *  progress the staff member is waiting on. */
+  connectingLabel?: string;
 }) {
   if (!src) {
     // A span, not a div: this renders inside the preview BUTTON, and a button may
@@ -1214,7 +1841,7 @@ function CameraFrame({
           color: PORTAL_DARK.muted,
         }}
       >
-        Connecting to camera…
+        {connectingLabel ?? "Connecting to camera…"}
       </span>
     );
   }
@@ -1357,6 +1984,7 @@ function CameraLightbox({
   onStart,
   onSwitch,
   onClose,
+  getLiveUrl,
 }: {
   room: BriefingRoom;
   track: string;
@@ -1367,12 +1995,21 @@ function CameraLightbox({
   onStart: (restart: boolean) => void;
   onSwitch: (room: BriefingRoom) => void;
   onClose: () => void;
+  getLiveUrl: (room: BriefingRoom) => Promise<string | null>;
 }) {
-  const { src, offline } = useCameraFrame(room, 1600, true);
+  const live = useLiveCamera(room, getLiveUrl);
+  // STILLS ARE THE BRIDGE, NOT THE FALLBACK ONLY. They paint in ~200ms while the
+  // ticket is minted and the video buffers, then stand down the moment live is
+  // actually playing — so the viewer is never blank waiting for video, and never
+  // pays for two pictures of the same room at once.
+  const { src, offline } = useCameraFrame(room, 1600, !live.playing);
   const closeRef = useRef<HTMLButtonElement>(null);
   const color = ROOM_COLOR[room];
   const timeline = briefingTimelineAt(state, nowMs);
   const phase = timeline.phase;
+  // The same hold the panel behind this viewer is showing — both read the room's
+  // own send stamp, so Start cannot be live here and held there.
+  const holdMs = startHoldRemainingMs(state, nowMs);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1479,7 +2116,35 @@ function CameraLightbox({
         </span>
 
         <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 12 }}>
-          {offline && <span style={{ fontSize: 12, color: AMBER }}>Reconnecting…</span>}
+          {/* WHICH PICTURE THIS IS. A viewer that silently degrades to one frame a
+              second would have staff reading a still as live and waiting for
+              movement that is not coming. */}
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 11,
+              fontWeight: 800,
+              letterSpacing: "0.05em",
+              color: live.playing ? GREEN : PORTAL_DARK.muted,
+            }}
+          >
+            <span
+              aria-hidden
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background: live.playing ? GREEN : PORTAL_DARK.muted,
+                boxShadow: live.playing ? `0 0 8px ${GREEN}` : "none",
+              }}
+            />
+            {live.playing ? "LIVE" : "STILLS · 1/SEC"}
+          </span>
+          {offline && !live.playing && (
+            <span style={{ fontSize: 12, color: AMBER }}>Reconnecting…</span>
+          )}
           <button
             ref={closeRef}
             type="button"
@@ -1515,12 +2180,42 @@ function CameraLightbox({
           border: `1px solid ${withAlpha(color, 0.3)}`,
         }}
       >
-        <CameraFrame
-          src={src}
-          offline={offline}
-          alt={`${room} briefing room, enlarged`}
-          connectingSize={18}
-        />
+        {/* The still, underneath — the first thing on screen and the thing that
+            stays if live never arrives. Hidden rather than unmounted once video is
+            playing, so a stream that drops has a picture to fall back to
+            instantly. */}
+        <span style={{ opacity: live.playing ? 0 : 1 }}>
+          <CameraFrame
+            src={src}
+            offline={offline}
+            alt={`${room} briefing room, enlarged`}
+            connectingSize={18}
+            connectingLabel={`Loading the ${room} room…`}
+          />
+        </span>
+        {live.url && (
+          // A live CCTV feed: no audio track, nothing to caption.
+          <video
+            key={live.url}
+            src={live.url}
+            autoPlay
+            muted
+            playsInline
+            onPlaying={live.onPlaying}
+            onWaiting={live.onWaiting}
+            onStalled={live.onWaiting}
+            onError={live.retry}
+            onEnded={live.retry}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              opacity: live.playing ? 1 : 0,
+            }}
+          />
+        )}
       </div>
 
       {/* The clocks and the one action worth having here. */}
@@ -1586,7 +2281,13 @@ function CameraLightbox({
                   pendingKey={`start:${room}`}
                   pending={pending}
                   disabled={locked}
+                  holdSeconds={startHoldSeconds(holdMs)}
                   pendingLabel="Starting…"
+                  title={
+                    holdMs > 0
+                      ? "Held for 10 seconds after the send — fetch the group from check-in first"
+                      : undefined
+                  }
                   onClick={() => onStart(false)}
                 >
                   ▶ Start video
@@ -1743,6 +2444,7 @@ function ActionButton({
   disabled,
   pendingLabel,
   title,
+  holdSeconds,
 }: {
   children: React.ReactNode;
   onClick: () => void;
@@ -1755,19 +2457,26 @@ function ActionButton({
   disabled?: boolean;
   pendingLabel: string;
   title?: string;
+  /**
+   * Seconds until this button may be pressed — it disables itself and counts down
+   * ON ITS OWN FACE ("Start video in 6s") rather than going quietly dead. 0 or
+   * absent is a live button. See briefing/start-hold.ts.
+   */
+  holdSeconds?: number;
 }) {
   const isPending = pending === pendingKey;
+  const held = !isPending && (holdSeconds ?? 0) > 0;
   const pad = size === "lg" ? "11px 20px" : size === "md" ? "9px 16px" : "6px 12px";
   const font = size === "lg" ? 15 : size === "md" ? 13 : 11;
   const solid = !!tone && !outline && size !== "sm";
   return (
     <button
       type="button"
-      className="rcb"
+      className={held ? "rcb rcb-hold" : "rcb"}
       onClick={onClick}
       title={title}
       aria-busy={isPending}
-      disabled={isPending || disabled === true}
+      disabled={isPending || held || disabled === true}
       style={{
         padding: pad,
         borderRadius: 6,
@@ -1778,7 +2487,15 @@ function ActionButton({
       }}
     >
       {isPending && <span aria-hidden className="rcb-spin" />}
-      {isPending ? pendingLabel : children}
+      {isPending ? (
+        pendingLabel
+      ) : held ? (
+        <>
+          {children} in {holdSeconds}s
+        </>
+      ) : (
+        children
+      )}
     </button>
   );
 }

@@ -100,6 +100,17 @@ export interface BriefingControl {
    */
   expandedRoom: BriefingRoom | null;
   setExpandedRoom: (room: BriefingRoom | null) => void;
+  /**
+   * Which reference panel is open over the board — wait times, or today's log.
+   *
+   * UP HERE FOR THE SAME REASON AS THE CAMERA VIEWER: a scan lands every few
+   * seconds on a busy night and unmounts the panels, so a modal whose open state
+   * lived in the board would slam shut in the face of whoever opened it. One
+   * field rather than two booleans, because only one can be open at a time and
+   * two flags could disagree about that.
+   */
+  openPanel: BoardPanel | null;
+  setOpenPanel: (panel: BoardPanel | null) => void;
   send: (args: {
     room: BriefingRoom;
     track: string;
@@ -110,6 +121,50 @@ export interface BriefingControl {
   /** Phase two: roll the film. Also used for "play it again". */
   start: (room: BriefingRoom, opts?: { restart?: boolean }) => void;
   clearRoom: (room: BriefingRoom) => void;
+  /**
+   * A fresh live-stream URL for a room's camera, or null if live is unavailable.
+   *
+   * HERE RATHER THAN IN THE PANEL because the admin token lives in this hook, and
+   * a component that has to be handed the token to fetch anything is a component
+   * that can leak it into a log or a prop tree. The panel asks for a URL and gets
+   * one; it never sees the credential that bought it.
+   *
+   * Each call mints a SINGLE-USE Nx ticket, so every <video> load — first play,
+   * room switch, retry after a drop — needs its own call.
+   */
+  liveCameraUrl: (room: BriefingRoom) => Promise<string | null>;
+  /**
+   * TODAY'S WAIT TIMES, per track (owner 2026-08-12: "it would be today's times").
+   *
+   * Null until the first read lands, and null again only if it has never
+   * succeeded — a failed poll keeps the last good numbers rather than blanking
+   * the strip, exactly like the board poll above it.
+   */
+  waitTimes: WaitTimesBoard | null;
+  /**
+   * THE SAME NUMBERS OVER THE LAST SEVEN DAYS — what today is compared against
+   * (owner 2026-08-12: "tiles so we can compare day to week").
+   *
+   * A wait time means nothing on its own: 9:34 is either a good night or a bad
+   * one depending on what the week looks like, and staff cannot hold last
+   * Tuesday's median in their heads. The tile shows today and says how it
+   * differs; this is the baseline behind that.
+   */
+  waitTimesWeek: WaitTimesBoard | null;
+}
+
+/** What the board strip reads. A subset of /api/admin/wait-times' response —
+ *  the endpoint returns per-session rows too, which no board needs. */
+/** The board's reference overlays. Neither is an action — both are things staff
+ *  open, read and dismiss, which is why they are modals and not board furniture. */
+export type BoardPanel = "waits" | "log";
+
+export interface WaitTimesBoard {
+  byTrack: Record<string, Record<string, { n: number; medianMs: number | null }>>;
+  /** The same shape over the ROLLING LAST HOUR — the board's "are we behind
+   *  right now" signal, which a night's median is precisely what hides. */
+  lastHourByTrack?: Record<string, Record<string, { n: number; medianMs: number | null }>>;
+  sessions: number;
 }
 
 export function useBriefingControl(token: string, enabled: boolean): BriefingControl {
@@ -119,6 +174,9 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   const [pending, setPending] = useState<string | null>(null);
   const [tierOverride, setTierOverrideState] = useState<Record<string, BriefingTier | null>>({});
   const [expandedRoom, setExpandedRoom] = useState<BriefingRoom | null>(null);
+  const [openPanel, setOpenPanel] = useState<BoardPanel | null>(null);
+  const [waitTimes, setWaitTimes] = useState<WaitTimesBoard | null>(null);
+  const [waitTimesWeek, setWaitTimesWeek] = useState<WaitTimesBoard | null>(null);
 
   const loadBoard = useCallback(
     async (signal?: AbortSignal) => {
@@ -158,17 +216,28 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        const json = (await res.json()) as { error?: string; hasVideo?: boolean; tier?: string };
+        const json = (await res.json()) as {
+          error?: string;
+          hasVideo?: boolean;
+          tier?: string;
+          photoSaved?: boolean;
+        };
         if (!res.ok) {
           setNote(`✕ ${json.error ?? `Failed (${res.status})`}`);
           return;
         }
         // Say when a send will NOT show a film, rather than leaving staff to
         // wonder why the room went straight to helmet sizes.
+        //
+        // And say when the room was PHOTOGRAPHED (owner 2026-08-12), because a
+        // record staff do not know is being kept is a record they cannot vouch
+        // for. The log strip below carries the durable version with its
+        // timestamp; this is the receipt at the moment of the press.
+        const photo = json.photoSaved ? " — briefing photo + timestamp saved for insurance." : "";
         setNote(
           json.hasVideo === false
-            ? `✓ ${successNote} — but no ${json.tier} video is uploaded, so the room opens on helmet sizes.`
-            : `✓ ${successNote}`,
+            ? `✓ ${successNote} — but no ${json.tier} video is uploaded, so the room opens on helmet sizes.${photo}`
+            : `✓ ${successNote}${photo}`,
         );
         await loadBoard();
       } catch (err) {
@@ -222,6 +291,79 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  /**
+   * The wait-time strip's own poll, at a MINUTE rather than the board's five
+   * seconds. These are today's averages over the whole night: they move when a
+   * heat finishes, not between two blinks, and each read folds the day's events
+   * — so polling it at board speed would be twelve times the work for a number
+   * that had not changed.
+   */
+  useVisibleInterval(
+    async (signal) => {
+      try {
+        const res = await fetch(`/api/admin/wait-times?token=${encodeURIComponent(token)}`, {
+          cache: "no-store",
+          signal,
+        });
+        if (!res.ok || signal?.aborted) return; // keep the last good numbers
+        const json = (await res.json()) as WaitTimesBoard;
+        setWaitTimes(json);
+      } catch {
+        /* a dropped poll must not blank the strip */
+      }
+    },
+    60_000,
+    enabled,
+  );
+
+  /**
+   * The seven-day baseline, polled every TEN MINUTES.
+   *
+   * A week's median moves by seconds over a shift — it is six other nights plus
+   * today, so today's newest heat can barely shift it. Reading it at the same
+   * cadence as today's number would fold a week of events every minute to watch
+   * a figure that does not move.
+   */
+  useVisibleInterval(
+    async (signal) => {
+      try {
+        // excludeToday=1 — the seven days BEFORE today. A baseline that contains
+        // today is today compared with itself, which in the first days of data is
+        // EXACTLY itself: every tile reads "about the same" and the comparison
+        // silently means nothing.
+        const res = await fetch(
+          `/api/admin/wait-times?token=${encodeURIComponent(token)}&days=7&excludeToday=1`,
+          { cache: "no-store", signal },
+        );
+        if (!res.ok || signal?.aborted) return;
+        setWaitTimesWeek((await res.json()) as WaitTimesBoard);
+      } catch {
+        /* the tiles simply show no comparison */
+      }
+    },
+    600_000,
+    enabled,
+  );
+
+  const liveCameraUrl = useCallback<BriefingControl["liveCameraUrl"]>(
+    async (room) => {
+      try {
+        const res = await fetch(
+          `/api/admin/camera-live?token=${encodeURIComponent(token)}&room=${room}`,
+          { cache: "no-store" },
+        );
+        if (!res.ok) return null;
+        const json = (await res.json()) as { url?: string };
+        return json.url ?? null;
+      } catch {
+        // Live is an upgrade on the still refresh, never a requirement — a failure
+        // here leaves the viewer exactly as good as it was before.
+        return null;
+      }
+    },
+    [token],
+  );
+
   return {
     board,
     note,
@@ -231,8 +373,13 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     setTierOverride,
     expandedRoom,
     setExpandedRoom,
+    openPanel,
+    setOpenPanel,
     send,
     start,
     clearRoom,
+    liveCameraUrl,
+    waitTimes,
+    waitTimesWeek,
   };
 }

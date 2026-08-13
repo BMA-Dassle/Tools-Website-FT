@@ -93,7 +93,7 @@ export const en = {
   "categories.eyebrow.premiumRacing": "Premium racing",
   "categories.combo.priceLine": "{weekday}/person Mon–Thu · {weekend}/person Fri–Sun",
   "categories.qualifier.blurb":
-    "Qualify on a Starter, then level up — POV video, free appetizer & license included.",
+    "Qualify on a Starter, then level up — POV video & license included.",
   "categories.qualifier.fromWeekday": "From {price}/person Mon–Thu",
   "categories.qualifier.fromWeekend": "From {price}/person Fri–Sun",
   "categories.qualifier.disabled":

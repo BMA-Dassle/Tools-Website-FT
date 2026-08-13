@@ -97,8 +97,7 @@ export const HEAT_CONFLICT_TOOLTIP =
  * Package heat-gap rule: candidate must start at least `minutes` after
  * a previously-picked component finished. Used by the Ultimate
  * Qualifier package to enforce "Intermediate must start ≥ 60 min
- * after Starter ends" (qualifying race + buffer for video review +
- * appetizer at Nemo's).
+ * after Starter ends" (qualifying race + buffer for video review).
  *
  * @param prevStop  ISO string or epoch ms of the previous heat's STOP time
  * @param candStart ISO string or epoch ms of the candidate heat's START
@@ -134,8 +133,8 @@ export function violatesMinGapAfter(
  * either side counts as a track CHANGE and keeps the stricter number.
  *
  * Owner rule 2026-08-04: the Ultimate Qualifier's 60-min Starter→
- * Intermediate buffer covers qualifying, the POV review, the appetizer AND
- * the walk to the other track. Staying on one track drops the walk, so
+ * Intermediate buffer covers qualifying, the POV review AND the walk to
+ * the other track. Staying on one track drops the walk, so
  * same-track pairs only need 30. Rules without `sameTrackMinutes` stay
  * track-agnostic.
  * Kept in lockstep with v2 `src/features/booking/service/conflict.ts`.
@@ -154,5 +153,5 @@ export function packageGapMinutesFor(
 /** Short tooltip explainer for the package gap rule. The component
  *  fills in the actual minutes / qualifier label at render time. */
 export function packageGapTooltip(minutes: number, refLabel: string): string {
-  return `Available ${minutes} min after your ${refLabel} ends — gives you time to qualify, review your POV video, and grab your appetizer.`;
+  return `Available ${minutes} min after your ${refLabel} ends — gives you time to qualify and review your POV video.`;
 }

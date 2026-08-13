@@ -27,7 +27,13 @@ function ev(
     atMs,
     videoUrl: null,
     videoMs: null,
+    photoUrl: null,
     reason: null,
+    calledAtMs: null,
+    checkinFirstAtMs: null,
+    checkinLastAtMs: null,
+    checkinIn: null,
+    checkinTotal: null,
     ...over,
   };
 }
@@ -186,5 +192,89 @@ describe("foldBriefingLog", () => {
 
   it("has nothing to say about a day with no events", () => {
     expect(foldBriefingLog([], T0)).toEqual([]);
+  });
+
+  it("carries the wait-time anchors off the sent row", () => {
+    // They are captured at the send and nowhere else — a later row must not be
+    // able to supply or overwrite them.
+    const events = [
+      ev("sent", T0, {
+        calledAtMs: T0 - 4 * 60_000,
+        checkinFirstAtMs: T0 - 6 * 60_000,
+        checkinLastAtMs: T0 - 60_000,
+        checkinIn: 9,
+        checkinTotal: 12,
+      }),
+      ev("started", T0 + 60_000, { videoMs: FILM_MS, calledAtMs: T0 }),
+    ];
+    const [rec] = foldBriefingLog(events, T0 + 30 * 60_000);
+    expect(rec.calledAtMs).toBe(T0 - 4 * 60_000);
+    expect(rec.checkinFirstAtMs).toBe(T0 - 6 * 60_000);
+    expect(rec.checkinLastAtMs).toBe(T0 - 60_000);
+    expect(rec.checkinIn).toBe(9);
+    expect(rec.checkinTotal).toBe(12);
+  });
+
+  it("leaves the anchors null for a group sent before they were captured", () => {
+    const events = [ev("sent", T0), ev("started", T0 + 60_000, { videoMs: FILM_MS })];
+    const [rec] = foldBriefingLog(events, T0 + 30 * 60_000);
+    expect(rec.calledAtMs).toBeNull();
+    expect(rec.checkinFirstAtMs).toBeNull();
+    expect(rec.checkinTotal).toBeNull();
+  });
+
+  it("carries the room photo and when it was taken", () => {
+    const events = [
+      ev("sent", T0),
+      ev("started", T0 + 60_000, { videoMs: FILM_MS }),
+      ev("photo", T0 + 61_500, { photoUrl: "https://blob/red-heat-24.jpg" }),
+    ];
+    const [rec] = foldBriefingLog(events, T0 + 30 * 60_000);
+    expect(rec.photoUrl).toBe("https://blob/red-heat-24.jpg");
+    expect(rec.photoAtMs).toBe(T0 + 61_500);
+    // The picture is evidence ALONGSIDE the film record, never instead of it.
+    expect(rec.startedAtMs).toBe(T0 + 60_000);
+    expect(rec.filmCompleted).toBe(true);
+  });
+
+  it("says so plainly when no photo was taken", () => {
+    const events = [ev("sent", T0), ev("started", T0 + 60_000, { videoMs: FILM_MS })];
+    const [rec] = foldBriefingLog(events, T0 + 30 * 60_000);
+    expect(rec.photoUrl).toBeNull();
+    expect(rec.photoAtMs).toBeNull();
+  });
+
+  it("keeps the FIRST picture when a room is re-sent the same session", () => {
+    const events = [
+      ev("sent", T0),
+      ev("started", T0 + 60_000, { videoMs: FILM_MS }),
+      ev("photo", T0 + 61_000, { photoUrl: "https://blob/first.jpg" }),
+      ev("sent", T0 + 600_000),
+      ev("started", T0 + 660_000, { videoMs: FILM_MS }),
+      ev("photo", T0 + 661_000, { photoUrl: "https://blob/second.jpg" }),
+    ];
+    const [rec] = foldBriefingLog(events, T0 + 60 * 60_000);
+    expect(rec.photoUrl).toBe("https://blob/first.jpg");
+  });
+
+  it("ignores a photo row with no url, rather than reporting an empty picture", () => {
+    const events = [
+      ev("sent", T0),
+      ev("started", T0 + 60_000, { videoMs: FILM_MS }),
+      ev("photo", T0 + 61_000),
+      ev("photo", T0 + 62_000, { photoUrl: "https://blob/real.jpg" }),
+    ];
+    const [rec] = foldBriefingLog(events, T0 + 30 * 60_000);
+    expect(rec.photoUrl).toBe("https://blob/real.jpg");
+    expect(rec.photoAtMs).toBe(T0 + 62_000);
+  });
+
+  it("does not let a photo row stand in for a briefing that never started", () => {
+    // A picture without a `started` row cannot claim the film ran.
+    const events = [ev("sent", T0), ev("photo", T0 + 30_000, { photoUrl: "https://blob/x.jpg" })];
+    const [rec] = foldBriefingLog(events, T0 + 30 * 60_000);
+    expect(rec.photoUrl).toBe("https://blob/x.jpg");
+    expect(rec.startedAtMs).toBeNull();
+    expect(rec.filmCompleted).toBe(false);
   });
 });

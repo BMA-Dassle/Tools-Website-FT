@@ -40,6 +40,10 @@ export type BriefingEndKind = "cleared" | "replaced" | "film-complete";
 
 export interface BriefingRecord {
   room: BriefingRoom;
+  /** Which TRACK the group is racing on — blue, red, or mega. Distinct from the
+   *  room: on a Mega day both rooms serve one circuit, so a per-track number that
+   *  read the room would split one track's average across two. */
+  track: string | null;
   sessionId: string;
   heatNumber: number | null;
   raceType: string | null;
@@ -63,6 +67,26 @@ export interface BriefingRecord {
   /** The film ran from its start to its full length without being cut off. False
    *  when it never started, or when the room was cleared or taken over mid-film. */
   filmCompleted: boolean;
+  /**
+   * THE ROOM ITSELF, photographed as the film began — the evidence the rest of
+   * this record cannot supply (see room-photo.server.ts). Null when the camera or
+   * the upload was unavailable, which is a fact worth reading rather than a gap to
+   * paper over: it means we have the log for this briefing and no picture.
+   */
+  photoUrl: string | null;
+  photoAtMs: number | null;
+  /**
+   * WAIT-TIME ANCHORS, carried off the `sent` row (see events-db.ts). When the
+   * heat was CALLED — the moment every wait in the building is measured from —
+   * and the two ends of its check-in window. Null for any group sent before
+   * these were captured, which is why every metric that uses them drops a
+   * session rather than assuming a zero.
+   */
+  calledAtMs: number | null;
+  checkinFirstAtMs: number | null;
+  checkinLastAtMs: number | null;
+  checkinIn: number | null;
+  checkinTotal: number | null;
 }
 
 /**
@@ -91,6 +115,10 @@ export function foldBriefingLog(events: BriefingEvent[], nowMs: number): Briefin
     const starts = ordered.filter((e) => e.action === "started" || e.action === "restarted");
     const ended = ordered.find((e) => e.action === "ended");
     const first = ordered[0];
+    // FIRST picture wins. One is written per briefing today, but a re-send into
+    // the same room by the same session would append a second, and the shot that
+    // matters is the one taken as the film first rolled.
+    const photo = ordered.find((e) => e.action === "photo" && !!e.photoUrl) ?? null;
 
     // A group with no `sent` event cannot have its room time measured from the
     // door, so the earliest thing we DO know about it stands in. Only reachable
@@ -127,6 +155,7 @@ export function foldBriefingLog(events: BriefingEvent[], nowMs: number): Briefin
 
     records.push({
       room: first.room,
+      track: sent?.track ?? first.track,
       sessionId: first.sessionId,
       heatNumber: sent?.heatNumber ?? first.heatNumber,
       raceType: sent?.raceType ?? first.raceType,
@@ -141,6 +170,13 @@ export function foldBriefingLog(events: BriefingEvent[], nowMs: number): Briefin
       endKind,
       inRoomMs: endedAtMs != null ? Math.max(0, endedAtMs - sentAtMs) : null,
       filmCompleted,
+      photoUrl: photo?.photoUrl ?? null,
+      photoAtMs: photo?.atMs ?? null,
+      calledAtMs: sent?.calledAtMs ?? null,
+      checkinFirstAtMs: sent?.checkinFirstAtMs ?? null,
+      checkinLastAtMs: sent?.checkinLastAtMs ?? null,
+      checkinIn: sent?.checkinIn ?? null,
+      checkinTotal: sent?.checkinTotal ?? null,
     });
   }
 

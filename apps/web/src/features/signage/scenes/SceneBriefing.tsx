@@ -27,7 +27,7 @@ import { withAlpha } from "../color";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { TRACK_ACCENTS, TRACK_LABELS } from "../track";
 import { briefingTimelineAt } from "../briefing/phase";
-import { normaliseCameraReturn } from "../briefing/camera-return";
+import { incomingForRoom, normaliseCameraReturn } from "../briefing/camera-return";
 import { tierForRaceType, type BriefingRoom } from "../briefing/types";
 import { LiveSessionChip } from "../live-session";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
@@ -135,7 +135,18 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
   // NORMALISED, NOT TRUSTED. The feed can arrive from localStorage written by an
   // OLDER BUILD — that is what crashed every briefing TV on 2026-08-12 when this
   // payload's fields were renamed. See normaliseCameraReturn.
-  const cameraReturn = normaliseCameraReturn(feed?.briefing?.cameraReturn);
+  const venueStrip = normaliseCameraReturn(feed?.briefing?.cameraReturn);
+  /**
+   * SCOPED TO THIS ROOM ONCE, and the height measured off the SCOPED copy.
+   *
+   * Measuring the venue-wide strip instead would reserve the full band on a Red
+   * screen whose only content was Blue's incoming cameras, then render the 44 px
+   * all-clear line inside it — a 60 px hole under the board. One derived value, so
+   * the reserve and the render cannot disagree.
+   */
+  const cameraReturn = venueStrip
+    ? { ...venueStrip, incoming: incomingForRoom(venueStrip.incoming, room) }
+    : null;
   const barH = cameraBarHeight(cameraReturn);
 
   return (
@@ -200,6 +211,8 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
           strip is permanent staff chrome, so the clock belongs in it. */}
       {cameraReturn && (
         <CameraReturnBar
+          // Already room-scoped above: STILL OUT venue-wide, INCOMING this room's
+          // own (owner 2026-08-12: "Blue goes to blue, red goes to red").
           stillOut={cameraReturn.stillOut}
           incoming={cameraReturn.incoming}
           stale={cameraReturn.stale}

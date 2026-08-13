@@ -2,14 +2,22 @@ import { describe, it, expect } from "vitest";
 import {
   cameraReturnStripAt,
   formatSinceFlag,
+  incomingForRoom,
   INCOMING_FALLBACK_MS,
   normaliseCameraReturn,
   SEEN_SKEW_MS,
   type CameraScan,
   type CameraTrack,
   type SessionFinish,
+  type TrackCall,
 } from "./camera-return";
-import { cameraBarHeight, CAMERA_BAR_H, CAMERA_BAR_CLEAR_H } from "../components/CameraReturnBar";
+import {
+  cameraBarHeight,
+  planCameraStrip,
+  MAX_BOXES,
+  CAMERA_BAR_H,
+  CAMERA_BAR_CLEAR_H,
+} from "../components/CameraReturnBar";
 
 const T = Date.parse("2026-08-12T23:00:00.000Z");
 const m = (n: number) => n * 60_000;
@@ -29,10 +37,15 @@ function finishes(
     ]),
   );
 }
-function called(entries: Array<[CameraTrack, number]>): Map<CameraTrack, number> {
-  return new Map(entries);
+/** [track, heatNumber, calledAtMs?] — calledAt defaults to NOW, which is after
+ *  every fixture's flag, so a test that only cares about the heat number reads the
+ *  way it always did. */
+function called(entries: Array<[CameraTrack, number, number?]>): Map<CameraTrack, TrackCall> {
+  return new Map(
+    entries.map(([t, heatNumber, calledAtMs]) => [t, { heatNumber, calledAtMs: calledAtMs ?? T }]),
+  );
 }
-const NONE_CALLED = new Map<CameraTrack, number>();
+const NONE_CALLED = new Map<CameraTrack, TrackCall>();
 
 describe("cameraReturnStripAt", () => {
   it("is empty when nothing has been scanned", () => {
@@ -175,6 +188,64 @@ describe("the next race being called", () => {
       finishes: finishes([["S58", T - m(2), 58, "blue"]]),
       seen: new Map(),
       calledHeats: called([["blue", 57]]),
+      nowMs: T,
+    });
+    expect(r.incoming).toHaveLength(1);
+  });
+
+  it("a call that happened BEFORE our flag does not settle us", () => {
+    // THE 2026-08-12 DEFECT. Calls run ahead of finishes: the last call was heat 48
+    // while heats 43-45 were the ones coming back. Comparing heat numbers alone was
+    // always true at the flag, so incoming never populated and every camera went red
+    // one minute after its race — accusing groups still walking to the counter.
+    const flag = T - m(1);
+    const r = cameraReturnStripAt({
+      scans: [scan("71", "S45", T - m(20))],
+      finishes: finishes([["S45", flag, 45, "blue"]]),
+      seen: new Map(),
+      // Heat 48 is a later NUMBER, but it was called nine minutes before we flagged.
+      calledHeats: called([["blue", 48, flag - m(9)]]),
+      nowMs: T,
+    });
+    expect(r.stillOut).toEqual([]);
+    expect(r.incoming).toHaveLength(1);
+    expect(r.incoming[0]).toMatchObject({ camera: "71", state: "waiting" });
+    expect(r.outCount).toBe(0);
+  });
+
+  it("the NEXT call after our flag is what turns us red", () => {
+    const flag = T - m(10);
+    const r = cameraReturnStripAt({
+      scans: [scan("71", "S45", T - m(30))],
+      finishes: finishes([["S45", flag, 45, "blue"]]),
+      seen: new Map(),
+      calledHeats: called([["blue", 48, flag + m(2)]]),
+      nowMs: T,
+    });
+    expect(r.incoming).toEqual([]);
+    expect(r.stillOut).toHaveLength(1);
+    expect(r.outCount).toBe(1);
+  });
+
+  it("a call before our flag still settles us once the bound expires", () => {
+    // Otherwise a night whose calls all ran ahead would hold cameras in incoming
+    // for ever, and the section that means "coming back right now" would lie.
+    const r = cameraReturnStripAt({
+      scans: [scan("71", "S45", T - m(60))],
+      finishes: finishes([["S45", T - INCOMING_FALLBACK_MS - m(1), 45, "blue"]]),
+      seen: new Map(),
+      calledHeats: called([["blue", 48, T - INCOMING_FALLBACK_MS - m(5)]]),
+      nowMs: T,
+    });
+    expect(r.stillOut).toHaveLength(1);
+  });
+
+  it("an unparseable calledAt falls back to the bound rather than settling", () => {
+    const r = cameraReturnStripAt({
+      scans: [scan("71", "S45", T - m(20))],
+      finishes: finishes([["S45", T - m(2), 45, "blue"]]),
+      seen: new Map(),
+      calledHeats: called([["blue", 48, Number.NaN]]),
       nowMs: T,
     });
     expect(r.incoming).toHaveLength(1);
@@ -543,6 +614,160 @@ describe("normaliseCameraReturn — the 2026-08-12 white-screen", () => {
     expect(safe.incoming).toEqual(built.incoming);
     expect(safe.stillOut).toEqual(built.stillOut);
     expect(safe.outCount).toBe(built.outCount);
+  });
+});
+
+describe("incomingForRoom", () => {
+  const box = (camera: string, track: CameraTrack | null) => ({ camera, track });
+  const all = [
+    box("10", "blue"),
+    box("20", "red"),
+    box("30", "mega"),
+    box("40", null),
+    box("50", "blue"),
+  ];
+
+  it("gives Blue its own, plus mega and unattributed", () => {
+    // Owner 2026-08-12: "Blue goes to blue, red goes to red."
+    expect(incomingForRoom(all, "blue").map((b) => b.camera)).toEqual(["10", "30", "40", "50"]);
+  });
+
+  it("gives Red its own, plus mega and unattributed", () => {
+    expect(incomingForRoom(all, "red").map((b) => b.camera)).toEqual(["20", "30", "40"]);
+  });
+
+  it("never shows one room the OTHER room's returning cameras", () => {
+    expect(incomingForRoom(all, "red").some((b) => b.track === "blue")).toBe(false);
+    expect(incomingForRoom(all, "blue").some((b) => b.track === "red")).toBe(false);
+  });
+
+  it("shows a mega camera in BOTH rooms — one circuit, two rooms", () => {
+    expect(incomingForRoom(all, "blue").some((b) => b.camera === "30")).toBe(true);
+    expect(incomingForRoom(all, "red").some((b) => b.camera === "30")).toBe(true);
+  });
+
+  it("passes everything through when the screen has no room configured", () => {
+    expect(incomingForRoom(all, null)).toHaveLength(all.length);
+  });
+
+  it("returns empty rather than throwing on an empty section", () => {
+    expect(incomingForRoom([], "blue")).toEqual([]);
+  });
+
+  it("scoping a real strip leaves STILL OUT untouched", () => {
+    // Still out is venue-wide on purpose: a camera lost on Blue is the Red
+    // attendant's problem too. Only incoming is scoped.
+    const built = cameraReturnStripAt({
+      scans: [scan("10", "SBLUE", T - m(40)), scan("20", "SRED", T - m(20))],
+      finishes: finishes([
+        ["SBLUE", T - m(30), 40, "blue"],
+        ["SRED", T - m(2), 41, "red"],
+      ]),
+      seen: new Map(),
+      calledHeats: called([
+        ["blue", 41, T - m(25)],
+        ["red", 41, T],
+      ]),
+      nowMs: T,
+    });
+    // Blue's heat settled (a call came after its flag) so it is still-out; Red's
+    // heat is the live one.
+    expect(built.stillOut.map((b) => b.camera)).toEqual(["10"]);
+    expect(built.incoming.map((b) => b.camera)).toEqual(["20"]);
+    // The RED room sees the venue-wide still-out AND its own incoming.
+    expect(incomingForRoom(built.incoming, "red").map((b) => b.camera)).toEqual(["20"]);
+    // The BLUE room sees the same still-out, but not Red's returning camera.
+    expect(incomingForRoom(built.incoming, "blue")).toEqual([]);
+  });
+});
+
+describe("planCameraStrip — what fits, and what gives", () => {
+  const box = (camera: string, state: "still-out" | "waiting" | "back") => ({
+    camera,
+    state,
+    heatNumber: 58,
+    track: "blue" as const,
+    sinceFlagMs: 60_000,
+    assignedAtMs: Number(camera),
+  });
+  const many = (n: number, state: "still-out" | "waiting" | "back", from = 1) =>
+    Array.from({ length: n }, (_, i) => box(String(from + i), state));
+
+  it("draws everything when it fits", () => {
+    const p = planCameraStrip(many(3, "still-out"), many(2, "waiting", 10));
+    expect(p.stillOut).toHaveLength(3);
+    expect(p.incoming).toHaveLength(2);
+    expect(p.hidden).toBe(0);
+    expect(p.greensCollapsed).toBe(false);
+  });
+
+  it("keeps green boxes while the heat is small", () => {
+    const incoming = [...many(2, "back", 10), ...many(2, "waiting", 20)];
+    const p = planCameraStrip([], incoming);
+    expect(p.greensCollapsed).toBe(false);
+    expect(p.incoming).toHaveLength(4);
+  });
+
+  it("collapses greens once the heat is big — the caption carries the ratio", () => {
+    // The live case: 3 still out + 9 incoming, 7 of them back. Owner picked this
+    // over shrinking the boxes.
+    const incoming = [...many(7, "back", 10), ...many(2, "waiting", 20)];
+    const p = planCameraStrip(many(3, "still-out"), incoming);
+    expect(p.greensCollapsed).toBe(true);
+    expect(p.incoming.map((b) => b.state)).toEqual(["waiting", "waiting"]);
+    expect(p.stillOut).toHaveLength(3);
+    expect(p.hidden).toBe(0);
+    expect(p.stillOut.length + p.incoming.length).toBeLessThanOrEqual(MAX_BOXES);
+  });
+
+  it("never drops a still-out box to make room for an incoming one", () => {
+    const p = planCameraStrip(many(MAX_BOXES, "still-out"), many(5, "waiting", 90));
+    expect(p.stillOut).toHaveLength(MAX_BOXES - 1); // one slot goes to the +N chip
+    expect(p.incoming).toEqual([]);
+    expect(p.hidden).toBe(6);
+  });
+
+  it("counts what it cannot draw instead of clipping it", () => {
+    // A box cut off the edge is an invisible camera — the failure this exists for.
+    const p = planCameraStrip(many(4, "still-out"), many(20, "waiting", 50));
+    const drawn = p.stillOut.length + p.incoming.length;
+    expect(drawn).toBeLessThanOrEqual(MAX_BOXES - 1);
+    expect(drawn + p.hidden).toBe(24);
+  });
+
+  it("reserves a slot for the +N chip, so the fix cannot itself overflow", () => {
+    // Exactly one too many: the chip has to displace a box, not sit past the edge.
+    const p = planCameraStrip([], many(MAX_BOXES + 1, "waiting"));
+    expect(p.incoming).toHaveLength(MAX_BOXES - 1);
+    expect(p.hidden).toBe(2);
+    expect(p.incoming.length + 1).toBeLessThanOrEqual(MAX_BOXES);
+  });
+
+  it("does not reserve that slot when everything fits exactly", () => {
+    const p = planCameraStrip([], many(MAX_BOXES, "waiting"));
+    expect(p.incoming).toHaveLength(MAX_BOXES);
+    expect(p.hidden).toBe(0);
+  });
+
+  it("a full 12-kart grid with nothing back still fits", () => {
+    // The worst realistic night: a whole grid just flagged and none docked yet.
+    const p = planCameraStrip([], many(12, "waiting"));
+    expect(p.hidden).toBe(0);
+    expect(p.incoming).toHaveLength(12);
+  });
+
+  it("survives an empty strip", () => {
+    const p = planCameraStrip([], []);
+    expect(p.stillOut).toEqual([]);
+    expect(p.incoming).toEqual([]);
+    expect(p.hidden).toBe(0);
+  });
+
+  it("MAX_BOXES is derived from the layout, not a magic number", () => {
+    // If someone widens a caption or the clock without redoing the arithmetic,
+    // this is the test that should start failing rather than the wall clipping.
+    expect(MAX_BOXES).toBeGreaterThanOrEqual(10);
+    expect(MAX_BOXES).toBeLessThanOrEqual(14);
   });
 });
 

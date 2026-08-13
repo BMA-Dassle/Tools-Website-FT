@@ -897,6 +897,50 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
               )}
             </>
           )}
+          {/* THE BOARD'S TWO REFERENCE PANELS, up here with the rest of the
+              controls (owner 2026-08-13: "they can join the other buttons up
+              top"). They opened from the briefing-rooms header before, which
+              split the page's controls across two rows for no reason — every
+              button on this page now lives in one place, in the page's own
+              button style rather than the board's. Board mode only: a plain
+              check-in station has no briefing board to report on. */}
+          {boardMode && (
+            <>
+              <button
+                type="button"
+                onClick={() => briefing.setOpenPanel("waits")}
+                className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5"
+                style={{
+                  borderColor: PORTAL_DARK.border,
+                  color: PORTAL_DARK.muted,
+                  borderRadius: 8,
+                }}
+              >
+                Wait times
+              </button>
+              <button
+                type="button"
+                onClick={() => briefing.setOpenPanel("log")}
+                className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5 inline-flex items-center gap-1.5"
+                style={{
+                  borderColor: PORTAL_DARK.border,
+                  color: PORTAL_DARK.muted,
+                  borderRadius: 8,
+                }}
+              >
+                Briefing log
+                {/* The count is the reason to open it. */}
+                {(briefing.board?.briefings.length ?? 0) > 0 && (
+                  <span
+                    className="px-1.5 rounded-full text-[10px] font-bold"
+                    style={{ backgroundColor: PORTAL_DARK.muted2, color: PORTAL_DARK.muted }}
+                  >
+                    {briefing.board?.briefings.length}
+                  </span>
+                )}
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={runSelfTest}
@@ -934,8 +978,14 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
         </div>
       </div>
 
-      {/* Active sessions — check-in counts */}
-      {activeSessions.length > 0 && (
+      {/* Active sessions — check-in counts.
+          HIDDEN IN BOARD MODE (owner 2026-08-12: "in board mode move the number
+          checked in down to the check-in areas"). The count belongs beside the
+          heat it is counting — the room column's Called box already names that
+          session — and the space it was holding at the top of the board is where
+          today's wait times now live. The plain check-in station keeps the strip:
+          it has no room columns to move the number into. */}
+      {!boardMode && activeSessions.length > 0 && (
         <div
           className="flex gap-3 px-6 py-3 border-b overflow-x-auto"
           style={{ borderColor: PORTAL_DARK.border }}
@@ -1145,7 +1195,7 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
 
       {/* Race control — briefing rooms. Below the scanner because checking a
           racer in comes first; the send follows once the heat is in. */}
-      {boardMode && <RaceControlPanels control={briefing} />}
+      {boardMode && <RaceControlPanels control={briefing} checkinCounts={activeSessions} />}
 
       {/* Test mode panel */}
       {testMode && (
