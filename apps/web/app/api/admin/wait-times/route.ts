@@ -4,7 +4,13 @@ import { businessDayYmdET } from "@/lib/race-business-day";
 import { listBriefingEvents } from "~/features/signage/briefing/events-db";
 import { foldBriefingLog } from "~/features/signage/briefing/briefing-log";
 import { listRaceTimings, listRaceTimingsSince } from "~/features/racing/data/race-timings-db";
-import { summariseWaits, summariseWaitsByTrack, waitsForDay } from "~/features/racing/wait-times";
+import {
+  RECENT_WINDOW_MS,
+  summariseWaits,
+  summariseWaitsByTrack,
+  waitsForDay,
+  waitsSince,
+} from "~/features/racing/wait-times";
 
 /**
  * WAIT TIMES — every movement, per group and averaged (owner 2026-08-12).
@@ -89,6 +95,16 @@ export async function GET(req: NextRequest) {
     const briefings = foldBriefingLog(events, nowMs);
     const waits = waitsForDay(briefings, races);
     const summary = summariseWaits(waits);
+    /**
+     * THE LAST HOUR, alongside the day (owner 2026-08-13: "I think you need day
+     * and last hour so we know if we're calling behind").
+     *
+     * A night's median is exactly the thing that hides a shift going wrong at
+     * 9pm: twenty good heats bury three bad ones. The rolling window is the live
+     * signal, and the day's median is what "behind" is measured against — so
+     * both come back from one read of the same data rather than two round trips.
+     */
+    const recent = waitsSince(waits, nowMs - RECENT_WINDOW_MS);
 
     return NextResponse.json(
       {
@@ -105,6 +121,11 @@ export async function GET(req: NextRequest) {
         // schedules with their own delays, so one merged average describes a
         // night neither track actually had.
         byTrack: summariseWaitsByTrack(waits),
+        // The rolling window, same shape — empty on a past-day query, which is
+        // the honest answer: "the last hour" of a night that ended is nothing.
+        lastHour: summariseWaits(recent),
+        lastHourByTrack: summariseWaitsByTrack(recent),
+        recentSessions: recent.length,
         waits,
       },
       { headers: { "Cache-Control": "no-store" } },

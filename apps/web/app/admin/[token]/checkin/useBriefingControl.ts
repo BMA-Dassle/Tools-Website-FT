@@ -100,6 +100,17 @@ export interface BriefingControl {
    */
   expandedRoom: BriefingRoom | null;
   setExpandedRoom: (room: BriefingRoom | null) => void;
+  /**
+   * Which reference panel is open over the board — wait times, or today's log.
+   *
+   * UP HERE FOR THE SAME REASON AS THE CAMERA VIEWER: a scan lands every few
+   * seconds on a busy night and unmounts the panels, so a modal whose open state
+   * lived in the board would slam shut in the face of whoever opened it. One
+   * field rather than two booleans, because only one can be open at a time and
+   * two flags could disagree about that.
+   */
+  openPanel: BoardPanel | null;
+  setOpenPanel: (panel: BoardPanel | null) => void;
   send: (args: {
     room: BriefingRoom;
     track: string;
@@ -144,8 +155,15 @@ export interface BriefingControl {
 
 /** What the board strip reads. A subset of /api/admin/wait-times' response —
  *  the endpoint returns per-session rows too, which no board needs. */
+/** The board's reference overlays. Neither is an action — both are things staff
+ *  open, read and dismiss, which is why they are modals and not board furniture. */
+export type BoardPanel = "waits" | "log";
+
 export interface WaitTimesBoard {
   byTrack: Record<string, Record<string, { n: number; medianMs: number | null }>>;
+  /** The same shape over the ROLLING LAST HOUR — the board's "are we behind
+   *  right now" signal, which a night's median is precisely what hides. */
+  lastHourByTrack?: Record<string, Record<string, { n: number; medianMs: number | null }>>;
   sessions: number;
 }
 
@@ -156,6 +174,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   const [pending, setPending] = useState<string | null>(null);
   const [tierOverride, setTierOverrideState] = useState<Record<string, BriefingTier | null>>({});
   const [expandedRoom, setExpandedRoom] = useState<BriefingRoom | null>(null);
+  const [openPanel, setOpenPanel] = useState<BoardPanel | null>(null);
   const [waitTimes, setWaitTimes] = useState<WaitTimesBoard | null>(null);
   const [waitTimesWeek, setWaitTimesWeek] = useState<WaitTimesBoard | null>(null);
 
@@ -214,7 +233,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
         // record staff do not know is being kept is a record they cannot vouch
         // for. The log strip below carries the durable version with its
         // timestamp; this is the receipt at the moment of the press.
-        const photo = json.photoSaved ? " — room photo + timestamp saved for insurance." : "";
+        const photo = json.photoSaved ? " — briefing photo + timestamp saved for insurance." : "";
         setNote(
           json.hasVideo === false
             ? `✓ ${successNote} — but no ${json.tier} video is uploaded, so the room opens on helmet sizes.${photo}`
@@ -354,6 +373,8 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     setTierOverride,
     expandedRoom,
     setExpandedRoom,
+    openPanel,
+    setOpenPanel,
     send,
     start,
     clearRoom,

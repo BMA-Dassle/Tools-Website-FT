@@ -71,15 +71,8 @@
  * visibly jump, so a 1s clock drives the readouts and the phase comes from
  * briefingTimelineAt — the SAME pure function the TV runs, so desk and wall agree.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  IconAlertTriangleFilled,
-  IconCamera,
-  IconMaximize,
-  IconTrendingDown,
-  IconTrendingUp,
-  IconX,
-} from "@tabler/icons-react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { IconAlertTriangleFilled, IconCamera, IconMaximize, IconX } from "@tabler/icons-react";
 import { useTrackStatus, type CurrentRace, type TrackInfo } from "@/hooks/useTrackStatus";
 import { PORTAL_DARK } from "~/components/features/admin-skin/theme";
 import { briefingTimelineAt, type BriefingTimeline } from "~/features/signage/briefing/phase";
@@ -327,6 +320,26 @@ export default function RaceControlPanels({
             {note}
           </span>
         )}
+
+        {/* THE TWO REFERENCE PANELS, as controls rather than as furniture. Both
+            were permanently on the board and neither is watched — see BoardModal
+            for why that space belongs to the rooms instead. */}
+        <span
+          style={{
+            marginLeft: note ? 0 : "auto",
+            display: "inline-flex",
+            gap: 8,
+            alignItems: "center",
+          }}
+        >
+          <PanelButton onClick={() => control.setOpenPanel("waits")}>Wait times</PanelButton>
+          <PanelButton
+            onClick={() => control.setOpenPanel("log")}
+            count={board?.briefings.length ?? 0}
+          >
+            Briefing log
+          </PanelButton>
+        </span>
       </header>
 
       {(board?.enabled === false || noVideos) && (
@@ -409,19 +422,25 @@ export default function RaceControlPanels({
         })}
       </div>
 
-      {/* TODAY'S BRIEFING LOG — the durable record, on screen.
-          Was "Sent today", a list of send times read from the assignment rows.
-          It now reads the Neon event log (owner 2026-08-12: "for insurance
-          purposes, record when each session is briefed and the time they're in
-          the room"), so each line carries what was actually recorded: in at, the
-          film, whether it finished, and how long the room was theirs. Shown
-          because a record nobody can see is a record nobody notices has stopped
-          being written — this strip is the daily proof it is landing. */}
-      {(board?.briefings.length ?? 0) > 0 && (
-        <details style={{ marginTop: 10, flexShrink: 0 }}>
-          <summary style={{ cursor: "pointer", fontSize: 11, color: PORTAL_DARK.muted }}>
-            Briefing log — today ({board?.briefings.length})
-          </summary>
+      {/* TODAY'S BRIEFING LOG — the durable record, one button away.
+
+          Shown because a record nobody can see is a record nobody notices has
+          stopped being written: this list is the daily proof the insurance data
+          is landing. It reads the Neon event log (owner 2026-08-12: "for
+          insurance purposes, record when each session is briefed and the time
+          they're in the room"), so each line carries what was actually recorded —
+          in at, the film, whether it finished, the briefing photo, and how long
+          the room was theirs. It lived along the bottom of the board as a
+          details strip; it is a thing staff READ, not watch, so it is now a
+          panel (owner 2026-08-13). */}
+      {control.openPanel === "log" && (
+        <BoardModal
+          title="Briefing log"
+          subtitle={`Today · ${board?.briefings.length ?? 0} briefings${
+            board?.businessDay ? ` · ${board.businessDay}` : ""
+          }`}
+          onClose={() => control.setOpenPanel(null)}
+        >
           <div style={{ marginTop: 6, display: "grid", gap: 2 }}>
             <div
               style={{
@@ -439,7 +458,7 @@ export default function RaceControlPanels({
               <span style={{ minWidth: 96 }}>Film</span>
               <span style={{ minWidth: 76 }}>In at</span>
               <span style={{ minWidth: 76 }}>Started</span>
-              <span style={{ minWidth: 104 }}>Room photo</span>
+              <span style={{ minWidth: 104 }}>Briefing photo</span>
               <span style={{ marginLeft: "auto" }}>In room</span>
             </div>
             {board?.briefings.slice(0, 12).map((b) => (
@@ -491,7 +510,7 @@ export default function RaceControlPanels({
                         color: GREEN,
                         textDecoration: "none",
                       }}
-                      title="Room photo saved for insurance — opens the still"
+                      title="Briefing photo saved for insurance — opens the still"
                     >
                       <IconCamera size={12} aria-hidden />
                       {clockTimeMs(b.photoAtMs ?? b.startedAtMs ?? b.sentAtMs)}
@@ -508,7 +527,17 @@ export default function RaceControlPanels({
               </div>
             ))}
           </div>
-        </details>
+        </BoardModal>
+      )}
+
+      {control.openPanel === "waits" && (
+        <BoardModal
+          title="Wait times"
+          subtitle="Last hour against today and the last seven days, per track"
+          onClose={() => control.setOpenPanel(null)}
+        >
+          <WaitTimesRail waitTimes={control.waitTimes} waitTimesWeek={control.waitTimesWeek} />
+        </BoardModal>
       )}
 
       {expanded && (
@@ -530,30 +559,208 @@ export default function RaceControlPanels({
 }
 
 /* ── today's wait times, per track ─────────────────────────────────────── */
+/**
+ * A REFERENCE PANEL OVER THE BOARD — wait times, today's log.
+ *
+ * Both used to sit ON the board: the metrics as a rail across the top, the log as
+ * a details strip along the bottom. Neither is an ACTION, and neither is watched —
+ * they are things a staff member opens, reads, and dismisses, maybe twice a shift.
+ * Board furniture that earns its space is furniture you look at constantly, and
+ * these were taking permanent room from the rooms and clocks that are the job
+ * (owner 2026-08-13: "move stats to a button, move briefing log to a button as
+ * well with modal").
+ *
+ * Same dialog mechanics as the camera viewer, deliberately: ONE backdrop button
+ * behind the content rather than a click handler on a non-interactive div, so it
+ * answers Enter/Space for free, no keyboard is stranded, and the children have
+ * nothing to guard against. Esc closes, and focus lands on Close when it opens.
+ */
+function BoardModal({
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    closeRef.current?.focus();
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="rc-lb"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 95,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+      }}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label={`Close ${title.toLowerCase()}`}
+        style={{
+          position: "absolute",
+          inset: 0,
+          border: 0,
+          background: "rgba(3,6,12,0.86)",
+          cursor: "default",
+        }}
+      />
+      <div
+        style={{
+          position: "relative",
+          width: "min(1180px, 100%)",
+          maxHeight: "86vh",
+          display: "flex",
+          flexDirection: "column",
+          background: PORTAL_DARK.card,
+          border: `1px solid ${PORTAL_DARK.border}`,
+          borderRadius: 10,
+          boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            gap: 12,
+            padding: "14px 18px",
+            borderBottom: `1px solid ${PORTAL_DARK.border}`,
+            flexShrink: 0,
+          }}
+        >
+          <h3
+            style={{
+              margin: 0,
+              fontSize: 13,
+              fontWeight: 800,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: INK,
+            }}
+          >
+            {title}
+          </h3>
+          {subtitle && <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{subtitle}</span>}
+          <button
+            ref={closeRef}
+            type="button"
+            className="rcb"
+            onClick={onClose}
+            title="Close (Esc)"
+            style={{
+              marginLeft: "auto",
+              padding: "6px 12px",
+              borderRadius: 6,
+              fontSize: 12,
+              borderColor: PORTAL_DARK.border,
+              background: "transparent",
+              color: PORTAL_DARK.fg,
+            }}
+          >
+            <IconX size={14} stroke={2.4} />
+            Close
+          </button>
+        </div>
+        {/* The body scrolls, never the page behind it — a log of fifty heats must
+            not push the dialog off a desk monitor. */}
+        <div style={{ overflowY: "auto", padding: "14px 18px 18px", minHeight: 0 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+/** A header control that opens a reference panel. Quiet by default — these sit
+ *  beside a board whose own buttons perform actions, and an outline button reads
+ *  as "look at something" rather than "do something". */
+function PanelButton({
+  onClick,
+  count,
+  children,
+}: {
+  onClick: () => void;
+  /** Shown as a chip when there is something to count, e.g. today's log rows. */
+  count?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className="rcb"
+      onClick={onClick}
+      style={{
+        padding: "5px 11px",
+        borderRadius: 6,
+        fontSize: 11,
+        fontWeight: 700,
+        borderColor: PORTAL_DARK.border,
+        background: "transparent",
+        color: PORTAL_DARK.fg,
+      }}
+    >
+      {children}
+      {count != null && count > 0 && (
+        <span
+          className="rc-num"
+          style={{
+            marginLeft: 2,
+            padding: "1px 6px",
+            borderRadius: 999,
+            background: PORTAL_DARK.muted2,
+            color: PORTAL_DARK.muted,
+            fontSize: 10,
+            fontWeight: 800,
+          }}
+        >
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
 
 /**
- * THE TWO NUMBERS THE DESK CAN ACT ON, per track (owner 2026-08-12: "we then can
- * add some critical wait times — send to room to start of race, total experience
- * time, both per track… it would be today's times").
+ * TODAY'S WAIT TIMES — a small matrix per track, above that track's own room.
  *
- * ROOM → RACE is the desk's own span: everything between "I sent them to the
- * room" and "they are racing". It is the one a shift can actually shorten,
- * because both ends are ours — the send is a press at this desk, and the flag
- * follows the briefing. TOTAL EXPERIENCE is called → chequered flag, the guest's
- * whole visit, and it exists to keep the first number honest: a shift can look
- * quick on room → race while the night as a whole has slipped.
+ * WHAT THE DESK ACTUALLY ASKS is not "what is our average", it is "are we running
+ * behind right now" (owner 2026-08-13: "I think you need day and last hour so we
+ * know if we're calling behind"). A night's median is the very thing that hides a
+ * shift going wrong at 9pm — twenty good heats bury three bad ones — so the LAST
+ * HOUR is the number in large type, and the day and the week sit under it as the
+ * baselines it is read against.
  *
- * MEDIAN, NOT MEAN. One group nobody released drags a mean by minutes and leaves
- * a median alone, and the desk needs the TYPICAL night to decide anything. The
- * count behind each number rides along, because "8:20 from two heats" and "8:20
- * from twenty" are not the same claim.
+ * A MATRIX, NOT A ROW OF CHIPS. Periods down the side, measures across the top:
+ * every number shares a column with the one above it, so "behind" is a comparison
+ * the eye makes for free rather than one an arrow has to assert. That also
+ * retired the trend chips, the repeated track labels and the "TODAY · MEDIAN"
+ * filler the earlier passes spent width on.
  *
- * SPLIT BY TRACK because blue and red run their own schedules with their own
- * delays; one merged average would describe a night neither track had. On a Mega
- * day the data arrives under `mega` and this shows that single column, rather
- * than two columns of the same number.
+ * ALIGNED TO ITS OWN ROOM. Same grid template as the room columns below, so the
+ * red matrix sits directly over RED ROOM and the blue over BLUE ROOM, with the
+ * spine colour carrying down the page. The previous cut floated these in the page
+ * header, where red's numbers sat above the middle of the board and belonged to
+ * nothing — which is exactly why it read as clutter.
  */
-export function WaitTimesStrip({
+export function WaitTimesRail({
   waitTimes,
   waitTimesWeek,
 }: {
@@ -561,199 +768,192 @@ export function WaitTimesStrip({
   waitTimesWeek: WaitTimesBoard | null;
 }) {
   /**
-   * WHICH TRACKS TO SHOW, read off the data rather than passed in.
-   *
-   * A Mega day is one circuit that both rooms serve, so its heats arrive under
-   * `mega` and red + blue columns would be two tiles of nothing beside one of
-   * everything. Deriving it here also means this component carries no track
-   * status of its own — which is what lets it live up in the page header, away
-   * from the board that knows about tracks.
-   *
-   * Before the night's first heat there is nothing to read, so it falls back to
-   * red + blue: two tiles that fill themselves in, rather than a strip that pops
-   * into existence an hour into the shift.
+   * WHICH TRACKS TO SHOW, read off the data rather than passed in — a Mega day is
+   * one circuit both rooms serve, so its heats arrive under `mega`, and red +
+   * blue would be two columns of nothing beside one of everything. Before the
+   * night's first heat there is nothing to read, so it falls back to red + blue:
+   * a rail that fills itself in rather than one that appears mid-shift.
    */
-  const ALL: Array<{ key: string; label: string; color: string }> = [
-    { key: "red", label: "RED TRACK", color: ROOM_COLOR.red },
-    { key: "blue", label: "BLUE TRACK", color: ROOM_COLOR.blue },
-    { key: "mega", label: "MEGA TRACK", color: MEGA },
+  const ALL: Array<{ key: string; color: string }> = [
+    { key: "red", color: ROOM_COLOR.red },
+    { key: "blue", color: ROOM_COLOR.blue },
+    { key: "mega", color: MEGA },
   ];
   const ran = ALL.filter((t) => (waitTimes?.byTrack?.[t.key]?.roomToRaceMs?.n ?? 0) > 0);
   const tracks = ran.length > 0 ? ran : ALL.slice(0, 2);
 
   return (
-    // IN THE PAGE HEADER, filling space that was empty (owner 2026-08-12: "lots of
-    // wasted space at top to work with"). That band was a title, three buttons and
-    // a wide gap; the tiles now live in the gap and cost the board no vertical
-    // space at all — every pixel they do not take is a pixel the room panels keep.
-    // Wraps to its own line on a narrow desk monitor rather than crushing the
-    // buttons.
     <div
       style={{
-        display: "flex",
-        gap: 10,
-        flexWrap: "wrap",
-        flex: "1 1 520px",
-        justifyContent: "flex-end",
+        display: "grid",
+        gap: 14,
+        // The room grid's own template — so each matrix lands over its room.
+        gridTemplateColumns: "repeat(auto-fit,minmax(430px,1fr))",
+        flexShrink: 0,
+        marginBottom: 12,
       }}
     >
-      {tracks.map(({ key, label, color }) => {
-        const today = waitTimes?.byTrack?.[key];
-        const week = waitTimesWeek?.byTrack?.[key];
-        return (
-          <div
-            key={key}
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 16,
-              border: `1px solid ${withAlpha(color, 0.3)}`,
-              background: PORTAL_DARK.card,
-              borderRadius: 8,
-              padding: "8px 14px 9px",
-            }}
-          >
-            {/* THE TRACK, NAMED ONCE. Two tiles side by side each repeating "RED
-                TRACK" was the loudest thing in the strip and the least
-                informative — the pair belongs to one track, so the card says it
-                once and the numbers inside get the room. */}
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                fontSize: 10,
-                fontWeight: 800,
-                letterSpacing: "0.05em",
-                color,
-                whiteSpace: "nowrap",
-                paddingTop: 3,
-              }}
-            >
-              <span
-                aria-hidden
-                style={{ width: 7, height: 7, borderRadius: "50%", background: color }}
-              />
-              {label}
-            </span>
-            <WaitTile title="Room → race" today={today?.roomToRaceMs} week={week?.roomToRaceMs} />
-            <WaitTile
-              title="Total experience"
-              today={today?.calledToRaceEndMs}
-              week={week?.calledToRaceEndMs}
-            />
-          </div>
-        );
-      })}
+      {tracks.map(({ key, color }) => (
+        <TrackWaitMatrix
+          key={key}
+          color={color}
+          hour={waitTimes?.lastHourByTrack?.[key]}
+          today={waitTimes?.byTrack?.[key]}
+          week={waitTimesWeek?.byTrack?.[key]}
+        />
+      ))}
     </div>
   );
 }
 
-/**
- * ONE WAIT-TIME TILE, in the Team Member Portal's MetricCard grammar (owner
- * 2026-08-12: "take a look at the portal as well — I'm thinking these wait times
- * are going to be tiles so we can compare day to week").
- *
- * The portal's card is: a mark and a TREND at the top, then an uppercase title, a
- * large value, and a line of context underneath. That is the shape ported here —
- * the mark becomes the track dot, because on this board the thing a tile most
- * needs to say first is WHICH TRACK it is about.
- *
- * A NUMBER ALONE MEANS NOTHING. 9:34 is a good night or a bad one depending
- * entirely on the week around it, and nobody at a desk is holding last Tuesday's
- * median in their head — so the comparison IS the feature, not decoration. Today
- * is the big number; the chip says how it sits against the last seven days.
- *
- * FASTER IS GREEN, SLOWER IS AMBER — never red. Red on this board means a
- * deadline has been missed (an overdue room, a blown check-in window); a slow
- * night is information, not an alarm, and borrowing the alarm colour for it would
- * blunt the one that matters.
- */
-function WaitTile({
-  title,
+type WaitStat = { n: number; medianMs: number | null } | undefined;
+type TrackStats = Record<string, { n: number; medianMs: number | null }> | undefined;
+
+/** How far the last hour must drift from the day before the board says so. */
+const BEHIND_MS = 30_000;
+
+function TrackWaitMatrix({
+  color,
+  hour,
   today,
   week,
 }: {
-  title: string;
-  today: { n: number; medianMs: number | null } | undefined;
-  week: { n: number; medianMs: number | null } | undefined;
+  color: string;
+  hour: TrackStats;
+  today: TrackStats;
+  week: TrackStats;
 }) {
-  const known = today?.medianMs != null;
+  const rows: Array<{ label: string; stats: TrackStats; lead: boolean }> = [
+    { label: "Last hour", stats: hour, lead: true },
+    { label: "Today", stats: today, lead: false },
+    { label: "Last 7 days", stats: week, lead: false },
+  ];
+
   return (
-    <div style={{ minWidth: 0 }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          fontSize: 9,
-          fontWeight: 800,
-          letterSpacing: "0.10em",
-          textTransform: "uppercase",
-          color: PORTAL_DARK.muted,
-          whiteSpace: "nowrap",
-        }}
-      >
-        {title}
-        <TrendChip todayMs={today?.medianMs ?? null} weekMs={week?.medianMs ?? null} />
-      </div>
-      {/* No data says so plainly, in the muted em-dash the rest of the board uses
-          for "not known". A tile showing 0:00 over an empty night would read as
-          the best night on record. */}
-      <div
-        className="rc-num"
-        style={{
-          fontSize: 26,
-          fontWeight: 800,
-          lineHeight: 1.1,
-          color: known ? INK : PORTAL_DARK.muted,
-        }}
-      >
-        {known ? formatWaitMs(today?.medianMs ?? null) : "—"}
-      </div>
-      <div style={{ fontSize: 10, color: PORTAL_DARK.muted, whiteSpace: "nowrap" }}>
-        {today?.n ? `median · ${today.n} heat${today.n === 1 ? "" : "s"}` : "no heats yet"}
-      </div>
+    <div
+      style={{
+        background: PORTAL_DARK.card,
+        border: `1px solid ${PORTAL_DARK.border}`,
+        borderLeft: `3px solid ${color}`,
+        borderRadius: 8,
+        padding: "8px 14px 10px",
+        display: "grid",
+        gridTemplateColumns: "auto 1fr 1fr",
+        columnGap: 18,
+        rowGap: 1,
+        alignItems: "baseline",
+      }}
+    >
+      <span />
+      <ColumnHead>Room → race</ColumnHead>
+      <ColumnHead>Total experience</ColumnHead>
+
+      {rows.map(({ label, stats, lead }) => (
+        <Fragment key={label}>
+          <span
+            style={{
+              fontSize: 9,
+              fontWeight: 800,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: lead ? INK : PORTAL_DARK.muted,
+              whiteSpace: "nowrap",
+              paddingRight: 4,
+            }}
+          >
+            {label}
+            {stats?.roomToRaceMs?.n ? (
+              <span style={{ color: PORTAL_DARK.muted, fontWeight: 700 }}>
+                {" · "}
+                {stats.roomToRaceMs.n}
+              </span>
+            ) : null}
+          </span>
+          <WaitValue
+            stat={stats?.roomToRaceMs}
+            against={lead ? today?.roomToRaceMs : undefined}
+            lead={lead}
+          />
+          <WaitValue
+            stat={stats?.calledToRaceEndMs}
+            against={lead ? today?.calledToRaceEndMs : undefined}
+            lead={lead}
+          />
+        </Fragment>
+      ))}
     </div>
   );
 }
 
-/**
- * Today against the last seven days.
- *
- * SILENT UNLESS IT CAN SAY SOMETHING TRUE: no today, no week, or a week thin
- * enough to be noise (fewer than five heats) and the chip simply is not there. A
- * trend drawn from two heats is a coin toss wearing an arrow.
- *
- * A difference under half a minute reads as "about the same" rather than
- * pretending eight seconds is a direction — over a night's wait times that is
- * inside the noise, and an arrow on it would have staff chasing nothing.
- */
-function TrendChip({ todayMs, weekMs }: { todayMs: number | null; weekMs: number | null }) {
-  const WEEK_MIN_SAMPLE_MS = 30_000;
-  if (todayMs == null || weekMs == null) return null;
-
-  const deltaMs = todayMs - weekMs;
-  const flat = Math.abs(deltaMs) < WEEK_MIN_SAMPLE_MS;
-  const faster = deltaMs < 0;
-  const tone = flat ? PORTAL_DARK.muted : faster ? GREEN : AMBER;
-  const Icon = faster ? IconTrendingDown : IconTrendingUp;
-
+function ColumnHead({ children }: { children: React.ReactNode }) {
   return (
     <span
-      title={`Seven-day median ${formatWaitMs(weekMs)}`}
       style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        fontSize: 10,
-        fontWeight: 700,
-        color: tone,
+        fontSize: 9,
+        fontWeight: 800,
+        letterSpacing: "0.10em",
+        textTransform: "uppercase",
+        color: PORTAL_DARK.muted,
         whiteSpace: "nowrap",
       }}
     >
-      {!flat && <Icon size={13} stroke={2.6} aria-hidden />}
-      {flat ? "≈ week" : `${formatWaitMs(Math.abs(deltaMs))} ${faster ? "faster" : "slower"}`}
+      {children}
+    </span>
+  );
+}
+
+/**
+ * One number in the matrix.
+ *
+ * The LAST HOUR row is the live one, so it is the only row that carries colour,
+ * and it earns it by comparison with today's median: meaningfully slower is AMBER
+ * — that is "we are calling behind" — and meaningfully faster is green. Under
+ * half a minute either way is noise over a night's waits and stays plain, because
+ * a board that changes colour on eight seconds teaches staff to ignore colour.
+ *
+ * NEVER RED: red here means a deadline has been missed (an overdue room, a blown
+ * check-in window), and spending it on a slow stretch blunts the real alarm.
+ *
+ * An unknown value is a THIN dash — the fat 800-weight em-dash the first cut used
+ * read as a broken loading bar, which is worse than saying nothing at all.
+ */
+function WaitValue({ stat, against, lead }: { stat: WaitStat; against: WaitStat; lead: boolean }) {
+  const ms = stat?.medianMs ?? null;
+  if (ms == null) {
+    return (
+      <span
+        style={{
+          fontSize: lead ? 22 : 14,
+          fontWeight: 400,
+          color: PORTAL_DARK.muted,
+          lineHeight: 1.25,
+        }}
+      >
+        —
+      </span>
+    );
+  }
+
+  const baseline = against?.medianMs ?? null;
+  const delta = baseline != null ? ms - baseline : 0;
+  const tone =
+    !lead || baseline == null || Math.abs(delta) < BEHIND_MS
+      ? undefined
+      : delta > 0
+        ? AMBER
+        : GREEN;
+
+  return (
+    <span
+      className="rc-num"
+      style={{
+        fontSize: lead ? 22 : 14,
+        fontWeight: lead ? 800 : 700,
+        lineHeight: 1.25,
+        color: tone ?? (lead ? INK : PORTAL_DARK.muted),
+      }}
+    >
+      {formatWaitMs(ms)}
     </span>
   );
 }

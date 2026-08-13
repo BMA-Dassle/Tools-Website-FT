@@ -86,6 +86,16 @@ export interface SessionWaits {
   sessionId: string;
   track: string | null;
   heatNumber: number | null;
+  /**
+   * WHEN THIS GROUP WENT TO THE ROOM — the clock a rolling window is cut on.
+   *
+   * "Are we running behind right now" is a question about the LAST HOUR, not
+   * about the night, and a night's median is exactly the thing that hides a
+   * shift going wrong at 9pm. Windowing needs one timestamp per group, and the
+   * send is the right one: it is the moment the desk acted, it always exists
+   * (every record has it), and it sits at the head of every span measured here.
+   */
+  atMs: number;
   raceType: string | null;
   /** First racer through the desk → sent to the briefing room. */
   checkinToRoomMs: number | null;
@@ -192,6 +202,7 @@ export function sessionWaits(
     sessionId: briefing.sessionId,
     track: briefing.track,
     heatNumber: briefing.heatNumber,
+    atMs: briefing.sentAtMs,
     raceType: briefing.raceType,
     checkinToRoomMs: at("checkinToRoomMs", briefing.checkinFirstAtMs, briefing.sentAtMs),
     checkinSpreadMs: at("checkinSpreadMs", briefing.checkinFirstAtMs, briefing.checkinLastAtMs),
@@ -222,6 +233,21 @@ export function waitsForDay(briefings: BriefingSpanSource[], races: RaceWindow[]
   for (const r of races) byId.set(r.sessionId, r);
   return briefings.map((b) => sessionWaits(b, byId.get(b.sessionId)));
 }
+
+/**
+ * Only the groups sent since `fromMs` — the rolling window behind "last hour".
+ *
+ * A separate function rather than an argument to the summary, because the fold
+ * and the window are different questions and a caller nearly always wants BOTH
+ * over the same data: today's median is what "behind" is measured against.
+ */
+export function waitsSince(waits: SessionWaits[], fromMs: number): SessionWaits[] {
+  return waits.filter((w) => Number.isFinite(w.atMs) && w.atMs >= fromMs);
+}
+
+/** The rolling window the desk reads as "right now". Long enough to hold a few
+ *  heats on any track, short enough that a shift going wrong shows up in it. */
+export const RECENT_WINDOW_MS = 60 * 60_000;
 
 function median(sorted: number[]): number | null {
   if (sorted.length === 0) return null;
