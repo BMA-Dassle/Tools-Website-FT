@@ -88,20 +88,44 @@ export interface SyncPushMessage {
  * Errors are swallowed on purpose: the row is already durable in Neon, and a queue
  * outage must never fail the guest-facing write that enqueued it.
  */
+/**
+ * How long a guest may wait on the QUEUE before we stop caring.
+ *
+ * `enqueueSync` is awaited on guest-facing paths — the person mint in
+ * `/api/pandora` returns only after it, and so does the kiosk check-in stamp. The
+ * SDK's `SendOptions` has no timeout of its own (checked 2026-08-13: only
+ * idempotencyKey / retentionSeconds / delaySeconds / headers), so a slow queue
+ * service would sit in front of a guest with no bound at all.
+ *
+ * 2s is far longer than a healthy send and short enough that nobody notices. On
+ * timeout we return null and the row is already durable in Neon, so the cron takes
+ * it — the same degradation as any other send failure.
+ */
+const SEND_TIMEOUT_MS = 2_000;
+
 export async function sendSyncPush(row: SyncQueueRow): Promise<string | null> {
   if (!syncPushEnabled()) return null;
   try {
     const { send } = await import("@vercel/queue");
-    const { messageId } = await send(syncTopic(), { rowId: row.id } satisfies SyncPushMessage, {
-      delaySeconds: SYNC_PUSH_DELAY_SECONDS,
-      // Per ROW, not per kind-per-person: the row id is already unique, and
-      // collapsing two legitimate rows would silently drop one.
-      idempotencyKey: `bmi-sync-row-${row.id}`,
-      // Long enough to outlast any barrier wait we would tolerate, far short of
-      // the 7-day maximum. Past this, the row is a human's problem — the cron
-      // still reports it as parked.
-      retentionSeconds: 24 * 60 * 60,
-    });
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`queue send exceeded ${SEND_TIMEOUT_MS}ms`)),
+        SEND_TIMEOUT_MS,
+      ),
+    );
+    const { messageId } = await Promise.race([
+      send(syncTopic(), { rowId: row.id } satisfies SyncPushMessage, {
+        delaySeconds: SYNC_PUSH_DELAY_SECONDS,
+        // Per ROW, not per kind-per-person: the row id is already unique, and
+        // collapsing two legitimate rows would silently drop one.
+        idempotencyKey: `bmi-sync-row-${row.id}`,
+        // Long enough to outlast any barrier wait we would tolerate, far short of
+        // the 7-day maximum. Past this, the row is a human's problem — the cron
+        // still reports it as parked.
+        retentionSeconds: 24 * 60 * 60,
+      }),
+      timeout,
+    ]);
     return messageId ?? null;
   } catch (err) {
     // DuplicateMessageError is a SUCCESS in disguise: this row is already in flight.
