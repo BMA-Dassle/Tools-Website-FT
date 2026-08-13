@@ -224,5 +224,19 @@
       "path": "/api/cron/wallet-overnight-clear",
       "schedule": "0 7,8 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "app/api/queue/waiver-push/route.ts": {
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "waiver-push"
+        },
+        {
+          "type": "queue/v2beta",
+          "topic": "waiver-push-preview"
+        }
+      ]
+    }
+  }
 }
