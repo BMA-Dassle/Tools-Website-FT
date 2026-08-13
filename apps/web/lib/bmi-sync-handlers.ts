@@ -155,6 +155,26 @@ async function pushWaiverSignature(row: SyncQueueRow): Promise<HandlerResult> {
       signerPersonId: str(row.payload.signerPersonId) ?? undefined,
       skipIfValid: true,
     });
+    /**
+     * WRITE THE OUTCOME BACK. Marking the QUEUE row done is not the same as
+     * recording that the waiver was filed: `waiver_signatures` is what the admin
+     * board and `hasUnexpiredCapturedWaiver` read. Without this the signature sits
+     * at `queued` with a null waiver_id forever, and work that succeeded reads as
+     * owed — 24 rows were in exactly that state on 2026-08-13, every one of them
+     * verified present in Pandora.
+     *
+     * Best-effort on purpose: the vendor record IS written by this point, so a
+     * failed bookkeeping update must not turn into a retry that re-pushes it.
+     */
+    const rowId = Number(row.payload.signatureRowId);
+    if (Number.isFinite(rowId) && rowId > 0) {
+      const { settleWaiverSignature } = await import("@/lib/waiver-signature-store");
+      await settleWaiverSignature(
+        rowId,
+        out.skipped ? "salvaged" : "signed",
+        out.waiverID ? String(out.waiverID) : null,
+      ).catch((e) => console.warn(`[bmi-sync] could not settle signature row ${rowId}:`, e));
+    }
     if (out.skipped) return done("already had a valid waiver — skipped");
     return out.waiverID ? done(`waiver ${out.waiverID}`) : again("no waiverID returned");
   } catch (err) {

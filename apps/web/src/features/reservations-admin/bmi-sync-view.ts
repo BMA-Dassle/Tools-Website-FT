@@ -123,6 +123,25 @@ function nameFromPayload(payload: unknown): string | null {
  * carry the waiver outcome, since a guest who attached but whose waiver never
  * reached BMI is exactly the case worth seeing.
  */
+/**
+ * Attach + waiver outcome → what the board is allowed to claim.
+ *
+ * `queued` IS NOT DONE. It means the push was handed to Vercel Queues, not that
+ * BMI holds the record. Counting it as done was the same shape as the swallowed
+ * $2,113.95: a row whose consumer never ran sits at `queued` forever and reads
+ * green, with `resolvedAt` set and no age-out to give it away. Two such rows are
+ * in the table right now (#776, #777) from previews that had no consumer bound.
+ *
+ * So `queued` is PENDING — still moving, and the caller stamps `ageMin`, which is
+ * what turns a stuck one amber instead of invisible. Only `signed` (BMI wrote it)
+ * and `salvaged` (they already had a valid waiver) are finished.
+ */
+export function guestAddStatus(attach: string, waiver: string | null): string {
+  if (attach === "failed") return "parked";
+  if (attach !== "attached") return "pending";
+  return waiver === "signed" || waiver === "salvaged" ? "done" : "pending";
+}
+
 export async function listRecentGuestAdds(minutes = 720, limit = 100): Promise<AdminSyncRow[]> {
   if (!isDbConfigured()) return [];
   try {
@@ -142,17 +161,7 @@ export async function listRecentGuestAdds(minutes = 720, limit = 100): Promise<A
     return rows.map((r) => {
       const attach = String(r.bmi_attach_status);
       const waiver = r.waiver_outcome === null ? null : String(r.waiver_outcome);
-      // 'attached' + a signed/queued waiver is the whole job done. Anything else
-      // is either still moving or wants eyes.
-      const waiverOk = waiver === "signed" || waiver === "salvaged" || waiver === "queued";
-      const status =
-        attach === "attached"
-          ? waiverOk
-            ? "done"
-            : "pending"
-          : attach === "failed"
-            ? "parked"
-            : "pending";
+      const status = guestAddStatus(attach, waiver);
       return {
         // Negative ids keep these distinct from real queue rows in React keys.
         id: -Number(r.person_id ? String(r.person_id).slice(-9) : Math.random() * 1e9),

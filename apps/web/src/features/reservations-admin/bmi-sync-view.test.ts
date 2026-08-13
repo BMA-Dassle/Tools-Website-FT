@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { onsitePillCopy, type ReservationSyncState } from "./bmi-sync-view";
+import { onsitePillCopy, guestAddStatus, type ReservationSyncState } from "./bmi-sync-view";
 
 const state = (over: Partial<ReservationSyncState>): ReservationSyncState => ({
   state: "unknown",
@@ -9,6 +9,27 @@ const state = (over: Partial<ReservationSyncState>): ReservationSyncState => ({
   waitingKinds: [],
   oldestWaitingMin: null,
   ...over,
+});
+
+describe("guestAddStatus — 'handed to the queue' is not 'BMI has it'", () => {
+  it("only a FILED waiver is done", () => {
+    expect(guestAddStatus("attached", "signed")).toBe("done");
+    expect(guestAddStatus("attached", "salvaged")).toBe("done");
+  });
+
+  it("queued is PENDING — the push was handed off, not completed", () => {
+    // The regression this guards: counting `queued` as done made a signature whose
+    // consumer never ran read green forever, with no age to give it away.
+    expect(guestAddStatus("attached", "queued")).toBe("pending");
+  });
+
+  it("no waiver row at all is pending, never done", () => {
+    expect(guestAddStatus("attached", null)).toBe("pending");
+  });
+
+  it("a failed attach needs a human regardless of the waiver", () => {
+    expect(guestAddStatus("failed", "signed")).toBe("parked");
+  });
 });
 
 describe("onsitePillCopy — what the board is allowed to claim", () => {

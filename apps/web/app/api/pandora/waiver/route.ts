@@ -365,6 +365,11 @@ export async function POST(req: NextRequest) {
         barrierRef: String(personID),
         locationId: locationID,
         payload: {
+          // The Neon row this push settles. Without it the handler files the
+          // waiver and nothing ever writes the outcome back, so the signature sits
+          // at `queued` forever and the board reports work that is actually DONE
+          // as owed — 24 rows in that state on 2026-08-13.
+          signatureRowId,
           personId: String(personID),
           personIds: needLocal,
           signerPersonId: signerId,
