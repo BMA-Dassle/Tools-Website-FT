@@ -28,6 +28,7 @@
  * Read-only. Never throws — the board must render if the queue is unreachable.
  */
 import { sql, isDbConfigured } from "@/lib/db";
+import { PANDORA_DEFAULT_LOCATION_ID } from "@/lib/pandora-locations";
 
 export interface AdminSyncRow {
   id: number;
@@ -158,10 +159,52 @@ export async function listRecentGuestAdds(minutes = 720, limit = 100): Promise<A
       ORDER BY j.created_at DESC
       LIMIT ${limit}
     `) as Array<Record<string, unknown>>;
+    /**
+     * ASK BMI BEFORE CLAIMING A GUEST OWES US A WAIVER.
+     *
+     * A missing `waiver_signatures` row means only that they did not sign THROUGH
+     * US. The commonest reason is the happy one: they already hold a valid waiver,
+     * so the kiosk never asked them to sign. rebecca wolfson sat on this board for
+     * 90 minutes reading "waiver not recorded yet" while BMI had her covered until
+     * 2027-01-03 (2026-08-13).
+     *
+     * A board that cries wolf gets ignored, and then the real rows get ignored with
+     * it — which is the same failure as calling unfinished work done, pointed the
+     * other way.
+     *
+     * Only the rows that would otherwise read as owed are checked, so a clean board
+     * costs nothing. `waiverValidNow` is Redis-cached for 120s and answers from our
+     * own signature record when Pandora is unreadable, so this cannot regress into
+     * "vendor down = everyone owes a waiver".
+     */
+    const { waiverValidNow, WAIVER_CHECK_CONCURRENCY } =
+      await import("~/features/kiosk/waiver/valid-count");
+    const suspect = rows.filter(
+      (r) =>
+        String(r.bmi_attach_status) === "attached" &&
+        guestAddStatus(
+          String(r.bmi_attach_status),
+          r.waiver_outcome === null ? null : String(r.waiver_outcome),
+        ) === "pending",
+    );
+    const coveredAnyway = new Set<string>();
+    for (let i = 0; i < suspect.length; i += WAIVER_CHECK_CONCURRENCY) {
+      const batch = suspect.slice(i, i + WAIVER_CHECK_CONCURRENCY);
+      await Promise.all(
+        batch.map(async (r) => {
+          const pid = String(r.person_id ?? "");
+          if (!pid) return;
+          const ok = await waiverValidNow(pid, PANDORA_DEFAULT_LOCATION_ID).catch(() => false);
+          if (ok) coveredAnyway.add(pid);
+        }),
+      );
+    }
+
     return rows.map((r) => {
       const attach = String(r.bmi_attach_status);
       const waiver = r.waiver_outcome === null ? null : String(r.waiver_outcome);
-      const status = guestAddStatus(attach, waiver);
+      const covered = coveredAnyway.has(String(r.person_id ?? ""));
+      const status = covered && attach === "attached" ? "done" : guestAddStatus(attach, waiver);
       return {
         // Negative ids keep these distinct from real queue rows in React keys.
         id: -Number(r.person_id ? String(r.person_id).slice(-9) : Math.random() * 1e9),
@@ -174,7 +217,9 @@ export async function listRecentGuestAdds(minutes = 720, limit = 100): Promise<A
         attempts: 0,
         lastError:
           attach === "attached"
-            ? `attached${waiver ? `, waiver ${waiver}` : ", waiver not recorded yet"}`
+            ? covered && !waiver
+              ? "attached; BMI already holds a current waiver — nothing owed"
+              : `attached${waiver ? `, waiver ${waiver}` : ", waiver not recorded yet"}`
             : `attach ${attach}${r.bmi_attach_error ? `: ${String(r.bmi_attach_error).slice(0, 120)}` : ""}`,
         createdAt: String(r.created_at),
         nextAttemptAt: String(r.created_at),
