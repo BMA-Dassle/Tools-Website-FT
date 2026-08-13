@@ -4058,3 +4058,42 @@ a trap; pass everything explicitly".
 re-enqueued through `bmi_sync_queue` and filed by the production cron within two
 minutes, verified against Pandora (`waiver 8598389` / `8598390` for the Naples pair).
 `skipIfValid: true` makes a re-push safe even if one had landed in the meantime.
+
+## tsc and vitest do not bundle — only `next build` finds `Can't resolve 'tls'` (2026-08-13)
+
+**What happened:** three preview builds failed in ~30s with
+
+```
+Module not found: Can't resolve 'tls'
+```
+
+The change was one dynamic import added to `bmi-sync-view.ts`:
+
+```ts
+const { waiverValidNow } = await import("~/features/kiosk/waiver/valid-count");
+```
+
+`valid-count` imports `redis` → `ioredis` → `tls`. And `bmi-sync-view.ts` is in the
+**client bundle graph**, because `BmiSyncPanel.tsx` — a client component — imports
+`guestAddStatus` and `onsitePillCopy` from it. A server-only dependency reached the
+browser bundle and the build refused it.
+
+`npx tsc --noEmit` passed. All 4,527 vitest tests passed. **Neither bundles**, so
+neither can see this class of error. The only local gate that catches it is a real
+`next build`, which takes 30 seconds and which I did not run before pushing.
+
+**The nuance to "one final build, not per-PR":** that rule is still right for ordinary
+logic changes. It is WRONG for any change that alters what a module IMPORTS, when that
+module is reachable from a `"use client"` component. For those, run `npx next build`
+locally before pushing — the failure is invisible to every other gate.
+
+**How to tell if a module is in the client graph:** grep for who imports it. If any
+importer is a `"use client"` component, every import in that file — including a
+dynamic `await import()` — must be browser-safe. Pure helpers living in the same file
+as server-only DB/network code is the underlying smell; the pure bits belong in their
+own module.
+
+**The fix that was actually right:** the check did not need `waiverValidNow` at all —
+a bare `fetch` to Pandora does it with no redis. Reaching for the existing helper
+looked like reuse and was really a dependency you could not afford. Reuse is not free
+when the dependency graph is the constraint.
