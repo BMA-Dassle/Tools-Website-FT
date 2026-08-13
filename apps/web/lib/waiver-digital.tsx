@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { resolvePandoraLocation } from "@/lib/pandora-locations";
+import { resolvePandoraLocation, isKnownPandoraLocationId } from "@/lib/pandora-locations";
 
 /**
  * Digital waiver acceptance → Pandora/BMI.
@@ -240,12 +240,33 @@ export async function signWaiverDigital(opts: {
   signerPersonId?: string;
   /** Skip the push (return skipped:true) if the person already has a valid waiver. */
   skipIfValid?: boolean;
+  /**
+   * The RESOLVED Pandora location id the signature was captured at, for callers
+   * that already hold it. Wins over `locationKey`.
+   *
+   * Exists because `resolvePandoraLocation` falls back to FastTrax for anything it
+   * cannot map, and a caller with the real id had no way to say so. The queued
+   * waiver push carried `PPTR5G2N0QXF7` (HeadPinz Naples) for its barrier, passed
+   * no `locationKey`, and so signed against FastTrax — where a Naples person id
+   * does not exist, because BMI ids do not cross centers. Two Naples guests' waivers
+   * retried for 23 minutes and were on course to give up (2026-08-13, rows #809/#811).
+   *
+   * It fails LOUDLY rather than silently defaulting: an id we cannot recognise is a
+   * wrong-centre write waiting to happen.
+   */
+  locationId?: string | null;
 }): Promise<SignWaiverDigitalResult> {
   const { personId, name } = opts;
   if (!personId) throw new Error("personId required");
   if (!API_KEY) throw new Error("SWAGGER_ADMIN_KEY not configured");
 
-  const locationID = resolvePandoraLocation(opts.locationKey);
+  if (opts.locationId && !isKnownPandoraLocationId(opts.locationId)) {
+    throw new Error(
+      `unknown Pandora location "${opts.locationId}" — refusing to sign, ` +
+        `because the fallback would file this waiver at the wrong center`,
+    );
+  }
+  const locationID = opts.locationId || resolvePandoraLocation(opts.locationKey);
 
   // Don't overwrite an existing valid waiver (e.g. a prior real signature).
   if (opts.skipIfValid && (await waiverExpiryMs(locationID, personId)) > Date.now()) {

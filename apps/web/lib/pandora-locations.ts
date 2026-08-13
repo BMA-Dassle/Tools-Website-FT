@@ -22,6 +22,18 @@ export function resolvePandoraLocation(key: string | null | undefined): string {
   return PANDORA_DEFAULT_LOCATION_ID;
 }
 
+/**
+ * Is this a Pandora location id we actually know?
+ *
+ * For callers that hold a resolved id rather than a key. `resolvePandoraLocation`
+ * falls back to FastTrax for anything unmapped, which is right for a missing key and
+ * dangerous for an unrecognised id — it would file a Naples guest's record at
+ * FastTrax. Check first, and refuse.
+ */
+export function isKnownPandoraLocationId(id: string | null | undefined): boolean {
+  return !!id && Object.values(PANDORA_LOCATION_MAP).includes(id);
+}
+
 /** Human-readable names for display (emails, cards, logs). */
 export const PANDORA_CENTER_NAMES: Record<string, string> = {
   fasttrax: "FastTrax Fort Myers",
