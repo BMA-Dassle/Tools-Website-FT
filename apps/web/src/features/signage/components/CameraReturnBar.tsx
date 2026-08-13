@@ -83,6 +83,99 @@ export function cameraBarHeight(strip: unknown): number {
  *  1–96, and the barcode API accepts up to 999). */
 const BOX_W = 84;
 const BOX_H = 72;
+const BOX_GAP = 9;
+
+/* ── HOW MANY BOXES FIT, and what gives when they do not ──────────────────
+ *
+ * The 1920 px canvas ran out of width on a full grid: three still-out plus nine
+ * incoming clipped the last box against the edge and the clock sat on top of it
+ * (owner 2026-08-12, live board). Silent clipping is the one failure an
+ * accountability board cannot have — a box cut off the edge is an invisible
+ * camera, which is worse than no board at all.
+ *
+ * So the width is BUDGETED, in fixed units, and the budget decides what to show.
+ * Box size never changes: boxes that resize as cameras come and go would be the
+ * reflow this design spent three revisions removing.
+ */
+const INSET = 30;
+/** Fixed so the arithmetic below is deterministic rather than text-dependent. */
+const CAPTION_W = 196;
+/** Reserve for the compact on-track chip at the right end. */
+const CLOCK_W = 200;
+const SECTION_GAP = 22;
+const CANVAS_W = 1920;
+
+/**
+ * The most boxes that fit with BOTH captions and the clock present. Derived, not
+ * guessed, so a change to any constant above cannot silently start clipping.
+ */
+export const MAX_BOXES = Math.floor(
+  (CANVAS_W - INSET * 2 - CAPTION_W * 2 - CLOCK_W - SECTION_GAP * 3) / (BOX_W + BOX_GAP),
+);
+
+/**
+ * Above this many incoming, the GREEN ones stop being drawn.
+ *
+ * Once a heat is big, the green boxes are pure reassurance: the caption already
+ * says "7 of 9 back", and the two that are still DUE are the only actionable
+ * information (owner 2026-08-12, picking this over shrinking the boxes). Below the
+ * threshold they stay, because watching a camera turn green is the confirmation
+ * the whole state exists for.
+ */
+export const INCOMING_SHOW_ALL_MAX = 4;
+
+export interface StripPlan {
+  stillOut: CameraReturnBox[];
+  incoming: CameraReturnBox[];
+  /** How many boxes were dropped for want of width. Rendered as a "+N" chip so
+   *  the board never silently hides a camera. */
+  hidden: number;
+  /** True when greens were collapsed into the caption's ratio. */
+  greensCollapsed: boolean;
+}
+
+/**
+ * Decide what actually gets drawn.
+ *
+ * PRIORITY IS THE POINT. A still-out box is the chase list and is never dropped to
+ * make room for anything else; then the DUE ones, which are the group currently
+ * being waited on; greens last, because they are the only boxes whose absence costs
+ * nothing. Anything that still does not fit is COUNTED, never silently cut.
+ */
+export function planCameraStrip(
+  stillOut: CameraReturnBox[],
+  incoming: CameraReturnBox[],
+  maxBoxes: number = MAX_BOXES,
+): StripPlan {
+  const greensCollapsed = incoming.length > INCOMING_SHOW_ALL_MAX;
+  const wanted = greensCollapsed ? incoming.filter((b) => b.state !== "back") : incoming;
+
+  const fit = (budget: number) => {
+    // Still out first, and it keeps every box it has: a camera nobody can find
+    // outranks the group walking back, however many of them there are.
+    const outRoom = Math.min(stillOut.length, budget);
+    const inRoom = Math.max(0, Math.min(wanted.length, budget - outRoom));
+    return {
+      outRoom,
+      inRoom,
+      hidden: stillOut.length - outRoom + (wanted.length - inRoom),
+    };
+  };
+
+  // THE "+N" CHIP COSTS A BOX SLOT, so once we know something is hidden the budget
+  // has to be re-run one narrower. Skipping this pass is how the fix for clipping
+  // would itself have clipped — the chip would sit exactly where the box it was
+  // reporting used to be, one past the edge.
+  let f = fit(maxBoxes);
+  if (f.hidden > 0) f = fit(Math.max(0, maxBoxes - 1));
+
+  return {
+    stillOut: stillOut.slice(0, f.outRoom),
+    incoming: wanted.slice(0, f.inRoom),
+    hidden: f.hidden,
+    greensCollapsed,
+  };
+}
 
 const RED = "#e53935";
 const RED_EDGE = "#ff5a53";
@@ -135,6 +228,15 @@ export function CameraReturnBar({
 }) {
   const empty = stillOut.length + incoming.length === 0;
   const inset = Math.max(24, padX - 66);
+
+  /**
+   * WHAT FITS, decided before anything is drawn. The caption ratios below are
+   * computed from the FULL incoming list, not the plan, so "7 of 9 back" stays
+   * true even when the seven green boxes are not drawn — the number is the whole
+   * reason collapsing them is safe.
+   */
+  const plan = planCameraStrip(stillOut, incoming);
+  const backCount = incoming.filter((b) => b.state === "back").length;
 
   /**
    * NOTHING TO SAY, SAID QUIETLY. One small dim line, no display type, no
@@ -195,16 +297,16 @@ export function CameraReturnBar({
         overflow: "hidden",
       }}
     >
-      {stillOut.length > 0 && (
+      {plan.stillOut.length > 0 && (
         <Section
           label="Cameras"
           value={`${stillOut.length} still out`}
           valueColor="#ff4b45"
-          boxes={stillOut}
+          boxes={plan.stillOut}
         />
       )}
 
-      {stillOut.length > 0 && incoming.length > 0 && (
+      {plan.stillOut.length > 0 && plan.incoming.length > 0 && (
         <div
           aria-hidden
           style={{
@@ -217,19 +319,60 @@ export function CameraReturnBar({
         />
       )}
 
-      {incoming.length > 0 && (
+      {plan.incoming.length > 0 && (
         <Section
           label="Incoming"
-          value={`${incoming.filter((b) => b.state === "back").length} of ${incoming.length} back`}
+          value={`${backCount} of ${incoming.length} back`}
           valueColor="rgba(245, 236, 238, 0.62)"
-          boxes={incoming}
+          boxes={plan.incoming}
         />
       )}
 
-      {/* The on-track clock, out of the way at the far right — see clockTrack. */}
+      {/* NEVER SILENTLY CLIP. A box cut off the edge is an invisible camera, so
+          anything that did not fit is counted here instead. */}
+      {plan.hidden > 0 && <MoreChip n={plan.hidden} />}
+
+      {/* The on-track clock, COMPACT even here (owner 2026-08-12: it was eating
+          300 px of the row and colliding with the last box on a full grid). It is
+          secondary information on this band — the boards' own clocks are big. */}
       <div style={{ marginLeft: "auto", flex: "0 0 auto" }}>
-        <LiveSessionChip track={clockTrack} accent={accent} />
+        <LiveSessionChip track={clockTrack} accent={accent} compact />
       </div>
+    </div>
+  );
+}
+
+/**
+ * "+3" — the boxes that did not fit.
+ *
+ * Deliberately drawn as a box so the row reads as one continuous set, and
+ * deliberately dim so it never competes with a red. Its only job is to stop the
+ * board lying: the count above it is always the true total, and this says how much
+ * of it you are not looking at.
+ */
+function MoreChip({ n }: { n: number }) {
+  return (
+    <div
+      aria-label={`${n} more camera${n === 1 ? "" : "s"} not shown`}
+      style={{
+        width: BOX_W,
+        height: BOX_H,
+        flex: "0 0 auto",
+        borderRadius: 10,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        border: `2px dashed ${GREY_EDGE}`,
+        color: GREY_INK,
+      }}
+    >
+      <span className="tv-num" style={{ fontSize: 34, fontWeight: 700, lineHeight: 1 }}>
+        +{n}
+      </span>
+      <span style={{ fontSize: 15, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+        more
+      </span>
     </div>
   );
 }
@@ -249,7 +392,9 @@ function Section({
 }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 18, flex: "0 1 auto", minWidth: 0 }}>
-      <div style={{ flex: "0 0 auto", display: "flex", flexDirection: "column" }}>
+      {/* FIXED WIDTH, because MAX_BOXES is arithmetic and text-dependent captions
+          would make it a guess. */}
+      <div style={{ flex: "0 0 auto", width: CAPTION_W, display: "flex", flexDirection: "column" }}>
         <span
           className="tv-eyebrow"
           style={{ fontSize: 18, letterSpacing: "0.22em", color: "rgba(245, 236, 238, 0.45)" }}

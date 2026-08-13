@@ -11,7 +11,13 @@ import {
   type SessionFinish,
   type TrackCall,
 } from "./camera-return";
-import { cameraBarHeight, CAMERA_BAR_H, CAMERA_BAR_CLEAR_H } from "../components/CameraReturnBar";
+import {
+  cameraBarHeight,
+  planCameraStrip,
+  MAX_BOXES,
+  CAMERA_BAR_H,
+  CAMERA_BAR_CLEAR_H,
+} from "../components/CameraReturnBar";
 
 const T = Date.parse("2026-08-12T23:00:00.000Z");
 const m = (n: number) => n * 60_000;
@@ -672,6 +678,96 @@ describe("incomingForRoom", () => {
     expect(incomingForRoom(built.incoming, "red").map((b) => b.camera)).toEqual(["20"]);
     // The BLUE room sees the same still-out, but not Red's returning camera.
     expect(incomingForRoom(built.incoming, "blue")).toEqual([]);
+  });
+});
+
+describe("planCameraStrip — what fits, and what gives", () => {
+  const box = (camera: string, state: "still-out" | "waiting" | "back") => ({
+    camera,
+    state,
+    heatNumber: 58,
+    track: "blue" as const,
+    sinceFlagMs: 60_000,
+    assignedAtMs: Number(camera),
+  });
+  const many = (n: number, state: "still-out" | "waiting" | "back", from = 1) =>
+    Array.from({ length: n }, (_, i) => box(String(from + i), state));
+
+  it("draws everything when it fits", () => {
+    const p = planCameraStrip(many(3, "still-out"), many(2, "waiting", 10));
+    expect(p.stillOut).toHaveLength(3);
+    expect(p.incoming).toHaveLength(2);
+    expect(p.hidden).toBe(0);
+    expect(p.greensCollapsed).toBe(false);
+  });
+
+  it("keeps green boxes while the heat is small", () => {
+    const incoming = [...many(2, "back", 10), ...many(2, "waiting", 20)];
+    const p = planCameraStrip([], incoming);
+    expect(p.greensCollapsed).toBe(false);
+    expect(p.incoming).toHaveLength(4);
+  });
+
+  it("collapses greens once the heat is big — the caption carries the ratio", () => {
+    // The live case: 3 still out + 9 incoming, 7 of them back. Owner picked this
+    // over shrinking the boxes.
+    const incoming = [...many(7, "back", 10), ...many(2, "waiting", 20)];
+    const p = planCameraStrip(many(3, "still-out"), incoming);
+    expect(p.greensCollapsed).toBe(true);
+    expect(p.incoming.map((b) => b.state)).toEqual(["waiting", "waiting"]);
+    expect(p.stillOut).toHaveLength(3);
+    expect(p.hidden).toBe(0);
+    expect(p.stillOut.length + p.incoming.length).toBeLessThanOrEqual(MAX_BOXES);
+  });
+
+  it("never drops a still-out box to make room for an incoming one", () => {
+    const p = planCameraStrip(many(MAX_BOXES, "still-out"), many(5, "waiting", 90));
+    expect(p.stillOut).toHaveLength(MAX_BOXES - 1); // one slot goes to the +N chip
+    expect(p.incoming).toEqual([]);
+    expect(p.hidden).toBe(6);
+  });
+
+  it("counts what it cannot draw instead of clipping it", () => {
+    // A box cut off the edge is an invisible camera — the failure this exists for.
+    const p = planCameraStrip(many(4, "still-out"), many(20, "waiting", 50));
+    const drawn = p.stillOut.length + p.incoming.length;
+    expect(drawn).toBeLessThanOrEqual(MAX_BOXES - 1);
+    expect(drawn + p.hidden).toBe(24);
+  });
+
+  it("reserves a slot for the +N chip, so the fix cannot itself overflow", () => {
+    // Exactly one too many: the chip has to displace a box, not sit past the edge.
+    const p = planCameraStrip([], many(MAX_BOXES + 1, "waiting"));
+    expect(p.incoming).toHaveLength(MAX_BOXES - 1);
+    expect(p.hidden).toBe(2);
+    expect(p.incoming.length + 1).toBeLessThanOrEqual(MAX_BOXES);
+  });
+
+  it("does not reserve that slot when everything fits exactly", () => {
+    const p = planCameraStrip([], many(MAX_BOXES, "waiting"));
+    expect(p.incoming).toHaveLength(MAX_BOXES);
+    expect(p.hidden).toBe(0);
+  });
+
+  it("a full 12-kart grid with nothing back still fits", () => {
+    // The worst realistic night: a whole grid just flagged and none docked yet.
+    const p = planCameraStrip([], many(12, "waiting"));
+    expect(p.hidden).toBe(0);
+    expect(p.incoming).toHaveLength(12);
+  });
+
+  it("survives an empty strip", () => {
+    const p = planCameraStrip([], []);
+    expect(p.stillOut).toEqual([]);
+    expect(p.incoming).toEqual([]);
+    expect(p.hidden).toBe(0);
+  });
+
+  it("MAX_BOXES is derived from the layout, not a magic number", () => {
+    // If someone widens a caption or the clock without redoing the arithmetic,
+    // this is the test that should start failing rather than the wall clipping.
+    expect(MAX_BOXES).toBeGreaterThanOrEqual(10);
+    expect(MAX_BOXES).toBeLessThanOrEqual(14);
   });
 });
 
