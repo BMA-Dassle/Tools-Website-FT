@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_PLAUSIBLE_SPAN_MS,
+  RECENT_WINDOW_MS,
+  waitsSince,
   formatWaitMs,
   sessionWaits,
   summariseWaits,
@@ -246,6 +248,62 @@ describe("summariseWaitsByTrack", () => {
   it("files a trackless row under unknown rather than dropping it", () => {
     const byTrack = summariseWaitsByTrack(waitsForDay([group({ track: null })], []));
     expect(byTrack.unknown.roomToFilmMs.n).toBe(1);
+  });
+});
+
+describe('waitsSince — the rolling window behind "are we behind right now"', () => {
+  const NOW = T0 + 4 * 60 * MIN;
+
+  it("keeps only the groups sent inside the window", () => {
+    const rows = waitsForDay(
+      [
+        group({ sessionId: "old", sentAtMs: NOW - 3 * 60 * MIN }),
+        group({ sessionId: "edge", sentAtMs: NOW - RECENT_WINDOW_MS }),
+        group({ sessionId: "recent", sentAtMs: NOW - 10 * MIN }),
+      ],
+      [],
+    );
+    const recent = waitsSince(rows, NOW - RECENT_WINDOW_MS);
+    // Exactly on the boundary counts — the window is inclusive at its start.
+    expect(recent.map((w) => w.sessionId).sort()).toEqual(["edge", "recent"]);
+  });
+
+  it("anchors on the SEND, which every group has", () => {
+    // A group still in the room has no race and no end, and must still appear in
+    // the last hour — otherwise the window would only ever show finished heats
+    // and could not answer a question about right now.
+    const rows = waitsForDay([group({ sentAtMs: NOW - 5 * MIN, endedAtMs: null })], []);
+    expect(waitsSince(rows, NOW - RECENT_WINDOW_MS)).toHaveLength(1);
+  });
+
+  it("is empty rather than wrong when the night is over", () => {
+    const rows = waitsForDay([group({ sentAtMs: T0 })], []);
+    expect(waitsSince(rows, T0 + 24 * 60 * MIN)).toEqual([]);
+    // …and an empty window summarises to nothing, never to 0:00.
+    expect(summariseWaits(waitsSince(rows, T0 + 24 * 60 * MIN)).roomToRaceMs.medianMs).toBeNull();
+  });
+
+  it("summarises the window and the day from the same rows", () => {
+    const rows = waitsForDay(
+      [
+        // Earlier in the night: sent → flag in 9 minutes.
+        group({ sessionId: "early", sentAtMs: T0, startedAtMs: T0 + MIN }),
+        // In the last hour, and running 20 minutes late.
+        group({ sessionId: "late", sentAtMs: NOW - 10 * MIN, startedAtMs: NOW - 9 * MIN }),
+      ],
+      [
+        race({ sessionId: "early", startedAtMs: T0 + 9 * MIN }),
+        race({ sessionId: "late", startedAtMs: NOW + 10 * MIN }),
+      ],
+    );
+    const day = summariseWaits(rows);
+    const hour = summariseWaits(waitsSince(rows, NOW - RECENT_WINDOW_MS));
+    expect(day.roomToRaceMs.n).toBe(2);
+    expect(hour.roomToRaceMs.n).toBe(1);
+    // The window is the signal: 20 minutes now against a 14.5-minute median for
+    // the night — which is exactly the "we are calling behind" the day hides.
+    expect(hour.roomToRaceMs.medianMs).toBe(20 * MIN);
+    expect(day.roomToRaceMs.medianMs).toBe(14.5 * MIN);
   });
 });
 
