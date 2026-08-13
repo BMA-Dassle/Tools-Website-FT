@@ -708,6 +708,8 @@ interface Draft {
   cameraLabel: string;
   /** "" = no track clocks (a non-track camera such as a lobby cam). */
   cameraTrack: "" | "blue" | "red" | "mega";
+  /** Pit assignment board — owns its wall, like briefing and camera. */
+  showPitBoard: boolean;
   vipEnabled: boolean;
   vipLeadMins: number;
   celebrationEnabled: boolean;
@@ -740,6 +742,7 @@ function newDraft(): Draft {
     cameraDeviceId: "",
     cameraLabel: "",
     cameraTrack: "",
+    showPitBoard: false,
     vipEnabled: true,
     vipLeadMins: 10,
     celebrationEnabled: true,
@@ -784,6 +787,7 @@ function draftFromScreen(s: SignageScreen): Draft {
       c.cameraMonitor?.track === "mega"
         ? c.cameraMonitor.track
         : "",
+    showPitBoard: scenes.has("pit-board"),
     vipEnabled: c.interrupts?.["vip-welcome"]?.enabled !== false,
     vipLeadMins: c.interrupts?.["vip-welcome"]?.leadMins ?? 10,
     celebrationEnabled: c.interrupts?.celebration?.enabled !== false,
@@ -817,6 +821,11 @@ function draftToConfig(d: Draft): ScreenConfig {
     // A CAMERA MONITOR OWNS ITS WALL too — one live picture, nothing rotating
     // across it. Ticked alone, same as the briefing board.
     playlist.push({ scene: "camera", slots: 1 });
+  } else if (d.showPitBoard) {
+    // A PIT BOARD OWNS ITS WALL: always assignment (owner 2026-08-13), and a
+    // celebration cutting across "hold — karts coming in" would put confetti
+    // over a safety instruction.
+    playlist.push({ scene: "pit-board", slots: 1 });
   } else {
     if (d.showRaceCheckin) playlist.push({ scene: "race-checkin", slots: 3 });
     if (d.showEventWelcome) playlist.push({ scene: "event-welcome", slots: 2, requiresData: true });
@@ -887,10 +896,12 @@ function ScreenForm({
       showRaceCheckin: scenes.has("race-checkin"),
       showBriefing: scenes.has("briefing"),
       showCamera: scenes.has("camera"),
+      showPitBoard: scenes.has("pit-board"),
       // Picking the briefing role at FastTrax defaults the venue too — the rooms
       // only exist there, and a briefing screen saved as HeadPinz would get no
-      // briefing data at all (the pulse skips the lookup off-venue).
-      venue: scenes.has("briefing") ? "FT" : draft.venue,
+      // briefing data at all (the pulse skips the lookup off-venue). Same for a
+      // pit board: the pit lanes are a FastTrax thing.
+      venue: scenes.has("briefing") || scenes.has("pit-board") ? "FT" : draft.venue,
       vipEnabled: preset.config.interrupts?.["vip-welcome"]?.enabled !== false,
       celebrationEnabled: preset.config.interrupts?.celebration?.enabled !== false,
       crownEnabled: preset.config.interrupts?.["billboard-crown"]?.enabled === true,
@@ -1005,6 +1016,12 @@ function ScreenForm({
           onChange={(v) => set("showCamera", v)}
           label="Camera monitor"
           hint="A live venue camera on this screen, refreshed about once a second — e.g. a briefing room's own camera so staff can watch it fill. Takes the whole screen; pick the camera below. Nothing else shows and nothing interrupts it."
+        />
+        <Check
+          checked={draft.showPitBoard}
+          onChange={(v) => set("showPitBoard", v)}
+          label="Pit assignment board"
+          hint="The staged session's spots — names, photos, camera state — with the seating rail: seat while the race runs, hold while karts return. Pick the track below. Takes the whole screen; nothing else shows and nothing interrupts it."
         />
       </fieldset>
 

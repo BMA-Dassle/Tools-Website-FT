@@ -145,6 +145,33 @@ export async function sessionCheckinCounts(
   return value;
 }
 
+/**
+ * THE ROSTER ITSELF, live-first and memoised — what the pit board's cards are
+ * built from (names, check-in stamps, personIds, viewpoint credits all ride
+ * the same rows the count above reads).
+ *
+ * Its own memo rather than piggybacking countCache: the counts memo stores a
+ * folded number, and widening it to carry the rows would make every existing
+ * caller pay the roster's memory for a count. Same TTL, same discipline —
+ * failures memoised too, so a degraded Pandora is not hammered by the wall.
+ */
+const rosterCache = new Map<string, { at: number; value: CheckinRosterRow[] | null }>();
+
+export async function sessionRoster(
+  sessionId: string,
+  nowMs: number,
+): Promise<CheckinRosterRow[] | null> {
+  const memo = rosterCache.get(sessionId);
+  if (memo && nowMs - memo.at < COUNT_TTL_MS) return memo.value;
+
+  const roster = (await liveRoster(sessionId)) ?? (await cachedRoster(sessionId));
+  rosterCache.set(sessionId, { at: nowMs, value: roster });
+  for (const [key, entry] of rosterCache) {
+    if (nowMs - entry.at > COUNT_PRUNE_MS) rosterCache.delete(key);
+  }
+  return roster;
+}
+
 /* ── what the wait-time metrics need, captured at the send ──────────────── */
 
 /**

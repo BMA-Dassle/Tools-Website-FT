@@ -16,6 +16,7 @@
  */
 import type { BriefingRoomState } from "./briefing/types";
 import type { CheckinProgressSession } from "./checkin-progress";
+import type { PitBoardInfo, PitLanes } from "./pit/pit-board";
 
 /**
  * A scene is one full-screen visual. Adding a scene type is the only reason
@@ -35,6 +36,10 @@ import type { CheckinProgressSession } from "./checkin-progress";
  *                     a frame a second (e.g. a briefing room's own camera on a
  *                     wall so staff can see it fill). Which camera is per-screen
  *                     config (`cameraMonitor`); nothing else shows on the board
+ *  - `pit-board`      a track's pit assignment TV: the staged session's spots,
+ *                     names and photos, camera state per racer, and the seating
+ *                     rail (seat while the race runs, hold while karts return).
+ *                     Always assignment — it replaces the vendor AssignmentTV
  *  - `sleep`          venue closed — panel/power saver
  */
 export type SceneType =
@@ -46,6 +51,7 @@ export type SceneType =
   | "race-checkin"
   | "briefing"
   | "camera"
+  | "pit-board"
   | "sleep";
 
 /** Scenes a screen rotates through on its base loop (interrupts are separate). */
@@ -55,6 +61,7 @@ export const ROTATION_SCENE_TYPES = [
   "race-checkin",
   "briefing",
   "camera",
+  "pit-board",
 ] as const satisfies readonly SceneType[];
 
 /** Scenes that PREEMPT the rotation when their trigger fires. */
@@ -494,6 +501,23 @@ export interface TvFeed {
    */
   briefingRooms: Record<"red" | "blue", BriefingRoomState | null> | null;
   /**
+   * Pit-board extra: the staged session, its roster with spots, and the
+   * per-racer joins (camera, birthday, VIP). Null for every screen that is
+   * not a pit board.
+   *
+   * PII NOTE — this section deliberately carries FULL NAMES and personIds,
+   * unlike everything above it (owner 2026-08-13: the vendor AssignmentTV it
+   * replaces has always shown full names and photos). The ids exist so the
+   * board can fetch photos; they only ever reach screens somebody registered.
+   */
+  pitBoard: PitBoardInfo | null;
+  /**
+   * Every track's pit-lane state (holding / racing / pitted). Carried on the
+   * pulse too — that is what makes a staff press land on the wall in about
+   * two seconds — and here so a cold boot paints the right rail immediately.
+   */
+  pitLanes: PitLanes | null;
+  /**
    * Camera-monitor extra: how far the check-in station has got through EVERY
    * heat it currently has open — "6 of 14 checked in", per track.
    *
@@ -551,4 +575,11 @@ export interface TvPulse {
    * screen row.
    */
   cameraReturn: CameraReturnFeedStrip | null;
+  /**
+   * The pit lanes, on the FAST lane too: "send to holding" and "race returned"
+   * are staff presses with a group standing at the seats, and the rail they
+   * flip must move in seconds, not on the 15s feed. Per-venue (FT only) for
+   * the same reason briefingRooms is — the pulse never loads a screen row.
+   */
+  pitLanes: PitLanes | null;
 }

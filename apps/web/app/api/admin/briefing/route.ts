@@ -7,6 +7,7 @@ import {
   sendBriefing,
   startBriefing,
 } from "~/features/signage/briefing/service";
+import { markRacePitted, sendToHolding } from "~/features/signage/pit/lane.server";
 import {
   isBriefingAssetKey,
   parseBriefingRoom,
@@ -114,11 +115,57 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "briefing rooms are switched off" }, { status: 503 });
   }
 
+  /**
+   * "RACE RETURNED" — the pit lane's release (owner 2026-08-13). Track-keyed,
+   * not room-keyed, so it is handled before the room parse below: the press
+   * says the finished race's karts are fully back in the lane, and it is the
+   * ONLY thing that ends the pit board's hold.
+   */
+  if (action === "pitted") {
+    const track =
+      body.track === "blue" || body.track === "red" || body.track === "mega" ? body.track : null;
+    if (!track) {
+      return NextResponse.json({ error: "track must be blue, red or mega" }, { status: 400 });
+    }
+    const result = await markRacePitted(track);
+    return NextResponse.json(result, { status: result.ok ? 200 : 409 });
+  }
+
   const room = parseBriefingRoom(body.room);
   if (!room) return NextResponse.json({ error: "room must be red or blue" }, { status: 400 });
 
   if (action === "clear") {
     return NextResponse.json(await clearRoom(room));
+  }
+
+  /**
+   * "SEND TO HOLDING" — the step after the briefing (owner 2026-08-13). The
+   * group leaves the room for the pit seats: the room's occupancy closes in
+   * the insurance log, the room frees for the returning race, and the pit
+   * board's rail flips to its seat state. Same body shape as "send".
+   */
+  if (action === "send-holding") {
+    const track =
+      body.track === "blue" || body.track === "red" || body.track === "mega" ? body.track : null;
+    if (!track) {
+      return NextResponse.json({ error: "track must be blue, red or mega" }, { status: 400 });
+    }
+    // STRINGIFIED AT THE BOUNDARY, never Number()'d — same rule as "send".
+    const sessionId =
+      typeof body.sessionId === "string"
+        ? body.sessionId
+        : typeof body.sessionId === "number"
+          ? String(body.sessionId)
+          : "";
+    if (!sessionId) return NextResponse.json({ error: "sessionId required" }, { status: 400 });
+    const result = await sendToHolding({
+      room,
+      track,
+      sessionId,
+      heatNumber: Number.isInteger(body.heatNumber) ? (body.heatNumber as number) : null,
+      raceType: typeof body.raceType === "string" ? body.raceType : null,
+    });
+    return NextResponse.json(result);
   }
 
   // Phase two of a send, and also "play it again" — the same operation either
