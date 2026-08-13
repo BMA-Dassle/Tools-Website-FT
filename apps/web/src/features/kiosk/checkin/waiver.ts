@@ -9,6 +9,8 @@
  * an unknown/expired/unreadable waiver resolves to `false` (the safe default:
  * the racer is simply shown as still needing a waiver).
  */
+import { hasUnexpiredCapturedWaiver } from "@/lib/waiver-signature-store";
+
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net/v2";
 const FASTTRAX_RACING_LOCATION_ID = "LAB52GY480CJF";
 
@@ -53,20 +55,53 @@ export async function checkRacerWaiverValid(personId: string): Promise<boolean> 
       console.warn(
         `[checkin-waiver] person ${personId} UNREADABLE (HTTP ${res.status}${
           data?.error ? ` — ${data.error}` : ""
-        }) — treating as no waiver. A null birthdate causes this; the record is ` +
+        }) — asking our own record. A null birthdate causes this; the record is ` +
           `repairable via PATCH /bmi/person.`,
       );
-      return false;
+      /**
+       * Unreadable ≠ unsigned, and this is the branch where that bites hardest.
+       *
+       * A cloud-minted person answers 500 until their birthdate is written — and
+       * that is EXACTLY the person who just signed at the kiosk. So the most common
+       * unreadable record belongs to a guest whose signature we are holding. Ask
+       * for it before sending them back to a pad.
+       *
+       * Still fails closed on no evidence: a person with nothing in Pandora AND
+       * nothing in Neon is refused, which is the rule that guards the karts.
+       */
+      return await hasUnexpiredCapturedWaiver(personId).catch(() => false);
     }
     const expiry = data.data.waiverExpiry ? new Date(data.data.waiverExpiry) : null;
-    return expiry ? expiry.getTime() > Date.now() : false;
+    if (expiry && expiry.getTime() > Date.now()) return true;
+    /**
+     * BMI SAYS NO — ASK OUR OWN RECORD BEFORE BELIEVING IT.
+     *
+     * The kiosk no longer waits for cloud→local sync before finishing a waiver, so
+     * for ~20-30s after a guest signs, Pandora will honestly report no waiver while
+     * the push is still in the queue. Failing closed on that would send a guest who
+     * signed a minute ago back to a signature pad at the CHECK-IN DESK — the delay
+     * moved, not removed, and now with staff involved.
+     *
+     * This does not weaken the fail-closed rule that guards the karts. A Neon row
+     * IS verification: it holds the drawn signature, the terms version and the
+     * expiry we presented. It is stronger evidence than `waiverExpiry`, not weaker.
+     */
+    if (await hasUnexpiredCapturedWaiver(personId)) {
+      console.log(
+        `[checkin-waiver] person ${personId} has no BMI waiver yet but WE hold a current ` +
+          `signature — counting it (the vendor push is still in flight).`,
+      );
+      return true;
+    }
+    return false;
   } catch (err) {
     console.warn(
       `[checkin-waiver] person ${personId} lookup FAILED (${
         err instanceof Error ? err.message : String(err)
-      }) — treating as no waiver`,
+      }) — falling back to our own record`,
     );
-    return false;
+    // Vendor unreachable is exactly when our own record matters most.
+    return await hasUnexpiredCapturedWaiver(personId).catch(() => false);
   }
 }
 

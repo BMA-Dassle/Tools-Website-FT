@@ -17,6 +17,8 @@ import redis from "@/lib/redis";
 import { personValidCacheKey } from "./cache";
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
+import { hasUnexpiredCapturedWaiver } from "@/lib/waiver-signature-store";
+
 const PERSON_VALID_TTL_SECONDS = 120;
 export const WAIVER_CHECK_CONCURRENCY = 5;
 
@@ -51,10 +53,25 @@ export async function waiverValidNow(
         `[waiver-valid] person ${personId} UNREADABLE (HTTP ${res.status}) — ` +
           `not caching; a null birthdate causes this and is repairable`,
       );
-      return false;
+      // An unreadable vendor record is no reason to ignore a signature we hold.
+      return await hasUnexpiredCapturedWaiver(personId).catch(() => false);
     }
     const expiry = person.waiverExpiry ? new Date(person.waiverExpiry) : null;
-    const valid = expiry ? expiry > new Date() : false;
+    let valid = expiry ? expiry > new Date() : false;
+    /**
+     * BMI SAYS NO — check our own record before caching that answer for 2 minutes.
+     *
+     * The kiosk stopped waiting for cloud→local sync, so a guest who just signed
+     * reads as unwaivered here for ~20-30s. Caching that "0" would pin them to
+     * "needs waiver" on the staff roster for the full TTL — up to four minutes of
+     * staff chasing a guest who is already done.
+     *
+     * Checked BEFORE the setex on purpose: caching first and unioning after would
+     * store the wrong answer.
+     */
+    if (!valid && (await hasUnexpiredCapturedWaiver(personId).catch(() => false))) {
+      valid = true;
+    }
     redis.setex(cacheKey, PERSON_VALID_TTL_SECONDS, valid ? "1" : "0").catch(() => {});
     return valid;
   } catch (err) {

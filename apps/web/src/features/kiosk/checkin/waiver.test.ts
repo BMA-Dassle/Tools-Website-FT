@@ -1,4 +1,10 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+
+const store = { hasUnexpiredCapturedWaiver: vi.fn<(id: string) => Promise<boolean>>() };
+vi.mock("@/lib/waiver-signature-store", () => ({
+  hasUnexpiredCapturedWaiver: (id: string) => store.hasUnexpiredCapturedWaiver(id),
+}));
+
 import { checkRacerWaiverValid, checkRacerWaivers } from "./waiver";
 
 /**
@@ -33,6 +39,9 @@ const err500 = {
 let warn: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  // Default: we hold nothing. Every pre-existing test keeps its original meaning.
+  store.hasUnexpiredCapturedWaiver.mockResolvedValue(false);
+  vi.spyOn(console, "log").mockImplementation(() => {});
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -110,5 +119,76 @@ describe("checkRacerWaivers", () => {
     expect(out.get("63000000007642347")).toBe(false);
     // Ids that were never real are absent rather than false.
     expect(out.size).toBe(2);
+  });
+});
+
+/**
+ * OUR RECORD COUNTS — the read that makes "stop waiting for cloud→local sync"
+ * safe (2026-08-13).
+ *
+ * The kiosk now finishes a waiver before BMI has it, so for ~20-30s Pandora
+ * honestly answers "no waiver" while the push is in the queue. Without this union
+ * the delay is not removed, it MOVES to the check-in desk — a guest who signed a
+ * minute ago is sent back to a signature pad, now with staff involved.
+ *
+ * The fail-closed rule that guards the karts is intact: we only ever ADD a YES on
+ * evidence we hold (a drawn signature, terms version, and an unexpired date). A
+ * person with nothing in either place is still refused.
+ */
+describe("checkRacerWaiverValid — Neon union while the vendor push is in flight", () => {
+  it("counts a signature WE hold when BMI reports none yet", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ok(null)),
+    );
+    store.hasUnexpiredCapturedWaiver.mockResolvedValue(true);
+    expect(await checkRacerWaiverValid("63000000008220449")).toBe(true);
+  });
+
+  it("still refuses a racer neither side has ever seen", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ok(null)),
+    );
+    store.hasUnexpiredCapturedWaiver.mockResolvedValue(false);
+    expect(await checkRacerWaiverValid("63000000008220449")).toBe(false);
+  });
+
+  it("does NOT ask Neon when BMI already says yes — one read is enough", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ok("2027-08-13T13:00:00.000Z")),
+    );
+    expect(await checkRacerWaiverValid("58096162")).toBe(true);
+    expect(store.hasUnexpiredCapturedWaiver).not.toHaveBeenCalled();
+  });
+
+  it("an UNREADABLE record (null-birthdate 500) falls back to our record", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => err500),
+    );
+    store.hasUnexpiredCapturedWaiver.mockResolvedValue(true);
+    expect(await checkRacerWaiverValid("63000000008220449")).toBe(true);
+  });
+
+  it("a vendor OUTAGE falls back to our record instead of failing the guest", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("ECONNRESET");
+      }),
+    );
+    store.hasUnexpiredCapturedWaiver.mockResolvedValue(true);
+    expect(await checkRacerWaiverValid("63000000008220449")).toBe(true);
+  });
+
+  it("a Neon failure during the fallback still fails CLOSED", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => err500),
+    );
+    store.hasUnexpiredCapturedWaiver.mockRejectedValue(new Error("db down"));
+    expect(await checkRacerWaiverValid("63000000008220449")).toBe(false);
   });
 });

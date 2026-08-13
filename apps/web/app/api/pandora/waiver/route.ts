@@ -343,7 +343,14 @@ export async function POST(req: NextRequest) {
           locationId: locationID,
           name: String(firstName ?? "").trim() || "Guest",
         });
-        if (messageId) return `vercel-queue ${messageId}`;
+        if (messageId) {
+          // Stamp the transport so the admin board can still SEE this push — a
+          // Queues message has no bmi_sync_queue row to be seen through
+          // (owner 2026-08-13: "can these still show up on admin board").
+          const { setWaiverPushTransport } = await import("@/lib/waiver-signature-store");
+          await setWaiverPushTransport(signatureRowId, "vercel-queue");
+          return `vercel-queue ${messageId}`;
+        }
       } else {
         console.warn(
           "[pandora-waiver] no Neon signature row id — Vercel Queues cannot carry this push; using the Neon queue, which holds the image inline.",
@@ -368,132 +375,68 @@ export async function POST(req: NextRequest) {
           invalidationDate: safeInvalidation,
         },
       });
+      if (signatureRowId != null) {
+        const { setWaiverPushTransport } = await import("@/lib/waiver-signature-store");
+        await setWaiverPushTransport(signatureRowId, "neon-cron");
+      }
       return `neon-queue row ${queued?.id ?? "n/a"}`;
     };
 
     /**
-     * WAIT FOR THE PEOPLE TO REACH THE LOCAL SERVER, BEFORE SIGNING.
+     * DO NOT WAIT FOR CLOUD→LOCAL SYNC. Probe once and move on.
      *
-     * Pandora writes a waiver against the CENTER'S OWN server, and under
-     * cloud-first the person was just minted on the BMI cloud — invisible
-     * locally for ~10-30s (measured). Signing inside that window cannot
-     * succeed: Pandora answers a generic 500 "Unexpected Error Occured", the
-     * retry ladder burns all three attempts on it, and the guest gets
-     * "Waiver signing failed" on the signature screen. Seen live 2026-08-12 on
-     * kiosk guest "Test 18": minted 09:32:56, signed 09:33:03, three 500s while
-     * the person read 404 locally — then a manual retry at 09:33:10 succeeded
-     * the moment sync caught up.
+     * This used to poll for up to 24s (then 15s) so the waiver could be filed with
+     * BMI while the guest stood there. It worked, and it was the wrong trade: the
+     * guest paid the entire sync latency on the glass for a vendor record that
+     * nobody is waiting on (owner 2026-08-13, on the wait: "honestly don't like how
+     * long it takes for waiver to submit").
      *
-     * Diagnosing this AFTER the attempts (the first version of this fix) is too
-     * late: by then the person has usually appeared, the barrier reads "open",
-     * and the failure looks like a real vendor fault. So the wait belongs here,
-     * in front. The guest is already watching a spinner, and a few seconds of it
-     * is strictly better than an error they have to retry by hand.
+     * What makes it safe to stop waiting:
+     *   - The signature is already durable in Neon, written above, before any
+     *     vendor call. That is the record that matters.
+     *   - `hasUnexpiredCapturedWaiver` means every consumer of "does this person
+     *     have a waiver" now counts that row, so a guest is never asked to sign
+     *     twice during the gap.
+     *   - Vercel Queues delivers the push ~20-30s later and retries on a closed
+     *     barrier in seconds, so the vendor record is owed for well under a minute.
      *
-     * Bounded so the request can never hang: poll to WAIT_MS, then hand the push
-     * to the sync queue and tell the caller the waiver is accepted — the
-     * signature is already durable in Neon (stored before any vendor call).
+     * ONE probe, WITHOUT the cross-center diagnosis. That search costs two extra
+     * Pandora GETs on a 404 and its only purpose is to distinguish "never going to
+     * sync" from "not yet" — a distinction that no longer changes anything HERE,
+     * because either way we hand off and return. The CONSUMER pays for it instead,
+     * where the guest is not waiting: it settles an `impossible` row as failed so
+     * it surfaces in the owed list rather than retrying for a day.
      *
-     * WAIT_MS is 15s, down from the 24s this shipped with (owner 2026-08-13).
-     * 24s bought a slightly better chance of winning the sync race at the cost
-     * of a ~31s spinner for EVERY cloud-first guest — and the slow tail fell
-     * through to the queue regardless. 15s keeps a real chance of landing the
-     * waiver in BMI while the guest is still standing there, without the wait
-     * becoming the thing they remember.
-     *
-     * BOTH PEOPLE, NOT JUST ONE. Pandora's waiver write names `personID` (whose
-     * waiver) and `sigPersonID` (who signed), and needs both resolvable locally.
-     * A family arriving together has parent and child cloud-minted seconds
-     * apart, so the minor can land locally while the guardian has not — and a
-     * write naming an unresolvable signer is exactly the guardian-consent record
-     * we cannot afford to get wrong (owner 2026-08-13: "with minors, we need to
-     * make sure we wait for adult to end up local"). So the barrier below covers
-     * every id this write mentions.
-     *
-     * NO probe on the guest's critical path pays for the cross-center search.
-     * `personLocalBarrier`'s 404 branch can also look the person up at the OTHER
-     * centers to turn "not yet" into `impossible` (a Fort Myers person id will
-     * never appear at Naples, so waiting on one is futile). That diagnosis is
-     * worth real money — it is what stops a doomed row from parking until its
-     * give-up — but it costs two extra Pandora GETs (15s timeout each), and on a
-     * poll tick it bought nothing: at 2s intervals it tripled each tick's true
-     * cost and was the bulk of the spinner the owner was seeing.
-     *
-     * So every probe here runs with it OFF, and it is paid exactly ONCE, at the
-     * decision point below — where the answer actually changes what we do
-     * (queue vs. let the sign attempts surface the real vendor error) and where
-     * one extra second is invisible because the guest is already being handed
-     * their "all set" card.
+     * `!== "open"` deliberately covers `error` as well as `closed`. If we cannot
+     * even read the local server, firing the sign ladder at it would just generate
+     * the 500 bursts this whole path exists to avoid.
      */
     {
-      const WAIT_MS = 15_000;
-      const STEP_MS = 1_250;
       const { personsLocalBarrier } = await import("@/lib/bmi-sync-barriers");
-      const fastProbe = () =>
-        personsLocalBarrier(locationID, needLocal, { diagnoseElsewhere: false });
-      const startedWait = Date.now();
-      let barrier = await fastProbe();
-      let verdict = barrier.verdict;
+      const barrier = await personsLocalBarrier(locationID, needLocal, {
+        diagnoseElsewhere: false,
+      });
       trace(
-        `signature saved to Neon. local-server check for ${needLocal.length === 1 ? "1 person" : `${needLocal.length} people`}: ${verdict} — ${barrier.detail}`,
+        `signature saved to Neon. local-server check for ${who}: ${barrier.verdict} — ${barrier.detail}`,
       );
-      if (verdict === "closed") {
+
+      if (barrier.verdict !== "open") {
+        const where = await handOffPush();
         console.log(
-          `[pandora-waiver] ${who} not on the local server yet (${barrier.detail}) — waiting up to ${WAIT_MS / 1000}s before signing`,
+          `[pandora-waiver] ${who} not local yet (${barrier.detail}) — push handed to ${where}. Signature is safe in Neon; guest is done.`,
         );
-        trace(`not local yet — waiting up to ${WAIT_MS / 1000}s for BMI cloud→local sync`);
-        while (verdict === "closed" && Date.now() - startedWait < WAIT_MS) {
-          await new Promise((r) => setTimeout(r, STEP_MS));
-          barrier = await fastProbe();
-          verdict = barrier.verdict;
-          trace(`re-checked: ${verdict} — ${barrier.detail}`);
-        }
-        const waited = ((Date.now() - startedWait) / 1000).toFixed(1);
-        // Still not there after the wait? Pay for the cross-center diagnosis
-        // ONCE, here, because this is the only place its answer changes what we
-        // do. `impossible` must NEVER be queued: a person who lives at another
-        // center never becomes local at this one, so the row would sit closed
-        // until its give-up deadline while reporting "sync is just slow". Let the
-        // sign attempts run instead and return the real vendor error.
-        const diagnosed =
-          verdict === "closed" ? await personsLocalBarrier(locationID, needLocal) : null;
-        if (diagnosed && diagnosed.verdict !== "closed") {
-          console.log(
-            diagnosed.verdict === "impossible"
-              ? `[pandora-waiver] NOT queueing ${who} — ${diagnosed.detail}`
-              : `[pandora-waiver] ${who} became visible during diagnosis (${diagnosed.detail}) — signing now`,
-          );
-        }
-        if (diagnosed?.verdict === "closed") {
-          try {
-            const where = await handOffPush();
-            console.log(
-              `[pandora-waiver] still not local after ${waited}s — push handed to ${where} for ${who}. Signature is safe in Neon.`,
-            );
-            await logSignOutcome("queued", 0, null, null);
-            trace(`+ handed to ${where}. Guest is done; BMI catches up.`);
-            return NextResponse.json(
-              withDbg({
-                ok: true,
-                waiverID: null,
-                queuedForSync: true,
-                licenceGrant: grant(),
-              }),
-            );
-          } catch (err) {
-            // Could not queue — fall through and let the sign attempts run, so a
-            // queue outage never silently drops the waiver.
-            console.warn("[pandora-waiver] could not queue the waiver push:", err);
-          }
-        } else if (!diagnosed) {
-          // Opened during the poll itself — the case the wait exists to catch.
-          // (`diagnosed` non-null already logged its own reason above, so this
-          // stays quiet rather than printing a second, contradictory line.)
-          console.log(
-            `[pandora-waiver] person ${personID} became visible locally after ${waited}s — signing now`,
-          );
-        }
+        await logSignOutcome("queued", 0, null, null);
+        trace(`+ handed to ${where}. Guest is done; BMI catches up in ~20-30s.`);
+        return NextResponse.json(
+          withDbg({
+            ok: true,
+            waiverID: null,
+            queuedForSync: true,
+            licenceGrant: grant(),
+          }),
+        );
       }
+      trace(`both people already local — signing with BMI inline`);
     }
 
     // Pandora (Azure App Service) throws transient 5xx "Unexpected Error

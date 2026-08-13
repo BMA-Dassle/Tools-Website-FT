@@ -229,6 +229,29 @@ export function BmiSyncPanel({ rows }: { rows: AdminSyncRow[] }) {
                       >
                         <td style={{ padding: "0.5rem 0.75rem 0.5rem 0" }}>
                           {KIND_COPY[r.kind] ?? r.kind}
+                          {/* WHICH MECHANISM is carrying it. Two transports run side
+                              by side — Vercel Queues for the waiver push, the Neon
+                              cron for everything else — so "behind" means different
+                              things and needs a different fix. Under the kind rather
+                              than a new column: it qualifies the work, it is not a
+                              fact about the guest. */}
+                          {r.transport && (
+                            <div
+                              style={{
+                                fontFamily: "monospace",
+                                fontSize: 10,
+                                opacity: 0.45,
+                                whiteSpace: "nowrap",
+                              }}
+                              title={
+                                r.transport === "vercel-queue"
+                                  ? "Vercel Queues — delayed message, pushed ~20-30s after signing"
+                                  : "Neon queue, drained by the every-2-minutes cron"
+                              }
+                            >
+                              {r.transport === "vercel-queue" ? "via queue" : "via cron"}
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: "0.5rem 0.75rem 0.5rem 0", opacity: 0.85 }}>
                           {r.who ?? "—"}

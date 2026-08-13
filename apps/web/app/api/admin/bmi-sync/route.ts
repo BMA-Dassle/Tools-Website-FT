@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   listSyncQueueForAdmin,
   listRecentGuestAdds,
+  listWaiverPushesForAdmin,
   syncStateForReservations,
 } from "~/features/reservations-admin/bmi-sync-view";
 
@@ -44,13 +45,21 @@ export async function GET(req: NextRequest) {
    * person get added?" is the question this panel exists for. So the feed is the
    * union, newest first, with anything needing attention floated up.
    */
-  const [queueRows, guestAdds, stateMap] = await Promise.all([
+  /**
+   * THREE sources now, not two. Waiver pushes that ride Vercel Queues have no
+   * `bmi_sync_queue` row — the message lives in a topic the board cannot query —
+   * so without this they would silently disappear from the panel the moment the
+   * new transport took over. Each row carries `transport` so the panel can say
+   * which mechanism is behind (owner 2026-08-13).
+   */
+  const [queueRows, guestAdds, waiverPushes, stateMap] = await Promise.all([
     listSyncQueueForAdmin({ limit, includeDone }),
     listRecentGuestAdds(),
+    listWaiverPushesForAdmin({ limit, includeDone }),
     refs.length > 0 ? syncStateForReservations(refs) : Promise.resolve(new Map()),
   ]);
   const rank = (s: string) => (s === "parked" ? 0 : s === "pending" ? 1 : 2);
-  const rows = [...queueRows, ...guestAdds].sort(
+  const rows = [...queueRows, ...guestAdds, ...waiverPushes].sort(
     (a, b) => rank(a.status) - rank(b.status) || Date.parse(b.createdAt) - Date.parse(a.createdAt),
   );
 

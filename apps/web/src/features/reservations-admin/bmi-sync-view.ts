@@ -46,6 +46,11 @@ export interface AdminSyncRow {
   ageMin: number;
   /** Best-effort display name from the payload, so a row reads as a person. */
   who: string | null;
+  /** WHICH MECHANISM is carrying this work — "neon-cron", "vercel-queue", or null
+   *  for a row that is not a queued push at all. On screen this is the difference
+   *  between "the cron is behind" and "the message bus is behind", which are
+   *  different problems with different fixes (owner 2026-08-13). */
+  transport: string | null;
   /** Which center this work belongs to, spelled out. Never a bare location id —
    *  a row that says "Naples" is the difference between "the queue is broken" and
    *  "one center's config is wrong" (owner 2026-08-12: "Add center name"). */
@@ -152,6 +157,7 @@ export async function listRecentGuestAdds(minutes = 720, limit = 100): Promise<A
         // Negative ids keep these distinct from real queue rows in React keys.
         id: -Number(r.person_id ? String(r.person_id).slice(-9) : Math.random() * 1e9),
         kind: "guest-added",
+        transport: null,
         status,
         barrier: "none",
         barrierRef: r.person_id === null ? null : String(r.person_id),
@@ -216,6 +222,7 @@ export async function listSyncQueueForAdmin(
       ageMin: Math.round(Number(r.age_min ?? 0)),
       who: nameFromPayload(r.payload),
       center: centerName(r.location_id === null ? null : String(r.location_id)),
+      transport: "neon-cron",
     }));
   } catch (err) {
     console.warn("[bmi-sync-view] queue list failed:", err);
@@ -323,5 +330,88 @@ export function onsitePillCopy(s: ReservationSyncState): {
         title:
           "No on-site sync steps recorded for this reservation (nothing to report either way).",
       };
+  }
+}
+
+/**
+ * Waiver pushes that are riding VERCEL QUEUES.
+ *
+ * Needed because those pushes have no `bmi_sync_queue` row to be seen through —
+ * the message lives in Vercel's topic, which the board cannot query. What we DO
+ * have is the `waiver_signatures` row: it is written before anything is sent, it
+ * records which transport took the push, and it is settled with the outcome. So it
+ * is a better source than the queue ever was — it exists even when the transport
+ * has lost the message entirely, which is exactly the case a board must surface.
+ *
+ * Status mapping is about WHAT A HUMAN SHOULD DO:
+ *   pending  — captured, push in flight. Normal for the first ~30s.
+ *   done     — BMI has it (signed), or already had a valid one (salvaged).
+ *   parked   — failed, or unsettled well past any plausible sync window. Needs
+ *              someone. An unsettled row is the one that used to be invisible.
+ *
+ * Read-only, never throws — same contract as the rest of this module.
+ */
+export async function listWaiverPushesForAdmin(
+  opts: { limit?: number; includeDone?: boolean; staleAfterMin?: number } = {},
+): Promise<AdminSyncRow[]> {
+  if (!isDbConfigured()) return [];
+  const limit = Math.min(500, Math.max(1, opts.limit ?? 100));
+  const includeDone = opts.includeDone ?? true;
+  // Past this with nothing settled, "still syncing" stops being a credible story.
+  const staleAfterMin = opts.staleAfterMin ?? 10;
+  try {
+    const q = sql();
+    const rows = (await q`
+      SELECT id, ts, person_id, signer_person_id, location_id, outcome, waiver_id,
+             settled_at, push_transport, invalidation_date,
+             EXTRACT(EPOCH FROM (now() - ts)) / 60 AS age_min
+      FROM waiver_signatures
+      WHERE push_transport = 'vercel-queue'
+      ORDER BY ts DESC
+      LIMIT ${limit}
+    `) as Array<Record<string, unknown>>;
+
+    return rows
+      .map((r) => {
+        const outcome = r.outcome === null ? null : String(r.outcome);
+        const ageMin = Math.round(Number(r.age_min ?? 0));
+        const status =
+          outcome === "signed" || outcome === "salvaged"
+            ? "done"
+            : outcome === "failed"
+              ? "parked"
+              : ageMin > staleAfterMin
+                ? "parked"
+                : "pending";
+        const person = String(r.person_id);
+        const signer = String(r.signer_person_id);
+        return {
+          id: Number(r.id),
+          kind: "push-waiver-signature",
+          status,
+          barrier: "persons-local",
+          barrierRef: person,
+          reservationRef: null,
+          attempts: 0,
+          lastError:
+            status === "parked"
+              ? outcome === "failed"
+                ? "push failed — BMI has no waiver for this signature"
+                : `no confirmation after ${ageMin} min — the signature is safe in Neon but BMI does not have it`
+              : null,
+          createdAt: String(r.ts),
+          nextAttemptAt: String(r.ts),
+          giveUpAt: null,
+          resolvedAt: r.settled_at === null ? null : String(r.settled_at),
+          ageMin,
+          who: signer === person ? person : `${person} (signed by ${signer})`,
+          center: centerName(r.location_id === null ? null : String(r.location_id)),
+          transport: "vercel-queue",
+        } satisfies AdminSyncRow;
+      })
+      .filter((row) => includeDone || row.status !== "done");
+  } catch (err) {
+    console.warn("[bmi-sync-view] waiver push list failed:", err);
+    return [];
   }
 }

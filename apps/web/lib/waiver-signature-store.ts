@@ -68,6 +68,10 @@ async function ensureSchema(): Promise<void> {
       settled_at        TIMESTAMPTZ
     )
   `;
+  /** WHICH transport is carrying this push — "vercel-queue" or "neon-cron".
+   *  Recorded so the admin board can show a waiver push that no longer has a
+   *  `bmi_sync_queue` row to be seen through (owner 2026-08-13). */
+  await q`ALTER TABLE waiver_signatures ADD COLUMN IF NOT EXISTS push_transport TEXT`;
   await q`CREATE INDEX IF NOT EXISTS waiver_sig_person_idx ON waiver_signatures(person_id, ts DESC)`;
   // "which signatures did we capture but never confirm landed" — the sweep view.
   await q`CREATE INDEX IF NOT EXISTS waiver_sig_unsettled_idx ON waiver_signatures(ts DESC) WHERE outcome IS NULL`;
@@ -162,6 +166,8 @@ export interface StoredWaiverSignature {
   waiverId: string | null;
   /** base64 PNG, or null when the image was rejected. */
   signatureBase64: string | null;
+  /** "vercel-queue" | "neon-cron" | null (filed inline, no transport needed). */
+  pushTransport: string | null;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -179,6 +185,7 @@ function toStored(r: any): StoredWaiverSignature {
     outcome: r.outcome ?? null,
     waiverId: r.waiver_id ?? null,
     signatureBase64: r.signature_png ?? null,
+    pushTransport: r.push_transport ?? null,
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -204,11 +211,68 @@ export async function listWaiverSignatures(
     : await q`
         SELECT id, ts, person_id, signer_person_id, waiver_content_id, location_id,
                invalidation_date, signature_bytes, rejected_reason, outcome, waiver_id,
-               NULL AS signature_png
+               push_transport, NULL AS signature_png
         FROM waiver_signatures
         WHERE person_id = ${String(personId)} OR signer_person_id = ${String(personId)}
         ORDER BY ts DESC LIMIT ${lim}`;
   return (rows as unknown as unknown[]).map(toStored);
+}
+
+/**
+ * Stamp which transport took the push, so a waiver that no longer has a
+ * `bmi_sync_queue` row is still visible on the admin board. Best-effort: a failed
+ * stamp must never affect the guest.
+ */
+export async function setWaiverPushTransport(id: number, transport: string): Promise<void> {
+  if (!isDbConfigured()) return;
+  try {
+    await ensureSchema();
+    const q = sql();
+    await q`UPDATE waiver_signatures SET push_transport = ${transport} WHERE id = ${Number(id)}`;
+  } catch (err) {
+    console.warn(`[waiver-sig] could not stamp transport on row ${id}:`, err);
+  }
+}
+
+/**
+ * Do WE hold an unexpired signature for this person, whatever BMI thinks?
+ *
+ * This is the Neon half of "does this person have a waiver right now", and it
+ * exists because the kiosk no longer waits for BMI. A guest signs, the push rides
+ * the queue, and for the next 20-30 seconds Pandora will honestly answer "no
+ * waiver" — so every consumer that reads only Pandora would tell a guest who just
+ * signed to sign again. `checkRacerWaiverValid` in particular fails CLOSED by
+ * design, which is right for an unverified racer and wrong for this one.
+ *
+ * House rule, third application tonight: our record is the source of truth and a
+ * lagging downstream read may only ever ADD to it, never subtract.
+ *
+ * Deliberate choices:
+ *   - `person_id` ONLY, never `signer_person_id`. A guardian who signed a minor's
+ *     waiver does not thereby hold one of their own, and conflating the two would
+ *     wave an unwaivered adult onto a kart.
+ *   - `signature_png IS NOT NULL` and no `rejected_reason`: a row whose image was
+ *     rejected is not a signature we can stand behind.
+ *   - Outcome is NOT required. The whole point is that a captured-but-not-yet-
+ *     pushed signature counts; requiring `signed` would defeat it.
+ *   - `invalidation_date` is TEXT "YYYY-MM-DD", so a lexicographic compare against
+ *     today is a correct date compare.
+ */
+export async function hasUnexpiredCapturedWaiver(personId: string): Promise<boolean> {
+  if (!isDbConfigured() || !personId) return false;
+  await ensureSchema();
+  const today = new Date().toISOString().slice(0, 10);
+  const q = sql();
+  const rows = (await q`
+    SELECT 1 FROM waiver_signatures
+    WHERE person_id = ${String(personId)}
+      AND signature_png IS NOT NULL
+      AND rejected_reason IS NULL
+      AND invalidation_date IS NOT NULL
+      AND invalidation_date >= ${today}
+    LIMIT 1
+  `) as unknown as unknown[];
+  return rows.length > 0;
 }
 
 /**
