@@ -25,6 +25,7 @@ vi.mock("@/lib/redis", () => ({
 }));
 
 import { GET } from "./route";
+import redis from "@/lib/redis";
 
 const CACHE_KEY = "track-status:cache:v1";
 const LOCK_KEY = "track-status:lock";
@@ -105,7 +106,7 @@ describe("GET /api/track-status", () => {
   }, 20_000);
 
   it("serves the last known reading when upstream fails, instead of erroring", async () => {
-    // Stale past FRESH_MS (30s) but well inside MAX_SERVE_AGE_MS (10m).
+    // Stale past FRESH_MS (30s) but well inside MAX_SERVE_AGE_MS.
     seedCache(90_000);
     vi.stubGlobal("fetch", abortingUpstream());
 
@@ -130,11 +131,11 @@ describe("GET /api/track-status", () => {
     expect(res.headers.get("X-Cache")).toBe("STALE-ERROR");
   });
 
-  it("still serves a reading 40 minutes old — inside the raised cap", async () => {
-    // The 2026-08-13 outage ran past the original 10-minute cap and blanked
-    // the widget while upstream was still down. At this age a stale number
-    // beats no number, so this must NOT fall through to an error.
-    seedCache(40 * 60_000);
+  it("carries the widget through a multi-hour outage", async () => {
+    // 2h40m. The 2026-08-13 outage blanked the widget twice by aging the
+    // cached reading out from under it; the call was to keep showing the
+    // last real reading for the whole plausible length of an outage.
+    seedCache(160 * 60_000);
     vi.stubGlobal("fetch", abortingUpstream());
 
     const res = await GET();
@@ -144,16 +145,45 @@ describe("GET /api/track-status", () => {
   });
 
   it("refuses to state a reading older than the serve cap", async () => {
-    // 90 minutes — roughly seven heats ago. Track delay turns over every
-    // heat, so this is not degraded service, it would be a wrong answer
-    // stated confidently.
-    seedCache(90 * 60_000);
+    // 5 hours — older than the centre has been open. That is not a delay
+    // figure any more, and stating it would be a wrong answer stated
+    // confidently.
+    seedCache(5 * 60 * 60_000);
     vi.stubGlobal("fetch", abortingUpstream());
 
     const res = await GET();
 
     expect(res.status).toBe(502);
     expect(res.headers.get("X-Cache")).not.toBe("STALE-ERROR");
+  });
+
+  it("keeps Redis retention above the serve cap", async () => {
+    // Guards the shape of the original bug: if the key is evicted before
+    // the cap is reached, the cap is decorative and the route is back to
+    // having nothing to fall back to. Asserted on the real SET arguments.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify(PAYLOAD), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+
+    await GET();
+
+    const setCall = vi.mocked(redis.set).mock.calls.find((c) => c[0] === CACHE_KEY) as unknown as [
+      string,
+      string,
+      string,
+      number,
+    ];
+    expect(setCall).toBeDefined();
+    expect(setCall[2]).toBe("EX");
+    // Retention (sec) must exceed the serve cap (ms) with headroom.
+    expect(setCall[3] * 1000).toBeGreaterThan(3 * 60 * 60_000);
   });
 
   it("serves stale rather than dog-piling when another instance holds the lock", async () => {

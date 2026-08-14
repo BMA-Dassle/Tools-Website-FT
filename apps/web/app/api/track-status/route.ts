@@ -59,29 +59,34 @@ const UPSTREAM_TIMEOUT_MS = 10_000;
 // an upstream already in trouble.
 const LOCK_TTL_SEC = 15;
 
-// RETENTION, not freshness. This was 60s, which is what actually caused
-// the 503 storm: once upstream had been down for a minute Redis evicted
-// the key, so `cached` was null on every path and the fallback promised
-// above had nothing to fall back TO. An outage must not be able to
-// delete our last known good value.
-const CACHE_TTL_SEC = 3600;
-
 // How stale a reading we're willing to state. There is no free answer
 // here: track delay turns over with each heat (~12 min), so an old
 // reading is read by a guest as current — but a hidden widget tells
 // them nothing at all.
 //
-// Shipped at 10 min and that was too tight. Measured live during the
-// 2026-08-13 outage: the cached reading aged out mid-outage and the
-// widget went dark on the home page, racing page and every e-ticket
-// while upstream stayed unreachable — trading a slightly-wrong number
-// for no number, which is the worse end of the trade at this duration
-// (owner call, same night).
+// Walked this out twice on 2026-08-13 against the live outage. 10 min
+// aged out mid-outage and blanked the widget on the home page, the
+// racing page and every e-ticket; 45 min would have run out too. The
+// call is to keep showing the last real reading for the whole plausible
+// length of an outage rather than drop it (owner, same night).
 //
-// 45 min covers an outage of the length we actually saw. Past it the
-// widget still hides, because by then the reading predates roughly
-// four heats and is not worth stating.
-const MAX_SERVE_AGE_MS = 45 * 60_000;
+// The cap stays rather than going infinite: a reading from before the
+// centre opened is not a delay, it is a fossil. 3h is long enough that
+// the widget survives any outage we have actually seen.
+const MAX_SERVE_AGE_MS = 3 * 60 * 60_000;
+
+// RETENTION, not freshness. This was 60s, which is what actually caused
+// the 503 storm: once upstream had been down for a minute Redis evicted
+// the key, so `cached` was null on every path and the fallback promised
+// above had nothing to fall back TO. An outage must not be able to
+// delete our last known good value.
+//
+// MUST stay comfortably above MAX_SERVE_AGE_MS. If Redis drops the key
+// first then the serve cap is decorative — the route goes back to
+// having nothing to fall back to, which is the original bug wearing a
+// different number. Double it, so retention is never the binding
+// constraint.
+const CACHE_TTL_SEC = (MAX_SERVE_AGE_MS / 1000) * 2;
 
 interface CachedEntry {
   fetchedAt: number;
