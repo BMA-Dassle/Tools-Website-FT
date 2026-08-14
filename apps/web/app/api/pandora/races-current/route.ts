@@ -21,6 +21,11 @@ import {
  *       &cacheOnly=1     — Redis or empty; NEVER hits Pandora. Used by callers
  *                           that must render instantly with whatever's known and
  *                           let the next poll cycle fill in any gaps.
+ *       &warm=1          — 30s upstream timeout instead of 9s. THE CRON WARMER
+ *                           ONLY (checkin-alerts) — no user is waiting on it, and
+ *                           it is the only thing that refreshes the Redis keys
+ *                           everything else falls back to. Mirrors the identical
+ *                           flag on /api/pandora/session-participants.
  *
  * Returns { blue, red, mega } — each is a CurrentRace object or null.
  *
@@ -42,6 +47,33 @@ const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
 const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
 const CACHE_TTL_MS = 12_000;
+
+/**
+ * How long we wait on Pandora before falling back to the Redis carry.
+ *
+ * WAS A FLAT 5s, AND THAT FROZE EVERY BOARD IN THE BUILDING (2026-08-13).
+ * Pandora was answering in roughly 5-10s from Vercel — fine from a laptop,
+ * over the ceiling from iad1. Fifteen consecutive production calls returned
+ * X-Cache: TIMEOUT, so every board served the fallback. That alone would have
+ * been survivable; what made it an outage is that the every-minute
+ * checkin-alerts cron — THE ONLY THING THAT REFRESHES THE FALLBACK — reads
+ * through this same route and hit the same 5s ceiling. The carry copy froze on
+ * the heat that happened to be called when the upstream went slow, and the
+ * check-in board sat on blue 45 / red 46 for half an hour while blue 46 and
+ * red 47 were on track. A stale board is worse than a slow one: staff called
+ * heats the estate disagreed with.
+ *
+ * So the warmer gets a ceiling that reflects "nobody is waiting on this"
+ * (30s, the same number and the same `warm=1` flag as
+ * /api/pandora/session-participants), and the shared default gets enough
+ * headroom to ride out a slow-but-alive Pandora instead of giving up at 5.
+ *
+ * The default MUST stay under the 12s ceiling /api/admin/checkin puts on its
+ * own hop to this route — if this one outlasts that one, the check-in board
+ * gets `{}` and renders NOTHING, which is the one outcome worse than stale.
+ */
+const UPSTREAM_TIMEOUT_MS = 9_000;
+const UPSTREAM_TIMEOUT_WARM_MS = 30_000;
 
 type TrackKey = "blue" | "red" | "mega";
 
@@ -150,6 +182,8 @@ export async function GET(req: NextRequest) {
   // and /api/pandora/session-participants. See file header.
   const preferCache = searchParams.get("prefer") === "cache";
   const cacheOnly = searchParams.get("cacheOnly") === "1";
+  // warm=1 → the cron warmer. See UPSTREAM_TIMEOUT_MS.
+  const warm = searchParams.get("warm") === "1";
 
   // Serve from in-memory cache if fresh — applies to ALL modes since
   // the cached value is always the most recent successful merge from
@@ -195,12 +229,12 @@ export async function GET(req: NextRequest) {
   // overloaded — without a timeout, every browser polling this
   // endpoint blocks for that long, fetches stack up in the renderer
   // tab, and Edge eventually kills it for memory ("This page
-  // couldn't load"). Any request running longer than 5s falls
-  // through to the fallback path below (last cached / Redis last-
-  // known state). Keeps the proxy snappy regardless of upstream
-  // health.
+  // couldn't load"). Anything over the ceiling falls through to the
+  // fallback path below (last cached / Redis last-known state).
+  // See UPSTREAM_TIMEOUT_MS for why the warmer gets its own, longer one.
+  const upstreamTimeoutMs = warm ? UPSTREAM_TIMEOUT_WARM_MS : UPSTREAM_TIMEOUT_MS;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5_000);
+  const timeoutId = setTimeout(() => controller.abort(), upstreamTimeoutMs);
 
   try {
     const res = await fetch(`${PANDORA_URL}/bmi/races/current/${FASTTRAX_LOCATION_ID}`, {
@@ -250,7 +284,10 @@ export async function GET(req: NextRequest) {
     // so we can tell from the dashboard whether the timeout is
     // firing too aggressively.
     const isTimeout = err instanceof Error && err.name === "AbortError";
-    console.error(`[races-current] ${isTimeout ? "TIMEOUT (>5s)" : "fetch error"}:`, err);
+    console.error(
+      `[races-current] ${isTimeout ? `TIMEOUT (>${upstreamTimeoutMs}ms${warm ? ", warm" : ""})` : "fetch error"}:`,
+      err,
+    );
 
     // Fall back through layers: in-memory cache → Redis last-known
     // state per track (age-gated by loadRace).

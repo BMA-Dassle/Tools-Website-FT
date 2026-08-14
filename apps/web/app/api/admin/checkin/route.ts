@@ -147,13 +147,19 @@ interface CurrentRaces {
 
 async function fetchCurrentRaces(req: NextRequest): Promise<CurrentRaces> {
   try {
-    // Hit Pandora live (with 5s upstream timeout + fallback to Redis on
+    // Hit Pandora live (with its own upstream timeout + fallback to Redis on
     // failure). The checkin page needs fresh race data — operators can't
     // wait 60s for the cron to warm Redis.
+    //
+    // This ceiling MUST stay above races-current's own UPSTREAM_TIMEOUT_MS
+    // (9s). If we give up first, the board gets `{}` and renders an EMPTY
+    // session strip — strictly worse than the stale-but-populated strip that
+    // route is falling back to. 12s leaves headroom for the internal hop
+    // without ever beating it to the punch.
     const origin = req.nextUrl.origin;
     const res = await fetch(`${origin}/api/pandora/races-current`, {
       cache: "no-store",
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(12_000),
     });
     if (!res.ok) return {};
     return (await res.json()) as CurrentRaces;
@@ -990,6 +996,152 @@ export async function POST(req: NextRequest) {
   });
 }
 
+// --------------- Session stats (the board's session strip) ---------------
+
+interface SessionStat {
+  track: string;
+  raceType: string;
+  heatNumber: number;
+  sessionId: number | string;
+  scheduledStart: string;
+  checkedIn: number;
+  total: number;
+  /** Locates the participant fetch — arena rows count at HP FM. */
+  locationId: string;
+}
+
+/**
+ * SHARED 10s CACHE — THE ONLY THING BETWEEN THIS FAN-OUT AND PANDORA.
+ *
+ * Building one strip costs `2 + N` LIVE Pandora calls (races-current hop,
+ * arena sessions/current, then one participants read per called session) and
+ * NONE of them are cached upstream. Measured 2026-08-13 with two heats called
+ * and arena idle: 4 calls at ~600ms each, and the board was asking for it every
+ * five seconds — 48 calls/minute FROM ONE TAB, multiplied by every station that
+ * leaves the page open for a shift.
+ *
+ * The strip is a checked-in COUNT. Nobody reads it faster than they read it,
+ * and a count that is ten seconds old has never been wrong in a way that
+ * mattered — so every tab on this lambda shares one fan-out.
+ *
+ * `inFlight` matters as much as the cache: without it, N tabs whose polls land
+ * inside the same cold window each start their own fan-out. They collapse onto
+ * one instead. It also holds when Pandora is slow, which is exactly when a
+ * stampede would hurt most (2026-08-13: the upstream was answering in 5-10s
+ * from iad1).
+ *
+ * Only SUCCESS is cached. Caching a failure would make an outage sticky for a
+ * further ten seconds after the upstream came back.
+ */
+const SESSION_STATS_TTL_MS = 10_000;
+let sessionStatsCache: { data: SessionStat[]; expiry: number } | null = null;
+let sessionStatsInFlight: Promise<SessionStat[]> | null = null;
+
+async function buildSessionStats(req: NextRequest): Promise<SessionStat[]> {
+  const sessions: SessionStat[] = [];
+
+  // Racing — currently-called heats per track.
+  const current = await fetchCurrentRaces(req);
+  for (const [track, data] of Object.entries(current)) {
+    if (!data || typeof data !== "object") continue;
+    const d = data as {
+      sessionId?: number;
+      raceType?: string;
+      heatNumber?: number;
+      scheduledStart?: string;
+    };
+    if (!d.sessionId) continue;
+    sessions.push({
+      track,
+      raceType: d.raceType ?? "",
+      heatNumber: d.heatNumber ?? 0,
+      sessionId: d.sessionId,
+      scheduledStart: d.scheduledStart ?? "",
+      checkedIn: 0,
+      total: 0,
+      locationId: FASTTRAX_LOCATION_ID,
+    });
+  }
+
+  // HP Arena — currently-called sessions (sessions/current carries
+  // the full session detail, so no schedule lookup needed).
+  try {
+    const res = await fetch(`${PANDORA_BASE}/v2/bmi/sessions/current/${HP_FM_LOCATION_ID}`, {
+      headers: pandoraHeaders(),
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      const called = Array.isArray(json?.data)
+        ? (json.data as {
+            sessionId?: string;
+            type?: string;
+            heatNumber?: number;
+            scheduledStart?: string | null;
+          }[])
+        : [];
+      for (const s of called) {
+        const sid = String(s.sessionId ?? "");
+        if (!sid) continue;
+        const activity = classifyArenaSession(s.type ?? "");
+        if (!activity) continue; // parties / events — not ticketed
+        sessions.push({
+          track: activityDisplay(activity),
+          raceType: "",
+          heatNumber: s.heatNumber ?? 0,
+          sessionId: sid,
+          scheduledStart: s.scheduledStart ?? "",
+          checkedIn: 0,
+          total: 0,
+          locationId: HP_FM_LOCATION_ID,
+        });
+      }
+    }
+  } catch {
+    /* arena stats are best-effort — racing rows still render */
+  }
+
+  await Promise.all(
+    sessions.map(async (s) => {
+      try {
+        const pRes = await fetch(
+          `${PANDORA_BASE}/v2/bmi/session/${s.locationId}/${s.sessionId}/participants?excludeRemoved=true`,
+          { headers: pandoraHeaders(), cache: "no-store", signal: AbortSignal.timeout(5000) },
+        );
+        if (!pRes.ok) return;
+        const pData = await pRes.json();
+        const list = Array.isArray(pData?.data) ? pData.data : [];
+        s.total = list.length;
+        s.checkedIn = list.filter((p: { checkedIn?: string | null }) => !!p.checkedIn).length;
+      } catch {
+        /* silent */
+      }
+    }),
+  );
+
+  // Soonest start first so the strip reads left-to-right in time order.
+  sessions.sort(
+    (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
+  );
+  return sessions;
+}
+
+/** Cached/deduped entry point — see SESSION_STATS_TTL_MS. */
+async function getSessionStats(req: NextRequest): Promise<SessionStat[]> {
+  if (sessionStatsCache && Date.now() < sessionStatsCache.expiry) return sessionStatsCache.data;
+  if (sessionStatsInFlight) return sessionStatsInFlight;
+  sessionStatsInFlight = buildSessionStats(req)
+    .then((sessions) => {
+      sessionStatsCache = { data: sessions, expiry: Date.now() + SESSION_STATS_TTL_MS };
+      return sessions;
+    })
+    .finally(() => {
+      sessionStatsInFlight = null;
+    });
+  return sessionStatsInFlight;
+}
+
 // --------------- GET: Self-test suite ---------------
 
 export async function GET(req: NextRequest) {
@@ -1004,105 +1156,8 @@ export async function GET(req: NextRequest) {
   // ~20 min later.
   const action = req.nextUrl.searchParams.get("action");
   if (action === "session-stats") {
-    interface SessionStat {
-      track: string;
-      raceType: string;
-      heatNumber: number;
-      sessionId: number | string;
-      scheduledStart: string;
-      checkedIn: number;
-      total: number;
-      /** Locates the participant fetch — arena rows count at HP FM. */
-      locationId: string;
-    }
     try {
-      const sessions: SessionStat[] = [];
-
-      // Racing — currently-called heats per track.
-      const current = await fetchCurrentRaces(req);
-      for (const [track, data] of Object.entries(current)) {
-        if (!data || typeof data !== "object") continue;
-        const d = data as {
-          sessionId?: number;
-          raceType?: string;
-          heatNumber?: number;
-          scheduledStart?: string;
-        };
-        if (!d.sessionId) continue;
-        sessions.push({
-          track,
-          raceType: d.raceType ?? "",
-          heatNumber: d.heatNumber ?? 0,
-          sessionId: d.sessionId,
-          scheduledStart: d.scheduledStart ?? "",
-          checkedIn: 0,
-          total: 0,
-          locationId: FASTTRAX_LOCATION_ID,
-        });
-      }
-
-      // HP Arena — currently-called sessions (sessions/current carries
-      // the full session detail, so no schedule lookup needed).
-      try {
-        const res = await fetch(`${PANDORA_BASE}/v2/bmi/sessions/current/${HP_FM_LOCATION_ID}`, {
-          headers: pandoraHeaders(),
-          cache: "no-store",
-          signal: AbortSignal.timeout(8000),
-        });
-        if (res.ok) {
-          const json = await res.json();
-          const called = Array.isArray(json?.data)
-            ? (json.data as {
-                sessionId?: string;
-                type?: string;
-                heatNumber?: number;
-                scheduledStart?: string | null;
-              }[])
-            : [];
-          for (const s of called) {
-            const sid = String(s.sessionId ?? "");
-            if (!sid) continue;
-            const activity = classifyArenaSession(s.type ?? "");
-            if (!activity) continue; // parties / events — not ticketed
-            sessions.push({
-              track: activityDisplay(activity),
-              raceType: "",
-              heatNumber: s.heatNumber ?? 0,
-              sessionId: sid,
-              scheduledStart: s.scheduledStart ?? "",
-              checkedIn: 0,
-              total: 0,
-              locationId: HP_FM_LOCATION_ID,
-            });
-          }
-        }
-      } catch {
-        /* arena stats are best-effort — racing rows still render */
-      }
-
-      await Promise.all(
-        sessions.map(async (s) => {
-          try {
-            const pRes = await fetch(
-              `${PANDORA_BASE}/v2/bmi/session/${s.locationId}/${s.sessionId}/participants?excludeRemoved=true`,
-              { headers: pandoraHeaders(), cache: "no-store", signal: AbortSignal.timeout(5000) },
-            );
-            if (!pRes.ok) return;
-            const pData = await pRes.json();
-            const list = Array.isArray(pData?.data) ? pData.data : [];
-            s.total = list.length;
-            s.checkedIn = list.filter((p: { checkedIn?: string | null }) => !!p.checkedIn).length;
-          } catch {
-            /* silent */
-          }
-        }),
-      );
-
-      // Soonest start first so the strip reads left-to-right in time order.
-      sessions.sort(
-        (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
-      );
-      return NextResponse.json({ sessions });
+      return NextResponse.json({ sessions: await getSessionStats(req) });
     } catch {
       return NextResponse.json({ sessions: [] });
     }
