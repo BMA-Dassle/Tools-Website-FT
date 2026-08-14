@@ -87,6 +87,9 @@ export interface BoardStatus {
    * that older server would actually be doing.
    */
   autoHolding?: { enabled: boolean };
+  /** Is race-event camera bookmarking armed? Optional for the same
+   *  older-deploy reason as the fields above it. */
+  raceBookmarks?: { enabled: boolean };
 }
 
 /**
@@ -176,6 +179,15 @@ export interface BriefingControl {
    * It takes effect on the next sweep, within a minute.
    */
   setAutoHolding: (enabled: boolean) => void;
+  /**
+   * ARM OR DISARM race-event bookmarks on the track cameras — session start,
+   * pause, resume and end, written to every camera on that track.
+   *
+   * Separate from setAutoHolding because the two do unrelated things: that one
+   * moves groups, this one only annotates footage. The likely reason to reach
+   * for this is volume — a Mega heat marks ~33 cameras four times.
+   */
+  setRaceBookmarks: (enabled: boolean) => void;
   /**
    * STAFF OVERRIDE — put a session in a lane slot by hand, or empty it.
    *
@@ -425,6 +437,19 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  const setRaceBookmarks = useCallback<BriefingControl["setRaceBookmarks"]>(
+    (enabled) => {
+      void post(
+        { action: "race-bookmarks", enabled },
+        enabled
+          ? "Race camera bookmarks are ON — start, pause, resume and end are marked on every camera for the track"
+          : "Race camera bookmarks are OFF — nothing new is written to the cameras",
+        "race-bookmarks",
+      );
+    },
+    [post],
+  );
+
   const overrideSlot = useCallback<BriefingControl["overrideSlot"]>(
     (args) => {
       const where =
@@ -563,6 +588,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     sendToHolding,
     markPitted,
     setAutoHolding,
+    setRaceBookmarks,
     overrideSlot,
     liveCameraUrl,
     hasLaunched,

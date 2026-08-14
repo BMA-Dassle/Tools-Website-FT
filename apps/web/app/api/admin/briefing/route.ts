@@ -19,6 +19,7 @@ import {
 } from "~/features/signage/briefing/called-override.server";
 import { readBriefingRoom } from "~/features/signage/briefing/state.server";
 import { setAutoHoldingEnabled } from "~/features/signage/briefing/auto-holding.server";
+import { setRaceBookmarksEnabled } from "~/features/signage/briefing/race-bookmarks-setting.server";
 import { readPitLane } from "~/features/signage/pit/lane.server";
 import { recordBriefingEvent } from "~/features/signage/briefing/events-db";
 import { businessDayYmdET } from "@/lib/race-business-day";
@@ -203,6 +204,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "enabled must be true or false" }, { status: 400 });
     }
     await setAutoHoldingEnabled(body.enabled);
+    return NextResponse.json({ ok: true, enabled: body.enabled });
+  }
+
+  /** Race-event camera bookmarks — the other switch on the same sheet. */
+  if (action === "race-bookmarks") {
+    if (typeof body.enabled !== "boolean") {
+      return NextResponse.json({ error: "enabled must be true or false" }, { status: 400 });
+    }
+    await setRaceBookmarksEnabled(body.enabled);
     return NextResponse.json({ ok: true, enabled: body.enabled });
   }
 

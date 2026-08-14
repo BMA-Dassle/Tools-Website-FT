@@ -114,6 +114,8 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
    * claims OFF for a switch that is actually running.
    */
   const autoHoldingOn = briefing.board?.autoHolding?.enabled !== false;
+  /** Race-event camera bookmarks — the second server-wide switch on the sheet. */
+  const raceBookmarksOn = briefing.board?.raceBookmarks?.enabled !== false;
 
   // Declared HERE, above every reader. It used to sit just before the return, and
   // the board-mode header below reads it — a const referenced above its own
@@ -1181,6 +1183,42 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
                 ? "When a room goes quiet on camera after the briefing, its group moves to holding on its own. Staff can still press Send to holding at any time."
                 : "Groups only move to holding when staff press Send to holding."}{" "}
               This setting applies to every check-in station, not just this one.
+            </p>
+          </div>
+
+          {/*
+            RACE CAMERA BOOKMARKS — the second server-wide switch (owner
+            2026-08-14). Its own control rather than a mode of the one above,
+            because the two are unrelated: that one moves groups through the
+            night, this one only annotates footage. The likeliest reason to
+            reach for this is volume, so the copy names it.
+          */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+              Race camera bookmarks
+            </p>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={raceBookmarksOn}
+              disabled={!briefing.board}
+              onClick={() => briefing.setRaceBookmarks(!raceBookmarksOn)}
+              className="px-3 py-1.5 text-xs border hover:bg-white/5"
+              style={{
+                borderRadius: 8,
+                borderColor: raceBookmarksOn ? GREEN : PORTAL_DARK.inputBorder,
+                backgroundColor: raceBookmarksOn ? `${GREEN}22` : "transparent",
+                color: raceBookmarksOn ? GREEN : PORTAL_DARK.muted,
+                opacity: briefing.board ? 1 : 0.5,
+              }}
+            >
+              {raceBookmarksOn ? "On" : "Off"}
+            </button>
+            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+              {raceBookmarksOn
+                ? "Session start, pause, resume and end are marked in Nx on every camera for that track, so footage can be found by session instead of by scrubbing."
+                : "Nothing new is written to the track cameras. Bookmarks already written stay."}{" "}
+              Applies to every station.
             </p>
           </div>
         </div>

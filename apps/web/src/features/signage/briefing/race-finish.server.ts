@@ -38,6 +38,9 @@ import { recordRaceTiming } from "~/features/racing/data/race-timings-db";
 import { listBriefingAssignments } from "./assignments-db";
 import { announceReturnOnce } from "./return-announce.server";
 import { loadOrCaptureResults } from "./race-results.server";
+import { bookmarkRaceEvent } from "./race-bookmarks.server";
+import { raceBookmarksEnabled } from "./race-bookmarks-setting.server";
+import { parseCameraTrack } from "../nx/track-cameras";
 
 export interface RaceFinishedMarker {
   /** The venue's ActualEnd when stamped; our receive time during the
@@ -131,6 +134,59 @@ async function recordRaceStarts(message: unknown): Promise<void> {
       startedAtMs: s.actualStartMs,
       endedAtMs: null,
     }).catch((err) => console.error("[race-timings] start write failed", err));
+
+    /**
+     * MARK THE TRACK'S CAMERAS (owner 2026-08-14). Riding the venue's own
+     * ActualStart, so this marker sits on the flag rather than on whenever we
+     * happened to process the push.
+     *
+     * INSIDE the timing claim on purpose: that claim is already "the first time
+     * we have seen this race start", which is exactly once per race, and it is
+     * the same guard that stops the day's replayed race list from writing this
+     * marker to eighteen cameras several hundred times a night. bookmarkRaceEvent
+     * takes its own claim underneath as well — belt and braces, because the cost
+     * of getting this wrong is spread across every camera on the track.
+     */
+    await markRaceCameras({
+      track: s.track,
+      sessionId: s.raceId,
+      heatNumber: s.heatNumber,
+      heatName: s.heatName || null,
+      phase: "start",
+      atMs: s.actualStartMs,
+    });
+  }
+}
+
+/**
+ * Bookmark a race event across its track's cameras, gated on the kill switch.
+ *
+ * Wrapped rather than called directly so the switch check and the swallow live
+ * in one place: this runs inside a webhook that also fires the return radio,
+ * and a camera system having a bad night must never reach that.
+ */
+async function markRaceCameras(args: {
+  track: string | null;
+  sessionId: string;
+  heatNumber: number | null;
+  heatName: string | null;
+  phase: "start" | "end";
+  atMs: number;
+}): Promise<void> {
+  try {
+    const track = parseCameraTrack(args.track);
+    if (!track) return;
+    if (!(await raceBookmarksEnabled())) return;
+    await bookmarkRaceEvent({
+      track,
+      sessionId: args.sessionId,
+      heatNumber: args.heatNumber,
+      heatName: args.heatName,
+      phase: args.phase,
+      atMs: args.atMs,
+    });
+  } catch (err) {
+    console.error(`[race-bookmark] ${args.phase} failed`, err);
   }
 }
 
@@ -194,6 +250,33 @@ export async function handleVenueMessage(message: unknown): Promise<void> {
             console.error("[race-timings] write failed", err);
           });
         }
+      }
+
+      /**
+       * THE END MARKER, on the venue's own ActualEnd.
+       *
+       * Only off a STAMPED finish, and outside the claim above. The pending
+       * window pushes `State:"Finished"` ~40s before ActualEnd is stamped
+       * (see the schema note in reference_venue_timing_broadcast_schema), so
+       * marking on the unstamped push would put every session's end marker
+       * forty seconds early — on eighteen cameras, for every race of the night.
+       * The stamped push follows within a minute and bookmarkRaceEvent's own
+       * per-(race, phase) claim makes it exactly once.
+       *
+       * Deliberately ABOVE the isActionableFinish gate below: that gate is
+       * about live effects a stale race must not trigger, and this is archive
+       * annotation. A replayed list from a bridge outage SHOULD backfill the
+       * markers it missed, exactly as the timing row above it does.
+       */
+      if (f.actualEndMs !== null) {
+        await markRaceCameras({
+          track: f.track,
+          sessionId: f.raceId,
+          heatNumber: f.heatNumber,
+          heatName: f.heatName || null,
+          phase: "end",
+          atMs: f.actualEndMs,
+        });
       }
 
       if (!isActionableFinish(f, nowMs)) continue;

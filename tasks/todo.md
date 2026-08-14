@@ -1471,3 +1471,50 @@ keeps its control. This fires only on the NVR observing an empty room.
       planned view-only service account (camera.server.ts) MUST be granted it too or the
       markers stop silently.
 - [ ] `cleared` / `replaced` room ends write no bookmark — only `holding`. Extend if wanted.
+
+## Race-event camera bookmarks (2026-08-14) — ON MAIN, never seen fire on a live race
+
+Owner: "bookmarks for other race events. Session start, session paused, session resumed,
+sessions end… write this to all the cameras for that track." Built and pushed autonomously
+(owner asleep, explicitly authorised: "non fatal so you can build, test and push").
+
+**Fan-out, measured against the live device list:** blue **15** cameras, red **17**,
+mega **32** (the joined circuit — same reason both briefing rooms serve Mega). Pit rows
+included: a session's story ends in the pit lane. Offline cameras excluded — a marker with
+no footage behind it reads as "not captured" during a review, which is worse than none.
+
+**Where each event comes from — three are exact, one is sampled:**
+| event | source | accuracy |
+| ---- | ---- | ---- |
+| start | venue broadcast `RaceStart` → webhook | the venue's own `ActualStart` |
+| end | venue broadcast `RaceFinish` → webhook | the venue's own `ActualEnd`, STAMPED pushes only |
+| paused / resumed | SMS-Timing socket `S` field, 1/min cron | ±60s, sub-minute pauses missed |
+
+Pause is on no wire at all — it exists only as socket state, so it is polled. The marker's
+range leads in 2 min so the footage behind it contains the *cause*, and the description
+says the moment is approximate. Worth having: a kart pause is nearly always an incident.
+
+- [x] `nx/track-cameras.ts` — pure name matcher, 10 tests. **The double space is real**:
+      three devices are `FT Track - Red  - …`; a matcher on the literal `"Red - "` silently
+      drops them. Also refuses `FT Redemption` (the naive `/Red/` trap).
+- [x] `briefing/race-state.ts` — pure frame parse + transition, 12 tests. `"{}"` = a real
+      "no race" answer, distinct from unreadable; **no transition across a heat change**
+      (heat 42 ending while 43 loads paused is not a pause).
+- [x] `briefing/race-bookmarks.server.ts` — fan-out, NX claim per (race, phase) taken
+      BEFORE any camera (the broadcast replays the whole day's list on every push —
+      unclaimed this writes hundreds of duplicates across 15-32 ribbons), concurrency 6,
+      **one retry for stragglers only** (measured: relay drops ~1 write in 15).
+- [x] `briefing/race-state-watch.server.ts` + `/api/cron/race-state-watch` every minute.
+- [x] Second kill switch on the check-in board settings sheet, separate from auto-holding:
+      that one changes how the night RUNS, this one only annotates. Volume is the likely
+      reason to reach for it.
+- [x] tsc 0 · eslint 0 · **4671 tests** · `next build` 0 · a11y 0
+- [x] Smoked live on the real NVR: 15-camera fan-out in ~1.8s/event, replay guard returned
+      0 on the second attempt, socket state read 912ms for both tracks. **All 29 test
+      bookmarks deleted — verified 0 remaining across all 39 FT cameras.**
+- [ ] **Never seen fire on a live race.** Expect ~2-3k bookmarks on a 60-heat Saturday
+      (4 events × 15-32 cameras). If the ribbons are unreadable, the switch is on the board;
+      the obvious trim is finish-line + pit only, which is a one-line change to
+      `cameraOnTrack`.
+- [ ] Pause detection has never been observed against a real pause — no race was running
+      when this was built. First race night, watch `/api/cron/race-state-watch`.

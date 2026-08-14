@@ -38,6 +38,7 @@ import { foldBriefingLog, type BriefingRecord } from "./briefing-log";
 import { captureRoomPhoto } from "./room-photo.server";
 import { bookmarkBriefingStart } from "./bookmarks.server";
 import { autoHoldingEnabled } from "./auto-holding.server";
+import { raceBookmarksEnabled } from "./race-bookmarks-setting.server";
 import { readRaceFinishedMarker } from "./race-finish.server";
 import { GROUP_OUT_WINDOW_MS, type GroupOut } from "./room-return";
 import {
@@ -474,6 +475,14 @@ export interface BriefingBoardStatus {
    * already reading Redis.
    */
   autoHolding: { enabled: boolean };
+  /**
+   * Is race-event camera bookmarking armed? Drives the second settings toggle.
+   *
+   * A separate switch from autoHolding, not a second field on it: one changes
+   * how the night RUNS, the other only annotates footage. See
+   * race-bookmarks-setting.server.ts.
+   */
+  raceBookmarks: { enabled: boolean };
 }
 
 /**
@@ -596,7 +605,7 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
   const now = Date.now();
   const businessDay = businessDayYmdET();
 
-  const [rooms, assignments, assets, checkinWindowMins, events, lanes, autoHolding] =
+  const [rooms, assignments, assets, checkinWindowMins, events, lanes, autoHolding, raceBookmarks] =
     await Promise.all([
       readBriefingRooms(VENUE).catch(() => ({ red: null, blue: null })),
       listBriefingAssignments(VENUE, businessDay).catch(() => []),
@@ -609,6 +618,7 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
       // Defaults ON if Redis cannot answer — same direction as the sweep itself,
       // so the toggle never shows OFF for a switch that is actually armed.
       autoHoldingEnabled().catch(() => true),
+      raceBookmarksEnabled().catch(() => true),
     ]);
 
   const [groupsOut, briefedSessions] = await Promise.all([
@@ -655,5 +665,6 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     helmetPosterUrl: assets["briefing-helmet-poster"]?.url ?? null,
     lanes,
     autoHolding: { enabled: autoHolding },
+    raceBookmarks: { enabled: raceBookmarks },
   };
 }
