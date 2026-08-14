@@ -107,7 +107,17 @@ async function ensureSchema(): Promise<void> {
  *  karts are fully back in and the lane is safe to seat again. It rides this
  *  same log because it is one more moment in a session's lifecycle, keyed to
  *  the room the group hands kit back into. */
-export type BriefingEventAction = "sent" | "started" | "restarted" | "photo" | "ended" | "pitted";
+/** `override` is a STAFF CORRECTION, not a step in the flow — a distinct action
+ *  rather than a flag on the others, so the log can be read for "what did we
+ *  have to fix tonight" without inferring it from a reason column. */
+export type BriefingEventAction =
+  | "sent"
+  | "started"
+  | "restarted"
+  | "photo"
+  | "ended"
+  | "pitted"
+  | "override";
 
 /** Why a room was released. `film-complete` is never STORED — it is what
  *  briefing-log.ts infers when no explicit end was ever recorded. `holding`

@@ -123,7 +123,70 @@ export default function OverridePanel({
   return (
     <div style={{ display: "grid", gap: 18 }}>
       <div style={{ display: "grid", gap: 6 }}>
-        <Label>Lane slots — live</Label>
+        <Label>Where each stage is — live</Label>
+        {/* THE WHOLE FLOW, not just the lane. Check-in and the briefing rooms
+            are as capable of getting stuck as holding is — tonight it was
+            check-in that froze, for hours — so every stage a heat passes
+            through is readable and clearable from one place (owner 2026-08-14:
+            "should be able to clear check in and briefing"). */}
+        {tracks.map((t) => (
+          <div key={`called:${t}`} style={rowStyle(!!status?.currentRaces?.[t])}>
+            <span style={slotLabelStyle}>{t} check-in</span>
+            <span
+              className="rc-num"
+              style={{
+                minWidth: 150,
+                fontSize: 14,
+                color: status?.currentRaces?.[t] ? INK : PORTAL_DARK.muted,
+              }}
+            >
+              {status?.currentRaces?.[t]?.heatNumber != null
+                ? `Session ${status.currentRaces[t]!.heatNumber}`
+                : "empty"}
+            </span>
+            {status?.currentRaces?.[t] && (
+              <button
+                type="button"
+                className="rcb"
+                disabled={control.pending === `override:${t}:called`}
+                onClick={() => control.overrideSlot({ track: t, slot: "called", session: null })}
+                title={`Clear the called heat on ${t}`}
+                style={btnStyle(PORTAL_DARK.border, PORTAL_DARK.fg)}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        ))}
+        {(board?.rooms ?? []).map((r) => (
+          <div key={`room:${r.room}`} style={rowStyle(!!r.state?.sessionId)}>
+            <span style={slotLabelStyle}>{r.room} room</span>
+            <span
+              className="rc-num"
+              style={{
+                minWidth: 150,
+                fontSize: 14,
+                color: r.state?.sessionId ? INK : PORTAL_DARK.muted,
+              }}
+            >
+              {r.state?.heatNumber != null ? `Session ${r.state.heatNumber}` : "empty"}
+            </span>
+            {r.state?.sessionId && (
+              <button
+                type="button"
+                className="rcb"
+                disabled={control.pending === `override:${r.room}:room`}
+                onClick={() =>
+                  control.overrideSlot({ track: r.room, slot: "room", session: null, room: r.room })
+                }
+                title={`Clear the ${r.room} briefing room`}
+                style={btnStyle(PORTAL_DARK.border, PORTAL_DARK.fg)}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        ))}
         {tracks.map((t) =>
           (["holding", "racing"] as const).map((slot) => {
             const lane = board?.lanes?.[t];
@@ -177,6 +240,55 @@ export default function OverridePanel({
               Session {r.heatNumber ?? "?"}
             </span>
             <span style={{ minWidth: 180, fontSize: 11, color: PORTAL_DARK.muted }}>{r.where}</span>
+            {tracks.map((t) => (
+              <button
+                key={`called:${t}`}
+                type="button"
+                className="rcb"
+                disabled={control.pending === `override:${t}:called`}
+                onClick={() =>
+                  control.overrideSlot({
+                    track: t,
+                    slot: "called",
+                    session: {
+                      sessionId: r.sessionId,
+                      heatNumber: r.heatNumber,
+                      raceType: r.raceType,
+                      room: r.room,
+                    },
+                  })
+                }
+                title={`Put session ${r.heatNumber ?? ""} back on ${t} check-in`}
+                style={btnStyle(withAlpha(INK, 0.35), INK)}
+              >
+                → {t} check-in
+              </button>
+            ))}
+            {(["red", "blue"] as const).map((room) => (
+              <button
+                key={`room:${room}`}
+                type="button"
+                className="rcb"
+                disabled={control.pending === `override:${room}:room`}
+                onClick={() =>
+                  control.overrideSlot({
+                    track: megaEnabled ? "mega" : room,
+                    slot: "room",
+                    room,
+                    session: {
+                      sessionId: r.sessionId,
+                      heatNumber: r.heatNumber,
+                      raceType: r.raceType,
+                      room,
+                    },
+                  })
+                }
+                title={`Put session ${r.heatNumber ?? ""} in the ${room} briefing room`}
+                style={btnStyle(withAlpha(INK, 0.35), INK)}
+              >
+                → {room} room
+              </button>
+            ))}
             {tracks.map((t) =>
               (["holding", "racing"] as const).map((slot) => (
                 <button

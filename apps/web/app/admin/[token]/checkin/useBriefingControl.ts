@@ -173,7 +173,9 @@ export interface BriefingControl {
    */
   overrideSlot: (args: {
     track: string;
-    slot: "holding" | "racing";
+    slot: "called" | "room" | "holding" | "racing";
+    /** Which briefing room, for the `room` slot. */
+    room?: BriefingRoom;
     /** Null empties the slot. */
     session: {
       sessionId: string;
@@ -394,9 +396,11 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
 
   const overrideSlot = useCallback<BriefingControl["overrideSlot"]>(
     (args) => {
+      const where =
+        args.slot === "room" ? `${args.room ?? args.track} room` : `${args.track} ${args.slot}`;
       const what = args.session
-        ? `Session ${args.session.heatNumber ?? ""} → ${args.track} ${args.slot}`
-        : `${args.track} ${args.slot} cleared`;
+        ? `Session ${args.session.heatNumber ?? ""} → ${where}`
+        : `${where} cleared`;
       void post(
         {
           action: "override",
@@ -405,11 +409,11 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
           sessionId: args.session?.sessionId ?? "",
           heatNumber: args.session?.heatNumber ?? undefined,
           raceType: args.session?.raceType ?? undefined,
-          room: args.session?.room ?? undefined,
+          room: args.room ?? args.session?.room ?? undefined,
           force: args.force === true,
         },
         what,
-        `override:${args.track}:${args.slot}`,
+        `override:${args.slot === "room" ? (args.room ?? args.track) : args.track}:${args.slot}`,
       );
     },
     [post],

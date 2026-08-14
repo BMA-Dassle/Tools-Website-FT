@@ -12,6 +12,9 @@ import {
   overrideLaneSlot,
   sendToHolding,
 } from "~/features/signage/pit/lane.server";
+import { etCalledAtIso, setCalledRace } from "~/features/signage/briefing/called-override.server";
+import { recordBriefingEvent } from "~/features/signage/briefing/events-db";
+import { businessDayYmdET } from "@/lib/race-business-day";
 import {
   isBriefingAssetKey,
   parseBriefingRoom,
@@ -134,9 +137,18 @@ export async function POST(req: NextRequest) {
     if (!track) {
       return NextResponse.json({ error: "track must be blue, red or mega" }, { status: 400 });
     }
-    const slot = body.slot === "holding" || body.slot === "racing" ? body.slot : null;
+    const slot =
+      body.slot === "holding" ||
+      body.slot === "racing" ||
+      body.slot === "called" ||
+      body.slot === "room"
+        ? body.slot
+        : null;
     if (!slot) {
-      return NextResponse.json({ error: "slot must be holding or racing" }, { status: 400 });
+      return NextResponse.json(
+        { error: "slot must be called, room, holding or racing" },
+        { status: 400 },
+      );
     }
     // STRINGIFIED AT THE BOUNDARY, never Number()'d — same rule as "send".
     const sessionId =
@@ -145,18 +157,76 @@ export async function POST(req: NextRequest) {
         : typeof body.sessionId === "number"
           ? String(body.sessionId)
           : "";
+    const heatNumber = Number.isInteger(body.heatNumber) ? (body.heatNumber as number) : null;
+    const raceType = typeof body.raceType === "string" ? body.raceType : null;
+
+    /**
+     * CHECK-IN — the called record itself. Pandora owns this key normally; the
+     * desk writes it only when Pandora cannot (see called-override.server.ts).
+     * The event row is the audit trail, and it is action "override" rather than
+     * "sent" because nobody went anywhere: a call was asserted, not performed.
+     */
+    if (slot === "called") {
+      await setCalledRace(
+        track,
+        sessionId
+          ? {
+              trackName: track.charAt(0).toUpperCase() + track.slice(1),
+              raceType,
+              heatNumber,
+              scheduledStart: null,
+              calledAt: etCalledAtIso(),
+              sessionId: Number(sessionId),
+            }
+          : null,
+      );
+      if (sessionId) {
+        await recordBriefingEvent({
+          venue: "FT",
+          businessDay: businessDayYmdET(),
+          room: parseBriefingRoom(body.room) ?? "red",
+          track,
+          sessionId,
+          heatNumber,
+          raceType,
+          tier: null,
+          action: "override",
+          reason: "override",
+        }).catch(() => {});
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    /**
+     * BRIEFING — placing into a room reuses the ordinary send, so the room gets
+     * its film, its assignment row and its briefed marker exactly as it would
+     * have; clearing reuses Undo. An override that took a private path would be
+     * an override whose result did not behave like the real thing.
+     */
+    if (slot === "room") {
+      const target = parseBriefingRoom(body.room);
+      if (!target) {
+        return NextResponse.json({ error: "room must be red or blue" }, { status: 400 });
+      }
+      if (!sessionId) return NextResponse.json(await clearRoom(target));
+      const result = await sendBriefing({
+        room: target,
+        track,
+        sessionId,
+        heatNumber,
+        raceType,
+        tier: null,
+      });
+      return NextResponse.json(result);
+    }
+
     const result = await overrideLaneSlot({
       track,
       slot,
       // No sessionId means "empty this slot" — the way a mis-placed group is
       // taken back out before the right one goes in.
       occupant: sessionId
-        ? {
-            sessionId,
-            heatNumber: Number.isInteger(body.heatNumber) ? (body.heatNumber as number) : null,
-            raceType: typeof body.raceType === "string" ? body.raceType : null,
-            room: parseBriefingRoom(body.room),
-          }
+        ? { sessionId, heatNumber, raceType, room: parseBriefingRoom(body.room) }
         : null,
       force: body.force === true,
     });
