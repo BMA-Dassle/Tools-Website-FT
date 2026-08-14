@@ -46,7 +46,6 @@ import {
   type PitLaneFeed,
   type PitRosterEntry,
 } from "../pit/pit-board";
-import type { BriefingRoomState } from "../briefing/types";
 import type { SceneProps } from "../director/types";
 
 const PAD_X = 96;
@@ -197,7 +196,11 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
           flexDirection: "column",
         }}
       >
-        <header style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+        {/* CENTERED, not top-hung: with the chip alone on the right edge a
+            flex-start header left it visually adrift in the band (owner
+            2026-08-13, "timer closer to bottom than top"). Every header item
+            now shares one vertical center. */}
+        <header style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span
             aria-hidden
             style={{
@@ -206,7 +209,7 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
               borderRadius: "50%",
               background: accent,
               boxShadow: `0 0 24px ${accent}`,
-              marginTop: 12,
+              flexShrink: 0,
             }}
           />
           <div>
@@ -263,18 +266,11 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
               </div>
             )}
           </div>
-          <div
-            style={{
-              marginLeft: "auto",
-              flexShrink: 0,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-end",
-              gap: 12,
-            }}
-          >
+          {/* The one clock, and nothing else — the room-status chips that
+              briefly lived here were not part of the approved mockup and the
+              mockup is the target (owner 2026-08-13). */}
+          <div style={{ marginLeft: "auto", flexShrink: 0 }}>
             <LiveSessionChip track={track} accent={accent} />
-            <RoomStrip rooms={feed?.briefingRooms ?? null} />
           </div>
         </header>
 
@@ -562,66 +558,6 @@ function Photo({ sessionId, personId }: { sessionId: string; personId: string })
         />
       )}
     </div>
-  );
-}
-
-/* ── the staff room strip ─────────────────────────────────────────────── */
-
-/**
- * Which briefing rooms are open — a race can only return to a room nobody is
- * briefing in (owner 2026-08-13), so the seater can see at a glance where the
- * incoming group will hand kit in.
- */
-function RoomStrip({ rooms }: { rooms: Record<"red" | "blue", BriefingRoomState | null> | null }) {
-  if (!rooms) return null;
-  const chip = (room: "red" | "blue") => {
-    const state = rooms[room];
-    const roomColor = room === "red" ? RED : "#2b8fff";
-    const busy = state != null;
-    return (
-      <span
-        key={room}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 10,
-          padding: "4px 16px",
-          borderRadius: 999,
-          background: "rgba(0,4,24,0.7)",
-          border: "1px solid rgba(255,255,255,0.16)",
-        }}
-      >
-        <span
-          aria-hidden
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: "50%",
-            background: busy ? roomColor : OK,
-            boxShadow: `0 0 10px ${busy ? roomColor : OK}`,
-          }}
-        />
-        <span className="tv-display" style={{ fontSize: 20, color: roomColor }}>
-          {room} room
-        </span>
-        <span
-          className="tv-display tv-num"
-          style={{ fontSize: 20, color: "rgba(245,236,238,0.6)" }}
-        >
-          {busy
-            ? state.heatNumber != null
-              ? `briefing S${state.heatNumber}`
-              : "briefing"
-            : "open"}
-        </span>
-      </span>
-    );
-  };
-  return (
-    <span style={{ display: "inline-flex", gap: 12 }}>
-      {chip("red")}
-      {chip("blue")}
-    </span>
   );
 }
 

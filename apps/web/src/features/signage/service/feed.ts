@@ -136,8 +136,7 @@ export async function buildTvFeed(
   // playlist alone: a lobby camera has no clock pane to hang it under, and the
   // heats it would list are in another building. FT-only — the tracks are.
   const wantsCheckinProgress = parsed.venue === "FT" && config.cameraMonitor?.track != null;
-  // The pit board needs its track's staged roster AND the briefing rooms (its
-  // staff strip shows which room is open for the returning race).
+  // The pit board: its track's staged roster and the lane state.
   const wantsPit = track != null && config.playlist.some((p) => p.scene === "pit-board");
 
   const [raceCheckin, events, nextAvailable, briefing, checkinRail, pitBoard, pitLanes] =
@@ -165,12 +164,6 @@ export async function buildTvFeed(
       wantsPit ? readPitLanes().catch(() => null) : Promise.resolve(null),
     ]);
 
-  // The pit board's staff strip needs the rooms even though the screen plays
-  // no briefing scene — a race can only return to a room nobody is briefing
-  // in, so the board shows which rooms are open. One MGET, pit screens only.
-  const pitRooms =
-    wantsPit && !briefing ? await readBriefingRooms(parsed.venue).catch(() => null) : null;
-
   // Has the heat on the track board already been sent to a briefing room? One
   // Redis GET, and only for screens that actually show a track board.
   const briefed = raceCheckin
@@ -192,7 +185,7 @@ export async function buildTvFeed(
     events,
     nextAvailable,
     briefing: briefing?.section ?? null,
-    briefingRooms: briefing?.rooms ?? pitRooms ?? null,
+    briefingRooms: briefing?.rooms ?? null,
     pitBoard,
     pitLanes,
     checkinProgress: checkinRail,
