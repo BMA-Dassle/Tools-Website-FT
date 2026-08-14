@@ -11,10 +11,13 @@ recorded there and mirrored in code comments.
 (new press: frees the room, seats the group) → racing → finish raises the HOLD →
 **race returned** (new press: karts fully back in the lane) releases it. The board is
 ALWAYS assignment; it holds its session until that session green-flags, then rolls.
-Spots are DERIVED, not stored — no spot field exists anywhere in BMI (verified): checked-in
-racers fill the list from the front in check-in order, no-shows always hold the last slots
-behind a solid red ring. Full names + photos on this board by owner decision (the vendor
-board always showed both); first-names-only stays the rule everywhere else.
+Spots come from **BMI's `raceInfo.startPosition`** on the Pandora participants payload
+(owner-confirmed field 2026-08-13 — the list the vendor board reads; it was missing from
+our canonical `Participant` type, now added). When BMI has gridded, its numbers show
+verbatim, gaps and all; rows the grid hasn't placed fall back to the derived rule —
+checked-in fill the front in check-in order, no-shows always hold the last slots behind a
+solid red ring — numbered past the highest real spot. Full names + photos on this board by
+owner decision (the vendor board always showed both); first-names-only everywhere else.
 
 - [x] Pure core `src/features/signage/pit/pit-board.ts` — ordering + rail state machine, tested
 - [x] Lane state `pit/lane.server.ts` — Neon-first (briefing_events: `ended/holding`, `pitted`),
@@ -26,10 +29,10 @@ board always showed both); first-names-only stays the rule everywhere else.
 - [x] Photo path `/api/tv/pit-photo` — Redis-cached BMI pic, bounded to the session roster
 - [x] Scene `ScenePitBoard` + registry + `pit-board` role preset + signage admin checkbox
 - [x] Check-in console: "➜ Send to holding" per room, "⏎ race returned" per track
-- [ ] LIVE SMOKE — provision a screen on the pit TVs, run a real evening cycle
-- [ ] Verify when BMI actually mints its session list relative to the call (build note №1
-      of the mockup) — the board currently derives spots; if BMI's own order ever surfaces,
-      swap it in at `orderPitRoster` (the one seam)
+- [x] BMI spot list found + wired: `raceInfo.startPosition` (owner-supplied payload) — the
+      derived ordering stays only as the pre-grid fallback
+- [ ] LIVE SMOKE — provision a screen on the pit TVs, run a real evening cycle; note WHEN
+      BMI mints startPosition relative to the call (fallback covers the gap either way)
 - [ ] Consider per-venue caching for `readPitLanes` on the pulse if Redis reads show up
 - [ ] Demo mode (`?demo=pit`) for after-hours preview — not built; the board has a designed
       idle state, and live smoke is the real test

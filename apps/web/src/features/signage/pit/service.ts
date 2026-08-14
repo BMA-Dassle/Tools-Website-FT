@@ -125,7 +125,7 @@ export async function buildPitBoard(
   }
 
   const personIds = ordered
-    .map((p) => (p.personId == null ? "" : String(p.personId)))
+    .map(({ row }) => (row.personId == null ? "" : String(row.personId)))
     .filter((id) => /^\d+$/.test(id));
 
   const [vips, birthdays] = await Promise.all([
@@ -133,28 +133,28 @@ export async function buildPitBoard(
       ? vipComboPersonLegsOnDate(personIds, businessDate).catch(() => new Map<string, unknown>())
       : Promise.resolve(new Map<string, unknown>()),
     Promise.all(
-      ordered.map(async (p) => {
-        const pid = p.personId == null ? "" : String(p.personId);
+      ordered.map(async ({ row }) => {
+        const pid = row.personId == null ? "" : String(row.personId);
         if (!/^\d+$/.test(pid)) return false;
         return birthdayFlag(pid, businessDate);
       }),
     ),
   ]);
 
-  const roster: PitRosterEntry[] = ordered.map((p, i) => {
-    const pid = p.personId == null ? "" : String(p.personId);
+  const roster: PitRosterEntry[] = ordered.map(({ row, spot }, i) => {
+    const pid = row.personId == null ? "" : String(row.personId);
     // The ONE definition of "checked in" (a timestamp, not a flag) — the same
     // helper the counts and the ordering use, so a card and the rail can never
     // disagree about the same racer.
-    const checkedIn = participantCheckedIn(p);
+    const checkedIn = participantCheckedIn(row);
     const camera = cameraByPerson.get(pid) ?? null;
-    const hasVideo = typeof p.viewpointCredit === "number" && p.viewpointCredit > 0;
-    const name = [p.firstName ?? "", p.lastName ?? ""].join(" ").trim() || "Racer";
+    const hasVideo = typeof row.viewpointCredit === "number" && row.viewpointCredit > 0;
+    const name = [row.firstName ?? "", row.lastName ?? ""].join(" ").trim() || "Racer";
     return {
-      spot: i + 1,
+      spot,
       name,
       personId: pid,
-      participantId: p.participantId == null ? null : String(p.participantId),
+      participantId: row.participantId == null ? null : String(row.participantId),
       checkedIn,
       camera,
       cameraDue: hasVideo && camera == null,

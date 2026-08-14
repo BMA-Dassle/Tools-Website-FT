@@ -4,20 +4,22 @@
  * testable arithmetic, and the server module (lane.server.ts / service.ts) and
  * the scene both import from here so the two can never disagree about a rule.
  *
- * WHAT A "SPOT" IS (owner 2026-08-13): there is no spot field anywhere in BMI —
- * Pandora's participants payload carries no position/order of any kind
- * (verified repo-wide 2026-08-13), and kart numbers are minted by SMS-Timing
- * only at race time. So the spot is OURS, derived — not stored — from the one
- * ordering fact the operation actually runs on:
+ * WHAT A "SPOT" IS (owner 2026-08-13): BMI's own grid position —
+ * `raceInfo.startPosition` on the Pandora participants payload — which is
+ * exactly the list the vendor AssignmentTV has been reading all along. When
+ * BMI has minted positions, they are THE spots, verbatim, whatever order the
+ * desk arranged; the board mirrors, never reinterprets.
+ *
+ * THE FALLBACK, for a roster BMI has not gridded yet, is derived from the one
+ * ordering fact the operation runs on:
  *
  *   CHECKED-IN RACERS FILL THE LIST FROM THE FRONT, IN CHECK-IN ORDER.
  *   NO-SHOWS ALWAYS FILL THE LAST SLOTS (owner: "all not checked in racers
  *   must directly fill last slots").
  *
  * Derived means deterministic: the same roster always produces the same spots,
- * with no Redis state to drift and nothing to sweep. When somebody checks in
- * they take the next open front slot; everyone still missing stays parked at
- * the tail behind a solid red ring.
+ * with no Redis state to drift and nothing to sweep — and the moment BMI's
+ * positions appear on the payload they win, with no seam to flip.
  */
 
 import type { CheckinRosterRow } from "../checkin-progress";
@@ -36,6 +38,8 @@ export interface PitParticipantRow extends CheckinRosterRow {
   /** ViewPoint POV credits from the deposit — nonzero means this racer has a
    *  video package, so a camera must be clipped on in the pit. */
   viewpointCredit?: number | null;
+  /** BMI's grid data. `startPosition` IS the pit spot when present. */
+  raceInfo?: { startPosition?: number | null } | null;
 }
 
 /** One card on the board. FULL NAMES AND A PHOTO KEY, deliberately — this
@@ -59,17 +63,33 @@ export interface PitRosterEntry {
   vip: boolean;
 }
 
+/** One roster row with the spot it holds. */
+export interface OrderedPitRow {
+  row: PitParticipantRow;
+  spot: number;
+}
+
+/** BMI's grid position for a row, or null when the grid has not minted one. */
+function startPositionOf(r: PitParticipantRow): number | null {
+  const v = r.raceInfo?.startPosition;
+  return typeof v === "number" && Number.isFinite(v) && v >= 1 ? v : null;
+}
+
 /**
  * Order a roster into spots.
  *
- * Checked-in racers first, in the order they came through the desk; a group
- * check-in stamps every racer the same millisecond (observed live 2026-08-12),
- * so ties — and the no-show tail — fall back to participantId, which is stable
- * across polls where the payload's own array order carries no guarantee. The
- * same roster in any arrival order therefore always yields the same spots: a
- * board that reshuffles between two polls would read as staff moving people.
+ * BMI FIRST: rows carrying `raceInfo.startPosition` wear that number verbatim
+ * and sort by it — that IS the assignment, including the desk having moved a
+ * no-show to the bottom in BMI itself. Rows the grid has not placed yet
+ * follow, numbered past the highest assigned spot, in the derived order:
+ * checked-in racers first as they came through the desk (a group check-in
+ * stamps every racer the same millisecond — observed live 2026-08-12 — so
+ * ties, and the no-show tail, fall back to participantId, which is stable
+ * where the payload's own array order carries no guarantee). The same roster
+ * therefore always yields the same spots: a board that reshuffles between two
+ * polls would read as staff moving people.
  */
-export function orderPitRoster(rows: PitParticipantRow[]): PitParticipantRow[] {
+export function orderPitRoster(rows: PitParticipantRow[]): OrderedPitRow[] {
   const stamp = (r: PitParticipantRow): number => {
     const v = r.checkedIn;
     if (typeof v !== "string") return Number.POSITIVE_INFINITY;
@@ -89,11 +109,26 @@ export function orderPitRoster(rows: PitParticipantRow[]): PitParticipantRow[] {
     return ap.localeCompare(bp);
   };
 
-  const here = rows.filter(participantCheckedIn);
-  const away = rows.filter((r) => !participantCheckedIn(r));
+  const gridded = rows.filter((r) => startPositionOf(r) != null);
+  const ungridded = rows.filter((r) => startPositionOf(r) == null);
+  gridded.sort(
+    (a, b) => (startPositionOf(a) as number) - (startPositionOf(b) as number) || byId(a, b),
+  );
+
+  const here = ungridded.filter(participantCheckedIn);
+  const away = ungridded.filter((r) => !participantCheckedIn(r));
   here.sort((a, b) => stamp(a) - stamp(b) || byId(a, b));
   away.sort(byId);
-  return [...here, ...away];
+
+  const out: OrderedPitRow[] = gridded.map((row) => ({
+    row,
+    spot: startPositionOf(row) as number,
+  }));
+  // The ungridded continue past the highest real spot rather than restarting
+  // at 1 — two racers wearing the same number would read as a double booking.
+  let next = out.reduce((max, r) => Math.max(max, r.spot), 0);
+  for (const row of [...here, ...away]) out.push({ row, spot: ++next });
+  return out;
 }
 
 /** What TvFeed.pitBoard carries — declared HERE, in the pure module, so the
