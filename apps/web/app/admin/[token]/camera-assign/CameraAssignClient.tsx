@@ -295,6 +295,14 @@ export default function CameraAssignClient({
    *  and refreshed every 30s alongside the existing feeds. */
   const [daySessions, setDaySessions] = useState<DaySession[]>([]);
   const [dayLoading, setDayLoading] = useState(false);
+  /** True when the day route served a cached copy because Pandora was
+   *  erroring. The heats are still correct to assign against — the
+   *  schedule doesn't move once published — but staff deserve to know
+   *  they're looking at the last-known list, not a live read. */
+  const [dayStale, setDayStale] = useState(false);
+  /** Mirror of daySessions.length, read synchronously inside loadDay to
+   *  decide whether an empty response should be ignored. */
+  const dayCountRef = useRef(0);
   const [scanBuffer, setScanBuffer] = useState("");
   const [lastScan, setLastScan] = useState<{ camera: string; racer: string; at: number } | null>(
     null,
@@ -921,6 +929,8 @@ export default function CameraAssignClient({
     async (signal?: AbortSignal) => {
       if (!track) {
         setDaySessions([]);
+        dayCountRef.current = 0;
+        setDayStale(false);
         setDayLoading(false);
         return;
       }
@@ -935,7 +945,23 @@ export default function CameraAssignClient({
         if (signal?.aborted) return;
         if (!res.ok) return;
         const json = await res.json();
-        setDaySessions(json.sessions || []);
+        const next: DaySession[] = json.sessions || [];
+        // An empty result NEVER replaces a list we already have. Pandora
+        // going down mid-shift used to blank the picker under the
+        // operator's thumb — and from here an empty schedule and a
+        // broken upstream look identical. Keep what's on screen; a real
+        // schedule change always arrives as a non-empty list. When we do
+        // hold the old list, that's stale by definition.
+        //
+        // The count lives in a ref, not in the setState updater, so the
+        // decision is made synchronously here — an updater runs later
+        // (and twice under StrictMode), which would race setDayStale.
+        const held = next.length === 0 && dayCountRef.current > 0;
+        if (!held) {
+          dayCountRef.current = next.length;
+          setDaySessions(next);
+        }
+        setDayStale(json.stale === true || held);
       } catch {
         /* non-fatal — keep last-known list */
       } finally {
@@ -1001,6 +1027,10 @@ export default function CameraAssignClient({
     setUpcomingSessions([]);
     setUpcomingLoading(!!track);
     setDaySessions([]);
+    // Reset the hold-the-last-list guard too, or Blue's schedule would
+    // survive a switch to a track that genuinely has no heats today.
+    dayCountRef.current = 0;
+    setDayStale(false);
     setDayLoading(!!track);
     setSession(null);
     setParticipants([]);
@@ -1910,10 +1940,18 @@ export default function CameraAssignClient({
                       />
                     )}
                   </div>
+                  {dayStale && daySessions.length > 0 && (
+                    <div className="px-3 py-1.5 text-[11px] text-[#fbbf24] border-b border-[#323e53] bg-[#2a2213]">
+                      Cached schedule — the timing system isn&apos;t answering. Heats are still safe
+                      to scan against.
+                    </div>
+                  )}
                   <div className="max-h-[260px] overflow-y-auto">
                     {daySessions.length === 0 && !dayLoading && (
                       <div className="text-center text-[#98a2b3] text-xs py-6">
-                        No heats found for this track today.
+                        {dayStale
+                          ? "The timing system isn't answering and nothing is cached yet. Retrying every 30s."
+                          : "No heats found for this track today."}
                       </div>
                     )}
                     {daySessions.map((s) => renderRow(s, false))}
@@ -1954,10 +1992,18 @@ export default function CameraAssignClient({
                           &times;
                         </button>
                       </div>
+                      {dayStale && daySessions.length > 0 && (
+                        <div className="px-4 py-2 text-xs text-[#fbbf24] border-b border-[#323e53] bg-[#2a2213]">
+                          Cached schedule — the timing system isn&apos;t answering. Heats are still
+                          safe to scan against.
+                        </div>
+                      )}
                       <div className="flex-1 overflow-y-auto">
                         {daySessions.length === 0 && !dayLoading && (
                           <div className="text-center text-[#98a2b3] text-sm py-10">
-                            No heats found for this track today.
+                            {dayStale
+                              ? "The timing system isn't answering and nothing is cached yet. Retrying every 30s."
+                              : "No heats found for this track today."}
                           </div>
                         )}
                         {daySessions.map((s) => renderRow(s, true))}
