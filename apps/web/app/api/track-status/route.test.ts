@@ -130,10 +130,24 @@ describe("GET /api/track-status", () => {
     expect(res.headers.get("X-Cache")).toBe("STALE-ERROR");
   });
 
-  it("refuses to state a reading older than the serve cap", async () => {
-    // 40 minutes stale. Track delay turns over every heat, so this is not
-    // degraded service — it would be a wrong answer stated confidently.
+  it("still serves a reading 40 minutes old — inside the raised cap", async () => {
+    // The 2026-08-13 outage ran past the original 10-minute cap and blanked
+    // the widget while upstream was still down. At this age a stale number
+    // beats no number, so this must NOT fall through to an error.
     seedCache(40 * 60_000);
+    vi.stubGlobal("fetch", abortingUpstream());
+
+    const res = await GET();
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Cache")).toBe("STALE-ERROR");
+  });
+
+  it("refuses to state a reading older than the serve cap", async () => {
+    // 90 minutes — roughly seven heats ago. Track delay turns over every
+    // heat, so this is not degraded service, it would be a wrong answer
+    // stated confidently.
+    seedCache(90 * 60_000);
     vi.stubGlobal("fetch", abortingUpstream());
 
     const res = await GET();

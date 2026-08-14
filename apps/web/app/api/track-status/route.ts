@@ -66,12 +66,22 @@ const LOCK_TTL_SEC = 15;
 // delete our last known good value.
 const CACHE_TTL_SEC = 3600;
 
-// How stale a reading we're willing to state. Track delay is a live
-// operational number that turns over with each heat (~12 min), so
-// serving a 40-minute-old "On Time" is not degraded service, it's
-// misinformation — a guest reads it as current. Past this we return an
-// error and the widget hides, which is the honest answer.
-const MAX_SERVE_AGE_MS = 10 * 60_000;
+// How stale a reading we're willing to state. There is no free answer
+// here: track delay turns over with each heat (~12 min), so an old
+// reading is read by a guest as current — but a hidden widget tells
+// them nothing at all.
+//
+// Shipped at 10 min and that was too tight. Measured live during the
+// 2026-08-13 outage: the cached reading aged out mid-outage and the
+// widget went dark on the home page, racing page and every e-ticket
+// while upstream stayed unreachable — trading a slightly-wrong number
+// for no number, which is the worse end of the trade at this duration
+// (owner call, same night).
+//
+// 45 min covers an outage of the length we actually saw. Past it the
+// widget still hides, because by then the reading predates roughly
+// four heats and is not worth stating.
+const MAX_SERVE_AGE_MS = 45 * 60_000;
 
 interface CachedEntry {
   fetchedAt: number;
