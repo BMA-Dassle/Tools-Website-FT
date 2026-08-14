@@ -26,7 +26,7 @@
  * has always had, kept by owner decision 2026-08-13. Everything else on the
  * signage estate stays first-names-only.
  */
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { withAlpha } from "../color";
@@ -163,6 +163,29 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
     session?.heatNumber != null &&
     liveHeatNumber(liveClock.heatName) === session.heatNumber;
 
+  /**
+   * A RACING SESSION LEAVES THIS BOARD (owner 2026-08-14: "when a session starts
+   * it should remove it from the pit assignment boards").
+   *
+   * These screens hang over the pit seats and answer one question — which spot
+   * is mine. Once the heat is on track that question is answered and the seats
+   * are empty, so the board showing a grid of racers who are no longer in front
+   * of it is worse than showing nothing: the next group walking up reads it as
+   * theirs.
+   *
+   * AND IT IS STICKY, for the same reason the desk's is. The clock only
+   * publishes while a heat runs, so `stagedRacing` goes false at the flag — and
+   * the finished session would walk straight back onto the wall until the server
+   * caught up. Once this screen has watched a session count, that session is
+   * done here, whatever the clock says afterwards.
+   */
+  const racedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (stagedRacing && session?.sessionId) racedRef.current.add(session.sessionId);
+  }, [stagedRacing, session?.sessionId]);
+  const sessionHasRaced = !!session?.sessionId && racedRef.current.has(session.sessionId);
+  const showSession = stagedRacing || sessionHasRaced ? null : session;
+
   const rail = pitRailState({
     stagedInHolding: session?.inHolding ?? false,
     stagedStartedAtMs: stagedArmed ? null : (session?.startedAtMs ?? (stagedRacing ? 0 : null)),
@@ -262,7 +285,7 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
             <div className="tv-eyebrow" style={{ fontSize: 26 }}>
               Pit assignments
             </div>
-            {session ? (
+            {showSession ? (
               <div style={{ display: "flex", alignItems: "baseline", gap: 22, marginTop: 6 }}>
                 <span
                   className="tv-display"
@@ -273,9 +296,11 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
                     textShadow: `0 0 60px ${withAlpha(accent, 0.55)}`,
                   }}
                 >
-                  {session.heatNumber != null ? `Session ${session.heatNumber}` : "Next session"}
+                  {showSession.heatNumber != null
+                    ? `Session ${showSession.heatNumber}`
+                    : "Next session"}
                 </span>
-                {session.raceType && (
+                {showSession.raceType && (
                   <span
                     className="tv-display"
                     style={{
@@ -284,7 +309,7 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {session.raceType}
+                    {showSession.raceType}
                   </span>
                 )}
               </div>
@@ -302,10 +327,10 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
           </div>
         </header>
 
-        {roster && roster.length > 0 && session ? (
-          <SpotGrid roster={roster} accent={accent} sessionId={session.sessionId} />
+        {roster && roster.length > 0 && showSession ? (
+          <SpotGrid roster={roster} accent={accent} sessionId={showSession.sessionId} />
         ) : (
-          <Idle accent={accent} hasSession={!!session} />
+          <Idle accent={accent} hasSession={!!showSession} />
         )}
       </div>
 
