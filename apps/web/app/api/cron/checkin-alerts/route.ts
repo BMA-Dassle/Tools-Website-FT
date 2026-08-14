@@ -80,7 +80,16 @@ interface Candidate {
 }
 
 async function fetchCurrentRaces(): Promise<CurrentRaces> {
-  const res = await fetch(`${BASE}/api/pandora/races-current`, { cache: "no-store" });
+  // warm=1 → 30s upstream timeout instead of 9s. Same flag, same reason as
+  // fetchParticipants below: no user is waiting on a cron.
+  //
+  // THIS CALL IS ALSO THE THING THAT REFRESHES THE REDIS last-race KEYS every
+  // board in the building falls back to, so it must not be the first thing to
+  // give up when Pandora slows down — on 2026-08-13 it was, and the check-in
+  // board sat on a heat that had finished half an hour earlier. A cron that
+  // times out here doesn't just miss one tick; it freezes the fallback for
+  // everyone until Pandora speeds back up.
+  const res = await fetch(`${BASE}/api/pandora/races-current?warm=1`, { cache: "no-store" });
   if (!res.ok) return { blue: null, red: null, mega: null };
   return (await res.json()) as CurrentRaces;
 }
