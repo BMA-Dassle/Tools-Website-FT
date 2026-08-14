@@ -75,9 +75,13 @@ export default function ArenaETicketView({ ticket }: Props) {
   // entirely once the session is long past.
   async function poll(signal: AbortSignal) {
     try {
+      // `prefer=cache` — Redis first, live only on a miss. See the note on
+      // app/t/[id]/ETicketView.tsx: a guest page polling every 20s must not
+      // buy its own upstream call per poll. Arena's own checkin-alerts warms
+      // this same key every minute (features/arena-tickets/checkin-alerts.ts).
       const [partRes, stateRes] = await Promise.all([
         fetch(
-          `/api/pandora/session-participants?locationId=${encodeURIComponent(ticket.locationId)}&sessionId=${encodeURIComponent(String(ticket.sessionId))}`,
+          `/api/pandora/session-participants?locationId=${encodeURIComponent(ticket.locationId)}&sessionId=${encodeURIComponent(String(ticket.sessionId))}&prefer=cache`,
           { cache: "no-store", signal },
         ),
         fetch(`/api/race-session-state?sessionId=${encodeURIComponent(String(ticket.sessionId))}`, {

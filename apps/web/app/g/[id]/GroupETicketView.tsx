@@ -114,11 +114,15 @@ export default function GroupETicketView({ group, initial }: Props) {
           signal,
         }),
       );
+      // `prefer=cache` — Redis first, live only on a miss. See the same note on
+      // app/t/[id]/ETicketView.tsx. It matters MORE here: the participants read
+      // is per DISTINCT SESSION, so one group ticket was firing N live Pandora
+      // calls every 20 seconds, multiplied by every phone holding the link.
       const [currentRes, ...rest] = await Promise.all([
-        fetch("/api/pandora/races-current", { cache: "no-store", signal }),
+        fetch("/api/pandora/races-current?prefer=cache", { cache: "no-store", signal }),
         ...distinctSessions.map((sid) =>
           fetch(
-            `/api/pandora/session-participants?locationId=${encodeURIComponent(group.locationId)}&sessionId=${encodeURIComponent(sid)}`,
+            `/api/pandora/session-participants?locationId=${encodeURIComponent(group.locationId)}&sessionId=${encodeURIComponent(sid)}&prefer=cache`,
             { cache: "no-store", signal },
           ),
         ),
