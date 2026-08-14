@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  displayRemainingMs,
   formatRemaining,
   nextCountingState,
   parseLiveFrame,
@@ -114,5 +115,59 @@ describe("formatRemaining", () => {
 
   it("clamps negatives to zero — a countdown never reads below empty", () => {
     expect(formatRemaining(-4_000)).toBe("00:00");
+  });
+});
+
+describe("displayRemainingMs — the two-phase start must not tick early", () => {
+  const SYNC = 1_700_000_000_000;
+  const base = { remainingMs: 480_000, syncedAtMs: SYNC } as const;
+
+  /**
+   * THE BUG THIS PINS. Phase one reports `running` with a STATIC clock while
+   * karts roll out. Interpolating there ran the wall's countdown against a race
+   * that had not started, so it was minutes light by the time it did (owner
+   * 2026-08-14). Armed means frozen.
+   */
+  it("holds the armed number while the clock has not been seen to move", () => {
+    expect(
+      displayRemainingMs({ ...base, state: "running", counting: false, nowMs: SYNC + 12_000 }),
+    ).toBe(480_000);
+  });
+
+  it("interpolates once the clock is genuinely counting", () => {
+    expect(
+      displayRemainingMs({ ...base, state: "running", counting: true, nowMs: SYNC + 12_000 }),
+    ).toBe(468_000);
+  });
+
+  it("freezes a paused clock even after it has been counting", () => {
+    expect(
+      displayRemainingMs({ ...base, state: "paused", counting: true, nowMs: SYNC + 30_000 }),
+    ).toBe(480_000);
+  });
+
+  it("quantises to whole seconds, so the wall cannot flicker sub-second", () => {
+    expect(
+      displayRemainingMs({ ...base, state: "running", counting: true, nowMs: SYNC + 1_800 }),
+    ).toBe(478_000);
+  });
+
+  it("never goes negative when a frame outlives its own clock", () => {
+    expect(
+      displayRemainingMs({
+        state: "running",
+        remainingMs: 3_000,
+        counting: true,
+        syncedAtMs: SYNC,
+        nowMs: SYNC + 60_000,
+      }),
+    ).toBe(0);
+  });
+
+  /** A clock synced "in the future" is skew, not time travel — never add time. */
+  it("ignores a backwards clock rather than counting up", () => {
+    expect(
+      displayRemainingMs({ ...base, state: "running", counting: true, nowMs: SYNC - 5_000 }),
+    ).toBe(480_000);
   });
 });

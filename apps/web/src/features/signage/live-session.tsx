@@ -38,6 +38,37 @@ const SERVER_KEYS: Record<TrackKey, string> = {
 
 export type LiveHeatState = "idle" | "running" | "paused" | "finished";
 
+/**
+ * THE NUMBER THE WALL SHOWS, in whole seconds, interpolated between frames.
+ *
+ * PURE so the two-phase rule can be tested without a socket — it is the rule
+ * that was wrong, and it was wrong in a way only a live start revealed.
+ *
+ * The socket sends a frame every second or two; the ticker runs at 200ms and
+ * smooths between them by subtracting the time since the last sync. That is
+ * only correct once the race clock is genuinely moving. The two-phase start
+ * reports `running` from the green flag while the clock sits STATIC at the full
+ * race length, so interpolating there ran our countdown against a clock that had
+ * not started (owner 2026-08-14: "it seems like clock is starting on first start
+ * when it actually starts on second").
+ */
+export function displayRemainingMs(args: {
+  state: "running" | "paused";
+  /** The wire's own remaining time, from the last frame. */
+  remainingMs: number;
+  /** The raw-frame verdict — only true once a frame was seen to DECREASE. */
+  counting: boolean;
+  /** When that frame landed. */
+  syncedAtMs: number;
+  nowMs: number;
+}): number {
+  // A paused clock does not advance, and neither does an armed-but-not-counting
+  // one. Both hold the last value the wire gave us.
+  const live = args.state === "running" && args.counting;
+  const elapsed = live ? Math.max(0, args.nowMs - args.syncedAtMs) : 0;
+  return Math.max(0, Math.floor((args.remainingMs - elapsed) / 1000)) * 1000;
+}
+
 export interface LiveClockFrame {
   hasRace: boolean;
   heatName: string;
@@ -158,21 +189,27 @@ export function useLiveSessionClock(track: TrackKey | null): LiveSessionClock | 
       setClock((prev) => (prev === null ? prev : null));
       return;
     }
-    const elapsed = frame.state === "running" ? Date.now() - syncedAt.current : 0;
-    const wholeSeconds = Math.max(0, Math.floor((frame.remainingMs - elapsed) / 1000));
     const counting =
       countingRef.current?.heatName === frame.heatName && countingRef.current.counting;
+    // The two-phase rule lives in displayRemainingMs, pure and tested.
+    const shownMs = displayRemainingMs({
+      state: frame.state,
+      remainingMs: frame.remainingMs,
+      counting,
+      syncedAtMs: syncedAt.current,
+      nowMs: Date.now(),
+    });
     setClock((prev) =>
       prev &&
       prev.state === frame.state &&
       prev.heatName === frame.heatName &&
       prev.counting === counting &&
-      prev.remainingMs === wholeSeconds * 1000
+      prev.remainingMs === shownMs
         ? prev
         : {
             state: frame.state,
             heatName: frame.heatName,
-            remainingMs: wholeSeconds * 1000,
+            remainingMs: shownMs,
             counting,
           },
     );
