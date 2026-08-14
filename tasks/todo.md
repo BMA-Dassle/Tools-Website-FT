@@ -1,5 +1,42 @@
 # Open Tasks
 
+## Pit assignment board — the signage scene (2026-08-13) — BUILT on `feat/signage-pit-board`, not live
+
+Replaces the vendor FTBlueAssignmentTV (an SMS-Timing app on the venue timing server —
+zero matches repo-wide, so it could only be replaced, never restyled). Concept mockup
+iterated with the owner first (artifact "FastTrax Pit Board"); every decision on it is
+recorded there and mirrored in code comments.
+
+**The operational model (owner 2026-08-13):** check-in → briefing → **send to holding**
+(new press: frees the room, seats the group) → racing → finish raises the HOLD →
+**race returned** (new press: karts fully back in the lane) releases it. The board is
+ALWAYS assignment; it holds its session until that session green-flags, then rolls.
+Spots come from **BMI's `raceInfo.startPosition`** on the Pandora participants payload
+(owner-confirmed field 2026-08-13 — the list the vendor board reads; it was missing from
+our canonical `Participant` type, now added). When BMI has gridded, its numbers show
+verbatim, gaps and all; rows the grid hasn't placed fall back to the derived rule —
+checked-in fill the front in check-in order, no-shows always hold the last slots behind a
+solid red ring — numbered past the highest real spot. Full names + photos on this board by
+owner decision (the vendor board always showed both); first-names-only everywhere else.
+
+- [x] Pure core `src/features/signage/pit/pit-board.ts` — ordering + rail state machine, tested
+- [x] Lane state `pit/lane.server.ts` — Neon-first (briefing_events: `ended/holding`, `pitted`),
+      Redis display state, racing resolved via the new `pit:race-started:{sid}` green-flag
+      marker written by the timing webhook (race-finish.server.ts)
+- [x] Feed: `TvFeed.pitBoard` (roster + camera/birthday/VIP joins) on the 15s poll,
+      `pitLanes` on the 2s pulse so staff presses land in seconds
+- [x] Camera chips: `viewpointCredit > 0` = has video; join from camera-assign records
+- [x] Photo path `/api/tv/pit-photo` — Redis-cached BMI pic, bounded to the session roster
+- [x] Scene `ScenePitBoard` + registry + `pit-board` role preset + signage admin checkbox
+- [x] Check-in console: "➜ Send to holding" per room, "⏎ race returned" per track
+- [x] BMI spot list found + wired: `raceInfo.startPosition` (owner-supplied payload) — the
+      derived ordering stays only as the pre-grid fallback
+- [ ] LIVE SMOKE — provision a screen on the pit TVs, run a real evening cycle; note WHEN
+      BMI mints startPosition relative to the call (fallback covers the gap either way)
+- [ ] Consider per-venue caching for `readPitLanes` on the pulse if Redis reads show up
+- [ ] Demo mode (`?demo=pit`) for after-hours preview — not built; the board has a designed
+      idle state, and live smoke is the real test
+
 ## Camera return strip on the briefing TVs (2026-08-12) — ON MAIN `d817e156`, LIVE
 
 Nothing recorded a POV camera coming back: the out-side is the grid scan, the return was

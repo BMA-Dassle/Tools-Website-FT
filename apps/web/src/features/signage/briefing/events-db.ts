@@ -102,12 +102,18 @@ async function ensureSchema(): Promise<void> {
   schemaReady = true;
 }
 
-/** What happened. See the header for what each one means. */
-export type BriefingEventAction = "sent" | "started" | "restarted" | "photo" | "ended";
+/** What happened. See the header for what each one means.
+ *  `pitted` (2026-08-13) is the pit lane's "race returned" stamp — the group's
+ *  karts are fully back in and the lane is safe to seat again. It rides this
+ *  same log because it is one more moment in a session's lifecycle, keyed to
+ *  the room the group hands kit back into. */
+export type BriefingEventAction = "sent" | "started" | "restarted" | "photo" | "ended" | "pitted";
 
 /** Why a room was released. `film-complete` is never STORED — it is what
- *  briefing-log.ts infers when no explicit end was ever recorded. */
-export type BriefingEndReason = "cleared" | "replaced";
+ *  briefing-log.ts infers when no explicit end was ever recorded. `holding`
+ *  (2026-08-13) is the send-to-holding press: the group left for the pit
+ *  seats, which is also the moment the room became free. */
+export type BriefingEndReason = "cleared" | "replaced" | "holding";
 
 export interface BriefingEvent {
   id: string;

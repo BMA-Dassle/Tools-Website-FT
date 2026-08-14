@@ -122,6 +122,22 @@ export interface BriefingControl {
   start: (room: BriefingRoom, opts?: { restart?: boolean }) => void;
   clearRoom: (room: BriefingRoom) => void;
   /**
+   * Phase three (owner 2026-08-13): the briefed group leaves the room for the
+   * pit seats. Frees the room (a race can only return to an empty one) and
+   * flips the pit board's rail to seat them — WITHOUT un-briefing the session,
+   * which is what distinguishes it from clearRoom/Undo.
+   */
+  sendToHolding: (args: {
+    room: BriefingRoom;
+    track: string;
+    sessionId: string;
+    heatNumber: number | null;
+    raceType: string | null;
+  }) => void;
+  /** "Race returned" — the finished race's karts are fully back in the lane.
+   *  The ONLY thing that releases the pit board's hold. */
+  markPitted: (track: string) => void;
+  /**
    * A fresh live-stream URL for a room's camera, or null if live is unavailable.
    *
    * HERE RATHER THAN IN THE PANEL because the admin token lives in this hook, and
@@ -291,6 +307,35 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  const sendToHolding = useCallback<BriefingControl["sendToHolding"]>(
+    (args) => {
+      void post(
+        {
+          action: "send-holding",
+          room: args.room,
+          track: args.track,
+          sessionId: args.sessionId,
+          heatNumber: args.heatNumber,
+          raceType: args.raceType,
+        },
+        `Session ${args.heatNumber ?? ""} sent to holding — the ${args.room} room is open`,
+        `holding:${args.room}`,
+      );
+    },
+    [post],
+  );
+
+  const markPitted = useCallback<BriefingControl["markPitted"]>(
+    (track) => {
+      void post(
+        { action: "pitted", track },
+        `${track} race returned — the lane is clear to seat`,
+        `pitted:${track}`,
+      );
+    },
+    [post],
+  );
+
   /**
    * The wait-time strip's own poll, at a MINUTE rather than the board's five
    * seconds. These are today's averages over the whole night: they move when a
@@ -378,6 +423,8 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     send,
     start,
     clearRoom,
+    sendToHolding,
+    markPitted,
     liveCameraUrl,
     waitTimes,
     waitTimesWeek,

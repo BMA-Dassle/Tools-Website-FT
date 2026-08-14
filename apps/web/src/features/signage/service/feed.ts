@@ -32,6 +32,9 @@ import { resolveScreenConfig } from "../defaults";
 import { trackFromResourceIds } from "../track";
 import { raceCheckinInfo } from "./race-checkin";
 import { checkinProgress } from "./checkin-progress";
+import { buildPitBoard } from "../pit/service";
+import { readPitLanes } from "../pit/lane.server";
+import { readFastPitRosters } from "../pit/fast-roster.server";
 import { buildWelcomeBoard } from "./welcome";
 import { briefingEnabled, cameraReturnBarEnabled } from "../flags";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
@@ -85,6 +88,11 @@ export async function buildTvFeed(
     raceCheckin: null,
     briefing: null,
     briefingRooms: null,
+    pitBoard: null,
+    pitLanes: null,
+    // PULSE-ONLY — the full feed never carries the fast roster; useTvFeed
+    // merges the pulse's copy over this null.
+    pitRosters: null,
     checkinProgress: null,
     pausedProductIds: safePaused(),
     nextAvailable: null,
@@ -128,28 +136,40 @@ export async function buildTvFeed(
   // playlist alone: a lobby camera has no clock pane to hang it under, and the
   // heats it would list are in another building. FT-only — the tracks are.
   const wantsCheckinProgress = parsed.venue === "FT" && config.cameraMonitor?.track != null;
+  // The pit board needs its track's staged roster AND the briefing rooms (its
+  // staff strip shows which room is open for the returning race).
+  const wantsPit = track != null && config.playlist.some((p) => p.scene === "pit-board");
 
-  const [raceCheckin, events, nextAvailable, briefing, checkinRail] = await Promise.all([
-    track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
-    wantsWelcome
-      ? buildWelcomeBoard(
-          parsed.venue,
-          config.scope.gfCenterCodes,
-          ymd,
-          { leadMins: config.welcomeLeadMins, trailMins: config.welcomeTrailMins },
-          now,
-        ).catch(() => null)
-      : Promise.resolve(null),
-    config.showNextAvailable
-      ? buildNextAvailable(parsed.venue).catch(() => null)
-      : Promise.resolve(null),
-    wantsBriefing
-      ? buildBriefingSection(parsed.venue, config.briefingRoom as "red" | "blue", ymd).catch(
-          () => null,
-        )
-      : Promise.resolve(null),
-    wantsCheckinProgress ? checkinProgress(now).catch(() => null) : Promise.resolve(null),
-  ]);
+  const [raceCheckin, events, nextAvailable, briefing, checkinRail, pitBoard, pitLanes] =
+    await Promise.all([
+      track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
+      wantsWelcome
+        ? buildWelcomeBoard(
+            parsed.venue,
+            config.scope.gfCenterCodes,
+            ymd,
+            { leadMins: config.welcomeLeadMins, trailMins: config.welcomeTrailMins },
+            now,
+          ).catch(() => null)
+        : Promise.resolve(null),
+      config.showNextAvailable
+        ? buildNextAvailable(parsed.venue).catch(() => null)
+        : Promise.resolve(null),
+      wantsBriefing
+        ? buildBriefingSection(parsed.venue, config.briefingRoom as "red" | "blue", ymd).catch(
+            () => null,
+          )
+        : Promise.resolve(null),
+      wantsCheckinProgress ? checkinProgress(now).catch(() => null) : Promise.resolve(null),
+      wantsPit && track ? buildPitBoard(track, ymd, now).catch(() => null) : Promise.resolve(null),
+      wantsPit ? readPitLanes().catch(() => null) : Promise.resolve(null),
+    ]);
+
+  // The pit board's staff strip needs the rooms even though the screen plays
+  // no briefing scene — a race can only return to a room nobody is briefing
+  // in, so the board shows which rooms are open. One MGET, pit screens only.
+  const pitRooms =
+    wantsPit && !briefing ? await readBriefingRooms(parsed.venue).catch(() => null) : null;
 
   // Has the heat on the track board already been sent to a briefing room? One
   // Redis GET, and only for screens that actually show a track board.
@@ -172,7 +192,9 @@ export async function buildTvFeed(
     events,
     nextAvailable,
     briefing: briefing?.section ?? null,
-    briefingRooms: briefing?.rooms ?? null,
+    briefingRooms: briefing?.rooms ?? pitRooms ?? null,
+    pitBoard,
+    pitLanes,
     checkinProgress: checkinRail,
     // `vip` (the bowling-leg takeover) lands with the next scene.
     vip: null,
@@ -288,6 +310,8 @@ export async function buildTvPulse(
       demoMode: null,
       briefingRooms: null,
       cameraReturn: null,
+      pitLanes: null,
+      pitRosters: null,
     };
   }
 
@@ -311,7 +335,28 @@ export async function buildTvPulse(
       ? resolveCameraReturn(parsed.venue, now).catch(() => null)
       : Promise.resolve(null),
   ]);
-  return { now, kioskEvents, reloadAt, demoMode, briefingRooms, cameraReturn };
+  // The pit lanes ride the pulse for the same reason the briefing rooms do:
+  // "send to holding" and "race returned" are staff presses that must reach
+  // the wall in seconds. The fast roster rides beside them so the CARDS track
+  // the desk too — adds, check-ins and BMI re-grids land within a pulse or
+  // two, Pandora-bounded by the fast-roster cache. FT only — the pits are.
+  const [pitLanes, pitRosters] =
+    parsed.venue === "FT"
+      ? await Promise.all([
+          readPitLanes().catch(() => null),
+          readFastPitRosters(now).catch(() => null),
+        ])
+      : [null, null];
+  return {
+    now,
+    kioskEvents,
+    reloadAt,
+    demoMode,
+    briefingRooms,
+    cameraReturn,
+    pitLanes,
+    pitRosters,
+  };
 }
 
 /**

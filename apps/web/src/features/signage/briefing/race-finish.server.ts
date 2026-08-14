@@ -56,6 +56,28 @@ export function raceFinishedKey(sessionId: string): string {
   return `briefing:race-finished:${sessionId}`;
 }
 
+/**
+ * "This session went green" — the start-side twin of the finish marker,
+ * written by recordRaceStarts below. The pit lane resolves on it: a holding
+ * group whose session has this marker IS the racing group, and the pit board
+ * rolls to the next session (pit/lane.server.ts).
+ */
+export function raceStartedKey(sessionId: string): string {
+  return `pit:race-started:${sessionId}`;
+}
+
+export async function readRaceStartedMarker(sessionId: string): Promise<number | null> {
+  if (!sessionId) return null;
+  try {
+    const raw = await redis.get(raceStartedKey(sessionId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { atMs?: number };
+    return typeof parsed.atMs === "number" && Number.isFinite(parsed.atMs) ? parsed.atMs : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The resolver's fast path: the venue's own end signal, if it has arrived. */
 export async function readRaceFinishedMarker(
   sessionId: string,
@@ -84,6 +106,19 @@ export async function readRaceFinishedMarker(
 async function recordRaceStarts(message: unknown): Promise<void> {
   for (const s of extractRaceStarts(message)) {
     if (s.actualStartMs === null) continue;
+    // THE GREEN-FLAG MARKER the pit boards resolve on — see raceStartedKey
+    // above. NX + written before the claim below, so a replayed race list can
+    // never slide the flag forward and a marker can never be lost to a
+    // duplicate-claim skip.
+    await redis
+      .set(
+        raceStartedKey(s.raceId),
+        JSON.stringify({ atMs: s.actualStartMs }),
+        "EX",
+        12 * 3600,
+        "NX",
+      )
+      .catch(() => void 0);
     const claim = await redis
       .set(`race-timing:${s.raceId}:start`, "1", "EX", 36 * 3600, "NX")
       .catch(() => null);

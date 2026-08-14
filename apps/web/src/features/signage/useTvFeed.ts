@@ -131,6 +131,13 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
       // the scan rail is: pulse wins, and a dropped beat keeps the last known
       // state rather than clearing a room mid-video.
       briefingRooms: pulse.briefingRooms ?? feed.briefingRooms,
+      // The pit lanes ride the same fast lane for the same reason: "send to
+      // holding" and "race returned" are presses with a group standing at the
+      // seats, and the rail they flip must move in seconds.
+      pitLanes: pulse.pitLanes ?? feed.pitLanes,
+      // The fast roster is pulse-only (the full feed always carries null), so
+      // a dropped beat keeps the last pulse's picture rather than blanking it.
+      pitRosters: pulse.pitRosters ?? feed.pitRosters,
       /**
        * THE CAMERA STRIP, on the fast lane so a registration clears in seconds
        * rather than on the next 15s poll (owner 2026-08-12).

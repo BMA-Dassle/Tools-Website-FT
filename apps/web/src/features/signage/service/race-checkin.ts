@@ -52,7 +52,7 @@ export interface RaceCheckinInfo {
   total: number | null;
 }
 
-interface CachedRace {
+export interface CachedRace {
   sessionId?: number;
   heatNumber?: number;
   raceType?: string;
@@ -74,7 +74,7 @@ interface CachedParticipant {
  * and deliberately OUTLIVES Pandora's own ~20-minute expiry, so the "now
  * checking in" line stays up between heats instead of blinking out.
  */
-async function currentSession(track: TrackKey): Promise<CachedRace | null> {
+export async function currentSession(track: TrackKey): Promise<CachedRace | null> {
   try {
     const raw = await redis.get(`pandora:last-race:fasttrax:${track}`);
     return raw ? (JSON.parse(raw) as CachedRace) : null;

@@ -335,6 +335,41 @@ export default function RaceControlPanels({
         </div>
       )}
 
+      {/* THE PIT LANE (owner 2026-08-13). "Race returned" is the press that
+          releases the pit board's hold — a race finishing raises it on its
+          own (the venue's finish signal), but only a human who can see the
+          lane says the karts are fully in. Per track; one button on a Mega
+          day, when both rooms serve the one circuit. */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: PORTAL_DARK.muted,
+          }}
+        >
+          Pit lane
+        </span>
+        {(megaEnabled ? (["mega"] as const) : (["blue", "red"] as const)).map((t) => (
+          <ActionButton
+            key={t}
+            size="sm"
+            tone={AMBER}
+            textColor="#1a1205"
+            pendingKey={`pitted:${t}`}
+            pending={pending}
+            disabled={board?.enabled === false}
+            pendingLabel="Marking…"
+            title="The finished race's karts are fully back in the lane — releases the pit board's hold"
+            onClick={() => control.markPitted(t)}
+          >
+            ⏎ {t} race returned
+          </ActionButton>
+        ))}
+      </div>
+
       <div
         style={{
           display: "grid",
@@ -397,6 +432,21 @@ export default function RaceControlPanels({
               }
               onStart={(restart) => control.start(room, { restart })}
               onUndo={() => control.clearRoom(room)}
+              // Built from the ROOM's own state, never from `race`: by the time
+              // a group leaves for the seats, the track's called record can
+              // already have rolled to the next heat, and sending THAT session
+              // to holding would seat the wrong group.
+              onSendHolding={() => {
+                const st = board?.rooms.find((r) => r.room === room)?.state;
+                if (!st?.sessionId) return;
+                control.sendToHolding({
+                  room,
+                  track: st.track ?? track,
+                  sessionId: st.sessionId,
+                  heatNumber: st.heatNumber ?? null,
+                  raceType: st.raceType ?? null,
+                });
+              }}
             />
           );
         })}
@@ -911,6 +961,7 @@ function RoomColumn({
   onSend,
   onStart,
   onUndo,
+  onSendHolding,
 }: {
   room: BriefingRoom;
   track: string;
@@ -939,6 +990,8 @@ function RoomColumn({
   onSend: () => void;
   onStart: (restart: boolean) => void;
   onUndo: () => void;
+  /** The group is leaving for the pit seats — see the parent's binding. */
+  onSendHolding: () => void;
 }) {
   const color = ROOM_COLOR[room];
   // The heat ON TRACK right now, live from the timing system — the same clock
@@ -1272,6 +1325,7 @@ function RoomColumn({
           alert={roomAlert}
           onStart={onStart}
           onUndo={onUndo}
+          onSendHolding={onSendHolding}
         />
       </Panel>
     </div>
@@ -1294,6 +1348,7 @@ function InRoom({
   alert,
   onStart,
   onUndo,
+  onSendHolding,
 }: {
   room: BriefingRoom;
   color: string;
@@ -1311,6 +1366,7 @@ function InRoom({
   alert: AlertLevel;
   onStart: (restart: boolean) => void;
   onUndo: () => void;
+  onSendHolding: () => void;
 }) {
   const phase = timeline.phase;
   const running = phase === "video" || phase === "helmet";
@@ -1507,7 +1563,7 @@ function InRoom({
                           {Math.round(pct)}% · then helmet sizes, then free
                         </span>
                       )}
-                      <span style={{ marginLeft: "auto" }}>
+                      <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
                         <ActionButton
                           size="sm"
                           tone={color}
@@ -1519,6 +1575,23 @@ function InRoom({
                           title="Play from the top — latecomers, or a second showing"
                         >
                           ⟲ Restart video
+                        </ActionButton>
+                        {/* PHASE THREE (owner 2026-08-13): the group walks out
+                            to the pit seats. Frees this room for the returning
+                            race and flips the pit board's rail to seat them —
+                            without un-briefing the session the way Undo does. */}
+                        <ActionButton
+                          size="sm"
+                          tone={GREEN}
+                          textColor="#052e14"
+                          pendingKey={`holding:${room}`}
+                          pending={pending}
+                          disabled={locked || !state?.sessionId}
+                          pendingLabel="Sending…"
+                          onClick={onSendHolding}
+                          title="The group is leaving for the pit seats — frees this room and tells the pit board to seat them"
+                        >
+                          ➜ Send to holding
                         </ActionButton>
                       </span>
                     </div>

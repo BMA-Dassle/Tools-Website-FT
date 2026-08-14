@@ -38,9 +38,9 @@ const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net/v2";
 const PANDORA_KEY = process.env.SWAGGER_ADMIN_KEY || "";
 
 /**
- * How long a session's counts may be reused.
+ * How long a session's roster may be reused.
  *
- * Just under the TV feed's own 15s poll, so a screen gets a fresh count on
+ * Just under the TV feed's own 15s poll, so a screen gets a fresh read on
  * essentially every poll while several screens landing on the same warm lambda
  * still share one Pandora read. Failures are memoised for the same window so a
  * degraded upstream cannot be hammered by a wall of TVs.
@@ -50,14 +50,6 @@ const COUNT_TTL_MS = 12_000;
 const COUNT_PRUNE_MS = 10 * 60_000;
 
 type Counts = { checkedIn: number; total: number };
-
-const countCache = new Map<string, { at: number; value: Counts | null }>();
-
-function pruneCounts(nowMs: number): void {
-  for (const [key, entry] of countCache) {
-    if (nowMs - entry.at > COUNT_PRUNE_MS) countCache.delete(key);
-  }
-}
 
 /** The three stored races-current entries, in one round trip. */
 async function calledRaces(): Promise<Partial<Record<TrackKey, CalledRaceRecord | null>>> {
@@ -121,12 +113,46 @@ async function cachedRoster(sessionId: string): Promise<CheckinRosterRow[] | nul
 }
 
 /**
- * Progress through ONE session's roster, live, memoised.
+ * THE ROSTER ITSELF, live-first and memoised — the ONE Pandora read behind
+ * everything roster-shaped on the walls: the pit board's cards (names,
+ * check-in stamps, personIds, viewpoint credits), the counts below, and the
+ * photo route's membership check all fold from the same rows.
+ *
+ * One memo, deliberately. The counts used to keep their own cache of the same
+ * fetch, which meant a pit board paid Pandora TWICE per poll for one roster —
+ * a count is arithmetic over rows already in hand, not a second read. Failures
+ * are memoised too, so a degraded Pandora is not hammered by a wall of TVs.
+ */
+const rosterCache = new Map<string, { at: number; value: CheckinRosterRow[] | null }>();
+
+export async function sessionRoster(
+  sessionId: string,
+  nowMs: number,
+  /** How stale a memoised roster may be for THIS caller. The default suits
+   *  the 15s feed; the pit board's fast-roster pulse passes a tighter bound
+   *  because "participants are basically real time" (owner 2026-08-13) —
+   *  same memo either way, so a fresh fast read also serves the next feed. */
+  maxAgeMs: number = COUNT_TTL_MS,
+): Promise<CheckinRosterRow[] | null> {
+  const memo = rosterCache.get(sessionId);
+  if (memo && nowMs - memo.at < Math.min(maxAgeMs, COUNT_TTL_MS)) return memo.value;
+
+  const roster = (await liveRoster(sessionId)) ?? (await cachedRoster(sessionId));
+  rosterCache.set(sessionId, { at: nowMs, value: roster });
+  for (const [key, entry] of rosterCache) {
+    if (nowMs - entry.at > COUNT_PRUNE_MS) rosterCache.delete(key);
+  }
+  return roster;
+}
+
+/**
+ * Progress through ONE session's roster — arithmetic over sessionRoster's
+ * memoised rows, never a separate fetch.
  *
  * Exported because the track check-in boards need exactly this number for
  * exactly the same heat (see ./race-checkin). Two boards in one building
  * counting the same group from two different sources is how a marshal and a
- * desk attendant end up arguing about who is missing — so there is one counter,
+ * desk attendant end up arguing about who is missing — so there is one read,
  * one cache, and one answer.
  *
  * Null when the roster could not be read at all; the caller shows no count.
@@ -135,14 +161,8 @@ export async function sessionCheckinCounts(
   sessionId: string,
   nowMs: number,
 ): Promise<Counts | null> {
-  const memo = countCache.get(sessionId);
-  if (memo && nowMs - memo.at < COUNT_TTL_MS) return memo.value;
-
-  const roster = (await liveRoster(sessionId)) ?? (await cachedRoster(sessionId));
-  const value = roster ? countCheckedIn(roster) : null;
-  countCache.set(sessionId, { at: nowMs, value });
-  pruneCounts(nowMs);
-  return value;
+  const roster = await sessionRoster(sessionId, nowMs);
+  return roster ? countCheckedIn(roster) : null;
 }
 
 /* ── what the wait-time metrics need, captured at the send ──────────────── */

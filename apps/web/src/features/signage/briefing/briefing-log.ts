@@ -35,8 +35,9 @@ import { HELMET_PHASE_MS } from "./types";
 import type { BriefingEvent } from "./events-db";
 import type { BriefingRoom, BriefingTier } from "./types";
 
-/** Why an occupancy ended. `film-complete` is inferred, never stored. */
-export type BriefingEndKind = "cleared" | "replaced" | "film-complete";
+/** Why an occupancy ended. `film-complete` is inferred, never stored.
+ *  `holding` = the group was sent to the pit seats (2026-08-13). */
+export type BriefingEndKind = "cleared" | "replaced" | "film-complete" | "holding";
 
 export interface BriefingRecord {
   room: BriefingRoom;
@@ -141,7 +142,12 @@ export function foldBriefingLog(events: BriefingEvent[], nowMs: number): Briefin
     let endKind: BriefingEndKind | null = null;
     if (ended) {
       endedAtMs = ended.atMs;
-      endKind = ended.reason === "replaced" ? "replaced" : "cleared";
+      endKind =
+        ended.reason === "replaced"
+          ? "replaced"
+          : ended.reason === "holding"
+            ? "holding"
+            : "cleared";
     } else if (derivedEndMs != null && derivedEndMs <= nowMs) {
       endedAtMs = derivedEndMs;
       endKind = "film-complete";

@@ -22,6 +22,7 @@ export type ScreenRole =
   | "race-checkin"
   | "briefing-room"
   | "camera-monitor"
+  | "pit-board"
   | "ads-only";
 
 export interface RolePreset {
@@ -116,6 +117,23 @@ const CAMERA_MONITOR_CONFIG: ScreenConfig = {
   },
 };
 
+/**
+ * A track's pit assignment TV (Blue or Red). One job, one scene, no
+ * interrupts — like the briefing board it OWNS its wall: this screen is
+ * ALWAYS assignment (owner 2026-08-13), and a celebration cutting across the
+ * seating rail mid-"hold — karts coming in" would put confetti over a safety
+ * instruction. Scoped to one track via `scope.resourceIds`, exactly like the
+ * check-in boards.
+ */
+const PIT_BOARD_CONFIG: ScreenConfig = {
+  playlist: [{ scene: "pit-board", slots: 1 }],
+  interrupts: {
+    "vip-welcome": { enabled: false },
+    celebration: { enabled: false },
+    "billboard-crown": { enabled: false },
+  },
+};
+
 /** The safe fallback: house ads and nothing else. Needs no data at all, which
  *  is exactly why it is what an unprovisioned or degraded screen falls back to. */
 const ADS_ONLY_CONFIG: ScreenConfig = {
@@ -151,6 +169,14 @@ export const ROLE_PRESETS: RolePreset[] = [
       "In a briefing room. Plays the safety video for the session staff send here, then helmet sizes, then who levelled up in the session before. Nothing interrupts it.",
     venues: ["FT"],
     config: BRIEFING_ROOM_CONFIG,
+  },
+  {
+    role: "pit-board",
+    label: "Pit assignment screen (one track)",
+    description:
+      "At a track's pit. Shows the staged session's spots — names, photos, camera state — with the seating rail: seat while the race runs, hold while karts return. Always assignment; nothing interrupts it.",
+    venues: ["FT"],
+    config: PIT_BOARD_CONFIG,
   },
   {
     role: "camera-monitor",

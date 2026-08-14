@@ -69,6 +69,25 @@ export interface Participant {
    *  camera-assign page once staff confirms the Pandora rollout. */
   kartNumber?: number | string | null;
 
+  /** Timing/grid data for this participation (owner-confirmed shape,
+   *  2026-08-13). `startPosition` is the BMI grid/pit spot — THE spot
+   *  the pit assignment board shows — and is what the vendor
+   *  AssignmentTV has been reading all along. The finish fields fill
+   *  in during/after the race, same lifecycle as `kartNumber`; lap
+   *  times are milliseconds. Optional: older payloads and sessions
+   *  with no grid yet omit it. */
+  raceInfo?: {
+    startPosition?: number | null;
+    finishPosition?: number | null;
+    laps?: number | null;
+    bestLap?: number | null;
+    average?: number | null;
+  } | null;
+
+  /** Headsock credits on file in BMI — same F_DEPOSIT rail as
+   *  `viewpointCredit` (owner-confirmed field, 2026-08-13). */
+  headsockCredit?: number | null;
+
   /** ViewPoint POV credits the participant has on file in BMI.
    *  Pandora reads this from the F_DEPOSIT table on the same
    *  call. The e-ticket page uses it to auto-claim N voucher codes

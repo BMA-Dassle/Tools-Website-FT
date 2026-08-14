@@ -23,6 +23,7 @@ import { SceneEventWelcome } from "./SceneEventWelcome";
 import { SceneVipWelcome } from "./SceneVipWelcome";
 import { SceneBriefing } from "./SceneBriefing";
 import { SceneCameraMonitor } from "./SceneCameraMonitor";
+import { ScenePitBoard } from "./ScenePitBoard";
 
 /**
  * Render whichever scene a decision names.
@@ -46,6 +47,8 @@ export function SceneSlot(props: SceneProps) {
       return <SceneBriefing {...props} />;
     case "camera":
       return <SceneCameraMonitor {...props} />;
+    case "pit-board":
+      return <ScenePitBoard {...props} />;
     case "event-welcome":
       return <SceneEventWelcome {...props} />;
     case "vip-welcome":
@@ -87,6 +90,7 @@ const IMPLEMENTED: ReadonlySet<SceneType> = new Set<SceneType>([
   "race-checkin",
   "briefing",
   "camera",
+  "pit-board",
   "event-welcome",
   "vip-welcome",
   "celebration",
@@ -131,6 +135,12 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
       // Always true: a monitor's whole job is the live picture, and it has its
       // own designed states for "connecting" and "no camera picked". It must
       // never rotate away to ads.
+      return true;
+    case "pit-board":
+      // Always true: this screen is ALWAYS assignment (owner 2026-08-13) and
+      // has a designed idle state for "no session staged". Rotating a pit
+      // board away to ads would be exactly the vendor-TV behaviour it
+      // replaces at its worst.
       return true;
     default:
       return true;
