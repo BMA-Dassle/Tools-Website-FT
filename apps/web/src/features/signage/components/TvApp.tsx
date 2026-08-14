@@ -32,6 +32,11 @@ import type { SceneDecision } from "../director/schedule";
 import { SceneDirector } from "../director/SceneDirector";
 import { TvStage } from "./TvStage";
 import { TvShell } from "./TvShell";
+// Cross-feature on purpose: the kiosk's loader IS the house loading state
+// (design decision 2026-07-17, "anything that loads shows the logo loader"), and
+// a wall booting should look like the kiosks it hangs above rather than inventing
+// a second one.
+import { BrandedLoader } from "~/features/kiosk/components/BrandedLoader";
 
 const IDENTITY_KEY = "tv_screen_id";
 const BUILD_SHA = (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || "dev").slice(0, 8);
@@ -207,8 +212,26 @@ export function TvApp() {
     typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debug");
 
   if (!booted) {
-    // One paint of the ground colour rather than a flash of white on a wall.
-    return <div style={{ position: "fixed", inset: 0, background: "#000418" }} />;
+    // The ground colour, never a flash of white on a wall — plus the same
+    // branded loader the kiosk uses, so the gap while a board is coming back
+    // (a reboot, a new deploy installing, a screen id being switched) reads as
+    // "this is starting up" instead of a dead panel. Reused rather than
+    // reimplemented; it needs the two keyframes copied into tv.css, since /tv
+    // loads only that stylesheet.
+    return (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "#000418",
+          display: "grid",
+          placeItems: "center",
+          color: "#fff",
+        }}
+      >
+        <BrandedLoader brand={venue === "FT" ? "fasttrax" : "headpinz"} size={360} />
+      </div>
+    );
   }
 
   return (

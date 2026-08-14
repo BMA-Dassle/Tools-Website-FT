@@ -3,6 +3,8 @@ import {
   mergePitRoster,
   orderPitRoster,
   pitRailState,
+  pitArrivalNoticeVisible,
+  PIT_ARRIVAL_NOTICE_MS,
   type FastPitRow,
   type PitParticipantRow,
   type PitRosterEntry,
@@ -231,5 +233,45 @@ describe("pitRailState", () => {
         racingFinishedAtMs: 5_000,
       }),
     ).toBe("racing");
+  });
+});
+
+/* ── the arrival call ─────────────────────────────────────────────────── */
+
+describe("pit arrival notice", () => {
+  const at = 1_000_000;
+  const show = (over: Partial<Parameters<typeof pitArrivalNoticeVisible>[0]> = {}) =>
+    pitArrivalNoticeVisible({ holdingAtMs: at, nowMs: at, rail: "seat", ...over });
+
+  it("fires the instant staff send a group to holding", () => {
+    expect(show({ nowMs: at })).toBe(true);
+  });
+
+  it("stays up while they are still walking in, then ages out on its own", () => {
+    expect(show({ nowMs: at + PIT_ARRIVAL_NOTICE_MS - 1 })).toBe(true);
+    expect(show({ nowMs: at + PIT_ARRIVAL_NOTICE_MS })).toBe(false);
+    expect(show({ nowMs: at + 10 * 60_000 })).toBe(false);
+  });
+
+  it("closes the window on a beat, so no flash is cut in half", () => {
+    expect(PIT_ARRIVAL_NOTICE_MS % 1400).toBe(0);
+  });
+
+  it("SURVIVES the hold rail — the squares are where they wait for it to clear", () => {
+    expect(show({ rail: "hold" })).toBe(true);
+  });
+
+  it("stops at the green flag, when they are in the karts", () => {
+    expect(show({ rail: "racing" })).toBe(false);
+  });
+
+  it("never shows before they have been sent", () => {
+    expect(show({ holdingAtMs: null })).toBe(false);
+    expect(show({ rail: "info" })).toBe(false);
+  });
+
+  it("ignores a send stamp from the screen's future — that is clock skew", () => {
+    // Otherwise a board whose clock is behind flashes for the whole skew.
+    expect(show({ nowMs: at - 5_000 })).toBe(false);
   });
 });

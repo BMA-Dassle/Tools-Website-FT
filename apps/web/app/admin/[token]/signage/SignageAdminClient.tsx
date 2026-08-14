@@ -26,7 +26,13 @@ import {
   resolveScreenConfig,
   type ScreenRole,
 } from "~/features/signage/defaults";
-import { startupInstructions, startupScriptFileName } from "~/features/signage/startup-script";
+import {
+  startupInstructions,
+  startupScriptFileName,
+  dualStartupScriptFileName,
+  dualStartupInstructions,
+} from "~/features/signage/startup-script";
+import { resolvePair } from "~/features/signage/pairing";
 import type { ScreenConfig, SignageScreen } from "~/features/signage/types";
 import BriefingAssetManager, { type BriefingAssetState } from "./BriefingAssetManager";
 
@@ -282,6 +288,9 @@ export default function SignageAdminClient({ token }: { token: string }) {
               <ScreenRow
                 key={s.screenId}
                 screen={s}
+                // Resolved here rather than in the row: the row only knows its
+                // own screen, and a pair is a fact about the whole list.
+                pairedWith={pairSidesFor(data.screens, s.screenId)}
                 token={token}
                 heartbeat={data.seen[s.screenId] ?? null}
                 nowMs={loadedAt}
@@ -322,8 +331,18 @@ export default function SignageAdminClient({ token }: { token: string }) {
 
 /* ── row ──────────────────────────────────────────────────────────────── */
 
+/** The two screen ids of this screen's pairing group, left first, or null. */
+function pairSidesFor(
+  screens: SignageScreen[],
+  screenId: string,
+): { leftId: string; rightId: string } | null {
+  const pair = resolvePair(screens, screenId);
+  return pair ? { leftId: pair.left.screenId, rightId: pair.right.screenId } : null;
+}
+
 function ScreenRow({
   screen,
+  pairedWith,
   token,
   heartbeat,
   nowMs,
@@ -335,6 +354,8 @@ function ScreenRow({
   busy,
 }: {
   screen: SignageScreen;
+  /** Set only when this screen is half of a two-screen pairing group. */
+  pairedWith: { leftId: string; rightId: string } | null;
   token: string;
   heartbeat: { at: string; build: string | null } | null;
   /** Clock read once per load by the parent — never Date.now() during render. */
@@ -463,6 +484,20 @@ function ScreenRow({
         >
           Download startup script
         </a>
+        {/* Only offered where it can actually work. A two-monitor launcher needs
+            a PAIRING GROUP to know which screen belongs on which side, so the
+            button follows the group rather than asking the person setting up a
+            wall to remember the pairing. */}
+        {pairedWith && (
+          <a
+            href={`/api/admin/signage?token=${encodeURIComponent(token)}&dual=${encodeURIComponent(screen.screenId)}`}
+            style={{ ...btn, textDecoration: "none", display: "inline-block" }}
+            download={dualStartupScriptFileName(pairedWith.leftId, pairedWith.rightId)}
+            title={`One player PC driving two monitors: ${pairedWith.leftId} on the left, ${pairedWith.rightId} on the right`}
+          >
+            Download 2-monitor script
+          </a>
+        )}
         <button type="button" onClick={() => setShowSetup((v) => !v)} style={btn}>
           {showSetup ? "Hide setup" : "Setup steps"}
         </button>
@@ -647,14 +682,29 @@ function ScreenRow({
         </div>
       )}
 
-      {showSetup && <SetupSteps screenId={screen.screenId} />}
+      {showSetup && <SetupSteps screenId={screen.screenId} pairedWith={pairedWith} />}
     </div>
   );
 }
 
 /** How to get this screen running on a Windows player. Generated from the same
  *  module that writes the script, so the steps and the file cannot drift. */
-function SetupSteps({ screenId }: { screenId: string }) {
+function SetupSteps({
+  screenId,
+  pairedWith,
+}: {
+  screenId: string;
+  pairedWith: { leftId: string; rightId: string } | null;
+}) {
+  // A paired screen's steps are NOT the single-screen steps: the file has a
+  // different name, the desktop has to be extended, and on a managed PC the Edge
+  // sign-in policy has to be cleared before anything comes up at all. Showing the
+  // one-screen list next to a two-monitor download is how someone follows the
+  // wrong instructions confidently.
+  const paired = !!pairedWith;
+  const steps = pairedWith
+    ? dualStartupInstructions(pairedWith.leftId, pairedWith.rightId)
+    : startupInstructions(screenId);
   return (
     <div
       style={{
@@ -666,7 +716,11 @@ function SetupSteps({ screenId }: { screenId: string }) {
         border: `1px solid ${PORTAL_DARK.border}`,
       }}
     >
-      <p style={{ margin: "0 0 12px", fontSize: 13, fontWeight: 600 }}>Setting up the player PC</p>
+      <p style={{ margin: "0 0 12px", fontSize: 13, fontWeight: 600 }}>
+        {paired
+          ? `Setting up the two-monitor player (${pairedWith?.leftId} left, ${pairedWith?.rightId} right)`
+          : "Setting up the player PC"}
+      </p>
       <ol
         style={{
           margin: 0,
@@ -676,15 +730,16 @@ function SetupSteps({ screenId }: { screenId: string }) {
           color: PORTAL_DARK.muted,
         }}
       >
-        {startupInstructions(screenId).map((step) => (
+        {steps.map((step) => (
           <li key={step} style={{ marginBottom: 8 }}>
             {step}
           </li>
         ))}
       </ol>
       <p style={{ margin: "14px 0 0", fontSize: 12, color: PORTAL_DARK.muted }}>
-        The script waits for the network, opens Edge in true kiosk mode with its own profile, and
-        relaunches automatically if Edge is ever closed or crashes.
+        {paired
+          ? "The script waits for the network, reads the monitor layout, opens each board fullscreen on its own monitor with its own Edge profile, and relaunches either one automatically if Edge is closed or crashes."
+          : "The script waits for the network, opens Edge in true kiosk mode with its own profile, and relaunches automatically if Edge is ever closed or crashes."}
       </p>
     </div>
   );

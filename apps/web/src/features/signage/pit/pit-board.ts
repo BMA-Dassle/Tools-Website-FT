@@ -292,3 +292,48 @@ export function pitRailState(input: PitRailInput): PitRailKind {
   if (!input.stagedInHolding) return "info";
   return "seat";
 }
+
+/* ── the arrival call ─────────────────────────────────────────────────── */
+
+/**
+ * How long the arrival instruction flashes after staff send a group to holding.
+ *
+ * A group walks from the briefing room to the pit in well under a minute, and
+ * the instruction is only useful while they are arriving and looking for where
+ * to stand. After that it is a flashing thing on a wall that no longer means
+ * anything, which is how a board teaches people to ignore it.
+ *
+ * A multiple of the 1.4s beat, so the window closes ON a beat rather than
+ * cutting a flash in half.
+ */
+export const PIT_ARRIVAL_NOTICE_MS = 42_000; // 30 beats
+
+/**
+ * Whether the board should be shouting "find your name, stand on your square".
+ *
+ * Fires on ARRIVAL, not on the whole of holding: the trigger is the send stamp
+ * (`holding.atMs`), so it starts the moment staff press send and ages out on its
+ * own. Deliberately pure and clock-driven rather than a mounted timer — this
+ * screen runs for weeks, two boards must agree without talking, and a board that
+ * reboots mid-window rejoins the window instead of restarting it.
+ *
+ * It survives the HOLD rail (karts rolling in) on purpose: the squares are
+ * exactly where a group waits while that clears, so "stand on your square" is
+ * MORE useful then, not less. It stops at the green flag, when the group is in
+ * the karts and the instruction is finished.
+ */
+export function pitArrivalNoticeVisible(input: {
+  /** `holding.atMs` — when staff sent them. Null when nobody is in holding. */
+  holdingAtMs: number | null;
+  nowMs: number;
+  /** The rail's own verdict, so this can never contradict the rail. */
+  rail: PitRailKind;
+}): boolean {
+  if (input.holdingAtMs == null) return false;
+  if (input.rail === "racing" || input.rail === "info") return false;
+  const age = input.nowMs - input.holdingAtMs;
+  // A negative age means the send stamp is in this screen's future — a clock
+  // skew, not an arrival. Showing it would flash for the whole skew.
+  if (age < 0) return false;
+  return age < PIT_ARRIVAL_NOTICE_MS;
+}

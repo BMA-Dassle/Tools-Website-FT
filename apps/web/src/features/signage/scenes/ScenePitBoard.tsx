@@ -44,6 +44,7 @@ import {
   EMPTY_PIT_LANE,
   mergePitRoster,
   pitRailState,
+  pitArrivalNoticeVisible,
   type PitLaneFeed,
   type PitRosterEntry,
 } from "../pit/pit-board";
@@ -64,7 +65,7 @@ const AMBER = "#f0b341";
  *  Off = silhouettes only, and the board never calls /api/tv/pit-photo. */
 const PIT_PHOTOS_ENABLED = true;
 
-export function ScenePitBoard({ feed, config }: SceneProps) {
+export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
   const status = useTrackStatus();
   const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
 
@@ -193,6 +194,27 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
     racingFinishedAtMs: lane.racing?.finishedAtMs ?? null,
     pittedAtMs: lane.racing?.pittedAtMs ?? null,
   });
+
+  /**
+   * THE ARRIVAL CALL (owner 2026-08-14): "when they first get sent to holding,
+   * blink something to grab attention that says please find your name and stand
+   * on the blue or red square corresponding to your number".
+   *
+   * Driven off the send stamp rather than a mounted timer, so both pit boards
+   * agree and a board that reboots mid-window rejoins it — see
+   * pitArrivalNoticeVisible for why it outlives the hold rail but not the green
+   * flag.
+   */
+  const arrivalCall = pitArrivalNoticeVisible({
+    holdingAtMs: lane.holding?.atMs ?? null,
+    nowMs,
+    rail,
+  });
+
+  // Which colour they are looking for on the floor. On a Mega day one circuit is
+  // served by both sides, so the instruction has to name both or half the group
+  // stands on the wrong squares.
+  const squareColourWord = track === "mega" ? "BLUE or RED" : track === "red" ? "RED" : "BLUE";
 
   // The lap to beat — the group in the seats is looking at exactly this
   // screen. Same constants as the check-in board; null on Mega and Pro.
@@ -400,6 +422,45 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
             <LiveSessionChip track={track} accent={accent} />
           </div>
         </header>
+
+        {/* Arrives with the group, ages out on its own. Full width and directly
+            under the header because that is where someone walking in is already
+            looking for their name. .tv-blink is the canvas's ONE attention beat —
+            never give this its own rate, or the board flashes at two tempos. */}
+        {arrivalCall && (
+          <div
+            className="tv-blink"
+            role="status"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 24,
+              marginTop: 22,
+              padding: "20px 28px",
+              borderRadius: 14,
+              background: withAlpha(accent, 0.18),
+              border: `3px solid ${accent}`,
+              boxShadow: `0 0 70px ${withAlpha(accent, 0.5)}`,
+            }}
+          >
+            {/* A real square, not an icon and not an emoji: the thing they are
+                looking for on the floor IS a coloured square. */}
+            <span
+              aria-hidden
+              style={{
+                width: 54,
+                height: 54,
+                flexShrink: 0,
+                background: accent,
+                borderRadius: 6,
+                boxShadow: `0 0 34px ${withAlpha(accent, 0.9)}`,
+              }}
+            />
+            <span className="tv-display" style={{ fontSize: 46, color: "#fff", lineHeight: 1.05 }}>
+              Find your name, then stand on the {squareColourWord} square with your number
+            </span>
+          </div>
+        )}
 
         {roster && roster.length > 0 && showSession ? (
           <SpotGrid roster={roster} accent={accent} sessionId={showSession.sessionId} />

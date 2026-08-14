@@ -47,6 +47,14 @@ export const TV_MOTION_PERIODS_MS: Record<string, number> = {
   "tv-chev": 2800,
   "tv-breathe": 2800,
 
+  // The boot loader (TvApp's pre-feed state). Registered because the stylesheet
+  // declares them as looping and this table is where that is accounted for — not
+  // because they are ever seeked: the loader unmounts before SceneDirector, and
+  // the phase-seek only walks the director's subtree. On the beat regardless, so
+  // two boards coming back together look like one estate.
+  "tv-kiosk-orbit": 1400,
+  "tv-kiosk-breathe": 2800,
+
   "tv-drift": 600000, // 10-minute burn-in figure-8
 };
 
