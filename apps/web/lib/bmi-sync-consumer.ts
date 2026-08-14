@@ -121,8 +121,22 @@ export function createBmiSyncConsumer() {
       }
 
       if (barrier.verdict !== "open") {
-        // We could not even ask — that IS a failed attempt.
+        // An error verdict splits in two, and the split decides whether guest
+        // data survives a vendor outage.
+        //
+        // `unreachable` means we never got an answer — timeout, refused, 5xx.
+        // That says nothing about this row, only about the vendor, so it must
+        // not burn an attempt any more than a closed barrier does. On
+        // 2026-08-13 it did: every delivery through a hung Pandora counted, so
+        // rows reached 19-22 attempts in an hour and the queue dropped them at
+        // 20 deliveries with the guest's signature never filed. The give-up
+        // deadline (12h for a waiver) is what is supposed to bound waiting.
+        //
+        // A real answer we cannot act on still counts, because that IS about
+        // the row and retrying it forever helps nobody.
+        const vendorDown = barrier.unreachable === true;
         const state = await markSyncRetry(row, `barrier error: ${barrier.detail}`, {
+          countAttempt: !vendorDown,
           leaseSeconds: SYNC_LEASE_SECONDS,
         });
         if (state === "parked") return; // out of patience; the report will show it

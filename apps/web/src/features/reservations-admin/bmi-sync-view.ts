@@ -160,22 +160,40 @@ export function guestAddStatus(attach: string, waiver: string | null): string {
  * are being added.
  */
 async function bmiHoldsCurrentWaiver(personId: string, _joinLocationId: string): Promise<boolean> {
-  try {
-    const res = await fetch(
-      `https://bma-pandora-api.azurewebsites.net/v2/bmi/person/${RACING_LOCATION_ID}/${personId}?picture=false&allRelated=false`,
-      {
-        headers: { Authorization: `Bearer ${process.env.SWAGGER_ADMIN_KEY || ""}` },
-        cache: "no-store",
-        signal: AbortSignal.timeout(6000),
-      },
-    );
-    if (!res.ok) return false;
-    const d = (await res.json()) as { success?: boolean; data?: { waiverExpiry?: string | null } };
-    const exp = d?.success && d.data?.waiverExpiry ? Date.parse(d.data.waiverExpiry) : NaN;
-    return Number.isFinite(exp) && exp > Date.now();
-  } catch {
-    return false;
+  /**
+   * TWO ATTEMPTS, 12s each — MEASURED, not guessed.
+   *
+   * This shipped at 6s and was too tight for the endpoint it calls: median 3.7s,
+   * max 6.6s over six samples, so roughly one render in six timed out. Because the
+   * check fails CLOSED, a timeout put a guest who is demonstrably covered back into
+   * "waiver not recorded yet" — so rebecca wolfson flickered between Waiting and
+   * Cleared depending on how Pandora felt that second (2026-08-13).
+   *
+   * An intermittently wrong board is worse than a consistently wrong one: it
+   * teaches staff the panel is unreliable, and then the real rows get ignored too.
+   * The retry is what makes fail-closed honest — it should mean "we asked properly
+   * and BMI says no", never "the vendor was slow".
+   */
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(
+        `https://bma-pandora-api.azurewebsites.net/v2/bmi/person/${RACING_LOCATION_ID}/${personId}?picture=false&allRelated=false`,
+        {
+          headers: { Authorization: `Bearer ${process.env.SWAGGER_ADMIN_KEY || ""}` },
+          cache: "no-store",
+          signal: AbortSignal.timeout(12000),
+        },
+      );
+      // A 404/500 is a real answer (wrong centre / unreadable record) — no retry.
+      if (!res.ok) return false;
+      const d = (await res.json()) as { success?: boolean; data?: { waiverExpiry?: string | null } };
+      const exp = d?.success && d.data?.waiverExpiry ? Date.parse(d.data.waiverExpiry) : NaN;
+      return Number.isFinite(exp) && exp > Date.now();
+    } catch {
+      // Timeout or network only. Fall through and ask once more.
+    }
   }
+  return false;
 }
 
 export async function listRecentGuestAdds(minutes = 720, limit = 100): Promise<AdminSyncRow[]> {

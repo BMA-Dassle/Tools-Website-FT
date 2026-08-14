@@ -23,7 +23,7 @@ import redis from "@/lib/redis";
 import { fetchIsBirthdayToday } from "@/lib/checkin-race-flags";
 import { listAssignmentsForSession } from "@/lib/camera-assign";
 import { vipComboPersonLegsOnDate } from "@/lib/bowling-db";
-import { readRaceStartedMarker } from "../briefing/race-finish.server";
+import { readRaceFinishedMarker, readRaceStartedMarker } from "../briefing/race-finish.server";
 import { sessionBriefed } from "../briefing/state.server";
 import { participantCheckedIn } from "../checkin-progress";
 import { currentSession } from "../service/race-checkin";
@@ -86,14 +86,28 @@ export async function pitDisplaySession(track: TrackKey): Promise<PitDisplaySess
       inHolding: true,
     };
   }
-  const race = (await currentSession(track)) ?? (await currentSession("mega"));
-  if (typeof race?.sessionId !== "number" && typeof race?.sessionId !== "string") return null;
-  return {
-    sessionId: String(race.sessionId),
-    heatNumber: typeof race.heatNumber === "number" ? race.heatNumber : null,
-    raceType: race.raceType?.trim() || null,
-    inHolding: false,
-  };
+
+  // A FINISHED SESSION IS NOT SEATABLE. The called record (`pandora:last-race`)
+  // only rolls when the NEXT session is called, so between the flag and the
+  // next call it still names a heat that has already raced — which is exactly
+  // how Session 56 sat on the board "for seating" after its race ended (live
+  // 2026-08-13). A candidate with a finish marker is skipped; no unfinished
+  // candidate means the designed idle board, which is the honest answer.
+  for (const candidate of [await currentSession(track), await currentSession("mega")]) {
+    if (typeof candidate?.sessionId !== "number" && typeof candidate?.sessionId !== "string") {
+      continue;
+    }
+    const sessionId = String(candidate.sessionId);
+    const finished = await readRaceFinishedMarker(sessionId).catch(() => null);
+    if (finished) continue;
+    return {
+      sessionId,
+      heatNumber: typeof candidate.heatNumber === "number" ? candidate.heatNumber : null,
+      raceType: candidate.raceType?.trim() || null,
+      inHolding: false,
+    };
+  }
+  return null;
 }
 
 export async function buildPitBoard(

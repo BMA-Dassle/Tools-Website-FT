@@ -94,8 +94,15 @@ async function resolveLane(stored: StoredPitLane | null): Promise<PitLaneFeed> {
   let holding = stored.holding;
   let racing = stored.racing;
   if (holding) {
+    // A FINISH IMPLIES A START. The start marker is written by the timing
+    // webhook, which only production receives — a preview deployment (or a
+    // webhook gap) would otherwise leave a holding group stuck "seatable"
+    // straight through its own race. The finish marker has been written by
+    // production since the welcome-back release, so it is the reliable floor.
     const startedAt = await readRaceStartedMarker(holding.sessionId);
-    if (startedAt != null) {
+    const finished =
+      startedAt == null ? await readRaceFinishedMarker(holding.sessionId).catch(() => null) : null;
+    if (startedAt != null || finished != null) {
       racing = {
         sessionId: holding.sessionId,
         heatNumber: holding.heatNumber,
