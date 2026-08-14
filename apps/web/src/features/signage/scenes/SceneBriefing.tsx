@@ -28,7 +28,7 @@ import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { TRACK_ACCENTS, TRACK_LABELS } from "../track";
 import { briefingTimelineAt } from "../briefing/phase";
 import { incomingForRoom, normaliseCameraReturn } from "../briefing/camera-return";
-import { tierForRaceType, type BriefingRoom } from "../briefing/types";
+import { HELMET_PHASE_MS, tierForRaceType, type BriefingRoom } from "../briefing/types";
 import { LiveSessionChip } from "../live-session";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { useBriefingAssets } from "../briefing/useBriefingAssets";
@@ -135,6 +135,38 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
   // NORMALISED, NOT TRUSTED. The feed can arrive from localStorage written by an
   // OLDER BUILD — that is what crashed every briefing TV on 2026-08-12 when this
   // payload's fields were renamed. See normaliseCameraReturn.
+  /**
+   * WHEN THE WELCOME-BACK BOARD IS DUE (owner 2026-08-14: "as long as we're not
+   * showing a briefing or helmet screen it should come up. If we are showing
+   * either it should come up right after").
+   *
+   * It used to be idle-only, and that quietly stopped being reachable. The
+   * helmet phase deliberately NO LONGER ENDS (phase.ts, owner 2026-08-14 —
+   * removing the auto-advance that used to strand groups in a room the board
+   * had already given away), so a room whose group nobody explicitly moved on
+   * sits in `helmet` for the rest of the night and `idle` never arrives. The
+   * board then only appeared on the rooms somebody happened to clear, which is
+   * exactly the "worked a couple of times today" the owner saw.
+   *
+   * The owner's correction names the distinction exactly: "helmet phase is max
+   * 30 seconds, just don't auto send them to holding after 30 seconds." The
+   * SCREEN moves on; the OCCUPANCY does not. This changes only what the wall
+   * shows — `briefingTimelineAt` still parks on `helmet`, so the desk still
+   * counts the room as occupied and still offers Send to holding, which is the
+   * limbo phase.ts was protecting against.
+   *
+   * So: the film always wins, the helmet board wins for its own full run, and
+   * after that a returning group takes the wall. The group cannot be back
+   * before their own race has ended — `welcomeBack` resolves off the timing
+   * system's actualEnd for THIS room's latest group — so there is no window in
+   * which this greets somebody who has not raced.
+   */
+  const sinceStart = state ? nowMs - state.triggeredAtMs : 0;
+  const helmetBoardDone =
+    timeline.phase === "helmet" && sinceStart >= timeline.videoMs + HELMET_PHASE_MS;
+  const showWelcomeBack =
+    (timeline.phase === "idle" || helmetBoardDone) && !!feed?.briefing?.welcomeBack;
+
   const venueStrip = normaliseCameraReturn(feed?.briefing?.cameraReturn);
   /**
    * SCOPED TO THIS ROOM ONCE, and the height measured off the SCOPED copy.
@@ -177,14 +209,14 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
             seekToMs={timeline.videoOffsetMs}
             onUnplayable={markUnplayable}
           />
-        ) : timeline.phase === "idle" && feed?.briefing?.welcomeBack ? (
+        ) : showWelcomeBack ? (
           // THE GROUP IS BACK (owner 2026-08-11): their session's actualEnd is
-          // stamped and the room is idle, so the wall greets them — kit return,
-          // who levelled up and who didn't (from the end-of-race capture), the
-          // qualifying time, where scores are posted. Strictly idle-only: a
-          // playing video, a take-a-seat hold and the helmet phase all outrank
-          // it, and it stays up until the next briefing occupies the room.
-          <WelcomeBack accent={accent} room={room} info={feed.briefing.welcomeBack} />
+          // stamped, so the wall greets them — kit return, who levelled up and
+          // who didn't (from the end-of-race capture), the qualifying time,
+          // where scores are posted. A playing video always outranks it; the
+          // helmet board outranks it only for its own 30 seconds (see
+          // welcomeBackDue).
+          <WelcomeBack accent={accent} room={room} info={feed!.briefing!.welcomeBack!} />
         ) : (
           <Board
             accent={accent}
@@ -824,7 +856,24 @@ function WelcomeBack({
         )}
 
         {hasNames && (
-          <div style={{ flex: 1, minHeight: 0 }}>
+          /**
+           * A FLOOR, NOT JUST A SHARE OF THE LEFTOVER.
+           *
+           * This was `flex: 1, minHeight: 0`, which is a share of whatever space
+           * the fixed blocks above and below leave over — and `flex: 1` bases at
+           * zero, so on a shorter viewport, a longer heading or one more line of
+           * copy, the share can round to nothing. That was survivable while the
+           * names simply overflowed; once the pill area clips (NameColumn), a
+           * zero-height share renders the whole qualification board INVISIBLE
+           * while the rest of the screen looks perfectly healthy.
+           *
+           * So the names get a guaranteed 200px and take the leftover on top.
+           * If the screen is ever too short for that, the blocks below give up
+           * their space instead — the right trade, because the chip and the
+           * scores line repeat information staff already know, and the names are
+           * the only thing on this board that cannot be got anywhere else.
+           */
+          <div style={{ flex: "1 1 auto", minHeight: 200, overflow: "hidden" }}>
             <ResultsBoard accent={accent} target={target!} results={results!} />
           </div>
         )}
