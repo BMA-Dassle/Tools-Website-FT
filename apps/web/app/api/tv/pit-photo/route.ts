@@ -31,6 +31,49 @@ const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net/v2";
 const PANDORA_KEY = process.env.SWAGGER_ADMIN_KEY || "";
 
+/**
+ * THE FACE COMES FROM SMS-TIMING'S OWN IMAGE ENDPOINT, not from Pandora.
+ *
+ * WHY (owner 2026-08-14: "pictures seem to be failing often… can you see how
+ * long they take to grab locally through pandora?"). Measured, n=14, against
+ * `bmi/person/{loc}/{id}?picture=true`:
+ *
+ *     min 3.2s · p50 4.7s · p90 6.1s · max 15s (timed out)
+ *
+ * against a 6-second route timeout. Worse, the timeout fell hardest on the
+ * requests that MATTERED: the ones carrying an actual photo were the slow ones
+ * (5.6s, 6.1s, 6.9s) because the picture rides back as 15-80KB of base64 inside
+ * the JSON, while "this person has no photo" answered in 3-4s. So the successful
+ * fetches were the ones being cut, which is exactly why the board filled with
+ * silhouettes.
+ *
+ * The owner then captured a HAR of BMI Office loading a person, which showed
+ * their own app never asks Pandora for the picture at all — it hits this:
+ *
+ *     min 64ms · p50 81ms · 404 in ~330ms when there is no photo
+ *
+ * Same photo, byte for byte (61,793 bytes for the person in the capture), as
+ * raw `image/jpg` rather than base64 in JSON, with `cache-control: public,
+ * max-age=3600`. Roughly fifty times faster, and the negative is fast too.
+ *
+ * `kind=0` is the person photo (owner). `kind=5` returns a PNG — a different
+ * asset, not this one.
+ *
+ * NO CREDENTIAL IS SENT, and that is not an oversight: verified from this
+ * codebase with no Authorization header and no cookie, returning 200 and valid
+ * JPEG bytes. It is loaded by an ordinary `<img>` in their app (`sec-fetch-dest:
+ * image`, `no-cors`) and answers publicly by personId. The other office
+ * endpoints in that same capture — search, person, waivers — DO carry auth;
+ * this one does not. Nothing here widens what we expose: the route below still
+ * serves a face only to a caller naming a session that person is rostered on.
+ *
+ * `headpinzftmyers` is the shared BMI client key, the same namespace the timing
+ * socket uses — see signage/constants.ts CENTER NAMESPACE TRAP.
+ */
+const OFFICE_IMAGE_URL = "https://office-api22.sms-timing.com/api/headpinzftmyers/image/picture";
+/** Generous next to an 81ms p50 — it exists for a bad network, not a slow API. */
+const OFFICE_TIMEOUT_MS = 8_000;
+
 /** A face changes when the guest re-registers — rarely. A day is plenty, and
  *  it means a full evening of 15s polls costs one BMI read per racer. */
 const PHOTO_TTL_SECONDS = 12 * 3600;
@@ -42,8 +85,8 @@ function photoKey(personId: string): string {
   return `pit:photo:${personId}`;
 }
 
-/** The person's BMI picture, base64 — Redis first, Pandora on a miss.
- *  Returns null for "no photo" (also cached, so BMI is not re-asked per poll). */
+/** The person's photo as base64, or null for "no photo on file".
+ *  Redis first, then SMS-Timing, then Pandora only if that fails oddly. */
 async function loadPhoto(personId: string): Promise<string | null> {
   try {
     const cached = await redis.get(photoKey(personId));
@@ -53,28 +96,65 @@ async function loadPhoto(personId: string): Promise<string | null> {
     /* fall through to the live read */
   }
 
-  if (!PANDORA_KEY) return null;
   let pic: string | null = null;
+  /** True only when the source positively said "there is no photo", which is
+   *  worth caching for an hour. A transport failure is NOT that, and must not
+   *  be remembered as one. */
+  let definitive = false;
+
   try {
-    const res = await fetch(
-      `${PANDORA_BASE}/bmi/person/${FASTTRAX_LOCATION_ID}/${personId}?picture=true`,
-      {
-        headers: { Authorization: `Bearer ${PANDORA_KEY}`, Accept: "application/json" },
-        cache: "no-store",
-        signal: AbortSignal.timeout(6000),
-      },
-    );
-    if (!res.ok) return null;
-    // parseWithRawIds, never res.json(): the payload carries the 17-digit
-    // personId (house rule — no response carrying a BMI id goes through the
-    // standard parser, even when this caller only wants the picture).
-    const json = parseWithRawIds<{ data?: { pic?: string | null } }>(await res.text());
-    const raw = json?.data?.pic;
-    pic = typeof raw === "string" && raw.length > 0 ? raw : null;
+    const res = await fetch(`${OFFICE_IMAGE_URL}?personId=${encodeURIComponent(personId)}&kind=0`, {
+      // No credential — see the note on OFFICE_IMAGE_URL.
+      headers: { Accept: "image/*" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(OFFICE_TIMEOUT_MS),
+    });
+    if (res.status === 404) {
+      definitive = true;
+    } else if (res.ok) {
+      const buf = Buffer.from(await res.arrayBuffer());
+      // A zero-length 200 is not a photo. Treated as "none" rather than cached
+      // as a broken image the board would render as a grey box.
+      if (buf.length > 0) pic = buf.toString("base64");
+      else definitive = true;
+    }
   } catch {
-    // A failed read is NOT cached as "no photo" — the next poll may succeed.
-    return null;
+    /* fall through to Pandora */
   }
+
+  /**
+   * PANDORA IS THE FALLBACK NOW, not the source. It is fifty times slower and
+   * this path only runs when the fast one failed in a way that was not a clean
+   * "no photo" — a network blip, or the endpoint going away. Keeping it means
+   * losing SMS-Timing costs the boards latency rather than every face.
+   */
+  if (pic === null && !definitive && PANDORA_KEY) {
+    try {
+      const res = await fetch(
+        `${PANDORA_BASE}/bmi/person/${FASTTRAX_LOCATION_ID}/${personId}?picture=true`,
+        {
+          headers: { Authorization: `Bearer ${PANDORA_KEY}`, Accept: "application/json" },
+          cache: "no-store",
+          signal: AbortSignal.timeout(6000),
+        },
+      );
+      if (res.ok) {
+        // parseWithRawIds, never res.json(): the payload carries the 17-digit
+        // personId (house rule — no response carrying a BMI id goes through the
+        // standard parser, even when this caller only wants the picture).
+        const json = parseWithRawIds<{ data?: { pic?: string | null } }>(await res.text());
+        const raw = json?.data?.pic;
+        pic = typeof raw === "string" && raw.length > 0 ? raw : null;
+        definitive = true;
+      }
+    } catch {
+      // A failed read is NOT cached as "no photo" — the next poll may succeed.
+      return null;
+    }
+  }
+
+  // Only cache an answer we trust: a photo, or a source that said there is none.
+  if (pic === null && !definitive) return null;
 
   try {
     await redis.set(
@@ -87,6 +167,30 @@ async function loadPhoto(personId: string): Promise<string | null> {
     /* cache is an optimization, never a requirement */
   }
   return pic;
+}
+
+/**
+ * THE REAL IMAGE TYPE, from the bytes rather than from hope.
+ *
+ * This route used to answer `image/jpeg` for everything, which was true while
+ * the photos came from Pandora. It is not true of what guests actually have on
+ * file: probing personIds off a live roster returned JPEGs (ffd8ff) for some and
+ * PNGs (89504e) for others — the same `kind=0` photo, different upload formats.
+ *
+ * Browsers sniff and would mostly have rendered it anyway, which is exactly why
+ * this is worth fixing deliberately: a lie in a Content-Type is the kind of
+ * thing that works until something in the chain believes it.
+ */
+function imageMime(bytes: Buffer): string {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (bytes.length >= 4 && bytes.toString("latin1", 0, 4) === "PNG") return "image/png";
+  if (bytes.length >= 6 && bytes.toString("latin1", 0, 6).startsWith("GIF8")) return "image/gif";
+  if (bytes.length >= 12 && bytes.toString("latin1", 8, 12) === "WEBP") return "image/webp";
+  // Unknown: say JPEG rather than octet-stream, which some browsers refuse to
+  // render in an <img> at all. The board showing a face beats being pedantic.
+  return "image/jpeg";
 }
 
 export async function GET(req: NextRequest) {
@@ -116,7 +220,7 @@ export async function GET(req: NextRequest) {
   }
   return new NextResponse(new Uint8Array(bytes), {
     headers: {
-      "Content-Type": "image/jpeg",
+      "Content-Type": imageMime(bytes),
       // The browser holds a face for an hour; a re-registered photo shows on
       // the next board reload, and the Redis TTL above bounds the true age.
       "Cache-Control": "public, max-age=3600",

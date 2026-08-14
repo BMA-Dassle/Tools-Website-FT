@@ -26,12 +26,13 @@
  * has always had, kept by owner decision 2026-08-13. Everything else on the
  * signage estate stays first-names-only.
  */
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { withAlpha } from "../color";
 import { LiveSessionChip, useLiveSessionClock } from "../live-session";
 import { liveHeatNumber } from "../briefing/room-return";
+import { briefingTimelineAt } from "../briefing/phase";
 import {
   TRACK_ACCENTS,
   TRACK_LABELS,
@@ -43,9 +44,11 @@ import {
   EMPTY_PIT_LANE,
   mergePitRoster,
   pitRailState,
+  pitArrivalNoticeVisible,
   type PitLaneFeed,
   type PitRosterEntry,
 } from "../pit/pit-board";
+import { TvBrandLogo } from "../components/TvBrandLogo";
 import type { SceneProps } from "../director/types";
 
 const PAD_X = 96;
@@ -63,7 +66,7 @@ const AMBER = "#f0b341";
  *  Off = silhouettes only, and the board never calls /api/tv/pit-photo. */
 const PIT_PHOTOS_ENABLED = true;
 
-export function ScenePitBoard({ feed, config }: SceneProps) {
+export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
   const status = useTrackStatus();
   const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
 
@@ -163,6 +166,29 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
     session?.heatNumber != null &&
     liveHeatNumber(liveClock.heatName) === session.heatNumber;
 
+  /**
+   * A RACING SESSION LEAVES THIS BOARD (owner 2026-08-14: "when a session starts
+   * it should remove it from the pit assignment boards").
+   *
+   * These screens hang over the pit seats and answer one question — which spot
+   * is mine. Once the heat is on track that question is answered and the seats
+   * are empty, so the board showing a grid of racers who are no longer in front
+   * of it is worse than showing nothing: the next group walking up reads it as
+   * theirs.
+   *
+   * AND IT IS STICKY, for the same reason the desk's is. The clock only
+   * publishes while a heat runs, so `stagedRacing` goes false at the flag — and
+   * the finished session would walk straight back onto the wall until the server
+   * caught up. Once this screen has watched a session count, that session is
+   * done here, whatever the clock says afterwards.
+   */
+  const racedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (stagedRacing && session?.sessionId) racedRef.current.add(session.sessionId);
+  }, [stagedRacing, session?.sessionId]);
+  const sessionHasRaced = !!session?.sessionId && racedRef.current.has(session.sessionId);
+  const showSession = stagedRacing || sessionHasRaced ? null : session;
+
   const rail = pitRailState({
     stagedInHolding: session?.inHolding ?? false,
     stagedStartedAtMs: stagedArmed ? null : (session?.startedAtMs ?? (stagedRacing ? 0 : null)),
@@ -170,11 +196,128 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
     pittedAtMs: lane.racing?.pittedAtMs ?? null,
   });
 
+  /**
+   * THE ARRIVAL CALL (owner 2026-08-14): "when they first get sent to holding,
+   * blink something to grab attention that says please find your name and stand
+   * on the blue or red square corresponding to your number".
+   *
+   * Driven off the send stamp rather than a mounted timer, so both pit boards
+   * agree and a board that reboots mid-window rejoins it — see
+   * pitArrivalNoticeVisible for why it outlives the hold rail but not the green
+   * flag.
+   */
+  const arrivalCall = pitArrivalNoticeVisible({
+    holdingAtMs: lane.holding?.atMs ?? null,
+    nowMs,
+    rail,
+  });
+
+  // Which colour they are looking for on the floor. On a Mega day one circuit is
+  // served by both sides, so the instruction has to name both or half the group
+  // stands on the wrong squares.
+  const squareColourWord = track === "mega" ? "BLUE or RED" : track === "red" ? "RED" : "BLUE";
+
   // The lap to beat — the group in the seats is looking at exactly this
   // screen. Same constants as the check-in board; null on Mega and Pro.
   const qualTarget = session?.raceType
     ? nextLevelTarget(TRACK_LABELS[track], session.raceType)
     : null;
+
+  /**
+   * WHERE EVERY SESSION IS, for the times this board has nothing to seat
+   * (owner 2026-08-14: "when nothing is showing on pit assignment boards I'd
+   * like to show where each session is. Like briefing 4 minutes remaining").
+   *
+   * The board is now deliberately blank more often than it used to be — it
+   * waits for a staff press to show a heat, and it drops one the moment that
+   * heat is racing. Blank is honest but it is not useful, and this screen faces
+   * the people most affected by the answer: the group whose turn is coming.
+   *
+   * So the empty state becomes the flow itself. Every stage a heat passes
+   * through, in order, with whoever is in it — and the briefing leg carries its
+   * countdown, because "4 minutes" is the difference between waiting and
+   * wandering off.
+   *
+   * All of it is already on this screen: the called record from the track
+   * status it renders anyway, the rooms and lanes from the 2-second pulse. No
+   * new read, and nothing here can disagree with the board above it.
+   */
+  const idleStages = useMemo(() => {
+    const rooms = feed?.briefingRooms ?? null;
+    const called = status?.currentRaces?.[track] ?? null;
+    const out: Array<{ label: string; value: string; detail?: string }> = [];
+
+    /**
+     * A SESSION OCCUPIES EXACTLY ONE STAGE — the same rule the briefing API
+     * enforces when Override places a session (see vacateSessionElsewhere).
+     *
+     * The called record is Pandora's, and Pandora keeps it for roughly twenty
+     * minutes after the call — long after the group has been briefed, seated
+     * and sent out. Rendered raw, that put one heat in two places at once:
+     * owner 2026-08-14, live, "it's showing GF starter called, they're already
+     * racing", with session 18 sitting in Called and Holding simultaneously.
+     *
+     * So a heat that has demonstrably moved on is not still "called". Matched
+     * on the heat number because that is what every stage on this board
+     * displays, and blanking is the honest answer — the next call will fill it.
+     */
+    const downstreamHeats = new Set<number>();
+    for (const room of track === "mega" ? (["red", "blue"] as const) : ([track] as const)) {
+      const h = rooms?.[room as "red" | "blue"]?.heatNumber;
+      if (typeof h === "number") downstreamHeats.add(h);
+    }
+    if (typeof lane.holding?.heatNumber === "number") downstreamHeats.add(lane.holding.heatNumber);
+    if (typeof lane.racing?.heatNumber === "number") downstreamHeats.add(lane.racing.heatNumber);
+    const calledMovedOn = called?.heatNumber != null && downstreamHeats.has(called.heatNumber);
+
+    out.push({
+      label: "Called",
+      value: called?.heatNumber != null && !calledMovedOn ? `Session ${called.heatNumber}` : "—",
+      detail: calledMovedOn ? undefined : (called?.raceType ?? undefined),
+    });
+
+    // On a Mega day one circuit is served by both rooms, so both are ours.
+    const ourRooms: Array<"red" | "blue"> =
+      track === "mega" ? ["red", "blue"] : track === "red" ? ["red"] : ["blue"];
+    let briefingValue = "—";
+    let briefingDetail: string | undefined;
+    for (const room of ourRooms) {
+      const state = rooms?.[room] ?? null;
+      if (!state?.sessionId) continue;
+      const t = briefingTimelineAt(state, feed?.now ?? Date.now());
+      if (t.phase === "idle") continue;
+      briefingValue = state.heatNumber != null ? `Session ${state.heatNumber}` : "In a room";
+      briefingDetail =
+        t.phase === "video" && t.nextInMs != null
+          ? `${Math.max(1, Math.ceil(t.nextInMs / 60_000))} min of film left`
+          : t.phase === "helmet"
+            ? "helmets — ready to send"
+            : "waiting to start";
+      break;
+    }
+    out.push({ label: "Briefing", value: briefingValue, detail: briefingDetail });
+
+    out.push({
+      label: "Holding",
+      value: lane.holding?.heatNumber != null ? `Session ${lane.holding.heatNumber}` : "—",
+      detail: lane.holding ? "in the seats" : undefined,
+    });
+
+    const onTrackHeat =
+      lane.racing?.heatNumber ?? (liveClock ? liveHeatNumber(liveClock.heatName) : null);
+    out.push({
+      label: "On track",
+      value: onTrackHeat != null ? `Session ${onTrackHeat}` : "—",
+      detail:
+        lane.racing?.finishedAtMs != null
+          ? "finished — karts coming in"
+          : liveClock?.counting
+            ? "racing"
+            : undefined,
+    });
+
+    return out;
+  }, [feed?.briefingRooms, feed?.now, status?.currentRaces, track, lane, liveClock]);
 
   const delay = findDelay(status?.trackStatus.tracks, track);
 
@@ -258,11 +401,16 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
           {/* nowrap THROUGHOUT this block: .tv-display carries text-wrap:
               balance, which broke "Session 56" onto two lines the first time
               the header shared a row with the room chips (live 2026-08-13). */}
-          <div style={{ marginLeft: 44, minWidth: 0 }}>
+          {/* overflow:hidden is load-bearing. Everything inside is `nowrap`
+              (see the note above), so without it a long race type does not
+              shrink this block — it SPILLS out of it and runs underneath
+              whatever sits to the right, which is how "Session 33 Intermediate"
+              ended up printed through the FastTrax mark (owner 2026-08-14). */}
+          <div style={{ marginLeft: 44, minWidth: 0, overflow: "hidden" }}>
             <div className="tv-eyebrow" style={{ fontSize: 26 }}>
               Pit assignments
             </div>
-            {session ? (
+            {showSession ? (
               <div style={{ display: "flex", alignItems: "baseline", gap: 22, marginTop: 6 }}>
                 <span
                   className="tv-display"
@@ -273,9 +421,11 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
                     textShadow: `0 0 60px ${withAlpha(accent, 0.55)}`,
                   }}
                 >
-                  {session.heatNumber != null ? `Session ${session.heatNumber}` : "Next session"}
+                  {showSession.heatNumber != null
+                    ? `Session ${showSession.heatNumber}`
+                    : "Next session"}
                 </span>
-                {session.raceType && (
+                {showSession.raceType && (
                   <span
                     className="tv-display"
                     style={{
@@ -284,7 +434,7 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {session.raceType}
+                    {showSession.raceType}
                   </span>
                 )}
               </div>
@@ -294,18 +444,99 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
               </div>
             )}
           </div>
+          {/*
+            THE MARK, IN THE HEADER'S OWN GAP (owner 2026-08-14: "you just need
+            to put logo in right spot").
+            
+            The first attempt hung it in the bottom-left corner from the scene
+            director and landed it on top of the green "SEAT SESSION NOW" rail.
+            The lesson is that this board has no free CORNERS — every one is
+            doing a job — but it does have a flexible gap: the clock is pushed
+            right by `marginLeft: auto`, and everything between the session title
+            and that clock is empty by construction.
+            
+            Sitting IN THE FLOW there rather than absolutely positioned is what
+            makes it safe: flexbox owns the spacing, so a longer race type or a
+            three-digit session pushes the mark instead of colliding with it. It
+            takes the auto margin and hands the clock a fixed gap of its own.
+          */}
+          <div
+            style={{
+              // Takes the header's slack, and keeps real air on BOTH sides: the
+              // first pass had it shoulder to shoulder with the clock on one
+              // side and the race type on the other, which reads as clutter
+              // even when nothing actually overlaps.
+              marginLeft: "auto",
+              marginRight: 8,
+              paddingLeft: 56,
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              opacity: 0.9,
+            }}
+          >
+            <TvBrandLogo venue="FT" height={46} />
+          </div>
           {/* The one clock, and nothing else — the room-status chips that
               briefly lived here were not part of the approved mockup and the
               mockup is the target (owner 2026-08-13). */}
-          <div style={{ marginLeft: "auto", flexShrink: 0 }}>
+          <div style={{ marginLeft: 44, flexShrink: 0 }}>
             <LiveSessionChip track={track} accent={accent} />
           </div>
         </header>
 
-        {roster && roster.length > 0 && session ? (
-          <SpotGrid roster={roster} accent={accent} sessionId={session.sessionId} />
+        {/* Arrives with the group, ages out on its own. Full width and directly
+            under the header because that is where someone walking in is already
+            looking for their name. .tv-blink is the canvas's ONE attention beat —
+            never give this its own rate, or the board flashes at two tempos. */}
+        {arrivalCall && (
+          <div
+            className="tv-blink"
+            role="status"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 24,
+              marginTop: 22,
+              padding: "20px 28px",
+              borderRadius: 14,
+              background: withAlpha(accent, 0.18),
+              border: `3px solid ${accent}`,
+              boxShadow: `0 0 70px ${withAlpha(accent, 0.5)}`,
+            }}
+          >
+            {/* A real square, not an icon and not an emoji: the thing they are
+                looking for on the floor IS a coloured square. */}
+            <span
+              aria-hidden
+              style={{
+                width: 54,
+                height: 54,
+                flexShrink: 0,
+                background: accent,
+                borderRadius: 6,
+                boxShadow: `0 0 34px ${withAlpha(accent, 0.9)}`,
+              }}
+            />
+            <span className="tv-display" style={{ fontSize: 46, color: "#fff", lineHeight: 1.05 }}>
+              Find your name, then stand on the {squareColourWord} square with your number
+            </span>
+          </div>
+        )}
+
+        {roster && roster.length > 0 && showSession ? (
+          <SpotGrid roster={roster} accent={accent} sessionId={showSession.sessionId} />
+        ) : showSession && roster === null ? (
+          /* A group IS seated and we simply do not have their names yet — a
+             different thing from an empty board, and it used to render as
+             "Nothing to seat right now", which is a lie for the several seconds
+             a cold roster takes. `null` is "not loaded"; an actual empty roster
+             is `[]` and still falls through to Idle below (owner 2026-08-14:
+             "while the screen waits for that roster show a fasttrax loading
+             with spin"). */
+          <PitLoading accent={accent} heatNumber={showSession.heatNumber} />
         ) : (
-          <Idle accent={accent} hasSession={!!session} />
+          <Idle accent={accent} hasSession={!!showSession} stages={idleStages} />
         )}
       </div>
 
@@ -387,19 +618,46 @@ function SpotCard({
   compact: boolean;
 }) {
   const numCol = r.vip ? GOLD : accent;
-  const border = r.vip ? `2px solid ${withAlpha(GOLD, 0.85)}` : "1px solid rgba(255,255,255,0.12)";
+  /**
+   * BIRTHDAYS AND VIPS GLOW (owner 2026-08-14: "make the bdays and VIPs stand
+   * out more, maybe a glow around the picture box/name").
+   *
+   * They used to be a corner pill and, for a VIP only, a faint static halo — at
+   * pit-fence distance neither read. The whole card now carries it: a coloured
+   * border and a slow breathing glow, so a marshal picks the card out of a grid
+   * of fourteen without reading a word.
+   *
+   * BOTH AT ONCE IS A REAL CASE and it is not a conflict — a VIP on their
+   * birthday gets the gold border with both colours in the glow, rather than one
+   * status silently hiding the other. The keyframe takes the two colours as
+   * custom properties precisely so this needs no third variant (tv.css).
+   */
+  const glowA = r.birthday ? withAlpha(PINK, 0.85) : r.vip ? withAlpha(GOLD, 0.8) : null;
+  const glowB = r.vip ? withAlpha(GOLD, 0.5) : r.birthday ? withAlpha(PINK, 0.45) : null;
+  const flagged = r.vip || r.birthday;
+  const border = r.vip
+    ? `3px solid ${withAlpha(GOLD, 0.95)}`
+    : r.birthday
+      ? `3px solid ${withAlpha(PINK, 0.95)}`
+      : "1px solid rgba(255,255,255,0.12)";
   return (
     <div
-      style={{
-        position: "relative",
-        background: "rgba(7,16,39,0.55)",
-        border,
-        borderRadius: 28,
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-        boxShadow: r.vip ? `0 0 44px ${withAlpha(GOLD, 0.25)}` : undefined,
-      }}
+      className={flagged ? "tv-card-glow" : undefined}
+      style={
+        {
+          position: "relative",
+          background: "rgba(7,16,39,0.55)",
+          border,
+          borderRadius: 28,
+          // NOT hidden when the card glows: `overflow: hidden` clips a box-shadow
+          // drawn outside the border box, which would swallow the whole effect.
+          overflow: flagged ? "visible" : "hidden",
+          display: "flex",
+          flexDirection: "column",
+          ...(glowA ? { "--tv-glow-a": glowA } : {}),
+          ...(glowB ? { "--tv-glow-b": glowB } : {}),
+        } as CSSProperties
+      }
     >
       <div style={{ position: "relative", flex: 1, minHeight: compact ? 120 : 180 }}>
         <Photo sessionId={sessionId} personId={r.personId} />
@@ -591,7 +849,66 @@ function Photo({ sessionId, personId }: { sessionId: string; personId: string })
 
 /* ── idle + delay ─────────────────────────────────────────────────────── */
 
-function Idle({ accent, hasSession }: { accent: string; hasSession: boolean }) {
+/**
+ * "We know who is racing, we are fetching their names."
+ *
+ * The mark plus a slow ring, centred — recognisable from the pit fence as the
+ * board working rather than the board broken. It should be rare now that the
+ * roster is pre-warmed during helmeting (pit/fast-roster.server.ts); this is
+ * what a cold start, a redeploy or a Pandora hiccup looks like.
+ */
+function PitLoading({ accent, heatNumber }: { accent: string; heatNumber: number | null }) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 34,
+      }}
+    >
+      <div style={{ position: "relative", width: 190, height: 190 }}>
+        <div
+          className="tv-spin"
+          aria-hidden
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: "50%",
+            border: `6px solid ${withAlpha(accent, 0.18)}`,
+            borderTopColor: accent,
+          }}
+        />
+        <div
+          style={{
+            position: "absolute",
+            inset: 34,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <TvBrandLogo venue="FT" height={72} />
+        </div>
+      </div>
+      <div className="tv-display" style={{ fontSize: 46, color: "#fff", lineHeight: 1.05 }}>
+        {heatNumber != null ? `Loading session ${heatNumber}…` : "Loading the grid…"}
+      </div>
+    </div>
+  );
+}
+
+function Idle({
+  accent,
+  hasSession,
+  stages,
+}: {
+  accent: string;
+  hasSession: boolean;
+  stages: Array<{ label: string; value: string; detail?: string }>;
+}) {
   return (
     <div
       style={{
@@ -599,15 +916,60 @@ function Idle({ accent, hasSession }: { accent: string; hasSession: boolean }) {
         display: "flex",
         flexDirection: "column",
         justifyContent: "center",
-        gap: 22,
+        gap: 28,
       }}
     >
       {!hasSession && (
-        <div className="tv-display" style={{ fontSize: 96, color: "#fff", lineHeight: 0.95 }}>
-          Assignments show here
-          <br />
-          when a session is called
-        </div>
+        <>
+          <div className="tv-display" style={{ fontSize: 72, color: "#fff", lineHeight: 0.95 }}>
+            Nothing to seat right now
+          </div>
+          {/* THE FLOW, IN ORDER. A guest reading this wants one thing — how far
+              away is my turn — and the order of the rows answers it without a
+              word of explanation. */}
+          <div style={{ display: "grid", gap: 14 }}>
+            {stages.map((st) => {
+              const empty = st.value === "—";
+              return (
+                <div
+                  key={st.label}
+                  style={{ display: "flex", alignItems: "baseline", gap: 28, flexWrap: "wrap" }}
+                >
+                  <span
+                    className="tv-display"
+                    style={{
+                      minWidth: 260,
+                      fontSize: 34,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      color: withAlpha("#f5ecee", 0.5),
+                    }}
+                  >
+                    {st.label}
+                  </span>
+                  <span
+                    className="tv-display"
+                    style={{
+                      fontSize: 46,
+                      color: empty ? withAlpha("#f5ecee", 0.28) : "#fff",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {st.value}
+                  </span>
+                  {st.detail && (
+                    <span
+                      className="tv-display"
+                      style={{ fontSize: 30, color: accent, whiteSpace: "nowrap" }}
+                    >
+                      {st.detail}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
       <div
         aria-hidden

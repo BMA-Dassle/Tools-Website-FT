@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import {
+  readClearedCall,
+  forgetClearedCall,
+} from "~/features/signage/briefing/called-override.server";
+import { callIsSuppressed, type ClearedCall } from "~/features/signage/briefing/called-clear";
+import {
   MAX_DISPLAY_AGE_MS,
   preserveFirstCall,
   raceStillDisplayable,
@@ -21,6 +26,11 @@ import {
  *       &cacheOnly=1     — Redis or empty; NEVER hits Pandora. Used by callers
  *                           that must render instantly with whatever's known and
  *                           let the next poll cycle fill in any gaps.
+ *       &warm=1          — 30s upstream timeout instead of 9s. THE CRON WARMER
+ *                           ONLY (checkin-alerts) — no user is waiting on it, and
+ *                           it is the only thing that refreshes the Redis keys
+ *                           everything else falls back to. Mirrors the identical
+ *                           flag on /api/pandora/session-participants.
  *
  * Returns { blue, red, mega } — each is a CurrentRace object or null.
  *
@@ -42,6 +52,33 @@ const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
 const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
 const CACHE_TTL_MS = 12_000;
+
+/**
+ * How long we wait on Pandora before falling back to the Redis carry.
+ *
+ * WAS A FLAT 5s, AND THAT FROZE EVERY BOARD IN THE BUILDING (2026-08-13).
+ * Pandora was answering in roughly 5-10s from Vercel — fine from a laptop,
+ * over the ceiling from iad1. Fifteen consecutive production calls returned
+ * X-Cache: TIMEOUT, so every board served the fallback. That alone would have
+ * been survivable; what made it an outage is that the every-minute
+ * checkin-alerts cron — THE ONLY THING THAT REFRESHES THE FALLBACK — reads
+ * through this same route and hit the same 5s ceiling. The carry copy froze on
+ * the heat that happened to be called when the upstream went slow, and the
+ * check-in board sat on blue 45 / red 46 for half an hour while blue 46 and
+ * red 47 were on track. A stale board is worse than a slow one: staff called
+ * heats the estate disagreed with.
+ *
+ * So the warmer gets a ceiling that reflects "nobody is waiting on this"
+ * (30s, the same number and the same `warm=1` flag as
+ * /api/pandora/session-participants), and the shared default gets enough
+ * headroom to ride out a slow-but-alive Pandora instead of giving up at 5.
+ *
+ * The default MUST stay under the 12s ceiling /api/admin/checkin puts on its
+ * own hop to this route — if this one outlasts that one, the check-in board
+ * gets `{}` and renders NOTHING, which is the one outcome worse than stale.
+ */
+const UPSTREAM_TIMEOUT_MS = 9_000;
+const UPSTREAM_TIMEOUT_WARM_MS = 30_000;
 
 type TrackKey = "blue" | "red" | "mega";
 
@@ -109,6 +146,15 @@ async function saveRace(track: TrackKey, race: CurrentRace): Promise<void> {
   }
 }
 
+/** Drop the carried copy, so a cleared heat cannot come back through it. */
+async function forgetStored(track: TrackKey): Promise<void> {
+  try {
+    await redis.del(REDIS_KEY(track));
+  } catch (err) {
+    console.error(`[races-current] Redis clear ${track}:`, err);
+  }
+}
+
 /**
  * The stored last-known heat for a track, or null.
  *
@@ -150,6 +196,8 @@ export async function GET(req: NextRequest) {
   // and /api/pandora/session-participants. See file header.
   const preferCache = searchParams.get("prefer") === "cache";
   const cacheOnly = searchParams.get("cacheOnly") === "1";
+  // warm=1 → the cron warmer. See UPSTREAM_TIMEOUT_MS.
+  const warm = searchParams.get("warm") === "1";
 
   // Serve from in-memory cache if fresh — applies to ALL modes since
   // the cached value is always the most recent successful merge from
@@ -195,12 +243,12 @@ export async function GET(req: NextRequest) {
   // overloaded — without a timeout, every browser polling this
   // endpoint blocks for that long, fetches stack up in the renderer
   // tab, and Edge eventually kills it for memory ("This page
-  // couldn't load"). Any request running longer than 5s falls
-  // through to the fallback path below (last cached / Redis last-
-  // known state). Keeps the proxy snappy regardless of upstream
-  // health.
+  // couldn't load"). Anything over the ceiling falls through to the
+  // fallback path below (last cached / Redis last-known state).
+  // See UPSTREAM_TIMEOUT_MS for why the warmer gets its own, longer one.
+  const upstreamTimeoutMs = warm ? UPSTREAM_TIMEOUT_WARM_MS : UPSTREAM_TIMEOUT_MS;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5_000);
+  const timeoutId = setTimeout(() => controller.abort(), upstreamTimeoutMs);
 
   try {
     const res = await fetch(`${PANDORA_URL}/bmi/races/current/${FASTTRAX_LOCATION_ID}`, {
@@ -225,13 +273,47 @@ export async function GET(req: NextRequest) {
     // holds everywhere at once.
     const stored = await loadAllFromRedis();
     const tracks: TrackKey[] = ["blue", "red", "mega"];
+    /**
+     * WHAT THE DESK CLEARED BY HAND.
+     *
+     * This route writes the called key unconditionally, which made "Clear" on the
+     * Override panel unclearable: the delete landed, the next poll put Pandora's
+     * answer straight back, and Pandora keeps reporting a called heat for ~20
+     * minutes (owner 2026-08-14, "can never clear called section"). A clear now
+     * leaves a tombstone and this is where it is honoured — here rather than in
+     * each consumer, because this route is the one seam every board reads
+     * through, exactly like the preserveFirstCall pin below it.
+     */
+    const clearedByTrack = await Promise.all(
+      tracks.map((t) => readClearedCall(t).catch(() => null)),
+    );
+    const cleared: Record<TrackKey, ClearedCall | null> = {
+      blue: clearedByTrack[0],
+      red: clearedByTrack[1],
+      mega: clearedByTrack[2],
+    };
     const merged: CurrentRaces = { blue: null, red: null, mega: null };
     for (const t of tracks) {
       if (pandora[t]) {
         const race = preserveFirstCall(pandora[t] as CurrentRace, stored[t]);
+        if (callIsSuppressed(cleared[t], race)) {
+          // Swallowed, and the stored copy goes with it — otherwise the carry
+          // below would serve the same heat back the moment Pandora ages out.
+          merged[t] = null;
+          void forgetStored(t);
+          continue;
+        }
         merged[t] = race;
+        // A sighting that is NOT suppressed means the tombstone is spent (staff
+        // called this heat again, or a different heat was called). Retiring it
+        // here keeps a stale suppression from swallowing a later re-call.
+        if (cleared[t]) void forgetClearedCall(t);
         // Fire and forget — don't block response on Redis write
         saveRace(t, race);
+      } else if (stored[t] && callIsSuppressed(cleared[t], stored[t] as CurrentRace)) {
+        // Pandora has gone quiet but our own carry still holds the cleared heat.
+        merged[t] = null;
+        void forgetStored(t);
       } else {
         // Pandora expires its own entry ~20 min after the call, so the stored
         // copy is what carries a session between heats. Age-gated, not
@@ -250,7 +332,10 @@ export async function GET(req: NextRequest) {
     // so we can tell from the dashboard whether the timeout is
     // firing too aggressively.
     const isTimeout = err instanceof Error && err.name === "AbortError";
-    console.error(`[races-current] ${isTimeout ? "TIMEOUT (>5s)" : "fetch error"}:`, err);
+    console.error(
+      `[races-current] ${isTimeout ? `TIMEOUT (>${upstreamTimeoutMs}ms${warm ? ", warm" : ""})` : "fetch error"}:`,
+      err,
+    );
 
     // Fall back through layers: in-memory cache → Redis last-known
     // state per track (age-gated by loadRace).

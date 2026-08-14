@@ -117,6 +117,14 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/briefing-auto-holding",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/race-state-watch",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/vip-almost-here",
       "schedule": "*/5 * * * *"
     },

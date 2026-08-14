@@ -7,7 +7,22 @@ import {
   sendBriefing,
   startBriefing,
 } from "~/features/signage/briefing/service";
-import { markRacePitted, sendToHolding } from "~/features/signage/pit/lane.server";
+import {
+  markRacePitted,
+  overrideLaneSlot,
+  sendToHolding,
+} from "~/features/signage/pit/lane.server";
+import {
+  etCalledAtIso,
+  readCalledRace,
+  setCalledRace,
+} from "~/features/signage/briefing/called-override.server";
+import { readBriefingRoom } from "~/features/signage/briefing/state.server";
+import { setAutoHoldingEnabled } from "~/features/signage/briefing/auto-holding.server";
+import { setRaceBookmarksEnabled } from "~/features/signage/briefing/race-bookmarks-setting.server";
+import { readPitLane } from "~/features/signage/pit/lane.server";
+import { recordBriefingEvent } from "~/features/signage/briefing/events-db";
+import { businessDayYmdET } from "@/lib/race-business-day";
 import {
   isBriefingAssetKey,
   parseBriefingRoom,
@@ -47,6 +62,63 @@ export async function GET(req: NextRequest) {
   );
 }
 
+/**
+ * A SESSION OCCUPIES EXACTLY ONE STAGE (owner 2026-08-14: "it can't be in
+ * called and another slot at the same time though").
+ *
+ * The flow is a sequence — check-in, briefing room, holding, on track — and a
+ * group is only ever standing in one of those places. Nothing enforced that
+ * before, because nothing COULD put a session in two stages at once; Override
+ * can, and the first screenshot of it showed Session 19 sitting in check-in and
+ * a briefing room simultaneously.
+ *
+ * So placing a session advances it: every other stage naming it is vacated
+ * first. Deliberately different from the one-session-per-slot rule, which
+ * REFUSES rather than displaces — that rule protects a slot from two claimants,
+ * and refusing makes a human look. This one is about a single session's own
+ * history, where there is nothing to arbitrate: it cannot be in two places, so
+ * the earlier place is simply wrong and goes.
+ */
+async function vacateSessionElsewhere(args: {
+  sessionId: string;
+  slot: "called" | "room" | "holding" | "racing";
+  track: "blue" | "red" | "mega";
+  room: "red" | "blue" | null;
+}): Promise<void> {
+  const tracks: Array<"blue" | "red" | "mega"> = ["blue", "red", "mega"];
+
+  for (const t of tracks) {
+    const called = await readCalledRace(t).catch(() => null);
+    if (
+      called &&
+      String(called.sessionId) === args.sessionId &&
+      !(args.slot === "called" && t === args.track)
+    ) {
+      await setCalledRace(t, null);
+    }
+  }
+
+  for (const r of ["red", "blue"] as const) {
+    if (args.slot === "room" && r === args.room) continue;
+    const state = await readBriefingRoom("FT", r).catch(() => null);
+    // clearRoom rather than a raw delete: it closes the occupancy in the
+    // insurance log and puts the heat back on the check-in wall, which is what
+    // leaving a room actually means.
+    if (state?.sessionId === args.sessionId) await clearRoom(r).catch(() => {});
+  }
+
+  for (const t of tracks) {
+    const lane = await readPitLane(t).catch(() => null);
+    for (const slot of ["holding", "racing"] as const) {
+      if (args.slot === slot && t === args.track) continue;
+      const occ = slot === "holding" ? lane?.holding : lane?.racing;
+      if (occ?.sessionId === args.sessionId) {
+        await overrideLaneSlot({ track: t, slot, occupant: null, force: true }).catch(() => {});
+      }
+    }
+  }
+}
+
 export async function POST(req: NextRequest) {
   if (!authed(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
@@ -58,10 +130,13 @@ export async function POST(req: NextRequest) {
     heatNumber?: number;
     raceType?: string;
     tier?: string;
+    slot?: string;
+    force?: boolean;
     assetKey?: string;
     url?: string;
     size?: number;
     durationMs?: number;
+    enabled?: boolean;
   };
   try {
     body = await req.json();
@@ -113,6 +188,147 @@ export async function POST(req: NextRequest) {
   // silently does nothing.
   if (!briefingEnabled()) {
     return NextResponse.json({ error: "briefing rooms are switched off" }, { status: 503 });
+  }
+
+  /**
+   * THE CAMERA SWEEP'S KILL SWITCH, thrown from the board's own settings sheet
+   * (owner 2026-08-14: "with the kill switch in settings of the check in board").
+   *
+   * Handled before the room parse because it takes no room, and deliberately is
+   * not room-scoped: what is being switched off is a way of DECIDING, and a
+   * sweep armed on one room and not the other would be harder to reason about at
+   * 9pm than either state.
+   */
+  if (action === "auto-holding") {
+    if (typeof body.enabled !== "boolean") {
+      return NextResponse.json({ error: "enabled must be true or false" }, { status: 400 });
+    }
+    await setAutoHoldingEnabled(body.enabled);
+    return NextResponse.json({ ok: true, enabled: body.enabled });
+  }
+
+  /** Race-event camera bookmarks — the other switch on the same sheet. */
+  if (action === "race-bookmarks") {
+    if (typeof body.enabled !== "boolean") {
+      return NextResponse.json({ error: "enabled must be true or false" }, { status: 400 });
+    }
+    await setRaceBookmarksEnabled(body.enabled);
+    return NextResponse.json({ ok: true, enabled: body.enabled });
+  }
+
+  /**
+   * STAFF OVERRIDE — place a session in a lane slot, or empty it.
+   *
+   * Handled before the room parse, like "pitted", because it is track-keyed.
+   * The occupancy guard lives in overrideLaneSlot, not here: a rule the UI
+   * enforces is a rule a second tab can break.
+   */
+  if (action === "override") {
+    const track =
+      body.track === "blue" || body.track === "red" || body.track === "mega" ? body.track : null;
+    if (!track) {
+      return NextResponse.json({ error: "track must be blue, red or mega" }, { status: 400 });
+    }
+    const slot =
+      body.slot === "holding" ||
+      body.slot === "racing" ||
+      body.slot === "called" ||
+      body.slot === "room"
+        ? body.slot
+        : null;
+    if (!slot) {
+      return NextResponse.json(
+        { error: "slot must be called, room, holding or racing" },
+        { status: 400 },
+      );
+    }
+    // STRINGIFIED AT THE BOUNDARY, never Number()'d — same rule as "send".
+    const sessionId =
+      typeof body.sessionId === "string"
+        ? body.sessionId
+        : typeof body.sessionId === "number"
+          ? String(body.sessionId)
+          : "";
+    const heatNumber = Number.isInteger(body.heatNumber) ? (body.heatNumber as number) : null;
+    const raceType = typeof body.raceType === "string" ? body.raceType : null;
+
+    // Advancing a session vacates wherever else it was — see the helper above.
+    // Only on a PLACEMENT: clearing a slot is already a removal.
+    if (sessionId) {
+      await vacateSessionElsewhere({ sessionId, slot, track, room: parseBriefingRoom(body.room) });
+    }
+
+    /**
+     * CHECK-IN — the called record itself. Pandora owns this key normally; the
+     * desk writes it only when Pandora cannot (see called-override.server.ts).
+     * The event row is the audit trail, and it is action "override" rather than
+     * "sent" because nobody went anywhere: a call was asserted, not performed.
+     */
+    if (slot === "called") {
+      await setCalledRace(
+        track,
+        sessionId
+          ? {
+              trackName: track.charAt(0).toUpperCase() + track.slice(1),
+              raceType,
+              heatNumber,
+              scheduledStart: null,
+              calledAt: etCalledAtIso(),
+              sessionId: Number(sessionId),
+            }
+          : null,
+      );
+      if (sessionId) {
+        await recordBriefingEvent({
+          venue: "FT",
+          businessDay: businessDayYmdET(),
+          room: parseBriefingRoom(body.room) ?? "red",
+          track,
+          sessionId,
+          heatNumber,
+          raceType,
+          tier: null,
+          action: "override",
+          reason: "override",
+        }).catch(() => {});
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    /**
+     * BRIEFING — placing into a room reuses the ordinary send, so the room gets
+     * its film, its assignment row and its briefed marker exactly as it would
+     * have; clearing reuses Undo. An override that took a private path would be
+     * an override whose result did not behave like the real thing.
+     */
+    if (slot === "room") {
+      const target = parseBriefingRoom(body.room);
+      if (!target) {
+        return NextResponse.json({ error: "room must be red or blue" }, { status: 400 });
+      }
+      if (!sessionId) return NextResponse.json(await clearRoom(target));
+      const result = await sendBriefing({
+        room: target,
+        track,
+        sessionId,
+        heatNumber,
+        raceType,
+        tier: null,
+      });
+      return NextResponse.json(result);
+    }
+
+    const result = await overrideLaneSlot({
+      track,
+      slot,
+      // No sessionId means "empty this slot" — the way a mis-placed group is
+      // taken back out before the right one goes in.
+      occupant: sessionId
+        ? { sessionId, heatNumber, raceType, room: parseBriefingRoom(body.room) }
+        : null,
+      force: body.force === true,
+    });
+    return NextResponse.json(result, { status: result.ok ? 200 : 409 });
   }
 
   /**

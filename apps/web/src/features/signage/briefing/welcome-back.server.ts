@@ -88,8 +88,21 @@ export async function resolveWelcomeBack(
 
   // THE ANNOUNCER WATCHES THE LAST FEW GROUPS, not just the latest — each one
   // gets its radio call once, when its own end stamps, even if a newer group
-  // has since taken the room. The BOARD below still tracks only the latest;
-  // announcing and displaying are different questions with different subjects.
+  // has since taken the room.
+  //
+  // THE BOARD NOW WATCHES THEM TOO, and that is the fix for a bug the owner hit
+  // repeatedly on 2026-08-14 ("rooms did not get the returning message again or
+  // qualifying"). It used to display the room's NEWEST briefing and nothing
+  // else, which is the wrong subject on any busy night: by the time a group
+  // walks back, the next group has already been briefed in that room, so the
+  // board asked about a heat that had not raced yet and showed nothing at all.
+  // Red was sitting idle on the helmet poster with heat 29 briefed and heat 28
+  // walking back in. It "worked a couple of times today" — exactly the times no
+  // newer group had been through the room yet.
+  //
+  // So the ends are resolved once here and reused below to pick the subject:
+  // the most recent group whose race has actually ENDED.
+  const endBySession = new Map<string, number>();
   for (const a of roomTimeline.slice(0, ANNOUNCE_LOOKBACK)) {
     // A group re-sent to a different room has its REAL room in its newest
     // assignment — the stale row in this room's history must not announce the
@@ -119,6 +132,7 @@ export async function resolveWelcomeBack(
       endMs = row?.actualEnd ? Date.parse(row.actualEnd) : NaN;
     }
     if (!Number.isFinite(endMs)) continue;
+    endBySession.set(a.sessionId, endMs);
     const sinceEnd = Date.now() - endMs;
     if (sinceEnd < -60_000 || sinceEnd > ANNOUNCE_FRESH_MS) continue;
     // Awaited (never throws, 5s timeout): a floating promise on a serverless
@@ -134,14 +148,38 @@ export async function resolveWelcomeBack(
     });
   }
 
+  /**
+   * THE SUBJECT IS THE GROUP THAT CAME BACK, not the last one briefed.
+   *
+   * `endBySession` was filled above for the same lookback the announcer uses,
+   * newest first, so the first hit is the most recent group whose race actually
+   * ended. A group still out — or one briefed but not yet raced, which is the
+   * common case on a busy night — simply is not in the map.
+   *
+   * Rows whose newest assignment is in the OTHER room are skipped there too, so
+   * a group re-sent elsewhere cannot be greeted by the room they left.
+   */
+  const returned = roomTimeline
+    .slice(0, ANNOUNCE_LOOKBACK)
+    .find((a) => endBySession.has(a.sessionId));
+  const subject = returned ?? last;
+
   const track: TrackKey =
-    last.track === "blue" || last.track === "red" || last.track === "mega" ? last.track : "mega";
+    subject.track === "blue" || subject.track === "red" || subject.track === "mega"
+      ? subject.track
+      : "mega";
+
+  // Already resolved in the loop above for anything in the lookback; the reads
+  // below are the fallback for a subject that fell outside it.
+  let actualEndMs: number | null = endBySession.get(subject.sessionId) ?? null;
 
   // FAST PATH: the venue's own RaceFinish marker means the end is already
   // known — no Pandora read at all. Fallback below is yesterday's behaviour,
   // byte for byte, so a dead bridge only ever costs speed.
-  const finishMarker = await readRaceFinishedMarker(last.sessionId);
-  let actualEndMs: number | null = finishMarker ? finishMarker.endedAtMs : null;
+  if (actualEndMs === null) {
+    const finishMarker = await readRaceFinishedMarker(subject.sessionId);
+    actualEndMs = finishMarker ? finishMarker.endedAtMs : null;
+  }
 
   if (actualEndMs === null) {
     // CALENDAR ET day, not the racing business day: the sessions cache is keyed the
@@ -154,7 +192,7 @@ export async function resolveWelcomeBack(
 
     // Compare as STRINGS — the sessions list carries string ids, and the house rule
     // forbids numeric round-trips on Pandora ids regardless.
-    const session = sessions.find((s) => String(s.sessionId) === last.sessionId);
+    const session = sessions.find((s) => String(s.sessionId) === subject.sessionId);
     actualEndMs = session?.actualEnd ? Date.parse(session.actualEnd) : null;
   }
 
@@ -168,16 +206,16 @@ export async function resolveWelcomeBack(
   // frame we cannot prove is ours is never recorded.
   const recorded = await loadOrCaptureResults({
     track,
-    sessionId: last.sessionId,
-    heatNumber: last.heatNumber,
+    sessionId: subject.sessionId,
+    heatNumber: subject.heatNumber,
   }).catch(() => null);
 
-  const target = nextLevelTarget(track, last.raceType);
+  const target = nextLevelTarget(track, subject.raceType);
   const split = recorded ? splitByTarget(recorded.drivers, target?.ms ?? null) : null;
 
   return {
-    heatNumber: last.heatNumber,
-    raceType: last.raceType,
+    heatNumber: subject.heatNumber,
+    raceType: subject.raceType,
     track,
     endedAtMs: actualEndMs as number,
     results: split

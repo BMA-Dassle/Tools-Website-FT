@@ -19,6 +19,7 @@ import "server-only";
  * capture problem must never take down the TV feed that triggered it.
  */
 import { parseResultsFrame, type ResultsFrame } from "./results-frame";
+import { parseRaceStateFrame, type RaceStateFrame } from "./race-state";
 import type { TrackKey } from "../track";
 
 /** Track → resource id @ BMI client key. Mirrors live-session.tsx SERVER_KEYS
@@ -36,10 +37,29 @@ const WS_URL = "wss://webserver22.sms-timing.com:10015/";
  *  under a second — while staying far inside any route timeout. */
 const CAPTURE_TIMEOUT_MS = 4_000;
 
+/**
+ * The same one-frame handshake, read for the track's RUN STATE instead of its
+ * standings.
+ *
+ * Separate from captureTrackResults because the two disagree about what an
+ * empty answer means: a driverless frame is nothing to a results capture and a
+ * perfectly good "no race loaded" to a state watcher. Sharing one parser would
+ * force one of them to lie. The socket work is identical, so only the parse
+ * differs — see race-state.ts.
+ */
+export function captureTrackState(track: TrackKey): Promise<RaceStateFrame | null> {
+  return captureFrame(track, parseRaceStateFrame);
+}
+
 export function captureTrackResults(track: TrackKey): Promise<ResultsFrame | null> {
+  return captureFrame(track, parseResultsFrame);
+}
+
+/** One connect, one frame, close. Fails to null on anything at all. */
+function captureFrame<T>(track: TrackKey, parse: (raw: string) => T | null): Promise<T | null> {
   return new Promise((resolve) => {
     let settled = false;
-    const finish = (value: ResultsFrame | null, ws?: WebSocket) => {
+    const finish = (value: T | null, ws?: WebSocket) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -63,7 +83,7 @@ export function captureTrackResults(track: TrackKey): Promise<ResultsFrame | nul
       };
       ws.onmessage = (evt) => {
         const raw = typeof evt.data === "string" ? evt.data : String(evt.data);
-        finish(parseResultsFrame(raw), ws);
+        finish(parse(raw), ws);
       };
       ws.onerror = () => finish(null, ws);
       ws.onclose = () => finish(null);

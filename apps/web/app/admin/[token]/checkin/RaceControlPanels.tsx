@@ -83,11 +83,7 @@ import {
   type BriefingRoomState,
   type BriefingTier,
 } from "~/features/signage/briefing/types";
-import {
-  liveHeatNumber,
-  roomReturnStateAt,
-  type RoomReturnState,
-} from "~/features/signage/briefing/room-return";
+import { liveHeatNumber } from "~/features/signage/briefing/room-return";
 import {
   checkinAlert,
   waitingAlert,
@@ -103,6 +99,7 @@ import type {
   WaitTimesBoard,
 } from "./useBriefingControl";
 import type { PitLaneFeed } from "~/features/signage/pit/pit-board";
+import OverridePanel from "./OverridePanel";
 import {
   formatRemaining,
   useLiveSessionClock,
@@ -373,6 +370,16 @@ export default function RaceControlPanels({
    */
   const megaLaneOwner: BriefingRoom = board?.lanes?.mega?.holding?.room ?? "red";
 
+  /** When each of today's sessions was CALLED, from the briefing log — the
+   *  start of the total-wait clock. Built once per render rather than scanned
+   *  per box: four boxes per column, two columns, every second. */
+  const calledAtBySession = new Map<string, number>();
+  for (const b of board?.briefings ?? []) {
+    if (b.calledAtMs != null) calledAtBySession.set(b.sessionId, b.calledAtMs);
+  }
+  const calledAtFor: CalledAtLookup = (sessionId) =>
+    sessionId ? (calledAtBySession.get(sessionId) ?? null) : null;
+
   return (
     <section
       className="flex flex-col border-t"
@@ -513,6 +520,9 @@ export default function RaceControlPanels({
               lane={board?.lanes?.[track as "blue" | "red" | "mega"] ?? null}
               ownsLane={!megaEnabled || room === megaLaneOwner}
               onRaceReturned={() => control.markPitted(track)}
+              hasLaunched={control.hasLaunched}
+              noteLaunched={control.noteLaunched}
+              calledAtFor={calledAtFor}
               onSend={() =>
                 control.send({
                   room,
@@ -581,7 +591,15 @@ export default function RaceControlPanels({
               <span style={{ minWidth: 76 }}>In at</span>
               <span style={{ minWidth: 76 }}>Started</span>
               <span style={{ minWidth: 104 }}>Briefing photo</span>
-              <span style={{ marginLeft: "auto" }}>In room</span>
+              {/* THE LEGS (owner 2026-08-14: "keep track of all the time
+                  movements and how long"). The log always knew every instant;
+                  what it never did was subtract them, so reading a slow night
+                  meant doing arithmetic across five columns by eye. */}
+              <span style={{ minWidth: 66 }}>Waited</span>
+              <span style={{ minWidth: 66 }}>To start</span>
+              <span style={{ minWidth: 66 }}>In room</span>
+              <span style={{ minWidth: 66 }}>On track</span>
+              <span style={{ marginLeft: "auto" }}>Total</span>
             </div>
             {board?.briefings.slice(0, 12).map((b) => (
               <div
@@ -643,12 +661,33 @@ export default function RaceControlPanels({
                     "—"
                   )}
                 </span>
-                <span style={{ marginLeft: "auto", color: b.inRoomMs != null ? INK : AMBER }}>
-                  {b.inRoomMs != null ? formatClock(b.inRoomMs) : "in there now"}
+                <Leg ms={b.waitToRoomMs} />
+                <Leg ms={b.toStartMs} />
+                <Leg ms={b.inRoomMs} pending={b.inRoomMs == null ? "in there" : undefined} />
+                <Leg ms={b.roomToPittedMs} />
+                {/* The figure a guest would give you, and the only one that is
+                    bold: every other column is a leg of it. */}
+                <span
+                  className="rc-num"
+                  style={{ marginLeft: "auto", color: INK, fontWeight: 800 }}
+                >
+                  {b.totalMs != null ? formatClock(b.totalMs) : "—"}
                 </span>
               </div>
             ))}
           </div>
+        </BoardModal>
+      )}
+
+      {/* OVERRIDE — the manual placement modal. See OverridePanel: it is a live
+          view of every lane slot first, and a set of corrections second. */}
+      {control.openPanel === "override" && (
+        <BoardModal
+          title="Override"
+          subtitle="Where every session is right now — and how to move one by hand"
+          onClose={() => control.setOpenPanel(null)}
+        >
+          <OverridePanel control={control} megaEnabled={megaEnabled} status={status} />
         </BoardModal>
       )}
 
@@ -1036,6 +1075,62 @@ function WaitValue({ stat, against, lead }: { stat: WaitStat; against: WaitStat;
   );
 }
 
+/**
+ * TOTAL TIME THIS GROUP HAS BEEN IN OUR HANDS — called to chequered flag.
+ *
+ * Owner 2026-08-14: "a small number next to or under each session that shows
+ * number of minutes (total) they've been waiting from called to race till end
+ * of race."
+ *
+ * It is the number no single box could show, which is exactly why it is worth
+ * carrying: each box measures its own leg — checking in, waiting on Start, in
+ * the seats — and a group can look fine in every one of them while the whole
+ * visit has taken fifty minutes. This is the figure a guest would give you.
+ *
+ * THE CLOCK STARTS AT THE CALL, and that instant is only knowable while it is
+ * happening: Pandora ages its called record out about 20 minutes later. It is
+ * stamped into the briefing event at send time for precisely this reason, which
+ * is why the log is the lookup here and the live called record is only the
+ * fallback for a heat that has not been sent yet.
+ *
+ * IT STOPS AT THE FLAG, not at "now" — once the race has ended the total is a
+ * fact about the visit and must stop growing, or a finished group's number
+ * would keep climbing all night on a board nobody had cleared.
+ */
+export type CalledAtLookup = (sessionId: string | null | undefined) => number | null;
+
+function totalWaitMs(
+  calledAtFor: CalledAtLookup,
+  sessionId: string | null | undefined,
+  race: CurrentRace | null,
+  finishedAtMs: number | null,
+  nowMs: number,
+): number | null {
+  if (!sessionId) return null;
+  const logged = calledAtFor(sessionId);
+  const live =
+    race && String(race.sessionId) === sessionId && race.calledAt ? Date.parse(race.calledAt) : NaN;
+  const calledAtMs = logged ?? (Number.isFinite(live) ? live : null);
+  if (calledAtMs == null || !Number.isFinite(calledAtMs)) return null;
+  const end = finishedAtMs ?? nowMs;
+  return Math.max(0, end - calledAtMs);
+}
+
+/** The total, as the boxes render it: a quiet minutes figure that never
+ *  competes with the big number it sits under. */
+function TotalWait({ ms, done }: { ms: number | null; done?: boolean }) {
+  if (ms == null) return null;
+  return (
+    <div
+      className="rc-num"
+      style={{ fontSize: 10, color: PORTAL_DARK.muted, marginTop: 1 }}
+      title="Total from when the heat was called to the end of its race"
+    >
+      {Math.floor(ms / 60_000)} min total{done ? "" : " so far"}
+    </div>
+  );
+}
+
 /* ── one room ──────────────────────────────────────────────────────────── */
 
 function RoomColumn({
@@ -1058,6 +1153,9 @@ function RoomColumn({
   lane,
   ownsLane,
   onRaceReturned,
+  hasLaunched,
+  noteLaunched,
+  calledAtFor,
   onSend,
   onStart,
   onUndo,
@@ -1098,6 +1196,12 @@ function RoomColumn({
   ownsLane: boolean;
   /** "Race returned" — the karts are fully back in the lane. */
   onRaceReturned: () => void;
+  /** The station's memory of which sessions it has seen race — see the hook. */
+  hasLaunched: (sessionId: string | null | undefined) => boolean;
+  noteLaunched: (sessionId: string | null | undefined) => void;
+  /** When each session's heat was CALLED — the start of the total-wait clock.
+   *  From the briefing log, because Pandora ages its called record out. */
+  calledAtFor: CalledAtLookup;
   onSend: () => void;
   onStart: (restart: boolean) => void;
   onUndo: () => void;
@@ -1113,22 +1217,24 @@ function RoomColumn({
   const timeline = briefingTimelineAt(state, nowMs);
   const occupied = timeline.phase !== "idle";
   /**
-   * AN IDLE ROOM IS NOT NECESSARILY A FREE ROOM — its group may still be on track,
-   * due to walk back in with the kit (owner 2026-08-12). Same live clock the
-   * identity row above already shows, matched to the room's own group by heat
-   * number; every rule and bound is in room-return.ts.
+   * THE ROOM NO LONGER GUESSES WHERE ITS LAST GROUP IS (owner 2026-08-14: "don't
+   * need that 62 on the track message — they're not yet anyhow, but now we have
+   * an on-track section so don't need it").
+   *
+   * An idle room used to infer, from the send record plus the live clock, whether
+   * its group was on the grid, racing, or walking back — so it could say "BACK IN
+   * 4:12" instead of a FREE it had not earned (owner 2026-08-12). That inference
+   * was the only thing on the board that knew where a briefed group had got to.
+   *
+   * It is not any more. Holding says who is in the seats and On track says who is
+   * racing, both from recorded fact rather than from a heat-number match against
+   * a clock — and the screenshot that prompted this shows exactly what the guess
+   * costs when it is wrong: "Session 62 is out on track" while 62 was sitting in
+   * holding, because a briefed group with no finish marker used to read as
+   * on-grid. Two boxes stating facts beat a third box inferring one.
+   *
+   * So an idle room here means an empty room, and says so.
    */
-  const returning = roomReturnStateAt({
-    group: status?.groupOut ?? null,
-    liveHeat: liveClock
-      ? { heatNumber: liveHeatNumber(liveClock.heatName), remainingMs: liveClock.remainingMs }
-      : null,
-    // `track` is already "mega" on a Mega day (the parent resolves it), which is
-    // exactly the "two rooms, one circuit" condition the matcher guards.
-    megaDay: track === "mega",
-    nowMs,
-  });
-  const idleBadge = idleBadgeFor(returning, color);
   const autoTier = tierForRaceType(race?.raceType);
   const tier = tierOverride ?? autoTier;
   // The desk says what will REALLY play before the send: a Pro pick with no Pro
@@ -1208,10 +1314,31 @@ function RoomColumn({
    * alone, so a neighbouring heat can never empty this group's seats.
    */
   const holdingHeat = lane?.holding?.heatNumber ?? null;
+  const holdingSessionId = lane?.holding?.sessionId ?? null;
   const liveHeatNow = liveClock ? liveHeatNumber(liveClock.heatName) : null;
+  const countingNow =
+    holdingHeat != null &&
+    liveHeatNow != null &&
+    holdingHeat === liveHeatNow &&
+    liveClock?.counting === true;
+
+  /**
+   * ONCE SEEN RACING, ALWAYS RACED. The clock only publishes while a heat is
+   * running, so the verdict above evaporates the moment the flag drops — and the
+   * group reappeared in seats they had long since left (owner 2026-08-14:
+   * "session 64 both tracks when finished went back to holding state"). The lane
+   * would normally have ended the claim on its finish marker, but that marker
+   * rides the timing webhook and tonight has shown it does not always arrive.
+   *
+   * So the station remembers, above the scan flash, what it watched happen.
+   */
+  useEffect(() => {
+    if (countingNow) noteLaunched(holdingSessionId);
+  }, [countingNow, holdingSessionId, noteLaunched]);
+
   const launched =
-    holdingHeat != null && liveHeatNow != null && holdingHeat === liveHeatNow && liveClock?.counting
-      ? { heatNumber: holdingHeat }
+    holdingHeat != null && (countingNow || hasLaunched(holdingSessionId))
+      ? { heatNumber: holdingHeat, sessionId: holdingSessionId }
       : null;
 
   /**
@@ -1292,6 +1419,9 @@ function RoomColumn({
                 <div style={{ fontSize: 14, color: PORTAL_DARK.muted, marginTop: 2 }}>
                   {race.raceType}
                 </div>
+                <TotalWait
+                  ms={totalWaitMs(calledAtFor, String(race.sessionId), race, null, nowMs)}
+                />
               </div>
 
               {/* The two numbers that matter before a send. */}
@@ -1459,13 +1589,7 @@ function RoomColumn({
       <Panel
         label="In the room"
         alert={roomAlert}
-        accent={
-          occupied
-            ? phaseColor(timeline.phase, color)
-            : // A room waiting on its group is not a neutral room — the border
-              // carries the warning too, so it reads from across the desk.
-              (idleBadge.accent ?? undefined)
-        }
+        accent={occupied ? phaseColor(timeline.phase, color) : undefined}
         badge={
           <span
             className="rc-num"
@@ -1476,7 +1600,7 @@ function RoomColumn({
               fontSize: 10,
               fontWeight: 800,
               letterSpacing: "0.05em",
-              color: occupied ? phaseColor(timeline.phase, color) : idleBadge.tone,
+              color: occupied ? phaseColor(timeline.phase, color) : PORTAL_DARK.muted,
             }}
           >
             <span
@@ -1485,10 +1609,10 @@ function RoomColumn({
                 width: 7,
                 height: 7,
                 borderRadius: "50%",
-                background: occupied ? phaseColor(timeline.phase, color) : idleBadge.tone,
+                background: occupied ? phaseColor(timeline.phase, color) : PORTAL_DARK.muted,
               }}
             />
-            {occupied ? PHASE_LABEL[timeline.phase].toUpperCase() : idleBadge.label}
+            {occupied ? PHASE_LABEL[timeline.phase].toUpperCase() : "FREE"}
           </span>
         }
       >
@@ -1502,7 +1626,8 @@ function RoomColumn({
           pending={pending}
           cameraExpanded={expandedCamera === room}
           onExpandCamera={() => onExpandCamera(room)}
-          returning={returning}
+          calledAtFor={calledAtFor}
+          race={race}
           alert={roomAlert}
           onStart={onStart}
           onUndo={onUndo}
@@ -1523,6 +1648,7 @@ function RoomColumn({
             launched={launched}
             holdLive={holdLive}
             nowMs={nowMs}
+            calledAtFor={calledAtFor}
             cameraExpanded={expandedCamera === holdingCameraFor(room)}
             onExpandCamera={() => onExpandCamera(holdingCameraFor(room))}
           />
@@ -1536,6 +1662,7 @@ function RoomColumn({
             nowMs={nowMs}
             locked={locked}
             pending={pending}
+            calledAtFor={calledAtFor}
             onRaceReturned={onRaceReturned}
           />
         </>
@@ -1580,6 +1707,7 @@ function HoldingPanel({
   launched,
   holdLive,
   nowMs,
+  calledAtFor,
   cameraExpanded,
   onExpandCamera,
 }: {
@@ -1590,11 +1718,12 @@ function HoldingPanel({
   /** The group whose green flag has been seen — computed in the room column so
    *  Holding and On track can never disagree about it. Null when nobody has
    *  just launched. */
-  launched: { heatNumber: number } | null;
+  launched: { heatNumber: number; sessionId: string | null } | null;
   /** Whether the lane is still held. Also from the column, for the same reason —
    *  the badge here and the press on the On-track box read one value. */
   holdLive: boolean;
   nowMs: number;
+  calledAtFor: CalledAtLookup;
   cameraExpanded: boolean;
   onExpandCamera: () => void;
 }) {
@@ -1603,15 +1732,25 @@ function HoldingPanel({
 
   const heldMs = holding ? Math.max(0, nowMs - holding.atMs) : 0;
 
+  /**
+   * THE BADGE DESCRIBES THE SEATS, NOT THE TRACK (owner 2026-08-14: "why do we
+   * see an on track in holding when that area is free?").
+   *
+   * It used to borrow the track's state — a group out racing turned this box
+   * amber and stamped it ON TRACK, directly above a body line reading "Nobody in
+   * the seats". Two contradictory things in one panel, and the badge is the part
+   * read at a glance, so the panel said "occupied" about an empty area. Where
+   * the racing group actually is was never this box's job: it is spelled out in
+   * the copy below and owns the whole On-track panel underneath.
+   *
+   * So: held is a safety state and keeps the alarm, seated is CLEAR TO SEAT, and
+   * anything else is FREE — because that is what the seats are.
+   */
   const badge = holdLive
     ? { label: "LANE HELD", tone: DANGER }
     : holding
       ? { label: "CLEAR TO SEAT", tone: GREEN }
-      : // A group that has just taken the green flag is ON TRACK even before the
-        // lane's own racing half catches up — the clock is the earlier truth.
-        launched || racing
-        ? { label: "ON TRACK", tone: AMBER }
-        : { label: "EMPTY", tone: PORTAL_DARK.muted };
+      : { label: "FREE", tone: PORTAL_DARK.muted };
 
   return (
     <Panel
@@ -1666,6 +1805,11 @@ function HoldingPanel({
                   <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{holding.raceType}</span>
                 )}
               </div>
+              {/* BELOW the session, never beside it (owner 2026-08-14). Inside
+                  the baseline row it read as part of the heading and pushed the
+                  race type out; on its own line it is a footnote, which is what
+                  it is. */}
+              <TotalWait ms={totalWaitMs(calledAtFor, holding.sessionId, null, null, nowMs)} />
               <Stat
                 label="In the seats"
                 value={formatClock(heldMs)}
@@ -1752,17 +1896,19 @@ function OnTrackPanel({
   nowMs,
   locked,
   pending,
+  calledAtFor,
   onRaceReturned,
 }: {
   track: string;
   color: string;
   lane: PitLaneFeed | null;
   liveClock: LiveSessionClock | null;
-  launched: { heatNumber: number } | null;
+  launched: { heatNumber: number; sessionId: string | null } | null;
   holdLive: boolean;
   nowMs: number;
   locked: boolean;
   pending: string | null;
+  calledAtFor: CalledAtLookup;
   onRaceReturned: () => void;
 }) {
   const racing = lane?.racing ?? null;
@@ -1829,6 +1975,16 @@ function OnTrackPanel({
                 Session {outHeat}
               </div>
               <div style={{ fontSize: 11, color: PORTAL_DARK.muted }}>on {cap(track)} Track</div>
+              <TotalWait
+                ms={totalWaitMs(
+                  calledAtFor,
+                  launched?.sessionId ?? racing?.sessionId ?? null,
+                  null,
+                  racing?.finishedAtMs ?? null,
+                  nowMs,
+                )}
+                done={racing?.finishedAtMs != null}
+              />
             </div>
           )}
 
@@ -1891,23 +2047,24 @@ function InRoom({
   pending,
   cameraExpanded,
   onExpandCamera,
-  returning,
   alert,
   onStart,
   onUndo,
   onSendHolding,
+  calledAtFor,
+  race,
 }: {
   room: BriefingRoom;
   color: string;
   state: BriefingRoomState | null;
   timeline: BriefingTimeline;
+  calledAtFor: CalledAtLookup;
+  race: CurrentRace | null;
   nowMs: number;
   locked: boolean;
   pending: string | null;
   cameraExpanded: boolean;
   onExpandCamera: () => void;
-  /** Whether the room's last group is still out — only consulted while idle. */
-  returning: RoomReturnState;
   /** How overdue the wait for Start is — the box is already flashing, so the
    *  number itself follows rather than staying a calm amber under a red border. */
   alert: AlertLevel;
@@ -1923,6 +2080,11 @@ function InRoom({
   // The ten seconds Start is held for after a send, so the film cannot start
   // before the group has left the desk. Ticks with nowMs.
   const holdMs = startHoldRemainingMs(state, nowMs);
+  /** How long since the film finished — the helmet phase has no end of its own
+   *  any more, so this is what the readout counts up. */
+  const waitingSinceFilmMs = state ? waitingMs - timeline.videoMs : 0;
+  /** The film is still playing, so the group is not going anywhere yet. */
+  const filmRunning = phase === "video";
 
   return (
     // CONTENT HEIGHT, NOT PANEL HEIGHT. This wrapper used to take the panel's
@@ -1952,7 +2114,9 @@ function InRoom({
           }}
         >
           {phase === "idle" ? (
-            <IdleBody returning={returning} color={color} />
+            <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
+              Empty — the TV is showing helmet sizes.
+            </p>
           ) : (
             <>
               <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
@@ -1968,6 +2132,7 @@ function InRoom({
                   </span>
                 )}
               </div>
+              <TotalWait ms={totalWaitMs(calledAtFor, state?.sessionId, race, null, nowMs)} />
 
               {phase === "waiting" && (
                 <>
@@ -2073,10 +2238,15 @@ function InRoom({
                         />
                       </>
                     ) : (
+                      /* THE FILM IS DONE AND NOTHING IS COUNTING. This used to
+                         read "Left … until the room is free" against a 30-second
+                         helmet timer; the room no longer frees itself, so what
+                         staff need is how long the group has been standing there
+                         waiting to be sent to the seats. */
                       <Stat
-                        label="Left"
-                        value={timeline.nextInMs != null ? formatClock(timeline.nextInMs) : "—"}
-                        unit="until the room is free"
+                        label="Helmets"
+                        value={formatClock(Math.max(0, waitingSinceFilmMs))}
+                        unit="since the film ended — send them when ready"
                         big
                         tone={color}
                       />
@@ -2132,7 +2302,7 @@ function InRoom({
                     >
                       {phase === "video" && timeline.videoMs > 0 && (
                         <span className="rc-num" style={{ fontSize: 10, color: PORTAL_DARK.muted }}>
-                          {Math.round(pct)}% · then helmet sizes, then free
+                          {Math.round(pct)}% · then helmet sizes, then send them out
                         </span>
                       )}
                       <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -2151,17 +2321,29 @@ function InRoom({
                         {/* PHASE THREE (owner 2026-08-13): the group walks out
                             to the pit seats. Frees this room for the returning
                             race and flips the pit board's rail to seat them —
-                            without un-briefing the session the way Undo does. */}
+                            without un-briefing the session the way Undo does.
+
+                            NOT WHILE THE FILM IS PLAYING (owner 2026-08-14: "send
+                            to holding should not be available till video is
+                            over"). The safety briefing is the one thing this room
+                            exists to deliver, and a group sent to the seats
+                            part-way through it has not had it. Disabled rather
+                            than hidden, so staff can see the next step coming and
+                            the row does not reflow when the film ends. */}
                         <ActionButton
                           size="sm"
                           tone={GREEN}
                           textColor="#052e14"
                           pendingKey={`holding:${room}`}
                           pending={pending}
-                          disabled={locked || !state?.sessionId}
+                          disabled={locked || !state?.sessionId || filmRunning}
                           pendingLabel="Sending…"
                           onClick={onSendHolding}
-                          title="The group is leaving for the pit seats — frees this room and tells the pit board to seat them"
+                          title={
+                            filmRunning
+                              ? "The safety film is still playing — this unlocks when it finishes"
+                              : "The group is leaving for the pit seats — frees this room and tells the pit board to seat them"
+                          }
                         >
                           ➜ Send to holding
                         </ActionButton>
@@ -2216,96 +2398,6 @@ function InRoom({
         </div>
       )}
     </div>
-  );
-}
-
-/* ── an empty room, and whether it is really empty ────────────────────── */
-
-/**
- * The idle badge — the one that used to just say FREE.
- *
- * FREE IS NOW A CLAIM THE BOARD HAS TO EARN (owner 2026-08-12: "Free might not be
- * the right word here… it can say free about 1 minute after the race has
- * finished"). A room whose group is out on track has that group's return time on
- * it instead, counted off the live on-track clock; the words only fall back to
- * FREE once room-return.ts can say nobody is outstanding.
- */
-function idleBadgeFor(
-  returning: RoomReturnState,
-  color: string,
-): { label: string; tone: string; accent?: string } {
-  switch (returning.kind) {
-    case "racing":
-      return { label: `BACK IN ${formatClock(returning.remainingMs)}`, tone: AMBER, accent: AMBER };
-    case "on-grid":
-      return { label: "OUT ON TRACK", tone: AMBER, accent: AMBER };
-    case "returning":
-      return { label: "RETURNING NOW", tone: color, accent: color };
-    default:
-      return { label: "FREE", tone: PORTAL_DARK.muted };
-  }
-}
-
-/**
- * What an idle room's left column says. Three of the four states are "this room is
- * spoken for", and each one names the session — a bare "out on track" would leave
- * staff checking the send log to find out whose kit is about to arrive.
- */
-function IdleBody({ returning, color }: { returning: RoomReturnState; color: string }) {
-  const session = (heat: number | null) => (heat != null ? `Session ${heat}` : "The last group");
-
-  if (returning.kind === "racing") {
-    return (
-      <>
-        <Stat
-          label="Back in"
-          value={formatClock(returning.remainingMs)}
-          unit={`${session(returning.heatNumber).toLowerCase()} on track`}
-          tone={AMBER}
-          big
-        />
-        <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
-          Helmet sizes are up, but this room is spoken for — they come back here to hand kit in.
-        </p>
-      </>
-    );
-  }
-
-  if (returning.kind === "on-grid") {
-    return (
-      <>
-        <div style={{ fontSize: 15, fontWeight: 800, color: AMBER }}>
-          {session(returning.heatNumber)} is out on track
-        </div>
-        <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
-          Waiting on the flag — no clock on this track yet. They return here afterwards.
-        </p>
-      </>
-    );
-  }
-
-  if (returning.kind === "returning") {
-    return (
-      <>
-        <Stat
-          label="Returning"
-          value="Now"
-          unit={`${session(returning.heatNumber).toLowerCase()} · kit return`}
-          tone={color}
-          big
-        />
-        <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
-          Race finished {formatClock(returning.sinceEndMs)} ago — the TV is on the welcome-back
-          board.
-        </p>
-      </>
-    );
-  }
-
-  return (
-    <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
-      Empty — the TV is showing helmet sizes.
-    </p>
   );
 }
 
@@ -3228,6 +3320,17 @@ function Panel({
       </div>
       {children}
     </div>
+  );
+}
+
+/** One leg of the journey. A leg we cannot measure is a thin dash, never a
+ *  zero — zero is a real answer here (a group sent the moment they were
+ *  called) and must not be confused with "we do not know". */
+function Leg({ ms, pending }: { ms: number | null; pending?: string }) {
+  return (
+    <span className="rc-num" style={{ minWidth: 66, color: ms != null ? INK : PORTAL_DARK.muted }}>
+      {ms != null ? formatClock(ms) : (pending ?? "—")}
+    </span>
   );
 }
 

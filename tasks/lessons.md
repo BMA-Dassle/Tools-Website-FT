@@ -4185,3 +4185,48 @@ that one surface.
 4. **A guard that fails closed can still mis-charge, in the other direction.** The
    refusal (junior → junior SKU) was the visible half and looked like the whole bug;
    the acceptance (junior → adult SKU, +$5) moved real money and was silent.
+
+## An unattended launcher cannot use keystrokes — Windows refuses it the foreground (2026-08-14)
+
+**What happened:** `scripts/tv-pit-boards.bat` puts the Blue (FT:7) and Red (FT:8)
+pit boards fullscreen on two monitors of one player PC. Two cuts of it failed on the
+real hardware. First cut: both boards landed on the right monitors but each kept an
+Edge title bar with the min/max/close buttons across the top of the wall. Second cut:
+the right-hand board went fullscreen for about a minute and then dropped back OUT of
+fullscreen, and the left-hand board never went fullscreen at all.
+
+**Root cause, two separate wrong assumptions:**
+
+1. `--app=URL` and `--start-fullscreen` do not compose. Edge honours
+   `--start-fullscreen` for normal browser windows and silently IGNORES it for `--app`
+   windows, so the board was placed correctly and stayed framed. Measured three
+   variants side by side: `--kiosk` → exactly screen bounds, no title bar;
+   `--start-fullscreen` (no `--app`) → same; `--app` alone → 875x625, framed.
+2. The fix for that was to send F11 to the window after launch (`WScript.Shell`
+   `AppActivate` + `SendKeys`). F11 only reaches the FOREGROUND window, and Windows
+   refuses `SetForegroundWindow` to a process that does not already own the
+   foreground — which is every script autostarted at sign-in. Instrumented run:
+   activation failed **12 times out of 12** for the second board, and the F11 that
+   was meant for it landed on the FIRST board and toggled it back out of fullscreen.
+   Adding a stagger between the two only changed which board lost.
+
+**The rules:**
+
+1. **Nothing in an unattended launcher may depend on window focus or a synthetic
+   keystroke.** Foreground rights are not ours to take at sign-in. Whatever the wall
+   needs must be expressed as a startup flag the browser applies itself, before
+   anyone can be looking at it.
+2. **A focus-dependent action is not just unreliable, it is DESTRUCTIVE to its
+   neighbours.** A keystroke aimed at a window that never came forward does not
+   vanish — it hits whatever did. One board's failed fullscreen un-fullscreened the
+   other, so the second symptom looked nothing like the first cause.
+3. **Two flags each verified alone are not a verified combination.** `--window-position`
+   was confirmed on the real dual-monitor player and `--start-fullscreen` was measured
+   on the dev box; that the second respects the first is still an inference, and it is
+   labelled as such in the file with the recovery step beside it. Say which half you
+   measured.
+4. **Verify a launcher by MEASURING the window, not by looking at it.** UIAutomation
+   `BoundingRectangle` against the monitor bounds is the check. It caught that
+   `--app` was framed, that F11 had silently reverted, and it reads in PHYSICAL pixels
+   while `Screen.Bounds` reads DPI-virtualised — the two only agree at 100% scaling,
+   which is why the player must be set to 100%.

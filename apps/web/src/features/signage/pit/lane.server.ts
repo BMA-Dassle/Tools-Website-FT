@@ -31,8 +31,12 @@ import "server-only";
  */
 import redis from "@/lib/redis";
 import { businessDayYmdET } from "@/lib/race-business-day";
-import { recordBriefingEvent } from "../briefing/events-db";
+import { afterResponse } from "../after-response.server";
+import { primeFastRoster } from "./fast-roster.server";
+import { bookmarkBriefingEndAfter } from "../briefing/bookmarks.server";
+import { recordBriefingEvent, type BriefingEndReason } from "../briefing/events-db";
 import { readRaceFinishedMarker } from "../briefing/race-finish.server";
+import { liveHeatKey, type LiveHeat } from "../briefing/race-state-watch.server";
 import { clearBriefingRoom, sessionBriefed } from "../briefing/state.server";
 import type { BriefingRoom } from "../briefing/types";
 import type { TrackKey } from "../track";
@@ -85,14 +89,132 @@ async function writeStoredLane(track: TrackKey, lane: StoredPitLane): Promise<vo
 }
 
 /**
+ * THE "KARTS RETURNING" HOLD IS PARKED (owner 2026-08-14: "can we comment out
+ * the karts returning for now and just clear that race slot. We will add this
+ * back later").
+ *
+ * The designed flow is: a race finishes → the lane is unsafe while karts come
+ * in → a human who can SEE the lane presses "race returned" and only then does
+ * the board say it is safe to seat. Never a timer, deliberately, because the
+ * hold is a safety statement.
+ *
+ * In practice the press is not happening, so the hold simply never released and
+ * a finished race sat on the boards behind an amber flash all evening. A state
+ * nobody clears is worse than no state: staff learn to ignore the one colour on
+ * the board that means "stop".
+ *
+ * So while this is false a finished race just LEAVES the lane. Everything that
+ * implements the hold is untouched below and in pit-board.ts — this is one flag,
+ * not a deletion, so putting it back is a one-word change once the press has a
+ * home (a pit-side button, or the camera telling us the lane is clear).
+ */
+const KARTS_RETURNING_HOLD = false;
+
+/**
+ * HAS THE TRACK MOVED ON PAST THIS HEAT?
+ *
+ * THE BRIDGE-DOWN FALLBACK (owner 2026-08-14, live: "18 is stuck in holding and
+ * never moved to racing… 17 is stuck racing"). Everything below promotes on the
+ * venue broadcast's finish marker, which arrives over the kart bridge — and that
+ * bridge went silent at 07:02 that day and stayed silent for seven hours while
+ * heats kept running. With no marker there is no promotion, so a group sat in
+ * the seats on the board long after they had raced, and the group ahead of them
+ * stayed "on track" all evening.
+ *
+ * The timing socket is a second, independent witness, sampled once a minute by
+ * the pause watcher and published as a plain key (race-state-watch.server.ts).
+ * A STRICTLY LATER heat being loaded on that track is proof this one is over.
+ *
+ * Deliberately conservative, because being wrong here puts a group on track who
+ * is sitting in the pits:
+ *   • strictly greater, never equal — the heat currently loaded is the one being
+ *     run, not a finished one;
+ *   • the reading must be FRESH, so a stale key from hours ago cannot retire
+ *     tonight's group;
+ *   • absent, unreadable or older heat ⇒ no opinion, and the marker rules below
+ *     are left to decide exactly as before.
+ *
+ * It can only ever ADD a promotion the finish marker would have made anyway, so
+ * a working bridge behaves identically.
+ */
+const LIVE_HEAT_FRESH_MS = 10 * 60_000;
+
+/**
+ * Has this holding group gone out? Two ways to be sure, both from the socket.
+ *
+ * ON TRACK NOW — the loaded heat IS this group and the clock is doing
+ * something (running, paused, or already finished). This is the answer to
+ * "it should move from holding to race when that session starts on track,
+ * should it not?" (owner 2026-08-14) — yes, and this is what makes it possible.
+ * It could not be done from the broadcast's RaceStart, which fires at phase one
+ * of the two-phase start with karts rolling out and stragglers still being
+ * seated (see the note below), so promoting on it would have emptied the seats
+ * while staff were still filling them. The socket's run state is the green flag
+ * plus an active countdown — the exact thing the owner described on 2026-08-13
+ * — rather than the intent to start one.
+ *
+ * SUPERSEDED — a strictly LATER heat is loaded, so whatever happened to this
+ * one, it is over. This is the recovery path for a night when the broadcast
+ * never told us anything at all.
+ *
+ * `none` is not an answer: a track sitting between heats says nothing about the
+ * group in the seats. Nor is a stale reading, nor an absent one.
+ */
+async function readLiveHeat(track: TrackKey): Promise<LiveHeat | null> {
+  try {
+    const raw = await redis.get(liveHeatKey(track));
+    if (!raw) return null;
+    const live = JSON.parse(raw) as LiveHeat;
+    if (!Number.isFinite(live?.heatNumber) || !Number.isFinite(live?.atMs)) return null;
+    if (Date.now() - live.atMs > LIVE_HEAT_FRESH_MS) return null;
+    return live;
+  } catch {
+    return null;
+  }
+}
+
+/** Is this heat out on track (or already past)? See the note above. */
+function liveSaysGoneOut(live: LiveHeat | null, heatNumber: number | null): boolean {
+  if (!live || heatNumber == null) return false;
+  if (live.heatNumber > heatNumber) return true;
+  return live.heatNumber === heatNumber && live.state !== "none";
+}
+
+/**
+ * WHEN THIS HEAT FINISHED, according to the socket — the other half of the same
+ * fallback, and the half that was missing.
+ *
+ * Promoting a group to `racing` without a finish time left them reading RACING
+ * for as long as the board was up: the rail only stops counting once it has an
+ * end, and the end came exclusively from the broadcast marker (owner 2026-08-14,
+ * on a board still showing "Session 25 · racing · 44 min total so far" for a
+ * race that was long over). So the same witness that says a heat went out is now
+ * also allowed to say it is done.
+ *
+ * The timestamp is WHEN WE SAW IT, not the venue's own stamp — the socket has no
+ * end time to give. That is honest and it is late by at most one sample, which
+ * is the right direction: a hold that starts a minute late is a board catching
+ * up, while one that starts early would say the lane is safe before it is. A
+ * real marker always wins when it exists.
+ */
+function liveSaysFinishedAtMs(live: LiveHeat | null, heatNumber: number | null): number | null {
+  if (!live || heatNumber == null) return null;
+  if (live.heatNumber > heatNumber) return live.atMs;
+  if (live.heatNumber === heatNumber && live.state === "finished") return live.atMs;
+  return null;
+}
+
+/**
  * Resolve a stored lane to what is true now: a holding group whose start
  * marker has landed IS the racing group, whatever the stored state says.
  */
-async function resolveLane(stored: StoredPitLane | null): Promise<PitLaneFeed> {
+async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promise<PitLaneFeed> {
   if (!stored) return EMPTY_PIT_LANE;
 
   let holding = stored.holding;
   let racing = stored.racing;
+  // One read per track, shared by both slots below.
+  const live = await readLiveHeat(track);
   if (holding) {
     // HOLDING PERSISTS THROUGH THE RACE (owner 2026-08-13: "our session
     // follows the race marked in holding; green flag + active countdown moves
@@ -103,7 +225,11 @@ async function resolveLane(stored: StoredPitLane | null): Promise<PitLaneFeed> {
     // taking the seats (see sendToHolding's displacement); the wall's own
     // holding→racing presentation is the client's counting verdict.
     const finished = await readRaceFinishedMarker(holding.sessionId).catch(() => null);
-    if (finished != null) {
+    // Either witness will do: the broadcast's own finish marker, or the timing
+    // socket showing this heat on track (or a later one loaded). See
+    // holdingHasGoneOut.
+    const goneOut = finished == null && liveSaysGoneOut(live, holding.heatNumber);
+    if (finished != null || goneOut) {
       racing = {
         sessionId: holding.sessionId,
         heatNumber: holding.heatNumber,
@@ -129,8 +255,30 @@ async function resolveLane(stored: StoredPitLane | null): Promise<PitLaneFeed> {
   }
 
   const finish = await readRaceFinishedMarker(racing.sessionId).catch(() => null);
+  // The broadcast's own stamp when we have it; the socket's observation when we
+  // do not, so a race that is demonstrably over stops reading as still running.
+  const finishedAtMs = finish?.endedAtMs ?? liveSaysFinishedAtMs(live, racing.heatNumber);
   const pittedAtMs =
     stored.pitted && stored.pitted.sessionId === racing.sessionId ? stored.pitted.atMs : null;
+
+  // PARKED: a finished race leaves the lane instead of holding it. See
+  // KARTS_RETURNING_HOLD. `pitted` still clears it too, so a night that was
+  // already mid-flow when this shipped behaves the same.
+  if (!KARTS_RETURNING_HOLD && finishedAtMs != null) {
+    return {
+      holding: holding
+        ? {
+            sessionId: holding.sessionId,
+            heatNumber: holding.heatNumber,
+            raceType: holding.raceType,
+            room: holding.room,
+            atMs: holding.atMs,
+          }
+        : null,
+      racing: null,
+    };
+  }
+
   return {
     holding: holding
       ? {
@@ -144,7 +292,7 @@ async function resolveLane(stored: StoredPitLane | null): Promise<PitLaneFeed> {
     racing: {
       sessionId: racing.sessionId,
       heatNumber: racing.heatNumber,
-      finishedAtMs: finish?.endedAtMs ?? null,
+      finishedAtMs,
       pittedAtMs,
     },
   };
@@ -152,7 +300,7 @@ async function resolveLane(stored: StoredPitLane | null): Promise<PitLaneFeed> {
 
 /** One track's resolved lane. */
 export async function readPitLane(track: TrackKey): Promise<PitLaneFeed> {
-  return resolveLane(await readStoredLane(track));
+  return resolveLane(await readStoredLane(track), track);
 }
 
 /** Every track's resolved lane — what the pulse carries. One MGET for the
@@ -167,7 +315,7 @@ export async function readPitLanes(): Promise<PitLanes> {
         const value = raw[i];
         if (!value) return;
         try {
-          out[track] = await resolveLane(JSON.parse(value) as StoredPitLane);
+          out[track] = await resolveLane(JSON.parse(value) as StoredPitLane, track);
         } catch {
           /* one malformed lane must not cost the other tracks */
         }
@@ -187,6 +335,16 @@ export interface SendToHoldingArgs {
   sessionId: string;
   heatNumber: number | null;
   raceType: string | null;
+  /**
+   * How the room came to be released. Defaults to the staff press.
+   *
+   * `auto-holding` is the camera sweep having observed the room empty
+   * (briefing/auto-holding.ts). It rides the SAME function rather than a
+   * parallel one on purpose: the displacement rule below, the room clear, the
+   * log write and the bookmark all have to behave identically whoever decided
+   * it, and two code paths is how they would stop.
+   */
+  reason?: Extract<BriefingEndReason, "holding" | "auto-holding">;
 }
 
 /**
@@ -205,6 +363,9 @@ export interface SendToHoldingArgs {
  * the one start signal that needs no marker at all.
  */
 export async function sendToHolding(args: SendToHoldingArgs): Promise<{ ok: true }> {
+  const reason = args.reason ?? "holding";
+  const endedAtMs = Date.now();
+
   // Durable first — the room occupancy's explicit end.
   await recordBriefingEvent({
     venue: VENUE,
@@ -216,7 +377,26 @@ export async function sendToHolding(args: SendToHoldingArgs): Promise<{ ok: true
     raceType: args.raceType,
     tier: null,
     action: "ended",
-    reason: "holding",
+    reason,
+  });
+
+  /**
+   * MARK THE NVR'S OWN TIMELINE (owner 2026-08-14). A signpost on the footage so
+   * a later question can be answered by opening the camera rather than scrubbing.
+   *
+   * QUEUED FOR AFTER THE RESPONSE, NOT AWAITED. It was awaited at first, and the
+   * owner felt it the same evening: "when we hit send to holding the assignment
+   * TVs can update a bit faster, takes a few seconds." The press has to free the
+   * room and repaint the pit boards; a round trip to the NVR has no business
+   * being in front of that. See afterResponse in bookmarks.server.ts.
+   */
+  bookmarkBriefingEndAfter({
+    room: args.room,
+    track: args.track,
+    heatNumber: args.heatNumber,
+    raceType: args.raceType,
+    atMs: endedAtMs,
+    automatic: reason === "auto-holding",
   });
 
   // The room is free the moment the group walks out of it. Deliberately NOT
@@ -252,6 +432,20 @@ export async function sendToHolding(args: SendToHoldingArgs): Promise<{ ok: true
         : null,
   });
 
+  /**
+   * WARM THE BOARD'S ROSTER (owner 2026-08-14: "I need those names to pop right
+   * after they hit send to holding").
+   *
+   * The pit board reads its session straight off the lane we just wrote, so the
+   * very next 2-second pulse asks about a session nothing has cached — and pays
+   * for a Pandora read inside that pulse. Filling the cache here means the names
+   * arrive with the rail rather than a beat or two behind it.
+   *
+   * After the response, like the bookmark above: this exists to make the wall
+   * faster, so it must never make the press slower.
+   */
+  afterResponse(() => primeFastRoster(args.sessionId, Date.now()));
+
   return { ok: true };
 }
 
@@ -262,11 +456,119 @@ export async function sendToHolding(args: SendToHoldingArgs): Promise<{ ok: true
  * (ok:false) when there is nothing to return: a stray press with an empty
  * lane must not write a stamp that would silently release the NEXT hold.
  */
+/**
+ * STAFF OVERRIDE — put a session in a lane slot by hand, or empty the slot.
+ *
+ * WHY THIS EXISTS. Every automatic transition on this board depends on
+ * something outside the building: Pandora naming the called heat, the timing
+ * webhook stamping a start or a finish, the live socket reaching the desk. On
+ * 2026-08-13/14 all three failed in one night — Pandora's races/current
+ * returned 500 for hours, start markers never arrived, finishes had to be
+ * written by hand from a script — and the desk had no way to say what staff
+ * could plainly see. Every correction meant somebody with a Redis client.
+ *
+ * So the board gets the same power the script had, with the same guard rails.
+ *
+ * ONE SESSION PER SLOT, ENFORCED HERE. A lane holds one group in the seats and
+ * one group on track; putting a second into either would make the board lie in
+ * a way staff could not see (owner 2026-08-14: "if something is already in that
+ * state it would need changed first before moving another race to that state").
+ * The refusal names the occupant, because "clear it first" is only actionable
+ * if you know what "it" is. Refusing rather than displacing is deliberate: an
+ * override is a claim about the real world, and two claims about one place mean
+ * somebody is wrong and should look before overwriting.
+ *
+ * The stored shape is exactly what the presses write, so nothing downstream can
+ * tell an override from an ordinary night.
+ */
+export interface LaneSlotOccupant {
+  sessionId: string;
+  heatNumber: number | null;
+  raceType: string | null;
+  room: BriefingRoom | null;
+}
+
+export type LaneSlot = "holding" | "racing";
+
+export async function overrideLaneSlot(args: {
+  track: TrackKey;
+  slot: LaneSlot;
+  /** Null empties the slot. */
+  occupant: LaneSlotOccupant | null;
+  /** Replace whatever is there, even a different session. The desk asks for
+   *  this only after showing the staff member who is being displaced. */
+  force?: boolean;
+}): Promise<{ ok: boolean; error?: string; occupiedBy?: string }> {
+  const stored = (await readStoredLane(args.track)) ?? {
+    holding: null,
+    racing: null,
+    pitted: null,
+  };
+
+  const current = stored[args.slot];
+  if (!args.force && args.occupant && current && current.sessionId !== args.occupant.sessionId) {
+    return {
+      ok: false,
+      error:
+        `${args.track} ${args.slot} already holds ` +
+        `${current.heatNumber != null ? `session ${current.heatNumber}` : "another session"}` +
+        ` — clear it first`,
+      occupiedBy: current.sessionId,
+    };
+  }
+
+  const next: StoredPitLane = { ...stored };
+  if (args.slot === "holding") {
+    next.holding = args.occupant
+      ? {
+          sessionId: args.occupant.sessionId,
+          heatNumber: args.occupant.heatNumber,
+          raceType: args.occupant.raceType,
+          room: args.occupant.room,
+          atMs: Date.now(),
+        }
+      : null;
+  } else {
+    next.racing = args.occupant
+      ? {
+          sessionId: args.occupant.sessionId,
+          heatNumber: args.occupant.heatNumber,
+          room: args.occupant.room,
+        }
+      : null;
+    // A pitted stamp belongs to the session it answered. Moving a different
+    // group onto the track must not inherit "their karts are already back".
+    if (next.pitted && next.pitted.sessionId !== args.occupant?.sessionId) {
+      next.pitted = null;
+    }
+  }
+
+  await writeStoredLane(args.track, next);
+
+  // The durable trail, so a hand-placed group is still answerable tomorrow.
+  if (args.occupant) {
+    await recordBriefingEvent({
+      venue: VENUE,
+      businessDay: businessDayYmdET(),
+      room: args.occupant.room ?? "red",
+      track: args.track,
+      sessionId: args.occupant.sessionId,
+      heatNumber: args.occupant.heatNumber,
+      raceType: args.occupant.raceType,
+      tier: null,
+      action: args.slot === "holding" ? "ended" : "pitted",
+      reason: "override",
+    }).catch(() => {});
+  }
+
+  return { ok: true };
+}
+
 export async function markRacePitted(
   track: TrackKey,
 ): Promise<{ ok: boolean; error?: string; sessionId?: string }> {
   const stored = await readStoredLane(track);
-  const resolved = await resolveLane(stored);
+  const resolved = await resolveLane(stored, track);
   const racing = resolved.racing;
   if (!racing) {
     return { ok: false, error: "no race is out on that track — nothing to return" };

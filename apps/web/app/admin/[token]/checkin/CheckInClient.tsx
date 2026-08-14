@@ -18,6 +18,10 @@ import {
 
 /** The board's warning amber, same value the briefing panels use. */
 const AMBER = "#f0b341";
+const withAlphaAmber = (a: number) => `rgba(240,179,65,${a})`;
+/** The board's green — same value as RaceControlPanels and OverridePanel, so an
+ *  armed switch here reads as the same "good" as an all-here Called box. */
+const GREEN = "#4ade80";
 
 type ConnectionState = "idle" | "connecting" | "ready" | "error";
 type ScanState = "idle" | "processing" | "result";
@@ -103,6 +107,15 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
    * return, so the state and its poller do too.
    */
   const briefing = useBriefingControl(token, boardMode);
+  /**
+   * Is the camera sweep armed? Read off the board poll, so this desk shows a
+   * change made at the other one. Defaults ON before the first poll lands —
+   * the same direction as the server's kill switch, so the sheet never briefly
+   * claims OFF for a switch that is actually running.
+   */
+  const autoHoldingOn = briefing.board?.autoHolding?.enabled !== false;
+  /** Race-event camera bookmarks — the second server-wide switch on the sheet. */
+  const raceBookmarksOn = briefing.board?.raceBookmarks?.enabled !== false;
 
   // Declared HERE, above every reader. It used to sit just before the return, and
   // the board-mode header below reads it — a const referenced above its own
@@ -178,10 +191,18 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
   } | null>(null);
   const [showSelfTest, setShowSelfTest] = useState(false);
 
-  // Live session status — polled every 5s via admin endpoint (calls Pandora
-  // directly for checkedIn counts). Covers called races AND HP Arena
-  // sessions in their check-in window; `track` carries the track name for
-  // races ("blue") or the activity name for arena ("Laser Tag").
+  // Live session status via the admin endpoint (which calls Pandora directly
+  // for checkedIn counts). Covers called races AND HP Arena sessions in their
+  // check-in window; `track` carries the track name for races ("blue") or the
+  // activity name for arena ("Laser Tag").
+  //
+  // POLLED EVERY 15s, NOT 5s. Each poll costs `2 + N` live Pandora calls with
+  // no cache upstream — at five seconds that was 48 calls/minute from a single
+  // tab, from a page that is opened at several stations and left open all
+  // shift. This is a checked-in COUNT next to a heat number; fifteen seconds
+  // has never been the difference between calling a heat and not. Paired with
+  // the 10s server-side cache in /api/admin/checkin, so several tabs share one
+  // fan-out rather than each buying their own.
   interface ActiveSession {
     track: string;
     raceType: string;
@@ -195,21 +216,37 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
 
   useEffect(() => {
     let mounted = true;
+    // NEVER TWO IN FLIGHT AT ONCE. setInterval fires on the clock regardless of
+    // whether the last poll came back, so when Pandora slows past the interval
+    // the requests overlap and stack — the board quietly multiplies its own
+    // load on the upstream at the exact moment the upstream is struggling
+    // (2026-08-13: Pandora answering in 5-10s from iad1 while this polled every
+    // 5s). A tick that arrives with one still open is dropped instead.
+    let inFlight = false;
     async function poll() {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const res = await fetch(
           `/api/admin/checkin?token=${encodeURIComponent(token)}&action=session-stats`,
-          { cache: "no-store" },
+          // The timeout is what GUARANTEES `inFlight` clears — an untimed fetch
+          // that never settles would wedge the poller for the rest of the
+          // shift. Aborting here doesn't cancel the server's work, and that is
+          // fine: it still fills the 10s cache, so the next tick reads it back
+          // instantly.
+          { cache: "no-store", signal: AbortSignal.timeout(20_000) },
         );
         if (!res.ok || !mounted) return;
         const data = await res.json();
         if (mounted && Array.isArray(data?.sessions)) setActiveSessions(data.sessions);
       } catch {
         /* silent */
+      } finally {
+        inFlight = false;
       }
     }
     poll();
-    const iv = setInterval(poll, 5_000);
+    const iv = setInterval(poll, 15_000);
     return () => {
       mounted = false;
       clearInterval(iv);
@@ -927,6 +964,17 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
               check-in station has no briefing board to report on. */}
           {boardMode && (
             <>
+              {/* OVERRIDE — the manual placement modal. Amber because it is a
+                  correction, not a step: every other control on this bar does
+                  what the flow does, and this one says the flow got it wrong. */}
+              <button
+                type="button"
+                onClick={() => briefing.setOpenPanel("override")}
+                className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5"
+                style={{ borderColor: withAlphaAmber(0.55), color: AMBER, borderRadius: 8 }}
+              >
+                Override
+              </button>
               <button
                 type="button"
                 onClick={() => briefing.setOpenPanel("waits")}
@@ -1095,6 +1143,84 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
           <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
             Disconnect and reconnect after changing baud rate.
           </p>
+
+          {/*
+            AUTO-MOVE TO HOLDING — the camera sweep's kill switch (owner
+            2026-08-14). Here rather than on the board itself because it governs
+            how the night is decided, not what happens to one heat: staff throw
+            it when the automatic path is misbehaving and they want the evening
+            back on manual presses.
+
+            It reads its state from the board poll, so it shows the truth even if
+            the other desk flipped it — and it is a SERVER setting, unlike the
+            baud rate above, which is this PC's own. The copy says so, because a
+            switch that looks device-local but is not is how one desk silently
+            changes another's night.
+          */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+              Auto-move to holding
+            </p>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoHoldingOn}
+              disabled={!briefing.board}
+              onClick={() => briefing.setAutoHolding(!autoHoldingOn)}
+              className="px-3 py-1.5 text-xs border hover:bg-white/5"
+              style={{
+                borderRadius: 8,
+                borderColor: autoHoldingOn ? GREEN : PORTAL_DARK.inputBorder,
+                backgroundColor: autoHoldingOn ? `${GREEN}22` : "transparent",
+                color: autoHoldingOn ? GREEN : PORTAL_DARK.muted,
+                opacity: briefing.board ? 1 : 0.5,
+              }}
+            >
+              {autoHoldingOn ? "On" : "Off"}
+            </button>
+            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+              {autoHoldingOn
+                ? "When a room goes quiet on camera after the briefing, its group moves to holding on its own. Staff can still press Send to holding at any time."
+                : "Groups only move to holding when staff press Send to holding."}{" "}
+              This setting applies to every check-in station, not just this one.
+            </p>
+          </div>
+
+          {/*
+            RACE CAMERA BOOKMARKS — the second server-wide switch (owner
+            2026-08-14). Its own control rather than a mode of the one above,
+            because the two are unrelated: that one moves groups through the
+            night, this one only annotates footage. The likeliest reason to
+            reach for this is volume, so the copy names it.
+          */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+              Race camera bookmarks
+            </p>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={raceBookmarksOn}
+              disabled={!briefing.board}
+              onClick={() => briefing.setRaceBookmarks(!raceBookmarksOn)}
+              className="px-3 py-1.5 text-xs border hover:bg-white/5"
+              style={{
+                borderRadius: 8,
+                borderColor: raceBookmarksOn ? GREEN : PORTAL_DARK.inputBorder,
+                backgroundColor: raceBookmarksOn ? `${GREEN}22` : "transparent",
+                color: raceBookmarksOn ? GREEN : PORTAL_DARK.muted,
+                opacity: briefing.board ? 1 : 0.5,
+              }}
+            >
+              {raceBookmarksOn ? "On" : "Off"}
+            </button>
+            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+              {raceBookmarksOn
+                ? "Session start, pause, resume and end are marked in Nx on every camera for that track, so footage can be found by session instead of by scrubbing."
+                : "Nothing new is written to the track cameras. Bookmarks already written stay."}{" "}
+              Applies to every station.
+            </p>
+          </div>
         </div>
       )}
 

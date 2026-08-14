@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { buildStartupScript, startupScriptFileName, startupInstructions } from "./startup-script";
+import {
+  buildStartupScript,
+  startupScriptFileName,
+  startupInstructions,
+  buildDualStartupScript,
+  dualStartupScriptFileName,
+  dualStartupInstructions,
+} from "./startup-script";
 
 const script = buildStartupScript({
   screenId: "FT:1",
@@ -114,5 +121,101 @@ describe("instructions", () => {
   it("warns that replacing the shell removes the desktop", () => {
     // Someone will try this on their own laptop otherwise.
     expect(steps.join(" ")).toMatch(/no Start menu|Safe Mode/);
+  });
+});
+
+/* ── two monitors, one player PC ───────────────────────────────────────── */
+
+const dual = buildDualStartupScript({
+  left: { screenId: "FT:7", name: "Blue Pit", url: "https://fasttraxent.com/tv?screen=FT:7" },
+  right: { screenId: "FT:8", name: "Red Pit", url: "https://fasttraxent.com/tv?screen=FT:8" },
+});
+
+/** The executable lines — comments explain the approaches that FAILED, and a
+ *  naive `toContain` would happily match those and pass for the wrong reason. */
+const dualCode = dual
+  .split("\r\n")
+  .filter((l) => !/^\s*REM\b/.test(l))
+  .join("\n");
+
+describe("two-monitor startup script", () => {
+  it("uses CRLF line endings", () => {
+    expect(dual).toContain("\r\n");
+    expect(dual.replace(/\r\n/g, "")).not.toContain("\n");
+  });
+
+  it("opens BOTH screens, left first", () => {
+    expect(dualCode).toContain("https://fasttraxent.com/tv?screen=FT:7");
+    expect(dualCode).toContain("https://fasttraxent.com/tv?screen=FT:8");
+    // Left is the one this console babysits; right is the one it spawns.
+    expect(dualCode).toMatch(/set "LEFT_URL=.*FT:7"/);
+    expect(dualCode).toMatch(/set "RIGHT_URL=.*FT:8"/);
+    expect(dualCode).toContain('set "TV_URL=%LEFT_URL%"');
+  });
+
+  it("gives each board its OWN Edge profile", () => {
+    // Sharing a profile means the second launch hands its URL to the first
+    // instance and every window flag is ignored — both boards on one monitor.
+    expect(dualCode).toContain('set "LEFT_SLOT=ft-7"');
+    expect(dualCode).toContain('set "RIGHT_SLOT=ft-8"');
+    expect(dualCode).toContain('set "TV_PROFILE=C:\\TV\\profile-%TV_SLOT%"');
+  });
+
+  it("places by --window-position and fullscreens by --start-fullscreen", () => {
+    expect(dualCode).toContain("--window-position=%TV_X%,%TV_Y%");
+    expect(dualCode).toContain("--start-fullscreen");
+  });
+
+  it("never reintroduces the three approaches that failed on real hardware", () => {
+    // --app: Edge ignores --start-fullscreen for app windows, so the board keeps
+    // a title bar. --kiosk: claims the primary display, so it cannot drive two
+    // monitors. SendKeys F11: needs foreground rights no autostarted script has,
+    // and a stray F11 knocks the OTHER board out of fullscreen.
+    expect(dualCode).not.toContain("--app=");
+    expect(dualCode).not.toContain("--kiosk");
+    expect(dualCode).not.toContain("SendKeys");
+    expect(dualCode).not.toContain("AppActivate");
+  });
+
+  it("warns when the PC forces Edge sign-in", () => {
+    // BrowserSignin=2 shows "your admin needs you to sign in" INSTEAD of the
+    // board, and nothing on a dark wall says why.
+    expect(dualCode).toContain("BrowserSignin");
+    expect(dual).toContain("FORCES EDGE SIGN-IN");
+  });
+
+  it("reads the monitor layout without a pipe in the probe", () => {
+    // A `^|` inside a for /f backquote reaches PowerShell literally and the whole
+    // probe falls back to hardcoded 1920x1080 guesses.
+    const probe = dualCode.split("\n").find((l) => l.includes("AllScreens")) ?? "";
+    expect(probe, "the monitor probe line").not.toBe("");
+    expect(probe).not.toContain("|");
+    expect(dualCode).toContain("MON_COUNT");
+  });
+
+  it("relaunches forever and staggers nothing on focus", () => {
+    expect(dualCode).toContain("goto launch");
+    expect(dualCode).toContain('start "" /wait "%EDGE%"');
+  });
+
+  it("never leaves a bare % in either URL", () => {
+    const encoded = buildDualStartupScript({
+      left: { screenId: "FT:7", name: "Blue", url: "https://x/tv?screen=FT%3A7" },
+      right: { screenId: "FT:8", name: "Red", url: "https://x/tv?screen=FT%3A8" },
+    });
+    expect(encoded).toContain("FT%%3A7");
+    expect(encoded).toContain("FT%%3A8");
+  });
+
+  it("names both screens in the filename", () => {
+    expect(dualStartupScriptFileName("FT:7", "FT:8")).toBe("tv-pair-ft-7-ft-8.bat");
+    expect(dualStartupScriptFileName("FT:7", "FT:8")).not.toContain(":");
+  });
+
+  it("leads its instructions with the sign-in policy, before any wiring", () => {
+    const steps = dualStartupInstructions("FT:7", "FT:8");
+    expect(steps[0]).toContain("BrowserSignin");
+    expect(steps.join(" ")).toContain("Extend");
+    expect(steps.join(" ")).toContain("SWAP_SIDES");
   });
 });

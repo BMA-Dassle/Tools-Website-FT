@@ -14,7 +14,13 @@ import {
   demoStatusFor,
 } from "~/features/signage/events.server";
 import { parseScreenKey, VENUE_INFO, type SignageVenue } from "~/features/signage/constants";
-import { buildStartupScript, startupScriptFileName } from "~/features/signage/startup-script";
+import {
+  buildStartupScript,
+  startupScriptFileName,
+  buildDualStartupScript,
+  dualStartupScriptFileName,
+} from "~/features/signage/startup-script";
+import { resolvePair, pairProblem } from "~/features/signage/pairing";
 import type { ScreenConfig } from "~/features/signage/types";
 import { demoIsMegaDay } from "~/features/signage/demo";
 
@@ -102,6 +108,42 @@ export async function GET(req: NextRequest) {
       headers: {
         "Content-Type": "application/octet-stream",
         "Content-Disposition": `attachment; filename="${startupScriptFileName(screen.screenId)}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
+  // Startup script for a PAIR of screens sharing one player PC, one per monitor.
+  // Takes either screen id and resolves the other from the two screens' pairing
+  // GROUP, ordered by position (0 = left monitor). The group is the source of
+  // truth for the wall's layout, so re-grouping on this page is all it takes to
+  // change which board is on which side — the file is regenerated, never edited.
+  const wantsPair = req.nextUrl.searchParams.get("dual");
+  if (wantsPair) {
+    const all = await listSignageScreens();
+    if (!all.some((s) => s.screenId === wantsPair)) {
+      return NextResponse.json({ error: "unknown screen" }, { status: 404 });
+    }
+    const pair = resolvePair(all, wantsPair);
+    if (!pair) {
+      return NextResponse.json(
+        { error: pairProblem(all, wantsPair) ?? "cannot resolve a pair for this screen" },
+        { status: 409 },
+      );
+    }
+    const origin = req.nextUrl.origin;
+    const side = (s: { screenId: string; name: string }) => ({
+      screenId: s.screenId,
+      name: s.name,
+      // Not encodeURIComponent'd, for the same reason as the single-screen
+      // script above: `%3A` becomes a parameter substitution inside a .bat.
+      url: `${origin}/tv?screen=${s.screenId}`,
+    });
+    const body = buildDualStartupScript({ left: side(pair.left), right: side(pair.right) });
+    return new NextResponse(body, {
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Disposition": `attachment; filename="${dualStartupScriptFileName(pair.left.screenId, pair.right.screenId)}"`,
         "Cache-Control": "no-store",
       },
     });

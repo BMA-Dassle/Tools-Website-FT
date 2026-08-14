@@ -504,11 +504,55 @@
   animation: tv-drift 600s linear infinite;
 }
 
+/* ── the boot loader ──────────────────────────────────────────────────── */
+/* The kiosk's BrandedLoader is reused verbatim for the gap while a board comes
+   back (a reboot, a deploy installing, a screen id switched) — see TvApp. It
+   carries its animation in these two class names, and /tv loads only this
+   stylesheet, so without them the wall shows a logo sitting perfectly still.
+   Copied from kiosk.css rather than shared: two route-scoped stylesheets is the
+   existing shape of this app, and the pair is four lines that have not changed
+   since 2026-07-17. Both animate transform/opacity only, per the rulebook above.
+
+   RETIMED TO THIS CANVAS'S BEAT, and that divergence is deliberate. The kiosk
+   runs the loader at 1.2s/2.4s; here it is 1.4s/2.8s, because a TV obeys ONE
+   beat and a second tempo on the wall is the thing the rulebook exists to stop.
+   The SHAPE is shared with the kiosk, the TEMPO is this surface's. Two boards
+   rebooting side by side therefore swirl together instead of beating against
+   each other. */
+
+@keyframes tv-kiosk-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.kiosk-orbit {
+  animation: tv-kiosk-orbit 1.4s linear infinite;
+}
+
+@keyframes tv-kiosk-breathe {
+  0%,
+  100% {
+    transform: scale(0.92);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+.kiosk-breathe {
+  animation: tv-kiosk-breathe 2.8s ease-in-out infinite;
+}
+
 /* ── reduced motion ───────────────────────────────────────────────────── */
 /* Free correctness. Signage rarely sees this, but a staff laptop previewing a
    screen with the OS preference set should not be a wall of movement. */
 
 @media (prefers-reduced-motion: reduce) {
+  /* The boot loader paints OUTSIDE .tv-canvas (it renders before the stage
+     exists), so it needs naming here or it keeps spinning under the preference. */
+  .kiosk-orbit,
+  .kiosk-breathe,
   .tv-canvas *,
   .tv-canvas *::before,
   .tv-canvas *::after {
@@ -543,4 +587,56 @@
 }
 .tv-bday-glow {
   animation: tv-bday-glow 1.4s ease-in-out infinite;
+}
+
+/* A slow, calm spin for the pit board's "fetching the roster" state. Not a busy
+   little throbber: this is a wall screen read from ten feet away, and the point
+   is to say "the board is alive and working", not to hurry anybody.
+   ON THE HOUSE BEAT (1.4s) like everything else that loops here, so a board with
+   both a spinner and a flashing rail reads as one instrument. */
+@keyframes tv-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.tv-spin {
+  animation: tv-spin 1.4s linear infinite;
+}
+
+/* THE CARD GLOW for a birthday or a VIP (owner 2026-08-14: "make the bdays and
+   VIPs stand out more, maybe a glow around the picture box/name"). A slow
+   breathe rather than a hard pulse — it has to catch a marshal's eye across the
+   pit without turning the board into a fairground. Pink and gold are set as
+   custom properties so one keyframe serves both, and a racer who is BOTH gets
+   both colours layered. 2.8s = two beats, which the beat family already allows
+   because it still crests on one. */
+@keyframes tv-card-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 28px var(--tv-glow-a, transparent),
+      0 0 64px var(--tv-glow-b, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 46px var(--tv-glow-a, transparent),
+      0 0 104px var(--tv-glow-b, transparent);
+  }
+}
+.tv-card-glow {
+  animation: tv-card-glow 2.8s ease-in-out infinite;
+}
+
+/* Reduced motion: hold the bright end of both, so the emphasis survives without
+   the movement. Mirrors how the other animations here degrade. */
+@media (prefers-reduced-motion: reduce) {
+  .tv-spin,
+  .tv-card-glow {
+    animation: none;
+  }
+  .tv-card-glow {
+    box-shadow:
+      0 0 40px var(--tv-glow-a, transparent),
+      0 0 90px var(--tv-glow-b, transparent);
+  }
 }

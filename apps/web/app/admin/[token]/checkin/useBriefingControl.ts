@@ -22,7 +22,7 @@
  * and the panels became a pure renderer of it. The flash can take the whole
  * screen (it should) without costing anything underneath.
  */
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import type {
   BriefingPhase,
@@ -79,6 +79,17 @@ export interface BoardStatus {
    *  talking to an older deploy simply shows an empty Holding panel rather than
    *  throwing on a missing field. */
   lanes?: PitLanes;
+  /**
+   * Is the camera sweep armed? Drives the settings-sheet toggle.
+   *
+   * Optional for the same reason as the two above — a station still running the
+   * previous deploy gets `undefined`, which the sheet reads as ON, matching what
+   * that older server would actually be doing.
+   */
+  autoHolding?: { enabled: boolean };
+  /** Is race-event camera bookmarking armed? Optional for the same
+   *  older-deploy reason as the fields above it. */
+  raceBookmarks?: { enabled: boolean };
 }
 
 /**
@@ -159,6 +170,52 @@ export interface BriefingControl {
    *  The ONLY thing that releases the pit board's hold. */
   markPitted: (track: string) => void;
   /**
+   * ARM OR DISARM THE CAMERA SWEEP that moves a group to holding by itself when
+   * their room goes quiet (owner 2026-08-14).
+   *
+   * Lives in the settings sheet rather than beside the room controls on purpose:
+   * this is not a thing to press during a heat, it is the switch to throw when
+   * the automatic path is misbehaving and staff want the night back on manual.
+   * It takes effect on the next sweep, within a minute.
+   */
+  setAutoHolding: (enabled: boolean) => void;
+  /**
+   * ARM OR DISARM race-event bookmarks on the track cameras — session start,
+   * pause, resume and end, written to every camera on that track.
+   *
+   * Separate from setAutoHolding because the two do unrelated things: that one
+   * moves groups, this one only annotates footage. The likely reason to reach
+   * for this is volume — a Mega heat marks ~33 cameras four times.
+   */
+  setRaceBookmarks: (enabled: boolean) => void;
+  /**
+   * STAFF OVERRIDE — put a session in a lane slot by hand, or empty it.
+   *
+   * The escape hatch for a night when the automatic transitions cannot fire:
+   * Pandora down, no start marker, no finish marker, the live socket
+   * unreachable. Every one of those happened on 2026-08-13/14 and each
+   * correction needed somebody with a Redis client (owner: "maybe a button
+   * called override that allows us to manually change where each session is").
+   *
+   * The one-session-per-slot rule is enforced on the SERVER — a rule the modal
+   * enforces is a rule a second tab can break — so this surfaces the refusal
+   * rather than pre-empting it.
+   */
+  overrideSlot: (args: {
+    track: string;
+    slot: "called" | "room" | "holding" | "racing";
+    /** Which briefing room, for the `room` slot. */
+    room?: BriefingRoom;
+    /** Null empties the slot. */
+    session: {
+      sessionId: string;
+      heatNumber: number | null;
+      raceType: string | null;
+      room: BriefingRoom | null;
+    } | null;
+    force?: boolean;
+  }) => void;
+  /**
    * A fresh live-stream URL for a room's camera, or null if live is unavailable.
    *
    * HERE RATHER THAN IN THE PANEL because the admin token lives in this hook, and
@@ -170,6 +227,27 @@ export interface BriefingControl {
    * camera switch, retry after a drop — needs its own call.
    */
   liveCameraUrl: (target: CameraTarget) => Promise<string | null>;
+  /**
+   * SESSIONS THIS STATION HAS SEEN GO GREEN — and it must not forget.
+   *
+   * The Holding box clears when the live clock says its group is racing. That
+   * verdict is only true WHILE the clock is running: the moment the race ends
+   * the clock stops publishing, the verdict evaporates, and the group reappeared
+   * in the seats they had long since left (owner 2026-08-14: "session 64 both
+   * tracks when finished went back to holding state").
+   *
+   * Server-side the lane ends a holding claim on the finish marker — but that
+   * marker rides the timing webhook, and tonight has shown it does not always
+   * arrive. So the desk remembers what it saw with its own eyes: once a session
+   * has been observed counting, it has raced, and no later absence of a clock
+   * un-races it.
+   *
+   * HERE RATHER THAN IN THE PANEL for the same reason as everything else in this
+   * hook: the scan flash unmounts the panels every few seconds, and a memory
+   * held down there would be wiped by the next racer through the desk.
+   */
+  hasLaunched: (sessionId: string | null | undefined) => boolean;
+  noteLaunched: (sessionId: string | null | undefined) => void;
   /**
    * TODAY'S WAIT TIMES, per track (owner 2026-08-12: "it would be today's times").
    *
@@ -194,7 +272,7 @@ export interface BriefingControl {
  *  the endpoint returns per-session rows too, which no board needs. */
 /** The board's reference overlays. Neither is an action — both are things staff
  *  open, read and dismiss, which is why they are modals and not board furniture. */
-export type BoardPanel = "waits" | "log";
+export type BoardPanel = "waits" | "log" | "override";
 
 export interface WaitTimesBoard {
   byTrack: Record<string, Record<string, { n: number; medianMs: number | null }>>;
@@ -346,6 +424,57 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  const setAutoHolding = useCallback<BriefingControl["setAutoHolding"]>(
+    (enabled) => {
+      void post(
+        { action: "auto-holding", enabled },
+        enabled
+          ? "Auto-move to holding is ON — a room that goes quiet after the briefing frees itself"
+          : "Auto-move to holding is OFF — staff press Send to holding",
+        "auto-holding",
+      );
+    },
+    [post],
+  );
+
+  const setRaceBookmarks = useCallback<BriefingControl["setRaceBookmarks"]>(
+    (enabled) => {
+      void post(
+        { action: "race-bookmarks", enabled },
+        enabled
+          ? "Race camera bookmarks are ON — start, pause, resume and end are marked on every camera for the track"
+          : "Race camera bookmarks are OFF — nothing new is written to the cameras",
+        "race-bookmarks",
+      );
+    },
+    [post],
+  );
+
+  const overrideSlot = useCallback<BriefingControl["overrideSlot"]>(
+    (args) => {
+      const where =
+        args.slot === "room" ? `${args.room ?? args.track} room` : `${args.track} ${args.slot}`;
+      const what = args.session
+        ? `Session ${args.session.heatNumber ?? ""} → ${where}`
+        : `${where} cleared`;
+      void post(
+        {
+          action: "override",
+          track: args.track,
+          slot: args.slot,
+          sessionId: args.session?.sessionId ?? "",
+          heatNumber: args.session?.heatNumber ?? undefined,
+          raceType: args.session?.raceType ?? undefined,
+          room: args.room ?? args.session?.room ?? undefined,
+          force: args.force === true,
+        },
+        what,
+        `override:${args.slot === "room" ? (args.room ?? args.track) : args.track}:${args.slot}`,
+      );
+    },
+    [post],
+  );
+
   const markPitted = useCallback<BriefingControl["markPitted"]>(
     (track) => {
       void post(
@@ -411,6 +540,18 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     enabled,
   );
 
+  /** A ref, not state: nothing renders from the set itself — it only ever
+   *  answers a question the render already asks — so writing to it must not
+   *  cost a render on every poll. */
+  const launchedRef = useRef<Set<string>>(new Set());
+  const hasLaunched = useCallback<BriefingControl["hasLaunched"]>(
+    (sessionId) => (sessionId ? launchedRef.current.has(sessionId) : false),
+    [],
+  );
+  const noteLaunched = useCallback<BriefingControl["noteLaunched"]>((sessionId) => {
+    if (sessionId) launchedRef.current.add(sessionId);
+  }, []);
+
   const liveCameraUrl = useCallback<BriefingControl["liveCameraUrl"]>(
     async (target) => {
       try {
@@ -446,7 +587,12 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     clearRoom,
     sendToHolding,
     markPitted,
+    setAutoHolding,
+    setRaceBookmarks,
+    overrideSlot,
     liveCameraUrl,
+    hasLaunched,
+    noteLaunched,
     waitTimes,
     waitTimesWeek,
   };

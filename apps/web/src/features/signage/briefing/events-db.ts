@@ -106,11 +106,10 @@ async function ensureSchema(): Promise<void> {
  *  `pitted` (2026-08-13) is the pit lane's "race returned" stamp — the group's
  *  karts are fully back in and the lane is safe to seat again. It rides this
  *  same log because it is one more moment in a session's lifecycle, keyed to
- *  the room the group hands kit back into.
- *  `audio-pre` / `audio-post` (2026-08-14) are the pit's PA cues — when the
- *  seated group's announcement and the finished race's announcement played
- *  (pit/audio.server.ts). Post's press also writes `pitted`, so those two rows
- *  arriving together is the normal shape of a turnover. */
+ *  the room the group hands kit back into. */
+/** `override` is a STAFF CORRECTION, not a step in the flow — a distinct action
+ *  rather than a flag on the others, so the log can be read for "what did we
+ *  have to fix tonight" without inferring it from a reason column. */
 export type BriefingEventAction =
   | "sent"
   | "started"
@@ -118,14 +117,30 @@ export type BriefingEventAction =
   | "photo"
   | "ended"
   | "pitted"
-  | "audio-pre"
-  | "audio-post";
+  | "override";
 
 /** Why a room was released. `film-complete` is never STORED — it is what
  *  briefing-log.ts infers when no explicit end was ever recorded. `holding`
  *  (2026-08-13) is the send-to-holding press: the group left for the pit
  *  seats, which is also the moment the room became free. */
-export type BriefingEndReason = "cleared" | "replaced" | "holding";
+/** Why an occupancy ended. `override` is a staff correction rather than a
+ *  step in the flow — kept distinct precisely so the insurance log can tell a
+ *  hand-placed group from one that walked the normal path. */
+/**
+ * `auto-holding` (2026-08-14) is the SAME transition as `holding`, decided by a
+ * camera instead of a person: the room's NVR reported no motion for 30 seconds
+ * after the film and the helmet board had both finished, so the sweep released
+ * the room (auto-holding.ts).
+ *
+ * IT IS A SEPARATE REASON ON PURPOSE, and this is the one place in the feature
+ * where that distinction is not optional. This table exists to answer an
+ * insurance question years later, and "a staff member saw this group leave the
+ * room" and "a motion detector inferred it" are different claims about the same
+ * moment. Folding the second into the first would put an assertion in the record
+ * that nobody made. Anything reading the log for the flow should treat the two
+ * alike; anything reading it as evidence must be able to tell them apart.
+ */
+export type BriefingEndReason = "cleared" | "replaced" | "holding" | "override" | "auto-holding";
 
 export interface BriefingEvent {
   id: string;

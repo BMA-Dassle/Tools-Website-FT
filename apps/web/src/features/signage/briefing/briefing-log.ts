@@ -84,6 +84,35 @@ export interface BriefingRecord {
    * session rather than assuming a zero.
    */
   calledAtMs: number | null;
+  /**
+   * THE LEGS, AND HOW LONG EACH TOOK (owner 2026-08-14: "need to start recording
+   * more in the briefing log — keep track of all the time movements and how
+   * long").
+   *
+   * The log already knew every instant; what it never did was subtract them, so
+   * reading a slow night meant doing arithmetic across five columns by eye. Each
+   * of these is one leg of the journey, and they are stored as DURATIONS rather
+   * than left to the panel because the same numbers are what a report would want
+   * tomorrow.
+   *
+   * Null wherever the anchoring instant is unknown — a leg we cannot measure is
+   * blank, never zero. Zero is a real answer here (a group sent the moment they
+   * were called) and must not be confused with "we do not know".
+   */
+  /** Called → walked into the room. The wait nobody was measuring. */
+  waitToRoomMs: number | null;
+  /** In the room → the film rolled. The gap Start's ten-second hold lives in. */
+  toStartMs: number | null;
+  /** When the karts came back, from the staff "race returned" press. */
+  pittedAtMs: number | null;
+  /** Left the room → karts back in the lane: the whole on-track leg. */
+  roomToPittedMs: number | null;
+  /**
+   * CALLED → DONE, the figure a guest would give you. Runs to the pitted stamp
+   * when there is one, else to the room's end, else to now — so a group still
+   * moving shows a growing total and a finished one shows a fixed fact.
+   */
+  totalMs: number | null;
   checkinFirstAtMs: number | null;
   checkinLastAtMs: number | null;
   checkinIn: number | null;
@@ -120,12 +149,16 @@ export function foldBriefingLog(events: BriefingEvent[], nowMs: number): Briefin
     // the same room by the same session would append a second, and the shot that
     // matters is the one taken as the film first rolled.
     const photo = ordered.find((e) => e.action === "photo" && !!e.photoUrl) ?? null;
+    // The karts back in the lane — the last movement this group makes, and the
+    // one that closes the total.
+    const pittedAtMs = ordered.find((e) => e.action === "pitted")?.atMs ?? null;
 
     // A group with no `sent` event cannot have its room time measured from the
     // door, so the earliest thing we DO know about it stands in. Only reachable
     // for a group whose send predates this table (the log's first day) or whose
     // send row was written before the log existed.
     const sentAtMs = sent?.atMs ?? first.atMs;
+    const calledAtMs = sent?.calledAtMs ?? null;
     const film = starts.find((e) => e.videoMs != null) ?? starts[0] ?? null;
     const filmMs = film?.videoMs ?? null;
     const startedAtMs = starts[0]?.atMs ?? null;
@@ -179,6 +212,13 @@ export function foldBriefingLog(events: BriefingEvent[], nowMs: number): Briefin
       photoUrl: photo?.photoUrl ?? null,
       photoAtMs: photo?.atMs ?? null,
       calledAtMs: sent?.calledAtMs ?? null,
+      waitToRoomMs: calledAtMs != null ? Math.max(0, sentAtMs - calledAtMs) : null,
+      toStartMs: startedAtMs != null ? Math.max(0, startedAtMs - sentAtMs) : null,
+      pittedAtMs,
+      roomToPittedMs:
+        pittedAtMs != null && endedAtMs != null ? Math.max(0, pittedAtMs - endedAtMs) : null,
+      totalMs:
+        calledAtMs != null ? Math.max(0, (pittedAtMs ?? endedAtMs ?? nowMs) - calledAtMs) : null,
       checkinFirstAtMs: sent?.checkinFirstAtMs ?? null,
       checkinLastAtMs: sent?.checkinLastAtMs ?? null,
       checkinIn: sent?.checkinIn ?? null,

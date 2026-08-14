@@ -28,7 +28,7 @@ import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { TRACK_ACCENTS, TRACK_LABELS } from "../track";
 import { briefingTimelineAt } from "../briefing/phase";
 import { incomingForRoom, normaliseCameraReturn } from "../briefing/camera-return";
-import { tierForRaceType, type BriefingRoom } from "../briefing/types";
+import { HELMET_PHASE_MS, tierForRaceType, type BriefingRoom } from "../briefing/types";
 import { LiveSessionChip } from "../live-session";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { useBriefingAssets } from "../briefing/useBriefingAssets";
@@ -135,6 +135,38 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
   // NORMALISED, NOT TRUSTED. The feed can arrive from localStorage written by an
   // OLDER BUILD — that is what crashed every briefing TV on 2026-08-12 when this
   // payload's fields were renamed. See normaliseCameraReturn.
+  /**
+   * WHEN THE WELCOME-BACK BOARD IS DUE (owner 2026-08-14: "as long as we're not
+   * showing a briefing or helmet screen it should come up. If we are showing
+   * either it should come up right after").
+   *
+   * It used to be idle-only, and that quietly stopped being reachable. The
+   * helmet phase deliberately NO LONGER ENDS (phase.ts, owner 2026-08-14 —
+   * removing the auto-advance that used to strand groups in a room the board
+   * had already given away), so a room whose group nobody explicitly moved on
+   * sits in `helmet` for the rest of the night and `idle` never arrives. The
+   * board then only appeared on the rooms somebody happened to clear, which is
+   * exactly the "worked a couple of times today" the owner saw.
+   *
+   * The owner's correction names the distinction exactly: "helmet phase is max
+   * 30 seconds, just don't auto send them to holding after 30 seconds." The
+   * SCREEN moves on; the OCCUPANCY does not. This changes only what the wall
+   * shows — `briefingTimelineAt` still parks on `helmet`, so the desk still
+   * counts the room as occupied and still offers Send to holding, which is the
+   * limbo phase.ts was protecting against.
+   *
+   * So: the film always wins, the helmet board wins for its own full run, and
+   * after that a returning group takes the wall. The group cannot be back
+   * before their own race has ended — `welcomeBack` resolves off the timing
+   * system's actualEnd for THIS room's latest group — so there is no window in
+   * which this greets somebody who has not raced.
+   */
+  const sinceStart = state ? nowMs - state.triggeredAtMs : 0;
+  const helmetBoardDone =
+    timeline.phase === "helmet" && sinceStart >= timeline.videoMs + HELMET_PHASE_MS;
+  const showWelcomeBack =
+    (timeline.phase === "idle" || helmetBoardDone) && !!feed?.briefing?.welcomeBack;
+
   const venueStrip = normaliseCameraReturn(feed?.briefing?.cameraReturn);
   /**
    * SCOPED TO THIS ROOM ONCE, and the height measured off the SCOPED copy.
@@ -177,14 +209,14 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
             seekToMs={timeline.videoOffsetMs}
             onUnplayable={markUnplayable}
           />
-        ) : timeline.phase === "idle" && feed?.briefing?.welcomeBack ? (
+        ) : showWelcomeBack ? (
           // THE GROUP IS BACK (owner 2026-08-11): their session's actualEnd is
-          // stamped and the room is idle, so the wall greets them — kit return,
-          // who levelled up and who didn't (from the end-of-race capture), the
-          // qualifying time, where scores are posted. Strictly idle-only: a
-          // playing video, a take-a-seat hold and the helmet phase all outrank
-          // it, and it stays up until the next briefing occupies the room.
-          <WelcomeBack accent={accent} room={room} info={feed.briefing.welcomeBack} />
+          // stamped, so the wall greets them — kit return, who levelled up and
+          // who didn't (from the end-of-race capture), the qualifying time,
+          // where scores are posted. A playing video always outranks it; the
+          // helmet board outranks it only for its own 30 seconds (see
+          // welcomeBackDue).
+          <WelcomeBack accent={accent} room={room} info={feed!.briefing!.welcomeBack!} />
         ) : (
           <Board
             accent={accent}
@@ -824,7 +856,24 @@ function WelcomeBack({
         )}
 
         {hasNames && (
-          <div style={{ flex: 1, minHeight: 0 }}>
+          /**
+           * A FLOOR, NOT JUST A SHARE OF THE LEFTOVER.
+           *
+           * This was `flex: 1, minHeight: 0`, which is a share of whatever space
+           * the fixed blocks above and below leave over — and `flex: 1` bases at
+           * zero, so on a shorter viewport, a longer heading or one more line of
+           * copy, the share can round to nothing. That was survivable while the
+           * names simply overflowed; once the pill area clips (NameColumn), a
+           * zero-height share renders the whole qualification board INVISIBLE
+           * while the rest of the screen looks perfectly healthy.
+           *
+           * So the names get a guaranteed 200px and take the leftover on top.
+           * If the screen is ever too short for that, the blocks below give up
+           * their space instead — the right trade, because the chip and the
+           * scores line repeat information staff already know, and the names are
+           * the only thing on this board that cannot be got anywhere else.
+           */
+          <div style={{ flex: "1 1 auto", minHeight: 200, overflow: "hidden" }}>
             <ResultsBoard accent={accent} target={target!} results={results!} />
           </div>
         )}
@@ -867,10 +916,21 @@ function ResultsBoard({
     keepPushing: Array<{ name: string; bestMs: number | null }>;
   };
 }) {
+  // ONE scale for the whole board, from the taller column — see pillScale.
+  const scale = pillScale(Math.max(results.levelledUp.length, results.keepPushing.length));
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 44, height: "100%" }}>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 44,
+        height: "100%",
+        minHeight: 0,
+      }}
+    >
       {results.levelledUp.length > 0 ? (
         <NameColumn
+          scale={scale}
           heading={`Qualified for ${target.level}`}
           headingColor="#46d68c"
           pillBorder="rgba(70, 214, 140, 0.65)"
@@ -893,6 +953,7 @@ function ResultsBoard({
       )}
       {results.keepPushing.length > 0 && (
         <NameColumn
+          scale={scale}
           heading="Didn't qualify — next time!"
           headingColor="rgba(245,236,238,0.65)"
           pillBorder="rgba(245,236,238,0.25)"
@@ -903,37 +964,99 @@ function ResultsBoard({
   );
 }
 
-/** A heading and a wrap of name pills — scales from 2 racers to a full grid of
- *  10 without the column outgrowing the screen the way timed rows did. */
+/**
+ * HOW BIG A NAME PILL CAN BE, given how many have to fit.
+ *
+ * The board used ONE size for every group, which is fine for the four or five
+ * racers it was designed against and breaks visibly past that: at 44px a column
+ * of names wraps to more rows than the panel has room for, overflows its flex
+ * box, and paints straight over the qualifying-time chip below it (owner
+ * 2026-08-14, with a screenshot of exactly that — "you could have up to 14
+ * racers qualify, needs to not overlap").
+ *
+ * A GF group is 14 and they can all qualify, so the size has to come down as
+ * the count goes up. The steps are deliberately coarse: a continuous formula
+ * would make every group's board a slightly different size, and the wall reads
+ * better when a normal five-racer heat always looks the same.
+ *
+ * Driven by the BIGGER of the two columns, because they share one height and it
+ * is the taller one that decides whether anything overflows.
+ */
+function pillScale(count: number): {
+  font: number;
+  padY: number;
+  padX: number;
+  gap: number;
+  maxWidth: number;
+  heading: number;
+} {
+  if (count <= 4) return { font: 44, padY: 12, padX: 30, gap: 16, maxWidth: 780, heading: 32 };
+  if (count <= 6) return { font: 38, padY: 10, padX: 26, gap: 14, maxWidth: 680, heading: 30 };
+  if (count <= 9) return { font: 32, padY: 9, padX: 22, gap: 12, maxWidth: 560, heading: 28 };
+  if (count <= 12) return { font: 27, padY: 8, padX: 18, gap: 10, maxWidth: 470, heading: 26 };
+  return { font: 23, padY: 7, padX: 16, gap: 9, maxWidth: 400, heading: 24 };
+}
+
+/** A heading and a wrap of name pills — scales from 2 racers to a full GF grid
+ *  of 14 without the column outgrowing the panel the way timed rows did. */
 function NameColumn({
   heading,
   headingColor,
   pillBorder,
   names,
+  scale,
 }: {
   heading: string;
   headingColor: string;
   pillBorder: string;
   names: string[];
+  /** Shared by both columns so the two sides always match — a board with big
+   *  pills on the left and small ones on the right reads as a bug. */
+  scale: ReturnType<typeof pillScale>;
 }) {
   return (
-    <div style={{ display: "grid", gap: 18, alignContent: "start", height: "100%" }}>
-      <span className="tv-eyebrow" style={{ fontSize: 32, color: headingColor }}>
+    <div
+      style={{
+        display: "grid",
+        gap: 18,
+        alignContent: "start",
+        height: "100%",
+        // Both are required for the clip below to work: a grid item defaults to
+        // min-height:auto and would grow to fit its content rather than letting
+        // the pill area scroll-clip inside it.
+        minHeight: 0,
+        gridTemplateRows: "auto minmax(0, 1fr)",
+      }}
+    >
+      <span className="tv-eyebrow" style={{ fontSize: scale.heading, color: headingColor }}>
         {heading}
       </span>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignContent: "start" }}>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: scale.gap,
+          alignContent: "start",
+          // THE BACKSTOP. Scaling should mean this never triggers, but a group
+          // larger than any we have seen, or a set of unusually long names, must
+          // lose a pill off the bottom rather than paint over the chip below —
+          // an overlapping board is unreadable, a clipped one is merely short.
+          minHeight: 0,
+          overflow: "hidden",
+        }}
+      >
         {names.map((name) => (
           <span
             key={name}
             style={{
-              padding: "12px 30px",
+              padding: `${scale.padY}px ${scale.padX}px`,
               borderRadius: 999,
               border: `2px solid ${pillBorder}`,
               background: "rgba(0, 4, 24, 0.6)",
-              fontSize: 44,
+              fontSize: scale.font,
               color: "#fff",
               whiteSpace: "nowrap",
-              maxWidth: 780,
+              maxWidth: scale.maxWidth,
               overflow: "hidden",
               textOverflow: "ellipsis",
             }}
