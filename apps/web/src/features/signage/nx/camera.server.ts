@@ -229,8 +229,37 @@ async function holdingCamera(track: "red" | "blue"): Promise<FixedCamera> {
   // than whichever one Nx happened to serialise first.
   const first = [...pick.items].sort((a, b) => a.top - b.top || a.left - b.left)[0];
   if (!first) return { deviceId: HOLDING_CAMERA_FALLBACK };
-  return { deviceId: first.resourceId, ...(first.dewarp ? { dewarp: first.dewarp } : {}) };
+  const dewarp = HOLDING_VIEW_PIN[track] ?? first.dewarp;
+  return { deviceId: first.resourceId, ...(dewarp ? { dewarp } : {}) };
 }
+
+/**
+ * A PINNED AIM THAT OUTRANKS THE LAYOUT — one track, and only because the Nx
+ * client will not persist it (2026-08-13).
+ *
+ * The design reads the aim off the layout precisely so re-pointing a view is an
+ * Nx edit rather than a deploy, and BLUE works exactly that way — it is absent
+ * from this map and takes whatever the layout says.
+ *
+ * RED does not. Its saved item is `xAngle 2.9051, yAngle 0.3560, fov 0.9425`,
+ * which frames the wall ABOVE the seats — the grid is off the bottom of the
+ * picture. The owner re-aimed it correctly in the client and saved twice; the
+ * server record did not move either time (verified against /rest/v4/layouts
+ * after each save, and no private duplicate layout was created — still 13
+ * layouts, same ids). Whatever the client is writing, the REST view of that
+ * layout is not it, and the board can only read what REST reports.
+ *
+ * So the numbers below are the aim the owner actually wants, measured by
+ * sweeping the fisheye and matching the frame they signed off: the red 1-15
+ * grid filling the frame, the way Blue's view frames the white grid.
+ *
+ * DELETE THIS ENTRY the moment `FT Holding Red` reports a sane aim over REST —
+ * the layout is meant to be the truth, and a pin that outlives its reason is a
+ * view nobody can change without a deploy.
+ */
+const HOLDING_VIEW_PIN: Partial<Record<"red" | "blue", DewarpView>> = {
+  red: { xAngle: -3.6, yAngle: 0.66, fov: 1.02, panoFactor: 1 },
+};
 
 function relayBase(): string {
   return `https://${env("NX_CLOUD_SYSTEM_ID")}.relay.vmsproxy.com`;
