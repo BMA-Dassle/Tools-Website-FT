@@ -58,6 +58,11 @@ const GREEN = "#22c55e";
 const OK = "#46d68c";
 const AMBER = "#f0b341";
 
+/** PHOTOS ARE OFF for now (owner 2026-08-13, pre-live): cards show the
+ *  silhouette only and the board never calls /api/tv/pit-photo. The endpoint
+ *  and the wiring stay — flipping this back on is this one constant. */
+const PIT_PHOTOS_ENABLED = false;
+
 export function ScenePitBoard({ feed, config }: SceneProps) {
   const status = useTrackStatus();
   const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
@@ -491,7 +496,7 @@ function Photo({ sessionId, personId }: { sessionId: string; personId: string })
         <circle cx="50" cy="37" r="16" fill="rgba(245,236,238,0.16)" />
         <path d="M16 96c4-22 17-32 34-32s30 10 34 32" fill="rgba(245,236,238,0.12)" />
       </svg>
-      {/^\d+$/.test(personId) && (
+      {PIT_PHOTOS_ENABLED && /^\d+$/.test(personId) && (
         // eslint-disable-next-line @next/next/no-img-element -- a fixed-size
         // signage canvas on a wall PC; next/image's optimizer buys nothing here
         <img
