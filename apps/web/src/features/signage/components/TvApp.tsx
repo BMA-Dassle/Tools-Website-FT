@@ -41,9 +41,22 @@ import { BrandedLoader } from "~/features/kiosk/components/BrandedLoader";
 const IDENTITY_KEY = "tv_screen_id";
 const BUILD_SHA = (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || "dev").slice(0, 8);
 
-export function TvApp() {
+export function TvApp({ initialScreenId = null }: { initialScreenId?: string | null } = {}) {
   const [screenId, setScreenId] = useState<string | null>(null);
-  const [venue, setVenue] = useState<SignageVenue>("HPFM");
+  /**
+   * Seeded from the URL on the SERVER, so the boot loader is branded correctly in
+   * the very first painted markup.
+   *
+   * This cannot come from the identity effect below: that effect writes `venue`
+   * and `booted` in the same batch, so `venue` is still its default for the whole
+   * time the loader is on screen — every board, every boot, not a race. A
+   * FastTrax pit board booted with the HeadPinz logo because of it (owner
+   * 2026-08-14). The effect still owns identity afterwards, including the
+   * localStorage fallback for a player opened with no query string.
+   */
+  const [venue, setVenue] = useState<SignageVenue>(
+    () => parseScreenKey(initialScreenId)?.venue ?? "HPFM",
+  );
   const [booted, setBooted] = useState(false);
   const [decision, setDecision] = useState<SceneDecision | null>(null);
   const [demo, setDemo] = useState<DemoMode>("off");
