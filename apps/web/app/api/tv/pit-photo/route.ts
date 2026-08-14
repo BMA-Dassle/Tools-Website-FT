@@ -169,6 +169,30 @@ async function loadPhoto(personId: string): Promise<string | null> {
   return pic;
 }
 
+/**
+ * THE REAL IMAGE TYPE, from the bytes rather than from hope.
+ *
+ * This route used to answer `image/jpeg` for everything, which was true while
+ * the photos came from Pandora. It is not true of what guests actually have on
+ * file: probing personIds off a live roster returned JPEGs (ffd8ff) for some and
+ * PNGs (89504e) for others — the same `kind=0` photo, different upload formats.
+ *
+ * Browsers sniff and would mostly have rendered it anyway, which is exactly why
+ * this is worth fixing deliberately: a lie in a Content-Type is the kind of
+ * thing that works until something in the chain believes it.
+ */
+function imageMime(bytes: Buffer): string {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (bytes.length >= 4 && bytes.toString("latin1", 0, 4) === "PNG") return "image/png";
+  if (bytes.length >= 6 && bytes.toString("latin1", 0, 6).startsWith("GIF8")) return "image/gif";
+  if (bytes.length >= 12 && bytes.toString("latin1", 8, 12) === "WEBP") return "image/webp";
+  // Unknown: say JPEG rather than octet-stream, which some browsers refuse to
+  // render in an <img> at all. The board showing a face beats being pedantic.
+  return "image/jpeg";
+}
+
 export async function GET(req: NextRequest) {
   const sessionId = (req.nextUrl.searchParams.get("session") ?? "").trim();
   const personId = (req.nextUrl.searchParams.get("person") ?? "").trim();
@@ -196,7 +220,7 @@ export async function GET(req: NextRequest) {
   }
   return new NextResponse(new Uint8Array(bytes), {
     headers: {
-      "Content-Type": "image/jpeg",
+      "Content-Type": imageMime(bytes),
       // The browser holds a face for an hour; a re-registered photo shows on
       // the next board reload, and the Redis TTL above bounds the true age.
       "Cache-Control": "public, max-age=3600",
