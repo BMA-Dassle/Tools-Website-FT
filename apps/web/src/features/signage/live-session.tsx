@@ -70,6 +70,39 @@ export function parseLiveFrame(raw: unknown): LiveClockFrame | null {
   }
 }
 
+/**
+ * IS THE CLOCK ACTUALLY RUNNING? The venue uses a TWO-PHASE start (owner
+ * 2026-08-13): the green flag arms the heat with the clock sitting at a
+ * static number while karts roll out, and the race truly begins when the
+ * timer starts counting. On the wire the difference is plain: phase one
+ * repeats the same `C` across pushes, racing strictly decreases it.
+ *
+ * PURE, and STICKY per heat: once a heat's clock has been seen to decrease it
+ * stays "counting" for that heat (a mid-race pause or a repeated value must
+ * not flap it), and a new heat name re-arms it false.
+ */
+export interface CountingTracker {
+  heatName: string;
+  lastRemainingMs: number;
+  counting: boolean;
+}
+
+export function nextCountingState(
+  prev: CountingTracker | null,
+  frame: LiveClockFrame,
+): CountingTracker | null {
+  if (!frame.hasRace) return null;
+  if (!prev || prev.heatName !== frame.heatName) {
+    return { heatName: frame.heatName, lastRemainingMs: frame.remainingMs, counting: false };
+  }
+  return {
+    heatName: frame.heatName,
+    lastRemainingMs: frame.remainingMs,
+    counting:
+      prev.counting || (frame.state === "running" && frame.remainingMs < prev.lastRemainingMs),
+  };
+}
+
 /** "04:32", or "1:04:32" past the hour — same shape the leaderboard shows. */
 export function formatRemaining(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -85,6 +118,10 @@ export interface LiveSessionClock {
   heatName: string;
   /** Interpolated between pushes by a local ticker. */
   remainingMs: number;
+  /** The clock has been SEEN to decrease on the wire for this heat — false
+   *  through the two-phase start's armed-but-static window. Raw frames only:
+   *  the local interpolation above must never count as evidence. */
+  counting: boolean;
 }
 
 /** Null until a race is actually live on the track — the designed empty state. */
@@ -99,6 +136,9 @@ export function useLiveSessionClock(track: TrackKey | null): LiveSessionClock | 
   const [clock, setClock] = useState<LiveSessionClock | null>(null);
   const frameRef = useRef<LiveClockFrame | null>(null);
   const syncedAt = useRef(0);
+  /** Raw-frame counting tracker — see nextCountingState. Survives a socket
+   *  drop on purpose: the same heat re-arriving keeps its counting verdict. */
+  const countingRef = useRef<CountingTracker | null>(null);
 
   /**
    * THE TICKER IS THE ONLY WRITER, and the display is quantised to whole
@@ -120,13 +160,21 @@ export function useLiveSessionClock(track: TrackKey | null): LiveSessionClock | 
     }
     const elapsed = frame.state === "running" ? Date.now() - syncedAt.current : 0;
     const wholeSeconds = Math.max(0, Math.floor((frame.remainingMs - elapsed) / 1000));
+    const counting =
+      countingRef.current?.heatName === frame.heatName && countingRef.current.counting;
     setClock((prev) =>
       prev &&
       prev.state === frame.state &&
       prev.heatName === frame.heatName &&
+      prev.counting === counting &&
       prev.remainingMs === wholeSeconds * 1000
         ? prev
-        : { state: frame.state, heatName: frame.heatName, remainingMs: wholeSeconds * 1000 },
+        : {
+            state: frame.state,
+            heatName: frame.heatName,
+            remainingMs: wholeSeconds * 1000,
+            counting,
+          },
     );
   };
 
@@ -165,7 +213,19 @@ export function useLiveSessionClock(track: TrackKey | null): LiveSessionClock | 
           const before = frameRef.current;
           syncedAt.current = Date.now();
           frameRef.current = parsed;
-          if (before?.hasRace !== parsed.hasRace || before?.state !== parsed.state) publish();
+          // RAW frames only feed the counting verdict — the interpolated
+          // display always moves while "running", which is exactly the
+          // false-positive the two-phase start needs excluded.
+          const countedBefore = countingRef.current?.counting === true;
+          countingRef.current = nextCountingState(countingRef.current, parsed);
+          const countsNow = countingRef.current?.counting === true;
+          if (
+            before?.hasRace !== parsed.hasRace ||
+            before?.state !== parsed.state ||
+            countedBefore !== countsNow
+          ) {
+            publish();
+          }
         };
         ws.onclose = () => {
           clearTimeout(staleTimer);

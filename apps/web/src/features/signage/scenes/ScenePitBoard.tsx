@@ -26,7 +26,7 @@
  * has always had, kept by owner decision 2026-08-13. Everything else on the
  * signage estate stays first-names-only.
  */
-import { useMemo, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { withAlpha } from "../color";
@@ -71,7 +71,35 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
   const track = effectiveTrack(screenTrack, megaEnabled) ?? screenTrack ?? "blue";
   const accent = TRACK_ACCENTS[track];
 
-  const pit = feed?.pitBoard ?? null;
+  const liveClock = useLiveSessionClock(track);
+
+  /** Is this heat ARMED BUT NOT RACING — the two-phase start's first window?
+   *  Green flag arms the clock at a static number while karts roll out; the
+   *  race truly begins when the wire's clock is seen to decrease. */
+  const armedNotCounting = (heatNumber: number | null): boolean =>
+    heatNumber != null &&
+    (liveClock?.state === "running" || liveClock?.state === "paused") &&
+    liveHeatNumber(liveClock.heatName) === heatNumber &&
+    !liveClock.counting;
+
+  // THE BOARD ROLLS ON GREEN FLAG *AND* A COUNTING CLOCK (owner 2026-08-13).
+  // The server rolls its display session the moment the start marker lands —
+  // phase one — but stragglers are still being seated until the timer
+  // actually runs, so the previous session's board is HELD client-side until
+  // its clock counts (or it stops being the heat on track at all).
+  const serverBoard = feed?.pitBoard ?? null;
+  const [heldBoard, setHeldBoard] = useState(serverBoard);
+  useEffect(() => {
+    setHeldBoard((prev) => {
+      if (!serverBoard?.session || !prev?.session) return serverBoard;
+      if (prev.session.sessionId === serverBoard.session.sessionId) return serverBoard;
+      return armedNotCounting(prev.session.heatNumber) ? prev : serverBoard;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- armedNotCounting
+    // closes over liveClock, which is already a dependency.
+  }, [serverBoard, liveClock]);
+
+  const pit = heldBoard;
   const session = pit?.session ?? null;
 
   // The lane whose racing/holding state governs this board's rail: the one
@@ -123,21 +151,21 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
     );
   }, [pit?.roster, session, track, feed?.pitRosters, feed?.kioskEvents]);
 
-  // THE SOCKET SEES THE GREEN FLAG BEFORE THE SERVER DOES. The start marker
-  // comes off the timing webhook, which only the PRODUCTION deployment
-  // receives — on a preview build (or through a webhook gap) it never lands.
-  // The board already holds the live timing socket for its clock chip, and
-  // that frame names the heat on track: when it IS the staged session, the
-  // rail must say racing, whatever the markers know.
-  const liveClock = useLiveSessionClock(track);
-  const stagedOnTrack =
+  // RACING MEANS THE CLOCK IS COUNTING, nothing less. The socket both sees
+  // the green flag before the server's webhook marker AND vetoes it through
+  // the two-phase start: while the staged heat is armed with a static clock,
+  // the rail keeps saying seat — that window is exactly when stragglers are
+  // still being walked to karts.
+  const stagedArmed = armedNotCounting(session?.heatNumber ?? null);
+  const stagedRacing =
     liveClock?.state === "running" &&
+    liveClock.counting &&
     session?.heatNumber != null &&
     liveHeatNumber(liveClock.heatName) === session.heatNumber;
 
   const rail = pitRailState({
     stagedInHolding: session?.inHolding ?? false,
-    stagedStartedAtMs: session?.startedAtMs ?? (stagedOnTrack ? 0 : null),
+    stagedStartedAtMs: stagedArmed ? null : (session?.startedAtMs ?? (stagedRacing ? 0 : null)),
     racingFinishedAtMs: lane.racing?.finishedAtMs ?? null,
     pittedAtMs: lane.racing?.pittedAtMs ?? null,
   });
@@ -760,7 +788,9 @@ function QualPill({
         marginLeft: "auto",
         flexShrink: 0,
         display: "inline-flex",
-        alignItems: "baseline",
+        // CENTER, not baseline: mixed sizes on a shared baseline sat the
+        // small text visibly low inside the pill (owner 2026-08-13).
+        alignItems: "center",
         gap: 16,
         padding: "8px 28px",
         borderRadius: 999,
@@ -772,11 +802,13 @@ function QualPill({
       {/* MOCKUP SIZES, verbatim — the pill is the guest-facing half of the
           rail and reads big; the fit problem was the long info copy beside
           it, which is what got shortened. */}
-      <span style={{ fontSize: 32, color: "rgba(245,236,238,0.8)" }}>Beat</span>
-      <span className="tv-display tv-num" style={{ fontSize: 54, color: "#fff" }}>
+      <span style={{ fontSize: 32, lineHeight: 1, color: "rgba(245,236,238,0.8)" }}>Beat</span>
+      <span className="tv-display tv-num" style={{ fontSize: 54, lineHeight: 1, color: "#fff" }}>
         {qual.lap}
       </span>
-      <span style={{ fontSize: 32, color: "rgba(245,236,238,0.8)" }}>to qualify {qual.level}</span>
+      <span style={{ fontSize: 32, lineHeight: 1, color: "rgba(245,236,238,0.8)" }}>
+        to qualify {qual.level}
+      </span>
     </span>
   );
 }
