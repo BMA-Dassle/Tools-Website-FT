@@ -66,6 +66,10 @@ export interface BoardStatus {
    *  BOARDS — the deadline the Called box turns amber and then red against. */
   checkinWindowMins: Record<string, number>;
   assignments: Assignment[];
+  /** Which sessions are still considered sent, keyed by sessionId — the
+   *  REVERSIBLE fact behind the Called box, so Undo puts a heat back. Optional
+   *  so a board talking to an older deploy simply falls back to `assignments`. */
+  briefedSessions?: Record<string, { atMs: number; room: BriefingRoom | null }>;
   videos: Record<BriefingTier, { url: string; durationMs: number | null } | null>;
   helmetPosterUrl: string | null;
   /** Today's briefing log, folded — when each group went in, which film ran, and

@@ -154,6 +154,48 @@ export async function sessionBriefed(
   }
 }
 
+/**
+ * The same answer for MANY sessions, in ONE round trip.
+ *
+ * The desk board asks this about every session it sent today, every 5 seconds —
+ * as N separate GETs that would be N round trips to Redis on a list that grows
+ * all evening. MGET makes it one, whatever the night's length.
+ *
+ * Sessions with no marker are simply absent from the result, so a caller can
+ * treat "in the map" as "has been sent" without a second null check.
+ */
+export async function sessionsBriefed(
+  sessionIds: string[],
+): Promise<Record<string, { atMs: number; room: BriefingRoom | null }>> {
+  const ids = [...new Set(sessionIds.filter(Boolean))];
+  if (ids.length === 0) return {};
+  const out: Record<string, { atMs: number; room: BriefingRoom | null }> = {};
+  try {
+    const raws = await redis.mget(...ids.map(briefedKey));
+    ids.forEach((id, i) => {
+      const raw = raws[i];
+      if (!raw) return;
+      // Both marker shapes, for the same reason sessionBriefed reads both.
+      try {
+        const p = JSON.parse(raw) as { at?: number; room?: string };
+        if (typeof p.at === "number" && Number.isFinite(p.at)) {
+          out[id] = { atMs: p.at, room: parseBriefingRoom(p.room) };
+          return;
+        }
+      } catch {
+        /* fall through to the bare-number form */
+      }
+      const n = Number(raw);
+      if (Number.isFinite(n)) out[id] = { atMs: n, room: null };
+    });
+  } catch {
+    // An empty map means "nothing is known to be sent", which leaves every
+    // called heat on the board — the safe direction, and what the desk showed
+    // before this marker existed.
+  }
+  return out;
+}
+
 /** Undo the marker, so an undone send puts the heat back on the check-in board. */
 export async function clearSessionBriefed(sessionId: string | null): Promise<void> {
   if (!sessionId) return;

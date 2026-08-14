@@ -45,6 +45,7 @@ import {
   readBriefingRoom,
   readBriefingRooms,
   sessionBriefed,
+  sessionsBriefed,
   setBriefingRoom,
 } from "./state.server";
 import {
@@ -400,6 +401,20 @@ export interface BriefingBoardStatus {
   /** Today's sends, newest first. */
   assignments: BriefingAssignment[];
   /**
+   * WHICH OF TODAY'S SESSIONS ARE STILL CONSIDERED SENT, keyed by sessionId.
+   *
+   * The Called box hides a heat that has gone to a room, and it used to decide
+   * that from `assignments` — which is an APPEND-ONLY record of what happened,
+   * so Undo could never take it back and the heat stayed off the board (owner
+   * 2026-08-13: "I hit undo on in the room and it didn't go back to called").
+   *
+   * This is the reversible fact instead: the briefed marker, set on send,
+   * DELETED by Undo, and deliberately left standing by "send to holding" so a
+   * briefed group does not reappear at the desk on their way to the seats. A
+   * session absent here is a session waiting to be sent.
+   */
+  briefedSessions: Record<string, { atMs: number; room: BriefingRoom | null }>;
+  /**
    * TODAY'S BRIEFING LOG, folded — one row per group with when they went in, which
    * film ran, and how long they were in the room (briefing-log.ts).
    *
@@ -560,9 +575,14 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     readPitLanes(),
   ]);
 
-  const groupsOut = await Promise.all(
-    BRIEFING_ROOMS.map((room) => lastGroupOut(room, assignments, now).catch(() => null)),
-  );
+  const [groupsOut, briefedSessions] = await Promise.all([
+    Promise.all(
+      BRIEFING_ROOMS.map((room) => lastGroupOut(room, assignments, now).catch(() => null)),
+    ),
+    // Asked about today's sends only — the bounded set the Called box can be
+    // showing — and answered in one MGET however long the night gets.
+    sessionsBriefed(assignments.map((a) => a.sessionId)),
+  ]);
 
   const roomStatuses = BRIEFING_ROOMS.map((room, i): BriefingRoomStatus => {
     const state = rooms[room];
@@ -589,6 +609,7 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     rooms: roomStatuses,
     checkinWindowMins,
     assignments,
+    briefedSessions,
     briefings: foldBriefingLog(events, now),
     videos: {
       starter: slot("briefing-video:starter"),

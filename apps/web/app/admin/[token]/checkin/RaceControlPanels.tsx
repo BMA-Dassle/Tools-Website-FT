@@ -96,6 +96,7 @@ import {
 import { startHoldRemainingMs, startHoldSeconds } from "~/features/signage/briefing/start-hold";
 import { formatWaitMs } from "~/features/racing/wait-times";
 import type {
+  BoardStatus,
   BriefingControl,
   CameraTarget,
   RoomStatus,
@@ -139,6 +140,40 @@ const INK = "#e8eef7";
  * Disposable by design — one constant, one line that renders it.
  */
 const STAFF_MEMO = "Send to the room BEFORE you pull them from check-in.";
+
+/**
+ * WHICH ROOM THIS CALLED SESSION HAS ALREADY GONE TO, or null if it is still
+ * waiting to be sent.
+ *
+ * THE MARKER DECIDES, THE ASSIGNMENT ROW ONLY NAMES THE ROOM. `assignments` is
+ * an append-only record of what happened tonight — Undo cannot take a row back,
+ * so deriving "already sent" from it meant an undone send never returned to the
+ * Called box, and re-calling the heat did not help either because the row was
+ * still there (owner 2026-08-13). `briefedSessions` is the reversible fact.
+ *
+ * The room still comes from the assignment when the marker does not carry one:
+ * markers written before the room field existed are a bare timestamp, and a
+ * board that could not name the room would rather say "the red room" from the
+ * row than fall back to showing the heat as unsent.
+ *
+ * Falls back to the old assignment-only behaviour when `briefedSessions` is
+ * absent entirely, which is a board still talking to a pre-fix deploy.
+ */
+function sentToFor(
+  board: BoardStatus | null | undefined,
+  race: CurrentRace | null,
+): BriefingRoom | null {
+  if (!race) return null;
+  const sessionId = String(race.sessionId);
+  const fromRow =
+    board?.assignments.find((a) => a.mode === "timeline" && a.sessionId === sessionId)?.room ??
+    null;
+  const briefed = board?.briefedSessions;
+  if (!briefed) return fromRow;
+  const marker = briefed[sessionId];
+  if (!marker) return null;
+  return marker.room ?? fromRow;
+}
 
 /** Is this camera target a briefing room, rather than a holding view? Narrowing
  *  helper, so the phase/film half of the viewer only ever sees a real room. */
@@ -411,11 +446,16 @@ export default function RaceControlPanels({
               // (owner 2026-08-11: "once a session is moved to the room it should
               // clear from these top boxes"). It is no longer waiting to be sent, so
               // leaving it there only invites sending it twice.
-              sentTo={
-                board?.assignments.find(
-                  (a) => a.mode === "timeline" && !!race && a.sessionId === String(race.sessionId),
-                )?.room ?? null
-              }
+              //
+              // READ FROM THE BRIEFED MARKER, NOT THE ASSIGNMENT LOG. Assignments
+              // are an append-only record of what happened, so Undo could not take
+              // one back and the heat never returned to Called (owner 2026-08-13).
+              // The marker is the reversible fact: written on send, deleted by
+              // Undo, and left standing by "send to holding" so a briefed group on
+              // its way to the seats does not reappear at the desk. The assignment
+              // row is still consulted for WHICH room, since the oldest markers
+              // predate that field.
+              sentTo={sentToFor(board, race)}
               nowMs={nowMs}
               // Matched on SESSION, never on track: two tracks can have a heat
               // called at once, and a count against the wrong group is worse
