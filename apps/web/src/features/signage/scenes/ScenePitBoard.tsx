@@ -30,7 +30,8 @@ import { useMemo, type CSSProperties } from "react";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { withAlpha } from "../color";
-import { LiveSessionChip } from "../live-session";
+import { LiveSessionChip, useLiveSessionClock } from "../live-session";
+import { liveHeatNumber } from "../briefing/room-return";
 import {
   TRACK_ACCENTS,
   TRACK_LABELS,
@@ -123,9 +124,21 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
     );
   }, [pit?.roster, session, track, feed?.pitRosters, feed?.kioskEvents]);
 
+  // THE SOCKET SEES THE GREEN FLAG BEFORE THE SERVER DOES. The start marker
+  // comes off the timing webhook, which only the PRODUCTION deployment
+  // receives — on a preview build (or through a webhook gap) it never lands.
+  // The board already holds the live timing socket for its clock chip, and
+  // that frame names the heat on track: when it IS the staged session, the
+  // rail must say racing, whatever the markers know.
+  const liveClock = useLiveSessionClock(track);
+  const stagedOnTrack =
+    liveClock?.state === "running" &&
+    session?.heatNumber != null &&
+    liveHeatNumber(liveClock.heatName) === session.heatNumber;
+
   const rail = pitRailState({
     stagedInHolding: session?.inHolding ?? false,
-    stagedStartedAtMs: session?.startedAtMs ?? null,
+    stagedStartedAtMs: session?.startedAtMs ?? (stagedOnTrack ? 0 : null),
     racingFinishedAtMs: lane.racing?.finishedAtMs ?? null,
     pittedAtMs: lane.racing?.pittedAtMs ?? null,
   });
@@ -203,6 +216,7 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
                 color: accent,
                 fontSize: 46,
                 letterSpacing: "0.04em",
+                whiteSpace: "nowrap",
                 textShadow: `0 0 34px ${withAlpha(accent, 0.65)}`,
               }}
             >
