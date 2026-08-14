@@ -2645,7 +2645,9 @@ function HoldingCamera({
   onExpand: () => void;
   accent: string;
 }) {
-  const { src, offline } = useCameraFrame(target, 960, !paused, 2_000);
+  // 640, not 960: the box is CAM_W wide, so even a 2x panel wants ~416px — and
+  // every pixel here is transcoded, not merely resized (see fetchDewarpedFrame).
+  const { src, offline } = useCameraFrame(target, 640, !paused, 2_000);
 
   return (
     <button

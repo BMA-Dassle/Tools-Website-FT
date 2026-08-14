@@ -37,7 +37,32 @@ export const dynamic = "force-dynamic";
 /** A frame is fresh enough to share for ~1s: many boards / a board's own retries
  *  on the SAME camera collapse to one upstream pull. Keyed by device + size. */
 const FRAME_TTL_MS = 900;
+/**
+ * A DEWARPED FRAME IS A TRANSCODE, and it is priced accordingly.
+ *
+ * Measured against production 2026-08-14: a raw room pull answers in ~0.55s, a
+ * dewarped holding frame in 1.6s — and 9.5s when a second one was running. Nx
+ * spins a transcode session per request, so concurrent boards do not share work,
+ * they compete for it. The check-in desk asks every 2s and there are two of
+ * these per station, so the queue only grows.
+ *
+ * Hence a cache window LONGER than the client's own cadence: a 2.5s entry means
+ * a board polling at 2s hits the cache roughly every other pull, and a second
+ * station is free.
+ */
+const DEWARP_TTL_MS = 2_500;
 const frameCache = new Map<string, { at: number; body: ArrayBuffer; contentType: string }>();
+
+/**
+ * ONE UPSTREAM PULL PER KEY, however many callers want it.
+ *
+ * The cache alone cannot help the FIRST caller, and on an expensive frame that
+ * is exactly when it matters: four tabs opening a board together used to start
+ * four transcodes of the same camera at the same aim, each making the others
+ * slower. They now await one promise. A raw frame gets the same treatment for
+ * free — it was never harmful there, just less valuable.
+ */
+const inflight = new Map<string, Promise<{ body: ArrayBuffer; contentType: string }>>();
 
 /**
  * Which camera a screen shows, cached briefly so a board polling every second
@@ -100,14 +125,23 @@ export async function GET(req: NextRequest) {
   const key = `${deviceId}@${w ?? 0}x${h ?? 0}${aim}`;
 
   const now = Date.now();
+  const ttl = dewarp ? DEWARP_TTL_MS : FRAME_TTL_MS;
   const hit = frameCache.get(key);
-  if (hit && now - hit.at < FRAME_TTL_MS) {
+  if (hit && now - hit.at < ttl) {
     return frameResponse(hit.body, hit.contentType);
   }
 
   try {
-    const frame = await fetchCameraFrame(deviceId, { width: w, height: h, dewarp });
-    frameCache.set(key, { at: now, body: frame.body, contentType: frame.contentType });
+    // Join the pull already running for this exact camera+size+aim, or start it.
+    let pull = inflight.get(key);
+    if (!pull) {
+      pull = fetchCameraFrame(deviceId, { width: w, height: h, dewarp }).finally(() => {
+        inflight.delete(key);
+      });
+      inflight.set(key, pull);
+    }
+    const frame = await pull;
+    frameCache.set(key, { at: Date.now(), body: frame.body, contentType: frame.contentType });
     // Cheap unbounded-growth guard — a handful of boards, a couple of sizes.
     if (frameCache.size > 64) {
       for (const k of frameCache.keys()) {
@@ -117,7 +151,9 @@ export async function GET(req: NextRequest) {
     }
     return frameResponse(frame.body, frame.contentType);
   } catch {
-    // A slightly stale last-good frame beats a broken-image icon on a wall.
+    // A slightly stale last-good frame beats a broken-image icon on a wall — and
+    // for a dewarped view "slightly stale" is worth more than it sounds, because
+    // the alternative is a blank box for the length of another transcode.
     if (hit) return frameResponse(hit.body, hit.contentType);
     return new NextResponse(null, { status: 502 });
   }
