@@ -36,7 +36,7 @@ import { briefingTimelineAt } from "./phase";
 import { listBriefingEvents, recordBriefingEvent } from "./events-db";
 import { foldBriefingLog, type BriefingRecord } from "./briefing-log";
 import { captureRoomPhoto } from "./room-photo.server";
-import { bookmarkBriefingStart } from "./bookmarks.server";
+import { bookmarkBriefingStartAfter } from "./bookmarks.server";
 import { autoHoldingEnabled } from "./auto-holding.server";
 import { raceBookmarksEnabled } from "./race-bookmarks-setting.server";
 import { readRaceFinishedMarker } from "./race-finish.server";
@@ -318,10 +318,13 @@ export async function startBriefing(
      *
      * FIRST START ONLY, for the same reason as the photo: a restart is the same
      * group in the same room, and a second marker on the ribbon would suggest a
-     * second briefing took place. Swallows everything (bookmarks.server.ts) — the
-     * film is already rolling and nothing here may cost that.
+     * second briefing took place.
+     *
+     * Queued for after the response rather than awaited — the Start press already
+     * carries the room photo, and stacking an NVR write behind it would show up
+     * on the desk as a slow button (see afterResponse in bookmarks.server.ts).
      */
-    await bookmarkBriefingStart({
+    bookmarkBriefingStartAfter({
       room,
       track: current.track,
       heatNumber: current.heatNumber,

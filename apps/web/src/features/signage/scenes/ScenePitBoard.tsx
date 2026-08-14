@@ -246,10 +246,33 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
     const called = status?.currentRaces?.[track] ?? null;
     const out: Array<{ label: string; value: string; detail?: string }> = [];
 
+    /**
+     * A SESSION OCCUPIES EXACTLY ONE STAGE — the same rule the briefing API
+     * enforces when Override places a session (see vacateSessionElsewhere).
+     *
+     * The called record is Pandora's, and Pandora keeps it for roughly twenty
+     * minutes after the call — long after the group has been briefed, seated
+     * and sent out. Rendered raw, that put one heat in two places at once:
+     * owner 2026-08-14, live, "it's showing GF starter called, they're already
+     * racing", with session 18 sitting in Called and Holding simultaneously.
+     *
+     * So a heat that has demonstrably moved on is not still "called". Matched
+     * on the heat number because that is what every stage on this board
+     * displays, and blanking is the honest answer — the next call will fill it.
+     */
+    const downstreamHeats = new Set<number>();
+    for (const room of track === "mega" ? (["red", "blue"] as const) : ([track] as const)) {
+      const h = rooms?.[room as "red" | "blue"]?.heatNumber;
+      if (typeof h === "number") downstreamHeats.add(h);
+    }
+    if (typeof lane.holding?.heatNumber === "number") downstreamHeats.add(lane.holding.heatNumber);
+    if (typeof lane.racing?.heatNumber === "number") downstreamHeats.add(lane.racing.heatNumber);
+    const calledMovedOn = called?.heatNumber != null && downstreamHeats.has(called.heatNumber);
+
     out.push({
       label: "Called",
-      value: called?.heatNumber != null ? `Session ${called.heatNumber}` : "—",
-      detail: called?.raceType ?? undefined,
+      value: called?.heatNumber != null && !calledMovedOn ? `Session ${called.heatNumber}` : "—",
+      detail: calledMovedOn ? undefined : (called?.raceType ?? undefined),
     });
 
     // On a Mega day one circuit is served by both rooms, so both are ours.

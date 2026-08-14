@@ -50,6 +50,52 @@ function memoryKey(track: TrackKey): string {
   return `race:state:${track}`;
 }
 
+/**
+ * WHAT HEAT THE TRACK IS ACTUALLY ON — published for the pit lane.
+ *
+ * WHY (owner 2026-08-14, live): "18 is stuck in holding and never moved to
+ * racing." The lane promotes holding→racing off the venue broadcast's finish
+ * marker and has no other way to learn a race happened, so when the kart bridge
+ * stops delivering — as it did from 07:02 that day, silent for seven hours while
+ * heats kept running — every group that goes to the seats stays there on the
+ * board forever, and the group before them stays "on track" forever.
+ *
+ * This is the second opinion. The watcher is already connected to the timing
+ * socket once a minute for pause detection, and that same frame says which heat
+ * the track is on. A LATER heat being loaded is proof the earlier one is over,
+ * whatever the broadcast did or did not tell us. Published as a plain Redis key
+ * so the lane can read it on its 2-second pulse for the cost of one GET rather
+ * than a websocket connect it could never afford.
+ *
+ * TEN MINUTES OF TTL, deliberately short: a stale "the track is on heat 40" is
+ * exactly the input that would wrongly retire a group, so the reader must be
+ * able to tell fresh from old, and an absent key must mean "no opinion".
+ */
+const LIVE_HEAT_TTL_SECONDS = 600;
+
+export function liveHeatKey(track: TrackKey): string {
+  return `race:live-heat:${track}`;
+}
+
+export interface LiveHeat {
+  heatNumber: number;
+  state: string;
+  atMs: number;
+}
+
+async function publishLiveHeat(track: TrackKey, heatNumber: number, state: string): Promise<void> {
+  try {
+    await redis.set(
+      liveHeatKey(track),
+      JSON.stringify({ heatNumber, state, atMs: Date.now() } satisfies LiveHeat),
+      "EX",
+      LIVE_HEAT_TTL_SECONDS,
+    );
+  } catch {
+    /* the lane simply has no second opinion this minute */
+  }
+}
+
 async function readMemory(track: TrackKey): Promise<RaceStateMemory | null> {
   try {
     const raw = await redis.get(memoryKey(track));
@@ -110,6 +156,12 @@ export async function runRaceStateWatch(
     const prev = await readMemory(track);
     const transition = raceStateTransition(prev, frame);
     const next: RaceStateMemory = { heatNumber: frame.heatNumber, state: frame.state };
+
+    // The lane's second opinion — published whenever the socket names a heat,
+    // regardless of whether anything transitioned. Not published on `none`: an
+    // empty track between heats has no opinion to offer and must not blank the
+    // last good one, which is why this is a set-with-TTL and never a delete.
+    if (frame.heatNumber != null) await publishLiveHeat(track, frame.heatNumber, frame.state);
 
     let camerasMarked = 0;
     let note: string | undefined;
