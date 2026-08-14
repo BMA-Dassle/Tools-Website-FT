@@ -63,20 +63,22 @@ const LOGO_CORNER: Record<
   string,
   "top-left" | "top-right" | "bottom-left" | "bottom-right" | null
 > = {
-  sleep: null,
-  celebration: null,
-  "birthday-takeover": null,
-  "event-welcome": null,
-  "ad-rotation": null,
-  briefing: null,
-  // The rail owns the bottom of the pit board and the clock sits top-right,
-  // so the mark goes bottom-left, clear of both.
-  "pit-board": "bottom-left",
-  // The camera picture fills the left; the clock column is on the right.
-  camera: "bottom-left",
+  // Nothing is enabled yet. The first attempt put the mark bottom-left on the
+  // pit board, straight on top of the green "SEAT SESSION NOW" rail (owner
+  // 2026-08-14: "that was stupid spot for logo") — which is what guessing at a
+  // corner from the code gets you. These boards are dense and authored to the
+  // pixel: every corner of the pit board is already doing a job (track name,
+  // on-track clock, seat rail, qualifying chip), and the briefing room's four
+  // are taken by the eyebrow, the live clock, the helmet art and the camera
+  // strip.
+  //
+  // So this is OPT-IN, one line per board, added only once somebody has looked
+  // at that board and pointed at the space. Better a mark on three boards that
+  // look right than on ten that look like an accident.
 };
 
-const LOGO_DEFAULT = "bottom-right" as const;
+/** No mark unless a board opts in above — see the note there. */
+const LOGO_DEFAULT = null;
 
 function SceneLogo({ scene, venue }: { scene: string; venue: SignageVenue }) {
   const corner = scene in LOGO_CORNER ? LOGO_CORNER[scene] : LOGO_DEFAULT;

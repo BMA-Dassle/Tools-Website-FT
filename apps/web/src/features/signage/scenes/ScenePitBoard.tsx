@@ -439,10 +439,29 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
               </div>
             )}
           </div>
+          {/*
+            THE MARK, IN THE HEADER'S OWN GAP (owner 2026-08-14: "you just need
+            to put logo in right spot").
+            
+            The first attempt hung it in the bottom-left corner from the scene
+            director and landed it on top of the green "SEAT SESSION NOW" rail.
+            The lesson is that this board has no free CORNERS — every one is
+            doing a job — but it does have a flexible gap: the clock is pushed
+            right by `marginLeft: auto`, and everything between the session title
+            and that clock is empty by construction.
+            
+            Sitting IN THE FLOW there rather than absolutely positioned is what
+            makes it safe: flexbox owns the spacing, so a longer race type or a
+            three-digit session pushes the mark instead of colliding with it. It
+            takes the auto margin and hands the clock a fixed gap of its own.
+          */}
+          <div style={{ marginLeft: "auto", flexShrink: 0, opacity: 0.85, display: "flex" }}>
+            <TvBrandLogo venue="FT" height={54} />
+          </div>
           {/* The one clock, and nothing else — the room-status chips that
               briefly lived here were not part of the approved mockup and the
               mockup is the target (owner 2026-08-13). */}
-          <div style={{ marginLeft: "auto", flexShrink: 0 }}>
+          <div style={{ marginLeft: 40, flexShrink: 0 }}>
             <LiveSessionChip track={track} accent={accent} />
           </div>
         </header>
