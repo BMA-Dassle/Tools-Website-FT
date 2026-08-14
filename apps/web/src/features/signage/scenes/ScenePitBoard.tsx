@@ -32,6 +32,7 @@ import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { withAlpha } from "../color";
 import { LiveSessionChip, useLiveSessionClock } from "../live-session";
 import { liveHeatNumber } from "../briefing/room-return";
+import { briefingTimelineAt } from "../briefing/phase";
 import {
   TRACK_ACCENTS,
   TRACK_LABELS,
@@ -199,6 +200,79 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
     ? nextLevelTarget(TRACK_LABELS[track], session.raceType)
     : null;
 
+  /**
+   * WHERE EVERY SESSION IS, for the times this board has nothing to seat
+   * (owner 2026-08-14: "when nothing is showing on pit assignment boards I'd
+   * like to show where each session is. Like briefing 4 minutes remaining").
+   *
+   * The board is now deliberately blank more often than it used to be — it
+   * waits for a staff press to show a heat, and it drops one the moment that
+   * heat is racing. Blank is honest but it is not useful, and this screen faces
+   * the people most affected by the answer: the group whose turn is coming.
+   *
+   * So the empty state becomes the flow itself. Every stage a heat passes
+   * through, in order, with whoever is in it — and the briefing leg carries its
+   * countdown, because "4 minutes" is the difference between waiting and
+   * wandering off.
+   *
+   * All of it is already on this screen: the called record from the track
+   * status it renders anyway, the rooms and lanes from the 2-second pulse. No
+   * new read, and nothing here can disagree with the board above it.
+   */
+  const idleStages = useMemo(() => {
+    const rooms = feed?.briefingRooms ?? null;
+    const called = status?.currentRaces?.[track] ?? null;
+    const out: Array<{ label: string; value: string; detail?: string }> = [];
+
+    out.push({
+      label: "Called",
+      value: called?.heatNumber != null ? `Session ${called.heatNumber}` : "—",
+      detail: called?.raceType ?? undefined,
+    });
+
+    // On a Mega day one circuit is served by both rooms, so both are ours.
+    const ourRooms: Array<"red" | "blue"> =
+      track === "mega" ? ["red", "blue"] : track === "red" ? ["red"] : ["blue"];
+    let briefingValue = "—";
+    let briefingDetail: string | undefined;
+    for (const room of ourRooms) {
+      const state = rooms?.[room] ?? null;
+      if (!state?.sessionId) continue;
+      const t = briefingTimelineAt(state, feed?.now ?? Date.now());
+      if (t.phase === "idle") continue;
+      briefingValue = state.heatNumber != null ? `Session ${state.heatNumber}` : "In a room";
+      briefingDetail =
+        t.phase === "video" && t.nextInMs != null
+          ? `${Math.max(1, Math.ceil(t.nextInMs / 60_000))} min of film left`
+          : t.phase === "helmet"
+            ? "helmets — ready to send"
+            : "waiting to start";
+      break;
+    }
+    out.push({ label: "Briefing", value: briefingValue, detail: briefingDetail });
+
+    out.push({
+      label: "Holding",
+      value: lane.holding?.heatNumber != null ? `Session ${lane.holding.heatNumber}` : "—",
+      detail: lane.holding ? "in the seats" : undefined,
+    });
+
+    const onTrackHeat =
+      lane.racing?.heatNumber ?? (liveClock ? liveHeatNumber(liveClock.heatName) : null);
+    out.push({
+      label: "On track",
+      value: onTrackHeat != null ? `Session ${onTrackHeat}` : "—",
+      detail:
+        lane.racing?.finishedAtMs != null
+          ? "finished — karts coming in"
+          : liveClock?.counting
+            ? "racing"
+            : undefined,
+    });
+
+    return out;
+  }, [feed?.briefingRooms, feed?.now, status?.currentRaces, track, lane, liveClock]);
+
   const delay = findDelay(status?.trackStatus.tracks, track);
 
   return (
@@ -330,7 +404,7 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
         {roster && roster.length > 0 && showSession ? (
           <SpotGrid roster={roster} accent={accent} sessionId={showSession.sessionId} />
         ) : (
-          <Idle accent={accent} hasSession={!!showSession} />
+          <Idle accent={accent} hasSession={!!showSession} stages={idleStages} />
         )}
       </div>
 
@@ -616,7 +690,15 @@ function Photo({ sessionId, personId }: { sessionId: string; personId: string })
 
 /* ── idle + delay ─────────────────────────────────────────────────────── */
 
-function Idle({ accent, hasSession }: { accent: string; hasSession: boolean }) {
+function Idle({
+  accent,
+  hasSession,
+  stages,
+}: {
+  accent: string;
+  hasSession: boolean;
+  stages: Array<{ label: string; value: string; detail?: string }>;
+}) {
   return (
     <div
       style={{
@@ -624,15 +706,60 @@ function Idle({ accent, hasSession }: { accent: string; hasSession: boolean }) {
         display: "flex",
         flexDirection: "column",
         justifyContent: "center",
-        gap: 22,
+        gap: 28,
       }}
     >
       {!hasSession && (
-        <div className="tv-display" style={{ fontSize: 96, color: "#fff", lineHeight: 0.95 }}>
-          Assignments show here
-          <br />
-          when a session is called
-        </div>
+        <>
+          <div className="tv-display" style={{ fontSize: 72, color: "#fff", lineHeight: 0.95 }}>
+            Nothing to seat right now
+          </div>
+          {/* THE FLOW, IN ORDER. A guest reading this wants one thing — how far
+              away is my turn — and the order of the rows answers it without a
+              word of explanation. */}
+          <div style={{ display: "grid", gap: 14 }}>
+            {stages.map((st) => {
+              const empty = st.value === "—";
+              return (
+                <div
+                  key={st.label}
+                  style={{ display: "flex", alignItems: "baseline", gap: 28, flexWrap: "wrap" }}
+                >
+                  <span
+                    className="tv-display"
+                    style={{
+                      minWidth: 260,
+                      fontSize: 34,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      color: withAlpha("#f5ecee", 0.5),
+                    }}
+                  >
+                    {st.label}
+                  </span>
+                  <span
+                    className="tv-display"
+                    style={{
+                      fontSize: 46,
+                      color: empty ? withAlpha("#f5ecee", 0.28) : "#fff",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {st.value}
+                  </span>
+                  {st.detail && (
+                    <span
+                      className="tv-display"
+                      style={{ fontSize: 30, color: accent, whiteSpace: "nowrap" }}
+                    >
+                      {st.detail}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
       <div
         aria-hidden
