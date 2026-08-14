@@ -30,7 +30,7 @@ import { useMemo, type CSSProperties } from "react";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { withAlpha } from "../color";
-import { LiveSessionChip, useLiveSessionClock, formatRemaining } from "../live-session";
+import { LiveSessionChip } from "../live-session";
 import {
   TRACK_ACCENTS,
   TRACK_LABELS,
@@ -275,7 +275,6 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
         kind={rail}
         accent={accent}
         session={session}
-        track={track}
         qual={qualTarget ? { lap: formatLap(qualTarget.ms), level: qualTarget.level } : null}
       />
     </div>
@@ -681,16 +680,15 @@ function findDelay(
  * The staff instruction along the bottom edge. GREEN IS THE RESTING STATE —
  * the lane is safe to seat exactly while the karts are out racing — and the
  * flash is the stop: a race has finished and its karts are rolling back in,
- * held until the staff "race returned" press. The timing rides beside the
- * directive deliberately unlabelled (owner 2026-08-13: the directive names
- * the session that matters); the qualification pill is for the group already
- * in the seats, who are looking at exactly this screen.
+ * held until the staff "race returned" press. NO CLOCK DOWN HERE (owner
+ * 2026-08-13: "we don't need to restate time") — the header's live "On track"
+ * chip is the one clock on this board. The qualification pill is for the
+ * group already in the seats, who are looking at exactly this screen.
  */
 function Rail({
   kind,
   accent,
   session,
-  track,
   qual,
 }: {
   kind: "info" | "seat" | "hold" | "racing";
@@ -701,11 +699,8 @@ function Rail({
     briefedAtMs: number | null;
     inHolding: boolean;
   } | null;
-  track: TrackKey;
   qual: { lap: string; level: string } | null;
 }) {
-  const clock = useLiveSessionClock(track);
-  const clockLabel = clock && clock.state === "running" ? formatRemaining(clock.remainingMs) : null;
   const sessionName = session?.heatNumber != null ? `Session ${session.heatNumber}` : "the session";
 
   const base: CSSProperties = {
@@ -757,11 +752,6 @@ function Rail({
         <span className="tv-display" style={{ fontSize: 46, color: GREEN, whiteSpace: "nowrap" }}>
           Seat {sessionName} now
         </span>
-        {clockLabel && (
-          <span className="tv-display tv-num" style={{ fontSize: 56, color: "#fff" }}>
-            {clockLabel}
-          </span>
-        )}
         <QualPill qual={qual} accent={accent} />
       </div>
     );
