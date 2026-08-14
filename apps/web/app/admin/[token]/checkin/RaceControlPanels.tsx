@@ -1451,9 +1451,13 @@ function RoomColumn({
       </Panel>
 
       {/* ── IN THE ROOM ── */}
+      {/* NOT `grow` any more. One box stretching to fill the column made sense
+          when there were two; with four it just donates the slack to whichever
+          box happens to be in the middle, which is where the empty band under
+          the clock came from. Every box is now content-height and the leftover
+          space collects at the foot of the column, where it costs nothing. */}
       <Panel
         label="In the room"
-        grow
         alert={roomAlert}
         accent={
           occupied
@@ -1921,13 +1925,11 @@ function InRoom({
   const holdMs = startHoldRemainingMs(state, nowMs);
 
   return (
-    // THE ROW IS AS TALL AS THE PICTURE, NOT AS TALL AS THE PANEL. The panel grows
-    // to fill the board's height, so a row that grew with it stretched the left
-    // column past the camera and left the bottom rail aligned to a panel edge
-    // instead of the video (owner 2026-08-12: "so it looks even"). This wrapper
-    // takes the growth; the row inside keeps its content height, and stretch then
-    // means "as tall as the taller column" — the camera, normally.
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+    // CONTENT HEIGHT, NOT PANEL HEIGHT. This wrapper used to take the panel's
+    // growth so the row inside could stay as tall as the picture; with four boxes
+    // the panel no longer grows at all, so there is nothing to absorb and the
+    // box is exactly as tall as what is in it.
+    <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
       <div
         style={{
           display: "flex",
@@ -2189,8 +2191,12 @@ function InRoom({
       {alert !== "none" && (
         <div
           style={{
-            marginTop: "auto",
-            paddingTop: 6,
+            // NOT bottom-anchored. It used to be `marginTop: auto` inside a
+            // panel that stretched, which parked it at the foot of the box with
+            // a hand's width of nothing above it (owner 2026-08-14: "video never
+            // started is wasting space, move it up"). It belongs under the clock
+            // it is about.
+            paddingTop: 2,
             display: "flex",
             alignItems: "center",
             gap: 6,
