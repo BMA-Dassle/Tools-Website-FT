@@ -48,6 +48,7 @@ import {
   type PitLaneFeed,
   type PitRosterEntry,
 } from "../pit/pit-board";
+import { TvBrandLogo } from "../components/TvBrandLogo";
 import type { SceneProps } from "../director/types";
 
 const PAD_X = 96;
@@ -487,6 +488,15 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
 
         {roster && roster.length > 0 && showSession ? (
           <SpotGrid roster={roster} accent={accent} sessionId={showSession.sessionId} />
+        ) : showSession && roster === null ? (
+          /* A group IS seated and we simply do not have their names yet — a
+             different thing from an empty board, and it used to render as
+             "Nothing to seat right now", which is a lie for the several seconds
+             a cold roster takes. `null` is "not loaded"; an actual empty roster
+             is `[]` and still falls through to Idle below (owner 2026-08-14:
+             "while the screen waits for that roster show a fasttrax loading
+             with spin"). */
+          <PitLoading accent={accent} heatNumber={showSession.heatNumber} />
         ) : (
           <Idle accent={accent} hasSession={!!showSession} stages={idleStages} />
         )}
@@ -570,19 +580,46 @@ function SpotCard({
   compact: boolean;
 }) {
   const numCol = r.vip ? GOLD : accent;
-  const border = r.vip ? `2px solid ${withAlpha(GOLD, 0.85)}` : "1px solid rgba(255,255,255,0.12)";
+  /**
+   * BIRTHDAYS AND VIPS GLOW (owner 2026-08-14: "make the bdays and VIPs stand
+   * out more, maybe a glow around the picture box/name").
+   *
+   * They used to be a corner pill and, for a VIP only, a faint static halo — at
+   * pit-fence distance neither read. The whole card now carries it: a coloured
+   * border and a slow breathing glow, so a marshal picks the card out of a grid
+   * of fourteen without reading a word.
+   *
+   * BOTH AT ONCE IS A REAL CASE and it is not a conflict — a VIP on their
+   * birthday gets the gold border with both colours in the glow, rather than one
+   * status silently hiding the other. The keyframe takes the two colours as
+   * custom properties precisely so this needs no third variant (tv.css).
+   */
+  const glowA = r.birthday ? withAlpha(PINK, 0.85) : r.vip ? withAlpha(GOLD, 0.8) : null;
+  const glowB = r.vip ? withAlpha(GOLD, 0.5) : r.birthday ? withAlpha(PINK, 0.45) : null;
+  const flagged = r.vip || r.birthday;
+  const border = r.vip
+    ? `3px solid ${withAlpha(GOLD, 0.95)}`
+    : r.birthday
+      ? `3px solid ${withAlpha(PINK, 0.95)}`
+      : "1px solid rgba(255,255,255,0.12)";
   return (
     <div
-      style={{
-        position: "relative",
-        background: "rgba(7,16,39,0.55)",
-        border,
-        borderRadius: 28,
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-        boxShadow: r.vip ? `0 0 44px ${withAlpha(GOLD, 0.25)}` : undefined,
-      }}
+      className={flagged ? "tv-card-glow" : undefined}
+      style={
+        {
+          position: "relative",
+          background: "rgba(7,16,39,0.55)",
+          border,
+          borderRadius: 28,
+          // NOT hidden when the card glows: `overflow: hidden` clips a box-shadow
+          // drawn outside the border box, which would swallow the whole effect.
+          overflow: flagged ? "visible" : "hidden",
+          display: "flex",
+          flexDirection: "column",
+          ...(glowA ? { "--tv-glow-a": glowA } : {}),
+          ...(glowB ? { "--tv-glow-b": glowB } : {}),
+        } as CSSProperties
+      }
     >
       <div style={{ position: "relative", flex: 1, minHeight: compact ? 120 : 180 }}>
         <Photo sessionId={sessionId} personId={r.personId} />
@@ -773,6 +810,57 @@ function Photo({ sessionId, personId }: { sessionId: string; personId: string })
 }
 
 /* ── idle + delay ─────────────────────────────────────────────────────── */
+
+/**
+ * "We know who is racing, we are fetching their names."
+ *
+ * The mark plus a slow ring, centred — recognisable from the pit fence as the
+ * board working rather than the board broken. It should be rare now that the
+ * roster is pre-warmed during helmeting (pit/fast-roster.server.ts); this is
+ * what a cold start, a redeploy or a Pandora hiccup looks like.
+ */
+function PitLoading({ accent, heatNumber }: { accent: string; heatNumber: number | null }) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 34,
+      }}
+    >
+      <div style={{ position: "relative", width: 190, height: 190 }}>
+        <div
+          className="tv-spin"
+          aria-hidden
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: "50%",
+            border: `6px solid ${withAlpha(accent, 0.18)}`,
+            borderTopColor: accent,
+          }}
+        />
+        <div
+          style={{
+            position: "absolute",
+            inset: 34,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <TvBrandLogo venue="FT" height={72} />
+        </div>
+      </div>
+      <div className="tv-display" style={{ fontSize: 46, color: "#fff", lineHeight: 1.05 }}>
+        {heatNumber != null ? `Loading session ${heatNumber}…` : "Loading the grid…"}
+      </div>
+    </div>
+  );
+}
 
 function Idle({
   accent,

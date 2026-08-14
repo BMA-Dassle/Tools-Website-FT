@@ -25,6 +25,7 @@ import type { SignageVenue } from "../constants";
 import type { TvFeed } from "../types";
 import type { DemoMode } from "../demo";
 import { SceneSlot, sceneHasData, isSceneImplemented } from "../scenes/registry";
+import { TvBrandLogo } from "../components/TvBrandLogo";
 import { frameKey, resolveActiveScene, type SceneDecision } from "./schedule";
 
 /** How often the decision is re-evaluated. Matches AttractBillboard's cadence:
@@ -33,6 +34,70 @@ import { frameKey, resolveActiveScene, type SceneDecision } from "./schedule";
 const TICK_MS = 250;
 /** Must match the .tv-frame[data-state="exiting"] animation in tv.css. */
 const EXIT_MS = 500;
+
+/**
+ * THE FASTTRAX MARK ON EVERY BOARD (owner 2026-08-14: "need to find a good spot
+ * to add our FastTrax logo to all boards. Can be different based on the board or
+ * scene").
+ *
+ * Placed HERE rather than in ten scenes, so it cannot drift out of sync as
+ * scenes are edited — but the corner is per scene, because the corners are not
+ * equally free. It rides INSIDE `.tv-drift` deliberately: the drift exists to
+ * stop any bright element burning into a panel that runs for years, and a logo
+ * pinned to a fixed corner all day is exactly what that protects against.
+ *
+ * QUIET BY DEFAULT — half opacity and small. This is a signature on work the
+ * guest is already reading, not a thing competing with it.
+ *
+ * SOME SCENES OPT OUT, each for its own reason:
+ *   sleep       the screen is meant to be dark
+ *   celebration, birthday-takeover, event-welcome
+ *               full-bleed moments that are already branded, and a corner mark
+ *               would just be clutter over somebody's name
+ *   ad-rotation the slides carry their own artwork edge to edge
+ *   briefing    all four corners are taken (eyebrow, live-session chip, the
+ *               camera-return strip) and the video phase is full-bleed film —
+ *               it needs a spot chosen against the real wall, not guessed
+ */
+const LOGO_CORNER: Record<
+  string,
+  "top-left" | "top-right" | "bottom-left" | "bottom-right" | null
+> = {
+  sleep: null,
+  celebration: null,
+  "birthday-takeover": null,
+  "event-welcome": null,
+  "ad-rotation": null,
+  briefing: null,
+  // The rail owns the bottom of the pit board and the clock sits top-right,
+  // so the mark goes bottom-left, clear of both.
+  "pit-board": "bottom-left",
+  // The camera picture fills the left; the clock column is on the right.
+  camera: "bottom-left",
+};
+
+const LOGO_DEFAULT = "bottom-right" as const;
+
+function SceneLogo({ scene, venue }: { scene: string; venue: SignageVenue }) {
+  const corner = scene in LOGO_CORNER ? LOGO_CORNER[scene] : LOGO_DEFAULT;
+  if (!corner) return null;
+  const [vert, horiz] = corner.split("-") as ["top" | "bottom", "left" | "right"];
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: "absolute",
+        [vert]: 34,
+        [horiz]: 40,
+        opacity: 0.5,
+        pointerEvents: "none",
+        zIndex: 5,
+      }}
+    >
+      <TvBrandLogo venue={venue} height={44} />
+    </div>
+  );
+}
 
 export function SceneDirector({
   feed,
@@ -181,6 +246,7 @@ export function SceneDirector({
 
         <div className="tv-frame" data-state="entering" key={frameKey(current)}>
           <SceneSlot {...props} decision={current} />
+          <SceneLogo scene={String(current.scene)} venue={venue} />
         </div>
 
         {/* The wipe that covers the cut. Keyed to the incoming scene so it

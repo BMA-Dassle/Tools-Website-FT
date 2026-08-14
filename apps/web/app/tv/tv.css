@@ -588,3 +588,55 @@
 .tv-bday-glow {
   animation: tv-bday-glow 1.4s ease-in-out infinite;
 }
+
+/* A slow, calm spin for the pit board's "fetching the roster" state. Not a busy
+   little throbber: this is a wall screen read from ten feet away, and the point
+   is to say "the board is alive and working", not to hurry anybody.
+   ON THE HOUSE BEAT (1.4s) like everything else that loops here, so a board with
+   both a spinner and a flashing rail reads as one instrument. */
+@keyframes tv-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.tv-spin {
+  animation: tv-spin 1.4s linear infinite;
+}
+
+/* THE CARD GLOW for a birthday or a VIP (owner 2026-08-14: "make the bdays and
+   VIPs stand out more, maybe a glow around the picture box/name"). A slow
+   breathe rather than a hard pulse — it has to catch a marshal's eye across the
+   pit without turning the board into a fairground. Pink and gold are set as
+   custom properties so one keyframe serves both, and a racer who is BOTH gets
+   both colours layered. 2.8s = two beats, which the beat family already allows
+   because it still crests on one. */
+@keyframes tv-card-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 28px var(--tv-glow-a, transparent),
+      0 0 64px var(--tv-glow-b, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 46px var(--tv-glow-a, transparent),
+      0 0 104px var(--tv-glow-b, transparent);
+  }
+}
+.tv-card-glow {
+  animation: tv-card-glow 2.8s ease-in-out infinite;
+}
+
+/* Reduced motion: hold the bright end of both, so the emphasis survives without
+   the movement. Mirrors how the other animations here degrade. */
+@media (prefers-reduced-motion: reduce) {
+  .tv-spin,
+  .tv-card-glow {
+    animation: none;
+  }
+  .tv-card-glow {
+    box-shadow:
+      0 0 40px var(--tv-glow-a, transparent),
+      0 0 90px var(--tv-glow-b, transparent);
+  }
+}

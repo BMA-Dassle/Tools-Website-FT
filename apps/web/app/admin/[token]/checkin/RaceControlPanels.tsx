@@ -1732,15 +1732,25 @@ function HoldingPanel({
 
   const heldMs = holding ? Math.max(0, nowMs - holding.atMs) : 0;
 
+  /**
+   * THE BADGE DESCRIBES THE SEATS, NOT THE TRACK (owner 2026-08-14: "why do we
+   * see an on track in holding when that area is free?").
+   *
+   * It used to borrow the track's state — a group out racing turned this box
+   * amber and stamped it ON TRACK, directly above a body line reading "Nobody in
+   * the seats". Two contradictory things in one panel, and the badge is the part
+   * read at a glance, so the panel said "occupied" about an empty area. Where
+   * the racing group actually is was never this box's job: it is spelled out in
+   * the copy below and owns the whole On-track panel underneath.
+   *
+   * So: held is a safety state and keeps the alarm, seated is CLEAR TO SEAT, and
+   * anything else is FREE — because that is what the seats are.
+   */
   const badge = holdLive
     ? { label: "LANE HELD", tone: DANGER }
     : holding
       ? { label: "CLEAR TO SEAT", tone: GREEN }
-      : // A group that has just taken the green flag is ON TRACK even before the
-        // lane's own racing half catches up — the clock is the earlier truth.
-        launched || racing
-        ? { label: "ON TRACK", tone: AMBER }
-        : { label: "EMPTY", tone: PORTAL_DARK.muted };
+      : { label: "FREE", tone: PORTAL_DARK.muted };
 
   return (
     <Panel
