@@ -102,7 +102,11 @@ import type {
   WaitTimesBoard,
 } from "./useBriefingControl";
 import type { PitLaneFeed } from "~/features/signage/pit/pit-board";
-import { formatRemaining, useLiveSessionClock } from "~/features/signage/live-session";
+import {
+  formatRemaining,
+  useLiveSessionClock,
+  type LiveSessionClock,
+} from "~/features/signage/live-session";
 import type { TrackKey } from "~/features/signage/track";
 
 const ROOM_COLOR: Record<BriefingRoom, string> = { red: "#ff5a52", blue: "#4a9bff" };
@@ -1370,6 +1374,7 @@ function RoomColumn({
           track={track}
           color={color}
           lane={lane}
+          liveClock={liveClock}
           nowMs={nowMs}
           locked={locked}
           pending={pending}
@@ -1415,6 +1420,7 @@ function HoldingPanel({
   track,
   color,
   lane,
+  liveClock,
   nowMs,
   locked,
   pending,
@@ -1426,6 +1432,9 @@ function HoldingPanel({
   track: string;
   color: string;
   lane: PitLaneFeed | null;
+  /** This track's live timing clock — passed down rather than subscribed again,
+   *  because the room column above already holds one for the same track. */
+  liveClock: LiveSessionClock | null;
   nowMs: number;
   locked: boolean;
   pending: string | null;
@@ -1433,7 +1442,35 @@ function HoldingPanel({
   onExpandCamera: () => void;
   onRaceReturned: () => void;
 }) {
-  const holding = lane?.holding ?? null;
+  /**
+   * THE GREEN FLAG EMPTIES THE SEATS (owner 2026-08-13: "on race start for that
+   * session the holding needs to clear — they're done").
+   *
+   * WHY THIS IS A CLIENT DECISION AND NOT A SERVER ONE. The lane deliberately
+   * keeps a holding claim through the race (lane.server.ts, 92efb96f): the
+   * venue's start marker fires at PHASE ONE — karts rolling out, clock armed but
+   * static, stragglers still being walked to karts — so promoting on it would
+   * empty the seats while staff are still filling them. Server-side a holding
+   * claim only ends on the finish marker or on the next group taking the seats.
+   *
+   * That is right for the WALL, which has to keep presenting the group. It is
+   * wrong for the DESK, where the box answers "is anyone in the seats" — and
+   * once the clock is counting, nobody is.
+   *
+   * So the desk reads the same verdict the wall does: this track's live heat IS
+   * the holding session, and its clock is genuinely COUNTING (live-session.tsx's
+   * raw-frame `counting`, which phase one cannot fake — a static clock repeats
+   * its value, a running one decreases). Matched on heat number, never on track
+   * alone, so a neighbouring heat can never empty this group's seats.
+   */
+  const holdingHeat = lane?.holding?.heatNumber ?? null;
+  const liveHeat = liveClock ? liveHeatNumber(liveClock.heatName) : null;
+  const launched =
+    holdingHeat != null && liveHeat != null && holdingHeat === liveHeat && liveClock?.counting
+      ? { heatNumber: holdingHeat }
+      : null;
+
+  const holding = launched ? null : (lane?.holding ?? null);
   const racing = lane?.racing ?? null;
 
   /**
@@ -1454,7 +1491,9 @@ function HoldingPanel({
     ? { label: "LANE HELD", tone: DANGER }
     : holding
       ? { label: "CLEAR TO SEAT", tone: GREEN }
-      : racing
+      : // A group that has just taken the green flag is ON TRACK even before the
+        // lane's own racing half catches up — the clock is the earlier truth.
+        launched || racing
         ? { label: "ON TRACK", tone: AMBER }
         : { label: "EMPTY", tone: PORTAL_DARK.muted };
 
@@ -1522,9 +1561,11 @@ function HoldingPanel({
             </>
           ) : (
             <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
-              {racing
-                ? `Nobody in the seats — ${racing.heatNumber != null ? `session ${racing.heatNumber}` : "the last group"} is out on ${cap(track)}.`
-                : "Nobody in the seats yet — send a briefed group over."}
+              {launched
+                ? `Nobody in the seats — session ${launched.heatNumber} took the green flag and is out on ${cap(track)}.`
+                : racing
+                  ? `Nobody in the seats — ${racing.heatNumber != null ? `session ${racing.heatNumber}` : "the last group"} is out on ${cap(track)}.`
+                  : "Nobody in the seats yet — send a briefed group over."}
             </p>
           )}
 
