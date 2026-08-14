@@ -139,7 +139,13 @@ export async function GET(req: NextRequest) {
         detail: barrier.detail,
       });
       if (!dryRun) {
-        const state = await markSyncRetry(row, `barrier error: ${barrier.detail}`);
+        // Same split as the queue consumer: a vendor we could not reach tells
+        // us nothing about this row, so it must not spend the row's patience.
+        // The cron is the BACKSTOP rail — if it burns attempts during an outage
+        // the row is parked here even when the queue rail behaved.
+        const state = await markSyncRetry(row, `barrier error: ${barrier.detail}`, {
+          countAttempt: barrier.unreachable !== true,
+        });
         if (state === "parked") counts.parked++;
       }
       continue;

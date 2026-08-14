@@ -357,3 +357,86 @@ describe("personsLocalBarrier — every named person must be local", () => {
     expect(f).not.toHaveBeenCalled();
   });
 });
+
+// ── "BMI is down" is not "this row is bad" ───────────────────────────────────
+// 2026-08-13: Pandora accepted connections and never answered. Every delivery
+// through the hung barrier counted as a failed attempt, so rows reached 19-22
+// tries within the hour and Vercel Queue dropped them at 20 deliveries — with
+// the guest's signature captured in Neon and never filed with BMI. Recovering
+// them took a hand-written script.
+//
+// A verdict of `error` therefore has to answer a second question: did we LEARN
+// anything about this person? If we never reached the vendor we did not, and
+// the row must keep its patience — the give-up deadline (12h for a waiver) is
+// what is meant to bound the wait, exactly as it does for a closed barrier.
+describe("barrier `unreachable` — vendor down must not spend a row's patience", () => {
+  it("a timeout is unreachable — we learned nothing about the person", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Promise.reject(
+          new DOMException("The operation was aborted due to timeout", "TimeoutError"),
+        ),
+      ),
+    );
+    const r = await personLocalBarrier("LAB52GY480CJF", "1");
+    expect(r.verdict).toBe("error");
+    expect(r.unreachable).toBe(true);
+  });
+
+  it.each([502, 503, 504])("HTTP %i is the vendor being unwell, not an answer", async (status) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => reply(status)),
+    );
+    const r = await personLocalBarrier("LAB52GY480CJF", "1");
+    expect(r.verdict).toBe("error");
+    expect(r.unreachable).toBe(true);
+  });
+
+  it.each([400, 401, 403, 418])(
+    "HTTP %i IS an answer about this row, so it still counts",
+    async (status) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => reply(status)),
+      );
+      const r = await personLocalBarrier("LAB52GY480CJF", "1");
+      expect(r.verdict).toBe("error");
+      expect(r.unreachable).toBeFalsy();
+    },
+  );
+
+  it("missing creds is OUR fault, not the vendor's — it counts", async () => {
+    delete process.env.SWAGGER_ADMIN_KEY;
+    const r = await personLocalBarrier("LAB52GY480CJF", "1");
+    expect(r.verdict).toBe("error");
+    expect(r.unreachable).toBeFalsy();
+  });
+
+  it("personsLocalBarrier carries `unreachable` through the aggregate", async () => {
+    // The guardian-signed waiver path. Flattening the flag here would put the
+    // two-person barrier straight back to burning attempts during an outage.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new Error("connect ETIMEDOUT"))),
+    );
+    const r = await personsLocalBarrier("LAB52GY480CJF", ["minor-1", "guardian-1"], {
+      diagnoseElsewhere: false,
+    });
+    expect(r.verdict).toBe("error");
+    expect(r.unreachable).toBe(true);
+  });
+
+  it("a real 'error' answer from one person is NOT marked unreachable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => reply(403)),
+    );
+    const r = await personsLocalBarrier("LAB52GY480CJF", ["minor-1", "guardian-1"], {
+      diagnoseElsewhere: false,
+    });
+    expect(r.verdict).toBe("error");
+    expect(r.unreachable).toBeFalsy();
+  });
+});

@@ -51,11 +51,27 @@ export interface BarrierResult {
   verdict: BarrierVerdict;
   /** Short reason for the queue row's last_error / the cron log. */
   detail: string;
+  /**
+   * Set on an `error` verdict when we never got an answer at all — the vendor
+   * timed out, refused the connection, or the network failed.
+   *
+   * This is the difference between "BMI told us something we cannot act on"
+   * and "BMI is down". Only the first says anything about the ROW; the second
+   * says something about the DAY, and must not spend the row's patience.
+   * See the consumer for why that distinction decides guest data.
+   */
+  unreachable?: boolean;
 }
 
 const open = (detail: string): BarrierResult => ({ verdict: "open", detail });
 const closed = (detail: string): BarrierResult => ({ verdict: "closed", detail });
-const errored = (detail: string): BarrierResult => ({ verdict: "error", detail });
+const errored = (detail: string, unreachable = false): BarrierResult => ({
+  verdict: "error",
+  detail,
+  unreachable,
+});
+/** We never reached the vendor — indistinguishable from "not yet", so treated as such. */
+const unreachable = (detail: string): BarrierResult => errored(detail, true);
 const impossible = (detail: string): BarrierResult => ({ verdict: "impossible", detail });
 
 /** Pandora locationIDs we can look a person up at, with names for the message. */
@@ -151,9 +167,17 @@ export async function personLocalBarrier(
       return open("500 Response Validator Error — present, birthdate null");
     }
     if (res.ok) return open("200 — present and readable");
+    // A status we cannot interpret IS an answer about this person, so it counts
+    // against the row. 502/503/504 are the vendor being unwell rather than an
+    // answer, and are treated like a timeout.
+    if (res.status >= 502 && res.status <= 504) {
+      return unreachable(`HTTP ${res.status} — vendor unavailable`);
+    }
     return errored(`HTTP ${res.status}`);
   } catch (err) {
-    return errored(err instanceof Error ? err.message.slice(0, 120) : "network error");
+    // Timeout, connection refused, DNS, TLS — we never got an answer, so we
+    // learned nothing about this person. Must not spend the row's patience.
+    return unreachable(err instanceof Error ? err.message.slice(0, 120) : "network error");
   }
 }
 
@@ -201,7 +225,10 @@ export async function personsLocalBarrier(
   }
 
   const err = results.find((x) => x.r.verdict === "error");
-  if (err) return errored(`person ${err.id}: ${err.r.detail}`);
+  // Carry `unreachable` through the aggregate. Flattening it here would put the
+  // party barrier — the one guarding guardian-signed waivers — straight back to
+  // spending a row's patience on a vendor outage.
+  if (err) return errored(`person ${err.id}: ${err.r.detail}`, err.r.unreachable === true);
 
   return open(`all ${ids.length} present locally`);
 }
