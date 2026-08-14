@@ -23,6 +23,8 @@ import redis from "@/lib/redis";
 import { fetchIsBirthdayToday } from "@/lib/checkin-race-flags";
 import { listAssignmentsForSession } from "@/lib/camera-assign";
 import { vipComboPersonLegsOnDate } from "@/lib/bowling-db";
+import { businessDayYmdET } from "@/lib/race-business-day";
+import { listBriefingAssignments, type BriefingAssignment } from "../briefing/assignments-db";
 import { readRaceFinishedMarker, readRaceStartedMarker } from "../briefing/race-finish.server";
 import { sessionBriefed } from "../briefing/state.server";
 import { participantCheckedIn } from "../checkin-progress";
@@ -67,6 +69,22 @@ export interface PitDisplaySession {
   inHolding: boolean;
 }
 
+/** Today's briefing sends, memoised for the pulse: pitDisplaySession runs on
+ *  the 2-second lane every poll for three tracks, and the desk's own board
+ *  already reads this table every 5 seconds — one more reader at the same
+ *  cadence is fine, one per pulse per track is not. */
+const ASSIGNMENTS_TTL_MS = 5_000;
+let assignmentsMemo: { at: number; value: BriefingAssignment[] } | null = null;
+
+async function todaysAssignments(nowMs: number): Promise<BriefingAssignment[]> {
+  if (assignmentsMemo && nowMs - assignmentsMemo.at < ASSIGNMENTS_TTL_MS) {
+    return assignmentsMemo.value;
+  }
+  const value = await listBriefingAssignments("FT", businessDayYmdET()).catch(() => []);
+  assignmentsMemo = { at: nowMs, value };
+  return value;
+}
+
 export async function pitDisplaySession(track: TrackKey): Promise<PitDisplaySession | null> {
   // The holding group owns the board. Mega fallback mirrors race-checkin.ts:
   // on a Mega day the staff actions and the called record live under `mega`,
@@ -84,6 +102,33 @@ export async function pitDisplaySession(track: TrackKey): Promise<PitDisplaySess
       heatNumber: lane.holding.heatNumber,
       raceType: lane.holding.raceType,
       inHolding: true,
+    };
+  }
+
+  // BRIEFED-BUT-NOT-RACED OUTRANKS THE CALLED RECORD. The pipeline overlaps
+  // by design — the desk calls the NEXT heat while this one is still in a
+  // room — and `pandora:last-race` only remembers the newest call, which is
+  // how Session 60 stole the board while 59 was still walking to its karts
+  // (live 2026-08-13). The newest send for this track that has neither
+  // started nor finished is the group about to be seated, whatever the desk
+  // has called since. An undone send revokes the claim via the briefed
+  // marker, same as the desk's own room badge.
+  const tracksOk = track === "mega" ? ["mega"] : [track, "mega"];
+  for (const a of await todaysAssignments(Date.now())) {
+    if (a.mode !== "timeline" || !tracksOk.includes(a.track)) continue;
+    const [started, finished, briefed] = await Promise.all([
+      readRaceStartedMarker(a.sessionId).catch(() => null),
+      readRaceFinishedMarker(a.sessionId).catch(() => null),
+      sessionBriefed(a.sessionId).catch(() => null),
+    ]);
+    // Newest send for this track has already raced (or was undone) — nothing
+    // is pending between the rooms and the grid; fall through to the call.
+    if (started != null || finished != null || !briefed) break;
+    return {
+      sessionId: a.sessionId,
+      heatNumber: a.heatNumber,
+      raceType: a.raceType,
+      inHolding: false,
     };
   }
 
