@@ -34,6 +34,17 @@ export interface BriefingTimeline {
 const IDLE: BriefingTimeline = { phase: "idle", videoOffsetMs: 0, nextInMs: null, videoMs: 0 };
 
 /**
+ * How long a room whose group nobody moved on stays claimed.
+ *
+ * Only reached when staff never pressed send-to-holding, Undo, or a replacing
+ * send — so it is measuring a mistake, and its job is to make that mistake
+ * expire quietly overnight rather than to pace the evening. Long enough that no
+ * real briefing-to-seats gap trips it, short enough that it cannot survive to
+ * the next shift.
+ */
+const ROOM_ABANDONED_MS = 90 * 60_000;
+
+/**
  * What a room should be showing at `nowMs`.
  *
  * Absent state is idle — the helmet poster — which is also what a room shows
@@ -83,20 +94,34 @@ export function briefingTimelineAt(
     };
   }
 
-  const helmetEnd = videoMs + HELMET_PHASE_MS;
-  if (elapsed < helmetEnd) {
-    return { phase: "helmet", videoOffsetMs: 0, nextInMs: helmetEnd - elapsed, videoMs };
+  /**
+   * HELMETS ARE WHERE THE TIMELINE STOPS, AND IT WAITS THERE (owner 2026-08-14:
+   * "don't auto complete that section… there shouldn't be any auto moving to
+   * holding. I think when briefing done it does some 30 second helmet countdown
+   * then goes to limbo").
+   *
+   * It used to run out after 30 seconds and fall to IDLE, on the rule that "once
+   * the helmet portion is done this should clear and be ready for the next"
+   * (owner 2026-08-11). That rule was written before the holding step existed,
+   * and the holding step is what makes it wrong: a room now empties when staff
+   * SEND the group to the seats, not when a countdown finishes.
+   *
+   * The cost was exactly the limbo described. Thirty seconds after the film the
+   * desk's box went idle, which took the "Send to holding" control down with it —
+   * so the group was still standing in the room with no way left to move them
+   * on, and the board had quietly declared the room free for the next heat.
+   *
+   * So the helmet phase has no end: the film is over, they are getting kitted,
+   * and they stay the room's occupants until a human says otherwise. `nextInMs`
+   * is null because nothing follows on a clock — the next thing is a press.
+   * Every path out of here is now deliberate: send to holding, Undo, or a
+   * replacing send. The Redis TTL below is the only backstop, and it is a
+   * backstop rather than a schedule.
+   */
+  if (elapsed >= videoMs) {
+    return { phase: "helmet", videoOffsetMs: 0, nextInMs: null, videoMs };
   }
 
-  // AND THAT IS THE WHOLE BRIEFING. Once helmets are done the room is FREE and
-  // ready for the next group (owner 2026-08-11: "once the helmet portion is done
-  // this should clear and be ready for the next"). It used to hold a third phase for
-  // half an hour, which left a room that had emptied reading as busy on the board.
-  //
-  // Idle is not blank: the room rests on the helmet-sizing board, with the lap to
-  // beat and where results are posted. "Cleared" and "showing something useful" are
-  // the same state — and the wall deliberately says nothing about a race that has
-  // not been sent here.
   return IDLE;
 }
 
@@ -117,7 +142,16 @@ export function briefingStateTtlSeconds(state: BriefingRoomState): number {
     Number.isFinite(state.videoDurationMs) && (state.videoDurationMs as number) > 0
       ? (state.videoDurationMs as number)
       : NOMINAL_VIDEO_MS;
-  // One extra minute of headroom: a TV polling every 2s must never be the thing
-  // that discovers the key vanished a beat before the board was due to change.
-  return Math.ceil((videoMs + HELMET_PHASE_MS + 60_000) / 1000);
+  /**
+   * A BACKSTOP, NOT A SCHEDULE — which is the whole difference from what this
+   * used to be. The helmet phase no longer ends on a clock (see above), so a TTL
+   * of video + 30s + a minute would now expire the key while the group is still
+   * in the room and hand the desk the same limbo by another route.
+   *
+   * The real ends are the presses: send to holding, Undo, or a replacing send.
+   * This only catches a room nobody closed at all, and it is deliberately longer
+   * than any plausible briefing-to-seats gap and shorter than a shift, so a
+   * forgotten room frees itself tonight rather than greeting the morning crew.
+   */
+  return Math.ceil((videoMs + HELMET_PHASE_MS + ROOM_ABANDONED_MS) / 1000);
 }

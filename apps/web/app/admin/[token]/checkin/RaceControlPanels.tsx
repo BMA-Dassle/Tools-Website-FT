@@ -1923,6 +1923,11 @@ function InRoom({
   // The ten seconds Start is held for after a send, so the film cannot start
   // before the group has left the desk. Ticks with nowMs.
   const holdMs = startHoldRemainingMs(state, nowMs);
+  /** How long since the film finished — the helmet phase has no end of its own
+   *  any more, so this is what the readout counts up. */
+  const waitingSinceFilmMs = state ? waitingMs - timeline.videoMs : 0;
+  /** The film is still playing, so the group is not going anywhere yet. */
+  const filmRunning = phase === "video";
 
   return (
     // CONTENT HEIGHT, NOT PANEL HEIGHT. This wrapper used to take the panel's
@@ -2073,10 +2078,15 @@ function InRoom({
                         />
                       </>
                     ) : (
+                      /* THE FILM IS DONE AND NOTHING IS COUNTING. This used to
+                         read "Left … until the room is free" against a 30-second
+                         helmet timer; the room no longer frees itself, so what
+                         staff need is how long the group has been standing there
+                         waiting to be sent to the seats. */
                       <Stat
-                        label="Left"
-                        value={timeline.nextInMs != null ? formatClock(timeline.nextInMs) : "—"}
-                        unit="until the room is free"
+                        label="Helmets"
+                        value={formatClock(Math.max(0, waitingSinceFilmMs))}
+                        unit="since the film ended — send them when ready"
                         big
                         tone={color}
                       />
@@ -2132,7 +2142,7 @@ function InRoom({
                     >
                       {phase === "video" && timeline.videoMs > 0 && (
                         <span className="rc-num" style={{ fontSize: 10, color: PORTAL_DARK.muted }}>
-                          {Math.round(pct)}% · then helmet sizes, then free
+                          {Math.round(pct)}% · then helmet sizes, then send them out
                         </span>
                       )}
                       <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -2151,17 +2161,29 @@ function InRoom({
                         {/* PHASE THREE (owner 2026-08-13): the group walks out
                             to the pit seats. Frees this room for the returning
                             race and flips the pit board's rail to seat them —
-                            without un-briefing the session the way Undo does. */}
+                            without un-briefing the session the way Undo does.
+
+                            NOT WHILE THE FILM IS PLAYING (owner 2026-08-14: "send
+                            to holding should not be available till video is
+                            over"). The safety briefing is the one thing this room
+                            exists to deliver, and a group sent to the seats
+                            part-way through it has not had it. Disabled rather
+                            than hidden, so staff can see the next step coming and
+                            the row does not reflow when the film ends. */}
                         <ActionButton
                           size="sm"
                           tone={GREEN}
                           textColor="#052e14"
                           pendingKey={`holding:${room}`}
                           pending={pending}
-                          disabled={locked || !state?.sessionId}
+                          disabled={locked || !state?.sessionId || filmRunning}
                           pendingLabel="Sending…"
                           onClick={onSendHolding}
-                          title="The group is leaving for the pit seats — frees this room and tells the pit board to seat them"
+                          title={
+                            filmRunning
+                              ? "The safety film is still playing — this unlocks when it finishes"
+                              : "The group is leaving for the pit seats — frees this room and tells the pit board to seat them"
+                          }
                         >
                           ➜ Send to holding
                         </ActionButton>

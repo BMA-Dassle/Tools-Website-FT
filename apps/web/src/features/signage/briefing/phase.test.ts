@@ -39,20 +39,32 @@ describe("briefingTimelineAt", () => {
     expect(mid.nextInMs).toBe(VIDEO_MS - 90_000);
   });
 
-  it("shows helmet sizes for 30 seconds after the film", () => {
+  it("shows helmet sizes the moment the film ends", () => {
     expect(briefingTimelineAt(state(), T0 + VIDEO_MS).phase).toBe("helmet");
     expect(briefingTimelineAt(state(), T0 + VIDEO_MS + 29_000).phase).toBe("helmet");
-    expect(briefingTimelineAt(state(), T0 + VIDEO_MS + HELMET_PHASE_MS).phase).toBe("idle");
   });
 
-  it("FREES THE ROOM the moment helmets are done — there is no third phase", () => {
-    // Owner 2026-08-11: "once the helmet portion is done this should clear and be
-    // ready for the next". A 30-minute third phase left an emptied room reading as
-    // busy on the control board.
-    const helmetEnd = T0 + VIDEO_MS + HELMET_PHASE_MS;
-    expect(briefingTimelineAt(state(), helmetEnd - 1).phase).toBe("helmet");
-    expect(briefingTimelineAt(state(), helmetEnd).phase).toBe("idle");
-    expect(briefingTimelineAt(state(), helmetEnd + 60_000).phase).toBe("idle");
+  it("HOLDS ON HELMETS UNTIL A HUMAN MOVES THEM — no auto-complete", () => {
+    /**
+     * Owner 2026-08-14: "don't auto complete that section… there shouldn't be
+     * any auto moving to holding. I think when briefing done it does some 30
+     * second helmet countdown then goes to limbo."
+     *
+     * This REPLACES the old rule ("once the helmet portion is done this should
+     * clear and be ready for the next", 2026-08-11), which predates the holding
+     * step. Falling to idle 30s after the film took the desk's "Send to holding"
+     * control down with it, stranding a group who were still in the room.
+     *
+     * A room now empties on a press — send to holding, Undo, or a replacing
+     * send — and never on a clock. The Redis TTL is the only backstop.
+     */
+    const filmEnd = T0 + VIDEO_MS;
+    for (const after of [HELMET_PHASE_MS, 60_000, 10 * 60_000, 40 * 60_000]) {
+      const t = briefingTimelineAt(state(), filmEnd + after);
+      expect(t.phase).toBe("helmet");
+      // Nothing follows on a clock, so there is no countdown to publish.
+      expect(t.nextInMs).toBeNull();
+    }
   });
 
   it("REBOOT REJOINS: a player restarting mid-film comes back mid-film", () => {
@@ -65,9 +77,10 @@ describe("briefingTimelineAt", () => {
 
   it("skips the video entirely when no film is uploaded", () => {
     const noVideo = state({ videoUrl: null, videoDurationMs: null });
-    // Straight to helmet sizes rather than a black screen for five minutes.
+    // Straight to helmet sizes rather than a black screen for five minutes —
+    // and it stays there, like any other finished briefing.
     expect(briefingTimelineAt(noVideo, T0).phase).toBe("helmet");
-    expect(briefingTimelineAt(noVideo, T0 + HELMET_PHASE_MS).phase).toBe("idle");
+    expect(briefingTimelineAt(noVideo, T0 + HELMET_PHASE_MS).phase).toBe("helmet");
   });
 
   it("falls back to a nominal length when duration is unknown", () => {
