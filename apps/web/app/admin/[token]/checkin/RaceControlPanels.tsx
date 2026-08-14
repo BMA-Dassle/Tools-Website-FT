@@ -99,6 +99,7 @@ import type {
   WaitTimesBoard,
 } from "./useBriefingControl";
 import type { PitLaneFeed } from "~/features/signage/pit/pit-board";
+import OverridePanel from "./OverridePanel";
 import {
   formatRemaining,
   useLiveSessionClock,
@@ -647,6 +648,18 @@ export default function RaceControlPanels({
               </div>
             ))}
           </div>
+        </BoardModal>
+      )}
+
+      {/* OVERRIDE — the manual placement modal. See OverridePanel: it is a live
+          view of every lane slot first, and a set of corrections second. */}
+      {control.openPanel === "override" && (
+        <BoardModal
+          title="Override"
+          subtitle="Where every session is right now — and how to move one by hand"
+          onClose={() => control.setOpenPanel(null)}
+        >
+          <OverridePanel control={control} megaEnabled={megaEnabled} status={status} />
         </BoardModal>
       )}
 

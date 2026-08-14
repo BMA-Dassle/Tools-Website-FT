@@ -18,6 +18,7 @@ import {
 
 /** The board's warning amber, same value the briefing panels use. */
 const AMBER = "#f0b341";
+const withAlphaAmber = (a: number) => `rgba(240,179,65,${a})`;
 
 type ConnectionState = "idle" | "connecting" | "ready" | "error";
 type ScanState = "idle" | "processing" | "result";
@@ -951,6 +952,17 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
               check-in station has no briefing board to report on. */}
           {boardMode && (
             <>
+              {/* OVERRIDE — the manual placement modal. Amber because it is a
+                  correction, not a step: every other control on this bar does
+                  what the flow does, and this one says the flow got it wrong. */}
+              <button
+                type="button"
+                onClick={() => briefing.setOpenPanel("override")}
+                className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5"
+                style={{ borderColor: withAlphaAmber(0.55), color: AMBER, borderRadius: 8 }}
+              >
+                Override
+              </button>
               <button
                 type="button"
                 onClick={() => briefing.setOpenPanel("waits")}

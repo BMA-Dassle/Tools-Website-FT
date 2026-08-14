@@ -159,6 +159,31 @@ export interface BriefingControl {
    *  The ONLY thing that releases the pit board's hold. */
   markPitted: (track: string) => void;
   /**
+   * STAFF OVERRIDE — put a session in a lane slot by hand, or empty it.
+   *
+   * The escape hatch for a night when the automatic transitions cannot fire:
+   * Pandora down, no start marker, no finish marker, the live socket
+   * unreachable. Every one of those happened on 2026-08-13/14 and each
+   * correction needed somebody with a Redis client (owner: "maybe a button
+   * called override that allows us to manually change where each session is").
+   *
+   * The one-session-per-slot rule is enforced on the SERVER — a rule the modal
+   * enforces is a rule a second tab can break — so this surfaces the refusal
+   * rather than pre-empting it.
+   */
+  overrideSlot: (args: {
+    track: string;
+    slot: "holding" | "racing";
+    /** Null empties the slot. */
+    session: {
+      sessionId: string;
+      heatNumber: number | null;
+      raceType: string | null;
+      room: BriefingRoom | null;
+    } | null;
+    force?: boolean;
+  }) => void;
+  /**
    * A fresh live-stream URL for a room's camera, or null if live is unavailable.
    *
    * HERE RATHER THAN IN THE PANEL because the admin token lives in this hook, and
@@ -215,7 +240,7 @@ export interface BriefingControl {
  *  the endpoint returns per-session rows too, which no board needs. */
 /** The board's reference overlays. Neither is an action — both are things staff
  *  open, read and dismiss, which is why they are modals and not board furniture. */
-export type BoardPanel = "waits" | "log";
+export type BoardPanel = "waits" | "log" | "override";
 
 export interface WaitTimesBoard {
   byTrack: Record<string, Record<string, { n: number; medianMs: number | null }>>;
@@ -367,6 +392,29 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  const overrideSlot = useCallback<BriefingControl["overrideSlot"]>(
+    (args) => {
+      const what = args.session
+        ? `Session ${args.session.heatNumber ?? ""} → ${args.track} ${args.slot}`
+        : `${args.track} ${args.slot} cleared`;
+      void post(
+        {
+          action: "override",
+          track: args.track,
+          slot: args.slot,
+          sessionId: args.session?.sessionId ?? "",
+          heatNumber: args.session?.heatNumber ?? undefined,
+          raceType: args.session?.raceType ?? undefined,
+          room: args.session?.room ?? undefined,
+          force: args.force === true,
+        },
+        what,
+        `override:${args.track}:${args.slot}`,
+      );
+    },
+    [post],
+  );
+
   const markPitted = useCallback<BriefingControl["markPitted"]>(
     (track) => {
       void post(
@@ -479,6 +527,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     clearRoom,
     sendToHolding,
     markPitted,
+    overrideSlot,
     liveCameraUrl,
     hasLaunched,
     noteLaunched,

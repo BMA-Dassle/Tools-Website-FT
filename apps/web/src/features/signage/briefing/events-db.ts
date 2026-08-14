@@ -113,7 +113,10 @@ export type BriefingEventAction = "sent" | "started" | "restarted" | "photo" | "
  *  briefing-log.ts infers when no explicit end was ever recorded. `holding`
  *  (2026-08-13) is the send-to-holding press: the group left for the pit
  *  seats, which is also the moment the room became free. */
-export type BriefingEndReason = "cleared" | "replaced" | "holding";
+/** Why an occupancy ended. `override` is a staff correction rather than a
+ *  step in the flow — kept distinct precisely so the insurance log can tell a
+ *  hand-placed group from one that walked the normal path. */
+export type BriefingEndReason = "cleared" | "replaced" | "holding" | "override";
 
 export interface BriefingEvent {
   id: string;

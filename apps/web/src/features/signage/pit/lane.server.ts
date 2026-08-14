@@ -262,6 +262,114 @@ export async function sendToHolding(args: SendToHoldingArgs): Promise<{ ok: true
  * (ok:false) when there is nothing to return: a stray press with an empty
  * lane must not write a stamp that would silently release the NEXT hold.
  */
+/**
+ * STAFF OVERRIDE — put a session in a lane slot by hand, or empty the slot.
+ *
+ * WHY THIS EXISTS. Every automatic transition on this board depends on
+ * something outside the building: Pandora naming the called heat, the timing
+ * webhook stamping a start or a finish, the live socket reaching the desk. On
+ * 2026-08-13/14 all three failed in one night — Pandora's races/current
+ * returned 500 for hours, start markers never arrived, finishes had to be
+ * written by hand from a script — and the desk had no way to say what staff
+ * could plainly see. Every correction meant somebody with a Redis client.
+ *
+ * So the board gets the same power the script had, with the same guard rails.
+ *
+ * ONE SESSION PER SLOT, ENFORCED HERE. A lane holds one group in the seats and
+ * one group on track; putting a second into either would make the board lie in
+ * a way staff could not see (owner 2026-08-14: "if something is already in that
+ * state it would need changed first before moving another race to that state").
+ * The refusal names the occupant, because "clear it first" is only actionable
+ * if you know what "it" is. Refusing rather than displacing is deliberate: an
+ * override is a claim about the real world, and two claims about one place mean
+ * somebody is wrong and should look before overwriting.
+ *
+ * The stored shape is exactly what the presses write, so nothing downstream can
+ * tell an override from an ordinary night.
+ */
+export interface LaneSlotOccupant {
+  sessionId: string;
+  heatNumber: number | null;
+  raceType: string | null;
+  room: BriefingRoom | null;
+}
+
+export type LaneSlot = "holding" | "racing";
+
+export async function overrideLaneSlot(args: {
+  track: TrackKey;
+  slot: LaneSlot;
+  /** Null empties the slot. */
+  occupant: LaneSlotOccupant | null;
+  /** Replace whatever is there, even a different session. The desk asks for
+   *  this only after showing the staff member who is being displaced. */
+  force?: boolean;
+}): Promise<{ ok: boolean; error?: string; occupiedBy?: string }> {
+  const stored = (await readStoredLane(args.track)) ?? {
+    holding: null,
+    racing: null,
+    pitted: null,
+  };
+
+  const current = stored[args.slot];
+  if (!args.force && args.occupant && current && current.sessionId !== args.occupant.sessionId) {
+    return {
+      ok: false,
+      error:
+        `${args.track} ${args.slot} already holds ` +
+        `${current.heatNumber != null ? `session ${current.heatNumber}` : "another session"}` +
+        ` — clear it first`,
+      occupiedBy: current.sessionId,
+    };
+  }
+
+  const next: StoredPitLane = { ...stored };
+  if (args.slot === "holding") {
+    next.holding = args.occupant
+      ? {
+          sessionId: args.occupant.sessionId,
+          heatNumber: args.occupant.heatNumber,
+          raceType: args.occupant.raceType,
+          room: args.occupant.room,
+          atMs: Date.now(),
+        }
+      : null;
+  } else {
+    next.racing = args.occupant
+      ? {
+          sessionId: args.occupant.sessionId,
+          heatNumber: args.occupant.heatNumber,
+          room: args.occupant.room,
+        }
+      : null;
+    // A pitted stamp belongs to the session it answered. Moving a different
+    // group onto the track must not inherit "their karts are already back".
+    if (next.pitted && next.pitted.sessionId !== args.occupant?.sessionId) {
+      next.pitted = null;
+    }
+  }
+
+  await writeStoredLane(args.track, next);
+
+  // The durable trail, so a hand-placed group is still answerable tomorrow.
+  if (args.occupant) {
+    await recordBriefingEvent({
+      venue: VENUE,
+      businessDay: businessDayYmdET(),
+      room: args.occupant.room ?? "red",
+      track: args.track,
+      sessionId: args.occupant.sessionId,
+      heatNumber: args.occupant.heatNumber,
+      raceType: args.occupant.raceType,
+      tier: null,
+      action: args.slot === "holding" ? "ended" : "pitted",
+      reason: "override",
+    }).catch(() => {});
+  }
+
+  return { ok: true };
+}
+
 export async function markRacePitted(
   track: TrackKey,
 ): Promise<{ ok: boolean; error?: string; sessionId?: string }> {

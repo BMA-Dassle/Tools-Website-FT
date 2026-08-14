@@ -7,7 +7,11 @@ import {
   sendBriefing,
   startBriefing,
 } from "~/features/signage/briefing/service";
-import { markRacePitted, sendToHolding } from "~/features/signage/pit/lane.server";
+import {
+  markRacePitted,
+  overrideLaneSlot,
+  sendToHolding,
+} from "~/features/signage/pit/lane.server";
 import {
   isBriefingAssetKey,
   parseBriefingRoom,
@@ -58,6 +62,8 @@ export async function POST(req: NextRequest) {
     heatNumber?: number;
     raceType?: string;
     tier?: string;
+    slot?: string;
+    force?: boolean;
     assetKey?: string;
     url?: string;
     size?: number;
@@ -113,6 +119,48 @@ export async function POST(req: NextRequest) {
   // silently does nothing.
   if (!briefingEnabled()) {
     return NextResponse.json({ error: "briefing rooms are switched off" }, { status: 503 });
+  }
+
+  /**
+   * STAFF OVERRIDE — place a session in a lane slot, or empty it.
+   *
+   * Handled before the room parse, like "pitted", because it is track-keyed.
+   * The occupancy guard lives in overrideLaneSlot, not here: a rule the UI
+   * enforces is a rule a second tab can break.
+   */
+  if (action === "override") {
+    const track =
+      body.track === "blue" || body.track === "red" || body.track === "mega" ? body.track : null;
+    if (!track) {
+      return NextResponse.json({ error: "track must be blue, red or mega" }, { status: 400 });
+    }
+    const slot = body.slot === "holding" || body.slot === "racing" ? body.slot : null;
+    if (!slot) {
+      return NextResponse.json({ error: "slot must be holding or racing" }, { status: 400 });
+    }
+    // STRINGIFIED AT THE BOUNDARY, never Number()'d — same rule as "send".
+    const sessionId =
+      typeof body.sessionId === "string"
+        ? body.sessionId
+        : typeof body.sessionId === "number"
+          ? String(body.sessionId)
+          : "";
+    const result = await overrideLaneSlot({
+      track,
+      slot,
+      // No sessionId means "empty this slot" — the way a mis-placed group is
+      // taken back out before the right one goes in.
+      occupant: sessionId
+        ? {
+            sessionId,
+            heatNumber: Number.isInteger(body.heatNumber) ? (body.heatNumber as number) : null,
+            raceType: typeof body.raceType === "string" ? body.raceType : null,
+            room: parseBriefingRoom(body.room),
+          }
+        : null,
+      force: body.force === true,
+    });
+    return NextResponse.json(result, { status: result.ok ? 200 : 409 });
   }
 
   /**
