@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import {
+  readClearedCall,
+  forgetClearedCall,
+} from "~/features/signage/briefing/called-override.server";
+import { callIsSuppressed, type ClearedCall } from "~/features/signage/briefing/called-clear";
+import {
   MAX_DISPLAY_AGE_MS,
   preserveFirstCall,
   raceStillDisplayable,
@@ -141,6 +146,15 @@ async function saveRace(track: TrackKey, race: CurrentRace): Promise<void> {
   }
 }
 
+/** Drop the carried copy, so a cleared heat cannot come back through it. */
+async function forgetStored(track: TrackKey): Promise<void> {
+  try {
+    await redis.del(REDIS_KEY(track));
+  } catch (err) {
+    console.error(`[races-current] Redis clear ${track}:`, err);
+  }
+}
+
 /**
  * The stored last-known heat for a track, or null.
  *
@@ -259,13 +273,47 @@ export async function GET(req: NextRequest) {
     // holds everywhere at once.
     const stored = await loadAllFromRedis();
     const tracks: TrackKey[] = ["blue", "red", "mega"];
+    /**
+     * WHAT THE DESK CLEARED BY HAND.
+     *
+     * This route writes the called key unconditionally, which made "Clear" on the
+     * Override panel unclearable: the delete landed, the next poll put Pandora's
+     * answer straight back, and Pandora keeps reporting a called heat for ~20
+     * minutes (owner 2026-08-14, "can never clear called section"). A clear now
+     * leaves a tombstone and this is where it is honoured — here rather than in
+     * each consumer, because this route is the one seam every board reads
+     * through, exactly like the preserveFirstCall pin below it.
+     */
+    const clearedByTrack = await Promise.all(
+      tracks.map((t) => readClearedCall(t).catch(() => null)),
+    );
+    const cleared: Record<TrackKey, ClearedCall | null> = {
+      blue: clearedByTrack[0],
+      red: clearedByTrack[1],
+      mega: clearedByTrack[2],
+    };
     const merged: CurrentRaces = { blue: null, red: null, mega: null };
     for (const t of tracks) {
       if (pandora[t]) {
         const race = preserveFirstCall(pandora[t] as CurrentRace, stored[t]);
+        if (callIsSuppressed(cleared[t], race)) {
+          // Swallowed, and the stored copy goes with it — otherwise the carry
+          // below would serve the same heat back the moment Pandora ages out.
+          merged[t] = null;
+          void forgetStored(t);
+          continue;
+        }
         merged[t] = race;
+        // A sighting that is NOT suppressed means the tombstone is spent (staff
+        // called this heat again, or a different heat was called). Retiring it
+        // here keeps a stale suppression from swallowing a later re-call.
+        if (cleared[t]) void forgetClearedCall(t);
         // Fire and forget — don't block response on Redis write
         saveRace(t, race);
+      } else if (stored[t] && callIsSuppressed(cleared[t], stored[t] as CurrentRace)) {
+        // Pandora has gone quiet but our own carry still holds the cleared heat.
+        merged[t] = null;
+        void forgetStored(t);
       } else {
         // Pandora expires its own entry ~20 min after the call, so the stored
         // copy is what carries a session between heats. Age-gated, not

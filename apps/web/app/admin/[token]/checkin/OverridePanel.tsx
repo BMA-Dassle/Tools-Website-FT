@@ -33,6 +33,13 @@ const INK = "#e8eef7";
 const GREEN = "#4ade80";
 const AMBER = "#f0b341";
 
+/** A slot a session was sighted in — enough to empty exactly that slot. */
+interface OccupiedSlot {
+  track: string;
+  slot: "called" | "room" | "holding" | "racing";
+  room?: BriefingRoom;
+}
+
 /** One session the desk can currently name, and everywhere it appears. */
 interface KnownSession {
   sessionId: string;
@@ -40,6 +47,8 @@ interface KnownSession {
   raceType: string | null;
   room: BriefingRoom | null;
   where: string;
+  /** Every slot it currently occupies, in sighting order. */
+  at: OccupiedSlot[];
 }
 
 export default function OverridePanel({
@@ -67,6 +76,8 @@ export default function OverridePanel({
     raceType: string | null,
     room: BriefingRoom | null,
     where: string,
+    /** The slot this sighting came from, so Remove knows what to empty. */
+    at: OccupiedSlot,
   ) => {
     if (!sessionId) return;
     const prev = known.get(sessionId);
@@ -76,6 +87,7 @@ export default function OverridePanel({
       raceType: raceType ?? prev?.raceType ?? null,
       room: room ?? prev?.room ?? null,
       where: prev ? `${prev.where} · ${where}` : where,
+      at: prev ? [...prev.at, at] : [at],
     });
   };
 
@@ -88,6 +100,7 @@ export default function OverridePanel({
         race.raceType ?? null,
         null,
         `called on ${t}`,
+        { track: t, slot: "called" },
       );
     }
   }
@@ -99,6 +112,7 @@ export default function OverridePanel({
         r.state.raceType ?? null,
         r.room,
         `${r.room} room`,
+        { track: r.room, slot: "room", room: r.room },
       );
     }
   }
@@ -111,10 +125,14 @@ export default function OverridePanel({
         lane.holding.raceType,
         lane.holding.room,
         `${t} holding`,
+        { track: t, slot: "holding" },
       );
     }
     if (lane?.racing) {
-      remember(lane.racing.sessionId, lane.racing.heatNumber, null, null, `${t} racing`);
+      remember(lane.racing.sessionId, lane.racing.heatNumber, null, null, `${t} racing`, {
+        track: t,
+        slot: "racing",
+      });
     }
   }
 
@@ -240,6 +258,37 @@ export default function OverridePanel({
               Session {r.heatNumber ?? "?"}
             </span>
             <span style={{ minWidth: 180, fontSize: 11, color: PORTAL_DARK.muted }}>{r.where}</span>
+            {/* TAKE IT OFF THE BOARD ENTIRELY (owner 2026-08-14: "should have
+                ability to delete session from system so it can be called
+                again"). A session is on this list ONLY because it occupies a
+                slot, so emptying every slot it holds is what removing it means —
+                there is no separate registry to delete it from, and inventing
+                one would be a second source of truth for where a heat is.
+
+                Order does not matter here, and that is worth saying: the
+                server's one-session-per-slot refusal applies to PLACING a
+                session, never to emptying a slot, so these cannot collide with
+                each other. Clearing check-in now sticks too, so a removed heat
+                stays gone until it is genuinely called again. */}
+            <button
+              type="button"
+              className="rcb"
+              disabled={!!control.pending}
+              onClick={() => {
+                for (const at of r.at) {
+                  control.overrideSlot({
+                    track: at.track,
+                    slot: at.slot,
+                    room: at.room,
+                    session: null,
+                  });
+                }
+              }}
+              title={`Take session ${r.heatNumber ?? ""} out of every stage it is in (${r.where})`}
+              style={btnStyle(PORTAL_DARK.border, PORTAL_DARK.fg)}
+            >
+              Remove
+            </button>
             {tracks.map((t) => (
               <button
                 key={`called:${t}`}

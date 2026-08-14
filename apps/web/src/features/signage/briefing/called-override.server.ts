@@ -21,6 +21,7 @@ import "server-only";
  */
 import redis from "@/lib/redis";
 import type { TrackKey } from "../track";
+import type { ClearedCall } from "./called-clear";
 
 /** The shape /api/pandora/races-current stores, field for field. */
 export interface CalledRaceRecord {
@@ -77,7 +78,44 @@ export async function readCalledRace(track: TrackKey): Promise<CalledRaceRecord 
   }
 }
 
-/** Write the called record for a track, or clear it when `race` is null. */
+function clearedKey(track: TrackKey): string {
+  return `pandora:called-cleared:fasttrax:${track}`;
+}
+
+/** The call the desk cleared by hand, if one is still buried. */
+export async function readClearedCall(track: TrackKey): Promise<ClearedCall | null> {
+  try {
+    const raw = await redis.get(clearedKey(track));
+    return raw ? (JSON.parse(raw) as ClearedCall) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Forget a clear — the heat is welcome back. */
+export async function forgetClearedCall(track: TrackKey): Promise<void> {
+  try {
+    await redis.del(clearedKey(track));
+  } catch {
+    /* a blip here just means the tombstone outlives its usefulness by a beat */
+  }
+}
+
+/**
+ * Write the called record for a track, or clear it when `race` is null.
+ *
+ * CLEARING LEAVES A TOMBSTONE, and that is the whole reason Clear works at all.
+ * Deleting the key is not enough: /api/pandora/races-current writes it back from
+ * Pandora's answer within seconds, and Pandora keeps reporting a called heat for
+ * ~20 minutes, so the press appeared to do nothing (owner 2026-08-14). The
+ * poller reads this tombstone and swallows exactly the call that was buried —
+ * see called-clear.ts for the rule.
+ *
+ * PLACING A SESSION LIFTS ANY TOMBSTONE. A deliberate placement is the most
+ * recent thing the desk said, so it outranks an earlier clear on that track —
+ * otherwise putting a session back on a slot you had just cleared would be
+ * swallowed by your own previous press.
+ */
 export async function setCalledRace(
   track: TrackKey,
   race: CalledRaceRecord | null,
@@ -85,8 +123,22 @@ export async function setCalledRace(
   try {
     if (race) {
       await redis.set(key(track), JSON.stringify(race), "EX", CALLED_TTL_SECONDS);
+      await forgetClearedCall(track);
     } else {
+      // Read BEFORE deleting: the record on its way out is the only place the
+      // session id and stamp being cleared can be learned.
+      const outgoing = await readCalledRace(track);
       await redis.del(key(track));
+      if (outgoing?.sessionId != null) {
+        const tombstone: ClearedCall = {
+          sessionId: Number(outgoing.sessionId),
+          calledAt: outgoing.calledAt ?? null,
+          atMs: Date.now(),
+        };
+        // Same TTL as a hand-written call, for the same reason: a suppression
+        // that outlived its night would hide a heat someone called tomorrow.
+        await redis.set(clearedKey(track), JSON.stringify(tombstone), "EX", CALLED_TTL_SECONDS);
+      }
     }
   } catch {
     // Same posture as every other display write here: a Redis blip costs a
