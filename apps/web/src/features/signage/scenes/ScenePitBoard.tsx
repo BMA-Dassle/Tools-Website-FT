@@ -676,6 +676,10 @@ function Rail({
     briefedRoom: "red" | "blue" | null;
     briefedAtMs: number | null;
     inHolding: boolean;
+    /** When the group's pre-race PA cue played — the rail's small indicator
+     *  (owner 2026-08-14: "add some small indicator on our assignment board
+     *  if prerace has been completed"). */
+    preRaceAtMs: number | null;
   } | null;
   qual: { lap: string; level: string } | null;
 }) {
@@ -730,6 +734,7 @@ function Rail({
         <span className="tv-display" style={{ fontSize: 46, color: GREEN, whiteSpace: "nowrap" }}>
           Seat {sessionName} now
         </span>
+        <PreRacePill session={session} />
         <QualPill qual={qual} accent={accent} />
       </div>
     );
@@ -769,8 +774,45 @@ function Rail({
       >
         {infoText}
       </span>
+      <PreRacePill session={session} />
       <QualPill qual={qual} accent={accent} />
     </div>
+  );
+}
+
+/**
+ * The pre-race PA cue's small indicator (owner 2026-08-14). Green tick once
+ * the cue has played; amber "due" only while the group is actually in the
+ * seats with the cue owed — a group still briefing has nothing due yet, and
+ * an indicator that ambers early is an indicator staff learn to ignore.
+ */
+function PreRacePill({
+  session,
+}: {
+  session: { inHolding: boolean; preRaceAtMs: number | null } | null;
+}) {
+  if (!session) return null;
+  const played = session.preRaceAtMs != null;
+  if (!played && !session.inHolding) return null;
+  const color = played ? OK : AMBER;
+  return (
+    <span
+      className="tv-display"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "6px 20px",
+        borderRadius: 999,
+        border: `2px solid ${withAlpha(color, 0.7)}`,
+        background: withAlpha(color, 0.12),
+        color,
+        fontSize: 24,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {played ? "Pre-race ✓" : "Pre-race due"}
+    </span>
   );
 }
 

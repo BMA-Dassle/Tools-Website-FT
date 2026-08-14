@@ -147,6 +147,9 @@ export interface PitBoardInfo {
     inHolding: boolean;
     /** Their own green flag has been seen — the board is about to roll. */
     startedAtMs: number | null;
+    /** When this group's PRE-RACE PA cue played (pit/audio.server.ts), null
+     *  until it has — the wall's small "pre-race ✓ / due" indicator. */
+    preRaceAtMs: number | null;
   } | null;
   /** Null when the roster could not be read — the board shows the session
    *  alone rather than an empty grid pretending to be a heat of nobody. */
