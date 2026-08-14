@@ -370,6 +370,16 @@ export default function RaceControlPanels({
    */
   const megaLaneOwner: BriefingRoom = board?.lanes?.mega?.holding?.room ?? "red";
 
+  /** When each of today's sessions was CALLED, from the briefing log — the
+   *  start of the total-wait clock. Built once per render rather than scanned
+   *  per box: four boxes per column, two columns, every second. */
+  const calledAtBySession = new Map<string, number>();
+  for (const b of board?.briefings ?? []) {
+    if (b.calledAtMs != null) calledAtBySession.set(b.sessionId, b.calledAtMs);
+  }
+  const calledAtFor: CalledAtLookup = (sessionId) =>
+    sessionId ? (calledAtBySession.get(sessionId) ?? null) : null;
+
   return (
     <section
       className="flex flex-col border-t"
@@ -512,6 +522,7 @@ export default function RaceControlPanels({
               onRaceReturned={() => control.markPitted(track)}
               hasLaunched={control.hasLaunched}
               noteLaunched={control.noteLaunched}
+              calledAtFor={calledAtFor}
               onSend={() =>
                 control.send({
                   room,
@@ -1047,6 +1058,62 @@ function WaitValue({ stat, against, lead }: { stat: WaitStat; against: WaitStat;
   );
 }
 
+/**
+ * TOTAL TIME THIS GROUP HAS BEEN IN OUR HANDS — called to chequered flag.
+ *
+ * Owner 2026-08-14: "a small number next to or under each session that shows
+ * number of minutes (total) they've been waiting from called to race till end
+ * of race."
+ *
+ * It is the number no single box could show, which is exactly why it is worth
+ * carrying: each box measures its own leg — checking in, waiting on Start, in
+ * the seats — and a group can look fine in every one of them while the whole
+ * visit has taken fifty minutes. This is the figure a guest would give you.
+ *
+ * THE CLOCK STARTS AT THE CALL, and that instant is only knowable while it is
+ * happening: Pandora ages its called record out about 20 minutes later. It is
+ * stamped into the briefing event at send time for precisely this reason, which
+ * is why the log is the lookup here and the live called record is only the
+ * fallback for a heat that has not been sent yet.
+ *
+ * IT STOPS AT THE FLAG, not at "now" — once the race has ended the total is a
+ * fact about the visit and must stop growing, or a finished group's number
+ * would keep climbing all night on a board nobody had cleared.
+ */
+export type CalledAtLookup = (sessionId: string | null | undefined) => number | null;
+
+function totalWaitMs(
+  calledAtFor: CalledAtLookup,
+  sessionId: string | null | undefined,
+  race: CurrentRace | null,
+  finishedAtMs: number | null,
+  nowMs: number,
+): number | null {
+  if (!sessionId) return null;
+  const logged = calledAtFor(sessionId);
+  const live =
+    race && String(race.sessionId) === sessionId && race.calledAt ? Date.parse(race.calledAt) : NaN;
+  const calledAtMs = logged ?? (Number.isFinite(live) ? live : null);
+  if (calledAtMs == null || !Number.isFinite(calledAtMs)) return null;
+  const end = finishedAtMs ?? nowMs;
+  return Math.max(0, end - calledAtMs);
+}
+
+/** The total, as the boxes render it: a quiet minutes figure that never
+ *  competes with the big number it sits under. */
+function TotalWait({ ms, done }: { ms: number | null; done?: boolean }) {
+  if (ms == null) return null;
+  return (
+    <div
+      className="rc-num"
+      style={{ fontSize: 10, color: PORTAL_DARK.muted, marginTop: 1 }}
+      title="Total from when the heat was called to the end of its race"
+    >
+      {Math.floor(ms / 60_000)} min total{done ? "" : " so far"}
+    </div>
+  );
+}
+
 /* ── one room ──────────────────────────────────────────────────────────── */
 
 function RoomColumn({
@@ -1071,6 +1138,7 @@ function RoomColumn({
   onRaceReturned,
   hasLaunched,
   noteLaunched,
+  calledAtFor,
   onSend,
   onStart,
   onUndo,
@@ -1114,6 +1182,9 @@ function RoomColumn({
   /** The station's memory of which sessions it has seen race — see the hook. */
   hasLaunched: (sessionId: string | null | undefined) => boolean;
   noteLaunched: (sessionId: string | null | undefined) => void;
+  /** When each session's heat was CALLED — the start of the total-wait clock.
+   *  From the briefing log, because Pandora ages its called record out. */
+  calledAtFor: CalledAtLookup;
   onSend: () => void;
   onStart: (restart: boolean) => void;
   onUndo: () => void;
@@ -1250,7 +1321,7 @@ function RoomColumn({
 
   const launched =
     holdingHeat != null && (countingNow || hasLaunched(holdingSessionId))
-      ? { heatNumber: holdingHeat }
+      ? { heatNumber: holdingHeat, sessionId: holdingSessionId }
       : null;
 
   /**
@@ -1331,6 +1402,9 @@ function RoomColumn({
                 <div style={{ fontSize: 14, color: PORTAL_DARK.muted, marginTop: 2 }}>
                   {race.raceType}
                 </div>
+                <TotalWait
+                  ms={totalWaitMs(calledAtFor, String(race.sessionId), race, null, nowMs)}
+                />
               </div>
 
               {/* The two numbers that matter before a send. */}
@@ -1535,6 +1609,8 @@ function RoomColumn({
           pending={pending}
           cameraExpanded={expandedCamera === room}
           onExpandCamera={() => onExpandCamera(room)}
+          calledAtFor={calledAtFor}
+          race={race}
           alert={roomAlert}
           onStart={onStart}
           onUndo={onUndo}
@@ -1555,6 +1631,7 @@ function RoomColumn({
             launched={launched}
             holdLive={holdLive}
             nowMs={nowMs}
+            calledAtFor={calledAtFor}
             cameraExpanded={expandedCamera === holdingCameraFor(room)}
             onExpandCamera={() => onExpandCamera(holdingCameraFor(room))}
           />
@@ -1568,6 +1645,7 @@ function RoomColumn({
             nowMs={nowMs}
             locked={locked}
             pending={pending}
+            calledAtFor={calledAtFor}
             onRaceReturned={onRaceReturned}
           />
         </>
@@ -1612,6 +1690,7 @@ function HoldingPanel({
   launched,
   holdLive,
   nowMs,
+  calledAtFor,
   cameraExpanded,
   onExpandCamera,
 }: {
@@ -1622,11 +1701,12 @@ function HoldingPanel({
   /** The group whose green flag has been seen — computed in the room column so
    *  Holding and On track can never disagree about it. Null when nobody has
    *  just launched. */
-  launched: { heatNumber: number } | null;
+  launched: { heatNumber: number; sessionId: string | null } | null;
   /** Whether the lane is still held. Also from the column, for the same reason —
    *  the badge here and the press on the On-track box read one value. */
   holdLive: boolean;
   nowMs: number;
+  calledAtFor: CalledAtLookup;
   cameraExpanded: boolean;
   onExpandCamera: () => void;
 }) {
@@ -1694,6 +1774,7 @@ function HoldingPanel({
                 <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color: INK }}>
                   {holding.heatNumber != null ? `Session ${holding.heatNumber}` : "In the seats"}
                 </span>
+                <TotalWait ms={totalWaitMs(calledAtFor, holding.sessionId, null, null, nowMs)} />
                 {holding.raceType && (
                   <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{holding.raceType}</span>
                 )}
@@ -1784,17 +1865,19 @@ function OnTrackPanel({
   nowMs,
   locked,
   pending,
+  calledAtFor,
   onRaceReturned,
 }: {
   track: string;
   color: string;
   lane: PitLaneFeed | null;
   liveClock: LiveSessionClock | null;
-  launched: { heatNumber: number } | null;
+  launched: { heatNumber: number; sessionId: string | null } | null;
   holdLive: boolean;
   nowMs: number;
   locked: boolean;
   pending: string | null;
+  calledAtFor: CalledAtLookup;
   onRaceReturned: () => void;
 }) {
   const racing = lane?.racing ?? null;
@@ -1861,6 +1944,16 @@ function OnTrackPanel({
                 Session {outHeat}
               </div>
               <div style={{ fontSize: 11, color: PORTAL_DARK.muted }}>on {cap(track)} Track</div>
+              <TotalWait
+                ms={totalWaitMs(
+                  calledAtFor,
+                  launched?.sessionId ?? racing?.sessionId ?? null,
+                  null,
+                  racing?.finishedAtMs ?? null,
+                  nowMs,
+                )}
+                done={racing?.finishedAtMs != null}
+              />
             </div>
           )}
 
@@ -1927,11 +2020,15 @@ function InRoom({
   onStart,
   onUndo,
   onSendHolding,
+  calledAtFor,
+  race,
 }: {
   room: BriefingRoom;
   color: string;
   state: BriefingRoomState | null;
   timeline: BriefingTimeline;
+  calledAtFor: CalledAtLookup;
+  race: CurrentRace | null;
   nowMs: number;
   locked: boolean;
   pending: string | null;
@@ -1995,6 +2092,7 @@ function InRoom({
                 <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color: INK }}>
                   {state?.heatNumber != null ? `Session ${state.heatNumber}` : "Briefing"}
                 </span>
+                <TotalWait ms={totalWaitMs(calledAtFor, state?.sessionId, race, null, nowMs)} />
                 {state?.raceType && (
                   <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{state.raceType}</span>
                 )}
