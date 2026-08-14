@@ -22,7 +22,7 @@
  * and the panels became a pure renderer of it. The flash can take the whole
  * screen (it should) without costing anything underneath.
  */
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import type {
   BriefingPhase,
@@ -170,6 +170,27 @@ export interface BriefingControl {
    * camera switch, retry after a drop — needs its own call.
    */
   liveCameraUrl: (target: CameraTarget) => Promise<string | null>;
+  /**
+   * SESSIONS THIS STATION HAS SEEN GO GREEN — and it must not forget.
+   *
+   * The Holding box clears when the live clock says its group is racing. That
+   * verdict is only true WHILE the clock is running: the moment the race ends
+   * the clock stops publishing, the verdict evaporates, and the group reappeared
+   * in the seats they had long since left (owner 2026-08-14: "session 64 both
+   * tracks when finished went back to holding state").
+   *
+   * Server-side the lane ends a holding claim on the finish marker — but that
+   * marker rides the timing webhook, and tonight has shown it does not always
+   * arrive. So the desk remembers what it saw with its own eyes: once a session
+   * has been observed counting, it has raced, and no later absence of a clock
+   * un-races it.
+   *
+   * HERE RATHER THAN IN THE PANEL for the same reason as everything else in this
+   * hook: the scan flash unmounts the panels every few seconds, and a memory
+   * held down there would be wiped by the next racer through the desk.
+   */
+  hasLaunched: (sessionId: string | null | undefined) => boolean;
+  noteLaunched: (sessionId: string | null | undefined) => void;
   /**
    * TODAY'S WAIT TIMES, per track (owner 2026-08-12: "it would be today's times").
    *
@@ -411,6 +432,18 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     enabled,
   );
 
+  /** A ref, not state: nothing renders from the set itself — it only ever
+   *  answers a question the render already asks — so writing to it must not
+   *  cost a render on every poll. */
+  const launchedRef = useRef<Set<string>>(new Set());
+  const hasLaunched = useCallback<BriefingControl["hasLaunched"]>(
+    (sessionId) => (sessionId ? launchedRef.current.has(sessionId) : false),
+    [],
+  );
+  const noteLaunched = useCallback<BriefingControl["noteLaunched"]>((sessionId) => {
+    if (sessionId) launchedRef.current.add(sessionId);
+  }, []);
+
   const liveCameraUrl = useCallback<BriefingControl["liveCameraUrl"]>(
     async (target) => {
       try {
@@ -447,6 +480,8 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     sendToHolding,
     markPitted,
     liveCameraUrl,
+    hasLaunched,
+    noteLaunched,
     waitTimes,
     waitTimesWeek,
   };

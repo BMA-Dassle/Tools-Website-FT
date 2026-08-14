@@ -509,6 +509,8 @@ export default function RaceControlPanels({
               lane={board?.lanes?.[track as "blue" | "red" | "mega"] ?? null}
               ownsLane={!megaEnabled || room === megaLaneOwner}
               onRaceReturned={() => control.markPitted(track)}
+              hasLaunched={control.hasLaunched}
+              noteLaunched={control.noteLaunched}
               onSend={() =>
                 control.send({
                   room,
@@ -1054,6 +1056,8 @@ function RoomColumn({
   lane,
   ownsLane,
   onRaceReturned,
+  hasLaunched,
+  noteLaunched,
   onSend,
   onStart,
   onUndo,
@@ -1094,6 +1098,9 @@ function RoomColumn({
   ownsLane: boolean;
   /** "Race returned" — the karts are fully back in the lane. */
   onRaceReturned: () => void;
+  /** The station's memory of which sessions it has seen race — see the hook. */
+  hasLaunched: (sessionId: string | null | undefined) => boolean;
+  noteLaunched: (sessionId: string | null | undefined) => void;
   onSend: () => void;
   onStart: (restart: boolean) => void;
   onUndo: () => void;
@@ -1206,9 +1213,30 @@ function RoomColumn({
    * alone, so a neighbouring heat can never empty this group's seats.
    */
   const holdingHeat = lane?.holding?.heatNumber ?? null;
+  const holdingSessionId = lane?.holding?.sessionId ?? null;
   const liveHeatNow = liveClock ? liveHeatNumber(liveClock.heatName) : null;
+  const countingNow =
+    holdingHeat != null &&
+    liveHeatNow != null &&
+    holdingHeat === liveHeatNow &&
+    liveClock?.counting === true;
+
+  /**
+   * ONCE SEEN RACING, ALWAYS RACED. The clock only publishes while a heat is
+   * running, so the verdict above evaporates the moment the flag drops — and the
+   * group reappeared in seats they had long since left (owner 2026-08-14:
+   * "session 64 both tracks when finished went back to holding state"). The lane
+   * would normally have ended the claim on its finish marker, but that marker
+   * rides the timing webhook and tonight has shown it does not always arrive.
+   *
+   * So the station remembers, above the scan flash, what it watched happen.
+   */
+  useEffect(() => {
+    if (countingNow) noteLaunched(holdingSessionId);
+  }, [countingNow, holdingSessionId, noteLaunched]);
+
   const launched =
-    holdingHeat != null && liveHeatNow != null && holdingHeat === liveHeatNow && liveClock?.counting
+    holdingHeat != null && (countingNow || hasLaunched(holdingSessionId))
       ? { heatNumber: holdingHeat }
       : null;
 
