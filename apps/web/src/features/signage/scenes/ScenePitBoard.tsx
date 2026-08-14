@@ -196,7 +196,11 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
           flexDirection: "column",
         }}
       >
-        <header style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+        {/* CENTERED, not top-hung: with the chip alone on the right edge a
+            flex-start header left it visually adrift in the band (owner
+            2026-08-13, "timer closer to bottom than top"). Every header item
+            now shares one vertical center. */}
+        <header style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span
             aria-hidden
             style={{
@@ -205,7 +209,7 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
               borderRadius: "50%",
               background: accent,
               boxShadow: `0 0 24px ${accent}`,
-              marginTop: 12,
+              flexShrink: 0,
             }}
           />
           <div>
