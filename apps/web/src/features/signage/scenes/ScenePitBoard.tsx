@@ -179,7 +179,7 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
       <div
         style={{
           position: "absolute",
-          inset: `${PAD_Y}px ${PAD_X}px ${RAIL_H + 24}px`,
+          inset: `${PAD_Y}px ${PAD_X}px ${RAIL_H + 48}px`,
           display: "flex",
           flexDirection: "column",
         }}
@@ -309,7 +309,9 @@ function SpotGrid({
         // card: small heats get vendor-board-sized portrait cards centered on
         // the canvas, and only full grids divide the width evenly.
         gridTemplateColumns: `repeat(${cols}, minmax(0, ${n <= 4 ? "430px" : "1fr"}))`,
-        gridAutoRows: n <= 4 ? "minmax(0, 640px)" : "minmax(0, 1fr)",
+        // Small heats keep the MOCKUP's card proportions (~430×420) rather
+        // than growing portrait — the approved board is the target, verbatim.
+        gridAutoRows: n <= 4 ? "minmax(0, 420px)" : "minmax(0, 1fr)",
         justifyContent: "center",
         alignContent: "center",
         gap: 20,
@@ -362,7 +364,7 @@ function SpotCard({
         boxShadow: r.vip ? `0 0 44px ${withAlpha(GOLD, 0.25)}` : undefined,
       }}
     >
-      <div style={{ position: "relative", flex: 1, minHeight: compact ? 120 : 170 }}>
+      <div style={{ position: "relative", flex: 1, minHeight: compact ? 120 : 180 }}>
         <Photo sessionId={sessionId} personId={r.personId} />
         <div
           className="tv-display tv-num"
@@ -374,7 +376,7 @@ function SpotCard({
             borderRadius: 18,
             background: "rgba(0,4,24,0.85)",
             border: `2px solid ${withAlpha(numCol, 0.75)}`,
-            fontSize: compact ? 64 : 88,
+            fontSize: compact ? 64 : 92,
             color: numCol,
             textShadow: `0 0 34px ${withAlpha(numCol, 0.65)}`,
           }}
@@ -416,7 +418,7 @@ function SpotCard({
       </div>
       <div
         style={{
-          padding: "13px 18px 15px",
+          padding: "14px 20px 16px",
           background: "rgba(0,4,24,0.72)",
           borderTop: "1px solid rgba(255,255,255,0.08)",
           display: "flex",
@@ -427,7 +429,7 @@ function SpotCard({
         <span
           className="tv-display"
           style={{
-            fontSize: compact ? 25 : 30,
+            fontSize: compact ? 25 : 31,
             color: "#fff",
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -726,12 +728,12 @@ function Rail({
   if (kind === "hold") {
     return (
       <div className="tv-overdue-flash" style={base}>
-        <span className="tv-display" style={{ fontSize: 50, whiteSpace: "nowrap" }}>
+        <span className="tv-display" style={{ fontSize: 54, whiteSpace: "nowrap" }}>
           Hold — karts coming in
         </span>
         <span
           className="tv-display"
-          style={{ marginLeft: "auto", fontSize: 28, opacity: 0.85, whiteSpace: "nowrap" }}
+          style={{ marginLeft: "auto", fontSize: 32, opacity: 0.85, whiteSpace: "nowrap" }}
         >
           Seating resumes when the lane is clear
         </span>
@@ -819,19 +821,22 @@ function QualPill({
         flexShrink: 0,
         display: "inline-flex",
         alignItems: "baseline",
-        gap: 14,
-        padding: "8px 26px",
+        gap: 16,
+        padding: "8px 28px",
         borderRadius: 999,
         border: `2px solid ${withAlpha(accent, 0.6)}`,
         background: withAlpha(accent, 0.14),
         whiteSpace: "nowrap",
       }}
     >
-      <span style={{ fontSize: 26, color: "rgba(245,236,238,0.8)" }}>Beat</span>
-      <span className="tv-display tv-num" style={{ fontSize: 46, color: "#fff" }}>
+      {/* MOCKUP SIZES, verbatim — the pill is the guest-facing half of the
+          rail and reads big; the fit problem was the long info copy beside
+          it, which is what got shortened. */}
+      <span style={{ fontSize: 32, color: "rgba(245,236,238,0.8)" }}>Beat</span>
+      <span className="tv-display tv-num" style={{ fontSize: 54, color: "#fff" }}>
         {qual.lap}
       </span>
-      <span style={{ fontSize: 26, color: "rgba(245,236,238,0.8)" }}>to qualify {qual.level}</span>
+      <span style={{ fontSize: 32, color: "rgba(245,236,238,0.8)" }}>to qualify {qual.level}</span>
     </span>
   );
 }
