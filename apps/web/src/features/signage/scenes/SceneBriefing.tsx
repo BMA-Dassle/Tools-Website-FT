@@ -34,6 +34,7 @@ import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { useBriefingAssets } from "../briefing/useBriefingAssets";
 import { demoBriefingRooms } from "../demo";
 import { CameraReturnBar, cameraBarHeight } from "../components/CameraReturnBar";
+import { TvBrandLogo } from "../components/TvBrandLogo";
 import type { SceneProps } from "../director/types";
 
 const PAD_X = 96;
@@ -254,13 +255,39 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
         />
       )}
 
-      {/* FALLBACK ONLY. With the strip switched off there is no band to hold the
-          clock, so it returns to the corner it used to own rather than vanishing
-          — a briefing room without the on-track time is a downgrade on what
-          shipped 8/11. Renders nothing when no heat is live. */}
-      {!cameraReturn && (
-        <div style={{ position: "absolute", right: PAD_X, top: 40, zIndex: 6 }}>
-          <LiveSessionChip track={liveTrack} accent={accent} />
+      {/*
+        TOP RIGHT, and it is the one corner of this screen that is reliably free
+        (owner 2026-08-14: "where is logo"). The eyebrow owns the top left, the
+        camera-return strip owns the whole bottom band, and the on-track clock
+        normally lives in that strip — it only comes back up here when the strip
+        is switched off, which is why the two share one row rather than one
+        corner. The clock keeps the outside position it has always had.
+
+        NOT DURING THE FILM. A safety briefing plays full-bleed and gets the
+        screen to itself; a mark in the corner of it buys nothing and is the sort
+        of thing somebody has to ask to have taken off again.
+      */}
+      {timeline.phase !== "video" && (
+        <div
+          style={{
+            position: "absolute",
+            right: PAD_X,
+            top: 40,
+            zIndex: 6,
+            display: "flex",
+            alignItems: "center",
+            gap: 30,
+          }}
+        >
+          <div style={{ opacity: 0.85, display: "flex" }}>
+            <TvBrandLogo venue="FT" height={44} />
+          </div>
+          {/* FALLBACK ONLY. With the strip switched off there is no band to hold
+              the clock, so it returns to the corner it used to own rather than
+              vanishing — a briefing room without the on-track time is a
+              downgrade on what shipped 8/11. Renders nothing when no heat is
+              live. */}
+          {!cameraReturn && <LiveSessionChip track={liveTrack} accent={accent} />}
         </div>
       )}
     </div>
@@ -827,13 +854,13 @@ function WelcomeBack({
           gap: hasNames ? 30 : 26,
         }}
       >
-        <span className="tv-eyebrow" style={{ color: accent, fontSize: 40 }}>
+        <span className="tv-eyebrow" style={{ color: accent, fontSize: 40, flexShrink: 0 }}>
           {ROOM_LABEL[room]}
           {info.heatNumber != null ? ` · Session ${info.heatNumber}` : ""}
         </span>
         <div
           className="tv-display tv-rise"
-          style={{ fontSize: hasNames ? 130 : 170, color: "#fff", lineHeight: 0.92 }}
+          style={{ fontSize: hasNames ? 130 : 170, color: "#fff", lineHeight: 0.92, flexShrink: 0 }}
         >
           Welcome back!
         </div>
@@ -841,7 +868,7 @@ function WelcomeBack({
         {/* Kit return — the two things staff otherwise repeat to every group.
             One line when the name board needs the vertical room. */}
         {hasNames ? (
-          <p style={{ fontSize: 46, color: "rgba(245,236,238,0.85)", margin: 0 }}>
+          <p style={{ fontSize: 46, color: "rgba(245,236,238,0.85)", margin: 0, flexShrink: 0 }}>
             Return helmets to the shelves — cameras go back to the attendant.
           </p>
         ) : (
@@ -878,7 +905,23 @@ function WelcomeBack({
           </div>
         )}
 
-        {target && <QualifyTarget accent={accent} target={target} />}
+        {/*
+          flexShrink: 0 ON EVERY FIXED BLOCK, and this one is why.
+
+          A flex item's BOX shrinks under pressure; the type inside it does not.
+          With the column over-full, the qualifying chip's box was squeezed while
+          its 92px number kept its size, so the number bled upward out of the box
+          and printed over the name pills above it — the overlap the owner kept
+          seeing even after the pills themselves were clipped (2026-08-14).
+
+          Only the name area may shrink now. It is the one block that can do it
+          gracefully: it clips (see NameColumn) rather than spilling.
+        */}
+        {target && (
+          <div style={{ flexShrink: 0 }}>
+            <QualifyTarget accent={accent} target={target} />
+          </div>
+        )}
 
         {/* Blinking on purpose (owner 2026-08-11: "blink the race-results line
             so they pay attention") — the one animated element on the board. */}
@@ -889,6 +932,7 @@ function WelcomeBack({
             fontWeight: 600,
             color: "rgba(245,236,238,0.92)",
             margin: 0,
+            flexShrink: 0,
           }}
         >
           Race scores are posted outside the briefing room, near check-in and Red Track.
