@@ -20,6 +20,9 @@ import redis from "@/lib/redis";
 import { participantCheckedIn } from "../checkin-progress";
 import { sessionRoster } from "../service/checkin-progress";
 import type { TrackKey } from "../track";
+import { readBriefingRooms } from "../briefing/state.server";
+import { briefingTimelineAt } from "../briefing/phase";
+import { HELMET_PHASE_MS } from "../briefing/types";
 import { pitDisplaySession } from "./service";
 import type { FastPitRoster, FastPitRow, PitParticipantRow } from "./pit-board";
 
@@ -31,6 +34,50 @@ const CACHE_TTL_SECONDS = 4;
 const CLAIM_TTL_SECONDS = 3;
 
 const PIT_TRACKS: TrackKey[] = ["blue", "red", "mega"];
+
+/**
+ * How long after the helmet board is due we keep pre-warming a room's roster.
+ *
+ * The helmet phase no longer ends on a clock (phase.ts), so a room nobody moved
+ * on stays in it all night — pre-warming on the phase alone would keep asking
+ * Pandora about a group that went home hours ago. Ten minutes covers every real
+ * gap between the film finishing and the press, and expires quietly otherwise.
+ */
+const PREWARM_WINDOW_MS = 10 * 60_000;
+
+/**
+ * WHOSE ROSTER TO HAVE READY BEFORE IT IS ASKED FOR (owner 2026-08-14: "could
+ * you load that roster while they're in helmeting and have it ready?").
+ *
+ * The pit board takes its session from the lane, so at the instant of the press
+ * the board asks about a session nothing has cached and pays for a Pandora read
+ * inside a 2-second pulse. Warming from the moment the film ends means the cache
+ * is already hot when the press lands and the names appear with the rail.
+ *
+ * THIS DOES NOT MAKE ANYTHING STALER, which is the owner's other requirement —
+ * "we cannot get into a situation where it doesn't update when we need to make
+ * changes, needs to be instant". The cache TTL is untouched at 4 seconds; this
+ * only adds a session to the set being refreshed at that same rate, EARLIER. A
+ * grid change made during helmeting therefore shows up faster than before, not
+ * slower.
+ */
+async function preWarmSessions(nowMs: number): Promise<string[]> {
+  try {
+    const rooms = await readBriefingRooms("FT");
+    const out: string[] = [];
+    for (const state of Object.values(rooms)) {
+      if (!state?.sessionId) continue;
+      const t = briefingTimelineAt(state, nowMs);
+      if (t.phase !== "helmet") continue;
+      const since = nowMs - state.triggeredAtMs;
+      if (since > t.videoMs + HELMET_PHASE_MS + PREWARM_WINDOW_MS) continue;
+      out.push(state.sessionId);
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
 
 function cacheKey(sessionId: string): string {
   return `pit:fast-roster:${sessionId}`;
@@ -92,6 +139,40 @@ async function fastRoster(sessionId: string, nowMs: number): Promise<FastPitRost
   return { sessionId, rows: fast };
 }
 
+/**
+ * WARM ONE SESSION'S ROSTER NOW, ahead of the pulse that will want it.
+ *
+ * WHY (owner 2026-08-14: "I need those names to pop right after they hit send
+ * to holding"). The pit board picks its session straight off the lane, so the
+ * moment the press lands the board is asking about a session nobody has cached
+ * yet. That cold miss is paid INSIDE a pulse: the first screen to ask wins the
+ * rebuild claim and waits on Pandora before it can answer, so the cards arrive
+ * a pulse or two after the rail already moved — the few seconds the owner saw.
+ *
+ * Called from the press itself (after the response, never in front of it), this
+ * puts the roster in Redis before the next 2-second beat asks, so the names land
+ * with the rail instead of behind it.
+ *
+ * Deliberately IGNORES the rebuild claim: the claim exists to stop many screens
+ * stampeding Pandora on one cold miss, and this is exactly one caller at a known
+ * moment. It still writes the same cache entry, so the pulse path is unchanged.
+ */
+export async function primeFastRoster(sessionId: string, nowMs: number): Promise<boolean> {
+  if (!sessionId) return false;
+  try {
+    const rows = (await sessionRoster(sessionId, nowMs, 0).catch(() => null)) as
+      | PitParticipantRow[]
+      | null;
+    if (!rows) return false;
+    await redis.set(cacheKey(sessionId), JSON.stringify(toFastRows(rows)), "EX", CACHE_TTL_SECONDS);
+    return true;
+  } catch {
+    // The pulse's own cold-miss rebuild is still there behind this — a failed
+    // warm costs the couple of seconds it was trying to save, nothing more.
+    return false;
+  }
+}
+
 /** Every track's fast roster, for the pulse. Tracks sharing a session on a
  *  Mega day share one cache entry — the map just points both at it. */
 export async function readFastPitRosters(
@@ -99,12 +180,19 @@ export async function readFastPitRosters(
 ): Promise<Record<TrackKey, FastPitRoster | null>> {
   const out: Record<TrackKey, FastPitRoster | null> = { blue: null, red: null, mega: null };
   try {
-    const sessions = await Promise.all(PIT_TRACKS.map((t) => pitDisplaySession(t)));
+    const [sessions, warm] = await Promise.all([
+      Promise.all(PIT_TRACKS.map((t) => pitDisplaySession(t))),
+      preWarmSessions(nowMs),
+    ]);
     const bySession = new Map<string, FastPitRoster | null>();
+    // Displayed sessions AND the ones about to be — same 4s cache, same claim,
+    // so a warm costs no more than the session it is getting ahead of.
+    const wanted = new Set<string>([
+      ...sessions.filter(Boolean).map((s) => (s as { sessionId: string }).sessionId),
+      ...warm,
+    ]);
     await Promise.all(
-      Array.from(
-        new Set(sessions.filter(Boolean).map((s) => (s as { sessionId: string }).sessionId)),
-      ).map(async (sid) => {
+      Array.from(wanted).map(async (sid) => {
         bySession.set(sid, await fastRoster(sid, nowMs));
       }),
     );

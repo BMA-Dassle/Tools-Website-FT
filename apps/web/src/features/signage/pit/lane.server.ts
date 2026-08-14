@@ -31,6 +31,8 @@ import "server-only";
  */
 import redis from "@/lib/redis";
 import { businessDayYmdET } from "@/lib/race-business-day";
+import { afterResponse } from "../after-response.server";
+import { primeFastRoster } from "./fast-roster.server";
 import { bookmarkBriefingEndAfter } from "../briefing/bookmarks.server";
 import { recordBriefingEvent, type BriefingEndReason } from "../briefing/events-db";
 import { readRaceFinishedMarker } from "../briefing/race-finish.server";
@@ -136,19 +138,48 @@ const LIVE_HEAT_FRESH_MS = 10 * 60_000;
  * `none` is not an answer: a track sitting between heats says nothing about the
  * group in the seats. Nor is a stale reading, nor an absent one.
  */
-async function holdingHasGoneOut(track: TrackKey, heatNumber: number | null): Promise<boolean> {
-  if (heatNumber == null) return false;
+async function readLiveHeat(track: TrackKey): Promise<LiveHeat | null> {
   try {
     const raw = await redis.get(liveHeatKey(track));
-    if (!raw) return false;
+    if (!raw) return null;
     const live = JSON.parse(raw) as LiveHeat;
-    if (!Number.isFinite(live?.heatNumber) || !Number.isFinite(live?.atMs)) return false;
-    if (Date.now() - live.atMs > LIVE_HEAT_FRESH_MS) return false;
-    if (live.heatNumber > heatNumber) return true;
-    return live.heatNumber === heatNumber && live.state !== "none";
+    if (!Number.isFinite(live?.heatNumber) || !Number.isFinite(live?.atMs)) return null;
+    if (Date.now() - live.atMs > LIVE_HEAT_FRESH_MS) return null;
+    return live;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** Is this heat out on track (or already past)? See the note above. */
+function liveSaysGoneOut(live: LiveHeat | null, heatNumber: number | null): boolean {
+  if (!live || heatNumber == null) return false;
+  if (live.heatNumber > heatNumber) return true;
+  return live.heatNumber === heatNumber && live.state !== "none";
+}
+
+/**
+ * WHEN THIS HEAT FINISHED, according to the socket — the other half of the same
+ * fallback, and the half that was missing.
+ *
+ * Promoting a group to `racing` without a finish time left them reading RACING
+ * for as long as the board was up: the rail only stops counting once it has an
+ * end, and the end came exclusively from the broadcast marker (owner 2026-08-14,
+ * on a board still showing "Session 25 · racing · 44 min total so far" for a
+ * race that was long over). So the same witness that says a heat went out is now
+ * also allowed to say it is done.
+ *
+ * The timestamp is WHEN WE SAW IT, not the venue's own stamp — the socket has no
+ * end time to give. That is honest and it is late by at most one sample, which
+ * is the right direction: a hold that starts a minute late is a board catching
+ * up, while one that starts early would say the lane is safe before it is. A
+ * real marker always wins when it exists.
+ */
+function liveSaysFinishedAtMs(live: LiveHeat | null, heatNumber: number | null): number | null {
+  if (!live || heatNumber == null) return null;
+  if (live.heatNumber > heatNumber) return live.atMs;
+  if (live.heatNumber === heatNumber && live.state === "finished") return live.atMs;
+  return null;
 }
 
 /**
@@ -160,6 +191,8 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
 
   let holding = stored.holding;
   let racing = stored.racing;
+  // One read per track, shared by both slots below.
+  const live = await readLiveHeat(track);
   if (holding) {
     // HOLDING PERSISTS THROUGH THE RACE (owner 2026-08-13: "our session
     // follows the race marked in holding; green flag + active countdown moves
@@ -173,7 +206,7 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
     // Either witness will do: the broadcast's own finish marker, or the timing
     // socket showing this heat on track (or a later one loaded). See
     // holdingHasGoneOut.
-    const goneOut = finished == null && (await holdingHasGoneOut(track, holding.heatNumber));
+    const goneOut = finished == null && liveSaysGoneOut(live, holding.heatNumber);
     if (finished != null || goneOut) {
       racing = {
         sessionId: holding.sessionId,
@@ -200,6 +233,9 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
   }
 
   const finish = await readRaceFinishedMarker(racing.sessionId).catch(() => null);
+  // The broadcast's own stamp when we have it; the socket's observation when we
+  // do not, so a race that is demonstrably over stops reading as still running.
+  const finishedAtMs = finish?.endedAtMs ?? liveSaysFinishedAtMs(live, racing.heatNumber);
   const pittedAtMs =
     stored.pitted && stored.pitted.sessionId === racing.sessionId ? stored.pitted.atMs : null;
   return {
@@ -215,7 +251,7 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
     racing: {
       sessionId: racing.sessionId,
       heatNumber: racing.heatNumber,
-      finishedAtMs: finish?.endedAtMs ?? null,
+      finishedAtMs,
       pittedAtMs,
     },
   };
@@ -354,6 +390,20 @@ export async function sendToHolding(args: SendToHoldingArgs): Promise<{ ok: true
         ? stored.pitted
         : null,
   });
+
+  /**
+   * WARM THE BOARD'S ROSTER (owner 2026-08-14: "I need those names to pop right
+   * after they hit send to holding").
+   *
+   * The pit board reads its session straight off the lane we just wrote, so the
+   * very next 2-second pulse asks about a session nothing has cached — and pays
+   * for a Pandora read inside that pulse. Filling the cache here means the names
+   * arrive with the rail rather than a beat or two behind it.
+   *
+   * After the response, like the bookmark above: this exists to make the wall
+   * faster, so it must never make the press slower.
+   */
+  afterResponse(() => primeFastRoster(args.sessionId, Date.now()));
 
   return { ok: true };
 }

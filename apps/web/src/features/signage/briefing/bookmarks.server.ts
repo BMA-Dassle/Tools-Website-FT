@@ -43,38 +43,11 @@ import "server-only";
  * service account — do that, but grant it bookmark management too, or these stop
  * being written (silently, by design).
  */
-import { after } from "next/server";
+import { afterResponse } from "../after-response.server";
 import { sessionLabel } from "../checkin-progress";
 import type { TrackKey } from "../track";
 import { BRIEFING_ROOM_CAMERAS, nxConfigured, nxRelayPost } from "../nx/camera.server";
 import type { BriefingRoom } from "./types";
-
-/**
- * Run evidence work AFTER the response, never inside it.
- *
- * WHY (owner 2026-08-14: "when we hit send to holding the assignment TVs can
- * update a bit faster, takes a few seconds"). Awaiting an Nx write inside
- * `sendToHolding` put a round trip to the venue's NVR — a few hundred ms when
- * healthy, up to several seconds when not — between the staff press and its
- * response, and the pit boards only repaint once that response has landed and
- * the next poll comes round. The marker is evidence we generate for ourselves;
- * it must never be in front of a staff member waiting for a wall to change.
- *
- * `after()` is the same mechanism the kart webhook uses to keep the bridge's
- * 200 immediate. It needs a request context, so the fallback is a detached
- * promise for any caller outside one — worse (serverless may kill it), but the
- * alternative is throwing inside a staff action, which is not a trade a
- * bookmark gets to make.
- */
-function afterResponse(work: () => Promise<unknown>): void {
-  try {
-    after(() => {
-      void work().catch(() => {});
-    });
-  } catch {
-    void work().catch(() => {});
-  }
-}
 
 /**
  * How much footage each marker spans.
