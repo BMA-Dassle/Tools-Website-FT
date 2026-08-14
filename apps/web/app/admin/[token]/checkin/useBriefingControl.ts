@@ -32,6 +32,7 @@ import type {
 } from "~/features/signage/briefing/types";
 import type { GroupOut } from "~/features/signage/briefing/room-return";
 import type { BriefingRecord } from "~/features/signage/briefing/briefing-log";
+import type { PitLanes } from "~/features/signage/pit/pit-board";
 
 export interface RoomStatus {
   room: BriefingRoom;
@@ -70,7 +71,22 @@ export interface BoardStatus {
   /** Today's briefing log, folded — when each group went in, which film ran, and
    *  how long they were in the room. The durable insurance record, from Neon. */
   briefings: BriefingRecord[];
+  /** The pit lane per track — what the Holding box reads. Optional so a board
+   *  talking to an older deploy simply shows an empty Holding panel rather than
+   *  throwing on a missing field. */
+  lanes?: PitLanes;
 }
+
+/**
+ * A camera the desk board can open.
+ *
+ * The two briefing rooms, plus each track's PIT HOLDING AREA — the board's third
+ * box (owner 2026-08-13). Holding is keyed by track rather than room because
+ * that is how the venue keeps it in Nx ("FT Holding Red" / "FT Holding Blue");
+ * the server resolves each name to whatever camera is on that layout, so
+ * repointing a view is an Nx edit, not a deploy.
+ */
+export type CameraTarget = BriefingRoom | "holding-red" | "holding-blue";
 
 export interface BriefingControl {
   board: BoardStatus | null;
@@ -91,15 +107,16 @@ export interface BriefingControl {
   tierOverride: Record<string, BriefingTier | null>;
   setTierOverride: (room: BriefingRoom, tier: BriefingTier | null) => void;
   /**
-   * Which room's camera is open in the full-screen viewer, if any.
+   * Which camera is open in the full-screen viewer, if any — a briefing room or
+   * a holding area.
    *
    * UP HERE FOR THE SAME REASON AS EVERYTHING ELSE IN THIS HOOK: a scan lands
    * every few seconds on a busy night and takes the panels down with it, so a
    * viewer whose open/closed state lived in the panel would slam shut in the face
    * of whoever was watching the room fill.
    */
-  expandedRoom: BriefingRoom | null;
-  setExpandedRoom: (room: BriefingRoom | null) => void;
+  expandedCamera: CameraTarget | null;
+  setExpandedCamera: (target: CameraTarget | null) => void;
   /**
    * Which reference panel is open over the board — wait times, or today's log.
    *
@@ -146,9 +163,9 @@ export interface BriefingControl {
    * one; it never sees the credential that bought it.
    *
    * Each call mints a SINGLE-USE Nx ticket, so every <video> load — first play,
-   * room switch, retry after a drop — needs its own call.
+   * camera switch, retry after a drop — needs its own call.
    */
-  liveCameraUrl: (room: BriefingRoom) => Promise<string | null>;
+  liveCameraUrl: (target: CameraTarget) => Promise<string | null>;
   /**
    * TODAY'S WAIT TIMES, per track (owner 2026-08-12: "it would be today's times").
    *
@@ -189,7 +206,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [tierOverride, setTierOverrideState] = useState<Record<string, BriefingTier | null>>({});
-  const [expandedRoom, setExpandedRoom] = useState<BriefingRoom | null>(null);
+  const [expandedCamera, setExpandedCamera] = useState<CameraTarget | null>(null);
   const [openPanel, setOpenPanel] = useState<BoardPanel | null>(null);
   const [waitTimes, setWaitTimes] = useState<WaitTimesBoard | null>(null);
   const [waitTimesWeek, setWaitTimesWeek] = useState<WaitTimesBoard | null>(null);
@@ -391,10 +408,10 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   );
 
   const liveCameraUrl = useCallback<BriefingControl["liveCameraUrl"]>(
-    async (room) => {
+    async (target) => {
       try {
         const res = await fetch(
-          `/api/admin/camera-live?token=${encodeURIComponent(token)}&room=${room}`,
+          `/api/admin/camera-live?token=${encodeURIComponent(token)}&room=${target}`,
           { cache: "no-store" },
         );
         if (!res.ok) return null;
@@ -416,8 +433,8 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     pending,
     tierOverride,
     setTierOverride,
-    expandedRoom,
-    setExpandedRoom,
+    expandedCamera,
+    setExpandedCamera,
     openPanel,
     setOpenPanel,
     send,

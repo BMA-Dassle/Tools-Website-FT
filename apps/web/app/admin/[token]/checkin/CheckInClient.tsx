@@ -151,7 +151,7 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
    * once. Either way nobody is mid-send when the page goes.
    */
   const deskBusy =
-    scanState !== "idle" || !!briefing.pending || !!briefing.expandedRoom || showSettings;
+    scanState !== "idle" || !!briefing.pending || !!briefing.expandedCamera || showSettings;
   useEffect(() => {
     if (!buildUpdate.ready || deskBusy) return;
     const t = setTimeout(() => window.location.reload(), 60_000);

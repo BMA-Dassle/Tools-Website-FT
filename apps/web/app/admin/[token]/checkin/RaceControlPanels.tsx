@@ -95,7 +95,13 @@ import {
 } from "~/features/signage/briefing/desk-alerts";
 import { startHoldRemainingMs, startHoldSeconds } from "~/features/signage/briefing/start-hold";
 import { formatWaitMs } from "~/features/racing/wait-times";
-import type { BriefingControl, RoomStatus, WaitTimesBoard } from "./useBriefingControl";
+import type {
+  BriefingControl,
+  CameraTarget,
+  RoomStatus,
+  WaitTimesBoard,
+} from "./useBriefingControl";
+import type { PitLaneFeed } from "~/features/signage/pit/pit-board";
 import { formatRemaining, useLiveSessionClock } from "~/features/signage/live-session";
 import type { TrackKey } from "~/features/signage/track";
 
@@ -129,6 +135,23 @@ const INK = "#e8eef7";
  * Disposable by design — one constant, one line that renders it.
  */
 const STAFF_MEMO = "Send to the room BEFORE you pull them from check-in.";
+
+/** Is this camera target a briefing room, rather than a holding view? Narrowing
+ *  helper, so the phase/film half of the viewer only ever sees a real room. */
+function isRoom(target: CameraTarget): target is BriefingRoom {
+  return target === "red" || target === "blue";
+}
+
+/** Which track a holding view belongs to. */
+function holdingTrack(target: Exclude<CameraTarget, BriefingRoom>): "red" | "blue" {
+  return target === "holding-red" ? "red" : "blue";
+}
+
+/** The holding camera for a room's column. One per track, and the venue keeps
+ *  the aim on an Nx layout of the same name — see nx/camera.server.ts. */
+function holdingCameraFor(room: BriefingRoom): CameraTarget {
+  return room === "red" ? "holding-red" : "holding-blue";
+}
 
 const PHASE_LABEL: Record<BriefingPhase, string> = {
   waiting: "Waiting to start",
@@ -257,11 +280,24 @@ export default function RaceControlPanels({
   const rooms: BriefingRoom[] = ["red", "blue"];
   const noVideos = !!board && !board.videos.starter && !board.videos.intermediate;
 
-  // ONE viewer for both rooms, owned here rather than inside a room's panel — two
+  // ONE viewer for every camera, owned here rather than inside a panel — two
   // independent overlays could both be open, stacked on each other, each pulling
   // its own 1600px frame every second.
-  const expanded = control.expandedRoom;
+  const expanded = control.expandedCamera;
+  // Only a ROOM has a briefing timeline; a holding view has no film and no
+  // phase, so the viewer gets null and renders its holding half instead.
   const expandedStatus = expanded ? (board?.rooms.find((r) => r.room === expanded) ?? null) : null;
+
+  /**
+   * WHICH COLUMN OWNS A TRACK'S LANE.
+   *
+   * There is one pit lane per TRACK but two room columns, and on a Mega day both
+   * rooms serve the one circuit — so a naive render would put the same holding
+   * group, and the same "race returned" button, in both columns. The lane belongs
+   * to the column whose room the group was briefed in (the holding record carries
+   * it); with nobody in holding it falls to Red so the control still has a home.
+   */
+  const megaLaneOwner: BriefingRoom = board?.lanes?.mega?.holding?.room ?? "red";
 
   return (
     <section
@@ -335,41 +371,15 @@ export default function RaceControlPanels({
         </div>
       )}
 
-      {/* THE PIT LANE (owner 2026-08-13). "Race returned" is the press that
-          releases the pit board's hold — a race finishing raises it on its
-          own (the venue's finish signal), but only a human who can see the
-          lane says the karts are fully in. Per track; one button on a Mega
-          day, when both rooms serve the one circuit. */}
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <span
-          style={{
-            fontSize: 10,
-            fontWeight: 800,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: PORTAL_DARK.muted,
-          }}
-        >
-          Pit lane
-        </span>
-        {(megaEnabled ? (["mega"] as const) : (["blue", "red"] as const)).map((t) => (
-          <ActionButton
-            key={t}
-            size="sm"
-            tone={AMBER}
-            textColor="#1a1205"
-            pendingKey={`pitted:${t}`}
-            pending={pending}
-            disabled={board?.enabled === false}
-            pendingLabel="Marking…"
-            title="The finished race's karts are fully back in the lane — releases the pit board's hold"
-            onClick={() => control.markPitted(t)}
-          >
-            ⏎ {t} race returned
-          </ActionButton>
-        ))}
-      </div>
+      {/* THE PIT LANE USED TO BE A STRIP ACROSS THE TOP — a "Pit lane" label and
+          a "race returned" button per track, sitting above the room columns and
+          belonging to neither (removed 2026-08-13). It was the whole pit lane
+          reduced to the one press staff had to make, with nothing on screen
+          saying WHO was in holding or why the lane was held.
 
+          It is now the third box in each room's column — Called, In the room,
+          Holding — so the board carries the whole journey a group takes and the
+          press sits with the group it is about. See HoldingPanel. */}
       <div
         style={{
           display: "grid",
@@ -419,8 +429,11 @@ export default function RaceControlPanels({
               onTierOverride={(tier) => control.setTierOverride(room, tier)}
               locked={board?.enabled === false}
               pending={pending}
-              cameraExpanded={expanded === room}
-              onExpandCamera={() => control.setExpandedRoom(room)}
+              expandedCamera={expanded}
+              onExpandCamera={(target) => control.setExpandedCamera(target)}
+              lane={board?.lanes?.[track as "blue" | "red" | "mega"] ?? null}
+              ownsLane={!megaEnabled || room === megaLaneOwner}
+              onRaceReturned={() => control.markPitted(track)}
               onSend={() =>
                 control.send({
                   room,
@@ -572,15 +585,20 @@ export default function RaceControlPanels({
 
       {expanded && (
         <CameraLightbox
-          room={expanded}
-          track={megaEnabled ? "mega" : expanded}
+          target={expanded}
+          track={megaEnabled ? "mega" : isRoom(expanded) ? expanded : holdingTrack(expanded)}
           state={expandedStatus?.state ?? null}
+          holding={
+            isRoom(expanded)
+              ? null
+              : (board?.lanes?.[megaEnabled ? "mega" : holdingTrack(expanded)]?.holding ?? null)
+          }
           nowMs={nowMs}
           locked={board?.enabled === false}
           pending={pending}
-          onStart={(restart) => control.start(expanded, { restart })}
-          onSwitch={(next) => control.setExpandedRoom(next)}
-          onClose={() => control.setExpandedRoom(null)}
+          onStart={(restart) => isRoom(expanded) && control.start(expanded, { restart })}
+          onSwitch={(next) => control.setExpandedCamera(next)}
+          onClose={() => control.setExpandedCamera(null)}
           getLiveUrl={control.liveCameraUrl}
         />
       )}
@@ -956,8 +974,11 @@ function RoomColumn({
   onTierOverride,
   locked,
   pending,
-  cameraExpanded,
+  expandedCamera,
   onExpandCamera,
+  lane,
+  ownsLane,
+  onRaceReturned,
   onSend,
   onStart,
   onUndo,
@@ -983,10 +1004,21 @@ function RoomColumn({
   onTierOverride: (tier: BriefingTier | null) => void;
   locked: boolean;
   pending: string | null;
-  /** This room's camera is open in the full-screen viewer — the small preview
-   *  stops pulling frames while it is. */
-  cameraExpanded: boolean;
-  onExpandCamera: () => void;
+  /** Which camera the full-screen viewer has open, if any — a preview whose own
+   *  camera is up there stops pulling frames. */
+  expandedCamera: CameraTarget | null;
+  onExpandCamera: (target: CameraTarget) => void;
+  /** This column's pit lane: who is in holding, who is racing, whether the lane
+   *  is still held. Null before the first poll lands. */
+  lane: PitLaneFeed | null;
+  /**
+   * Whether THIS column renders the lane. False for one of the two columns on a
+   * Mega day, where both rooms serve one circuit and one lane must not appear
+   * twice — see megaLaneOwner in the parent.
+   */
+  ownsLane: boolean;
+  /** "Race returned" — the karts are fully back in the lane. */
+  onRaceReturned: () => void;
   onSend: () => void;
   onStart: (restart: boolean) => void;
   onUndo: () => void;
@@ -1319,8 +1351,8 @@ function RoomColumn({
           nowMs={nowMs}
           locked={locked}
           pending={pending}
-          cameraExpanded={cameraExpanded}
-          onExpandCamera={onExpandCamera}
+          cameraExpanded={expandedCamera === room}
+          onExpandCamera={() => onExpandCamera(room)}
           returning={returning}
           alert={roomAlert}
           onStart={onStart}
@@ -1328,7 +1360,226 @@ function RoomColumn({
           onSendHolding={onSendHolding}
         />
       </Panel>
+
+      {/* ── HOLDING ── the third spot (owner 2026-08-13: "we have the button to
+          send to holding but we don't have a box for holding … that screen will
+          show all three spots"). */}
+      {ownsLane && (
+        <HoldingPanel
+          room={room}
+          track={track}
+          color={color}
+          lane={lane}
+          nowMs={nowMs}
+          locked={locked}
+          pending={pending}
+          cameraExpanded={expandedCamera === holdingCameraFor(room)}
+          onExpandCamera={() => onExpandCamera(holdingCameraFor(room))}
+          onRaceReturned={onRaceReturned}
+        />
+      )}
     </div>
+  );
+}
+
+/* ── holding ───────────────────────────────────────────────────────────── */
+
+/**
+ * WHERE A GROUP GOES BETWEEN THE ROOM AND THE GRID.
+ *
+ * The board's third box, and the one that closes the loop: Called says who is
+ * coming, In the room says who is watching the film, and until now the moment
+ * staff pressed "Send to holding" the group simply left the screen — they were
+ * in the pit seats, on the pit board's wall, and nowhere on the desk's.
+ *
+ * IT ANSWERS TWO QUESTIONS, WHICH IS WHY IT IS ONE BOX AND NOT TWO. Who is
+ * seated (the holding half), and whether the lane will let them go (the racing
+ * half). Those are the same question to a staff member — "can I send them out
+ * yet" — and splitting them would put the reason on one side of the board and
+ * the press that fixes it on the other.
+ *
+ * "RACE RETURNED" LIVES HERE NOW. It was a strip across the top of the board,
+ * one button per track, attached to nothing. It is the ONLY thing that releases
+ * the pit board's hold (a race finishing raises the hold on the venue's own
+ * finish signal; only a human who can see the lane says the karts are in), so it
+ * belongs beside the group it is holding up. The strip is gone — see the note
+ * where it used to render.
+ *
+ * THE CAMERA IS THE HOLDING AREA ITSELF, aimed by the Nx layout the venue keeps
+ * for it. See nx/camera.server.ts: red and blue are the same ceiling fisheye at
+ * two saved angles, so the picture in this box is the track's own seats and not
+ * a raw fisheye of the whole walkway.
+ */
+function HoldingPanel({
+  room,
+  track,
+  color,
+  lane,
+  nowMs,
+  locked,
+  pending,
+  cameraExpanded,
+  onExpandCamera,
+  onRaceReturned,
+}: {
+  room: BriefingRoom;
+  track: string;
+  color: string;
+  lane: PitLaneFeed | null;
+  nowMs: number;
+  locked: boolean;
+  pending: string | null;
+  cameraExpanded: boolean;
+  onExpandCamera: () => void;
+  onRaceReturned: () => void;
+}) {
+  const holding = lane?.holding ?? null;
+  const racing = lane?.racing ?? null;
+
+  /**
+   * IS THE LANE STILL HELD. The same rule the pit board's own rail runs
+   * (pitRailState in pit/pit-board.ts): a finish raises the hold, and only a
+   * "race returned" stamp NEWER than that finish clears it — a stamp from the
+   * previous cycle is a stale stamp and must not release this hold.
+   */
+  const holdLive =
+    !!racing &&
+    racing.finishedAtMs != null &&
+    (racing.pittedAtMs == null || racing.pittedAtMs < racing.finishedAtMs);
+
+  const heldMs = holding ? Math.max(0, nowMs - holding.atMs) : 0;
+  const sinceFinishMs = racing?.finishedAtMs != null ? Math.max(0, nowMs - racing.finishedAtMs) : 0;
+
+  const badge = holdLive
+    ? { label: "LANE HELD", tone: DANGER }
+    : holding
+      ? { label: "CLEAR TO SEAT", tone: GREEN }
+      : racing
+        ? { label: "ON TRACK", tone: AMBER }
+        : { label: "EMPTY", tone: PORTAL_DARK.muted };
+
+  return (
+    <Panel
+      label="Holding"
+      // The hold is the one state on this box that wants the eye — it is a
+      // safety fact with a press attached. A seated group on a clear lane is
+      // good news and gets no border colour at all.
+      alert={holdLive ? "late" : "none"}
+      accent={holdLive ? DANGER : holding ? GREEN : undefined}
+      badge={
+        <span
+          className="rc-num"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: "0.05em",
+            color: badge.tone,
+          }}
+        >
+          <span
+            aria-hidden
+            style={{ width: 7, height: 7, borderRadius: "50%", background: badge.tone }}
+          />
+          {badge.label}
+        </span>
+      }
+    >
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "stretch" }}>
+        {/* LEFT — who is seated, and what the lane is doing. */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            flex: "1 1 260px",
+            minWidth: 220,
+          }}
+        >
+          {holding ? (
+            <>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color: INK }}>
+                  {holding.heatNumber != null ? `Session ${holding.heatNumber}` : "In the seats"}
+                </span>
+                {holding.raceType && (
+                  <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{holding.raceType}</span>
+                )}
+              </div>
+              <Stat
+                label="In the seats"
+                value={formatClock(heldMs)}
+                unit={
+                  holding.room
+                    ? `since the ${holding.room} room`
+                    : `since they left the ${room} room`
+                }
+                tone={holdLive ? AMBER : GREEN}
+                big
+              />
+            </>
+          ) : (
+            <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
+              {racing
+                ? `Nobody in the seats — ${racing.heatNumber != null ? `session ${racing.heatNumber}` : "the last group"} is out on ${cap(track)}.`
+                : "Nobody in the seats yet — send a briefed group over."}
+            </p>
+          )}
+
+          {/* THE LANE, and the press that clears it. */}
+          {holdLive ? (
+            <>
+              <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
+                {racing?.heatNumber != null ? `Session ${racing.heatNumber}` : "The last race"}{" "}
+                finished {formatClock(sinceFinishMs)} ago — the pit board is holding until the karts
+                are in.
+              </p>
+              <div style={{ marginTop: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                <ActionButton
+                  tone={AMBER}
+                  textColor="#1a1205"
+                  size="lg"
+                  pendingKey={`pitted:${track}`}
+                  pending={pending}
+                  disabled={locked}
+                  pendingLabel="Marking…"
+                  title="The finished race's karts are fully back in the lane — releases the pit board's hold"
+                  onClick={onRaceReturned}
+                >
+                  ⏎ Race returned
+                </ActionButton>
+              </div>
+            </>
+          ) : (
+            racing && (
+              <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
+                {racing.pittedAtMs != null
+                  ? "Lane clear — the karts are back in."
+                  : `${racing.heatNumber != null ? `Session ${racing.heatNumber}` : "The last group"} is still out on track.`}
+              </p>
+            )
+          )}
+        </div>
+
+        {/* RIGHT — the holding area itself. Same still-refresh rail as the room
+            cameras, but SLOWER: a dewarped frame comes off a transcode and takes
+            about a second, where a room's raw frame takes a fifth of that. A
+            2-second preview is honest about that and still shows a group
+            arriving; the full-screen viewer switches to live video, where the
+            dewarp costs nothing because the stream is transcoded anyway. */}
+        <div style={{ flex: "1 1 260px", minWidth: 190 }}>
+          <HoldingCamera
+            target={holdingCameraFor(room)}
+            label={`${cap(room)} holding`}
+            paused={cameraExpanded}
+            onExpand={onExpandCamera}
+            accent={color}
+          />
+        </div>
+      </div>
+    </Panel>
   );
 }
 
@@ -1751,7 +2002,7 @@ function IdleBody({ returning, color }: { returning: RoomReturnState; color: str
  * viewer has the same room open. The proxy's frame cache is keyed by device AND
  * size, so two pollers at two sizes are two upstream pulls at the camera.
  */
-function useCameraFrame(room: BriefingRoom, width: number, enabled: boolean, cadenceMs = 1_000) {
+function useCameraFrame(room: CameraTarget, width: number, enabled: boolean, cadenceMs = 1_000) {
   /**
    * A NEW CAMERA MUST NOT WEAR THE OLD ONE'S PICTURE (owner 2026-08-12: "when you
    * switch between rooms on that page we need loading, it just holds the last
@@ -1827,13 +2078,17 @@ function useCameraFrame(room: BriefingRoom, width: number, enabled: boolean, cad
  */
 const LIVE_MAX_RETRIES = 2;
 
-function useLiveCamera(room: BriefingRoom, getUrl: (room: BriefingRoom) => Promise<string | null>) {
-  // Both pieces of state CARRY THE ROOM they describe, for the same reason the
-  // still hook does: switching rooms must not leave the blue room's stream playing
-  // under a red heading for the second it takes to mint a new ticket. Derived, so
-  // there is no stale frame to blank and no reset effect to run.
-  const [stream, setStream] = useState<{ room: BriefingRoom; url: string } | null>(null);
-  const [playingRoom, setPlayingRoom] = useState<BriefingRoom | null>(null);
+function useLiveCamera(room: CameraTarget, getUrl: (room: CameraTarget) => Promise<string | null>) {
+  // Both pieces of state CARRY THE CAMERA they describe, for the same reason the
+  // still hook does: switching cameras must not leave the blue room's stream
+  // playing under a red heading for the second it takes to mint a new ticket.
+  // Derived, so there is no stale frame to blank and no reset effect to run.
+  //
+  // This matters more, not less, for the holding views: they are the SAME device
+  // at two dewarp angles, so a stream that outlived its target would be a picture
+  // that looks plausible and is aimed at the other track's seats.
+  const [stream, setStream] = useState<{ room: CameraTarget; url: string } | null>(null);
+  const [playingRoom, setPlayingRoom] = useState<CameraTarget | null>(null);
   const retriesRef = useRef(0);
 
   // The parent's callback, kept current in a ref so re-creating it cannot restart
@@ -1843,7 +2098,7 @@ function useLiveCamera(room: BriefingRoom, getUrl: (room: BriefingRoom) => Promi
     getUrlRef.current = getUrl;
   });
 
-  const load = useCallback(async (target: BriefingRoom) => {
+  const load = useCallback(async (target: CameraTarget) => {
     const url = await getUrlRef.current(target);
     setStream(url ? { room: target, url } : null);
   }, []);
@@ -2033,6 +2288,99 @@ function RoomCamera({
 }
 
 /**
+ * The holding-area preview.
+ *
+ * Same button-shaped, click-to-enlarge frame as the room camera, with two
+ * differences that both come from the picture being DEWARPED:
+ *
+ *  • IT POLLS AT 2s, NOT 1s. A dewarped still is transcoded out of an MJPEG
+ *    stream (see fetchDewarpedFrame) and measured ~0.9s against ~0.2s for a raw
+ *    room frame. Asking every second would simply queue — the hook only requests
+ *    the next frame once the last has decoded, so the real effect would be a
+ *    ragged cadence and twice the transcoding for no more information.
+ *  • IT IS 960px WIDE, not 640. The dewarp is a crop out of a fisheye, so the
+ *    detail that survives is what we ask the transcode for, not what the sensor
+ *    has.
+ */
+function HoldingCamera({
+  target,
+  label,
+  paused,
+  onExpand,
+  accent,
+}: {
+  target: CameraTarget;
+  label: string;
+  paused: boolean;
+  onExpand: () => void;
+  accent: string;
+}) {
+  const { src, offline } = useCameraFrame(target, 960, !paused, 2_000);
+
+  return (
+    <button
+      type="button"
+      className="rc-cam"
+      onClick={onExpand}
+      title={`Enlarge the ${label.toLowerCase()} camera`}
+      aria-label={`Enlarge the ${label.toLowerCase()} camera`}
+    >
+      <span className="rc-cam-shot">
+        <CameraFrame src={src} offline={offline} alt={label} connectingSize={11} />
+        <span
+          className="rc-cam-chip"
+          aria-hidden
+          style={{
+            position: "absolute",
+            top: 7,
+            right: 7,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "4px 9px",
+            borderRadius: 999,
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: "0.06em",
+          }}
+        >
+          <IconMaximize size={12} stroke={2.6} />
+          CLICK TO ENLARGE
+        </span>
+        <span
+          style={{
+            position: "absolute",
+            bottom: 7,
+            left: 8,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "3px 8px",
+            borderRadius: 999,
+            background: "rgba(8,12,20,0.78)",
+            fontSize: 9,
+            fontWeight: 800,
+            letterSpacing: "0.06em",
+            color: offline ? AMBER : PORTAL_DARK.muted,
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: offline ? AMBER : accent,
+            }}
+          />
+          {offline ? "RECONNECTING…" : paused ? "IN THE VIEWER" : label.toUpperCase()}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/**
  * The full-screen camera viewer (owner 2026-08-12: "need the ability to expand the
  * camera view to popup and see more").
  *
@@ -2048,9 +2396,10 @@ function RoomCamera({
  * a fisheye is never cropped and never overflows a short monitor.
  */
 function CameraLightbox({
-  room,
+  target,
   track,
   state,
+  holding,
   nowMs,
   locked,
   pending,
@@ -2059,25 +2408,32 @@ function CameraLightbox({
   onClose,
   getLiveUrl,
 }: {
-  room: BriefingRoom;
+  target: CameraTarget;
   track: string;
+  /** The briefing state, for a ROOM target. Null for a holding view. */
   state: BriefingRoomState | null;
+  /** Who is in the seats, for a HOLDING target. Null for a room. */
+  holding: PitLaneFeed["holding"];
   nowMs: number;
   locked: boolean;
   pending: string | null;
   onStart: (restart: boolean) => void;
-  onSwitch: (room: BriefingRoom) => void;
+  onSwitch: (target: CameraTarget) => void;
   onClose: () => void;
-  getLiveUrl: (room: BriefingRoom) => Promise<string | null>;
+  getLiveUrl: (target: CameraTarget) => Promise<string | null>;
 }) {
-  const live = useLiveCamera(room, getLiveUrl);
+  const room = isRoom(target) ? target : null;
+  const live = useLiveCamera(target, getLiveUrl);
   // STILLS ARE THE BRIDGE, NOT THE FALLBACK ONLY. They paint in ~200ms while the
   // ticket is minted and the video buffers, then stand down the moment live is
   // actually playing — so the viewer is never blank waiting for video, and never
   // pays for two pictures of the same room at once.
-  const { src, offline } = useCameraFrame(room, 1600, !live.playing);
+  //
+  // A holding still is transcoded and slower (see HoldingCamera), so it polls at
+  // the same 2s here — it is only ever the bridge to live on this surface.
+  const { src, offline } = useCameraFrame(target, 1600, !live.playing, room ? 1_000 : 2_000);
   const closeRef = useRef<HTMLButtonElement>(null);
-  const color = ROOM_COLOR[room];
+  const color = room ? ROOM_COLOR[room] : ROOM_COLOR[holdingTrack(target as "holding-red")];
   const timeline = briefingTimelineAt(state, nowMs);
   const phase = timeline.phase;
   // The same hold the panel behind this viewer is showing — both read the room's
@@ -2098,7 +2454,7 @@ function CameraLightbox({
       className="rc-lb"
       role="dialog"
       aria-modal="true"
-      aria-label={`${cap(room)} room camera`}
+      aria-label={room ? `${cap(room)} room camera` : "Holding area camera"}
       style={{
         position: "fixed",
         inset: 0,
@@ -2139,53 +2495,63 @@ function CameraLightbox({
         }}
       >
         <strong style={{ fontSize: 18, color, letterSpacing: "0.02em" }}>
-          {cap(room).toUpperCase()} ROOM
+          {room ? `${cap(room).toUpperCase()} ROOM` : "HOLDING"}
         </strong>
         <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{cap(track)} Track</span>
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            fontSize: 11,
-            fontWeight: 800,
-            letterSpacing: "0.05em",
-            color: phase === "idle" ? PORTAL_DARK.muted : phaseColor(phase, color),
-          }}
-        >
+        {room ? (
           <span
-            aria-hidden
             style={{
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
-              background: phaseColor(phase, color),
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 11,
+              fontWeight: 800,
+              letterSpacing: "0.05em",
+              color: phase === "idle" ? PORTAL_DARK.muted : phaseColor(phase, color),
             }}
-          />
-          {PHASE_LABEL[phase].toUpperCase()}
-        </span>
-
-        {/* Either room, without reopening. */}
-        <span style={{ display: "inline-flex", gap: 6, marginLeft: 6 }}>
-          {(["red", "blue"] as BriefingRoom[]).map((r) => (
-            <button
-              key={r}
-              type="button"
-              className="rcb"
-              onClick={() => onSwitch(r)}
-              aria-pressed={r === room}
+          >
+            <span
+              aria-hidden
               style={{
-                padding: "5px 12px",
-                borderRadius: 5,
-                fontSize: 11,
-                borderColor: r === room ? withAlpha(ROOM_COLOR[r], 0.85) : PORTAL_DARK.border,
-                background: r === room ? withAlpha(ROOM_COLOR[r], 0.18) : "transparent",
-                color: r === room ? INK : PORTAL_DARK.muted,
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background: phaseColor(phase, color),
               }}
-            >
-              {cap(r)}
-            </button>
-          ))}
+            />
+            {PHASE_LABEL[phase].toUpperCase()}
+          </span>
+        ) : (
+          <span style={{ fontSize: 11, color: PORTAL_DARK.muted }}>the pit seats</span>
+        )}
+
+        {/* ANY CAMERA, WITHOUT REOPENING. Four now rather than two — the rooms
+            and each track's holding area — so a staff member can follow a group
+            from the film to the seats without closing the viewer once. */}
+        <span style={{ display: "inline-flex", gap: 6, marginLeft: 6, flexWrap: "wrap" }}>
+          {(["red", "blue", "holding-red", "holding-blue"] as CameraTarget[]).map((t) => {
+            const tone = isRoom(t) ? ROOM_COLOR[t] : ROOM_COLOR[holdingTrack(t)];
+            const on = t === target;
+            return (
+              <button
+                key={t}
+                type="button"
+                className="rcb"
+                onClick={() => onSwitch(t)}
+                aria-pressed={on}
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: 5,
+                  fontSize: 11,
+                  borderColor: on ? withAlpha(tone, 0.85) : PORTAL_DARK.border,
+                  background: on ? withAlpha(tone, 0.18) : "transparent",
+                  color: on ? INK : PORTAL_DARK.muted,
+                }}
+              >
+                {isRoom(t) ? cap(t) : `${cap(holdingTrack(t))} holding`}
+              </button>
+            );
+          })}
         </span>
 
         <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 12 }}>
@@ -2261,9 +2627,11 @@ function CameraLightbox({
           <CameraFrame
             src={src}
             offline={offline}
-            alt={`${room} briefing room, enlarged`}
+            alt={room ? `${room} briefing room, enlarged` : `${track} holding area, enlarged`}
             connectingSize={18}
-            connectingLabel={`Loading the ${room} room…`}
+            connectingLabel={
+              room ? `Loading the ${room} room…` : `Loading the ${track} holding area…`
+            }
           />
         </span>
         {live.url && (
@@ -2303,7 +2671,35 @@ function CameraLightbox({
           minHeight: 62,
         }}
       >
-        {phase === "idle" ? (
+        {!room ? (
+          // A holding view has no film and no phase — the one thing worth saying
+          // is who is sitting there, and there is nothing to press from here
+          // ("race returned" belongs on the board, beside the lane it clears).
+          holding ? (
+            <>
+              <div>
+                <div className="rc-num" style={{ fontSize: 22, fontWeight: 800, color: INK }}>
+                  {holding.heatNumber != null ? `Session ${holding.heatNumber}` : "In the seats"}
+                </div>
+                <div style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
+                  {holding.raceType ?? ""}
+                  {holding.room ? ` · from the ${holding.room} room` : ""}
+                </div>
+              </div>
+              <Stat
+                label="In the seats"
+                value={formatClock(Math.max(0, nowMs - holding.atMs))}
+                unit="since the briefing"
+                big
+                tone={color}
+              />
+            </>
+          ) : (
+            <span style={{ fontSize: 14, color: PORTAL_DARK.muted }}>
+              Nobody in the seats on {cap(track)}.
+            </span>
+          )
+        ) : phase === "idle" ? (
           <span style={{ fontSize: 14, color: PORTAL_DARK.muted }}>
             Nothing in this room — the TV is showing helmet sizes.
           </span>

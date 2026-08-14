@@ -19,6 +19,8 @@ import "server-only";
  *      control board therefore cannot get out of step with the room.
  */
 import { businessDayYmdET } from "@/lib/race-business-day";
+import { readPitLanes } from "../pit/lane.server";
+import type { PitLanes } from "../pit/pit-board";
 import { calledAtMsFor, sessionCheckinTimes } from "../service/checkin-progress";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
 import { listSignageScreens } from "../data/signage-screens-db";
@@ -410,6 +412,21 @@ export interface BriefingBoardStatus {
    *  than sending a session to a room that will show a poster. */
   videos: Record<BriefingTier, { url: string; durationMs: number | null } | null>;
   helmetPosterUrl: string | null;
+  /**
+   * THE PIT LANE, PER TRACK — who is in holding, who is out racing, and whether
+   * the lane is still held (owner 2026-08-13).
+   *
+   * The desk's THIRD box. Check-in gave the board Called and In the room, but the
+   * step after the briefing had no home: staff pressed "Send to holding" and the
+   * group vanished off the screen until they appeared on track. The same lane the
+   * pit boards read is now the desk's Holding panel, so one surface carries the
+   * whole journey — called → in the room → holding.
+   *
+   * Costs one Redis MGET plus the start/finish marker reads for tracks that hold
+   * state; nothing goes to Pandora, which is what lets it ride the existing 5s
+   * poll rather than needing one of its own.
+   */
+  lanes: PitLanes;
 }
 
 /**
@@ -532,12 +549,15 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
   const now = Date.now();
   const businessDay = businessDayYmdET();
 
-  const [rooms, assignments, assets, checkinWindowMins, events] = await Promise.all([
+  const [rooms, assignments, assets, checkinWindowMins, events, lanes] = await Promise.all([
     readBriefingRooms(VENUE).catch(() => ({ red: null, blue: null })),
     listBriefingAssignments(VENUE, businessDay).catch(() => []),
     loadSignageAssetsSafe(),
     resolveCheckinWindows(now),
     listBriefingEvents(VENUE, businessDay).catch(() => []),
+    // readPitLanes already swallows its own failures to EMPTY_PIT_LANE — a Redis
+    // blip empties the Holding box for one poll, it never fails the board.
+    readPitLanes(),
   ]);
 
   const groupsOut = await Promise.all(
@@ -576,5 +596,6 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
       pro: slot("briefing-video:pro"),
     },
     helmetPosterUrl: assets["briefing-helmet-poster"]?.url ?? null,
+    lanes,
   };
 }

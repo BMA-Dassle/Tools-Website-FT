@@ -34,7 +34,7 @@ import "server-only";
  *     rest of this table's posture.
  */
 import { put } from "@vercel/blob";
-import { briefingRoomCameraId, fetchCameraFrame, nxConfigured } from "../nx/camera.server";
+import { BRIEFING_ROOM_CAMERAS, fetchCameraFrame, nxConfigured } from "../nx/camera.server";
 import type { BriefingRoom } from "./types";
 
 /**
@@ -79,7 +79,10 @@ export async function captureRoomPhoto(args: {
   heatNumber: number | null;
 }): Promise<RoomPhoto | null> {
   if (!nxConfigured() || !process.env.BLOB_READ_WRITE_TOKEN) return null;
-  const deviceId = briefingRoomCameraId(args.room);
+  // The BRIEFING ROOM map directly, not the wider fixed-camera resolver: an
+  // insurance photo is always of a room, and must never be able to resolve to a
+  // holding view through a widened lookup.
+  const deviceId = BRIEFING_ROOM_CAMERAS[args.room];
   if (!deviceId) return null;
 
   try {

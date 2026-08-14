@@ -2,14 +2,14 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { signageEnabled, cameraMonitorEnabled } from "~/features/signage/flags";
 import {
-  briefingRoomCameraId,
   cameraLiveStream,
   nxConfigured,
+  resolveFixedCamera,
 } from "~/features/signage/nx/camera.server";
 
 /**
- * ONE live-stream URL for a briefing-room camera, for the check-in board's
- * full-screen viewer.
+ * ONE live-stream URL for a briefing-room or holding-area camera, for the
+ * check-in board's full-screen viewer.
  *
  * WHY A URL AND NOT A STREAM. Every other camera surface here is a still pulled
  * through /api/tv/camera, because a serverless function cannot hold a video stream
@@ -24,9 +24,9 @@ import {
  * this one sits behind ADMIN_CAMERA_TOKEN like the rest of /api/admin/*, with the
  * inline check repeated (same posture as /api/admin/briefing).
  *
- * ROOM, NEVER A DEVICE ID. The client names a room; the server maps it to one of
- * the two allowlisted briefing cameras. There is no way to point this at anything
- * else.
+ * ROOM, NEVER A DEVICE ID. The client names a room (or a holding area); the
+ * server maps it to one of the allowlisted cameras. There is no way to point
+ * this at anything else.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,11 +49,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "nx bridge not configured" }, { status: 503 });
   }
 
-  const deviceId = briefingRoomCameraId(req.nextUrl.searchParams.get("room"));
-  if (!deviceId) return NextResponse.json({ error: "room must be red or blue" }, { status: 400 });
+  const camera = await resolveFixedCamera(req.nextUrl.searchParams.get("room"));
+  if (!camera) {
+    return NextResponse.json(
+      { error: "room must be red, blue, holding-red or holding-blue" },
+      { status: 400 },
+    );
+  }
 
   try {
-    const stream = await cameraLiveStream(deviceId);
+    // The holding cameras carry their layout's saved aim — see DewarpView. Live
+    // video is transcoded anyway, so the dewarp rides along for free and the
+    // full-screen view matches the picture the panel was showing.
+    const stream = await cameraLiveStream(camera.deviceId, { dewarp: camera.dewarp });
     return NextResponse.json(stream, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     // The viewer falls back to the still refresh, which is why this is a plain

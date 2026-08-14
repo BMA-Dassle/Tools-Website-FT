@@ -45,18 +45,191 @@ export function nxConfigured(): boolean {
 
 /**
  * The two FastTrax briefing-room cameras, by room (Nx device ids from the live
- * device list, verified 2026-08-12). Fixed here so a room-addressed view — the
- * check-in board's in-room panel — resolves a camera without a provisioned
- * screen. These are the ONLY cameras `/api/tv/camera?room=` can reach, so the
- * room shortcut can never be turned into a way to pull an arbitrary camera.
+ * device list, verified 2026-08-12).
  */
 export const BRIEFING_ROOM_CAMERAS: Record<"blue" | "red", string> = {
   blue: "ae9373a3-f070-b2d6-d109-751c26159b6c",
   red: "dbecf8d8-d543-419a-bafc-bda19f48b689",
 };
 
-export function briefingRoomCameraId(room: string | null | undefined): string | null {
-  return room === "blue" || room === "red" ? BRIEFING_ROOM_CAMERAS[room] : null;
+/**
+ * THE PIT HOLDING AREAS — resolved from Nx LAYOUTS, by name (owner 2026-08-13).
+ *
+ * The rooms above are pinned device ids because there are exactly two of them
+ * and they will not move. Holding is different: the owner keeps the view in Nx
+ * itself and is splitting it per track ("I'm going to have a FT Holding Red and
+ * FT Holding Blue"). Pinning a GUID here would mean a deploy every time that
+ * changes, so instead we read the layout the owner already maintains and take
+ * the camera off it — repoint the view in the Nx client and the desk follows on
+ * the next cache expiry, no deploy, no code.
+ *
+ * A layout is MEMBERSHIP AND GEOMETRY, never a rendered picture — confirmed
+ * against Nx's own v4 schema 2026-08-13: `/rest/v4/layouts` gives `items[]` with
+ * a `resourceId` and cell coordinates, and the only image/media endpoints in the
+ * whole surface are per-device. So we take the layout's FIRST item (by cell
+ * position, top-left first) and pull that camera exactly like any other.
+ *
+ * FALLBACK CHAIN, so this works today and improves itself the moment the owner
+ * creates the per-track layouts: `FT Holding <Track>` → `FT Holding` → the
+ * camera that layout resolved to on 2026-08-13 (FT VIP Walkway South — frame
+ * verified, the numbered pit spots are on the floor in shot). A board is never
+ * left with no picture because a layout has not been made yet.
+ */
+const HOLDING_LAYOUT_PREFIX = "FT Holding";
+
+/** Last-resort holding camera — what `FT Holding` held on 2026-08-13. Only
+ *  reached if every layout lookup fails or returns nothing usable. */
+const HOLDING_CAMERA_FALLBACK = "c1020e04-f54a-bc4a-dcc3-5691c62453d1";
+
+/** Every camera this app can address BY NAME rather than through a screen's
+ *  saved config. These are the ONLY cameras `/api/tv/camera?room=` and the
+ *  live-ticket route can reach, so the shortcut can never be turned into a way
+ *  to pull an arbitrary camera. */
+export type FixedCameraKey = "blue" | "red" | "holding-red" | "holding-blue";
+
+export function parseFixedCameraKey(key: string | null | undefined): FixedCameraKey | null {
+  return key === "blue" || key === "red" || key === "holding-red" || key === "holding-blue"
+    ? key
+    : null;
+}
+
+/**
+ * A FISHEYE VIEW, as Nx stores it on a layout item.
+ *
+ * The holding camera is a ceiling fisheye, and the layouts do not merely pick it
+ * — they carry the aim (owner 2026-08-13: "I have the camera view saved in
+ * them"). Red and Blue are the SAME device with different `dewarpingParams`, so
+ * the view is the entire point of reading the layout at all.
+ *
+ * Angles are radians, straight off the layout; `panoFactor` is Nx's aspect
+ * correction (1, 2 or 4).
+ */
+export interface DewarpView {
+  xAngle: number;
+  yAngle: number;
+  fov: number;
+  panoFactor: number;
+}
+
+export interface FixedCamera {
+  deviceId: string;
+  /** Absent for the plain rectilinear room cameras. */
+  dewarp?: DewarpView;
+}
+
+/**
+ * Resolve one of the fixed cameras.
+ *
+ * ASYNC BECAUSE HOLDING IS: the rooms answer from the constant above without
+ * touching Nx, while a holding key reads the layout list (cached — see
+ * holdingCamera). Callers await either way rather than branching on which kind
+ * of camera they were asked for.
+ */
+export async function resolveFixedCamera(
+  key: string | null | undefined,
+): Promise<FixedCamera | null> {
+  const parsed = parseFixedCameraKey(key);
+  if (!parsed) return null;
+  if (parsed === "blue" || parsed === "red") return { deviceId: BRIEFING_ROOM_CAMERAS[parsed] };
+  return holdingCamera(parsed === "holding-red" ? "red" : "blue");
+}
+
+/** One layout as the picker needs it. */
+interface NxLayout {
+  id: string;
+  name: string;
+  items: Array<{ resourceId: string; left: number; top: number; dewarp?: DewarpView }>;
+}
+
+/**
+ * The layout list, cached module-side. Layouts change when a human edits them in
+ * the Nx client — minutes-to-months — so a five-minute window keeps a board
+ * polling once a second from asking Nx about layouts once a second, while still
+ * picking up a repoint well inside a shift.
+ *
+ * The cache holds FAILURES for a much shorter time, so an Nx blip costs one
+ * short retry window rather than five minutes of fallback camera.
+ */
+const LAYOUT_TTL_MS = 5 * 60_000;
+const LAYOUT_FAIL_TTL_MS = 20_000;
+let layoutCache: { at: number; layouts: NxLayout[] | null } | null = null;
+
+async function listLayouts(): Promise<NxLayout[] | null> {
+  const now = Date.now();
+  if (layoutCache) {
+    const ttl = layoutCache.layouts ? LAYOUT_TTL_MS : LAYOUT_FAIL_TTL_MS;
+    if (now - layoutCache.at < ttl) return layoutCache.layouts;
+  }
+  try {
+    const token = await getToken();
+    const res = await relayGet("/rest/v4/layouts", token);
+    if (!res.ok) throw new Error(`nx layouts: ${res.status}`);
+    // Nx GUIDs and names — no BMI-style long ids on this rail, so plain JSON
+    // parsing is safe here (same reasoning as listCameras).
+    const raw = (await res.json()) as Array<Record<string, unknown>>;
+    const layouts: NxLayout[] = raw.map((l) => ({
+      id: String(l.id ?? ""),
+      name: String(l.name ?? ""),
+      items: (Array.isArray(l.items) ? l.items : [])
+        .map((i) => {
+          const item = i as Record<string, unknown>;
+          const d = (item.dewarpingParams ?? {}) as Record<string, unknown>;
+          // Only a dewarp the layout actually ENABLED counts. A disabled block
+          // still carries angles, and applying them would aim a rectilinear
+          // camera at nothing.
+          const dewarp =
+            d.enabled === true
+              ? {
+                  xAngle: Number(d.xAngle) || 0,
+                  yAngle: Number(d.yAngle) || 0,
+                  fov: Number(d.fov) || 0,
+                  panoFactor: Number(d.panoFactor) || 1,
+                }
+              : undefined;
+          return {
+            resourceId: String(item.resourceId ?? ""),
+            left: Number(item.left) || 0,
+            top: Number(item.top) || 0,
+            ...(dewarp && dewarp.fov > 0 ? { dewarp } : {}),
+          };
+        })
+        .filter((i) => i.resourceId),
+    }));
+    layoutCache = { at: now, layouts };
+    return layouts;
+  } catch {
+    layoutCache = { at: now, layouts: null };
+    return null;
+  }
+}
+
+/**
+ * The holding camera for one track.
+ *
+ * Names are matched case-insensitively and trimmed, because this is a string a
+ * human types into the Nx client — "FT Holding Red", "ft holding red " and
+ * "FT  Holding Red" must all be the layout we meant.
+ */
+async function holdingCamera(track: "red" | "blue"): Promise<FixedCamera> {
+  const layouts = await listLayouts();
+  if (!layouts) return { deviceId: HOLDING_CAMERA_FALLBACK };
+
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+  const perTrack = norm(`${HOLDING_LAYOUT_PREFIX} ${track}`);
+  const shared = norm(HOLDING_LAYOUT_PREFIX);
+
+  // The per-track layout wins; the shared one is what exists until the owner
+  // splits it. Never a partial match — "FT Holding Red" must not be found by a
+  // search for "FT Holding" when both exist.
+  const pick =
+    layouts.find((l) => norm(l.name) === perTrack) ?? layouts.find((l) => norm(l.name) === shared);
+  if (!pick) return { deviceId: HOLDING_CAMERA_FALLBACK };
+
+  // Top-left first, so a multi-camera layout has a defined "main" tile rather
+  // than whichever one Nx happened to serialise first.
+  const first = [...pick.items].sort((a, b) => a.top - b.top || a.left - b.left)[0];
+  if (!first) return { deviceId: HOLDING_CAMERA_FALLBACK };
+  return { deviceId: first.resourceId, ...(first.dewarp ? { dewarp: first.dewarp } : {}) };
 }
 
 function relayBase(): string {
@@ -158,8 +331,10 @@ function clampSize(v: number | undefined): number {
  */
 export async function fetchCameraFrame(
   deviceId: string,
-  opts?: { width?: number; height?: number },
+  opts?: { width?: number; height?: number; dewarp?: DewarpView },
 ): Promise<CameraFrame> {
+  if (opts?.dewarp) return fetchDewarpedFrame(deviceId, opts.dewarp, opts);
+
   const w = clampSize(opts?.width);
   const h = clampSize(opts?.height);
   const size = w || h ? `&size=${w}x${h}` : "";
@@ -176,6 +351,87 @@ export async function fetchCameraFrame(
   if (!res.ok) throw new Error(`nx frame ${deviceId}: ${res.status}`);
   const body = await res.arrayBuffer();
   return { body, contentType: res.headers.get("content-type") || "image/jpeg" };
+}
+
+/**
+ * ONE DEWARPED FRAME, taken off the front of an MJPEG stream.
+ *
+ * WHY NOT `/image`: dewarping is a TRANSCODING option, and Nx only offers
+ * transcoding on the media endpoints — probed against our own system's v4
+ * schema 2026-08-13, `/devices/{id}/image` takes `crop` and `rotation` and
+ * nothing else. A fisheye still therefore cannot be aimed; only video can. The
+ * holding view IS an aim (see DewarpView), so a still of it has to come out of
+ * a stream.
+ *
+ * AND WE STILL NEVER HOLD A STREAM OPEN. `media.mpjpeg` is a multipart series of
+ * whole JPEGs: we read until the first frame's EOI marker, abort the request,
+ * and return those bytes. One frame, connection dropped, function ends — the
+ * same shape as every other call in this file, just sourced differently.
+ * Measured ~0.9s live, against ~0.2s for a plain `/image` pull, which is why the
+ * caller polls a dewarped preview more slowly.
+ */
+const JPEG_SOI = Buffer.from([0xff, 0xd8]);
+const JPEG_EOI = Buffer.from([0xff, 0xd9]);
+/** A frame that has not completed by here is a stream we should not keep
+ *  reading — the caller will show its last good picture and try again. */
+const MJPEG_FRAME_CAP_BYTES = 8 * 1024 * 1024;
+
+async function fetchDewarpedFrame(
+  deviceId: string,
+  dewarp: DewarpView,
+  opts?: { width?: number; height?: number },
+): Promise<CameraFrame> {
+  const w = clampSize(opts?.width);
+  const h = clampSize(opts?.height);
+  const params = new URLSearchParams({
+    dewarping: "true",
+    dewarpingXangle: String(dewarp.xAngle),
+    dewarpingYangle: String(dewarp.yAngle),
+    dewarpingFov: String(dewarp.fov),
+    dewarpingPanofactor: String(dewarp.panoFactor),
+  });
+  // Nx wants a full WxH here — unlike `/image`, a bare width is not accepted.
+  // The fisheye's dewarped output is 16:9, so a width alone implies its height.
+  if (w) params.set("resolution", `${w}x${h || Math.round((w * 9) / 16)}`);
+
+  const path = `/rest/v4/devices/${encodeURIComponent(deviceId)}/media.mpjpeg?${params}`;
+
+  let token = await getToken();
+  let res = await relayFetch(path, token);
+  if (res.status === 401) {
+    token = await getToken(true);
+    res = await relayFetch(path, token);
+  }
+  if (!res.ok || !res.body) throw new Error(`nx dewarped frame ${deviceId}: ${res.status}`);
+
+  const reader = res.body.getReader();
+  let buf = Buffer.alloc(0);
+  try {
+    while (buf.length < MJPEG_FRAME_CAP_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf = Buffer.concat([buf, Buffer.from(value)]);
+      // The multipart part headers sit in front of the first frame, so find the
+      // JPEG by its own markers rather than parsing the boundary.
+      const soi = buf.indexOf(JPEG_SOI);
+      if (soi < 0) continue;
+      const eoi = buf.indexOf(JPEG_EOI, soi + 2);
+      if (eoi < 0) continue;
+      const jpeg = buf.subarray(soi, eoi + 2);
+      // Copy out of the pooled Buffer — a Node Buffer is a view on shared
+      // memory, and handing that slice's .buffer to a Response would ship the
+      // whole pool.
+      return {
+        body: jpeg.buffer.slice(jpeg.byteOffset, jpeg.byteOffset + jpeg.byteLength) as ArrayBuffer,
+        contentType: "image/jpeg",
+      };
+    }
+  } finally {
+    // Whatever happened, stop the transcode — this is the line that keeps a
+    // frame grab from becoming a held-open stream.
+    await reader.cancel().catch(() => {});
+  }
+  throw new Error(`nx dewarped frame ${deviceId}: no complete frame`);
 }
 
 /* ── live video, played by the BROWSER ────────────────────────────────── */
@@ -219,7 +475,7 @@ export interface CameraLiveStream {
 
 export async function cameraLiveStream(
   deviceId: string,
-  opts?: { resolution?: "360p" | "480p" | "720p" | "1080p" },
+  opts?: { resolution?: "360p" | "480p" | "720p" | "1080p"; dewarp?: DewarpView },
 ): Promise<CameraLiveStream> {
   let token = await getToken();
   let res = await relayFetch("/rest/v4/login/tickets", token, {
@@ -242,10 +498,22 @@ export async function cameraLiveStream(
 
   // No `positionMs` ⇒ LIVE. 720p by default: the viewer is full-screen, and at the
   // measured bitrate the resolution is not what costs anything.
-  const resolution = opts?.resolution ?? "720p";
-  const url =
-    `${relayBase()}/rest/v4/devices/${encodeURIComponent(deviceId)}/media.mp4` +
-    `?resolution=${resolution}&_ticket=${encodeURIComponent(json.token)}`;
+  const params = new URLSearchParams({
+    resolution: opts?.resolution ?? "720p",
+    _ticket: json.token,
+  });
+  // THE SAVED AIM TRAVELS WITH THE STREAM. Live video is the one surface where
+  // dewarping is free — it is a transcode option, and the transcode is already
+  // happening. So the full-screen holding view is the layout's own view, moving,
+  // rather than a raw fisheye the staff member has to re-interpret.
+  if (opts?.dewarp) {
+    params.set("dewarping", "true");
+    params.set("dewarpingXangle", String(opts.dewarp.xAngle));
+    params.set("dewarpingYangle", String(opts.dewarp.yAngle));
+    params.set("dewarpingFov", String(opts.dewarp.fov));
+    params.set("dewarpingPanofactor", String(opts.dewarp.panoFactor));
+  }
+  const url = `${relayBase()}/rest/v4/devices/${encodeURIComponent(deviceId)}/media.mp4?${params}`;
   return { url, expiresInS: Number(json.expiresInS) || 300 };
 }
 

@@ -7,7 +7,8 @@ import { parseScreenKey, type SignageVenue } from "~/features/signage/constants"
 import {
   fetchCameraFrame,
   nxConfigured,
-  briefingRoomCameraId,
+  resolveFixedCamera,
+  type FixedCamera,
 } from "~/features/signage/nx/camera.server";
 
 /**
@@ -20,9 +21,10 @@ import {
  * ALLOWLIST, NOT ARBITRARY CAMERA IDS. Two addressing modes, both constrained:
  *   - `?screen=FT:5` — the camera is read from that screen's saved config
  *     server-side (what an admin put on the board), never from the client.
- *   - `?room=blue|red` — resolves to one of the two fixed briefing-room cameras
- *     (BRIEFING_ROOM_CAMERAS), for the check-in board's in-room panel. No other
- *     camera is reachable this way.
+ *   - `?room=blue|red|holding` — resolves to one of the fixed cameras
+ *     (FIXED_CAMERAS): the two briefing rooms for the check-in board's in-room
+ *     panels, and the pit holding area for its Holding panel. No other camera is
+ *     reachable this way.
  * Either way a client can only ever reach a camera someone deliberately wired up.
  *
  * PUBLIC, like /api/tv/feed: a TV player has no login. What leaks is one frame of
@@ -80,13 +82,22 @@ export async function GET(req: NextRequest) {
   }
 
   // Screen mode resolves through the saved config (cached); room mode maps to a
-  // fixed briefing camera. Both refuse anything they do not recognise.
-  const deviceId = screenId ? await resolveDeviceId(screenId) : briefingRoomCameraId(roomParam);
-  if (!deviceId) return new NextResponse(null, { status: 404 });
+  // fixed camera. Both refuse anything they do not recognise.
+  const camera: FixedCamera | null = screenId
+    ? await resolveDeviceId(screenId).then((id) => (id ? { deviceId: id } : null))
+    : await resolveFixedCamera(roomParam);
+  if (!camera) return new NextResponse(null, { status: 404 });
+  const { deviceId, dewarp } = camera;
 
   const w = numParam(req.nextUrl.searchParams.get("w"));
   const h = numParam(req.nextUrl.searchParams.get("h"));
-  const key = `${deviceId}@${w ?? 0}x${h ?? 0}`;
+  // THE AIM IS PART OF THE CACHE KEY. Red and Blue holding are the same device
+  // at two dewarp angles, so a key of device+size alone would serve one track's
+  // view to the other — the single worst failure this board could have.
+  const aim = dewarp
+    ? `#${dewarp.xAngle.toFixed(4)},${dewarp.yAngle.toFixed(4)},${dewarp.fov.toFixed(4)},${dewarp.panoFactor}`
+    : "";
+  const key = `${deviceId}@${w ?? 0}x${h ?? 0}${aim}`;
 
   const now = Date.now();
   const hit = frameCache.get(key);
@@ -95,7 +106,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const frame = await fetchCameraFrame(deviceId, { width: w, height: h });
+    const frame = await fetchCameraFrame(deviceId, { width: w, height: h, dewarp });
     frameCache.set(key, { at: now, body: frame.body, contentType: frame.contentType });
     // Cheap unbounded-growth guard — a handful of boards, a couple of sizes.
     if (frameCache.size > 64) {
