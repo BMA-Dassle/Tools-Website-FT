@@ -26,9 +26,10 @@ import redis from "@/lib/redis";
  *      in cache even if slightly stale, rather than dog-pile upstream
  *
  * Failure path:
- *   6. Upstream timeout / non-2xx → fall back to last known cache
- *      (any age) so the widget keeps showing something instead of
- *      blanking out
+ *   6. Upstream timeout / non-2xx → fall back to the last known cache
+ *      so the widget keeps showing something instead of blanking out,
+ *      up to MAX_SERVE_AGE_MS (past that we genuinely don't know, and
+ *      a stale delay figure is worse than none — see below)
  *
  * Hooks/components consuming this:
  *   - hooks/useTrackStatus.ts  (powers <TrackStatus /> on home/racing
@@ -38,9 +39,39 @@ import redis from "@/lib/redis";
 const UPSTREAM = "https://tools-track-status.vercel.app/api/v1/status";
 const CACHE_KEY = "track-status:cache:v1";
 const LOCK_KEY = "track-status:lock";
-const CACHE_TTL_SEC = 60; // hold for a minute as a safety floor
-const FRESH_MS = 30_000; // re-fetch upstream when cache is older than this
-const LOCK_TTL_SEC = 5; // brief lock window for stampede prevention
+
+// Freshness — when we go back to upstream. Independent of retention.
+const FRESH_MS = 30_000;
+
+// Hard ceiling on the upstream call. Without one, a hung upstream pins
+// the lock holder for the whole function duration (2026-08-13: upstream
+// stopped answering entirely and we measured >20s with no response).
+// When it's healthy it answers in well under a second, so any budget in
+// the 8-15s band detects the outage identically; 10s keeps the unlucky
+// request that holds the lock comfortably inside the client's 20s poll
+// cycle.
+const UPSTREAM_TIMEOUT_MS = 10_000;
+
+// MUST exceed UPSTREAM_TIMEOUT_MS. At the old 5s the lock expired while
+// its holder was still waiting on a hung upstream, so a second instance
+// acquired it and hung too — the stampede protection dropped out at
+// exactly the moment it was needed, adding a hanging fetch every 5s to
+// an upstream already in trouble.
+const LOCK_TTL_SEC = 15;
+
+// RETENTION, not freshness. This was 60s, which is what actually caused
+// the 503 storm: once upstream had been down for a minute Redis evicted
+// the key, so `cached` was null on every path and the fallback promised
+// above had nothing to fall back TO. An outage must not be able to
+// delete our last known good value.
+const CACHE_TTL_SEC = 3600;
+
+// How stale a reading we're willing to state. Track delay is a live
+// operational number that turns over with each heat (~12 min), so
+// serving a 40-minute-old "On Time" is not degraded service, it's
+// misinformation — a guest reads it as current. Past this we return an
+// error and the widget hides, which is the honest answer.
+const MAX_SERVE_AGE_MS = 10 * 60_000;
 
 interface CachedEntry {
   fetchedAt: number;
@@ -70,21 +101,56 @@ async function writeCache(data: unknown): Promise<void> {
   }
 }
 
-async function tryAcquireLock(): Promise<boolean> {
+/** Returns our lock token if we won the race, else null. */
+async function tryAcquireLock(): Promise<string | null> {
+  const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   try {
-    const ok = await redis.set(LOCK_KEY, "1", "EX", LOCK_TTL_SEC, "NX");
-    return ok === "OK";
+    const ok = await redis.set(LOCK_KEY, token, "EX", LOCK_TTL_SEC, "NX");
+    return ok === "OK" ? token : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-async function releaseLock(): Promise<void> {
+// Compare-and-delete, atomically. A blind DEL is only safe while no
+// holder can outlive LOCK_TTL_SEC — and a slow upstream is exactly the
+// case where one does. Once our lock has expired and another instance
+// has legitimately taken it, deleting it frees THEIR lock and invites a
+// third instance to pile onto an upstream we already know is struggling.
+const RELEASE_IF_MINE = `
+  if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+  end
+  return 0
+`;
+
+async function releaseLock(token: string): Promise<void> {
   try {
-    await redis.del(LOCK_KEY);
+    await redis.eval(RELEASE_IF_MINE, 1, LOCK_KEY, token);
   } catch {
     /* ignore */
   }
+}
+
+/** Serve a cached reading, tagging how we arrived at it. */
+function serveCached(
+  entry: CachedEntry,
+  cacheState: string,
+  extra?: Record<string, string>,
+): NextResponse {
+  return NextResponse.json(entry.data, {
+    headers: {
+      "X-Cache": cacheState,
+      "X-Cache-Age-Ms": String(Date.now() - entry.fetchedAt),
+      "Cache-Control": "no-store",
+      ...extra,
+    },
+  });
+}
+
+/** Stale is fine; ancient is a wrong answer stated confidently. */
+function servable(entry: CachedEntry | null): entry is CachedEntry {
+  return entry !== null && Date.now() - entry.fetchedAt <= MAX_SERVE_AGE_MS;
 }
 
 export async function GET() {
@@ -92,44 +158,35 @@ export async function GET() {
   const cached = await readCache();
   const ageMs = cached ? Date.now() - cached.fetchedAt : Infinity;
   if (cached && ageMs < FRESH_MS) {
-    return NextResponse.json(cached.data, {
-      headers: {
-        "X-Cache": "HIT",
-        "X-Cache-Age-Ms": String(ageMs),
-        "Cache-Control": "no-store",
-      },
-    });
+    return serveCached(cached, "HIT");
   }
 
   // ── Slow path: cache stale (or missing). Try to be the one fetcher. ─
-  const gotLock = await tryAcquireLock();
+  const lockToken = await tryAcquireLock();
 
-  if (!gotLock) {
+  if (!lockToken) {
     // Someone else is fetching — return what we have (even stale)
     // rather than dog-pile upstream.
-    if (cached) {
-      return NextResponse.json(cached.data, {
-        headers: {
-          "X-Cache": "STALE-LOCKED",
-          "X-Cache-Age-Ms": String(ageMs),
-          "Cache-Control": "no-store",
-        },
-      });
-    }
-    // No cache at all + can't get lock → wait briefly + try cache again
+    if (servable(cached)) return serveCached(cached, "STALE-LOCKED");
+
+    // Nothing servable + can't get the lock → give the holder a moment
+    // and look again; it may have just written a fresh value.
     await new Promise((r) => setTimeout(r, 250));
     const retried = await readCache();
-    if (retried) {
-      return NextResponse.json(retried.data, {
-        headers: { "X-Cache": "WAITED", "Cache-Control": "no-store" },
-      });
-    }
-    return NextResponse.json({ error: "track-status warming up" }, { status: 503 });
+    if (servable(retried)) return serveCached(retried, "WAITED");
+
+    return NextResponse.json(
+      { error: "track-status warming up" },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
   }
 
-  // We hold the lock — fetch upstream.
+  // We hold the lock — fetch upstream, bounded.
   try {
-    const res = await fetch(`${UPSTREAM}?_t=${Date.now()}`, { cache: "no-store" });
+    const res = await fetch(`${UPSTREAM}?_t=${Date.now()}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    });
     if (!res.ok) throw new Error(`upstream ${res.status}`);
     const data = await res.json();
     await writeCache(data);
@@ -137,22 +194,17 @@ export async function GET() {
       headers: { "X-Cache": "MISS", "Cache-Control": "no-store" },
     });
   } catch (err) {
-    // Upstream failed — serve stale if we have any, else 502.
-    if (cached) {
-      return NextResponse.json(cached.data, {
-        headers: {
-          "X-Cache": "STALE-ERROR",
-          "X-Cache-Age-Ms": String(ageMs),
-          "X-Upstream-Error": (err instanceof Error ? err.message : "fetch failed").slice(0, 100),
-          "Cache-Control": "no-store",
-        },
-      });
+    const reason = (err instanceof Error ? err.message : "fetch failed").slice(0, 100);
+    // Upstream failed — serve the last known reading if it's recent
+    // enough to still mean something, else say so.
+    if (servable(cached)) {
+      return serveCached(cached, "STALE-ERROR", { "X-Upstream-Error": reason });
     }
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "upstream failed" },
+      { error: reason },
       { status: 502, headers: { "Cache-Control": "no-store" } },
     );
   } finally {
-    await releaseLock();
+    await releaseLock(lockToken);
   }
 }
