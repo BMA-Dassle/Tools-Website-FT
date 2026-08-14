@@ -174,17 +174,33 @@ export function roomReturnStateAt(input: RoomReturnInput): RoomReturnState {
 /**
  * Heat number out of a live clock's heat name.
  *
- * BOTH SPELLINGS, because the marker is rewritten in flight: the timing cloud
- * socket sends `"[HEAT] 66 - Mega Pro"` and useLiveSessionClock humanises it to
- * `"Heat 66 - Mega Pro"` before any component sees it — so a `[HEAT]`-only regex
- * (results-frame.ts parseHeatNumber, which reads raw frames) matches nothing here.
- * Both real shapes are covered in the tests.
+ * THREE SHAPES, and the third is the one the venue actually sends most of the
+ * time. The timing cloud socket sends `"[HEAT] 66 - Mega Pro"`, which
+ * useLiveSessionClock humanises to `"Heat 66 - Mega Pro"` — so a `[HEAT]`-only
+ * regex (results-frame.ts parseHeatNumber, which reads raw frames) matches
+ * nothing here. But the venue broadcast's own `Name` carries NO "heat" word at
+ * all: `"60 - Blue Intermediate"`, `"66 - Mega Pro"`, `"43 - Blue Starter"` —
+ * verified against live finish markers and the kart-events survey.
+ *
+ * That gap was silent and expensive. Anything matching on heat number simply
+ * never matched: the desk's Holding box could not tell that its group had taken
+ * the green flag, so a heat sat in the seats through its own race (owner
+ * 2026-08-14: "I started blue 61 and it didn't move it from holding to on
+ * track"), and the room-return countdown fell through to its no-clock branch.
+ *
+ * So: the explicit forms first, then a LEADING number, which is the venue's own
+ * convention and unambiguous — a name that starts with digits starts with its
+ * heat number.
  *
  * Null for anything unnumbered — group events and custom races carry arbitrary
- * names, and an unidentified heat must fail the match rather than force one.
+ * names, and an unidentified heat must fail the match rather than force one. In
+ * particular a number that is not at the front and not after "heat" is NOT a
+ * heat number: "Corporate Event 2024" must stay null.
  */
 export function liveHeatNumber(heatName: string | null | undefined): number | null {
   if (!heatName) return null;
-  const m = /(?:\[HEAT\]|HEAT)\s*#?\s*(\d+)/i.exec(heatName);
-  return m ? Number(m[1]) : null;
+  const labelled = /(?:\[HEAT\]|HEAT)\s*#?\s*(\d+)/i.exec(heatName);
+  if (labelled) return Number(labelled[1]);
+  const leading = /^\s*#?\s*(\d+)\b/.exec(heatName);
+  return leading ? Number(leading[1]) : null;
 }

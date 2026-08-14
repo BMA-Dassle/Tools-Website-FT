@@ -205,10 +205,34 @@ describe("liveHeatNumber", () => {
     expect(liveHeatNumber("Heat 9")).toBe(9);
   });
 
+  /**
+   * THE SHAPE THE VENUE ACTUALLY SENDS, and the one this helper used to miss
+   * entirely (owner 2026-08-14: "I started blue 61 and it didn't move it from
+   * holding to on track").
+   *
+   * The venue broadcast's own `Name` carries no "heat" word at all — these are
+   * verbatim from live finish markers and the kart-events queue survey. Every
+   * match on heat number silently failed against them.
+   */
+  it("reads the venue's own leading-number name", () => {
+    expect(liveHeatNumber("61 - Blue Starter")).toBe(61);
+    expect(liveHeatNumber("60 - Blue Intermediate")).toBe(60);
+    expect(liveHeatNumber("66 - Mega Pro")).toBe(66);
+    expect(liveHeatNumber("43 - Blue Starter")).toBe(43);
+    expect(liveHeatNumber("9 - Red Junior Starter")).toBe(9);
+  });
+
   it("is null for an unnumbered or missing name", () => {
     expect(liveHeatNumber("Corporate Event")).toBeNull();
     expect(liveHeatNumber("")).toBeNull();
     expect(liveHeatNumber(null)).toBeNull();
     expect(liveHeatNumber(undefined)).toBeNull();
+  });
+
+  /** A number has to be the heat's own, not merely present. The leading-number
+   *  rule must not turn a year or a lane count into a heat. */
+  it("does not invent a heat from a number buried in a name", () => {
+    expect(liveHeatNumber("Corporate Event 2024")).toBeNull();
+    expect(liveHeatNumber("Birthday party - 12 racers")).toBeNull();
   });
 });
