@@ -1,5 +1,64 @@
 import { describe, expect, it } from "vitest";
-import { formatRemaining, parseLiveFrame } from "./live-session";
+import {
+  formatRemaining,
+  nextCountingState,
+  parseLiveFrame,
+  type CountingTracker,
+  type LiveClockFrame,
+} from "./live-session";
+
+describe("nextCountingState — the two-phase start's counting verdict", () => {
+  const frame = (over: Partial<LiveClockFrame>): LiveClockFrame => ({
+    hasRace: true,
+    heatName: "Heat 57",
+    state: "running",
+    remainingMs: 480_000,
+    ...over,
+  });
+  const step = (prev: CountingTracker | null, over: Partial<LiveClockFrame>) =>
+    nextCountingState(prev, frame(over));
+
+  it("an armed heat repeating a static clock never counts", () => {
+    let t = step(null, { remainingMs: 480_000 });
+    t = step(t, { remainingMs: 480_000 });
+    t = step(t, { remainingMs: 480_000 });
+    expect(t?.counting).toBe(false);
+  });
+
+  it("counts the moment the wire's clock decreases", () => {
+    let t = step(null, { remainingMs: 480_000 });
+    t = step(t, { remainingMs: 479_200 });
+    expect(t?.counting).toBe(true);
+  });
+
+  it("stays counting through a pause and a repeated value — sticky per heat", () => {
+    let t = step(null, { remainingMs: 480_000 });
+    t = step(t, { remainingMs: 479_000 });
+    t = step(t, { state: "paused", remainingMs: 400_000 });
+    t = step(t, { state: "paused", remainingMs: 400_000 });
+    expect(t?.counting).toBe(true);
+  });
+
+  it("a new heat re-arms to not-counting", () => {
+    let t = step(null, { remainingMs: 480_000 });
+    t = step(t, { remainingMs: 479_000 });
+    t = step(t, { heatName: "[HEAT] 58", remainingMs: 480_000 });
+    expect(t?.counting).toBe(false);
+  });
+
+  it("a paused clock decreasing is not racing — only a RUNNING decrease counts", () => {
+    let t = step(null, { state: "paused", remainingMs: 480_000 });
+    t = step(t, { state: "paused", remainingMs: 479_000 });
+    expect(t?.counting).toBe(false);
+  });
+
+  it("no race clears the tracker", () => {
+    const t = step(null, { remainingMs: 480_000 });
+    expect(
+      nextCountingState(t, { hasRace: false, heatName: "", state: "idle", remainingMs: 0 }),
+    ).toBeNull();
+  });
+});
 
 describe("parseLiveFrame — the SMS-Timing wire shape, as the leaderboard reads it", () => {
   it("reads a running heat's clock", () => {
