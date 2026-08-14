@@ -89,6 +89,28 @@ async function writeStoredLane(track: TrackKey, lane: StoredPitLane): Promise<vo
 }
 
 /**
+ * THE "KARTS RETURNING" HOLD IS PARKED (owner 2026-08-14: "can we comment out
+ * the karts returning for now and just clear that race slot. We will add this
+ * back later").
+ *
+ * The designed flow is: a race finishes → the lane is unsafe while karts come
+ * in → a human who can SEE the lane presses "race returned" and only then does
+ * the board say it is safe to seat. Never a timer, deliberately, because the
+ * hold is a safety statement.
+ *
+ * In practice the press is not happening, so the hold simply never released and
+ * a finished race sat on the boards behind an amber flash all evening. A state
+ * nobody clears is worse than no state: staff learn to ignore the one colour on
+ * the board that means "stop".
+ *
+ * So while this is false a finished race just LEAVES the lane. Everything that
+ * implements the hold is untouched below and in pit-board.ts — this is one flag,
+ * not a deletion, so putting it back is a one-word change once the press has a
+ * home (a pit-side button, or the camera telling us the lane is clear).
+ */
+const KARTS_RETURNING_HOLD = false;
+
+/**
  * HAS THE TRACK MOVED ON PAST THIS HEAT?
  *
  * THE BRIDGE-DOWN FALLBACK (owner 2026-08-14, live: "18 is stuck in holding and
@@ -238,6 +260,25 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
   const finishedAtMs = finish?.endedAtMs ?? liveSaysFinishedAtMs(live, racing.heatNumber);
   const pittedAtMs =
     stored.pitted && stored.pitted.sessionId === racing.sessionId ? stored.pitted.atMs : null;
+
+  // PARKED: a finished race leaves the lane instead of holding it. See
+  // KARTS_RETURNING_HOLD. `pitted` still clears it too, so a night that was
+  // already mid-flow when this shipped behaves the same.
+  if (!KARTS_RETURNING_HOLD && finishedAtMs != null) {
+    return {
+      holding: holding
+        ? {
+            sessionId: holding.sessionId,
+            heatNumber: holding.heatNumber,
+            raceType: holding.raceType,
+            room: holding.room,
+            atMs: holding.atMs,
+          }
+        : null,
+      racing: null,
+    };
+  }
+
   return {
     holding: holding
       ? {
