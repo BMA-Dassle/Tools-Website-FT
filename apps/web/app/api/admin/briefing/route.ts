@@ -12,7 +12,13 @@ import {
   overrideLaneSlot,
   sendToHolding,
 } from "~/features/signage/pit/lane.server";
-import { etCalledAtIso, setCalledRace } from "~/features/signage/briefing/called-override.server";
+import {
+  etCalledAtIso,
+  readCalledRace,
+  setCalledRace,
+} from "~/features/signage/briefing/called-override.server";
+import { readBriefingRoom } from "~/features/signage/briefing/state.server";
+import { readPitLane } from "~/features/signage/pit/lane.server";
 import { recordBriefingEvent } from "~/features/signage/briefing/events-db";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import {
@@ -52,6 +58,63 @@ export async function GET(req: NextRequest) {
     { ...status, enabled: briefingEnabled() },
     { headers: { "Cache-Control": "no-store" } },
   );
+}
+
+/**
+ * A SESSION OCCUPIES EXACTLY ONE STAGE (owner 2026-08-14: "it can't be in
+ * called and another slot at the same time though").
+ *
+ * The flow is a sequence — check-in, briefing room, holding, on track — and a
+ * group is only ever standing in one of those places. Nothing enforced that
+ * before, because nothing COULD put a session in two stages at once; Override
+ * can, and the first screenshot of it showed Session 19 sitting in check-in and
+ * a briefing room simultaneously.
+ *
+ * So placing a session advances it: every other stage naming it is vacated
+ * first. Deliberately different from the one-session-per-slot rule, which
+ * REFUSES rather than displaces — that rule protects a slot from two claimants,
+ * and refusing makes a human look. This one is about a single session's own
+ * history, where there is nothing to arbitrate: it cannot be in two places, so
+ * the earlier place is simply wrong and goes.
+ */
+async function vacateSessionElsewhere(args: {
+  sessionId: string;
+  slot: "called" | "room" | "holding" | "racing";
+  track: "blue" | "red" | "mega";
+  room: "red" | "blue" | null;
+}): Promise<void> {
+  const tracks: Array<"blue" | "red" | "mega"> = ["blue", "red", "mega"];
+
+  for (const t of tracks) {
+    const called = await readCalledRace(t).catch(() => null);
+    if (
+      called &&
+      String(called.sessionId) === args.sessionId &&
+      !(args.slot === "called" && t === args.track)
+    ) {
+      await setCalledRace(t, null);
+    }
+  }
+
+  for (const r of ["red", "blue"] as const) {
+    if (args.slot === "room" && r === args.room) continue;
+    const state = await readBriefingRoom("FT", r).catch(() => null);
+    // clearRoom rather than a raw delete: it closes the occupancy in the
+    // insurance log and puts the heat back on the check-in wall, which is what
+    // leaving a room actually means.
+    if (state?.sessionId === args.sessionId) await clearRoom(r).catch(() => {});
+  }
+
+  for (const t of tracks) {
+    const lane = await readPitLane(t).catch(() => null);
+    for (const slot of ["holding", "racing"] as const) {
+      if (args.slot === slot && t === args.track) continue;
+      const occ = slot === "holding" ? lane?.holding : lane?.racing;
+      if (occ?.sessionId === args.sessionId) {
+        await overrideLaneSlot({ track: t, slot, occupant: null, force: true }).catch(() => {});
+      }
+    }
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -159,6 +222,12 @@ export async function POST(req: NextRequest) {
           : "";
     const heatNumber = Number.isInteger(body.heatNumber) ? (body.heatNumber as number) : null;
     const raceType = typeof body.raceType === "string" ? body.raceType : null;
+
+    // Advancing a session vacates wherever else it was — see the helper above.
+    // Only on a PLACEMENT: clearing a slot is already a removal.
+    if (sessionId) {
+      await vacateSessionElsewhere({ sessionId, slot, track, room: parseBriefingRoom(body.room) });
+    }
 
     /**
      * CHECK-IN — the called record itself. Pandora owns this key normally; the

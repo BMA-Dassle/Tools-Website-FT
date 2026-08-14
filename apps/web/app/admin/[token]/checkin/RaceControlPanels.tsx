@@ -591,7 +591,15 @@ export default function RaceControlPanels({
               <span style={{ minWidth: 76 }}>In at</span>
               <span style={{ minWidth: 76 }}>Started</span>
               <span style={{ minWidth: 104 }}>Briefing photo</span>
-              <span style={{ marginLeft: "auto" }}>In room</span>
+              {/* THE LEGS (owner 2026-08-14: "keep track of all the time
+                  movements and how long"). The log always knew every instant;
+                  what it never did was subtract them, so reading a slow night
+                  meant doing arithmetic across five columns by eye. */}
+              <span style={{ minWidth: 66 }}>Waited</span>
+              <span style={{ minWidth: 66 }}>To start</span>
+              <span style={{ minWidth: 66 }}>In room</span>
+              <span style={{ minWidth: 66 }}>On track</span>
+              <span style={{ marginLeft: "auto" }}>Total</span>
             </div>
             {board?.briefings.slice(0, 12).map((b) => (
               <div
@@ -653,8 +661,17 @@ export default function RaceControlPanels({
                     "—"
                   )}
                 </span>
-                <span style={{ marginLeft: "auto", color: b.inRoomMs != null ? INK : AMBER }}>
-                  {b.inRoomMs != null ? formatClock(b.inRoomMs) : "in there now"}
+                <Leg ms={b.waitToRoomMs} />
+                <Leg ms={b.toStartMs} />
+                <Leg ms={b.inRoomMs} pending={b.inRoomMs == null ? "in there" : undefined} />
+                <Leg ms={b.roomToPittedMs} />
+                {/* The figure a guest would give you, and the only one that is
+                    bold: every other column is a leg of it. */}
+                <span
+                  className="rc-num"
+                  style={{ marginLeft: "auto", color: INK, fontWeight: 800 }}
+                >
+                  {b.totalMs != null ? formatClock(b.totalMs) : "—"}
                 </span>
               </div>
             ))}
@@ -1774,11 +1791,15 @@ function HoldingPanel({
                 <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color: INK }}>
                   {holding.heatNumber != null ? `Session ${holding.heatNumber}` : "In the seats"}
                 </span>
-                <TotalWait ms={totalWaitMs(calledAtFor, holding.sessionId, null, null, nowMs)} />
                 {holding.raceType && (
                   <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{holding.raceType}</span>
                 )}
               </div>
+              {/* BELOW the session, never beside it (owner 2026-08-14). Inside
+                  the baseline row it read as part of the heading and pushed the
+                  race type out; on its own line it is a footnote, which is what
+                  it is. */}
+              <TotalWait ms={totalWaitMs(calledAtFor, holding.sessionId, null, null, nowMs)} />
               <Stat
                 label="In the seats"
                 value={formatClock(heldMs)}
@@ -2092,7 +2113,6 @@ function InRoom({
                 <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color: INK }}>
                   {state?.heatNumber != null ? `Session ${state.heatNumber}` : "Briefing"}
                 </span>
-                <TotalWait ms={totalWaitMs(calledAtFor, state?.sessionId, race, null, nowMs)} />
                 {state?.raceType && (
                   <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{state.raceType}</span>
                 )}
@@ -2102,6 +2122,7 @@ function InRoom({
                   </span>
                 )}
               </div>
+              <TotalWait ms={totalWaitMs(calledAtFor, state?.sessionId, race, null, nowMs)} />
 
               {phase === "waiting" && (
                 <>
@@ -3289,6 +3310,17 @@ function Panel({
       </div>
       {children}
     </div>
+  );
+}
+
+/** One leg of the journey. A leg we cannot measure is a thin dash, never a
+ *  zero — zero is a real answer here (a group sent the moment they were
+ *  called) and must not be confused with "we do not know". */
+function Leg({ ms, pending }: { ms: number | null; pending?: string }) {
+  return (
+    <span className="rc-num" style={{ minWidth: 66, color: ms != null ? INK : PORTAL_DARK.muted }}>
+      {ms != null ? formatClock(ms) : (pending ?? "—")}
+    </span>
   );
 }
 
