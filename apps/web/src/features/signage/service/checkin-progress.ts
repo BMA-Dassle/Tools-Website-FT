@@ -128,9 +128,14 @@ const rosterCache = new Map<string, { at: number; value: CheckinRosterRow[] | nu
 export async function sessionRoster(
   sessionId: string,
   nowMs: number,
+  /** How stale a memoised roster may be for THIS caller. The default suits
+   *  the 15s feed; the pit board's fast-roster pulse passes a tighter bound
+   *  because "participants are basically real time" (owner 2026-08-13) —
+   *  same memo either way, so a fresh fast read also serves the next feed. */
+  maxAgeMs: number = COUNT_TTL_MS,
 ): Promise<CheckinRosterRow[] | null> {
   const memo = rosterCache.get(sessionId);
-  if (memo && nowMs - memo.at < COUNT_TTL_MS) return memo.value;
+  if (memo && nowMs - memo.at < Math.min(maxAgeMs, COUNT_TTL_MS)) return memo.value;
 
   const roster = (await liveRoster(sessionId)) ?? (await cachedRoster(sessionId));
   rosterCache.set(sessionId, { at: nowMs, value: roster });

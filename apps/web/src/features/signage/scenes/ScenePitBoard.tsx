@@ -40,6 +40,7 @@ import {
 } from "../track";
 import {
   EMPTY_PIT_LANE,
+  mergePitRoster,
   pitRailState,
   type PitLaneFeed,
   type PitRosterEntry,
@@ -95,12 +96,21 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
     return lanes.mega ?? EMPTY_PIT_LANE;
   }, [feed?.pitLanes, session, track]);
 
-  // A SCAN LANDS IN TWO SECONDS, not fifteen: the pulse's event rail carries
-  // racerKey `{personId}:{sessionId}`, so a card's ring can drop the moment
-  // the desk scans them, with the 15s roster rebuild as the reconciler.
+  // THE ROSTER TRACKS THE DESK IN SECONDS, three layers deep:
+  //   1. the FAST roster on the 2s pulse (membership, check-ins, BMI grid) —
+  //      the authority whenever it matches the display session,
+  //   2. the scan-event overlay (racerKey `{personId}:{sessionId}`), which can
+  //      beat even the fast cache by a beat,
+  //   3. the 15s full build, which reconciles everything and carries the slow
+  //      joins (camera, birthday, VIP).
   const roster = useMemo<PitRosterEntry[] | null>(() => {
-    const rows = pit?.roster ?? null;
-    if (!rows || !session) return rows;
+    let rows = pit?.roster ?? null;
+    if (!session) return rows;
+    const fast = feed?.pitRosters?.[track];
+    if (fast && fast.sessionId === session.sessionId && fast.rows.length > 0) {
+      rows = mergePitRoster(fast.rows, rows ?? []);
+    }
+    if (!rows) return rows;
     const scanned = new Set<string>();
     for (const e of feed?.kioskEvents ?? []) {
       if (e.kind !== "racer-scanned" || !e.racerKey) continue;
@@ -111,7 +121,7 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
     return rows.map((r) =>
       r.checkedIn || !scanned.has(r.personId) ? r : { ...r, checkedIn: true },
     );
-  }, [pit?.roster, session, feed?.kioskEvents]);
+  }, [pit?.roster, session, track, feed?.pitRosters, feed?.kioskEvents]);
 
   const rail = pitRailState({
     stagedInHolding: session?.inHolding ?? false,
@@ -501,6 +511,12 @@ function Photo({ sessionId, personId }: { sessionId: string; personId: string })
         <img
           src={`/api/tv/pit-photo?session=${sessionId}&person=${personId}`}
           alt=""
+          // Faces are decoration, names are the job (owner 2026-08-13): the
+          // silhouette+name card paints immediately, and the photo loads at
+          // the connection's LOWEST priority so it can never delay a poll —
+          // popping in whenever it arrives is the designed behaviour.
+          decoding="async"
+          fetchPriority="low"
           style={{
             position: "absolute",
             inset: 0,

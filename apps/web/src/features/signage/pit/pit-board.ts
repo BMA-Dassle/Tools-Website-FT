@@ -153,6 +153,68 @@ export interface PitBoardInfo {
   roster: PitRosterEntry[] | null;
 }
 
+/* ── the fast roster, as it travels on the pulse ──────────────────────── */
+
+/**
+ * The lean, fast-changing slice of a roster — who is on the session, whether
+ * they are checked in, and BMI's grid position. Rides the 2-second pulse via
+ * a short Redis cache (pit/fast-roster.server.ts) so the board tracks the
+ * desk in seconds; everything slow (cameras, birthdays, VIP, photos) stays on
+ * the 15s feed and is joined back in by mergePitRoster below.
+ */
+export interface FastPitRow {
+  participantId: string | null;
+  personId: string;
+  /** Full name — this board's PII posture (owner 2026-08-13). */
+  name: string;
+  /** Verbatim from Pandora: a timestamp string, `true`, or absent. */
+  checkedIn: string | boolean | null;
+  startPosition: number | null;
+}
+
+export interface FastPitRoster {
+  sessionId: string;
+  rows: FastPitRow[];
+}
+
+/**
+ * Overlay the fast roster onto the last full build.
+ *
+ * THE FAST ROWS ARE THE ROSTER — membership, order and check-in state all
+ * come from them, so a racer added at the desk or re-gridded in BMI appears
+ * within a pulse or two. The slow build contributes the joins that cannot
+ * change that fast (camera, birthday, VIP), matched by personId; a racer the
+ * slow build has not seen yet simply carries no badges until the next 15s
+ * poll names their flags.
+ */
+export function mergePitRoster(fast: FastPitRow[], slow: PitRosterEntry[]): PitRosterEntry[] {
+  const extras = new Map(slow.map((e) => [e.personId, e]));
+  const rows: PitParticipantRow[] = fast.map((f) => ({
+    participantId: f.participantId,
+    personId: f.personId,
+    // The full name rides `firstName` through the ordering — orderPitRoster
+    // never reads names, it just carries the row.
+    firstName: f.name,
+    checkedIn: f.checkedIn,
+    raceInfo: { startPosition: f.startPosition },
+  }));
+  return orderPitRoster(rows).map(({ row, spot }) => {
+    const pid = row.personId == null ? "" : String(row.personId);
+    const known = extras.get(pid);
+    return {
+      spot,
+      name: String(row.firstName ?? "").trim() || known?.name || "Racer",
+      personId: pid,
+      participantId: row.participantId == null ? null : String(row.participantId),
+      checkedIn: participantCheckedIn(row),
+      camera: known?.camera ?? null,
+      cameraDue: known?.cameraDue ?? false,
+      birthday: known?.birthday ?? false,
+      vip: known?.vip ?? false,
+    };
+  });
+}
+
 /* ── the lane, as it travels on the wire ──────────────────────────────── */
 
 /**

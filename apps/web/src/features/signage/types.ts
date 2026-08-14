@@ -16,7 +16,7 @@
  */
 import type { BriefingRoomState } from "./briefing/types";
 import type { CheckinProgressSession } from "./checkin-progress";
-import type { PitBoardInfo, PitLanes } from "./pit/pit-board";
+import type { FastPitRoster, PitBoardInfo, PitLanes } from "./pit/pit-board";
 
 /**
  * A scene is one full-screen visual. Adding a scene type is the only reason
@@ -518,6 +518,14 @@ export interface TvFeed {
    */
   pitLanes: PitLanes | null;
   /**
+   * The FAST roster slice, per track — PULSE-ONLY. The server feed always
+   * writes null here; useTvFeed merges the pulse's copy in, and the scene
+   * overlays it on `pitBoard.roster` (mergePitRoster). Participants are
+   * "basically real time" (owner 2026-08-13): who is on the session, checked
+   * in, and BMI's grid position all land within a pulse or two.
+   */
+  pitRosters: Record<"blue" | "red" | "mega", FastPitRoster | null> | null;
+  /**
    * Camera-monitor extra: how far the check-in station has got through EVERY
    * heat it currently has open — "6 of 14 checked in", per track.
    *
@@ -582,4 +590,11 @@ export interface TvPulse {
    * the same reason briefingRooms is — the pulse never loads a screen row.
    */
   pitLanes: PitLanes | null;
+  /**
+   * The fast roster slice per track — the one measured exception to the
+   * pulse's Redis-only rule. A short per-session cache + NX rebuild claim
+   * bound Pandora to at most one roster read per session per ~4s venue-wide,
+   * whatever the screen count (see pit/fast-roster.server.ts).
+   */
+  pitRosters: Record<"blue" | "red" | "mega", FastPitRoster | null> | null;
 }

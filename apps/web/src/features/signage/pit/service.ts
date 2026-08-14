@@ -57,13 +57,17 @@ async function birthdayFlag(personId: string, ymd: string): Promise<boolean> {
   return value;
 }
 
-export async function buildPitBoard(
-  track: TrackKey,
-  businessDate: string,
-  nowMs: number,
-): Promise<PitBoardInfo> {
-  const empty: PitBoardInfo = { track, session: null, roster: null };
+/** Which session this track's board is showing — the pit board's one
+ *  authority question, shared by the slow build below AND the fast-roster
+ *  pulse (fast-roster.server.ts) so the two can never track different heats. */
+export interface PitDisplaySession {
+  sessionId: string;
+  heatNumber: number | null;
+  raceType: string | null;
+  inHolding: boolean;
+}
 
+export async function pitDisplaySession(track: TrackKey): Promise<PitDisplaySession | null> {
   // The holding group owns the board. Mega fallback mirrors race-checkin.ts:
   // on a Mega day the staff actions and the called record live under `mega`,
   // and a blue- or red-scoped board must follow them or sit blank on the
@@ -74,25 +78,34 @@ export async function buildPitBoard(
     if (megaLane.holding) lane = megaLane;
   }
 
-  let sessionId: string | null = null;
-  let heatNumber: number | null = null;
-  let raceType: string | null = null;
-  let inHolding = false;
-
   if (lane.holding) {
-    sessionId = lane.holding.sessionId;
-    heatNumber = lane.holding.heatNumber;
-    raceType = lane.holding.raceType;
-    inHolding = true;
-  } else {
-    const race = (await currentSession(track)) ?? (await currentSession("mega"));
-    if (typeof race?.sessionId === "number" || typeof race?.sessionId === "string") {
-      sessionId = String(race.sessionId);
-      heatNumber = typeof race.heatNumber === "number" ? race.heatNumber : null;
-      raceType = race.raceType?.trim() || null;
-    }
+    return {
+      sessionId: lane.holding.sessionId,
+      heatNumber: lane.holding.heatNumber,
+      raceType: lane.holding.raceType,
+      inHolding: true,
+    };
   }
-  if (!sessionId) return empty;
+  const race = (await currentSession(track)) ?? (await currentSession("mega"));
+  if (typeof race?.sessionId !== "number" && typeof race?.sessionId !== "string") return null;
+  return {
+    sessionId: String(race.sessionId),
+    heatNumber: typeof race.heatNumber === "number" ? race.heatNumber : null,
+    raceType: race.raceType?.trim() || null,
+    inHolding: false,
+  };
+}
+
+export async function buildPitBoard(
+  track: TrackKey,
+  businessDate: string,
+  nowMs: number,
+): Promise<PitBoardInfo> {
+  const empty: PitBoardInfo = { track, session: null, roster: null };
+
+  const display = await pitDisplaySession(track);
+  if (!display) return empty;
+  const { sessionId, heatNumber, raceType, inHolding } = display;
 
   const [briefed, startedAtMs, rows, cameras] = await Promise.all([
     sessionBriefed(sessionId).catch(() => null),

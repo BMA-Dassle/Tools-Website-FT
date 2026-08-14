@@ -34,6 +34,7 @@ import { raceCheckinInfo } from "./race-checkin";
 import { checkinProgress } from "./checkin-progress";
 import { buildPitBoard } from "../pit/service";
 import { readPitLanes } from "../pit/lane.server";
+import { readFastPitRosters } from "../pit/fast-roster.server";
 import { buildWelcomeBoard } from "./welcome";
 import { briefingEnabled, cameraReturnBarEnabled } from "../flags";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
@@ -89,6 +90,9 @@ export async function buildTvFeed(
     briefingRooms: null,
     pitBoard: null,
     pitLanes: null,
+    // PULSE-ONLY — the full feed never carries the fast roster; useTvFeed
+    // merges the pulse's copy over this null.
+    pitRosters: null,
     checkinProgress: null,
     pausedProductIds: safePaused(),
     nextAvailable: null,
@@ -307,6 +311,7 @@ export async function buildTvPulse(
       briefingRooms: null,
       cameraReturn: null,
       pitLanes: null,
+      pitRosters: null,
     };
   }
 
@@ -332,9 +337,26 @@ export async function buildTvPulse(
   ]);
   // The pit lanes ride the pulse for the same reason the briefing rooms do:
   // "send to holding" and "race returned" are staff presses that must reach
-  // the wall in seconds. FT only — the pit lanes are.
-  const pitLanes = parsed.venue === "FT" ? await readPitLanes().catch(() => null) : null;
-  return { now, kioskEvents, reloadAt, demoMode, briefingRooms, cameraReturn, pitLanes };
+  // the wall in seconds. The fast roster rides beside them so the CARDS track
+  // the desk too — adds, check-ins and BMI re-grids land within a pulse or
+  // two, Pandora-bounded by the fast-roster cache. FT only — the pits are.
+  const [pitLanes, pitRosters] =
+    parsed.venue === "FT"
+      ? await Promise.all([
+          readPitLanes().catch(() => null),
+          readFastPitRosters(now).catch(() => null),
+        ])
+      : [null, null];
+  return {
+    now,
+    kioskEvents,
+    reloadAt,
+    demoMode,
+    briefingRooms,
+    cameraReturn,
+    pitLanes,
+    pitRosters,
+  };
 }
 
 /**

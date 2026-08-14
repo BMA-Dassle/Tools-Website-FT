@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { orderPitRoster, pitRailState, type PitParticipantRow } from "./pit-board";
+import {
+  mergePitRoster,
+  orderPitRoster,
+  pitRailState,
+  type FastPitRow,
+  type PitParticipantRow,
+  type PitRosterEntry,
+} from "./pit-board";
 
 const row = (
   participantId: string,
@@ -101,6 +108,65 @@ describe("orderPitRoster", () => {
     const ordered = orderPitRoster(roster);
     // The stamped racer sorts ahead of the stampless flag; the no-show stays last.
     expect(ids(ordered)).toEqual(["1", "5", "9"]);
+  });
+});
+
+describe("mergePitRoster", () => {
+  const fastRow = (over: Partial<FastPitRow> & { personId: string }): FastPitRow => ({
+    participantId: over.personId,
+    name: "Racer X",
+    checkedIn: null,
+    startPosition: null,
+    ...over,
+  });
+  const slowEntry = (over: Partial<PitRosterEntry> & { personId: string }): PitRosterEntry => ({
+    spot: 1,
+    name: "Slow Name",
+    participantId: over.personId,
+    checkedIn: false,
+    camera: null,
+    cameraDue: false,
+    birthday: false,
+    vip: false,
+    ...over,
+  });
+
+  it("the fast rows ARE the roster — a racer added at the desk appears before the 15s build", () => {
+    const merged = mergePitRoster(
+      [fastRow({ personId: "1", name: "Ava Chen" }), fastRow({ personId: "2", name: "New Guy" })],
+      [slowEntry({ personId: "1", name: "Ava Chen", camera: "12" })],
+    );
+    expect(merged.map((e) => e.name)).toEqual(["Ava Chen", "New Guy"]);
+    // The known racer keeps her slow joins; the new one carries no badges yet.
+    expect(merged[0].camera).toBe("12");
+    expect(merged[1].camera).toBeNull();
+  });
+
+  it("flips a ring the moment the fast roster says checked in", () => {
+    const merged = mergePitRoster(
+      [fastRow({ personId: "1", checkedIn: "2026-08-13T22:00:00.000Z" })],
+      [slowEntry({ personId: "1", checkedIn: false })],
+    );
+    expect(merged[0].checkedIn).toBe(true);
+  });
+
+  it("applies a BMI re-grid from the fast rows", () => {
+    const merged = mergePitRoster(
+      [fastRow({ personId: "1", startPosition: 2 }), fastRow({ personId: "2", startPosition: 1 })],
+      [slowEntry({ personId: "1", spot: 1 }), slowEntry({ personId: "2", spot: 2 })],
+    );
+    expect(merged.map((e) => [e.personId, e.spot])).toEqual([
+      ["2", 1],
+      ["1", 2],
+    ]);
+  });
+
+  it("keeps birthday and VIP joins from the slow build", () => {
+    const merged = mergePitRoster(
+      [fastRow({ personId: "9" })],
+      [slowEntry({ personId: "9", birthday: true, vip: true, cameraDue: true })],
+    );
+    expect(merged[0]).toMatchObject({ birthday: true, vip: true, cameraDue: true });
   });
 });
 
