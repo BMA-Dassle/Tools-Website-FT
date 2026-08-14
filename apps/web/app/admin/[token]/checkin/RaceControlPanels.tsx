@@ -83,11 +83,7 @@ import {
   type BriefingRoomState,
   type BriefingTier,
 } from "~/features/signage/briefing/types";
-import {
-  liveHeatNumber,
-  roomReturnStateAt,
-  type RoomReturnState,
-} from "~/features/signage/briefing/room-return";
+import { liveHeatNumber } from "~/features/signage/briefing/room-return";
 import {
   checkinAlert,
   waitingAlert,
@@ -1113,22 +1109,24 @@ function RoomColumn({
   const timeline = briefingTimelineAt(state, nowMs);
   const occupied = timeline.phase !== "idle";
   /**
-   * AN IDLE ROOM IS NOT NECESSARILY A FREE ROOM — its group may still be on track,
-   * due to walk back in with the kit (owner 2026-08-12). Same live clock the
-   * identity row above already shows, matched to the room's own group by heat
-   * number; every rule and bound is in room-return.ts.
+   * THE ROOM NO LONGER GUESSES WHERE ITS LAST GROUP IS (owner 2026-08-14: "don't
+   * need that 62 on the track message — they're not yet anyhow, but now we have
+   * an on-track section so don't need it").
+   *
+   * An idle room used to infer, from the send record plus the live clock, whether
+   * its group was on the grid, racing, or walking back — so it could say "BACK IN
+   * 4:12" instead of a FREE it had not earned (owner 2026-08-12). That inference
+   * was the only thing on the board that knew where a briefed group had got to.
+   *
+   * It is not any more. Holding says who is in the seats and On track says who is
+   * racing, both from recorded fact rather than from a heat-number match against
+   * a clock — and the screenshot that prompted this shows exactly what the guess
+   * costs when it is wrong: "Session 62 is out on track" while 62 was sitting in
+   * holding, because a briefed group with no finish marker used to read as
+   * on-grid. Two boxes stating facts beat a third box inferring one.
+   *
+   * So an idle room here means an empty room, and says so.
    */
-  const returning = roomReturnStateAt({
-    group: status?.groupOut ?? null,
-    liveHeat: liveClock
-      ? { heatNumber: liveHeatNumber(liveClock.heatName), remainingMs: liveClock.remainingMs }
-      : null,
-    // `track` is already "mega" on a Mega day (the parent resolves it), which is
-    // exactly the "two rooms, one circuit" condition the matcher guards.
-    megaDay: track === "mega",
-    nowMs,
-  });
-  const idleBadge = idleBadgeFor(returning, color);
   const autoTier = tierForRaceType(race?.raceType);
   const tier = tierOverride ?? autoTier;
   // The desk says what will REALLY play before the send: a Pro pick with no Pro
@@ -1459,13 +1457,7 @@ function RoomColumn({
       <Panel
         label="In the room"
         alert={roomAlert}
-        accent={
-          occupied
-            ? phaseColor(timeline.phase, color)
-            : // A room waiting on its group is not a neutral room — the border
-              // carries the warning too, so it reads from across the desk.
-              (idleBadge.accent ?? undefined)
-        }
+        accent={occupied ? phaseColor(timeline.phase, color) : undefined}
         badge={
           <span
             className="rc-num"
@@ -1476,7 +1468,7 @@ function RoomColumn({
               fontSize: 10,
               fontWeight: 800,
               letterSpacing: "0.05em",
-              color: occupied ? phaseColor(timeline.phase, color) : idleBadge.tone,
+              color: occupied ? phaseColor(timeline.phase, color) : PORTAL_DARK.muted,
             }}
           >
             <span
@@ -1485,10 +1477,10 @@ function RoomColumn({
                 width: 7,
                 height: 7,
                 borderRadius: "50%",
-                background: occupied ? phaseColor(timeline.phase, color) : idleBadge.tone,
+                background: occupied ? phaseColor(timeline.phase, color) : PORTAL_DARK.muted,
               }}
             />
-            {occupied ? PHASE_LABEL[timeline.phase].toUpperCase() : idleBadge.label}
+            {occupied ? PHASE_LABEL[timeline.phase].toUpperCase() : "FREE"}
           </span>
         }
       >
@@ -1502,7 +1494,6 @@ function RoomColumn({
           pending={pending}
           cameraExpanded={expandedCamera === room}
           onExpandCamera={() => onExpandCamera(room)}
-          returning={returning}
           alert={roomAlert}
           onStart={onStart}
           onUndo={onUndo}
@@ -1891,7 +1882,6 @@ function InRoom({
   pending,
   cameraExpanded,
   onExpandCamera,
-  returning,
   alert,
   onStart,
   onUndo,
@@ -1906,8 +1896,6 @@ function InRoom({
   pending: string | null;
   cameraExpanded: boolean;
   onExpandCamera: () => void;
-  /** Whether the room's last group is still out — only consulted while idle. */
-  returning: RoomReturnState;
   /** How overdue the wait for Start is — the box is already flashing, so the
    *  number itself follows rather than staying a calm amber under a red border. */
   alert: AlertLevel;
@@ -1957,7 +1945,9 @@ function InRoom({
           }}
         >
           {phase === "idle" ? (
-            <IdleBody returning={returning} color={color} />
+            <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
+              Empty — the TV is showing helmet sizes.
+            </p>
           ) : (
             <>
               <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
@@ -2238,96 +2228,6 @@ function InRoom({
         </div>
       )}
     </div>
-  );
-}
-
-/* ── an empty room, and whether it is really empty ────────────────────── */
-
-/**
- * The idle badge — the one that used to just say FREE.
- *
- * FREE IS NOW A CLAIM THE BOARD HAS TO EARN (owner 2026-08-12: "Free might not be
- * the right word here… it can say free about 1 minute after the race has
- * finished"). A room whose group is out on track has that group's return time on
- * it instead, counted off the live on-track clock; the words only fall back to
- * FREE once room-return.ts can say nobody is outstanding.
- */
-function idleBadgeFor(
-  returning: RoomReturnState,
-  color: string,
-): { label: string; tone: string; accent?: string } {
-  switch (returning.kind) {
-    case "racing":
-      return { label: `BACK IN ${formatClock(returning.remainingMs)}`, tone: AMBER, accent: AMBER };
-    case "on-grid":
-      return { label: "OUT ON TRACK", tone: AMBER, accent: AMBER };
-    case "returning":
-      return { label: "RETURNING NOW", tone: color, accent: color };
-    default:
-      return { label: "FREE", tone: PORTAL_DARK.muted };
-  }
-}
-
-/**
- * What an idle room's left column says. Three of the four states are "this room is
- * spoken for", and each one names the session — a bare "out on track" would leave
- * staff checking the send log to find out whose kit is about to arrive.
- */
-function IdleBody({ returning, color }: { returning: RoomReturnState; color: string }) {
-  const session = (heat: number | null) => (heat != null ? `Session ${heat}` : "The last group");
-
-  if (returning.kind === "racing") {
-    return (
-      <>
-        <Stat
-          label="Back in"
-          value={formatClock(returning.remainingMs)}
-          unit={`${session(returning.heatNumber).toLowerCase()} on track`}
-          tone={AMBER}
-          big
-        />
-        <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
-          Helmet sizes are up, but this room is spoken for — they come back here to hand kit in.
-        </p>
-      </>
-    );
-  }
-
-  if (returning.kind === "on-grid") {
-    return (
-      <>
-        <div style={{ fontSize: 15, fontWeight: 800, color: AMBER }}>
-          {session(returning.heatNumber)} is out on track
-        </div>
-        <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
-          Waiting on the flag — no clock on this track yet. They return here afterwards.
-        </p>
-      </>
-    );
-  }
-
-  if (returning.kind === "returning") {
-    return (
-      <>
-        <Stat
-          label="Returning"
-          value="Now"
-          unit={`${session(returning.heatNumber).toLowerCase()} · kit return`}
-          tone={color}
-          big
-        />
-        <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
-          Race finished {formatClock(returning.sinceEndMs)} ago — the TV is on the welcome-back
-          board.
-        </p>
-      </>
-    );
-  }
-
-  return (
-    <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
-      Empty — the TV is showing helmet sizes.
-    </p>
   );
 }
 
