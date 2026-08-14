@@ -79,6 +79,14 @@ export interface BoardStatus {
    *  talking to an older deploy simply shows an empty Holding panel rather than
    *  throwing on a missing field. */
   lanes?: PitLanes;
+  /**
+   * Is the camera sweep armed? Drives the settings-sheet toggle.
+   *
+   * Optional for the same reason as the two above — a station still running the
+   * previous deploy gets `undefined`, which the sheet reads as ON, matching what
+   * that older server would actually be doing.
+   */
+  autoHolding?: { enabled: boolean };
 }
 
 /**
@@ -158,6 +166,16 @@ export interface BriefingControl {
   /** "Race returned" — the finished race's karts are fully back in the lane.
    *  The ONLY thing that releases the pit board's hold. */
   markPitted: (track: string) => void;
+  /**
+   * ARM OR DISARM THE CAMERA SWEEP that moves a group to holding by itself when
+   * their room goes quiet (owner 2026-08-14).
+   *
+   * Lives in the settings sheet rather than beside the room controls on purpose:
+   * this is not a thing to press during a heat, it is the switch to throw when
+   * the automatic path is misbehaving and staff want the night back on manual.
+   * It takes effect on the next sweep, within a minute.
+   */
+  setAutoHolding: (enabled: boolean) => void;
   /**
    * STAFF OVERRIDE — put a session in a lane slot by hand, or empty it.
    *
@@ -394,6 +412,19 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  const setAutoHolding = useCallback<BriefingControl["setAutoHolding"]>(
+    (enabled) => {
+      void post(
+        { action: "auto-holding", enabled },
+        enabled
+          ? "Auto-move to holding is ON — a room that goes quiet after the briefing frees itself"
+          : "Auto-move to holding is OFF — staff press Send to holding",
+        "auto-holding",
+      );
+    },
+    [post],
+  );
+
   const overrideSlot = useCallback<BriefingControl["overrideSlot"]>(
     (args) => {
       const where =
@@ -531,6 +562,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     clearRoom,
     sendToHolding,
     markPitted,
+    setAutoHolding,
     overrideSlot,
     liveCameraUrl,
     hasLaunched,

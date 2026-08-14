@@ -338,6 +338,52 @@ async function relayGet(path: string, token: string): Promise<Response> {
   return relayFetch(path, token);
 }
 
+/**
+ * GET a relay path with a live bearer, retrying once on 401.
+ *
+ * EXPORTED so the non-frame readers (motion.server.ts) share ONE auth path
+ * rather than each growing their own token cache. A second mint-and-cache would
+ * double the login traffic and, worse, could hold a revoked token that this
+ * module had already refreshed past.
+ *
+ * Returns the raw Response — callers decide what a non-2xx means for them.
+ */
+export async function nxRelayGet(path: string): Promise<Response> {
+  let token = await getToken();
+  let res = await relayGet(path, token);
+  if (res.status === 401) {
+    token = await getToken(true);
+    res = await relayGet(path, token);
+  }
+  return res;
+}
+
+/**
+ * POST JSON to a relay path — the ONE write this module allows.
+ *
+ * Everything else here reads. This exists for briefing bookmarks (markers on the
+ * NVR's own timeline, see briefing/bookmarks.server.ts) and needs "Manage
+ * bookmarks" on the Nx user, which a future view-only service account must be
+ * granted explicitly or the writes 403 silently.
+ *
+ * NOT retried on a non-401 failure: a bookmark is best-effort evidence, and a
+ * retry loop against the venue's NVR is a worse outcome than a missing marker.
+ */
+export async function nxRelayPost(path: string, body: unknown): Promise<Response> {
+  const init: RequestInit = {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  };
+  let token = await getToken();
+  let res = await relayFetch(path, token, init);
+  if (res.status === 401) {
+    token = await getToken(true);
+    res = await relayFetch(path, token, init);
+  }
+  return res;
+}
+
 export interface CameraFrame {
   body: ArrayBuffer;
   contentType: string;

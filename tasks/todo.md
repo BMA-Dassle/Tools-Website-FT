@@ -1401,3 +1401,73 @@ on this path; the fix is barriers + patience, not new writers):
       (setProjectState Pandora↔Office, appendProjectPrivateNote's 3-store escalation) — each
       entity gets one rail; a fallback that writes the other side is a split-brain generator.
 
+
+## Auto-move to holding when the room empties + Nx briefing bookmarks (2026-08-14) — BUILT, unpushed, NOT smoked on a live briefing
+
+Owner: "the goal would be to auto move the session to holding if the room empties…
+they're not near a computer." Plus: "I'd like to create bookmarks on the cameras."
+
+**The problem is a missing press, not a slow one.** Measured on `briefing_events`:
+7 `holding` presses across 131 room occupancies (~60 briefings on 8/13 alone). When
+staff DO press it they are a median **24s EARLY** — someone at the desk anticipating
+the film's end. The room's occupancy is otherwise only ever closed by `replaced`.
+
+**Evidence the camera can answer it** (backtest over all 75 of 8/13's occupancies,
+`_nx-auto-holding-backtest.mts` / `_nx-post-helmet-motion.mts`, both gitignored):
+Nx records motion on both briefing cameras at 3-80s granularity (`analytics` periods
+are 0 — no object detection, so no people COUNTING, only activity).
+
+| quiet window | fires | median after film end | beat the next group in |
+| ---- | ---- | ---- | ---- |
+| 90s | 45/75 | 2:39 | 44/45 |
+| 45s | 56/75 | 1:46 | 55/56 |
+| **30s (shipped)** | **62/75** | **1:29** | **61/62** |
+
+Fire delay scales with roster size — 1-2 racers median +0:30, 10+ median +2:04 — i.e.
+gear-up time, which is exactly what a clock cannot model. 15 of the 16 firings at the
+0:30 floor are 1-2 person groups. **7 archive stills pulled at firing instants: all
+completely empty rooms.** Misses skew LARGE (rosters 14/12/9/9/8): a big group keeps the
+room busy until the next group walks in, so there is no quiet moment — those already
+close as `replaced`, so nothing is lost, but auto-holding covers big groups least.
+
+**NOT the auto-advance timer the owner had removed** (phase.ts, same week: "there
+shouldn't be any auto moving to holding"). That was a 30s countdown declaring a room free
+on a guess. `briefingTimelineAt` is untouched, the helmet phase still never ends, the desk
+keeps its control. This fires only on the NVR observing an empty room.
+
+- [x] `nx/motion.server.ts` — `motionInLast`; **unreadable = `unknown`, never `quiet`**
+      (the relay intermittently 200s with an EMPTY body; parsed leniently that would
+      empty every room on one tick). `nxRelayGet`/`nxRelayPost` exported from
+      camera.server.ts so there is one auth path.
+- [x] `briefing/auto-holding.ts` — pure decision, 16 tests. Gate = film AND helmet phase
+      done (a group sits still to watch a film); `unknown` motion refuses; refuses when
+      the lane's holding slot holds a DIFFERENT session (sendToHolding displaces the
+      previous holder into `racing` — being wrong there lies to the pit board);
+      gives up 45min after the film.
+- [x] `briefing/auto-holding.server.ts` — sweep + the switch. Timing gate evaluated BEFORE
+      any network call, so idle/mid-film rooms cost zero Nx traffic. `SET NX` claim taken
+      LAST (claiming first would burn a busy room's only chance).
+- [x] Kill switch in the CHECK-IN BOARD SETTINGS SHEET (owner's ask), Redis-backed,
+      default ON, no TTL, server-wide — surfaced on the board poll as
+      `BriefingBoardStatus.autoHolding`, flipped via `POST /api/admin/briefing`
+      `{action:"auto-holding"}`.
+- [x] `ended` reason `auto-holding`, distinct from `holding` — an insurance log must not
+      record a camera's inference as a person's observation.
+- [x] `/api/cron/briefing-auto-holding` every minute + `?dryRun=1`.
+- [x] **Nx bookmarks** `briefing/bookmarks.server.ts` — name = `sessionLabel()`
+      ("Session 43 · Junior Starter", the house grammar), description = what happened,
+      tags = low-cardinality facets (`briefing`, `start`/`end`, room, race type; NO
+      per-session tag — it would add hundreds of single-use tags and the number is
+      already in the name). Start written in `startBriefing` (first start only, beside
+      the room photo); end in `sendToHolding`, so the staff press and the sweep share
+      one seam. Best-effort throughout.
+- [x] tsc 0 · eslint 0 · 441 signage tests · `next build` 0 · a11y gate 0
+- [x] Smoked live: sweep dry-run read prod Redis + both cameras (`quiet` in 232ms/1364ms)
+      and correctly refused on the timing gate; bookmark create/read/delete verified on
+      the real NVR and **cleaned up — zero bookmarks left on either camera**.
+- [ ] **Never seen fire on a real briefing.** First race night: run
+      `/api/cron/briefing-auto-holding?dryRun=1` and read `why` per room before trusting it.
+- [ ] Nx write permission: bookmarks need "Manage bookmarks". The owner login has it; the
+      planned view-only service account (camera.server.ts) MUST be granted it too or the
+      markers stop silently.
+- [ ] `cleared` / `replaced` room ends write no bookmark — only `holding`. Extend if wanted.

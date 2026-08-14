@@ -36,6 +36,8 @@ import { briefingTimelineAt } from "./phase";
 import { listBriefingEvents, recordBriefingEvent } from "./events-db";
 import { foldBriefingLog, type BriefingRecord } from "./briefing-log";
 import { captureRoomPhoto } from "./room-photo.server";
+import { bookmarkBriefingStart } from "./bookmarks.server";
+import { autoHoldingEnabled } from "./auto-holding.server";
 import { readRaceFinishedMarker } from "./race-finish.server";
 import { GROUP_OUT_WINDOW_MS, type GroupOut } from "./room-return";
 import {
@@ -307,6 +309,26 @@ export async function startBriefing(
       });
       photoSaved = true;
     }
+
+    /**
+     * AND A MARKER ON THE NVR'S TIMELINE (owner 2026-08-14). The still shows one
+     * instant; this makes the whole briefing findable in the footage, and
+     * exportable as a clip straight off the bookmark.
+     *
+     * FIRST START ONLY, for the same reason as the photo: a restart is the same
+     * group in the same room, and a second marker on the ribbon would suggest a
+     * second briefing took place. Swallows everything (bookmarks.server.ts) — the
+     * film is already rolling and nothing here may cost that.
+     */
+    await bookmarkBriefingStart({
+      room,
+      track: current.track,
+      heatNumber: current.heatNumber,
+      raceType: current.raceType,
+      atMs: Date.now(),
+      tier,
+      videoMs: video?.durationMs ?? null,
+    });
   }
 
   return { ok: true, hasVideo: !!video?.url, photoSaved };
@@ -442,6 +464,16 @@ export interface BriefingBoardStatus {
    * poll rather than needing one of its own.
    */
   lanes: PitLanes;
+  /**
+   * IS THE CAMERA SWEEP ARMED? (owner 2026-08-14: "build it with the kill switch
+   * in settings of the check in board".)
+   *
+   * On the board poll rather than fetched by the settings sheet on open, so the
+   * toggle shows the truth the moment staff look at it — including a change made
+   * from the other desk thirty seconds ago. One Redis GET on a poll that is
+   * already reading Redis.
+   */
+  autoHolding: { enabled: boolean };
 }
 
 /**
@@ -564,16 +596,20 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
   const now = Date.now();
   const businessDay = businessDayYmdET();
 
-  const [rooms, assignments, assets, checkinWindowMins, events, lanes] = await Promise.all([
-    readBriefingRooms(VENUE).catch(() => ({ red: null, blue: null })),
-    listBriefingAssignments(VENUE, businessDay).catch(() => []),
-    loadSignageAssetsSafe(),
-    resolveCheckinWindows(now),
-    listBriefingEvents(VENUE, businessDay).catch(() => []),
-    // readPitLanes already swallows its own failures to EMPTY_PIT_LANE — a Redis
-    // blip empties the Holding box for one poll, it never fails the board.
-    readPitLanes(),
-  ]);
+  const [rooms, assignments, assets, checkinWindowMins, events, lanes, autoHolding] =
+    await Promise.all([
+      readBriefingRooms(VENUE).catch(() => ({ red: null, blue: null })),
+      listBriefingAssignments(VENUE, businessDay).catch(() => []),
+      loadSignageAssetsSafe(),
+      resolveCheckinWindows(now),
+      listBriefingEvents(VENUE, businessDay).catch(() => []),
+      // readPitLanes already swallows its own failures to EMPTY_PIT_LANE — a Redis
+      // blip empties the Holding box for one poll, it never fails the board.
+      readPitLanes(),
+      // Defaults ON if Redis cannot answer — same direction as the sweep itself,
+      // so the toggle never shows OFF for a switch that is actually armed.
+      autoHoldingEnabled().catch(() => true),
+    ]);
 
   const [groupsOut, briefedSessions] = await Promise.all([
     Promise.all(
@@ -618,5 +654,6 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     },
     helmetPosterUrl: assets["briefing-helmet-poster"]?.url ?? null,
     lanes,
+    autoHolding: { enabled: autoHolding },
   };
 }

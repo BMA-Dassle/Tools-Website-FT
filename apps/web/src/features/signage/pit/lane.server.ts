@@ -31,7 +31,8 @@ import "server-only";
  */
 import redis from "@/lib/redis";
 import { businessDayYmdET } from "@/lib/race-business-day";
-import { recordBriefingEvent } from "../briefing/events-db";
+import { bookmarkBriefingEnd } from "../briefing/bookmarks.server";
+import { recordBriefingEvent, type BriefingEndReason } from "../briefing/events-db";
 import { readRaceFinishedMarker } from "../briefing/race-finish.server";
 import { clearBriefingRoom, sessionBriefed } from "../briefing/state.server";
 import type { BriefingRoom } from "../briefing/types";
@@ -187,6 +188,16 @@ export interface SendToHoldingArgs {
   sessionId: string;
   heatNumber: number | null;
   raceType: string | null;
+  /**
+   * How the room came to be released. Defaults to the staff press.
+   *
+   * `auto-holding` is the camera sweep having observed the room empty
+   * (briefing/auto-holding.ts). It rides the SAME function rather than a
+   * parallel one on purpose: the displacement rule below, the room clear, the
+   * log write and the bookmark all have to behave identically whoever decided
+   * it, and two code paths is how they would stop.
+   */
+  reason?: Extract<BriefingEndReason, "holding" | "auto-holding">;
 }
 
 /**
@@ -205,6 +216,9 @@ export interface SendToHoldingArgs {
  * the one start signal that needs no marker at all.
  */
 export async function sendToHolding(args: SendToHoldingArgs): Promise<{ ok: true }> {
+  const reason = args.reason ?? "holding";
+  const endedAtMs = Date.now();
+
   // Durable first — the room occupancy's explicit end.
   await recordBriefingEvent({
     venue: VENUE,
@@ -216,7 +230,26 @@ export async function sendToHolding(args: SendToHoldingArgs): Promise<{ ok: true
     raceType: args.raceType,
     tier: null,
     action: "ended",
-    reason: "holding",
+    reason,
+  });
+
+  /**
+   * MARK THE NVR'S OWN TIMELINE (owner 2026-08-14). Best effort and NOT awaited
+   * for correctness — the Neon row above is the record and the room clear below
+   * is the operation. This only puts a signpost on the footage so a later
+   * question can be answered by opening the camera rather than by scrubbing it.
+   *
+   * Awaited rather than dangling because this runs on serverless, where work
+   * that outlives the response is killed; bookmarkBriefingEnd swallows
+   * everything and returns a boolean, so the await cannot fail the press.
+   */
+  await bookmarkBriefingEnd({
+    room: args.room,
+    track: args.track,
+    heatNumber: args.heatNumber,
+    raceType: args.raceType,
+    atMs: endedAtMs,
+    automatic: reason === "auto-holding",
   });
 
   // The room is free the moment the group walks out of it. Deliberately NOT

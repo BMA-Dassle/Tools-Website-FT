@@ -18,6 +18,7 @@ import {
   setCalledRace,
 } from "~/features/signage/briefing/called-override.server";
 import { readBriefingRoom } from "~/features/signage/briefing/state.server";
+import { setAutoHoldingEnabled } from "~/features/signage/briefing/auto-holding.server";
 import { readPitLane } from "~/features/signage/pit/lane.server";
 import { recordBriefingEvent } from "~/features/signage/briefing/events-db";
 import { businessDayYmdET } from "@/lib/race-business-day";
@@ -134,6 +135,7 @@ export async function POST(req: NextRequest) {
     url?: string;
     size?: number;
     durationMs?: number;
+    enabled?: boolean;
   };
   try {
     body = await req.json();
@@ -185,6 +187,23 @@ export async function POST(req: NextRequest) {
   // silently does nothing.
   if (!briefingEnabled()) {
     return NextResponse.json({ error: "briefing rooms are switched off" }, { status: 503 });
+  }
+
+  /**
+   * THE CAMERA SWEEP'S KILL SWITCH, thrown from the board's own settings sheet
+   * (owner 2026-08-14: "with the kill switch in settings of the check in board").
+   *
+   * Handled before the room parse because it takes no room, and deliberately is
+   * not room-scoped: what is being switched off is a way of DECIDING, and a
+   * sweep armed on one room and not the other would be harder to reason about at
+   * 9pm than either state.
+   */
+  if (action === "auto-holding") {
+    if (typeof body.enabled !== "boolean") {
+      return NextResponse.json({ error: "enabled must be true or false" }, { status: 400 });
+    }
+    await setAutoHoldingEnabled(body.enabled);
+    return NextResponse.json({ ok: true, enabled: body.enabled });
   }
 
   /**

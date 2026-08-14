@@ -19,6 +19,9 @@ import {
 /** The board's warning amber, same value the briefing panels use. */
 const AMBER = "#f0b341";
 const withAlphaAmber = (a: number) => `rgba(240,179,65,${a})`;
+/** The board's green — same value as RaceControlPanels and OverridePanel, so an
+ *  armed switch here reads as the same "good" as an all-here Called box. */
+const GREEN = "#4ade80";
 
 type ConnectionState = "idle" | "connecting" | "ready" | "error";
 type ScanState = "idle" | "processing" | "result";
@@ -104,6 +107,13 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
    * return, so the state and its poller do too.
    */
   const briefing = useBriefingControl(token, boardMode);
+  /**
+   * Is the camera sweep armed? Read off the board poll, so this desk shows a
+   * change made at the other one. Defaults ON before the first poll lands —
+   * the same direction as the server's kill switch, so the sheet never briefly
+   * claims OFF for a switch that is actually running.
+   */
+  const autoHoldingOn = briefing.board?.autoHolding?.enabled !== false;
 
   // Declared HERE, above every reader. It used to sit just before the return, and
   // the board-mode header below reads it — a const referenced above its own
@@ -1131,6 +1141,48 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
           <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
             Disconnect and reconnect after changing baud rate.
           </p>
+
+          {/*
+            AUTO-MOVE TO HOLDING — the camera sweep's kill switch (owner
+            2026-08-14). Here rather than on the board itself because it governs
+            how the night is decided, not what happens to one heat: staff throw
+            it when the automatic path is misbehaving and they want the evening
+            back on manual presses.
+
+            It reads its state from the board poll, so it shows the truth even if
+            the other desk flipped it — and it is a SERVER setting, unlike the
+            baud rate above, which is this PC's own. The copy says so, because a
+            switch that looks device-local but is not is how one desk silently
+            changes another's night.
+          */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+              Auto-move to holding
+            </p>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoHoldingOn}
+              disabled={!briefing.board}
+              onClick={() => briefing.setAutoHolding(!autoHoldingOn)}
+              className="px-3 py-1.5 text-xs border hover:bg-white/5"
+              style={{
+                borderRadius: 8,
+                borderColor: autoHoldingOn ? GREEN : PORTAL_DARK.inputBorder,
+                backgroundColor: autoHoldingOn ? `${GREEN}22` : "transparent",
+                color: autoHoldingOn ? GREEN : PORTAL_DARK.muted,
+                opacity: briefing.board ? 1 : 0.5,
+              }}
+            >
+              {autoHoldingOn ? "On" : "Off"}
+            </button>
+            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+              {autoHoldingOn
+                ? "When a room goes quiet on camera after the briefing, its group moves to holding on its own. Staff can still press Send to holding at any time."
+                : "Groups only move to holding when staff press Send to holding."}{" "}
+              This setting applies to every check-in station, not just this one.
+            </p>
+          </div>
         </div>
       )}
 

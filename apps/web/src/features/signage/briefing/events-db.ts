@@ -126,7 +126,21 @@ export type BriefingEventAction =
 /** Why an occupancy ended. `override` is a staff correction rather than a
  *  step in the flow — kept distinct precisely so the insurance log can tell a
  *  hand-placed group from one that walked the normal path. */
-export type BriefingEndReason = "cleared" | "replaced" | "holding" | "override";
+/**
+ * `auto-holding` (2026-08-14) is the SAME transition as `holding`, decided by a
+ * camera instead of a person: the room's NVR reported no motion for 30 seconds
+ * after the film and the helmet board had both finished, so the sweep released
+ * the room (auto-holding.ts).
+ *
+ * IT IS A SEPARATE REASON ON PURPOSE, and this is the one place in the feature
+ * where that distinction is not optional. This table exists to answer an
+ * insurance question years later, and "a staff member saw this group leave the
+ * room" and "a motion detector inferred it" are different claims about the same
+ * moment. Folding the second into the first would put an assertion in the record
+ * that nobody made. Anything reading the log for the flow should treat the two
+ * alike; anything reading it as evidence must be able to tell them apart.
+ */
+export type BriefingEndReason = "cleared" | "replaced" | "holding" | "override" | "auto-holding";
 
 export interface BriefingEvent {
   id: string;
