@@ -58,10 +58,9 @@ const GREEN = "#22c55e";
 const OK = "#46d68c";
 const AMBER = "#f0b341";
 
-/** PHOTOS ARE OFF for now (owner 2026-08-13, pre-live): cards show the
- *  silhouette only and the board never calls /api/tv/pit-photo. The endpoint
- *  and the wiring stay — flipping this back on is this one constant. */
-const PIT_PHOTOS_ENABLED = false;
+/** The one photo switch (owner toggled off 2026-08-13, back on same day).
+ *  Off = silhouettes only, and the board never calls /api/tv/pit-photo. */
+const PIT_PHOTOS_ENABLED = true;
 
 export function ScenePitBoard({ feed, config }: SceneProps) {
   const status = useTrackStatus();
