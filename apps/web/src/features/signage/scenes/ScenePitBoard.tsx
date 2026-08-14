@@ -210,7 +210,10 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
             </div>
             <DelayLine delay={delay} />
           </div>
-          <div style={{ marginLeft: 44 }}>
+          {/* nowrap THROUGHOUT this block: .tv-display carries text-wrap:
+              balance, which broke "Session 56" onto two lines the first time
+              the header shared a row with the room chips (live 2026-08-13). */}
+          <div style={{ marginLeft: 44, minWidth: 0 }}>
             <div className="tv-eyebrow" style={{ fontSize: 26 }}>
               Pit assignments
             </div>
@@ -221,6 +224,7 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
                   style={{
                     fontSize: 84,
                     color: "#fff",
+                    whiteSpace: "nowrap",
                     textShadow: `0 0 60px ${withAlpha(accent, 0.55)}`,
                   }}
                 >
@@ -229,7 +233,11 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
                 {session.raceType && (
                   <span
                     className="tv-display"
-                    style={{ fontSize: 42, color: "rgba(245,236,238,0.72)" }}
+                    style={{
+                      fontSize: 42,
+                      color: "rgba(245,236,238,0.72)",
+                      whiteSpace: "nowrap",
+                    }}
                   >
                     {session.raceType}
                   </span>
@@ -244,6 +252,7 @@ export function ScenePitBoard({ feed, config }: SceneProps) {
           <div
             style={{
               marginLeft: "auto",
+              flexShrink: 0,
               display: "flex",
               flexDirection: "column",
               alignItems: "flex-end",
@@ -294,8 +303,15 @@ function SpotGrid({
         flex: 1,
         minHeight: 0,
         display: "grid",
-        gridTemplateColumns: `repeat(${cols}, 1fr)`,
-        gridAutoRows: "1fr",
+        // CAPPED AND CENTERED, never stretched to fill. The first live render
+        // (2026-08-13) had one racer on the roster and `1fr` handed that card
+        // the entire grid — a silhouette the size of the wall. A card is a
+        // card: small heats get vendor-board-sized portrait cards centered on
+        // the canvas, and only full grids divide the width evenly.
+        gridTemplateColumns: `repeat(${cols}, minmax(0, ${n <= 4 ? "430px" : "1fr"}))`,
+        gridAutoRows: n <= 4 ? "minmax(0, 640px)" : "minmax(0, 1fr)",
+        justifyContent: "center",
+        alignContent: "center",
         gap: 20,
         marginTop: 22,
       }}
@@ -703,13 +719,20 @@ function Rail({
     zIndex: 2,
   };
 
+  // ONE LINE, ALWAYS. The rail is a 128px band: the first live render wrapped
+  // both the instruction and the qual pill onto second lines and the band
+  // overflowed (2026-08-13). Copy is sized to fit beside the pill at 1920 —
+  // anything that cannot say itself in one line does not belong on the rail.
   if (kind === "hold") {
     return (
       <div className="tv-overdue-flash" style={base}>
-        <span className="tv-display" style={{ fontSize: 52 }}>
+        <span className="tv-display" style={{ fontSize: 50, whiteSpace: "nowrap" }}>
           Hold — karts coming in
         </span>
-        <span className="tv-display" style={{ marginLeft: "auto", fontSize: 30, opacity: 0.85 }}>
+        <span
+          className="tv-display"
+          style={{ marginLeft: "auto", fontSize: 28, opacity: 0.85, whiteSpace: "nowrap" }}
+        >
           Seating resumes when the lane is clear
         </span>
       </div>
@@ -729,7 +752,7 @@ function Rail({
             boxShadow: `0 0 18px ${GREEN}`,
           }}
         />
-        <span className="tv-display" style={{ fontSize: 46, color: GREEN }}>
+        <span className="tv-display" style={{ fontSize: 46, color: GREEN, whiteSpace: "nowrap" }}>
           Seat {sessionName} now
         </span>
         {clockLabel && (
@@ -742,15 +765,16 @@ function Rail({
     );
   }
 
-  // info / racing — the rail reports rather than instructs.
+  // info / racing — the rail reports rather than instructs. Copy stays SHORT:
+  // the pill needs the right half of the band.
   const infoText =
     kind === "racing"
       ? `${sessionName} is racing`
       : session?.inHolding
         ? `Seat ${sessionName} now`
         : session?.briefedAtMs != null
-          ? `In briefing${session.briefedRoom ? ` · ${session.briefedRoom} room` : ""} · seat when they arrive`
-          : `${sessionName} checking in at the desk`;
+          ? `In briefing${session.briefedRoom ? ` · ${session.briefedRoom} room` : ""}`
+          : `${sessionName} checking in`;
   return (
     <div
       style={{
@@ -769,7 +793,10 @@ function Rail({
           boxShadow: `0 0 18px ${accent}`,
         }}
       />
-      <span className="tv-display" style={{ fontSize: 42, color: "rgba(245,236,238,0.85)" }}>
+      <span
+        className="tv-display"
+        style={{ fontSize: 42, color: "rgba(245,236,238,0.85)", whiteSpace: "nowrap" }}
+      >
         {infoText}
       </span>
       <QualPill qual={qual} accent={accent} />
@@ -789,20 +816,22 @@ function QualPill({
     <span
       style={{
         marginLeft: "auto",
+        flexShrink: 0,
         display: "inline-flex",
         alignItems: "baseline",
-        gap: 16,
-        padding: "8px 28px",
+        gap: 14,
+        padding: "8px 26px",
         borderRadius: 999,
         border: `2px solid ${withAlpha(accent, 0.6)}`,
         background: withAlpha(accent, 0.14),
+        whiteSpace: "nowrap",
       }}
     >
-      <span style={{ fontSize: 30, color: "rgba(245,236,238,0.8)" }}>Beat</span>
-      <span className="tv-display tv-num" style={{ fontSize: 52, color: "#fff" }}>
+      <span style={{ fontSize: 26, color: "rgba(245,236,238,0.8)" }}>Beat</span>
+      <span className="tv-display tv-num" style={{ fontSize: 46, color: "#fff" }}>
         {qual.lap}
       </span>
-      <span style={{ fontSize: 30, color: "rgba(245,236,238,0.8)" }}>to qualify {qual.level}</span>
+      <span style={{ fontSize: 26, color: "rgba(245,236,238,0.8)" }}>to qualify {qual.level}</span>
     </span>
   );
 }

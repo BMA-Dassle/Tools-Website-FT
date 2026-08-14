@@ -41,6 +41,7 @@ function feedAt(now: number): TvFeed {
     briefingRooms: null,
     pitBoard: null,
     pitLanes: null,
+    pitRosters: null,
     checkinProgress: null,
     pausedProductIds: [],
     nextAvailable: null,
