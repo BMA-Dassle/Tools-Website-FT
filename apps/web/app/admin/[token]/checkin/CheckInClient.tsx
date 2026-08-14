@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { modalBackdropProps } from "@/lib/a11y";
 import RaceControlPanels from "./RaceControlPanels";
 import { useBriefingControl } from "./useBriefingControl";
@@ -14,6 +15,9 @@ import {
 } from "~/components/features/admin-skin/theme";
 
 // --------------- Types ---------------
+
+/** The board's warning amber, same value the briefing panels use. */
+const AMBER = "#f0b341";
 
 type ConnectionState = "idle" | "connecting" | "ready" | "error";
 type ScanState = "idle" | "processing" | "result";
@@ -886,13 +890,30 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
                   Connecting scanner…
                 </span>
               ) : (
+                /**
+                 * NOT CONNECTED IS A WARNING, SO THE CONTROL IS THE WARNING
+                 * (owner 2026-08-13: "move this to yellow button on reader
+                 * status").
+                 *
+                 * This used to be a neutral blue "Connect scanner" with a
+                 * full-width amber banner underneath repeating the point. Two
+                 * elements, one fact — and the banner cost a whole row on a board
+                 * that now carries four boxes per track. The button is amber
+                 * instead and says what is at stake, so the thing you press is
+                 * the thing that told you.
+                 */
                 <button
                   type="button"
                   onClick={requestPort}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold"
-                  style={{ backgroundColor: PORTAL_BLUE, color: "#fff", borderRadius: 8 }}
+                  title="No scan will check anybody in until the scanner is connected"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold"
+                  style={{ backgroundColor: AMBER, color: "#1a1205", borderRadius: 8 }}
                 >
-                  {connectionState === "error" ? "Retry scanner" : "Connect scanner"}
+                  <IconAlertTriangleFilled size={13} aria-hidden />
+                  {connectionState === "error" ? "Retry scanner" : "Scanner not connected"}
+                  <span style={{ fontWeight: 600, opacity: 0.85 }}>
+                    {connectionError ? `— ${connectionError}` : "— nobody is being checked in"}
+                  </span>
                 </button>
               )}
             </>
@@ -1166,32 +1187,17 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
         )}
       </div>
 
-      {/* A CHECK-IN STATION THAT IS NOT LISTENING IS THE WORST SILENT FAILURE.
-          Board mode hides the big centre panel, so without this a tab that never
-          got the serial port looks completely normal — which is what happened
-          (owner 2026-08-11: "while check in is in board mode it's not checking in
-          racers… we checked in on the non board version instead"). Web Serial is
-          exclusive PER TAB, so a second tab holding the port leaves this one deaf
-          with no outward sign at all. Now it says so, in amber, across the top. */}
-      {boardMode && serialSupported && connectionState !== "ready" && (
-        <button
-          type="button"
-          onClick={requestPort}
-          className="w-full px-6 py-3 text-left"
-          style={{
-            background: "rgba(240,179,65,0.14)",
-            borderTop: "1px solid rgba(240,179,65,0.5)",
-            borderBottom: "1px solid rgba(240,179,65,0.5)",
-            color: "#f0b341",
-            fontSize: 14,
-            fontWeight: 700,
-            cursor: "pointer",
-          }}
-        >
-          ⚠ Scanner not connected — no scan will check anybody in. Click to connect.
-          {connectionError ? ` (${connectionError})` : ""}
-        </button>
-      )}
+      {/* A CHECK-IN STATION THAT IS NOT LISTENING IS THE WORST SILENT FAILURE —
+          board mode hides the big centre panel, so a tab that never got the
+          serial port looks completely normal, and Web Serial is exclusive PER TAB
+          so a second tab holding the port leaves this one deaf (owner 2026-08-11:
+          "while check in is in board mode it's not checking in racers").
+
+          That warning used to be this full-width amber strip. It is now the
+          scanner control itself, up in the top bar — an amber button that names
+          the consequence (owner 2026-08-13: "move this to yellow button on reader
+          status"). One element instead of two saying the same thing, and the row
+          it occupied goes back to the boxes. */}
 
       {/* Race control — briefing rooms. Below the scanner because checking a
           racer in comes first; the send follows once the heat is in. */}

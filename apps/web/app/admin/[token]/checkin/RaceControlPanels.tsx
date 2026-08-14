@@ -293,12 +293,24 @@ const STYLES = `
   0%, 100% { border-color: ${withAlpha(DANGER, 0.5)}; background-color: ${withAlpha(DANGER, 0.08)}; }
   50%      { border-color: ${DANGER};                 background-color: ${withAlpha(DANGER, 0.26)}; }
 }
+/* THE GOOD FLASH (owner 2026-08-13: "when everyone is checked in start flashing
+   checkin section green"). Every other pulse on this board means something is
+   late; this one means the grid is complete and the heat is ready to send, which
+   is the moment staff are actually waiting for and the one they otherwise had to
+   notice by reading a fraction. Slower than the warnings — 1.4s — because it is
+   an invitation, not an alarm, and it must not read as another problem. */
+.rc-flash-ready { animation: rc-flash-ready 1.4s ease-in-out infinite; }
+@keyframes rc-flash-ready {
+  0%, 100% { border-color: ${withAlpha(GREEN, 0.45)}; background-color: ${withAlpha(GREEN, 0.05)}; }
+  50%      { border-color: ${GREEN};                  background-color: ${withAlpha(GREEN, 0.2)}; }
+}
 /* A staff alert must not be motion-only anyway: reduced motion keeps the colour
    and drops the pulse, so the box still reads as overdue. */
 @media (prefers-reduced-motion: reduce) {
-  .rc-flash-warn, .rc-flash-late { animation: none; }
+  .rc-flash-warn, .rc-flash-late, .rc-flash-ready { animation: none; }
   .rc-flash-warn { border-color: ${AMBER}; background-color: ${withAlpha(AMBER, 0.18)}; }
   .rc-flash-late { border-color: ${DANGER}; background-color: ${withAlpha(DANGER, 0.22)}; }
+  .rc-flash-ready { border-color: ${GREEN}; background-color: ${withAlpha(GREEN, 0.16)}; }
 }
 `;
 
@@ -1140,6 +1152,23 @@ function RoomColumn({
    * In the room: how long a group has been sitting in front of a "take a seat"
    * board with nobody pressing Start — amber past 3 minutes, red past 5.
    */
+  /**
+   * THE WHOLE GRID IS THROUGH THE DESK — the moment staff are waiting for
+   * (owner 2026-08-13: "when everyone is checked in start flashing checkin
+   * section green").
+   *
+   * Only while the heat is still WAITING TO BE SENT: once it is in a room the
+   * box is no longer asking anything of anyone, and a pulse there would be
+   * celebrating a decision already taken. `total > 0` guards the empty roster —
+   * 0/0 is "we do not know yet", not "everybody is here".
+   */
+  const gridComplete =
+    !!race &&
+    !sentTo &&
+    !!checkedIn &&
+    checkedIn.total > 0 &&
+    checkedIn.checkedIn >= checkedIn.total;
+
   const calledAlert =
     race && !sentTo && checkingInMs != null
       ? checkinAlert(checkingInMs, checkinWindowMins)
@@ -1249,7 +1278,7 @@ function RoomColumn({
       </div>
 
       {/* ── CALLED ── */}
-      <Panel label="Called" flat alert={calledAlert}>
+      <Panel label="Called" flat alert={calledAlert} ready={gridComplete}>
         {race && !sentTo ? (
           <>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
@@ -1940,57 +1969,84 @@ function InRoom({
 
               {phase === "waiting" && (
                 <>
-                  <Stat
-                    label="Waiting"
-                    value={formatClock(waitingMs)}
-                    unit={
-                      alert === "late"
-                        ? "since sent — start it now"
-                        : alert === "warn"
-                          ? "since sent — running long"
-                          : "since sent"
-                    }
-                    tone={alert === "late" ? DANGER : AMBER}
-                    big
-                  />
-                  <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
-                    {holdMs > 0
-                      ? "Go and walk them over — Start unlocks in a moment."
-                      : "TV is holding a “take a seat” board."}
-                    {!state?.videoUrl && " No film for this tier — Start skips to helmet sizes."}
-                  </p>
-                  <div style={{ display: "flex", gap: 8, marginTop: "auto", alignItems: "center" }}>
-                    <ActionButton
-                      tone={GREEN}
-                      textColor="#052e14"
-                      size="lg"
-                      pendingKey={`start:${room}`}
-                      pending={pending}
-                      disabled={locked}
-                      holdSeconds={startHoldSeconds(holdMs)}
-                      pendingLabel="Starting…"
-                      title={
-                        holdMs > 0
-                          ? "Held for 10 seconds after the send — fetch the group from check-in first"
-                          : undefined
+                  {/* THE CLOCK AND ITS CONTROLS ON ONE LINE (owner 2026-08-13:
+                      "organize buttons and such a bit more to use less space").
+                      Four boxes now share this column, and Waiting used to spend
+                      three full rows — the number, a sentence, then a button
+                      row — on what is one thought: it has been this long, press
+                      this. The buttons sit at the end of the number's own row. */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-end",
+                      gap: 10,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <Stat
+                      label="Waiting"
+                      value={formatClock(waitingMs)}
+                      unit={
+                        alert === "late"
+                          ? "since sent — start it now"
+                          : alert === "warn"
+                            ? "since sent — running long"
+                            : "since sent"
                       }
-                      onClick={() => onStart(false)}
-                    >
-                      ▶ Start video
-                    </ActionButton>
-                    <ActionButton
-                      size="sm"
-                      pendingKey={`clear:${room}`}
-                      pending={pending}
-                      disabled={locked}
-                      pendingLabel="Undoing…"
-                      onClick={() => {
-                        if (window.confirm(`Undo the send to the ${room} room?`)) onUndo();
+                      tone={alert === "late" ? DANGER : AMBER}
+                      big
+                    />
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        alignItems: "center",
+                        marginLeft: "auto",
+                        paddingBottom: 2,
                       }}
                     >
-                      Undo
-                    </ActionButton>
+                      <ActionButton
+                        tone={GREEN}
+                        textColor="#052e14"
+                        size="lg"
+                        pendingKey={`start:${room}`}
+                        pending={pending}
+                        disabled={locked}
+                        holdSeconds={startHoldSeconds(holdMs)}
+                        pendingLabel="Starting…"
+                        title={
+                          holdMs > 0
+                            ? "Held for 10 seconds after the send — fetch the group from check-in first"
+                            : undefined
+                        }
+                        onClick={() => onStart(false)}
+                      >
+                        ▶ Start video
+                      </ActionButton>
+                      <ActionButton
+                        size="sm"
+                        pendingKey={`clear:${room}`}
+                        pending={pending}
+                        disabled={locked}
+                        pendingLabel="Undoing…"
+                        onClick={() => {
+                          if (window.confirm(`Undo the send to the ${room} room?`)) onUndo();
+                        }}
+                      >
+                        Undo
+                      </ActionButton>
+                    </div>
                   </div>
+                  {/* Only the lines that CHANGE what staff do survive as prose:
+                      the ten-second hold, and a tier with no film. "TV is holding
+                      a take-a-seat board" was true of every send and told nobody
+                      anything they could act on. */}
+                  {(holdMs > 0 || !state?.videoUrl) && (
+                    <p style={{ fontSize: 11, color: PORTAL_DARK.muted, margin: 0 }}>
+                      {holdMs > 0 && "Go and walk them over — Start unlocks in a moment."}
+                      {!state?.videoUrl && " No film for this tier — Start skips to helmet sizes."}
+                    </p>
+                  )}
                 </>
               )}
 
@@ -2134,17 +2190,21 @@ function InRoom({
         <div
           style={{
             marginTop: "auto",
-            paddingTop: 12,
+            paddingTop: 6,
             display: "flex",
             alignItems: "center",
-            gap: 7,
-            fontSize: 14,
+            gap: 6,
+            // Smaller than it was: it names the session for a manager walking
+            // past (owner 2026-08-12), but the box is already flashing and the
+            // Waiting clock beside it is already red and already says "start it
+            // now" — so this is the caption on an alarm, not the alarm.
+            fontSize: 12,
             fontWeight: 800,
             letterSpacing: "0.01em",
             color: alert === "late" ? DANGER : AMBER,
           }}
         >
-          <IconAlertTriangleFilled size={16} aria-hidden />
+          <IconAlertTriangleFilled size={13} aria-hidden />
           {alert === "late" ? "Video never started for " : "Video not started yet for "}
           {state?.heatNumber != null ? `Session ${state.heatNumber}` : "this group"}
         </div>
@@ -3100,6 +3160,7 @@ function Panel({
   grow,
   flat,
   alert,
+  ready,
   children,
 }: {
   label: string;
@@ -3109,9 +3170,24 @@ function Panel({
   flat?: boolean;
   /** Overdue — the whole box flashes amber, then red. See the .rc-flash rules. */
   alert?: AlertLevel;
+  /**
+   * The good news — this box's job is DONE and staff can act. Flashes green.
+   *
+   * It OUTRANKS `alert` deliberately: the only thing the amber/red pulse is
+   * counting down to on the Called box is the check-in window, and a heat whose
+   * racers are all through the desk has answered that question. Leaving it red
+   * would have the board still nagging about a deadline that no longer exists.
+   */
+  ready?: boolean;
   children: React.ReactNode;
 }) {
-  const flash = alert === "late" ? "rc-flash-late" : alert === "warn" ? "rc-flash-warn" : undefined;
+  const flash = ready
+    ? "rc-flash-ready"
+    : alert === "late"
+      ? "rc-flash-late"
+      : alert === "warn"
+        ? "rc-flash-warn"
+        : undefined;
   return (
     <div
       className={flash}
@@ -3119,10 +3195,12 @@ function Panel({
         border: `1px solid ${accent ? withAlpha(accent, 0.35) : PORTAL_DARK.border}`,
         background: flat ? "transparent" : PORTAL_DARK.card,
         borderRadius: 8,
-        padding: "10px 12px 12px",
+        // Tighter than it was. Four boxes multiply every millimetre of chrome by
+        // four, and padding is the cheapest thing to give back.
+        padding: "7px 10px 9px",
         display: "flex",
         flexDirection: "column",
-        gap: 8,
+        gap: 6,
         ...(grow ? { flex: 1, minHeight: 0 } : { flexShrink: 0 }),
       }}
     >
