@@ -401,7 +401,12 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
           {/* nowrap THROUGHOUT this block: .tv-display carries text-wrap:
               balance, which broke "Session 56" onto two lines the first time
               the header shared a row with the room chips (live 2026-08-13). */}
-          <div style={{ marginLeft: 44, minWidth: 0 }}>
+          {/* overflow:hidden is load-bearing. Everything inside is `nowrap`
+              (see the note above), so without it a long race type does not
+              shrink this block — it SPILLS out of it and runs underneath
+              whatever sits to the right, which is how "Session 33 Intermediate"
+              ended up printed through the FastTrax mark (owner 2026-08-14). */}
+          <div style={{ marginLeft: 44, minWidth: 0, overflow: "hidden" }}>
             <div className="tv-eyebrow" style={{ fontSize: 26 }}>
               Pit assignments
             </div>
@@ -455,13 +460,27 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
             three-digit session pushes the mark instead of colliding with it. It
             takes the auto margin and hands the clock a fixed gap of its own.
           */}
-          <div style={{ marginLeft: "auto", flexShrink: 0, opacity: 0.85, display: "flex" }}>
-            <TvBrandLogo venue="FT" height={54} />
+          <div
+            style={{
+              // Takes the header's slack, and keeps real air on BOTH sides: the
+              // first pass had it shoulder to shoulder with the clock on one
+              // side and the race type on the other, which reads as clutter
+              // even when nothing actually overlaps.
+              marginLeft: "auto",
+              marginRight: 8,
+              paddingLeft: 56,
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              opacity: 0.9,
+            }}
+          >
+            <TvBrandLogo venue="FT" height={46} />
           </div>
           {/* The one clock, and nothing else — the room-status chips that
               briefly lived here were not part of the approved mockup and the
               mockup is the target (owner 2026-08-13). */}
-          <div style={{ marginLeft: 40, flexShrink: 0 }}>
+          <div style={{ marginLeft: 44, flexShrink: 0 }}>
             <LiveSessionChip track={track} accent={accent} />
           </div>
         </header>
