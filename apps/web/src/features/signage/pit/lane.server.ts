@@ -32,7 +32,7 @@ import "server-only";
 import redis from "@/lib/redis";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { recordBriefingEvent } from "../briefing/events-db";
-import { readRaceFinishedMarker, readRaceStartedMarker } from "../briefing/race-finish.server";
+import { readRaceFinishedMarker } from "../briefing/race-finish.server";
 import { clearBriefingRoom, sessionBriefed } from "../briefing/state.server";
 import type { BriefingRoom } from "../briefing/types";
 import type { TrackKey } from "../track";
@@ -94,15 +94,16 @@ async function resolveLane(stored: StoredPitLane | null): Promise<PitLaneFeed> {
   let holding = stored.holding;
   let racing = stored.racing;
   if (holding) {
-    // A FINISH IMPLIES A START. The start marker is written by the timing
-    // webhook, which only production receives — a preview deployment (or a
-    // webhook gap) would otherwise leave a holding group stuck "seatable"
-    // straight through its own race. The finish marker has been written by
-    // production since the welcome-back release, so it is the reliable floor.
-    const startedAt = await readRaceStartedMarker(holding.sessionId);
-    const finished =
-      startedAt == null ? await readRaceFinishedMarker(holding.sessionId).catch(() => null) : null;
-    if (startedAt != null || finished != null) {
+    // HOLDING PERSISTS THROUGH THE RACE (owner 2026-08-13: "our session
+    // follows the race marked in holding; green flag + active countdown moves
+    // it to racing"). The start marker fires at PHASE ONE of the two-phase
+    // start — karts rolling out, clock armed static, stragglers still being
+    // seated — so it must NOT promote. What ends a holding claim server-side
+    // is the FINISH marker (the race demonstrably ran) or the next group
+    // taking the seats (see sendToHolding's displacement); the wall's own
+    // holding→racing presentation is the client's counting verdict.
+    const finished = await readRaceFinishedMarker(holding.sessionId).catch(() => null);
+    if (finished != null) {
       racing = {
         sessionId: holding.sessionId,
         heatNumber: holding.heatNumber,
@@ -197,11 +198,11 @@ export interface SendToHoldingArgs {
  * return), then the lane records who is seatable. The briefed marker is left
  * standing so the check-in board stays cleared.
  *
- * WHO WAS RACING when this group sat down: whatever the lane already resolved
- * to — a previous holding group that has green-flagged, or the racing group
- * it already knew. Sending a new group does NOT invent a racing group out of
- * a holding one that never started (a mis-press with an empty track stays an
- * empty track).
+ * WHO WAS RACING when this group sat down: the group these seats are being
+ * taken FROM. Holding persists through the race by design (see resolveLane),
+ * so a new send DISPLACES the previous holding group into racing outright —
+ * staff only seat the next group once the last one is out, and succession is
+ * the one start signal that needs no marker at all.
  */
 export async function sendToHolding(args: SendToHoldingArgs): Promise<{ ok: true }> {
   // Durable first — the room occupancy's explicit end.
@@ -224,22 +225,17 @@ export async function sendToHolding(args: SendToHoldingArgs): Promise<{ ok: true
   await clearBriefingRoom(VENUE, args.room);
 
   const stored = await readStoredLane(args.track);
-  const resolved = await resolveLane(stored);
   // Re-sending the group already in holding is a refresh, not a new cycle —
   // the racing half and its pitted stamp stay exactly as they were.
   const samePress = stored?.holding?.sessionId === args.sessionId;
-  const racing = samePress
-    ? (stored?.racing ?? null)
-    : resolved.racing
-      ? {
-          sessionId: resolved.racing.sessionId,
-          heatNumber: resolved.racing.heatNumber,
-          room:
-            stored?.holding?.sessionId === resolved.racing.sessionId
-              ? (stored?.holding?.room ?? null)
-              : (stored?.racing?.room ?? null),
-        }
-      : null;
+  const displaced = !samePress && stored?.holding ? stored.holding : null;
+  const racing = displaced
+    ? {
+        sessionId: displaced.sessionId,
+        heatNumber: displaced.heatNumber,
+        room: displaced.room,
+      }
+    : (stored?.racing ?? null);
 
   await writeStoredLane(args.track, {
     holding: {
