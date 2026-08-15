@@ -15,13 +15,12 @@ import "server-only";
  * Core's address from the Square location's qsysAddress attribute.
  *
  * THE VOCABULARY MATCHES OURS EXACTLY, by design: zones are `red` / `blue` /
- * `mega` (our TrackKey), clips are `pre` / `post` (our cues). `big` — the
- * pre-race announcement with the extra big-race warnings, played instead of
- * `pre` for a grid of 8+ (audio.server.ts owns that rule) — is OURS alone:
- * the Core has no configured clip for it, so it plays BY FILE NAME
- * ("<Track> Track Big Race.mp3", owner 2026-08-15 emergency fix; /play takes
- * exactly one of clip | file). Zones run independently — playing one never
- * cancels another.
+ * `mega` (our TrackKey), clips are `pre` / `post` / `big` (our cues — `big`
+ * is the pre-race with the extra big-race warnings, configured on the Core
+ * since 2026-08-15; audio.server.ts owns the 8+ grid rule that picks it).
+ * The one FILE-played sound is the stay-seated loop, which has no configured
+ * clip (/play takes exactly one of clip | file). Zones run independently —
+ * playing one never cancels another.
  *
  * Bearer auth with SWAGGER_ADMIN_KEY, same as every other Pandora call in
  * this repo (e.g. /api/tv/pit-photo).
@@ -35,7 +34,15 @@ const PANDORA_KEY = process.env.SWAGGER_ADMIN_KEY || "";
  *  The same constant the rest of the repo uses for FT's Square ledger. */
 const FT_SQUARE_LOCATION_ID = "LAB52GY480CJF";
 
-export type QsysClip = "pre" | "post" | "big";
+export type QsysClip = "pre" | "post" | "big" | "stay-seated";
+
+/**
+ * The ambient "karts are rolling in — stay in your kart" loop, played by file
+ * like the big-race pre (no configured clip on the Core). ONE file for every
+ * zone — the zone param does the routing. audio.server.ts owns when it loops
+ * and the rule that a real pre/post stops it instantly.
+ */
+export const STAY_SEATED_FILE = "Stay Seated.mp3";
 
 /**
  * Pandora's WebSocket RELAY of the Core's push feed — same frames, verbatim,
@@ -106,23 +113,22 @@ export interface PlayQsysResult {
  * Throws nothing: the caller (audio.server.ts) releases its one-shot claim
  * on a failed play, so every failure must come back as `ok: false`.
  */
-/** The big-race pre plays by file, not by configured clip — see the header.
- *  Zone keys are lowercase; the files are titled ("Red Track Big Race.mp3"),
- *  and the mega zone's files are named "Dual" (owner 2026-08-15). */
-function bigRaceFile(zone: TrackKey): string {
-  const name = zone === "mega" ? "Dual" : `${zone.charAt(0).toUpperCase()}${zone.slice(1)}`;
-  return `${name} Track Big Race.mp3`;
+/** Which clips play by FILE rather than by the Core's clip config. Null means
+ *  a real configured clip (`pre` / `post` / `big`). */
+function fileFor(clip: QsysClip): string | null {
+  return clip === "stay-seated" ? STAY_SEATED_FILE : null;
 }
 
 export async function playQsysCue(zone: TrackKey, clip: QsysClip): Promise<PlayQsysResult> {
   if (!PANDORA_KEY) return { ok: false, error: "SWAGGER_ADMIN_KEY is not set", durationS: null };
+  const file = fileFor(clip);
   try {
     const res = await fetch(`${PANDORA_BASE}/qsys/audio/play`, {
       method: "POST",
       headers: pandoraHeaders(),
       body: JSON.stringify(
-        clip === "big"
-          ? { locationID: FT_SQUARE_LOCATION_ID, zone, file: bigRaceFile(zone) }
+        file
+          ? { locationID: FT_SQUARE_LOCATION_ID, zone, file }
           : { locationID: FT_SQUARE_LOCATION_ID, zone, clip },
       ),
       // The reply is deliberately held ~0.6s by the Core so it can carry the
@@ -175,6 +181,34 @@ export async function playQsysCue(zone: TrackKey, clip: QsysClip): Promise<PlayQ
       ok: false,
       error: `could not reach the PA${err instanceof Error ? ` — ${err.message}` : ""}`,
       durationS: null,
+    };
+  }
+}
+
+/**
+ * Stop whatever is sounding on one zone — POST /qsys/audio/stop, the owner's
+ * own contract (2026-08-15: `{ locationID, zone }`). Exists for exactly one
+ * caller: a pre/post press cutting the stay-seated loop off so the real
+ * announcement plays instantly instead of refusing with "PA busy". `zone` is
+ * a plain string, not TrackKey, because the sounding zone comes off the live
+ * feed verbatim.
+ */
+export async function stopQsysZone(zone: string): Promise<{ ok: boolean; error?: string }> {
+  if (!PANDORA_KEY) return { ok: false, error: "SWAGGER_ADMIN_KEY is not set" };
+  try {
+    const res = await fetch(`${PANDORA_BASE}/qsys/audio/stop`, {
+      method: "POST",
+      headers: pandoraHeaders(),
+      body: JSON.stringify({ locationID: FT_SQUARE_LOCATION_ID, zone }),
+      signal: AbortSignal.timeout(8000),
+      cache: "no-store",
+    });
+    if (!res.ok) return { ok: false, error: `Q-SYS stop failed (${res.status})` };
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: `could not reach the PA${err instanceof Error ? ` — ${err.message}` : ""}`,
     };
   }
 }

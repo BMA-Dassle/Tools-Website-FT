@@ -284,7 +284,8 @@
       "Bash(curl -s --max-time 20 \"https://bma-pandora-api.azurewebsites.net/swagger/v1/swagger.json\")",
       "PowerShell(npx vitest run src/features/signage/pit/lane.server.test.ts src/features/signage/pit/pit-board.test.ts 2>$null)",
       "PowerShell(npx tsc --noEmit -p apps/web 2>$null)",
-      "PowerShell(npx vitest run src/features/signage/pit 2>$null)"
+      "PowerShell(npx vitest run src/features/signage/pit 2>$null)",
+      "PowerShell(git add \"apps/web/app/admin/[token]/pit/PitClient.tsx\" apps/web/app/api/admin/pit/route.ts apps/web/src/features/signage/pit/audio.server.ts)"
     ],
     "additionalDirectories": [
       "\\tmp"

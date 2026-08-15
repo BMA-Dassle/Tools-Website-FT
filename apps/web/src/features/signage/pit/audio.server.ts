@@ -44,7 +44,14 @@ import type { TrackKey } from "../track";
 import { sessionRoster } from "../service/checkin-progress";
 import { cueKey, readCueStamp, type PitCue } from "./audio-stamps.server";
 import { markInKarts, markRacePitted, readPitLane } from "./lane.server";
-import { playQsysCue, readQsysLive, type QsysClip } from "./qsys.server";
+import type { PitLaneFeed, PitLanes } from "./pit-board";
+import {
+  playQsysCue,
+  readQsysLive,
+  stopQsysZone,
+  STAY_SEATED_FILE,
+  type QsysClip,
+} from "./qsys.server";
 
 // The stamp read side lives in audio-stamps.server.ts (lane.server needs it
 // too — post played = returned — and importing it from here would be a
@@ -121,7 +128,9 @@ function zonesConflict(a: string, b: string): boolean {
   return a === b || a === "mega" || b === "mega";
 }
 
-async function paBusy(track: TrackKey): Promise<{ busy: false } | { busy: true; error: string }> {
+async function paBusy(
+  track: TrackKey,
+): Promise<{ busy: false } | { busy: true; error: string; zone: string; file: string }> {
   const live = await readQsysLive();
   const sounding = live?.zones.find((z) => z.playing && zonesConflict(z.zone, track));
   if (!sounding) return { busy: false };
@@ -129,7 +138,31 @@ async function paBusy(track: TrackKey): Promise<{ busy: false } | { busy: true; 
   return {
     busy: true,
     error: `the PA is already playing on ${sounding.zone}${left}; one clip at a time per track`,
+    zone: sounding.zone,
+    file: sounding.file ?? "",
   };
+}
+
+/** Is the sounding file the ambient stay-seated loop? Lenient on purpose —
+ *  the player may report the file with a path or case of its own. */
+function soundingStaySeated(file: string): boolean {
+  return file.toLowerCase().includes(STAY_SEATED_FILE.replace(/\.mp3$/i, "").toLowerCase());
+}
+
+/**
+ * A REAL ANNOUNCEMENT NEVER QUEUES BEHIND THE AMBIENT LOOP (owner 2026-08-15:
+ * "pre/post should be able to override it instantly"). When the busy verdict
+ * is the stay-seated clip, stop that zone and report clear; any other clip
+ * keeps its refusal — cutting off a half-played pre with a post would be the
+ * supersede bug the busy guard exists to stop.
+ */
+async function yieldStaySeated(
+  busy: Awaited<ReturnType<typeof paBusy>>,
+): Promise<{ cleared: boolean; error?: string }> {
+  if (!busy.busy) return { cleared: true };
+  if (!soundingStaySeated(busy.file)) return { cleared: false, error: busy.error };
+  const stopped = await stopQsysZone(busy.zone);
+  return stopped.ok ? { cleared: true } : { cleared: false, error: stopped.error };
 }
 
 export interface PlayCueResult {
@@ -247,8 +280,10 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
   if (!subject) {
     return { ok: false, error: "no group is in holding — pre-race arms when a group is seated" };
   }
-  const busy = await paBusy(track);
-  if (busy.busy) return { ok: false, error: busy.error };
+  // The ambient stay-seated loop yields to this press instantly; anything
+  // else sounding keeps its refusal.
+  const cleared = await yieldStaySeated(await paBusy(track));
+  if (!cleared.cleared) return { ok: false, error: cleared.error ?? "the PA is busy" };
 
   /**
    * WHICH PRE-RACE CLIP (owner 2026-08-15: "we have technically 2 versions
@@ -325,6 +360,67 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
   }
 
   return { ok: true, atMs: result.atMs, sessionId: subject.sessionId };
+}
+
+/* ── the stay-seated loop ─────────────────────────────────────────────── */
+
+/**
+ * "STAY SEATED", ON REPEAT, WHILE KARTS ARE ROLLING IN (owner 2026-08-15:
+ * "play a Stay Seated.mp3 when karts are returning to pit… loop it every so
+ * often UNTIL a pre/post starts playing").
+ *
+ * THE ONE AUTOMATIC SOUND ON THE PA, and deliberately a nag rather than a
+ * one-shot: the window it covers is exactly when finished racers start
+ * climbing out of moving karts' way — the reason the HOLD exists. The clip is
+ * ~5s; one play every STAY_SEATED_EVERY_S (owner's spacing requirement:
+ * "some time between each repeat") leaves clear air between repeats.
+ *
+ * DRIVEN BY POLLS, THROTTLED BY REDIS. Nothing here schedules anything: the
+ * pulse (every wall, 2s) and the pit station's own poll both nudge it, and an
+ * NX claim with the interval as its TTL means one play per interval per track
+ * however many screens ask. A quiet building with no screens on plays
+ * nothing, which is the right failure.
+ *
+ * WHEN IT PLAYS — every condition read off the resolved lane:
+ *   • a group is in `pitIn` (karts in or rolling in, post owed) — the loop's
+ *     whole subject;
+ *   • their post is not ALREADY sounding (postRaceAtMs set = pitIn surviving
+ *     the clip, see clearAnsweredPitIn);
+ *   • the pit has not been sitting for over STAY_SEATED_MAX_MS — a stale,
+ *     forgotten slot must not nag an empty building all night;
+ *   • the PA is idle on every conflicting zone (a pre for the next group,
+ *     a post, mega vs its pits — the loop never talks over anything).
+ *
+ * It stops the moment pre/post claims the zone two ways: the busy check here
+ * skips the interval, and the press itself /stops a mid-play loop clip
+ * (yieldStaySeated). No stamp, no Neon row — ambient safety audio is not a
+ * cycle event; the play itself is still console-logged by playQsysCue.
+ */
+const STAY_SEATED_EVERY_S = 25;
+const STAY_SEATED_MAX_MS = 15 * 60_000;
+
+async function maybePlayStaySeated(track: TrackKey, lane: PitLaneFeed): Promise<void> {
+  const pitIn = lane.pitIn;
+  if (!pitIn) return;
+  if (pitIn.postRaceAtMs != null) return;
+  if (Date.now() - pitIn.atMs > STAY_SEATED_MAX_MS) return;
+  // The claim FIRST, the Pandora read after: polls arrive every 2 seconds and
+  // the live read must happen once per interval, not once per poll. A busy PA
+  // burns the interval — better a repeat 25s late than talked-over audio.
+  const claimed = await redis
+    .set(`pit:audio:stay-seated:${track}`, "1", "EX", STAY_SEATED_EVERY_S, "NX")
+    .catch(() => null);
+  if (claimed !== "OK") return;
+  const busy = await paBusy(track);
+  if (busy.busy) return;
+  await playQsysCue(track, "stay-seated");
+}
+
+/** The poll-side nudge — every lane, one call. Swallows everything: this
+ *  rides display polls, and a PA blip must never cost a feed response. */
+export async function nudgeStaySeated(lanes: PitLanes): Promise<void> {
+  const tracks: TrackKey[] = ["blue", "red", "mega"];
+  await Promise.all(tracks.map((t) => maybePlayStaySeated(t, lanes[t]).catch(() => {})));
 }
 
 /**
@@ -417,8 +513,10 @@ export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
   if (!gate.allowed) {
     return { ok: false, error: gate.reason ?? "the briefing room is not empty yet" };
   }
-  const busy = await paBusy(track);
-  if (busy.busy) return { ok: false, error: busy.error };
+  // Same yield rule as pre: the stay-seated loop stops for the announcement
+  // that answers it, and only for that.
+  const cleared = await yieldStaySeated(await paBusy(track));
+  if (!cleared.cleared) return { ok: false, error: cleared.error ?? "the PA is busy" };
 
   const result = await claimAndPlay(track, "post", returning.sessionId);
   if (result.outcome === "failed") return { ok: false, error: result.error };

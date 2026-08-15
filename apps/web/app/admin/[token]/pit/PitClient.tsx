@@ -21,8 +21,10 @@
  *
  * Each cue fires ONCE per track per cycle — the server claims the stamp NX
  * against the session it played for (pit/audio.server.ts), so this client
- * only ever asks; it never decides. NOTHING PLAYS AUTOMATICALLY: the only
- * thing that fires audio is a press on this page.
+ * only ever asks; it never decides. The ONE automatic sound is the ambient
+ * stay-seated loop while a race is in the pit (audio.server.ts, 2026-08-15)
+ * — every ANNOUNCEMENT still fires only from a press on this page, and a
+ * press cuts the loop off instantly.
  *
  * THE COUNTDOWN'S SOURCES, in preference order (owner 2026-08-14: "Dont use
  * cache I would prefer websocket", then "bind to the Pandora websocket"):

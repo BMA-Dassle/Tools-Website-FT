@@ -32,6 +32,8 @@ import { resolveScreenConfig } from "../defaults";
 import { trackFromResourceIds } from "../track";
 import { raceCheckinInfo } from "./race-checkin";
 import { checkinProgress } from "./checkin-progress";
+import { afterResponse } from "../after-response.server";
+import { nudgeStaySeated } from "../pit/audio.server";
 import { buildPitBoard } from "../pit/service";
 import { readPitLanes } from "../pit/lane.server";
 import { readFastPitRosters } from "../pit/fast-roster.server";
@@ -370,6 +372,12 @@ export async function buildTvPulse(
           readFastPitRosters(now).catch(() => null),
         ])
       : [null, null];
+  // The stay-seated loop rides the pulse because the pulse is the one poll
+  // guaranteed to be running while a race is coming in (every wall, 2s, all
+  // night) — the pit tablet may be asleep. NX-throttled server-side, so a
+  // building of screens still plays it at most once per interval per track;
+  // after the response, so the PA round trip never delays a wall repaint.
+  if (pitLanes) afterResponse(() => nudgeStaySeated(pitLanes));
   return {
     now,
     kioskEvents,

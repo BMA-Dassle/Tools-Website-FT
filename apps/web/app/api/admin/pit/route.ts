@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { afterResponse } from "~/features/signage/after-response.server";
 import {
+  nudgeStaySeated,
   playPostRace,
   playPreRace,
   postRaceGate,
@@ -72,6 +74,10 @@ export async function GET(req: NextRequest) {
   if (!authed(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const lanes = await readPitLanes();
+  // Second driver for the stay-seated loop, beside the pulse — a night the
+  // walls are off but the tablet is up still nags. Same NX throttle, so the
+  // two drivers can never double-play.
+  afterResponse(() => nudgeStaySeated(lanes));
   /**
    * EVERY SLOT, because the client reads stamps for every slot.
    *
