@@ -677,6 +677,10 @@ export async function sendToHolding(
    * promote nobody while leaving the karts group stranded.
    */
   const staged = stored?.karts ?? stored?.holding ?? null;
+  // Resolved once, for two jobs: deciding whether the staged group has actually
+  // gone out, and persisting the pit-in group this write would otherwise sever
+  // (see the pitIn field on the write below).
+  const resolved = await resolveLane(stored, args.track);
   /**
    * ONLY DISPLACE A GROUP THAT HAS ACTUALLY TAKEN THE TRACK.
    *
@@ -687,20 +691,22 @@ export async function sendToHolding(
    * a busy night — impossible to hold safely: staging the second one evicted
    * the first.
    */
-  const stagedResolved = staged ? await resolveLane(stored, args.track) : null;
   const stagedIsOut =
     !!staged &&
-    (stagedResolved?.racing?.sessionId === staged.sessionId ||
-      stagedResolved?.pitIn?.sessionId === staged.sessionId);
+    (resolved.racing?.sessionId === staged.sessionId ||
+      resolved.pitIn?.sessionId === staged.sessionId);
   const displaced =
     !samePress && staged && staged.sessionId !== args.sessionId && stagedIsOut ? staged : null;
-  const racing = displaced
-    ? {
-        sessionId: displaced.sessionId,
-        heatNumber: displaced.heatNumber,
-        room: displaced.room,
-      }
-    : (stored?.racing ?? null);
+  // A displaced group that has already SETTLED INTO THE PIT is back, not out —
+  // re-declaring it racing would store one session in two slots at once.
+  const racing =
+    displaced && resolved.pitIn?.sessionId !== displaced.sessionId
+      ? {
+          sessionId: displaced.sessionId,
+          heatNumber: displaced.heatNumber,
+          room: displaced.room,
+        }
+      : (stored?.racing ?? null);
   // Only the slot the displaced group actually vacated is cleared, so a karts
   // group that was NOT the one displaced keeps its place.
   const kartsAfter =
@@ -716,6 +722,24 @@ export async function sendToHolding(
     },
     karts: kartsAfter,
     racing,
+    /**
+     * THE PIT-IN GROUP RIDES THE WRITE (owner 2026-08-15: "if a race comes back
+     * and another gets moved into holding our post goes away even if not
+     * played").
+     *
+     * `pitIn` is normally DERIVED — resolveLane recomputes it on every read from
+     * `stored.racing` plus the finish witness, so it usually has no stored row
+     * at all. The displacement above overwrites `stored.racing`, which was that
+     * derivation's only anchor: without persisting the resolved slot here, the
+     * returning group — hold rail, post-due pill, the whole record that a post
+     * announcement is owed — vanished on the press. Persisting the RESOLVED
+     * value rather than `stored.pitIn` is deliberate in both directions: it
+     * captures a derived group the stored shape never carried, and a resolved
+     * null means the slot is genuinely spent (post played, or pitted), which a
+     * stale stored copy must not resurrect — the pitted stamp that answered it
+     * is dropped by this same write.
+     */
+    pitIn: resolved.pitIn ? { ...resolved.pitIn } : null,
     pitted:
       stored?.pitted && racing && stored.pitted.sessionId === racing.sessionId
         ? stored.pitted

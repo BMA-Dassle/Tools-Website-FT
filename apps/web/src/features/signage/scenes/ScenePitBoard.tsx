@@ -572,7 +572,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
               "Seat Session 24 now" was being ellipsised to "S…". It belongs
               beside the session it describes anyway. */}
           <QualPill
-            qual={qualTarget ? { lap: formatLap(qualTarget.ms), level: qualTarget.level } : null}
+            qual={qualTarget ? { lap: formatLap(qualTarget.ms) } : null}
             accent={accent}
             compact
           />
@@ -1540,7 +1540,7 @@ function QualPill({
   accent,
   compact,
 }: {
-  qual: { lap: string; level: string } | null;
+  qual: { lap: string } | null;
   accent: string;
   /** Header sizing: matched to the ON TRACK clock chip beside it (26 label /
    *  40 figure) so the two pills in the band read as a pair rather than two
@@ -1565,12 +1565,9 @@ function QualPill({
         whiteSpace: "nowrap",
       }}
     >
-      {/* MOCKUP SIZES, verbatim — the pill is the guest-facing half of the
-          rail and reads big; the fit problem was the long info copy beside
-          it, which is what got shortened. */}
-      <span style={{ fontSize: compact ? 26 : 32, lineHeight: 1, color: "rgba(245,236,238,0.8)" }}>
-        Beat
-      </span>
+      {/* NUMBER FIRST, THREE WORDS AFTER (owner 2026-08-15: "Beat X to qualify
+          Intermediate" was too long for this band — the number is the message,
+          so it leads and the level name is dropped). */}
       <span
         className="tv-display tv-num"
         style={{ fontSize: compact ? 40 : 54, lineHeight: 1, color: "#fff" }}
@@ -1578,7 +1575,7 @@ function QualPill({
         {qual.lap}
       </span>
       <span style={{ fontSize: compact ? 26 : 32, lineHeight: 1, color: "rgba(245,236,238,0.8)" }}>
-        to qualify {qual.level}
+        to qualify
       </span>
     </span>
   );

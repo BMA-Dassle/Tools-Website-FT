@@ -484,6 +484,125 @@ describe("sendToHolding — displacement follows the staged group", () => {
     expect(lane.holding?.sessionId).toBe("next");
   });
 
+  /**
+   * THE VANISHING POST (owner 2026-08-15: "if a race comes back, and another
+   * gets moved into holding our post goes away even if not played, this also
+   * means we lose our hold indicator").
+   *
+   * A's pit-in was DERIVED from `stored.racing = A` on every read. The press
+   * displaced B into `racing`, severing that anchor, and the write carried no
+   * pitIn field at all — so the hold rail and the record that A's post was owed
+   * evaporated on the button. The resolved pit-in must ride the write.
+   */
+  it("keeps the returning group's pit-in when the press displaces the group that went out", async () => {
+    putLane({
+      holding: null,
+      karts: group("outB", 45),
+      racing: { sessionId: "backA", heatNumber: 44, room: "blue" },
+      pitted: null,
+    });
+    finishedMarkers.set("backA", 9_000); // A is back, post owed
+    putLiveHeat(45, "running"); // B has taken the track
+
+    const result = await sendToHolding({
+      room: "blue",
+      track: "blue",
+      sessionId: "nextC",
+      heatNumber: 46,
+      raceType: "Blue Pro",
+    });
+    const lane = await readPitLane("blue");
+
+    expect(result.ok).toBe(true);
+    expect(lane.holding?.sessionId).toBe("nextC");
+    expect(lane.racing?.sessionId).toBe("outB");
+    // The whole point: A is still in the pit, hold up, post still owed.
+    expect(lane.pitIn?.sessionId).toBe("backA");
+    expect(lane.pitIn?.finishedAtMs).toBe(9_000);
+  });
+
+  it("a displaced group already settled into the pit is not re-declared racing", async () => {
+    // B went out AND finished before the press landed — they are back, not out.
+    putLane({ holding: null, karts: group("outB", 45), racing: null, pitted: null });
+    finishedMarkers.set("outB", 9_000);
+
+    const result = await sendToHolding({
+      room: "blue",
+      track: "blue",
+      sessionId: "nextC",
+      heatNumber: 46,
+      raceType: "Blue Pro",
+    });
+    const lane = await readPitLane("blue");
+
+    expect(result.ok).toBe(true);
+    expect(lane.holding?.sessionId).toBe("nextC");
+    expect(lane.pitIn?.sessionId).toBe("outB");
+    expect(lane.racing).toBeNull();
+  });
+
+  it("a stored (hand-placed) pit-in survives the press", async () => {
+    putLane({
+      holding: null,
+      karts: null,
+      racing: null,
+      pitIn: {
+        sessionId: "in",
+        heatNumber: 44,
+        raceType: null,
+        room: "blue",
+        finishedAtMs: null,
+        atMs: 5_000,
+      },
+      pitted: null,
+    });
+
+    await sendToHolding({
+      room: "blue",
+      track: "blue",
+      sessionId: "next",
+      heatNumber: 45,
+      raceType: "Blue Pro",
+    });
+    const lane = await readPitLane("blue");
+
+    expect(lane.holding?.sessionId).toBe("next");
+    expect(lane.pitIn?.sessionId).toBe("in");
+  });
+
+  it("does not resurrect a pit-in the pitted press already answered", async () => {
+    // The write drops the pitted stamp (it is keyed to `racing`), so persisting
+    // the STORED pit-in here would bring back a group with nothing left able to
+    // clear it. Persisting the resolved value — null, because it was answered —
+    // is what this pins.
+    putLane({
+      holding: null,
+      karts: null,
+      racing: null,
+      pitIn: {
+        sessionId: "in",
+        heatNumber: 44,
+        raceType: null,
+        room: "blue",
+        finishedAtMs: null,
+        atMs: 5_000,
+      },
+      pitted: { sessionId: "in", atMs: 6_000 },
+    });
+
+    await sendToHolding({
+      room: "blue",
+      track: "blue",
+      sessionId: "next",
+      heatNumber: 45,
+      raceType: "Blue Pro",
+    });
+    const lane = await readPitLane("blue");
+
+    expect(lane.holding?.sessionId).toBe("next");
+    expect(lane.pitIn).toBeNull();
+  });
+
   it("re-sending the seated group is a refresh, not a displacement", async () => {
     putLane({ holding: group("s1", 44), racing: null, pitted: null });
 
