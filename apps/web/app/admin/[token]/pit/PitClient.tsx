@@ -700,11 +700,16 @@ function TrackCard({
   const released =
     postStamp != null ||
     (racing?.pittedAtMs != null && racing.pittedAtMs >= (racing.finishedAtMs ?? 0));
+  // Phase one is ALSO the clock hitting zero (owner 2026-08-14: "blue race
+  // didnt say HOLD until full finish") — the socket may not flip its state
+  // to "finished" until the official end, but a counting clock at 0:00 IS
+  // karts coming in, right now, no bridge required.
   const clockSaysFinished =
-    liveClock?.state === "finished" &&
     racing != null &&
     racing.heatNumber != null &&
-    liveHeatNumber(liveClock.heatName) === racing.heatNumber;
+    liveClock != null &&
+    liveHeatNumber(liveClock.heatName) === racing.heatNumber &&
+    (liveClock.state === "finished" || (liveClock.counting && liveClock.remainingMs <= 500));
   const holdLive = rail === "hold" || (clockSaysFinished && !released);
 
   const finished = racing?.finishedAtMs != null;
