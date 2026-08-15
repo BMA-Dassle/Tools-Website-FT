@@ -1297,6 +1297,9 @@ function Rail({
           ? `In briefing${session.briefedRoom ? ` · ${session.briefedRoom} room` : ""}`
           : `${sessionName} checking in`;
   const leftGo = kind === "seat" && session?.inHolding === true;
+  const pre = preRaceTone(session, armed, nowMs);
+  /** BOTH GATES CLEARED — the whole left box flashes, not just the pill. */
+  const readyToSend = pre?.tone === "ready";
 
   return (
     <div
@@ -1314,6 +1317,7 @@ function Rail({
     >
       {/* ── LEFT: the group going out ── */}
       <div
+        className={readyToSend ? "tv-ready-flash" : undefined}
         style={{
           flex: "1 1 0",
           minWidth: 0,
@@ -1321,7 +1325,7 @@ function Rail({
           alignItems: "center",
           gap: 26,
           padding: `0 ${PAD_X}px`,
-          borderTop: `4px solid ${leftGo ? GREEN : withAlpha(accent, 0.55)}`,
+          borderTop: `4px solid ${readyToSend ? GREEN : leftGo ? GREEN : withAlpha(accent, 0.55)}`,
         }}
       >
         <span
@@ -1329,7 +1333,10 @@ function Rail({
           style={{
             fontSize: 40,
             whiteSpace: "nowrap",
-            color: leftGo ? GREEN : "rgba(245,236,238,0.85)",
+            // On the flashing box the ink comes from the keyframes, which swing
+            // it dark-on-green then white-on-dim. Setting a colour here would
+            // outrank that and leave green text on a green ground.
+            ...(readyToSend ? null : { color: leftGo ? GREEN : "rgba(245,236,238,0.85)" }),
             // NOT shrinkable. This is the instruction; the pill beside it is the
             // detail. Letting flex ellipsise it produced "SEAT SE…" on the wall.
             flexShrink: 0,
@@ -1337,7 +1344,7 @@ function Rail({
         >
           {leftText}
         </span>
-        <PreRacePill session={session} armed={armed} nowMs={nowMs} />
+        {pre ? <PreRacePill label={pre.label} tone={pre.tone} /> : null}
       </div>
 
       <div
@@ -1454,77 +1461,72 @@ function PostRacePill({
  * meaningful because the clock now models arm-vs-green off real wire events;
  * while `counting` was hardcoded true this pill could never have said this.
  */
-function PreRacePill({
-  session,
-  armed,
-  nowMs,
-}: {
+type PreTone = "due" | "playing" | "ready" | "done";
+
+/**
+ * The pre-race cue's verdict, shared by the pill and the half it sits in.
+ *
+ * Pulled out of the pill because the WHOLE LEFT BOX flashes on ready (owner
+ * 2026-08-15: "i want the whole box"), so the rail has to know the verdict too
+ * — and two copies of this ladder would drift the day someone edits one.
+ */
+function preRaceTone(
   session: {
     inHolding: boolean;
     preRaceAtMs: number | null;
     preRaceDurationS: number | null;
-  } | null;
-  /** Race is armed — phase one fired, clock not yet running. */
-  armed: boolean;
-  nowMs: number;
-}) {
+  } | null,
+  armed: boolean,
+  nowMs: number,
+): { label: string; tone: PreTone } | null {
   if (!session) return null;
   const played = session.preRaceAtMs != null;
   if (!played && !session.inHolding) return null;
 
-  /**
-   * "Playing" ends when the CLIP ends, not when the race arms.
-   *
-   * The first cut held "playing" until the race armed, which on a night where
-   * staff play the cue and then take their time is indistinguishable from stuck
-   * (owner 2026-08-15: "the pre-playing never changed to played"). The stamp
-   * carries the player's own reported clip length, so the honest window is
-   * exactly that long. A legacy stamp has no duration — then we cannot claim it
-   * is playing, so it reads as played.
-   */
+  // "Playing" is bounded by the clip's OWN reported length — the stamp carries
+  // it, so the board never has to guess a duration.
   const stillPlaying =
     played &&
     session.preRaceDurationS != null &&
     nowMs < session.preRaceAtMs! + session.preRaceDurationS * 1000;
 
-  // No cue yet: stays "due" regardless of whether the race has armed — the
-  // announcement is what sends the group to the karts, so an armed race with no
-  // cue is still waiting on the cue, not on the flag.
-  const ready = played && armed && !stillPlaying;
-  const label = !played
-    ? "Pre-race due"
-    : stillPlaying
-      ? "Pre-race playing"
-      : ready
-        ? "READY TO SEND"
-        : "Pre-race ✓";
-  const color = !played ? AMBER : stillPlaying ? ACCENT_INFO : OK;
+  if (!played) return { label: "Pre-race due", tone: "due" };
+  if (stillPlaying) return { label: "Pre-race playing", tone: "playing" };
+  // No cue means "due" even once the race arms: the announcement is what sends
+  // the group to the karts, so an armed race with no cue waits on the cue.
+  if (armed) return { label: "Ready to send", tone: "ready" };
+  return { label: "Pre-race ✓", tone: "done" };
+}
 
-  /**
-   * READY TO SEND FLASHES (owner 2026-08-15: "if both pre-message and the first
-   * phase trigger this should be flash green ready to send").
-   *
-   * It is the only state on this rail that is an INSTRUCTION with a moment
-   * attached — both gates have cleared and the flag is the next thing to
-   * happen — so it gets the canvas's existing green flash rather than a new
-   * one, which keeps it on the 1.4s beat with everything else on the wall.
-   * The keyframes own colour AND ground for that state, so neither is set
-   * inline there or the animation would be outranked.
-   */
+const PRE_TONE_COLOR: Record<PreTone, string> = {
+  due: AMBER,
+  playing: ACCENT_INFO,
+  ready: OK,
+  done: OK,
+};
+
+/**
+ * The pre-race indicator. On READY it carries no colour of its own — the box
+ * around it is flashing green and owns both ink and ground, so an inline colour
+ * here would fight the animation and strand the pill mid-flash.
+ */
+function PreRacePill({ label, tone }: { label: string; tone: PreTone }) {
+  const onFlash = tone === "ready";
   return (
     <span
-      className={ready ? "tv-display tv-ready-flash" : "tv-display"}
+      className="tv-display"
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 12,
         padding: "6px 20px",
         borderRadius: 999,
-        border: `2px solid ${withAlpha(color, ready ? 1 : 0.7)}`,
-        ...(ready ? null : { background: withAlpha(color, 0.12), color }),
+        border: `2px solid ${onFlash ? "currentColor" : withAlpha(PRE_TONE_COLOR[tone], 0.7)}`,
+        ...(onFlash
+          ? null
+          : { background: withAlpha(PRE_TONE_COLOR[tone], 0.12), color: PRE_TONE_COLOR[tone] }),
         fontSize: 24,
-        fontWeight: ready ? 900 : undefined,
-        letterSpacing: ready ? "0.04em" : undefined,
+        fontWeight: onFlash ? 900 : undefined,
+        letterSpacing: onFlash ? "0.04em" : undefined,
         whiteSpace: "nowrap",
       }}
     >
