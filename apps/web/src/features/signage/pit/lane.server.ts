@@ -40,6 +40,7 @@ import { liveHeatKey, type LiveHeat } from "../briefing/race-state-watch.server"
 import { clearBriefingRoom, sessionBriefed } from "../briefing/state.server";
 import type { BriefingRoom } from "../briefing/types";
 import type { TrackKey } from "../track";
+import { readCueStamp } from "./audio-stamps.server";
 import { liveHeatIsLaterThan } from "./day-schedule.server";
 import { EMPTY_PIT_LANE, type PitLaneFeed, type PitLanes } from "./pit-board";
 
@@ -328,8 +329,25 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
   // do not, so a race that is demonstrably over stops reading as still running.
   const finishedAtMs =
     finish?.endedAtMs ?? (await liveSaysFinishedAtMs(track, live, racing.heatNumber));
-  const pittedAtMs =
+  let pittedAtMs =
     stored.pitted && stored.pitted.sessionId === racing.sessionId ? stored.pitted.atMs : null;
+
+  /**
+   * POST PLAYED = RETURNED, derived at READ time (owner 2026-08-14: "when it
+   * is in that hold state, check to see if post was played, it seems like it
+   * can get stuck"). The press writes the pitted stamp once; a finish witness
+   * landing AFTER that press (a bridge-reconnect replay, the socket's
+   * minute-sampled observation) used to out-rank it and re-raise a hold
+   * nothing on the pit page could clear — the post one-shot was already
+   * burned. The post cue's own stamp is durable and session-keyed, so a hold
+   * whose session demonstrably had its post played releases itself, every
+   * read, forever. One extra Redis GET, paid only while a hold would
+   * otherwise be live.
+   */
+  if (finishedAtMs != null && (pittedAtMs == null || pittedAtMs < finishedAtMs)) {
+    const post = await readCueStamp("post", racing.sessionId).catch(() => null);
+    if (post) pittedAtMs = Math.max(post.atMs, finishedAtMs);
+  }
 
   // PARKED: a finished race leaves the lane instead of holding it. See
   // KARTS_RETURNING_HOLD. `pitted` still clears it too, so a night that was

@@ -38,72 +38,26 @@ import { businessDayYmdET } from "@/lib/race-business-day";
 import { recordBriefingEvent } from "../briefing/events-db";
 import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
 import type { TrackKey } from "../track";
+import { cueKey, readCueStamp, type PitCue } from "./audio-stamps.server";
 import { markInKarts, markRacePitted, readPitLane } from "./lane.server";
 import { playQsysCue, readQsysLive } from "./qsys.server";
+
+// The stamp read side lives in audio-stamps.server.ts (lane.server needs it
+// too — post played = returned — and importing it from here would be a
+// cycle). Re-exported so this module stays the one import for cue callers.
+export {
+  readCueStamp,
+  readCueStamps,
+  type CueStamp,
+  type PitCue,
+  type PitCueStamps,
+} from "./audio-stamps.server";
 
 const VENUE = "FT";
 
 /** Outlives any race night; short enough that Redis stays display state —
  *  the durable record is the Neon event row written on the claim. */
 const STAMP_TTL_SECONDS = 12 * 3600;
-
-export type PitCue = "pre" | "post";
-
-/** One played cue: when, and how long the clip is when the player said in
- *  time (the /play reply is held ~0.6s so it usually can). */
-export interface CueStamp {
-  atMs: number;
-  durationS: number | null;
-}
-
-function cueKey(cue: PitCue, sessionId: string): string {
-  return `pit:audio:${cue}:${sessionId}`;
-}
-
-/** Stamps started life as a bare epoch-ms string and grew a duration field
- *  the day the Pandora endpoints landed — both shapes stay readable for the
- *  12h a pre-upgrade stamp can still be live. */
-function parseStamp(raw: string | null): CueStamp | null {
-  if (!raw) return null;
-  const n = Number(raw);
-  if (Number.isFinite(n)) return { atMs: n, durationS: null };
-  try {
-    const p = JSON.parse(raw) as { atMs?: number; durationS?: number | null };
-    if (typeof p.atMs !== "number" || !Number.isFinite(p.atMs)) return null;
-    return {
-      atMs: p.atMs,
-      durationS:
-        typeof p.durationS === "number" && Number.isFinite(p.durationS) ? p.durationS : null,
-    };
-  } catch {
-    return null;
-  }
-}
-
-/** When (and how long) a cue played for a session, or null. Swallows —
- *  reads ride the feed. */
-export async function readCueStamp(cue: PitCue, sessionId: string): Promise<CueStamp | null> {
-  if (!sessionId) return null;
-  try {
-    return parseStamp(await redis.get(cueKey(cue, sessionId)));
-  } catch {
-    return null;
-  }
-}
-
-/** Both cues for one session — what the control board's GET carries. */
-export interface PitCueStamps {
-  pre: CueStamp | null;
-  post: CueStamp | null;
-}
-
-export async function readCueStamps(sessionId: string): Promise<PitCueStamps> {
-  const [pre, post] = await Promise.all([
-    readCueStamp("pre", sessionId),
-    readCueStamp("post", sessionId),
-  ]);
-  return { pre, post };
-}
 
 /**
  * ONE CLIP PER TRACK (owner 2026-08-14: "Its 1 audio clip per track, so red

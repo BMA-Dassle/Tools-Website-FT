@@ -51,9 +51,10 @@
  * Same polling shape as the check-in board: a 5-second board poll and a
  * 1-second local clock so every readout ticks between polls.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
+import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import { PORTAL_DARK, ADMIN_SANS } from "~/components/features/admin-skin/theme";
 import { formatRemaining, useLiveSessionClock } from "~/features/signage/live-session";
 import { liveHeatNumber } from "~/features/signage/briefing/room-return";
@@ -375,12 +376,21 @@ export default function PitClient({ token, version }: { token: string; version: 
   const [note, setNote] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const nowMs = useNowMs();
-  const status = useTrackStatus();
+  // 1s session-status cadence (owner 2026-08-14) — cacheOnly reads against
+  // the warm-loop-fresh Redis carry, never live Pandora.
+  const status = useTrackStatus(1_000);
+
+  // Read at fetch time by loadBoard (a ref, not state, so the poller's
+  // closure always sees the current value): while this tablet holds the
+  // player's socket, the poll skips the server-side Pandora live read and is
+  // pure Redis — which is what makes the 1s cadence below free.
+  const socketConnectedRef = useRef(false);
 
   const loadBoard = useCallback(
     async (signal?: AbortSignal) => {
       try {
-        const res = await fetch(`/api/admin/pit?token=${encodeURIComponent(token)}`, {
+        const qsysParam = socketConnectedRef.current ? "&qsys=0" : "";
+        const res = await fetch(`/api/admin/pit?token=${encodeURIComponent(token)}${qsysParam}`, {
           cache: "no-store",
           signal,
         });
@@ -394,18 +404,39 @@ export default function PitClient({ token, version }: { token: string; version: 
     [token],
   );
 
+  // 1s lane cadence (owner 2026-08-14: "1 second is the minimums" for
+  // session status). The handler is a handful of Redis reads once the
+  // socket carries the audio feed.
   useVisibleInterval(
     async (signal) => {
       await loadBoard(signal);
     },
-    5_000,
+    1_000,
     true,
   );
 
-  // The Core's own feed, preferred; Pandora's cached copy is the fallback.
+  // The player's push feed, preferred; Pandora's cached copy is the fallback.
   const socket = useQsysSocket(board?.data.socketUrl ?? null);
+  useEffect(() => {
+    socketConnectedRef.current = socket.connected;
+  }, [socket.connected]);
   const zones = socket.connected && socket.zones ? socket.zones : (board?.data.qsys?.zones ?? null);
   const zonesAtMs = socket.connected && socket.zones ? socket.atMs : (board?.fetchedAtMs ?? 0);
+
+  /**
+   * SELF-UPDATE (owner 2026-08-14: "Add auto updating to the pit page
+   * aswell") — same shape as the check-in station: a fence tablet is opened
+   * once and left open, so a deploy would never reach it. Reloads after a
+   * minute of quiet (no press in flight — a playing clip doesn't block it,
+   * every piece of state here is server-held), and offers the button for
+   * staff who were just told a fix is live.
+   */
+  const buildUpdate = useBuildUpdate(version);
+  useEffect(() => {
+    if (!buildUpdate.ready || pending != null) return;
+    const t = setTimeout(() => window.location.reload(), 60_000);
+    return () => clearTimeout(t);
+  }, [buildUpdate.ready, pending]);
 
   const play = useCallback(
     async (track: TrackKey, cue: "pre" | "post") => {
@@ -525,6 +556,26 @@ export default function PitClient({ token, version }: { token: string; version: 
             {paChip.label}
           </span>
         )}
+        {buildUpdate.ready && (
+          <button
+            type="button"
+            onClick={buildUpdate.reloadNow}
+            title={`This tab is on v${version}; v${buildUpdate.serverVersion} is live`}
+            style={{
+              fontSize: 11,
+              fontWeight: 800,
+              padding: "4px 12px",
+              borderRadius: 6,
+              border: `1px solid ${TRACK_TONE.blue}`,
+              background: "transparent",
+              color: TRACK_TONE.blue,
+              cursor: "pointer",
+              letterSpacing: "0.04em",
+            }}
+          >
+            New version ready — reload
+          </button>
+        )}
         {note && (
           <span
             role="status"
@@ -588,11 +639,6 @@ export default function PitClient({ token, version }: { token: string; version: 
 
 /* ── one track ─────────────────────────────────────────────────────────── */
 
-/** How old our latest stamp may be and still claim a playing zone. Clips run
- *  well under a minute; ten covers a replayed cycle without claiming a
- *  sponsor spot somebody fires an hour later. */
-const ATTRIBUTION_WINDOW_MS = 10 * 60_000;
-
 function TrackCard({
   track,
   lane,
@@ -648,7 +694,12 @@ function TrackCard({
    * path's own gate) — a beat later, deliberately: the one-shot must never
    * fire off a client-side guess.
    */
-  const released = racing?.pittedAtMs != null && racing.pittedAtMs >= (racing.finishedAtMs ?? 0);
+  // Released = the pitted stamp answers the finish, OR post demonstrably
+  // played for this session (the server now derives the same — a late finish
+  // witness can never re-hold a lane whose post already sounded).
+  const released =
+    postStamp != null ||
+    (racing?.pittedAtMs != null && racing.pittedAtMs >= (racing.finishedAtMs ?? 0));
   const clockSaysFinished =
     liveClock?.state === "finished" &&
     racing != null &&
@@ -664,12 +715,20 @@ function TrackCard({
   const zoneLive = liveTimingAt(zone, zonesAtMs, nowMs);
   const latest =
     preStamp && (!postStamp || preStamp.atMs > postStamp.atMs)
-      ? ({ cue: "pre", atMs: preStamp.atMs } as const)
+      ? ({ cue: "pre", stamp: preStamp } as const)
       : postStamp
-        ? ({ cue: "post", atMs: postStamp.atMs } as const)
+        ? ({ cue: "post", stamp: postStamp } as const)
         : null;
+  // A stamp claims a playing zone only while ITS OWN clip could still be
+  // sounding (length + slack; 90s guess when the player never said). The old
+  // 10-minute window let a long-done cue flip back to "playing" whenever the
+  // zone sounded for any reason — which is how one track's play "updated
+  // both" cards when the player lit more than the zone we asked for
+  // (owner 2026-08-14).
   const attributed =
-    zoneLive && latest && nowMs - latest.atMs < ATTRIBUTION_WINDOW_MS ? latest.cue : null;
+    zoneLive && latest && nowMs - latest.stamp.atMs < ((latest.stamp.durationS ?? 90) + 10) * 1000
+      ? latest.cue
+      : null;
   const preLive = attributed === "pre" ? zoneLive : stampClockAt(preStamp, nowMs);
   const postLive = attributed === "post" ? zoneLive : stampClockAt(postStamp, nowMs);
 

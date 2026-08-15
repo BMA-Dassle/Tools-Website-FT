@@ -74,8 +74,12 @@ export async function GET(req: NextRequest) {
   }
   const audio: Record<string, PitCueStamps> = {};
   const postGate: Record<TrackKey, PostRaceGate | null> = { blue: null, red: null, mega: null };
+  // ?qsys=0 — the tablet holds the player's socket itself, so the poll skips
+  // the Pandora live read and stays pure Redis. This is what lets the client
+  // poll every second.
+  const wantQsys = req.nextUrl.searchParams.get("qsys") !== "0";
   const [qsys] = await Promise.all([
-    readQsysLive(),
+    wantQsys ? readQsysLive() : Promise.resolve(null),
     ...[...sessionIds].map(async (sid) => {
       audio[sid] = await readCueStamps(sid);
     }),

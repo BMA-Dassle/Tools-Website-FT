@@ -344,7 +344,9 @@ export default function RaceControlPanels({
    */
   checkinCounts?: CheckinCount[];
 }) {
-  const status = useTrackStatus();
+  // 1s session-status cadence (owner 2026-08-14) — cacheOnly reads against
+  // the warm-loop-fresh Redis carry, never live Pandora.
+  const status = useTrackStatus(1_000);
   const nowMs = useNowMs();
   const { board, note, pending } = control;
 

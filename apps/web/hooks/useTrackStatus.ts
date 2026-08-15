@@ -62,8 +62,21 @@ export type TrackStatusResult = {
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
-export function useTrackStatus(): TrackStatusResult | null {
+/**
+ * @param pollMs poll cadence. The default (20s) is for guest pages and reads
+ * races-current with `prefer=cache`. STAFF/SIGNAGE surfaces pass a fast
+ * cadence (1-2s, owner 2026-08-14: "1 second is the minimums" for session
+ * status) — fast mode reads `cacheOnly=1`, which never touches live Pandora:
+ * the races-current-warm loop keeps the Redis carry ~1-2s fresh, so the fast
+ * read IS the realtime read and a Pandora stall can never stack requests
+ * from a fleet of boards.
+ */
+export function useTrackStatus(pollMs: number = POLL_INTERVAL): TrackStatusResult | null {
   const [data, setData] = useState<TrackStatusResult | null>(null);
+  const racesUrl =
+    pollMs < POLL_INTERVAL
+      ? "/api/pandora/races-current?cacheOnly=1"
+      : "/api/pandora/races-current?prefer=cache";
 
   // Drive polling through useVisibleInterval so we:
   //   1. PAUSE when the tab is hidden — was firing every 10s on
@@ -89,7 +102,7 @@ export function useTrackStatus(): TrackStatusResult | null {
       //     confirmation/e-ticket pages feel broken.
       const [statusRes, racesRes] = await Promise.all([
         fetch(TRACK_STATUS_URL, { cache: "no-store", signal }),
-        fetch("/api/pandora/races-current?prefer=cache", { cache: "no-store", signal }),
+        fetch(racesUrl, { cache: "no-store", signal }),
       ]);
       if (signal.aborted) return;
 
@@ -124,7 +137,7 @@ export function useTrackStatus(): TrackStatusResult | null {
     } catch {
       /* silent — keep last known state */
     }
-  }, POLL_INTERVAL);
+  }, pollMs);
 
   return data;
 }
