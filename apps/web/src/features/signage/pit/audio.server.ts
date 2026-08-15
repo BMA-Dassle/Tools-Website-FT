@@ -36,7 +36,7 @@ import "server-only";
 import redis from "@/lib/redis";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { recordBriefingEvent } from "../briefing/events-db";
-import { sessionBriefed } from "../briefing/state.server";
+import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
 import type { TrackKey } from "../track";
 import { markRacePitted, readPitLane } from "./lane.server";
 import { playQsysCue } from "./qsys.server";
@@ -204,6 +204,54 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
 }
 
 /**
+ * MAY POST-RACE PLAY YET? The announcement calls the finished race back in to
+ * hand kit into the room they were briefed in — so that room must be EMPTY
+ * (owner 2026-08-14: "post-race is only possible if the briefing room is
+ * empty"; same rule the wall's RoomStrip states: a race can only return to a
+ * room nobody is briefing in). When the record has lost WHICH room was
+ * theirs, they return to whichever is open, so one of the two must be.
+ *
+ * Exported so the board GET can ship the same verdict the press will get —
+ * a button that looks armed but refuses on press is a button staff stop
+ * trusting. `short` is the button's compact label; `reason` the full refusal.
+ */
+export interface PostRaceGate {
+  allowed: boolean;
+  reason: string | null;
+  short: string | null;
+}
+
+export async function postRaceGate(sessionId: string): Promise<PostRaceGate> {
+  const [briefed, rooms] = await Promise.all([
+    sessionBriefed(sessionId).catch(() => null),
+    readBriefingRooms(VENUE).catch(() => ({ red: null, blue: null }) as const),
+  ]);
+  const room = briefed?.room ?? null;
+  if (room) {
+    const occupant = rooms[room];
+    if (occupant) {
+      return {
+        allowed: false,
+        reason: `the ${room} room is still briefing${
+          occupant.heatNumber != null ? ` Session ${occupant.heatNumber}` : ""
+        } — post-race calls the race back into it, so it must be empty first`,
+        short: `${room} room busy`,
+      };
+    }
+    return { allowed: true, reason: null, short: null };
+  }
+  if (rooms.red && rooms.blue) {
+    return {
+      allowed: false,
+      reason:
+        "both briefing rooms are busy — post-race calls the race back in, so a room must be empty first",
+      short: "rooms busy",
+    };
+  }
+  return { allowed: true, reason: null, short: null };
+}
+
+/**
  * Play the POST-RACE cue for the finished race — and release the lane.
  *
  * Refuses while the race is still out: post arms at the finish marker, and a
@@ -222,6 +270,10 @@ export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
   }
   if (racing.finishedAtMs == null) {
     return { ok: false, error: "the race hasn't finished — post-race arms at the finish" };
+  }
+  const gate = await postRaceGate(racing.sessionId);
+  if (!gate.allowed) {
+    return { ok: false, error: gate.reason ?? "the briefing room is not empty yet" };
   }
 
   const result = await claimAndPlay(track, "post", racing.sessionId);

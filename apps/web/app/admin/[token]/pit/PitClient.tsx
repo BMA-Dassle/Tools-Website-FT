@@ -14,19 +14,33 @@
  *   race finishes (automatic — the finish marker raises the wall's hold)
  *     → HOLD, don't seat
  *     → ▶ Play post-race        ← the one hot press; doubles as "race
- *                                  returned" and reopens seating
+ *                                  returned" and reopens seating — and it is
+ *                                  HELD while a briefing room the race would
+ *                                  return into is still occupied
  *     → seating reopens (wall goes green)
  *
  * Each cue fires ONCE per track per cycle — the server claims the stamp NX
  * against the session it played for (pit/audio.server.ts), so this client
- * only ever asks; it never decides. A press now really PLAYS the cue: the
- * server fires Pandora's Q-SYS proxy and releases the claim if the PA never
- * started, so a failed press re-arms instead of lying.
+ * only ever asks; it never decides. NOTHING PLAYS AUTOMATICALLY: the only
+ * thing that fires audio is a press on this page.
  *
- * THE COUNTDOWN comes from the player itself: Pandora holds the Core's
- * WebSocket (docs/qsys-audio-websocket.md) and re-serves the cached zone
- * state on our board poll. Numeric `remaining` is interpolated against the
- * local clock between polls, so the bar runs smoothly on a 5-second poll.
+ * THE COUNTDOWN'S SOURCES, in preference order (owner 2026-08-14: "Dont use
+ * cache I would prefer websocket"):
+ *
+ *   1. The Core's own push feed, ws://<core>:8001/ws, connected DIRECTLY
+ *      from this tablet (docs/qsys-audio-websocket.md) — ~10 frames/second
+ *      while a clip plays. The address arrives on the board poll
+ *      (PIT_QSYS_SOCKET_URL, server env — never a rebuild). NOTE: an https
+ *      page also needs the tablet's per-site "insecure content: allow" for
+ *      ws:// — CSP permits it, the browser's mixed-content rule is the
+ *      second lock.
+ *   2. Pandora's cached copy of the same feed, riding the 5s board poll —
+ *      the automatic fallback while the socket is down or unconfigured.
+ *   3. The stamp's own clock: we know when WE started a cue and how long
+ *      the player said it runs, so the bar can count without either feed.
+ *      This is also what stops the bar snapping to 100% in the seconds
+ *      between a press and the first "playing" report (live bug 2026-08-14).
+ *
  * WHICH section shows the countdown is attributed by our own stamps — the
  * latest cue WE played on that zone — because a file staff play from the
  * Q-SYS panel directly is not ours to label.
@@ -64,8 +78,16 @@ interface CueStamps {
   post: CueStamp | null;
 }
 
-/** One audio zone as the Q-SYS player pushes it (via Pandora's cache). Only
- *  the fields this board reads — ignore the rest, per the wire doc. */
+/** May post-race play — mirrors the route's PostRaceGate. */
+interface PostGate {
+  allowed: boolean;
+  reason: string | null;
+  short: string | null;
+}
+
+/** One audio zone as the Q-SYS player pushes it (socket frame or Pandora's
+ *  cache — same shape). Only the fields this board reads — ignore the rest,
+ *  per the wire doc. */
 interface QsysZone {
   zone: string;
   wired: boolean;
@@ -88,6 +110,8 @@ interface PitBoard {
   lanes: PitLanes;
   audio: Record<string, CueStamps>;
   qsys: { connected: boolean; zones: QsysZone[] } | null;
+  socketUrl: string | null;
+  postGate: Record<TrackKey, PostGate | null>;
 }
 
 const STYLES = `
@@ -112,6 +136,8 @@ const STYLES = `
 .pitb-done { background: rgba(74,222,128,0.08); border-color: rgba(74,222,128,0.4); color: ${GREEN}; cursor: default; }
 /* dim = not armed yet */
 .pitb-idle { background: transparent; border-color: ${PORTAL_DARK.border}; color: ${PORTAL_DARK.muted}; opacity: 0.45; }
+/* armed by the race but HELD by the room gate — visible, named, unpressable */
+.pitb-blocked { background: transparent; border-color: rgba(240,179,65,0.45); color: ${AMBER}; opacity: 0.85; }
 .pit-blink { animation: pit-blink 1.1s ease-in-out infinite; }
 @keyframes pit-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 .pitb-spin {
@@ -126,7 +152,7 @@ const STYLES = `
 `;
 
 /** A local 1-second clock, so the seated/finished readouts (and the
- *  interpolated countdown) tick between the 5-second polls. */
+ *  interpolated countdown) tick between polls and frames. */
 function useNowMs(intervalMs = 1_000): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -156,23 +182,118 @@ function clockTimeMs(ms: number): string {
   });
 }
 
-/** The zone's countdown, run forward from the poll that carried it. Numeric
- *  fields only — the *Text strings are for humans and go stale between
- *  polls (wire doc: drive behavior off the numbers). */
+/* ── the Core's own push feed ──────────────────────────────────────────── */
+
+interface QsysSocket {
+  connected: boolean;
+  zones: QsysZone[] | null;
+  /** When the newest state frame landed — the interpolation anchor. */
+  atMs: number;
+}
+
+/**
+ * A direct connection to the Core's feed, per the wire doc's client
+ * guidance: reconnect forever with exponential backoff (1s doubling to a
+ * 60s cap), nothing to send on connect, and NEVER infer disconnection from
+ * silence — the feed is quiet while every zone is idle. Frames arrive
+ * ~10x/second only while a clip plays, so the setState rate is fine.
+ */
+function useQsysSocket(url: string | null): QsysSocket {
+  const [state, setState] = useState<QsysSocket>({ connected: false, zones: null, atMs: 0 });
+
+  useEffect(() => {
+    if (!url) return;
+    let ws: WebSocket | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+    let disposed = false;
+
+    const schedule = () => {
+      if (disposed) return;
+      const delay = Math.min(60_000, 1_000 * 2 ** attempt++);
+      timer = setTimeout(connect, delay);
+    };
+
+    const connect = () => {
+      if (disposed) return;
+      try {
+        ws = new WebSocket(url);
+      } catch {
+        // A malformed URL, or the browser's mixed-content rule — retrying is
+        // cheap, and the poll fallback is already carrying the board.
+        schedule();
+        return;
+      }
+      ws.onopen = () => {
+        attempt = 0;
+        setState((s) => ({ ...s, connected: true }));
+      };
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(String(e.data)) as { type?: string; zones?: QsysZone[] };
+          // hello/event frames carry nothing the state pushes don't; unknown
+          // types are ignored by instruction of the wire doc.
+          if (msg.type === "state" && Array.isArray(msg.zones)) {
+            setState({ connected: true, zones: msg.zones, atMs: Date.now() });
+          }
+        } catch {
+          /* a bad frame is not a bad socket */
+        }
+      };
+      ws.onclose = () => {
+        setState((s) => ({ ...s, connected: false }));
+        schedule();
+      };
+      ws.onerror = () => {
+        try {
+          ws?.close();
+        } catch {
+          /* close after error can throw on some engines */
+        }
+      };
+    };
+
+    // A tablet coming back from sleep must not sit out a 60s backoff.
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (ws && ws.readyState !== WebSocket.CLOSED) return;
+      if (timer) clearTimeout(timer);
+      attempt = 0;
+      connect();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    connect();
+    return () => {
+      disposed = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      try {
+        ws?.close();
+      } catch {
+        /* already closed */
+      }
+    };
+  }, [url]);
+
+  return state;
+}
+
+/* ── countdown arithmetic ──────────────────────────────────────────────── */
+
+/** The zone's countdown, run forward from the frame/poll that carried it.
+ *  Numeric fields only — the *Text strings go stale (wire doc: drive
+ *  behavior off the numbers). */
 interface LiveTiming {
   remainingS: number | null;
   durationS: number | null;
   progress: number | null;
 }
 
-function liveTimingAt(
-  zone: QsysZone | null,
-  fetchedAtMs: number,
-  nowMs: number,
-): LiveTiming | null {
+function liveTimingAt(zone: QsysZone | null, anchorMs: number, nowMs: number): LiveTiming | null {
   if (!zone?.playing) return null;
   const t = zone.timing;
-  const sinceS = Math.max(0, (nowMs - fetchedAtMs) / 1000);
+  const sinceS = Math.max(0, (nowMs - anchorMs) / 1000);
   const remainingS = typeof t.remaining === "number" ? Math.max(0, t.remaining - sinceS) : null;
   const durationS = typeof t.duration === "number" && t.duration > 0 ? t.duration : null;
   const progress =
@@ -182,6 +303,26 @@ function liveTimingAt(
         ? t.progress
         : null;
   return { remainingS, durationS, progress };
+}
+
+/**
+ * The stamp's own clock: WE know when the cue started and how long the
+ * player said it runs, so the bar can count with no feed at all. This is
+ * what stops the strip snapping to a full "played" bar in the seconds
+ * between the press and the first playing report. Null once the clip is
+ * over (small pad so the boundary doesn't flicker) or when the play reply
+ * carried no duration.
+ */
+function stampClockAt(stamp: CueStamp | null, nowMs: number): LiveTiming | null {
+  if (!stamp || stamp.durationS == null || stamp.durationS <= 0) return null;
+  const elapsedS = (nowMs - stamp.atMs) / 1000;
+  if (elapsedS < 0 || elapsedS >= stamp.durationS + 1.5) return null;
+  const remainingS = Math.max(0, stamp.durationS - elapsedS);
+  return {
+    remainingS,
+    durationS: stamp.durationS,
+    progress: Math.min(1, elapsedS / stamp.durationS),
+  };
 }
 
 export default function PitClient({ token, version }: { token: string; version: string }) {
@@ -215,6 +356,11 @@ export default function PitClient({ token, version }: { token: string; version: 
     5_000,
     true,
   );
+
+  // The Core's own feed, preferred; Pandora's cached copy is the fallback.
+  const socket = useQsysSocket(board?.data.socketUrl ?? null);
+  const zones = socket.connected && socket.zones ? socket.zones : (board?.data.qsys?.zones ?? null);
+  const zonesAtMs = socket.connected && socket.zones ? socket.atMs : (board?.fetchedAtMs ?? 0);
 
   const play = useCallback(
     async (track: TrackKey, cue: "pre" | "post") => {
@@ -259,18 +405,18 @@ export default function PitClient({ token, version }: { token: string; version: 
   const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
   const tracks: TrackKey[] = megaEnabled ? ["mega"] : ["blue", "red"];
 
-  // The PA feed's health, said quietly. `connected: false` right after a
-  // quiet spell is Pandora's socket warming up (one poll), so only a feed
-  // that is MISSING is worth amber — a warming one just says so.
-  const qsys = board?.data.qsys ?? null;
-  const paNote =
+  // The PA feed's health, said quietly: LIVE when this tablet holds the
+  // Core's socket, VIA POLL while it's on Pandora's cached copy, and amber
+  // only when there is no feed at all.
+  const hasPoll = board?.data.qsys != null;
+  const paChip =
     board == null
       ? null
-      : qsys == null
-        ? "PA feed unavailable"
-        : !qsys.connected
-          ? "PA feed connecting…"
-          : null;
+      : socket.connected
+        ? { label: "PA LIVE", tone: GREEN }
+        : hasPoll
+          ? { label: "PA VIA POLL", tone: PORTAL_DARK.muted }
+          : { label: "PA FEED UNAVAILABLE", tone: AMBER };
 
   return (
     <div
@@ -316,20 +462,19 @@ export default function PitClient({ token, version }: { token: string; version: 
             MEGA DAY
           </span>
         )}
-        {paNote && (
+        {paChip && (
           <span
             style={{
               fontSize: 10,
               fontWeight: 800,
               padding: "2px 9px",
               borderRadius: 4,
-              border: `1px solid ${qsys == null ? "rgba(240,179,65,0.5)" : PORTAL_DARK.border}`,
-              color: qsys == null ? AMBER : PORTAL_DARK.muted,
+              border: `1px solid ${paChip.tone === AMBER ? "rgba(240,179,65,0.5)" : PORTAL_DARK.border}`,
+              color: paChip.tone,
               letterSpacing: "0.06em",
-              textTransform: "uppercase",
             }}
           >
-            {paNote}
+            {paChip.label}
           </span>
         )}
         {note && (
@@ -361,8 +506,9 @@ export default function PitClient({ token, version }: { token: string; version: 
             track={track}
             lane={board?.data.lanes[track] ?? null}
             audio={board?.data.audio ?? {}}
-            zone={qsys?.zones.find((z) => z.zone === track) ?? null}
-            fetchedAtMs={board?.fetchedAtMs ?? 0}
+            gate={board?.data.postGate[track] ?? null}
+            zone={zones?.find((z) => z.zone === track) ?? null}
+            zonesAtMs={zonesAtMs}
             nowMs={nowMs}
             pending={pending}
             onPlay={(cue) => void play(track, cue)}
@@ -388,8 +534,9 @@ function TrackCard({
   track,
   lane,
   audio,
+  gate,
   zone,
-  fetchedAtMs,
+  zonesAtMs,
   nowMs,
   pending,
   onPlay,
@@ -397,8 +544,9 @@ function TrackCard({
   track: TrackKey;
   lane: PitLaneFeed | null;
   audio: Record<string, CueStamps>;
+  gate: PostGate | null;
   zone: QsysZone | null;
-  fetchedAtMs: number;
+  zonesAtMs: number;
   nowMs: number;
   pending: string | null;
   onPlay: (cue: "pre" | "post") => void;
@@ -425,18 +573,22 @@ function TrackCard({
   const finished = racing?.finishedAtMs != null;
   const finishedAgoMs = finished ? Math.max(0, nowMs - (racing?.finishedAtMs as number)) : null;
 
-  // WHICH cue is sounding, when the zone is playing: the latest cue WE
-  // stamped, and recently — a file fired from the Q-SYS panel directly is
-  // not ours to label, so it shows on neither section.
-  const live = liveTimingAt(zone, fetchedAtMs, nowMs);
+  // WHICH cue is sounding: the player's zone state when it's attributable to
+  // our latest stamp; otherwise each stamp's own clock carries its section.
+  const zoneLive = liveTimingAt(zone, zonesAtMs, nowMs);
   const latest =
     preStamp && (!postStamp || preStamp.atMs > postStamp.atMs)
       ? ({ cue: "pre", atMs: preStamp.atMs } as const)
       : postStamp
         ? ({ cue: "post", atMs: postStamp.atMs } as const)
         : null;
-  const playingCue =
-    live && latest && nowMs - latest.atMs < ATTRIBUTION_WINDOW_MS ? latest.cue : null;
+  const attributed =
+    zoneLive && latest && nowMs - latest.atMs < ATTRIBUTION_WINDOW_MS ? latest.cue : null;
+  const preLive = attributed === "pre" ? zoneLive : stampClockAt(preStamp, nowMs);
+  const postLive = attributed === "post" ? zoneLive : stampClockAt(postStamp, nowMs);
+
+  // The room gate: armed by the race, held by an occupied briefing room.
+  const postBlocked = finished && postStamp == null && gate != null && !gate.allowed;
 
   return (
     <div
@@ -476,28 +628,22 @@ function TrackCard({
           label="Play pre-race"
           playingLabel="Pre-race playing"
           doneLabel="Pre-race played"
-          state={
-            playingCue === "pre"
-              ? "playing"
-              : preStamp != null
-                ? "done"
-                : holding
-                  ? "press"
-                  : "idle"
-          }
+          state={preLive ? "playing" : preStamp != null ? "done" : holding ? "press" : "idle"}
           when={
-            playingCue === "pre" && live?.remainingS != null
-              ? `${formatSeconds(live.remainingS)} left`
-              : preStamp != null
-                ? clockTimeMs(preStamp.atMs)
-                : holding
-                  ? "due"
-                  : "no group seated"
+            preLive?.remainingS != null
+              ? `${formatSeconds(preLive.remainingS)} left`
+              : preLive
+                ? "playing"
+                : preStamp != null
+                  ? clockTimeMs(preStamp.atMs)
+                  : holding
+                    ? "due"
+                    : "no group seated"
           }
           busy={pending === `audio-pre:${track}`}
           onPress={() => onPlay("pre")}
         />
-        <CueLengthStrip live={playingCue === "pre" ? live : null} stamp={preStamp} />
+        <CueLengthStrip live={preLive} stamp={preStamp} />
       </CueSection>
 
       {/* ── POST — the race coming back ── */}
@@ -507,7 +653,9 @@ function TrackCard({
         sub={
           racing
             ? finished
-              ? `finished ${formatClock(finishedAgoMs ?? 0)} ago`
+              ? `finished ${formatClock(finishedAgoMs ?? 0)} ago${
+                  postBlocked ? ` · ${gate?.short ?? "room busy"}` : ""
+                }`
               : `racing${liveClock?.state === "running" ? ` · ${formatRemaining(liveClock.remainingMs)} left` : ""}`
             : "No race out."
         }
@@ -518,27 +666,33 @@ function TrackCard({
           playingLabel="Post-race playing"
           doneLabel="Post-race played"
           state={
-            playingCue === "post"
+            postLive
               ? "playing"
               : postStamp != null
                 ? "done"
                 : finished
-                  ? "press"
+                  ? postBlocked
+                    ? "blocked"
+                    : "press"
                   : "idle"
           }
           when={
-            playingCue === "post" && live?.remainingS != null
-              ? `${formatSeconds(live.remainingS)} left`
-              : postStamp != null
-                ? clockTimeMs(postStamp.atMs)
-                : finished
-                  ? "reopens seating"
-                  : "after the finish"
+            postLive?.remainingS != null
+              ? `${formatSeconds(postLive.remainingS)} left`
+              : postLive
+                ? "playing"
+                : postStamp != null
+                  ? clockTimeMs(postStamp.atMs)
+                  : finished
+                    ? postBlocked
+                      ? (gate?.short ?? "room busy")
+                      : "reopens seating"
+                    : "after the finish"
           }
           busy={pending === `audio-post:${track}`}
           onPress={() => onPlay("post")}
         />
-        <CueLengthStrip live={playingCue === "post" ? live : null} stamp={postStamp} />
+        <CueLengthStrip live={postLive} stamp={postStamp} />
       </CueSection>
     </div>
   );
@@ -668,7 +822,8 @@ function CueSection({
 }
 
 /** The button IS the indicator: amber = press to play, blinking outline =
- *  sounding right now, green = played (locked), dim = not armed yet. */
+ *  sounding right now, green = played (locked), amber outline = armed but
+ *  held by the room gate, dim = not armed yet. */
 function CueButton({
   label,
   playingLabel,
@@ -681,7 +836,7 @@ function CueButton({
   label: string;
   playingLabel: string;
   doneLabel: string;
-  state: "press" | "playing" | "done" | "idle";
+  state: "press" | "playing" | "done" | "idle" | "blocked";
   when: string;
   busy: boolean;
   onPress: () => void;
@@ -693,7 +848,9 @@ function CueButton({
         ? "pitb-playing"
         : state === "done"
           ? "pitb-done"
-          : "pitb-idle";
+          : state === "blocked"
+            ? "pitb-blocked"
+            : "pitb-idle";
   return (
     <button
       type="button"
@@ -735,10 +892,10 @@ function CueButton({
 /**
  * The announcement's length and how much is left.
  *
- * Live (this cue is sounding): the amber bar runs at the player's own
- * progress, interpolated between polls. Played and settled: a full green
- * bar with the clip length the /play reply reported. Not played, or length
- * never reported: —:— and an empty bar — the layout never changes.
+ * Live (this cue is sounding — player feed or the stamp's own clock): the
+ * amber bar runs at the playback progress. Played and OVER: a full green
+ * bar with the clip length. Not played, or length never reported: —:— and
+ * an empty bar — the layout never changes.
  */
 function CueLengthStrip({ live, stamp }: { live: LiveTiming | null; stamp: CueStamp | null }) {
   const pct = live != null ? Math.round((live.progress ?? 0) * 100) : stamp != null ? 100 : 0;

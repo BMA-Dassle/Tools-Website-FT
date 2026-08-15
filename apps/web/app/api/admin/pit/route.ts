@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { playPostRace, playPreRace, readCueStamps } from "~/features/signage/pit/audio.server";
+import {
+  playPostRace,
+  playPreRace,
+  postRaceGate,
+  readCueStamps,
+} from "~/features/signage/pit/audio.server";
 import { readPitLanes } from "~/features/signage/pit/lane.server";
 import { readQsysLive } from "~/features/signage/pit/qsys.server";
-import type { PitCueStamps } from "~/features/signage/pit/audio.server";
+import type { PitCueStamps, PostRaceGate } from "~/features/signage/pit/audio.server";
 import type { QsysLiveState } from "~/features/signage/pit/qsys.server";
 import type { PitLanes } from "~/features/signage/pit/pit-board";
+import type { TrackKey } from "~/features/signage/track";
 
 /**
  * The pit control station's API (/admin/{token}/pit).
@@ -31,16 +37,28 @@ function authed(req: NextRequest): boolean {
   return token === expected;
 }
 
+const PIT_TRACKS: TrackKey[] = ["blue", "red", "mega"];
+
 export interface PitBoardResponse {
   now: number;
   lanes: PitLanes;
   /** Cue stamps for every session the lanes mention, keyed by sessionId
    *  (TEXT — BMI ids exceed Number.MAX_SAFE_INTEGER, house rule). */
   audio: Record<string, PitCueStamps>;
-  /** The Q-SYS player's live zone state, from Pandora's WebSocket cache —
-   *  the countdown the tablet interpolates between polls. Null when Pandora
-   *  can't be read; the controls stand without it. */
+  /** The Q-SYS player's zone state from Pandora's WebSocket cache — the
+   *  tablet's FALLBACK when its own socket to the Core is down (the owner
+   *  prefers the direct feed, 2026-08-14). Null when Pandora can't be read;
+   *  the controls stand without it. */
   qsys: QsysLiveState | null;
+  /** The Core's own push feed for the tablet to connect to directly
+   *  (ws://<core>:8001/ws) — venue LAN address, server env so changing it is
+   *  never a rebuild. Null until PIT_QSYS_SOCKET_URL is set. */
+  socketUrl: string | null;
+  /** May post-race play right now, per track — the SAME verdict the press
+   *  will get (audio.server.ts postRaceGate), shipped so the button can say
+   *  why it's held instead of refusing on press. Null when moot (no finished
+   *  race on that track). */
+  postGate: Record<TrackKey, PostRaceGate | null>;
 }
 
 export async function GET(req: NextRequest) {
@@ -53,14 +71,28 @@ export async function GET(req: NextRequest) {
     if (lane.racing?.sessionId) sessionIds.add(lane.racing.sessionId);
   }
   const audio: Record<string, PitCueStamps> = {};
+  const postGate: Record<TrackKey, PostRaceGate | null> = { blue: null, red: null, mega: null };
   const [qsys] = await Promise.all([
     readQsysLive(),
     ...[...sessionIds].map(async (sid) => {
       audio[sid] = await readCueStamps(sid);
     }),
+    ...PIT_TRACKS.map(async (track) => {
+      const racing = lanes[track].racing;
+      if (racing && racing.finishedAtMs != null) {
+        postGate[track] = await postRaceGate(racing.sessionId);
+      }
+    }),
   ]);
 
-  const body: PitBoardResponse = { now: Date.now(), lanes, audio, qsys };
+  const body: PitBoardResponse = {
+    now: Date.now(),
+    lanes,
+    audio,
+    qsys,
+    socketUrl: process.env.PIT_QSYS_SOCKET_URL || null,
+    postGate,
+  };
   return NextResponse.json(body, { headers: { "Cache-Control": "no-store" } });
 }
 
