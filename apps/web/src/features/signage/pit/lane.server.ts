@@ -225,6 +225,21 @@ async function liveSaysGoneOut(
  * up, while one that starts early would say the lane is safe before it is. A
  * real marker always wins when it exists.
  */
+/** First-sighting pin for the socket witness — see the call site. Fails to
+ *  the fresh value: a Redis blip costs stability for one read, never a lane. */
+async function pinWitnessedFinish(sessionId: string, atMs: number): Promise<number> {
+  const key = `pit:live-finished:${sessionId}`;
+  try {
+    const claimed = await redis.set(key, String(atMs), "EX", 12 * 3600, "NX");
+    if (claimed === "OK") return atMs;
+    const raw = await redis.get(key);
+    const stored = raw == null ? NaN : Number(raw);
+    return Number.isFinite(stored) ? stored : atMs;
+  } catch {
+    return atMs;
+  }
+}
+
 async function liveSaysFinishedAtMs(
   track: TrackKey,
   live: LiveHeat | null,
@@ -327,8 +342,20 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
   const finish = await readRaceFinishedMarker(racing.sessionId).catch(() => null);
   // The broadcast's own stamp when we have it; the socket's observation when we
   // do not, so a race that is demonstrably over stops reading as still running.
+  const witnessedAtMs =
+    finish?.endedAtMs == null ? await liveSaysFinishedAtMs(track, live, racing.heatNumber) : null;
+  /**
+   * THE WITNESS TIME IS PINNED TO ITS FIRST SIGHTING (owner 2026-08-14: "Post
+   * was completed on blue but the HOLD stayed up"). live.atMs is the pause
+   * watcher's SAMPLE time and advances every sample — so on a night the
+   * finish marker never lands, finishedAtMs crept forward past every pitted
+   * stamp and the hold re-raised itself each minute, unreleasable. First
+   * sighting wins (NX), same rule the finish marker itself follows: a finish
+   * time, whoever witnessed it, never moves.
+   */
   const finishedAtMs =
-    finish?.endedAtMs ?? (await liveSaysFinishedAtMs(track, live, racing.heatNumber));
+    finish?.endedAtMs ??
+    (witnessedAtMs != null ? await pinWitnessedFinish(racing.sessionId, witnessedAtMs) : null);
   let pittedAtMs =
     stored.pitted && stored.pitted.sessionId === racing.sessionId ? stored.pitted.atMs : null;
 

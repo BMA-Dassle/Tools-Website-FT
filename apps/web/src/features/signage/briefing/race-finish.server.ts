@@ -284,7 +284,19 @@ export async function handleVenueMessage(message: unknown): Promise<void> {
         });
       }
 
-      if (!isActionableFinish(f, nowMs)) continue;
+      const actionable = isActionableFinish(f, nowMs);
+      // FORENSICS (owner 2026-08-14: blue said HOLD only at full finish) —
+      // one line per NEAR-LIVE finish record, so the logs can prove whether
+      // the phase-one (unstamped) push arrived for a heat and what the gate
+      // did with it. Scoped to races started in the last 30 min so the
+      // whole-day replay dumps stay silent.
+      if (f.actualStartMs != null && nowMs - f.actualStartMs < 30 * 60_000) {
+        console.log(
+          `[race-finish] ${f.raceId} heat=${f.heatNumber ?? "?"} track=${f.track ?? "?"} ` +
+            `state=${f.state} end=${f.actualEndMs ?? "pending"} actionable=${actionable}`,
+        );
+      }
+      if (!actionable) continue;
 
       const marker: RaceFinishedMarker = {
         endedAtMs: f.actualEndMs ?? nowMs,
