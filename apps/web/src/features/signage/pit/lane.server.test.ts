@@ -316,6 +316,58 @@ describe("overrideLaneSlot — karts", () => {
     expect((await readPitLane("blue")).karts?.sessionId).toBe("s1");
   });
 
+  /**
+   * THE UNCLEARABLE LANE (owner 2026-08-14: "I can't clear 62 red and its
+   * done"). `racing` is derived, so emptying it while its SOURCE still sat in
+   * `holding` wrote null over a field that was already null and left the next
+   * read to promote the same session straight back. The press worked, the write
+   * landed, and the session returned — for as long as anyone kept pressing.
+   */
+  it("clearing racing also clears the staged slot that derives it", async () => {
+    // Stored as holding; a finish marker means every read resolves it to racing.
+    putLane({ holding: group("s62", 62), racing: null, pitted: null });
+    finishedMarkers.set("s62", 9_000);
+    expect((await readPitLane("blue")).racing?.sessionId).toBe("s62");
+
+    const result = await overrideLaneSlot({ track: "blue", slot: "racing", occupant: null });
+
+    expect(result.ok).toBe(true);
+    const lane = await readPitLane("blue");
+    expect(lane.racing).toBeNull();
+    expect(lane.holding).toBeNull();
+    expect(lane.karts).toBeNull();
+  });
+
+  it("clearing racing also clears it out of the karts slot", async () => {
+    putLane({ holding: null, karts: group("s62", 62), racing: null, pitted: null });
+    finishedMarkers.set("s62", 9_000);
+    expect((await readPitLane("blue")).racing?.sessionId).toBe("s62");
+
+    await overrideLaneSlot({ track: "blue", slot: "racing", occupant: null });
+
+    const lane = await readPitLane("blue");
+    expect(lane.racing).toBeNull();
+    expect(lane.karts).toBeNull();
+  });
+
+  it("clearing racing leaves a DIFFERENT session in the seats alone", async () => {
+    // The busy shape: one group out, the next already seated behind them.
+    putLane({
+      holding: group("next", 63),
+      karts: group("out", 62),
+      racing: null,
+      pitted: null,
+    });
+    finishedMarkers.set("out", 9_000);
+
+    await overrideLaneSlot({ track: "blue", slot: "racing", occupant: null });
+
+    const lane = await readPitLane("blue");
+    expect(lane.racing).toBeNull();
+    expect(lane.karts).toBeNull();
+    expect(lane.holding?.sessionId).toBe("next");
+  });
+
   it("replaces on force", async () => {
     putLane({ holding: null, karts: group("s1", 44), racing: null, pitted: null });
 

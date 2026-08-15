@@ -33,6 +33,18 @@ const INK = "#e8eef7";
 const GREEN = "#4ade80";
 const AMBER = "#f0b341";
 
+/**
+ * One colour per lane stage, so the three move buttons are told apart at a
+ * glance rather than read. Green for the seats, ink for the karts, amber for
+ * the track — the further along the journey, the more the button costs to press
+ * by mistake.
+ */
+const SLOT_TONE: Record<"holding" | "karts" | "racing", string> = {
+  holding: GREEN,
+  karts: INK,
+  racing: AMBER,
+};
+
 /** A slot a session was sighted in — enough to empty exactly that slot. */
 interface OccupiedSlot {
   track: string;
@@ -349,7 +361,7 @@ export default function OverridePanel({
               </button>
             ))}
             {tracks.map((t) =>
-              (["holding", "racing"] as const).map((slot) => (
+              (["holding", "karts", "racing"] as const).map((slot) => (
                 <button
                   key={`${t}:${slot}`}
                   type="button"
@@ -368,10 +380,7 @@ export default function OverridePanel({
                     })
                   }
                   title={`Put session ${r.heatNumber ?? ""} in ${t} ${slot}`}
-                  style={btnStyle(
-                    slot === "holding" ? withAlpha(GREEN, 0.55) : withAlpha(AMBER, 0.55),
-                    slot === "holding" ? GREEN : AMBER,
-                  )}
+                  style={btnStyle(withAlpha(SLOT_TONE[slot], 0.55), SLOT_TONE[slot])}
                 >
                   → {t} {slot}
                 </button>

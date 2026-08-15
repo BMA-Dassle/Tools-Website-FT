@@ -699,6 +699,33 @@ export async function overrideLaneSlot(args: {
           room: args.occupant.room,
         }
       : null;
+
+    /**
+     * CLEARING RACING MUST ALSO CLEAR WHAT DERIVES IT (owner 2026-08-14: "I
+     * can't clear 62 red and its done").
+     *
+     * `racing` is the one slot on this lane that is not simply stored — a
+     * staged group whose race has demonstrably run IS the racing group, decided
+     * at read time by resolveLane. So a lane can store `holding: 62` and read
+     * back `racing: 62, holding: null`, which is exactly what the desk sees.
+     * Emptying the racing slot then wrote `racing: null` over a field that was
+     * already null and left the real occupant sitting in `holding`, where the
+     * very next poll promoted it again. The button did fire, the write did
+     * land, and the session came straight back — for as long as anyone kept
+     * pressing it.
+     *
+     * So: resolve first, find who is actually out there, and take that session
+     * out of every stored slot naming it. Matched on sessionId, never heat
+     * number — 62 exists on both tracks tonight, and this empties a lane.
+     */
+    if (!args.occupant) {
+      const outSessionId = (await resolveLane(stored, args.track)).racing?.sessionId ?? null;
+      if (outSessionId) {
+        if (next.holding?.sessionId === outSessionId) next.holding = null;
+        if (next.karts?.sessionId === outSessionId) next.karts = null;
+      }
+    }
+
     // A pitted stamp belongs to the session it answered. Moving a different
     // group onto the track must not inherit "their karts are already back".
     if (next.pitted && next.pitted.sessionId !== args.occupant?.sessionId) {
