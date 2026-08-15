@@ -53,10 +53,10 @@ import { TvBrandLogo } from "../components/TvBrandLogo";
 import type { SceneProps } from "../director/types";
 
 const PAD_X = 96;
-/** Top inset. Was 54 — most of it was empty band above the header, and the
- *  board is fighting for vertical room (owner 2026-08-15: "wasting some space
- *  at the top"). Left/right keep PAD_X; the bottom is set by the rail. */
-const PAD_Y = 30;
+/** Top inset. Was 54, then 30 — the band above the header was doing no work and
+ *  the board is short of vertical room (owner 2026-08-15, twice). Left/right
+ *  keep PAD_X; the bottom is set by the rail. */
+const PAD_Y = 20;
 const RAIL_H = 128;
 
 const GOLD = "#d4af37";
@@ -460,7 +460,13 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
             flex-start header left it visually adrift in the band (owner
             2026-08-13, "timer closer to bottom than top"). Every header item
             now shares one vertical center. */}
-        <header style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        {/* flexShrink 0 IS THE FIX FOR THE CLIPPED SESSION NUMBER. This header is
+            a child of a column flex, so it defaults to flex-shrink: 1 and the
+            column squashes it to fit — and because the session block clips its
+            overflow, the squash lands as a slice through the type rather than as
+            a visible overflow. Padding and line-height were the wrong lever
+            (they made the block taller, so it got squashed harder). */}
+        <header style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
           {/* WHICH TRACK, AS A SOLID BLOCK (owner 2026-08-15: "the colours don't
               stand out on the pit board").
               It was 46px of accent-coloured text beside a small dot. Coloured
@@ -475,10 +481,10 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
             style={{
               background: accent,
               color: "#05070f",
-              fontSize: 46,
+              fontSize: 34,
               lineHeight: 1,
-              padding: "14px 26px 16px",
-              borderRadius: 14,
+              padding: "9px 18px 11px",
+              borderRadius: 11,
               letterSpacing: "0.04em",
               whiteSpace: "nowrap",
               flexShrink: 0,
@@ -515,8 +521,9 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
               marginLeft: 44,
               minWidth: 0,
               overflow: "hidden",
-              paddingTop: 10,
-              paddingBottom: 12,
+              // Small, because the line boxes below now contain their own ink.
+              paddingTop: 2,
+              paddingBottom: 4,
             }}
           >
             {showSession ? (
@@ -524,10 +531,15 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
                 <div
                   className="tv-display"
                   style={{
-                    fontSize: 80,
-                    // Was 0.98 — too tight for the cap height at this size once
-                    // the box clips.
-                    lineHeight: 1.06,
+                    // 56/1.18. The header is a LABEL for the board, not its
+                    // content — the roster cards below are what staff read, and
+                    // the band was eating their room (owner 2026-08-15: "I want
+                    // that banner smaller at the top"). The ratio matters more
+                    // than the size: an italic 800 face puts ink outside any
+                    // sub-1.0 line box, and the clip cannot tell ink from
+                    // layout, which is what sliced it twice today.
+                    fontSize: 56,
+                    lineHeight: 1.18,
                     color: "#fff",
                     whiteSpace: "nowrap",
                     textShadow: `0 0 60px ${withAlpha(accent, 0.55)}`,
@@ -541,8 +553,8 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
                   <div
                     className="tv-display"
                     style={{
-                      fontSize: 34,
-                      marginTop: 2,
+                      fontSize: 24,
+                      marginTop: 1,
                       letterSpacing: "0.04em",
                       textTransform: "uppercase",
                       color: "rgba(245,236,238,0.75)",
@@ -586,7 +598,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
               opacity: 0.9,
             }}
           >
-            <TvBrandLogo venue="FT" height={46} />
+            <TvBrandLogo venue="FT" height={34} />
           </div>
           {/* The one clock, and nothing else — the room-status chips that
               briefly lived here were not part of the approved mockup and the
