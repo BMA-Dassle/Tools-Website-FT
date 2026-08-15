@@ -10,6 +10,7 @@
     "lint": "eslint",
     "lint:a11y": "node scripts/a11y-gate.mjs",
     "typecheck": "tsc --noEmit",
+    "typecheck:fast": "tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsbuildinfo-fast.json",
     "test": "vitest run"
   },
   "dependencies": {

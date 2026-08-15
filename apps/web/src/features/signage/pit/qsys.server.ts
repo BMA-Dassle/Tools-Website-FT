@@ -32,6 +32,17 @@ const FT_SQUARE_LOCATION_ID = "LAB52GY480CJF";
 
 export type QsysClip = "pre" | "post";
 
+/**
+ * Pandora's WebSocket RELAY of the Core's push feed — same frames, verbatim,
+ * over wss with NO auth (read-only telemetry, per the wire doc). This is the
+ * pit tablet's default feed: an https page can hold it with no mixed-content
+ * exception and no LAN access, unlike the Core's own ws:// listener. Pandora
+ * adds a synthetic hello ({source:"pandora", upstreamConnected}) plus
+ * {type:"upstream", connected} frames when its own link to the Core drops
+ * and returns.
+ */
+export const PANDORA_QSYS_SOCKET_URL = `${PANDORA_BASE.replace(/^https/, "wss")}/qsys/audio/ws/${FT_SQUARE_LOCATION_ID}`;
+
 /** The live timing block, exactly as the Core pushes it. Numeric fields are
  *  optional ("when known"); the *Text fields are display strings. Drive
  *  logic off the numbers and `playing`, never off the strings (wire doc). */

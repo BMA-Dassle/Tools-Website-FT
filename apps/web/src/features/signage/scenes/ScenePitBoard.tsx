@@ -190,10 +190,31 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
   const sessionHasRaced = !!session?.sessionId && racedRef.current.has(session.sessionId);
   const showSession = stagedRacing || sessionHasRaced ? null : session;
 
+  /**
+   * PHASE ONE RAISES THE HOLD, FROM THE SOCKET (owner 2026-08-14: "It needs
+   * to say HOLD as soon as it hits phase one … this also controls our
+   * assignment tv's and these rules are the same"). The finish marker rides
+   * bridge → webhook → pulse, seconds behind the flag; this screen's own
+   * timing socket flips the heat to "finished" the moment the clock ends.
+   * When the finished heat IS the racing group's heat and staff haven't
+   * released the lane, the hold shows NOW — a synthetic finished-at of nowMs
+   * feeds the same rail machine until the real marker lands. Suppressed once
+   * released (the socket keeps saying "finished" until the next heat loads,
+   * and a released lane must not re-hold).
+   */
+  const laneReleased =
+    lane.racing?.pittedAtMs != null && lane.racing.pittedAtMs >= (lane.racing.finishedAtMs ?? 0);
+  const clockSaysRacingFinished =
+    liveClock?.state === "finished" &&
+    lane.racing != null &&
+    lane.racing.heatNumber != null &&
+    liveHeatNumber(liveClock.heatName) === lane.racing.heatNumber;
+
   const rail = pitRailState({
     stagedInHolding: session?.inHolding ?? false,
     stagedStartedAtMs: stagedArmed ? null : (session?.startedAtMs ?? (stagedRacing ? 0 : null)),
-    racingFinishedAtMs: lane.racing?.finishedAtMs ?? null,
+    racingFinishedAtMs:
+      lane.racing?.finishedAtMs ?? (clockSaysRacingFinished && !laneReleased ? nowMs : null),
     pittedAtMs: lane.racing?.pittedAtMs ?? null,
   });
 

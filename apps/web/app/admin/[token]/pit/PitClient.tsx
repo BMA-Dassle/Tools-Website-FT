@@ -25,17 +25,20 @@
  * thing that fires audio is a press on this page.
  *
  * THE COUNTDOWN'S SOURCES, in preference order (owner 2026-08-14: "Dont use
- * cache I would prefer websocket"):
+ * cache I would prefer websocket", then "bind to the Pandora websocket"):
  *
- *   1. The Core's own push feed, ws://<core>:8001/ws, connected DIRECTLY
- *      from this tablet (docs/qsys-audio-websocket.md) — ~10 frames/second
- *      while a clip plays. The address arrives on the board poll
- *      (PIT_QSYS_SOCKET_URL, server env — never a rebuild). NOTE: an https
- *      page also needs the tablet's per-site "insecure content: allow" for
- *      ws:// — CSP permits it, the browser's mixed-content rule is the
- *      second lock.
- *   2. Pandora's cached copy of the same feed, riding the 5s board poll —
- *      the automatic fallback while the socket is down or unconfigured.
+ *   1. PANDORA'S WSS RELAY of the Core's push feed (docs/
+ *      qsys-audio-websocket.md § Connecting through Pandora) — the Core's
+ *      frames verbatim, ~10/second while a clip plays, no auth, and wss so
+ *      an https page needs no tablet settings. Pandora adds a synthetic
+ *      hello carrying upstreamConnected, and {type:"upstream", connected}
+ *      frames when ITS link to the Core drops/returns — while that link is
+ *      down the last state is stale, and the chip says so. The URL arrives
+ *      on the board poll; PIT_QSYS_SOCKET_URL overrides it for a LAN tablet
+ *      pointed straight at the Core (ws:// — that path DOES need the
+ *      per-site mixed-content allowance).
+ *   2. Pandora's polled cache of the same feed, riding the 5s board poll —
+ *      the automatic fallback while the socket is down.
  *   3. The stamp's own clock: we know when WE started a cue and how long
  *      the player said it runs, so the bar can count without either feed.
  *      This is also what stops the bar snapping to 100% in the seconds
@@ -53,6 +56,7 @@ import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { PORTAL_DARK, ADMIN_SANS } from "~/components/features/admin-skin/theme";
 import { formatRemaining, useLiveSessionClock } from "~/features/signage/live-session";
+import { liveHeatNumber } from "~/features/signage/briefing/room-return";
 import { pitRailState, type PitLaneFeed, type PitLanes } from "~/features/signage/pit/pit-board";
 import type { TrackKey } from "~/features/signage/track";
 
@@ -117,12 +121,19 @@ interface PitBoard {
 const STYLES = `
 .pitb {
   display: flex; align-items: center; gap: 12px; width: 100%;
-  min-height: 56px; padding: 0 18px; border-radius: 10px;
-  font-family: ${ADMIN_SANS}; font-size: 16px; font-weight: 800; letter-spacing: 0.02em;
+  min-height: 56px; flex: 1; padding: 0 18px; border-radius: 10px;
+  /* The button grows with the screen (flex: 1), so its text scales with it —
+     vh-clamped so a wall tablet gets billboard type and a cramped window
+     falls back to the original 16px (owner 2026-08-14: "fix text sized with
+     the bigger button"). */
+  font-family: ${ADMIN_SANS}; font-size: clamp(16px, 3.4vh, 34px); font-weight: 800; letter-spacing: 0.02em;
   border: 1px solid transparent; cursor: pointer; text-align: left;
   font-variant-numeric: tabular-nums;
   transition: filter 120ms ease, transform 60ms ease;
 }
+/* The right-hand status word ("due", "reopens seating", the countdown) rides
+   the same scale a step down. */
+.pitb-when { margin-left: auto; font-size: clamp(13px, 2.2vh, 22px); font-weight: 700; }
 .pitb:hover:not(:disabled) { filter: brightness(1.12); }
 .pitb:active:not(:disabled) { transform: translateY(1px); }
 .pitb:focus-visible { outline: 2px solid ${INK}; outline-offset: 2px; }
@@ -141,7 +152,7 @@ const STYLES = `
 .pit-blink { animation: pit-blink 1.1s ease-in-out infinite; }
 @keyframes pit-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 .pitb-spin {
-  width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
+  width: 0.8em; height: 0.8em; border-radius: 50%; flex-shrink: 0;
   border: 2px solid currentColor; border-top-color: transparent;
   animation: pitb-spin 650ms linear infinite;
 }
@@ -186,20 +197,31 @@ function clockTimeMs(ms: number): string {
 
 interface QsysSocket {
   connected: boolean;
+  /** Pandora's own link to the Core, from the relay's hello/upstream frames.
+   *  Always true on a direct-Core connection (no such frames). While false,
+   *  the last state is the state before the venue link dropped — stale. */
+  upstream: boolean;
   zones: QsysZone[] | null;
   /** When the newest state frame landed — the interpolation anchor. */
   atMs: number;
 }
 
 /**
- * A direct connection to the Core's feed, per the wire doc's client
- * guidance: reconnect forever with exponential backoff (1s doubling to a
- * 60s cap), nothing to send on connect, and NEVER infer disconnection from
- * silence — the feed is quiet while every zone is idle. Frames arrive
- * ~10x/second only while a clip plays, so the setState rate is fine.
+ * The push feed, per the wire doc's client guidance: reconnect forever with
+ * exponential backoff (1s doubling to a 60s cap), nothing to send on
+ * connect, and NEVER infer disconnection from silence — the feed is quiet
+ * while every zone is idle. Works against both the Pandora relay (default;
+ * relay-only hello/upstream frames handled below) and the Core directly
+ * (the env override); frames Pandora relays are the Core's verbatim.
+ * ~10 frames/second only while a clip plays, so the setState rate is fine.
  */
 function useQsysSocket(url: string | null): QsysSocket {
-  const [state, setState] = useState<QsysSocket>({ connected: false, zones: null, atMs: 0 });
+  const [state, setState] = useState<QsysSocket>({
+    connected: false,
+    upstream: true,
+    zones: null,
+    atMs: 0,
+  });
 
   useEffect(() => {
     if (!url) return;
@@ -230,12 +252,31 @@ function useQsysSocket(url: string | null): QsysSocket {
       };
       ws.onmessage = (e) => {
         try {
-          const msg = JSON.parse(String(e.data)) as { type?: string; zones?: QsysZone[] };
-          // hello/event frames carry nothing the state pushes don't; unknown
-          // types are ignored by instruction of the wire doc.
+          const msg = JSON.parse(String(e.data)) as {
+            type?: string;
+            zones?: QsysZone[];
+            connected?: boolean;
+            upstreamConnected?: boolean;
+          };
           if (msg.type === "state" && Array.isArray(msg.zones)) {
-            setState({ connected: true, zones: msg.zones, atMs: Date.now() });
+            setState((s) => ({
+              ...s,
+              connected: true,
+              zones: msg.zones ?? null,
+              atMs: Date.now(),
+            }));
+          } else if (msg.type === "hello" && typeof msg.upstreamConnected === "boolean") {
+            // The relay's synthetic hello — the Core's own hello carries no
+            // such field and leaves upstream at its default true.
+            setState((s) => ({ ...s, connected: true, upstream: msg.upstreamConnected === true }));
+          } else if (msg.type === "upstream" && typeof msg.connected === "boolean") {
+            // Pandora's link to the Core dropped or returned. While down, no
+            // state frames arrive — the last state is stale, and fresh state
+            // follows the reconnect on its own.
+            setState((s) => ({ ...s, upstream: msg.connected === true }));
           }
+          // event frames carry nothing the state pushes don't; unknown types
+          // are ignored by instruction of the wire doc.
         } catch {
           /* a bad frame is not a bad socket */
         }
@@ -292,6 +333,10 @@ interface LiveTiming {
 
 function liveTimingAt(zone: QsysZone | null, anchorMs: number, nowMs: number): LiveTiming | null {
   if (!zone?.playing) return null;
+  // A cue runs well under two minutes: a "playing" report older than that is
+  // a stale frame from a dropped feed (upstream down, poll cache frozen),
+  // not a clip — and a bar that runs forever teaches staff to ignore it.
+  if (nowMs - anchorMs > 120_000) return null;
   const t = zone.timing;
   const sinceS = Math.max(0, (nowMs - anchorMs) / 1000);
   const remainingS = typeof t.remaining === "number" ? Math.max(0, t.remaining - sinceS) : null;
@@ -405,18 +450,21 @@ export default function PitClient({ token, version }: { token: string; version: 
   const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
   const tracks: TrackKey[] = megaEnabled ? ["mega"] : ["blue", "red"];
 
-  // The PA feed's health, said quietly: LIVE when this tablet holds the
-  // Core's socket, VIA POLL while it's on Pandora's cached copy, and amber
-  // only when there is no feed at all.
+  // The PA feed's health, said quietly: LIVE when the socket is up end to
+  // end, a named amber when Pandora is up but the VENUE's link to the Core
+  // is down (the relay tells us — last state is stale), VIA POLL while the
+  // socket itself is down, and amber only when there is no feed at all.
   const hasPoll = board?.data.qsys != null;
   const paChip =
     board == null
       ? null
-      : socket.connected
+      : socket.connected && socket.upstream
         ? { label: "PA LIVE", tone: GREEN }
-        : hasPoll
-          ? { label: "PA VIA POLL", tone: PORTAL_DARK.muted }
-          : { label: "PA FEED UNAVAILABLE", tone: AMBER };
+        : socket.connected
+          ? { label: "PA LINK DOWN AT VENUE", tone: AMBER }
+          : hasPoll
+            ? { label: "PA VIA POLL", tone: PORTAL_DARK.muted }
+            : { label: "PA FEED UNAVAILABLE", tone: AMBER };
 
   return (
     <div
@@ -491,13 +539,19 @@ export default function PitClient({ token, version }: { token: string; version: 
         )}
       </header>
 
+      {/* Cards STRETCH to the bottom of the screen (owner 2026-08-14: "make
+          them fill vertically") — the grid takes the viewport's leftover
+          height and the default stretch alignment hands it to the cards;
+          inside, each PRE/POST section takes half and its button soaks up
+          the growth, so the fill buys bigger touch targets, not blank card
+          bottoms. */}
       <div
         style={{
           display: "grid",
           gap: 16,
           gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))",
-          alignItems: "start",
           flex: 1,
+          minHeight: 0,
         }}
       >
         {tracks.map((track) => (
@@ -508,6 +562,15 @@ export default function PitClient({ token, version }: { token: string; version: 
             audio={board?.data.audio ?? {}}
             gate={board?.data.postGate[track] ?? null}
             zone={zones?.find((z) => z.zone === track) ?? null}
+            // One clip per TRACK (owner): a zone can't overlap itself, and
+            // mega conflicts with both pits' zones since it IS their
+            // speakers. Red and blue run independently. The server refuses
+            // too; this is the button saying so instead of erroring.
+            paBusyZone={
+              zones?.find(
+                (z) => z.playing && (z.zone === track || z.zone === "mega" || track === "mega"),
+              )?.zone ?? null
+            }
             zonesAtMs={zonesAtMs}
             nowMs={nowMs}
             pending={pending}
@@ -536,6 +599,7 @@ function TrackCard({
   audio,
   gate,
   zone,
+  paBusyZone,
   zonesAtMs,
   nowMs,
   pending,
@@ -546,6 +610,9 @@ function TrackCard({
   audio: Record<string, CueStamps>;
   gate: PostGate | null;
   zone: QsysZone | null;
+  /** Which zone the PA is currently sounding on, if any — one clip at a
+   *  time across the whole player, so this blocks every other press. */
+  paBusyZone: string | null;
   zonesAtMs: number;
   nowMs: number;
   pending: string | null;
@@ -568,7 +635,26 @@ function TrackCard({
     racingFinishedAtMs: racing?.finishedAtMs ?? null,
     pittedAtMs: racing?.pittedAtMs ?? null,
   });
-  const holdLive = rail === "hold";
+  /**
+   * PHASE ONE, FROM THE FASTEST WITNESS THIS TABLET HOLDS (owner 2026-08-14:
+   * "It needs to say HOLD as soon as it hits phase one"). The finish marker
+   * rides bridge → webhook → 5s poll, seconds behind the flag; the timing
+   * socket this card already watches flips the heat to "finished" the moment
+   * the clock ends. When the finished heat IS the racing group's heat and no
+   * release has been pressed, the lane is live — say HOLD now, not at the
+   * next poll. Suppressed once released, because the socket keeps saying
+   * "finished" until the next heat loads and a released lane must not
+   * re-hold. The post BUTTON still arms off the server's marker (the press
+   * path's own gate) — a beat later, deliberately: the one-shot must never
+   * fire off a client-side guess.
+   */
+  const released = racing?.pittedAtMs != null && racing.pittedAtMs >= (racing.finishedAtMs ?? 0);
+  const clockSaysFinished =
+    liveClock?.state === "finished" &&
+    racing != null &&
+    racing.heatNumber != null &&
+    liveHeatNumber(liveClock.heatName) === racing.heatNumber;
+  const holdLive = rail === "hold" || (clockSaysFinished && !released);
 
   const finished = racing?.finishedAtMs != null;
   const finishedAgoMs = finished ? Math.max(0, nowMs - (racing?.finishedAtMs as number)) : null;
@@ -602,6 +688,9 @@ function TrackCard({
         flexDirection: "column",
         gap: 12,
         minWidth: 0,
+        // The grid stretches this card to the bottom of the screen; the two
+        // sections split whatever the header row leaves.
+        minHeight: 0,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 2px" }}>
@@ -628,7 +717,17 @@ function TrackCard({
           label="Play pre-race"
           playingLabel="Pre-race playing"
           doneLabel="Pre-race played"
-          state={preLive ? "playing" : preStamp != null ? "done" : holding ? "press" : "idle"}
+          state={
+            preLive
+              ? "playing"
+              : preStamp != null
+                ? "done"
+                : holding
+                  ? paBusyZone
+                    ? "blocked"
+                    : "press"
+                  : "idle"
+          }
           when={
             preLive?.remainingS != null
               ? `${formatSeconds(preLive.remainingS)} left`
@@ -637,7 +736,9 @@ function TrackCard({
                 : preStamp != null
                   ? clockTimeMs(preStamp.atMs)
                   : holding
-                    ? "due"
+                    ? paBusyZone
+                      ? `PA busy · ${paBusyZone}`
+                      : "due"
                     : "no group seated"
           }
           busy={pending === `audio-pre:${track}`}
@@ -656,7 +757,10 @@ function TrackCard({
               ? `finished ${formatClock(finishedAgoMs ?? 0)} ago${
                   postBlocked ? ` · ${gate?.short ?? "room busy"}` : ""
                 }`
-              : `racing${liveClock?.state === "running" ? ` · ${formatRemaining(liveClock.remainingMs)} left` : ""}`
+              : clockSaysFinished
+                ? // The socket saw phase one; the marker is a beat behind.
+                  "finishing — karts coming in"
+                : `racing${liveClock?.state === "running" ? ` · ${formatRemaining(liveClock.remainingMs)} left` : ""}`
             : "No race out."
         }
         subTone={finished && postStamp == null ? AMBER : undefined}
@@ -671,7 +775,7 @@ function TrackCard({
               : postStamp != null
                 ? "done"
                 : finished
-                  ? postBlocked
+                  ? postBlocked || paBusyZone
                     ? "blocked"
                     : "press"
                   : "idle"
@@ -686,7 +790,9 @@ function TrackCard({
                   : finished
                     ? postBlocked
                       ? (gate?.short ?? "room busy")
-                      : "reopens seating"
+                      : paBusyZone
+                        ? `PA busy · ${paBusyZone}`
+                        : "reopens seating"
                     : "after the finish"
           }
           busy={pending === `audio-post:${track}`}
@@ -772,6 +878,11 @@ function CueSection({
         display: "flex",
         flexDirection: "column",
         gap: 10,
+        // Each section takes an equal share of the card's height, and the
+        // growth goes to the BUTTON (flex: 1 in .pitb) — a taller touch
+        // target at the fence, never a blank section bottom.
+        flex: 1,
+        minHeight: 0,
       }}
     >
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
@@ -794,7 +905,7 @@ function CueSection({
         {title && (
           <span
             style={{
-              fontSize: 25,
+              fontSize: "clamp(25px, 3.6vh, 38px)",
               fontWeight: 800,
               lineHeight: 1.1,
               color: INK,
@@ -807,7 +918,7 @@ function CueSection({
         )}
         <span
           style={{
-            fontSize: 12.5,
+            fontSize: "clamp(12.5px, 1.9vh, 18px)",
             color: subTone ?? PORTAL_DARK.muted,
             fontWeight: subTone ? 700 : 400,
             fontVariantNumeric: "tabular-nums",
@@ -865,8 +976,8 @@ function CueButton({
           className="pit-blink"
           aria-hidden
           style={{
-            width: 10,
-            height: 10,
+            width: "0.55em",
+            height: "0.55em",
             borderRadius: "50%",
             background: AMBER,
             boxShadow: `0 0 9px ${AMBER}`,
@@ -875,14 +986,7 @@ function CueButton({
         />
       ) : null}
       {state === "done" ? `✓ ${doneLabel}` : state === "playing" ? playingLabel : `▶ ${label}`}
-      <span
-        style={{
-          marginLeft: "auto",
-          fontSize: 13,
-          fontWeight: 700,
-          opacity: state === "press" ? 0.75 : 1,
-        }}
-      >
+      <span className="pitb-when" style={{ opacity: state === "press" ? 0.75 : 1 }}>
         {busy ? "Playing…" : when}
       </span>
     </button>
@@ -933,7 +1037,7 @@ function CueLengthStrip({ live, stamp }: { live: LiveTiming | null; stamp: CueSt
       </div>
       <span
         style={{
-          fontSize: 12,
+          fontSize: "clamp(12px, 1.8vh, 17px)",
           fontWeight: 700,
           color: live != null ? AMBER : PORTAL_DARK.muted,
           fontVariantNumeric: "tabular-nums",
