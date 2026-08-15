@@ -396,7 +396,7 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
  * (yieldStaySeated). No stamp, no Neon row — ambient safety audio is not a
  * cycle event; the play itself is still console-logged by playQsysCue.
  */
-const STAY_SEATED_EVERY_S = 25;
+const STAY_SEATED_EVERY_S = 10;
 const STAY_SEATED_MAX_MS = 15 * 60_000;
 
 async function maybePlayStaySeated(track: TrackKey, lane: PitLaneFeed): Promise<void> {
