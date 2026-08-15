@@ -120,8 +120,17 @@ export async function POST(req: NextRequest) {
    *
    * Ordering is guaranteed by the bridge POSTing serially, which is also what
    * makes the read-modify-write in here safe without a lock.
+   *
+   * ANCHORED TO THE BRIDGE'S ARRIVAL STAMP, NOT OUR OWN CLOCK. The green flag's
+   * anchor is the moment the frame landed at the bridge; `Date.now()` here is
+   * that plus the POST, the serial queue and Vercel's own scheduling, and the
+   * wall showed it — a countdown ~3s slow (owner 2026-08-15). Falls back to our
+   * clock only if the stamp is missing or unparseable, since a clock a few
+   * seconds out still beats no clock.
    */
-  after(() => updateRaceClocks(message, Date.now()));
+  const bridgeStampMs = body.receivedAt ? Date.parse(body.receivedAt) : NaN;
+  const anchorMs = Number.isFinite(bridgeStampMs) ? bridgeStampMs : Date.now();
+  after(() => updateRaceClocks(message, anchorMs));
 
   console.log(`[kart-webhook] queued type=${messageType}`);
   return NextResponse.json({ ok: true, kind: "queued", messageType });

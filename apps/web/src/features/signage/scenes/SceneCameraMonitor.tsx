@@ -690,8 +690,17 @@ function CheckinPanel({
           : "Now checking in";
   const headingColor =
     state === "ready" ? PANEL_READY : state === "closing" ? PANEL_WAIT : PANEL_INK;
-  const countColor =
-    state === "ready" ? PANEL_READY : state === "counting" ? undefined : PANEL_WAIT;
+  /**
+   * NO INLINE COLOUR ON A FLASHING PANEL (owner 2026-08-15: "i don't like this
+   * becoming green on green").
+   *
+   * Ready and overdue hand the count's colour to the stylesheet, exactly as the
+   * heading already does, because only the keyframes know which half of the
+   * flash we are in. Setting it here put a green count on a panel that was
+   * turning green underneath it — and inline style outranks the class, so the
+   * CSS could not rescue it.
+   */
+  const countColor = state === "closing" ? PANEL_WAIT : undefined;
   // Already a TrackKey — CheckinProgressSession is built server-side from the
   // track keys, not from display names.
   const track = session.track;

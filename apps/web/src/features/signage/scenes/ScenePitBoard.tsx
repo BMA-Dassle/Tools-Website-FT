@@ -61,6 +61,9 @@ const RED = "#ff3b30";
 const GREEN = "#22c55e";
 const OK = "#46d68c";
 const AMBER = "#f0b341";
+/** In-progress: the pre-race cue is out but the race has not armed yet.
+ *  Deliberately neither amber (owed) nor green (cleared). */
+const ACCENT_INFO = "#6ea8ff";
 
 /** The one photo switch (owner toggled off 2026-08-13, back on same day).
  *  Off = silhouettes only, and the board never calls /api/tv/pit-photo. */
@@ -602,6 +605,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
       <Rail
         kind={rail}
         accent={accent}
+        armed={armedNotCounting(session?.heatNumber ?? null)}
         session={session}
         qual={qualTarget ? { lap: formatLap(qualTarget.ms), level: qualTarget.level } : null}
       />
@@ -1159,11 +1163,14 @@ function findDelay(
 function Rail({
   kind,
   accent,
+  armed,
   session,
   qual,
 }: {
   kind: "info" | "seat" | "hold" | "racing";
   accent: string;
+  /** Two-phase start, window one: armed, clock not yet running. */
+  armed: boolean;
   session: {
     heatNumber: number | null;
     briefedRoom: "red" | "blue" | null;
@@ -1227,7 +1234,9 @@ function Rail({
         <span className="tv-display" style={{ fontSize: 46, color: GREEN, whiteSpace: "nowrap" }}>
           Seat {sessionName} now
         </span>
-        <PreRacePill session={session} />
+        {/* The seat rail is by definition not racing — this is the window where
+            "READY TO SEND" actually earns its place. */}
+        <PreRacePill session={session} armed={armed} racing={false} />
         <QualPill qual={qual} accent={accent} />
       </div>
     );
@@ -1267,27 +1276,62 @@ function Rail({
       >
         {infoText}
       </span>
-      <PreRacePill session={session} />
+      <PreRacePill session={session} armed={armed} racing={kind === "racing"} />
       <QualPill qual={qual} accent={accent} />
     </div>
   );
 }
 
 /**
- * The pre-race PA cue's small indicator (owner 2026-08-14). Green tick once
- * the cue has played; amber "due" only while the group is actually in the
- * seats with the cue owed — a group still briefing has nothing due yet, and
- * an indicator that ambers early is an indicator staff learn to ignore.
+ * The pre-race PA cue's small indicator (owner 2026-08-14), now saying what to
+ * DO rather than only what has happened (owner 2026-08-15).
+ *
+ * It reads the two things that gate a send, and only calls for the green when
+ * BOTH are true:
+ *
+ *   no cue yet, group seated   → "Pre-race due"      amber, the cue is owed
+ *   cue fired, race not armed  → "Pre-race playing"  the announcement is out
+ *   cue fired AND race armed   → "READY TO SEND"     green, both gates cleared
+ *   racing                     → "Pre-race ✓"        historical, nothing owed
+ *
+ * "Pre-race playing" flips the moment staff press the button in the pit,
+ * because the press is what stamps `preRaceAtMs` — the board does not have the
+ * PA's own playing state (Q-Sys knows it; the board payload does not carry it),
+ * and rather than guess a clip length we hold "playing" until the race arms,
+ * which is the next thing that actually happens.
+ *
+ * `armed` is the two-phase start's first window — see race-clock.ts. It is only
+ * meaningful because the clock now models arm-vs-green off real wire events;
+ * while `counting` was hardcoded true this pill could never have said this.
  */
 function PreRacePill({
   session,
+  armed,
+  racing,
 }: {
   session: { inHolding: boolean; preRaceAtMs: number | null } | null;
+  /** Race is armed — phase one fired, clock not yet running. */
+  armed: boolean;
+  /** Race is genuinely under way; nothing is owed and nothing is pending. */
+  racing: boolean;
 }) {
   if (!session) return null;
   const played = session.preRaceAtMs != null;
   if (!played && !session.inHolding) return null;
-  const color = played ? OK : AMBER;
+
+  // No cue yet: stays "due" regardless of whether the race has armed — the
+  // announcement is what sends the group to the karts, so an armed race with no
+  // cue is still waiting on the cue, not on the flag.
+  const ready = played && armed;
+  const label = !played
+    ? "Pre-race due"
+    : ready
+      ? "READY TO SEND"
+      : racing
+        ? "Pre-race ✓"
+        : "Pre-race playing";
+  const color = !played ? AMBER : ready || racing ? OK : ACCENT_INFO;
+
   return (
     <span
       className="tv-display"
@@ -1297,14 +1341,18 @@ function PreRacePill({
         gap: 12,
         padding: "6px 20px",
         borderRadius: 999,
-        border: `2px solid ${withAlpha(color, 0.7)}`,
-        background: withAlpha(color, 0.12),
+        border: `2px solid ${withAlpha(color, ready ? 1 : 0.7)}`,
+        background: withAlpha(color, ready ? 0.22 : 0.12),
         color,
         fontSize: 24,
+        // The one state that is an instruction, not a status, carries the
+        // weight — it is read across a pit lane, not leaned into.
+        fontWeight: ready ? 700 : undefined,
+        letterSpacing: ready ? "0.04em" : undefined,
         whiteSpace: "nowrap",
       }}
     >
-      {played ? "Pre-race ✓" : "Pre-race due"}
+      {label}
     </span>
   );
 }

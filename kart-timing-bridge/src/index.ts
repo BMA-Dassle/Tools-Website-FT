@@ -120,7 +120,7 @@ function sleep(ms: number): Promise<void> {
  * us — events keep arriving and the next event flushes any
  * cached state).
  */
-async function forward(message: unknown): Promise<void> {
+async function forward(message: unknown, arrivedAt: string): Promise<void> {
   if (PROBE_MODE) {
     console.log("[kart-bridge:PROBE]", JSON.stringify(message));
   }
@@ -133,7 +133,12 @@ async function forward(message: unknown): Promise<void> {
           "x-kart-bridge-secret": WEBHOOK_SECRET,
         },
         body: JSON.stringify({
-          receivedAt: new Date().toISOString(),
+          // Stamped when the FRAME LANDED, not now. The webhook anchors the race
+          // clock to this, and "now" here is after the serial forward queue plus
+          // any retry — which showed up on the wall as a countdown ~3s slow
+          // (owner 2026-08-15). Sub-second accuracy is free; spending it on our
+          // own plumbing is not.
+          receivedAt: arrivedAt,
           message,
         }),
       });
@@ -171,10 +176,10 @@ async function forward(message: unknown): Promise<void> {
 let forwardChain: Promise<void> = Promise.resolve();
 let queueDepth = 0;
 
-function enqueueForward(message: unknown): void {
+function enqueueForward(message: unknown, arrivedAt: string): void {
   queueDepth++;
   forwardChain = forwardChain
-    .then(() => forward(message))
+    .then(() => forward(message, arrivedAt))
     .catch((err) => console.error("[kart-bridge] forward threw:", err))
     .finally(() => {
       queueDepth--;
@@ -243,6 +248,10 @@ async function consumeStream(): Promise<void> {
     });
 
     ws.on("message", (data: Buffer, isBinary: boolean) => {
+      // FIRST LINE OF THE HANDLER, deliberately — this timestamp becomes the
+      // race clock's green-flag anchor downstream, so it must predate our own
+      // parsing, dedupe and queueing.
+      const arrivedAt = new Date().toISOString();
       const raw = isBinary ? data.toString("utf8") : data.toString("utf8");
 
       // A zero-length frame now means something is wrong with the client,
@@ -293,7 +302,7 @@ async function consumeStream(): Promise<void> {
         `[kart-bridge] message type=${typeLabel} bytes=${raw.length} forwarding=${freshCount}/${totalCount}`,
       );
       debug("payload:", fresh);
-      enqueueForward(fresh);
+      enqueueForward(fresh, arrivedAt);
     });
 
     ws.on("error", (err: Error) => {

@@ -320,13 +320,41 @@
     background-color: #17913f;
   }
 }
+/* THE INK SWITCHES, IT DOES NOT FADE (owner 2026-08-15: "i don't like this
+   becoming green on green").
+
+   Both the ground and the ink were easing between white and #17913f on the same
+   1.4s curve, so for a good part of every cycle a mid-green heading sat on a
+   mid-green panel and the words disappeared. Easing a colour PAIR that must stay
+   legible is the mistake — the contrast is only correct at the two endpoints.
+
+   Holding each colour flat and flipping it at the crossover keeps ink and ground
+   in opposition at every frame: dark ink while the panel is white, white ink the
+   instant it turns green. */
 @keyframes tv-panel-ready-ink {
-  0%,
-  100% {
-    color: #17913f;
+  0% {
+    color: #0a1424;
+  }
+  24.9% {
+    color: #0a1424;
+  }
+  /* Flips, never fades — and still CRESTS AT 50% so it turns around on the beat
+     with every other 1.4s flash on the canvas (see the rulebook at the top, and
+     signage/motion.test.ts which enforces it). */
+  25% {
+    color: #ffffff;
   }
   50% {
     color: #ffffff;
+  }
+  74.9% {
+    color: #ffffff;
+  }
+  75% {
+    color: #0a1424;
+  }
+  100% {
+    color: #0a1424;
   }
 }
 @keyframes tv-panel-overdue {
@@ -339,12 +367,29 @@
   }
 }
 @keyframes tv-panel-overdue-ink {
-  0%,
-  100% {
-    color: #b8730a;
+  0% {
+    color: #0a1424;
+  }
+  24.9% {
+    color: #0a1424;
+  }
+  /* Flips, never fades — and still CRESTS AT 50% so it turns around on the beat
+     with every other 1.4s flash on the canvas (see the rulebook at the top, and
+     signage/motion.test.ts which enforces it). */
+  25% {
+    color: #ffffff;
   }
   50% {
     color: #ffffff;
+  }
+  74.9% {
+    color: #ffffff;
+  }
+  75% {
+    color: #0a1424;
+  }
+  100% {
+    color: #0a1424;
   }
 }
 .tv-panel-flash-ready {
@@ -359,17 +404,21 @@
 .tv-panel-flash-overdue .tv-panel-head {
   animation: tv-panel-overdue-ink 1.4s ease-in-out infinite;
 }
-/* The row keeps its ground and the count keeps its colour through the flash —
-   see the note above. */
+/* The row rides ABOVE the flash and must not take colour from it. At 0.92 alpha
+   the green ground bled through and turned the row pale green, which then had a
+   green count sitting on it — the same collision as the heading, one layer down.
+   Fully opaque, so the row is white whatever the panel is doing. */
 .tv-panel-flash-ready .tv-panel-row,
 .tv-panel-flash-overdue .tv-panel-row {
-  background: rgba(255, 255, 255, 0.92);
+  background: #ffffff;
 }
+/* Darkened from the panel colours (#17913f / #b8730a) for the same reason: on a
+   white row these read, and they can never collide with the flash behind them. */
 .tv-panel-flash-ready .tv-panel-count b {
-  color: #17913f;
+  color: #0f6b2e;
 }
 .tv-panel-flash-overdue .tv-panel-count b {
-  color: #b8730a;
+  color: #8a5607;
 }
 
 /* Reduced motion collapses every .tv-canvas animation to one frame, which for a
