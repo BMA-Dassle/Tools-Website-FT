@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readSmsLog } from "@/lib/sms-log";
-import { businessDayYmdET } from "@/lib/race-business-day";
+import { businessDayYmdET, businessDayETRange } from "@/lib/race-business-day";
 
 /**
  * GET /api/admin/camera-assign/heats
@@ -74,32 +74,39 @@ export async function GET(req: NextRequest) {
     const beforeN = Math.max(1, Math.min(10, parseInt(searchParams.get("before") || "4", 10) || 4));
     const afterN = Math.max(1, Math.min(10, parseInt(searchParams.get("after") || "3", 10) || 3));
 
-    // Build one Pandora window wide enough for both halves: yesterday
-    // through tomorrow. This covers called races (scheduled today) AND
-    // upcoming (scheduled today/tomorrow).
     const nowMs = Date.now();
-    const dayMs = 24 * 60 * 60 * 1000;
-    const startWindow = new Date(nowMs - dayMs);
-    startWindow.setUTCHours(0, 0, 0, 0);
-    const endWindow = new Date(nowMs + 2 * dayMs);
-    endWindow.setUTCHours(0, 0, 0, 0);
+
+    // The business-day ET-local window — `${ymd}T00:00:00` ..
+    // `${ymd}T23:59:59`. Must stay byte-identical to what the
+    // pre-race-tickets cron sends, because /api/pandora/sessions keys
+    // its Redis cache on these raw strings. We used to send a
+    // yesterday→+2d UTC ISO window: a key nothing warmed, so every call
+    // went live to Pandora on a 6s fuse and a Pandora 500 emptied the
+    // pills outright (no stale copy existed under that key). Both halves
+    // of this endpoint only ever care about today's heats anyway.
+    const { startDate, endDate } = businessDayETRange();
 
     // Fire the two independent reads in parallel.
-    const [smsLog, pandoraList] = await Promise.all([
+    const [smsLog, pandora] = await Promise.all([
       readSmsLog(todayETYmd(), { limit: 2000, offset: 0 }),
       (async () => {
         const qs = new URLSearchParams({
           locationId: FASTTRAX_LOCATION_ID,
           resourceName: resource,
-          startDate: startWindow.toISOString(),
-          endDate: endWindow.toISOString(),
+          startDate,
+          endDate,
+          prefer: "cache",
         }).toString();
         const res = await fetch(`${BASE}/api/pandora/sessions?${qs}`, { cache: "no-store" });
-        if (!res.ok) return [] as PandoraSession[];
+        if (!res.ok) return { list: [] as PandoraSession[], stale: false };
         const data = await res.json();
-        return Array.isArray(data?.data) ? (data.data as PandoraSession[]) : [];
+        return {
+          list: Array.isArray(data?.data) ? (data.data as PandoraSession[]) : [],
+          stale: data?.stale === true,
+        };
       })(),
     ]);
+    const pandoraList = pandora.list;
 
     const pandoraById = new Map<string, PandoraSession>(
       pandoraList.map((s) => [String(s.sessionId), s]),
@@ -152,7 +159,7 @@ export async function GET(req: NextRequest) {
       }));
 
     return NextResponse.json(
-      { called: calledTop, upcoming },
+      { called: calledTop, upcoming, stale: pandora.stale },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (err) {

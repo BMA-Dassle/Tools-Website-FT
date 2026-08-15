@@ -79,10 +79,14 @@ export default function ArenaGroupETicketView({ group }: Props) {
   const distinctSessions = Array.from(new Set(group.members.map((m) => String(m.sessionId))));
   async function poll(signal: AbortSignal) {
     try {
+      // `prefer=cache` — Redis first, live only on a miss. See the note on
+      // app/t/[id]/ETicketView.tsx. Worst case of the four ticket views: the
+      // read is per DISTINCT SESSION, so one group link was firing N live
+      // Pandora calls every 20 seconds from every phone holding it.
       const responses = await Promise.all([
         ...distinctSessions.map((sid) =>
           fetch(
-            `/api/pandora/session-participants?locationId=${encodeURIComponent(group.locationId)}&sessionId=${encodeURIComponent(sid)}`,
+            `/api/pandora/session-participants?locationId=${encodeURIComponent(group.locationId)}&sessionId=${encodeURIComponent(sid)}&prefer=cache`,
             { cache: "no-store", signal },
           ),
         ),

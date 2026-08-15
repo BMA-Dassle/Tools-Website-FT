@@ -43,18 +43,21 @@ function etYmdNow(): string {
 }
 
 /**
- * Compute a UTC window that fully covers the given ET calendar day.
- * ET is UTC-4 (EDT, Mar-Nov) or UTC-5 (EST). Querying ±1 day around
- * midnight UTC of `date` captures the whole ET day regardless of DST,
- * then we filter precisely on the client side via `etYmd` match.
+ * The ET-local-string window for a day — `${ymd}T00:00:00` ..
+ * `${ymd}T23:59:59`.
+ *
+ * This shape is NOT cosmetic. It is the exact string pair the
+ * pre-race-tickets cron sends every 2 minutes, and the
+ * /api/pandora/sessions Redis cache key is built from the raw
+ * startDate/endDate strings. Any other window (we used to send a
+ * padded ±1-day UTC ISO range) produces a key nothing ever warms —
+ * so every request paid the live Pandora cost, and when Pandora
+ * 500'd the stale-cache fallback had nothing to fall back TO and
+ * the heat list came back empty. Keep this aligned with
+ * businessDayETRange() in lib/race-business-day.ts.
  */
 function etDayWindow(ymd: string): { startDate: string; endDate: string } {
-  const [y, m, d] = ymd.split("-").map(Number);
-  // Midnight ET is 04:00 UTC during EDT or 05:00 UTC during EST;
-  // query a generous window and filter on the return.
-  const start = new Date(Date.UTC(y, m - 1, d - 1, 0, 0, 0));
-  const end = new Date(Date.UTC(y, m - 1, d + 1, 23, 59, 59));
-  return { startDate: start.toISOString(), endDate: end.toISOString() };
+  return { startDate: `${ymd}T00:00:00`, endDate: `${ymd}T23:59:59` };
 }
 
 function etYmdOf(iso: string): string {
@@ -66,21 +69,33 @@ function etYmdOf(iso: string): string {
   }).format(new Date(iso));
 }
 
+/**
+ * Redis-first (`prefer=cache`), falling through to live Pandora on a
+ * cold key. The day's heat list barely changes once published, and the
+ * cron keeps the cache warm through operating hours — so cache-first is
+ * both faster AND the thing that keeps the list on screen when Pandora
+ * is throwing. The proxy's own failure path then serves the stale Redis
+ * copy and flags `stale: true`, which we pass up to the operator.
+ */
 async function fetchSessionsForResource(
   resourceName: string,
   startDate: string,
   endDate: string,
-): Promise<PandoraSession[]> {
+): Promise<{ sessions: PandoraSession[]; stale: boolean }> {
   const qs = new URLSearchParams({
     locationId: FASTTRAX_LOCATION_ID,
     resourceName,
     startDate,
     endDate,
+    prefer: "cache",
   }).toString();
   const res = await fetch(`${BASE}/api/pandora/sessions?${qs}`, { cache: "no-store" });
-  if (!res.ok) return [];
+  if (!res.ok) return { sessions: [], stale: false };
   const data = await res.json();
-  return Array.isArray(data?.data) ? (data.data as PandoraSession[]) : [];
+  return {
+    sessions: Array.isArray(data?.data) ? (data.data as PandoraSession[]) : [],
+    stale: data?.stale === true,
+  };
 }
 
 /**
@@ -111,10 +126,11 @@ export async function GET(req: NextRequest) {
 
     const resource = TRACK_RESOURCE[trackRaw];
     const { startDate, endDate } = etDayWindow(date);
-    const raw = await fetchSessionsForResource(resource, startDate, endDate);
+    const { sessions: raw, stale } = await fetchSessionsForResource(resource, startDate, endDate);
 
-    // Strict ET-day filter — the Pandora window is padded by a day on
-    // each side to survive DST, so we clamp here.
+    // Belt-and-braces ET-day clamp. The window above is already ET-local
+    // so this is normally a no-op — it only bites if Pandora ever widens
+    // what it returns for a day range.
     const sameDay = raw.filter((s) => etYmdOf(s.scheduledStart) === date);
     sameDay.sort(
       (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
@@ -149,7 +165,7 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json(
-      { date, track: trackRaw, count: out.length, sessions: out },
+      { date, track: trackRaw, count: out.length, sessions: out, stale },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (err) {

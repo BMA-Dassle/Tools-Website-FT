@@ -61,6 +61,18 @@ export interface PitRosterEntry {
   cameraDue: boolean;
   birthday: boolean;
   vip: boolean;
+  /**
+   * BACK-TO-BACK, and where they are going (owner 2026-08-14).
+   *
+   * `arriving` = out on track right now in an earlier heat and staged here, so
+   * the empty card and the no-show ring are expected rather than something to
+   * chase. `again` = racing again within the next two heats, so they go back to
+   * holding when this race ends instead of out through check-in.
+   *
+   * Null for an ordinary racer. See pit/back-to-back.ts — a racer who is both
+   * reads as `arriving`, because that is the one that changes what staff do now.
+   */
+  backToBack: { state: "arriving" | "again"; session: number | null; track: string } | null;
 }
 
 /** One roster row with the spot it holds. */
@@ -214,6 +226,7 @@ export function mergePitRoster(fast: FastPitRow[], slow: PitRosterEntry[]): PitR
       cameraDue: known?.cameraDue ?? false,
       birthday: known?.birthday ?? false,
       vip: known?.vip ?? false,
+      backToBack: known?.backToBack ?? null,
     };
   });
 }

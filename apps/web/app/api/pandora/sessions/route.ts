@@ -15,13 +15,16 @@ import redis from "@/lib/redis";
  * Response: { success, data: [{ sessionId, name, scheduledStart, type, heatNumber }] }
  *
  * ── Caching ─────────────────────────────────────────────────────────────────
- * Two layers, mirroring the participants proxy:
+ * Three layers, mirroring the participants proxy:
  *
  * 1. Per-instance in-memory cache (60s) — protects against burst
  *    polling from the same Vercel function instance.
- * 2. Redis write-through on every successful Pandora fetch (30-min
- *    TTL) — survives function cold starts and instance churn, and
- *    serves the failure-fallback when Pandora is degraded.
+ * 2. Redis serving cache (30-min TTL), write-through on every
+ *    successful Pandora fetch — survives cold starts and instance
+ *    churn. Expires on purpose so a heat added mid-shift surfaces.
+ * 3. Redis last-known-good (18h TTL), also written on success but
+ *    read ONLY after a live fetch has failed. This is the floor that
+ *    keeps a schedule on screen through a long vendor slowdown.
  *
  * The pre-race-tickets cron (every 2 min) already calls this
  * endpoint to enumerate upcoming heats, so during operating hours
@@ -29,15 +32,39 @@ import redis from "@/lib/redis";
  * cache-first via `prefer=cache` for instant render even when
  * Pandora is hung.
  *
- * Hard 12s abort timeout on the upstream fetch — without it,
- * browsers hung on Pandora's BMI bridge during outages and the
- * camera-assign page wouldn't render at all.
+ * IMPORTANT: the cache key is built from the raw startDate/endDate
+ * STRINGS. Callers that want to share the cron-warmed entry must send
+ * the identical window shape (`${ymd}T00:00:00` .. `${ymd}T23:59:59`,
+ * see lib/race-business-day.ts businessDayETRange). A caller inventing
+ * its own window gets a private key nothing warms — which is how the
+ * camera-assign heat picker ended up with no cache to fall back on.
+ *
+ * Abort timeouts on the upstream fetch: 6s for user-facing calls, 55s
+ * for warm=1/fresh=1. Without them, browsers hung on Pandora's BMI
+ * bridge and the camera-assign page wouldn't render at all.
  */
+
+// Explicit ceiling so the 55s warm timeout has somewhere to land rather
+// than depending on whatever the platform default happens to be.
+export const maxDuration = 60;
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
 const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
 const MEMORY_CACHE_TTL_MS = 60_000;
 const REDIS_CACHE_TTL_SECONDS = 30 * 60; // 30 min — sessions for today rarely change post-publish
+/**
+ * Last-known-good TTL. The 30-min key above is the *serving* cache — it
+ * expires on purpose so a heat added mid-shift shows up. The LKG copy is
+ * the *floor*: written on every success, read only when a live fetch has
+ * already failed, and long enough to cover a whole race night.
+ *
+ * Why it exists: on 2026-08-14 Pandora's /bmi/sessions answered 200 with
+ * correct data but took 43-78s. Every 6s user-facing fetch aborted, the
+ * 30-min key had lapsed, and the fallback had nothing to serve — so the
+ * camera-assign heat picker went blank while the vendor was technically
+ * "up". A slow upstream must degrade to a stale schedule, never to zero.
+ */
+const REDIS_LKG_TTL_SECONDS = 18 * 60 * 60; // 18h — spans a full race day
 
 const ALLOWED_LOCATIONS = new Set([
   "LAB52GY480CJF", // FastTrax
@@ -79,6 +106,11 @@ function cacheKey(
   endDate: string,
 ): string {
   return `pandora:sessions:${locationId}:${resourceName}:${startDate}:${endDate}`;
+}
+
+/** Last-known-good twin of `cacheKey` — same identity, longer life. */
+function lkgKey(memKey: string): string {
+  return memKey.replace("pandora:sessions:", "pandora:sessions:lkg:");
 }
 
 export async function GET(req: NextRequest) {
@@ -139,9 +171,16 @@ export async function GET(req: NextRequest) {
       );
     }
     // Cache miss handling:
-    //   cacheOnly=1 → return empty immediately (no Pandora call)
+    //   cacheOnly=1 → last-known-good, else empty (never a Pandora call)
     //   prefer=cache → fall through to live Pandora below
     if (cacheOnly) {
+      const lkg = await readRedisCache(lkgKey(memKey));
+      if (lkg && lkg.length > 0) {
+        return NextResponse.json(
+          { data: lkg, cached: true, stale: true },
+          { headers: { "X-Cache": "REDIS-LKG", "Cache-Control": "no-store" } },
+        );
+      }
       return NextResponse.json(
         { data: [], cached: false, miss: true },
         { headers: { "X-Cache": "MISS-COLD", "Cache-Control": "no-store" } },
@@ -163,14 +202,16 @@ export async function GET(req: NextRequest) {
    *  4. Surface upstream body slices in the JSON for debugging.
    */
   // Three-tier timeout (mirrors the participants proxy):
-  //   - warm=1 (cron) → 45s; no user waits, populates cache. Bumped
-  //     from 30s after the 5/2 Pandora slowdown — some session-list
-  //     fetches were pushing past 30s and falling to stale cache.
-  //     Stays inside Vercel's 60s function ceiling.
-  //   - fresh=1 (manual refresh button) → 45s; staff explicitly
+  //   - warm=1 (cron) → 55s; no user waits, populates cache. Bumped
+  //     30s → 45s after the 5/2 Pandora slowdown, then 45s → 55s on
+  //     8/14 when session-list fetches were measured at 43-78s and the
+  //     warmer itself was timing out — leaving nothing cached for the
+  //     user-facing calls to fall back to. Stays inside the 60s
+  //     maxDuration declared above.
+  //   - fresh=1 (manual refresh button) → 55s; staff explicitly
   //     waiting, give Pandora time to land real data
-  //   - default → 6s; background calls fail-fast
-  const timeoutMs = isWarmCall || forceFresh ? 45_000 : 6_000;
+  //   - default → 6s; background calls fail-fast onto the cache layers
+  const timeoutMs = isWarmCall || forceFresh ? 55_000 : 6_000;
 
   async function fetchOnce(): Promise<
     { ok: true; data: PandoraSession[] } | { ok: false; status: number | null; body: string }
@@ -217,7 +258,14 @@ export async function GET(req: NextRequest) {
   let attempt = await fetchOnce();
   // Retry once on 5xx / network failure. Don't retry 4xx — those are
   // our fault (auth, bad params) and won't get better.
-  if (!attempt.ok && (attempt.status == null || attempt.status >= 500)) {
+  //
+  // Never retry a long-mode timeout: 55s + 55s overruns the 60s
+  // maxDuration and the function is killed mid-flight, so the cache
+  // write we came here for never happens. Short-mode (6s) timeouts are
+  // cheap enough to re-try.
+  const timedOut = !attempt.ok && attempt.status == null && attempt.body.startsWith("timeout");
+  const skipRetry = timedOut && (isWarmCall || forceFresh);
+  if (!attempt.ok && !skipRetry && (attempt.status == null || attempt.status >= 500)) {
     await new Promise((r) => setTimeout(r, 250));
     attempt = await fetchOnce();
   }
@@ -227,9 +275,15 @@ export async function GET(req: NextRequest) {
     // a hiccup never blocks the response.
     memoryCache.set(memKey, { data: attempt.data, expiry: Date.now() + MEMORY_CACHE_TTL_MS });
     if (attempt.data.length > 0) {
+      const payload = JSON.stringify(attempt.data);
       redis
-        .set(memKey, JSON.stringify(attempt.data), "EX", REDIS_CACHE_TTL_SECONDS)
+        .set(memKey, payload, "EX", REDIS_CACHE_TTL_SECONDS)
         .catch((err) => console.warn("[sessions] redis write failed:", err));
+      // Mirror into the long-lived floor. Only ever read after a live
+      // failure, so a stale entry here can't shadow a fresh one.
+      redis
+        .set(lkgKey(memKey), payload, "EX", REDIS_LKG_TTL_SECONDS)
+        .catch((err) => console.warn("[sessions] redis lkg write failed:", err));
     }
     return NextResponse.json(
       { data: attempt.data },
@@ -250,6 +304,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       { data: redisStale, error: `Pandora ${attempt.status ?? "fetch failed"}`, stale: true },
       { status: 200, headers: { "X-Cache": "REDIS-STALE", "Cache-Control": "no-store" } },
+    );
+  }
+  // The 30-min serving key has lapsed too — fall to the last-known-good
+  // floor. This is the layer that keeps a heat list on screen through a
+  // multi-hour vendor slowdown.
+  const lkg = await readRedisCache(lkgKey(memKey));
+  if (lkg && lkg.length > 0) {
+    memoryCache.set(memKey, { data: lkg, expiry: Date.now() + MEMORY_CACHE_TTL_MS });
+    return NextResponse.json(
+      { data: lkg, error: `Pandora ${attempt.status ?? "fetch failed"}`, stale: true },
+      { status: 200, headers: { "X-Cache": "REDIS-LKG", "Cache-Control": "no-store" } },
     );
   }
   const memStale = memoryCache.get(memKey)?.data ?? [];

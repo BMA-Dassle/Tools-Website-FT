@@ -25,6 +25,9 @@ import { sessionRoster } from "../service/checkin-progress";
 import type { TrackKey } from "../track";
 import { readCueStamp } from "./audio.server";
 import { readPitLane } from "./lane.server";
+import type { BackToBackTarget } from "./back-to-back";
+import { backToBackForRoster } from "./back-to-back.server";
+import { scheduledStartOf } from "./day-schedule.server";
 import {
   orderPitRoster,
   type PitBoardInfo,
@@ -151,7 +154,14 @@ export async function buildPitBoard(
     .map(({ row }) => (row.personId == null ? "" : String(row.personId)))
     .filter((id) => /^\d+$/.test(id));
 
-  const [vips, birthdays] = await Promise.all([
+  /**
+   * BACK-TO-BACK, batched like VIP rather than fanned out like birthday: the
+   * question is answered for the whole grid by the same three reads it would
+   * take for one racer (pit/back-to-back.server.ts). Needs the staged heat's own
+   * `scheduledStart`, which the lane does not carry — heat NUMBERS must never be
+   * used to order heats (tasks/lessons.md 2026-07-11).
+   */
+  const [vips, birthdays, backToBack] = await Promise.all([
     personIds.length > 0
       ? vipComboPersonLegsOnDate(personIds, businessDate).catch(() => new Map<string, unknown>())
       : Promise.resolve(new Map<string, unknown>()),
@@ -162,6 +172,11 @@ export async function buildPitBoard(
         return birthdayFlag(pid, businessDate);
       }),
     ),
+    personIds.length > 0
+      ? scheduledStartOf(sessionId).then((start) =>
+          backToBackForRoster(personIds, sessionId, start ?? "", nowMs),
+        )
+      : Promise.resolve(new Map<string, BackToBackTarget>()),
   ]);
 
   const roster: PitRosterEntry[] = ordered.map(({ row, spot }, i) => {
@@ -183,6 +198,7 @@ export async function buildPitBoard(
       cameraDue: hasVideo && camera == null,
       birthday: birthdays[i] === true,
       vip: vips.has(pid),
+      backToBack: backToBack.get(pid) ?? null,
     };
   });
 

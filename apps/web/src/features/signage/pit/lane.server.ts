@@ -40,6 +40,7 @@ import { liveHeatKey, type LiveHeat } from "../briefing/race-state-watch.server"
 import { clearBriefingRoom, sessionBriefed } from "../briefing/state.server";
 import type { BriefingRoom } from "../briefing/types";
 import type { TrackKey } from "../track";
+import { liveHeatIsLaterThan } from "./day-schedule.server";
 import { EMPTY_PIT_LANE, type PitLaneFeed, type PitLanes } from "./pit-board";
 
 const VENUE = "FT";
@@ -123,11 +124,12 @@ const KARTS_RETURNING_HOLD = false;
  *
  * The timing socket is a second, independent witness, sampled once a minute by
  * the pause watcher and published as a plain key (race-state-watch.server.ts).
- * A STRICTLY LATER heat being loaded on that track is proof this one is over.
+ * A heat SCHEDULED LATER being loaded on that track is proof this one is over.
+ * Later by the clock, never by the number — see liveSaysGoneOut.
  *
  * Deliberately conservative, because being wrong here puts a group on track who
  * is sitting in the pits:
- *   • strictly greater, never equal — the heat currently loaded is the one being
+ *   • strictly later, never equal — the heat currently loaded is the one being
  *     run, not a finished one;
  *   • the reading must be FRESH, so a stale key from hours ago cannot retire
  *     tonight's group;
@@ -173,11 +175,25 @@ async function readLiveHeat(track: TrackKey): Promise<LiveHeat | null> {
   }
 }
 
-/** Is this heat out on track (or already past)? See the note above. */
-function liveSaysGoneOut(live: LiveHeat | null, heatNumber: number | null): boolean {
+/**
+ * Is this heat out on track (or already past)? See the note above.
+ *
+ * "PAST" IS A CLOCK COMPARISON, NEVER A NUMBER ONE (tasks/lessons.md
+ * 2026-07-11). `heatNumber` is Pandora's CREATION order: a staff-inserted
+ * session takes the day-max number, so `live.heatNumber > ours` would have read
+ * one inserted heat loading on track as proof that every earlier heat was over —
+ * and this branch SWEEPS A GROUP OUT OF THE HOLDING SEATS. `liveHeatIsLaterThan`
+ * looks both heats up on today's schedule and compares `scheduledStart`, and
+ * fails closed when it cannot.
+ */
+async function liveSaysGoneOut(
+  track: TrackKey,
+  live: LiveHeat | null,
+  heatNumber: number | null,
+): Promise<boolean> {
   if (!live || heatNumber == null) return false;
-  if (live.heatNumber > heatNumber) return true;
-  return live.heatNumber === heatNumber && live.state !== "none";
+  if (live.heatNumber === heatNumber) return live.state !== "none";
+  return liveHeatIsLaterThan(track, live.heatNumber, heatNumber);
 }
 
 /**
@@ -197,11 +213,15 @@ function liveSaysGoneOut(live: LiveHeat | null, heatNumber: number | null): bool
  * up, while one that starts early would say the lane is safe before it is. A
  * real marker always wins when it exists.
  */
-function liveSaysFinishedAtMs(live: LiveHeat | null, heatNumber: number | null): number | null {
+async function liveSaysFinishedAtMs(
+  track: TrackKey,
+  live: LiveHeat | null,
+  heatNumber: number | null,
+): Promise<number | null> {
   if (!live || heatNumber == null) return null;
-  if (live.heatNumber > heatNumber) return live.atMs;
-  if (live.heatNumber === heatNumber && live.state === "finished") return live.atMs;
-  return null;
+  if (live.heatNumber === heatNumber) return live.state === "finished" ? live.atMs : null;
+  // Same schedule comparison as liveSaysGoneOut, and for the same reason.
+  return (await liveHeatIsLaterThan(track, live.heatNumber, heatNumber)) ? live.atMs : null;
 }
 
 /**
@@ -228,7 +248,7 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
     // Either witness will do: the broadcast's own finish marker, or the timing
     // socket showing this heat on track (or a later one loaded). See
     // holdingHasGoneOut.
-    const goneOut = finished == null && liveSaysGoneOut(live, holding.heatNumber);
+    const goneOut = finished == null && (await liveSaysGoneOut(track, live, holding.heatNumber));
     if (finished != null || goneOut) {
       racing = {
         sessionId: holding.sessionId,
@@ -257,7 +277,8 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
   const finish = await readRaceFinishedMarker(racing.sessionId).catch(() => null);
   // The broadcast's own stamp when we have it; the socket's observation when we
   // do not, so a race that is demonstrably over stops reading as still running.
-  const finishedAtMs = finish?.endedAtMs ?? liveSaysFinishedAtMs(live, racing.heatNumber);
+  const finishedAtMs =
+    finish?.endedAtMs ?? (await liveSaysFinishedAtMs(track, live, racing.heatNumber));
   const pittedAtMs =
     stored.pitted && stored.pitted.sessionId === racing.sessionId ? stored.pitted.atMs : null;
 

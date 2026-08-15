@@ -84,8 +84,14 @@ const KNOWN_LOCATIONS: Array<[string, string]> = [
 /** Raw person probe: is this id readable at this location? (404 ⇒ absent.) */
 async function personVisibleAt(locationId: string, personId: string, key: string) {
   try {
+    // `picture=false` IS THE DEFAULT FLIPPED: Pandora's person GET defaults to
+    // picture=TRUE (docs/pandora-api.md), so every probe here was hauling a
+    // 15-80KB base64 portrait it never looked at — on every retry of every
+    // queued row, which is exactly the "waiver lookup is crazy" load the vendor
+    // reported during the 2026-08-14 slowdown. Same flags every other person
+    // GET in this codebase already sends.
     const res = await fetch(
-      `${PANDORA_BASE}/bmi/person/${encodeURIComponent(locationId)}/${encodeURIComponent(personId)}`,
+      `${PANDORA_BASE}/bmi/person/${encodeURIComponent(locationId)}/${encodeURIComponent(personId)}?picture=false&allRelated=false`,
       { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15_000) },
     );
     // 500 counts as present — the record exists, its birthdate is just null.
@@ -142,8 +148,10 @@ export async function personLocalBarrier(
   const key = process.env.SWAGGER_ADMIN_KEY || "";
   if (!key) return errored("SWAGGER_ADMIN_KEY missing");
   try {
+    // `picture=false&allRelated=false` — see personVisibleAt. This is the read
+    // the waiver-push queue retries; it needs a status code and nothing else.
     const res = await fetch(
-      `${PANDORA_BASE}/bmi/person/${encodeURIComponent(locationId)}/${encodeURIComponent(personId)}`,
+      `${PANDORA_BASE}/bmi/person/${encodeURIComponent(locationId)}/${encodeURIComponent(personId)}?picture=false&allRelated=false`,
       { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15_000) },
     );
     if (res.status === 404) {
@@ -293,8 +301,11 @@ export async function partyReadyBarrier(
 
   for (const id of ids) {
     try {
+      // `picture=false&allRelated=false` — see personVisibleAt. This caller reads
+      // waiverExpiry out of the body, so dropping the portrait shrinks the very
+      // payload it has to wait for.
       const res = await fetch(
-        `${PANDORA_BASE}/bmi/person/${encodeURIComponent(locationId)}/${encodeURIComponent(id)}`,
+        `${PANDORA_BASE}/bmi/person/${encodeURIComponent(locationId)}/${encodeURIComponent(id)}?picture=false&allRelated=false`,
         { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15_000) },
       );
       if (res.status === 404) {

@@ -130,10 +130,20 @@ export default function ETicketView({
   // focus. See lib/use-visible-interval.ts.
   async function poll(signal: AbortSignal) {
     try {
+      // `prefer=cache` ON BOTH PANDORA READS — Redis first, live only on a miss.
+      //
+      // This is a GUEST page: every ticket held in a hand polls this every 20s,
+      // and without the flag every one of those polls was a live upstream call.
+      // Measured 2026-08-14 during a Pandora slowdown: 47 races-current +
+      // ~22 session-participants calls/minute, with 171 session-participants
+      // TIMEOUTs in 45 minutes. The crons already warm these exact keys
+      // (checkin-alerts every minute, pre-race-tickets every two), so the
+      // cache-hit path is the common one and a miss still falls through live.
+      // Same posture hooks/useTrackStatus.ts has always used for races-current.
       const [currentRes, partRes, stateRes] = await Promise.all([
-        fetch("/api/pandora/races-current", { cache: "no-store", signal }),
+        fetch("/api/pandora/races-current?prefer=cache", { cache: "no-store", signal }),
         fetch(
-          `/api/pandora/session-participants?locationId=${encodeURIComponent(ticket.locationId)}&sessionId=${encodeURIComponent(String(ticket.sessionId))}`,
+          `/api/pandora/session-participants?locationId=${encodeURIComponent(ticket.locationId)}&sessionId=${encodeURIComponent(String(ticket.sessionId))}&prefer=cache`,
           { cache: "no-store", signal },
         ),
         fetch(`/api/race-session-state?sessionId=${encodeURIComponent(String(ticket.sessionId))}`, {
@@ -423,14 +433,14 @@ export default function ETicketView({
             </p>
             <div className="mt-3 rounded-2xl bg-white p-4">
               <div className="flex flex-wrap items-center justify-center gap-3">
-                {WALLET_BADGES.filter(
-                  (w) => !walletPlatform || w.platform === walletPlatform,
-                ).map((w) => (
-                  <a key={w.platform} href={`/t/${ticketId}/wallet?platform=${w.platform}`}>
-                    {/* eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte; the optimizer would re-encode it */}
-                    <img src={w.svg} alt={w.label} width={w.width} height={BADGE_HEIGHT} />
-                  </a>
-                ))}
+                {WALLET_BADGES.filter((w) => !walletPlatform || w.platform === walletPlatform).map(
+                  (w) => (
+                    <a key={w.platform} href={`/t/${ticketId}/wallet?platform=${w.platform}`}>
+                      {/* eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte; the optimizer would re-encode it */}
+                      <img src={w.svg} alt={w.label} width={w.width} height={BADGE_HEIGHT} />
+                    </a>
+                  ),
+                )}
               </div>
             </div>
           </div>

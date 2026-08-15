@@ -297,6 +297,97 @@
   animation: tv-overdue-flash 1.4s ease-in-out infinite;
 }
 
+/* THE SAME LADDER, ON A WHITE PANEL. The camera board's check-in block became a
+   white rounded panel so it could stand beside the returning panel as a matched
+   pair (owner 2026-08-14: "the ready to send block and the return racers block
+   should be like two boxes unified somehow"), and the two flashes above assume a
+   coloured band with white type over it. These are that pair, redrawn for a
+   panel: same 1.4s house beat, same solid-on-the-downbeat phase, same colours.
+
+   ONLY THE HEADING INVERTS. The ground animates and the heading animates with
+   it — but the COUNT lives inside a row that keeps its own near-white ground so
+   the names stay readable through the brightest half of the cycle. Inverting
+   the count to white therefore made it vanish against that row for half of every
+   beat (owner 2026-08-14: "the number is flashing to white"). It stays a solid
+   green/amber instead. The rule: invert only what sits on the surface that is
+   actually animating. */
+@keyframes tv-panel-ready {
+  0%,
+  100% {
+    background-color: rgba(255, 255, 255, 0.95);
+  }
+  50% {
+    background-color: #17913f;
+  }
+}
+@keyframes tv-panel-ready-ink {
+  0%,
+  100% {
+    color: #17913f;
+  }
+  50% {
+    color: #ffffff;
+  }
+}
+@keyframes tv-panel-overdue {
+  0%,
+  100% {
+    background-color: rgba(255, 255, 255, 0.95);
+  }
+  50% {
+    background-color: #b8730a;
+  }
+}
+@keyframes tv-panel-overdue-ink {
+  0%,
+  100% {
+    color: #b8730a;
+  }
+  50% {
+    color: #ffffff;
+  }
+}
+.tv-panel-flash-ready {
+  animation: tv-panel-ready 1.4s ease-in-out infinite;
+}
+.tv-panel-flash-ready .tv-panel-head {
+  animation: tv-panel-ready-ink 1.4s ease-in-out infinite;
+}
+.tv-panel-flash-overdue {
+  animation: tv-panel-overdue 1.4s ease-in-out infinite;
+}
+.tv-panel-flash-overdue .tv-panel-head {
+  animation: tv-panel-overdue-ink 1.4s ease-in-out infinite;
+}
+/* The row keeps its ground and the count keeps its colour through the flash —
+   see the note above. */
+.tv-panel-flash-ready .tv-panel-row,
+.tv-panel-flash-overdue .tv-panel-row {
+  background: rgba(255, 255, 255, 0.92);
+}
+.tv-panel-flash-ready .tv-panel-count b {
+  color: #17913f;
+}
+.tv-panel-flash-overdue .tv-panel-count b {
+  color: #b8730a;
+}
+
+/* Reduced motion collapses every .tv-canvas animation to one frame, which for a
+   panel would land on the WHITE end and lose the state entirely. These pin the
+   solid alerting colour instead, exactly as the two band flashes above do. */
+@media (prefers-reduced-motion: reduce) {
+  .tv-panel-flash-ready {
+    background-color: #17913f;
+  }
+  .tv-panel-flash-overdue {
+    background-color: #b8730a;
+  }
+  .tv-panel-flash-ready .tv-panel-head,
+  .tv-panel-flash-overdue .tv-panel-head {
+    color: #ffffff;
+  }
+}
+
 @keyframes tv-chev {
   0%,
   100% {

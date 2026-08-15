@@ -43,14 +43,53 @@ import { personsLocalBarrier } from "@/lib/bmi-sync-barriers";
 import type { WaiverPushMessage } from "~/features/kiosk/waiver/waiver-queue";
 
 /**
+ * The barrier said "not yet" — and WHETHER WE GOT AN ANSWER decides the schedule.
+ *
+ * `unreachable` is the flag personLocalBarrier already sets when the vendor never
+ * answered at all (timeout, refused, 502-504). Its own doc says that case "must
+ * not spend the row's patience" and points here — this is the consumer that was
+ * meant to read it, and until now did not.
+ */
+class BarrierWaitError extends Error {
+  readonly unreachable: boolean;
+  constructor(message: string, unreachable: boolean) {
+    super(message);
+    this.name = "BarrierWaitError";
+    this.unreachable = unreachable;
+  }
+}
+
+/**
  * Redelivery delay while we wait for BMI cloud→local sync.
  *
  * Flat and short for the first several attempts, because the thing we are waiting
  * for lands in 10-32s — exponential backoff here would turn a 12-second wait into
  * a two-minute one for no reason. Only once we are clearly past the normal window
  * does it stretch out.
+ *
+ * UNLESS WE NEVER REACHED THE VENDOR, which is a different question with a
+ * different answer. A 10-second retry is right when we are waiting on a sync that
+ * lands in half a minute; it is actively harmful when the upstream is the thing
+ * that is broken, because every attempt costs up to three Pandora GETs holding a
+ * 15-second connection each, and we are spending them on an API that is already
+ * failing to answer. Measured in production 2026-08-14: ~10 rows stuck on timeout
+ * retried every 10s for 20 deliveries, and `/api/queue/waiver-push` climbed from
+ * 6.0 to 10.1 upstream timeouts/minute across five consecutive windows while
+ * everything else was being brought down. Congestive collapse — the slower Pandora
+ * got, the harder we hit it.
+ *
+ * Backing off does not cost the guest anything real: these rows are NOT filing at
+ * ten seconds either. It costs the vendor less and therefore recovers sooner, and
+ * the schedule below still gives a row ~85 minutes of patience before MAX_DELIVERIES
+ * retires it — far longer than the 20 minutes the fast path allows, which is the
+ * point of the distinction. A genuine "not local yet" wait is untouched.
  */
-function barrierRetrySeconds(deliveryCount: number): number {
+function barrierRetrySeconds(deliveryCount: number, unreachable: boolean): number {
+  if (unreachable) {
+    if (deliveryCount <= 2) return 60;
+    if (deliveryCount <= 5) return 180;
+    return 300;
+  }
   if (deliveryCount <= 4) return 10;
   if (deliveryCount <= 10) return 30;
   return 120;
@@ -118,7 +157,13 @@ export function createWaiverPushConsumer() {
         console.log(
           `[waiver-push] row ${signatureRowId} waiting on sync (delivery ${metadata.deliveryCount}): ${barrier.detail}`,
         );
-        throw new Error(`barrier ${barrier.verdict}: ${barrier.detail}`);
+        // The flag rides the error because `retry` below only ever sees the error
+        // and the metadata — it has no other way to tell "BMI is down" from
+        // "this guest has not synced yet", and those want opposite schedules.
+        throw new BarrierWaitError(
+          `barrier ${barrier.verdict}: ${barrier.detail}`,
+          barrier.unreachable === true,
+        );
       }
 
       const { signWaiverDigital } = await import("@/lib/waiver-digital");
@@ -163,7 +208,7 @@ export function createWaiverPushConsumer() {
       // Longer than the two Pandora round trips this does, so the SDK's automatic
       // visibility extension never has to race a slow vendor.
       visibilityTimeoutSeconds: 120,
-      retry: (_error, metadata) => {
+      retry: (error, metadata) => {
         if (metadata.deliveryCount >= MAX_DELIVERIES) {
           console.error(
             `[waiver-push] giving up after ${metadata.deliveryCount} deliveries — ` +
@@ -171,7 +216,11 @@ export function createWaiverPushConsumer() {
           );
           return { acknowledge: true };
         }
-        return { afterSeconds: barrierRetrySeconds(metadata.deliveryCount) };
+        // Anything that is NOT a barrier wait (a thrown sign call, a bad payload
+        // that got this far) keeps the original fast schedule — `unreachable` is
+        // a statement about the vendor, and we only have one when the barrier made it.
+        const unreachable = error instanceof BarrierWaitError && error.unreachable;
+        return { afterSeconds: barrierRetrySeconds(metadata.deliveryCount, unreachable) };
       },
     },
   );
