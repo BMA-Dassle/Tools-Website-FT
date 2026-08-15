@@ -55,6 +55,12 @@ const PAD_X = 96;
 const PAD_Y = 54;
 const RAIL_H = 128;
 
+/** The header's one shared distance: the minimum air in front of the brand mark,
+ *  and therefore exactly how far the session title is allowed to paint past its
+ *  own edge. Tied together on purpose — the title's glow may spend the air, but
+ *  a runaway race type can never reach the mark. Move one and you move both. */
+const TITLE_BLEED = 32;
+
 const GOLD = "#d4af37";
 const PINK = "#ec4899";
 const RED = "#ff3b30";
@@ -383,7 +389,11 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
               flexShrink: 0,
             }}
           />
-          <div>
+          {/* NEVER THE PART THAT GIVES. Which track this is, and how far behind it
+              is running, are the two things read from across the pit — so this
+              block does not shrink. When the row is tight the deficit lands on the
+              title block instead, which is the one thing here built to clip. */}
+          <div style={{ flexShrink: 0 }}>
             <div
               className="tv-display"
               style={{
@@ -401,18 +411,38 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
           {/* nowrap THROUGHOUT this block: .tv-display carries text-wrap:
               balance, which broke "Session 56" onto two lines the first time
               the header shared a row with the room chips (live 2026-08-13). */}
-          {/* overflow:hidden is load-bearing. Everything inside is `nowrap`
-              (see the note above), so without it a long race type does not
-              shrink this block — it SPILLS out of it and runs underneath
-              whatever sits to the right, which is how "Session 33 Intermediate"
-              ended up printed through the FastTrax mark (owner 2026-08-14). */}
           {/* THE TYPE SITS UNDER THE NUMBER (owner 2026-08-14: "remove the pit
               assignment and move the session type under the session number").
               Side by side the two competed for one line and a long type ran out
               of the block — "Intermediate" was sliced mid-word. Stacked, the
               session number reads first at full size and the type reads second,
               and the freed width is what lets the pit board carry the mark. */}
-          <div style={{ marginLeft: 44, minWidth: 0, overflow: "hidden" }}>
+          {/* THE CLIP IS LOAD-BEARING — AND IT CLIPS LAYOUT ONLY.
+
+              Everything inside is `nowrap` (see the note above), so without a clip
+              a long race type does not shrink this block: it SPILLS out and runs
+              underneath whatever sits to the right, which is how "Session 33
+              Intermediate" ended up printed through the FastTrax mark.
+
+              It used to be `overflow: hidden`, which clipped the PAINT as well — the
+              session number's own 60px text-shadow, cut flush to the box on all four
+              sides. That left a hard-edged rectangle of glow around the number which
+              at wall distance reads as a seam in the panel (owner 2026-08-14, "still
+              cut off"): nothing was missing from the type, it was the light around
+              it. `clip` keeps the spill guard, and TITLE_BLEED lets the halo finish
+              into the mark's own air — the same number for both, so the glow may
+              spend that air while a runaway type still stops dead at the mark
+              rather than printing through it. A browser without
+              overflow-clip-margin falls back to exactly the old behaviour, so this
+              cannot render worse than it already did. */}
+          <div
+            style={{
+              marginLeft: 44,
+              minWidth: 0,
+              overflow: "clip",
+              overflowClipMargin: `${TITLE_BLEED}px`,
+            }}
+          >
             {showSession ? (
               <>
                 <div
@@ -446,7 +476,20 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
                 )}
               </>
             ) : (
-              <div className="tv-display" style={{ fontSize: 64, color: "#fff", marginTop: 6 }}>
+              /* SIZED TO THE ROW'S REAL BUDGET, and nowrap like everything else in
+                 this block. At 64 this was the widest string the header ever
+                 carries — wider than a live "Session 123" at 80 — so on the track
+                 that ALSO shows the ON TRACK clock the row went over its 1728px and
+                 flexbox split the deficit across the two items that could still
+                 shrink, wrapping the title AND the delay line. The other track,
+                 with no clock, never went over, which is why the same board looked
+                 fine on one screen and broken on the other (owner 2026-08-14).
+                 48 measures narrower than the widest live title, and that is the
+                 invariant to keep: wherever a session fits, this fits. */
+              <div
+                className="tv-display"
+                style={{ fontSize: 48, color: "#fff", marginTop: 6, whiteSpace: "nowrap" }}
+              >
                 No session staged
               </div>
             )}
@@ -473,9 +516,15 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
               // first pass had it shoulder to shoulder with the clock on one
               // side and the race type on the other, which reads as clutter
               // even when nothing actually overlaps.
+              // The auto margin already hands the mark ALL of the row's slack, so
+              // this fixed floor only ever applies in the frame that has none —
+              // exactly the frame where the title needs those pixels more than the
+              // logo does. TITLE_BLEED keeps real air in every normal frame, stops
+              // being a reason the title wraps in the tight one, and is the same
+              // number the title is allowed to paint into (2026-08-14).
               marginLeft: "auto",
               marginRight: 8,
-              paddingLeft: 56,
+              paddingLeft: TITLE_BLEED,
               flexShrink: 0,
               display: "flex",
               alignItems: "center",
@@ -1074,7 +1123,11 @@ function DelayLine({ delay }: { delay: { delayMinutes: number; delayFormatted: s
         className={late ? "tv-blink" : undefined}
         style={{ width: 11, height: 11, borderRadius: "50%", background: color }}
       />
-      <span className="tv-display" style={{ fontSize: 28, color }}>
+      {/* nowrap, same rule as the rest of the header: "Running +10 min behind" is
+          the longest thing under the track name, and left to wrap it broke onto
+          two lines the moment the row went tight — taking the header's height
+          with it (owner 2026-08-14). */}
+      <span className="tv-display" style={{ fontSize: 28, color, whiteSpace: "nowrap" }}>
         {late
           ? `Running ${delay.delayFormatted || `${delay.delayMinutes} min`} behind`
           : "Running on time"}

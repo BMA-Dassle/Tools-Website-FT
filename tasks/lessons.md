@@ -4230,3 +4230,55 @@ fullscreen, and the left-hand board never went fullscreen at all.
    `--app` was framed, that F11 had silently reverted, and it reads in PHYSICAL pixels
    while `Screen.Bounds` reads DPI-virtualised — the two only agree at 100% scaling,
    which is why the player must be set to 100%.
+
+## "Cut off" was the GLOW, not the text — and the wrap was a 46px flex deficit (2026-08-14)
+
+**What happened:** the pit board's header broke two different ways, on one track only.
+The staged-session title wrapped onto a second line, and in the live state a hard-edged
+rectangle sat around `SESSION 123`. Owner reported both as "cut off". Neither symptom
+appeared on the other track, from the same component.
+
+**Root cause, two independent faults in one flex row:**
+
+1. **The wrap.** The header is one flex row inside a 1728px budget (1920 canvas −
+   `PAD_X` each side). Everything in it is `nowrap` by rule — except the idle title,
+   which inherited `text-wrap: balance` from `.tv-display`. `No session staged` at 64px
+   was the WIDEST string the header ever carries, wider than a live `Session 123` at
+   80px. On the track that also shows the `ON TRACK` chip (~400px, and `null` on a track
+   with no clock) the row went over by ~46px, and flexbox split that deficit across the
+   only two shrinkable items — so BOTH the title and the delay line wrapped, from one
+   small overflow.
+2. **The box around the number.** The title block carried `overflow: hidden` to stop a
+   long race type spilling under the brand mark. `hidden` clips PAINT as well as layout,
+   and the number carries `textShadow: 0 0 60px`, so the halo was cut flush to the box on
+   all four sides. Every glyph was present; the light around them was being sliced.
+
+**The rules:**
+
+1. **Same component, one track fine and one broken ⇒ look for the conditional SIBLING,
+   not the broken element.** `LiveSessionChip` returns `null` with no clock. The element
+   that misbehaves is rarely the element that changed.
+2. **A small flex overflow shows up as MULTIPLE wrapped items, not one.** The deficit is
+   distributed, so every shrinkable item wraps a little. Do not read "two things wrapped"
+   as two bugs, and do not fix the widest one and assume you are done — measure the row.
+3. **An empty state's copy is usually the longest string a header ever carries.** Live
+   values are short and were designed for; `No session staged` was neither. Size an idle
+   headline against the widest LIVE title and keep that as the stated invariant.
+4. **`overflow: hidden` on anything wearing a glow, a shadow or a stroke clips the effect
+   into a rectangle.** Where the clip is load-bearing, `overflow: clip` +
+   `overflow-clip-margin` keeps the layout guard and releases the paint. Tie the margin
+   to the air in front of whatever the clip protects (here `TITLE_BLEED`, also the mark's
+   `paddingLeft`) so paint may spend that air but a runaway glyph still cannot cross it.
+   A browser without `overflow-clip-margin` falls back to the old behaviour, so it can
+   never render worse than before.
+5. **When local dev cannot serve the app, build the specimen instead of estimating.** The
+   fix was chosen from measurements taken in a standalone page that rebuilt the header at
+   real 1920px geometry with the REAL face (Exo 2 800, extracted from the font CDN and
+   inlined so nothing silently fell back), measuring natural width off an unscaled
+   `max-content` clone. Character-width guesses had the row fitting; it did not.
+6. **A measuring harness that is itself scaled will lie to you.** Two bugs in that page,
+   both mine: `getBoundingClientRect()` on a transform-scaled node returns SCREEN px while
+   `fontSize`/`lineHeight` are canvas px, so the line count halved — use `offsetHeight`;
+   and a `window.resize` listener does not fire when only the surrounding panel resizes,
+   leaving a stale scale that clipped content off the right edge and read as a layout bug
+   in the thing being measured. Watch the element with a `ResizeObserver`.
