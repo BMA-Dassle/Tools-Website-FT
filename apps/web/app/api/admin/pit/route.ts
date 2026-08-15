@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { afterResponse } from "~/features/signage/after-response.server";
 import {
   nudgeStaySeated,
+  playBirthday,
   playPostRace,
   playPreRace,
   postRaceGate,
@@ -155,6 +156,13 @@ export async function POST(req: NextRequest) {
   }
   if (body.action === "audio-post") {
     const result = await playPostRace(track);
+    return NextResponse.json(result, { status: result.ok ? 200 : 409 });
+  }
+  // The birthday cue: no arming condition and no one-shot claim — it belongs
+  // to a guest, not to a turnover cycle (audio.server.ts explains why), so the
+  // only thing standing between the press and the PA is the busy guard.
+  if (body.action === "audio-birthday") {
+    const result = await playBirthday(track);
     return NextResponse.json(result, { status: result.ok ? 200 : 409 });
   }
 

@@ -554,3 +554,38 @@ export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
 
   return { ok: true, atMs: result.atMs, sessionId: returning.sessionId };
 }
+
+/* ── the birthday cue ─────────────────────────────────────────────────── */
+
+/**
+ * "Happy birthday" on one track's zone (owner 2026-08-15).
+ *
+ * DELIBERATELY NOT A ONE-SHOT, unlike pre and post. Those two are steps in a
+ * turnover: each belongs to exactly one session, and firing twice either cuts
+ * an announcement in half or burns the cycle's only play. This one belongs to
+ * a PERSON, not a cycle — several birthday groups pass through a track in a
+ * night, and a group that missed it wants it again. So there is no NX claim,
+ * no stamp, no arming condition and no Neon row: it is a courtesy sound staff
+ * press when they mean to, and pressing it twice is a legitimate thing to
+ * want. (The play itself is still console-logged by playQsysCue, same as the
+ * ambient loop.)
+ *
+ * IT DOES NOT GET THE PRE/POST OVERRIDE. `yieldStaySeated` exists because a
+ * real announcement must never queue behind ambient audio — but the loop is
+ * SAFETY copy playing while karts roll into the pit, and that is precisely
+ * the wrong moment to talk over it with happy birthday. So this press takes
+ * the plain busy guard: it waits its turn behind everything, including the
+ * loop, and the button says which zone is holding it. Staff press it after
+ * the post-race, which is when the group is out of the karts to hear it
+ * anyway.
+ */
+export async function playBirthday(track: TrackKey): Promise<PlayCueResult> {
+  const busy = await paBusy(track);
+  if (busy.busy) return { ok: false, error: busy.error };
+
+  const play = await playQsysCue(track, "birthday");
+  if (!play.ok) {
+    return { ok: false, error: play.error ?? "the PA did not start the birthday clip" };
+  }
+  return { ok: true, atMs: Date.now() };
+}

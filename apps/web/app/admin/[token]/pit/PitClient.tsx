@@ -72,6 +72,17 @@ const GREEN = "#4ade80";
 const AMBER = "#f0b341";
 const INK = "#e8eef7";
 
+/** Everything this page can press, i.e. the route's `audio-*` actions. `pre`
+ *  and `post` are the one-per-cycle turnover cues; `birthday` is the
+ *  file-played courtesy sound, repeatable and un-stamped (pit/audio.server.ts). */
+type PitPress = "pre" | "post" | "birthday";
+
+/** The file the birthday press plays. Mirrors BIRTHDAY_FILE in pit/
+ *  qsys.server.ts — the SERVER decides what plays; this copy exists only so
+ *  the button can recognise its own clip in the player's zone feed, which
+ *  reports the sounding file by name. */
+const BIRTHDAY_FILE = "Birthday.mp3";
+
 /** A cue that has played: when, and the clip length when the player said in
  *  time. Mirrors the route's CueStamp — declared locally so this client
  *  never imports from a server-only module. */
@@ -174,6 +185,32 @@ const STYLES = `
 .pitb-blocked { background: rgba(240,179,65,0.18); border-color: ${AMBER}; color: ${AMBER}; opacity: 1; }
 .pitb-blocked .pitb-x { font-weight: 900; margin-right: 0.15em; font-size: 1.15em; line-height: 1; }
 .pitb-blocked .pitb-strike { text-decoration: line-through; text-decoration-thickness: 2px; opacity: 0.75; }
+/* THE BIRTHDAY BUTTON — a secondary control, sized and coloured to say so.
+   Fixed height (flex: 0 0 auto) so it never competes with the PRE/POST
+   buttons for the card's growth, and NEUTRAL rather than green: solid green
+   on this page means "this is the press the turnover is waiting on", and a
+   courtesy sound that is always available must not shout it. Amber while it
+   sounds, like every other playing state here. */
+.pitb-mini {
+  display: flex; align-items: center; gap: 10px; width: 100%; flex: 0 0 auto;
+  min-height: 40px; padding: 0 14px; border-radius: 8px;
+  font-family: ${ADMIN_SANS}; font-size: clamp(12px, 1.9vh, 17px); font-weight: 800;
+  letter-spacing: 0.02em; text-align: left; cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  background: transparent; border: 1px solid ${PORTAL_DARK.border}; color: ${INK};
+  transition: filter 120ms ease, transform 60ms ease;
+}
+.pitb-mini:hover:not(:disabled) { filter: brightness(1.25); border-color: ${INK}; }
+.pitb-mini:active:not(:disabled) { transform: translateY(1px); }
+.pitb-mini:focus-visible { outline: 2px solid ${INK}; outline-offset: 2px; }
+.pitb-mini:disabled { cursor: not-allowed; }
+.pitb-mini[aria-busy="true"] { cursor: progress; }
+/* sounding right now — a state, not a control. Never dimmed: this is the one
+   moment the button has something to say. */
+.pitb-mini-playing { border-color: ${AMBER}; color: ${AMBER}; background: rgba(240,179,65,0.12); cursor: default; }
+/* held by the PA sounding on this track — dim, like the idle cue buttons */
+.pitb-mini-blocked { opacity: 0.45; }
+.pitb-mini-when { margin-left: auto; font-weight: 700; opacity: 0.7; }
 .pit-blink { animation: pit-blink 1.1s ease-in-out infinite; }
 @keyframes pit-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 .pitb-spin {
@@ -463,7 +500,7 @@ export default function PitClient({ token, version }: { token: string; version: 
   }, [buildUpdate.ready, pending]);
 
   const play = useCallback(
-    async (track: TrackKey, cue: "pre" | "post") => {
+    async (track: TrackKey, cue: PitPress) => {
       const key = `audio-${cue}:${track}`;
       setPending(key);
       setNote(null);
@@ -487,7 +524,9 @@ export default function PitClient({ token, version }: { token: string; version: 
             ? `✓ ${cue}-race already played this cycle${json.atMs ? ` at ${clockTimeMs(json.atMs)}` : ""}`
             : cue === "post"
               ? `✓ Post-race playing on ${track} — seating reopens`
-              : `✓ Pre-race playing on ${track}`,
+              : cue === "birthday"
+                ? `✓ Happy birthday playing on ${track}`
+                : `✓ Pre-race playing on ${track}`,
         );
         await loadBoard();
       } catch (err) {
@@ -689,7 +728,7 @@ function TrackCard({
   nowMs: number;
   pending: string | null;
   clipLengths: PitBoard["clipLengths"] | null;
-  onPlay: (cue: "pre" | "post") => void;
+  onPlay: (cue: PitPress) => void;
 }) {
   const tone = TRACK_TONE[track];
   const liveClock = useLiveSessionClock(track);
@@ -782,6 +821,14 @@ function TrackCard({
   // WHICH cue is sounding: the player's zone state when it's attributable to
   // our latest stamp; otherwise each stamp's own clock carries its section.
   const zoneLive = liveTimingAt(zone, zonesAtMs, nowMs);
+  /**
+   * IS THE SOUNDING CLIP THE BIRTHDAY FILE? We keep no stamp for that press
+   * (it is repeatable by design), so the only witness is the player itself —
+   * and the zone feed names the FILE it is playing, which is exactly the thing
+   * we asked for. `file` is typed required by the wire doc but comes off an
+   * external feed, and an idle zone reports it empty.
+   */
+  const birthdayPlaying = (zone?.file ?? "").toLowerCase() === BIRTHDAY_FILE.toLowerCase();
   const latest =
     preStamp && (!postStamp || preStamp.atMs > postStamp.atMs)
       ? ({ cue: "pre", stamp: preStamp } as const)
@@ -794,12 +841,19 @@ function TrackCard({
   // zone sounded for any reason — which is how one track's play "updated
   // both" cards when the player lit more than the zone we asked for
   // (owner 2026-08-14).
+  // A birthday sounding inside that window is NOT the cue's own clip — the
+  // player has told us the file by name, so it can never be mistaken for the
+  // pre/post it happens to follow.
   const attributed =
-    zoneLive && latest && nowMs - latest.stamp.atMs < ((latest.stamp.durationS ?? 90) + 10) * 1000
+    zoneLive &&
+    !birthdayPlaying &&
+    latest &&
+    nowMs - latest.stamp.atMs < ((latest.stamp.durationS ?? 90) + 10) * 1000
       ? latest.cue
       : null;
   const preLive = attributed === "pre" ? zoneLive : stampClockAt(preStamp, nowMs);
   const postLive = attributed === "post" ? zoneLive : stampClockAt(postStamp, nowMs);
+  const birthdayLive = birthdayPlaying ? zoneLive : null;
 
   // The room gate: armed by the race, held by an occupied briefing room.
   const postBlocked = finished && postStamp == null && gate != null && !gate.allowed;
@@ -947,6 +1001,14 @@ function TrackCard({
         />
         <CueLengthStrip live={postLive} stamp={postStamp} />
       </CueSection>
+
+      {/* ── the birthday cue — always available, never part of the cycle ── */}
+      <BirthdayButton
+        live={birthdayLive}
+        paBusyZone={birthdayLive ? null : paBusyZone}
+        busy={pending === `audio-birthday:${track}`}
+        onPress={() => onPlay("birthday")}
+      />
     </div>
   );
 }
@@ -1159,6 +1221,71 @@ function CueButton({
       )}
       <span className="pitb-when" style={{ opacity: state === "press" ? 0.75 : 1 }}>
         {busy ? "Playing…" : when}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * "Happy birthday" — the one press on this page with no arming condition.
+ *
+ * Deliberately never green and never gated by the cycle: it belongs to a
+ * guest rather than to a turnover, so it is pressable whenever the track's
+ * zone is quiet, as many times a night as there are birthdays. The ONE thing
+ * that holds it is the PA already sounding on this track — a zone plays one
+ * clip, so pressing through would cut a pre/post in half, or talk over the
+ * stay-seated loop while karts are still rolling in. The server refuses that
+ * too; this is the button saying so first, and naming the zone.
+ */
+function BirthdayButton({
+  live,
+  paBusyZone,
+  busy,
+  onPress,
+}: {
+  /** Non-null while OUR file is the one the player says it's playing. */
+  live: LiveTiming | null;
+  /** The zone holding the PA, when it isn't this button's own clip. */
+  paBusyZone: string | null;
+  busy: boolean;
+  onPress: () => void;
+}) {
+  const playing = live != null;
+  const blocked = !playing && paBusyZone != null;
+  return (
+    <button
+      type="button"
+      className={`pitb-mini${playing ? " pitb-mini-playing" : blocked ? " pitb-mini-blocked" : ""}`}
+      disabled={playing || blocked || busy}
+      aria-busy={busy || undefined}
+      onClick={onPress}
+    >
+      {busy ? <span className="pitb-spin" aria-hidden /> : null}
+      {playing ? (
+        <span
+          className="pit-blink"
+          aria-hidden
+          style={{
+            width: "0.55em",
+            height: "0.55em",
+            borderRadius: "50%",
+            background: AMBER,
+            boxShadow: `0 0 9px ${AMBER}`,
+            flexShrink: 0,
+          }}
+        />
+      ) : null}
+      {playing ? "Happy birthday playing" : "▶ Happy birthday"}
+      <span className="pitb-mini-when">
+        {busy
+          ? "Playing…"
+          : live?.remainingS != null
+            ? `${formatSeconds(live.remainingS)} left`
+            : playing
+              ? "playing"
+              : paBusyZone
+                ? `PA busy · ${paBusyZone}`
+                : BIRTHDAY_FILE}
       </span>
     </button>
   );

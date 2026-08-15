@@ -18,9 +18,11 @@ import "server-only";
  * `mega` (our TrackKey), clips are `pre` / `post` / `big` (our cues — `big`
  * is the pre-race with the extra big-race warnings, configured on the Core
  * since 2026-08-15; audio.server.ts owns the 8+ grid rule that picks it).
- * The one FILE-played sound is the stay-seated loop, which has no configured
- * clip (/play takes exactly one of clip | file). Zones run independently —
- * playing one never cancels another.
+ * The FILE-played sounds are the stay-seated loop and the birthday cue, which
+ * have no configured clip (/play takes exactly one of clip | file) — they
+ * ride the same `QsysClip` union as pseudo-clips and `fileFor` is what tells
+ * the two kinds apart. Zones run independently — playing one never cancels
+ * another.
  *
  * Bearer auth with SWAGGER_ADMIN_KEY, same as every other Pandora call in
  * this repo (e.g. /api/tv/pit-photo).
@@ -34,7 +36,7 @@ const PANDORA_KEY = process.env.SWAGGER_ADMIN_KEY || "";
  *  The same constant the rest of the repo uses for FT's Square ledger. */
 const FT_SQUARE_LOCATION_ID = "LAB52GY480CJF";
 
-export type QsysClip = "pre" | "post" | "big" | "stay-seated";
+export type QsysClip = "pre" | "post" | "big" | "stay-seated" | "birthday";
 
 /**
  * The ambient "karts are rolling in — stay in your kart" loop, played by file
@@ -43,6 +45,13 @@ export type QsysClip = "pre" | "post" | "big" | "stay-seated";
  * and the rule that a real pre/post stops it instantly.
  */
 export const STAY_SEATED_FILE = "Stay Seated.mp3";
+
+/**
+ * "Happy birthday" — a courtesy sound staff press for a birthday group
+ * (owner 2026-08-15). File-played like the loop above, and ONE file for every
+ * zone, so the zone param is what puts it over the right pit.
+ */
+export const BIRTHDAY_FILE = "Birthday.mp3";
 
 /**
  * Pandora's WebSocket RELAY of the Core's push feed — same frames, verbatim,
@@ -116,7 +125,9 @@ export interface PlayQsysResult {
 /** Which clips play by FILE rather than by the Core's clip config. Null means
  *  a real configured clip (`pre` / `post` / `big`). */
 function fileFor(clip: QsysClip): string | null {
-  return clip === "stay-seated" ? STAY_SEATED_FILE : null;
+  if (clip === "stay-seated") return STAY_SEATED_FILE;
+  if (clip === "birthday") return BIRTHDAY_FILE;
+  return null;
 }
 
 export async function playQsysCue(zone: TrackKey, clip: QsysClip): Promise<PlayQsysResult> {
