@@ -258,9 +258,14 @@ export async function postRaceGate(sessionId: string): Promise<PostRaceGate> {
  * stamp written early would lock the one play this cycle gets. Only a play
  * that actually SOUNDED writes the pitted stamp (markRacePitted) — that is
  * what flips the wall boards from HOLD back to seating, and an unheard
- * announcement must not reopen the lane. A repeat press does NOT re-pit —
- * the first press already released it, and a second stamp could mask a NEW
- * hold if the next race finished in between.
+ * announcement must not reopen the lane. A repeat press RE-ASSERTS the
+ * release without replaying: the cue claim is keyed to the resolved racing
+ * session, so "already" can only ever be the same cycle pressed twice — a
+ * new race finishing in between resolves to a new session and takes a fresh
+ * claim instead. Re-stamping pitted therefore cannot mask a new hold, and it
+ * is the recovery when a finish marker lands AFTER the first press (a
+ * bridge-reconnect replay writing a fresh receive-time) and re-outranks the
+ * released hold: press post again and the lane clears.
  */
 export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
   const lane = await readPitLane(track);
@@ -279,6 +284,10 @@ export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
   const result = await claimAndPlay(track, "post", racing.sessionId);
   if (result.outcome === "failed") return { ok: false, error: result.error };
   if (result.outcome === "already") {
+    // Same cycle, pressed again — re-assert the release (see the header for
+    // why this is safe): if a straggling finish marker re-raised the hold
+    // after the first press, this press is how staff clear it.
+    await markRacePitted(track);
     return {
       ok: true,
       alreadyPlayed: true,

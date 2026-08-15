@@ -43,8 +43,13 @@ import { raceBookmarksEnabled } from "./race-bookmarks-setting.server";
 import { parseCameraTrack } from "../nx/track-cameras";
 
 export interface RaceFinishedMarker {
-  /** The venue's ActualEnd when stamped; our receive time during the
-   *  pending-finish window (the unstamped push can beat the stamp by ~40s). */
+  /** The FIRST finish signal we saw, and it never moves (owner 2026-08-14:
+   *  "phase one is the finish for all checks/balances"). Usually our receive
+   *  time for the unstamped push, which beats the stamp by ~40s; the venue's
+   *  ActualEnd only when the stamp arrived first (a bridge blip ate the
+   *  pending push). The authoritative ActualEnd always lands in the
+   *  race-timings archive regardless — this marker is ops state, not the
+   *  record. */
   endedAtMs: number;
   heatNumber: number | null;
   heatName: string;
@@ -287,20 +292,22 @@ export async function handleVenueMessage(message: unknown): Promise<void> {
         heatName: f.heatName,
         track: f.track,
       };
-      // A STAMPED marker carries the venue's own end time — a stable value,
-      // safe to overwrite (it also upgrades an earlier unstamped marker). An
-      // UNSTAMPED one carries our receive time, so it writes NX-only: replayed
-      // race-list pushes must neither slide it forward nor clobber the real
-      // stamp with a fabricated "just now" (review 2026-08-12).
-      if (f.actualEndMs !== null) {
-        await redis
-          .set(raceFinishedKey(f.raceId), JSON.stringify(marker), "EX", MARKER_TTL_SECONDS)
-          .catch(() => void 0);
-      } else {
-        await redis
-          .set(raceFinishedKey(f.raceId), JSON.stringify(marker), "EX", MARKER_TTL_SECONDS, "NX")
-          .catch(() => void 0);
-      }
+      // PHASE ONE IS THE FINISH (owner 2026-08-14). The first finish signal
+      // to land — usually the unstamped push, carrying our receive time — IS
+      // the race's finish for every check and balance downstream, and it
+      // NEVER moves: NX in both phases, so the later stamped push upgrades
+      // nothing. The stamped write used to overwrite with ActualEnd (~40s
+      // later), which retroactively re-outranked a "race returned" stamp
+      // pressed during the pending window and re-raised a hold the pit
+      // station had already released — with the post-race one-shot already
+      // burned, nothing on that page could release it again (verified
+      // 2026-08-14). A stamped-FIRST arrival (bridge blip ate the pending
+      // push) still writes, with ActualEnd; the authoritative ActualEnd is
+      // archived by recordRaceTiming above either way, and the standings and
+      // camera effects below read the WIRE record, never this marker.
+      await redis
+        .set(raceFinishedKey(f.raceId), JSON.stringify(marker), "EX", MARKER_TTL_SECONDS, "NX")
+        .catch(() => void 0);
 
       // RADIO FIRST — the time-critical, human-facing effect, and the one a
       // platform kill mid-handler must lose last. The claim only spares the
