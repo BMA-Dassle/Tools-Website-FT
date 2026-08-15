@@ -53,7 +53,10 @@ import { TvBrandLogo } from "../components/TvBrandLogo";
 import type { SceneProps } from "../director/types";
 
 const PAD_X = 96;
-const PAD_Y = 54;
+/** Top inset. Was 54 — most of it was empty band above the header, and the
+ *  board is fighting for vertical room (owner 2026-08-15: "wasting some space
+ *  at the top"). Left/right keep PAD_X; the bottom is set by the rail. */
+const PAD_Y = 30;
 const RAIL_H = 128;
 
 const GOLD = "#d4af37";
@@ -501,14 +504,30 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
               of the block — "Intermediate" was sliced mid-word. Stacked, the
               session number reads first at full size and the type reads second,
               and the freed width is what lets the pit board carry the mark. */}
-          <div style={{ marginLeft: 44, minWidth: 0, overflow: "hidden" }}>
+          {/* `overflow: hidden` clips at the PADDING edge, so the vertical
+              padding here is what stops it slicing the type it exists to
+              protect: an 80px italic uppercase glyph overshoots a 0.98 line box
+              top and bottom, and the clip was taking the ascenders off
+              "Session 23" (owner 2026-08-15, twice). The horizontal clip — the
+              whole point of the box — is untouched. */}
+          <div
+            style={{
+              marginLeft: 44,
+              minWidth: 0,
+              overflow: "hidden",
+              paddingTop: 10,
+              paddingBottom: 12,
+            }}
+          >
             {showSession ? (
               <>
                 <div
                   className="tv-display"
                   style={{
                     fontSize: 80,
-                    lineHeight: 0.98,
+                    // Was 0.98 — too tight for the cap height at this size once
+                    // the box clips.
+                    lineHeight: 1.06,
                     color: "#fff",
                     whiteSpace: "nowrap",
                     textShadow: `0 0 60px ${withAlpha(accent, 0.55)}`,
@@ -534,11 +553,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
                   </div>
                 )}
               </>
-            ) : (
-              <div className="tv-display" style={{ fontSize: 64, color: "#fff", marginTop: 6 }}>
-                No session staged
-              </div>
-            )}
+            ) : null}
           </div>
           {/*
             THE MARK, IN THE HEADER'S OWN GAP (owner 2026-08-14: "you just need
