@@ -549,6 +549,16 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
               </>
             ) : null}
           </div>
+          {/* THE QUAL TARGET LIVES UP HERE (owner 2026-08-15: "move that
+              qualification to the top, it's blocking everything").
+              On the rail it shared a row with the seating instruction and won —
+              "Seat Session 24 now" was being ellipsised to "S…". It belongs
+              beside the session it describes anyway. */}
+          <QualPill
+            qual={qualTarget ? { lap: formatLap(qualTarget.ms), level: qualTarget.level } : null}
+            accent={accent}
+            compact
+          />
           {/*
             THE MARK, IN THE HEADER'S OWN GAP (owner 2026-08-14: "you just need
             to put logo in right spot").
@@ -653,7 +663,6 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
         nowMs={nowMs}
         session={session}
         pitIn={lane.pitIn}
-        qual={qualTarget ? { lap: formatLap(qualTarget.ms), level: qualTarget.level } : null}
       />
     </div>
   );
@@ -1221,8 +1230,9 @@ function findDelay(
  *   LEFT   the group going out — seat them, and the pre-race cue's state
  *   RIGHT  the group that came back — the post announcement's state
  *
- * Weighted toward the left, which is the busier job and the one read from
- * furthest away. Only the RIGHT half flashes, and only while the karts are
+ * An even split (owner 2026-08-15) — the two jobs are equally somebody's whole
+ * attention, and unequal columns made the right half look like an afterthought.
+ * Only the RIGHT half flashes, and only while the karts are
  * physically rolling in (the two-phase finish's pending window), so the
  * left half stays legible through it.
  */
@@ -1234,7 +1244,6 @@ function Rail({
   nowMs,
   session,
   pitIn,
-  qual,
 }: {
   kind: "info" | "seat" | "hold" | "racing";
   accent: string;
@@ -1256,21 +1265,18 @@ function Rail({
     postRaceAtMs: number | null;
     postRaceDurationS: number | null;
   } | null;
-  qual: { lap: string; level: string } | null;
 }) {
-  const sessionName = session?.heatNumber != null ? `Session ${session.heatNumber}` : "the session";
+  const sessionName =
+    session?.heatNumber != null ? `Session ${session.heatNumber}` : "Next session";
 
   /** The left half's instruction, from the same four states as before. */
-  const leftText =
-    kind === "racing"
-      ? `${sessionName} is racing`
-      : kind === "seat" || kind === "hold"
-        ? session?.inHolding
-          ? `Seat ${sessionName} now`
-          : session?.briefedAtMs != null
-            ? `In briefing${session.briefedRoom ? ` · ${session.briefedRoom} room` : ""}`
-            : `${sessionName} checking in`
-        : session?.briefedAtMs != null
+  const leftText = !session
+    ? "Nothing to seat"
+    : kind === "racing"
+      ? `${sessionName} racing`
+      : session.inHolding
+        ? `Seat ${sessionName} now`
+        : session.briefedAtMs != null
           ? `In briefing${session.briefedRoom ? ` · ${session.briefedRoom} room` : ""}`
           : `${sessionName} checking in`;
   const leftGo = kind === "seat" && session?.inHolding === true;
@@ -1292,7 +1298,7 @@ function Rail({
       {/* ── LEFT: the group going out ── */}
       <div
         style={{
-          flex: "1.7 1 0",
+          flex: "1 1 0",
           minWidth: 0,
           display: "flex",
           alignItems: "center",
@@ -1307,15 +1313,14 @@ function Rail({
             fontSize: 40,
             whiteSpace: "nowrap",
             color: leftGo ? GREEN : "rgba(245,236,238,0.85)",
-            minWidth: 0,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
+            // NOT shrinkable. This is the instruction; the pill beside it is the
+            // detail. Letting flex ellipsise it produced "SEAT SE…" on the wall.
+            flexShrink: 0,
           }}
         >
           {leftText}
         </span>
         <PreRacePill session={session} armed={armed} nowMs={nowMs} />
-        <QualPill qual={qual} accent={accent} />
       </div>
 
       <div
@@ -1506,22 +1511,27 @@ function PreRacePill({
 function QualPill({
   qual,
   accent,
+  compact,
 }: {
   qual: { lap: string; level: string } | null;
   accent: string;
+  /** Header sizing: matched to the ON TRACK clock chip beside it (26 label /
+   *  40 figure) so the two pills in the band read as a pair rather than two
+   *  different ideas (owner 2026-08-15). */
+  compact?: boolean;
 }) {
   if (!qual) return null;
   return (
     <span
       style={{
-        marginLeft: "auto",
+        marginLeft: compact ? 28 : "auto",
         flexShrink: 0,
         display: "inline-flex",
         // CENTER, not baseline: mixed sizes on a shared baseline sat the
         // small text visibly low inside the pill (owner 2026-08-13).
         alignItems: "center",
-        gap: 16,
-        padding: "8px 28px",
+        gap: compact ? 10 : 16,
+        padding: compact ? "7px 22px" : "8px 28px",
         borderRadius: 999,
         border: `2px solid ${withAlpha(accent, 0.6)}`,
         background: withAlpha(accent, 0.14),
@@ -1531,11 +1541,16 @@ function QualPill({
       {/* MOCKUP SIZES, verbatim — the pill is the guest-facing half of the
           rail and reads big; the fit problem was the long info copy beside
           it, which is what got shortened. */}
-      <span style={{ fontSize: 32, lineHeight: 1, color: "rgba(245,236,238,0.8)" }}>Beat</span>
-      <span className="tv-display tv-num" style={{ fontSize: 54, lineHeight: 1, color: "#fff" }}>
+      <span style={{ fontSize: compact ? 26 : 32, lineHeight: 1, color: "rgba(245,236,238,0.8)" }}>
+        Beat
+      </span>
+      <span
+        className="tv-display tv-num"
+        style={{ fontSize: compact ? 40 : 54, lineHeight: 1, color: "#fff" }}
+      >
         {qual.lap}
       </span>
-      <span style={{ fontSize: 32, lineHeight: 1, color: "rgba(245,236,238,0.8)" }}>
+      <span style={{ fontSize: compact ? 26 : 32, lineHeight: 1, color: "rgba(245,236,238,0.8)" }}>
         to qualify {qual.level}
       </span>
     </span>
