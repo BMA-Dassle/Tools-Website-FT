@@ -562,6 +562,15 @@ export default function PitClient({ token, version }: { token: string; version: 
             audio={board?.data.audio ?? {}}
             gate={board?.data.postGate[track] ?? null}
             zone={zones?.find((z) => z.zone === track) ?? null}
+            // One clip per TRACK (owner): a zone can't overlap itself, and
+            // mega conflicts with both pits' zones since it IS their
+            // speakers. Red and blue run independently. The server refuses
+            // too; this is the button saying so instead of erroring.
+            paBusyZone={
+              zones?.find(
+                (z) => z.playing && (z.zone === track || z.zone === "mega" || track === "mega"),
+              )?.zone ?? null
+            }
             zonesAtMs={zonesAtMs}
             nowMs={nowMs}
             pending={pending}
@@ -590,6 +599,7 @@ function TrackCard({
   audio,
   gate,
   zone,
+  paBusyZone,
   zonesAtMs,
   nowMs,
   pending,
@@ -600,6 +610,9 @@ function TrackCard({
   audio: Record<string, CueStamps>;
   gate: PostGate | null;
   zone: QsysZone | null;
+  /** Which zone the PA is currently sounding on, if any — one clip at a
+   *  time across the whole player, so this blocks every other press. */
+  paBusyZone: string | null;
   zonesAtMs: number;
   nowMs: number;
   pending: string | null;
@@ -704,7 +717,17 @@ function TrackCard({
           label="Play pre-race"
           playingLabel="Pre-race playing"
           doneLabel="Pre-race played"
-          state={preLive ? "playing" : preStamp != null ? "done" : holding ? "press" : "idle"}
+          state={
+            preLive
+              ? "playing"
+              : preStamp != null
+                ? "done"
+                : holding
+                  ? paBusyZone
+                    ? "blocked"
+                    : "press"
+                  : "idle"
+          }
           when={
             preLive?.remainingS != null
               ? `${formatSeconds(preLive.remainingS)} left`
@@ -713,7 +736,9 @@ function TrackCard({
                 : preStamp != null
                   ? clockTimeMs(preStamp.atMs)
                   : holding
-                    ? "due"
+                    ? paBusyZone
+                      ? `PA busy · ${paBusyZone}`
+                      : "due"
                     : "no group seated"
           }
           busy={pending === `audio-pre:${track}`}
@@ -750,7 +775,7 @@ function TrackCard({
               : postStamp != null
                 ? "done"
                 : finished
-                  ? postBlocked
+                  ? postBlocked || paBusyZone
                     ? "blocked"
                     : "press"
                   : "idle"
@@ -765,7 +790,9 @@ function TrackCard({
                   : finished
                     ? postBlocked
                       ? (gate?.short ?? "room busy")
-                      : "reopens seating"
+                      : paBusyZone
+                        ? `PA busy · ${paBusyZone}`
+                        : "reopens seating"
                     : "after the finish"
           }
           busy={pending === `audio-post:${track}`}

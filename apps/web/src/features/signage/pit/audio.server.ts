@@ -39,7 +39,7 @@ import { recordBriefingEvent } from "../briefing/events-db";
 import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
 import type { TrackKey } from "../track";
 import { markRacePitted, readPitLane } from "./lane.server";
-import { playQsysCue } from "./qsys.server";
+import { playQsysCue, readQsysLive } from "./qsys.server";
 
 const VENUE = "FT";
 
@@ -103,6 +103,32 @@ export async function readCueStamps(sessionId: string): Promise<PitCueStamps> {
     readCueStamp("post", sessionId),
   ]);
   return { pre, post };
+}
+
+/**
+ * ONE CLIP PER TRACK (owner 2026-08-14: "Its 1 audio clip per track, so red
+ * cant play pre/post at the same time"). A zone plays one clip — a second
+ * play request on it doesn't mix, it SUPERSEDES what's sounding, cutting the
+ * announcement off mid-sentence. So a press refuses while ITS OWN zone is
+ * playing; red and blue run independently. Mega conflicts with both, in both
+ * directions, because the mega zone IS the two pits' speakers together.
+ * Read from Pandora's websocket cache (instant); an unreadable feed fails
+ * OPEN — a blind guard that refused every press on a Pandora blip would be
+ * worse than the rare supersede it exists to stop.
+ */
+function zonesConflict(a: string, b: string): boolean {
+  return a === b || a === "mega" || b === "mega";
+}
+
+async function paBusy(track: TrackKey): Promise<{ busy: false } | { busy: true; error: string }> {
+  const live = await readQsysLive();
+  const sounding = live?.zones.find((z) => z.playing && zonesConflict(z.zone, track));
+  if (!sounding) return { busy: false };
+  const left = sounding.timing?.remainingText ? ` — ${sounding.timing.remainingText} left` : "";
+  return {
+    busy: true,
+    error: `the PA is already playing on ${sounding.zone}${left}; one clip at a time per track`,
+  };
 }
 
 export interface PlayCueResult {
@@ -173,6 +199,8 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
   if (!holding) {
     return { ok: false, error: "no group is in holding — pre-race arms when a group is seated" };
   }
+  const busy = await paBusy(track);
+  if (busy.busy) return { ok: false, error: busy.error };
 
   const result = await claimAndPlay(track, "pre", holding.sessionId);
   if (result.outcome === "failed") return { ok: false, error: result.error };
@@ -280,6 +308,8 @@ export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
   if (!gate.allowed) {
     return { ok: false, error: gate.reason ?? "the briefing room is not empty yet" };
   }
+  const busy = await paBusy(track);
+  if (busy.busy) return { ok: false, error: busy.error };
 
   const result = await claimAndPlay(track, "post", racing.sessionId);
   if (result.outcome === "failed") return { ok: false, error: result.error };
