@@ -121,11 +121,18 @@ const STYLES = `
 .pitb {
   display: flex; align-items: center; gap: 12px; width: 100%;
   min-height: 56px; flex: 1; padding: 0 18px; border-radius: 10px;
-  font-family: ${ADMIN_SANS}; font-size: 16px; font-weight: 800; letter-spacing: 0.02em;
+  /* The button grows with the screen (flex: 1), so its text scales with it —
+     vh-clamped so a wall tablet gets billboard type and a cramped window
+     falls back to the original 16px (owner 2026-08-14: "fix text sized with
+     the bigger button"). */
+  font-family: ${ADMIN_SANS}; font-size: clamp(16px, 3.4vh, 34px); font-weight: 800; letter-spacing: 0.02em;
   border: 1px solid transparent; cursor: pointer; text-align: left;
   font-variant-numeric: tabular-nums;
   transition: filter 120ms ease, transform 60ms ease;
 }
+/* The right-hand status word ("due", "reopens seating", the countdown) rides
+   the same scale a step down. */
+.pitb-when { margin-left: auto; font-size: clamp(13px, 2.2vh, 22px); font-weight: 700; }
 .pitb:hover:not(:disabled) { filter: brightness(1.12); }
 .pitb:active:not(:disabled) { transform: translateY(1px); }
 .pitb:focus-visible { outline: 2px solid ${INK}; outline-offset: 2px; }
@@ -144,7 +151,7 @@ const STYLES = `
 .pit-blink { animation: pit-blink 1.1s ease-in-out infinite; }
 @keyframes pit-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 .pitb-spin {
-  width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
+  width: 0.8em; height: 0.8em; border-radius: 50%; flex-shrink: 0;
   border: 2px solid currentColor; border-top-color: transparent;
   animation: pitb-spin 650ms linear infinite;
 }
@@ -848,7 +855,7 @@ function CueSection({
         {title && (
           <span
             style={{
-              fontSize: 25,
+              fontSize: "clamp(25px, 3.6vh, 38px)",
               fontWeight: 800,
               lineHeight: 1.1,
               color: INK,
@@ -861,7 +868,7 @@ function CueSection({
         )}
         <span
           style={{
-            fontSize: 12.5,
+            fontSize: "clamp(12.5px, 1.9vh, 18px)",
             color: subTone ?? PORTAL_DARK.muted,
             fontWeight: subTone ? 700 : 400,
             fontVariantNumeric: "tabular-nums",
@@ -919,8 +926,8 @@ function CueButton({
           className="pit-blink"
           aria-hidden
           style={{
-            width: 10,
-            height: 10,
+            width: "0.55em",
+            height: "0.55em",
             borderRadius: "50%",
             background: AMBER,
             boxShadow: `0 0 9px ${AMBER}`,
@@ -929,14 +936,7 @@ function CueButton({
         />
       ) : null}
       {state === "done" ? `✓ ${doneLabel}` : state === "playing" ? playingLabel : `▶ ${label}`}
-      <span
-        style={{
-          marginLeft: "auto",
-          fontSize: 13,
-          fontWeight: 700,
-          opacity: state === "press" ? 0.75 : 1,
-        }}
-      >
+      <span className="pitb-when" style={{ opacity: state === "press" ? 0.75 : 1 }}>
         {busy ? "Playing…" : when}
       </span>
     </button>
@@ -987,7 +987,7 @@ function CueLengthStrip({ live, stamp }: { live: LiveTiming | null; stamp: CueSt
       </div>
       <span
         style={{
-          fontSize: 12,
+          fontSize: "clamp(12px, 1.8vh, 17px)",
           fontWeight: 700,
           color: live != null ? AMBER : PORTAL_DARK.muted,
           fontVariantNumeric: "tabular-nums",
