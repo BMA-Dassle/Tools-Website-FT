@@ -133,7 +133,11 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
       }
     }
     const own = lanes[track];
-    if (own?.holding || own?.karts || own?.racing) return own;
+    // pitIn counts as occupied (2026-08-15: a red race finished with nothing
+    // staged behind it and the board fell to the empty mega lane — HOLD and
+    // the post rail vanished the moment the group settled into the pit).
+    // A lane whose only occupant is a returning race still owes its post.
+    if (own?.holding || own?.karts || own?.racing || own?.pitIn) return own;
     return lanes.mega ?? EMPTY_PIT_LANE;
   }, [feed?.pitLanes, session, track]);
 

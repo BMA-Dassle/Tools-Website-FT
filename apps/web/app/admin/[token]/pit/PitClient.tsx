@@ -828,21 +828,26 @@ function TrackCard({
         <CueLengthStrip live={preLive} stamp={preStamp} />
       </CueSection>
 
-      {/* ── POST — the race coming back ── */}
+      {/* ── POST — the race coming back ──
+          Titled off the group in the PIT first, the one on track second
+          (2026-08-15: a red race settled into pitIn with nothing staged and
+          this card said "No race out." — the session fell off the station
+          with its post still owed. `racing` goes null at that exact moment,
+          because on track means ON TRACK only; the post's subject is pitIn). */}
       <CueSection
         tag="Post"
-        title={racing ? `Session ${racing.heatNumber ?? "?"}` : null}
+        title={(pitIn ?? racing) ? `Session ${(pitIn ?? racing)?.heatNumber ?? "?"}` : null}
         sub={
-          racing
-            ? finished
-              ? `finished ${formatClock(finishedAgoMs ?? 0)} ago${
-                  postBlocked ? ` · ${gate?.short ?? "room busy"}` : ""
-                }`
-              : clockSaysFinished
+          finished
+            ? `finished ${formatClock(finishedAgoMs ?? 0)} ago${
+                postBlocked ? ` · ${gate?.short ?? "room busy"}` : ""
+              }`
+            : racing
+              ? clockSaysFinished
                 ? // The socket saw phase one; the marker is a beat behind.
                   "finishing — karts coming in"
                 : `racing${liveClock?.state === "running" ? ` · ${formatRemaining(liveClock.remainingMs)} left` : ""}`
-            : "No race out."
+              : "No race out."
         }
         subTone={finished && postStamp == null ? AMBER : undefined}
       >
