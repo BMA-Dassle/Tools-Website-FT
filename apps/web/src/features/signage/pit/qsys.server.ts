@@ -15,11 +15,13 @@ import "server-only";
  * Core's address from the Square location's qsysAddress attribute.
  *
  * THE VOCABULARY MATCHES OURS EXACTLY, by design: zones are `red` / `blue` /
- * `mega` (our TrackKey), clips are `pre` / `post` (our cues) plus `big` —
- * the pre-race announcement with the extra big-race warnings, played instead
- * of `pre` for a grid of 8+ (audio.server.ts owns that rule; the clip name
- * must match the Core's clip config, GET /qsys/audio/clips). Zones run
- * independently — playing one never cancels another.
+ * `mega` (our TrackKey), clips are `pre` / `post` (our cues). `big` — the
+ * pre-race announcement with the extra big-race warnings, played instead of
+ * `pre` for a grid of 8+ (audio.server.ts owns that rule) — is OURS alone:
+ * the Core has no configured clip for it, so it plays BY FILE NAME
+ * ("<Track> Track Big Race.mp3", owner 2026-08-15 emergency fix; /play takes
+ * exactly one of clip | file). Zones run independently — playing one never
+ * cancels another.
  *
  * Bearer auth with SWAGGER_ADMIN_KEY, same as every other Pandora call in
  * this repo (e.g. /api/tv/pit-photo).
@@ -104,13 +106,25 @@ export interface PlayQsysResult {
  * Throws nothing: the caller (audio.server.ts) releases its one-shot claim
  * on a failed play, so every failure must come back as `ok: false`.
  */
+/** The big-race pre plays by file, not by configured clip — see the header.
+ *  Zone keys are lowercase; the files are titled ("Red Track Big Race.mp3"),
+ *  and the mega zone's files are named "Dual" (owner 2026-08-15). */
+function bigRaceFile(zone: TrackKey): string {
+  const name = zone === "mega" ? "Dual" : `${zone.charAt(0).toUpperCase()}${zone.slice(1)}`;
+  return `${name} Track Big Race.mp3`;
+}
+
 export async function playQsysCue(zone: TrackKey, clip: QsysClip): Promise<PlayQsysResult> {
   if (!PANDORA_KEY) return { ok: false, error: "SWAGGER_ADMIN_KEY is not set", durationS: null };
   try {
     const res = await fetch(`${PANDORA_BASE}/qsys/audio/play`, {
       method: "POST",
       headers: pandoraHeaders(),
-      body: JSON.stringify({ locationID: FT_SQUARE_LOCATION_ID, zone, clip }),
+      body: JSON.stringify(
+        clip === "big"
+          ? { locationID: FT_SQUARE_LOCATION_ID, zone, file: bigRaceFile(zone) }
+          : { locationID: FT_SQUARE_LOCATION_ID, zone, clip },
+      ),
       // The reply is deliberately held ~0.6s by the Core so it can carry the
       // clip duration; the budget covers that plus an Azure cold start.
       signal: AbortSignal.timeout(8000),
