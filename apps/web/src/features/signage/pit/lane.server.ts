@@ -90,26 +90,25 @@ async function writeStoredLane(track: TrackKey, lane: StoredPitLane): Promise<vo
 }
 
 /**
- * THE "KARTS RETURNING" HOLD IS PARKED (owner 2026-08-14: "can we comment out
- * the karts returning for now and just clear that race slot. We will add this
- * back later").
+ * THE "KARTS RETURNING" HOLD IS BACK ON (2026-08-14, same day it was parked).
  *
- * The designed flow is: a race finishes → the lane is unsafe while karts come
- * in → a human who can SEE the lane presses "race returned" and only then does
- * the board say it is safe to seat. Never a timer, deliberately, because the
- * hold is a safety statement.
+ * The designed flow: a race finishes → the lane is unsafe while karts come
+ * in → a human who can SEE the lane releases it, and only then does the board
+ * say it is safe to seat. Never a timer, deliberately — the hold is a safety
+ * statement.
  *
- * In practice the press is not happening, so the hold simply never released and
- * a finished race sat on the boards behind an amber flash all evening. A state
- * nobody clears is worse than no state: staff learn to ignore the one colour on
- * the board that means "stop".
+ * It was parked earlier today because the release press lived on the CHECK-IN
+ * board, where the person can't see the lane and never pressed it — a finished
+ * race sat behind an amber flash all evening. The press now has the home the
+ * parking note asked for: the pit station (/admin/{token}/pit), where PLAYING
+ * THE POST-RACE ANNOUNCEMENT is the release (pit/audio.server.ts — the press
+ * makes sound, so it happens). The check-in board's pit-lane button stays as
+ * the manual override for a night the PA cannot play.
  *
- * So while this is false a finished race just LEAVES the lane. Everything that
- * implements the hold is untouched below and in pit-board.ts — this is one flag,
- * not a deletion, so putting it back is a one-word change once the press has a
- * home (a pit-side button, or the camera telling us the lane is clear).
+ * While this is false a finished race just LEAVES the lane; everything that
+ * implements the hold below and in pit-board.ts keeps working either way.
  */
-const KARTS_RETURNING_HOLD = false;
+const KARTS_RETURNING_HOLD = true;
 
 /**
  * HAS THE TRACK MOVED ON PAST THIS HEAT?

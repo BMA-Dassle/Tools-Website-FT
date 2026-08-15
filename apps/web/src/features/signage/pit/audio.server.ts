@@ -2,19 +2,26 @@ import "server-only";
 
 /**
  * The pit's two PA cues — PRE-RACE (the seated group's announcement) and
- * POST-RACE (the finished race's) — pressed from /admin/{token}/pit.
+ * POST-RACE (the finished race's) — pressed from /admin/{token}/pit and
+ * played on the venue's Q-SYS Pre/Post Race player via Pandora's proxy
+ * (qsys.server.ts; endpoints landed 2026-08-14).
  *
- * ONE PLAY PER TRACK PER CYCLE (owner 2026-08-14). A cue's stamp is claimed
- * NX against the session it played for, so a double-tap, two open tablets, or
- * a retried request can never fire the announcement twice. The stamp resets
- * itself: the next cycle is a different session, which is a different key.
+ * ONE PLAY PER TRACK PER CYCLE (owner 2026-08-14). The stamp is claimed NX
+ * against the session it plays for BEFORE the play request goes out — two
+ * tablets pressing together race for one claim, and only the winner talks to
+ * the PA. A play that then FAILS releases the claim, so the button re-arms
+ * and the press can retry (same NX-first / DEL-on-failure shape as
+ * return-announce.server.ts, and for the same reason: a cue that silently
+ * never happened is the failure staff can't see). The stamp resets itself:
+ * the next cycle is a different session, which is a different key.
  *
  * POST DOUBLES AS "RACE RETURNED" (owner 2026-08-14: "you dont need the race
- * returned button as the post play will double as that"). Playing post writes
- * the same pitted stamp the check-in board's pit-lane button writes
- * (markRacePitted), so the wall's hold machine (pit-board.ts) is unchanged —
- * the release just arrives with the announcement. The check-in button stays
- * as the manual override for a night the PA cannot play.
+ * returned button as the post play will double as that"). A SUCCESSFUL post
+ * play writes the same pitted stamp the check-in board's pit-lane button
+ * writes (markRacePitted), so the wall's hold machine (pit-board.ts) is
+ * unchanged — the release arrives with the announcement. A FAILED play
+ * releases nothing: the hold stands, and the check-in button remains the
+ * manual override for a night the PA cannot play.
  *
  * ARMING RULES the API enforces server-side, so a stale tablet cannot stamp
  * the wrong cycle:
@@ -32,6 +39,7 @@ import { recordBriefingEvent } from "../briefing/events-db";
 import { sessionBriefed } from "../briefing/state.server";
 import type { TrackKey } from "../track";
 import { markRacePitted, readPitLane } from "./lane.server";
+import { playQsysCue } from "./qsys.server";
 
 const VENUE = "FT";
 
@@ -41,18 +49,43 @@ const STAMP_TTL_SECONDS = 12 * 3600;
 
 export type PitCue = "pre" | "post";
 
+/** One played cue: when, and how long the clip is when the player said in
+ *  time (the /play reply is held ~0.6s so it usually can). */
+export interface CueStamp {
+  atMs: number;
+  durationS: number | null;
+}
+
 function cueKey(cue: PitCue, sessionId: string): string {
   return `pit:audio:${cue}:${sessionId}`;
 }
 
-/** When a cue played for a session, or null. Swallows — reads ride the feed. */
-export async function readCueStamp(cue: PitCue, sessionId: string): Promise<number | null> {
+/** Stamps started life as a bare epoch-ms string and grew a duration field
+ *  the day the Pandora endpoints landed — both shapes stay readable for the
+ *  12h a pre-upgrade stamp can still be live. */
+function parseStamp(raw: string | null): CueStamp | null {
+  if (!raw) return null;
+  const n = Number(raw);
+  if (Number.isFinite(n)) return { atMs: n, durationS: null };
+  try {
+    const p = JSON.parse(raw) as { atMs?: number; durationS?: number | null };
+    if (typeof p.atMs !== "number" || !Number.isFinite(p.atMs)) return null;
+    return {
+      atMs: p.atMs,
+      durationS:
+        typeof p.durationS === "number" && Number.isFinite(p.durationS) ? p.durationS : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** When (and how long) a cue played for a session, or null. Swallows —
+ *  reads ride the feed. */
+export async function readCueStamp(cue: PitCue, sessionId: string): Promise<CueStamp | null> {
   if (!sessionId) return null;
   try {
-    const raw = await redis.get(cueKey(cue, sessionId));
-    if (!raw) return null;
-    const ms = Number(raw);
-    return Number.isFinite(ms) ? ms : null;
+    return parseStamp(await redis.get(cueKey(cue, sessionId)));
   } catch {
     return null;
   }
@@ -60,27 +93,16 @@ export async function readCueStamp(cue: PitCue, sessionId: string): Promise<numb
 
 /** Both cues for one session — what the control board's GET carries. */
 export interface PitCueStamps {
-  preAtMs: number | null;
-  postAtMs: number | null;
+  pre: CueStamp | null;
+  post: CueStamp | null;
 }
 
 export async function readCueStamps(sessionId: string): Promise<PitCueStamps> {
-  const [preAtMs, postAtMs] = await Promise.all([
+  const [pre, post] = await Promise.all([
     readCueStamp("pre", sessionId),
     readCueStamp("post", sessionId),
   ]);
-  return { preAtMs, postAtMs };
-}
-
-/**
- * THE Q-SYS SEAM. The venue's cues live on the Q-SYS Core today; the trigger
- * endpoints are coming (owner 2026-08-14: "Ill give you endpoints later").
- * Until they land this is a deliberate no-op — the press records the cue and
- * staff fire the audio from the Q-SYS panel as they do now — and when they
- * arrive, playback plugs in HERE and nowhere else.
- */
-async function triggerPitCue(_track: TrackKey, _cue: PitCue): Promise<void> {
-  /* not wired yet — see the header */
+  return { pre, post };
 }
 
 export interface PlayCueResult {
@@ -95,12 +117,55 @@ export interface PlayCueResult {
 }
 
 /**
+ * Claim the one-shot, fire the PA, and settle the stamp.
+ *
+ * Claim-first so concurrent presses can't both reach the player; on a failed
+ * play the claim is DELeted so the next press retries. On success the stamp
+ * is rewritten with the clip duration the player reported — a plain
+ * overwrite, safe because the claim is already ours.
+ */
+async function claimAndPlay(
+  track: TrackKey,
+  cue: PitCue,
+  sessionId: string,
+): Promise<
+  | { outcome: "played"; atMs: number }
+  | { outcome: "already"; atMs: number | null }
+  | { outcome: "failed"; error: string }
+> {
+  const nowMs = Date.now();
+  const key = cueKey(cue, sessionId);
+  const claimed = await redis
+    .set(key, JSON.stringify({ atMs: nowMs, durationS: null }), "EX", STAMP_TTL_SECONDS, "NX")
+    .catch(() => null);
+  if (claimed !== "OK") {
+    const stamp = await readCueStamp(cue, sessionId);
+    return { outcome: "already", atMs: stamp?.atMs ?? null };
+  }
+
+  const play = await playQsysCue(track, cue);
+  if (!play.ok) {
+    // Release the claim — the cue never sounded, so the press must be
+    // repeatable. A DEL that itself fails leaves a stamp the TTL clears.
+    await redis.del(key).catch(() => void 0);
+    return { outcome: "failed", error: play.error ?? "the PA did not start the cue" };
+  }
+
+  if (play.durationS != null) {
+    await redis
+      .set(key, JSON.stringify({ atMs: nowMs, durationS: play.durationS }), "EX", STAMP_TTL_SECONDS)
+      .catch(() => void 0);
+  }
+  return { outcome: "played", atMs: nowMs };
+}
+
+/**
  * Play the PRE-RACE cue for whatever group is in the track's holding.
  *
- * The Neon row is the durable record and is written only on a fresh claim —
- * awaited and uncaught, same posture as every briefing event: a staff action
- * whose record cannot land should fail loudly, not proceed unrecorded. The
- * room on the row is the room the group was briefed in.
+ * The Neon row is the durable record and is written only on a fresh, PLAYED
+ * claim — awaited and uncaught, same posture as every briefing event: a
+ * staff action whose record cannot land should fail loudly, not proceed
+ * unrecorded. The room on the row is the room the group was briefed in.
  */
 export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
   const lane = await readPitLane(track);
@@ -109,16 +174,16 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
     return { ok: false, error: "no group is in holding — pre-race arms when a group is seated" };
   }
 
-  const nowMs = Date.now();
-  const claimed = await redis
-    .set(cueKey("pre", holding.sessionId), String(nowMs), "EX", STAMP_TTL_SECONDS, "NX")
-    .catch(() => null);
-  if (claimed !== "OK") {
-    const atMs = await readCueStamp("pre", holding.sessionId);
-    return { ok: true, alreadyPlayed: true, atMs: atMs ?? undefined, sessionId: holding.sessionId };
+  const result = await claimAndPlay(track, "pre", holding.sessionId);
+  if (result.outcome === "failed") return { ok: false, error: result.error };
+  if (result.outcome === "already") {
+    return {
+      ok: true,
+      alreadyPlayed: true,
+      atMs: result.atMs ?? undefined,
+      sessionId: holding.sessionId,
+    };
   }
-
-  await triggerPitCue(track, "pre");
 
   const room =
     holding.room ?? (await sessionBriefed(holding.sessionId).catch(() => null))?.room ?? null;
@@ -135,18 +200,19 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
       action: "audio-pre",
     });
   }
-  return { ok: true, atMs: nowMs, sessionId: holding.sessionId };
+  return { ok: true, atMs: result.atMs, sessionId: holding.sessionId };
 }
 
 /**
  * Play the POST-RACE cue for the finished race — and release the lane.
  *
  * Refuses while the race is still out: post arms at the finish marker, and a
- * stamp written early would lock the one play this cycle gets. On a fresh
- * claim it also writes the pitted stamp (markRacePitted), which is what flips
- * the wall boards from HOLD back to seating. A repeat press does NOT re-pit —
- * the first press already released the lane, and a second stamp could mask a
- * NEW hold if the next race finished in between.
+ * stamp written early would lock the one play this cycle gets. Only a play
+ * that actually SOUNDED writes the pitted stamp (markRacePitted) — that is
+ * what flips the wall boards from HOLD back to seating, and an unheard
+ * announcement must not reopen the lane. A repeat press does NOT re-pit —
+ * the first press already released it, and a second stamp could mask a NEW
+ * hold if the next race finished in between.
  */
 export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
   const lane = await readPitLane(track);
@@ -158,16 +224,16 @@ export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
     return { ok: false, error: "the race hasn't finished — post-race arms at the finish" };
   }
 
-  const nowMs = Date.now();
-  const claimed = await redis
-    .set(cueKey("post", racing.sessionId), String(nowMs), "EX", STAMP_TTL_SECONDS, "NX")
-    .catch(() => null);
-  if (claimed !== "OK") {
-    const atMs = await readCueStamp("post", racing.sessionId);
-    return { ok: true, alreadyPlayed: true, atMs: atMs ?? undefined, sessionId: racing.sessionId };
+  const result = await claimAndPlay(track, "post", racing.sessionId);
+  if (result.outcome === "failed") return { ok: false, error: result.error };
+  if (result.outcome === "already") {
+    return {
+      ok: true,
+      alreadyPlayed: true,
+      atMs: result.atMs ?? undefined,
+      sessionId: racing.sessionId,
+    };
   }
-
-  await triggerPitCue(track, "post");
 
   const room = (await sessionBriefed(racing.sessionId).catch(() => null))?.room ?? null;
   if (room) {
@@ -188,5 +254,5 @@ export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
   // its own insurance row — one code path for this stamp, whoever presses.
   await markRacePitted(track);
 
-  return { ok: true, atMs: nowMs, sessionId: racing.sessionId };
+  return { ok: true, atMs: result.atMs, sessionId: racing.sessionId };
 }

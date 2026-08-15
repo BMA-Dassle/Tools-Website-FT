@@ -118,7 +118,7 @@ export async function buildPitBoard(
   if (!display) return empty;
   const { sessionId, heatNumber, raceType, inHolding } = display;
 
-  const [briefed, startedAtMs, preRaceAtMs, rows, cameras] = await Promise.all([
+  const [briefed, startedAtMs, preStamp, rows, cameras] = await Promise.all([
     sessionBriefed(sessionId).catch(() => null),
     readRaceStartedMarker(sessionId).catch(() => null),
     readCueStamp("pre", sessionId).catch(() => null),
@@ -134,7 +134,7 @@ export async function buildPitBoard(
     briefedAtMs: briefed?.atMs ?? null,
     inHolding,
     startedAtMs,
-    preRaceAtMs,
+    preRaceAtMs: preStamp?.atMs ?? null,
   };
   if (!rows || rows.length === 0) return { track, session, roster: rows ? [] : null };
 

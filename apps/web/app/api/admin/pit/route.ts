@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { playPostRace, playPreRace, readCueStamps } from "~/features/signage/pit/audio.server";
 import { readPitLanes } from "~/features/signage/pit/lane.server";
+import { readQsysLive } from "~/features/signage/pit/qsys.server";
 import type { PitCueStamps } from "~/features/signage/pit/audio.server";
+import type { QsysLiveState } from "~/features/signage/pit/qsys.server";
 import type { PitLanes } from "~/features/signage/pit/pit-board";
 
 /**
@@ -35,6 +37,10 @@ export interface PitBoardResponse {
   /** Cue stamps for every session the lanes mention, keyed by sessionId
    *  (TEXT — BMI ids exceed Number.MAX_SAFE_INTEGER, house rule). */
   audio: Record<string, PitCueStamps>;
+  /** The Q-SYS player's live zone state, from Pandora's WebSocket cache —
+   *  the countdown the tablet interpolates between polls. Null when Pandora
+   *  can't be read; the controls stand without it. */
+  qsys: QsysLiveState | null;
 }
 
 export async function GET(req: NextRequest) {
@@ -47,13 +53,14 @@ export async function GET(req: NextRequest) {
     if (lane.racing?.sessionId) sessionIds.add(lane.racing.sessionId);
   }
   const audio: Record<string, PitCueStamps> = {};
-  await Promise.all(
-    [...sessionIds].map(async (sid) => {
+  const [qsys] = await Promise.all([
+    readQsysLive(),
+    ...[...sessionIds].map(async (sid) => {
       audio[sid] = await readCueStamps(sid);
     }),
-  );
+  ]);
 
-  const body: PitBoardResponse = { now: Date.now(), lanes, audio };
+  const body: PitBoardResponse = { now: Date.now(), lanes, audio, qsys };
   return NextResponse.json(body, { headers: { "Cache-Control": "no-store" } });
 }
 

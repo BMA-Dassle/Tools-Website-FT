@@ -19,15 +19,20 @@
  *
  * Each cue fires ONCE per track per cycle — the server claims the stamp NX
  * against the session it played for (pit/audio.server.ts), so this client
- * only ever asks; it never decides.
+ * only ever asks; it never decides. A press now really PLAYS the cue: the
+ * server fires Pandora's Q-SYS proxy and releases the claim if the PA never
+ * started, so a failed press re-arms instead of lying.
  *
- * THE LENGTH STRIP under each cue is deliberately empty for now: cue
- * durations aren't in the system yet (owner: "We dont have data yet but we
- * will"). The readout shows —:— and the layout doesn't change when the data
- * lands.
+ * THE COUNTDOWN comes from the player itself: Pandora holds the Core's
+ * WebSocket (docs/qsys-audio-websocket.md) and re-serves the cached zone
+ * state on our board poll. Numeric `remaining` is interpolated against the
+ * local clock between polls, so the bar runs smoothly on a 5-second poll.
+ * WHICH section shows the countdown is attributed by our own stamps — the
+ * latest cue WE played on that zone — because a file staff play from the
+ * Q-SYS panel directly is not ours to label.
  *
  * Same polling shape as the check-in board: a 5-second board poll and a
- * 1-second local clock so the seated/finished readouts tick between polls.
+ * 1-second local clock so every readout ticks between polls.
  */
 import { useCallback, useEffect, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
@@ -46,17 +51,43 @@ const GREEN = "#4ade80";
 const AMBER = "#f0b341";
 const INK = "#e8eef7";
 
-/** What the cues stamped, per session — mirrors the route's PitCueStamps.
- *  Declared locally so this client never imports from a server-only module. */
+/** A cue that has played: when, and the clip length when the player said in
+ *  time. Mirrors the route's CueStamp — declared locally so this client
+ *  never imports from a server-only module. */
+interface CueStamp {
+  atMs: number;
+  durationS: number | null;
+}
+
 interface CueStamps {
-  preAtMs: number | null;
-  postAtMs: number | null;
+  pre: CueStamp | null;
+  post: CueStamp | null;
+}
+
+/** One audio zone as the Q-SYS player pushes it (via Pandora's cache). Only
+ *  the fields this board reads — ignore the rest, per the wire doc. */
+interface QsysZone {
+  zone: string;
+  wired: boolean;
+  playing: boolean;
+  file: string;
+  timing: {
+    source: string;
+    remaining?: number;
+    remainingText: string;
+    elapsed?: number;
+    elapsedText: string;
+    duration?: number;
+    durationText: string;
+    progress?: number;
+  };
 }
 
 interface PitBoard {
   now: number;
   lanes: PitLanes;
   audio: Record<string, CueStamps>;
+  qsys: { connected: boolean; zones: QsysZone[] } | null;
 }
 
 const STYLES = `
@@ -75,6 +106,8 @@ const STYLES = `
 .pitb[aria-busy="true"] { cursor: progress; }
 /* amber = press to play */
 .pitb-press { background: ${AMBER}; color: #1a1205; }
+/* the cue is sounding right now — a state, not a control */
+.pitb-playing { background: rgba(240,179,65,0.12); border-color: ${AMBER}; color: ${AMBER}; cursor: default; }
 /* green = played, locked — a state, not a control */
 .pitb-done { background: rgba(74,222,128,0.08); border-color: rgba(74,222,128,0.4); color: ${GREEN}; cursor: default; }
 /* dim = not armed yet */
@@ -92,8 +125,8 @@ const STYLES = `
 }
 `;
 
-/** A local 1-second clock, so the seated/finished readouts tick between the
- *  5-second polls — same pattern as the check-in board. */
+/** A local 1-second clock, so the seated/finished readouts (and the
+ *  interpolated countdown) tick between the 5-second polls. */
 function useNowMs(intervalMs = 1_000): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -110,6 +143,10 @@ function formatClock(ms: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+function formatSeconds(s: number): string {
+  return formatClock(Math.round(s) * 1000);
+}
+
 /** Wall-clock time in venue time (ET) — what "played 7:36 PM" means. */
 function clockTimeMs(ms: number): string {
   return new Date(ms).toLocaleTimeString("en-US", {
@@ -119,8 +156,36 @@ function clockTimeMs(ms: number): string {
   });
 }
 
+/** The zone's countdown, run forward from the poll that carried it. Numeric
+ *  fields only — the *Text strings are for humans and go stale between
+ *  polls (wire doc: drive behavior off the numbers). */
+interface LiveTiming {
+  remainingS: number | null;
+  durationS: number | null;
+  progress: number | null;
+}
+
+function liveTimingAt(
+  zone: QsysZone | null,
+  fetchedAtMs: number,
+  nowMs: number,
+): LiveTiming | null {
+  if (!zone?.playing) return null;
+  const t = zone.timing;
+  const sinceS = Math.max(0, (nowMs - fetchedAtMs) / 1000);
+  const remainingS = typeof t.remaining === "number" ? Math.max(0, t.remaining - sinceS) : null;
+  const durationS = typeof t.duration === "number" && t.duration > 0 ? t.duration : null;
+  const progress =
+    durationS != null && remainingS != null
+      ? Math.min(1, Math.max(0, (durationS - remainingS) / durationS))
+      : typeof t.progress === "number"
+        ? t.progress
+        : null;
+  return { remainingS, durationS, progress };
+}
+
 export default function PitClient({ token, version }: { token: string; version: string }) {
-  const [board, setBoard] = useState<PitBoard | null>(null);
+  const [board, setBoard] = useState<{ data: PitBoard; fetchedAtMs: number } | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const nowMs = useNowMs();
@@ -134,7 +199,8 @@ export default function PitClient({ token, version }: { token: string; version: 
           signal,
         });
         if (!res.ok || signal?.aborted) return; // keep the last good board
-        setBoard((await res.json()) as PitBoard);
+        const data = (await res.json()) as PitBoard;
+        setBoard({ data, fetchedAtMs: Date.now() });
       } catch {
         /* a dropped poll must not blank the controls */
       }
@@ -174,8 +240,8 @@ export default function PitClient({ token, version }: { token: string; version: 
           json.alreadyPlayed
             ? `✓ ${cue}-race already played this cycle${json.atMs ? ` at ${clockTimeMs(json.atMs)}` : ""}`
             : cue === "post"
-              ? `✓ Post-race played on ${track} — seating reopens`
-              : `✓ Pre-race played on ${track}`,
+              ? `✓ Post-race playing on ${track} — seating reopens`
+              : `✓ Pre-race playing on ${track}`,
         );
         await loadBoard();
       } catch (err) {
@@ -192,6 +258,19 @@ export default function PitClient({ token, version }: { token: string; version: 
   // one pit-lane button.
   const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
   const tracks: TrackKey[] = megaEnabled ? ["mega"] : ["blue", "red"];
+
+  // The PA feed's health, said quietly. `connected: false` right after a
+  // quiet spell is Pandora's socket warming up (one poll), so only a feed
+  // that is MISSING is worth amber — a warming one just says so.
+  const qsys = board?.data.qsys ?? null;
+  const paNote =
+    board == null
+      ? null
+      : qsys == null
+        ? "PA feed unavailable"
+        : !qsys.connected
+          ? "PA feed connecting…"
+          : null;
 
   return (
     <div
@@ -237,6 +316,22 @@ export default function PitClient({ token, version }: { token: string; version: 
             MEGA DAY
           </span>
         )}
+        {paNote && (
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 800,
+              padding: "2px 9px",
+              borderRadius: 4,
+              border: `1px solid ${qsys == null ? "rgba(240,179,65,0.5)" : PORTAL_DARK.border}`,
+              color: qsys == null ? AMBER : PORTAL_DARK.muted,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+            }}
+          >
+            {paNote}
+          </span>
+        )}
         {note && (
           <span
             role="status"
@@ -264,8 +359,10 @@ export default function PitClient({ token, version }: { token: string; version: 
           <TrackCard
             key={track}
             track={track}
-            lane={board?.lanes[track] ?? null}
-            audio={board?.audio ?? {}}
+            lane={board?.data.lanes[track] ?? null}
+            audio={board?.data.audio ?? {}}
+            zone={qsys?.zones.find((z) => z.zone === track) ?? null}
+            fetchedAtMs={board?.fetchedAtMs ?? 0}
             nowMs={nowMs}
             pending={pending}
             onPlay={(cue) => void play(track, cue)}
@@ -282,10 +379,17 @@ export default function PitClient({ token, version }: { token: string; version: 
 
 /* ── one track ─────────────────────────────────────────────────────────── */
 
+/** How old our latest stamp may be and still claim a playing zone. Clips run
+ *  well under a minute; ten covers a replayed cycle without claiming a
+ *  sponsor spot somebody fires an hour later. */
+const ATTRIBUTION_WINDOW_MS = 10 * 60_000;
+
 function TrackCard({
   track,
   lane,
   audio,
+  zone,
+  fetchedAtMs,
   nowMs,
   pending,
   onPlay,
@@ -293,6 +397,8 @@ function TrackCard({
   track: TrackKey;
   lane: PitLaneFeed | null;
   audio: Record<string, CueStamps>;
+  zone: QsysZone | null;
+  fetchedAtMs: number;
   nowMs: number;
   pending: string | null;
   onPlay: (cue: "pre" | "post") => void;
@@ -302,8 +408,8 @@ function TrackCard({
 
   const holding = lane?.holding ?? null;
   const racing = lane?.racing ?? null;
-  const preAtMs = holding ? (audio[holding.sessionId]?.preAtMs ?? null) : null;
-  const postAtMs = racing ? (audio[racing.sessionId]?.postAtMs ?? null) : null;
+  const preStamp = holding ? (audio[holding.sessionId]?.pre ?? null) : null;
+  const postStamp = racing ? (audio[racing.sessionId]?.post ?? null) : null;
 
   // The SAME machine the wall boards run (pit-board.ts): "hold" is karts in
   // (or rolling into) the lane, un-released. Staged-started is always null
@@ -318,6 +424,19 @@ function TrackCard({
 
   const finished = racing?.finishedAtMs != null;
   const finishedAgoMs = finished ? Math.max(0, nowMs - (racing?.finishedAtMs as number)) : null;
+
+  // WHICH cue is sounding, when the zone is playing: the latest cue WE
+  // stamped, and recently — a file fired from the Q-SYS panel directly is
+  // not ours to label, so it shows on neither section.
+  const live = liveTimingAt(zone, fetchedAtMs, nowMs);
+  const latest =
+    preStamp && (!postStamp || preStamp.atMs > postStamp.atMs)
+      ? ({ cue: "pre", atMs: preStamp.atMs } as const)
+      : postStamp
+        ? ({ cue: "post", atMs: postStamp.atMs } as const)
+        : null;
+  const playingCue =
+    live && latest && nowMs - latest.atMs < ATTRIBUTION_WINDOW_MS ? latest.cue : null;
 
   return (
     <div
@@ -355,17 +474,30 @@ function TrackCard({
       >
         <CueButton
           label="Play pre-race"
-          state={
-            preAtMs != null ? "done" : holding ? "press" : "idle"
-            // pre is a ghost-amber press in the mock, but on a tablet a solid
-            // press reads better through glare — same treatment as post.
-          }
-          when={preAtMs != null ? clockTimeMs(preAtMs) : holding ? "due" : "no group seated"}
+          playingLabel="Pre-race playing"
           doneLabel="Pre-race played"
+          state={
+            playingCue === "pre"
+              ? "playing"
+              : preStamp != null
+                ? "done"
+                : holding
+                  ? "press"
+                  : "idle"
+          }
+          when={
+            playingCue === "pre" && live?.remainingS != null
+              ? `${formatSeconds(live.remainingS)} left`
+              : preStamp != null
+                ? clockTimeMs(preStamp.atMs)
+                : holding
+                  ? "due"
+                  : "no group seated"
+          }
           busy={pending === `audio-pre:${track}`}
           onPress={() => onPlay("pre")}
         />
-        <CueLengthStrip playedAtMs={preAtMs} />
+        <CueLengthStrip live={playingCue === "pre" ? live : null} stamp={preStamp} />
       </CueSection>
 
       {/* ── POST — the race coming back ── */}
@@ -379,23 +511,34 @@ function TrackCard({
               : `racing${liveClock?.state === "running" ? ` · ${formatRemaining(liveClock.remainingMs)} left` : ""}`
             : "No race out."
         }
-        subTone={finished && postAtMs == null ? AMBER : undefined}
+        subTone={finished && postStamp == null ? AMBER : undefined}
       >
         <CueButton
           label="Play post-race"
-          state={postAtMs != null ? "done" : finished ? "press" : "idle"}
-          when={
-            postAtMs != null
-              ? clockTimeMs(postAtMs)
-              : finished
-                ? "reopens seating"
-                : "after the finish"
-          }
+          playingLabel="Post-race playing"
           doneLabel="Post-race played"
+          state={
+            playingCue === "post"
+              ? "playing"
+              : postStamp != null
+                ? "done"
+                : finished
+                  ? "press"
+                  : "idle"
+          }
+          when={
+            playingCue === "post" && live?.remainingS != null
+              ? `${formatSeconds(live.remainingS)} left`
+              : postStamp != null
+                ? clockTimeMs(postStamp.atMs)
+                : finished
+                  ? "reopens seating"
+                  : "after the finish"
+          }
           busy={pending === `audio-post:${track}`}
           onPress={() => onPlay("post")}
         />
-        <CueLengthStrip playedAtMs={postAtMs} />
+        <CueLengthStrip live={playingCue === "post" ? live : null} stamp={postStamp} />
       </CueSection>
     </div>
   );
@@ -524,10 +667,11 @@ function CueSection({
   );
 }
 
-/** The button IS the indicator: amber = press to play, green = played
- *  (locked), dim = not armed yet. */
+/** The button IS the indicator: amber = press to play, blinking outline =
+ *  sounding right now, green = played (locked), dim = not armed yet. */
 function CueButton({
   label,
+  playingLabel,
   doneLabel,
   state,
   when,
@@ -535,13 +679,21 @@ function CueButton({
   onPress,
 }: {
   label: string;
+  playingLabel: string;
   doneLabel: string;
-  state: "press" | "done" | "idle";
+  state: "press" | "playing" | "done" | "idle";
   when: string;
   busy: boolean;
   onPress: () => void;
 }) {
-  const cls = state === "press" ? "pitb-press" : state === "done" ? "pitb-done" : "pitb-idle";
+  const cls =
+    state === "press"
+      ? "pitb-press"
+      : state === "playing"
+        ? "pitb-playing"
+        : state === "done"
+          ? "pitb-done"
+          : "pitb-idle";
   return (
     <button
       type="button"
@@ -551,7 +703,21 @@ function CueButton({
       onClick={onPress}
     >
       {busy ? <span className="pitb-spin" aria-hidden /> : null}
-      {state === "done" ? `✓ ${doneLabel}` : `▶ ${label}`}
+      {state === "playing" ? (
+        <span
+          className="pit-blink"
+          aria-hidden
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: "50%",
+            background: AMBER,
+            boxShadow: `0 0 9px ${AMBER}`,
+            flexShrink: 0,
+          }}
+        />
+      ) : null}
+      {state === "done" ? `✓ ${doneLabel}` : state === "playing" ? playingLabel : `▶ ${label}`}
       <span
         style={{
           marginLeft: "auto",
@@ -567,14 +733,25 @@ function CueButton({
 }
 
 /**
- * The announcement's length and how much is left. Cue durations aren't in the
- * system yet (owner 2026-08-14: "We dont have data yet but we will") — until
- * they land this shows —:— and an empty bar, and the layout won't change when
- * the data arrives: a played cue fills the bar, a playing one will carry the
- * live countdown.
+ * The announcement's length and how much is left.
+ *
+ * Live (this cue is sounding): the amber bar runs at the player's own
+ * progress, interpolated between polls. Played and settled: a full green
+ * bar with the clip length the /play reply reported. Not played, or length
+ * never reported: —:— and an empty bar — the layout never changes.
  */
-function CueLengthStrip({ playedAtMs }: { playedAtMs: number | null }) {
-  const played = playedAtMs != null;
+function CueLengthStrip({ live, stamp }: { live: LiveTiming | null; stamp: CueStamp | null }) {
+  const pct = live != null ? Math.round((live.progress ?? 0) * 100) : stamp != null ? 100 : 0;
+  const text =
+    live != null
+      ? live.durationS != null && live.remainingS != null
+        ? `${formatSeconds(live.durationS - live.remainingS)} / ${formatSeconds(live.durationS)}`
+        : live.remainingS != null
+          ? `${formatSeconds(live.remainingS)} left`
+          : "playing"
+      : stamp?.durationS != null
+        ? formatSeconds(stamp.durationS)
+        : "—:—";
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
       <div
@@ -591,8 +768,9 @@ function CueLengthStrip({ playedAtMs }: { playedAtMs: number | null }) {
           style={{
             height: "100%",
             borderRadius: 999,
-            width: played ? "100%" : 0,
-            background: played ? "rgba(74,222,128,0.55)" : AMBER,
+            width: `${pct}%`,
+            background: live != null ? AMBER : stamp != null ? "rgba(74,222,128,0.55)" : AMBER,
+            transition: "width 900ms linear",
           }}
         />
       </div>
@@ -600,12 +778,12 @@ function CueLengthStrip({ playedAtMs }: { playedAtMs: number | null }) {
         style={{
           fontSize: 12,
           fontWeight: 700,
-          color: PORTAL_DARK.muted,
+          color: live != null ? AMBER : PORTAL_DARK.muted,
           fontVariantNumeric: "tabular-nums",
           whiteSpace: "nowrap",
         }}
       >
-        —:—
+        {text}
       </span>
     </div>
   );
