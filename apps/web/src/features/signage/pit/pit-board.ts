@@ -162,6 +162,12 @@ export interface PitBoardInfo {
     /** When this group's PRE-RACE PA cue played (pit/audio.server.ts), null
      *  until it has — the wall's small "pre-race ✓ / due" indicator. */
     preRaceAtMs: number | null;
+    /** The clip's length, as the PLAYER reported it when the cue fired. This is
+     *  what lets the board say "playing" and then stop saying it — without it we
+     *  would be guessing a duration, which is how the pre pill got stuck
+     *  (owner 2026-08-15: "the pre-playing never changed to played"). Null on a
+     *  legacy stamp, and then the board treats the cue as simply played. */
+    preRaceDurationS: number | null;
   } | null;
   /** Null when the roster could not be read — the board shows the session
    *  alone rather than an empty grid pretending to be a heat of nobody. */

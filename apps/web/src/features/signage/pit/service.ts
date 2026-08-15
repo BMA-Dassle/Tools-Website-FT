@@ -153,6 +153,7 @@ export async function buildPitBoard(
     inHolding,
     startedAtMs,
     preRaceAtMs: preStamp?.atMs ?? null,
+    preRaceDurationS: preStamp?.durationS ?? null,
   };
   if (!rows || rows.length === 0) return { track, session, roster: rows ? [] : null };
 

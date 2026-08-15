@@ -31,6 +31,7 @@ import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { withAlpha } from "../color";
 import { LiveSessionChip, useLiveSessionClock } from "../live-session";
+import { useRaceClockForRace } from "~/features/racing/use-race-clocks";
 import { liveHeatNumber } from "../briefing/room-return";
 import { briefingTimelineAt } from "../briefing/phase";
 import {
@@ -165,6 +166,18 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
   // the two-phase start: while the staged heat is armed with a static clock,
   // the rail keeps saying seat — that window is exactly when stragglers are
   // still being walked to karts.
+  /**
+   * ARE THE KARTS ACTUALLY ROLLING IN RIGHT NOW — the two-phase finish's first
+   * window, and the only interval the rail should be flashing.
+   *
+   * Read from the returning group's OWN race clock, not the track's: that race
+   * has finished, so the per-track helper deliberately will not return it.
+   * `Finished` with no `actualEndMs` IS the pending window — the venue stamps
+   * the end only when the session closes, about two minutes after the flag.
+   */
+  const pitInClock = useRaceClockForRace(lane.pitIn?.sessionId ?? null);
+  const kartsComingIn = pitInClock?.phase === "finished" && pitInClock.actualEndMs == null;
+
   const stagedArmed = armedNotCounting(session?.heatNumber ?? null);
   const stagedRacing =
     liveClock?.state === "running" &&
@@ -414,6 +427,24 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
         }}
       />
 
+      {/* The track's own colour down the full height, so the board answers
+          "which track am I looking at" from any angle in the pit — including
+          when the header is behind someone's head. */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 18,
+          background: accent,
+          boxShadow: `0 0 46px ${withAlpha(accent, 0.7)}`,
+          pointerEvents: "none",
+          zIndex: 3,
+        }}
+      />
+
       <div
         style={{
           position: "absolute",
@@ -427,30 +458,33 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
             2026-08-13, "timer closer to bottom than top"). Every header item
             now shares one vertical center. */}
         <header style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <span
-            aria-hidden
+          {/* WHICH TRACK, AS A SOLID BLOCK (owner 2026-08-15: "the colours don't
+              stand out on the pit board").
+              It was 46px of accent-coloured text beside a small dot. Coloured
+              INK on a near-black wall is the weakest way to carry identity at
+              distance — the hue is only a few hundred pixels of thin glyph edge.
+              Filled, the same colour is a slab you read before you read a word,
+              which is what someone glancing up from the lane actually needs.
+              Paired with the full-height edge stripe below, so the answer is on
+              the screen wherever your eye lands. */}
+          <div
+            className="tv-display"
             style={{
-              width: 18,
-              height: 18,
-              borderRadius: "50%",
               background: accent,
-              boxShadow: `0 0 24px ${accent}`,
+              color: "#05070f",
+              fontSize: 46,
+              lineHeight: 1,
+              padding: "14px 26px 16px",
+              borderRadius: 14,
+              letterSpacing: "0.04em",
+              whiteSpace: "nowrap",
               flexShrink: 0,
+              boxShadow: `0 0 40px ${withAlpha(accent, 0.55)}`,
             }}
-          />
+          >
+            {TRACK_LABELS[track]}
+          </div>
           <div>
-            <div
-              className="tv-display"
-              style={{
-                color: accent,
-                fontSize: 46,
-                letterSpacing: "0.04em",
-                whiteSpace: "nowrap",
-                textShadow: `0 0 34px ${withAlpha(accent, 0.65)}`,
-              }}
-            >
-              {TRACK_LABELS[track]}
-            </div>
             <DelayLine delay={delay} />
           </div>
           {/* nowrap THROUGHOUT this block: .tv-display carries text-wrap:
@@ -606,6 +640,8 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
         kind={rail}
         accent={accent}
         armed={armedNotCounting(session?.heatNumber ?? null)}
+        kartsComingIn={kartsComingIn}
+        nowMs={nowMs}
         session={session}
         qual={qualTarget ? { lap: formatLap(qualTarget.ms), level: qualTarget.level } : null}
       />
@@ -1164,6 +1200,8 @@ function Rail({
   kind,
   accent,
   armed,
+  kartsComingIn,
+  nowMs,
   session,
   qual,
 }: {
@@ -1171,6 +1209,10 @@ function Rail({
   accent: string;
   /** Two-phase start, window one: armed, clock not yet running. */
   armed: boolean;
+  /** Karts are ACTUALLY rolling in — the two-phase finish's pending window.
+   *  The hold state outlives this; the flashing must not. */
+  kartsComingIn: boolean;
+  nowMs: number;
   session: {
     heatNumber: number | null;
     briefedRoom: "red" | "blue" | null;
@@ -1180,6 +1222,8 @@ function Rail({
      *  (owner 2026-08-14: "add some small indicator on our assignment board
      *  if prerace has been completed"). */
     preRaceAtMs: number | null;
+    /** The clip's own length, so "playing" can end when the clip does. */
+    preRaceDurationS: number | null;
   } | null;
   qual: { lap: string; level: string } | null;
 }) {
@@ -1203,11 +1247,40 @@ function Rail({
   // overflowed (2026-08-13). Copy is sized to fit beside the pill at 1920 —
   // anything that cannot say itself in one line does not belong on the rail.
   if (kind === "hold") {
+    /**
+     * FLASHES ONLY WHILE THE KARTS ARE ACTUALLY COMING IN (owner 2026-08-15:
+     * "this blinks too long... can we get it down to only blinking during the
+     * two phase finish?").
+     *
+     * The hold STATE is correct until staff release the lane, and that can be
+     * minutes — but a wall that flashes for minutes is a wall staff stop
+     * seeing. The flash now lasts exactly the pending-finish window: chequered
+     * flag to session close, which IS the interval the karts are rolling in.
+     * After that the band stays amber and steady, still saying do not seat.
+     *
+     * It also carries the pre pill now. Before, this branch replaced the whole
+     * rail and rendered nothing else, so the moment a race came back the next
+     * group's pre-race status vanished off the board — the one thing the
+     * seating attendant is waiting on (owner: "it blocks any data on the next
+     * race, mainly the pre").
+     */
     return (
-      <div className="tv-overdue-flash" style={base}>
-        <span className="tv-display" style={{ fontSize: 54, whiteSpace: "nowrap" }}>
+      <div
+        className={kartsComingIn ? "tv-overdue-flash" : undefined}
+        style={{
+          ...base,
+          ...(kartsComingIn
+            ? null
+            : { background: withAlpha(AMBER, 0.16), borderTop: `4px solid ${AMBER}` }),
+        }}
+      >
+        <span
+          className="tv-display"
+          style={{ fontSize: 54, whiteSpace: "nowrap", color: kartsComingIn ? undefined : AMBER }}
+        >
           Hold — karts coming in
         </span>
+        <PreRacePill session={session} armed={armed} nowMs={nowMs} />
         <span
           className="tv-display"
           style={{ marginLeft: "auto", fontSize: 32, opacity: 0.85, whiteSpace: "nowrap" }}
@@ -1236,7 +1309,7 @@ function Rail({
         </span>
         {/* The seat rail is by definition not racing — this is the window where
             "READY TO SEND" actually earns its place. */}
-        <PreRacePill session={session} armed={armed} racing={false} />
+        <PreRacePill session={session} armed={armed} nowMs={nowMs} />
         <QualPill qual={qual} accent={accent} />
       </div>
     );
@@ -1276,7 +1349,7 @@ function Rail({
       >
         {infoText}
       </span>
-      <PreRacePill session={session} armed={armed} racing={kind === "racing"} />
+      <PreRacePill session={session} armed={armed} nowMs={nowMs} />
       <QualPill qual={qual} accent={accent} />
     </div>
   );
@@ -1307,30 +1380,48 @@ function Rail({
 function PreRacePill({
   session,
   armed,
-  racing,
+  nowMs,
 }: {
-  session: { inHolding: boolean; preRaceAtMs: number | null } | null;
+  session: {
+    inHolding: boolean;
+    preRaceAtMs: number | null;
+    preRaceDurationS: number | null;
+  } | null;
   /** Race is armed — phase one fired, clock not yet running. */
   armed: boolean;
-  /** Race is genuinely under way; nothing is owed and nothing is pending. */
-  racing: boolean;
+  nowMs: number;
 }) {
   if (!session) return null;
   const played = session.preRaceAtMs != null;
   if (!played && !session.inHolding) return null;
 
+  /**
+   * "Playing" ends when the CLIP ends, not when the race arms.
+   *
+   * The first cut held "playing" until the race armed, which on a night where
+   * staff play the cue and then take their time is indistinguishable from stuck
+   * (owner 2026-08-15: "the pre-playing never changed to played"). The stamp
+   * carries the player's own reported clip length, so the honest window is
+   * exactly that long. A legacy stamp has no duration — then we cannot claim it
+   * is playing, so it reads as played.
+   */
+  const stillPlaying =
+    played &&
+    session.preRaceDurationS != null &&
+    nowMs < session.preRaceAtMs! + session.preRaceDurationS * 1000;
+
   // No cue yet: stays "due" regardless of whether the race has armed — the
   // announcement is what sends the group to the karts, so an armed race with no
   // cue is still waiting on the cue, not on the flag.
-  const ready = played && armed;
+  const ready = played && armed && !stillPlaying;
   const label = !played
     ? "Pre-race due"
-    : ready
-      ? "READY TO SEND"
-      : racing
-        ? "Pre-race ✓"
-        : "Pre-race playing";
-  const color = !played ? AMBER : ready || racing ? OK : ACCENT_INFO;
+    : stillPlaying
+      ? "Pre-race playing"
+      : ready
+        ? "READY TO SEND"
+        : "Pre-race ✓";
+  const color = !played ? AMBER : stillPlaying ? ACCENT_INFO : OK;
 
   return (
     <span

@@ -140,16 +140,24 @@ const STYLES = `
 .pitb:focus-visible { outline: 2px solid ${INK}; outline-offset: 2px; }
 .pitb:disabled { cursor: not-allowed; }
 .pitb[aria-busy="true"] { cursor: progress; }
-/* amber = press to play */
-.pitb-press { background: ${AMBER}; color: #1a1205; }
+/* GREEN = GO. Owner 2026-08-15: red would read as the Red Track and blue as the
+   Blue Track, so severity cannot be carried on those two hues anywhere on this
+   page. The traffic-light pair that is left says it without ambiguity —
+   green means press it, yellow means caution, and neither is a track. */
+.pitb-press { background: ${GREEN}; color: #05210f; }
 /* the cue is sounding right now — a state, not a control */
 .pitb-playing { background: rgba(240,179,65,0.12); border-color: ${AMBER}; color: ${AMBER}; cursor: default; }
-/* green = played, locked — a state, not a control */
+/* played and locked — a state, not a control. Outlined, so the solid green fill
+   above stays unique to the one button that wants pressing. */
 .pitb-done { background: rgba(74,222,128,0.08); border-color: rgba(74,222,128,0.4); color: ${GREEN}; cursor: default; }
 /* dim = not armed yet */
 .pitb-idle { background: transparent; border-color: ${PORTAL_DARK.border}; color: ${PORTAL_DARK.muted}; opacity: 0.45; }
-/* armed by the race but HELD by the room gate — visible, named, unpressable */
-.pitb-blocked { background: transparent; border-color: rgba(240,179,65,0.45); color: ${AMBER}; opacity: 0.85; }
+/* CAUTION — armed by the race but HELD by the room gate. Loud yellow, struck
+   through, and it names the reason: staff were reporting the old quiet version
+   as "post doesn't work on red" when it was the red room being occupied. */
+.pitb-blocked { background: rgba(240,179,65,0.18); border-color: ${AMBER}; color: ${AMBER}; opacity: 1; }
+.pitb-blocked .pitb-x { font-weight: 900; margin-right: 0.15em; font-size: 1.15em; line-height: 1; }
+.pitb-blocked .pitb-strike { text-decoration: line-through; text-decoration-thickness: 2px; opacity: 0.75; }
 .pit-blink { animation: pit-blink 1.1s ease-in-out infinite; }
 @keyframes pit-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 .pitb-spin {
@@ -842,6 +850,13 @@ function TrackCard({
           label="Play post-race"
           playingLabel="Post-race playing"
           doneLabel="Post-race played"
+          blockedLabel={
+            postBlocked
+              ? "Briefing room occupied — radio check-in"
+              : paBusyZone
+                ? "PA busy on this track"
+                : undefined
+          }
           state={
             postLive
               ? "playing"
@@ -1012,6 +1027,7 @@ function CueButton({
   label,
   playingLabel,
   doneLabel,
+  blockedLabel,
   state,
   when,
   busy,
@@ -1020,6 +1036,9 @@ function CueButton({
   label: string;
   playingLabel: string;
   doneLabel: string;
+  /** What to say INSTEAD of the label when refused — staff were reporting the
+   *  quiet amber version as "post doesn't work on red" (owner 2026-08-15). */
+  blockedLabel?: string;
   state: "press" | "playing" | "done" | "idle" | "blocked";
   when: string;
   busy: boolean;
@@ -1058,7 +1077,21 @@ function CueButton({
           }}
         />
       ) : null}
-      {state === "done" ? `✓ ${doneLabel}` : state === "playing" ? playingLabel : `▶ ${label}`}
+      {state === "blocked" && blockedLabel ? (
+        <>
+          <span className="pitb-x" aria-hidden>
+            ✕
+          </span>
+          <span className="pitb-strike">{label}</span>
+          <span style={{ marginLeft: "0.5em", fontWeight: 700 }}>{blockedLabel}</span>
+        </>
+      ) : state === "done" ? (
+        `✓ ${doneLabel}`
+      ) : state === "playing" ? (
+        playingLabel
+      ) : (
+        `▶ ${label}`
+      )}
       <span className="pitb-when" style={{ opacity: state === "press" ? 0.75 : 1 }}>
         {busy ? "Playing…" : when}
       </span>

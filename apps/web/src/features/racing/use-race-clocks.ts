@@ -28,6 +28,7 @@ export interface RaceClockTerms {
   clockStartMs: number | null;
   anchorEstimated: boolean;
   actualStartMs: number | null;
+  actualEndMs: number | null;
   durationMs: number | null;
   pausedTotalMs: number;
   pausedSinceMs: number | null;
@@ -156,6 +157,17 @@ export function useRaceClocks(): RaceClockStore {
  * races in the set, and a wedged one can linger (a race sat "Started" for 62
  * minutes on 2026-08-15), so "newest start wins" is what matches the track.
  */
+/**
+ * One specific race, finished or not — for the pit-in half of the rail, which
+ * is asking about a race that has ALREADY ended and so is invisible to the
+ * per-track helper below.
+ */
+export function useRaceClockForRace(raceId: string | null): TickedRaceClock | null {
+  const { clocks } = useRaceClocks();
+  if (!raceId) return null;
+  return clocks.find((c) => c.raceId === raceId) ?? null;
+}
+
 export function useRaceClockForTrack(track: string | null): TickedRaceClock | null {
   const { clocks } = useRaceClocks();
   if (!track) return null;

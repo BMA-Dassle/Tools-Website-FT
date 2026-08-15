@@ -106,6 +106,10 @@ export interface RaceClockView {
   clockStartMs: number | null;
   anchorEstimated: boolean;
   actualStartMs: number | null;
+  /** Stamped only when the session CLOSES, ~2min after the chequered flag. A
+   *  finished race with this still null is inside the pending-finish window —
+   *  the two-phase finish, and the only moment karts are actually rolling in. */
+  actualEndMs: number | null;
   durationMs: number | null;
   pausedTotalMs: number;
   pausedSinceMs: number | null;
@@ -151,6 +155,7 @@ export async function readRaceClocks(nowMs = Date.now()): Promise<RaceClockSnaps
       clockStartMs: c.clockStartMs,
       anchorEstimated: c.anchorEstimated,
       actualStartMs: c.actualStartMs,
+      actualEndMs: c.actualEndMs,
       durationMs: c.durationMs,
       pausedTotalMs: c.pausedTotalMs,
       pausedSinceMs: c.pausedSinceMs,
