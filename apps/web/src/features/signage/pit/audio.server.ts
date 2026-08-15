@@ -68,6 +68,45 @@ const STAMP_TTL_SECONDS = 12 * 3600;
 const BIG_RACE_MAX_NORMAL = 7;
 
 /**
+ * THE CLIPS' KNOWN LENGTHS, measured by the player itself: every successful
+ * /play reply carries the clip duration, so the last play of each clip IS the
+ * measurement — nothing to configure, nothing to drift when a file is
+ * re-recorded. The station uses these to start blinking the pre button one
+ * clip-length before the on-track race ends (owner 2026-08-15: "we know how
+ * long pre/big is so we should indicate a race almost being done"). Refreshed
+ * on every play; 30 days so a clip played any night this month is known
+ * tonight. Null until a clip's first ever play — the client falls back to a
+ * conservative guess.
+ */
+function clipLengthKey(clip: QsysClip): string {
+  return `pit:audio:cliplen:${clip}`;
+}
+const CLIP_LEN_TTL_SECONDS = 30 * 24 * 3600;
+
+export interface ClipLengths {
+  pre: number | null;
+  post: number | null;
+  big: number | null;
+}
+
+export async function readClipLengths(): Promise<ClipLengths> {
+  const num = (raw: string | null) => {
+    const n = raw == null ? NaN : Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  try {
+    const [pre, post, big] = await redis.mget(
+      clipLengthKey("pre"),
+      clipLengthKey("post"),
+      clipLengthKey("big"),
+    );
+    return { pre: num(pre), post: num(post), big: num(big) };
+  } catch {
+    return { pre: null, post: null, big: null };
+  }
+}
+
+/**
  * ONE CLIP PER TRACK (owner 2026-08-14: "Its 1 audio clip per track, so red
  * cant play pre/post at the same time"). A zone plays one clip — a second
  * play request on it doesn't mix, it SUPERSEDES what's sounding, cutting the
@@ -150,6 +189,10 @@ async function claimAndPlay(
     await redis
       .set(key, JSON.stringify({ atMs: nowMs, durationS: play.durationS }), "EX", STAMP_TTL_SECONDS)
       .catch(() => void 0);
+    // The measurement ride-along — see readClipLengths.
+    await redis
+      .set(clipLengthKey(clip), String(play.durationS), "EX", CLIP_LEN_TTL_SECONDS)
+      .catch(() => void 0);
   }
   return { outcome: "played", atMs: nowMs };
 }
@@ -172,7 +215,36 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
    * there. Same `holding ?? karts` rule the rest of the lane uses.
    */
   const staged = lane.holding ?? lane.karts;
-  if (!staged) {
+  /**
+   * A GROUP THAT WENT OUT WITHOUT ITS PRE STILL OWES IT (owner 2026-08-15:
+   * "it is not optional and must be played… when they phase one start it moves
+   * the session to on track but we STILL owe a pre-race").
+   *
+   * The lane promotes on the green flag whether or not the cue ever sounded,
+   * so reading only the staged slots made an unplayed pre UNPLAYABLE the
+   * moment the race started. When nothing is staged and the racing group has
+   * no pre stamp, they are the subject: the announcement plays late rather
+   * than never, and the insurance row still lands. A staged group always
+   * wins — once the next group is seated, the PA belongs to their cycle. The
+   * debt ends at the pit: a race that has already come in gets its post, not
+   * a pre after the fact.
+   */
+  let subject = staged ?? null;
+  let lateForRacing = false;
+  if (!subject && lane.racing) {
+    const played = await readCueStamp("pre", lane.racing.sessionId);
+    if (!played) {
+      subject = {
+        sessionId: lane.racing.sessionId,
+        heatNumber: lane.racing.heatNumber,
+        raceType: null,
+        room: null,
+        atMs: 0,
+      };
+      lateForRacing = true;
+    }
+  }
+  if (!subject) {
     return { ok: false, error: "no group is in holding — pre-race arms when a group is seated" };
   }
   const busy = await paBusy(track);
@@ -190,31 +262,31 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
    * they are for. An unreadable roster plays the normal pre: the announcement
    * itself must never be held up by a Pandora blip.
    */
-  const roster = await sessionRoster(staged.sessionId, Date.now()).catch(() => null);
+  const roster = await sessionRoster(subject.sessionId, Date.now()).catch(() => null);
   const clip: QsysClip = (roster?.length ?? 0) > BIG_RACE_MAX_NORMAL ? "big" : "pre";
 
-  const result = await claimAndPlay(track, "pre", staged.sessionId, clip);
+  const result = await claimAndPlay(track, "pre", subject.sessionId, clip);
   if (result.outcome === "failed") return { ok: false, error: result.error };
   if (result.outcome === "already") {
     return {
       ok: true,
       alreadyPlayed: true,
       atMs: result.atMs ?? undefined,
-      sessionId: staged.sessionId,
+      sessionId: subject.sessionId,
     };
   }
 
   const room =
-    staged.room ?? (await sessionBriefed(staged.sessionId).catch(() => null))?.room ?? null;
+    subject.room ?? (await sessionBriefed(subject.sessionId).catch(() => null))?.room ?? null;
   if (room) {
     await recordBriefingEvent({
       venue: VENUE,
       businessDay: businessDayYmdET(),
       room,
       track,
-      sessionId: staged.sessionId,
-      heatNumber: staged.heatNumber,
-      raceType: staged.raceType,
+      sessionId: subject.sessionId,
+      heatNumber: subject.heatNumber,
+      raceType: subject.raceType,
       tier: null,
       action: "audio-pre",
     });
@@ -237,17 +309,22 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
    * record and the cue is the thing staff are waiting on, so neither waits on a
    * lane write. markInKarts swallows its own failures and is idempotent, so a
    * Redis blip here costs a board update and never the announcement.
+   *
+   * NOT for a late pre played to a group already racing — they left the karts
+   * long ago, and markInKarts would (rightly) refuse a session in `racing`.
    */
-  await markInKarts({
-    track,
-    sessionId: staged.sessionId,
-    heatNumber: staged.heatNumber,
-    raceType: staged.raceType,
-    room: staged.room,
-    atMs: result.atMs,
-  }).catch(() => {});
+  if (!lateForRacing) {
+    await markInKarts({
+      track,
+      sessionId: subject.sessionId,
+      heatNumber: subject.heatNumber,
+      raceType: subject.raceType,
+      room: subject.room,
+      atMs: result.atMs,
+    }).catch(() => {});
+  }
 
-  return { ok: true, atMs: result.atMs, sessionId: staged.sessionId };
+  return { ok: true, atMs: result.atMs, sessionId: subject.sessionId };
 }
 
 /**

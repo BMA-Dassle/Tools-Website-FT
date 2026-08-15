@@ -4,11 +4,12 @@ import {
   playPostRace,
   playPreRace,
   postRaceGate,
+  readClipLengths,
   readCueStamps,
 } from "~/features/signage/pit/audio.server";
 import { readPitLanes } from "~/features/signage/pit/lane.server";
 import { PANDORA_QSYS_SOCKET_URL, readQsysLive } from "~/features/signage/pit/qsys.server";
-import type { PitCueStamps, PostRaceGate } from "~/features/signage/pit/audio.server";
+import type { ClipLengths, PitCueStamps, PostRaceGate } from "~/features/signage/pit/audio.server";
 import type { QsysLiveState } from "~/features/signage/pit/qsys.server";
 import type { PitLanes } from "~/features/signage/pit/pit-board";
 import type { TrackKey } from "~/features/signage/track";
@@ -61,6 +62,10 @@ export interface PitBoardResponse {
    *  why it's held instead of refusing on press. Null when moot (no finished
    *  race on that track). */
   postGate: Record<TrackKey, PostRaceGate | null>;
+  /** Each clip's length as the player last reported it (null until a clip's
+   *  first ever play) — what the pre button's "race ending" blink counts
+   *  against. */
+  clipLengths: ClipLengths;
 }
 
 export async function GET(req: NextRequest) {
@@ -93,8 +98,9 @@ export async function GET(req: NextRequest) {
   // the Pandora live read and stays pure Redis. This is what lets the client
   // poll every second.
   const wantQsys = req.nextUrl.searchParams.get("qsys") !== "0";
-  const [qsys] = await Promise.all([
+  const [qsys, clipLengths] = await Promise.all([
     wantQsys ? readQsysLive() : Promise.resolve(null),
+    readClipLengths(),
     ...[...sessionIds].map(async (sid) => {
       audio[sid] = await readCueStamps(sid);
     }),
@@ -116,6 +122,7 @@ export async function GET(req: NextRequest) {
     qsys,
     socketUrl: process.env.PIT_QSYS_SOCKET_URL || PANDORA_QSYS_SOCKET_URL,
     postGate,
+    clipLengths,
   };
   return NextResponse.json(body, { headers: { "Cache-Control": "no-store" } });
 }

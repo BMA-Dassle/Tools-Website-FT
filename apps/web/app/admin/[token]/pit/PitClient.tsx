@@ -117,7 +117,21 @@ interface PitBoard {
   qsys: { connected: boolean; zones: QsysZone[] } | null;
   socketUrl: string | null;
   postGate: Record<TrackKey, PostGate | null>;
+  /** Each clip's length as the player last reported it — mirrors the route's
+   *  ClipLengths. Null until a clip's first ever play. */
+  clipLengths: { pre: number | null; post: number | null; big: number | null };
 }
+
+/**
+ * When the pre button starts DEMANDING (blinking): the announcement must
+ * finish before the lane turns over, so the alarm raises one clip-length —
+ * plus this slack for the walk to the button — before the on-track race ends.
+ * The big clip is the bound (the server may pick it for an 8+ grid, and this
+ * client does not know the roster), and 90s stands in until the player has
+ * reported a length at all — the same guess the playing-attribution uses.
+ */
+const PRE_URGENT_SLACK_S = 15;
+const CLIP_LENGTH_GUESS_S = 90;
 
 const STYLES = `
 .pitb {
@@ -633,6 +647,7 @@ export default function PitClient({ token, version }: { token: string; version: 
             zonesAtMs={zonesAtMs}
             nowMs={nowMs}
             pending={pending}
+            clipLengths={board?.data.clipLengths ?? null}
             onPlay={(cue) => void play(track, cue)}
           />
         ))}
@@ -657,6 +672,7 @@ function TrackCard({
   zonesAtMs,
   nowMs,
   pending,
+  clipLengths,
   onPlay,
 }: {
   track: TrackKey;
@@ -670,6 +686,7 @@ function TrackCard({
   zonesAtMs: number;
   nowMs: number;
   pending: string | null;
+  clipLengths: PitBoard["clipLengths"] | null;
   onPlay: (cue: "pre" | "post") => void;
 }) {
   const tone = TRACK_TONE[track];
@@ -681,8 +698,36 @@ function TrackCard({
   const holding = lane?.holding ?? lane?.karts ?? null;
   const racing = lane?.racing ?? null;
   const pitIn = lane?.pitIn ?? null;
-  const preStamp = holding ? (audio[holding.sessionId]?.pre ?? null) : null;
+  /**
+   * A GROUP OUT ON TRACK WITH NO PRE STAMP STILL OWES IT (owner 2026-08-15:
+   * "it is not optional and must be played"). The lane promotes on the green
+   * flag whether or not the cue sounded, so when nothing is staged the racing
+   * group inherits the PRE section — the server's playPreRace resolves the
+   * same subject, so the press plays for exactly who this card names.
+   */
+  const preOwed =
+    !holding && racing != null && (audio[racing.sessionId]?.pre ?? null) == null ? racing : null;
+  const preSubject = holding ?? preOwed;
+  const preStamp = preSubject ? (audio[preSubject.sessionId]?.pre ?? null) : null;
   const postStamp = pitIn ? (audio[pitIn.sessionId]?.post ?? null) : null;
+
+  /**
+   * THE PRE ALARM (owner 2026-08-15: "we know how long pre/big is so we
+   * should indicate a race almost being done by blinking the green").
+   *
+   * The announcement has to FINISH before the lane turns over, so the button
+   * starts blinking when the on-track race is within one clip-length (plus
+   * walk-to-the-button slack) of ending — and keeps blinking once the race is
+   * already back (pitIn occupied) or went out unannounced (preOwed). Steady
+   * green before that: early is fine, missed is not.
+   */
+  const preClipS = Math.max(clipLengths?.big ?? 0, clipLengths?.pre ?? 0) || CLIP_LENGTH_GUESS_S;
+  const raceEndingSoon =
+    liveClock?.state === "running" &&
+    liveClock.counting &&
+    liveClock.remainingMs <= (preClipS + PRE_URGENT_SLACK_S) * 1000;
+  const preUrgent =
+    preSubject != null && preStamp == null && (preOwed != null || raceEndingSoon || pitIn != null);
 
   // The SAME machine the wall boards run (pit-board.ts): "hold" is karts in
   // (or rolling into) the lane, un-released. Staged-started is always null
@@ -784,15 +829,17 @@ function TrackCard({
       {/* ── PRE — the group going out ── */}
       <CueSection
         tag="Pre"
-        title={holding ? `Session ${holding.heatNumber ?? "?"}` : null}
+        title={preSubject ? `Session ${preSubject.heatNumber ?? "?"}` : null}
         sub={
-          holding
-            ? `next up · seated ${formatClock(nowMs - holding.atMs)}${
-                holding.room ? ` · from the ${holding.room} room` : ""
-              }`
-            : "No group in holding — pre-race arms when a group is seated."
+          preOwed
+            ? "already on track — pre-race still owed"
+            : holding
+              ? `next up · seated ${formatClock(nowMs - holding.atMs)}${
+                  holding.room ? ` · from the ${holding.room} room` : ""
+                }`
+              : "No group in holding — pre-race arms when a group is seated."
         }
-        subTone={undefined}
+        subTone={preUrgent && preStamp == null ? AMBER : undefined}
       >
         <CueButton
           label="Play pre-race"
@@ -803,12 +850,13 @@ function TrackCard({
               ? "playing"
               : preStamp != null
                 ? "done"
-                : holding
+                : preSubject
                   ? paBusyZone
                     ? "blocked"
                     : "press"
                   : "idle"
           }
+          urgent={preUrgent}
           when={
             preLive?.remainingS != null
               ? `${formatSeconds(preLive.remainingS)} left`
@@ -816,10 +864,14 @@ function TrackCard({
                 ? "playing"
                 : preStamp != null
                   ? clockTimeMs(preStamp.atMs)
-                  : holding
+                  : preSubject
                     ? paBusyZone
                       ? `PA busy · ${paBusyZone}`
-                      : "due"
+                      : preOwed
+                        ? "OWED — play now"
+                        : raceEndingSoon || pitIn != null
+                          ? "play now — track turning over"
+                          : "due"
                     : "no group seated"
           }
           busy={pending === `audio-pre:${track}`}
@@ -1036,6 +1088,7 @@ function CueButton({
   state,
   when,
   busy,
+  urgent,
   onPress,
 }: {
   label: string;
@@ -1047,6 +1100,11 @@ function CueButton({
   state: "press" | "playing" | "done" | "idle" | "blocked";
   when: string;
   busy: boolean;
+  /** The press is time-critical NOW — the green blinks (owner 2026-08-15:
+   *  "blinking the green to indicate it NEEDS to be played"). Only ever
+   *  dressed onto a pressable button: a blinking thing that cannot be
+   *  pressed is an alarm nobody can answer. */
+  urgent?: boolean;
   onPress: () => void;
 }) {
   const cls =
@@ -1062,7 +1120,7 @@ function CueButton({
   return (
     <button
       type="button"
-      className={`pitb ${cls}`}
+      className={`pitb ${cls}${urgent && state === "press" ? " pit-blink" : ""}`}
       disabled={state !== "press" || busy}
       aria-busy={busy || undefined}
       onClick={onPress}
