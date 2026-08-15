@@ -15,7 +15,10 @@ import "server-only";
  * Core's address from the Square location's qsysAddress attribute.
  *
  * THE VOCABULARY MATCHES OURS EXACTLY, by design: zones are `red` / `blue` /
- * `mega` (our TrackKey), clips are `pre` / `post` (our cues). Zones run
+ * `mega` (our TrackKey), clips are `pre` / `post` (our cues) plus `big` —
+ * the pre-race announcement with the extra big-race warnings, played instead
+ * of `pre` for a grid of 8+ (audio.server.ts owns that rule; the clip name
+ * must match the Core's clip config, GET /qsys/audio/clips). Zones run
  * independently — playing one never cancels another.
  *
  * Bearer auth with SWAGGER_ADMIN_KEY, same as every other Pandora call in
@@ -30,7 +33,7 @@ const PANDORA_KEY = process.env.SWAGGER_ADMIN_KEY || "";
  *  The same constant the rest of the repo uses for FT's Square ledger. */
 const FT_SQUARE_LOCATION_ID = "LAB52GY480CJF";
 
-export type QsysClip = "pre" | "post";
+export type QsysClip = "pre" | "post" | "big";
 
 /**
  * Pandora's WebSocket RELAY of the Core's push feed — same frames, verbatim,

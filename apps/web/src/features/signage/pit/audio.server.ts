@@ -41,9 +41,10 @@ import { businessDayYmdET } from "@/lib/race-business-day";
 import { recordBriefingEvent } from "../briefing/events-db";
 import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
 import type { TrackKey } from "../track";
+import { sessionRoster } from "../service/checkin-progress";
 import { cueKey, readCueStamp, type PitCue } from "./audio-stamps.server";
 import { markInKarts, markRacePitted, readPitLane } from "./lane.server";
-import { playQsysCue, readQsysLive } from "./qsys.server";
+import { playQsysCue, readQsysLive, type QsysClip } from "./qsys.server";
 
 // The stamp read side lives in audio-stamps.server.ts (lane.server needs it
 // too — post played = returned — and importing it from here would be a
@@ -61,6 +62,10 @@ const VENUE = "FT";
 /** Outlives any race night; short enough that Redis stays display state —
  *  the durable record is the Neon event row written on the claim. */
 const STAMP_TTL_SECONDS = 12 * 3600;
+
+/** The biggest grid the NORMAL pre-race clip covers — more than this plays
+ *  `big`, the version with the extra warnings ("more than 7 people"). */
+const BIG_RACE_MAX_NORMAL = 7;
 
 /**
  * ONE CLIP PER TRACK (owner 2026-08-14: "Its 1 audio clip per track, so red
@@ -106,11 +111,18 @@ export interface PlayCueResult {
  * play the claim is DELeted so the next press retries. On success the stamp
  * is rewritten with the clip duration the player reported — a plain
  * overwrite, safe because the claim is already ours.
+ *
+ * `clip` is WHICH FILE sounds; `cue` is which one-shot it spends. They differ
+ * only for the big-race pre (clip `big`, cue `pre`): whichever version plays,
+ * it is the same one announcement per cycle, and everything reading the stamp
+ * (the wall's pre pill, the station's button, markInKarts) cares that the
+ * pre-race played, not which length of it.
  */
 async function claimAndPlay(
   track: TrackKey,
   cue: PitCue,
   sessionId: string,
+  clip: QsysClip = cue,
 ): Promise<
   | { outcome: "played"; atMs: number }
   | { outcome: "already"; atMs: number | null }
@@ -126,7 +138,7 @@ async function claimAndPlay(
     return { outcome: "already", atMs: stamp?.atMs ?? null };
   }
 
-  const play = await playQsysCue(track, cue);
+  const play = await playQsysCue(track, clip);
   if (!play.ok) {
     // Release the claim — the cue never sounded, so the press must be
     // repeatable. A DEL that itself fails leaves a stamp the TTL clears.
@@ -166,7 +178,22 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
   const busy = await paBusy(track);
   if (busy.busy) return { ok: false, error: busy.error };
 
-  const result = await claimAndPlay(track, "pre", staged.sessionId);
+  /**
+   * WHICH PRE-RACE CLIP (owner 2026-08-15: "we have technically 2 versions
+   * pre and big. They are the same but Big race has some extra warnings. If
+   * there are more than 7 people in a race we play big instead of normal pre").
+   *
+   * Counted off the session's FULL roster, not the checked-in count, and
+   * deliberately: the extra warnings are safety copy, so the failure to prefer
+   * is playing the longer clip to a group that shrank, never the short clip to
+   * a big grid — and a straggler still being walked to a kart is exactly who
+   * they are for. An unreadable roster plays the normal pre: the announcement
+   * itself must never be held up by a Pandora blip.
+   */
+  const roster = await sessionRoster(staged.sessionId, Date.now()).catch(() => null);
+  const clip: QsysClip = (roster?.length ?? 0) > BIG_RACE_MAX_NORMAL ? "big" : "pre";
+
+  const result = await claimAndPlay(track, "pre", staged.sessionId, clip);
   if (result.outcome === "failed") return { ok: false, error: result.error };
   if (result.outcome === "already") {
     return {
