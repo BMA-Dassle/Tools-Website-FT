@@ -1332,15 +1332,13 @@ function RoomColumn({
       : null;
 
   /**
-   * IS THE LANE STILL HELD. The same rule the pit board's own rail runs
-   * (pitRailState in pit/pit-board.ts): a finish raises the hold, and only a
-   * "race returned" stamp NEWER than that finish clears it — a stamp from the
-   * previous cycle is a stale stamp and must not release this hold.
+   * IS THE LANE STILL HELD — i.e. is anybody in the pit with an announcement
+   * still owed. The same rule the pit board's own rail runs (pitRailState in
+   * pit/pit-board.ts), and it is now a single fact: a group sits in `pitIn`
+   * from their chequered flag until their post cue clears them, so the slot
+   * being occupied IS the hold. No pair of timestamps left to compare.
    */
-  const holdLive =
-    !!lane?.racing &&
-    lane.racing.finishedAtMs != null &&
-    (lane.racing.pittedAtMs == null || lane.racing.pittedAtMs < lane.racing.finishedAtMs);
+  const holdLive = !!lane?.pitIn;
 
   return (
     <div
@@ -1822,13 +1820,13 @@ function OutOfRoomPanel({
   const holding = isLaunched(lane?.holding) ? null : (lane?.holding ?? null);
   const karts = isLaunched(lane?.karts) ? null : (lane?.karts ?? null);
   const racing = lane?.racing ?? null;
+  const pitIn = lane?.pitIn ?? null;
 
   const heldMs = holding ? Math.max(0, nowMs - holding.atMs) : 0;
   const kartsMs = karts ? Math.max(0, nowMs - karts.atMs) : 0;
 
-  // WHO IS OUT. The green-flag verdict is the fresher of the two — the lane's
-  // own racing half does not move until a finish marker or the next send, so
-  // during a race it still names the PREVIOUS group.
+  // WHO IS OUT. The green-flag verdict is the fresher of the two — the desk sees
+  // a counting clock before any marker reaches the lane.
   const outHeat = launched?.heatNumber ?? racing?.heatNumber ?? null;
 
   // Does the live clock belong to the group we are naming? On a shared circuit
@@ -1837,12 +1835,10 @@ function OutOfRoomPanel({
   const liveHeat = liveClock ? liveHeatNumber(liveClock.heatName) : null;
   const clockIsOurs = !!liveClock && liveHeat != null && outHeat != null && liveHeat === outHeat;
 
-  const sinceFinishMs = racing?.finishedAtMs != null ? Math.max(0, nowMs - racing.finishedAtMs) : 0;
-  // The group whose karts are coming in, named separately: the heat that just
-  // took the green flag is on track while the previous heat's karts may still be
-  // rolling in behind them, and both are true at once.
-  const returningHeat = holdLive ? (racing?.heatNumber ?? null) : null;
-  const overlap = returningHeat != null && outHeat != null && returningHeat !== outHeat;
+  // The group in the pit, and how long they have been waiting on their
+  // announcement. A separate row now, so the heat on track and the heat rolling
+  // in behind it are two lines rather than two meanings of one.
+  const sinceFinishMs = pitIn ? Math.max(0, nowMs - (pitIn.finishedAtMs ?? pitIn.atMs)) : 0;
 
   /**
    * THE BADGES DESCRIBE THEIR OWN ROW (owner 2026-08-14: "why do we see an on
@@ -1868,15 +1864,27 @@ function OutOfRoomPanel({
     ? { label: "IN THE KARTS", tone: GREEN }
     : { label: "EMPTY", tone: PORTAL_DARK.muted };
 
-  const trackBadge = holdLive
-    ? { label: "KARTS COMING IN", tone: DANGER }
-    : clockIsOurs && liveClock?.state === "paused"
+  /**
+   * ON TRACK NO LONGER BORROWS THE PIT'S STATE (owner 2026-08-15: "on track only
+   * is when they're really out on track"). It used to read KARTS COMING IN about
+   * a group that had finished, because a finished race had nowhere else to be.
+   * That group has their own row now, so this one describes the circuit and
+   * nothing else.
+   */
+  const trackBadge =
+    clockIsOurs && liveClock?.state === "paused"
       ? { label: "PAUSED", tone: AMBER }
       : outHeat != null
         ? { label: "RACING", tone: GREEN }
         : { label: "TRACK CLEAR", tone: PORTAL_DARK.muted };
 
-  const nothingOut = !holding && !karts && outHeat == null && !holdLive;
+  // The pit: occupied means an announcement is owed, which is the one state on
+  // this rail with a press attached and the one that wants the eye.
+  const pitInBadge = pitIn
+    ? { label: "POST OWED", tone: DANGER }
+    : { label: "EMPTY", tone: PORTAL_DARK.muted };
+
+  const nothingOut = !holding && !karts && outHeat == null && !pitIn;
 
   return (
     <Panel
@@ -1897,7 +1905,7 @@ function OutOfRoomPanel({
               padding: "3px 0 2px",
             }}
           >
-            {["Holding", "In karts", "On track"].map((s) => (
+            {["Holding", "In karts", "On track", "Pit in"].map((s) => (
               <span
                 key={s}
                 style={{
@@ -2017,18 +2025,7 @@ function OutOfRoomPanel({
                         Session {outHeat}
                       </span>
                     </div>
-                    {holdLive ? (
-                      <p style={{ fontSize: 11, color: PORTAL_DARK.muted, margin: "1px 0 0" }}>
-                        {overlap
-                          ? `Session ${returningHeat} finished ${formatClock(sinceFinishMs)} ago and its karts are still coming in.`
-                          : `Finished ${formatClock(sinceFinishMs)} ago.`}
-                      </p>
-                    ) : null}
                   </>
-                ) : holdLive ? (
-                  <p style={{ fontSize: 11, color: PORTAL_DARK.muted, margin: 0 }}>
-                    {`Finished ${formatClock(sinceFinishMs)} ago.`}
-                  </p>
                 ) : (
                   <EmptyStage />
                 )
@@ -2042,8 +2039,47 @@ function OutOfRoomPanel({
                   />
                 ) : undefined
               }
+            />
+
+            {/* ── PIT IN ── the stage the lane was missing (owner 2026-08-15:
+                "the inbound race that is still sitting in karts waiting for post
+                announcements gets cleared by the race that is sent to track").
+                A returning group had nowhere to be but the racing slot, so the
+                next group going out overwrote them. They own a row now, and the
+                press that clears them sits on it. */}
+            <StageRow
+              stage="Pit in"
+              badge={pitInBadge}
+              who={
+                pitIn ? (
+                  <>
+                    <div
+                      style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}
+                    >
+                      <span
+                        className="rc-num"
+                        style={{ fontSize: 20, fontWeight: 800, color: INK }}
+                      >
+                        {pitIn.heatNumber != null ? `Session ${pitIn.heatNumber}` : "In the pit"}
+                      </span>
+                      {pitIn.raceType && (
+                        <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
+                          {pitIn.raceType}
+                        </span>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <EmptyStage />
+                )
+              }
+              clock={
+                pitIn ? (
+                  <Stat label="Waiting" value={formatClock(sinceFinishMs)} tone={AMBER} />
+                ) : undefined
+              }
               end={
-                holdLive ? (
+                pitIn ? (
                   <ActionButton
                     tone={AMBER}
                     textColor="#1a1205"
@@ -2052,7 +2088,7 @@ function OutOfRoomPanel({
                     pending={pending}
                     disabled={locked}
                     pendingLabel="Marking…"
-                    title="The finished race's karts are fully back in the lane — releases the pit board's hold"
+                    title="The karts are fully back in the lane — the manual stand-in for the post-race announcement"
                     onClick={onRaceReturned}
                   >
                     ⏎ Race returned

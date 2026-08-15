@@ -84,9 +84,12 @@ export async function GET(req: NextRequest) {
       audio[sid] = await readCueStamps(sid);
     }),
     ...PIT_TRACKS.map(async (track) => {
-      const racing = lanes[track].racing;
-      if (racing && racing.finishedAtMs != null) {
-        postGate[track] = await postRaceGate(racing.sessionId);
+      // The gate is asked about the group in the PIT — the ones post-race would
+      // actually be announcing (2026-08-15). Occupying that slot is the whole
+      // arming condition now, so there is no finish stamp left to test.
+      const returning = lanes[track].pitIn;
+      if (returning) {
+        postGate[track] = await postRaceGate(returning.sessionId);
       }
     }),
   ]);

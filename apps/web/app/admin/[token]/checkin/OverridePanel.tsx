@@ -32,6 +32,8 @@ import type { BriefingControl } from "./useBriefingControl";
 const INK = "#e8eef7";
 const GREEN = "#4ade80";
 const AMBER = "#f0b341";
+/** Overdue/held — same value the board uses, and never ROOM_COLOR.red. */
+const DANGER = "#ff4d4f";
 
 /**
  * One colour per lane stage, so the three move buttons are told apart at a
@@ -39,16 +41,25 @@ const AMBER = "#f0b341";
  * the track — the further along the journey, the more the button costs to press
  * by mistake.
  */
-const SLOT_TONE: Record<"holding" | "karts" | "racing", string> = {
+const SLOT_TONE: Record<"holding" | "karts" | "racing" | "pitIn", string> = {
   holding: GREEN,
   karts: INK,
   racing: AMBER,
+  pitIn: DANGER,
+};
+
+/** `pitIn` is a key, not a label — the wall and the desk both say "pit in". */
+const SLOT_LABEL: Record<"holding" | "karts" | "racing" | "pitIn", string> = {
+  holding: "holding",
+  karts: "karts",
+  racing: "racing",
+  pitIn: "pit in",
 };
 
 /** A slot a session was sighted in — enough to empty exactly that slot. */
 interface OccupiedSlot {
   track: string;
-  slot: "called" | "room" | "holding" | "karts" | "racing";
+  slot: "called" | "room" | "holding" | "karts" | "racing" | "pitIn";
   room?: BriefingRoom;
 }
 
@@ -228,13 +239,13 @@ export default function OverridePanel({
           </div>
         ))}
         {tracks.map((t) =>
-          (["holding", "karts", "racing"] as const).map((slot) => {
+          (["holding", "karts", "racing", "pitIn"] as const).map((slot) => {
             const lane = board?.lanes?.[t];
             const occ = lane?.[slot];
             return (
               <div key={`${t}:${slot}`} style={rowStyle(!!occ)}>
                 <span style={slotLabelStyle}>
-                  {t} {slot}
+                  {t} {SLOT_LABEL[slot]}
                 </span>
                 <span
                   className="rc-num"
@@ -361,7 +372,7 @@ export default function OverridePanel({
               </button>
             ))}
             {tracks.map((t) =>
-              (["holding", "karts", "racing"] as const).map((slot) => (
+              (["holding", "karts", "racing", "pitIn"] as const).map((slot) => (
                 <button
                   key={`${t}:${slot}`}
                   type="button"

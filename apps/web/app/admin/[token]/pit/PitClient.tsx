@@ -667,10 +667,14 @@ function TrackCard({
   const tone = TRACK_TONE[track];
   const liveClock = useLiveSessionClock(track);
 
-  const holding = lane?.holding ?? null;
+  // PRE belongs to the group being staged (seats or karts — the pre cue is what
+  // moves them between the two); POST belongs to the group in the PIT. Two
+  // different groups, which is the whole reason pitIn exists (2026-08-15).
+  const holding = lane?.holding ?? lane?.karts ?? null;
   const racing = lane?.racing ?? null;
+  const pitIn = lane?.pitIn ?? null;
   const preStamp = holding ? (audio[holding.sessionId]?.pre ?? null) : null;
-  const postStamp = racing ? (audio[racing.sessionId]?.post ?? null) : null;
+  const postStamp = pitIn ? (audio[pitIn.sessionId]?.post ?? null) : null;
 
   // The SAME machine the wall boards run (pit-board.ts): "hold" is karts in
   // (or rolling into) the lane, un-released. Staged-started is always null
@@ -678,8 +682,7 @@ function TrackCard({
   const rail = pitRailState({
     stagedInHolding: !!holding,
     stagedStartedAtMs: null,
-    racingFinishedAtMs: racing?.finishedAtMs ?? null,
-    pittedAtMs: racing?.pittedAtMs ?? null,
+    pitInOccupied: pitIn != null,
   });
   /**
    * PHASE ONE, FROM THE FASTEST WITNESS THIS TABLET HOLDS (owner 2026-08-14:
@@ -694,12 +697,12 @@ function TrackCard({
    * path's own gate) — a beat later, deliberately: the one-shot must never
    * fire off a client-side guess.
    */
-  // Released = the pitted stamp answers the finish, OR post demonstrably
-  // played for this session (the server now derives the same — a late finish
-  // witness can never re-hold a lane whose post already sounded).
-  const released =
-    postStamp != null ||
-    (racing?.pittedAtMs != null && racing.pittedAtMs >= (racing.finishedAtMs ?? 0));
+  // Released = the pit is empty. The server drops a group from `pitIn` the
+  // instant their post (or the pitted press) lands, so there is no longer a
+  // pair of stamps here to compare — an empty slot IS the release. The local
+  // post stamp still counts, because this tablet can know a beat before the
+  // next poll that its own press sounded.
+  const released = pitIn == null || postStamp != null;
   // Phase one is ALSO the clock hitting zero (owner 2026-08-14: "blue race
   // didnt say HOLD until full finish") — the socket may not flip its state
   // to "finished" until the official end, but a counting clock at 0:00 IS
@@ -715,8 +718,11 @@ function TrackCard({
       (liveClock.state === "running" && liveClock.counting && liveClock.remainingMs <= 500));
   const holdLive = rail === "hold" || (clockSaysFinished && !released);
 
-  const finished = racing?.finishedAtMs != null;
-  const finishedAgoMs = finished ? Math.max(0, nowMs - (racing?.finishedAtMs as number)) : null;
+  // "Finished N ago" is about the group in the pit: they are the ones whose
+  // race has ended and whose announcement is owed.
+  const finished = pitIn != null;
+  const finishedAgoMs =
+    pitIn != null ? Math.max(0, nowMs - (pitIn.finishedAtMs ?? pitIn.atMs)) : null;
 
   // WHICH cue is sounding: the player's zone state when it's attributable to
   // our latest stamp; otherwise each stamp's own clock carries its section.

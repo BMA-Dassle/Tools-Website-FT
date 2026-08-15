@@ -38,6 +38,8 @@ vi.mock("@/lib/redis", () => ({
 
 const finishedMarkers = new Map<string, number>();
 const laterHeats = new Set<string>();
+/** Sessions whose post-race cue has demonstrably played. */
+const postCues = new Set<string>();
 
 vi.mock("@/lib/race-business-day", () => ({ businessDayYmdET: () => "2026-08-14" }));
 vi.mock("../after-response.server", () => ({ afterResponse: (fn: () => unknown) => void fn }));
@@ -55,6 +57,12 @@ vi.mock("../briefing/race-state-watch.server", () => ({
 vi.mock("../briefing/state.server", () => ({
   clearBriefingRoom: vi.fn(async () => {}),
   sessionBriefed: vi.fn(async () => null),
+}));
+vi.mock("./audio-stamps.server", () => ({
+  cueKey: (cue: string, sessionId: string) => `pit:cue:${cue}:${sessionId}`,
+  readCueStamp: vi.fn(async (cue: string, sessionId: string) =>
+    cue === "post" && postCues.has(sessionId) ? { atMs: 7_777, durationS: null } : null,
+  ),
 }));
 vi.mock("./day-schedule.server", () => ({
   liveHeatIsLaterThan: vi.fn(async (track: string, live: number, ours: number) =>
@@ -88,6 +96,7 @@ beforeEach(() => {
   store.clear();
   finishedMarkers.clear();
   laterHeats.clear();
+  postCues.clear();
 });
 
 /* ── the promotion, from both slots ─────────────────────────────────────── */
@@ -186,6 +195,7 @@ describe("resolveLane — one predicate, two source slots", () => {
     const lane = await readPitLane("blue");
 
     expect(lane.racing).toBeNull();
+    expect(lane.pitIn).toBeNull();
   });
 
   it("a pitted stamp clears the lane after a finish it answers", async () => {
@@ -196,34 +206,106 @@ describe("resolveLane — one predicate, two source slots", () => {
     });
     finishedMarkers.set("s62", 9_000);
 
-    expect((await readPitLane("blue")).racing).toBeNull();
-  });
-
-  it("a STALE pitted stamp does not clear a newer hold", async () => {
-    // The stamp belongs to the previous cycle: older than the finish it would
-    // be releasing, so the hold stands and the group stays on the lane.
-    putLane({
-      holding: null,
-      racing: { sessionId: "s62", heatNumber: 62, room: "blue" },
-      pitted: { sessionId: "s62", atMs: 1_000 },
-    });
-    finishedMarkers.set("s62", 9_000);
-
     const lane = await readPitLane("blue");
-
-    expect(lane.racing?.sessionId).toBe("s62");
-    expect(lane.racing?.finishedAtMs).toBe(9_000);
-    expect(lane.racing?.pittedAtMs).toBe(1_000);
+    expect(lane.racing).toBeNull();
+    expect(lane.pitIn).toBeNull();
   });
 
-  it("a pitted stamp for a DIFFERENT session leaves the racing group alone", async () => {
+  it("a pitted stamp for a DIFFERENT session leaves the pit occupied", async () => {
     putLane({
       holding: null,
       racing: { sessionId: "s62", heatNumber: 62, room: "blue" },
       pitted: { sessionId: "someone-else", atMs: 9_999 },
     });
+    finishedMarkers.set("s62", 9_000);
 
-    expect((await readPitLane("blue")).racing?.sessionId).toBe("s62");
+    const lane = await readPitLane("blue");
+
+    expect(lane.racing).toBeNull();
+    expect(lane.pitIn?.sessionId).toBe("s62");
+  });
+
+  /* ── pit in ───────────────────────────────────────────────────────────── */
+
+  /**
+   * THE DESTROYED RETURNING GROUP (owner 2026-08-15: "the inbound race that is
+   * still sitting in karts waiting for post announcements gets cleared by the
+   * race that is sent to track").
+   *
+   * One `racing` slot could not hold two groups, and at the pit there are
+   * routinely two: one rolling in under the chequered flag, one already in
+   * their karts waiting on the green. Promotion overwrote the first with the
+   * second, taking the only record that post was owed with it.
+   */
+  it("the group going out does NOT destroy the group coming in", async () => {
+    putLane({
+      holding: null,
+      karts: group("next", 63),
+      racing: { sessionId: "prev", heatNumber: 62, room: "blue" },
+      pitted: null,
+    });
+    // 63 takes the track. 62 has no finish marker at all — the silent-bridge
+    // night — so succession is the only thing that knows they are off it.
+    putLiveHeat(63, "running");
+
+    const lane = await readPitLane("blue");
+
+    expect(lane.racing?.sessionId).toBe("next");
+    expect(lane.pitIn?.sessionId).toBe("prev");
+    expect(lane.karts).toBeNull();
+  });
+
+  it("the chequered flag moves a race off the track and into the pit", async () => {
+    putLane({
+      holding: null,
+      racing: { sessionId: "s62", heatNumber: 62, room: "blue" },
+      pitted: null,
+    });
+    finishedMarkers.set("s62", 9_000);
+
+    const lane = await readPitLane("blue");
+
+    // "On track only is when they're really out on track."
+    expect(lane.racing).toBeNull();
+    expect(lane.pitIn?.sessionId).toBe("s62");
+    expect(lane.pitIn?.finishedAtMs).toBe(9_000);
+  });
+
+  it("the post cue clears the pit on its own, with no pitted stamp", async () => {
+    putLane({
+      holding: null,
+      racing: { sessionId: "s62", heatNumber: 62, room: "blue" },
+      pitted: null,
+    });
+    finishedMarkers.set("s62", 9_000);
+    postCues.add("s62");
+
+    const lane = await readPitLane("blue");
+
+    expect(lane.pitIn).toBeNull();
+    expect(lane.racing).toBeNull();
+  });
+
+  it("a group in the pit and a group on track coexist", async () => {
+    putLane({
+      holding: null,
+      karts: null,
+      racing: { sessionId: "out", heatNumber: 63, room: "blue" },
+      pitIn: {
+        sessionId: "in",
+        heatNumber: 62,
+        raceType: "Blue Starter",
+        room: "blue",
+        finishedAtMs: 5_000,
+        atMs: 5_000,
+      },
+      pitted: null,
+    });
+
+    const lane = await readPitLane("blue");
+
+    expect(lane.racing?.sessionId).toBe("out");
+    expect(lane.pitIn?.sessionId).toBe("in");
   });
 
   it("resolves a lane written before the karts slot existed", async () => {

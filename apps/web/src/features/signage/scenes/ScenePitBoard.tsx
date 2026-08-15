@@ -204,8 +204,10 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
    * released (the socket keeps saying "finished" until the next heat loads,
    * and a released lane must not re-hold).
    */
-  const laneReleased =
-    lane.racing?.pittedAtMs != null && lane.racing.pittedAtMs >= (lane.racing.finishedAtMs ?? 0);
+  // A released lane is simply an empty pit: resolveLane drops the group from
+  // `pitIn` the moment their post announcement (or the pitted press) lands, so
+  // there is no pair of stamps left here to compare (2026-08-15).
+  const laneReleased = lane.pitIn == null;
   // Phase one is ALSO the clock hitting zero (owner 2026-08-14: "blue race
   // didnt say HOLD until full finish") — the socket may not flip its state
   // to "finished" until the official end, but a counting clock at 0:00 IS
@@ -223,9 +225,9 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
   const rail = pitRailState({
     stagedInHolding: session?.inHolding ?? false,
     stagedStartedAtMs: stagedArmed ? null : (session?.startedAtMs ?? (stagedRacing ? 0 : null)),
-    racingFinishedAtMs:
-      lane.racing?.finishedAtMs ?? (clockSaysRacingFinished && !laneReleased ? nowMs : null),
-    pittedAtMs: lane.racing?.pittedAtMs ?? null,
+    // Either the server has already moved them into the pit, or this screen's
+    // own clock has just seen the race end and says so a few seconds early.
+    pitInOccupied: lane.pitIn != null || (clockSaysRacingFinished && !laneReleased),
   });
 
   /**
@@ -304,6 +306,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
     // would put one heat in two rows the moment the pre-race cue plays.
     if (typeof lane.karts?.heatNumber === "number") downstreamHeats.add(lane.karts.heatNumber);
     if (typeof lane.racing?.heatNumber === "number") downstreamHeats.add(lane.racing.heatNumber);
+    if (typeof lane.pitIn?.heatNumber === "number") downstreamHeats.add(lane.pitIn.heatNumber);
     const calledMovedOn = called?.heatNumber != null && downstreamHeats.has(called.heatNumber);
 
     out.push({
@@ -353,12 +356,16 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
     out.push({
       label: "On track",
       value: onTrackHeat != null ? `Session ${onTrackHeat}` : "—",
-      detail:
-        lane.racing?.finishedAtMs != null
-          ? "finished — karts coming in"
-          : liveClock?.counting
-            ? "racing"
-            : undefined,
+      detail: liveClock?.counting ? "racing" : undefined,
+    });
+
+    // Back in the lane with their announcement owed. The last stage of the
+    // journey, and the one a group used to vanish from when the next race went
+    // out — see PitLaneFeed.pitIn.
+    out.push({
+      label: "Pit in",
+      value: lane.pitIn?.heatNumber != null ? `Session ${lane.pitIn.heatNumber}` : "—",
+      detail: lane.pitIn ? "karts in — waiting on post-race" : undefined,
     });
 
     return out;

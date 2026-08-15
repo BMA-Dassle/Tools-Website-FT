@@ -26,8 +26,11 @@ import "server-only";
  * ARMING RULES the API enforces server-side, so a stale tablet cannot stamp
  * the wrong cycle:
  *
- *   pre    a group is in HOLDING (they are the ones being announced)
- *   post   the racing group's FINISH marker has landed
+ *   pre    a group is STAGED — in the seats or already in the karts
+ *   post   a group is in PIT IN: their race is over and they are back in the
+ *          lane. The slot existing IS the arming condition (2026-08-15); it
+ *          used to demand a finish marker off the racing slot, which left a
+ *          demonstrably-returned group unplayable whenever the bridge was quiet
  *
  * WHO EACH CUE PLAYED FOR is resolved from the lane at press time — the same
  * posture as markRacePitted, which takes a track and never trusts a client
@@ -286,21 +289,34 @@ export async function postRaceGate(sessionId: string): Promise<PostRaceGate> {
  */
 export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
   const lane = await readPitLane(track);
-  const racing = lane.racing;
-  if (!racing) {
-    return { ok: false, error: "no race is out on that track — nothing to play post-race for" };
+  /**
+   * POST-RACE IS FOR THE GROUP IN THE PIT (2026-08-15).
+   *
+   * It used to read `racing` and then demand a finish stamp off it — two reads
+   * of one slot that had to mean two different things at two different times.
+   * That gate is what left blue 62 unplayable on a night the finish marker never
+   * landed: the group was demonstrably back, and the only control that could say
+   * so refused because nothing on the wire had agreed yet.
+   *
+   * The `pitIn` slot IS "a race has come in and owes its announcement", so
+   * occupying it is the whole arming condition. A group still genuinely on track
+   * is in `racing` and cannot be posted, which was the point of the old gate.
+   */
+  const returning = lane.pitIn;
+  if (!returning) {
+    return {
+      ok: false,
+      error: "no race is back in the pit — post-race arms when a race comes in",
+    };
   }
-  if (racing.finishedAtMs == null) {
-    return { ok: false, error: "the race hasn't finished — post-race arms at the finish" };
-  }
-  const gate = await postRaceGate(racing.sessionId);
+  const gate = await postRaceGate(returning.sessionId);
   if (!gate.allowed) {
     return { ok: false, error: gate.reason ?? "the briefing room is not empty yet" };
   }
   const busy = await paBusy(track);
   if (busy.busy) return { ok: false, error: busy.error };
 
-  const result = await claimAndPlay(track, "post", racing.sessionId);
+  const result = await claimAndPlay(track, "post", returning.sessionId);
   if (result.outcome === "failed") return { ok: false, error: result.error };
   if (result.outcome === "already") {
     // Same cycle, pressed again — re-assert the release (see the header for
@@ -311,19 +327,19 @@ export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
       ok: true,
       alreadyPlayed: true,
       atMs: result.atMs ?? undefined,
-      sessionId: racing.sessionId,
+      sessionId: returning.sessionId,
     };
   }
 
-  const room = (await sessionBriefed(racing.sessionId).catch(() => null))?.room ?? null;
+  const room = (await sessionBriefed(returning.sessionId).catch(() => null))?.room ?? null;
   if (room) {
     await recordBriefingEvent({
       venue: VENUE,
       businessDay: businessDayYmdET(),
       room,
       track,
-      sessionId: racing.sessionId,
-      heatNumber: racing.heatNumber,
+      sessionId: returning.sessionId,
+      heatNumber: returning.heatNumber,
       raceType: null,
       tier: null,
       action: "audio-post",
@@ -334,5 +350,5 @@ export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
   // its own insurance row — one code path for this stamp, whoever presses.
   await markRacePitted(track);
 
-  return { ok: true, atMs: result.atMs, sessionId: racing.sessionId };
+  return { ok: true, atMs: result.atMs, sessionId: returning.sessionId };
 }

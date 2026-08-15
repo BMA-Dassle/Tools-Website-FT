@@ -274,20 +274,60 @@ export interface PitLaneFeed {
     /** When they got into the karts — the pre-race call, not the send. */
     atMs: number;
   } | null;
+  /**
+   * ON TRACK, AND ONLY ON TRACK (owner 2026-08-15: "on track only is when
+   * they're really out on track").
+   *
+   * It used to carry `finishedAtMs` and `pittedAtMs` — a group stayed here after
+   * their chequered flag and the two stamps described how far through coming
+   * back they were. That is what made the lane destroy them: there is one of
+   * this slot, and the next group green-flagging overwrote it, taking with it
+   * the only record that a post announcement was still owed. Those two facts
+   * live on `pitIn` now, where they describe a group that is actually in the pit.
+   */
   racing: {
     sessionId: string;
     heatNumber: number | null;
-    /** The venue's own end signal (race-finish marker). Null while racing. */
+  } | null;
+  /**
+   * BACK IN THE PIT, WAITING ON THE POST ANNOUNCEMENT (owner 2026-08-15: "the
+   * inbound race that is still sitting in karts waiting for post announcements
+   * gets cleared by the race that is sent to track… finishing race goes to a new
+   * state type of Pit In. So then post race becomes the item that clears pit in
+   * status").
+   *
+   * A SLOT OF ITS OWN BECAUSE TWO GROUPS ARE GENUINELY AT THE PIT AT ONCE: one
+   * rolling in under the chequered flag, one already seated in their karts
+   * waiting on the green. That overlap is the normal shape of a busy night, and
+   * a lane with a single racing slot could not hold both — so the returning
+   * group was silently overwritten the moment the next one went out.
+   *
+   * DISTINCT FROM `karts`, which is the same physical position at the opposite
+   * end of the race: karts is pre-flag and clears on the green, pitIn is
+   * post-flag and clears on the post announcement.
+   */
+  pitIn: {
+    sessionId: string;
+    heatNumber: number | null;
+    raceType: string | null;
+    room: "red" | "blue" | null;
+    /** The venue's own end signal, or the socket's first sighting of it. Null
+     *  when they were succeeded onto the track without any witness at all. */
     finishedAtMs: number | null;
-    /** Staff pressed "race returned" — the karts are fully back in the pit.
-     *  THIS is what releases the hold, never a timer (owner 2026-08-13). */
-    pittedAtMs: number | null;
+    /** When they entered this stage — the finish when we have one, else the
+     *  moment the next group took the track. */
+    atMs: number;
   } | null;
 }
 
 export type PitLanes = Record<"blue" | "red" | "mega", PitLaneFeed>;
 
-export const EMPTY_PIT_LANE: PitLaneFeed = { holding: null, karts: null, racing: null };
+export const EMPTY_PIT_LANE: PitLaneFeed = {
+  holding: null,
+  karts: null,
+  racing: null,
+  pitIn: null,
+};
 
 /* ── the rail state machine ───────────────────────────────────────────── */
 
@@ -307,10 +347,17 @@ export interface PitRailInput {
   stagedInHolding: boolean;
   /** The display session's own green flag has been seen (start marker). */
   stagedStartedAtMs: number | null;
-  /** The racing group's finish marker, if their race has ended. */
-  racingFinishedAtMs: number | null;
-  /** When staff last marked the lane pitted. */
-  pittedAtMs: number | null;
+  /**
+   * IS A GROUP IN THE PIT WAITING ON ITS POST ANNOUNCEMENT — the lane's `pitIn`
+   * slot, occupied.
+   *
+   * This was `racingFinishedAtMs` + `pittedAtMs`, a pair the caller had to
+   * compare to work out whether the hold was live. The comparison now happens
+   * once, server-side, when the lane resolves: a group is in `pitIn` until their
+   * post announcement clears them, so the slot being occupied IS the hold. One
+   * fact instead of two, and no way for a caller to compare them wrongly.
+   */
+  pitInOccupied: boolean;
 }
 
 /**
@@ -324,10 +371,7 @@ export interface PitRailInput {
  */
 export function pitRailState(input: PitRailInput): PitRailKind {
   if (input.stagedStartedAtMs != null) return "racing";
-  const holdLive =
-    input.racingFinishedAtMs != null &&
-    (input.pittedAtMs == null || input.pittedAtMs < input.racingFinishedAtMs);
-  if (holdLive) return "hold";
+  if (input.pitInOccupied) return "hold";
   if (!input.stagedInHolding) return "info";
   return "seat";
 }

@@ -192,12 +192,22 @@ describe("mergePitRoster", () => {
   });
 });
 
+/**
+ * THE HOLD IS A SLOT NOW, NOT A COMPARISON (2026-08-15).
+ *
+ * These cases used to feed a finish stamp and a pitted stamp and assert how the
+ * rail compared them. That comparison moved server-side into resolveLane, where
+ * it belongs: a group sits in `pitIn` from their chequered flag until their post
+ * announcement clears them, so the rail is handed one fact — is the pit occupied
+ * — and cannot get the comparison wrong. The stamp-ordering rules those cases
+ * pinned are now pinned in lane.server.test.ts, against the thing that actually
+ * does the ordering.
+ */
 describe("pitRailState", () => {
   const base = {
     stagedInHolding: false,
     stagedStartedAtMs: null,
-    racingFinishedAtMs: null,
-    pittedAtMs: null,
+    pitInOccupied: false,
   };
 
   it("reports (info) while the group has not reached the seats", () => {
@@ -208,53 +218,16 @@ describe("pitRailState", () => {
     expect(pitRailState({ ...base, stagedInHolding: true })).toBe("seat");
   });
 
-  it("holds the moment a race finishes, even for a fully staged group", () => {
-    expect(pitRailState({ ...base, stagedInHolding: true, racingFinishedAtMs: 1_000 })).toBe(
-      "hold",
-    );
+  it("holds while a race is in the pit, even for a fully staged group", () => {
+    expect(pitRailState({ ...base, stagedInHolding: true, pitInOccupied: true })).toBe("hold");
   });
 
-  it("keeps holding until the staff 'race returned' press — never a timer", () => {
-    expect(
-      pitRailState({
-        ...base,
-        stagedInHolding: true,
-        racingFinishedAtMs: 5_000,
-        // A pitted stamp OLDER than the finish is last cycle's — it must not
-        // release this hold.
-        pittedAtMs: 4_000,
-      }),
-    ).toBe("hold");
-  });
-
-  it("returns to seat once the lane is marked pitted", () => {
-    expect(
-      pitRailState({
-        ...base,
-        stagedInHolding: true,
-        racingFinishedAtMs: 5_000,
-        pittedAtMs: 6_000,
-      }),
-    ).toBe("seat");
-  });
-
-  it("a pitted stamp on the exact finish millisecond releases — the strict < is cross-cycle only", () => {
-    // The finish stamp is first-write-wins (race-finish.server.ts, owner
-    // 2026-08-14: phase one IS the finish), so within one cycle a release
-    // pressed after the hold arose is never re-outranked. Equal stamps are
-    // the boundary of that guarantee and must clear the hold.
-    expect(
-      pitRailState({
-        ...base,
-        stagedInHolding: true,
-        racingFinishedAtMs: 5_000,
-        pittedAtMs: 5_000,
-      }),
-    ).toBe("seat");
+  it("returns to seat once the pit empties", () => {
+    expect(pitRailState({ ...base, stagedInHolding: true, pitInOccupied: false })).toBe("seat");
   });
 
   it("holds even for a group still in briefing — karts in the lane outrank everything", () => {
-    expect(pitRailState({ ...base, racingFinishedAtMs: 1_000 })).toBe("hold");
+    expect(pitRailState({ ...base, pitInOccupied: true })).toBe("hold");
   });
 
   it("says racing once the staged session's own green flag is seen", () => {
@@ -265,7 +238,7 @@ describe("pitRailState", () => {
         stagedStartedAtMs: 9_000,
         // Even a live hold cannot outrank the flag: this group is GONE from the
         // seats, and the board is about to roll.
-        racingFinishedAtMs: 5_000,
+        pitInOccupied: true,
       }),
     ).toBe("racing");
   });

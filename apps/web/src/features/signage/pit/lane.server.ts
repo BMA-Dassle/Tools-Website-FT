@@ -77,6 +77,20 @@ interface StoredPitLane {
     heatNumber: number | null;
     room: BriefingRoom | null;
   } | null;
+  /**
+   * Back in the pit, post announcement owed. Normally DERIVED rather than
+   * stored — resolveLane recomputes it from `racing` plus the finish witness on
+   * every read, so a crash between the flag and a poll costs nothing. It is
+   * stored only when a human places a group here by hand from Override.
+   */
+  pitIn?: {
+    sessionId: string;
+    heatNumber: number | null;
+    raceType: string | null;
+    room: BriefingRoom | null;
+    finishedAtMs: number | null;
+    atMs: number;
+  } | null;
   /** The staff "race returned" stamp, tied to the session it answered. */
   pitted: { sessionId: string; atMs: number } | null;
 }
@@ -103,25 +117,20 @@ async function writeStoredLane(track: TrackKey, lane: StoredPitLane): Promise<vo
 }
 
 /**
- * THE "KARTS RETURNING" HOLD IS BACK ON (2026-08-14, same day it was parked).
+ * THE "KARTS RETURNING" HOLD IS NOW A SLOT, NOT A FLAG (2026-08-15).
  *
- * The designed flow: a race finishes → the lane is unsafe while karts come
- * in → a human who can SEE the lane releases it, and only then does the board
- * say it is safe to seat. Never a timer, deliberately — the hold is a safety
- * statement.
+ * The designed flow has not changed: a race finishes → the lane is unsafe while
+ * karts come in → a human who can SEE the lane releases it, and only then does
+ * the board say it is safe to seat. Never a timer, deliberately — the hold is a
+ * safety statement, and the release is the pit station PLAYING THE POST-RACE
+ * ANNOUNCEMENT (pit/audio.server.ts — the press makes sound, so it happens).
  *
- * It was parked earlier today because the release press lived on the CHECK-IN
- * board, where the person can't see the lane and never pressed it — a finished
- * race sat behind an amber flash all evening. The press now has the home the
- * parking note asked for: the pit station (/admin/{token}/pit), where PLAYING
- * THE POST-RACE ANNOUNCEMENT is the release (pit/audio.server.ts — the press
- * makes sound, so it happens). The check-in board's pit-lane button stays as
- * the manual override for a night the PA cannot play.
- *
- * While this is false a finished race just LEAVES the lane; everything that
- * implements the hold below and in pit-board.ts keeps working either way.
+ * What changed is where that state lives. It used to be a boolean const plus a
+ * comparison of two timestamps hung off the `racing` slot, which meant a
+ * finished race had to stay in `racing` to be held — and the next group going
+ * out overwrote it. The hold is now the `pitIn` slot being occupied: one fact,
+ * one place, and a returning group that cannot be displaced by an outgoing one.
  */
-const KARTS_RETURNING_HOLD = true;
 
 /**
  * HAS THE TRACK MOVED ON PAST THIS HEAT?
@@ -261,60 +270,137 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
   let holding = stored.holding;
   let karts = stored.karts ?? null;
   let racing = stored.racing;
-  // One read per track, shared by both slots below.
+  let pitIn = stored.pitIn ?? null;
+  // One read per track, shared by every slot below.
   const live = await readLiveHeat(track);
 
   /**
-   * THE STAGED GROUP — whoever is waiting on the green, wherever they stand.
+   * ── 1. THE CHEQUERED FLAG PUTS A RACE INTO THE PIT ──────────────────────
    *
+   * On track means ON TRACK now (owner 2026-08-15). A group whose race has
+   * demonstrably ended is not racing — they are rolling back into the lane with
+   * a post announcement still owed, which is its own stage with its own slot.
+   *
+   * Moving them HERE rather than leaving them in `racing` is what stops the next
+   * group destroying them: promotion below writes `racing`, and while a finished
+   * race was still sitting in it, going out overwrote the returning group and
+   * took the only record that post was owed with it.
+   */
+  if (racing) {
+    const finish = await readRaceFinishedMarker(racing.sessionId).catch(() => null);
+    const witnessedAtMs =
+      finish?.endedAtMs == null ? await liveSaysFinishedAtMs(track, live, racing.heatNumber) : null;
+    /**
+     * THE WITNESS TIME IS PINNED TO ITS FIRST SIGHTING (owner 2026-08-14: "Post
+     * was completed on blue but the HOLD stayed up"). live.atMs is the pause
+     * watcher's SAMPLE time and advances every sample — so on a night the finish
+     * marker never lands, a derived finish crept forward past every stamp that
+     * answered it. First sighting wins (NX), the same rule the finish marker
+     * itself follows: a finish time, whoever witnessed it, never moves.
+     */
+    const finishedAtMs =
+      finish?.endedAtMs ??
+      (witnessedAtMs != null ? await pinWitnessedFinish(racing.sessionId, witnessedAtMs) : null);
+    /**
+     * A PERSON IS ALSO A WITNESS (owner 2026-08-14: "62 blue was posted and
+     * wasn't cleared"). Somebody standing at the pit saying the karts are back
+     * is a statement that the race is over — and on a night the bridge is silent
+     * and the socket has aged out, it is the ONLY witness there is. Without this
+     * a stamped group stayed in `racing` for ever, unclearable from any screen.
+     *
+     * They land in `pitIn` and step 3 immediately clears them, which is the
+     * right path rather than a shortcut: the stamp answers the pit, so the pit
+     * is what it has to reach.
+     */
+    const pittedHere = stored.pitted?.sessionId === racing.sessionId;
+    if (finishedAtMs != null || pittedHere) {
+      pitIn = {
+        sessionId: racing.sessionId,
+        heatNumber: racing.heatNumber,
+        raceType: null,
+        room: racing.room,
+        finishedAtMs,
+        atMs: finishedAtMs ?? stored.pitted?.atMs ?? Date.now(),
+      };
+      racing = null;
+    }
+  }
+
+  /**
+   * ── 2. THE STAGED GROUP TAKES THE TRACK ─────────────────────────────────
+   *
+   * THE STAGED GROUP is whoever is waiting on the green, wherever they stand.
    * ONE PREDICATE, TWO POSSIBLE SOURCE SLOTS (owner 2026-08-14: "the existing
    * trigger from holding to race should still exist. Same trigger from karts to
-   * race"). The test for "have they gone out" is untouched below; the only thing
-   * In Karts changed is where the group being tested is read from. That is what
-   * makes the two paths provably identical rather than merely similar — there is
-   * no second copy of this rule to drift.
+   * race"). The test for "have they gone out" is untouched; the only thing In
+   * Karts changed is where the group being tested is read from, so there is no
+   * second copy of the rule to drift.
    *
    * Karts wins when both are filled: it is the later stage, so it is the group
-   * closer to the flag. A group can only be in one of the two anyway (every
-   * writer below vacates the other), but reading it in this order means a lane
-   * that somehow held both still promotes the right one.
+   * closer to the flag.
    */
   const staged = karts ?? holding;
   if (staged) {
-    // HOLDING PERSISTS THROUGH THE RACE (owner 2026-08-13: "our session
-    // follows the race marked in holding; green flag + active countdown moves
-    // it to racing"). The start marker fires at PHASE ONE of the two-phase
-    // start — karts rolling out, clock armed static, stragglers still being
-    // seated — so it must NOT promote. What ends a staged claim server-side
-    // is the FINISH marker (the race demonstrably ran) or the next group
-    // taking the seats (see sendToHolding's displacement); the wall's own
-    // holding→racing presentation is the client's counting verdict.
-    //
-    // Note this is exactly why In Karts exists as a stage: phase one of the
-    // start IS "they are in the karts", and the pre-message that announces it
-    // is the signal this promotion has always had to refuse.
+    // HOLDING PERSISTS THROUGH THE RACE (owner 2026-08-13: "our session follows
+    // the race marked in holding; green flag + active countdown moves it to
+    // racing"). The start marker fires at PHASE ONE of the two-phase start —
+    // karts rolling out, clock armed static, stragglers still being seated — so
+    // it must NOT promote. That phase IS "they are in the karts", which is
+    // exactly the stage In Karts now names.
     const finished = await readRaceFinishedMarker(staged.sessionId).catch(() => null);
     // Either witness will do: the broadcast's own finish marker, or the timing
-    // socket showing this heat on track (or a later one loaded). See
-    // holdingHasGoneOut.
+    // socket showing this heat on track (or a later one loaded).
     const goneOut = finished == null && (await liveSaysGoneOut(track, live, staged.heatNumber));
     if (finished != null || goneOut) {
-      racing = {
-        sessionId: staged.sessionId,
-        heatNumber: staged.heatNumber,
-        room: staged.room,
-      };
-      // ONLY THE SLOTS NAMING THE PROMOTED SESSION. Blanking both would erase
-      // the group staff just sent to the seats behind a group already in the
-      // karts — which is the normal shape of a busy night, not an edge case.
-      // Both are cleared when both name this session, so a lane that somehow
-      // held one group twice cannot leave a stale copy behind.
+      /**
+       * SUCCESSION PUTS THE LAST GROUP IN THE PIT, NEVER IN THE BIN.
+       *
+       * One group races at a time, so this group taking the track is proof the
+       * last one is off it — even on a night when no finish marker ever arrived
+       * for them. They move to `pitIn` with a null finish, because we genuinely
+       * never witnessed one; what we know is that they are back, and that post
+       * is owed. Overwriting them was the bug.
+       */
+      if (racing && racing.sessionId !== staged.sessionId) {
+        pitIn = {
+          sessionId: racing.sessionId,
+          heatNumber: racing.heatNumber,
+          raceType: null,
+          room: racing.room,
+          finishedAtMs: null,
+          atMs: Date.now(),
+        };
+      }
+      racing = { sessionId: staged.sessionId, heatNumber: staged.heatNumber, room: staged.room };
+      // ONLY THE SLOTS NAMING THE PROMOTED SESSION. Blanking both would erase a
+      // group sent to the seats behind a group already in the karts, which is
+      // the normal shape of a busy night rather than an edge case.
       if (holding?.sessionId === staged.sessionId) holding = null;
       if (karts?.sessionId === staged.sessionId) karts = null;
     }
   }
 
-  const stagedOut = {
+  /**
+   * ── 3. THE POST ANNOUNCEMENT CLEARS THE PIT ─────────────────────────────
+   *
+   * "Post race becomes the item that clears pit in status" (owner 2026-08-15).
+   * Either witness will do and both are session-keyed: the pitted stamp the
+   * press writes, or the post cue's own durable stamp — which is what heals a
+   * night when the stamp landed and something else re-raised the hold.
+   *
+   * NO TIME COMPARISON ANY MORE, and that is the point of the slot. The old rule
+   * had to ask whether a stamp was newer than the finish it answered, because
+   * one `racing` slot was reused by every group in turn and a stale stamp could
+   * release the next group's hold. A session only ever occupies `pitIn` once, so
+   * a stamp bearing its id can only be about this stage.
+   */
+  if (pitIn) {
+    const pittedHere = stored.pitted?.sessionId === pitIn.sessionId;
+    const post = pittedHere ? null : await readCueStamp("post", pitIn.sessionId).catch(() => null);
+    if (pittedHere || post) pitIn = null;
+  }
+
+  return {
     holding: holding
       ? {
           sessionId: holding.sessionId,
@@ -333,91 +419,8 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
           atMs: karts.atMs,
         }
       : null,
-  };
-
-  if (!racing) {
-    return { ...stagedOut, racing: null };
-  }
-
-  const finish = await readRaceFinishedMarker(racing.sessionId).catch(() => null);
-  // The broadcast's own stamp when we have it; the socket's observation when we
-  // do not, so a race that is demonstrably over stops reading as still running.
-  const witnessedAtMs =
-    finish?.endedAtMs == null ? await liveSaysFinishedAtMs(track, live, racing.heatNumber) : null;
-  /**
-   * THE WITNESS TIME IS PINNED TO ITS FIRST SIGHTING (owner 2026-08-14: "Post
-   * was completed on blue but the HOLD stayed up"). live.atMs is the pause
-   * watcher's SAMPLE time and advances every sample — so on a night the
-   * finish marker never lands, finishedAtMs crept forward past every pitted
-   * stamp and the hold re-raised itself each minute, unreleasable. First
-   * sighting wins (NX), same rule the finish marker itself follows: a finish
-   * time, whoever witnessed it, never moves.
-   */
-  const finishedAtMs =
-    finish?.endedAtMs ??
-    (witnessedAtMs != null ? await pinWitnessedFinish(racing.sessionId, witnessedAtMs) : null);
-  let pittedAtMs =
-    stored.pitted && stored.pitted.sessionId === racing.sessionId ? stored.pitted.atMs : null;
-
-  /**
-   * POST PLAYED = RETURNED, derived at READ time (owner 2026-08-14: "when it
-   * is in that hold state, check to see if post was played, it seems like it
-   * can get stuck"). The press writes the pitted stamp once; a finish witness
-   * landing AFTER that press (a bridge-reconnect replay, the socket's
-   * minute-sampled observation) used to out-rank it and re-raise a hold
-   * nothing on the pit page could clear — the post one-shot was already
-   * burned. The post cue's own stamp is durable and session-keyed, so a hold
-   * whose session demonstrably had its post played releases itself, every
-   * read, forever. One extra Redis GET, paid only while a hold would
-   * otherwise be live.
-   */
-  if (finishedAtMs != null && (pittedAtMs == null || pittedAtMs < finishedAtMs)) {
-    const post = await readCueStamp("post", racing.sessionId).catch(() => null);
-    if (post) pittedAtMs = Math.max(post.atMs, finishedAtMs);
-  }
-
-  /**
-   * THE KARTS ARE BACK, SO THE LANE IS CLEAR (owner 2026-08-14: "62 blue was
-   * posted and wasn't cleared").
-   *
-   * A pitted stamp is a person standing at the pit saying the karts are fully
-   * in. That is a statement that the race is OVER, and a better witness to it
-   * than anything on the wire — so it ends the racing claim on its own, without
-   * waiting for a finish marker to agree.
-   *
-   * It had no such power, and blue 62 showed what that costs. The venue's finish
-   * marker never arrived (the bridge is silent for hours at a time), and the
-   * socket's second opinion had aged out, so `finishedAtMs` was null. Post was
-   * pressed at 11:41:58 and the stamp landed — but every consumer gates on the
-   * finish: `holdLive` needs it, so the desk badge read RACING instead of KARTS
-   * COMING IN and hid its "Race returned" press; `playPostRace` needs it, so the
-   * pit station refused to play post again. A group who had been back in the pit
-   * for minutes sat on two walls as still on track, with no control anywhere in
-   * the building able to clear them.
-   *
-   * A stamp OLDER than the finish it answers is still a stale stamp from the
-   * previous cycle and still does not clear the new hold — that rule is what the
-   * comparison below preserves.
-   */
-  if (pittedAtMs != null && (finishedAtMs == null || pittedAtMs >= finishedAtMs)) {
-    return { ...stagedOut, racing: null };
-  }
-
-  // PARKED: a finished race leaves the lane instead of holding it. See
-  // KARTS_RETURNING_HOLD. `pitted` still clears it too, so a night that was
-  // already mid-flow when this shipped behaves the same.
-  if (!KARTS_RETURNING_HOLD && finishedAtMs != null) {
-    return { ...stagedOut, racing: null };
-  }
-
-  return {
-    ...stagedOut,
-    racing: {
-      sessionId: racing.sessionId,
-      heatNumber: racing.heatNumber,
-      finishedAtMs,
-      pittedAtMs,
-    },
+    racing: racing ? { sessionId: racing.sessionId, heatNumber: racing.heatNumber } : null,
+    pitIn,
   };
 }
 
@@ -693,7 +696,7 @@ export interface LaneSlotOccupant {
   room: BriefingRoom | null;
 }
 
-export type LaneSlot = "holding" | "karts" | "racing";
+export type LaneSlot = "holding" | "karts" | "racing" | "pitIn";
 
 export async function overrideLaneSlot(args: {
   track: TrackKey;
@@ -745,6 +748,26 @@ export async function overrideLaneSlot(args: {
           atMs: Date.now(),
         }
       : null;
+  } else if (args.slot === "pitIn") {
+    /**
+     * Placing here by hand is how staff say "they are back in the pit" on a
+     * night nothing on the wire will. Clearing it is the manual equivalent of
+     * the post announcement — see resolveLane step 3, which also drops a group
+     * whose pitted or post stamp has landed.
+     */
+    next.pitIn = args.occupant
+      ? {
+          sessionId: args.occupant.sessionId,
+          heatNumber: args.occupant.heatNumber,
+          raceType: args.occupant.raceType,
+          room: args.occupant.room,
+          finishedAtMs: null,
+          atMs: Date.now(),
+        }
+      : null;
+    // A hand-cleared pit-in must not be re-created by a stamp that is still
+    // sitting there from the press that put them in it.
+    if (!args.occupant && next.pitted) next.pitted = null;
   } else {
     next.racing = args.occupant
       ? {
@@ -823,8 +846,21 @@ export async function markRacePitted(
 ): Promise<{ ok: boolean; error?: string; sessionId?: string }> {
   const stored = await readStoredLane(track);
   const resolved = await resolveLane(stored, track);
-  const racing = resolved.racing;
-  if (!racing) {
+  /**
+   * THE GROUP IN THE PIT, NOT THE ONE ON TRACK (2026-08-15).
+   *
+   * "Race returned" answers "the karts are fully back in the lane", which is a
+   * fact about the group that has COME IN — and since the pitIn slot exists,
+   * that is precisely who occupies it. It used to read `racing`, back when a
+   * finished race stayed there; on a busy night that meant the press could land
+   * on the group that had just gone OUT.
+   *
+   * Falling back to `racing` when the pit is empty is deliberate: a race with no
+   * finish witness at all is still in `racing`, and a human at the lane saying
+   * they are back is exactly the witness that was missing.
+   */
+  const returning = resolved.pitIn ?? resolved.racing;
+  if (!returning) {
     return { ok: false, error: "no race is out on that track — nothing to return" };
   }
 
@@ -832,21 +868,23 @@ export async function markRacePitted(
   // the row is the room they will hand kit into — the one they were briefed
   // in — read from the lane first and the briefed marker as fallback.
   const roomFromLane =
-    stored?.racing?.sessionId === racing.sessionId
-      ? stored.racing.room
-      : stored?.holding?.sessionId === racing.sessionId
-        ? stored.holding.room
-        : null;
+    resolved.pitIn?.sessionId === returning.sessionId
+      ? resolved.pitIn.room
+      : stored?.racing?.sessionId === returning.sessionId
+        ? stored.racing.room
+        : stored?.holding?.sessionId === returning.sessionId
+          ? stored.holding.room
+          : null;
   const room =
-    roomFromLane ?? (await sessionBriefed(racing.sessionId).catch(() => null))?.room ?? null;
+    roomFromLane ?? (await sessionBriefed(returning.sessionId).catch(() => null))?.room ?? null;
   if (room) {
     await recordBriefingEvent({
       venue: VENUE,
       businessDay: businessDayYmdET(),
       room,
       track,
-      sessionId: racing.sessionId,
-      heatNumber: racing.heatNumber,
+      sessionId: returning.sessionId,
+      heatNumber: returning.heatNumber,
       raceType: null,
       tier: null,
       action: "pitted",
@@ -857,7 +895,11 @@ export async function markRacePitted(
     holding: stored?.holding ?? null,
     karts: stored?.karts ?? null,
     racing: stored?.racing ?? null,
-    pitted: { sessionId: racing.sessionId, atMs: Date.now() },
+    // A hand-placed pit-in is cleared by the same press that clears a derived
+    // one — otherwise the override would outlive the announcement that answered
+    // it, and the slot would never empty.
+    pitIn: stored?.pitIn?.sessionId === returning.sessionId ? null : (stored?.pitIn ?? null),
+    pitted: { sessionId: returning.sessionId, atMs: Date.now() },
   });
-  return { ok: true, sessionId: racing.sessionId };
+  return { ok: true, sessionId: returning.sessionId };
 }
