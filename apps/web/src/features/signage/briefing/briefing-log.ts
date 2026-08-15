@@ -105,6 +105,29 @@ export interface BriefingRecord {
   toStartMs: number | null;
   /** When the karts came back, from the staff "race returned" press. */
   pittedAtMs: number | null;
+  /**
+   * THE TWO PA CUES, STAMPED (owner 2026-08-14: "in briefing log monitor pre and
+   * post for each session with time stamp").
+   *
+   * Both already ride the insurance log — playPreRace and playPostRace write
+   * `audio-pre` and `audio-post` rows — but nothing read them back, so the one
+   * record of whether a group was actually called to their karts, and actually
+   * called back in, was invisible to the desk.
+   *
+   * They are worth reading beside the rest of this row because they are the two
+   * instants a person CAUSED. Everything else here is a press at a desk or a
+   * marker off a wire; these two made a noise in the building, and a night where
+   * one of them never sounded is a night somebody stood waiting for it.
+   *
+   * FIRST play wins, as with the photo: the cue is a session-keyed one-shot, so
+   * a second row can only be a re-press re-asserting a release, and the instant
+   * that matters is when the announcement actually sounded.
+   */
+  preAtMs: number | null;
+  postAtMs: number | null;
+  /** Pre-race called → post-race called: the group's whole time out of the
+   *  room and on the circuit, measured by the two announcements. */
+  preToPostMs: number | null;
   /** Left the room → karts back in the lane: the whole on-track leg. */
   roomToPittedMs: number | null;
   /**
@@ -152,6 +175,10 @@ export function foldBriefingLog(events: BriefingEvent[], nowMs: number): Briefin
     // The karts back in the lane — the last movement this group makes, and the
     // one that closes the total.
     const pittedAtMs = ordered.find((e) => e.action === "pitted")?.atMs ?? null;
+    // The two PA cues. `ordered` is sorted, so `find` is the FIRST play — see
+    // the field docs for why a re-press must not move these.
+    const preAtMs = ordered.find((e) => e.action === "audio-pre")?.atMs ?? null;
+    const postAtMs = ordered.find((e) => e.action === "audio-post")?.atMs ?? null;
 
     // A group with no `sent` event cannot have its room time measured from the
     // door, so the earliest thing we DO know about it stands in. Only reachable
@@ -215,6 +242,9 @@ export function foldBriefingLog(events: BriefingEvent[], nowMs: number): Briefin
       waitToRoomMs: calledAtMs != null ? Math.max(0, sentAtMs - calledAtMs) : null,
       toStartMs: startedAtMs != null ? Math.max(0, startedAtMs - sentAtMs) : null,
       pittedAtMs,
+      preAtMs,
+      postAtMs,
+      preToPostMs: preAtMs != null && postAtMs != null ? Math.max(0, postAtMs - preAtMs) : null,
       roomToPittedMs:
         pittedAtMs != null && endedAtMs != null ? Math.max(0, pittedAtMs - endedAtMs) : null,
       totalMs:

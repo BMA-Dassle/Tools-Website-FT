@@ -580,6 +580,13 @@ export default function RaceControlPanels({
               <span style={{ minWidth: 76 }}>In at</span>
               <span style={{ minWidth: 76 }}>Started</span>
               <span style={{ minWidth: 104 }}>Briefing photo</span>
+              {/* THE TWO ANNOUNCEMENTS (owner 2026-08-14: "in briefing log
+                  monitor pre and post for each session with time stamp"). Both
+                  already rode the insurance log; nothing read them back, so the
+                  record of whether a group was actually called to their karts —
+                  and actually called back in — was invisible to the desk. */}
+              <span style={{ minWidth: 72 }}>Pre-race</span>
+              <span style={{ minWidth: 72 }}>Post-race</span>
               {/* THE LEGS (owner 2026-08-14: "keep track of all the time
                   movements and how long"). The log always knew every instant;
                   what it never did was subtract them, so reading a slow night
@@ -650,6 +657,13 @@ export default function RaceControlPanels({
                     "—"
                   )}
                 </span>
+                {/* A cue that never sounded is amber, not blank: on this row a
+                    dash reads as "nothing to say", and the whole point of these
+                    two columns is that silence is the thing worth seeing. Pre is
+                    only owed once a group has left the room; post only once they
+                    have been out. */}
+                <Cue atMs={b.preAtMs} owed={b.endedAtMs != null} />
+                <Cue atMs={b.postAtMs} owed={b.pittedAtMs != null || b.postAtMs != null} />
                 <Leg ms={b.waitToRoomMs} />
                 <Leg ms={b.toStartMs} />
                 <Leg ms={b.inRoomMs} pending={b.inRoomMs == null ? "in there" : undefined} />
@@ -3366,6 +3380,33 @@ function Leg({ ms, pending }: { ms: number | null; pending?: string }) {
   return (
     <span className="rc-num" style={{ minWidth: 66, color: ms != null ? INK : PORTAL_DARK.muted }}>
       {ms != null ? formatClock(ms) : (pending ?? "—")}
+    </span>
+  );
+}
+
+/**
+ * ONE PA CUE, AND WHETHER IT SOUNDED.
+ *
+ * A played cue shows the clock time it played at, in green — it happened, and
+ * the instant is the record. A cue that is OWED and has not played is amber and
+ * says so in words: that is the state worth catching, because it means a group
+ * is standing somewhere waiting for an announcement nobody made.
+ *
+ * A cue that is not owed yet is a plain dash. The distinction matters — a blank
+ * because it is too early reads identically to a blank because it was missed,
+ * and only one of those is a problem.
+ */
+function Cue({ atMs, owed }: { atMs: number | null; owed: boolean }) {
+  if (atMs != null) {
+    return (
+      <span className="rc-num" style={{ minWidth: 72, color: GREEN }}>
+        {clockTimeMs(atMs)}
+      </span>
+    );
+  }
+  return (
+    <span className="rc-num" style={{ minWidth: 72, color: owed ? AMBER : PORTAL_DARK.muted }}>
+      {owed ? "not played" : "—"}
     </span>
   );
 }

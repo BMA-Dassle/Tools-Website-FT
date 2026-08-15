@@ -395,7 +395,13 @@ function ClockPane({
   // clock gives ground back to each panel that appears under it, so the pane's
   // contents never fight; it takes it all back the moment they clear.
   const panels = (checkin !== null ? 1 : 0) + (returning ? 1 : 0);
-  const fontSize = (value && value.length <= 5 ? 300 : 230) - panels * 60;
+  // 78 rather than 60 per panel: the boxes were sized to leave the clock as
+  // large as possible, and on the wall that made them the small print on a
+  // board read from across a room (owner 2026-08-14: "the now checking in on
+  // camera boards can be bigger and easier to read, that whole box is little
+  // small text wise"). The clock is still by far the biggest thing on the pane
+  // when it is alone, which is when it is the only thing to read.
+  const fontSize = (value && value.length <= 5 ? 300 : 230) - panels * 78;
 
   return (
     <div
@@ -472,6 +478,17 @@ function ClockPane({
  * grammar once.
  */
 const PANEL_INK = "#0a1424";
+/**
+ * THE SECOND-RANK TEXT ON A WHITE PANEL — and it is INK, not grey (owner
+ * 2026-08-14: "grey on white is a bad choice for that block").
+ *
+ * These panels used half-strength ink for the waiting clock and the "/ 14"
+ * denominator, which lands around #848a93 on white: roughly 3.4:1, under the
+ * threshold for body text on a screen you hold, never mind a board read from
+ * the far side of a briefing room. Softer than the headline, still solidly
+ * readable — around 9:1, which is what "secondary" should cost.
+ */
+const PANEL_MUTED = "#3b414c";
 const PANEL_GROUND = "rgba(255,255,255,0.95)";
 const PANEL_READY = "#17913f";
 const PANEL_WAIT = "#b8730a";
@@ -505,18 +522,18 @@ function Panel({
       style={{
         width: "100%",
         background: flash ? undefined : PANEL_GROUND,
-        borderRadius: 20,
-        padding: "16px 20px 18px",
+        borderRadius: 22,
+        padding: "20px 26px 24px",
         display: "flex",
         flexDirection: "column",
-        gap: 12,
+        gap: 14,
       }}
     >
-      <div style={{ display: "flex", alignItems: "baseline", gap: 14, padding: "0 2px" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 16, padding: "0 2px" }}>
         <span
           className="tv-display tv-panel-head"
           style={{
-            fontSize: 25,
+            fontSize: 34,
             letterSpacing: "0.1em",
             color: flash ? undefined : headingColor,
           }}
@@ -528,9 +545,11 @@ function Panel({
             className="tv-eyebrow"
             style={{
               marginLeft: "auto",
-              fontSize: 20,
+              fontSize: 26,
               letterSpacing: "0.12em",
-              color: withAlpha(PANEL_INK, 0.5),
+              // See PANEL_MUTED: half-strength ink on a white panel is a grey
+              // nobody can read from across a room.
+              color: PANEL_MUTED,
             }}
           >
             {sub}
@@ -565,10 +584,10 @@ function PanelRow({
       style={{
         display: "flex",
         alignItems: "flex-start",
-        gap: 16,
-        background: withAlpha(PANEL_INK, 0.055),
-        borderRadius: 12,
-        padding: "12px 14px",
+        gap: 20,
+        background: withAlpha(PANEL_INK, 0.07),
+        borderRadius: 14,
+        padding: "15px 18px",
       }}
     >
       <span
@@ -576,10 +595,10 @@ function PanelRow({
         style={{
           flexShrink: 0,
           marginTop: 2,
-          fontSize: 22,
+          fontSize: 29,
           color: "#fff",
           background: chipColor,
-          padding: "5px 14px",
+          padding: "7px 17px",
           borderRadius: 999,
           whiteSpace: "nowrap",
         }}
@@ -587,7 +606,7 @@ function PanelRow({
         {chip}
       </span>
       <span
-        style={{ fontSize: 28, fontWeight: 700, color: PANEL_INK, lineHeight: 1.3, minWidth: 0 }}
+        style={{ fontSize: 38, fontWeight: 700, color: PANEL_INK, lineHeight: 1.25, minWidth: 0 }}
       >
         {content}
       </span>
@@ -601,11 +620,11 @@ function PanelRow({
           gap: 7,
         }}
       >
-        <b style={{ fontSize: 32, color: countColor ?? PANEL_INK, fontWeight: "inherit" }}>
+        <b style={{ fontSize: 48, color: countColor ?? PANEL_INK, fontWeight: "inherit" }}>
           {count}
         </b>
         {countOf != null && (
-          <span style={{ fontSize: 22, color: withAlpha(PANEL_INK, 0.5) }}>{`/ ${countOf}`}</span>
+          <span style={{ fontSize: 30, color: PANEL_MUTED }}>{`/ ${countOf}`}</span>
         )}
       </span>
     </div>
