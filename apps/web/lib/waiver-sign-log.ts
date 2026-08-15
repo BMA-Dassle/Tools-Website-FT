@@ -37,7 +37,16 @@ export type WaiverSignOutcome =
    *  handed to bmi_sync_queue behind a person-local barrier. Distinct from
    *  `failed` on purpose: the signature is durable in Neon and the record is
    *  owed, not lost — counting these as failures would hide the real ones. */
-  | "queued";
+  | "queued"
+  /** A human looked at this row and decided it is not worth chasing — typically
+   *  the person id does not exist at the center the signature was aimed at, so
+   *  no retry can ever land it. Distinct from `failed`: `failed` still wants
+   *  someone's attention, `dismissed` has already had it.
+   *
+   *  Deliberately NOT a delete. The stored signature PNG is the only evidence
+   *  the guest ever signed once BMI has refused it, so the row survives and only
+   *  stops asking for help. Never set by code — only by a person. */
+  | "dismissed";
 
 export interface WaiverSignAttempt {
   /** Subject of the waiver (the minor, when a guardian signs). */

@@ -186,7 +186,10 @@ async function bmiHoldsCurrentWaiver(personId: string, _joinLocationId: string):
       );
       // A 404/500 is a real answer (wrong centre / unreadable record) — no retry.
       if (!res.ok) return false;
-      const d = (await res.json()) as { success?: boolean; data?: { waiverExpiry?: string | null } };
+      const d = (await res.json()) as {
+        success?: boolean;
+        data?: { waiverExpiry?: string | null };
+      };
       const exp = d?.success && d.data?.waiverExpiry ? Date.parse(d.data.waiverExpiry) : NaN;
       return Number.isFinite(exp) && exp > Date.now();
     } catch {
@@ -502,8 +505,11 @@ export async function listWaiverPushesForAdmin(
       .map((r) => {
         const outcome = r.outcome === null ? null : String(r.outcome);
         const ageMin = Math.round(Number(r.age_min ?? 0));
+        // `dismissed` is a human's verdict that this row cannot be landed and is
+        // not worth chasing — it leaves the board like a finished row, but the
+        // signature stays in Neon. See WaiverSignOutcome in lib/waiver-sign-log.
         const status =
-          outcome === "signed" || outcome === "salvaged"
+          outcome === "signed" || outcome === "salvaged" || outcome === "dismissed"
             ? "done"
             : outcome === "failed"
               ? "parked"
