@@ -396,7 +396,12 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
  * (yieldStaySeated). No stamp, no Neon row — ambient safety audio is not a
  * cycle event; the play itself is still console-logged by playQsysCue.
  */
-const STAY_SEATED_EVERY_S = 15;
+/** The SILENCE between repeats (owner 2026-08-15: "the gap between each needs
+ *  to be 15s"). The throttle spaces play STARTS, so the claim TTL is this gap
+ *  plus the clip's own ~5s. */
+const STAY_SEATED_GAP_S = 15;
+const STAY_SEATED_CLIP_S = 5;
+const STAY_SEATED_EVERY_S = STAY_SEATED_GAP_S + STAY_SEATED_CLIP_S;
 const STAY_SEATED_MAX_MS = 15 * 60_000;
 
 async function maybePlayStaySeated(track: TrackKey, lane: PitLaneFeed): Promise<void> {
