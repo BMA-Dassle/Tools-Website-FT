@@ -467,32 +467,14 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
             a visible overflow. Padding and line-height were the wrong lever
             (they made the block taller, so it got squashed harder). */}
         <header style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
-          {/* WHICH TRACK, AS A SOLID BLOCK (owner 2026-08-15: "the colours don't
-              stand out on the pit board").
-              It was 46px of accent-coloured text beside a small dot. Coloured
-              INK on a near-black wall is the weakest way to carry identity at
-              distance — the hue is only a few hundred pixels of thin glyph edge.
-              Filled, the same colour is a slab you read before you read a word,
-              which is what someone glancing up from the lane actually needs.
-              Paired with the full-height edge stripe below, so the answer is on
-              the screen wherever your eye lands. */}
-          <div
-            className="tv-display"
-            style={{
-              background: accent,
-              color: "#05070f",
-              fontSize: 34,
-              lineHeight: 1,
-              padding: "9px 18px 11px",
-              borderRadius: 11,
-              letterSpacing: "0.04em",
-              whiteSpace: "nowrap",
-              flexShrink: 0,
-              boxShadow: `0 0 40px ${withAlpha(accent, 0.55)}`,
-            }}
-          >
-            {TRACK_LABELS[track]}
-          </div>
+          {/* THE MARK LEADS (owner 2026-08-15: "replace red track and blue track
+              with logo instead of on the right").
+              The words were redundant with the colour: this board already wears
+              its track as a full-height stripe, an accent on every card and the
+              rail's own edge. Spending the header's first 200px restating it in
+              text bought nothing, and the mark had been sitting on the right
+              taking the flexible gap the session title wanted. */}
+          <TvBrandLogo venue="FT" height={40} />
           <div>
             <DelayLine delay={delay} />
           </div>
@@ -598,7 +580,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
               opacity: 0.9,
             }}
           >
-            <TvBrandLogo venue="FT" height={34} />
+            {/* the mark now leads the header — nothing here */}
           </div>
           {/* The one clock, and nothing else — the room-status chips that
               briefly lived here were not part of the approved mockup and the
@@ -670,6 +652,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
         kartsComingIn={kartsComingIn}
         nowMs={nowMs}
         session={session}
+        pitIn={lane.pitIn}
         qual={qualTarget ? { lap: formatLap(qualTarget.ms), level: qualTarget.level } : null}
       />
     </div>
@@ -1193,10 +1176,10 @@ function DelayLine({ delay }: { delay: { delayMinutes: number; delayFormatted: s
         className={late ? "tv-blink" : undefined}
         style={{ width: 11, height: 11, borderRadius: "50%", background: color }}
       />
-      <span className="tv-display" style={{ fontSize: 28, color }}>
-        {late
-          ? `Running ${delay.delayFormatted || `${delay.delayMinutes} min`} behind`
-          : "Running on time"}
+      {/* "+6 min", not "Running +6 min behind" (owner 2026-08-15). The sign
+          carries the meaning and the header needs the width back. */}
+      <span className="tv-display" style={{ fontSize: 26, color }}>
+        {late ? `+${delay.delayMinutes} min` : "On time"}
       </span>
     </div>
   );
@@ -1223,6 +1206,26 @@ function findDelay(
  * chip is the one clock on this board. The qualification pill is for the
  * group already in the seats, who are looking at exactly this screen.
  */
+/**
+ * THE RAIL, IN TWO HALVES (owner 2026-08-15: "separate right from left where one
+ * side is in-karts and one side is pit in so we can have a post due and post
+ * played as well").
+ *
+ * The band used to carry ONE instruction chosen from four mutually exclusive
+ * states, which meant a race coming back erased the race going out — the moment
+ * the hold appeared, the seating attendant lost the next group's pre-race
+ * status, the one thing they were waiting on.
+ *
+ * Two jobs happen at the pit at once, so the rail now has two columns:
+ *
+ *   LEFT   the group going out — seat them, and the pre-race cue's state
+ *   RIGHT  the group that came back — the post announcement's state
+ *
+ * Weighted toward the left, which is the busier job and the one read from
+ * furthest away. Only the RIGHT half flashes, and only while the karts are
+ * physically rolling in (the two-phase finish's pending window), so the
+ * left half stays legible through it.
+ */
 function Rail({
   kind,
   accent,
@@ -1230,14 +1233,14 @@ function Rail({
   kartsComingIn,
   nowMs,
   session,
+  pitIn,
   qual,
 }: {
   kind: "info" | "seat" | "hold" | "racing";
   accent: string;
   /** Two-phase start, window one: armed, clock not yet running. */
   armed: boolean;
-  /** Karts are ACTUALLY rolling in — the two-phase finish's pending window.
-   *  The hold state outlives this; the flashing must not. */
+  /** Karts are ACTUALLY rolling in — the two-phase finish's pending window. */
   kartsComingIn: boolean;
   nowMs: number;
   session: {
@@ -1245,140 +1248,165 @@ function Rail({
     briefedRoom: "red" | "blue" | null;
     briefedAtMs: number | null;
     inHolding: boolean;
-    /** When the group's pre-race PA cue played — the rail's small indicator
-     *  (owner 2026-08-14: "add some small indicator on our assignment board
-     *  if prerace has been completed"). */
     preRaceAtMs: number | null;
-    /** The clip's own length, so "playing" can end when the clip does. */
     preRaceDurationS: number | null;
+  } | null;
+  pitIn: {
+    heatNumber: number | null;
+    postRaceAtMs: number | null;
+    postRaceDurationS: number | null;
   } | null;
   qual: { lap: string; level: string } | null;
 }) {
   const sessionName = session?.heatNumber != null ? `Session ${session.heatNumber}` : "the session";
 
-  const base: CSSProperties = {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: RAIL_H,
-    display: "flex",
-    alignItems: "center",
-    gap: 30,
-    padding: `0 ${PAD_X}px`,
-    zIndex: 2,
-  };
-
-  // ONE LINE, ALWAYS. The rail is a 128px band: the first live render wrapped
-  // both the instruction and the qual pill onto second lines and the band
-  // overflowed (2026-08-13). Copy is sized to fit beside the pill at 1920 —
-  // anything that cannot say itself in one line does not belong on the rail.
-  if (kind === "hold") {
-    /**
-     * FLASHES ONLY WHILE THE KARTS ARE ACTUALLY COMING IN (owner 2026-08-15:
-     * "this blinks too long... can we get it down to only blinking during the
-     * two phase finish?").
-     *
-     * The hold STATE is correct until staff release the lane, and that can be
-     * minutes — but a wall that flashes for minutes is a wall staff stop
-     * seeing. The flash now lasts exactly the pending-finish window: chequered
-     * flag to session close, which IS the interval the karts are rolling in.
-     * After that the band stays amber and steady, still saying do not seat.
-     *
-     * It also carries the pre pill now. Before, this branch replaced the whole
-     * rail and rendered nothing else, so the moment a race came back the next
-     * group's pre-race status vanished off the board — the one thing the
-     * seating attendant is waiting on (owner: "it blocks any data on the next
-     * race, mainly the pre").
-     */
-    return (
-      <div
-        className={kartsComingIn ? "tv-overdue-flash" : undefined}
-        style={{
-          ...base,
-          ...(kartsComingIn
-            ? null
-            : { background: withAlpha(AMBER, 0.16), borderTop: `4px solid ${AMBER}` }),
-        }}
-      >
-        <span
-          className="tv-display"
-          style={{ fontSize: 54, whiteSpace: "nowrap", color: kartsComingIn ? undefined : AMBER }}
-        >
-          Hold — karts coming in
-        </span>
-        <PreRacePill session={session} armed={armed} nowMs={nowMs} />
-        <span
-          className="tv-display"
-          style={{ marginLeft: "auto", fontSize: 32, opacity: 0.85, whiteSpace: "nowrap" }}
-        >
-          Seating resumes when the lane is clear
-        </span>
-      </div>
-    );
-  }
-
-  if (kind === "seat") {
-    return (
-      <div style={{ ...base, background: "rgba(0,4,24,0.88)", borderTop: `4px solid ${GREEN}` }}>
-        <span
-          aria-hidden
-          style={{
-            width: 16,
-            height: 16,
-            borderRadius: "50%",
-            background: GREEN,
-            boxShadow: `0 0 18px ${GREEN}`,
-          }}
-        />
-        <span className="tv-display" style={{ fontSize: 46, color: GREEN, whiteSpace: "nowrap" }}>
-          Seat {sessionName} now
-        </span>
-        {/* The seat rail is by definition not racing — this is the window where
-            "READY TO SEND" actually earns its place. */}
-        <PreRacePill session={session} armed={armed} nowMs={nowMs} />
-        <QualPill qual={qual} accent={accent} />
-      </div>
-    );
-  }
-
-  // info / racing — the rail reports rather than instructs. Copy stays SHORT:
-  // the pill needs the right half of the band.
-  const infoText =
+  /** The left half's instruction, from the same four states as before. */
+  const leftText =
     kind === "racing"
       ? `${sessionName} is racing`
-      : session?.inHolding
-        ? `Seat ${sessionName} now`
+      : kind === "seat" || kind === "hold"
+        ? session?.inHolding
+          ? `Seat ${sessionName} now`
+          : session?.briefedAtMs != null
+            ? `In briefing${session.briefedRoom ? ` · ${session.briefedRoom} room` : ""}`
+            : `${sessionName} checking in`
         : session?.briefedAtMs != null
           ? `In briefing${session.briefedRoom ? ` · ${session.briefedRoom} room` : ""}`
           : `${sessionName} checking in`;
+  const leftGo = kind === "seat" && session?.inHolding === true;
+
   return (
     <div
       style={{
-        ...base,
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: RAIL_H,
+        display: "flex",
+        alignItems: "stretch",
+        zIndex: 2,
         background: "rgba(0,4,24,0.88)",
-        borderTop: `4px solid ${withAlpha(accent, 0.55)}`,
       }}
     >
-      <span
-        aria-hidden
+      {/* ── LEFT: the group going out ── */}
+      <div
         style={{
-          width: 16,
-          height: 16,
-          borderRadius: "50%",
-          background: accent,
-          boxShadow: `0 0 18px ${accent}`,
+          flex: "1.7 1 0",
+          minWidth: 0,
+          display: "flex",
+          alignItems: "center",
+          gap: 26,
+          padding: `0 ${PAD_X}px`,
+          borderTop: `4px solid ${leftGo ? GREEN : withAlpha(accent, 0.55)}`,
+        }}
+      >
+        <span
+          className="tv-display"
+          style={{
+            fontSize: 40,
+            whiteSpace: "nowrap",
+            color: leftGo ? GREEN : "rgba(245,236,238,0.85)",
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {leftText}
+        </span>
+        <PreRacePill session={session} armed={armed} nowMs={nowMs} />
+        <QualPill qual={qual} accent={accent} />
+      </div>
+
+      <div
+        style={{
+          width: 3,
+          flex: "0 0 3px",
+          background: "rgba(245,236,238,0.16)",
+          margin: "18px 0",
         }}
       />
-      <span
-        className="tv-display"
-        style={{ fontSize: 42, color: "rgba(245,236,238,0.85)", whiteSpace: "nowrap" }}
+
+      {/* ── RIGHT: the group that came back ── */}
+      <div
+        className={kartsComingIn ? "tv-overdue-flash" : undefined}
+        style={{
+          flex: "1 1 0",
+          minWidth: 0,
+          display: "flex",
+          alignItems: "center",
+          gap: 22,
+          padding: `0 ${PAD_X}px 0 40px`,
+          borderTop: `4px solid ${pitIn ? AMBER : "rgba(245,236,238,0.18)"}`,
+          ...(kartsComingIn ? null : { background: pitIn ? withAlpha(AMBER, 0.1) : undefined }),
+        }}
       >
-        {infoText}
-      </span>
-      <PreRacePill session={session} armed={armed} nowMs={nowMs} />
-      <QualPill qual={qual} accent={accent} />
+        <span
+          className="tv-display"
+          style={{ fontSize: 20, letterSpacing: "0.16em", opacity: 0.55, fontStyle: "normal" }}
+        >
+          Pit in
+        </span>
+        {pitIn ? (
+          <>
+            <span className="tv-display" style={{ fontSize: 36, whiteSpace: "nowrap" }}>
+              {pitIn.heatNumber != null ? `Session ${pitIn.heatNumber}` : "A race"}
+            </span>
+            <PostRacePill pitIn={pitIn} nowMs={nowMs} />
+          </>
+        ) : (
+          <span
+            className="tv-display"
+            style={{ fontSize: 32, color: "rgba(245,236,238,0.45)", whiteSpace: "nowrap" }}
+          >
+            Lane clear
+          </span>
+        )}
+      </div>
     </div>
+  );
+}
+
+/**
+ * The post announcement's state — the right half's whole job.
+ *
+ * Mirrors PreRacePill deliberately: same three shapes, same colours, so the two
+ * halves read as one system rather than two designs. "Playing" is bounded by the
+ * clip's own reported length, and the pit slot is held open for exactly that
+ * long (lane.server.ts) so this can be shown at all — clearing the slot on the
+ * button press made "playing" and "played" unrenderable.
+ */
+function PostRacePill({
+  pitIn,
+  nowMs,
+}: {
+  pitIn: { postRaceAtMs: number | null; postRaceDurationS: number | null };
+  nowMs: number;
+}) {
+  const played = pitIn.postRaceAtMs != null;
+  const stillPlaying =
+    played &&
+    pitIn.postRaceDurationS != null &&
+    nowMs < pitIn.postRaceAtMs! + pitIn.postRaceDurationS * 1000;
+  const label = !played ? "Post due" : stillPlaying ? "Post playing" : "Post played";
+  const color = !played ? AMBER : stillPlaying ? ACCENT_INFO : OK;
+  return (
+    <span
+      className="tv-display"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "6px 20px",
+        borderRadius: 999,
+        border: `2px solid ${withAlpha(color, 0.7)}`,
+        background: withAlpha(color, 0.12),
+        color,
+        fontSize: 24,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </span>
   );
 }
 

@@ -90,6 +90,10 @@ interface StoredPitLane {
     room: BriefingRoom | null;
     finishedAtMs: number | null;
     atMs: number;
+    /** Filled at resolve time from the post cue stamp — see clearAnsweredPitIn.
+     *  Optional because a hand-placed slot from Override has neither. */
+    postRaceAtMs?: number | null;
+    postRaceDurationS?: number | null;
   } | null;
   /** The staff "race returned" stamp, tied to the session it answered. */
   pitted: { sessionId: string; atMs: number } | null;
@@ -291,8 +295,30 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
   const clearAnsweredPitIn = async (): Promise<void> => {
     if (!pitIn) return;
     const pittedHere = stored.pitted?.sessionId === pitIn.sessionId;
-    const post = pittedHere ? null : await readCueStamp("post", pitIn.sessionId).catch(() => null);
-    if (pittedHere || post) pitIn = null;
+    if (pittedHere) {
+      pitIn = null;
+      return;
+    }
+    const post = await readCueStamp("post", pitIn.sessionId).catch(() => null);
+    if (!post) return;
+
+    /**
+     * THE SLOT SURVIVES THE CLIP (owner 2026-08-15, the split rail).
+     *
+     * It used to clear the moment a post stamp existed, so the returning group
+     * disappeared off the board on the button press and "post playing" / "post
+     * played" were states nothing could ever render. The announcement is what
+     * calls the race back in, so the lane is not finished until it has actually
+     * played through — clearing on the START of it was always slightly early.
+     *
+     * A stamp with no duration (legacy shape) clears immediately, as before.
+     */
+    const endsAtMs = post.durationS == null ? null : post.atMs + post.durationS * 1000;
+    if (endsAtMs == null || Date.now() >= endsAtMs) {
+      pitIn = null;
+      return;
+    }
+    pitIn = { ...pitIn, postRaceAtMs: post.atMs, postRaceDurationS: post.durationS };
   };
 
   /**
@@ -342,6 +368,8 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
         room: racing.room,
         finishedAtMs,
         atMs: finishedAtMs ?? stored.pitted?.atMs ?? Date.now(),
+        postRaceAtMs: null,
+        postRaceDurationS: null,
       };
       racing = null;
     }
@@ -393,6 +421,8 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
           room: racing.room,
           finishedAtMs: null,
           atMs: Date.now(),
+          postRaceAtMs: null,
+          postRaceDurationS: null,
         };
       }
       racing = { sessionId: staged.sessionId, heatNumber: staged.heatNumber, room: staged.room };
@@ -432,6 +462,8 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
           room: racing.room,
           finishedAtMs: finished.endedAtMs ?? null,
           atMs: finished.endedAtMs ?? Date.now(),
+          postRaceAtMs: null,
+          postRaceDurationS: null,
         };
         racing = null;
       }
@@ -474,7 +506,13 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
         }
       : null,
     racing: racing ? { sessionId: racing.sessionId, heatNumber: racing.heatNumber } : null,
-    pitIn,
+    pitIn: pitIn
+      ? {
+          ...pitIn,
+          postRaceAtMs: pitIn.postRaceAtMs ?? null,
+          postRaceDurationS: pitIn.postRaceDurationS ?? null,
+        }
+      : null,
   };
 }
 

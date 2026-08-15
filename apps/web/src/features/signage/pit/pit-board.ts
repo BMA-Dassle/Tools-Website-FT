@@ -323,6 +323,11 @@ export interface PitLaneFeed {
     /** When they entered this stage — the finish when we have one, else the
      *  moment the next group took the track. */
     atMs: number;
+    /** The post announcement's stamp and clip length, so the board can say
+     *  due -> playing -> played instead of the group simply vanishing when the
+     *  cue fires (owner 2026-08-15, the split rail). */
+    postRaceAtMs: number | null;
+    postRaceDurationS: number | null;
   } | null;
 }
 
