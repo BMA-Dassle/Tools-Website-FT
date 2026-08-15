@@ -106,7 +106,11 @@ async function ensureSchema(): Promise<void> {
  *  `pitted` (2026-08-13) is the pit lane's "race returned" stamp — the group's
  *  karts are fully back in and the lane is safe to seat again. It rides this
  *  same log because it is one more moment in a session's lifecycle, keyed to
- *  the room the group hands kit back into. */
+ *  the room the group hands kit back into.
+ *  `audio-pre` / `audio-post` (2026-08-14) are the pit's PA cues — when the
+ *  seated group's announcement and the finished race's announcement played
+ *  (pit/audio.server.ts). Post's press also writes `pitted`, so those two rows
+ *  arriving together is the normal shape of a turnover. */
 /** `override` is a STAFF CORRECTION, not a step in the flow — a distinct action
  *  rather than a flag on the others, so the log can be read for "what did we
  *  have to fix tonight" without inferring it from a reason column. */
@@ -117,6 +121,8 @@ export type BriefingEventAction =
   | "photo"
   | "ended"
   | "pitted"
+  | "audio-pre"
+  | "audio-post"
   | "override";
 
 /** Why a room was released. `film-complete` is never STORED — it is what

@@ -23,6 +23,7 @@ import { sessionBriefed } from "../briefing/state.server";
 import { participantCheckedIn } from "../checkin-progress";
 import { sessionRoster } from "../service/checkin-progress";
 import type { TrackKey } from "../track";
+import { readCueStamp } from "./audio.server";
 import { readPitLane } from "./lane.server";
 import type { BackToBackTarget } from "./back-to-back";
 import { backToBackForRoster } from "./back-to-back.server";
@@ -117,9 +118,10 @@ export async function buildPitBoard(
   if (!display) return empty;
   const { sessionId, heatNumber, raceType, inHolding } = display;
 
-  const [briefed, startedAtMs, rows, cameras] = await Promise.all([
+  const [briefed, startedAtMs, preStamp, rows, cameras] = await Promise.all([
     sessionBriefed(sessionId).catch(() => null),
     readRaceStartedMarker(sessionId).catch(() => null),
+    readCueStamp("pre", sessionId).catch(() => null),
     sessionRoster(sessionId, nowMs).catch(() => null),
     listAssignmentsForSession(sessionId).catch(() => []),
   ]);
@@ -132,6 +134,7 @@ export async function buildPitBoard(
     briefedAtMs: briefed?.atMs ?? null,
     inHolding,
     startedAtMs,
+    preRaceAtMs: preStamp?.atMs ?? null,
   };
   if (!rows || rows.length === 0) return { track, session, roster: rows ? [] : null };
 

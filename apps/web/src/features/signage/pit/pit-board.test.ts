@@ -238,6 +238,21 @@ describe("pitRailState", () => {
     ).toBe("seat");
   });
 
+  it("a pitted stamp on the exact finish millisecond releases — the strict < is cross-cycle only", () => {
+    // The finish stamp is first-write-wins (race-finish.server.ts, owner
+    // 2026-08-14: phase one IS the finish), so within one cycle a release
+    // pressed after the hold arose is never re-outranked. Equal stamps are
+    // the boundary of that guarantee and must clear the hold.
+    expect(
+      pitRailState({
+        ...base,
+        stagedInHolding: true,
+        racingFinishedAtMs: 5_000,
+        pittedAtMs: 5_000,
+      }),
+    ).toBe("seat");
+  });
+
   it("holds even for a group still in briefing — karts in the lane outrank everything", () => {
     expect(pitRailState({ ...base, racingFinishedAtMs: 1_000 })).toBe("hold");
   });
