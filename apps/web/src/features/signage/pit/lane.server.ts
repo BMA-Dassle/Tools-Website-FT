@@ -580,7 +580,50 @@ export interface SendToHoldingArgs {
  * staff only seat the next group once the last one is out, and succession is
  * the one start signal that needs no marker at all.
  */
-export async function sendToHolding(args: SendToHoldingArgs): Promise<{ ok: true }> {
+export async function sendToHolding(
+  args: SendToHoldingArgs,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  /**
+   * REFUSE WHEN IT WOULD EVICT A GROUP THAT HAS NOT GONE OUT (owner 2026-08-15:
+   * "if holding is full we need to prevent them from hitting send to holding").
+   *
+   * Blue 27 vanished off every screen after check-in. `holding` is a single
+   * slot, and the write below DISPLACES whoever is staged — promoting them to
+   * `racing` on the assumption they have just taken the track. That assumption
+   * is right in the normal flow, because the stored lane is stale after a real
+   * green flag. It is catastrophic when it is wrong: the displaced group is
+   * declared racing without ever leaving the seats, and the next press
+   * overwrites them with nothing left to say they existed. The blue lane went
+   * 26 racing -> 28 holding, and 27 had no keys in Redis at all.
+   *
+   * So the test is not "is holding full" but the sharper "would this press
+   * displace someone who is not actually out" — which still allows the normal
+   * back-to-back flow, where the staged group HAS gone racing and the stored
+   * lane simply has not caught up.
+   */
+  {
+    const current = await readStoredLane(args.track);
+    const occupant = current?.holding ?? null;
+    if (occupant && occupant.sessionId !== args.sessionId) {
+      const resolved = await resolveLane(current, args.track);
+      // Stale stored is the NORMAL case: the group in `holding` may already
+      // have taken the track, and the stored lane simply has not caught up.
+      // Displacing them then is right. Displacing them when they are genuinely
+      // still in the seats is what lost Blue 27.
+      const alreadyOut =
+        resolved.racing?.sessionId === occupant.sessionId ||
+        resolved.pitIn?.sessionId === occupant.sessionId;
+      if (!alreadyOut) {
+        const who =
+          occupant.heatNumber != null ? `Session ${occupant.heatNumber}` : "another group";
+        return {
+          ok: false,
+          error: `${who} is still in holding. Move them to the karts first — this would drop them off the boards.`,
+        };
+      }
+    }
+  }
+
   const reason = args.reason ?? "holding";
   const endedAtMs = Date.now();
 
@@ -634,7 +677,23 @@ export async function sendToHolding(args: SendToHoldingArgs): Promise<{ ok: true
    * promote nobody while leaving the karts group stranded.
    */
   const staged = stored?.karts ?? stored?.holding ?? null;
-  const displaced = !samePress && staged && staged.sessionId !== args.sessionId ? staged : null;
+  /**
+   * ONLY DISPLACE A GROUP THAT HAS ACTUALLY TAKEN THE TRACK.
+   *
+   * This used to displace whoever was staged, unconditionally, and promote them
+   * to `racing` — right when the stored lane was merely stale after a green
+   * flag, catastrophic when they were still sitting in the seats. It is also
+   * what made "a group in the karts, another in holding" — the normal shape of
+   * a busy night — impossible to hold safely: staging the second one evicted
+   * the first.
+   */
+  const stagedResolved = staged ? await resolveLane(stored, args.track) : null;
+  const stagedIsOut =
+    !!staged &&
+    (stagedResolved?.racing?.sessionId === staged.sessionId ||
+      stagedResolved?.pitIn?.sessionId === staged.sessionId);
+  const displaced =
+    !samePress && staged && staged.sessionId !== args.sessionId && stagedIsOut ? staged : null;
   const racing = displaced
     ? {
         sessionId: displaced.sessionId,

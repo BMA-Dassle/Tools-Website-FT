@@ -423,10 +423,13 @@ describe("markInKarts", () => {
 /* ── displacement ───────────────────────────────────────────────────────── */
 
 describe("sendToHolding — displacement follows the staged group", () => {
-  it("displaces the karts group into racing, not the empty seats", async () => {
+  it("stages BEHIND a karts group instead of evicting them", async () => {
+    // The normal shape of a busy night: one group in the karts waiting on the
+    // green, the next sent to the seats. This used to promote the karts group
+    // to `racing` on no evidence at all.
     putLane({ holding: null, karts: group("inkarts", 44), racing: null, pitted: null });
 
-    await sendToHolding({
+    const result = await sendToHolding({
       room: "blue",
       track: "blue",
       sessionId: "next",
@@ -435,15 +438,18 @@ describe("sendToHolding — displacement follows the staged group", () => {
     });
     const lane = await readPitLane("blue");
 
-    expect(lane.racing?.sessionId).toBe("inkarts");
-    expect(lane.karts).toBeNull();
+    expect(result.ok).toBe(true);
+    expect(lane.karts?.sessionId).toBe("inkarts");
     expect(lane.holding?.sessionId).toBe("next");
+    expect(lane.racing).toBeNull();
   });
 
-  it("still displaces a holding group when nobody is in the karts", async () => {
+  it("REFUSES when holding still has a group that has not gone out", async () => {
+    // Blue 27, 2026-08-15: sent to holding, then the next group was sent, and
+    // 27 was written out of existence — no lane slot, no keys in Redis.
     putLane({ holding: group("seated", 44), racing: null, pitted: null });
 
-    await sendToHolding({
+    const result = await sendToHolding({
       room: "blue",
       track: "blue",
       sessionId: "next",
@@ -452,6 +458,28 @@ describe("sendToHolding — displacement follows the staged group", () => {
     });
     const lane = await readPitLane("blue");
 
+    expect(result.ok).toBe(false);
+    // and nothing moved
+    expect(lane.holding?.sessionId).toBe("seated");
+    expect(lane.racing).toBeNull();
+  });
+
+  it("still displaces the seated group once they HAVE taken the track", async () => {
+    // The legitimate case the displacement exists for: stored is stale after a
+    // real green flag, so the press is what catches the lane up.
+    putLane({ holding: group("seated", 44), racing: null, pitted: null });
+    putLiveHeat(44, "running");
+
+    const result = await sendToHolding({
+      room: "blue",
+      track: "blue",
+      sessionId: "next",
+      heatNumber: 45,
+      raceType: "Blue Pro",
+    });
+    const lane = await readPitLane("blue");
+
+    expect(result.ok).toBe(true);
     expect(lane.racing?.sessionId).toBe("seated");
     expect(lane.holding?.sessionId).toBe("next");
   });

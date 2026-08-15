@@ -178,7 +178,7 @@ export async function runAutoHolding(
     }
 
     try {
-      await sendToHolding({
+      const sent = await sendToHolding({
         room,
         track,
         sessionId: verdict.sessionId,
@@ -188,6 +188,12 @@ export async function runAutoHolding(
         // events-db.ts. An insurance log must not claim a person observed this.
         reason: "auto-holding",
       });
+      // A refusal is a legitimate outcome now (the staged group has not gone
+      // out), and the automatic path must never report it as a move.
+      if (!sent.ok) {
+        results.push({ ...base, moved: false, why: sent.error, motion });
+        continue;
+      }
       moved++;
       results.push({ ...base, moved: true, why: "room empty — moved to holding", motion });
     } catch (err) {

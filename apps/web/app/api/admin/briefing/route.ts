@@ -383,6 +383,12 @@ export async function POST(req: NextRequest) {
       heatNumber: Number.isInteger(body.heatNumber) ? (body.heatNumber as number) : null,
       raceType: typeof body.raceType === "string" ? body.raceType : null,
     });
+    // A refusal is not a server fault — it is the guard doing its job — but it
+    // must not read as success, or the page will say "sent to holding" for a
+    // press that deliberately did nothing.
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: 409 });
+    }
     return NextResponse.json(result);
   }
 

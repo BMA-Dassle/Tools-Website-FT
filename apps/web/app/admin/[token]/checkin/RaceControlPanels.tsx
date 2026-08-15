@@ -1591,6 +1591,18 @@ function RoomColumn({
           cameraExpanded={expandedCamera === room}
           onExpandCamera={() => onExpandCamera(room)}
           alert={roomAlert}
+          /**
+           * The RESOLVED lane is what makes this self-clearing: resolve promotes
+           * a group out of `holding` the instant they take the track and moves
+           * them to `karts` when they climb in, so a non-null `holding` here
+           * means they are genuinely still in the seats. The button reopens on
+           * its own the moment it is safe — no second press, no timer.
+           */
+          holdingBlockedBy={
+            lane?.holding && lane.holding.sessionId !== state?.sessionId
+              ? (lane.holding.heatNumber ?? 0)
+              : null
+          }
           onStart={onStart}
           onUndo={onUndo}
           onSendHolding={onSendHolding}
@@ -2133,6 +2145,7 @@ function InRoom({
   cameraExpanded,
   onExpandCamera,
   alert,
+  holdingBlockedBy,
   onStart,
   onUndo,
   onSendHolding,
@@ -2149,6 +2162,16 @@ function InRoom({
   /** How overdue the wait for Start is — the box is already flashing, so the
    *  number itself follows rather than staying a calm amber under a red border. */
   alert: AlertLevel;
+  /**
+   * Who is ALREADY in the pit seats and has not gone out — the group this press
+   * would evict. Null when the seats are free.
+   *
+   * Read from the RESOLVED lane, which is what makes it self-clearing: resolve
+   * promotes a group out of `holding` the moment they take the track, and moves
+   * them to `karts` when they climb in. So the button unblocks on its own the
+   * instant the seats are genuinely empty — no second press, no timer.
+   */
+  holdingBlockedBy: number | null;
   onStart: (restart: boolean) => void;
   onUndo: () => void;
   onSendHolding: () => void;
@@ -2422,16 +2445,22 @@ function InRoom({
                           textColor="#052e14"
                           pendingKey={`holding:${room}`}
                           pending={pending}
-                          disabled={locked || !state?.sessionId || filmRunning}
+                          disabled={
+                            locked || !state?.sessionId || filmRunning || holdingBlockedBy != null
+                          }
                           pendingLabel="Sending…"
                           onClick={onSendHolding}
                           title={
-                            filmRunning
-                              ? "The safety film is still playing — this unlocks when it finishes"
-                              : "The group is leaving for the pit seats — frees this room and tells the pit board to seat them"
+                            holdingBlockedBy != null
+                              ? `Session ${holdingBlockedBy} is still in the pit seats — this unlocks the moment they move to the karts`
+                              : filmRunning
+                                ? "The safety film is still playing — this unlocks when it finishes"
+                                : "The group is leaving for the pit seats — frees this room and tells the pit board to seat them"
                           }
                         >
-                          ➜ Send to holding
+                          {holdingBlockedBy != null
+                            ? `Seats busy · Session ${holdingBlockedBy}`
+                            : "➜ Send to holding"}
                         </ActionButton>
                       </span>
                     </div>
