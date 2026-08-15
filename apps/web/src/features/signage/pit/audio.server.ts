@@ -38,7 +38,7 @@ import { businessDayYmdET } from "@/lib/race-business-day";
 import { recordBriefingEvent } from "../briefing/events-db";
 import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
 import type { TrackKey } from "../track";
-import { markRacePitted, readPitLane } from "./lane.server";
+import { markInKarts, markRacePitted, readPitLane } from "./lane.server";
 import { playQsysCue } from "./qsys.server";
 
 const VENUE = "FT";
@@ -169,38 +169,73 @@ async function claimAndPlay(
  */
 export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
   const lane = await readPitLane(track);
-  const holding = lane.holding;
-  if (!holding) {
+  /**
+   * THE STAGED GROUP, SEATS OR KARTS. Reading `holding` alone was right when the
+   * lane had two slots — but this press is now what MOVES a group out of holding
+   * and into the karts (see below), so a second press would have found empty
+   * seats and refused with "no group is in holding" about a group standing right
+   * there. Same `holding ?? karts` rule the rest of the lane uses.
+   */
+  const staged = lane.holding ?? lane.karts;
+  if (!staged) {
     return { ok: false, error: "no group is in holding — pre-race arms when a group is seated" };
   }
 
-  const result = await claimAndPlay(track, "pre", holding.sessionId);
+  const result = await claimAndPlay(track, "pre", staged.sessionId);
   if (result.outcome === "failed") return { ok: false, error: result.error };
   if (result.outcome === "already") {
     return {
       ok: true,
       alreadyPlayed: true,
       atMs: result.atMs ?? undefined,
-      sessionId: holding.sessionId,
+      sessionId: staged.sessionId,
     };
   }
 
   const room =
-    holding.room ?? (await sessionBriefed(holding.sessionId).catch(() => null))?.room ?? null;
+    staged.room ?? (await sessionBriefed(staged.sessionId).catch(() => null))?.room ?? null;
   if (room) {
     await recordBriefingEvent({
       venue: VENUE,
       businessDay: businessDayYmdET(),
       room,
       track,
-      sessionId: holding.sessionId,
-      heatNumber: holding.heatNumber,
-      raceType: holding.raceType,
+      sessionId: staged.sessionId,
+      heatNumber: staged.heatNumber,
+      raceType: staged.raceType,
       tier: null,
       action: "audio-pre",
     });
   }
-  return { ok: true, atMs: result.atMs, sessionId: holding.sessionId };
+
+  /**
+   * THIS PRESS IS THE "IN KARTS" TRIGGER (owner 2026-08-14: "pit board has a
+   * button called play pre. That is what triggers holding to move to karts").
+   *
+   * The pre-race announcement is what sends a seated group to their karts, so
+   * the moment it sounds is the moment the SEATS ARE FREE for the next group —
+   * and that is the whole reason the stage exists. Deriving it from this press
+   * rather than adding a second one is the same reasoning that put the lane's
+   * release on the post-race cue: a press that makes a noise is a press staff
+   * actually make, where a press that only updates a screen is one they forget
+   * (7 "send to holding" presses across 131 room occupancies, measured
+   * 2026-08-13).
+   *
+   * AFTER the Neon row and after the PA, never before: the row is the durable
+   * record and the cue is the thing staff are waiting on, so neither waits on a
+   * lane write. markInKarts swallows its own failures and is idempotent, so a
+   * Redis blip here costs a board update and never the announcement.
+   */
+  await markInKarts({
+    track,
+    sessionId: staged.sessionId,
+    heatNumber: staged.heatNumber,
+    raceType: staged.raceType,
+    room: staged.room,
+    atMs: result.atMs,
+  }).catch(() => {});
+
+  return { ok: true, atMs: result.atMs, sessionId: staged.sessionId };
 }
 
 /**

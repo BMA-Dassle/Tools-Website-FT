@@ -116,6 +116,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
         const l = lanes[key];
         if (
           l?.holding?.sessionId === session.sessionId ||
+          l?.karts?.sessionId === session.sessionId ||
           l?.racing?.sessionId === session.sessionId
         ) {
           return l;
@@ -123,7 +124,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
       }
     }
     const own = lanes[track];
-    if (own?.holding || own?.racing) return own;
+    if (own?.holding || own?.karts || own?.racing) return own;
     return lanes.mega ?? EMPTY_PIT_LANE;
   }, [feed?.pitLanes, session, track]);
 
@@ -267,6 +268,10 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
       if (typeof h === "number") downstreamHeats.add(h);
     }
     if (typeof lane.holding?.heatNumber === "number") downstreamHeats.add(lane.holding.heatNumber);
+    // In karts counts as moved on for exactly the same reason the other two do:
+    // a group sitting in their karts is not still "called", and leaving it out
+    // would put one heat in two rows the moment the pre-race cue plays.
+    if (typeof lane.karts?.heatNumber === "number") downstreamHeats.add(lane.karts.heatNumber);
     if (typeof lane.racing?.heatNumber === "number") downstreamHeats.add(lane.racing.heatNumber);
     const calledMovedOn = called?.heatNumber != null && downstreamHeats.has(called.heatNumber);
 
@@ -301,6 +306,15 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
       label: "Holding",
       value: lane.holding?.heatNumber != null ? `Session ${lane.holding.heatNumber}` : "—",
       detail: lane.holding ? "in the seats" : undefined,
+    });
+
+    // The stage between the seats and the green flag — filled when the pit
+    // station plays the pre-race cue (pit/audio.server.ts). Skippable, so this
+    // row reads "—" all evening on a night the PA never plays.
+    out.push({
+      label: "In karts",
+      value: lane.karts?.heatNumber != null ? `Session ${lane.karts.heatNumber}` : "—",
+      detail: lane.karts ? "seated — waiting on the green" : undefined,
     });
 
     const onTrackHeat =

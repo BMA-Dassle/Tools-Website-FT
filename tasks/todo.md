@@ -1,5 +1,48 @@
 # Open Tasks
 
+## "In Karts" — a fifth stage, and the rail that makes room for it (2026-08-14) — on `feat/checkin-board-in-karts`, NOT smoked
+
+A group now has a stage between the seats and the green flag. The journey is
+**Called → In the room → Holding → In karts → On track**, and a session may still go
+straight from Holding to On track — In Karts is a waypoint, never a gate.
+
+**The trigger is the pit station's "Play pre" button** (owner 2026-08-14). The pre-race
+announcement is what sends a seated group to their karts, so `playPreRace` moves the lane
+itself — same reasoning that put the lane's release on the post-race cue: a press that
+makes a noise is a press staff actually make, where a press that only updates a screen is
+one they forget (7 "send to holding" presses across 131 room occupancies, 2026-08-13).
+
+**One predicate, two source slots.** `resolveLane` promotes from `karts ?? holding`; the
+test for "have they gone out" is untouched, so Holding→Race behaves exactly as before and
+Karts→Race is provably the same code path. Every promotion case is asserted twice, once
+per slot (`pit/lane.server.test.ts`, 22 cases).
+
+**The desk had to shrink to fit it.** Five panels per room column did not fit a monitor —
+the column already needed `overflowY: auto` for the fourth, and a box below the fold cannot
+flash for attention (owner: "all states on one screen height wise"). Holding, In karts and
+On track are now three rows of ONE panel, **Out of the room**, with the holding camera
+spanning the rail at the unchanged `CAM_W`. Called and In the room are untouched — they own
+every repeated press and both deadline flashes. Mockup, approved before build:
+https://claude.ai/code/artifact/f3551c54-cd0f-4be9-9ea3-58114fe3c964
+
+- [x] `karts` slot on `PitLaneFeed` + stored lane (optional key — lanes written before it
+      still resolve)
+- [x] `resolveLane` promotes from `karts ?? holding`; clears only the slots naming the
+      promoted session, so a group sent to the seats behind a karts group survives
+- [x] `markInKarts` — idempotent, frees the seats, refuses a session already racing
+- [x] `playPreRace` reads `holding ?? karts` and calls it after the PA and the Neon row
+- [x] `sendToHolding` displacement follows the staged group, not the empty seats
+- [x] `pitDisplaySession` returns `holding ?? karts` — the wall must not blank when the cue plays
+- [x] Desk rail `OutOfRoomPanel` + `StageRow`; per-row badges; empty collapses to one line
+- [x] Override slot `"karts"` end-to-end (panel, hook, API, `vacateSessionElsewhere`)
+- [x] Pit wall idle list gains an **In karts** row; `downstreamHeats` de-dups on it
+- [ ] LIVE SMOKE — press Play pre on a real heat and watch the seats free, the karts row
+      fill, and the group promote on the green exactly as a holding group does
+- [ ] **Verify the fit on the actual desk monitor**: no `overflowY` scrollbar on either
+      column with both tracks busy AND one lane held (the tallest real state)
+- [ ] A truthful `in-karts` briefing_events action — deliberately NOT added here; `audio-pre`
+      already stamps the moment, and a new enum value wants its own migration
+
 ## Pit assignment board — the signage scene (2026-08-13) — BUILT on `feat/signage-pit-board`, not live
 
 Replaces the vendor FTBlueAssignmentTV (an SMS-Timing app on the venue timing server —

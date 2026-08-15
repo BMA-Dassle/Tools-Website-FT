@@ -36,7 +36,7 @@ const AMBER = "#f0b341";
 /** A slot a session was sighted in — enough to empty exactly that slot. */
 interface OccupiedSlot {
   track: string;
-  slot: "called" | "room" | "holding" | "racing";
+  slot: "called" | "room" | "holding" | "karts" | "racing";
   room?: BriefingRoom;
 }
 
@@ -128,6 +128,16 @@ export default function OverridePanel({
         { track: t, slot: "holding" },
       );
     }
+    if (lane?.karts) {
+      remember(
+        lane.karts.sessionId,
+        lane.karts.heatNumber,
+        lane.karts.raceType,
+        lane.karts.room,
+        `${t} karts`,
+        { track: t, slot: "karts" },
+      );
+    }
     if (lane?.racing) {
       remember(lane.racing.sessionId, lane.racing.heatNumber, null, null, `${t} racing`, {
         track: t,
@@ -206,9 +216,9 @@ export default function OverridePanel({
           </div>
         ))}
         {tracks.map((t) =>
-          (["holding", "racing"] as const).map((slot) => {
+          (["holding", "karts", "racing"] as const).map((slot) => {
             const lane = board?.lanes?.[t];
-            const occ = slot === "holding" ? lane?.holding : lane?.racing;
+            const occ = lane?.[slot];
             return (
               <div key={`${t}:${slot}`} style={rowStyle(!!occ)}>
                 <span style={slotLabelStyle}>

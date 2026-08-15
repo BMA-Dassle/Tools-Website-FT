@@ -50,9 +50,21 @@ const PIT_TRACKS: TrackKey[] = ["blue", "red", "mega"];
 const LANE_TTL_SECONDS = 12 * 3600;
 
 /** What staff said, verbatim. The resolved view (PitLaneFeed) is computed
- *  from this plus the start/finish markers at read time. */
+ *  from this plus the start/finish markers at read time.
+ *
+ *  `karts` is absent from lanes written before it existed, so every read of it
+ *  is `?? null` — a lane mid-flow when this shipped must keep resolving. */
 interface StoredPitLane {
   holding: {
+    sessionId: string;
+    heatNumber: number | null;
+    raceType: string | null;
+    room: BriefingRoom | null;
+    atMs: number;
+  } | null;
+  /** Climbed into the karts, waiting on the green. Optional on the stored
+   *  shape because it post-dates the key. */
+  karts?: {
     sessionId: string;
     heatNumber: number | null;
     raceType: string | null;
@@ -231,46 +243,84 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
   if (!stored) return EMPTY_PIT_LANE;
 
   let holding = stored.holding;
+  let karts = stored.karts ?? null;
   let racing = stored.racing;
   // One read per track, shared by both slots below.
   const live = await readLiveHeat(track);
-  if (holding) {
+
+  /**
+   * THE STAGED GROUP — whoever is waiting on the green, wherever they stand.
+   *
+   * ONE PREDICATE, TWO POSSIBLE SOURCE SLOTS (owner 2026-08-14: "the existing
+   * trigger from holding to race should still exist. Same trigger from karts to
+   * race"). The test for "have they gone out" is untouched below; the only thing
+   * In Karts changed is where the group being tested is read from. That is what
+   * makes the two paths provably identical rather than merely similar — there is
+   * no second copy of this rule to drift.
+   *
+   * Karts wins when both are filled: it is the later stage, so it is the group
+   * closer to the flag. A group can only be in one of the two anyway (every
+   * writer below vacates the other), but reading it in this order means a lane
+   * that somehow held both still promotes the right one.
+   */
+  const staged = karts ?? holding;
+  if (staged) {
     // HOLDING PERSISTS THROUGH THE RACE (owner 2026-08-13: "our session
     // follows the race marked in holding; green flag + active countdown moves
     // it to racing"). The start marker fires at PHASE ONE of the two-phase
     // start — karts rolling out, clock armed static, stragglers still being
-    // seated — so it must NOT promote. What ends a holding claim server-side
+    // seated — so it must NOT promote. What ends a staged claim server-side
     // is the FINISH marker (the race demonstrably ran) or the next group
     // taking the seats (see sendToHolding's displacement); the wall's own
     // holding→racing presentation is the client's counting verdict.
-    const finished = await readRaceFinishedMarker(holding.sessionId).catch(() => null);
+    //
+    // Note this is exactly why In Karts exists as a stage: phase one of the
+    // start IS "they are in the karts", and the pre-message that announces it
+    // is the signal this promotion has always had to refuse.
+    const finished = await readRaceFinishedMarker(staged.sessionId).catch(() => null);
     // Either witness will do: the broadcast's own finish marker, or the timing
     // socket showing this heat on track (or a later one loaded). See
     // holdingHasGoneOut.
-    const goneOut = finished == null && (await liveSaysGoneOut(track, live, holding.heatNumber));
+    const goneOut = finished == null && (await liveSaysGoneOut(track, live, staged.heatNumber));
     if (finished != null || goneOut) {
       racing = {
-        sessionId: holding.sessionId,
-        heatNumber: holding.heatNumber,
-        room: holding.room,
+        sessionId: staged.sessionId,
+        heatNumber: staged.heatNumber,
+        room: staged.room,
       };
-      holding = null;
+      // ONLY THE SLOTS NAMING THE PROMOTED SESSION. Blanking both would erase
+      // the group staff just sent to the seats behind a group already in the
+      // karts — which is the normal shape of a busy night, not an edge case.
+      // Both are cleared when both name this session, so a lane that somehow
+      // held one group twice cannot leave a stale copy behind.
+      if (holding?.sessionId === staged.sessionId) holding = null;
+      if (karts?.sessionId === staged.sessionId) karts = null;
     }
   }
 
+  const stagedOut = {
+    holding: holding
+      ? {
+          sessionId: holding.sessionId,
+          heatNumber: holding.heatNumber,
+          raceType: holding.raceType,
+          room: holding.room,
+          atMs: holding.atMs,
+        }
+      : null,
+    karts: karts
+      ? {
+          sessionId: karts.sessionId,
+          heatNumber: karts.heatNumber,
+          raceType: karts.raceType,
+          room: karts.room,
+          atMs: karts.atMs,
+        }
+      : null,
+  };
+
   if (!racing) {
-    return {
-      holding: holding
-        ? {
-            sessionId: holding.sessionId,
-            heatNumber: holding.heatNumber,
-            raceType: holding.raceType,
-            room: holding.room,
-            atMs: holding.atMs,
-          }
-        : null,
-      racing: null,
-    };
+    return { ...stagedOut, racing: null };
   }
 
   const finish = await readRaceFinishedMarker(racing.sessionId).catch(() => null);
@@ -285,30 +335,11 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
   // KARTS_RETURNING_HOLD. `pitted` still clears it too, so a night that was
   // already mid-flow when this shipped behaves the same.
   if (!KARTS_RETURNING_HOLD && finishedAtMs != null) {
-    return {
-      holding: holding
-        ? {
-            sessionId: holding.sessionId,
-            heatNumber: holding.heatNumber,
-            raceType: holding.raceType,
-            room: holding.room,
-            atMs: holding.atMs,
-          }
-        : null,
-      racing: null,
-    };
+    return { ...stagedOut, racing: null };
   }
 
   return {
-    holding: holding
-      ? {
-          sessionId: holding.sessionId,
-          heatNumber: holding.heatNumber,
-          raceType: holding.raceType,
-          room: holding.room,
-          atMs: holding.atMs,
-        }
-      : null,
+    ...stagedOut,
     racing: {
       sessionId: racing.sessionId,
       heatNumber: racing.heatNumber,
@@ -428,7 +459,15 @@ export async function sendToHolding(args: SendToHoldingArgs): Promise<{ ok: true
   // Re-sending the group already in holding is a refresh, not a new cycle —
   // the racing half and its pitted stamp stay exactly as they were.
   const samePress = stored?.holding?.sessionId === args.sessionId;
-  const displaced = !samePress && stored?.holding ? stored.holding : null;
+  /**
+   * WHO THESE SEATS ARE BEING TAKEN FROM — the staged group, in whichever slot
+   * holds it. Same `karts ?? holding` source as resolveLane's promotion, and
+   * for the same reason: once a group has climbed into the karts they are the
+   * ones on their way out, and displacing the empty seats behind them would
+   * promote nobody while leaving the karts group stranded.
+   */
+  const staged = stored?.karts ?? stored?.holding ?? null;
+  const displaced = !samePress && staged && staged.sessionId !== args.sessionId ? staged : null;
   const racing = displaced
     ? {
         sessionId: displaced.sessionId,
@@ -436,6 +475,10 @@ export async function sendToHolding(args: SendToHoldingArgs): Promise<{ ok: true
         room: displaced.room,
       }
     : (stored?.racing ?? null);
+  // Only the slot the displaced group actually vacated is cleared, so a karts
+  // group that was NOT the one displaced keeps its place.
+  const kartsAfter =
+    displaced && stored?.karts?.sessionId === displaced.sessionId ? null : (stored?.karts ?? null);
 
   await writeStoredLane(args.track, {
     holding: {
@@ -445,6 +488,7 @@ export async function sendToHolding(args: SendToHoldingArgs): Promise<{ ok: true
       room: args.room,
       atMs: Date.now(),
     },
+    karts: kartsAfter,
     racing,
     pitted:
       stored?.pitted && racing && stored.pitted.sessionId === racing.sessionId
@@ -465,6 +509,75 @@ export async function sendToHolding(args: SendToHoldingArgs): Promise<{ ok: true
    * faster, so it must never make the press slower.
    */
   afterResponse(() => primeFastRoster(args.sessionId, Date.now()));
+
+  return { ok: true };
+}
+
+/**
+ * THEY ARE IN THE KARTS — the stage between the seats and the green flag.
+ *
+ * THE TRIGGER IS THE PIT STATION'S "PLAY PRE" BUTTON (owner 2026-08-14: "pit
+ * board has a button called play pre. That is what triggers holding to move to
+ * karts"). The pre-race announcement is what sends a seated group to their
+ * karts, so playPreRace calls this the moment the cue sounds — see
+ * audio.server.ts. The desk's override panel can also place a group by hand, for
+ * a night when the PA cannot play.
+ *
+ * THE SEATS ARE FREE THE MOMENT THEY CLIMB IN. That is the entire point of the
+ * stage — holding is vacated here, so the next group can be sent over while this
+ * one waits on the flag. Nothing else about the lane moves.
+ *
+ * IDEMPOTENT, because the same message may be delivered twice and the desk reads
+ * "in the karts 0:38" off this stamp — restarting that clock on a duplicate
+ * would make a group look like they had just got in when they had been sitting
+ * there two minutes.
+ *
+ * It will place a group that was never sent to holding. Deliberately: a missed
+ * "send to holding" press is the single most common gap on this board (7 presses
+ * across 131 room occupancies, measured 2026-08-13), and a message from the
+ * track saying where people physically are outranks a press nobody made.
+ */
+export async function markInKarts(args: {
+  track: TrackKey;
+  sessionId: string;
+  heatNumber?: number | null;
+  raceType?: string | null;
+  room?: BriefingRoom | null;
+  /** When they got in. Defaults to now; passed explicitly when a message
+   *  carries the venue's own stamp. */
+  atMs?: number;
+}): Promise<{ ok: boolean; error?: string }> {
+  const stored = (await readStoredLane(args.track)) ?? {
+    holding: null,
+    karts: null,
+    racing: null,
+    pitted: null,
+  };
+
+  // Already out on track. A pre-message arriving late — or replayed — must never
+  // pull a racing group back into the karts: that would put one session in two
+  // places on every board that reads this lane.
+  if (stored.racing?.sessionId === args.sessionId) {
+    return { ok: false, error: "that session is already out on track" };
+  }
+
+  if (stored.karts?.sessionId === args.sessionId) return { ok: true };
+
+  const from = stored.holding?.sessionId === args.sessionId ? stored.holding : null;
+
+  await writeStoredLane(args.track, {
+    ...stored,
+    // Only vacate the seats if this is the group sitting in them. A pre-message
+    // for a session nobody sent must not evict whoever is actually there.
+    holding: from ? null : (stored.holding ?? null),
+    karts: {
+      sessionId: args.sessionId,
+      heatNumber: args.heatNumber ?? from?.heatNumber ?? null,
+      raceType: args.raceType ?? from?.raceType ?? null,
+      room: args.room ?? from?.room ?? null,
+      atMs: args.atMs ?? Date.now(),
+    },
+  });
 
   return { ok: true };
 }
@@ -508,7 +621,7 @@ export interface LaneSlotOccupant {
   room: BriefingRoom | null;
 }
 
-export type LaneSlot = "holding" | "racing";
+export type LaneSlot = "holding" | "karts" | "racing";
 
 export async function overrideLaneSlot(args: {
   track: TrackKey;
@@ -548,6 +661,18 @@ export async function overrideLaneSlot(args: {
           atMs: Date.now(),
         }
       : null;
+  } else if (args.slot === "karts") {
+    // Same shape as holding — the two are one "staged" group to every reader,
+    // and resolveLane's `karts ?? holding` depends on them staying identical.
+    next.karts = args.occupant
+      ? {
+          sessionId: args.occupant.sessionId,
+          heatNumber: args.occupant.heatNumber,
+          raceType: args.occupant.raceType,
+          room: args.occupant.room,
+          atMs: Date.now(),
+        }
+      : null;
   } else {
     next.racing = args.occupant
       ? {
@@ -565,8 +690,18 @@ export async function overrideLaneSlot(args: {
 
   await writeStoredLane(args.track, next);
 
-  // The durable trail, so a hand-placed group is still answerable tomorrow.
-  if (args.occupant) {
+  /**
+   * The durable trail, so a hand-placed group is still answerable tomorrow.
+   *
+   * NOT FOR THE KARTS SLOT. This log answers "when did they leave the room" and
+   * "when were the karts back" — room occupancy and the pitted call. Climbing
+   * into a kart is neither, and there is no honest existing action for it: both
+   * "ended" (they left the room, which already happened at holding) and "pitted"
+   * (their karts are back, which is the opposite end of the race) would put a
+   * false row in an insurance record. A truthful `in-karts` action means a new
+   * enum value and a migration — worth doing, but not smuggled into this PR.
+   */
+  if (args.occupant && args.slot !== "karts") {
     await recordBriefingEvent({
       venue: VENUE,
       businessDay: businessDayYmdET(),
@@ -621,6 +756,7 @@ export async function markRacePitted(
 
   await writeStoredLane(track, {
     holding: stored?.holding ?? null,
+    karts: stored?.karts ?? null,
     racing: stored?.racing ?? null,
     pitted: { sessionId: racing.sessionId, atMs: Date.now() },
   });

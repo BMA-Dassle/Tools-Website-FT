@@ -81,7 +81,7 @@ export async function GET(req: NextRequest) {
  */
 async function vacateSessionElsewhere(args: {
   sessionId: string;
-  slot: "called" | "room" | "holding" | "racing";
+  slot: "called" | "room" | "holding" | "karts" | "racing";
   track: "blue" | "red" | "mega";
   room: "red" | "blue" | null;
 }): Promise<void> {
@@ -109,9 +109,9 @@ async function vacateSessionElsewhere(args: {
 
   for (const t of tracks) {
     const lane = await readPitLane(t).catch(() => null);
-    for (const slot of ["holding", "racing"] as const) {
+    for (const slot of ["holding", "karts", "racing"] as const) {
       if (args.slot === slot && t === args.track) continue;
-      const occ = slot === "holding" ? lane?.holding : lane?.racing;
+      const occ = lane?.[slot];
       if (occ?.sessionId === args.sessionId) {
         await overrideLaneSlot({ track: t, slot, occupant: null, force: true }).catch(() => {});
       }
@@ -231,6 +231,7 @@ export async function POST(req: NextRequest) {
     }
     const slot =
       body.slot === "holding" ||
+      body.slot === "karts" ||
       body.slot === "racing" ||
       body.slot === "called" ||
       body.slot === "room"
@@ -238,7 +239,7 @@ export async function POST(req: NextRequest) {
         : null;
     if (!slot) {
       return NextResponse.json(
-        { error: "slot must be called, room, holding or racing" },
+        { error: "slot must be called, room, holding, karts or racing" },
         { status: 400 },
       );
     }

@@ -237,10 +237,23 @@ export function mergePitRoster(fast: FastPitRow[], slow: PitRosterEntry[]): PitR
  * One track's pit lane, resolved to what is true RIGHT NOW.
  *
  * `holding` is the group staff sent to the seats after their briefing;
- * `racing` is the group out on track — and once its finish marker lands the
- * lane is LIVE (karts rolling back in) until staff explicitly mark it pitted.
- * Both halves are per-session facts; the resolution from stored state +
- * start/finish markers happens server-side in lane.server.ts.
+ * `karts` is that same group once they have climbed into the karts but before
+ * the green flag; `racing` is the group out on track — and once its finish
+ * marker lands the lane is LIVE (karts rolling back in) until staff explicitly
+ * mark it pitted. All three are per-session facts; the resolution from stored
+ * state + start/finish markers happens server-side in lane.server.ts.
+ *
+ * IN KARTS IS A WAYPOINT, NOT A GATE (owner 2026-08-14: "session can go from
+ * holding to race or holding to karts"). A group may pass through it or skip it
+ * entirely, and the promotion out of it is the SAME predicate that promotes out
+ * of holding — see resolveLane, which reads `karts ?? holding` as its one
+ * source. So a night where nothing ever fills this slot behaves exactly as the
+ * two-slot lane did.
+ *
+ * Why a slot of its own rather than a flag on `holding`: the seats and the karts
+ * are different places, and the whole point of the stage is that the SEATS ARE
+ * FREE once a group is in the karts. A flag would have left them occupying the
+ * seats on every board that reads this.
  */
 export interface PitLaneFeed {
   holding: {
@@ -249,6 +262,16 @@ export interface PitLaneFeed {
     raceType: string | null;
     /** Which briefing room they came from — the room this send freed. */
     room: "red" | "blue" | null;
+    atMs: number;
+  } | null;
+  /** Seated in the karts, waiting on the green. Same shape as `holding` so
+   *  every consumer can treat the two as one "staged" group. */
+  karts: {
+    sessionId: string;
+    heatNumber: number | null;
+    raceType: string | null;
+    room: "red" | "blue" | null;
+    /** When they got into the karts — the pre-race call, not the send. */
     atMs: number;
   } | null;
   racing: {
@@ -264,7 +287,7 @@ export interface PitLaneFeed {
 
 export type PitLanes = Record<"blue" | "red" | "mega", PitLaneFeed>;
 
-export const EMPTY_PIT_LANE: PitLaneFeed = { holding: null, racing: null };
+export const EMPTY_PIT_LANE: PitLaneFeed = { holding: null, karts: null, racing: null };
 
 /* ── the rail state machine ───────────────────────────────────────────── */
 

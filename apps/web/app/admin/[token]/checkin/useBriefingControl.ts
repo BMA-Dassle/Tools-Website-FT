@@ -203,7 +203,7 @@ export interface BriefingControl {
    */
   overrideSlot: (args: {
     track: string;
-    slot: "called" | "room" | "holding" | "racing";
+    slot: "called" | "room" | "holding" | "karts" | "racing";
     /** Which briefing room, for the `room` slot. */
     room?: BriefingRoom;
     /** Null empties the slot. */

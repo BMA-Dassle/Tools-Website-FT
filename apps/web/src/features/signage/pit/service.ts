@@ -89,20 +89,38 @@ export interface PitDisplaySession {
  * sit blank on the busiest night of the week.
  */
 export async function pitDisplaySession(track: TrackKey): Promise<PitDisplaySession | null> {
+  /**
+   * THE STAGED GROUP, SEATS OR KARTS. A group that has climbed into the karts is
+   * still the group this wall is assigning — the board must not blank the
+   * instant the pre-message lands, which is exactly what reading `holding` alone
+   * would have done.
+   *
+   * Holding wins when both are filled, and that ordering is the point: once the
+   * next group has been sent to the seats, THEY are who the wall is for. The
+   * karts group is already where the board was telling them to go.
+   */
+  const staged = (lane: Awaited<ReturnType<typeof readPitLane>>) => lane.holding ?? lane.karts;
+
   let lane = await readPitLane(track);
-  if (!lane.holding && track !== "mega") {
+  if (!staged(lane) && track !== "mega") {
     const megaLane = await readPitLane("mega");
-    if (megaLane.holding) lane = megaLane;
+    if (staged(megaLane)) lane = megaLane;
   }
-  if (!lane.holding) return null;
+  const group = staged(lane);
+  if (!group) return null;
 
   return {
-    sessionId: lane.holding.sessionId,
-    heatNumber: lane.holding.heatNumber,
-    raceType: lane.holding.raceType,
+    sessionId: group.sessionId,
+    heatNumber: group.heatNumber,
+    raceType: group.raceType,
     // Always true now, and kept rather than removed: the rail state machine
     // takes it (pitRailState's `stagedInHolding`), and it is the one line to
     // change if a pre-holding preview is ever wanted back.
+    //
+    // True for the karts group too — `stagedInHolding` asks "has this group
+    // reached the pit", and they demonstrably have. The alternative reads as
+    // `info` ("still checking in, or watching the film"), which is the one
+    // answer that is flatly wrong about somebody sitting in a kart.
     inHolding: true,
   };
 }

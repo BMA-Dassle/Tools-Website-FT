@@ -25,10 +25,19 @@
  * overwhelming"). Send is now a normal control at the end of its row; the room
  * colour is a thin spine and a small fill, never a wall of red.
  *
- * TWO BOXES PER ROOM — Called, and In the room. That is what makes the busy case
- * legible: a second heat called mid-briefing is two boxes saying two different
- * things, rather than one box trying to be both. Sending into an occupied room
- * still works; it asks first.
+ * THREE BOXES PER ROOM, FIVE STAGES — Called, In the room, and Out of the room
+ * (Holding · In karts · On track as three rows of one rail). That is what makes
+ * the busy case legible: a second heat called mid-briefing is two boxes saying
+ * two different things, rather than one box trying to be both. Sending into an
+ * occupied room still works; it asks first.
+ *
+ * THE RAIL EXISTS BECAUSE THE COLUMN RAN OUT OF MONITOR. Adding In Karts as a
+ * fifth panel would have been five lots of border, padding, label and badge for
+ * three stages that are each one session, one clock and at most one press — in a
+ * column that already needed `overflowY: auto` to survive the fourth. The goal is
+ * every stage on one screen (owner 2026-08-14: "all states on one screen height
+ * wise"), because a box below the fold cannot flash for attention, and flashing
+ * for attention is the entire job of the Called deadline and the lane-held alarm.
  *
  * IN THE ROOM IS TWO COLUMNS — numbers and controls LEFT, camera RIGHT (owner
  * 2026-08-12: "better organize this screen with the session and timer stuff to
@@ -71,7 +80,7 @@
  * visibly jump, so a 1s clock drives the readouts and the phase comes from
  * briefingTimelineAt — the SAME pure function the TV runs, so desk and wall agree.
  */
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { IconAlertTriangleFilled, IconCamera, IconMaximize, IconX } from "@tabler/icons-react";
 import { useTrackStatus, type CurrentRace, type TrackInfo } from "@/hooks/useTrackStatus";
 import { PORTAL_DARK } from "~/components/features/admin-skin/theme";
@@ -458,9 +467,10 @@ export default function RaceControlPanels({
           reduced to the one press staff had to make, with nothing on screen
           saying WHO was in holding or why the lane was held.
 
-          It is now the third box in each room's column — Called, In the room,
-          Holding — so the board carries the whole journey a group takes and the
-          press sits with the group it is about. See HoldingPanel. */}
+          It is now a row inside each room column's third box — Called, In the
+          room, Out of the room — so the board carries the whole journey a group
+          takes and the press sits with the group it is about. See
+          OutOfRoomPanel. */}
       <div
         style={{
           display: "grid",
@@ -1313,13 +1323,24 @@ function RoomColumn({
    * its value, a running one decreases). Matched on heat number, never on track
    * alone, so a neighbouring heat can never empty this group's seats.
    */
-  const holdingHeat = lane?.holding?.heatNumber ?? null;
-  const holdingSessionId = lane?.holding?.sessionId ?? null;
+  /**
+   * WHICHEVER SLOT HOLDS THE GROUP WAITING ON THE GREEN — the karts if they have
+   * climbed in, otherwise the seats. The SAME `karts ?? holding` rule the server
+   * promotes on (resolveLane), because a desk that watched a different group than
+   * the server did is a desk that disagrees with its own wall.
+   *
+   * Before In Karts this could only ever be `holding`. Reading only that now
+   * would mean a group who reached the karts first never got its green-flag
+   * verdict, and sat on the board until a finish marker happened to arrive.
+   */
+  const stagedGroup = lane?.karts ?? lane?.holding ?? null;
+  const stagedHeat = stagedGroup?.heatNumber ?? null;
+  const stagedSessionId = stagedGroup?.sessionId ?? null;
   const liveHeatNow = liveClock ? liveHeatNumber(liveClock.heatName) : null;
   const countingNow =
-    holdingHeat != null &&
+    stagedHeat != null &&
     liveHeatNow != null &&
-    holdingHeat === liveHeatNow &&
+    stagedHeat === liveHeatNow &&
     liveClock?.counting === true;
 
   /**
@@ -1333,12 +1354,12 @@ function RoomColumn({
    * So the station remembers, above the scan flash, what it watched happen.
    */
   useEffect(() => {
-    if (countingNow) noteLaunched(holdingSessionId);
-  }, [countingNow, holdingSessionId, noteLaunched]);
+    if (countingNow) noteLaunched(stagedSessionId);
+  }, [countingNow, stagedSessionId, noteLaunched]);
 
   const launched =
-    holdingHeat != null && (countingNow || hasLaunched(holdingSessionId))
-      ? { heatNumber: holdingHeat, sessionId: holdingSessionId }
+    stagedHeat != null && (countingNow || hasLaunched(stagedSessionId))
+      ? { heatNumber: stagedHeat, sessionId: stagedSessionId }
       : null;
 
   /**
@@ -1635,132 +1656,103 @@ function RoomColumn({
         />
       </Panel>
 
-      {/* ── HOLDING ── the third spot (owner 2026-08-13: "we have the button to
-          send to holding but we don't have a box for holding … that screen will
-          show all three spots"). */}
+      {/* ── OUT OF THE ROOM ── the third box, carrying three stages. */}
       {ownsLane && (
-        <>
-          <HoldingPanel
-            room={room}
-            track={track}
-            color={color}
-            lane={lane}
-            launched={launched}
-            holdLive={holdLive}
-            nowMs={nowMs}
-            calledAtFor={calledAtFor}
-            cameraExpanded={expandedCamera === holdingCameraFor(room)}
-            onExpandCamera={() => onExpandCamera(holdingCameraFor(room))}
-          />
-          <OnTrackPanel
-            track={track}
-            color={color}
-            lane={lane}
-            liveClock={liveClock}
-            launched={launched}
-            holdLive={holdLive}
-            nowMs={nowMs}
-            locked={locked}
-            pending={pending}
-            calledAtFor={calledAtFor}
-            onRaceReturned={onRaceReturned}
-          />
-        </>
+        <OutOfRoomPanel
+          room={room}
+          track={track}
+          color={color}
+          lane={lane}
+          liveClock={liveClock}
+          launched={launched}
+          holdLive={holdLive}
+          nowMs={nowMs}
+          locked={locked}
+          pending={pending}
+          calledAtFor={calledAtFor}
+          cameraExpanded={expandedCamera === holdingCameraFor(room)}
+          onExpandCamera={() => onExpandCamera(holdingCameraFor(room))}
+          onRaceReturned={onRaceReturned}
+        />
       )}
     </div>
   );
 }
 
-/* ── holding ───────────────────────────────────────────────────────────── */
+/* ── out of the room ───────────────────────────────────────────────────── */
 
 /**
- * WHERE A GROUP GOES BETWEEN THE ROOM AND THE GRID.
+ * ONE STAGE OF THE RAIL — one group, one clock, one badge, one row.
  *
- * The board's third box, and the one that closes the loop: Called says who is
- * coming, In the room says who is watching the film, and until now the moment
- * staff pressed "Send to holding" the group simply left the screen — they were
- * in the pit seats, on the pit board's wall, and nowhere on the desk's.
+ * The three stages after the briefing room (Holding, In karts, On track) are
+ * each a single session, a single clock and at most one press. As three separate
+ * Panels that was three lots of border, padding, label and badge chrome for
+ * three one-line facts — and with In Karts added it was a fifth box in a column
+ * that already needed a scrollbar to survive the fourth (owner 2026-08-14: the
+ * goal is "all states on one screen height wise"). A box that has scrolled below
+ * the fold cannot flash for attention, which is the whole job of the lane-held
+ * alarm.
  *
- * IT ANSWERS TWO QUESTIONS, WHICH IS WHY IT IS ONE BOX AND NOT TWO. Who is
- * seated (the holding half), and whether the lane will let them go (the racing
- * half). Those are the same question to a staff member — "can I send them out
- * yet" — and splitting them would put the reason on one side of the board and
- * the press that fixes it on the other.
+ * So they share one Panel and become rows. The row keeps the board's own
+ * grammar — a labelled tile with its unit (see the file header) — just at the
+ * unemphasised Stat size rather than `big`, because three 40px numbers stacked
+ * is most of a monitor.
  *
- * "RACE RETURNED" LIVES HERE NOW. It was a strip across the top of the board,
- * one button per track, attached to nothing. It is the ONLY thing that releases
- * the pit board's hold (a race finishing raises the hold on the venue's own
- * finish signal; only a human who can see the lane says the karts are in), so it
- * belongs beside the group it is holding up. The strip is gone — see the note
- * where it used to render.
- *
- * THE CAMERA IS THE HOLDING AREA ITSELF, aimed by the Nx layout the venue keeps
- * for it. See nx/camera.server.ts: red and blue are the same ceiling fisheye at
- * two saved angles, so the picture in this box is the track's own seats and not
- * a raw fisheye of the whole walkway.
+ * THE BADGE IS PER ROW, NOT PER PANEL. One badge on the Panel would have to
+ * speak for three different records, and the moment two of them are occupied it
+ * has to pick one and lie about the others.
  */
-function HoldingPanel({
-  room,
-  track,
-  color,
-  lane,
-  launched,
-  holdLive,
-  nowMs,
-  calledAtFor,
-  cameraExpanded,
-  onExpandCamera,
+function StageRow({
+  stage,
+  badge,
+  first,
+  who,
+  clock,
+  end,
 }: {
-  room: BriefingRoom;
-  track: string;
-  color: string;
-  lane: PitLaneFeed | null;
-  /** The group whose green flag has been seen — computed in the room column so
-   *  Holding and On track can never disagree about it. Null when nobody has
-   *  just launched. */
-  launched: { heatNumber: number; sessionId: string | null } | null;
-  /** Whether the lane is still held. Also from the column, for the same reason —
-   *  the badge here and the press on the On-track box read one value. */
-  holdLive: boolean;
-  nowMs: number;
-  calledAtFor: CalledAtLookup;
-  cameraExpanded: boolean;
-  onExpandCamera: () => void;
+  stage: string;
+  badge: { label: string; tone: string };
+  /** Skips the divider. The rule is `row + row`, so the first row has none. */
+  first?: boolean;
+  who: ReactNode;
+  clock?: ReactNode;
+  end?: ReactNode;
 }) {
-  const holding = launched ? null : (lane?.holding ?? null);
-  const racing = lane?.racing ?? null;
-
-  const heldMs = holding ? Math.max(0, nowMs - holding.atMs) : 0;
-
-  /**
-   * THE BADGE DESCRIBES THE SEATS, NOT THE TRACK (owner 2026-08-14: "why do we
-   * see an on track in holding when that area is free?").
-   *
-   * It used to borrow the track's state — a group out racing turned this box
-   * amber and stamped it ON TRACK, directly above a body line reading "Nobody in
-   * the seats". Two contradictory things in one panel, and the badge is the part
-   * read at a glance, so the panel said "occupied" about an empty area. Where
-   * the racing group actually is was never this box's job: it is spelled out in
-   * the copy below and owns the whole On-track panel underneath.
-   *
-   * So: held is a safety state and keeps the alarm, seated is CLEAR TO SEAT, and
-   * anything else is FREE — because that is what the seats are.
-   */
-  const badge = holdLive
-    ? { label: "LANE HELD", tone: DANGER }
-    : holding
-      ? { label: "CLEAR TO SEAT", tone: GREEN }
-      : { label: "FREE", tone: PORTAL_DARK.muted };
-
   return (
-    <Panel
-      label="Holding"
-      // The hold is the one state on this box that wants the eye — it is a
-      // safety fact with a press attached. A seated group on a clear lane is
-      // good news and gets no border colour at all.
-      alert={holdLive ? "late" : "none"}
-      accent={holdLive ? DANGER : holding ? GREEN : undefined}
-      badge={
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "7px 0",
+        minHeight: 44,
+        ...(first ? null : { borderTop: `1px solid ${withAlpha(INK, 0.07)}` }),
+      }}
+    >
+      <span
+        style={{
+          flex: "0 0 66px",
+          fontSize: 9,
+          fontWeight: 800,
+          letterSpacing: "0.10em",
+          textTransform: "uppercase",
+          color: PORTAL_DARK.muted,
+        }}
+      >
+        {stage}
+      </span>
+      <div style={{ flex: "1 1 auto", minWidth: 0 }}>{who}</div>
+      {clock ? <div style={{ flex: "0 0 auto", minWidth: 108 }}>{clock}</div> : null}
+      <div
+        style={{
+          flex: "0 0 auto",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-end",
+          gap: 6,
+          minWidth: 132,
+        }}
+      >
         <span
           className="rc-num"
           style={{
@@ -1779,114 +1771,40 @@ function HoldingPanel({
           />
           {badge.label}
         </span>
-      }
-    >
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "stretch" }}>
-        {/* LEFT — who is seated, and what the lane is doing. */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 10,
-            // Takes whatever the fixed-width camera leaves. The wrap threshold
-            // is low on purpose: with a 208px picture beside it, this column has
-            // room to stay alongside on any desk monitor we run.
-            flex: "1 1 200px",
-            minWidth: 180,
-          }}
-        >
-          {holding ? (
-            <>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-                <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color: INK }}>
-                  {holding.heatNumber != null ? `Session ${holding.heatNumber}` : "In the seats"}
-                </span>
-                {holding.raceType && (
-                  <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{holding.raceType}</span>
-                )}
-              </div>
-              {/* BELOW the session, never beside it (owner 2026-08-14). Inside
-                  the baseline row it read as part of the heading and pushed the
-                  race type out; on its own line it is a footnote, which is what
-                  it is. */}
-              <TotalWait ms={totalWaitMs(calledAtFor, holding.sessionId, null, null, nowMs)} />
-              <Stat
-                label="In the seats"
-                value={formatClock(heldMs)}
-                unit={
-                  holding.room
-                    ? `since the ${holding.room} room`
-                    : `since they left the ${room} room`
-                }
-                tone={holdLive ? AMBER : GREEN}
-                big
-              />
-            </>
-          ) : (
-            <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
-              {launched
-                ? `Nobody in the seats — session ${launched.heatNumber} took the green flag and is out on ${cap(track)}.`
-                : racing
-                  ? `Nobody in the seats — ${racing.heatNumber != null ? `session ${racing.heatNumber}` : "the last group"} is out on ${cap(track)}.`
-                  : "Nobody in the seats yet — send a briefed group over."}
-            </p>
-          )}
-
-          {/* WHY THEY CANNOT GO YET — one line, no control. The race itself and
-              the press that clears the lane belong to the On-track box below;
-              this box only has to say whether these seats can empty. */}
-          {holding && holdLive && (
-            <p style={{ fontSize: 12, color: AMBER, margin: 0 }}>
-              Hold them — karts are still coming into the lane.
-            </p>
-          )}
-        </div>
-
-        {/* RIGHT — the holding area itself. Same still-refresh rail as the room
-            cameras, but SLOWER: a dewarped frame comes off a transcode and takes
-            about a second, where a room's raw frame takes a fifth of that. A
-            2-second preview is honest about that and still shows a group
-            arriving; the full-screen viewer switches to live video, where the
-            dewarp costs nothing because the stream is transcoded anyway. */}
-        <div style={{ flex: "0 0 auto", width: CAM_W, maxWidth: "100%" }}>
-          <HoldingCamera
-            target={holdingCameraFor(room)}
-            label={`${cap(room)} holding`}
-            paused={cameraExpanded}
-            onExpand={onExpandCamera}
-            accent={color}
-          />
-        </div>
+        {end}
       </div>
-    </Panel>
+    </div>
   );
 }
 
-/* ── on track ──────────────────────────────────────────────────────────── */
-
 /**
- * THE FOURTH BOX — who is out on the circuit right now (owner 2026-08-13: "I
- * want an on-track box under holding").
+ * EVERYTHING AFTER THE BRIEFING ROOM — Holding, In karts, On track.
  *
- * It completes the journey the column describes: Called → In the room → Holding
- * → On track. Everything above it is a group the desk is moving; this is the
- * group the desk is WAITING on, and until now the only trace of them was a chip
- * in the room heading and a sentence in someone else's box.
+ * The column's third and last box, and the one that carries three of the five
+ * stages. It replaces the separate Holding and On-track panels; the name pairs
+ * with "In the room" directly above it, which is exactly the distinction it
+ * draws.
  *
- * IT OWNS THE LANE, and that is why "Race returned" moved here. The press means
- * "the finished race's karts are fully back", which is a fact about THIS group —
- * it sat in Holding only because a held lane is what stops the next group being
- * seated. Holding now states the consequence ("hold them") and this box carries
- * the race and the release.
+ * IT ANSWERS ONE QUESTION IN THREE PLACES: where is each group that has left the
+ * room. Splitting that across three boxes put the reason a group cannot move
+ * (the lane is held) in one box and the press that fixes it in another — they
+ * are now two rows apart with the press on the row it belongs to.
  *
- * TWO GROUPS CAN BE TRUE AT ONCE and the box says so rather than choosing: the
- * heat that just took the green flag is on track, while the previous heat's
- * karts may still be rolling in behind them. Normally staff mark the lane
- * returned before seating the next group, so the overlap is brief — but a board
- * that silently showed one of them would be wrong for exactly the minute that
- * matters.
+ * ONE CAMERA FOR THE WHOLE RAIL. The holding view used to sit inside its own
+ * box; it now spans all three rows, because the lane is what all three are about
+ * — who is in the seats, who is in the karts, who is out on it. CAM_W is
+ * untouched, which is what its own note asks for: the answer must not change
+ * when a box is added.
+ *
+ * THE HOLD KEEPS THE ALARM. `late` rather than the On-track box's old `warn`:
+ * merged into one box there can be only one level, and the hold is a safety fact
+ * with a press attached — the stronger of the two is the honest one.
+ *
+ * EMPTY COLLAPSES TO ONE LINE. Early evening nothing is past the room, and three
+ * empty Panels cannot shrink below their own chrome; three empty rows can.
  */
-function OnTrackPanel({
+function OutOfRoomPanel({
+  room,
   track,
   color,
   lane,
@@ -1897,21 +1815,53 @@ function OnTrackPanel({
   locked,
   pending,
   calledAtFor,
+  cameraExpanded,
+  onExpandCamera,
   onRaceReturned,
 }: {
+  room: BriefingRoom;
   track: string;
   color: string;
   lane: PitLaneFeed | null;
   liveClock: LiveSessionClock | null;
+  /** The group whose green flag has been seen — computed in the room column so
+   *  no two rows here can ever disagree about it. Null when nobody has just
+   *  launched. */
   launched: { heatNumber: number; sessionId: string | null } | null;
+  /** Whether the lane is still held. Also from the column, so the Holding row's
+   *  badge and the On-track row's press read one value. */
   holdLive: boolean;
   nowMs: number;
   locked: boolean;
   pending: string | null;
   calledAtFor: CalledAtLookup;
+  cameraExpanded: boolean;
+  onExpandCamera: () => void;
   onRaceReturned: () => void;
 }) {
+  /**
+   * Has this group been seen to take the green flag? Matched on session id when
+   * we have one and heat number otherwise — never on heat number alone if an id
+   * is available, because heat numbers collide across tracks (27 of them on
+   * 2026-08-14) and this decides whether a row empties.
+   *
+   * Checked per slot rather than "launched ⇒ blank both": a group already in the
+   * karts can have gone green while a NEW group sits in the seats behind them,
+   * and blanking both would erase the group staff just sent over.
+   */
+  const isLaunched = (g: { sessionId: string; heatNumber: number | null } | null | undefined) =>
+    !!g &&
+    !!launched &&
+    (launched.sessionId != null
+      ? g.sessionId === launched.sessionId
+      : g.heatNumber === launched.heatNumber);
+
+  const holding = isLaunched(lane?.holding) ? null : (lane?.holding ?? null);
+  const karts = isLaunched(lane?.karts) ? null : (lane?.karts ?? null);
   const racing = lane?.racing ?? null;
+
+  const heldMs = holding ? Math.max(0, nowMs - holding.atMs) : 0;
+  const kartsMs = karts ? Math.max(0, nowMs - karts.atMs) : 0;
 
   // WHO IS OUT. The green-flag verdict is the fresher of the two — the lane's
   // own racing half does not move until a finish marker or the next send, so
@@ -1925,11 +1875,33 @@ function OnTrackPanel({
   const clockIsOurs = !!liveClock && liveHeat != null && outHeat != null && liveHeat === outHeat;
 
   const sinceFinishMs = racing?.finishedAtMs != null ? Math.max(0, nowMs - racing.finishedAtMs) : 0;
-  // The group whose karts are coming in, named separately — see the header.
+  // The group whose karts are coming in, named separately: the heat that just
+  // took the green flag is on track while the previous heat's karts may still be
+  // rolling in behind them, and both are true at once.
   const returningHeat = holdLive ? (racing?.heatNumber ?? null) : null;
   const overlap = returningHeat != null && outHeat != null && returningHeat !== outHeat;
 
-  const badge = holdLive
+  /**
+   * THE BADGES DESCRIBE THEIR OWN ROW (owner 2026-08-14: "why do we see an on
+   * track in holding when that area is free?"). Holding says what the SEATS are,
+   * In karts what the KARTS are, On track what the CIRCUIT is. None of them
+   * borrows another row's state.
+   */
+  const holdingBadge = holdLive
+    ? { label: "LANE HELD", tone: DANGER }
+    : holding
+      ? { label: "CLEAR TO SEAT", tone: GREEN }
+      : { label: "FREE", tone: PORTAL_DARK.muted };
+
+  // Green, like CLEAR TO SEAT — "they are in and waiting on the flag" is good
+  // news of the same kind. Deliberately NOT the room colour: red is one keystroke
+  // from DANGER on this palette and a staff alarm must never be readable as a
+  // room's identity.
+  const kartsBadge = karts
+    ? { label: "IN THE KARTS", tone: GREEN }
+    : { label: "EMPTY", tone: PORTAL_DARK.muted };
+
+  const trackBadge = holdLive
     ? { label: "KARTS COMING IN", tone: DANGER }
     : clockIsOurs && liveClock?.state === "paused"
       ? { label: "PAUSED", tone: AMBER }
@@ -1937,98 +1909,245 @@ function OnTrackPanel({
         ? { label: "RACING", tone: GREEN }
         : { label: "TRACK CLEAR", tone: PORTAL_DARK.muted };
 
+  const nothingOut = !holding && !karts && outHeat == null && !holdLive;
+
   return (
     <Panel
-      label="On track"
-      alert={holdLive ? "warn" : "none"}
-      accent={holdLive ? DANGER : outHeat != null ? color : undefined}
-      badge={
-        <span
-          className="rc-num"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            fontSize: 10,
-            fontWeight: 800,
-            letterSpacing: "0.05em",
-            color: badge.tone,
-          }}
-        >
-          <span
-            aria-hidden
-            style={{ width: 7, height: 7, borderRadius: "50%", background: badge.tone }}
-          />
-          {badge.label}
-        </span>
-      }
+      label="Out of the room"
+      // The hold is the one state on this box that wants the eye. A staged group
+      // on a clear lane is good news and gets no border colour at all.
+      alert={holdLive ? "late" : "none"}
+      accent={holdLive ? DANGER : holding || karts ? GREEN : outHeat != null ? color : undefined}
     >
-      {outHeat == null && !holdLive ? (
-        <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
-          Nothing out on {cap(track)}.
-        </p>
-      ) : (
-        <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "flex-start" }}>
-          {outHeat != null && (
-            <div style={{ minWidth: 130 }}>
-              <div className="rc-num" style={{ fontSize: 20, fontWeight: 800, color: INK }}>
-                Session {outHeat}
-              </div>
-              <div style={{ fontSize: 11, color: PORTAL_DARK.muted }}>on {cap(track)} Track</div>
-              <TotalWait
-                ms={totalWaitMs(
-                  calledAtFor,
-                  launched?.sessionId ?? racing?.sessionId ?? null,
-                  null,
-                  racing?.finishedAtMs ?? null,
-                  nowMs,
-                )}
-                done={racing?.finishedAtMs != null}
-              />
-            </div>
-          )}
-
-          {/* The race clock, only when it is demonstrably this group's. */}
-          {clockIsOurs && liveClock && (
-            <Stat
-              label={liveClock.state === "paused" ? "Paused at" : "Time left"}
-              value={formatRemaining(liveClock.remainingMs)}
-              unit={liveClock.counting ? "of the race" : "not counting yet"}
-              tone={liveClock.state === "paused" ? AMBER : color}
-              big
-            />
-          )}
-
-          {/* THE LANE. Named separately when the group coming in is not the group
-              out — see the header. */}
-          {holdLive && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 200 }}>
-              <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
-                {overlap
-                  ? `Session ${returningHeat} finished ${formatClock(sinceFinishMs)} ago and its karts are still coming in.`
-                  : `Finished ${formatClock(sinceFinishMs)} ago — the pit board is holding until the karts are in.`}
-              </p>
-              <ActionButton
-                tone={AMBER}
-                textColor="#1a1205"
-                size="md"
-                pendingKey={`pitted:${track}`}
-                pending={pending}
-                disabled={locked}
-                pendingLabel="Marking…"
-                title="The finished race's karts are fully back in the lane — releases the pit board's hold"
-                onClick={onRaceReturned}
+      {nothingOut ? (
+        <>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: 18,
+              flexWrap: "wrap",
+              padding: "3px 0 2px",
+            }}
+          >
+            {["Holding", "In karts", "On track"].map((s) => (
+              <span
+                key={s}
+                style={{
+                  fontSize: 9,
+                  fontWeight: 800,
+                  letterSpacing: "0.10em",
+                  textTransform: "uppercase",
+                  color: PORTAL_DARK.muted,
+                }}
               >
-                ⏎ Race returned
-              </ActionButton>
-            </div>
-          )}
+                {s}
+                <b style={{ color: withAlpha(INK, 0.45), marginLeft: 6 }}>—</b>
+              </span>
+            ))}
+          </div>
+          <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
+            Nothing out on {cap(track)} Track yet.
+          </p>
+        </>
+      ) : (
+        <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+          <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column" }}>
+            {/* ── HOLDING ── */}
+            <StageRow
+              first
+              stage="Holding"
+              badge={holdingBadge}
+              who={
+                holding ? (
+                  <>
+                    <div
+                      style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}
+                    >
+                      <span
+                        className="rc-num"
+                        style={{ fontSize: 20, fontWeight: 800, color: INK }}
+                      >
+                        {holding.heatNumber != null
+                          ? `Session ${holding.heatNumber}`
+                          : "In the seats"}
+                      </span>
+                      {holding.raceType && (
+                        <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
+                          {holding.raceType}
+                        </span>
+                      )}
+                    </div>
+                    {/* WHY THEY CANNOT GO YET, on the row it is about. The press
+                        that clears it is two rows down, on the race that raised
+                        the hold. */}
+                    {holdLive ? (
+                      <p style={{ fontSize: 11, color: AMBER, margin: "2px 0 0" }}>
+                        Hold them — karts are still coming into the lane.
+                      </p>
+                    ) : (
+                      <TotalWait
+                        ms={totalWaitMs(calledAtFor, holding.sessionId, null, null, nowMs)}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
+                    {karts
+                      ? `Seats free — session ${karts.heatNumber ?? "?"} is in the karts.`
+                      : launched
+                        ? `Nobody in the seats — session ${launched.heatNumber} took the green flag and is out on ${cap(track)}.`
+                        : racing
+                          ? `Nobody in the seats — ${racing.heatNumber != null ? `session ${racing.heatNumber}` : "the last group"} is out on ${cap(track)}.`
+                          : `Nobody in the seats yet — send a briefed group over from the ${room} room.`}
+                  </p>
+                )
+              }
+              clock={
+                holding ? (
+                  <Stat
+                    label="In the seats"
+                    value={formatClock(heldMs)}
+                    tone={holdLive ? AMBER : GREEN}
+                  />
+                ) : undefined
+              }
+            />
 
-          {!holdLive && racing?.pittedAtMs != null && outHeat == null && (
-            <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
-              Lane clear — the karts are back in.
-            </p>
-          )}
+            {/* ── IN KARTS ── the stage between the seats and the green flag.
+                Skippable: a group may go straight from Holding to On track, and
+                on a night when nothing fires the pre-message this row simply
+                reads EMPTY all evening. */}
+            <StageRow
+              stage="In karts"
+              badge={kartsBadge}
+              who={
+                karts ? (
+                  <>
+                    <div
+                      style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}
+                    >
+                      <span
+                        className="rc-num"
+                        style={{ fontSize: 20, fontWeight: 800, color: INK }}
+                      >
+                        {karts.heatNumber != null ? `Session ${karts.heatNumber}` : "In the karts"}
+                      </span>
+                      {karts.raceType && (
+                        <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
+                          {karts.raceType}
+                        </span>
+                      )}
+                    </div>
+                    <TotalWait ms={totalWaitMs(calledAtFor, karts.sessionId, null, null, nowMs)} />
+                  </>
+                ) : (
+                  <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
+                    Nobody in the karts.
+                  </p>
+                )
+              }
+              clock={
+                karts ? (
+                  <Stat label="In the karts" value={formatClock(kartsMs)} tone={GREEN} />
+                ) : undefined
+              }
+            />
+
+            {/* ── ON TRACK ── */}
+            <StageRow
+              stage="On track"
+              badge={trackBadge}
+              who={
+                outHeat != null ? (
+                  <>
+                    <div
+                      style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}
+                    >
+                      <span
+                        className="rc-num"
+                        style={{ fontSize: 20, fontWeight: 800, color: INK }}
+                      >
+                        Session {outHeat}
+                      </span>
+                      <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
+                        on {cap(track)} Track
+                      </span>
+                    </div>
+                    {holdLive ? (
+                      <p style={{ fontSize: 11, color: PORTAL_DARK.muted, margin: "1px 0 0" }}>
+                        {overlap
+                          ? `Session ${returningHeat} finished ${formatClock(sinceFinishMs)} ago and its karts are still coming in.`
+                          : `Finished ${formatClock(sinceFinishMs)} ago — the pit board is holding until the karts are in.`}
+                      </p>
+                    ) : (
+                      <TotalWait
+                        ms={totalWaitMs(
+                          calledAtFor,
+                          launched?.sessionId ?? racing?.sessionId ?? null,
+                          null,
+                          racing?.finishedAtMs ?? null,
+                          nowMs,
+                        )}
+                        done={racing?.finishedAtMs != null}
+                      />
+                    )}
+                  </>
+                ) : holdLive ? (
+                  <p style={{ fontSize: 11, color: PORTAL_DARK.muted, margin: 0 }}>
+                    {`Finished ${formatClock(sinceFinishMs)} ago — the pit board is holding until the karts are in.`}
+                  </p>
+                ) : (
+                  <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
+                    Nothing out on {cap(track)}.
+                  </p>
+                )
+              }
+              clock={
+                clockIsOurs && liveClock ? (
+                  <Stat
+                    label={liveClock.state === "paused" ? "Paused at" : "Time left"}
+                    value={formatRemaining(liveClock.remainingMs)}
+                    tone={liveClock.state === "paused" ? AMBER : color}
+                  />
+                ) : undefined
+              }
+              end={
+                holdLive ? (
+                  <ActionButton
+                    tone={AMBER}
+                    textColor="#1a1205"
+                    size="md"
+                    pendingKey={`pitted:${track}`}
+                    pending={pending}
+                    disabled={locked}
+                    pendingLabel="Marking…"
+                    title="The finished race's karts are fully back in the lane — releases the pit board's hold"
+                    onClick={onRaceReturned}
+                  >
+                    ⏎ Race returned
+                  </ActionButton>
+                ) : undefined
+              }
+            />
+          </div>
+
+          {/* THE LANE ITSELF, beside all three rows. Same still-refresh rail as
+              the room cameras, but SLOWER: a dewarped frame comes off a
+              transcode and takes about a second, where a room's raw frame takes
+              a fifth of that. A 2-second preview is honest about that and still
+              shows a group arriving; the full-screen viewer switches to live
+              video, where the dewarp costs nothing because the stream is
+              transcoded anyway. */}
+          <div style={{ flex: "0 0 auto", width: CAM_W, maxWidth: "100%" }}>
+            <HoldingCamera
+              target={holdingCameraFor(room)}
+              label={`${cap(room)} holding`}
+              paused={cameraExpanded}
+              onExpand={onExpandCamera}
+              accent={color}
+            />
+          </div>
         </div>
       )}
     </Panel>
