@@ -349,6 +349,33 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
     if (post) pittedAtMs = Math.max(post.atMs, finishedAtMs);
   }
 
+  /**
+   * THE KARTS ARE BACK, SO THE LANE IS CLEAR (owner 2026-08-14: "62 blue was
+   * posted and wasn't cleared").
+   *
+   * A pitted stamp is a person standing at the pit saying the karts are fully
+   * in. That is a statement that the race is OVER, and a better witness to it
+   * than anything on the wire — so it ends the racing claim on its own, without
+   * waiting for a finish marker to agree.
+   *
+   * It had no such power, and blue 62 showed what that costs. The venue's finish
+   * marker never arrived (the bridge is silent for hours at a time), and the
+   * socket's second opinion had aged out, so `finishedAtMs` was null. Post was
+   * pressed at 11:41:58 and the stamp landed — but every consumer gates on the
+   * finish: `holdLive` needs it, so the desk badge read RACING instead of KARTS
+   * COMING IN and hid its "Race returned" press; `playPostRace` needs it, so the
+   * pit station refused to play post again. A group who had been back in the pit
+   * for minutes sat on two walls as still on track, with no control anywhere in
+   * the building able to clear them.
+   *
+   * A stamp OLDER than the finish it answers is still a stale stamp from the
+   * previous cycle and still does not clear the new hold — that rule is what the
+   * comparison below preserves.
+   */
+  if (pittedAtMs != null && (finishedAtMs == null || pittedAtMs >= finishedAtMs)) {
+    return { ...stagedOut, racing: null };
+  }
+
   // PARKED: a finished race leaves the lane instead of holding it. See
   // KARTS_RETURNING_HOLD. `pitted` still clears it too, so a night that was
   // already mid-flow when this shipped behaves the same.

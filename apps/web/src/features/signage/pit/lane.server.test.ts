@@ -168,6 +168,64 @@ describe("resolveLane — one predicate, two source slots", () => {
     expect(lane.holding?.sessionId).toBe("seated");
   });
 
+  /**
+   * THE STUCK RACE (owner 2026-08-14: "62 blue was posted and wasn't cleared").
+   * A pitted stamp is a person saying the karts are in, which means the race is
+   * over — it must end the racing claim on its own, with or without a finish
+   * marker. Without that, a night when the kart bridge is silent leaves a group
+   * reading RACING on two walls with no control able to clear them.
+   */
+  it("a pitted stamp clears the lane even with no finish marker", async () => {
+    putLane({
+      holding: null,
+      racing: { sessionId: "s62", heatNumber: 62, room: "blue" },
+      pitted: { sessionId: "s62", atMs: 5_000 },
+    });
+    // Deliberately no finish marker and no live heat — the silent-bridge case.
+
+    const lane = await readPitLane("blue");
+
+    expect(lane.racing).toBeNull();
+  });
+
+  it("a pitted stamp clears the lane after a finish it answers", async () => {
+    putLane({
+      holding: null,
+      racing: { sessionId: "s62", heatNumber: 62, room: "blue" },
+      pitted: { sessionId: "s62", atMs: 9_500 },
+    });
+    finishedMarkers.set("s62", 9_000);
+
+    expect((await readPitLane("blue")).racing).toBeNull();
+  });
+
+  it("a STALE pitted stamp does not clear a newer hold", async () => {
+    // The stamp belongs to the previous cycle: older than the finish it would
+    // be releasing, so the hold stands and the group stays on the lane.
+    putLane({
+      holding: null,
+      racing: { sessionId: "s62", heatNumber: 62, room: "blue" },
+      pitted: { sessionId: "s62", atMs: 1_000 },
+    });
+    finishedMarkers.set("s62", 9_000);
+
+    const lane = await readPitLane("blue");
+
+    expect(lane.racing?.sessionId).toBe("s62");
+    expect(lane.racing?.finishedAtMs).toBe(9_000);
+    expect(lane.racing?.pittedAtMs).toBe(1_000);
+  });
+
+  it("a pitted stamp for a DIFFERENT session leaves the racing group alone", async () => {
+    putLane({
+      holding: null,
+      racing: { sessionId: "s62", heatNumber: 62, room: "blue" },
+      pitted: { sessionId: "someone-else", atMs: 9_999 },
+    });
+
+    expect((await readPitLane("blue")).racing?.sessionId).toBe("s62");
+  });
+
   it("resolves a lane written before the karts slot existed", async () => {
     // No `karts` key at all — exactly what is in Redis mid-flow on deploy day.
     putLane({ holding: group("s1", 44), racing: null, pitted: null });

@@ -39,6 +39,16 @@ import { TvShell } from "./TvShell";
 import { BrandedLoader } from "~/features/kiosk/components/BrandedLoader";
 
 const IDENTITY_KEY = "tv_screen_id";
+/**
+ * How long a booted board holds the branded loader waiting for its first feed
+ * before falling through to whatever the default config says.
+ *
+ * Generous, because the case it exists for is a COLD boot — a fresh player
+ * profile, a cleared cache, a slow first poll — and the alternative is house ads
+ * on a pit board. Bounded, because a screen whose feed is genuinely dead should
+ * end up showing something rather than spinning at a wall all night.
+ */
+const FEED_GRACE_MS = 12_000;
 const BUILD_SHA = (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || "dev").slice(0, 8);
 
 export function TvApp({ initialScreenId = null }: { initialScreenId?: string | null } = {}) {
@@ -60,6 +70,12 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
   const [booted, setBooted] = useState(false);
   const [decision, setDecision] = useState<SceneDecision | null>(null);
   const [demo, setDemo] = useState<DemoMode>("off");
+  /**
+   * The bounded end of the wait below. Without it a screen whose feed is down
+   * would spin forever, and a lobby wall is better off playing house ads than
+   * showing a staff-facing loader all evening.
+   */
+  const [feedGraceOver, setFeedGraceOver] = useState(false);
 
   const { offset } = useKioskClock();
   // Fixed at mount; a reload gives the new tab a later value. Stamped in an
@@ -68,6 +84,21 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
   useEffect(() => {
     bootedAtRef.current = Date.now();
   }, []);
+
+  /**
+   * How long a board will hold the branded loader waiting for its first feed
+   * before giving up and rendering whatever the default config says.
+   *
+   * Long enough to cover a cold player profile and a slow first poll — the case
+   * the ads flash actually came from — and short enough that a screen whose feed
+   * is genuinely dead still ends up showing something rather than spinning at a
+   * wall all night.
+   */
+  useEffect(() => {
+    if (!booted) return;
+    const t = setTimeout(() => setFeedGraceOver(true), FEED_GRACE_MS);
+    return () => clearTimeout(t);
+  }, [booted]);
 
   /* ── identity ────────────────────────────────────────────────────────── */
   useEffect(() => {
@@ -224,7 +255,27 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
   const debug =
     typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debug");
 
-  if (!booted) {
+  /**
+   * A RELOADING BOARD SHOWS THE SPIN, NEVER ADS (owner 2026-08-14: "sometimes we
+   * get some weird reloading on the pit assign screen that goes to ads. If any
+   * reload is needed we should use the fasttrax spin reload. never go to ads").
+   *
+   * `booted` only means the screen has worked out WHICH screen it is — it is set
+   * by the identity effect, which knows nothing about the feed. The playlist,
+   * though, comes from `feed.screen.config`, so for the whole window between
+   * those two the resolver was falling back to the venue default and the
+   * director was faithfully rendering it: house ads, on a pit board, on the wall
+   * above the seats. One render on a warm cache, and much longer on a cold one —
+   * a fresh player profile, a cleared cache, a slow first poll — which is
+   * exactly the "sometimes" in the report.
+   *
+   * Ads is what a screen with NOTHING CONFIGURED shows. It is not a stand-in for
+   * a board that simply has not been told what it is yet, so the loader stays up
+   * until the feed answers.
+   */
+  const waitingForConfig = booted && !!screenId && !rawFeed && !feedGraceOver;
+
+  if (!booted || waitingForConfig) {
     // The ground colour, never a flash of white on a wall — plus the same
     // branded loader the kiosk uses, so the gap while a board is coming back
     // (a reboot, a new deploy installing, a screen id being switched) reads as
