@@ -23,8 +23,10 @@ export interface RaceClockTerms {
   heatName: string;
   heatNumber: number | null;
   track: string | null;
-  phase: "running" | "paused" | "finished";
+  phase: "armed" | "running" | "paused" | "finished";
   remainingMs: number | null;
+  clockStartMs: number | null;
+  anchorEstimated: boolean;
   actualStartMs: number | null;
   durationMs: number | null;
   pausedTotalMs: number;
@@ -54,11 +56,16 @@ const REFRESH_MS = 10_000;
 /** Display cadence. The terms do not change between fetches; only `now` does. */
 const TICK_MS = 1000;
 
+/** Mirrors remainingMs() in race-clock.ts — kept in step deliberately, because
+ *  the server value would be up to REFRESH_MS stale between polls. */
 function computeLive(c: RaceClockTerms, nowMs: number): number | null {
   if (c.phase === "finished") return 0;
-  if (c.actualStartMs === null || c.durationMs === null) return null;
+  if (c.durationMs === null) return null;
+  // Armed: staged, karts rolling out, clock not started. Full length, static.
+  if (c.phase === "armed") return c.durationMs;
+  if (c.clockStartMs === null) return null;
   const openPause = c.pausedSinceMs === null ? 0 : nowMs - c.pausedSinceMs;
-  return c.actualStartMs + c.durationMs + c.pausedTotalMs + openPause - nowMs;
+  return c.clockStartMs + c.durationMs + c.pausedTotalMs + openPause - nowMs;
 }
 
 let terms: RaceClockTerms[] = [];

@@ -100,7 +100,11 @@ export interface RaceClockView {
   /** Server's own computation at serverNowMs — the value to show if a client
    *  cannot be trusted to tick (or has a wrong clock). */
   remainingMs: number | null;
-  /** The terms, so a screen can tick locally instead of polling at 1 Hz. */
+  /** The terms, so a screen can tick locally instead of polling at 1 Hz.
+   *  clockStartMs is the GREEN-FLAG anchor (phase two), not actualStartMs —
+   *  see race-clock.ts. actualStartMs is carried for reference only. */
+  clockStartMs: number | null;
+  anchorEstimated: boolean;
   actualStartMs: number | null;
   durationMs: number | null;
   pausedTotalMs: number;
@@ -144,6 +148,8 @@ export async function readRaceClocks(nowMs = Date.now()): Promise<RaceClockSnaps
       track: c.track,
       phase: c.phase,
       remainingMs: remainingMs(c, nowMs),
+      clockStartMs: c.clockStartMs,
+      anchorEstimated: c.anchorEstimated,
       actualStartMs: c.actualStartMs,
       durationMs: c.durationMs,
       pausedTotalMs: c.pausedTotalMs,

@@ -190,15 +190,25 @@ export function useLiveSessionClock(track: TrackKey | null): LiveSessionClock | 
   if (derived.liveRemainingMs === null) return null;
 
   /**
-   * `counting` used to mean "we watched the wire's number go down", a heuristic
-   * for the venue's two-phase start (green flag arms the heat, the clock starts
-   * a beat later). The derived clock does not need to guess: `RaceStart` and
-   * `RaceStop` state it outright, and `ActualStart` proved to BE the true
-   * counting start — validated 2026-08-15 against Red race 58773798, whose
-   * derived clock tracked the desk second for second from the green flag.
+   * `counting` = the race clock is genuinely running, as opposed to armed.
    *
-   * Kept in the shape because the pit board reads it for the staging state and
-   * for the "a RUNNING clock at 00:00 holds" rule.
+   * I got this wrong on the first pass: I claimed `ActualStart` was the true
+   * counting start and mapped counting to "not paused". It is not — the venue
+   * stamps `ActualStart` at the ARM and sends a SECOND `RaceStart` ~76s later
+   * when the clock actually starts (measured off the wire on race 55884963,
+   * 2026-08-15; anchoring on the second start predicts the finish to 1.9s,
+   * anchoring on `ActualStart` is out by 76s). So the countdown ran early on
+   * every heat, exactly as the owner reported.
+   *
+   * The derived clock now models that arm→green transition explicitly, so
+   * `counting` is read from a real state rather than inferred by watching a
+   * number move — which is what the old cloud-socket heuristic did, and what it
+   * could never do once that number stopped moving at all.
+   *
+   * ARMED reports state "running" with counting FALSE and the clock parked at
+   * the full race length — the same shape the old two-phase handling produced,
+   * so ScenePitBoard's staging branch and the "a RUNNING clock at 00:00 holds"
+   * rule both behave as they always did.
    */
   return {
     state: derived.phase === "paused" ? "paused" : "running",
