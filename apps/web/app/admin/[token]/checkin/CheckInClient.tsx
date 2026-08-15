@@ -865,13 +865,19 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
         fontFamily: ADMIN_SANS,
       }}
     >
-      {/* Header */}
+      {/* Header — THIN IN BOARD MODE. Every millimetre here is taken from the
+          bottom of a room column, and this band is read once a shift while the
+          columns are read all night (owner 2026-08-14: "just little more to get
+          it all on the screen… smaller header?"). So on the board the title
+          drops to the size of a label and the build number moves onto its line
+          instead of below it; the plain check-in station keeps the full heading,
+          where there is nothing underneath competing for the space. */}
       <div
-        className="flex items-center justify-between px-6 py-4 border-b"
+        className={`flex items-center justify-between px-6 border-b ${boardMode ? "py-2" : "py-4"}`}
         style={{ borderColor: PORTAL_DARK.border, flexWrap: "wrap", gap: 12 }}
       >
-        <div>
-          <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>
+        <div style={boardMode ? { display: "flex", alignItems: "baseline", gap: 8 } : undefined}>
+          <h1 style={{ fontSize: boardMode ? "1.05rem" : "1.5rem", fontWeight: 700 }}>
             {boardMode ? "Check-In & Race Control" : "Check-In"}
           </h1>
           <p className="text-xs" style={{ color: PORTAL_DARK.muted }}>

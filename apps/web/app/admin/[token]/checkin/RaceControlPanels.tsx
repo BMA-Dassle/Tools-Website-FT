@@ -128,24 +128,16 @@ const DANGER = "#ff4d4f";
 const INK = "#e8eef7";
 
 /**
- * A TEMPORARY MEMO TO THE DESK — added 2026-08-12, delete once the habit sticks.
+ * THE STAFF MEMO IS GONE (owner 2026-08-14) — it was added 2026-08-12 marked
+ * "delete once the habit sticks", and it was the one line on this board that
+ * said so about itself.
  *
- * The order of operations went inside out on the floor: staff were sending the
- * room and starting the film in two presses at the desk, THEN going to fetch the
- * group (owner: "please make sure you send to room before pulling from check in").
- * The ten-second hold on Start (start-hold.ts) buys the walk; this says why, in
- * words, because a pause nobody understands is a pause staff learn to wait out
- * without changing what they do around it.
- *
- * IT LIVES ON THE SEND BUTTON, NOT ACROSS THE TOP OF THE BOARD (owner 2026-08-12:
- * "I don't want as a banner, put somewhere near that button"). A standing banner
- * is read once and becomes wallpaper by the second heat; a line attached to the
- * control is read at the moment it is about to be disobeyed, and it is on screen
- * only while there is actually a session waiting to be sent.
- *
- * Disposable by design — one constant, one line that renders it.
+ * It taught an order of operations: send the room BEFORE fetching the group from
+ * check-in. The ten-second hold on Start (start-hold.ts) enforces the same thing
+ * mechanically and stays, so the lesson survives the sentence. Two days of a
+ * standing amber line above the Send button is what the habit got; a fifth stage
+ * needed the height more.
  */
-const STAFF_MEMO = "Send to the room BEFORE you pull them from check-in.";
 
 /**
  * ONE CAMERA WIDTH FOR EVERY BOX — and it is a WIDTH, not a share.
@@ -379,16 +371,6 @@ export default function RaceControlPanels({
    */
   const megaLaneOwner: BriefingRoom = board?.lanes?.mega?.holding?.room ?? "red";
 
-  /** When each of today's sessions was CALLED, from the briefing log — the
-   *  start of the total-wait clock. Built once per render rather than scanned
-   *  per box: four boxes per column, two columns, every second. */
-  const calledAtBySession = new Map<string, number>();
-  for (const b of board?.briefings ?? []) {
-    if (b.calledAtMs != null) calledAtBySession.set(b.sessionId, b.calledAtMs);
-  }
-  const calledAtFor: CalledAtLookup = (sessionId) =>
-    sessionId ? (calledAtBySession.get(sessionId) ?? null) : null;
-
   return (
     <section
       className="flex flex-col border-t"
@@ -402,22 +384,18 @@ export default function RaceControlPanels({
     >
       <style>{STYLES}</style>
 
+      {/* THE SECTION LABEL IS GONE, THE ROW IS NOT. "Briefing rooms" named a
+          section whose two columns already say RED ROOM and BLUE ROOM directly
+          underneath, one line below a page titled "Check-In & Race Control" — a
+          third naming of the same thing, costing a band of column height that a
+          fifth stage now needs.
+          The row itself stays, at a FIXED height, because it carries the Mega
+          chip and the transient action note. Rendering it only when one of those
+          exists would shift the whole board down every time a note appeared. */}
       <header
         className="flex items-center gap-3"
-        style={{ flexWrap: "wrap", flexShrink: 0, marginBottom: 12 }}
+        style={{ flexWrap: "wrap", flexShrink: 0, marginBottom: 6, minHeight: 18 }}
       >
-        <h2
-          style={{
-            fontSize: 13,
-            fontWeight: 800,
-            letterSpacing: "0.08em",
-            margin: 0,
-            color: PORTAL_DARK.muted,
-            textTransform: "uppercase",
-          }}
-        >
-          Briefing rooms
-        </h2>
         {megaEnabled && (
           <span
             style={{
@@ -532,7 +510,6 @@ export default function RaceControlPanels({
               onRaceReturned={() => control.markPitted(track)}
               hasLaunched={control.hasLaunched}
               noteLaunched={control.noteLaunched}
-              calledAtFor={calledAtFor}
               onSend={() =>
                 control.send({
                   room,
@@ -1107,39 +1084,19 @@ function WaitValue({ stat, against, lead }: { stat: WaitStat; against: WaitStat;
  * fact about the visit and must stop growing, or a finished group's number
  * would keep climbing all night on a board nobody had cleared.
  */
-export type CalledAtLookup = (sessionId: string | null | undefined) => number | null;
-
-function totalWaitMs(
-  calledAtFor: CalledAtLookup,
-  sessionId: string | null | undefined,
-  race: CurrentRace | null,
-  finishedAtMs: number | null,
-  nowMs: number,
-): number | null {
-  if (!sessionId) return null;
-  const logged = calledAtFor(sessionId);
-  const live =
-    race && String(race.sessionId) === sessionId && race.calledAt ? Date.parse(race.calledAt) : NaN;
-  const calledAtMs = logged ?? (Number.isFinite(live) ? live : null);
-  if (calledAtMs == null || !Number.isFinite(calledAtMs)) return null;
-  const end = finishedAtMs ?? nowMs;
-  return Math.max(0, end - calledAtMs);
-}
-
-/** The total, as the boxes render it: a quiet minutes figure that never
- *  competes with the big number it sits under. */
-function TotalWait({ ms, done }: { ms: number | null; done?: boolean }) {
-  if (ms == null) return null;
-  return (
-    <div
-      className="rc-num"
-      style={{ fontSize: 10, color: PORTAL_DARK.muted, marginTop: 1 }}
-      title="Total from when the heat was called to the end of its race"
-    >
-      {Math.floor(ms / 60_000)} min total{done ? "" : " so far"}
-    </div>
-  );
-}
+/**
+ * REMOVED 2026-08-14 (owner: "time so far can go away too"). Every box carried a
+ * "N min total so far" footnote under its session number — five of them once the
+ * rail existed, each costing a line, none of them a number anyone acts on in the
+ * moment. It answers a question about the visit as a whole, which is what the
+ * wait-times rail and the `race_timings` archive are for; the board's job is the
+ * leg in front of you.
+ *
+ * The lookup it needed (called-at, stamped into the briefing event at send time
+ * because Pandora ages its called record out ~20 min later) went with it. That
+ * stamp is still written and still read by the wait-times work — nothing about
+ * the record changed, only this board's rendering of it.
+ */
 
 /* ── one room ──────────────────────────────────────────────────────────── */
 
@@ -1165,7 +1122,6 @@ function RoomColumn({
   onRaceReturned,
   hasLaunched,
   noteLaunched,
-  calledAtFor,
   onSend,
   onStart,
   onUndo,
@@ -1209,9 +1165,6 @@ function RoomColumn({
   /** The station's memory of which sessions it has seen race — see the hook. */
   hasLaunched: (sessionId: string | null | undefined) => boolean;
   noteLaunched: (sessionId: string | null | undefined) => void;
-  /** When each session's heat was CALLED — the start of the total-wait clock.
-   *  From the briefing log, because Pandora ages its called record out. */
-  calledAtFor: CalledAtLookup;
   onSend: () => void;
   onStart: (restart: boolean) => void;
   onUndo: () => void;
@@ -1440,9 +1393,6 @@ function RoomColumn({
                 <div style={{ fontSize: 14, color: PORTAL_DARK.muted, marginTop: 2 }}>
                   {race.raceType}
                 </div>
-                <TotalWait
-                  ms={totalWaitMs(calledAtFor, String(race.sessionId), race, null, nowMs)}
-                />
               </div>
 
               {/* The two numbers that matter before a send. */}
@@ -1540,28 +1490,10 @@ function RoomColumn({
                   style={{
                     marginLeft: "auto",
                     display: "inline-flex",
-                    flexDirection: "column",
-                    alignItems: "flex-end",
+                    alignItems: "center",
                     gap: 4,
                   }}
                 >
-                  {/* THE MEMO, ON THE BUTTON IT IS ABOUT. Temporary — see
-                      STAFF_MEMO. Above rather than below, because it is an
-                      instruction about what to do BEFORE the press. */}
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 5,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      color: AMBER,
-                      textAlign: "right",
-                    }}
-                  >
-                    <IconAlertTriangleFilled size={13} aria-hidden style={{ flexShrink: 0 }} />
-                    {STAFF_MEMO}
-                  </span>
                   <ActionButton
                     tone={occupied ? AMBER : color}
                     outline={occupied}
@@ -1590,14 +1522,11 @@ function RoomColumn({
               )}
             </div>
           </>
-        ) : sentTo && race ? (
-          <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: "2px 0" }}>
-            Session {race.heatNumber} went to the {sentTo} room — waiting on the next call.
-          </p>
         ) : (
-          <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: "2px 0" }}>
-            Nothing called on {cap(track)} Track.
-          </p>
+          /* Nothing called, or the called heat has already gone to a room —
+             either way this box has nobody, and the room box below names
+             whoever left. The dash is the whole answer. */
+          <EmptyStage />
         )}
       </Panel>
 
@@ -1647,8 +1576,6 @@ function RoomColumn({
           pending={pending}
           cameraExpanded={expandedCamera === room}
           onExpandCamera={() => onExpandCamera(room)}
-          calledAtFor={calledAtFor}
-          race={race}
           alert={roomAlert}
           onStart={onStart}
           onUndo={onUndo}
@@ -1669,7 +1596,6 @@ function RoomColumn({
           nowMs={nowMs}
           locked={locked}
           pending={pending}
-          calledAtFor={calledAtFor}
           cameraExpanded={expandedCamera === holdingCameraFor(room)}
           onExpandCamera={() => onExpandCamera(holdingCameraFor(room))}
           onRaceReturned={onRaceReturned}
@@ -1680,6 +1606,27 @@ function RoomColumn({
 }
 
 /* ── out of the room ───────────────────────────────────────────────────── */
+
+/**
+ * AN EMPTY STAGE SAYS SO ONCE (owner 2026-08-14: "is the extra nobody in karts,
+ * nobody in seats needed?").
+ *
+ * It was not. Every empty row carried a sentence — "Nobody in the karts",
+ * "Nobody in the seats — session 60 is out on Red" — sitting beside a badge
+ * already reading EMPTY or FREE, and naming a session the ON TRACK row named
+ * again two lines below. The longest of them wrapped, so the least informative
+ * row on the board was also the tallest.
+ *
+ * The stage label and the badge are the whole statement. This is the same dash
+ * the pit wall's idle list uses for an empty stage, so the two boards read alike.
+ */
+function EmptyStage() {
+  return (
+    <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color: withAlpha(INK, 0.32) }}>
+      —
+    </span>
+  );
+}
 
 /**
  * ONE STAGE OF THE RAIL — one group, one clock, one badge, one row.
@@ -1724,8 +1671,10 @@ function StageRow({
         display: "flex",
         alignItems: "center",
         gap: 12,
-        padding: "7px 0",
-        minHeight: 44,
+        // Tight, because three of these stack. The floor is what an empty row
+        // needs to stay readable as a row rather than a stray line of text.
+        padding: "4px 0",
+        minHeight: 38,
         ...(first ? null : { borderTop: `1px solid ${withAlpha(INK, 0.07)}` }),
       }}
     >
@@ -1814,7 +1763,6 @@ function OutOfRoomPanel({
   nowMs,
   locked,
   pending,
-  calledAtFor,
   cameraExpanded,
   onExpandCamera,
   onRaceReturned,
@@ -1834,7 +1782,6 @@ function OutOfRoomPanel({
   nowMs: number;
   locked: boolean;
   pending: string | null;
-  calledAtFor: CalledAtLookup;
   cameraExpanded: boolean;
   onExpandCamera: () => void;
   onRaceReturned: () => void;
@@ -1887,11 +1834,15 @@ function OutOfRoomPanel({
    * In karts what the KARTS are, On track what the CIRCUIT is. None of them
    * borrows another row's state.
    */
+  // EMPTY, NOT "FREE" (owner 2026-08-14: "why is one free and one empty, use
+  // same terms"). Two rows one line apart described the same fact — nobody is
+  // standing here — in two different words, which reads as two different states
+  // to anyone scanning the rail rather than reading it.
   const holdingBadge = holdLive
     ? { label: "LANE HELD", tone: DANGER }
     : holding
       ? { label: "CLEAR TO SEAT", tone: GREEN }
-      : { label: "FREE", tone: PORTAL_DARK.muted };
+      : { label: "EMPTY", tone: PORTAL_DARK.muted };
 
   // Green, like CLEAR TO SEAT — "they are in and waiting on the flag" is good
   // news of the same kind. Deliberately NOT the room colour: red is one keystroke
@@ -1946,9 +1897,6 @@ function OutOfRoomPanel({
               </span>
             ))}
           </div>
-          <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
-            Nothing out on {cap(track)} Track yet.
-          </p>
         </>
       ) : (
         <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
@@ -1978,29 +1926,14 @@ function OutOfRoomPanel({
                         </span>
                       )}
                     </div>
-                    {/* WHY THEY CANNOT GO YET, on the row it is about. The press
-                        that clears it is two rows down, on the race that raised
-                        the hold. */}
-                    {holdLive ? (
-                      <p style={{ fontSize: 11, color: AMBER, margin: "2px 0 0" }}>
-                        Hold them — karts are still coming into the lane.
-                      </p>
-                    ) : (
-                      <TotalWait
-                        ms={totalWaitMs(calledAtFor, holding.sessionId, null, null, nowMs)}
-                      />
-                    )}
+                    {/* NO PROSE ON AN OCCUPIED ROW. "Hold them — karts are still
+                        coming into the lane" said in a sentence what the LANE
+                        HELD badge beside it, the red flashing border around it,
+                        and the KARTS COMING IN row below it were already all
+                        saying at once. */}
                   </>
                 ) : (
-                  <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
-                    {karts
-                      ? `Seats free — session ${karts.heatNumber ?? "?"} is in the karts.`
-                      : launched
-                        ? `Nobody in the seats — session ${launched.heatNumber} took the green flag and is out on ${cap(track)}.`
-                        : racing
-                          ? `Nobody in the seats — ${racing.heatNumber != null ? `session ${racing.heatNumber}` : "the last group"} is out on ${cap(track)}.`
-                          : `Nobody in the seats yet — send a briefed group over from the ${room} room.`}
-                  </p>
+                  <EmptyStage />
                 )
               }
               clock={
@@ -2039,12 +1972,9 @@ function OutOfRoomPanel({
                         </span>
                       )}
                     </div>
-                    <TotalWait ms={totalWaitMs(calledAtFor, karts.sessionId, null, null, nowMs)} />
                   </>
                 ) : (
-                  <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
-                    Nobody in the karts.
-                  </p>
+                  <EmptyStage />
                 )
               }
               clock={
@@ -2070,37 +2000,21 @@ function OutOfRoomPanel({
                       >
                         Session {outHeat}
                       </span>
-                      <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
-                        on {cap(track)} Track
-                      </span>
                     </div>
                     {holdLive ? (
                       <p style={{ fontSize: 11, color: PORTAL_DARK.muted, margin: "1px 0 0" }}>
                         {overlap
                           ? `Session ${returningHeat} finished ${formatClock(sinceFinishMs)} ago and its karts are still coming in.`
-                          : `Finished ${formatClock(sinceFinishMs)} ago — the pit board is holding until the karts are in.`}
+                          : `Finished ${formatClock(sinceFinishMs)} ago.`}
                       </p>
-                    ) : (
-                      <TotalWait
-                        ms={totalWaitMs(
-                          calledAtFor,
-                          launched?.sessionId ?? racing?.sessionId ?? null,
-                          null,
-                          racing?.finishedAtMs ?? null,
-                          nowMs,
-                        )}
-                        done={racing?.finishedAtMs != null}
-                      />
-                    )}
+                    ) : null}
                   </>
                 ) : holdLive ? (
                   <p style={{ fontSize: 11, color: PORTAL_DARK.muted, margin: 0 }}>
-                    {`Finished ${formatClock(sinceFinishMs)} ago — the pit board is holding until the karts are in.`}
+                    {`Finished ${formatClock(sinceFinishMs)} ago.`}
                   </p>
                 ) : (
-                  <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
-                    Nothing out on {cap(track)}.
-                  </p>
+                  <EmptyStage />
                 )
               }
               clock={
@@ -2170,15 +2084,11 @@ function InRoom({
   onStart,
   onUndo,
   onSendHolding,
-  calledAtFor,
-  race,
 }: {
   room: BriefingRoom;
   color: string;
   state: BriefingRoomState | null;
   timeline: BriefingTimeline;
-  calledAtFor: CalledAtLookup;
-  race: CurrentRace | null;
   nowMs: number;
   locked: boolean;
   pending: string | null;
@@ -2233,9 +2143,7 @@ function InRoom({
           }}
         >
           {phase === "idle" ? (
-            <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: 0 }}>
-              Empty — the TV is showing helmet sizes.
-            </p>
+            <EmptyStage />
           ) : (
             <>
               <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
@@ -2251,7 +2159,6 @@ function InRoom({
                   </span>
                 )}
               </div>
-              <TotalWait ms={totalWaitMs(calledAtFor, state?.sessionId, race, null, nowMs)} />
 
               {phase === "waiting" && (
                 <>
@@ -2327,10 +2234,12 @@ function InRoom({
                       the ten-second hold, and a tier with no film. "TV is holding
                       a take-a-seat board" was true of every send and told nobody
                       anything they could act on. */}
-                  {(holdMs > 0 || !state?.videoUrl) && (
+                  {/* The hold explains itself ON the button, which counts down
+                      in its own face; only the missing-film case survives,
+                      because that one changes what the press will DO. */}
+                  {!state?.videoUrl && (
                     <p style={{ fontSize: 11, color: PORTAL_DARK.muted, margin: 0 }}>
-                      {holdMs > 0 && "Go and walk them over — Start unlocks in a moment."}
-                      {!state?.videoUrl && " No film for this tier — Start skips to helmet sizes."}
+                      No film for this tier — Start skips to helmet sizes.
                     </p>
                   )}
                 </>
@@ -2365,7 +2274,7 @@ function InRoom({
                       <Stat
                         label="Helmets"
                         value={formatClock(Math.max(0, waitingSinceFilmMs))}
-                        unit="since the film ended — send them when ready"
+                        unit="since the film ended"
                         big
                         tone={color}
                       />
@@ -2419,9 +2328,15 @@ function InRoom({
                         flexWrap: "wrap",
                       }}
                     >
+                      {/* JUST THE NUMBER. "then helmet sizes, then send them
+                          out" narrated a sequence the two controls beside it
+                          already describe, and it was long enough to push those
+                          controls onto a line of their own — a whole row of
+                          column height spent on a sentence that is wallpaper by
+                          the second heat of a shift. */}
                       {phase === "video" && timeline.videoMs > 0 && (
                         <span className="rc-num" style={{ fontSize: 10, color: PORTAL_DARK.muted }}>
-                          {Math.round(pct)}% · then helmet sizes, then send them out
+                          {Math.round(pct)}%
                         </span>
                       )}
                       <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
