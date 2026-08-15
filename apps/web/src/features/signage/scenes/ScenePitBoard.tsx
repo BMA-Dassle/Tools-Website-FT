@@ -502,8 +502,25 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
             style={{
               marginLeft: 44,
               minWidth: 0,
-              overflow: "hidden",
-              // Small, because the line boxes below now contain their own ink.
+              /**
+               * CLIP HORIZONTALLY, NEVER VERTICALLY.
+               *
+               * The box exists to stop a long race type spilling through the
+               * FastTrax mark — a HORIZONTAL problem. `overflow: hidden` clips
+               * both axes, so it also sliced the top and bottom off the session
+               * number, which I then chased three times with padding and
+               * line-height (owner reported it cut off on Session 1, 23 and 17).
+               * Padding cannot win that fight: an italic 800 face puts ink
+               * outside its line box by design, and a clip cannot tell ink from
+               * layout.
+               *
+               * `overflow-x: clip` with `overflow-y: visible` is the one
+               * combination that does exactly this — unlike `hidden`, `clip`
+               * does not force the other axis to auto. Chromium, which is what
+               * the walls run.
+               */
+              overflowX: "clip",
+              overflowY: "visible",
               paddingTop: 2,
               paddingBottom: 4,
             }}
