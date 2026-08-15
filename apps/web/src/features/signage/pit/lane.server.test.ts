@@ -104,14 +104,19 @@ beforeEach(() => {
 describe("resolveLane — one predicate, two source slots", () => {
   for (const slot of ["holding", "karts"] as const) {
     describe(`from ${slot}`, () => {
-      it("promotes on the venue's finish marker", async () => {
+      it("moves straight to the PIT when the finish marker is the witness", async () => {
+        // The marker proves they went out — you cannot finish without it — but
+        // it equally proves they are back. Leaving them in `racing` pinned them
+        // there permanently, because resolve does not persist and the next read
+        // recomputed the identical result (Red 12, 2026-08-15).
         putLane({ [slot]: group("s1", 44), racing: null, pitted: null });
         finishedMarkers.set("s1", 9_000);
 
         const lane = await readPitLane("blue");
 
-        expect(lane.racing?.sessionId).toBe("s1");
-        expect(lane.racing?.heatNumber).toBe(44);
+        expect(lane.racing).toBeNull();
+        expect(lane.pitIn?.sessionId).toBe("s1");
+        expect(lane.pitIn?.heatNumber).toBe(44);
         expect(lane.holding).toBeNull();
         expect(lane.karts).toBeNull();
       });
@@ -159,6 +164,47 @@ describe("resolveLane — one predicate, two source slots", () => {
     });
   }
 
+  /**
+   * THE RED 12 SHAPE, off the live lane 2026-08-15.
+   *
+   * stored: racing = 11 (finished), holding = 12 (also finished, already
+   * pitted). One pass used to run step 1 against 11, move it to the pit, then
+   * promote 12 into `racing` on its own finish marker — with step 1 already
+   * spent for the pass. Resolve does not persist, so every later read rebuilt
+   * the identical result from the identical stored state and 12 showed "on
+   * track" indefinitely. It had to be cleared out of Redis by hand.
+   */
+  it("does not pin a group that finished before it was ever promoted", async () => {
+    putLane({
+      holding: group("s12", 12),
+      racing: group("s11", 11),
+      pitted: { sessionId: "s12", atMs: 5_000 },
+    });
+    finishedMarkers.set("s11", 9_000);
+    finishedMarkers.set("s12", 9_500);
+    postCues.add("s11"); // 11's post played, which frees the pit slot
+
+    const lane = await readPitLane("blue");
+
+    expect(lane.racing).toBeNull();
+    expect(lane.holding).toBeNull();
+    expect(lane.karts).toBeNull();
+    // 12 was already pitted, so its slot is spent too — the lane is idle.
+    expect(lane.pitIn).toBeNull();
+  });
+
+  it("still holds a finished group in the pit when its post is owed", async () => {
+    // The other half of the rule: settling must not silently discard a group
+    // that has not been announced yet.
+    putLane({ holding: group("s12", 12), racing: null, pitted: null });
+    finishedMarkers.set("s12", 9_500);
+
+    const lane = await readPitLane("blue");
+
+    expect(lane.racing).toBeNull();
+    expect(lane.pitIn?.sessionId).toBe("s12");
+  });
+
   it("promotes the karts group, not the seats, when both are filled", async () => {
     putLane({
       holding: group("seated", 45, 2_000),
@@ -171,8 +217,11 @@ describe("resolveLane — one predicate, two source slots", () => {
 
     const lane = await readPitLane("blue");
 
-    // Karts is the later stage, so it is the group closer to the flag.
-    expect(lane.racing?.sessionId).toBe("inkarts");
+    // Karts is the later stage, so it is the group closer to the flag — and
+    // since its race has already finished it settles into the pit rather than
+    // being pinned in `racing`.
+    expect(lane.pitIn?.sessionId).toBe("inkarts");
+    expect(lane.racing).toBeNull();
     // And the group behind them is untouched — they have not raced.
     expect(lane.holding?.sessionId).toBe("seated");
   });
@@ -464,9 +513,11 @@ describe("overrideLaneSlot — karts", () => {
    * landed, and the session returned — for as long as anyone kept pressing.
    */
   it("clearing racing also clears the staged slot that derives it", async () => {
-    // Stored as holding; a finish marker means every read resolves it to racing.
+    // Stored as holding; the socket showing heat 62 on track means every read
+    // resolves it to racing. (Deliberately NOT a finish marker — that now says
+    // the race is over and settles them into the pit instead.)
     putLane({ holding: group("s62", 62), racing: null, pitted: null });
-    finishedMarkers.set("s62", 9_000);
+    putLiveHeat(62, "running");
     expect((await readPitLane("blue")).racing?.sessionId).toBe("s62");
 
     const result = await overrideLaneSlot({ track: "blue", slot: "racing", occupant: null });
@@ -480,7 +531,7 @@ describe("overrideLaneSlot — karts", () => {
 
   it("clearing racing also clears it out of the karts slot", async () => {
     putLane({ holding: null, karts: group("s62", 62), racing: null, pitted: null });
-    finishedMarkers.set("s62", 9_000);
+    putLiveHeat(62, "running");
     expect((await readPitLane("blue")).racing?.sessionId).toBe("s62");
 
     await overrideLaneSlot({ track: "blue", slot: "racing", occupant: null });

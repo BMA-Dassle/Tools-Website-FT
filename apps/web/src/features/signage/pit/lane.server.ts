@@ -275,6 +275,27 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
   const live = await readLiveHeat(track);
 
   /**
+   * A PIT SLOT THAT HAS BEEN ANSWERED IS SPENT — step 3, as a helper, because it
+   * has to run at TWO points in the pass.
+   *
+   * It used to run only at the end, which meant the slot still looked occupied
+   * while the promotion below was deciding what to do, and a group that had
+   * already finished had nowhere to settle. Running it first frees the slot the
+   * moment the previous group's post lands; running it again afterwards catches
+   * whoever just moved in.
+   *
+   * "Answered" is the pitted press or the post cue's own stamp, both session-
+   * keyed. No time comparison: a session occupies the pit once, so a stamp
+   * bearing its id can only be about this stage.
+   */
+  const clearAnsweredPitIn = async (): Promise<void> => {
+    if (!pitIn) return;
+    const pittedHere = stored.pitted?.sessionId === pitIn.sessionId;
+    const post = pittedHere ? null : await readCueStamp("post", pitIn.sessionId).catch(() => null);
+    if (pittedHere || post) pitIn = null;
+  };
+
+  /**
    * ── 1. THE CHEQUERED FLAG PUTS A RACE INTO THE PIT ──────────────────────
    *
    * On track means ON TRACK now (owner 2026-08-15). A group whose race has
@@ -339,6 +360,9 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
    * Karts wins when both are filled: it is the later stage, so it is the group
    * closer to the flag.
    */
+  // Free a spent pit slot before deciding the promotion — see the helper.
+  await clearAnsweredPitIn();
+
   const staged = karts ?? holding;
   if (staged) {
     // HOLDING PERSISTS THROUGH THE RACE (owner 2026-08-13: "our session follows
@@ -377,6 +401,40 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
       // the normal shape of a busy night rather than an edge case.
       if (holding?.sessionId === staged.sessionId) holding = null;
       if (karts?.sessionId === staged.sessionId) karts = null;
+
+      /**
+       * A GROUP PROMOTED ON ITS OWN FINISH IS NOT RACING — IT IS BACK.
+       *
+       * `finished` is one of the two witnesses this promotion accepts, and it is
+       * the strongest: you cannot finish without having gone out. But it also
+       * says the race is OVER, and step 1 — the only thing that moves a finished
+       * race into the pit — has already run for this pass. Without this, such a
+       * group lands in `racing` and stays there: resolve does not persist, so
+       * every later read recomputes the same result from the same stored state
+       * and pins them permanently (Red 12 sat "on track" after finishing,
+       * 2026-08-15; Red 10 the same afternoon).
+       *
+       * Settling it here rather than looping the whole resolve keeps the pass
+       * single and cheap, and a group can only cross this line once.
+       *
+       * The pit slot is only taken if it is FREE. When an earlier group is still
+       * in it owing a post, that group is the one staff are working on, and
+       * overwriting it would destroy the only record that its post is owed —
+       * exactly the bug the succession block above exists to prevent. Leaving
+       * this group in `racing` for now is the lesser wrong, and it settles on the
+       * read after that pit slot clears.
+       */
+      if (finished != null && pitIn == null) {
+        pitIn = {
+          sessionId: racing.sessionId,
+          heatNumber: racing.heatNumber,
+          raceType: null,
+          room: racing.room,
+          finishedAtMs: finished.endedAtMs ?? null,
+          atMs: finished.endedAtMs ?? Date.now(),
+        };
+        racing = null;
+      }
     }
   }
 
@@ -394,11 +452,7 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
    * release the next group's hold. A session only ever occupies `pitIn` once, so
    * a stamp bearing its id can only be about this stage.
    */
-  if (pitIn) {
-    const pittedHere = stored.pitted?.sessionId === pitIn.sessionId;
-    const post = pittedHere ? null : await readCueStamp("post", pitIn.sessionId).catch(() => null);
-    if (pittedHere || post) pitIn = null;
-  }
+  await clearAnsweredPitIn();
 
   return {
     holding: holding
