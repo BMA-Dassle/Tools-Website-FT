@@ -418,6 +418,23 @@ async function maybePlayStaySeated(track: TrackKey, lane: PitLaneFeed): Promise<
   if (claimed !== "OK") return;
   const busy = await paBusy(track);
   if (busy.busy) return;
+  /**
+   * THE CLAIM-TO-SOUND WINDOW. A pre/post press writes its stamp BEFORE the
+   * player answers (~a second), so a stamp the zone does not sound yet means
+   * an announcement is starting RIGHT NOW — and a loop play landing after it
+   * would supersede it (one clip per zone). Post is checked by existence, not
+   * age: POST ENDS THE LOOP, full stop (owner 2026-08-15: "It should not
+   * resume playing if post completes") — belt to the lane's braces, for reads
+   * that catch the lane mid-update. Pre only guards its own sounding window,
+   * because the loop legitimately resumes after a pre if post is still owed.
+   */
+  const staged = lane.holding ?? lane.karts;
+  const [post, pre] = await Promise.all([
+    readCueStamp("post", pitIn.sessionId),
+    staged ? readCueStamp("pre", staged.sessionId) : Promise.resolve(null),
+  ]);
+  if (post) return;
+  if (pre && Date.now() - pre.atMs < ((pre.durationS ?? 60) + 10) * 1000) return;
   await playQsysCue(track, "stay-seated");
 }
 
