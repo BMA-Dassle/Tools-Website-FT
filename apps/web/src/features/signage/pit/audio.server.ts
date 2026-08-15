@@ -90,6 +90,20 @@ function clipLengthKey(clip: QsysClip): string {
 }
 const CLIP_LEN_TTL_SECONDS = 30 * 24 * 3600;
 
+/**
+ * "A birthday is starting or sounding on this track" — the stay-seated loop's
+ * only way to know, since the birthday press keeps no stamp (playBirthday
+ * explains why). Declared up here with the other key helpers because
+ * maybePlayStaySeated, further down, reads it.
+ */
+function birthdaySoundingKey(track: TrackKey): string {
+  return `pit:audio:birthday:${track}`;
+}
+/** Held only until the player reports the real length — long enough to cover
+ *  a clip nobody has measured, short enough to be self-clearing. */
+const BIRTHDAY_GUARD_MAX_S = 45;
+const BIRTHDAY_GUARD_SLACK_S = 5;
+
 export interface ClipLengths {
   pre: number | null;
   post: number | null;
@@ -435,6 +449,14 @@ async function maybePlayStaySeated(track: TrackKey, lane: PitLaneFeed): Promise<
   ]);
   if (post) return;
   if (pre && Date.now() - pre.atMs < ((pre.durationS ?? 60) + 10) * 1000) return;
+  /**
+   * THE BIRTHDAY HAS NO STAMP TO CHECK — it is repeatable by design, so the
+   * guard above has nothing to read for it. Its press leaves this marker
+   * instead, for exactly the window the comment above describes: the loop must
+   * not supersede a birthday that is starting or sounding. A marker, not a
+   * claim — it never gates a press, only this loop.
+   */
+  if (await redis.exists(birthdaySoundingKey(track)).catch(() => 0)) return;
   await playQsysCue(track, "stay-seated");
 }
 
@@ -605,9 +627,26 @@ export async function playBirthday(track: TrackKey): Promise<PlayCueResult> {
   const busy = await paBusy(track);
   if (busy.busy) return { ok: false, error: busy.error };
 
+  /**
+   * SET BEFORE THE PLAY, because the window it covers OPENS before the player
+   * answers — the same claim-to-sound race maybePlayStaySeated guards pre and
+   * post against by their stamps. A conservative TTL first, narrowed to the
+   * real clip length once the player reports it, and dropped when the play
+   * never happened. Every write is best-effort: a Redis blip must cost the
+   * loop's manners, never the announcement.
+   */
+  const marker = birthdaySoundingKey(track);
+  await redis.set(marker, "1", "EX", BIRTHDAY_GUARD_MAX_S).catch(() => void 0);
+
   const play = await playQsysCue(track, "birthday");
   if (!play.ok) {
+    await redis.del(marker).catch(() => void 0);
     return { ok: false, error: play.error ?? "the PA did not start the birthday clip" };
+  }
+  if (play.durationS != null) {
+    await redis
+      .set(marker, "1", "EX", Math.ceil(play.durationS) + BIRTHDAY_GUARD_SLACK_S)
+      .catch(() => void 0);
   }
   return { ok: true, atMs: Date.now() };
 }
