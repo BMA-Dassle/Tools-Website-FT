@@ -198,8 +198,29 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
     rawFeed.raceCheckin.sessionId != null &&
     rawFeed.raceCheckin.briefedAtMs == null;
 
-  /** Hold a reload while guests are depending on what is on this screen. */
-  const holdReloads = briefingActive || checkinActive;
+  /**
+   * Hold a reload while guests are depending on WHAT IS ON THIS SCREEN.
+   *
+   * SCOPED TO THE SCENE ACTUALLY SHOWING (owner 2026-08-15: "pit boards need to
+   * auto reload new version"). Both conditions above are venue-wide facts — a
+   * room is briefing, a heat is checking in — and applying them to every screen
+   * meant the PIT BOARD inherited a hold that has nothing to do with it. During
+   * trading hours one of those is nearly always true, so the pit walls never
+   * reached a safe moment and simply never picked up a deploy: they were running
+   * whatever build was live the last time someone power-cycled them.
+   *
+   * The hold only protects a scene a GUEST is reading and depending on — the
+   * check-in board they are scanning at, the briefing room they are sat in. The
+   * pit board is a staff instrument showing pure server state; a reload repaints
+   * the identical session and roster a second later, so there is nothing to
+   * protect it from. Same for the camera monitor and the ad loop.
+   *
+   * An interrupt (celebration, VIP welcome) is still never cut short — that is
+   * the `isInterrupt` half of safeToReload, and it is orthogonal to this.
+   */
+  const activeScene = decision?.scene ?? null;
+  const sceneGuestsDependOn = activeScene === "race-checkin" || activeScene === "briefing";
+  const holdReloads = sceneGuestsDependOn && (briefingActive || checkinActive);
 
   // Staff asked the screens to reload. Obey it once, only for a request made
   // AFTER this tab booted — otherwise a day-old stamp would reload every screen
