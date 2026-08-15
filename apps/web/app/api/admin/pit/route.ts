@@ -67,10 +67,25 @@ export async function GET(req: NextRequest) {
   if (!authed(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const lanes = await readPitLanes();
+  /**
+   * EVERY SLOT, because the client reads stamps for every slot.
+   *
+   * This collected only `holding` and `racing`, from before the lane grew its
+   * other two stages. The client resolves the staged group as
+   * `holding ?? karts` and the returning group as `pitIn` — so a group sitting
+   * IN KARTS had no entry in `audio` at all, its pre stamp came back undefined,
+   * and the station offered "Play pre-race" for a cue that had already played
+   * (owner 2026-08-15: Red 17 showed pre-done on the wall and still-due here).
+   * The wall was right: it reads the stamp directly.
+   *
+   * `pitIn` had the same hole, which is the post half of the same bug.
+   */
   const sessionIds = new Set<string>();
   for (const lane of Object.values(lanes)) {
     if (lane.holding?.sessionId) sessionIds.add(lane.holding.sessionId);
+    if (lane.karts?.sessionId) sessionIds.add(lane.karts.sessionId);
     if (lane.racing?.sessionId) sessionIds.add(lane.racing.sessionId);
+    if (lane.pitIn?.sessionId) sessionIds.add(lane.pitIn.sessionId);
   }
   const audio: Record<string, PitCueStamps> = {};
   const postGate: Record<TrackKey, PostRaceGate | null> = { blue: null, red: null, mega: null };
