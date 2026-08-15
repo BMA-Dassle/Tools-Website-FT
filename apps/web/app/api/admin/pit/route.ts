@@ -7,7 +7,7 @@ import {
   readCueStamps,
 } from "~/features/signage/pit/audio.server";
 import { readPitLanes } from "~/features/signage/pit/lane.server";
-import { readQsysLive } from "~/features/signage/pit/qsys.server";
+import { PANDORA_QSYS_SOCKET_URL, readQsysLive } from "~/features/signage/pit/qsys.server";
 import type { PitCueStamps, PostRaceGate } from "~/features/signage/pit/audio.server";
 import type { QsysLiveState } from "~/features/signage/pit/qsys.server";
 import type { PitLanes } from "~/features/signage/pit/pit-board";
@@ -50,9 +50,11 @@ export interface PitBoardResponse {
    *  prefers the direct feed, 2026-08-14). Null when Pandora can't be read;
    *  the controls stand without it. */
   qsys: QsysLiveState | null;
-  /** The Core's own push feed for the tablet to connect to directly
-   *  (ws://<core>:8001/ws) — venue LAN address, server env so changing it is
-   *  never a rebuild. Null until PIT_QSYS_SOCKET_URL is set. */
+  /** The push feed the tablet binds to. Defaults to PANDORA'S WSS RELAY of
+   *  the Core's feed (no auth, works from an https page with no tablet
+   *  settings); PIT_QSYS_SOCKET_URL overrides it — e.g. ws://<core>:8001/ws
+   *  for a LAN tablet pointed straight at the Core (that path needs the
+   *  per-site mixed-content allowance). Server env, so never a rebuild. */
   socketUrl: string | null;
   /** May post-race play right now, per track — the SAME verdict the press
    *  will get (audio.server.ts postRaceGate), shipped so the button can say
@@ -90,7 +92,7 @@ export async function GET(req: NextRequest) {
     lanes,
     audio,
     qsys,
-    socketUrl: process.env.PIT_QSYS_SOCKET_URL || null,
+    socketUrl: process.env.PIT_QSYS_SOCKET_URL || PANDORA_QSYS_SOCKET_URL,
     postGate,
   };
   return NextResponse.json(body, { headers: { "Cache-Control": "no-store" } });

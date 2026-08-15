@@ -25,17 +25,20 @@
  * thing that fires audio is a press on this page.
  *
  * THE COUNTDOWN'S SOURCES, in preference order (owner 2026-08-14: "Dont use
- * cache I would prefer websocket"):
+ * cache I would prefer websocket", then "bind to the Pandora websocket"):
  *
- *   1. The Core's own push feed, ws://<core>:8001/ws, connected DIRECTLY
- *      from this tablet (docs/qsys-audio-websocket.md) — ~10 frames/second
- *      while a clip plays. The address arrives on the board poll
- *      (PIT_QSYS_SOCKET_URL, server env — never a rebuild). NOTE: an https
- *      page also needs the tablet's per-site "insecure content: allow" for
- *      ws:// — CSP permits it, the browser's mixed-content rule is the
- *      second lock.
- *   2. Pandora's cached copy of the same feed, riding the 5s board poll —
- *      the automatic fallback while the socket is down or unconfigured.
+ *   1. PANDORA'S WSS RELAY of the Core's push feed (docs/
+ *      qsys-audio-websocket.md § Connecting through Pandora) — the Core's
+ *      frames verbatim, ~10/second while a clip plays, no auth, and wss so
+ *      an https page needs no tablet settings. Pandora adds a synthetic
+ *      hello carrying upstreamConnected, and {type:"upstream", connected}
+ *      frames when ITS link to the Core drops/returns — while that link is
+ *      down the last state is stale, and the chip says so. The URL arrives
+ *      on the board poll; PIT_QSYS_SOCKET_URL overrides it for a LAN tablet
+ *      pointed straight at the Core (ws:// — that path DOES need the
+ *      per-site mixed-content allowance).
+ *   2. Pandora's polled cache of the same feed, riding the 5s board poll —
+ *      the automatic fallback while the socket is down.
  *   3. The stamp's own clock: we know when WE started a cue and how long
  *      the player said it runs, so the bar can count without either feed.
  *      This is also what stops the bar snapping to 100% in the seconds
@@ -186,20 +189,31 @@ function clockTimeMs(ms: number): string {
 
 interface QsysSocket {
   connected: boolean;
+  /** Pandora's own link to the Core, from the relay's hello/upstream frames.
+   *  Always true on a direct-Core connection (no such frames). While false,
+   *  the last state is the state before the venue link dropped — stale. */
+  upstream: boolean;
   zones: QsysZone[] | null;
   /** When the newest state frame landed — the interpolation anchor. */
   atMs: number;
 }
 
 /**
- * A direct connection to the Core's feed, per the wire doc's client
- * guidance: reconnect forever with exponential backoff (1s doubling to a
- * 60s cap), nothing to send on connect, and NEVER infer disconnection from
- * silence — the feed is quiet while every zone is idle. Frames arrive
- * ~10x/second only while a clip plays, so the setState rate is fine.
+ * The push feed, per the wire doc's client guidance: reconnect forever with
+ * exponential backoff (1s doubling to a 60s cap), nothing to send on
+ * connect, and NEVER infer disconnection from silence — the feed is quiet
+ * while every zone is idle. Works against both the Pandora relay (default;
+ * relay-only hello/upstream frames handled below) and the Core directly
+ * (the env override); frames Pandora relays are the Core's verbatim.
+ * ~10 frames/second only while a clip plays, so the setState rate is fine.
  */
 function useQsysSocket(url: string | null): QsysSocket {
-  const [state, setState] = useState<QsysSocket>({ connected: false, zones: null, atMs: 0 });
+  const [state, setState] = useState<QsysSocket>({
+    connected: false,
+    upstream: true,
+    zones: null,
+    atMs: 0,
+  });
 
   useEffect(() => {
     if (!url) return;
@@ -230,12 +244,31 @@ function useQsysSocket(url: string | null): QsysSocket {
       };
       ws.onmessage = (e) => {
         try {
-          const msg = JSON.parse(String(e.data)) as { type?: string; zones?: QsysZone[] };
-          // hello/event frames carry nothing the state pushes don't; unknown
-          // types are ignored by instruction of the wire doc.
+          const msg = JSON.parse(String(e.data)) as {
+            type?: string;
+            zones?: QsysZone[];
+            connected?: boolean;
+            upstreamConnected?: boolean;
+          };
           if (msg.type === "state" && Array.isArray(msg.zones)) {
-            setState({ connected: true, zones: msg.zones, atMs: Date.now() });
+            setState((s) => ({
+              ...s,
+              connected: true,
+              zones: msg.zones ?? null,
+              atMs: Date.now(),
+            }));
+          } else if (msg.type === "hello" && typeof msg.upstreamConnected === "boolean") {
+            // The relay's synthetic hello — the Core's own hello carries no
+            // such field and leaves upstream at its default true.
+            setState((s) => ({ ...s, connected: true, upstream: msg.upstreamConnected === true }));
+          } else if (msg.type === "upstream" && typeof msg.connected === "boolean") {
+            // Pandora's link to the Core dropped or returned. While down, no
+            // state frames arrive — the last state is stale, and fresh state
+            // follows the reconnect on its own.
+            setState((s) => ({ ...s, upstream: msg.connected === true }));
           }
+          // event frames carry nothing the state pushes don't; unknown types
+          // are ignored by instruction of the wire doc.
         } catch {
           /* a bad frame is not a bad socket */
         }
@@ -292,6 +325,10 @@ interface LiveTiming {
 
 function liveTimingAt(zone: QsysZone | null, anchorMs: number, nowMs: number): LiveTiming | null {
   if (!zone?.playing) return null;
+  // A cue runs well under two minutes: a "playing" report older than that is
+  // a stale frame from a dropped feed (upstream down, poll cache frozen),
+  // not a clip — and a bar that runs forever teaches staff to ignore it.
+  if (nowMs - anchorMs > 120_000) return null;
   const t = zone.timing;
   const sinceS = Math.max(0, (nowMs - anchorMs) / 1000);
   const remainingS = typeof t.remaining === "number" ? Math.max(0, t.remaining - sinceS) : null;
@@ -405,18 +442,21 @@ export default function PitClient({ token, version }: { token: string; version: 
   const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
   const tracks: TrackKey[] = megaEnabled ? ["mega"] : ["blue", "red"];
 
-  // The PA feed's health, said quietly: LIVE when this tablet holds the
-  // Core's socket, VIA POLL while it's on Pandora's cached copy, and amber
-  // only when there is no feed at all.
+  // The PA feed's health, said quietly: LIVE when the socket is up end to
+  // end, a named amber when Pandora is up but the VENUE's link to the Core
+  // is down (the relay tells us — last state is stale), VIA POLL while the
+  // socket itself is down, and amber only when there is no feed at all.
   const hasPoll = board?.data.qsys != null;
   const paChip =
     board == null
       ? null
-      : socket.connected
+      : socket.connected && socket.upstream
         ? { label: "PA LIVE", tone: GREEN }
-        : hasPoll
-          ? { label: "PA VIA POLL", tone: PORTAL_DARK.muted }
-          : { label: "PA FEED UNAVAILABLE", tone: AMBER };
+        : socket.connected
+          ? { label: "PA LINK DOWN AT VENUE", tone: AMBER }
+          : hasPoll
+            ? { label: "PA VIA POLL", tone: PORTAL_DARK.muted }
+            : { label: "PA FEED UNAVAILABLE", tone: AMBER };
 
   return (
     <div

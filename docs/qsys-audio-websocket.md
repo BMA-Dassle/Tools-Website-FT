@@ -1,11 +1,14 @@
 # Q-SYS Audio WebSocket
 
-Wire protocol reference for the live push feed of the Q-SYS **Pre/Post Race audio player**. Read this if you are building a client that connects to the feed directly (scoreboard, pit display, kiosk) instead of polling through Pandora.
+Wire protocol reference for the live push feed of the Q-SYS **Pre/Post Race audio player**. Read this if you are building a client that consumes the feed (scoreboard, pit display, kiosk). Clients on the Core's LAN connect to the Core directly; remote clients get the same feed relayed through Pandora's own WebSocket endpoint — see [Connecting through Pandora](#connecting-through-pandora).
 
-> Copied verbatim from Pandora's docs (owner, 2026-08-14). Our consumer is
-> `apps/web/src/features/signage/pit/qsys.server.ts`, which goes through
-> Pandora's authenticated proxy rather than the LAN socket — see
-> "If you can't reach the Core directly" below.
+> Copied verbatim from Pandora's docs (owner, 2026-08-14; relay revision same
+> day). Our consumers: the pit station's tablet binds to the **Pandora relay**
+> by default (`apps/web/app/admin/[token]/pit/PitClient.tsx`, URL built in
+> `apps/web/src/features/signage/pit/qsys.server.ts`; `PIT_QSYS_SOCKET_URL`
+> overrides for a LAN direct-to-Core connection), and the server-side play
+> press goes through Pandora's HTTP proxy (`qsys.server.ts`). FastTrax's
+> `{locationID}` is the Square location `LAB52GY480CJF`.
 
 ## The device
 
@@ -150,23 +153,33 @@ Lifecycle names:
 - **Don't infer disconnection from silence.** The feed is silent while every zone is idle.
 - **Treat display strings as display strings.** `state`, `label`, `lastSource`, and the `*Text` fields are for humans; drive behavior off `playing`, `wired`, and the numeric timing fields.
 
-## If you can't reach the Core directly
+## Connecting through Pandora
 
-Pandora holds its own connection to this feed and re-serves the cached state over authenticated HTTPS:
+If the client can't reach the Core's LAN, Pandora relays this same feed:
 
 ```
-GET /api/v2/qsys/audio/live/{locationID}
+wss://<pandora-host>/v2/qsys/audio/ws/{locationID}
+```
+
+- **No authentication** — the feed is read-only telemetry, so the WebSocket endpoint is open. (Pandora's HTTP endpoints still require the bearer token.)
+- `{locationID}` is the Square location ID — Pandora resolves the Core address from it, exactly like the HTTP endpoints. An unknown `locationID` rejects the upgrade with HTTP 400; any other path with 404.
+- Frames are relayed **verbatim**, so everything above applies unchanged. Three Pandora-specific additions:
+  - On connect you receive a synthetic `{ "type": "hello", "source": "pandora", "address": "...", "upstreamConnected": true|false }` followed by a `state` frame from Pandora's cache — you're warm immediately, without waiting on the Core.
+  - `{ "type": "upstream", "connected": false }` arrives when Pandora's own link to the Core drops, and `{ "type": "upstream", "connected": true }` when it returns (followed by the Core's relayed hello and fresh state). While the upstream is down, no state frames arrive — treat your last state as stale.
+  - Past events are **not replayed** on connect. For event history, use the polling endpoint below.
+- Pandora pings every 30 s and drops clients that don't pong. Browsers and every mainstream WebSocket library answer pings automatically — nothing to implement.
+
+### Polling alternative
+
+The same cache is available over plain HTTPS:
+
+```
+GET /v2/qsys/audio/live/{locationID}
 ```
 
 The response adds two things that are **not** part of the wire protocol: `connected` (Pandora's socket state — while `false`, zones are the last state before the drop) and a `receivedAt` timestamp on each event, stamped by Pandora on arrival. Pandora keeps the 25 most recent events, oldest first.
 
-Pandora also proxies the device HTTP API with validation and consistent error mapping: `POST /api/v2/qsys/audio/play`, `POST /api/v2/qsys/audio/stop`, `GET /api/v2/qsys/audio/status/{locationID}`, `GET /api/v2/qsys/audio/remaining/{locationID}`, `GET /api/v2/qsys/audio/clips/{locationID}`. See `/api-docs` for schemas.
-
-> NOTE for this repo: Pandora's public base is
-> `https://bma-pandora-api.azurewebsites.net/v2` (per its swagger `servers`
-> entry and every existing Pandora call here), so the paths above resolve to
-> `/v2/qsys/audio/...`. Bearer auth with `SWAGGER_ADMIN_KEY`. The
-> `locationID` is the **Square** location id — FastTrax is `LAB52GY480CJF`.
+Pandora also proxies the device HTTP API with validation and consistent error mapping: `POST /v2/qsys/audio/play`, `POST /v2/qsys/audio/stop`, `GET /v2/qsys/audio/status/{locationID}`, `GET /v2/qsys/audio/remaining/{locationID}`, `GET /v2/qsys/audio/clips/{locationID}`. See `/api-docs` for schemas.
 
 ## The device HTTP API (same listener)
 
@@ -186,4 +199,4 @@ HTTP errors: `400` = unknown zone/clip or bad file name, `503` = no requested zo
 
 ---
 
-**Source of truth:** the Control Script running on each Q-SYS Core implements this protocol; this page documents it as consumed by Pandora. Pandora's reference client is `src/utils/qsysAudioSocket.utils.ts` (in Pandora's repo). Last verified against the script deployed August 2026 (Pandora `323f634`). If the Control Script changes, update this page.
+**Source of truth:** the Control Script running on each Q-SYS Core implements this protocol; this page documents it as consumed by Pandora. Pandora's reference client is `src/utils/qsysAudioSocket.utils.ts`; the relay endpoint is `src/utils/qsysAudioWsServer.utils.ts` (both in Pandora's repo). Last verified against the script deployed August 2026. If the Control Script changes, update this page.
