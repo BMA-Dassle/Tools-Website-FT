@@ -406,16 +406,20 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
               shrink this block — it SPILLS out of it and runs underneath
               whatever sits to the right, which is how "Session 33 Intermediate"
               ended up printed through the FastTrax mark (owner 2026-08-14). */}
+          {/* THE TYPE SITS UNDER THE NUMBER (owner 2026-08-14: "remove the pit
+              assignment and move the session type under the session number").
+              Side by side the two competed for one line and a long type ran out
+              of the block — "Intermediate" was sliced mid-word. Stacked, the
+              session number reads first at full size and the type reads second,
+              and the freed width is what lets the pit board carry the mark. */}
           <div style={{ marginLeft: 44, minWidth: 0, overflow: "hidden" }}>
-            <div className="tv-eyebrow" style={{ fontSize: 26 }}>
-              Pit assignments
-            </div>
             {showSession ? (
-              <div style={{ display: "flex", alignItems: "baseline", gap: 22, marginTop: 6 }}>
-                <span
+              <>
+                <div
                   className="tv-display"
                   style={{
-                    fontSize: 84,
+                    fontSize: 80,
+                    lineHeight: 0.98,
                     color: "#fff",
                     whiteSpace: "nowrap",
                     textShadow: `0 0 60px ${withAlpha(accent, 0.55)}`,
@@ -424,20 +428,23 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
                   {showSession.heatNumber != null
                     ? `Session ${showSession.heatNumber}`
                     : "Next session"}
-                </span>
+                </div>
                 {showSession.raceType && (
-                  <span
+                  <div
                     className="tv-display"
                     style={{
-                      fontSize: 42,
-                      color: "rgba(245,236,238,0.72)",
+                      fontSize: 34,
+                      marginTop: 2,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                      color: "rgba(245,236,238,0.75)",
                       whiteSpace: "nowrap",
                     }}
                   >
                     {showSession.raceType}
-                  </span>
+                  </div>
                 )}
-              </div>
+              </>
             ) : (
               <div className="tv-display" style={{ fontSize: 64, color: "#fff", marginTop: 6 }}>
                 No session staged
@@ -640,6 +647,10 @@ function SpotCard({
     : r.birthday
       ? `3px solid ${withAlpha(PINK, 0.95)}`
       : "1px solid rgba(255,255,255,0.12)";
+  // One step for the whole pill group, so Birthday, VIP and back-to-back can
+  // never disagree about their own size on the same card.
+  const pillSize = compact ? 17 : 20;
+  const pillPad = compact ? "4px 11px" : "5px 16px";
   return (
     <div
       className={flagged ? "tv-card-glow" : undefined}
@@ -678,15 +689,38 @@ function SpotCard({
         >
           {r.spot}
         </div>
-        <div style={{ position: "absolute", top: 14, right: 12, display: "flex", gap: 10 }}>
+        {/*
+          THE PILL GROUP IS A STACK, NOT A ROW (owner 2026-08-14). Back-to-back
+          joins Birthday and VIP here rather than taking a place of its own,
+          because all three answer the same question — what does staff need to
+          know about THIS racer that the photo cannot say. Side by side, three
+          pills on a 14-card grid reach past the spot number; stacked and
+          right-aligned they grow downward into the photo, where there is room.
+
+          AND THEY STEP DOWN ON A CROWDED GRID, which they did not do before:
+          Birthday and VIP were fixed at 20px whatever the card size, which is
+          exactly what made a third pill impossible on a GF heat.
+        */}
+        <div
+          style={{
+            position: "absolute",
+            top: 14,
+            right: 12,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-end",
+            gap: 8,
+          }}
+        >
           {r.birthday && (
             <span
               className="tv-display tv-bday-glow"
               style={{
-                fontSize: 20,
+                fontSize: pillSize,
                 color: "#fff",
-                padding: "5px 16px",
+                padding: pillPad,
                 borderRadius: 999,
+                whiteSpace: "nowrap",
                 border: `2px solid ${PINK}`,
                 background: withAlpha(PINK, 0.35),
               }}
@@ -698,15 +732,60 @@ function SpotCard({
             <span
               className="tv-display"
               style={{
-                fontSize: 20,
+                fontSize: pillSize,
                 color: GOLD,
-                padding: "5px 16px",
+                padding: pillPad,
                 borderRadius: 999,
+                whiteSpace: "nowrap",
                 border: `2px solid ${withAlpha(GOLD, 0.8)}`,
                 background: "rgba(0,4,24,0.7)",
               }}
             >
               VIP
+            </span>
+          )}
+          {/*
+            ON TRACK NOW IS SOLID WHITE, DELIBERATELY NOT THE TRACK ACCENT. Red
+            already means "not checked in" on this card — it is the no-show ring
+            — so a red pill on a Red board would fight the one colour that has to
+            stay unambiguous. White is the only value on this palette nothing
+            else claims, and it is the loudest, which suits the pill that says
+            "this empty card is expected, do not go looking for them".
+
+            RACES AGAIN keeps amber, the same "something still to do" family as
+            Cam needed; the two never collide — one is a pill up here, the other
+            a chip in the footer.
+          */}
+          {r.backToBack?.state === "arriving" && (
+            <span
+              className="tv-display"
+              style={{
+                fontSize: pillSize,
+                color: "#04101f",
+                padding: pillPad,
+                borderRadius: 999,
+                whiteSpace: "nowrap",
+                border: "2px solid #ffffff",
+                background: "#ffffff",
+              }}
+            >
+              On track now
+            </span>
+          )}
+          {r.backToBack?.state === "again" && (
+            <span
+              className="tv-display"
+              style={{
+                fontSize: pillSize,
+                color: AMBER,
+                padding: pillPad,
+                borderRadius: 999,
+                whiteSpace: "nowrap",
+                border: `2px solid ${withAlpha(AMBER, 0.9)}`,
+                background: withAlpha(AMBER, 0.16),
+              }}
+            >
+              Races again
             </span>
           )}
         </div>

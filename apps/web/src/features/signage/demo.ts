@@ -207,6 +207,16 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
           calledAtMs: nowMs - 4 * 60_000,
         },
       ],
+      // The returning panel beside it — two destinations on two tracks, which
+      // is the case the row has to carry its own track for. The header names the
+      // one group walking back in; the rows name where each of them goes next.
+      checkinReturning: {
+        fromSession: 57,
+        groups: [
+          { session: 60, track: "red", names: ["Rodney Fort Vega", "Antonia Cano"] },
+          { session: 61, track: "blue", names: ["Haley Brouwer"] },
+        ],
+      },
     };
   }
   return { ...feed, vip: demoVip(nowMs) };
@@ -343,6 +353,12 @@ function demoBriefingSection(feed: TvFeed, mode: DemoMode): TvFeed["briefing"] {
                 { name: "Sam Osteen", bestMs: null },
               ],
             },
+            // Two destinations on two tracks — the case the heading must not
+            // name a track for, and the reason the preview carries it.
+            racingAgain: [
+              { session: 60, track: "red", names: ["Marcus Webb", "Priya Shah"] },
+              { session: 61, track: "blue", names: ["Dana Ruiz"] },
+            ],
           }
         : (real?.welcomeBack ?? null),
     // THE CAMERA STRIP, fabricated so the 104 px reserve and both box states can

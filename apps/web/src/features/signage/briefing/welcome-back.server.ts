@@ -40,6 +40,8 @@ import { announceReturnOnce } from "./return-announce.server";
 import { loadOrCaptureResults } from "./race-results.server";
 import { readRaceFinishedMarker } from "./race-finish.server";
 import { splitByTarget } from "./results-frame";
+import { racingAgainAfter } from "../pit/back-to-back.server";
+import type { JoiningGroup } from "../pit/back-to-back";
 import type { BriefingRoom } from "./types";
 
 /** The name board: who levelled up, who didn't, laps as recorded at the end of
@@ -58,6 +60,20 @@ export interface WelcomeBackInfo {
   endedAtMs: number;
   /** Null when capture never landed — the board renders name-less, as before. */
   results: WelcomeBackResults | null;
+  /**
+   * Who in this group is due back out within the next two heats, grouped by the
+   * heat they are JOINING — one row per destination, each naming its own track.
+   *
+   * ONE RETURNING RACE, N DESTINATIONS (owner 2026-08-14: "we should only have
+   * one returning race technically, then this should indicate what session
+   * they're joining"). Only one group walks back into a room at a time, but its
+   * racers can scatter across several later heats on different tracks — which is
+   * why the row carries the track and the heading must not.
+   *
+   * Empty, never null: nobody racing again and an unreadable schedule look the
+   * same to a wall, and both mean "show the qualifying split alone".
+   */
+  racingAgain: JoiningGroup[];
 }
 
 /** Only ends this fresh get a radio call. Bounds what an announcement can be
@@ -210,6 +226,10 @@ export async function resolveWelcomeBack(
     heatNumber: subject.heatNumber,
   }).catch(() => null);
 
+  // Not raced against the results capture above — it is a separate read on a
+  // separate upstream, and one failing must not cost the other. Both fail soft.
+  const racingAgain = await racingAgainAfter(subject.sessionId, Date.now()).catch(() => []);
+
   const target = nextLevelTarget(track, subject.raceType);
   const split = recorded ? splitByTarget(recorded.drivers, target?.ms ?? null) : null;
 
@@ -218,6 +238,7 @@ export async function resolveWelcomeBack(
     raceType: subject.raceType,
     track,
     endedAtMs: actualEndMs as number,
+    racingAgain,
     results: split
       ? {
           // bestMs is non-null for every qualifier by construction (a driver

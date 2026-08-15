@@ -94,6 +94,7 @@ export async function buildTvFeed(
     // merges the pulse's copy over this null.
     pitRosters: null,
     checkinProgress: null,
+    checkinReturning: null,
     pausedProductIds: safePaused(),
     nextAvailable: null,
     reloadAt: null,
@@ -136,33 +137,55 @@ export async function buildTvFeed(
   // playlist alone: a lobby camera has no clock pane to hang it under, and the
   // heats it would list are in another building. FT-only — the tracks are.
   const wantsCheckinProgress = parsed.venue === "FT" && config.cameraMonitor?.track != null;
+  // WHICH ROOM THIS CAMERA IS WATCHING. A camera monitor is scoped by camera,
+  // not by `briefingRoom` (that field belongs to the room's own TV), so the
+  // returning group has to be resolved off the camera's own track. Mega has no
+  // single room, so a Mega camera carries no returning panel.
+  const cameraRoom =
+    config.cameraMonitor?.track === "blue" || config.cameraMonitor?.track === "red"
+      ? config.cameraMonitor.track
+      : null;
+  const wantsCameraReturning = briefingEnabled() && parsed.venue === "FT" && cameraRoom !== null;
   // The pit board: its track's staged roster and the lane state.
   const wantsPit = track != null && config.playlist.some((p) => p.scene === "pit-board");
 
-  const [raceCheckin, events, nextAvailable, briefing, checkinRail, pitBoard, pitLanes] =
-    await Promise.all([
-      track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
-      wantsWelcome
-        ? buildWelcomeBoard(
-            parsed.venue,
-            config.scope.gfCenterCodes,
-            ymd,
-            { leadMins: config.welcomeLeadMins, trailMins: config.welcomeTrailMins },
-            now,
-          ).catch(() => null)
-        : Promise.resolve(null),
-      config.showNextAvailable
-        ? buildNextAvailable(parsed.venue).catch(() => null)
-        : Promise.resolve(null),
-      wantsBriefing
-        ? buildBriefingSection(parsed.venue, config.briefingRoom as "red" | "blue", ymd).catch(
-            () => null,
-          )
-        : Promise.resolve(null),
-      wantsCheckinProgress ? checkinProgress(now).catch(() => null) : Promise.resolve(null),
-      wantsPit && track ? buildPitBoard(track, ymd, now).catch(() => null) : Promise.resolve(null),
-      wantsPit ? readPitLanes().catch(() => null) : Promise.resolve(null),
-    ]);
+  const [
+    raceCheckin,
+    events,
+    nextAvailable,
+    briefing,
+    checkinRail,
+    pitBoard,
+    pitLanes,
+    cameraReturning,
+  ] = await Promise.all([
+    track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
+    wantsWelcome
+      ? buildWelcomeBoard(
+          parsed.venue,
+          config.scope.gfCenterCodes,
+          ymd,
+          { leadMins: config.welcomeLeadMins, trailMins: config.welcomeTrailMins },
+          now,
+        ).catch(() => null)
+      : Promise.resolve(null),
+    config.showNextAvailable
+      ? buildNextAvailable(parsed.venue).catch(() => null)
+      : Promise.resolve(null),
+    wantsBriefing
+      ? buildBriefingSection(parsed.venue, config.briefingRoom as "red" | "blue", ymd).catch(
+          () => null,
+        )
+      : Promise.resolve(null),
+    wantsCheckinProgress ? checkinProgress(now).catch(() => null) : Promise.resolve(null),
+    wantsPit && track ? buildPitBoard(track, ymd, now).catch(() => null) : Promise.resolve(null),
+    wantsPit ? readPitLanes().catch(() => null) : Promise.resolve(null),
+    // The SAME resolver the room's own wall uses, so the two screens cannot
+    // disagree about one return. Fails to null like every other section.
+    wantsCameraReturning && cameraRoom
+      ? resolveWelcomeBack(parsed.venue, cameraRoom, ymd).catch(() => null)
+      : Promise.resolve(null),
+  ]);
 
   // Has the heat on the track board already been sent to a briefing room? One
   // Redis GET, and only for screens that actually show a track board.
@@ -189,6 +212,12 @@ export async function buildTvFeed(
     pitBoard,
     pitLanes,
     checkinProgress: checkinRail,
+    // Only when somebody is actually racing again — a returning group with
+    // nobody due back out is not a thing staff need to act on.
+    checkinReturning:
+      cameraReturning && cameraReturning.racingAgain.length > 0
+        ? { fromSession: cameraReturning.heatNumber, groups: cameraReturning.racingAgain }
+        : null,
     // `vip` (the bowling-leg takeover) lands with the next scene.
     vip: null,
     // Null events mean we could not ask — the welcome entry then self-skips
@@ -257,6 +286,7 @@ async function buildBriefingSection(
             raceType: welcomeBack.raceType,
             track: welcomeBack.track,
             results: welcomeBack.results,
+            racingAgain: welcomeBack.racingAgain,
           }
         : null,
       cameraReturn,

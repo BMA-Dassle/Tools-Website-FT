@@ -25,7 +25,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { withAlpha } from "../color";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
-import { TRACK_ACCENTS, TRACK_LABELS } from "../track";
+import { TRACK_ACCENTS, TRACK_LABELS, type TrackKey } from "../track";
 import { briefingTimelineAt } from "../briefing/phase";
 import { incomingForRoom, normaliseCameraReturn } from "../briefing/camera-return";
 import { HELMET_PHASE_MS, tierForRaceType, type BriefingRoom } from "../briefing/types";
@@ -53,6 +53,10 @@ const STALL_GIVE_UP_MS = 40_000;
 /** Room identity colours. A briefing room is named for the track it serves, so
  *  it borrows that track's accent — someone glancing in from the corridor should
  *  know which room they are looking into. */
+/** "Something still to do" — the same amber the pit board and the check-in
+ *  camera board use, so one status wears one colour across every wall. */
+const AMBER = "#f0b341";
+
 const ROOM_ACCENT: Record<BriefingRoom, string> = {
   red: TRACK_ACCENTS.red,
   blue: TRACK_ACCENTS.blue,
@@ -742,6 +746,108 @@ function TakeASeat({
  * itself. The number comes from the same constants the level-up decision uses, so
  * what a racer is told to beat is the line they are judged against.
  */
+/**
+ * RACERS DUE STRAIGHT BACK OUT — the panel beside the qualifying chip.
+ *
+ * A racer booked in one of the next two heats should walk back to the holding
+ * seats, not out through check-in and round again. Nothing told them, and
+ * nothing told the staff member seating the next grid either.
+ *
+ * NO TRACK IN THE HEADING, and no "seats" (owner 2026-08-14: "don't say seat and
+ * its cut off"). Two faults in one line: it ran past the panel edge, and it
+ * named ONE track while these racers can be joining two — a single "go to the
+ * Blue holding" would have sent half of them to the wrong lane. The track lives
+ * on each row, where it is right per racer.
+ *
+ * ONE LINE PER DESTINATION HEAT, not one line for everybody, for the same reason.
+ *
+ * "JOINING" IS ON THE CHIP (owner 2026-08-14: "update this to they're joining
+ * and to where"). A bare session number read as though that heat was the one
+ * coming back; the word makes it a destination — and it is the same word the
+ * staff camera board uses, so the two screens cannot describe one fact
+ * differently.
+ */
+function RacingAgainPanel({
+  groups,
+}: {
+  groups: Array<{ session: number | null; track: string; names: string[] }>;
+}) {
+  if (groups.length === 0) return null;
+  // Names shrink as the destinations grow, so the panel never outgrows the chip
+  // beside it — the same discipline pillScale applies above.
+  const nameSize = groups.length > 2 ? 26 : groups.length > 1 ? 30 : 34;
+  const toSize = groups.length > 2 ? 22 : 26;
+  return (
+    <div
+      style={{
+        flex: "1 1 auto",
+        minWidth: 0,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        gap: 6,
+        padding: "14px 30px",
+        borderRadius: 18,
+        border: `3px solid ${withAlpha(AMBER, 0.7)}`,
+        background: withAlpha(AMBER, 0.12),
+      }}
+    >
+      <span
+        style={{
+          fontSize: 24,
+          fontWeight: 800,
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+          color: AMBER,
+        }}
+      >
+        Racing again — go straight to holding
+      </span>
+      {groups.map((g) => {
+        const key = g.track as TrackKey;
+        const trackAccent: string = TRACK_ACCENTS[key] ?? AMBER;
+        const trackName = (TRACK_LABELS[key] ?? g.track).replace(" Track", "");
+        return (
+          <div
+            key={`${g.session ?? "?"}-${g.track}`}
+            style={{ display: "flex", alignItems: "baseline", gap: 14, minWidth: 0 }}
+          >
+            <span
+              className="tv-display"
+              style={{
+                flexShrink: 0,
+                fontSize: toSize,
+                padding: "2px 14px",
+                borderRadius: 999,
+                whiteSpace: "nowrap",
+                color: trackAccent,
+                border: `2px solid ${trackAccent}`,
+                background: withAlpha(trackAccent, 0.16),
+              }}
+            >
+              <em style={{ fontStyle: "normal", fontWeight: 700, opacity: 0.8 }}>Joining </em>
+              {g.session ?? "—"} · {trackName}
+            </span>
+            <span
+              style={{
+                fontSize: nameSize,
+                color: "#fff",
+                fontWeight: 600,
+                lineHeight: 1.2,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {g.names.join("  ·  ")}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function QualifyTarget({
   accent,
   target,
@@ -805,6 +911,7 @@ function WelcomeBack({
       levelledUp: Array<{ name: string; bestMs: number }>;
       keepPushing: Array<{ name: string; bestMs: number | null }>;
     } | null;
+    racingAgain: Array<{ session: number | null; track: string; names: string[] }>;
   };
 }) {
   const target = nextLevelTarget(info.track, info.raceType);
@@ -917,9 +1024,26 @@ function WelcomeBack({
           Only the name area may shrink now. It is the one block that can do it
           gracefully: it clips (see NameColumn) rather than spilling.
         */}
-        {target && (
-          <div style={{ flexShrink: 0 }}>
-            <QualifyTarget accent={accent} target={target} />
+        {/*
+          THE CHIP AND THE RACING-AGAIN PANEL SHARE ONE ROW. The chip is inline
+          and only ever filled the left half of its line, so the panel costs the
+          board no vertical room at all and nothing above it moves — which is the
+          whole reason it sits here rather than anywhere else (owner 2026-08-14:
+          "on welcome back put right of qualification number").
+
+          `alignItems: stretch` so the panel matches the chip's height whatever
+          the chip is; `flexShrink: 0` on the row for the same reason every other
+          fixed block has it (see the note above) — the 92px number must never be
+          squeezed up out of its box.
+        */}
+        {(target || info.racingAgain.length > 0) && (
+          <div style={{ flexShrink: 0, display: "flex", alignItems: "stretch", gap: 26 }}>
+            {target && (
+              <div style={{ flexShrink: 0 }}>
+                <QualifyTarget accent={accent} target={target} />
+              </div>
+            )}
+            <RacingAgainPanel groups={info.racingAgain} />
           </div>
         )}
 
@@ -1023,6 +1147,14 @@ function ResultsBoard({
  * would make every group's board a slightly different size, and the wall reads
  * better when a normal five-racer heat always looks the same.
  *
+ * THE STEPS MOVED DOWN ONE (owner 2026-08-14, on a photo of Red session 38:
+ * "the non qualified is screwed up still"). They were chosen against how many
+ * names LOOK right, not against how much room the names area actually gets —
+ * which is roughly 300px once the chip and the blinking scores line have taken
+ * theirs. Four names at 44px needed more than that, so the last pill in the
+ * taller column was being clipped away on a perfectly ordinary heat. Every
+ * threshold now assumes the SMALLEST names area, not the emptiest board.
+ *
  * Driven by the BIGGER of the two columns, because they share one height and it
  * is the taller one that decides whether anything overflows.
  */
@@ -1034,11 +1166,12 @@ function pillScale(count: number): {
   maxWidth: number;
   heading: number;
 } {
-  if (count <= 4) return { font: 44, padY: 12, padX: 30, gap: 16, maxWidth: 780, heading: 32 };
-  if (count <= 6) return { font: 38, padY: 10, padX: 26, gap: 14, maxWidth: 680, heading: 30 };
-  if (count <= 9) return { font: 32, padY: 9, padX: 22, gap: 12, maxWidth: 560, heading: 28 };
-  if (count <= 12) return { font: 27, padY: 8, padX: 18, gap: 10, maxWidth: 470, heading: 26 };
-  return { font: 23, padY: 7, padX: 16, gap: 9, maxWidth: 400, heading: 24 };
+  if (count <= 2) return { font: 44, padY: 12, padX: 30, gap: 16, maxWidth: 700, heading: 32 };
+  if (count <= 4) return { font: 36, padY: 10, padX: 24, gap: 13, maxWidth: 600, heading: 29 };
+  if (count <= 6) return { font: 32, padY: 9, padX: 21, gap: 12, maxWidth: 520, heading: 27 };
+  if (count <= 9) return { font: 28, padY: 8, padX: 18, gap: 11, maxWidth: 440, heading: 25 };
+  if (count <= 12) return { font: 24, padY: 7, padX: 16, gap: 10, maxWidth: 380, heading: 23 };
+  return { font: 21, padY: 6, padX: 14, gap: 9, maxWidth: 330, heading: 22 };
 }
 
 /** A heading and a wrap of name pills — scales from 2 racers to a full GF grid

@@ -48,6 +48,14 @@ export const TV_MOTION_PERIODS_MS: Record<string, number> = {
   "tv-blink": 1400,
   "tv-ready-flash": 1400,
   "tv-overdue-flash": 1400,
+  // The same two states drawn on a white panel (the camera board's matched
+  // check-in / returning pair). Ground and heading-ink animate as a set, so all
+  // four are registered — an unseeked ink cycle would drift against its own
+  // panel's ground.
+  "tv-panel-ready": 1400,
+  "tv-panel-ready-ink": 1400,
+  "tv-panel-overdue": 1400,
+  "tv-panel-overdue-ink": 1400,
   "tv-bday-glow": 1400,
   "tv-chev": 2800,
   "tv-breathe": 2800,

@@ -35,6 +35,7 @@ function baseFeed(now: number): TvFeed {
     pitLanes: null,
     pitRosters: null,
     checkinProgress: null,
+    checkinReturning: null,
     pausedProductIds: [],
     nextAvailable: null,
     reloadAt: null,

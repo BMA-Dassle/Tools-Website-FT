@@ -472,6 +472,15 @@ export interface TvFeed {
         levelledUp: Array<{ name: string; bestMs: number }>;
         keepPushing: Array<{ name: string; bestMs: number | null }>;
       } | null;
+      /**
+       * Who in this group races again within the next two heats, one row per
+       * heat they are JOINING. Names come from the BMI roster, not the timing
+       * socket — `results` above carries transponder names, and the two must
+       * never be matched to each other.
+       *
+       * Empty is the normal case and the degraded case alike.
+       */
+      racingAgain: Array<{ session: number | null; track: string; names: string[] }>;
     } | null;
     /**
      * WHICH POV CAMERAS ARE STILL OUT — the strip along the bottom of both
@@ -536,6 +545,25 @@ export interface TvFeed {
    * Null for every screen that is not a track-tied camera monitor.
    */
   checkinProgress: CheckinProgressSession[] | null;
+  /**
+   * Camera-monitor extra: THE GROUP WALKING BACK INTO THIS CAMERA'S ROOM, and
+   * which heats they are due out on next.
+   *
+   * The same fact the room's own welcome-back wall is showing at that moment,
+   * from the same resolver — deliberately, so the guest screen inside the room
+   * and the staff screen at the pit door can never describe one return
+   * differently (owner 2026-08-14: "similar to what you have on welcome screen
+   * but for staff").
+   *
+   * Null when nobody is returning, when the room has no camera, or when the
+   * briefing kill switch is off. `groups` is never empty when this is non-null —
+   * a returning group nobody is racing again with is not news to staff.
+   */
+  checkinReturning: {
+    /** The heat that just finished — the one group walking back in. */
+    fromSession: number | null;
+    groups: Array<{ session: number | null; track: string; names: string[] }>;
+  } | null;
   /** Product ids currently off-sale — never advertise a paused product. */
   pausedProductIds: string[];
   /** "Next available" per product key, e.g. { bowling: "3 lanes · 9:30 PM" }.

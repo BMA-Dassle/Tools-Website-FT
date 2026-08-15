@@ -53,12 +53,17 @@ import {
 import { briefingTimelineAt } from "../briefing/phase";
 import type { BriefingRoomState } from "../briefing/types";
 import type { SceneProps } from "../director/types";
+import type { TvFeed } from "../types";
 
 const PAD = 56;
 /** New frame roughly once a second (owner: ~1 fps). */
 const REFRESH_MS = 1000;
 /** How long frames may fail before the board admits it is reconnecting. */
 const STALE_AFTER_MS = 8000;
+
+/** Track names as they fit on a chip — the label without the word "Track",
+ *  which every chip on this board would otherwise repeat. */
+const TRACK_SHORT: Record<TrackKey, string> = { blue: "Blue", red: "Red", mega: "Mega" };
 
 const ON_TIME_GREEN = "#22c55e";
 const BEHIND_AMBER = "#f0b341";
@@ -183,13 +188,22 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
           clock={sessionClock}
           accent={accent}
           checkin={roomCheckinProgress(feed?.checkinProgress ?? [], track)}
+          returning={feed?.checkinReturning ?? null}
           nowMs={nowMs}
           // The SAME window the track boards count down for guests, so the
           // rail cannot escalate on a deadline the wall opposite disagrees with.
           windowMins={config.checkinWindowMins}
         />
       </div>
-      <StatusBar trackLabel={TRACK_LABELS[track]} delay={delay} />
+      {/* The status bar gives ground back when a returning panel is up — it is
+          the one block on this board whose whole message survives at half the
+          size (owner 2026-08-14: "you could also make the on-time block smaller
+          if needed for more space"). */}
+      <StatusBar
+        trackLabel={TRACK_LABELS[track]}
+        delay={delay}
+        compact={!!feed?.checkinReturning}
+      />
     </div>
   );
 }
@@ -362,12 +376,14 @@ function ClockPane({
   clock,
   accent,
   checkin,
+  returning,
   nowMs,
   windowMins,
 }: {
   clock: LiveSessionClock | null;
   accent: string;
   checkin: CheckinProgressSession | null;
+  returning: TvFeed["checkinReturning"];
   nowMs: number;
   windowMins: number;
 }) {
@@ -376,11 +392,10 @@ function ClockPane({
   const value = live ? formatRemaining(clock.remainingMs) : null;
   const eyebrow = paused ? "Paused" : live ? "On track" : "No session";
   // A shorter string (MM:SS while racing) can be even bigger than H:MM:SS. The
-  // clock also gives ground back to the check-in rail while a heat is at the
-  // desk, so the two never fight for the pane; it takes it back the moment the
-  // heat is sent and the rail clears.
-  const railed = checkin !== null;
-  const fontSize = (value && value.length <= 5 ? 300 : 230) - (railed ? 60 : 0);
+  // clock gives ground back to each panel that appears under it, so the pane's
+  // contents never fight; it takes it all back the moment they clear.
+  const panels = (checkin !== null ? 1 : 0) + (returning ? 1 : 0);
+  const fontSize = (value && value.length <= 5 ? 300 : 230) - panels * 60;
 
   return (
     <div
@@ -391,51 +406,208 @@ function ClockPane({
         display: "flex",
         flexDirection: "column",
         color: "#fff",
+        /*
+          ALWAYS CENTRED (owner 2026-08-14: "I like the middle spacing").
+          The rail used to be pinned to the bottom of the pane, so the moment a
+          second panel appeared the composition changed shape — a dead third of
+          accent under the clock with everything else crowded below it. Centred,
+          the leftover accent always sits evenly above and below, and the group
+          grows from the middle as rows are added instead of the layout
+          re-flowing around them.
+        */
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "30px 40px",
+        gap: panels > 0 ? 20 : 26,
       }}
     >
-      <div
+      <span
+        className="tv-eyebrow"
         style={{
-          flex: 1,
-          minHeight: 0,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 8,
+          fontSize: panels > 0 ? 30 : 56,
+          letterSpacing: "0.1em",
+          color: paused ? "#111" : "rgba(255,255,255,0.82)",
         }}
       >
+        {eyebrow}
+      </span>
+      {value ? (
         <span
-          className="tv-eyebrow"
+          className="tv-display tv-num"
           style={{
-            fontSize: railed ? 44 : 56,
-            letterSpacing: "0.1em",
-            color: paused ? "#111" : "rgba(255,255,255,0.82)",
+            fontSize,
+            lineHeight: 0.9,
+            fontWeight: 800,
+            textShadow: "0 4px 40px rgba(0,0,0,0.35)",
           }}
         >
-          {eyebrow}
+          {value}
         </span>
-        {value ? (
+      ) : (
+        <span
+          className="tv-display"
+          style={{
+            fontSize: panels > 0 ? 96 : 120,
+            fontWeight: 800,
+            color: "rgba(255,255,255,0.5)",
+          }}
+        >
+          Standby
+        </span>
+      )}
+      <CheckinPanel session={checkin} nowMs={nowMs} windowMins={windowMins} />
+      <ReturningPanel returning={returning} />
+    </div>
+  );
+}
+
+/**
+ * TWO BOXES, ONE LANGUAGE (owner 2026-08-14: "the ready to send block and the
+ * return racers block should be like two boxes unified somehow").
+ *
+ * They started out as a flat coloured band and a loose stack of white cards —
+ * the same SHAPE of fact drawn two different ways, on one screen, a hand's width
+ * apart. Both are now sibling panels: same ground, same radius, same header, and
+ * the same session-chip · content · count row inside. A marshal learns the
+ * grammar once.
+ */
+const PANEL_INK = "#0a1424";
+const PANEL_GROUND = "rgba(255,255,255,0.95)";
+const PANEL_READY = "#17913f";
+const PANEL_WAIT = "#b8730a";
+
+function Panel({
+  heading,
+  headingColor,
+  sub,
+  flash,
+  children,
+}: {
+  heading: string;
+  headingColor: string;
+  sub: string | null;
+  /** Which attention flash the panel wears, if any — see the ladder below. */
+  flash?: "ready" | "overdue";
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      // A flashing panel's ground AND heading colour come from the keyframes, so
+      // neither is set inline — an inline background outranks the animation and
+      // the panel would sit there quietly instead of calling for someone.
+      className={
+        flash === "ready"
+          ? "tv-panel-flash-ready"
+          : flash === "overdue"
+            ? "tv-panel-flash-overdue"
+            : undefined
+      }
+      style={{
+        width: "100%",
+        background: flash ? undefined : PANEL_GROUND,
+        borderRadius: 20,
+        padding: "16px 20px 18px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "baseline", gap: 14, padding: "0 2px" }}>
+        <span
+          className="tv-display tv-panel-head"
+          style={{
+            fontSize: 25,
+            letterSpacing: "0.1em",
+            color: flash ? undefined : headingColor,
+          }}
+        >
+          {heading}
+        </span>
+        {sub && (
           <span
-            className="tv-display tv-num"
+            className="tv-eyebrow"
             style={{
-              fontSize,
-              lineHeight: 0.9,
-              fontWeight: 800,
-              textShadow: "0 4px 40px rgba(0,0,0,0.35)",
+              marginLeft: "auto",
+              fontSize: 20,
+              letterSpacing: "0.12em",
+              color: withAlpha(PANEL_INK, 0.5),
             }}
           >
-            {value}
-          </span>
-        ) : (
-          <span
-            className="tv-display"
-            style={{ fontSize: railed ? 96 : 120, fontWeight: 800, color: "rgba(255,255,255,0.5)" }}
-          >
-            Standby
+            {sub}
           </span>
         )}
       </div>
-      <CheckinRail session={checkin} nowMs={nowMs} windowMins={windowMins} />
+      {children}
+    </div>
+  );
+}
+
+/** One row of a panel: a track-coloured chip, the content, and a count on the
+ *  right. Identical in both panels — that sameness IS the design. */
+function PanelRow({
+  chip,
+  chipColor,
+  content,
+  count,
+  countColor,
+  countOf,
+}: {
+  chip: React.ReactNode;
+  chipColor: string;
+  content: React.ReactNode;
+  count: number;
+  countColor?: string;
+  countOf?: number;
+}) {
+  return (
+    <div
+      className="tv-panel-row"
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 16,
+        background: withAlpha(PANEL_INK, 0.055),
+        borderRadius: 12,
+        padding: "12px 14px",
+      }}
+    >
+      <span
+        className="tv-display"
+        style={{
+          flexShrink: 0,
+          marginTop: 2,
+          fontSize: 22,
+          color: "#fff",
+          background: chipColor,
+          padding: "5px 14px",
+          borderRadius: 999,
+          whiteSpace: "nowrap",
+        }}
+      >
+        {chip}
+      </span>
+      <span
+        style={{ fontSize: 28, fontWeight: 700, color: PANEL_INK, lineHeight: 1.3, minWidth: 0 }}
+      >
+        {content}
+      </span>
+      <span
+        className="tv-display tv-num tv-panel-count"
+        style={{
+          marginLeft: "auto",
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "baseline",
+          gap: 7,
+        }}
+      >
+        <b style={{ fontSize: 32, color: countColor ?? PANEL_INK, fontWeight: "inherit" }}>
+          {count}
+        </b>
+        {countOf != null && (
+          <span style={{ fontSize: 22, color: withAlpha(PANEL_INK, 0.5) }}>{`/ ${countOf}`}</span>
+        )}
+      </span>
     </div>
   );
 }
@@ -457,10 +629,10 @@ function ClockPane({
  * second number is one to mistake for the first.
  *
  * FOUR STATES, and no fifth:
- *   counting  — dark ground, "Now checking in", N / M ticking up beside a clock
+ *   counting  — quiet, "Now checking in", N / M ticking up beside a clock
  *               counting UP from the call
- *   closing   — amber, "Window closing": the desk board's `warn`, the last
- *               minute before the check-in window is up
+ *   closing   — amber heading, "Window closing": the desk board's `warn`, the
+ *               last minute before the check-in window is up
  *   ready     — FLASHES GREEN, "Ready to send", because everyone is in and
  *               nobody has sent them yet; that is a thing for staff to DO
  *   overdue   — FLASHES AMBER, past the window: they have been standing at the
@@ -474,7 +646,7 @@ function ClockPane({
  * A heat whose roster could not be read never gets here — it is dropped
  * server-side, because a fabricated "0 / 0" reads as a group that never came.
  */
-function CheckinRail({
+function CheckinPanel({
   session,
   nowMs,
   windowMins,
@@ -486,9 +658,8 @@ function CheckinRail({
   if (!session) return null;
 
   const state = checkinRailState(session, nowMs, windowMins);
-  const flashing = state === "ready" || state === "overdue";
   const waiting = waitingMs(session, nowMs);
-  const eyebrow =
+  const heading =
     state === "overdue"
       ? readyToSend(session)
         ? "All in — send them now"
@@ -498,83 +669,89 @@ function CheckinRail({
         : state === "closing"
           ? "Window closing"
           : "Now checking in";
+  const headingColor =
+    state === "ready" ? PANEL_READY : state === "closing" ? PANEL_WAIT : PANEL_INK;
+  const countColor =
+    state === "ready" ? PANEL_READY : state === "counting" ? undefined : PANEL_WAIT;
+  // Already a TrackKey — CheckinProgressSession is built server-side from the
+  // track keys, not from display names.
+  const track = session.track;
 
   return (
-    <div
-      // A flashing state's background AND text come from the keyframes, so
-      // neither is set inline — an inline background outranks the animation and
-      // the rail would sit there quietly instead of calling for someone.
-      className={
-        state === "ready" ? "tv-ready-flash" : state === "overdue" ? "tv-overdue-flash" : undefined
-      }
-      style={{
-        // Otherwise its own ground, so the rail reads identically over the blue,
-        // red and purple accents rather than needing a palette per track.
-        background: flashing ? undefined : state === "closing" ? BEHIND_AMBER : "rgba(0,0,0,0.36)",
-        color: flashing ? undefined : state === "closing" ? "#1a1205" : "#fff",
-        padding: "18px 40px 24px",
-        display: "grid",
-        gap: 8,
-      }}
+    <Panel
+      heading={heading}
+      headingColor={headingColor}
+      sub={waiting != null ? `Waiting ${formatRemaining(waiting)}` : null}
+      flash={state === "ready" ? "ready" : state === "overdue" ? "overdue" : undefined}
     >
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-        <span
-          className="tv-eyebrow"
-          // Inherits the band's colour in every alerting state; the eyebrow's
-          // stylesheet cyan is invisible on green and on amber alike.
-          style={{ fontSize: 30, letterSpacing: "0.14em", color: "inherit", opacity: 0.85 }}
-        >
-          {eyebrow}
-        </span>
-        {waiting != null && (
-          // How long they have been at the desk, counting UP from the call —
-          // the same anchor the track boards count DOWN from, so the two clocks
-          // either side of a wall always add up to the window.
-          //
-          // SAID, NOT JUST SHOWN (owner 2026-08-12: "label that timer waiting").
-          // A bare 06:52 beside a session name is a number a marshal has to
-          // guess at — time on track? until the film? — and every other clock on
-          // this board is captioned ("On track", "Video"). This one is too.
-          <span style={{ display: "inline-flex", alignItems: "baseline", gap: 12 }}>
-            <span
-              className="tv-eyebrow"
-              style={{ fontSize: 26, letterSpacing: "0.14em", color: "inherit", opacity: 0.7 }}
-            >
-              Waiting
-            </span>
-            <span className="tv-num" style={{ fontSize: 32, fontWeight: 700, opacity: 0.9 }}>
-              {formatRemaining(waiting)}
-            </span>
-          </span>
-        )}
-      </div>
-      <div
-        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 24 }}
-      >
-        <span
-          className="tv-display"
-          style={{
-            fontSize: 44,
-            fontWeight: 700,
-            minWidth: 0,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {sessionLabel(session.heatNumber, session.raceType, session.track)}
-        </span>
-        <span
-          className="tv-display tv-num"
-          style={{ flexShrink: 0, fontSize: 62, fontWeight: 800, lineHeight: 1 }}
-        >
-          {session.checkedIn}
-          <span style={{ fontSize: 42, fontWeight: 600, opacity: 0.72 }}>
-            {` / ${session.total}`}
-          </span>
-        </span>
-      </div>
-    </div>
+      <PanelRow
+        chip={
+          session.heatNumber != null
+            ? `Session ${session.heatNumber} · ${TRACK_SHORT[track]}`
+            : "This heat"
+        }
+        chipColor={TRACK_ACCENTS[track]}
+        content={session.raceType ?? "Race"}
+        count={session.checkedIn}
+        countOf={session.total}
+        countColor={countColor}
+      />
+    </Panel>
+  );
+}
+
+/**
+ * WHO IS WALKING BACK IN, AND WHERE THEY GO NEXT — the staff half of the same
+ * fact the room's own wall is showing the guests (owner 2026-08-14: "utilize
+ * some of the blue area here above the who checked in for returning racers as
+ * well… similar to what you have on welcome screen but for staff").
+ *
+ * ONE RETURNING RACE, N DESTINATIONS. The header names the race that just
+ * FINISHED — only one group ever walks back into a room at a time — and each row
+ * names a session those racers are JOINING, colour-coded to its track, so an
+ * attendant reads "two joining Red 36, one joining Blue 37" from the pit door.
+ *
+ * "JOINING" IS ON THE CHIP, word for word the same as the welcome-back wall
+ * (SceneBriefing's RacingAgainPanel). A first cut put a bare session chip on
+ * every row and it read as though three different heats were coming back.
+ *
+ * NO FLASH, deliberately. The flash on this board means "somebody has to act
+ * now"; a returning group is information for the next thirty seconds, and a
+ * second animation beside the check-in panel would spend the one signal staff
+ * are meant to look up for.
+ */
+function ReturningPanel({ returning }: { returning: TvFeed["checkinReturning"] }) {
+  if (!returning || returning.groups.length === 0) return null;
+  const total = returning.groups.reduce((n, g) => n + g.names.length, 0);
+  return (
+    <Panel
+      heading={
+        returning.fromSession != null ? `Returning — Session ${returning.fromSession}` : "Returning"
+      }
+      headingColor={PANEL_INK}
+      sub={`${total} racing again`}
+    >
+      {returning.groups.map((g) => {
+        // `track` crosses the wire as a plain string (the feed type keeps it
+        // loose), but it is written from a TrackKey — trackFromName is the
+        // honest narrowing rather than a bare cast.
+        const key = trackFromName(g.track);
+        return (
+          <PanelRow
+            key={`${g.session ?? "?"}-${g.track}`}
+            chip={
+              <>
+                <em style={{ fontStyle: "normal", fontWeight: 700, opacity: 0.78 }}>Joining </em>
+                {g.session ?? "—"} · {key ? TRACK_SHORT[key] : g.track}
+              </>
+            }
+            chipColor={key ? TRACK_ACCENTS[key] : BEHIND_AMBER}
+            content={g.names.join("  ·  ")}
+            count={g.names.length}
+          />
+        );
+      })}
+    </Panel>
   );
 }
 
@@ -583,7 +760,16 @@ function CheckinRail({
  * schedule, amber and "N min behind" when late. Neutral with just the track name
  * when the track is not reporting, rather than a status it cannot stand behind.
  */
-function StatusBar({ trackLabel, delay }: { trackLabel: string; delay: DelayInfo | null }) {
+function StatusBar({
+  trackLabel,
+  delay,
+  compact,
+}: {
+  trackLabel: string;
+  delay: DelayInfo | null;
+  /** Half height, headline only — when the pane above needs the room. */
+  compact?: boolean;
+}) {
   const unknown = delay === null;
   const late = !unknown && delay.delayMinutes > 0;
   const bg = unknown ? "#26324a" : late ? BEHIND_AMBER : ON_TIME_GREEN;
@@ -602,7 +788,7 @@ function StatusBar({ trackLabel, delay }: { trackLabel: string; delay: DelayInfo
   return (
     <div
       style={{
-        height: 210,
+        height: compact ? 110 : 210,
         background: bg,
         display: "flex",
         flexDirection: "column",
@@ -615,7 +801,7 @@ function StatusBar({ trackLabel, delay }: { trackLabel: string; delay: DelayInfo
       <span
         className="tv-display"
         style={{
-          fontSize: 118,
+          fontSize: compact ? 64 : 118,
           fontWeight: 800,
           lineHeight: 0.95,
           color: fg,
@@ -625,15 +811,19 @@ function StatusBar({ trackLabel, delay }: { trackLabel: string; delay: DelayInfo
       >
         {headline}
       </span>
-      <span
-        style={{
-          fontSize: 46,
-          fontWeight: 600,
-          color: withAlpha(unknown ? "#f5ecee" : dark, 0.8),
-        }}
-      >
-        {sub}
-      </span>
+      {/* The sub-line is the first thing to go: it restates the headline in
+          other words, so a compact bar loses nothing a marshal needs. */}
+      {!compact && (
+        <span
+          style={{
+            fontSize: 46,
+            fontWeight: 600,
+            color: withAlpha(unknown ? "#f5ecee" : dark, 0.8),
+          }}
+        >
+          {sub}
+        </span>
+      )}
     </div>
   );
 }

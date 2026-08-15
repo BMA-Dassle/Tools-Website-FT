@@ -130,6 +130,7 @@ describe("mergePitRoster", () => {
     cameraDue: false,
     birthday: false,
     vip: false,
+    backToBack: null,
     ...over,
   });
 
@@ -169,6 +170,25 @@ describe("mergePitRoster", () => {
       [slowEntry({ personId: "9", birthday: true, vip: true, cameraDue: true })],
     );
     expect(merged[0]).toMatchObject({ birthday: true, vip: true, cameraDue: true });
+  });
+
+  /**
+   * The back-to-back badge is a SLOW join like birthday and VIP — it costs three
+   * schedule reads and cannot ride the 2s pulse. A racer the fast rows have never
+   * seen carries no badge rather than a stale one.
+   */
+  it("carries the back-to-back badge through, and leaves a brand-new racer unbadged", () => {
+    const merged = mergePitRoster(
+      [fastRow({ personId: "1" }), fastRow({ personId: "2" })],
+      [
+        slowEntry({
+          personId: "1",
+          backToBack: { state: "arriving", session: 31, track: "red" },
+        }),
+      ],
+    );
+    expect(merged[0].backToBack).toEqual({ state: "arriving", session: 31, track: "red" });
+    expect(merged[1].backToBack).toBeNull();
   });
 });
 
