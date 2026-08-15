@@ -49,6 +49,31 @@ export interface VenueRaceFinish {
   state: string;
   actualStartMs: number | null;
   actualEndMs: number | null;
+  /** The race's CONFIGURED length ("00:07:00" → 420000), not time remaining.
+   *  Staff extend it mid-race and the venue reflects that here within a second
+   *  (watched go 40:00 → 46:00 → 53:00 on 2026-08-15), so it is read fresh from
+   *  every record rather than cached at start. Required, not optional: a
+   *  clock that silently treats "missing" as "zero" is worse than no clock. */
+  durationMs: number | null;
+}
+
+/**
+ * `SessionDurationChangedNotification` — staff adding (or cutting) time at the
+ * desk, as a discrete event.
+ *
+ *   { $type: "SessionDurationChangedNotification", SessionId: 58773798,
+ *     SessionName: "65 - Red Starter Restarted", Mode: "AtMost",
+ *     DurationTime: "0:16:00", Date: "2026-08-15T01:55:36.677", ResourceId }
+ *
+ * Note `SessionId`, NOT `RaceId` — same id space (confirmed 2026-08-15: 58773798
+ * was the live Red race), and note `DurationTime` here is "0:16:00" with a
+ * ONE-digit hour where the race records use "00:07:00". Both must parse.
+ */
+export interface VenueDurationChange {
+  raceId: string;
+  sessionName: string;
+  durationMs: number | null;
+  atMs: number | null;
 }
 
 const ET_OFFSET_FALLBACK_MINUTES = -300; // EST — the conservative winter offset
@@ -98,6 +123,18 @@ export function parseVenueHeatNumber(name: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** Venue duration string → ms. Accepts BOTH widths the server actually sends:
+ *  "00:07:00" on race records and "0:16:00" on duration-change notifications.
+ *  Strict otherwise — an unparseable duration is null, never a zero that would
+ *  render as a race with no time left. */
+export function parseVenueDurationMs(value: unknown): number | null {
+  if (typeof value !== "string") return null;
+  const m = /^(\d{1,2}):([0-5]\d):([0-5]\d)(?:\.(\d+))?$/.exec(value.trim());
+  if (!m) return null;
+  const ms = m[4] ? Number(m[4].slice(0, 3).padEnd(3, "0")) : 0;
+  return ((Number(m[1]) * 60 + Number(m[2])) * 60 + Number(m[3])) * 1000 + ms;
+}
+
 /** Every record of one `$type` in a webhook message (array or single object).
  *  Anything malformed is skipped, never thrown — this runs on the webhook's
  *  hot path where an exotic message must cost nothing. */
@@ -118,6 +155,7 @@ function extractRaceRecords(message: unknown, type: string): VenueRaceFinish[] {
       state: typeof r.State === "string" ? r.State : "",
       actualStartMs: parseVenueLocalMs(r.ActualStart),
       actualEndMs: parseVenueLocalMs(r.ActualEnd),
+      durationMs: parseVenueDurationMs(r.DurationTime),
     });
   }
   return out;
@@ -148,6 +186,42 @@ export function extractRaceFinishes(message: unknown): VenueRaceFinish[] {
  */
 export function extractRaceStarts(message: unknown): VenueRaceFinish[] {
   return extractRaceRecords(message, "RaceStart");
+}
+
+/**
+ * Every `RaceStop` record — the race PAUSING.
+ *
+ * Carries `State: "Paused"` and the race's ORIGINAL `ActualStart`, which the
+ * venue never restamps on resume (2026-08-15: race 58698117 paused and resumed
+ * and kept `ActualStart 00:46:01` throughout, while the desk clock stopped and
+ * started correctly). That is precisely why a countdown cannot be derived from
+ * start + duration alone — see race-clock.ts.
+ *
+ * NOTE the record does NOT stamp WHEN the pause happened; only that the race is
+ * now paused. Pause boundaries therefore come from message arrival time, which
+ * is honest to within the pipe's delivery lag (sub-second on this feed).
+ */
+export function extractRaceStops(message: unknown): VenueRaceFinish[] {
+  return extractRaceRecords(message, "RaceStop");
+}
+
+/** Every `SessionDurationChangedNotification` — a staff time-add/cut. */
+export function extractDurationChanges(message: unknown): VenueDurationChange[] {
+  const records = Array.isArray(message) ? message : [message];
+  const out: VenueDurationChange[] = [];
+  for (const rec of records) {
+    if (!rec || typeof rec !== "object") continue;
+    const r = rec as Record<string, unknown>;
+    if (r["$type"] !== "SessionDurationChangedNotification") continue;
+    if (r.SessionId === undefined || r.SessionId === null) continue;
+    out.push({
+      raceId: String(r.SessionId),
+      sessionName: typeof r.SessionName === "string" ? r.SessionName : "",
+      durationMs: parseVenueDurationMs(r.DurationTime),
+      atMs: parseVenueLocalMs(r.Date),
+    });
+  }
+  return out;
 }
 
 /** How stale a stamped end may be and still trigger the finish actions. Wide

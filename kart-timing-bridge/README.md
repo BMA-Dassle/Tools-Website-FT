@@ -70,8 +70,18 @@ npm run dev
 ## PROBE mode
 
 ```bash
-PROBE=1 npm run dev
+npm run probe
 ```
+
+Works the same in PowerShell and bash — the flag is `--probe` on the
+command line, not a POSIX `VAR=1 cmd` prefix (which cmd.exe rejects
+outright). `PROBE=1` or `PROBE=true` in `.env.local` or in Railway's
+variables does the same thing; `npm run dev` and `npm run probe` both
+load `.env.local` via Node's `--env-file-if-exists`. Nothing loaded
+that file before, so a `PROBE=1` line in it was silently ignored.
+
+Check the `probeMode` field in the `[kart-bridge] starting` line to
+confirm it took.
 
 Logs every parsed message to stdout in addition to forwarding.
 Useful for discovering the actual broadcast schema (BcRaceState,
@@ -115,19 +125,74 @@ secret keeps env config simple).
 - 30s open watchdog: if the connection stalls in CONNECTING state
   for 30s, force-close and let the loop retry.
 
+## Wire format — READ THIS BEFORE TOUCHING THE CLIENT
+
+The server is `websocket-sharp/1.0` and negotiates
+`permessage-deflate; client_no_context_takeover; server_no_context_takeover`.
+
+- **Every frame is compressed** (RSV1 set). Node's **built-in** `WebSocket`
+  (undici) decodes them to **zero-length strings**. This bridge used to treat
+  those as "empty keep-alives" and threw away 100% of the live stream for its
+  entire life while looking healthy. That is why we depend on `ws`.
+- On `BcFormat: "0"` a message also arrives **fragmented** (`TEXT fin=0` +
+  `CONT` + `CONT fin=1`). Inflating one fragment alone throws
+  `unexpected end of file`. `ws` reassembles; a hand-rolled client must.
+- **A zero-length frame now means the decoder is broken**, not that the venue
+  is quiet. The bridge warns on it rather than dropping it silently.
+- `RaceStatsResendInterval: "00:00:01"` **is honored** — ~1 message/sec.
+- Verify any client change against a **running race**. An idle venue and a
+  broken decoder look identical.
+
+## Message types actually observed (2026-08-15)
+
+`BcFormat` selects between two mutually exclusive payloads:
+
+| `BcFormat`   | You get                                                                                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"0"` (ours) | `RaceStart`, `RaceFinish` (has `ActualStart` **and** `ActualEnd`), `RaceStop`, `RaceAdvice`, `SessionDurationChangedNotification`, `BcTime`                   |
+| `"1"`        | `PositioningGamificationRequest` / `Kind: "RacesStats"` — `TimeLeftMs`, `GenerationTimeUtc`, per-kart `Laps` / `PositionInRace` / `TrackProgress` / `IsInPit` |
+
+`Timing: "true"` and the `NotificationGroups` list changed nothing in testing.
+
+**The full snapshot (~86 records, ~35KB) is re-sent every second** whether or
+not anything changed, so the bridge dedupes by content hash per
+(`$type`, `RaceId`) and forwards only what moved. Without that it would evict
+the webhook's 5000-entry Redis FIFO in ~83 minutes.
+
+## The race clock
+
+**The vendor's `TimeLeftMs` is always `0`. Do not use it.** Derive:
+
+```
+remaining = ActualStartUtc + DurationTimeMs + accumulatedPause − GenerationTimeUtc
+```
+
+- `GenerationTimeUtc` is the venue's own clock — use it as "now", no skew.
+- `ActualStart` **never restamps on resume**, so paused time must be tracked
+  from `RaceStop` (`State: Paused`) → `RaceStart` (`State: Started`).
+- Staff time-adds arrive as `SessionDurationChangedNotification`
+  (`SessionId` = `RaceId`, new `DurationTime`, `Date`).
+- Verified exactly: race 58698117 ran a 62:23 wall span against a 53:00
+  duration → 9:23 accumulated pause.
+
+## One subscription only
+
+A second `BcStart` **re-points the stats feed globally, across other open
+connections** — opening a per-track socket hijacked the existing one. You
+cannot hold Blue + Red + Mega subscriptions concurrently.
+
+You do not need to: a single `Resource: "Karting"` subscription on
+`BcFormat: "0"` carries every track (Blue id 11208654 and Red id 11208660 both
+appear in one snapshot). Per-resource subscriptions are only relevant to
+`BcFormat: "1"` stats, and `"Karting"` was observed to _omit_ a newly started
+Red race that `Resource: "Red Track"` returned correctly.
+
 ## Known unknowns
 
-1. **Broadcast message types.** The protocol uses `$type`-discriminated
-   .NET serialization. Common types from SMS-Timing's protocol:
-   - `BcRaceState` — heat / race lifecycle
-   - `BcInfo` — admin notifications
-   - `BcTiming` — lap data (we have `Timing: "false"` so probably
-     not subscribed by default)
-     PROBE mode reveals the actual schema flowing through this server.
-
-2. **Reconnect drift.** Server may dedupe based on session id (like
-   VT3) or replay missed events on subscribe. Worth checking with
-   `BcFormat: "0"` vs other format values once we see traffic.
-
+1. **Mega track.** Absent from the 2026-08-15 snapshot, but so was any Mega
+   race. Expected to appear under `Karting` like Red does — confirm when Mega
+   next runs.
+2. **Why `TimeLeftMs` is zero.** Possibly fed by kart telemetry rather than the
+   race clock; every race observed had no kart physically moving. Open with BMI.
 3. **TLS.** Currently `ws://` (plaintext). If we ever expose this
    to the public internet, switch to `wss://` with proper certs.

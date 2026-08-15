@@ -7,13 +7,16 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsx watch src/index.ts",
-    "probe": "PROBE=1 tsx src/index.ts",
+    "dev": "tsx watch --env-file-if-exists=.env.local src/index.ts",
+    "probe": "tsx --env-file-if-exists=.env.local src/index.ts --probe",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {},
+  "dependencies": {
+    "ws": "^8.21.3"
+  },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   },

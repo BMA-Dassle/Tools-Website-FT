@@ -17,19 +17,46 @@
  *   WEBHOOK_SECRET     shared with fasttraxent.com's KART_BRIDGE_SECRET
  *
  * Optional:
- *   PROBE              "1" → log every parsed message to stdout AND
+ *   PROBE              "1"/"true" → log every parsed message to stdout AND
  *                      forward to webhook. Default behavior also forwards;
  *                      this just adds verbose stdout dumps for debugging.
+ *                      `npm run probe` passes --probe instead, which needs
+ *                      no shell-specific env syntax.
  *   LOG_LEVEL          "debug" → log raw frames + reconnect timing
  *
  * Reconnect: exponential backoff (1s → 5min cap) on ws errors / closes.
  * Subscription resend: BcStart fires on every successful open.
+ *
+ * WHY `ws` AND NOT NODE'S BUILT-IN WebSocket (2026-08-15, the whole night):
+ * the venue runs websocket-sharp/1.0 and negotiates `permessage-deflate;
+ * client_no_context_takeover; server_no_context_takeover`. EVERY frame comes
+ * over compressed with RSV1 set, and on BcFormat "0" a message arrives
+ * fragmented across three frames (TEXT fin=0 + CONT + CONT fin=1). Node's
+ * built-in WebSocket (undici) handed all of those back as ZERO-LENGTH
+ * STRINGS. This file then discarded them with a comment calling them "empty
+ * keep-alives (~1/sec)" — so the bridge threw away 100% of the live stream
+ * for its entire life while looking healthy. The ~1/sec was never a
+ * keep-alive; it is RaceStatsResendInterval doing exactly what it says.
+ * Proven by reading the socket with node:net and inflating by hand.
+ * If you ever swap the client again, verify against a RUNNING race that
+ * frames arrive with a payload — an idle venue looks identical to this bug.
  */
+
+import WebSocket from "ws";
+import { createHash } from "node:crypto";
 
 const WS_URL = process.env.WS_URL ?? "ws://68.171.192.138:10001";
 const WEBHOOK_URL = required("WEBHOOK_URL");
 const WEBHOOK_SECRET = required("WEBHOOK_SECRET");
-const PROBE_MODE = process.env.PROBE === "1";
+// PROBE arrives three ways, because the old strict `=== "1"` check
+// silently ignored two of them: a Railway env var, a line in
+// .env.local (nothing loaded that file until the npm scripts grew
+// --env-file-if-exists), or `--probe` on the command line — the only
+// form that behaves the same in PowerShell as it does in bash.
+const PROBE_MODE =
+  process.env.PROBE === "1" ||
+  process.env.PROBE?.toLowerCase() === "true" ||
+  process.argv.includes("--probe");
 const LOG_LEVEL = process.env.LOG_LEVEL ?? "info";
 
 // SMS-Timing / Tournament Manager broadcast subscription. Sent on
@@ -125,16 +152,85 @@ async function forward(message: unknown): Promise<void> {
 }
 
 /**
+ * Forward STRICTLY IN ORDER, one POST at a time.
+ *
+ * This used to be a bare `forward(x).catch(...)` per frame — fire-and-forget,
+ * so POSTs overlapped and could land out of order. That is fine for an
+ * append-only event log and NOT fine for the race clock the webhook now
+ * maintains: a `RaceStart` applied before the `RaceStop` it followed banks a
+ * negative pause and the countdown on every TV in the building goes wrong.
+ *
+ * Serialising here also means the webhook's read-modify-write on a race's
+ * clock state can never race itself, so no Redis lock is needed — the ordering
+ * guarantee IS the mutual exclusion. One writer, in order (same rule we hold
+ * for BMI entities).
+ *
+ * The chain never rejects: a failed forward is logged inside `forward` and the
+ * queue continues, because dropping one message must not wedge the pipe.
+ */
+let forwardChain: Promise<void> = Promise.resolve();
+let queueDepth = 0;
+
+function enqueueForward(message: unknown): void {
+  queueDepth++;
+  forwardChain = forwardChain
+    .then(() => forward(message))
+    .catch((err) => console.error("[kart-bridge] forward threw:", err))
+    .finally(() => {
+      queueDepth--;
+      // A depth that keeps climbing means the webhook is slower than the feed;
+      // say so, because silence here would look exactly like a healthy bridge.
+      if (queueDepth > 20) console.warn(`[kart-bridge] forward queue depth ${queueDepth}`);
+    });
+}
+
+/**
+ * Suppress repeats.
+ *
+ * On BcFormat "0" the server re-sends its ENTIRE snapshot every second —
+ * 45+ records, ~18KB — whether or not anything changed. Forwarding that
+ * verbatim is 18KB/s at the webhook and would churn the 5000-entry Redis
+ * FIFO in ~83 minutes, evicting the day's real events. So we keep the last
+ * seen shape of each record and forward only what actually moved.
+ *
+ * Keyed on ($type, RaceId) and compared by content hash rather than
+ * RecordVersion: RaceAdvice does not reliably carry a RecordVersion, and a
+ * hash is correct for every record type without having to know which.
+ */
+const lastSeen = new Map<string, string>();
+
+function changedOnly(parsed: unknown): unknown | null {
+  if (!Array.isArray(parsed)) return parsed; // single pushes always forward
+  const fresh: unknown[] = [];
+  for (const item of parsed) {
+    if (typeof item !== "object" || item === null) {
+      fresh.push(item);
+      continue;
+    }
+    const rec = item as Record<string, unknown>;
+    const key = `${String(rec.$type ?? "raw")}:${String(rec.RaceId ?? "?")}`;
+    const hash = createHash("sha1").update(JSON.stringify(rec)).digest("hex");
+    if (lastSeen.get(key) === hash) continue;
+    lastSeen.set(key, hash);
+    fresh.push(item);
+  }
+  return fresh.length ? fresh : null;
+}
+
+/**
  * Open the WebSocket, send BcStart, and forward every inbound
- * message until the connection closes. Uses Node's built-in
- * WebSocket global (Node 22+).
+ * message until the connection closes.
+ *
+ * Uses the `ws` package, NOT Node's built-in WebSocket — see the header
+ * comment. `ws` inflates permessage-deflate and reassembles continuation
+ * frames; the built-in silently produces empty strings for both.
  */
 async function consumeStream(): Promise<void> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(WS_URL);
+    const ws = new WebSocket(WS_URL, { perMessageDeflate: true });
     let closed = false;
 
-    ws.addEventListener("open", () => {
+    ws.on("open", () => {
       console.log(`[kart-bridge] WebSocket open: ${WS_URL}`);
       try {
         ws.send(JSON.stringify(BC_START_MESSAGE));
@@ -146,19 +242,14 @@ async function consumeStream(): Promise<void> {
       }
     });
 
-    ws.addEventListener("message", (ev) => {
-      // Frames may be string or Buffer/ArrayBuffer depending on the
-      // server's content-type. Stringify for downstream forwarding.
-      let raw: string;
-      if (typeof ev.data === "string") raw = ev.data;
-      else if (ev.data instanceof ArrayBuffer) raw = new TextDecoder().decode(ev.data);
-      else raw = String(ev.data);
+    ws.on("message", (data: Buffer, isBinary: boolean) => {
+      const raw = isBinary ? data.toString("utf8") : data.toString("utf8");
 
-      // The server emits empty data frames as keep-alives between real
-      // messages (~1/sec). They're not actionable — drop them before
-      // doing any work or forwarding them to the webhook.
+      // A zero-length frame now means something is wrong with the client,
+      // not a keep-alive — `ws` inflates properly, so real frames have a
+      // payload. Warn loudly rather than swallowing it like the old code.
       if (raw.length === 0) {
-        debug("empty keep-alive frame");
+        console.warn("[kart-bridge] zero-length frame — decoding may be broken");
         return;
       }
 
@@ -188,34 +279,46 @@ async function consumeStream(): Promise<void> {
         typeLabel = String((parsed as Record<string, unknown>).$type);
       }
 
-      console.log(`[kart-bridge] message type=${typeLabel} bytes=${raw.length}`);
-      debug("payload:", parsed);
-      forward(parsed).catch((err) => console.error("[kart-bridge] forward threw:", err));
+      // The stream repeats its whole snapshot every second; only forward
+      // what moved, or the webhook drowns. PROBE still sees everything.
+      const fresh = changedOnly(parsed);
+      if (fresh === null) {
+        debug(`unchanged snapshot (${typeLabel}) — not forwarded`);
+        if (PROBE_MODE) console.log(`[kart-bridge:PROBE] unchanged ${typeLabel}`);
+        return;
+      }
+      const freshCount = Array.isArray(fresh) ? fresh.length : 1;
+      const totalCount = Array.isArray(parsed) ? parsed.length : 1;
+      console.log(
+        `[kart-bridge] message type=${typeLabel} bytes=${raw.length} forwarding=${freshCount}/${totalCount}`,
+      );
+      debug("payload:", fresh);
+      enqueueForward(fresh);
     });
 
-    ws.addEventListener("error", (ev) => {
-      // Node 22's undici WebSocket dispatches a generic Event on error
-      // (NOT a browser-style ErrorEvent — that constructor isn't a
-      // global in Node, hence the original `instanceof ErrorEvent`
-      // crashed with ReferenceError). Log the event type and let
-      // the close handler resolve with details (code + reason).
-      const evtType = (ev as { type?: string } | null)?.type ?? "unknown";
-      console.error(`[kart-bridge] WebSocket error event (type=${evtType})`);
+    ws.on("error", (err: Error) => {
+      // `ws` emits a real Error here (the built-in client emitted a bare
+      // Event, which is why this used to log almost nothing useful).
+      console.error(`[kart-bridge] WebSocket error: ${err.message}`);
     });
 
-    ws.addEventListener("close", (ev) => {
+    ws.on("close", (code: number, reason: Buffer) => {
       if (closed) return;
       closed = true;
       console.log(
-        `[kart-bridge] WebSocket closed code=${ev.code} reason=${ev.reason || "(no reason)"}`,
+        `[kart-bridge] WebSocket closed code=${code} reason=${reason?.toString() || "(no reason)"}`,
       );
+      // A reconnect re-sends BcStart and the server replays its full
+      // snapshot; clear the dedupe cache so that replay is forwarded once
+      // rather than silently dropped as "unchanged".
+      lastSeen.clear();
       resolve();
     });
 
     // 30s safety timeout on the ws connection itself — if open
     // never fires, abort and let the reconnect loop try again.
     const watchdog = setTimeout(() => {
-      if (ws.readyState === ws.CONNECTING) {
+      if (ws.readyState === WebSocket.CONNECTING) {
         console.error("[kart-bridge] open watchdog fired — connection stalled");
         try {
           ws.close();
@@ -229,7 +332,7 @@ async function consumeStream(): Promise<void> {
       }
     }, 30_000);
 
-    ws.addEventListener("open", () => clearTimeout(watchdog));
+    ws.on("open", () => clearTimeout(watchdog));
   });
 }
 

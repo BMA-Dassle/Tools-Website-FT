@@ -4230,3 +4230,68 @@ fullscreen, and the left-hand board never went fullscreen at all.
    `--app` was framed, that F11 had silently reverted, and it reads in PHYSICAL pixels
    while `Screen.Bounds` reads DPI-virtualised — the two only agree at 100% scaling,
    which is why the player must be set to 100%.
+
+## An "empty" frame is a DECODE failure, not a keep-alive (2026-08-15)
+
+The `kart-timing-bridge` had been discarding **100% of the live kart timing
+broadcast since the day it was written**, while its logs looked perfectly
+healthy. It reported `WebSocket open`, `sent BcStart`, and one message per
+connect — and nothing was ever obviously broken.
+
+**Root cause:** the venue runs `websocket-sharp/1.0` and negotiates
+`permessage-deflate; client_no_context_takeover; server_no_context_takeover`.
+Every frame arrives compressed with RSV1 set. **Node's built-in WebSocket
+(undici) hands those back as zero-length strings.** `src/index.ts` dropped
+them with:
+
+```ts
+// The server emits empty data frames as keep-alives between real
+// messages (~1/sec). They're not actionable — drop them.
+if (raw.length === 0) { debug("empty keep-alive frame"); return; }
+```
+
+That `~1/sec` was never a keep-alive. It was `RaceStatsResendInterval:
+"00:00:01"` delivering race data exactly as configured. On `BcFormat: "0"`
+messages additionally arrive FRAGMENTED (TEXT fin=0 + CONT + CONT fin=1), so
+inflating any single frame throws `unexpected end of file` — reassemble the
+message before inflating.
+
+**How it stayed hidden for months:** an idle venue and a broken decoder produce
+byte-identical symptoms — a socket that connects, subscribes, and then says
+nothing. Every check we ran happened to run against a quiet track.
+
+**The rules:**
+
+1. **A zero-byte frame is a decode failure until proven otherwise.** Servers do
+   not push empty payloads on a timer. If the cadence of the "keep-alives"
+   matches a configured resend interval, those frames ARE the data.
+2. **Never `return` on an uninteresting frame without counting it.** Every probe
+   written to investigate this inherited the same `if (len === 0) return` and so
+   reported "1 frame in 90 seconds" when the truth was 1 payload + 72 dropped.
+   Instrumentation that shares the suspect's blind spot cannot see the bug.
+3. **Drop to the raw protocol before blaming the vendor.** Thirty minutes of
+   permuting `Timing`, `NotificationGroups`, `Resource` and `BcFormat` found
+   nothing. One run over `node:net` with a hand-rolled handshake showed
+   `Sec-WebSocket-Extensions: permessage-deflate` and `rsv1=1` immediately.
+   Check the transport before theorising about the payload.
+4. **A code comment is not evidence.** This one was a day-one misdiagnosis that
+   got quoted back to the owner as fact and had conclusions built on top of it.
+   Comments describing external behaviour must cite when they were last verified.
+5. **Verify a stream client against a RUNNING source.** "It connects and stays
+   up" proves nothing. The smoke test is a payload with a moving value in it.
+
+**Consequences for anything reading this feed:** the snapshot on `BcFormat "0"`
+resends ~86 records / 35KB EVERY SECOND, so a client must dedupe (we hash per
+`($type, RaceId)`) or it will churn the 5000-entry Redis FIFO in ~83 minutes.
+And the vendor's own `TimeLeftMs` is **always 0** — the race clock must be
+derived: `ActualStartUtc + DurationTimeMs + accumulatedPause - GenerationTimeUtc`,
+where pause comes from `RaceStop`→`RaceStart` timestamps (`ActualStart` never
+restamps on resume) and staff time-adds arrive as
+`SessionDurationChangedNotification`. Verified exactly: Blue 58698117 finished
+with a 62:23 wall span against a 53:00 duration = 9:23 of accumulated pause.
+
+**One more trap:** a second `BcStart` re-points the stats feed **globally,
+across other open connections**. You cannot hold one subscription per track.
+Fortunately a single `Resource: "Karting"` subscription on `BcFormat: "0"`
+carries every track's notifications (Blue + Red in one snapshot), so one socket
+is both necessary and sufficient.

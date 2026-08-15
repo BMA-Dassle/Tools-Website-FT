@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import redis from "@/lib/redis";
 import { handleVenueMessage } from "~/features/signage/briefing/race-finish.server";
+import { updateRaceClocks } from "~/features/racing/race-clock.server";
 
 /**
  * Kart timing broadcast webhook — receives messages forwarded by
@@ -106,6 +107,21 @@ export async function POST(req: NextRequest) {
   // handler never throws; a failure inside after() costs one race the fast
   // path, and the Pandora fallback still covers it.
   after(() => handleVenueMessage(message));
+
+  /**
+   * The race countdown every TV in the building reads.
+   *
+   * Folds RaceStart / RaceStop / RaceFinish / SessionDurationChangedNotification
+   * into per-race clock state in Redis. Separate from handleVenueMessage on
+   * purpose: that one fires irreversible live effects (radio calls, standings
+   * captures) behind freshness gates, while this is pure bookkeeping that must
+   * run for EVERY message including replayed ones — a catch-up dump after a
+   * bridge restart is exactly how a clock recovers its state.
+   *
+   * Ordering is guaranteed by the bridge POSTing serially, which is also what
+   * makes the read-modify-write in here safe without a lock.
+   */
+  after(() => updateRaceClocks(message, Date.now()));
 
   console.log(`[kart-webhook] queued type=${messageType}`);
   return NextResponse.json({ ok: true, kind: "queued", messageType });

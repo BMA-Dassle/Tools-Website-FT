@@ -23,6 +23,7 @@
 import { useEffect, useRef, useState } from "react";
 import { withAlpha } from "./color";
 import type { TrackKey } from "./track";
+import { useRaceClockForTrack } from "~/features/racing/use-race-clocks";
 
 const WS_HOST = "webserver22.sms-timing.com";
 const WS_PORT = 10015;
@@ -155,8 +156,69 @@ export interface LiveSessionClock {
   counting: boolean;
 }
 
-/** Null until a race is actually live on the track — the designed empty state. */
+/**
+ * Null until a race is actually live on the track — the designed empty state.
+ *
+ * SOURCE CHANGED 2026-08-15: this now reads OUR DERIVED CLOCK, not the
+ * SMS-Timing cloud socket's `C` field.
+ *
+ * WHY. The cloud frame's remaining-time field does not report. We spent a night
+ * on it against the live venue: the venue's own `TimeLeftMs` reads `0` on every
+ * frame of every race — through a resume, through a six-minute staff time-add —
+ * while the desk counts down normally. `C` is the same number from the same
+ * source, which is why the wall clock has been wrong. Worse, the guard below
+ * (`counting`, which only arms once a frame is SEEN to decrease) can never flip
+ * on a field that never decreases, so the chip froze or vanished instead of
+ * failing loudly. Owner 2026-08-15: "that live frame is wrong".
+ *
+ * The replacement derives the clock from the race lifecycle records the
+ * kart-timing bridge already receives — see features/racing/race-clock.ts:
+ *
+ *     remaining = actualStart + duration + accumulatedPause − now
+ *
+ * Every consumer of this hook (pit board, check-in board, briefing, camera
+ * monitor, camera return bar, admin pit, race control) is fixed by this one
+ * change; the signature and the LiveSessionClock shape are unchanged on purpose.
+ *
+ * THE OLD SOCKET PATH IS KEPT BELOW as `useLiveSessionClockFromCloudSocket`,
+ * unused, so this is a one-line revert if the derived clock ever disappoints on
+ * a busy night. Delete it once a full trading day has been signed off.
+ */
 export function useLiveSessionClock(track: TrackKey | null): LiveSessionClock | null {
+  const derived = useRaceClockForTrack(track);
+  if (!track || !derived) return null;
+  if (derived.liveRemainingMs === null) return null;
+
+  /**
+   * `counting` used to mean "we watched the wire's number go down", a heuristic
+   * for the venue's two-phase start (green flag arms the heat, the clock starts
+   * a beat later). The derived clock does not need to guess: `RaceStart` and
+   * `RaceStop` state it outright, and `ActualStart` proved to BE the true
+   * counting start — validated 2026-08-15 against Red race 58773798, whose
+   * derived clock tracked the desk second for second from the green flag.
+   *
+   * Kept in the shape because the pit board reads it for the staging state and
+   * for the "a RUNNING clock at 00:00 holds" rule.
+   */
+  return {
+    state: derived.phase === "paused" ? "paused" : "running",
+    heatName: derived.heatName,
+    remainingMs: Math.max(0, derived.liveRemainingMs),
+    counting: derived.phase === "running",
+  };
+}
+
+/**
+ * The previous implementation — browser straight to the SMS-Timing cloud
+ * socket. RETAINED FOR REVERT ONLY; see the note on useLiveSessionClock. Its
+ * `C` field is the field that does not report.
+ *
+ * @deprecated Use useLiveSessionClock, which derives the clock from the venue
+ * broadcast instead of trusting the cloud socket's countdown.
+ */
+export function useLiveSessionClockFromCloudSocket(
+  track: TrackKey | null,
+): LiveSessionClock | null {
   /**
    * RENDER READS STATE, NOTHING ELSE. The interpolation (synced clock minus time
    * since the sync) needs Date.now() and the sync ref — both impure in render —
