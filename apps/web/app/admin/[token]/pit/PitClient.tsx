@@ -56,6 +56,7 @@ import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { PORTAL_DARK, ADMIN_SANS } from "~/components/features/admin-skin/theme";
 import { formatRemaining, useLiveSessionClock } from "~/features/signage/live-session";
+import { liveHeatNumber } from "~/features/signage/briefing/room-return";
 import { pitRailState, type PitLaneFeed, type PitLanes } from "~/features/signage/pit/pit-board";
 import type { TrackKey } from "~/features/signage/track";
 
@@ -621,7 +622,26 @@ function TrackCard({
     racingFinishedAtMs: racing?.finishedAtMs ?? null,
     pittedAtMs: racing?.pittedAtMs ?? null,
   });
-  const holdLive = rail === "hold";
+  /**
+   * PHASE ONE, FROM THE FASTEST WITNESS THIS TABLET HOLDS (owner 2026-08-14:
+   * "It needs to say HOLD as soon as it hits phase one"). The finish marker
+   * rides bridge → webhook → 5s poll, seconds behind the flag; the timing
+   * socket this card already watches flips the heat to "finished" the moment
+   * the clock ends. When the finished heat IS the racing group's heat and no
+   * release has been pressed, the lane is live — say HOLD now, not at the
+   * next poll. Suppressed once released, because the socket keeps saying
+   * "finished" until the next heat loads and a released lane must not
+   * re-hold. The post BUTTON still arms off the server's marker (the press
+   * path's own gate) — a beat later, deliberately: the one-shot must never
+   * fire off a client-side guess.
+   */
+  const released = racing?.pittedAtMs != null && racing.pittedAtMs >= (racing.finishedAtMs ?? 0);
+  const clockSaysFinished =
+    liveClock?.state === "finished" &&
+    racing != null &&
+    racing.heatNumber != null &&
+    liveHeatNumber(liveClock.heatName) === racing.heatNumber;
+  const holdLive = rail === "hold" || (clockSaysFinished && !released);
 
   const finished = racing?.finishedAtMs != null;
   const finishedAgoMs = finished ? Math.max(0, nowMs - (racing?.finishedAtMs as number)) : null;
@@ -712,7 +732,10 @@ function TrackCard({
               ? `finished ${formatClock(finishedAgoMs ?? 0)} ago${
                   postBlocked ? ` · ${gate?.short ?? "room busy"}` : ""
                 }`
-              : `racing${liveClock?.state === "running" ? ` · ${formatRemaining(liveClock.remainingMs)} left` : ""}`
+              : clockSaysFinished
+                ? // The socket saw phase one; the marker is a beat behind.
+                  "finishing — karts coming in"
+                : `racing${liveClock?.state === "running" ? ` · ${formatRemaining(liveClock.remainingMs)} left` : ""}`
             : "No race out."
         }
         subTone={finished && postStamp == null ? AMBER : undefined}
