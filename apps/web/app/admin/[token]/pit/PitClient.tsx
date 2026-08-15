@@ -120,7 +120,7 @@ interface PitBoard {
 const STYLES = `
 .pitb {
   display: flex; align-items: center; gap: 12px; width: 100%;
-  min-height: 56px; padding: 0 18px; border-radius: 10px;
+  min-height: 56px; flex: 1; padding: 0 18px; border-radius: 10px;
   font-family: ${ADMIN_SANS}; font-size: 16px; font-weight: 800; letter-spacing: 0.02em;
   border: 1px solid transparent; cursor: pointer; text-align: left;
   font-variant-numeric: tabular-nums;
@@ -531,13 +531,19 @@ export default function PitClient({ token, version }: { token: string; version: 
         )}
       </header>
 
+      {/* Cards STRETCH to the bottom of the screen (owner 2026-08-14: "make
+          them fill vertically") — the grid takes the viewport's leftover
+          height and the default stretch alignment hands it to the cards;
+          inside, each PRE/POST section takes half and its button soaks up
+          the growth, so the fill buys bigger touch targets, not blank card
+          bottoms. */}
       <div
         style={{
           display: "grid",
           gap: 16,
           gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))",
-          alignItems: "start",
           flex: 1,
+          minHeight: 0,
         }}
       >
         {tracks.map((track) => (
@@ -642,6 +648,9 @@ function TrackCard({
         flexDirection: "column",
         gap: 12,
         minWidth: 0,
+        // The grid stretches this card to the bottom of the screen; the two
+        // sections split whatever the header row leaves.
+        minHeight: 0,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 2px" }}>
@@ -812,6 +821,11 @@ function CueSection({
         display: "flex",
         flexDirection: "column",
         gap: 10,
+        // Each section takes an equal share of the card's height, and the
+        // growth goes to the BUTTON (flex: 1 in .pitb) — a taller touch
+        // target at the fence, never a blank section bottom.
+        flex: 1,
+        minHeight: 0,
       }}
     >
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
