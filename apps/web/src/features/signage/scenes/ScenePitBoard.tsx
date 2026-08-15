@@ -1500,9 +1500,20 @@ function PreRacePill({
         : "Pre-race ✓";
   const color = !played ? AMBER : stillPlaying ? ACCENT_INFO : OK;
 
+  /**
+   * READY TO SEND FLASHES (owner 2026-08-15: "if both pre-message and the first
+   * phase trigger this should be flash green ready to send").
+   *
+   * It is the only state on this rail that is an INSTRUCTION with a moment
+   * attached — both gates have cleared and the flag is the next thing to
+   * happen — so it gets the canvas's existing green flash rather than a new
+   * one, which keeps it on the 1.4s beat with everything else on the wall.
+   * The keyframes own colour AND ground for that state, so neither is set
+   * inline there or the animation would be outranked.
+   */
   return (
     <span
-      className="tv-display"
+      className={ready ? "tv-display tv-ready-flash" : "tv-display"}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -1510,12 +1521,9 @@ function PreRacePill({
         padding: "6px 20px",
         borderRadius: 999,
         border: `2px solid ${withAlpha(color, ready ? 1 : 0.7)}`,
-        background: withAlpha(color, ready ? 0.22 : 0.12),
-        color,
+        ...(ready ? null : { background: withAlpha(color, 0.12), color }),
         fontSize: 24,
-        // The one state that is an instruction, not a status, carries the
-        // weight — it is read across a pit lane, not leaned into.
-        fontWeight: ready ? 700 : undefined,
+        fontWeight: ready ? 900 : undefined,
         letterSpacing: ready ? "0.04em" : undefined,
         whiteSpace: "nowrap",
       }}
