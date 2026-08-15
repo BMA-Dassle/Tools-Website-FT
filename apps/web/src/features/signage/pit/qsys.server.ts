@@ -134,6 +134,13 @@ export async function playQsysCue(zone: TrackKey, clip: QsysClip): Promise<PlayQ
     }
 
     const results = json?.data?.results ?? [];
+    // ALWAYS logged (owner 2026-08-14: "they played pre on one track and it
+    // updated both") — this is the evidence line for which zones the PLAYER
+    // says it lit for our single-zone request. If a `{zone: "blue"}` play
+    // comes back with red in the results, or the live feed shows both zones
+    // sounding, the routing lives in the Core's Control Script clip config
+    // (GET /qsys/audio/clips), not in this request.
+    console.log(`[qsys] play ${clip} zone=${zone} →`, JSON.stringify(results));
     const mine = results.find((r) => r.zone === zone) ?? results[0];
     if (!mine || (mine.status !== "playing" && mine.status !== "debounced")) {
       return {

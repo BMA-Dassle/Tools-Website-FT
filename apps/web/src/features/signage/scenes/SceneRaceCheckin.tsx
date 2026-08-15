@@ -95,7 +95,9 @@ const recordsUrl =
     : "https://fasttraxent.com/leaderboards";
 
 export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
-  const status = useTrackStatus();
+  // 2s — the wall repaints on the 2s pulse anyway; session status rides the
+  // warm-loop-fresh carry (cacheOnly), never live Pandora.
+  const status = useTrackStatus(2_000);
 
   const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
 

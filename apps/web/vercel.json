@@ -41,6 +41,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/races-current-warm",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/pre-race-tickets",
       "schedule": "*/2 * * * *"
     },

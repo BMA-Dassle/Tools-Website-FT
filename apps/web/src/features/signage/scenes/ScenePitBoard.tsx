@@ -67,7 +67,9 @@ const AMBER = "#f0b341";
 const PIT_PHOTOS_ENABLED = true;
 
 export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
-  const status = useTrackStatus();
+  // 2s — the wall repaints on the 2s pulse anyway; session status rides the
+  // warm-loop-fresh carry (cacheOnly), never live Pandora.
+  const status = useTrackStatus(2_000);
   const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
 
   const screenTrack = trackFromResourceIds(config.scope.resourceIds);
