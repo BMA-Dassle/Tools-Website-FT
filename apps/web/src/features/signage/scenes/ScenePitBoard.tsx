@@ -215,7 +215,10 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
     lane.racing.heatNumber != null &&
     liveClock != null &&
     liveHeatNumber(liveClock.heatName) === lane.racing.heatNumber &&
-    (liveClock.state === "finished" || (liveClock.counting && liveClock.remainingMs <= 500));
+    // RUNNING to zero only (owner 2026-08-14): a PAUSED clock sitting at
+    // 00:00 is a stopped race, not karts coming in — it must not hold.
+    (liveClock.state === "finished" ||
+      (liveClock.state === "running" && liveClock.counting && liveClock.remainingMs <= 500));
 
   const rail = pitRailState({
     stagedInHolding: session?.inHolding ?? false,
