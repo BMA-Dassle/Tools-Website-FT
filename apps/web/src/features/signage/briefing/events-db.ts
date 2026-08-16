@@ -269,6 +269,28 @@ export async function recordBriefingEvent(args: RecordBriefingEventArgs): Promis
 }
 
 /** A day's actions, OLDEST FIRST — the fold walks them in order. */
+/**
+ * Row ceiling for one business day, and it must never be reachable in practice.
+ *
+ * THIS WAS 500, AND A SATURDAY OUTGREW IT. 2026-08-15 wrote 655 events; the query
+ * is `ORDER BY at ASC`, so it kept the OLDEST 500 and event 501 onwards — from
+ * about 20:56 to close — simply did not exist as far as the board was concerned.
+ * The desk's log stopped growing at 20:56 while briefings carried on until 23:51,
+ * and nothing said a word, because a LIMIT that is hit looks exactly like a day
+ * that ended early.
+ *
+ * That is the worst possible failure for this table: it exists to answer an
+ * insurance question years later, and it was quietly answering "no briefings
+ * after 8:56pm" for the busiest part of the night.
+ *
+ * Sized for a day nobody has had: ~6 events per occupancy (sent, started, photo,
+ * audio-pre, audio-post, ended) put 8/15's 105 occupancies at 655, so this is
+ * roughly eight times the biggest night on record. And if it is ever reached it
+ * now says so loudly rather than truncating in silence — a bounded read is fine,
+ * a SILENT one is not.
+ */
+const DAY_EVENT_CAP = 5000;
+
 export async function listBriefingEvents(
   venue: string,
   businessDay: string,
@@ -283,8 +305,15 @@ export async function listBriefingEvents(
     FROM briefing_events
     WHERE venue = ${venue} AND business_day = ${businessDay}
     ORDER BY at ASC, id ASC
-    LIMIT 500
+    LIMIT ${DAY_EVENT_CAP}
   `) as Array<Record<string, unknown>>;
+  if (rows.length >= DAY_EVENT_CAP) {
+    // Say so. The old cap was hit in silence and nobody could have known.
+    console.error(
+      `[briefing-events] DAY CAP HIT: ${rows.length} events for ${venue} ${businessDay} — ` +
+        `the log is TRUNCATED and later briefings are missing. Raise DAY_EVENT_CAP.`,
+    );
+  }
   return rows.map(toRow);
 }
 
