@@ -126,6 +126,41 @@ export function briefingTimelineAt(
 }
 
 /**
+ * MAY THIS ROOM'S GROUP BE SENT TO THE SEATS YET? PURE — a timeline in, a
+ * verdict out.
+ *
+ * The tablet let staff press Send to holding at any point in the briefing,
+ * including with the safety film still running (owner 2026-08-15: "Briefing
+ * tablets are allowing to send to holding before video is done"). The film is
+ * not a formality — it is the safety briefing every racer is required to have
+ * seen — so walking a group out mid-video means nobody in that group got it.
+ *
+ * A REASON CODE, NOT A SENTENCE, because the clock belongs to whoever is
+ * drawing it: the tablet prints the time left beside the words, and a server
+ * refusal has no clock to print. Same split the rest of this module keeps —
+ * arithmetic here, formatting at the edge.
+ *
+ * `helmet` is the yes: the film has run to the end and they are getting kitted.
+ * A room with NO video at all lands there immediately (videoMs is 0), so a
+ * briefing sent before anyone uploaded a film is not blocked by a film that
+ * does not exist.
+ *
+ * `idle` is also a yes, deliberately. It means the assignment timed out, and
+ * the group may well still be standing in the room — refusing there would
+ * strand them with no way off the board at all, which is the limbo the helmet
+ * phase was rewritten to kill.
+ */
+export type HoldingReadiness =
+  | { ok: true }
+  | { ok: false; reason: "video-playing" | "not-started" };
+
+export function briefingReadyForHolding(timeline: BriefingTimeline): HoldingReadiness {
+  if (timeline.phase === "video") return { ok: false, reason: "video-playing" };
+  if (timeline.phase === "waiting") return { ok: false, reason: "not-started" };
+  return { ok: true };
+}
+
+/**
  * How long a room's Redis key should live, so the state outlives the whole
  * timeline and not a second longer.
  *

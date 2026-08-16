@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { briefingStateTtlSeconds, briefingTimelineAt } from "./phase";
+import { briefingReadyForHolding, briefingStateTtlSeconds, briefingTimelineAt } from "./phase";
 import {
   ASSIGNED_HOLD_MS,
   HELMET_PHASE_MS,
@@ -162,5 +162,58 @@ describe("briefingStateTtlSeconds", () => {
     const short = briefingStateTtlSeconds(state({ videoDurationMs: 60_000 }));
     const long = briefingStateTtlSeconds(state({ videoDurationMs: 20 * 60_000 }));
     expect(long).toBeGreaterThan(short);
+  });
+});
+
+/**
+ * THE FILM IS A GATE (owner 2026-08-15: "Briefing tablets are allowing to send
+ * to holding before video is done"). Every case is driven through the real
+ * timeline rather than a hand-built phase, so the gate cannot pass a state the
+ * arithmetic never produces.
+ */
+describe("briefingReadyForHolding", () => {
+  const at = (ms: number, over: Partial<BriefingRoomState> = {}) =>
+    briefingReadyForHolding(briefingTimelineAt(state(over), ms));
+
+  it("refuses while the film is running — start, middle, and the last second", () => {
+    for (const ms of [T0, T0 + 90_000, T0 + VIDEO_MS - 1]) {
+      const verdict = at(ms);
+      expect(verdict.ok).toBe(false);
+      expect(verdict.ok === false && verdict.reason).toBe("video-playing");
+    }
+  });
+
+  it("allows the send the moment the film ends", () => {
+    expect(at(T0 + VIDEO_MS).ok).toBe(true);
+    expect(at(T0 + VIDEO_MS + HELMET_PHASE_MS).ok).toBe(true);
+  });
+
+  it("refuses a briefing nobody started", () => {
+    const verdict = at(T0, { kind: "assigned" });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.ok === false && verdict.reason).toBe("not-started");
+  });
+
+  /**
+   * A FILM THAT DOES NOT EXIST CANNOT BLOCK ANYONE. Staff send briefings before
+   * anybody has uploaded the video; the timeline puts those straight into the
+   * helmet phase, and this must not turn that into a room with no way out.
+   */
+  it("allows the send when there is no video at all", () => {
+    expect(at(T0, { videoUrl: null }).ok).toBe(true);
+  });
+
+  /** A timed-out assignment may still have people standing in the room — see
+   *  the note on the rule. Refusing there would strand them. */
+  it("allows the send once the assignment has timed out", () => {
+    const verdict = briefingReadyForHolding(
+      briefingTimelineAt(state({ kind: "assigned" }), T0 + ASSIGNED_HOLD_MS + 1),
+    );
+    expect(verdict.ok).toBe(true);
+  });
+
+  it("falls back to the nominal length when the film's duration is unknown", () => {
+    expect(at(T0 + NOMINAL_VIDEO_MS - 1, { videoDurationMs: null }).ok).toBe(false);
+    expect(at(T0 + NOMINAL_VIDEO_MS, { videoDurationMs: null }).ok).toBe(true);
   });
 });

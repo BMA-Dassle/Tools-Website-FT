@@ -40,6 +40,7 @@ import {
   IconAlertTriangleFilled,
   IconArrowRight,
   IconBackspace,
+  IconCircleCheckFilled,
   IconPlayerPlayFilled,
   IconRefresh,
 } from "@tabler/icons-react";
@@ -48,7 +49,7 @@ import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { checkinAlert } from "~/features/signage/briefing/desk-alerts";
-import { briefingTimelineAt } from "~/features/signage/briefing/phase";
+import { briefingReadyForHolding, briefingTimelineAt } from "~/features/signage/briefing/phase";
 import { startHoldRemainingMs, startHoldSeconds } from "~/features/signage/briefing/start-hold";
 import { BRIEFING_ROOMS, type BriefingRoom } from "~/features/signage/briefing/types";
 import { holdingAvailability } from "~/features/signage/pit/holding-availability";
@@ -856,7 +857,14 @@ export default function BriefingRoomClient({
         sessionId: state.sessionId,
       })
     : null;
-  const canSendToHolding = !!state && verdict?.ok === true;
+  /**
+   * THE FILM IS A GATE, NOT A SUGGESTION (owner 2026-08-15). Sending mid-video
+   * walks a group out of the safety briefing they are required to have seen.
+   * The rule is pure and lives with the timeline, so the server can grow the
+   * same refusal without a second copy of it.
+   */
+  const briefingReady = briefingReadyForHolding(timeline);
+  const canSendToHolding = !!state && verdict?.ok === true && briefingReady.ok;
   /**
    * HOLDING IS FULL — say it loudly, not in footnote amber.
    *
@@ -865,6 +873,10 @@ export default function BriefingRoomClient({
    * refuses on exactly one condition — somebody is in the seats who has not gone
    * out — so a false verdict IS "full", and the occupant is non-null whenever
    * this is true.
+   *
+   * DELIBERATELY THE SEATS ALONE, not `!canSendToHolding` — the film still
+   * running is a different refusal with its own words, and blinking HOLDING FULL
+   * at a room whose seats are empty would be a lie.
    */
   const holdingFull = !!state && verdict?.ok === false;
   const occupantAccent = holdingFull ? DANGER : occupantIsOurs ? GREEN : AMBER;
@@ -1334,6 +1346,105 @@ export default function BriefingRoomClient({
 
           <div style={{ flex: 1 }} />
 
+          {/**
+           * THE FILM, REPEATED WHERE THE HAND IS (owner 2026-08-15: "Also show
+           * video status in there please").
+           *
+           * The room panel on the left already carries the film's own clock, but
+           * that is the wrong side of the screen at the moment that matters — the
+           * question "can I move them yet" is asked with a finger over THIS
+           * button, and an answer three feet away goes unread. So the state is
+           * restated here, small, in the panel it governs.
+           *
+           * Same `timeline` arithmetic as the wall and the left panel, never a
+           * second derivation: the bar, the film and this line cannot disagree.
+           */}
+          {state && (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                padding: "12px 14px",
+                borderRadius: 12,
+                background: PORTAL_DARK.hover,
+                border: `1px solid ${PORTAL_DARK.border}`,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  justifyContent: "space-between",
+                  gap: 10,
+                }}
+              >
+                <span
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 15,
+                    fontWeight: 800,
+                    color: phase === "video" ? AMBER : phase === "helmet" ? GREEN : AMBER,
+                  }}
+                >
+                  {phase === "video" ? (
+                    <IconPlayerPlayFilled size={15} aria-hidden />
+                  ) : phase === "helmet" ? (
+                    <IconCircleCheckFilled size={16} aria-hidden />
+                  ) : (
+                    <IconAlertTriangleFilled size={15} aria-hidden />
+                  )}
+                  {phase === "video"
+                    ? "Safety video playing"
+                    : phase === "helmet"
+                      ? "Safety video complete"
+                      : phase === "waiting"
+                        ? "Briefing not started"
+                        : "Assignment timed out"}
+                </span>
+                {phase === "video" && (
+                  <span className="brc-num" style={{ fontSize: 22, fontWeight: 800, color: AMBER }}>
+                    {clock(timeline.nextInMs ?? 0)}
+                    <span style={{ fontSize: 11, fontWeight: 700, color: PORTAL_DARK.muted }}>
+                      {" "}
+                      LEFT
+                    </span>
+                  </span>
+                )}
+              </div>
+              {phase === "video" && (
+                <div
+                  style={{
+                    height: 8,
+                    borderRadius: 999,
+                    background: PORTAL_DARK.muted2,
+                    overflow: "hidden",
+                  }}
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={
+                    timeline.videoMs > 0
+                      ? Math.round((timeline.videoOffsetMs / timeline.videoMs) * 100)
+                      : 0
+                  }
+                  aria-label="Safety video progress"
+                >
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${timeline.videoMs > 0 ? Math.min(100, (timeline.videoOffsetMs / timeline.videoMs) * 100) : 0}%`,
+                      background: AMBER,
+                      transition: "width 1s linear",
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
           {/* THE SECOND PRESS. Inert with its reason on it rather than failing
               on push — see the header. */}
           <button
@@ -1380,6 +1491,17 @@ export default function BriefingRoomClient({
               already carries one, and two on one panel read as two problems. */}
           {state && verdict && !verdict.ok && (
             <p style={{ fontSize: 14, fontWeight: 700, color: DANGER }}>{verdict.error}</p>
+          )}
+          {/* THE FILM'S REFUSAL, and only when the seats are not ALSO the problem
+              — two red sentences under one dead button is a puzzle, not an
+              explanation. The panel above already shows the clock, so this says
+              the one thing it does not: what to do about it. */}
+          {state && verdict?.ok && !briefingReady.ok && (
+            <p style={{ fontSize: 14, fontWeight: 700, color: AMBER }}>
+              {briefingReady.reason === "video-playing"
+                ? "The safety video is still playing — they cannot go to the seats until it has finished."
+                : "Roll the film first. This group has not had the safety briefing yet."}
+            </p>
           )}
         </section>
       </div>
