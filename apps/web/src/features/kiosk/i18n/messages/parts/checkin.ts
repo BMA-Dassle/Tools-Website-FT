@@ -98,6 +98,29 @@ export const checkinEn = {
   "checkin.picker.movesFrom": "moves from their {label} race",
   "checkin.picker.otherRace": "other",
   "checkin.picker.alsoAnother": "also in another race",
+
+  // Bowler details at check-in (2026-08-16) — the kiosk mirror of the web
+  // bowling self check-in (names / shoe sizes / bumpers). Field labels reuse
+  // the core `bowlingDetails.*` keys; these are the check-in-specific strings.
+  "checkin.bowl.title": "Bowler details",
+  "checkin.bowl.next": "Next: bowler details ›",
+  "checkin.bowl.intro":
+    "Add each bowler’s name, shoe size, and bumpers choice — your lane is set up before you walk over.",
+  "checkin.bowl.loading": "Loading your lane details…",
+  "checkin.bowl.loadFail":
+    "We couldn’t load the bowler list — check in anyway and the front desk can take shoe sizes.",
+  "checkin.bowl.shoeCounter": "{used} of {total} shoe rentals assigned",
+  "checkin.bowl.nameNeeded": "Add a name for Bowler {num} — shoe rentals need a name.",
+  "checkin.bowl.tooManyShoes":
+    "Only {count, plural, one {# shoe rental is} other {# shoe rentals are}} included with this booking.",
+  "checkin.bowl.laneOpenNoEdit":
+    "{lane} is already open — see the front desk to change shoes or bumpers.",
+  "checkin.bowl.saveFail": "We couldn’t save your bowler details. Try again, or see the front desk.",
+  "checkin.bowl.needOneName": "Enter at least one bowler’s name to check in.",
+  "checkin.bowl.saving": "Saving bowler details…",
+  // Done-screen subtitle for a check-in with bowling and no scheduled racers.
+  "checkin.done.bowlingSet":
+    "Your bowlers are set up — open your lane below when it’s ready.",
 } as const;
 
 export const checkinEs: Record<keyof typeof checkinEn, string> = {
@@ -172,4 +195,25 @@ export const checkinEs: Record<keyof typeof checkinEn, string> = {
   "checkin.picker.movesFrom": "cambia de su carrera de {label}",
   "checkin.picker.otherRace": "otra",
   "checkin.picker.alsoAnother": "también en otra carrera",
+
+  "checkin.bowl.title": "Datos de los jugadores",
+  "checkin.bowl.next": "Siguiente: datos de los jugadores ›",
+  "checkin.bowl.intro":
+    "Agrega el nombre, la talla de zapato y la opción de bumpers de cada jugador — tu línea queda lista antes de que llegues.",
+  "checkin.bowl.loading": "Cargando los datos de tu línea…",
+  "checkin.bowl.loadFail":
+    "No pudimos cargar la lista de jugadores — regístrate de todas formas y en recepción pueden tomar las tallas de zapato.",
+  "checkin.bowl.shoeCounter": "{used} de {total} alquileres de zapatos asignados",
+  "checkin.bowl.nameNeeded":
+    "Agrega un nombre para el Jugador {num} — el alquiler de zapatos necesita un nombre.",
+  "checkin.bowl.tooManyShoes":
+    "Solo {count, plural, one {# alquiler de zapatos está incluido} other {# alquileres de zapatos están incluidos}} con esta reserva.",
+  "checkin.bowl.laneOpenNoEdit":
+    "{lane} ya está abierta — acude a recepción para cambiar zapatos o bumpers.",
+  "checkin.bowl.saveFail":
+    "No pudimos guardar los datos de los jugadores. Inténtalo de nuevo o acude a recepción.",
+  "checkin.bowl.needOneName": "Ingresa el nombre de al menos un jugador para registrarte.",
+  "checkin.bowl.saving": "Guardando los datos de los jugadores…",
+  "checkin.done.bowlingSet":
+    "Tus jugadores están configurados — abre tu línea abajo cuando esté lista.",
 };

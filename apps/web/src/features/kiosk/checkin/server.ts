@@ -21,12 +21,15 @@ import { todayET } from "~/features/daily-events/format";
 import { resolveCenter } from "~/features/cancellation/centers";
 import { resolveBmiProject } from "~/features/cancellation/bmi-cancel";
 import {
+  getBowlingReservation,
   getBowlingReservationByBillId,
+  getBowlingReservationByShortCode,
   listBowlingReservations,
   listCancelGroupReservations,
   getReservationsByContact,
   type BowlingReservation,
 } from "@/lib/bowling-db";
+import { bowlIdFromKey, isBowlKey, isKioskBowlingRow, makeBowlKey } from "./res-key";
 import { ATTRACTIONS } from "@/lib/attractions-data";
 import { registerProjectPersonServer } from "~/features/kiosk/waiver/bmi-attach";
 import { CENTER_TO_BMI_LOCATION_IDS } from "~/features/kiosk/waiver/locations";
@@ -272,6 +275,16 @@ export async function resolveScanToBillId(
       // proof and it opens directly — no OTP (owner 2026-07-25).
       const byCode = await redis.get(`bookingrecord:code:${c.value}`).catch(() => null);
       if (byCode) return { billId: byCode, proven: true };
+      // A BOWLING confirmation link: /s/{code} where {code} IS the bowling
+      // reservation's own short_code — the stored /s destination carries only
+      // `?code=`, no billId, which is why these dead-ended here before.
+      // Possession of the emailed/SMS link is proof (same bar as the racing
+      // QR); the code is CSPRNG-shaped, not enumerable. HeadPinz lanes only —
+      // an FT duckpin row never opens kiosk bowling check-in (owner rule).
+      const bowl = await getBowlingReservationByShortCode(c.value).catch(() => null);
+      if (bowl && isKioskBowlingRow(bowl)) {
+        return { billId: bowl.bmiBillId ?? makeBowlKey(bowl.id), proven: true };
+      }
       return { reason: "not-found" };
     }
     case "code": {
@@ -590,8 +603,18 @@ function activitiesLabelFrom(record: BookingRecord | null, group: BowlingReserva
 }
 
 async function loadSummary(billId: string): Promise<ResSummary | null> {
-  const record = await readBookingRecord(billId);
-  const anchor = await getBowlingReservationByBillId(billId).catch(() => null);
+  // `billId` is a reservation KEY (res-key.ts): bare digits = a BMI bill;
+  // "bowl:{neonId}" = a bowling-only reservation (the hp/book wizard never
+  // mints a bill, so its rows are unreachable by billId). A bowl key has no
+  // Redis booking record — the Neon row is the whole truth — and it only ever
+  // anchors on a HeadPinz bowling row (never FT duckpin, owner rule).
+  const bowlId = bowlIdFromKey(billId);
+  if (isBowlKey(billId) && !bowlId) return null;
+  const record = bowlId ? null : await readBookingRecord(billId);
+  const anchor = bowlId
+    ? await getBowlingReservation(bowlId).catch(() => null)
+    : await getBowlingReservationByBillId(billId).catch(() => null);
+  if (bowlId && (!anchor || !isKioskBowlingRow(anchor))) return null;
   const moneyGroup = anchor ? await listCancelGroupReservations(anchor).catch(() => [anchor]) : [];
 
   if (!record && moneyGroup.length === 0) return null;
@@ -694,19 +717,31 @@ async function matchByContact(
   const rows = await getReservationsByContact({ ...contact, limit: 200 }).catch(() => []);
   const today = todayET();
   const matches: CheckinLookupMatch[] = [];
-  // Row order is event_at DESC; group by billId and keep today + this center.
-  // A verified own-phone match IS proof of possession (the phone is the
+  // Row order is event_at DESC; group by reservation KEY and keep today + this
+  // center. A verified own-phone match IS proof of possession (the phone is the
   // booking contact), so each match carries its own proof token.
   for (const row of rows) {
-    if (!row.bmiBillId || seen.has(row.bmiBillId)) continue;
     if (row.status === "cancelled") continue;
     if (resolveCenter(row.centerCode, row.productKind).slug !== center) continue;
     const dateStr = (row.eventAt || row.bookedAt || "").slice(0, 10);
     if (dateStr !== today) continue;
-    seen.add(row.bmiBillId);
-    const summary = await loadSummary(row.bmiBillId);
+    let key = row.bmiBillId ?? null;
+    if (!key) {
+      // A bowling-only booking (the hp/book wizard) never gets a BMI bill, so
+      // these rows were silently dropped and a bowling guest's phone lookup
+      // said "no reservations". Key it on its own Neon row — but only when its
+      // money group truly has no bill: a unified cart's bowling LEG also has a
+      // NULL bill and must join its anchor's key instead of double-matching.
+      // HeadPinz lanes only (never FT duckpin — owner rule 2026-08-16).
+      if (!isKioskBowlingRow(row)) continue;
+      const group = await listCancelGroupReservations(row).catch(() => [row]);
+      key = group.find((r) => r.bmiBillId)?.bmiBillId ?? makeBowlKey(row.id);
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const summary = await loadSummary(key);
     if (!summary || summary.cancelled) continue;
-    const proofToken = await mintProof(row.bmiBillId, center, verifiedVia);
+    const proofToken = await mintProof(key, center, verifiedVia);
     matches.push({
       proofToken,
       label: summary.label,
@@ -788,28 +823,38 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
   // so "everything from 3h ago on" IS the rest of the day (incl. 11pm+ slots).
   const lo = etMinuteOffset(-BROWSE_LOOKBACK_MIN);
 
-  // Group Neon rows by billId (a mixed cart / combo shares one bill → one row),
-  // aggregating product kinds so the label reads "Racing + Bowling".
+  // Group Neon rows by MONEY GROUP — deposit order first, bill second, the row
+  // itself last — the same precedence listCancelGroupReservations uses. Keying
+  // on billId alone dropped every standalone bowling booking (the hp/book
+  // wizard never mints a bill), which kept bowling-only guests out of this
+  // list; grouping on the deposit order also keeps a combo's bill-less bowling
+  // LEG in the same group as its bill-carrying anchor.
   interface Grp {
-    billId: string;
+    /** Reservation KEY the row opens under: the group's bill, else bowl:{id}. */
+    billKey: string;
     kinds: Set<string>;
     guestName: string;
     earliest: string;
     /** VIP combo id from whichever leg carries it (stamped on both combo
      *  legs) — free off the rows already fetched, no extra round trip. */
     comboSpecialId: string | null;
+    /** Any HeadPinz bowling leg (open/kbf at HPFM/HPN — never FT duckpin)?
+     *  Grants browse inclusion for non-racing groups (owner 2026-08-16). */
+    hasHpBowling: boolean;
   }
-  // Collect every leg per bill FIRST. Both decisions below — the time to show
-  // and whether the reservation is open at all — are properties of the WHOLE
-  // reservation, and judging them one leg at a time is what let a cancelled
-  // booking stay selectable and a racing row advertise its booking time.
-  const legsByBill = new Map<string, BrowseLegLike[]>();
+  // Collect every leg per money group FIRST. Both decisions below — the time to
+  // show and whether the reservation is open at all — are properties of the
+  // WHOLE reservation, and judging them one leg at a time is what let a
+  // cancelled booking stay selectable and a racing row advertise its booking
+  // time.
+  const groupKeyOf = (row: (typeof rows)[number]): string =>
+    row.squareDepositOrderId ?? row.bmiBillId ?? `row:${row.id}`;
+  const legsByGroup = new Map<string, (typeof rows)[number][]>();
   for (const row of rows) {
-    if (row.bmiBillId) {
-      const list = legsByBill.get(row.bmiBillId) ?? [];
-      list.push(row as BrowseLegLike);
-      legsByBill.set(row.bmiBillId, list);
-    }
+    const gk = groupKeyOf(row);
+    const list = legsByGroup.get(gk) ?? [];
+    list.push(row);
+    legsByGroup.set(gk, list);
   }
 
   const groups = new Map<string, Grp>();
@@ -819,33 +864,43 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
     // just booked AT the kiosk), so they never need to find themselves here to
     // check in (owner 2026-07-25).
     if (row.bookingSource === "kiosk") continue;
-    const billId = row.bmiBillId;
-    if (!billId) continue; // no bill → cannot open/verify it; skip from browse
-    const legs = legsByBill.get(billId) ?? [row as BrowseLegLike];
+    const legs = legsByGroup.get(groupKeyOf(row)) ?? [row];
+    // The key this reservation opens/verifies under: the group's bill when any
+    // leg carries one; else the group's own HeadPinz bowling row (bowl:{id},
+    // deterministic — lowest id). No bill and no HP bowling → unopenable; skip.
+    const hpBowlingLegs = legs
+      .filter((l) => isKioskBowlingRow(l))
+      .sort((a, b) => a.id - b.id);
+    const billKey =
+      legs.find((l) => l.bmiBillId)?.bmiBillId ??
+      (hpBowlingLegs.length > 0 ? makeBowlKey(hpBowlingLegs[0].id) : null);
+    if (!billKey) continue;
     // CANCELLED IN BMI. Neon's status is our record and it goes stale, so judge
     // the whole reservation: any dead leg removes it. Owner hit the old
     // behaviour by opening a reservation cancelled in BMI (2026-08-07).
-    if (!browseRowIsOpen(legs)) continue;
+    if (!browseRowIsOpen(legs as BrowseLegLike[])) continue;
     // THE RACE TIME, not the booking time. `eventAt` maps to `event_at`, a
     // column this table does not have, so it was always undefined and every
     // racing row fell through to `bookedAt` — the moment they BOOKED. Measured
     // on 10 consecutive live rows: all wrong, by 22 min to 1h44m.
-    const evt = browseRowTime(legs).iso;
+    const evt = browseRowTime(legs as BrowseLegLike[]).iso;
     const key = timeKey(evt);
     if (!key || key < lo) continue;
-    const g = groups.get(billId);
+    const g = groups.get(billKey);
     if (g) {
       g.kinds.add(row.productKind);
       if (!g.guestName && row.guestName) g.guestName = row.guestName;
       if (timeKey(evt) < timeKey(g.earliest)) g.earliest = evt;
       if (!g.comboSpecialId && row.comboSpecialId) g.comboSpecialId = row.comboSpecialId;
+      g.hasHpBowling = g.hasHpBowling || isKioskBowlingRow(row);
     } else {
-      groups.set(billId, {
-        billId,
+      groups.set(billKey, {
+        billKey,
         kinds: new Set([row.productKind]),
         guestName: row.guestName ?? "",
         earliest: evt,
         comboSpecialId: row.comboSpecialId ?? null,
+        hasHpBowling: isKioskBowlingRow(row),
       });
     }
   }
@@ -855,9 +910,10 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
   );
   const out: CheckinBrowseRow[] = [];
   for (const g of ordered) {
-    // Racing check-in only — a reservation with no race leg never appears in
-    // this list (a race + bowling combo still shows; owner 2026-07-25).
-    if (!g.kinds.has("race")) continue;
+    // Racing check-in (owner 2026-07-25) OR a HeadPinz bowling leg (owner
+    // 2026-08-16 — bowling check-in at HPFM/HPN, never FT duckpin). An
+    // attraction-only reservation still never lists here.
+    if (!g.kinds.has("race") && !g.hasHpBowling) continue;
     const { label: activitiesLabel, kind } = kindsToActivitiesLabel(g.kinds);
     // Express Lane is per-RESERVATION truth, not "is this a race" — badging
     // every racing row (the pre-fix behaviour) told guests who DO need to check
@@ -865,8 +921,10 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
     // alongside the ref mint so this costs no extra round trip. Only a
     // racing-ONLY row can be express (a combo still needs its lane opened).
     const [record, ref] = await Promise.all([
-      kind === "racing" ? readBookingRecord(g.billId) : Promise.resolve(null),
-      mintRef({ billId: g.billId, center }),
+      // A racing key is always a real billId (bowl keys only anchor bowling
+      // groups), so the record read stays billId-shaped.
+      kind === "racing" ? readBookingRecord(g.billKey) : Promise.resolve(null),
+      mintRef({ billId: g.billKey, center }),
     ]);
     out.push({
       ref,
@@ -1094,6 +1152,10 @@ export async function buildItinerary(
     playerCount: r.playerCount ?? 0,
     laneLabel: r.dayofOrderLane ? `Lane ${r.dayofOrderLane}` : undefined,
     neonReservationId: r.id,
+    // Kiosk bowler-details check-in (names/shoes/bumpers) — HeadPinz lanes
+    // only, never FT duckpin (owner rule 2026-08-16). Cancelled legs are
+    // display-only either way.
+    checkinEligible: r.status !== "cancelled" && isKioskBowlingRow(r),
   }));
 
   const { activities, firstStop } = assembleItinerary({
@@ -1211,7 +1273,10 @@ export async function bindPartyMembers(args: {
     businessDate,
   });
   const clientKey = bmiClientKeyFor(args.center);
-  const attachEnabled = kioskCheckinAttachEnabled();
+  // Bowl keys have no BMI project to attach to — the client never sends
+  // members for a bowling-only check-in, but if one ever arrives, persist to
+  // Neon and skip the BMI write rather than POSTing a non-bill orderId.
+  const attachEnabled = kioskCheckinAttachEnabled() && !isBowlKey(args.billId);
   const results: CheckinBindResult[] = [];
 
   for (const m of args.members) {
@@ -1922,6 +1987,10 @@ async function stampBookingRecordCheckedIn(billId: string): Promise<void> {
 export async function listBindableParty(
   billId: string,
 ): Promise<{ members: CheckinPartyMember[]; degraded: boolean }> {
+  // A bowling-only reservation (bowl key) has no BMI project, no waivers and no
+  // party panel — there is nobody to bind. Answer empty before any BMI math
+  // (officeProjectIdFromBillId would choke on a non-numeric key).
+  if (isBowlKey(billId)) return { members: [], degraded: false };
   const summary = await loadSummary(billId);
   if (!summary || summary.cancelled) return { members: [], degraded: false };
 

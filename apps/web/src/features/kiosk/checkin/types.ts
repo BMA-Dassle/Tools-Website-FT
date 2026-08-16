@@ -224,6 +224,11 @@ export interface CheckinActivity {
   lanePhase?: "not_ready" | "ready" | "running" | "completed" | "cancelled";
   laneLabel?: string;
   neonReservationId?: number;
+  /** Bowling only: this leg takes the kiosk bowler-details check-in (names /
+   *  shoe sizes / bumpers). True only for HeadPinz FM + Naples lanes — never
+   *  FastTrax duckpin (owner rule 2026-08-16). The done-screen lane-open panel
+   *  is NOT gated on this; it keeps its existing behavior. */
+  bowlingCheckinEligible?: boolean;
 }
 
 export interface CheckinRosterPerson {

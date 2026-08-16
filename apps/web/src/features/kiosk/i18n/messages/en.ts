@@ -52,6 +52,10 @@ export const en = {
   "attract.raceGridSub": "Check upcoming race times",
   "attract.raceReservation": "Race Reservation",
   "attract.raceReservationSub": "Check into race reservation",
+  // HeadPinz venues: check-in isn't racing-flavored there (bowling check-in
+  // launched 2026-08-16), so the door wears a venue-neutral label.
+  "attract.reservationCheckin": "Reservation Check-In",
+  "attract.reservationCheckinSub": "Check into your reservation",
 
   // --- Category chooser (KioskCategories) ---
   "categories.heading.addAnything": "Add anything else?",

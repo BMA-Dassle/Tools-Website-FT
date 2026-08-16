@@ -113,6 +113,9 @@ export interface BowlingInput {
   playerCount: number;
   laneLabel?: string;
   neonReservationId?: number;
+  /** HeadPinz lanes take the kiosk bowler-details check-in; FT duckpin never
+   *  does (owner rule 2026-08-16). Computed server-side from the row's center. */
+  checkinEligible?: boolean;
 }
 export interface AttractionMeta {
   name: string;
@@ -187,6 +190,7 @@ export function assembleItinerary(input: ItineraryInput): {
       totalCount: b.playerCount,
       laneLabel: b.laneLabel,
       neonReservationId: b.neonReservationId,
+      bowlingCheckinEligible: b.checkinEligible === true,
     });
   }
 
