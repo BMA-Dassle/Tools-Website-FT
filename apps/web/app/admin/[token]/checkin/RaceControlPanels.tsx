@@ -102,6 +102,7 @@ import {
   type AlertLevel,
 } from "~/features/signage/briefing/desk-alerts";
 import { startHoldRemainingMs, startHoldSeconds } from "~/features/signage/briefing/start-hold";
+import { useCameraStill } from "~/features/signage/useCameraStill";
 import { formatWaitMs } from "~/features/racing/wait-times";
 import type {
   BoardStatus,
@@ -2665,58 +2666,14 @@ function InRoom({
  * size, so two pollers at two sizes are two upstream pulls at the camera.
  */
 function useCameraFrame(room: CameraTarget, width: number, enabled: boolean, cadenceMs = 1_000) {
-  /**
-   * A NEW CAMERA MUST NOT WEAR THE OLD ONE'S PICTURE (owner 2026-08-12: "when you
-   * switch between rooms on that page we need loading, it just holds the last
-   * camera"). Switching rooms restarts the poll below, but the last frame belonged
-   * to the room we just left — so the viewer showed the RED room under a BLUE room
-   * heading until a new frame decoded, and a staff member could act on the wrong
-   * room entirely.
-   *
-   * The frame therefore CARRIES THE CAMERA IT CAME FROM, and a frame from another
-   * camera simply does not render. Derived rather than reset in an effect: there is
-   * no moment, however brief, where the wrong picture is on screen, and no cascade
-   * of renders to blank it.
-   */
-  const [frame, setFrame] = useState<{ key: string; src: string } | null>(null);
-  const [offlineKey, setOfflineKey] = useState<string | null>(null);
-  const lastOkRef = useRef(0);
-
-  const key = `${room}@${width}`;
-  const src = frame?.key === key ? frame.src : null;
-  const offline = offlineKey === key;
-
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const tick = () => {
-      const url = `/api/tv/camera?room=${room}&w=${width}&t=${Date.now()}`;
-      const img = new Image();
-      img.onload = () => {
-        if (cancelled) return;
-        lastOkRef.current = Date.now();
-        setFrame({ key, src: url });
-        setOfflineKey(null);
-        timer = setTimeout(tick, cadenceMs);
-      };
-      img.onerror = () => {
-        if (cancelled) return;
-        if (Date.now() - lastOkRef.current > 6000) setOfflineKey(key);
-        // Back off on failure whatever the cadence — a camera that is down must
-        // not be hammered at viewer speed.
-        timer = setTimeout(tick, Math.max(2_000, cadenceMs));
-      };
-      img.src = url;
-    };
-    tick();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [room, width, enabled, cadenceMs, key]);
-
-  return { src, offline };
+  // The shared still-poller carries every rule this hook used to own: the
+  // room-switch "a new camera must not wear the old one's picture" derivation
+  // (owner 2026-08-12), the double-buffered decode, the failure backoff — and
+  // adds the hang watchdog plus one-live-blob memory behavior these previews
+  // need on a desk PC that runs all shift. Room and width both live in the
+  // base URL, so a change to either is a new camera as far as the frame key
+  // is concerned, exactly as before.
+  return useCameraStill(`/api/tv/camera?room=${room}&w=${width}`, cadenceMs, enabled, 6_000);
 }
 
 /**

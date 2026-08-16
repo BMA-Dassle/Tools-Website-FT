@@ -30,10 +30,10 @@
  * board never goes black or lies — stale frames grey out and say "Reconnecting",
  * and a board with no camera shows a calm setup notice.
  */
-import { useEffect, useRef, useState } from "react";
 import { IconVideoOff, IconAlertTriangleFilled, IconPointFilled } from "@tabler/icons-react";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { withAlpha } from "../color";
+import { useCameraStill } from "../useCameraStill";
 import { formatRemaining, useLiveSessionClock, type LiveSessionClock } from "../live-session";
 import {
   TRACK_ACCENTS,
@@ -109,39 +109,17 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
   const room = cam?.track === "blue" || cam?.track === "red" ? cam.track : null;
   const briefState: BriefingRoomState | null = room ? (feed?.briefingRooms?.[room] ?? null) : null;
 
-  const [src, setSrc] = useState<string | null>(null);
-  const [offline, setOffline] = useState(false);
-  const lastOkRef = useRef(0);
-
-  useEffect(() => {
-    if (!cam?.deviceId || !screenId) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const tick = () => {
-      // Cache-bust every pull; the proxy sends no-store and dedupes upstream.
-      const url = `/api/tv/camera?screen=${encodeURIComponent(screenId)}&w=1920&t=${Date.now()}`;
-      const img = new Image();
-      img.onload = () => {
-        if (cancelled) return;
-        lastOkRef.current = Date.now();
-        setSrc(url); // already decoded in cache — the visible swap is instant
-        setOffline(false);
-        timer = setTimeout(tick, REFRESH_MS);
-      };
-      img.onerror = () => {
-        if (cancelled) return;
-        if (Date.now() - lastOkRef.current > STALE_AFTER_MS) setOffline(true);
-        timer = setTimeout(tick, REFRESH_MS);
-      };
-      img.src = url;
-    };
-    tick();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [cam?.deviceId, screenId]);
+  // The shared still-poller: double-buffered decode, one live blob at a time,
+  // and a hang watchdog — a frame that never answers can no longer freeze the
+  // board on its last picture (see useCameraStill).
+  const { src, offline } = useCameraStill(
+    cam?.deviceId && screenId
+      ? `/api/tv/camera?screen=${encodeURIComponent(screenId)}&w=1920`
+      : null,
+    REFRESH_MS,
+    true,
+    STALE_AFTER_MS,
+  );
 
   // A camera board with no camera chosen cannot know what to show. Say so calmly.
   if (!cam?.deviceId) return <Unconfigured />;
