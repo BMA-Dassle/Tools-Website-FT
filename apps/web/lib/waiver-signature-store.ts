@@ -72,6 +72,11 @@ async function ensureSchema(): Promise<void> {
    *  Recorded so the admin board can show a waiver push that no longer has a
    *  `bmi_sync_queue` row to be seen through (owner 2026-08-13). */
   await q`ALTER TABLE waiver_signatures ADD COLUMN IF NOT EXISTS push_transport TEXT`;
+  /** WHY a settled row ended the way it did — the refusing side's own words.
+   *  Additive, per the migration rule above: `CREATE TABLE IF NOT EXISTS` is a
+   *  no-op on a live table, so a column added to the definition alone never
+   *  reaches production and every read of it errors. */
+  await q`ALTER TABLE waiver_signatures ADD COLUMN IF NOT EXISTS last_error TEXT`;
   await q`CREATE INDEX IF NOT EXISTS waiver_sig_person_idx ON waiver_signatures(person_id, ts DESC)`;
   // "which signatures did we capture but never confirm landed" — the sweep view.
   await q`CREATE INDEX IF NOT EXISTS waiver_sig_unsettled_idx ON waiver_signatures(ts DESC) WHERE outcome IS NULL`;
@@ -130,18 +135,32 @@ export async function storeWaiverSignature(
   }
 }
 
-/** Record what Pandora ultimately said about a stored signature. Never throws. */
+/**
+ * Record what Pandora ultimately said about a stored signature. Never throws.
+ *
+ * `detail` is WHY, in the words of whatever refused it, and it is the difference
+ * between a board a human can act on and one that just says something went wrong.
+ * Before it existed, every `failed` row rendered as the same fixed sentence while
+ * the real reason went to a `console.error` nobody reads — so on 2026-08-15 a
+ * board full of identical-looking rows was hiding two unrelated causes (a false
+ * cross-server verdict, and Naples guests carrying Fort Myers person ids). The
+ * `bmi_sync_queue` rows carried their reason and were diagnosable in minutes;
+ * these were not. Store it next to the outcome that needs explaining.
+ */
 export async function settleWaiverSignature(
   rowId: number | null,
   outcome: string,
   waiverId: string | null,
+  detail?: string | null,
 ): Promise<void> {
   if (rowId === null || !isDbConfigured()) return;
   try {
+    await ensureSchema();
     const q = sql();
     await q`
       UPDATE waiver_signatures
-      SET outcome = ${outcome}, waiver_id = ${waiverId}, settled_at = NOW()
+      SET outcome = ${outcome}, waiver_id = ${waiverId}, settled_at = NOW(),
+          last_error = ${detail ? String(detail).slice(0, 500) : null}
       WHERE id = ${rowId}
     `;
   } catch (err) {

@@ -493,7 +493,7 @@ export async function listWaiverPushesForAdmin(
     const q = sql();
     const rows = (await q`
       SELECT id, ts, person_id, signer_person_id, location_id, outcome, waiver_id,
-             settled_at, push_transport, invalidation_date,
+             settled_at, push_transport, invalidation_date, last_error,
              EXTRACT(EPOCH FROM (now() - ts)) / 60 AS age_min
       FROM waiver_signatures
       WHERE push_transport = 'vercel-queue'
@@ -526,10 +526,16 @@ export async function listWaiverPushesForAdmin(
           barrierRef: person,
           reservationRef: null,
           attempts: 0,
+          // The STORED reason wins whenever we have one. The fixed sentence below
+          // is a last resort for rows settled before `last_error` existed — it
+          // says only that the push failed, which is the thing the reader can
+          // already see, and it hid two unrelated causes on 2026-08-15.
           lastError:
             status === "parked"
               ? outcome === "failed"
-                ? "push failed — BMI has no waiver for this signature"
+                ? (r.last_error === null || r.last_error === undefined
+                    ? null
+                    : String(r.last_error)) || "push failed — BMI has no waiver for this signature"
                 : `no confirmation after ${ageMin} min — the signature is safe in Neon but BMI does not have it`
               : null,
           createdAt: String(r.ts),

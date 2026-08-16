@@ -146,7 +146,10 @@ export function createWaiverPushConsumer() {
         // will never appear here. Stop, and leave the row unsettled so it lands in
         // the owed list for a human.
         console.error(`[waiver-push] IMPOSSIBLE for row ${signatureRowId}: ${barrier.detail}`);
-        await settleWaiverSignature(Number(signatureRowId), "failed", null);
+        // Store the reason, not just the verdict — this is the ONLY place the
+        // board can learn WHY, and a fixed "push failed" string made two
+        // unrelated causes look like one bug for a full day (2026-08-15).
+        await settleWaiverSignature(Number(signatureRowId), "failed", null, barrier.detail);
         return;
       }
 
