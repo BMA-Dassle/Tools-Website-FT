@@ -23,6 +23,7 @@ import {
 import { resolvePair, pairProblem } from "~/features/signage/pairing";
 import type { ScreenConfig } from "~/features/signage/types";
 import { demoIsMegaDay } from "~/features/signage/demo";
+import { publicOrigin } from "~/lib/helpers/public-origin";
 
 /**
  * Screen management for staff.
@@ -93,7 +94,10 @@ export async function GET(req: NextRequest) {
   if (wantsScript) {
     const screen = (await listSignageScreens()).find((s) => s.screenId === wantsScript);
     if (!screen) return NextResponse.json({ error: "unknown screen" }, { status: 404 });
-    const origin = req.nextUrl.origin;
+    // publicOrigin: this URL is baked into a TV's startup script. A wall
+    // player has no Vercel Auth session, so an admin-deployment origin here
+    // would brick the board at its next reboot.
+    const origin = publicOrigin(req.nextUrl.origin);
     const body = buildStartupScript({
       screenId: screen.screenId,
       name: screen.name,
@@ -131,7 +135,9 @@ export async function GET(req: NextRequest) {
         { status: 409 },
       );
     }
-    const origin = req.nextUrl.origin;
+    // publicOrigin: same TV-startup-script constraint as the single-screen
+    // branch above.
+    const origin = publicOrigin(req.nextUrl.origin);
     const side = (s: { screenId: string; name: string }) => ({
       screenId: s.screenId,
       name: s.name,

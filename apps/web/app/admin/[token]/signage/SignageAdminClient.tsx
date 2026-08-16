@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { ADMIN_SANS, PORTAL_BLUE, PORTAL_DARK } from "~/components/features/admin-skin/theme";
+import { publicOrigin } from "~/lib/helpers/public-origin";
 import {
   SIGNAGE_VENUES,
   VENUE_INFO,
@@ -400,7 +401,10 @@ function ScreenRow({
     TRACK_OPTIONS.find((t) => t.resourceId === scopedTrack)
       ?.label.split(" ")[0]
       .toLowerCase() ?? "blue";
-  const url = `${typeof window !== "undefined" ? window.location.origin : ""}/tv?screen=${encodeURIComponent(screen.screenId)}`;
+  // publicOrigin: this URL gets copied into TV player configs. Copied from
+  // the auth-walled admin deployment, the deployment's own origin would
+  // brick the board (a wall player has no Vercel Auth session).
+  const url = `${publicOrigin(typeof window !== "undefined" ? window.location.origin : "")}/tv?screen=${encodeURIComponent(screen.screenId)}`;
   const scenes = (screen.config.playlist ?? []).map((p) => p.scene);
 
   return (

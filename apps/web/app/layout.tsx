@@ -373,7 +373,12 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         {showHpChrome && !isKiosk && <NaplesClosureAlert />}
         <SpeedInsights />
         <Analytics />
-        <ClarityAnalytics />
+        {/* Session replay must NEVER see an admin surface (customer PII —
+            hard rule). The component's own pathname guard only covers
+            /admin/* urls; on the admin deployment the browser path is the
+            CLEAN url (/sales, /reservations, …), so the x-admin-route header
+            is the only truthful signal there. */}
+        {!isAdmin && <ClarityAnalytics />}
         {gaId && <GoogleAnalytics gaId={gaId} />}
         {adsId && (
           <>

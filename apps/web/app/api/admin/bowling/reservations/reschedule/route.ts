@@ -6,6 +6,7 @@ import { recordAdminAction } from "~/features/reservations-admin/audit";
 import { centerLabel } from "~/features/reservations-admin/format";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { sendBowlingTimeChangedAlert } from "~/features/vip-move-alerts/time-change.server";
+import { publicOrigin } from "~/lib/helpers/public-origin";
 
 /** Combo time shifts are same-day nudges: at most this far from the booked slot. */
 const COMBO_SHIFT_WINDOW_MS = 60 * 60_000;
@@ -208,7 +209,10 @@ export async function POST(req: NextRequest) {
   } else {
     // ── Resend confirmation (fire-and-forget) ──────────────────────────
     try {
-      const origin = req.nextUrl.origin;
+      // publicOrigin: a self-fetch of the auth-walled admin deployment's own
+      // origin is swallowed by .catch below and the guest silently never
+      // hears about their new time — go via the public main-site origin.
+      const origin = publicOrigin(req.nextUrl.origin);
       void fetch(`${origin}/api/notifications/bowling-confirmation`, {
         method: "POST",
         headers: { "content-type": "application/json" },

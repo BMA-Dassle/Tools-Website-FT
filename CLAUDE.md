@@ -14,6 +14,7 @@ or starting new feature work:
 
 - **npm workspaces + Turborepo** at root. `packageManager: npm@11.6.4`. Node 22+.
 - **One Next app** at `apps/web/` (moved here in PR3 from `fasttrax-web/`; npm workspace name is still `fasttrax-web` — directory move did not rename the package).
+- **TWO Vercel projects build `apps/web`:** the main site (fasttraxent.com / headpinz.com) and the staff **admin project** (behind Vercel Authentication), discriminated ONLY by env — `ADMIN_DEPLOYMENT=1` + `NEXT_PUBLIC_ADMIN_PUBLIC_ORIGIN` exist solely on the admin project. Its routing table lives in `apps/web/src/lib/constants/admin-deployment.ts` (clean URLs `/pit`, `/videos`, … rewrite to `/admin/{token}/*`; everything else 404s). Crons are killed there in `lib/cron-auth.ts`. Absolute URLs that guests/devices must reach go through `publicOrigin()` (`~/lib/helpers/public-origin`) — see tasks/lessons.md § Serving origin ≠ public origin.
 - **Two Node bridges** at `kart-timing-bridge/` and `vt3-bridge/` (Railway-deployed; move to `apps/` in Phase 3).
 - **`packages/*` and `apps/*` globs** reserved for future `@ft/*` packages (added PR4+).
 - Run everything via npm + turbo:

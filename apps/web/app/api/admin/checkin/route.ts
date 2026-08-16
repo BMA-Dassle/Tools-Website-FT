@@ -7,6 +7,7 @@ import { getRacerPass } from "~/features/racing/data/racer-wallet-db";
 import { recordSignageEvent } from "~/features/signage/events.server";
 import { trackFromName, TRACK_RESOURCE_IDS } from "~/features/signage/track";
 import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
+import { publicOrigin } from "~/lib/helpers/public-origin";
 import {
   getDepositOverview,
   addDeposit,
@@ -157,7 +158,10 @@ async function fetchCurrentRaces(req: NextRequest): Promise<CurrentRaces> {
     // session strip — strictly worse than the stale-but-populated strip that
     // route is falling back to. 12s leaves headroom for the internal hop
     // without ever beating it to the punch.
-    const origin = req.nextUrl.origin;
+    // publicOrigin: on the auth-walled admin deployment a self-fetch of the
+    // serving origin gets the login interstitial → catch → `{}` → the empty
+    // strip this comment block warns about. The main-site origin is public.
+    const origin = publicOrigin(req.nextUrl.origin);
     const res = await fetch(`${origin}/api/pandora/races-current`, {
       cache: "no-store",
       signal: AbortSignal.timeout(12_000),
@@ -342,7 +346,7 @@ async function findArenaSession(
         // dead-end on a cache gap.
         prefer: "cache",
       }).toString();
-      const res = await fetch(`${req.nextUrl.origin}/api/pandora/sessions?${qs}`, {
+      const res = await fetch(`${publicOrigin(req.nextUrl.origin)}/api/pandora/sessions?${qs}`, {
         cache: "no-store",
         signal: AbortSignal.timeout(8000),
       });

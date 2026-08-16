@@ -4295,3 +4295,52 @@ across other open connections**. You cannot hold one subscription per track.
 Fortunately a single `Resource: "Karting"` subscription on `BcFormat: "0"`
 carries every track's notifications (Blue + Red in one snapshot), so one socket
 is both necessary and sufficient.
+
+## Serving origin ≠ public origin once the app has a second deployment (2026-08-16)
+
+**What happened (caught in review, not production):** the admin tools moved to a
+second Vercel project behind Vercel Authentication — same repo, same `apps/web`
+root, clean URLs rewritten onto the existing `/admin/{token}/*` pages. The
+adversarial pass found that "just deploy the same app twice" silently breaks
+every absolute URL derived from the SERVING origin (`req.nextUrl.origin` /
+`window.location.origin`) when the code runs on the protected deployment:
+
+- **Guest-facing URLs** — the reservation-edit pay-difference link, the VIP
+  voucher QR a guest scans across the desk, the signage `.bat` startup scripts
+  baked into TV players. All would have pointed guests and cookie-less devices
+  at the Vercel login wall. The TV failure is deferred — it appears at the
+  board's next reboot, days later.
+- **Server-side self-fetches** — admin routes that fetch their own public API
+  (`/api/notifications/bowling-confirmation`, `/api/pandora/races-current`) go
+  back out through the edge, where deployment protection returns the login
+  interstitial instead of JSON. One caller `await res.json()`s it (hard 500);
+  two swallow it (`.catch(() => {})` / `return {}`) — a reschedule that never
+  notifies the guest and a check-in board with an empty session strip.
+
+**The rules:**
+
+1. **An absolute URL built from the serving origin is a latent bug the moment
+   the app gains a second deployment.** Any URL that must work for a guest, a
+   device, or a server-to-server hop goes through `publicOrigin()`
+   (`~/lib/helpers/public-origin`) — identity on the main project, the public
+   site origin on the admin project via `NEXT_PUBLIC_ADMIN_PUBLIC_ORIGIN`.
+2. **Silent-failure self-fetches hide deployment breakage.** `.catch(() => {})`
+   and `catch { return {} }` turned "auth wall" into "guest never notified" and
+   "empty board" — grep for fire-and-forget self-fetches when auditing any
+   deployment-topology change.
+3. **A shared vercel.json is a cron multiplier.** Two projects on one root dir
+   both register every cron; `verifyCron()` FAILS OPEN without `CRON_SECRET`,
+   so omitting the secret on project #2 stops nothing. The kill is in code
+   (`ADMIN_DEPLOYMENT` skip in `lib/cron-auth.ts`) with the dashboard
+   "Disable Cron Jobs" toggle as the second layer. Vercel Queues are safe —
+   topics are project-scoped.
+4. **Client-side "am I on an admin page?" guards die under rewrites.** Clarity's
+   only admin exclusion was `pathname.startsWith("/admin")`; the clean-URL
+   rewrite made the browser path `/reservations` and it would have recorded
+   staff sessions full of customer PII. The `x-admin-route` request header set
+   by middleware is the only truthful signal — the root layout now gates
+   `<ClarityAnalytics />` on it server-side.
+5. **The admin project's domain must not be a guest-domain subdomain** —
+   middleware brand detection keys on `hostname.includes("headpinz.com")`, and
+   the guest-host safety check would dead-code the admin block on
+   `admin.fasttraxent.com`. Use the `*.vercel.app` domain or a dedicated apex.

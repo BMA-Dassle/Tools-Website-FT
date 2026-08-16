@@ -1,5 +1,30 @@
 # Open Tasks
 
+## Admin tools on a second Vercel project (2026-08-16) — code on `feat/admin-deployment`, Vercel setup NOT started
+
+The 21 staff tools get clean URLs (`/pit`, `/videos`, …) on a SECOND Vercel project behind
+Vercel Authentication — same repo, same `apps/web` root, zero page clones (middleware rewrite
+injects the token; routing table in `src/lib/constants/admin-deployment.ts`). Existing
+`/admin/{token}/*` URLs on the main site are untouched; staff migration is manual, later.
+Full plan + audit findings: `~/.claude/plans/i-want-to-convert-flickering-hanrahan.md`.
+
+Dashboard runbook (owner, ORDER MATTERS — protection before any custom domain):
+
+- [ ] Merge the `feat/admin-deployment` PR (inert everywhere the env vars are unset)
+- [ ] `vercel env pull` from the main project; append `ADMIN_DEPLOYMENT=1` +
+      `NEXT_PUBLIC_ADMIN_PUBLIC_ORIGIN=https://headpinz.com` (Production + Preview scopes)
+- [ ] Add New Project → same repo → BEFORE first Deploy: Root Directory `apps/web`,
+      bulk-paste the env file
+- [ ] Settings → Deployment Protection → Vercel Authentication → **All Deployments**
+- [ ] Settings → Cron Jobs → **Disable** (verifyCron 200-skips any gap invocations)
+- [ ] Optional custom domain — NEVER a subdomain of fasttraxent.com / headpinz.com /
+      swflpassport.com (brand detection + the guest-host guard key on those suffixes)
+- [ ] Smoke: logged-out → login wall everywhere; logged-in → /pit /checkin /daily-events-v2
+      render with live data; / and /fort-myers 404; check-in board session strip populated
+      (proves the publicOrigin self-fetch fix); resend + pay-link emit headpinz.com URLs;
+      no Clarity tag on admin pages; main site unchanged
+- [ ] Staff access: add staff as Vercel team members (or switch to Password Protection)
+
 ## "In Karts" — a fifth stage, and the rail that makes room for it (2026-08-14) — on `feat/checkin-board-in-karts`, NOT smoked
 
 A group now has a stage between the seats and the green flag. The journey is
