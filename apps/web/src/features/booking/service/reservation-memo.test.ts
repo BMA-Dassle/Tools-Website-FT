@@ -31,6 +31,32 @@ describe("buildReservationMemo", () => {
     expect(memo).toContain(THREE_RACE_PACK_MEMO);
   });
 
+  it("keeps all five v1 parts in one string (v1 de-clobber guard)", () => {
+    // v1 /book/race used to fire FOUR independent booking/memo writes — package
+    // (race page, at heat-book time), then Express Lane, POV and group (all on
+    // the confirmation page). booking/memo overwrites, so the last one won and
+    // the Ultimate Qualifier's handling rules were destroyed on any booking that
+    // also claimed a POV code. v1's confirmation page now composes this exact
+    // part-set into ONE write; if a part stops surviving, that bug is back.
+    const memo = buildReservationMemo({
+      expressLaneResNumber: "W38749",
+      ultimateQualifierNote: "** ULTIMATE QUALIFIER ** verify level-up.",
+      isThreeRacePack: true,
+      povCodes: ["AB12"],
+      relatedReservations: "W100 (Sam)",
+    });
+    expect(memo).toContain("EXPRESS LANE");
+    expect(memo).toContain("ULTIMATE QUALIFIER");
+    expect(memo).toContain(THREE_RACE_PACK_MEMO);
+    expect(memo).toContain("POV Codes: AB12");
+    expect(memo).toContain("related reservations: W100 (Sam)");
+    // v1 has no short-link mint and never wrote an amount — those stay absent
+    // rather than silently appearing as empty lines.
+    expect(memo).not.toContain("Booking: ");
+    expect(memo).not.toContain("Paid online");
+    expect(memo.split("\n")).toHaveLength(5);
+  });
+
   it("omits parts that don't apply", () => {
     expect(buildReservationMemo({ povCodes: ["X1"] })).toBe(
       "POV Codes: X1 — emailed & texted to guest.",
