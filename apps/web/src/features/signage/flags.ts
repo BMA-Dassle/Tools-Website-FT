@@ -63,3 +63,21 @@ export function cameraMonitorEnabled(): boolean {
 export function cameraReturnBarEnabled(): boolean {
   return process.env.SIGNAGE_CAMERA_RETURN_ENABLED !== "false";
 }
+
+/**
+ * Race-results-board kill switch — the scores walls at the kart returns.
+ *
+ * Same house rule: defaults ON, read at call time. Turning it OFF stops the
+ * feed carrying the section, so the boards fall back to their idle card and
+ * stop asking Pandora for a session list every poll. The switch to pull if the
+ * standings capture ever starts putting the WRONG heat's names on a wall —
+ * the heat-match gate makes that unlikely, but a results board naming the
+ * wrong racers in front of them is the kind of wrong that is worse than blank.
+ *
+ * NOT a NEXT_PUBLIC_ var: only the server decides whether to build the
+ * section, and the scene renders its idle card when it is absent. Flipping it
+ * is an env change with no rebuild.
+ */
+export function resultsBoardEnabled(): boolean {
+  return process.env.SIGNAGE_RESULTS_ENABLED !== "false";
+}

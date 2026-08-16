@@ -23,6 +23,7 @@ export type ScreenRole =
   | "briefing-room"
   | "camera-monitor"
   | "pit-board"
+  | "results-board"
   | "ads-only";
 
 export interface RolePreset {
@@ -134,6 +135,28 @@ const PIT_BOARD_CONFIG: ScreenConfig = {
   },
 };
 
+/**
+ * A track's SCORES wall, at the kart return. One job, one scene, no interrupts
+ * — it owns its wall like the briefing, camera and pit boards do: a kiosk
+ * celebration cutting across the standings would put confetti over the line
+ * somebody is reading their own lap time off.
+ *
+ * `resultsBoard.track` is filled in per screen (there is no default track),
+ * which is why the board shows a setup notice until it is picked.
+ *
+ * NO `scope.resourceIds`, deliberately. Scope decides which scan events reach a
+ * screen as well as which track it follows, and a scores wall has no business
+ * reacting to a check-in for the next heat.
+ */
+const RESULTS_BOARD_CONFIG: ScreenConfig = {
+  playlist: [{ scene: "race-results", slots: 1 }],
+  interrupts: {
+    "vip-welcome": { enabled: false },
+    celebration: { enabled: false },
+    "billboard-crown": { enabled: false },
+  },
+};
+
 /** The safe fallback: house ads and nothing else. Needs no data at all, which
  *  is exactly why it is what an unprovisioned or degraded screen falls back to. */
 const ADS_ONLY_CONFIG: ScreenConfig = {
@@ -177,6 +200,14 @@ export const ROLE_PRESETS: RolePreset[] = [
       "At a track's pit. Shows the staged session's spots — names, photos, camera state — with the seating rail: seat while the race runs, hold while karts return. Always assignment; nothing interrupts it.",
     venues: ["FT"],
     config: PIT_BOARD_CONFIG,
+  },
+  {
+    role: "results-board",
+    label: "Race results screen (one track)",
+    description:
+      "At a track's kart return. Shows the race that just came back in — final standings, best laps, and who levelled up a class. Pick the track after choosing this. Nothing interrupts it.",
+    venues: ["FT"],
+    config: RESULTS_BOARD_CONFIG,
   },
   {
     role: "camera-monitor",
@@ -234,6 +265,10 @@ export interface ResolvedScreenConfig {
     label: string | null;
     track: "blue" | "red" | "mega" | null;
   } | null;
+  /** Null for anything that is not a results board, or one whose track has not
+   *  been picked yet — the board then shows a setup notice rather than
+   *  reporting on a track at random. */
+  resultsBoard: { track: "blue" | "red" | "mega" } | null;
   /** Percent inset per edge for a panel that crops its own input. 0 on every
    *  screen that has not been told otherwise, so the default path is the
    *  unchanged full-bleed fit. */
@@ -335,6 +370,16 @@ export function resolveScreenConfig(
                 ? c.cameraMonitor.track
                 : null,
           }
+        : null,
+    // Only the three real tracks. A typo'd or newer-deploy value resolves to
+    // "not a results board", which shows the setup notice — the same posture
+    // briefingRoom and cameraMonitor take, and for the same reason: guessing a
+    // track would put Red's standings on the Blue wall.
+    resultsBoard:
+      c.resultsBoard?.track === "blue" ||
+      c.resultsBoard?.track === "red" ||
+      c.resultsBoard?.track === "mega"
+        ? { track: c.resultsBoard.track }
         : null,
     // Clamped through the same helper the stage uses, so "what inset is legal"
     // has exactly one definition. 0 for an absent, negative, non-numeric or

@@ -38,7 +38,8 @@ import { buildPitBoard } from "../pit/service";
 import { readPitLanes } from "../pit/lane.server";
 import { readFastPitRosters } from "../pit/fast-roster.server";
 import { buildWelcomeBoard } from "./welcome";
-import { briefingEnabled, cameraReturnBarEnabled } from "../flags";
+import { resolveResultsBoard } from "./results-board.server";
+import { briefingEnabled, cameraReturnBarEnabled, resultsBoardEnabled } from "../flags";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
 import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
 import { resolveWelcomeBack } from "../briefing/welcome-back.server";
@@ -97,6 +98,7 @@ export async function buildTvFeed(
     pitRosters: null,
     checkinProgress: null,
     checkinReturning: null,
+    raceResults: null,
     pausedProductIds: safePaused(),
     nextAvailable: null,
     reloadAt: null,
@@ -150,6 +152,14 @@ export async function buildTvFeed(
   const wantsCameraReturning = briefingEnabled() && parsed.venue === "FT" && cameraRoom !== null;
   // The pit board: its track's staged roster and the lane state.
   const wantsPit = track != null && config.playlist.some((p) => p.scene === "pit-board");
+  // The scores wall: the last race on ITS OWN configured track. Not `track`
+  // above — that one comes from `scope.resourceIds`, which a results board
+  // deliberately does not set (see ScreenConfig.resultsBoard).
+  const resultsTrack = config.resultsBoard?.track ?? null;
+  const wantsResults =
+    resultsBoardEnabled() &&
+    resultsTrack !== null &&
+    config.playlist.some((p) => p.scene === "race-results");
 
   const [
     raceCheckin,
@@ -160,6 +170,7 @@ export async function buildTvFeed(
     pitBoard,
     pitLanes,
     cameraReturning,
+    raceResults,
   ] = await Promise.all([
     track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
     wantsWelcome
@@ -186,6 +197,11 @@ export async function buildTvFeed(
     // disagree about one return. Fails to null like every other section.
     wantsCameraReturning && cameraRoom
       ? resolveWelcomeBack(parsed.venue, cameraRoom, ymd).catch(() => null)
+      : Promise.resolve(null),
+    // Cached per venue+track inside the resolver, so two scores walls on the
+    // same track cost one build — and cannot show two different answers.
+    wantsResults && resultsTrack
+      ? resolveResultsBoard(parsed.venue, resultsTrack, ymd).catch(() => null)
       : Promise.resolve(null),
   ]);
 
@@ -220,6 +236,7 @@ export async function buildTvFeed(
       cameraReturning && cameraReturning.racingAgain.length > 0
         ? { fromSession: cameraReturning.heatNumber, groups: cameraReturning.racingAgain }
         : null,
+    raceResults,
     // `vip` (the bowling-leg takeover) lands with the next scene.
     vip: null,
     // Null events mean we could not ask — the welcome entry then self-skips

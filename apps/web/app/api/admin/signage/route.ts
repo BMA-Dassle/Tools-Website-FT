@@ -214,7 +214,19 @@ export async function POST(req: NextRequest) {
     const mode = body.mode ?? "";
     if (mode === "off") {
       await clearScreenDemo(body.screenId);
-    } else if (["race", "vip", "event", "briefing", "briefing-return"].includes(mode)) {
+    } else if (
+      [
+        "race",
+        "vip",
+        "event",
+        "briefing",
+        "briefing-return",
+        "results",
+        "results-none",
+        "results-pro",
+        "results-mega",
+      ].includes(mode)
+    ) {
       await requestScreenDemo(body.screenId, mode);
     } else {
       return NextResponse.json({ error: "unknown preview mode" }, { status: 400 });

@@ -388,6 +388,7 @@ function ScreenRow({
   const canVip = canWelcome && resolved.vip.enabled;
   const canCelebrate = resolved.celebration.enabled;
   const canBriefing = resolved.playlist.some((p) => p.scene === "briefing");
+  const canResults = resolved.playlist.some((p) => p.scene === "race-results");
   const online = heartbeat ? nowMs - Date.parse(heartbeat.at) < 60_000 : false;
   const scopedTrack = screen.config.scope?.resourceIds?.[0];
   const trackName =
@@ -629,6 +630,77 @@ function ScreenRow({
                 Preview welcome back
               </button>
             )}
+            {/* One button per mood the scores wall can be in. They are separate
+                buttons rather than a dropdown because the whole reason to press
+                one is to compare it against the others on the wall. */}
+            {canResults && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSimulate(
+                    "preview",
+                    { screenId: screen.screenId, mode: "results" },
+                    `Results preview pushed to ${screen.screenId} — two racers levelled up.`,
+                  )
+                }
+                style={btn}
+                disabled={busy}
+                title="A finished race where two people beat the qualifying time"
+              >
+                Preview results
+              </button>
+            )}
+            {canResults && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSimulate(
+                    "preview",
+                    { screenId: screen.screenId, mode: "results-none" },
+                    `Results preview pushed to ${screen.screenId} — nobody qualified.`,
+                  )
+                }
+                style={btn}
+                disabled={busy}
+                title="The same board when nobody cleared the time"
+              >
+                Preview results (none)
+              </button>
+            )}
+            {canResults && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSimulate(
+                    "preview",
+                    { screenId: screen.screenId, mode: "results-pro" },
+                    `Results preview pushed to ${screen.screenId} — Pro grid.`,
+                  )
+                }
+                style={btn}
+                disabled={busy}
+                title="A Pro grid — nothing to qualify for, so the panel shows fast lap and podium"
+              >
+                Preview results (Pro)
+              </button>
+            )}
+            {canResults && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSimulate(
+                    "preview",
+                    { screenId: screen.screenId, mode: "results-mega" },
+                    `Results preview pushed to ${screen.screenId} — 20-kart Mega grid.`,
+                  )
+                }
+                style={btn}
+                disabled={busy}
+                title="A 20-kart Mega grid, to check the two-column layout"
+              >
+                Preview results (Mega)
+              </button>
+            )}
             {canVip && (
               <button
                 type="button"
@@ -765,6 +837,10 @@ interface Draft {
   cameraTrack: "" | "blue" | "red" | "mega";
   /** Pit assignment board — owns its wall, like briefing and camera. */
   showPitBoard: boolean;
+  /** Race results / scores wall — owns its wall too. */
+  showResults: boolean;
+  /** "" = no track picked, which shows the board's setup notice. */
+  resultsTrack: "" | "blue" | "red" | "mega";
   vipEnabled: boolean;
   vipLeadMins: number;
   celebrationEnabled: boolean;
@@ -798,6 +874,8 @@ function newDraft(): Draft {
     cameraLabel: "",
     cameraTrack: "",
     showPitBoard: false,
+    showResults: false,
+    resultsTrack: "",
     vipEnabled: true,
     vipLeadMins: 10,
     celebrationEnabled: true,
@@ -843,6 +921,16 @@ function draftFromScreen(s: SignageScreen): Draft {
         ? c.cameraMonitor.track
         : "",
     showPitBoard: scenes.has("pit-board"),
+    showResults: scenes.has("race-results"),
+    // Read back for the same reason overscanPct is (see its note below):
+    // draftToConfig REBUILDS the whole blob, so a field the form does not
+    // carry is a field the next unrelated save silently drops.
+    resultsTrack:
+      c.resultsBoard?.track === "blue" ||
+      c.resultsBoard?.track === "red" ||
+      c.resultsBoard?.track === "mega"
+        ? c.resultsBoard.track
+        : "",
     vipEnabled: c.interrupts?.["vip-welcome"]?.enabled !== false,
     vipLeadMins: c.interrupts?.["vip-welcome"]?.leadMins ?? 10,
     celebrationEnabled: c.interrupts?.celebration?.enabled !== false,
@@ -881,6 +969,11 @@ function draftToConfig(d: Draft): ScreenConfig {
     // celebration cutting across "hold — karts coming in" would put confetti
     // over a safety instruction.
     playlist.push({ scene: "pit-board", slots: 1 });
+  } else if (d.showResults) {
+    // A SCORES WALL OWNS ITS WALL: a racer reading their own lap time off it
+    // has thirty seconds on the walk past, and rotating an advert across that
+    // window would waste the whole point of the screen.
+    playlist.push({ scene: "race-results", slots: 1 });
   } else {
     if (d.showRaceCheckin) playlist.push({ scene: "race-checkin", slots: 3 });
     if (d.showEventWelcome) playlist.push({ scene: "event-welcome", slots: 2, requiresData: true });
@@ -902,6 +995,7 @@ function draftToConfig(d: Draft): ScreenConfig {
           },
         }
       : {}),
+    ...(d.showResults && d.resultsTrack ? { resultsBoard: { track: d.resultsTrack } } : {}),
     interrupts: {
       "vip-welcome": { enabled: d.vipEnabled, leadMins: d.vipLeadMins },
       celebration: { enabled: d.celebrationEnabled },
@@ -952,11 +1046,16 @@ function ScreenForm({
       showBriefing: scenes.has("briefing"),
       showCamera: scenes.has("camera"),
       showPitBoard: scenes.has("pit-board"),
+      showResults: scenes.has("race-results"),
       // Picking the briefing role at FastTrax defaults the venue too — the rooms
       // only exist there, and a briefing screen saved as HeadPinz would get no
       // briefing data at all (the pulse skips the lookup off-venue). Same for a
-      // pit board: the pit lanes are a FastTrax thing.
-      venue: scenes.has("briefing") || scenes.has("pit-board") ? "FT" : draft.venue,
+      // pit board: the pit lanes are a FastTrax thing. And for a scores wall:
+      // the tracks are.
+      venue:
+        scenes.has("briefing") || scenes.has("pit-board") || scenes.has("race-results")
+          ? "FT"
+          : draft.venue,
       vipEnabled: preset.config.interrupts?.["vip-welcome"]?.enabled !== false,
       celebrationEnabled: preset.config.interrupts?.celebration?.enabled !== false,
       crownEnabled: preset.config.interrupts?.["billboard-crown"]?.enabled === true,
@@ -1078,7 +1177,33 @@ function ScreenForm({
           label="Pit assignment board"
           hint="The staged session's spots — names, photos, camera state — with the seating rail: seat while the race runs, hold while karts return. Pick the track below. Takes the whole screen; nothing else shows and nothing interrupts it."
         />
+        <Check
+          checked={draft.showResults}
+          onChange={(v) => set("showResults", v)}
+          label="Race results board"
+          hint="The race that just came back in — final standings with best laps, and who levelled up a class. For a wall at the kart return. Pick the track below. Takes the whole screen; nothing else shows and nothing interrupts it."
+        />
       </fieldset>
+
+      {draft.showResults && (
+        <Field label="Which track's results does this screen show?">
+          <select
+            value={draft.resultsTrack}
+            onChange={(e) => set("resultsTrack", e.target.value as Draft["resultsTrack"])}
+            style={input}
+          >
+            <option value="">Choose a track…</option>
+            <option value="blue">Blue Track</option>
+            <option value="red">Red Track</option>
+            <option value="mega">Mega Track</option>
+          </select>
+          <p style={hint}>
+            Required. Until it is set the screen shows a setup notice rather than guessing a track.
+            Heat numbers repeat across tracks — Blue 59 and Red 59 are two different races — so this
+            is what decides which one the board is reporting.
+          </p>
+        </Field>
+      )}
 
       {draft.showBriefing && (
         <Field label="Which briefing room is this screen in?">

@@ -37,23 +37,46 @@ export interface RecordedResults {
   drivers: ResultsDriver[];
 }
 
+function resultsKey(sessionId: string): string {
+  return `briefing:results:${sessionId}`;
+}
+
+/**
+ * Read a race's stored standings WITHOUT attempting a capture.
+ *
+ * The results board walks back through the last few finished races looking for
+ * one it can actually stand behind, and only the newest of them is plausibly
+ * still on the timing wire. Capturing the older ones would open a socket per
+ * race per poll to be told, correctly, that the frame is a different heat —
+ * so those reads come through here instead.
+ *
+ * Null for "no record", an unreadable record, and a record with no drivers
+ * alike: every caller treats all three the same way, and a board that cannot
+ * name the racers must show nothing rather than an empty table.
+ */
+export async function readRecordedResults(sessionId: string): Promise<RecordedResults | null> {
+  if (!sessionId) return null;
+  try {
+    const stored = await redis.get(resultsKey(sessionId));
+    if (!stored) return null;
+    const parsed = JSON.parse(stored) as RecordedResults;
+    if (Array.isArray(parsed.drivers) && parsed.drivers.length > 0) return parsed;
+  } catch {
+    /* unreadable record reads as absent */
+  }
+  return null;
+}
+
 export async function loadOrCaptureResults(args: {
   track: TrackKey;
   sessionId: string;
   heatNumber: number | null;
 }): Promise<RecordedResults | null> {
   if (!args.sessionId) return null;
-  const key = `briefing:results:${args.sessionId}`;
+  const key = resultsKey(args.sessionId);
 
-  try {
-    const stored = await redis.get(key);
-    if (stored) {
-      const parsed = JSON.parse(stored) as RecordedResults;
-      if (Array.isArray(parsed.drivers) && parsed.drivers.length > 0) return parsed;
-    }
-  } catch {
-    /* unreadable record → try a fresh capture below */
-  }
+  const stored = await readRecordedResults(args.sessionId);
+  if (stored) return stored;
 
   // Without a heat number there is no match gate, and without the gate a
   // capture is a guess. Skip — never record a guess.

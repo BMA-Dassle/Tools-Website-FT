@@ -17,6 +17,7 @@
 import type { BriefingRoomState } from "./briefing/types";
 import type { CheckinProgressSession } from "./checkin-progress";
 import type { FastPitRoster, PitBoardInfo, PitLanes } from "./pit/pit-board";
+import type { ResultsBoardView } from "./results-board";
 
 /**
  * A scene is one full-screen visual. Adding a scene type is the only reason
@@ -40,6 +41,10 @@ import type { FastPitRoster, PitBoardInfo, PitLanes } from "./pit/pit-board";
  *                     names and photos, camera state per racer, and the seating
  *                     rail (seat while the race runs, hold while karts return).
  *                     Always assignment — it replaces the vendor AssignmentTV
+ *  - `race-results`   a track's SCORES wall, at the kart return: the race that
+ *                     just came back in — final standings, best laps, and who
+ *                     levelled up. Carries lap times deliberately; it is the
+ *                     surface the briefing room's welcome-back board points to
  *  - `sleep`          venue closed — panel/power saver
  */
 export type SceneType =
@@ -52,6 +57,7 @@ export type SceneType =
   | "briefing"
   | "camera"
   | "pit-board"
+  | "race-results"
   | "sleep";
 
 /** Scenes a screen rotates through on its base loop (interrupts are separate). */
@@ -62,6 +68,7 @@ export const ROTATION_SCENE_TYPES = [
   "briefing",
   "camera",
   "pit-board",
+  "race-results",
 ] as const satisfies readonly SceneType[];
 
 /** Scenes that PREEMPT the rotation when their trigger fires. */
@@ -212,6 +219,20 @@ export interface ScreenConfig {
    * camera with no track (a lobby cam), which then just shows picture.
    */
   cameraMonitor?: { deviceId: string; label?: string; track?: "blue" | "red" | "mega" };
+  /**
+   * WHICH TRACK a `race-results` board reports on — the one thing that board
+   * cannot work out for itself.
+   *
+   * Deliberately its own field rather than reusing `scope.resourceIds` (which
+   * is how the check-in and pit boards find their track): scope also decides
+   * which scan events reach a screen, and a scores wall at the kart return
+   * should not light up because somebody checked in for the next heat. One
+   * knob, one meaning.
+   *
+   * Absent on every screen that is not a results board, which then shows the
+   * setup notice rather than adopting a track at random.
+   */
+  resultsBoard?: { track: "blue" | "red" | "mega" };
   /**
    * HOW MUCH OF THIS PANEL'S EDGE IS CROPPED — the one thing about a TV that the
    * TV cannot work out for itself.
@@ -564,6 +585,26 @@ export interface TvFeed {
     fromSession: number | null;
     groups: Array<{ session: number | null; track: string; names: string[] }>;
   } | null;
+  /**
+   * Results-board extra: the last race on this board's track that we can name,
+   * with the qualification already decided server-side.
+   *
+   * A SECTION OF ITS OWN, not a widening of `briefing.welcomeBack`. That one is
+   * room-scoped and narrows its drivers to `{name, bestMs}` on the wire — a
+   * scores wall needs position, kart and laps as well, and needs them for races
+   * that were never briefed in any room at all.
+   *
+   * Rides the 15s feed, never the pulse: a result changes once every ~10
+   * minutes, and the group it is about takes minutes to walk back from the
+   * track.
+   *
+   * PII NOTE — full names, verbatim from the timing system, same posture as the
+   * briefing wall and the pit board it hangs near. No ids of any kind.
+   *
+   * Null means "no race we can stand behind has finished on this track today",
+   * which is the scene's designed idle card, not an error.
+   */
+  raceResults: ResultsBoardView | null;
   /** Product ids currently off-sale — never advertise a paused product. */
   pausedProductIds: string[];
   /** "Next available" per product key, e.g. { bowling: "3 lanes · 9:30 PM" }.

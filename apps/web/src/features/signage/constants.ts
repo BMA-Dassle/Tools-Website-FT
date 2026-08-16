@@ -177,5 +177,9 @@ export const TV_UPDATE_CHECK_MS = 5 * 60_000;
  *         cameras whose race has finished but that we have not seen come back,
  *         red with minutes-out, green for 90s when they check in. Reserves 104px
  *         in every phase, the safety film included.
+ * 0.4.0 — Race results scene: a track's scores wall at the kart return. Final
+ *         standings with best laps, positions, karts and laps, plus a "who
+ *         levelled up" panel. Carries lap times deliberately — it is the
+ *         surface the briefing room's welcome-back board points people to.
  */
-export const SIGNAGE_VERSION = "0.3.0";
+export const SIGNAGE_VERSION = "0.4.0";

@@ -24,6 +24,7 @@ import { SceneVipWelcome } from "./SceneVipWelcome";
 import { SceneBriefing } from "./SceneBriefing";
 import { SceneCameraMonitor } from "./SceneCameraMonitor";
 import { ScenePitBoard } from "./ScenePitBoard";
+import { SceneRaceResults } from "./SceneRaceResults";
 
 /**
  * Render whichever scene a decision names.
@@ -49,6 +50,8 @@ export function SceneSlot(props: SceneProps) {
       return <SceneCameraMonitor {...props} />;
     case "pit-board":
       return <ScenePitBoard {...props} />;
+    case "race-results":
+      return <SceneRaceResults {...props} />;
     case "event-welcome":
       return <SceneEventWelcome {...props} />;
     case "vip-welcome":
@@ -91,6 +94,7 @@ const IMPLEMENTED: ReadonlySet<SceneType> = new Set<SceneType>([
   "briefing",
   "camera",
   "pit-board",
+  "race-results",
   "event-welcome",
   "vip-welcome",
   "celebration",
@@ -141,6 +145,13 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
       // has a designed idle state for "no session staged". Rotating a pit
       // board away to ads would be exactly the vendor-TV behaviour it
       // replaces at its worst.
+      return true;
+    case "race-results":
+      // Always true: the last race's result HOLDS until the next one lands, so
+      // "no data" only ever means the first race of the day has not finished —
+      // and the board has a designed card for exactly that. Rotating a scores
+      // wall away to ads because a heat is still running would empty it at the
+      // one moment a group is walking towards it.
       return true;
     default:
       return true;

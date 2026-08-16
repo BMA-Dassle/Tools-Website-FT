@@ -19,10 +19,22 @@
  * timed so the actual takeover window logic decides to show it), so what you
  * review is the true rendering, not a mock of it.
  */
+import { buildResultsView, type ResultsBoardView } from "./results-board";
+import type { TrackKey } from "./track";
 import type { BriefingRoomState } from "./briefing/types";
 import type { TvFeed, VipEntry, WelcomeEntry } from "./types";
 
-export type DemoMode = "event" | "vip" | "race" | "briefing" | "briefing-return" | "off";
+export type DemoMode =
+  | "event"
+  | "vip"
+  | "race"
+  | "briefing"
+  | "briefing-return"
+  | "results"
+  | "results-none"
+  | "results-pro"
+  | "results-mega"
+  | "off";
 
 export function parseDemoMode(raw: string | null): DemoMode {
   if (
@@ -30,7 +42,11 @@ export function parseDemoMode(raw: string | null): DemoMode {
     raw === "vip" ||
     raw === "race" ||
     raw === "briefing" ||
-    raw === "briefing-return"
+    raw === "briefing-return" ||
+    raw === "results" ||
+    raw === "results-none" ||
+    raw === "results-pro" ||
+    raw === "results-mega"
   ) {
     return raw;
   }
@@ -143,6 +159,17 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
   if (mode === "briefing" || mode === "briefing-return") {
     return { ...feed, briefing: demoBriefingSection(feed, mode) };
   }
+  // The scores wall's four states. Fabricated DRIVERS only — the qualification
+  // itself is decided by the real buildResultsView against the real cutoffs, so
+  // a preview proves the production rule rather than a picture of it.
+  if (
+    mode === "results" ||
+    mode === "results-none" ||
+    mode === "results-pro" ||
+    mode === "results-mega"
+  ) {
+    return { ...feed, raceResults: demoResults(feed, mode, nowMs) };
+  }
   if (mode === "race") {
     // A VIP is on the heat too, so the in-field banner can be reviewed in the
     // same pass — and the rail/check-in feed gets a burst of fabricated scans,
@@ -245,6 +272,97 @@ export function demoIsMegaDay(nowMs: number): boolean {
       new Date(nowMs),
     ) === "Tue"
   );
+}
+
+/* ── the scores wall ──────────────────────────────────────────────────── */
+
+/**
+ * A fabricated race for the results board, in whichever of its four moods you
+ * asked for.
+ *
+ * ONLY THE DRIVERS ARE FAKE. The heat NAME is real input to the real
+ * `buildResultsView`, so the qualifying target, who cleared it, the closest
+ * miss, the fastest lap and the single/two-column choice are all decided by the
+ * shipped rules against the shipped cutoffs. Previewing this therefore proves
+ * the production logic, which is the whole point — a hand-drawn "2 qualified"
+ * panel would prove only that a designer can count.
+ *
+ * The track comes from the screen's own config so a Blue board previews Blue,
+ * except on `results-mega`, which is about the big-grid layout and needs the
+ * combined circuit's cutoffs to make sense of 1-minute laps.
+ */
+function demoResults(feed: TvFeed, mode: DemoMode, nowMs: number): ResultsBoardView {
+  const configured = feed.screen?.config?.resultsBoard?.track;
+  const track: TrackKey =
+    mode === "results-mega"
+      ? "mega"
+      : configured === "blue" || configured === "red" || configured === "mega"
+        ? configured
+        : "blue";
+  // Names are obviously fabricated on purpose — a preview that reads like real
+  // guests is one screenshot away from looking like a leak.
+  const pool = [
+    "Kenny Rosencrans",
+    "Dana Whitfield",
+    "Marcus Webb",
+    "Priya Raghunathan",
+    "Tyler Boone",
+    "Alicia Duarte",
+    "Sam Okereke",
+    "Jordan Mackey",
+    "Rosa Delgado",
+    "Bennett Cho",
+    "Grace Lindqvist",
+    "Devon Marchetti",
+    "Hailey Nguyen",
+    "Omar Castellanos",
+    "Sofia Brennan",
+    "Nate Okonkwo",
+    "Maya Thibodeaux",
+    "Curtis Vandenberg",
+    "Renata Villalobos",
+    "Trey Bannister",
+  ];
+
+  // Lap times are built around each track's REAL cutoffs so the split lands
+  // where the preview claims it does.
+  const base = track === "mega" ? 63_000 : track === "red" ? 46_500 : 32_000;
+  const step = track === "mega" ? 2_400 : 900;
+
+  let count = 11;
+  let heatName = `59 - ${track === "mega" ? "Mega" : track === "red" ? "Red" : "Blue"} Intermediate`;
+  let offset = 0;
+
+  if (mode === "results-none") {
+    // Everybody a little over the line — the "so close" board.
+    offset = step;
+    count = 8;
+  } else if (mode === "results-pro") {
+    heatName = `61 - ${track === "mega" ? "Mega" : track === "red" ? "Red" : "Blue"} Pro`;
+    count = 7;
+  } else if (mode === "results-mega") {
+    heatName = "66 - Mega Intermediate";
+    count = 20;
+  }
+
+  const drivers = pool.slice(0, count).map((name, i) => ({
+    name,
+    // The last racer in the default board never set a lap, so that state is
+    // always on screen in at least one preview.
+    bestMs: mode === "results" && i === count - 1 ? null : base + offset + i * step,
+    kart: String(((i * 3) % 20) + 1),
+    laps: mode === "results" && i === count - 1 ? 2 : 14 - Math.floor(i / 4),
+    position: i + 1,
+  }));
+
+  return buildResultsView({
+    track,
+    sessionId: "demo",
+    heatNumber: mode === "results-pro" ? 61 : mode === "results-mega" ? 66 : 59,
+    heatName,
+    endedAtMs: nowMs - 90_000,
+    drivers,
+  });
 }
 
 /* ── briefing rooms ───────────────────────────────────────────────────── */
