@@ -84,19 +84,23 @@ export function resolveFilmTier(
   return requested;
 }
 
-/** The three assets a briefing room needs. Keys are stable — they are the
+/** The assets a briefing room needs. Keys are stable — they are the
  *  primary key in `signage_assets`, so renaming one orphans an upload. */
 export type BriefingAssetKey =
   | "briefing-video:starter"
   | "briefing-video:intermediate"
   | "briefing-video:pro"
-  | "briefing-helmet-poster";
+  | "briefing-helmet-poster"
+  /** The welcome-back jingle the room TV loops while the returning group's
+   *  board is up (owner 2026-08-15). Audio, not video. */
+  | "welcome-back-audio";
 
 export const BRIEFING_ASSET_KEYS: readonly BriefingAssetKey[] = [
   "briefing-video:starter",
   "briefing-video:intermediate",
   "briefing-video:pro",
   "briefing-helmet-poster",
+  "welcome-back-audio",
 ] as const;
 
 export function isBriefingAssetKey(raw: unknown): raw is BriefingAssetKey {

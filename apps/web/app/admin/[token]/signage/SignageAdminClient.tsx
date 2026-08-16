@@ -100,7 +100,11 @@ export default function SignageAdminClient({ token }: { token: string }) {
       });
       if (!res.ok) return;
       const json = (await res.json()) as BriefingAssetState;
-      setAssets({ videos: json.videos, helmetPosterUrl: json.helmetPosterUrl });
+      setAssets({
+        videos: json.videos,
+        helmetPosterUrl: json.helmetPosterUrl,
+        welcomeBackAudioUrl: json.welcomeBackAudioUrl ?? null,
+      });
     } catch {
       /* the section simply shows "not uploaded" */
     }

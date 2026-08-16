@@ -896,6 +896,50 @@ function QualifyTarget({
  * timing system. No capture → the name-less board, exactly as before. No
  * timers either way: it holds until the next briefing occupies the room.
  */
+/** How long after each play of the welcome-back jingle before it repeats
+ *  ("every 10s", owner 2026-08-15 — measured from the clip's end, matching how
+ *  the owner specs gaps on the pit's stay-seated loop). */
+const WELCOME_AUDIO_GAP_MS = 10_000;
+/** The greeting stops nagging after this, on screen or not (owner: "max of
+ *  2 minutes"). Anchored on the race's own end stamp, so both room TVs — and
+ *  a TV that reboots mid-window — all fall silent at the same moment. */
+const WELCOME_AUDIO_MAX_MS = 2 * 60_000;
+
+/**
+ * Loop the welcome-back jingle while the board is up.
+ *
+ * Plays on appear, then again WELCOME_AUDIO_GAP_MS after each play ends, until
+ * the 2-minute window (from the race's end stamp) closes. The next briefing
+ * taking the room unmounts the board, and the cleanup below is what stops the
+ * sound mid-note — no server coordination, because this audio exists only
+ * where the board exists. Every play failure is swallowed: a TV whose browser
+ * refuses autoplay shows the board silently, which is last week's behavior.
+ */
+function useWelcomeBackAudio(url: string | null, endedAtMs: number): void {
+  useEffect(() => {
+    if (!url) return;
+    const el = new Audio(url);
+    let timer: number | null = null;
+    let stopped = false;
+    const windowClosed = () => Date.now() - endedAtMs > WELCOME_AUDIO_MAX_MS;
+    const playOnce = () => {
+      if (stopped || windowClosed()) return;
+      void el.play().catch(() => {});
+    };
+    el.onended = () => {
+      if (stopped) return;
+      timer = window.setTimeout(playOnce, WELCOME_AUDIO_GAP_MS);
+    };
+    playOnce();
+    return () => {
+      stopped = true;
+      if (timer != null) window.clearTimeout(timer);
+      el.pause();
+      el.removeAttribute("src");
+    };
+  }, [url, endedAtMs]);
+}
+
 function WelcomeBack({
   accent,
   room,
@@ -907,6 +951,8 @@ function WelcomeBack({
     heatNumber: number | null;
     raceType: string | null;
     track: "blue" | "red" | "mega";
+    endedAtMs: number;
+    audioUrl: string | null;
     results: {
       levelledUp: Array<{ name: string; bestMs: number }>;
       keepPushing: Array<{ name: string; bestMs: number | null }>;
@@ -914,6 +960,7 @@ function WelcomeBack({
     racingAgain: Array<{ session: number | null; track: string; names: string[] }>;
   };
 }) {
+  useWelcomeBackAudio(info.audioUrl, info.endedAtMs);
   const target = nextLevelTarget(info.track, info.raceType);
   const results = info.results;
   // The name board only exists where qualification exists: no target (a Pro

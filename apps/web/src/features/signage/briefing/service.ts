@@ -453,6 +453,8 @@ export interface BriefingBoardStatus {
    *  than sending a session to a room that will show a poster. */
   videos: Record<BriefingTier, { url: string; durationMs: number | null } | null>;
   helmetPosterUrl: string | null;
+  /** The welcome-back jingle the room TVs loop — null until uploaded. */
+  welcomeBackAudioUrl: string | null;
   /**
    * THE PIT LANE, PER TRACK — who is in holding, who is out racing, and whether
    * the lane is still held (owner 2026-08-13).
@@ -666,6 +668,7 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
       pro: slot("briefing-video:pro"),
     },
     helmetPosterUrl: assets["briefing-helmet-poster"]?.url ?? null,
+    welcomeBackAudioUrl: assets["welcome-back-audio"]?.url ?? null,
     lanes,
     autoHolding: { enabled: autoHolding },
     raceBookmarks: { enabled: raceBookmarks },

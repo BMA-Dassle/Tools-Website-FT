@@ -25,7 +25,7 @@ interface AssetRow {
   label: string;
   hint: string;
   accept: string;
-  kind: "video" | "image";
+  kind: "video" | "image" | "audio";
 }
 
 const ROWS: AssetRow[] = [
@@ -57,6 +57,13 @@ const ROWS: AssetRow[] = [
     accept: "image/png,image/jpeg,image/webp",
     kind: "image",
   },
+  {
+    key: "welcome-back-audio",
+    label: "Welcome back audio",
+    hint: "A short clip the room TV plays on repeat (about every 10 seconds, for up to 2 minutes) while the welcome-back board greets a returning group. MP3 or WAV.",
+    accept: "audio/mpeg,audio/wav,audio/mp4,.mp3,.wav,.m4a",
+    kind: "audio",
+  },
 ];
 
 export interface BriefingAssetState {
@@ -66,6 +73,7 @@ export interface BriefingAssetState {
     pro: { url: string; durationMs: number | null } | null;
   };
   helmetPosterUrl: string | null;
+  welcomeBackAudioUrl: string | null;
 }
 
 export default function BriefingAssetManager({
@@ -91,6 +99,7 @@ export default function BriefingAssetManager({
       // uploaded when none was (owner 2026-08-11: "says there is one uploaded
       // and there is not").
       if (key === "briefing-video:pro") return assets.videos.pro?.url ?? null;
+      if (key === "welcome-back-audio") return assets.welcomeBackAudioUrl;
       return assets.helmetPosterUrl;
     },
     [assets],

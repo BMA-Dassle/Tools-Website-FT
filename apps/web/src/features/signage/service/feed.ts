@@ -304,6 +304,8 @@ async function buildBriefingSection(
             heatNumber: welcomeBack.heatNumber,
             raceType: welcomeBack.raceType,
             track: welcomeBack.track,
+            endedAtMs: welcomeBack.endedAtMs,
+            audioUrl: assets["welcome-back-audio"]?.url ?? null,
             results: welcomeBack.results,
             racingAgain: welcomeBack.racingAgain,
           }

@@ -53,6 +53,9 @@ const MAX_IMAGE_BYTES = 25 * 1_024 * 1_024;
  */
 const VIDEO_TYPES = ["video/mp4", "video/quicktime"];
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+/** The welcome-back jingle. A jingle, not a podcast — the cap says so. */
+const AUDIO_TYPES = ["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/mp4"];
+const MAX_AUDIO_BYTES = 25 * 1_024 * 1_024;
 
 function authed(req: NextRequest): boolean {
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
@@ -84,9 +87,14 @@ export async function POST(req: NextRequest) {
         if (!pathname.startsWith("briefing/")) throw new Error("bad pathname");
 
         const isVideo = key.startsWith("briefing-video:");
+        const isAudio = key === "welcome-back-audio";
         return {
-          allowedContentTypes: isVideo ? VIDEO_TYPES : IMAGE_TYPES,
-          maximumSizeInBytes: isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES,
+          allowedContentTypes: isVideo ? VIDEO_TYPES : isAudio ? AUDIO_TYPES : IMAGE_TYPES,
+          maximumSizeInBytes: isVideo
+            ? MAX_VIDEO_BYTES
+            : isAudio
+              ? MAX_AUDIO_BYTES
+              : MAX_IMAGE_BYTES,
           // A NEW URL PER UPLOAD is the whole cache-invalidation strategy: the
           // players compare URLs to decide whether they already hold a file, so
           // an overwrite-in-place would leave every screen playing the old film

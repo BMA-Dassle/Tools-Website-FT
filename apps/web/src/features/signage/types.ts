@@ -489,6 +489,13 @@ export interface TvFeed {
       heatNumber: number | null;
       raceType: string | null;
       track: "blue" | "red" | "mega";
+      /** The timing system's end stamp that opened this window — the anchor
+       *  for the greeting audio's 2-minute cap, server-stamped so both room
+       *  TVs and a mid-window reboot all stop at the same moment. */
+      endedAtMs: number;
+      /** The welcome-back jingle (signage asset `welcome-back-audio`) — null
+       *  until one is uploaded, and the board simply greets silently. */
+      audioUrl: string | null;
       results: {
         levelledUp: Array<{ name: string; bestMs: number }>;
         keepPushing: Array<{ name: string; bestMs: number | null }>;
