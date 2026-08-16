@@ -1,0 +1,82 @@
+[
+  {
+    "sessionId": "58598911",
+    "name": "3 - Blue Junior Starter",
+    "scheduledStart": "2026-08-16T15:24:00.000Z"
+  },
+  {
+    "sessionId": "58598913",
+    "name": "4 - Blue Starter",
+    "scheduledStart": "2026-08-16T15:36:00.000Z"
+  },
+  {
+    "sessionId": "58598919",
+    "name": "7 - Blue Starter",
+    "scheduledStart": "2026-08-16T16:12:00.000Z"
+  },
+  {
+    "sessionId": "58598921",
+    "name": "8 - Blue Junior Starter",
+    "scheduledStart": "2026-08-16T16:24:00.000Z"
+  },
+  {
+    "sessionId": "58598923",
+    "name": "9 - Blue Intermediate",
+    "scheduledStart": "2026-08-16T16:36:00.000Z"
+  },
+  {
+    "sessionId": "58598925",
+    "name": "10 - Blue Junior Starter",
+    "scheduledStart": "2026-08-16T16:48:00.000Z"
+  },
+  {
+    "sessionId": "58598927",
+    "name": "11 - Blue Starter",
+    "scheduledStart": "2026-08-16T17:00:00.000Z"
+  },
+  {
+    "sessionId": "58598929",
+    "name": "12 - Blue Intermediate",
+    "scheduledStart": "2026-08-16T17:12:00.000Z"
+  },
+  {
+    "sessionId": "58598931",
+    "name": "13 - Blue Starter",
+    "scheduledStart": "2026-08-16T17:24:00.000Z"
+  },
+  {
+    "sessionId": "58598933",
+    "name": "14 - Blue Junior Intermediate",
+    "scheduledStart": "2026-08-16T17:36:00.000Z"
+  },
+  {
+    "sessionId": "58598935",
+    "name": "15 - Blue Intermediate",
+    "scheduledStart": "2026-08-16T17:48:00.000Z"
+  },
+  {
+    "sessionId": "58598937",
+    "name": "16 - Blue Junior Intermediate",
+    "scheduledStart": "2026-08-16T18:00:00.000Z"
+  },
+  {
+    "sessionId": "58598939",
+    "name": "17 - Blue Intermediate",
+    "scheduledStart": "2026-08-16T18:12:00.000Z"
+  },
+  {
+    "sessionId": "58598941",
+    "name": "18 - Blue Junior Starter",
+    "scheduledStart": "2026-08-16T18:24:00.000Z"
+  },
+  {
+    "sessionId": "58598943",
+    "name": "19 - Blue Starter",
+    "scheduledStart": "2026-08-16T18:36:00.000Z"
+  },
+  {
+    "sessionId": "58598953",
+    "name": "24 - Adult Only",
+    "scheduledStart": "2026-08-16T19:36:00.000Z"
+  }
+]

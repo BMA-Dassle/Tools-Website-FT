@@ -1,0 +1,237 @@
+[
+  {
+    "sessionId": "57044691",
+    "name": "13 - Blue Junior Starter",
+    "scheduledStart": "2026-08-03T17:24:00.000Z"
+  },
+  {
+    "sessionId": "57044693",
+    "name": "14 - Blue Starter",
+    "scheduledStart": "2026-08-03T17:36:00.000Z"
+  },
+  {
+    "sessionId": "57044695",
+    "name": "15 - Blue Starter",
+    "scheduledStart": "2026-08-03T17:48:00.000Z"
+  },
+  {
+    "sessionId": "57044697",
+    "name": "16 - Blue Starter",
+    "scheduledStart": "2026-08-03T18:00:00.000Z"
+  },
+  {
+    "sessionId": "57044699",
+    "name": "17 - Blue Junior Starter",
+    "scheduledStart": "2026-08-03T18:12:00.000Z"
+  },
+  {
+    "sessionId": "57044701",
+    "name": "18 - Blue Junior Starter",
+    "scheduledStart": "2026-08-03T18:24:00.000Z"
+  },
+  {
+    "sessionId": "57044705",
+    "name": "20 - Blue Intermediate",
+    "scheduledStart": "2026-08-03T18:48:00.000Z"
+  },
+  {
+    "sessionId": "57044707",
+    "name": "21 - Blue Starter",
+    "scheduledStart": "2026-08-03T19:00:00.000Z"
+  },
+  {
+    "sessionId": "57044709",
+    "name": "22 - Blue Junior Starter",
+    "scheduledStart": "2026-08-03T19:12:00.000Z"
+  },
+  {
+    "sessionId": "57044711",
+    "name": "23 - Blue Junior Starter",
+    "scheduledStart": "2026-08-03T19:24:00.000Z"
+  },
+  {
+    "sessionId": "57044713",
+    "name": "24 - Blue Pro",
+    "scheduledStart": "2026-08-03T19:36:00.000Z"
+  },
+  {
+    "sessionId": "57044715",
+    "name": "25 - Blue Intermediate",
+    "scheduledStart": "2026-08-03T19:48:00.000Z"
+  },
+  {
+    "sessionId": "57044717",
+    "name": "26 - Blue Junior Starter",
+    "scheduledStart": "2026-08-03T20:00:00.000Z"
+  },
+  {
+    "sessionId": "57044719",
+    "name": "27 - Blue Junior Pro",
+    "scheduledStart": "2026-08-03T20:12:00.000Z"
+  },
+  {
+    "sessionId": "57044721",
+    "name": "28 - Blue Junior Starter",
+    "scheduledStart": "2026-08-03T20:24:00.000Z"
+  },
+  {
+    "sessionId": "57044723",
+    "name": "29 - Blue Pro",
+    "scheduledStart": "2026-08-03T20:36:00.000Z"
+  },
+  {
+    "sessionId": "57044725",
+    "name": "30 - Blue Junior Intermediate",
+    "scheduledStart": "2026-08-03T20:48:00.000Z"
+  },
+  {
+    "sessionId": "57044727",
+    "name": "31 - Blue Junior Starter",
+    "scheduledStart": "2026-08-03T21:00:00.000Z"
+  },
+  {
+    "sessionId": "57044729",
+    "name": "32 - Blue Intermediate",
+    "scheduledStart": "2026-08-03T21:12:00.000Z"
+  },
+  {
+    "sessionId": "57044731",
+    "name": "33 - Blue Junior Starter",
+    "scheduledStart": "2026-08-03T21:24:00.000Z"
+  },
+  {
+    "sessionId": "57044733",
+    "name": "34 - Blue Pro",
+    "scheduledStart": "2026-08-03T21:36:00.000Z"
+  },
+  {
+    "sessionId": "57044735",
+    "name": "35 - Blue Junior Starter",
+    "scheduledStart": "2026-08-03T21:48:00.000Z"
+  },
+  {
+    "sessionId": "57044737",
+    "name": "36 - Blue Starter",
+    "scheduledStart": "2026-08-03T22:00:00.000Z"
+  },
+  {
+    "sessionId": "57044739",
+    "name": "37 - Blue Junior Intermediate",
+    "scheduledStart": "2026-08-03T22:12:00.000Z"
+  },
+  {
+    "sessionId": "57044741",
+    "name": "38 - Blue Junior Starter",
+    "scheduledStart": "2026-08-03T22:24:00.000Z"
+  },
+  {
+    "sessionId": "57044743",
+    "name": "39 - Blue Junior Pro",
+    "scheduledStart": "2026-08-03T22:36:00.000Z"
+  },
+  {
+    "sessionId": "57044745",
+    "name": "40 - Blue Junior Starter",
+    "scheduledStart": "2026-08-03T22:48:00.000Z"
+  },
+  {
+    "sessionId": "57044747",
+    "name": "41 - Blue Pro",
+    "scheduledStart": "2026-08-03T23:00:00.000Z"
+  },
+  {
+    "sessionId": "57044749",
+    "name": "42 - Blue Intermediate",
+    "scheduledStart": "2026-08-03T23:12:00.000Z"
+  },
+  {
+    "sessionId": "57044751",
+    "name": "43 - Blue Pro",
+    "scheduledStart": "2026-08-03T23:24:00.000Z"
+  },
+  {
+    "sessionId": "57044753",
+    "name": "44 - Blue Intermediate",
+    "scheduledStart": "2026-08-03T23:36:00.000Z"
+  },
+  {
+    "sessionId": "57044755",
+    "name": "45 - Blue Pro",
+    "scheduledStart": "2026-08-03T23:48:00.000Z"
+  },
+  {
+    "sessionId": "57044757",
+    "name": "46 - Blue Junior Intermediate",
+    "scheduledStart": "2026-08-04T00:00:00.000Z"
+  },
+  {
+    "sessionId": "57044759",
+    "name": "47 - Blue Junior Starter",
+    "scheduledStart": "2026-08-04T00:12:00.000Z"
+  },
+  {
+    "sessionId": "57639491",
+    "name": "47 - Blue Junior Starter (2)",
+    "scheduledStart": "2026-08-04T00:12:00.000Z"
+  },
+  {
+    "sessionId": "57639502",
+    "name": "47 - Blue Junior Starter (3)",
+    "scheduledStart": "2026-08-04T00:12:00.000Z"
+  },
+  {
+    "sessionId": "57044761",
+    "name": "48 - Blue Junior Pro",
+    "scheduledStart": "2026-08-04T00:24:00.000Z"
+  },
+  {
+    "sessionId": "57044763",
+    "name": "49 - Blue Starter",
+    "scheduledStart": "2026-08-04T00:36:00.000Z"
+  },
+  {
+    "sessionId": "57044765",
+    "name": "50 - Blue Junior Starter",
+    "scheduledStart": "2026-08-04T00:48:00.000Z"
+  },
+  {
+    "sessionId": "57044767",
+    "name": "51 - Blue Starter",
+    "scheduledStart": "2026-08-04T01:00:00.000Z"
+  },
+  {
+    "sessionId": "57044769",
+    "name": "52 - Blue Intermediate",
+    "scheduledStart": "2026-08-04T01:12:00.000Z"
+  },
+  {
+    "sessionId": "57044771",
+    "name": "53 - Blue Starter",
+    "scheduledStart": "2026-08-04T01:24:00.000Z"
+  },
+  {
+    "sessionId": "57044773",
+    "name": "54 - Blue Pro",
+    "scheduledStart": "2026-08-04T01:36:00.000Z"
+  },
+  {
+    "sessionId": "57044775",
+    "name": "55 - Blue Junior Starter",
+    "scheduledStart": "2026-08-04T01:48:00.000Z"
+  },
+  {
+    "sessionId": "57044777",
+    "name": "56 - Blue Junior Intermediate",
+    "scheduledStart": "2026-08-04T02:00:00.000Z"
+  },
+  {
+    "sessionId": "57044779",
+    "name": "57 - Blue Intermediate",
+    "scheduledStart": "2026-08-04T02:12:00.000Z"
+  },
+  {
+    "sessionId": "57044783",
+    "name": "59 - Blue Intermediate",
+    "scheduledStart": "2026-08-04T02:36:00.000Z"
+  }
+]
