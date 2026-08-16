@@ -129,6 +129,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/junior-fence-sweep",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/vip-almost-here",
       "schedule": "*/5 * * * *"
     },

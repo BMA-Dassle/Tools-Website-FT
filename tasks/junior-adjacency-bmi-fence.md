@@ -141,6 +141,28 @@ Two assumptions died against the fixtures, both caught before any server code:
    the slot is junior) so adjacency can't be missed, and reports
    `duplicateSlots`.
 
+## Decided: no paid/pending distinction (2026-08-16)
+
+`GET /bmi/sessions` carries no state, participant count or paid flag, so the
+planner treats **any session row as occupied**. Considered gating fences on "has
+at least one PAID participant" and **rejected it**:
+
+- **"Unpaid" here means billed-later, not phantom.** Heat 8 on 8/16 (Blue Junior
+  Starter, 12:24) RAN and still showed 1 unpaid participant; heat 20 was 2-of-2
+  unpaid. These are walk-ups seated and billed afterwards — entirely real
+  bookings whose neighbours genuinely need fencing.
+- **It prevents no wrong fence.** An unpaid junior heat occupies the grid and the
+  register can still sell a junior beside it, so the fence is correct either way.
+- **It treats a symptom.** The real risk is a fence outliving its justification,
+  and that is not payment-related at all — a fully paid junior booking can be
+  cancelled or moved. The paid check would make stranded fences marginally rarer
+  while leaving the hole open, and cost a per-session call plus a cache.
+
+Fix the unwind (open question 2), not the payment signal.
+
+Note the corollary: a session row existing does NOT mean anyone is booked — our
+own fence rows have **zero** participants (`24 - Adult Only`, 0 total).
+
 ## Open — must be settled before the rolling sweep ships
 
 1. **Does a PATCH reach a slot on a date BMI has not materialised yet?** Every
@@ -156,12 +178,28 @@ Two assumptions died against the fixtures, both caught before any server code:
    back. Until this is known, step 6 logs and does not execute — meaning a
    cancelled junior booking leaves its fences standing. Ops must be able to clear
    one by hand in the dayplanner in the meantime.
-3. **Does a fence survive a booking?** When a party books a fenced heat,
-   `session-setup.ts` re-PATCHes `level`+`junior` while omitting
-   `productLimitId`, which per the contract leaves the limit in place — so the
-   limit persists but the `- Adult Only` name marker is overwritten. Inferred
-   from the contract, not tested. If true, a booked-then-cancelled heat can carry
-   an invisible limit.
+3. **A booking erases the only visible trace of a fence — CONFIRMED LIVE,
+   2026-08-16.** Session `58598953` was fenced by hand at 15:36 and read
+   `24 - Adult Only`. Within the hour an adult Starter booked it and the row
+   became `24 - Blue Starter`. Per the contract the product limit is still set;
+   the name was the only way to see it, and no endpoint reads a limit back. **We
+   now have a live heat carrying a limit nobody can find.**
+
+   Consequences for the sweep, all real:
+   - The planner correctly ignores that slot (never touch a booked heat) — which
+     means it has *lost track of a fence it placed*.
+   - If that booking cancels, the slot empties with the limit possibly still on
+     it. If it is still adjacent to a junior the sweep re-fences it (harmless).
+     If it is not, nothing will ever clear it.
+   - So the `fenced` marker cannot be the system of record. Either persist our
+     own fence ledger in Neon (sessionId + slot + why + when), or get a
+     read-back on the Pandora side. **The ledger is the cheaper fix and does not
+     depend on the vendor.**
+
+   Worth noting what else that hour showed: 15:36 was fenced and took an ADULT,
+   keeping the juniors at 15:24 and 15:48 apart, while the very next pair
+   (15:48 + 16:00) had no fence and went back-to-back on the register. Suggestive
+   of the mechanism working, not proof — an adult could have taken 15:36 anyway.
 
 ## Build order
 
