@@ -294,6 +294,10 @@ export interface PitLaneFeed {
   racing: {
     sessionId: string;
     heatNumber: number | null;
+    /** The level they are running, same vocabulary as every other slot. Null
+     *  only for a group promoted from a lane written before this field existed,
+     *  or placed on track by hand from Override with nothing to copy from. */
+    raceType: string | null;
   } | null;
   /**
    * BACK IN THE PIT, WAITING ON THE POST ANNOUNCEMENT (owner 2026-08-15: "the

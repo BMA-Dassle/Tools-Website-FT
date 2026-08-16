@@ -276,7 +276,7 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
       subject = {
         sessionId: lane.racing.sessionId,
         heatNumber: lane.racing.heatNumber,
-        raceType: null,
+        raceType: lane.racing.raceType,
         room: null,
         atMs: 0,
       };
