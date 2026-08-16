@@ -11,8 +11,8 @@
  * lost.
  *
  * Priority (high → low): Combo (Ultimate VIP) note, Express Lane, Booking URL,
- * Ultimate Qualifier, 3-Race Pack, POV codes, group-related reservations,
- * amount paid.
+ * Ultimate Qualifier, tier-expectation warning, 3-Race Pack, POV codes,
+ * group-related reservations, amount paid.
  */
 
 /** Staff-facing note for combo 3-race packs. */
@@ -31,6 +31,16 @@ export interface ReservationMemoParts {
   bookingUrl?: string | null;
   /** Ultimate Qualifier (or other package) staff disclaimer — pkg.disclaimers.billMemo. */
   ultimateQualifierNote?: string | null;
+  /** Tier-expectation warning the guest acknowledged and booked past — e.g.
+   *  "Junior Starter is our slow race, and you were offered the Ultimate
+   *  Qualifier". From raceWarningMemo() in features/booking/service/
+   *  race-warnings.ts. Sits next to the package disclaimer: same audience
+   *  (the person at the counter with a disappointed parent), same moment.
+   *
+   *  Only ever populated when the acknowledgment was actually collected — a
+   *  memo that claims a guest was warned when they were not is worse than no
+   *  memo at all. */
+  raceWarningNote?: string | null;
   /** True when a combo 3-race pack is on the order. */
   isThreeRacePack?: boolean;
   /** Claimed ViewPoint (POV) camera codes, already emailed/texted to the guest. */
@@ -58,6 +68,9 @@ export function buildReservationMemo(parts: ReservationMemoParts): string {
   }
   if (parts.ultimateQualifierNote) {
     lines.push(parts.ultimateQualifierNote);
+  }
+  if (parts.raceWarningNote) {
+    lines.push(parts.raceWarningNote);
   }
   if (parts.isThreeRacePack) {
     lines.push(THREE_RACE_PACK_MEMO);

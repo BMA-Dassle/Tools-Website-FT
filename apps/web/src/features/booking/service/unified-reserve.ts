@@ -142,6 +142,7 @@ import type {
   RaceHeatAssignment,
   AttractionItem,
 } from "../state/types";
+import { raceWarningAckIds } from "../state/types";
 import type { ContactInfo } from "../types";
 import redis from "@/lib/redis";
 import { writeReservationIndexes } from "@/lib/booking-record-index";
@@ -3358,6 +3359,9 @@ async function unifiedReserveInner(
               // Redirects the rail's dead-last state write to "Confirmation - VIP"
               // for a VIP pack sold at the kiosk (owner 2026-08-02).
               comboSpecialId: session.comboSpecialId ?? null,
+              // Warnings the guest ticked through (race-warnings.ts) — the
+              // kiosk's equivalent of the web confirmation page's memo line.
+              acknowledgedWarningIds: [...new Set(raceItems.flatMap(raceWarningAckIds))],
             });
           } catch (e) {
             console.error("[kiosk-post] failed (non-fatal):", e);

@@ -60,7 +60,9 @@ import {
   packSkusForRaceDate,
 } from "~/features/booking/service/race-pack-kiosk";
 import { racerNeedsLicense } from "~/features/booking/service/license";
+import { raceWarningFor, type RaceWarning } from "~/features/booking/service/race-warnings";
 import { useT, type Translate } from "~/features/kiosk/i18n";
+import { RaceWarningModal } from "./RaceWarningModal";
 import { racePackTeaserVisible } from "./RacePackTeaser";
 import { RacePackPicker, packFitsMember } from "./RacePackPicker";
 import { IncludedList } from "./PackageCard";
@@ -554,6 +556,21 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
       selected && !offered.some((p) => p.id === selected.id) ? [selected, ...offered] : offered;
     const hero = bundles.find((p) => p.recommended) ?? null;
     const others = bundles.filter((p) => p !== hero);
+    const memberships = racers.flatMap((m) => m.memberships ?? []);
+
+    // Tier-expectation warning waiting on its acknowledgment. Same shape as the
+    // product step's — see RaceProductStep for why the selection is a thunk.
+    const [pendingWarning, setPendingWarning] = useState<{
+      warning: RaceWarning;
+      resume: () => void;
+    } | null>(null);
+
+    /** The bundle the warning's upsell books, or null when none is offered
+     *  today. Resolved from the SAME list this screen renders. */
+    const upsellFor = (warning: RaceWarning) =>
+      warning.upsellPackagePrefix
+        ? (bundles.find((p) => p.id.startsWith(warning.upsellPackagePrefix!)) ?? null)
+        : null;
 
     const packsOn = racePackTeaserVisible(session, item.date) && kioskRacePacksEnabled();
     // MUST stay above `skus` — that filter reads it synchronously. When this sat
@@ -617,9 +634,7 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
       if (removed.some((h) => h.bmiLineId)) void releaseHeatBmiLines(session, removed);
     };
 
-    const chooseBundle = (pkg: PackageDefinition) => {
-      // Re-tapping the selected bundle is a no-op now that nothing auto-advances.
-      if (pkg.id === selectedId) return;
+    const commitBundle = (pkg: PackageDefinition) => {
       setSingleChosen(false);
       const { patch, removed } = clearPackageForCategory(item, category);
       onChange(
@@ -628,6 +643,20 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
           : { ...patch, packageIdJunior: pkg.id, productIdJunior: null, productTrackJunior: null },
       );
       if (removed.some((h) => h.bmiLineId)) void releaseHeatBmiLines(session, removed);
+    };
+
+    const chooseBundle = (pkg: PackageDefinition) => {
+      // Re-tapping the selected bundle is a no-op now that nothing auto-advances.
+      if (pkg.id === selectedId) return;
+      // A starter-only bundle can be chosen HERE, one step before the product
+      // step — so the tier-expectation warning has to guard this seam too.
+      // Gating only the product step lets a junior Rookie Pack through unwarned.
+      const warning = raceWarningFor({ category, memberships, packageId: pkg.id });
+      if (warning) {
+        setPendingWarning({ warning, resume: () => commitBundle(pkg) });
+        return;
+      }
+      commitBundle(pkg);
     };
 
     // Single races: clear any bundle (releasing its held heats) so page 2 comes
@@ -646,6 +675,32 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
 
     return (
       <div className={S.container}>
+        {pendingWarning && (
+          <RaceWarningModal
+            warning={pendingWarning.warning}
+            onAcknowledge={() => {
+              const { warning, resume } = pendingWarning;
+              setPendingWarning(null);
+              resume();
+              onChange(
+                category === "adult"
+                  ? { warningAckAdult: warning.id }
+                  : { warningAckJunior: warning.id },
+              );
+            }}
+            onUpsell={
+              upsellFor(pendingWarning.warning)
+                ? () => {
+                    const upsell = upsellFor(pendingWarning.warning)!;
+                    setPendingWarning(null);
+                    // Took the recommendation — nothing declined, no memo.
+                    commitBundle(upsell);
+                  }
+                : undefined
+            }
+            onCancel={() => setPendingWarning(null)}
+          />
+        )}
         {/* No eyebrow: the chrome above already stacks a brand row, the step
             progress and the step title ("ADULT RACE"). A fourth header line was
             pure air above the first tappable thing (owner 2026-08-04). */}

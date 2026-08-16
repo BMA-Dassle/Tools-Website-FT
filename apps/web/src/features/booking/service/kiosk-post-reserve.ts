@@ -34,6 +34,7 @@
  */
 import { getRaceProductById } from "./race-products";
 import { buildReservationMemo } from "./reservation-memo";
+import { raceWarningMemo } from "./race-warnings";
 import {
   appendProjectPrivateNote,
   setProjectState,
@@ -126,6 +127,12 @@ export interface KioskPostReserveArgs {
    *  Experience. Redirects §4's confirmation-state write from the kiosk id to
    *  "Confirmation - VIP" (owner 2026-08-02: VIP wins over kiosk). */
   comboSpecialId?: string | null;
+  /** Tier-expectation warnings the guest ticked through and booked past
+   *  (`raceWarningAckIds` across the race items — race-warnings.ts). Adds the
+   *  staff note to §3's composed memo so a kiosk booking carries the same trail
+   *  a web one does. Empty/omitted when nothing was acknowledged; the memo must
+   *  never claim an acknowledgment that did not happen. */
+  acknowledgedWarningIds?: string[];
 }
 
 /**
@@ -337,7 +344,13 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
       povQty > 0 && povCodes.length < povQty
         ? `POV CODES OWED — pool short: issued ${povCodes.length} of ${povQty}. Import codes and backfill bill ${bmiBillId}.`
         : "";
-    const note = ["Kiosk Booking, please check into session", povLine, povOwedLine]
+    // Same staff note the web flows write, from the same registry — a parent
+    // who booked Junior Starter at the kiosk after being warned must leave the
+    // same trail as one who booked it online.
+    const warningLines = (args.acknowledgedWarningIds ?? [])
+      .map((wid) => raceWarningMemo(wid))
+      .filter((m): m is string => !!m);
+    const note = ["Kiosk Booking, please check into session", povLine, ...warningLines, povOwedLine]
       .filter(Boolean)
       .join("\n");
     const ok = await withRetry("booking memo append", () =>

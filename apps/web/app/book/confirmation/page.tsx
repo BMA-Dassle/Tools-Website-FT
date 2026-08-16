@@ -13,6 +13,7 @@ import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { modalBackdropProps } from "@/lib/a11y";
 import { productDisplayNameFromPackages, getPackageIgnoreFlag } from "@/lib/packages";
 import { buildReservationMemo } from "~/features/booking/service/reservation-memo";
+import { raceWarningMemo } from "~/features/booking/service/race-warnings";
 import { buildWaiverUrl } from "~/features/waiver/build-waiver-url";
 import { waiverVenueForCenterCode } from "~/features/waiver/waiver-venue";
 import { officeProjectIdFromBillId } from "@/lib/bmi-office-ids";
@@ -1021,6 +1022,12 @@ export default function ConfirmationPage() {
           const uqNote = pkgId
             ? (getPackageIgnoreFlag(pkgId)?.disclaimers?.billMemo ?? null)
             : null;
+          // Stamped onto the booking record by OrderSummary ONLY when the guest
+          // actually ticked through the tier-expectation warning and declined
+          // the upgrade — never inferred from the product. See race-warnings.ts.
+          const warningNote = raceWarningMemo(
+            bookingRecord?.acknowledgedWarningId as string | null | undefined,
+          );
           const memoLines: OrderLine[] =
             overview?.lines && overview.lines.length > 0
               ? overview.lines
@@ -1034,6 +1041,7 @@ export default function ConfirmationPage() {
             const memo = buildReservationMemo({
               expressLaneResNumber: allWaiversValid ? conf.resNumber : null,
               ultimateQualifierNote: uqNote,
+              raceWarningNote: warningNote,
               isThreeRacePack: isThreePack,
               // POV codes are claimed against the primary bill only.
               povCodes: conf.billId === id ? claimedPovCodes : [],

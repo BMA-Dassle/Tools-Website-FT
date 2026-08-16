@@ -57,6 +57,30 @@ describe("buildReservationMemo", () => {
     expect(memo.split("\n")).toHaveLength(5);
   });
 
+  it("puts the tier-expectation warning right after the package disclaimer", () => {
+    // Both are for the person at the counter handling an unhappy guest, so they
+    // read as one block. If the warning drifted below the POV codes, the two
+    // halves of the same conversation would be separated by unrelated noise.
+    const memo = buildReservationMemo({
+      expressLaneResNumber: "W1",
+      ultimateQualifierNote: "** ULTIMATE QUALIFIER ** verify level-up.",
+      raceWarningNote: "** JUNIOR STARTER — UPGRADE DECLINED ** was warned.",
+      povCodes: ["AB12"],
+    });
+    const lines = memo.split("\n");
+    expect(lines[1]).toContain("ULTIMATE QUALIFIER");
+    expect(lines[2]).toContain("JUNIOR STARTER — UPGRADE DECLINED");
+    expect(lines[3]).toContain("POV Codes");
+  });
+
+  it("omits the warning line when nothing was acknowledged", () => {
+    // raceWarningMemo returns null for "no ack", and a null part must not
+    // produce an empty line that reads as a missing memo.
+    const memo = buildReservationMemo({ expressLaneResNumber: "W1", raceWarningNote: null });
+    expect(memo.split("\n")).toHaveLength(1);
+    expect(memo).toContain("EXPRESS LANE");
+  });
+
   it("omits parts that don't apply", () => {
     expect(buildReservationMemo({ povCodes: ["X1"] })).toBe(
       "POV Codes: X1 — emailed & texted to guest.",

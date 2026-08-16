@@ -18,8 +18,10 @@ import {
 } from "~/features/booking/service/race-products";
 import { scheduleForDate, LICENSE_PRICE } from "~/features/booking/service/race-pricing";
 import { eligiblePackages, getPackage } from "~/features/booking/service/packages";
+import { raceWarningFor, type RaceWarning } from "~/features/booking/service/race-warnings";
 import { ComboUpsellCard } from "../combo/ComboUpsellCard";
 import { PackageCard } from "./PackageCard";
+import { RaceWarningModal } from "./RaceWarningModal";
 import { RacePackTeaser, racePackTeaserVisible } from "./RacePackTeaser";
 import { payModeStepVisible } from "./RacePayModeStep";
 import {
@@ -286,6 +288,24 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
 
     const selectedProductId = category === "adult" ? item.productIdAdult : item.productIdJunior;
 
+    // Tier-expectation warning ("Junior Starter is the slow race") waiting on
+    // its acknowledgment. Holds the interrupted selection as a thunk: a product
+    // and a package resume down different paths, and re-deriving which is which
+    // on confirm is how the two drift apart.
+    const [pendingWarning, setPendingWarning] = useState<{
+      warning: RaceWarning;
+      resume: () => void;
+    } | null>(null);
+
+    /** The package the warning's upsell button books, or null when none is
+     *  bookable today — on a Mega Tuesday there is no junior Ultimate Qualifier
+     *  at all. Resolved from the SAME `packages` list the cards render from, so
+     *  the button can never offer a bundle the guest cannot see. */
+    const upsellFor = (warning: RaceWarning) =>
+      warning.upsellPackagePrefix
+        ? (packages.find((p) => p.id.startsWith(warning.upsellPackagePrefix!)) ?? null)
+        : null;
+
     // Fires once the tapped package is ON item state (post-commit) — 300 ms so
     // the selection ring paints first. Cleanup covers double-taps + unmount.
     // Hosts that don't pass requestAdvance just keep today's manual Continue.
@@ -376,7 +396,31 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
       if (removed.some((h) => h.bmiLineId)) void releaseHeatBmiLines(session, removed);
     };
 
-    const handleCardClick = (product: RaceProduct) => {
+    /** Persist the package pick on THIS CATEGORY's field so back-nav doesn't
+     *  lose it + so saveBookingDetails forwards it to the booking-record
+     *  (drives sales_log.package_id). Per-category fields keep a mixed party's
+     *  adult and junior variants (different SKUs AND prices) from overwriting
+     *  each other. A DIFFERENT package drops + releases the outgoing one's held
+     *  heats (they hold at tap time now). */
+    const commitPackage = (packageId: string) => {
+      const { patch, removed } = clearPackage();
+      onChange(
+        category === "adult"
+          ? { ...patch, packageIdAdult: packageId, productIdAdult: null, productTrackAdult: null }
+          : {
+              ...patch,
+              packageIdJunior: packageId,
+              productIdJunior: null,
+              productTrackJunior: null,
+            },
+      );
+      if (removed.some((h) => h.bmiLineId)) {
+        void releaseHeatBmiLines(session, removed);
+      }
+      setAdvancePending(true);
+    };
+
+    const commitProduct = (product: RaceProduct) => {
       // Multi-track products — combined single races AND mixed-track combo packs
       // (3-Packs) — are NOT track-locked: selecting one leaves the track open so
       // the heat grid shows BOTH tracks (like the Ultimate combo) and the customer
@@ -386,6 +430,15 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
         return;
       }
       setProductWithTrack(product.productId, product.track);
+    };
+
+    const handleCardClick = (product: RaceProduct) => {
+      const warning = raceWarningFor({ category, memberships, product });
+      if (warning) {
+        setPendingWarning({ warning, resume: () => commitProduct(product) });
+        return;
+      }
+      commitProduct(product);
     };
 
     if (products.length === 0) {
@@ -439,6 +492,39 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
 
     return (
       <div className="space-y-6">
+        {/* Tier-expectation warning. Rendered at the top of the step rather
+            than beside each card so one instance serves the single-race cards
+            and the package cards both. */}
+        {pendingWarning && (
+          <RaceWarningModal
+            warning={pendingWarning.warning}
+            onAcknowledge={() => {
+              const { warning, resume } = pendingWarning;
+              setPendingWarning(null);
+              resume();
+              // Record WHICH warning was acknowledged, on this category's field.
+              // Written after resume() so it rides the same render as the
+              // selection it belongs to.
+              onChange(
+                category === "adult"
+                  ? { warningAckAdult: warning.id }
+                  : { warningAckJunior: warning.id },
+              );
+            }}
+            onUpsell={
+              upsellFor(pendingWarning.warning)
+                ? () => {
+                    const upsell = upsellFor(pendingWarning.warning)!;
+                    setPendingWarning(null);
+                    // They took the recommendation — nothing was declined, so
+                    // the ack field stays clear and no memo claims otherwise.
+                    commitPackage(upsell.id);
+                  }
+                : undefined
+            }
+            onCancel={() => setPendingWarning(null)}
+          />
+        )}
         {showCategoryBanner && (
           <div
             className={`rounded-xl border-2 p-4 text-center ${
@@ -546,33 +632,19 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
                       setAdvancePending(true);
                       return;
                     }
-                    // Persist the package pick on THIS CATEGORY's field so
-                    // back-nav doesn't lose it + so saveBookingDetails forwards
-                    // it to the booking-record (drives sales_log.package_id).
-                    // Per-category fields keep a mixed party's adult and junior
-                    // variants (different SKUs AND prices) from overwriting
-                    // each other. A DIFFERENT package drops + releases the
-                    // outgoing one's held heats (they hold at tap time now).
-                    const { patch, removed } = clearPackage();
-                    onChange(
-                      category === "adult"
-                        ? {
-                            ...patch,
-                            packageIdAdult: pkg.id,
-                            productIdAdult: null,
-                            productTrackAdult: null,
-                          }
-                        : {
-                            ...patch,
-                            packageIdJunior: pkg.id,
-                            productIdJunior: null,
-                            productTrackJunior: null,
-                          },
-                    );
-                    if (removed.some((h) => h.bmiLineId)) {
-                      void releaseHeatBmiLines(session, removed);
+                    // A starter-only bundle (junior Rookie Pack) gets the same
+                    // tier-expectation warning a bare Starter race does — the
+                    // extras are a licence and a video, not a faster heat.
+                    const warning = raceWarningFor({
+                      category,
+                      memberships,
+                      packageId: pkg.id,
+                    });
+                    if (warning) {
+                      setPendingWarning({ warning, resume: () => commitPackage(pkg.id) });
+                      return;
                     }
-                    setAdvancePending(true);
+                    commitPackage(pkg.id);
                   }}
                 />
                 {/* THE way out of a package. Only under the selected one, so it

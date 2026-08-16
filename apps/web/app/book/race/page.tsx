@@ -83,6 +83,8 @@ import {
   LICENSE_PRICE,
   POV_PRICE,
 } from "@/lib/packages";
+import { raceWarningFor, type RaceWarning } from "~/features/booking/service/race-warnings";
+import { RaceWarningModal } from "~/components/features/booking/steps/race/RaceWarningModal";
 import ContactForm from "./components/ContactForm";
 import AddOnsPage from "./components/AddOnsPage";
 import type { AddOnItem } from "./components/AddOnsPage";
@@ -168,6 +170,19 @@ export default function BookRacePage() {
   // "Intermediate is conditional on qualifying" trade-off explicit.
   const [disclaimerPending, setDisclaimerPending] = useState<PackageDefinition | null>(null);
   const [disclaimerAcks, setDisclaimerAcks] = useState<boolean[]>([]);
+  // Tier-expectation warning waiting on its acknowledgment ("Junior Starter is
+  // the slow race"). Carries the selection it interrupted as a thunk rather
+  // than re-deriving it on confirm — a product and a package resume down
+  // different paths, and duplicating that branch is how the two drift.
+  const [warningPending, setWarningPending] = useState<{
+    warning: RaceWarning;
+    resume: () => void;
+  } | null>(null);
+  // Which warning the guest acknowledged and booked past anyway. Persisted onto
+  // the booking record so the confirmation page can put it on the BMI bill —
+  // the memo must never claim an acknowledgment that did not happen, so this is
+  // recorded rather than inferred from the product.
+  const [acknowledgedWarningId, setAcknowledgedWarningId] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [selectedProposal, setSelectedProposal] = useState<BmiProposal | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<BmiBlock | null>(null);
@@ -846,7 +861,33 @@ export default function BookRacePage() {
     changeStep("product");
   }
 
+  /** The tier-expectation warning this selection triggers, if any. Memberships
+   *  come from the category being booked; a new racer has none, which reads as
+   *  "qualified at Starter" — exactly who the warning is for. */
+  function warningForSelection(args: {
+    product?: ClassifiedProduct | null;
+    packageId?: string | null;
+  }): RaceWarning | null {
+    return raceWarningFor({
+      category: bookingCategory,
+      memberships: getCategoryMemberships(bookingCategory) ?? [],
+      product: args.product ?? null,
+      packageId: args.packageId ?? null,
+    });
+  }
+
   function handleProductSelect(product: ClassifiedProduct) {
+    const warning = warningForSelection({ product });
+    if (warning) {
+      setWarningPending({ warning, resume: () => commitProductSelection(product) });
+      return;
+    }
+    commitProductSelection(product);
+  }
+
+  /** Final commit path for a single race — reached directly, or from the
+   *  tier-expectation modal once the guest has ticked every box. */
+  function commitProductSelection(product: ClassifiedProduct) {
     trackBookingProduct(product.name, product.track, product.tier);
     // Picking a plain race clears any in-flight package selection.
     setSelectedPackage(null);
@@ -866,14 +907,45 @@ export default function BookRacePage() {
    *
    *  Packages declaring `disclaimers` (Ultimate Qualifier today) are
    *  intercepted — the modal renders below and blocks advance until
-   *  the user ticks every ack and confirms. */
+   *  the user ticks every ack and confirms.
+   *
+   *  A starter-only package (junior Rookie Pack) is intercepted by the
+   *  tier-expectation warning FIRST. The two never both fire: a package that
+   *  bundles a higher-tier heat is the thing the warning steers people toward,
+   *  and is deliberately absent from `warnOnPackagePrefixes`. */
   function handleSelectPackage(pkg: PackageDefinition) {
+    const warning = warningForSelection({ packageId: pkg.id });
+    if (warning) {
+      setWarningPending({ warning, resume: () => handlePackageAfterWarning(pkg) });
+      return;
+    }
+    handlePackageAfterWarning(pkg);
+  }
+
+  function handlePackageAfterWarning(pkg: PackageDefinition) {
     if (pkg.disclaimers && pkg.disclaimers.acks.length > 0) {
       setDisclaimerPending(pkg);
       setDisclaimerAcks(pkg.disclaimers.acks.map(() => false));
       return;
     }
     commitPackageSelection(pkg);
+  }
+
+  /** The package the warning's upsell button should book, or null when none is
+   *  bookable for this date — on a Mega Tuesday there is no junior Ultimate
+   *  Qualifier at all, and a button that leads nowhere is worse than no button.
+   *
+   *  Resolved from the SAME `eligiblePackages` call the picker renders from, so
+   *  the button can never offer a card the guest cannot see. */
+  function upsellPackageFor(warning: RaceWarning): PackageDefinition | null {
+    if (!warning.upsellPackagePrefix || !selectedDate) return null;
+    return (
+      eligiblePackages({
+        racerType,
+        schedule: scheduleForDate(selectedDate),
+        category: bookingCategory,
+      }).find((p) => p.id.startsWith(warning.upsellPackagePrefix!)) ?? null
+    );
   }
 
   /** Final commit path after a package is selected (post-disclaimer
@@ -2314,6 +2386,36 @@ export default function BookRacePage() {
             />
           ))}
 
+        {/* Tier-expectation warning — "Junior Starter is our slow race".
+            Fires BEFORE the package disclaimer below, and never at the same
+            time as it (the packages that carry a disclaimer all bundle a
+            higher-tier heat, which is what the warning recommends). */}
+        {warningPending && (
+          <RaceWarningModal
+            warning={warningPending.warning}
+            onAcknowledge={() => {
+              // Record WHICH warning was acknowledged before resuming — the
+              // bill memo is looked up by this id at confirmation.
+              setAcknowledgedWarningId(warningPending.warning.id);
+              const { resume } = warningPending;
+              setWarningPending(null);
+              resume();
+            }}
+            onUpsell={
+              upsellPackageFor(warningPending.warning)
+                ? () => {
+                    const upsell = upsellPackageFor(warningPending.warning)!;
+                    // They took the recommendation, so nothing was declined —
+                    // leave acknowledgedWarningId unset so no memo claims it.
+                    setWarningPending(null);
+                    handleSelectPackage(upsell);
+                  }
+                : undefined
+            }
+            onCancel={() => setWarningPending(null)}
+          />
+        )}
+
         {/* Package disclaimer modal — shown when the user clicks a
             package card whose registry entry declares
             `disclaimers`. Mirrors the height/age modal pattern: a
@@ -2751,6 +2853,7 @@ export default function BookRacePage() {
               bills={activeBills}
               onBack={() => changeStep("contact")}
               confirmationPath="/book/confirmation"
+              acknowledgedWarningId={acknowledgedWarningId}
               packResult={packResult ?? undefined}
               packProduct={packResult ? (selectedProduct ?? undefined) : undefined}
               onRemovePack={async () => {

@@ -12,6 +12,7 @@ import { trackBookingComplete } from "@/lib/analytics";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { modalBackdropProps } from "@/lib/a11y";
 import { productDisplayNameFromPackages, getPackageIgnoreFlag } from "@/lib/packages";
+import { raceWarningMemo } from "~/features/booking/service/race-warnings";
 import { buildReservationMemo } from "~/features/booking/service/reservation-memo";
 import {
   clearRacePackConfirmation,
@@ -1408,6 +1409,14 @@ export default function ConfirmationPage() {
           const uqNote = pkgId
             ? (getPackageIgnoreFlag(pkgId)?.disclaimers?.billMemo ?? null)
             : null;
+          // Tier-expectation warnings the guest ticked through and declined the
+          // upgrade on (race-warnings.ts). Stamped onto the record by checkout
+          // ONLY when the acknowledgment actually happened — never inferred.
+          const warningNote =
+            ((bookingRecord?.acknowledgedWarningIds as string[] | undefined) ?? [])
+              .map((wid) => raceWarningMemo(wid))
+              .filter((m): m is string => !!m)
+              .join("\n") || null;
           // Combo special (Ultimate VIP): lead the memo with the VIP banner +
           // visit plan + assigned bowling lane (persisted to the booking record
           // by unified-reserve from QAMF). Written here — not server-side — so
@@ -1463,6 +1472,7 @@ export default function ConfirmationPage() {
                 shortLinks.get(conf.billId) ??
                 (origin ? `${origin}/book/confirmation/v2?billId=${conf.billId}` : null),
               ultimateQualifierNote: uqNote,
+              raceWarningNote: warningNote,
               isThreeRacePack: isThreePack,
               povCodes: conf.billId === id ? claimedPovCodes : [],
               relatedReservations: related || null,

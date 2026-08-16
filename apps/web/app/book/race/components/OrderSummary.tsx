@@ -115,6 +115,12 @@ interface OrderSummaryProps {
    *  `packageHeats` fields onto the booking record so future
    *  automation (qualifier-detection cron, e-ticket flow) can react. */
   selectedPackage?: PackageDefinition | null;
+  /** Id of a tier-expectation warning the guest acknowledged and booked past
+   *  ("Junior Starter is the slow race" — race-warnings.ts). Written onto the
+   *  booking record so the confirmation page can put the staff note on the BMI
+   *  bill. Null/undefined when no warning was shown or they took the upsell —
+   *  the memo must never claim an acknowledgment that did not happen. */
+  acknowledgedWarningId?: string | null;
   /** Atomic teardown — cancel all package bookings and bounce back
    *  to the product picker. Mirrors `onCancelRookiePack` but for
    *  packages that own their races. */
@@ -230,6 +236,7 @@ export default function OrderSummary({
   onRemovePov,
   onCancelRookiePack,
   selectedPackage,
+  acknowledgedWarningId,
   onRemovePackage,
   confirmationPath = "/book/race/confirmation",
 }: OrderSummaryProps) {
@@ -650,6 +657,10 @@ export default function OrderSummary({
         // Stays for back-compat — confirmation page still falls back
         // to this when the new `package` field is missing.
         rookiePack: pov?.rookiePack === true || selectedPackage?.id === "rookie-pack",
+        // Tier-expectation warning the guest ticked through and booked past.
+        // Only ever set when the acknowledgment actually happened — the
+        // confirmation page turns this into the staff bill memo.
+        ...(acknowledgedWarningId ? { acknowledgedWarningId } : {}),
         // Centralized package metadata (lib/packages.ts). Lets the
         // confirmation page render the right appetizer / hero, and
         // gives the future "did they qualify?" cron the heat

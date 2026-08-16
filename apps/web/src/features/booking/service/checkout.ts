@@ -18,7 +18,12 @@ import type {
   SessionItem,
   PartyMember,
 } from "../state/types";
-import { packageIdForCategory, racePackageIds, raceItemFullyPackaged } from "../state/types";
+import {
+  packageIdForCategory,
+  racePackageIds,
+  raceWarningAckIds,
+  raceItemFullyPackaged,
+} from "../state/types";
 import type { ContactInfo } from "../types";
 import { activeComboSpecial, comboChargeLines } from "~/features/combos/combo-pricing";
 import type { DiscountDomain } from "~/features/discount-codes";
@@ -378,6 +383,10 @@ export async function saveBookingDetails(
   // the full list rides along for future per-variant reporting.
   const packageIds = [...new Set(raceItems.flatMap(racePackageIds))];
   const packageId = packageIds[0] ?? null;
+  // Tier-expectation warnings the guest ticked through and booked past. Carried
+  // onto the booking record so the confirmation page can put the staff note on
+  // the BMI bill — see race-warnings.ts. Empty when nothing was acknowledged.
+  const warningAckIds = [...new Set(raceItems.flatMap(raceWarningAckIds))];
 
   // Attraction bookings — store slot times for confirmation page display
   const attractionItems = session.items.filter((i): i is AttractionItem => i.kind === "attraction");
@@ -443,6 +452,7 @@ export async function saveBookingDetails(
         status: "pending_payment",
         package: packageId,
         packages: packageIds.length > 1 ? packageIds : undefined,
+        acknowledgedWarningIds: warningAckIds.length > 0 ? warningAckIds : undefined,
         comboSpecial: session.comboSpecialId ?? undefined,
         fastLane: fastLane || undefined,
         attractions: attractionBookings.length > 0 ? attractionBookings : undefined,

@@ -318,6 +318,22 @@ export interface RaceItem extends BookingItemBase {
   packageIdAdult: string | null;
   packageIdJunior: string | null;
   /**
+   * Id of a tier-expectation warning (features/booking/service/race-warnings.ts)
+   * the guest was shown, ticked through, and booked past anyway — today only
+   * "junior-starter-speed". null when no warning applied, or when they took the
+   * upsell instead.
+   *
+   * RECORDED, never inferred: the bill memo it produces tells staff the guest
+   * was warned and declined the upgrade, and a memo asserting an acknowledgment
+   * that never happened is worse than no memo at all.
+   *
+   * Per-category for the same reason packageIdAdult/Junior are: warnings are
+   * declared per category, so a mixed party can carry one on each side without
+   * either overwriting the other. Optional so existing sessions hydrate.
+   */
+  warningAckAdult?: string | null;
+  warningAckJunior?: string | null;
+  /**
    * Number of POV cameras to pre-pay ($4.99/each online vs $7 at check-in).
    * BMI sells POV as a flat qty SKU (productId 43746981), no per-racer
    * attribution. The POV step's qty stepper sets this directly (its "Add for
@@ -375,6 +391,24 @@ export function packageIdForCategory(
  *  is the "primary" recorded on the booking record / sales_log). */
 export function racePackageIds(item: RacePackageFields): string[] {
   const ids = [item.packageIdAdult, item.packageIdJunior].filter((id): id is string => !!id);
+  return [...new Set(ids)];
+}
+
+/** The per-category tier-expectation ack fields (see warningAckAdult docs). */
+export type RaceWarningAckFields = Pick<RaceItem, "warningAckAdult" | "warningAckJunior">;
+
+/** The category's acknowledged warning id — the ONLY sanctioned way to read the
+ *  ack fields, so a future category never silently falls through. */
+export function warningAckForCategory(
+  item: RaceWarningAckFields,
+  category: RaceCategory,
+): string | null {
+  return (category === "junior" ? item.warningAckJunior : item.warningAckAdult) ?? null;
+}
+
+/** Distinct warning ids acknowledged on this item, adult-first. */
+export function raceWarningAckIds(item: RaceWarningAckFields): string[] {
+  const ids = [item.warningAckAdult, item.warningAckJunior].filter((id): id is string => !!id);
   return [...new Set(ids)];
 }
 
