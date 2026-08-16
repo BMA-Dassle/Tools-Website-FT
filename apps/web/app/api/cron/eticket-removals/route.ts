@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { verifyCron } from "@/lib/cron-auth";
+import { inEticketQuietHours } from "~/features/eticket/quiet-hours";
 import { logCronRun } from "@/lib/sms-log";
 import {
   clearSeenRemoved,
@@ -125,6 +126,15 @@ export async function GET(req: NextRequest) {
 
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
   const started = Date.now();
+
+  // Quiet hours — a retraction SMS is still an e-ticket text; nothing it
+  // could say at 3am is actionable. dryRun still passes for ops testing.
+  if (!dryRun && inEticketQuietHours()) {
+    return NextResponse.json(
+      { ok: true, skipped: "quiet-hours" },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
 
   if (!removalSweepEnabled()) {
     return NextResponse.json(

@@ -8,6 +8,11 @@ import {
 } from "@/lib/sms-quota";
 import { logSms, logCronRun } from "@/lib/sms-log";
 import { verifyCron } from "@/lib/cron-auth";
+import {
+  eticketQuotaTriage,
+  logExpiredQuotaEntry,
+  setDedupKeysForQuotaEntry,
+} from "~/features/eticket/quota-triage";
 
 /**
  * SMS retry sweep — runs every minute to drain due retries across BOTH crons,
@@ -59,59 +64,71 @@ export async function GET(req: NextRequest) {
             attempted: 0,
             ok: 0,
             abandoned: 0,
+            held: 0,
+            dropped: 0,
             stoppedOnQuota: false,
             pendingAfter: await quotaQueueSize(),
           }
-        : await drainQuotaQueue(async (entry: QueuedSend) => {
-            const result = await voxSend(
-              entry.phone,
-              entry.body,
-              entry.from
-                ? { fromOverride: entry.from, fallbackPrefix: entry.fallbackPrefix }
-                : undefined,
-            );
-            // Log each drained attempt so the audit trail stays complete —
-            // success goes in as a normal entry, failure carries a "[quota-drain]"
-            // tag so it's easy to filter in the admin tool.
-            await logSms({
-              ts: new Date().toISOString(),
-              phone: entry.phone,
-              source: entry.source,
-              status: result.status,
-              ok: result.ok,
-              error: result.ok ? undefined : `[quota-drain] ${result.error || "unknown"}`,
-              body: entry.body,
-              sessionIds: entry.audit?.sessionIds,
-              personIds: entry.audit?.personIds,
-              memberCount: entry.audit?.memberCount,
-              shortCode: entry.shortCode,
-              provider: result.provider,
-              failedOver: result.failedOver,
-            });
-            // Video-match records carry their own SMS-state mirror
-            // (notifySmsOk + notifySmsError) on the saved match. On
-            // successful drain we patch those fields so the /admin/videos
-            // board flips from grey "sms ⏳ queued" to green "sms ✓"
-            // immediately (no need to wait for the next video-match
-            // cron tick). shortCode is the videoCode for video-match
-            // entries — see lib/video-notify.ts.
-            if (result.ok && entry.source === "video-match" && entry.shortCode) {
-              try {
-                const { getMatchByVideoCode, updateVideoMatch } = await import("@/lib/video-match");
-                const match = await getMatchByVideoCode(entry.shortCode);
-                if (match) {
-                  match.notifySmsOk = true;
-                  match.notifySmsError = undefined;
-                  match.notifySmsSentTo = entry.phone;
-                  match.notifySmsSentAt = new Date().toISOString();
-                  await updateVideoMatch(match);
+        : await drainQuotaQueue(
+            async (entry: QueuedSend) => {
+              const result = await voxSend(
+                entry.phone,
+                entry.body,
+                entry.from
+                  ? { fromOverride: entry.from, fallbackPrefix: entry.fallbackPrefix }
+                  : undefined,
+              );
+              // Log each drained attempt so the audit trail stays complete —
+              // success goes in as a normal entry, failure carries a "[quota-drain]"
+              // tag so it's easy to filter in the admin tool.
+              await logSms({
+                ts: new Date().toISOString(),
+                phone: entry.phone,
+                source: entry.source,
+                status: result.status,
+                ok: result.ok,
+                error: result.ok ? undefined : `[quota-drain] ${result.error || "unknown"}`,
+                body: entry.body,
+                sessionIds: entry.audit?.sessionIds,
+                personIds: entry.audit?.personIds,
+                memberCount: entry.audit?.memberCount,
+                shortCode: entry.shortCode,
+                provider: result.provider,
+                failedOver: result.failedOver,
+              });
+              // Video-match records carry their own SMS-state mirror
+              // (notifySmsOk + notifySmsError) on the saved match. On
+              // successful drain we patch those fields so the /admin/videos
+              // board flips from grey "sms ⏳ queued" to green "sms ✓"
+              // immediately (no need to wait for the next video-match
+              // cron tick). shortCode is the videoCode for video-match
+              // entries — see lib/video-notify.ts.
+              if (result.ok && entry.source === "video-match" && entry.shortCode) {
+                try {
+                  const { getMatchByVideoCode, updateVideoMatch } =
+                    await import("@/lib/video-match");
+                  const match = await getMatchByVideoCode(entry.shortCode);
+                  if (match) {
+                    match.notifySmsOk = true;
+                    match.notifySmsError = undefined;
+                    match.notifySmsSentTo = entry.phone;
+                    match.notifySmsSentAt = new Date().toISOString();
+                    await updateVideoMatch(match);
+                  }
+                } catch (err) {
+                  console.warn("[sms-retry-sweep] video-match patch failed:", err);
                 }
-              } catch (err) {
-                console.warn("[sms-retry-sweep] video-match patch failed:", err);
               }
-            }
-            return { ok: result.ok, status: result.status, error: result.error };
-          });
+              // Rebuild the location-scoped dedup keys the cron scans
+              // check (like drainRetries does) so the next tick doesn't
+              // re-detect this recipient as fresh and double-send.
+              if (result.ok) await setDedupKeysForQuotaEntry(entry);
+              return { ok: result.ok, status: result.status, error: result.error };
+            },
+            // Shared triage/audit — the SAME pair the admin drain uses,
+            // so quiet-hours + staleness hold no matter who drains.
+            { triage: eticketQuotaTriage, onDrop: logExpiredQuotaEntry },
+          );
 
     const sent = preRace.ok + checkin.ok + arenaPre.ok + arenaCheckin.ok + quota.ok;
     const errors =
