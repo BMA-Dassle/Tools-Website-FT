@@ -1,5 +1,7 @@
 import "server-only";
 
+import { STAY_SEATED_CLIP_FILE } from "./pit-board";
+
 /**
  * Pandora's Q-SYS proxy — how the pit station actually plays a cue and reads
  * the player's live state (docs/qsys-audio-websocket.md is the wire doc the
@@ -42,7 +44,10 @@ export type QsysClip = "pre" | "post" | "big" | "stay-seated";
  * zone — the zone param does the routing. audio.server.ts owns when it loops
  * and the rule that a real pre/post stops it instantly.
  */
-export const STAY_SEATED_FILE = "Stay Seated.mp3";
+// One definition, shared with the pit station — see pit-board.ts. The client
+// must draw the same "the loop yields to a real cue" rule the server enforces,
+// and this module is server-only, so the constant cannot live here.
+export const STAY_SEATED_FILE = STAY_SEATED_CLIP_FILE;
 
 /**
  * Pandora's WebSocket RELAY of the Core's push feed — same frames, verbatim,

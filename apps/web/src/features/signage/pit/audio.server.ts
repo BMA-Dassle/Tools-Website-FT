@@ -44,7 +44,7 @@ import type { TrackKey } from "../track";
 import { sessionRoster } from "../service/checkin-progress";
 import { cueKey, readCueStamp, type PitCue } from "./audio-stamps.server";
 import { markInKarts, markRacePitted, readPitLane } from "./lane.server";
-import { kartsAvailability, type PitLaneFeed, type PitLanes } from "./pit-board";
+import { isStaySeatedFile, kartsAvailability, type PitLaneFeed, type PitLanes } from "./pit-board";
 import {
   playQsysCue,
   readQsysLive,
@@ -149,12 +149,6 @@ async function paBusy(track: TrackKey): Promise<PaBusyVerdict> {
   return paBusyIn(track, await readQsysLive());
 }
 
-/** Is the sounding file the ambient stay-seated loop? Lenient on purpose —
- *  the player may report the file with a path or case of its own. */
-function soundingStaySeated(file: string): boolean {
-  return file.toLowerCase().includes(STAY_SEATED_FILE.replace(/\.mp3$/i, "").toLowerCase());
-}
-
 /**
  * A REAL ANNOUNCEMENT NEVER QUEUES BEHIND THE AMBIENT LOOP (owner 2026-08-15:
  * "pre/post should be able to override it instantly"). When the busy verdict
@@ -166,7 +160,7 @@ async function yieldStaySeated(
   busy: Awaited<ReturnType<typeof paBusy>>,
 ): Promise<{ cleared: boolean; error?: string }> {
   if (!busy.busy) return { cleared: true };
-  if (!soundingStaySeated(busy.file)) return { cleared: false, error: busy.error };
+  if (!isStaySeatedFile(busy.file)) return { cleared: false, error: busy.error };
   const stopped = await stopQsysZone(busy.zone);
   return stopped.ok ? { cleared: true } : { cleared: false, error: stopped.error };
 }

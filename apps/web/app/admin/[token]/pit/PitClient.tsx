@@ -61,6 +61,7 @@ import { PORTAL_DARK, ADMIN_SANS } from "~/components/features/admin-skin/theme"
 import { formatRemaining, useLiveSessionClock } from "~/features/signage/live-session";
 import { liveHeatNumber } from "~/features/signage/briefing/room-return";
 import {
+  isStaySeatedFile,
   kartsAvailability,
   pitRailState,
   type PitLaneFeed,
@@ -646,9 +647,25 @@ export default function PitClient({ token, version }: { token: string; version: 
             // mega conflicts with both pits' zones since it IS their
             // speakers. Red and blue run independently. The server refuses
             // too; this is the button saying so instead of erroring.
+            //
+            // EXCEPT THE AMBIENT LOOP, WHICH YIELDS (owner 2026-08-16, live:
+            // "don't block this board for PA busy on karts returning. Pre-post
+            // always have priority"). The server has always stopped the
+            // stay-seated clip to make way for a real cue — yieldStaySeated,
+            // owner 2026-08-15: "pre/post should be able to override it
+            // instantly". This button never learned the distinction, so it
+            // struck itself through and printed "PA busy on this track".
+            //
+            // That was a self-sustaining deadlock: the loop only plays while a
+            // group sits in the pit owing a post, the post button is what pays
+            // that debt, and the button refused because the loop was playing.
+            // Blue 19 sat "finished 3:36 ago" with its one release struck out.
             paBusyZone={
               zones?.find(
-                (z) => z.playing && (z.zone === track || z.zone === "mega" || track === "mega"),
+                (z) =>
+                  z.playing &&
+                  !isStaySeatedFile(z.file) &&
+                  (z.zone === track || z.zone === "mega" || track === "mega"),
               )?.zone ?? null
             }
             zonesAtMs={zonesAtMs}

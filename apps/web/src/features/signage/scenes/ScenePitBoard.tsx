@@ -429,7 +429,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
       {/* THE SEND GATE, over everything. See PreSendGateOverlay. */}
-      <PreSendGateOverlay gate={preSendGateAt(lane.preGate, nowMs)} accent={accent} />
+      <PreSendGateOverlay gate={preSendGateAt(lane.preGate, nowMs)} accent={accent} track={track} />
       {/* Track identity, same vocabulary as the check-in boards: the colour
           owns the top bar, a floor glow, and a radial wash. */}
       <div
@@ -1666,9 +1666,13 @@ function QualPill({
 function PreSendGateOverlay({
   gate,
   accent,
+  track,
 }: {
   gate: ReturnType<typeof preSendGateAt>;
   accent: string;
+  /** Which pit this wall is. Each track numbers its own marshal stands from 1,
+   *  so the track has to travel with the number to mean anything. */
+  track: TrackKey;
 }) {
   if (gate.state === "none") return null;
   const stop = gate.state === "pre-required";
@@ -1731,8 +1735,13 @@ function PreSendGateOverlay({
             maxWidth: "72vw",
           }}
         >
-          {heat ? `${heat} went out without it. ` : "A group went out without it. "}
-          Play pre now — seating the next group makes it unplayable.
+          {/* NAME THE STAND, NOT JUST THE FAULT (owner 2026-08-16). Each track
+              has its own stand numbering and both start at 1, so the track has
+              to travel with the number or "stand 1" is ambiguous across the two
+              pits. The instruction is the second half and stays short: the
+              banner is read at a glance, from a distance, mid-turnover. */}
+          {heat ?? "A session"} was started on {track} marshal stand 1 without pre-race. Play it now
+          to clear.
         </div>
       )}
       {!stop && heat && (

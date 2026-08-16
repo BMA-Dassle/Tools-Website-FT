@@ -410,6 +410,40 @@ export const CLEAR_TO_SEND_MS = 5_600;
  *  while the announcement is still sounding. */
 const PRE_CLIP_NOMINAL_MS = 60_000;
 
+/* ── the ambient loop never blocks a real announcement ─────────────────── */
+
+/**
+ * The "karts are rolling in — stay in your kart" loop's filename. Lives in the
+ * PURE module because both sides need it and qsys.server.ts is server-only:
+ * the server stops this clip to make way for a cue, and the pit station has to
+ * draw the same rule on its buttons.
+ */
+export const STAY_SEATED_CLIP_FILE = "Stay Seated.mp3";
+
+/**
+ * Is the sounding clip the ambient loop? Lenient on purpose — the player may
+ * report the file with a path or a case of its own.
+ *
+ * WHY THIS IS SHARED (owner 2026-08-16, live: "don't block this board for PA
+ * busy on karts returning. Pre-post always have priority").
+ *
+ * The server has always yielded: yieldStaySeated stops this clip and plays the
+ * cue, because "a real announcement never queues behind the ambient loop"
+ * (owner 2026-08-15). The pit station never learned the distinction — it
+ * blocked on ANY playing zone, struck the button through and printed "PA busy
+ * on this track".
+ *
+ * THAT IS A DEADLOCK, and a self-sustaining one. The loop only plays while a
+ * group sits in the pit owing a post; the post button is what pays that debt;
+ * and the button refused because the loop was playing. Blue 19 sat "finished
+ * 3:36 ago" with the one control that could release them struck through. It is
+ * a strong candidate for a good share of the thirteen posts missed today.
+ */
+export function isStaySeatedFile(file: string | null | undefined): boolean {
+  if (!file) return false;
+  return file.toLowerCase().includes(STAY_SEATED_CLIP_FILE.replace(/\.mp3$/i, "").toLowerCase());
+}
+
 /* ── may the pre-race cue play? ───────────────────────────────────────── */
 
 /**
