@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
+import { dataSaysMega } from "~/features/racing/mega-mode";
 
 // Cached proxy on our own backend — see app/api/track-status/route.ts.
 // Used to be tools-track-status.vercel.app directly, which meant every
@@ -121,19 +122,28 @@ export function useTrackStatus(pollMs: number = POLL_INTERVAL): TrackStatusResul
       };
 
       let currentRaces: CurrentRaces = { blue: null, red: null, mega: null };
+      let effectiveMega = trackStatus.megaTrackEnabled;
       if (racesRes.ok) {
         const racesJson = await racesRes.json();
-        // Apply Tuesday filter: follow megaTrackEnabled from the delay API.
-        // If mega day, only show mega. Otherwise show blue/red.
-        if (trackStatus.megaTrackEnabled) {
-          currentRaces = { blue: null, red: null, mega: racesJson.mega ?? null };
-        } else {
-          currentRaces = { blue: racesJson.blue ?? null, red: racesJson.red ?? null, mega: null };
-        }
+        // EFFECTIVE MEGA = the external flag OR the data signal. The flag is
+        // flipped by a human on the delay service and lags the physical
+        // barrier; the races-current carry cannot lie about which circuit
+        // called the newest heat. dataSaysMega is inert on a normal day
+        // because the mega carry key does not exist then. The override is
+        // applied IN PLACE on megaTrackEnabled — every consumer reads that
+        // field as "are we in mega mode right now", and none needs the raw
+        // upstream value.
+        effectiveMega = trackStatus.megaTrackEnabled || dataSaysMega(racesJson);
+        currentRaces = effectiveMega
+          ? { blue: null, red: null, mega: racesJson.mega ?? null }
+          : { blue: racesJson.blue ?? null, red: racesJson.red ?? null, mega: null };
       }
 
       if (signal.aborted) return;
-      setData({ trackStatus, currentRaces });
+      setData({
+        trackStatus: { ...trackStatus, megaTrackEnabled: effectiveMega },
+        currentRaces,
+      });
     } catch {
       /* silent — keep last known state */
     }

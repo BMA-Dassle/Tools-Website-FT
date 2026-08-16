@@ -27,8 +27,9 @@ import {
   TRACK_LABELS,
   TRACK_RESOURCE_IDS,
   effectiveTrack,
+  findTrackDelay,
   trackFromResourceIds,
-  type TrackKey,
+  type TrackDelay,
 } from "../track";
 import { recentScans, eventInScope } from "../director/schedule";
 import { RecordsQr } from "../components/RecordsQr";
@@ -104,15 +105,10 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
   const screenTrack = trackFromResourceIds(config.scope.resourceIds);
   let track = effectiveTrack(screenTrack, megaEnabled) ?? "blue";
 
-  // Data beats configuration. On a Mega day the barrier between Blue and Red
-  // comes out and racing moves to the combined circuit — but the delay service
-  // that reports `megaTrackEnabled` is external and does not flip the instant
-  // the day turns over. If this screen's own track has nothing checking in and
-  // Mega does, follow Mega: the alternative is a board sitting on "no session"
-  // while a heat is genuinely checking in feet away.
-  if (!status?.currentRaces?.[track] && status?.currentRaces?.mega) {
-    track = "mega";
-  }
+  // Data-beats-configuration lives in the HOOK now: useTrackStatus overrides
+  // megaTrackEnabled with the data signal (flag OR newest-heat-is-mega), so by
+  // the time this scene reads it, a lagging external flag has already been
+  // corrected and effectiveTrack above returned "mega".
 
   // Preview session on a Mega day previews a MEGA session (owner 2026-08-11:
   // "if mega track is enabled and I hit preview session it should show the
@@ -180,7 +176,7 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
         // re-listed every old scan whenever no session was current — which is how
         // Marcus outstayed his welcome (owner).
         nowMs - SCAN_ORPHAN_MS;
-  const delay = findDelay(status?.trackStatus.tracks, track);
+  const delay = findTrackDelay(status?.trackStatus.tracks, track);
 
   // VIPs DO NOT SCAN IN — they are met and escorted (owner 2026-08-11). The
   // banner is driven by who is entered on the heat, computed server-side from
@@ -221,13 +217,25 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
   // the whole heat stays listed as they arrive. The other board keeps the
   // session. Per-screen setting in admin.
   if (track === "mega" && config.megaRole === "checkin") {
+    // ANNOUNCE, THEN CLEAR — the same handover the session board makes, in the
+    // feed's own format. A send used to blank this wall instantly (the ∞ scan
+    // floor wiped every name and the header chip with them) at the exact
+    // moment the group standing at it needed "proceed to the RED room". While
+    // the announcement runs, the floor holds at its pre-send value so the
+    // heat's names stay up; when the minute ends, sessionExpired semantics
+    // wipe the board for the next heat as before.
+    const feedFloorMs = announcing
+      ? Number.isFinite(calledAtMs)
+        ? calledAtMs - 60_000
+        : nowMs - SCAN_ORPHAN_MS
+      : scanFloorMs;
     const everyone = recentScans(
       nowMs,
       feed?.kioskEvents ?? [],
       scopeIds,
       FEED_WINDOW_MS,
       FEED_LIMIT,
-    ).filter((sc) => sc.atMs >= scanFloorMs);
+    ).filter((sc) => sc.atMs >= feedFloorMs);
     return (
       <CheckinFeed
         accent={accent}
@@ -236,6 +244,18 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
         checkedIn={feed?.raceCheckin?.checkedIn ?? null}
         total={feed?.raceCheckin?.total ?? null}
         showRecordsQr={config.showRecordsQr}
+        // Labeled from the SAME feed record the send is keyed on, never the
+        // client session poll — the poll may already have rolled to the next
+        // heat, and this instruction must name the group it is for.
+        announce={
+          announcing
+            ? {
+                room: briefedRoom,
+                heatNumber: feed?.raceCheckin?.heatNumber ?? null,
+                raceType: feed?.raceCheckin?.raceType ?? null,
+              }
+            : null
+        }
       />
     );
   }
@@ -724,6 +744,7 @@ function CheckinFeed({
   checkedIn,
   total,
   showRecordsQr,
+  announce,
 }: {
   accent: string;
   race: { heatNumber: number; raceType: string } | null;
@@ -737,7 +758,15 @@ function CheckinFeed({
   checkedIn: number | null;
   total: number | null;
   showRecordsQr: boolean;
+  /** The send announcement, for the minute after staff send the heat to a
+   *  room — the feed's own ProceedToBriefing. Null the rest of the night. */
+  announce?: {
+    room: "red" | "blue" | null;
+    heatNumber: number | null;
+    raceType: string | null;
+  } | null;
 }) {
+  const roomAccent = announce?.room ? TRACK_ACCENTS[announce.room] : accent;
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
       <div
@@ -807,7 +836,58 @@ function CheckinFeed({
           </div>
         )}
 
-        <ActionStrip scans={scans} accent={accent} />
+        {/* THE SEND, in the feed's own format. Room colour carries the
+            instruction — same reasoning as ProceedToBriefing — and it REPLACES
+            the newest-scan strip for its minute: a welcome is stale noise
+            under a marching order. The names stay listed below so the group
+            can still see themselves while they gather to walk. */}
+        {announce ? (
+          <div
+            className="tv-rise"
+            role="status"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 30,
+              padding: "26px 36px",
+              borderRadius: 16,
+              border: `3px solid ${roomAccent}`,
+              background: withAlpha(roomAccent, 0.18),
+              boxShadow: `0 0 70px ${withAlpha(roomAccent, 0.5)}`,
+            }}
+          >
+            <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
+              <span className="tv-eyebrow tv-blink" style={{ color: "#fff", fontSize: 34 }}>
+                {announce.heatNumber != null
+                  ? `Session ${announce.heatNumber}${announce.raceType ? ` · ${announce.raceType}` : ""} — you're checked in`
+                  : "You're checked in"}
+              </span>
+              <span
+                className="tv-display"
+                style={{ fontSize: 84, lineHeight: 0.98, color: "#fff", whiteSpace: "nowrap" }}
+              >
+                Proceed to the{" "}
+                {announce.room ? (
+                  <span
+                    style={{
+                      color: roomAccent,
+                      textShadow: `0 0 50px ${withAlpha(roomAccent, 0.8)}`,
+                    }}
+                  >
+                    {announce.room.toUpperCase()} ROOM
+                  </span>
+                ) : (
+                  "briefing room"
+                )}
+              </span>
+              <span style={{ fontSize: 36, color: "#fff" }}>
+                Please do not put on helmets before the video.
+              </span>
+            </div>
+          </div>
+        ) : (
+          <ActionStrip scans={scans} accent={accent} />
+        )}
 
         {scans.length === 0 ? (
           <div
@@ -818,9 +898,13 @@ function CheckinFeed({
               justifyContent: "center",
             }}
           >
-            <span className="tv-display" style={{ fontSize: 72, color: "rgba(245,236,238,0.5)" }}>
-              Scan to check in
-            </span>
+            {/* Not while announcing — "scan to check in" under a "proceed to
+                the room" band is two contradictory instructions on one wall. */}
+            {!announce && (
+              <span className="tv-display" style={{ fontSize: 72, color: "rgba(245,236,238,0.5)" }}>
+                Scan to check in
+              </span>
+            )}
           </div>
         ) : (
           <div
@@ -944,7 +1028,7 @@ function ActionStrip({
  * like unrelated facts. Amber and blinking when behind, so it is noticed
  * without being alarming.
  */
-function DelayLine({ delay }: { delay: DelayInfo | null }) {
+function DelayLine({ delay }: { delay: TrackDelay | null }) {
   if (!delay) return null;
   const late = delay.delayMinutes > 0;
   const color = late ? "#f0b341" : "#46d68c";
@@ -962,22 +1046,6 @@ function DelayLine({ delay }: { delay: DelayInfo | null }) {
       </span>
     </div>
   );
-}
-
-interface DelayInfo {
-  delayMinutes: number;
-  delayFormatted: string;
-}
-
-/** Match the track's row in the status feed by name ("Blue Track" → blue). */
-function findDelay(
-  tracks: { trackName: string; delayMinutes: number; delayFormatted: string }[] | undefined,
-  track: TrackKey,
-): DelayInfo | null {
-  if (!tracks) return null;
-  const hit = tracks.find((t) => new RegExp(`\b${track}\b`, "i").test(t.trackName));
-  if (!hit) return null;
-  return { delayMinutes: hit.delayMinutes ?? 0, delayFormatted: hit.delayFormatted ?? "" };
 }
 
 /** mm:ss, never negative. */

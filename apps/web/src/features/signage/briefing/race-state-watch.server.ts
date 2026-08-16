@@ -37,10 +37,17 @@ import { bookmarkRaceEvent } from "./race-bookmarks.server";
 import { raceBookmarksEnabled } from "./race-bookmarks-setting.server";
 import type { TrackKey } from "../track";
 
-/** Blue and red only. Mega runs the joined circuit and is served by the `-1`
- *  resource, which reports the same heat the two track feeds do — sampling it
- *  as well would double-mark every Mega pause. */
-const WATCHED: TrackKey[] = ["blue", "red"];
+/** ALL THREE, mega last. The old fear — that sampling mega as well would
+ *  double-mark every Mega pause because the `-1` resource reports the same
+ *  heat the two track feeds do — was unfounded: the bookmark claim is NX per
+ *  (heat, phase) with NO track in the key (race-bookmarks.server.ts), so
+ *  whichever watcher sees the transition first wins and the others' claims
+ *  reject. Mega goes LAST so on a normal day blue/red claim their own
+ *  transitions first and camera scope stays exactly as before; on a Mega
+ *  night, if the blue/red sockets go quiet, the mega feed still writes
+ *  `race:live-heat:mega` — the pit lane's stuck-group recovery signal, which
+ *  simply did not exist for the combined circuit before (2026-08-16). */
+const WATCHED: TrackKey[] = ["blue", "red", "mega"];
 
 /** Outlives the gap between samples many times over, so a slow minute cannot
  *  make the watcher forget a running race and miss its resume. */
@@ -171,7 +178,7 @@ export async function runRaceStateWatch(
       note = "would mark (dry run)";
     } else if (transition) {
       camerasMarked = await bookmarkRaceEvent({
-        track: track as "blue" | "red",
+        track,
         // The heat number is the id we have here; the socket frame carries no
         // Pandora session id, so the claim key is keyed on the heat instead.
         // Unique within a night, which is all the claim's TTL needs.

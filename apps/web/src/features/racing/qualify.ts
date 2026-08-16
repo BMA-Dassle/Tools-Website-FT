@@ -105,6 +105,13 @@ export function nextLevelTarget(
   const rt = (raceType || "").toLowerCase();
   if (!rt || rt.includes("pro")) return null;
   if (rt.includes("junior")) {
+    // NO JUNIOR TARGETS ON MEGA. The junior ladder's cutoffs are split-track
+    // laps (1:15 / 45s) — on the 2,108 ft combined circuit they are physically
+    // unreachable, and Mega runs Junior Pro only anyway (owner 2026-08-05), so
+    // a junior Starter/Intermediate heat there is already off-policy. A wall
+    // promising an impossible time is worse than one promising nothing.
+    // Same loose name-match convention as cutoffsFor.
+    if ((track || "").toLowerCase().includes("mega")) return null;
     if (rt.includes("intermediate")) {
       return { level: "Junior Pro", ms: QUALIFY_JUNIOR_PRO };
     }

@@ -11,7 +11,17 @@ const REDIS_URL = process.env.REDIS_URL || process.env.KV_URL || "";
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 const LOCATION_ID = "LAB52GY480CJF"; // FastTrax Fort Myers
 
-// Score groups to scan (customize as needed)
+// Score groups to scan (customize as needed).
+//
+// Mega rides the same adult pipeline: qualifiesFor matches "mega" FIRST and
+// applies the combined circuit's own cutoffs (88s / 68.5s), and the levels it
+// awards are the track-agnostic Qualified Intermediate / Pro memberships. No
+// junior Mega groups on purpose — Mega is Junior-Pro-only, and this cron's
+// pipeline is the adult ladder (it does not scan Blue/Red junior groups
+// either). Group NAMES are matched against SMS-Timing's records service; the
+// Mega strings below are unconfirmed against a live Mega night — if the cron
+// never reports a Mega group, confirm them via
+// /api/leagues?action=sessions&track=Mega Track&scoreGroup=...
 const SCORE_GROUPS = [
   { name: "Red Starter", track: "Red Track" },
   { name: "Red Intermediate", track: "Red Track" },
@@ -19,6 +29,9 @@ const SCORE_GROUPS = [
   { name: "Blue Starter", track: "Blue Track" },
   { name: "Blue Intermediate", track: "Blue Track" },
   { name: "Blue Pro", track: "Blue Track" },
+  { name: "Mega Starter", track: "Mega Track" },
+  { name: "Mega Intermediate", track: "Mega Track" },
+  { name: "Mega Pro", track: "Mega Track" },
 ];
 
 interface SessionScore {

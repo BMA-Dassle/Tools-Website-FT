@@ -151,4 +151,23 @@ describe("nextLevelTarget", () => {
       expect(qualifiesFor(t.ms + 1, track)).toBeNull();
     }
   });
+
+  it("promises no junior target on Mega — the junior cutoffs are split-track laps", () => {
+    // Mega is Junior-Pro-only; a junior Starter/Intermediate heat there is
+    // off-policy, and 1:15 / 45s are physically unreachable on 2,108 ft.
+    expect(nextLevelTarget("Mega Track", "Junior Starter")).toBeNull();
+    expect(nextLevelTarget("mega", "Junior Intermediate")).toBeNull();
+    expect(nextLevelTarget("Mega", "Junior Pro")).toBeNull();
+  });
+
+  it("keeps the split-track junior ladder exactly as it was", () => {
+    expect(nextLevelTarget("blue", "Junior Starter")).toEqual({
+      level: "Junior Intermediate",
+      ms: QUALIFY_JUNIOR_INTERMEDIATE,
+    });
+    expect(nextLevelTarget("Red Track", "Junior Intermediate")).toEqual({
+      level: "Junior Pro",
+      ms: QUALIFY_JUNIOR_PRO,
+    });
+  });
 });
