@@ -56,6 +56,10 @@ export const TV_MOTION_PERIODS_MS: Record<string, number> = {
   "tv-panel-ready-ink": 1400,
   "tv-panel-overdue": 1400,
   "tv-panel-overdue-ink": 1400,
+  /** The check-in guide wall's wayfinding arrow. A travel rather than a
+   *  flash — an instruction being walked towards, not an alarm — but on the
+   *  same beat as everything else so the wall does not fight the room. */
+  "tv-arrow-nudge": 1400,
   "tv-bday-glow": 1400,
   "tv-chev": 2800,
   "tv-breathe": 2800,

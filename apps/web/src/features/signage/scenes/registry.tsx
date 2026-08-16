@@ -25,6 +25,8 @@ import { SceneBriefing } from "./SceneBriefing";
 import { SceneCameraMonitor } from "./SceneCameraMonitor";
 import { ScenePitBoard } from "./ScenePitBoard";
 import { SceneRaceResults } from "./SceneRaceResults";
+import { SceneRaceGuide } from "./SceneRaceGuide";
+import { raceGuideEnabled } from "../flags";
 
 /**
  * Render whichever scene a decision names.
@@ -52,6 +54,11 @@ export function SceneSlot(props: SceneProps) {
       return <ScenePitBoard {...props} />;
     case "race-results":
       return <SceneRaceResults {...props} />;
+    case "race-guide":
+      // The kill switch is checked HERE rather than inside the scene, so
+      // flipping it falls all the way through to house ads (the default below)
+      // instead of leaving a screen on a setup notice.
+      return raceGuideEnabled() ? <SceneRaceGuide {...props} /> : <SceneAdRotation {...props} />;
     case "event-welcome":
       return <SceneEventWelcome {...props} />;
     case "vip-welcome":
@@ -95,6 +102,7 @@ const IMPLEMENTED: ReadonlySet<SceneType> = new Set<SceneType>([
   "camera",
   "pit-board",
   "race-results",
+  "race-guide",
   "event-welcome",
   "vip-welcome",
   "celebration",
@@ -145,6 +153,12 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
       // has a designed idle state for "no session staged". Rotating a pit
       // board away to ads would be exactly the vendor-TV behaviour it
       // replaces at its worst.
+      return true;
+    case "race-guide":
+      // Always true: the rotation needs no server data at all — the cards are
+      // copy and the qualifying numbers are constants — and the takeover is the
+      // reason the screen exists. Rotating it away to ads would mean the arrow
+      // is not up at the one moment it matters.
       return true;
     case "race-results":
       // Always true: the last race's result HOLDS until the next one lands, so

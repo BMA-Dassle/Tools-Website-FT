@@ -34,6 +34,7 @@ export type DemoMode =
   | "results-none"
   | "results-pro"
   | "results-mega"
+  | "guide-arrow"
   | "off";
 
 export function parseDemoMode(raw: string | null): DemoMode {
@@ -46,7 +47,8 @@ export function parseDemoMode(raw: string | null): DemoMode {
     raw === "results" ||
     raw === "results-none" ||
     raw === "results-pro" ||
-    raw === "results-mega"
+    raw === "results-mega" ||
+    raw === "guide-arrow"
   ) {
     return raw;
   }
@@ -162,6 +164,29 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
   // The scores wall's four states. Fabricated DRIVERS only — the qualification
   // itself is decided by the real buildResultsView against the real cutoffs, so
   // a preview proves the production rule rather than a picture of it.
+  // THE WAYFINDING ARROW, without waiting for a real send. Fabricates only
+  // the send STAMP and the room — the scene's own takeoverState decides
+  // whether the arrow is up and for how long, so a preview exercises the
+  // shipped rule rather than a picture of it.
+  if (mode === "guide-arrow") {
+    const track = feed.screen?.config?.raceGuide?.track;
+    const room = track === "red" ? ("red" as const) : ("blue" as const);
+    return {
+      ...feed,
+      raceCheckin: {
+        track: track ?? "blue",
+        sessionId: null,
+        heatNumber: 59,
+        raceType: room === "red" ? "Red Starter" : "Blue Intermediate",
+        vipOnHeat: false,
+        vipFirstNames: [],
+        checkedIn: 8,
+        total: 8,
+        briefedAtMs: nowMs,
+        briefedRoom: room,
+      },
+    };
+  }
   if (
     mode === "results" ||
     mode === "results-none" ||

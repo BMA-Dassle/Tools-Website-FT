@@ -15,6 +15,7 @@
  * field to mismatch on.
  */
 import { clampOverscanPct, VENUE_INFO, type SignageVenue } from "./constants";
+import { clampHoldMs } from "./race-guide";
 import type { PlaylistEntry, ScreenConfig, SceneType } from "./types";
 
 export type ScreenRole =
@@ -24,6 +25,7 @@ export type ScreenRole =
   | "camera-monitor"
   | "pit-board"
   | "results-board"
+  | "check-in-guide"
   | "ads-only";
 
 export interface RolePreset {
@@ -157,6 +159,25 @@ const RESULTS_BOARD_CONFIG: ScreenConfig = {
   },
 };
 
+/**
+ * The check-in guide wall, between the desk and the briefing rooms. One job,
+ * one scene, no interrupts — it owns its wall like the boards above, and for a
+ * sharper reason than any of them: a celebration cutting across the arrow that
+ * is telling a group which room to walk into would not just be noise, it would
+ * send them the wrong way.
+ *
+ * SCOPE IS SET here, unlike the results board. This screen follows one track's
+ * check-in desk; that is what the takeover is built on.
+ */
+const RACE_GUIDE_CONFIG: ScreenConfig = {
+  playlist: [{ scene: "race-guide", slots: 1 }],
+  interrupts: {
+    "vip-welcome": { enabled: false },
+    celebration: { enabled: false },
+    "billboard-crown": { enabled: false },
+  },
+};
+
 /** The safe fallback: house ads and nothing else. Needs no data at all, which
  *  is exactly why it is what an unprovisioned or degraded screen falls back to. */
 const ADS_ONLY_CONFIG: ScreenConfig = {
@@ -208,6 +229,14 @@ export const ROLE_PRESETS: RolePreset[] = [
       "At a track's kart return. Shows the race that just came back in — final standings, best laps, and who levelled up a class. Pick the track after choosing this. Nothing interrupts it.",
     venues: ["FT"],
     config: RESULTS_BOARD_CONFIG,
+  },
+  {
+    role: "check-in-guide",
+    label: "Check-in screen (one track)",
+    description:
+      "Between check-in and the briefing rooms. Explains what to know before you race — shoes, lockers, how you move up a class — over track photos, then turns that track's colour with a big arrow to the briefing room the moment the session is sent. Pick the track and which way the rooms are.",
+    venues: ["FT"],
+    config: RACE_GUIDE_CONFIG,
   },
   {
     role: "camera-monitor",
@@ -269,6 +298,9 @@ export interface ResolvedScreenConfig {
    *  been picked yet — the board then shows a setup notice rather than
    *  reporting on a track at random. */
   resultsBoard: { track: "blue" | "red" | "mega" } | null;
+  /** Null for anything that is not a guide wall, or one whose track has not
+   *  been picked yet — the board then shows a setup notice. */
+  raceGuide: { track: "blue" | "red" | "mega"; arrow: "left" | "right"; holdMs: number } | null;
   /** Percent inset per edge for a panel that crops its own input. 0 on every
    *  screen that has not been told otherwise, so the default path is the
    *  unchanged full-bleed fit. */
@@ -380,6 +412,19 @@ export function resolveScreenConfig(
       c.resultsBoard?.track === "red" ||
       c.resultsBoard?.track === "mega"
         ? { track: c.resultsBoard.track }
+        : null,
+    // Same posture as resultsBoard: only the three real tracks, anything else
+    // means "not a guide wall" and shows the setup notice rather than adopting
+    // a track. The arrow defaults LEFT (owner 2026-08-15) and the hold is
+    // clamped through the scene's own helper, so the legal range has one
+    // definition rather than one per reader.
+    raceGuide:
+      c.raceGuide?.track === "blue" || c.raceGuide?.track === "red" || c.raceGuide?.track === "mega"
+        ? {
+            track: c.raceGuide.track,
+            arrow: c.raceGuide.arrow === "right" ? "right" : "left",
+            holdMs: clampHoldMs(c.raceGuide.holdMs),
+          }
         : null,
     // Clamped through the same helper the stage uses, so "what inset is legal"
     // has exactly one definition. 0 for an absent, negative, non-numeric or

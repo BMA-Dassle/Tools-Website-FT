@@ -393,6 +393,7 @@ function ScreenRow({
   const canCelebrate = resolved.celebration.enabled;
   const canBriefing = resolved.playlist.some((p) => p.scene === "briefing");
   const canResults = resolved.playlist.some((p) => p.scene === "race-results");
+  const canGuide = resolved.playlist.some((p) => p.scene === "race-guide");
   const online = heartbeat ? nowMs - Date.parse(heartbeat.at) < 60_000 : false;
   const scopedTrack = screen.config.scope?.resourceIds?.[0];
   const trackName =
@@ -637,6 +638,23 @@ function ScreenRow({
             {/* One button per mood the scores wall can be in. They are separate
                 buttons rather than a dropdown because the whole reason to press
                 one is to compare it against the others on the wall. */}
+            {canGuide && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSimulate(
+                    "preview",
+                    { screenId: screen.screenId, mode: "guide-arrow" },
+                    `Briefing arrow pushed to ${screen.screenId} for 2 minutes.`,
+                  )
+                }
+                style={btn}
+                disabled={busy}
+                title="Show the proceed-to-the-room arrow without waiting for a real send"
+              >
+                Preview arrow
+              </button>
+            )}
             {canResults && (
               <button
                 type="button"
@@ -845,6 +863,11 @@ interface Draft {
   showResults: boolean;
   /** "" = no track picked, which shows the board's setup notice. */
   resultsTrack: "" | "blue" | "red" | "mega";
+  /** Check-in guide wall — owns its wall too. */
+  showGuide: boolean;
+  guideTrack: "" | "blue" | "red" | "mega";
+  /** Which way the briefing rooms are FROM THIS SCREEN. */
+  guideArrow: "left" | "right";
   vipEnabled: boolean;
   vipLeadMins: number;
   celebrationEnabled: boolean;
@@ -880,6 +903,9 @@ function newDraft(): Draft {
     showPitBoard: false,
     showResults: false,
     resultsTrack: "",
+    showGuide: false,
+    guideTrack: "",
+    guideArrow: "left",
     vipEnabled: true,
     vipLeadMins: 10,
     celebrationEnabled: true,
@@ -926,6 +952,15 @@ function draftFromScreen(s: SignageScreen): Draft {
         : "",
     showPitBoard: scenes.has("pit-board"),
     showResults: scenes.has("race-results"),
+    showGuide: scenes.has("race-guide"),
+    // Read back for the same reason every other field here is: draftToConfig
+    // REBUILDS the blob, so anything the form does not carry is dropped by
+    // the next unrelated save.
+    guideTrack:
+      c.raceGuide?.track === "blue" || c.raceGuide?.track === "red" || c.raceGuide?.track === "mega"
+        ? c.raceGuide.track
+        : "",
+    guideArrow: c.raceGuide?.arrow === "right" ? "right" : "left",
     // Read back for the same reason overscanPct is (see its note below):
     // draftToConfig REBUILDS the whole blob, so a field the form does not
     // carry is a field the next unrelated save silently drops.
@@ -973,6 +1008,11 @@ function draftToConfig(d: Draft): ScreenConfig {
     // celebration cutting across "hold — karts coming in" would put confetti
     // over a safety instruction.
     playlist.push({ scene: "pit-board", slots: 1 });
+  } else if (d.showGuide) {
+    // A GUIDE WALL OWNS ITS WALL, and for a sharper reason than the others:
+    // an advert rotating across the arrow that tells a group which room to
+    // walk into would not just be noise, it would send them the wrong way.
+    playlist.push({ scene: "race-guide", slots: 1 });
   } else if (d.showResults) {
     // A SCORES WALL OWNS ITS WALL: a racer reading their own lap time off it
     // has thirty seconds on the walk past, and rotating an advert across that
@@ -1000,6 +1040,9 @@ function draftToConfig(d: Draft): ScreenConfig {
         }
       : {}),
     ...(d.showResults && d.resultsTrack ? { resultsBoard: { track: d.resultsTrack } } : {}),
+    ...(d.showGuide && d.guideTrack
+      ? { raceGuide: { track: d.guideTrack, arrow: d.guideArrow } }
+      : {}),
     interrupts: {
       "vip-welcome": { enabled: d.vipEnabled, leadMins: d.vipLeadMins },
       celebration: { enabled: d.celebrationEnabled },
@@ -1051,13 +1094,17 @@ function ScreenForm({
       showCamera: scenes.has("camera"),
       showPitBoard: scenes.has("pit-board"),
       showResults: scenes.has("race-results"),
+      showGuide: scenes.has("race-guide"),
       // Picking the briefing role at FastTrax defaults the venue too — the rooms
       // only exist there, and a briefing screen saved as HeadPinz would get no
       // briefing data at all (the pulse skips the lookup off-venue). Same for a
       // pit board: the pit lanes are a FastTrax thing. And for a scores wall:
       // the tracks are.
       venue:
-        scenes.has("briefing") || scenes.has("pit-board") || scenes.has("race-results")
+        scenes.has("briefing") ||
+        scenes.has("pit-board") ||
+        scenes.has("race-results") ||
+        scenes.has("race-guide")
           ? "FT"
           : draft.venue,
       vipEnabled: preset.config.interrupts?.["vip-welcome"]?.enabled !== false,
@@ -1182,12 +1229,55 @@ function ScreenForm({
           hint="The staged session's spots — names, photos, camera state — with the seating rail: seat while the race runs, hold while karts return. Pick the track below. Takes the whole screen; nothing else shows and nothing interrupts it."
         />
         <Check
+          checked={draft.showGuide}
+          onChange={(v) => set("showGuide", v)}
+          label="Check-in screen"
+          hint="Between check-in and the briefing rooms. Explains shoes, lockers and how you move up a class over track photos — then turns the track's colour with a big arrow to the briefing room the moment that session is sent. Pick the track and the direction below."
+        />
+        <Check
           checked={draft.showResults}
           onChange={(v) => set("showResults", v)}
           label="Race results board"
           hint="The race that just came back in — final standings with best laps, and who levelled up a class. For a wall at the kart return. Pick the track below. Takes the whole screen; nothing else shows and nothing interrupts it."
         />
       </fieldset>
+
+      {draft.showGuide && (
+        <fieldset style={fieldset}>
+          <legend style={legend}>Check-in screen</legend>
+          <Field label="Which track does this screen follow?">
+            <select
+              value={draft.guideTrack}
+              onChange={(e) => set("guideTrack", e.target.value as Draft["guideTrack"])}
+              style={input}
+            >
+              <option value="">Choose a track…</option>
+              <option value="blue">Blue Track</option>
+              <option value="red">Red Track</option>
+              <option value="mega">Mega Track</option>
+            </select>
+            <p style={hint}>
+              Required. It decides which desk&rsquo;s sends light up the arrow, and which
+              track&rsquo;s qualifying times the board advertises.
+            </p>
+          </Field>
+          <Field label="Which way are the briefing rooms from this screen?">
+            <select
+              value={draft.guideArrow}
+              onChange={(e) => set("guideArrow", e.target.value as Draft["guideArrow"])}
+              style={input}
+            >
+              <option value="left">Left &mdash; arrow points left</option>
+              <option value="right">Right &mdash; arrow points right</option>
+            </select>
+            <p style={hint}>
+              This is a fact about where the screen hangs, so it is set per screen. An arrow
+              pointing confidently the wrong way is worse than no arrow &mdash; check it from where
+              a guest actually stands.
+            </p>
+          </Field>
+        </fieldset>
+      )}
 
       {draft.showResults && (
         <Field label="Which track's results does this screen show?">

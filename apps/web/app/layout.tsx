@@ -31,6 +31,17 @@ import { FASTTRAX_OG, FASTTRAX_OG_IMAGE, HEADPINZ_OG, HEADPINZ_OG_IMAGE } from "
 const exo2 = Exo_2({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700", "800", "900"],
+  /**
+   * ITALIC IS LOADED, and it is not cosmetic.
+   *
+   * Every signage headline is `.tv-display` — Exo 2, italic, 800, up to 244px.
+   * Without the italic face the browser SYNTHESISES one by shearing the
+   * upright, which at 40px nobody notices and at 138px smears the curves and
+   * opens uneven gaps between letters. That is what "the headlines don't look
+   * clean" was (owner 2026-08-15), on every board in the building rather than
+   * any one scene.
+   */
+  style: ["normal", "italic"],
   variable: "--font-exo2",
   display: "swap",
 });

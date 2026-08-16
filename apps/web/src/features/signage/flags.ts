@@ -81,3 +81,20 @@ export function cameraReturnBarEnabled(): boolean {
 export function resultsBoardEnabled(): boolean {
   return process.env.SIGNAGE_RESULTS_ENABLED !== "false";
 }
+
+/**
+ * Check-in guide wall kill switch.
+ *
+ * Same house rule: defaults ON, read at call time. This one is NEXT_PUBLIC
+ * because the scene is entirely client-side — it renders from the feed section
+ * the check-in boards already carry, so there is no server work to withhold and
+ * the switch has to reach the component itself. Turning it OFF drops the scene
+ * back to house ads rather than darkening the panel.
+ *
+ * The switch to pull if the wayfinding arrow is ever pointing the wrong way:
+ * a confident arrow to the wrong room is worse than no arrow at all, and worse
+ * than an advert.
+ */
+export function raceGuideEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_SIGNAGE_GUIDE_ENABLED !== "false";
+}

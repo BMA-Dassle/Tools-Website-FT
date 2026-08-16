@@ -181,5 +181,10 @@ export const TV_UPDATE_CHECK_MS = 5 * 60_000;
  *         standings with best laps, positions, karts and laps, plus a "who
  *         levelled up" panel. Carries lap times deliberately — it is the
  *         surface the briefing room's welcome-back board points people to.
+ * 0.5.0 — Check-in guide wall: four cards over real track photography (shoes,
+ *         lockers, how you move up, what happens next) that become a very
+ *         large arrow in the track's colour, pointing at the briefing room,
+ *         the moment that heat is sent. Fires on the same `briefedAtMs` the
+ *         check-in board reacts to.
  */
-export const SIGNAGE_VERSION = "0.4.0";
+export const SIGNAGE_VERSION = "0.5.0";

@@ -45,6 +45,10 @@ import type { ResultsBoardView } from "./results-board";
  *                     just came back in — final standings, best laps, and who
  *                     levelled up. Carries lap times deliberately; it is the
  *                     surface the briefing room's welcome-back board points to
+ *  - `race-guide`     the check-in guide wall, between the desk and the briefing
+ *                     rooms: what to know before you race, over track
+ *                     photography — then a very large arrow in the track's
+ *                     colour the moment that heat is sent to a room
  *  - `sleep`          venue closed — panel/power saver
  */
 export type SceneType =
@@ -58,6 +62,7 @@ export type SceneType =
   | "camera"
   | "pit-board"
   | "race-results"
+  | "race-guide"
   | "sleep";
 
 /** Scenes a screen rotates through on its base loop (interrupts are separate). */
@@ -69,6 +74,7 @@ export const ROTATION_SCENE_TYPES = [
   "camera",
   "pit-board",
   "race-results",
+  "race-guide",
 ] as const satisfies readonly SceneType[];
 
 /** Scenes that PREEMPT the rotation when their trigger fires. */
@@ -233,6 +239,22 @@ export interface ScreenConfig {
    * setup notice rather than adopting a track at random.
    */
   resultsBoard?: { track: "blue" | "red" | "mega" };
+  /**
+   * The check-in guide wall: which track it speaks for, WHICH WAY THE BRIEFING
+   * ROOMS ARE, and how long the wayfinding takeover holds.
+   *
+   * `arrow` is a fact about the building, not about the software — this screen
+   * hangs somewhere specific and the rooms are physically left or right of it,
+   * so it can only ever be per screen. Defaults to `left` (owner 2026-08-15).
+   *
+   * `holdMs` is clamped at read time (20s–10min): this field decides how long
+   * an instruction stays on a wall, and a fat-fingered value either pins the
+   * screen on one heat all night or blinks it out before anybody turns around.
+   *
+   * NOTE this screen also needs `scope.resourceIds`, unlike the results board —
+   * it follows one track's check-in desk, which is the entire point.
+   */
+  raceGuide?: { track: "blue" | "red" | "mega"; arrow?: "left" | "right"; holdMs?: number };
   /**
    * HOW MUCH OF THIS PANEL'S EDGE IS CROPPED — the one thing about a TV that the
    * TV cannot work out for itself.

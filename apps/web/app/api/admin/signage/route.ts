@@ -225,6 +225,7 @@ export async function POST(req: NextRequest) {
         "results-none",
         "results-pro",
         "results-mega",
+        "guide-arrow",
       ].includes(mode)
     ) {
       await requestScreenDemo(body.screenId, mode);

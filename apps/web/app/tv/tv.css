@@ -243,6 +243,34 @@
   animation: tv-blink 1.4s ease-in-out infinite;
 }
 
+/* ── the wayfinding arrow ─────────────────────────────────────────────────
+   The check-in guide wall's "proceed to the RED ROOM" arrow. It travels a
+   little way in the direction it points and comes back, which reads as a
+   nudge rather than a blink — right for an instruction somebody is walking
+   towards, where a flash would read as an alarm.
+
+   ON THE BEAT (1.4s) and cresting at 50% of its own cycle, which is 0.7s —
+   half a beat, so its crest still lands on one. TRANSFORM ONLY, so a 660px
+   graphic costs the compositor nothing. Registered in TV_MOTION_PERIODS_MS.
+
+   THE FLIP LIVES ON A PARENT, never on this element. A right-pointing screen
+   mirrors a WRAPPER with scaleX(-1); this class then animates translateX on
+   the child inside it, so the same -34px reads as "toward the point" in both
+   directions. Putting both on one node would have them fight over transform
+   order and the arrow would nudge backwards on one of the two screens. */
+@keyframes tv-arrow-nudge {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-34px, 0, 0);
+  }
+}
+.tv-arrow-nudge {
+  animation: tv-arrow-nudge 1.4s ease-in-out infinite;
+}
+
 /* ── the check-in rail's two "do something" states ────────────────────────
    A camera monitor's rail flashes when a heat is READY to be sent to the room
    (green) and when it has been waiting at the desk past its check-in window
