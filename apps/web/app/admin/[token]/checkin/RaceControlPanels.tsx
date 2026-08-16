@@ -3260,6 +3260,22 @@ function CameraLightbox({
           // A live CCTV feed: no audio track, nothing to caption.
           <video
             key={live.url}
+            // Ref-callback CLEANUP (React 19): keyed on the ticket URL, this
+            // element is replaced on every retry — tear the media pipeline
+            // down when each one goes, or the detached players and their
+            // buffers ride until GC.
+            ref={(el) => {
+              if (!el) return;
+              return () => {
+                try {
+                  el.pause();
+                } catch {
+                  /* already torn down */
+                }
+                el.removeAttribute("src");
+                el.load();
+              };
+            }}
             src={live.url}
             autoPlay
             muted

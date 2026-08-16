@@ -490,7 +490,13 @@
 .tv-frame {
   position: absolute;
   inset: 0;
-  will-change: transform, opacity;
+  /* NO base will-change: a permanent hint promotes every 1920×1080 frame (two
+     of them during a cut) to its own compositor layer for the LIFE of the
+     page — real GPU memory on a shared-graphics mini PC that never reloads.
+     The exit animation below gets the hint for its bounded 500ms; the enter
+     animation needs none (the current frame wears data-state="entering"
+     indefinitely, so a hint there would be the same permanent layer back),
+     and Chromium promotes a running animation on its own anyway. */
 }
 .tv-frame[data-state="entering"] {
   animation: tv-enter 700ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
@@ -502,6 +508,9 @@
 .tv-frame[data-state="exiting"] {
   animation: tv-exit 500ms ease-in both;
   pointer-events: none;
+  /* Bounded: the director retires an exiting frame after EXIT_MS, so this
+     layer promotion lives exactly as long as the animation needs it. */
+  will-change: transform, opacity;
 }
 
 @keyframes tv-enter {
