@@ -249,10 +249,23 @@ function Row({
   d,
   compact,
   fastestName,
+  showPill,
 }: {
   d: ResultsBoardDriver;
   compact: boolean;
   fastestName: string | null;
+  /**
+   * Mark this row as a qualifier in words, not just colour.
+   *
+   * ON THE WIDE BOARD ONLY, and the rule is about who is doing the naming
+   * rather than about size. The narrow board has a panel that lists every
+   * qualifier by name, so a pill per row is the same word repeated down a
+   * column (owner 2026-08-15: "that's a lot"). The wide board has no panel —
+   * a big grid pushes qualification into a one-line band, and 12 names do not
+   * fit on one line, so they truncated to "…". The row is then the only place
+   * a racer can find themselves, which is exactly what a pill is for.
+   */
+  showPill: boolean;
 }) {
   const c = compact ? COLS_WIDE : COLS_NARROW;
   const isFastest = fastestName !== null && d.name === fastestName;
@@ -305,11 +318,26 @@ function Row({
       >
         {d.name}
       </div>
-      {/* NO PER-ROW LEVEL PILL. On a Starter grid nearly everybody qualifies —
-          the first live board showed nine identical "INTERMEDIATE" pills down
-          one column (owner 2026-08-15: "that's a lot"). A word repeated on
-          every row carries no information; the green rule and tint already say
-          who qualified, and the panel beside it names them. */}
+      {/* Reads "MOVED UP", not the level: the band above already names the
+          level once ("12 moved up to Intermediate"), so repeating it on twelve
+          rows would be the ink the narrow board just had removed. */}
+      {showPill && d.qualified && (
+        <div
+          style={{
+            flex: "0 0 auto",
+            fontSize: 17,
+            fontWeight: 800,
+            letterSpacing: "0.1em",
+            textTransform: "uppercase",
+            color: "#04140c",
+            background: GEL,
+            padding: "4px 11px",
+            borderRadius: 999,
+          }}
+        >
+          Moved up
+        </div>
+      )}
       <div
         className="tv-num"
         style={{
@@ -343,17 +371,25 @@ function Standings({
   drivers,
   compact,
   fastestName,
+  showPill = false,
 }: {
   drivers: ResultsBoardDriver[];
   compact: boolean;
   fastestName: string | null;
+  showPill?: boolean;
 }) {
   return (
     <div style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column" }}>
       <StandingsHead compact={compact} />
       <div style={{ display: "flex", flexDirection: "column", gap: 7, flex: "1 1 auto" }}>
         {drivers.map((d) => (
-          <Row key={`${d.position}-${d.name}`} d={d} compact={compact} fastestName={fastestName} />
+          <Row
+            key={`${d.position}-${d.name}`}
+            d={d}
+            compact={compact}
+            fastestName={fastestName}
+            showPill={showPill}
+          />
         ))}
       </div>
     </div>
@@ -790,8 +826,10 @@ function WideBoard({ view, venue }: { view: ResultsBoardView; venue: SignageVenu
         }}
       >
         <div style={{ display: "flex", gap: 30, flex: "1 1 auto", minHeight: 0 }}>
-          <Standings drivers={left} compact fastestName={fastestName} />
-          {right.length > 0 && <Standings drivers={right} compact fastestName={fastestName} />}
+          <Standings drivers={left} compact fastestName={fastestName} showPill />
+          {right.length > 0 && (
+            <Standings drivers={right} compact fastestName={fastestName} showPill />
+          )}
         </div>
         <QualifyBand view={view} />
       </div>
@@ -808,18 +846,24 @@ function QualifyBand({ view }: { view: ResultsBoardView }) {
   const accent = view.target === null ? FAST : good ? GEL : "rgba(255,255,255,0.28)";
 
   let title: string;
-  let names: string;
+  let detail: string;
   if (view.target === null) {
     title = "Pro grid";
-    names = view.fastest
+    detail = view.fastest
       ? `Fast lap — ${view.fastest.name} ${formatLap(view.fastest.bestMs)}`
       : "Top of the ladder — nothing left to qualify for";
   } else if (good) {
     title = `${qualified.length} moved up to ${view.target.level}`;
-    names = qualified.map((d) => d.name).join("  ·  ");
+    // NO NAME LIST HERE. One line cannot hold twelve names — the first live
+    // wide board truncated them to "Kristina Cor · Katie Costin · … " and the
+    // rest of the grid simply could not find themselves (owner 2026-08-15).
+    // The per-row "MOVED UP" pill carries it instead, which is the whole
+    // reason `showPill` exists on this layout. The band keeps the count and
+    // the level, which is the part a single line CAN always hold.
+    detail = "";
   } else {
     title = "So close";
-    names = view.closest
+    detail = view.closest
       ? `Closest — ${view.closest.name}, ${(view.closest.gapMs / 1000).toFixed(3)} off ${view.target.level}`
       : "Nobody cleared it this heat — next time!";
   }
@@ -860,7 +904,7 @@ function QualifyBand({ view }: { view: ResultsBoardView }) {
           textOverflow: "ellipsis",
         }}
       >
-        {names}
+        {detail}
       </div>
       {view.target !== null && (
         <div className="tv-num" style={{ fontSize: 26, color: DIM, flex: "0 0 auto" }}>
