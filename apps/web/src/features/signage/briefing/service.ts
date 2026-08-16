@@ -39,6 +39,7 @@ import { captureRoomPhoto } from "./room-photo.server";
 import { bookmarkBriefingStartAfter } from "./bookmarks.server";
 import { autoHoldingEnabled } from "./auto-holding.server";
 import { raceBookmarksEnabled } from "./race-bookmarks-setting.server";
+import { readTimingFeedStatus, type TimingFeedStatus } from "~/features/racing/timing-feed.server";
 import { readRaceFinishedMarker } from "./race-finish.server";
 import { GROUP_OUT_WINDOW_MS, type GroupOut } from "./room-return";
 import {
@@ -488,6 +489,16 @@ export interface BriefingBoardStatus {
    * race-bookmarks-setting.server.ts.
    */
   raceBookmarks: { enabled: boolean };
+  /**
+   * IS THE KART TIMING FEED ALIVE? Same reasoning as the briefing log above: a
+   * signal nobody can see is a signal nobody notices has stopped.
+   *
+   * The heartbeat behind this has existed since the bridge shipped and no screen
+   * read it, so when the feed went silent mid-session on 2026-08-15 the only
+   * symptom was the race clocks quietly being wrong. It rides the board's
+   * existing 5s poll rather than a new one — this is a Redis GET.
+   */
+  timing: TimingFeedStatus;
 }
 
 /**
@@ -610,21 +621,34 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
   const now = Date.now();
   const businessDay = businessDayYmdET();
 
-  const [rooms, assignments, assets, checkinWindowMins, events, lanes, autoHolding, raceBookmarks] =
-    await Promise.all([
-      readBriefingRooms(VENUE).catch(() => ({ red: null, blue: null })),
-      listBriefingAssignments(VENUE, businessDay).catch(() => []),
-      loadSignageAssetsSafe(),
-      resolveCheckinWindows(now),
-      listBriefingEvents(VENUE, businessDay).catch(() => []),
-      // readPitLanes already swallows its own failures to EMPTY_PIT_LANE — a Redis
-      // blip empties the Holding box for one poll, it never fails the board.
-      readPitLanes(),
-      // Defaults ON if Redis cannot answer — same direction as the sweep itself,
-      // so the toggle never shows OFF for a switch that is actually armed.
-      autoHoldingEnabled().catch(() => true),
-      raceBookmarksEnabled().catch(() => true),
-    ]);
+  const [
+    rooms,
+    assignments,
+    assets,
+    checkinWindowMins,
+    events,
+    lanes,
+    autoHolding,
+    raceBookmarks,
+    timing,
+  ] = await Promise.all([
+    readBriefingRooms(VENUE).catch(() => ({ red: null, blue: null })),
+    listBriefingAssignments(VENUE, businessDay).catch(() => []),
+    loadSignageAssetsSafe(),
+    resolveCheckinWindows(now),
+    listBriefingEvents(VENUE, businessDay).catch(() => []),
+    // readPitLanes already swallows its own failures to EMPTY_PIT_LANE — a Redis
+    // blip empties the Holding box for one poll, it never fails the board.
+    readPitLanes(),
+    // Defaults ON if Redis cannot answer — same direction as the sweep itself,
+    // so the toggle never shows OFF for a switch that is actually armed.
+    autoHoldingEnabled().catch(() => true),
+    raceBookmarksEnabled().catch(() => true),
+    // Swallows its own failures to "unknown" — a Redis blip must show an
+    // honest "we don't know", never a red DOWN that sends staff chasing a
+    // feed that is fine.
+    readTimingFeedStatus(now),
+  ]);
 
   const [groupsOut, briefedSessions] = await Promise.all([
     Promise.all(
@@ -672,5 +696,6 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     lanes,
     autoHolding: { enabled: autoHolding },
     raceBookmarks: { enabled: raceBookmarks },
+    timing,
   };
 }

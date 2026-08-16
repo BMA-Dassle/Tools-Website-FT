@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { modalBackdropProps } from "@/lib/a11y";
 import RaceControlPanels from "./RaceControlPanels";
-import { useBriefingControl } from "./useBriefingControl";
+import { useBriefingControl, type TimingFeedStatus } from "./useBriefingControl";
 import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import {
   ADMIN_SANS,
@@ -22,6 +22,104 @@ const withAlphaAmber = (a: number) => `rgba(240,179,65,${a})`;
 /** The board's green — same value as RaceControlPanels and OverridePanel, so an
  *  armed switch here reads as the same "good" as an all-here Called box. */
 const GREEN = "#4ade80";
+/** The board's red, same value RaceControlPanels uses for DANGER. */
+const RED = "#ff4d4f";
+
+/**
+ * THE TIMING FEED, on the desk.
+ *
+ * The kart timing WebSocket is what every race clock in the building is derived
+ * from, and until now nothing showed whether it was alive. On 2026-08-15 it went
+ * silent mid-session and the only symptom was the clocks quietly being wrong —
+ * the heartbeat existed the whole time, no screen carried it.
+ *
+ * AGE IS MEASURED AGAINST THE SERVER'S CLOCK, NOT THIS TABLET'S. The board's
+ * payload carries `now`, so the offset between the two is known and the chip
+ * stays honest on a device whose clock is wrong.
+ *
+ * It also keeps counting between polls, deliberately: if the board's own 5s poll
+ * dies, the age keeps climbing and the chip goes red. A status light that freezes
+ * green when its feed dies is worse than no status light.
+ */
+function TimingChip({ timing, serverNowMs }: { timing?: TimingFeedStatus; serverNowMs?: number }) {
+  // "Now" is STATE, ticked by the interval — not a Date.now() call in the render
+  // body, which is impure and is what react-hooks/purity is for. Ticking every
+  // second is also what makes the age advance between the board's 5s polls.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Offset between this tablet's clock and the server's, measured at the last
+  // poll. Zero when we have no reading, which just means we trust the device.
+  const skewMs = serverNowMs != null ? serverNowMs - nowMs : 0;
+  const liveAgeMs =
+    timing?.lastEventMs != null ? Math.max(0, nowMs + skewMs - timing.lastEventMs) : null;
+
+  // Recomputed here rather than trusting the polled `state`, for the frozen-poll
+  // reason above. Same thresholds as timing-feed.server.ts.
+  const state: TimingFeedStatus["state"] =
+    timing == null
+      ? "unknown"
+      : liveAgeMs == null
+        ? timing.state === "down"
+          ? "down"
+          : "unknown"
+        : liveAgeMs <= 90_000
+          ? "live"
+          : liveAgeMs <= 5 * 60_000
+            ? "stale"
+            : "down";
+
+  const color =
+    state === "live"
+      ? GREEN
+      : state === "stale"
+        ? AMBER
+        : state === "down"
+          ? RED
+          : PORTAL_DARK.muted;
+
+  const age = (ms: number) =>
+    ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m`;
+  const value =
+    state === "unknown"
+      ? "unknown"
+      : state === "down" && liveAgeMs == null
+        ? "down"
+        : age(liveAgeMs ?? 0);
+
+  return (
+    <div
+      className="flex items-center gap-1.5 px-2 py-1 rounded-lg border"
+      style={{ borderColor: `${color}55`, background: `${color}14`, borderRadius: 8 }}
+      title={
+        state === "live"
+          ? "Kart timing feed is delivering"
+          : state === "stale"
+            ? "No timing message recently — normal between sessions, a problem during one"
+            : state === "down"
+              ? "Timing feed is not delivering. Race clocks will not advance."
+              : "Cannot tell whether the timing feed is alive"
+      }
+    >
+      <span
+        className={`w-2 h-2 rounded-full${state === "live" ? " animate-pulse" : ""}`}
+        style={{ background: color }}
+      />
+      <span
+        className="text-xs font-bold"
+        style={{ color: PORTAL_DARK.muted, letterSpacing: "0.06em" }}
+      >
+        TIMING
+      </span>
+      <span className="text-xs font-bold" style={{ color, fontFamily: ADMIN_MONO }}>
+        {value}
+      </span>
+    </div>
+  );
+}
 
 type ConnectionState = "idle" | "connecting" | "ready" | "error";
 type ScanState = "idle" | "processing" | "result";
@@ -883,6 +981,11 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
           <p className="text-xs" style={{ color: PORTAL_DARK.muted }}>
             v{version}
           </p>
+          {/* Board mode only — a plain check-in station does not poll the board,
+              so it has no feed reading to show and would be stuck on "unknown". */}
+          {boardMode && (
+            <TimingChip timing={briefing.board?.timing} serverNowMs={briefing.board?.now} />
+          )}
         </div>
 
         {/* A NEWER DEPLOY IS LIVE (owner 2026-08-12: "enable this page to grab

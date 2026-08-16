@@ -90,6 +90,24 @@ export interface BoardStatus {
   /** Is race-event camera bookmarking armed? Optional for the same
    *  older-deploy reason as the fields above it. */
   raceBookmarks?: { enabled: boolean };
+  /**
+   * IS THE KART TIMING FEED ALIVE? Drives the desk's TIMING chip.
+   *
+   * Shape mirrored here rather than imported: the server's definition lives in
+   * a `.server.ts` that reaches for Redis, and this file is client code.
+   *
+   * Optional for the same older-deploy reason as the fields above — a station
+   * still on the previous build gets `undefined`, which the chip renders as
+   * "unknown" rather than inventing a red DOWN for a feed that is fine.
+   */
+  timing?: TimingFeedStatus;
+}
+
+/** Mirrors TimingFeedStatus in ~/features/racing/timing-feed.server.ts. */
+export interface TimingFeedStatus {
+  state: "live" | "stale" | "down" | "unknown";
+  lastEventMs: number | null;
+  ageMs: number | null;
 }
 
 /**
