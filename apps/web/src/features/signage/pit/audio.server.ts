@@ -51,6 +51,7 @@ import {
   stopQsysZone,
   STAY_SEATED_FILE,
   type QsysClip,
+  type QsysLiveState,
 } from "./qsys.server";
 
 // The stamp read side lives in audio-stamps.server.ts (lane.server needs it
@@ -128,10 +129,11 @@ function zonesConflict(a: string, b: string): boolean {
   return a === b || a === "mega" || b === "mega";
 }
 
-async function paBusy(
-  track: TrackKey,
-): Promise<{ busy: false } | { busy: true; error: string; zone: string; file: string }> {
-  const live = await readQsysLive();
+type PaBusyVerdict = { busy: false } | { busy: true; error: string; zone: string; file: string };
+
+/** The pure half — verdict from a live state already in hand, so the shared
+ *  stay-seated beat can check every zone off ONE Pandora read. */
+function paBusyIn(track: TrackKey, live: QsysLiveState | null): PaBusyVerdict {
   const sounding = live?.zones.find((z) => z.playing && zonesConflict(z.zone, track));
   if (!sounding) return { busy: false };
   const left = sounding.timing?.remainingText ? ` — ${sounding.timing.remainingText} left` : "";
@@ -141,6 +143,10 @@ async function paBusy(
     zone: sounding.zone,
     file: sounding.file ?? "",
   };
+}
+
+async function paBusy(track: TrackKey): Promise<PaBusyVerdict> {
+  return paBusyIn(track, await readQsysLive());
 }
 
 /** Is the sounding file the ambient stay-seated loop? Lenient on purpose —
@@ -404,19 +410,28 @@ const STAY_SEATED_CLIP_S = 5;
 const STAY_SEATED_EVERY_S = STAY_SEATED_GAP_S + STAY_SEATED_CLIP_S;
 const STAY_SEATED_MAX_MS = 15 * 60_000;
 
-async function maybePlayStaySeated(track: TrackKey, lane: PitLaneFeed): Promise<void> {
+/** Is this lane inside its stay-seated window? The cheap, Redis-free half of
+ *  the decision — the shared beat below only spends its claim when at least
+ *  one lane says yes. */
+function staySeatedWindow(lane: PitLaneFeed): boolean {
+  const pitIn = lane.pitIn;
+  if (!pitIn) return false;
+  if (pitIn.postRaceAtMs != null) return false;
+  return Date.now() - pitIn.atMs <= STAY_SEATED_MAX_MS;
+}
+
+/**
+ * One track's play on the shared beat. The guards are per-track — a pre
+ * sounding on red must silence red's repeat without costing blue its beat.
+ */
+async function playStaySeatedOn(
+  track: TrackKey,
+  lane: PitLaneFeed,
+  live: QsysLiveState | null,
+): Promise<void> {
   const pitIn = lane.pitIn;
   if (!pitIn) return;
-  if (pitIn.postRaceAtMs != null) return;
-  if (Date.now() - pitIn.atMs > STAY_SEATED_MAX_MS) return;
-  // The claim FIRST, the Pandora read after: polls arrive every 2 seconds and
-  // the live read must happen once per interval, not once per poll. A busy PA
-  // burns the interval — better a repeat 25s late than talked-over audio.
-  const claimed = await redis
-    .set(`pit:audio:stay-seated:${track}`, "1", "EX", STAY_SEATED_EVERY_S, "NX")
-    .catch(() => null);
-  if (claimed !== "OK") return;
-  const busy = await paBusy(track);
+  const busy = paBusyIn(track, live);
   if (busy.busy) return;
   /**
    * THE CLAIM-TO-SOUND WINDOW. A pre/post press writes its stamp BEFORE the
@@ -438,11 +453,34 @@ async function maybePlayStaySeated(track: TrackKey, lane: PitLaneFeed): Promise<
   await playQsysCue(track, "stay-seated");
 }
 
-/** The poll-side nudge — every lane, one call. Swallows everything: this
- *  rides display polls, and a PA blip must never cost a feed response. */
+/**
+ * The poll-side nudge — every lane, one call. Swallows everything: this
+ * rides display polls, and a PA blip must never cost a feed response.
+ *
+ * ONE BEAT FOR THE WHOLE VENUE (owner 2026-08-15: "if both are returning at
+ * the same time both stay seated things should play at the same time"). The
+ * two pits share a fence, so two per-track timers at arbitrary phase offsets
+ * would sound like a clip every few seconds from alternating speakers. The
+ * throttle claim is therefore VENUE-scoped: whoever wins it plays every lane
+ * currently in its window in the same breath, so simultaneous returns repeat
+ * in unison. A lone returning race behaves exactly as before, and a track
+ * whose zone is busy this beat (a pre sounding) just sits the beat out —
+ * it rejoins the shared rhythm on the next one.
+ */
 export async function nudgeStaySeated(lanes: PitLanes): Promise<void> {
   const tracks: TrackKey[] = ["blue", "red", "mega"];
-  await Promise.all(tracks.map((t) => maybePlayStaySeated(t, lanes[t]).catch(() => {})));
+  const due = tracks.filter((t) => staySeatedWindow(lanes[t]));
+  if (due.length === 0) return;
+  // The claim FIRST, the Pandora read after: polls arrive every 2 seconds and
+  // the live read must happen once per beat, not once per poll. A busy PA
+  // burns the beat — better a repeat 10s late than talked-over audio.
+  const claimed = await redis
+    .set("pit:audio:stay-seated:FT", "1", "EX", STAY_SEATED_EVERY_S, "NX")
+    .catch(() => null);
+  if (claimed !== "OK") return;
+  // One live read shared by every lane on the beat.
+  const live = await readQsysLive();
+  await Promise.all(due.map((t) => playStaySeatedOn(t, lanes[t], live).catch(() => {})));
 }
 
 /**
