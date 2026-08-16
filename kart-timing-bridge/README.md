@@ -106,6 +106,24 @@ you don't want a separate env var (the kart webhook validates
 against either VT3_BRIDGE_SECRET or KART_BRIDGE_SECRET; one shared
 secret keeps env config simple).
 
+### Watch paths — why the pattern starts with `/`
+
+`railway.json` sets `build.watchPatterns: ["/kart-timing-bridge/**"]`. Without
+it, **every push to `main` redeploys this service**, including pushes that only
+touch `apps/web`. That is not cosmetic: a redeploy drops the timing socket, and
+the reconnect replays the venue's full catch-up dump (109 records) — the exact
+replay that fed the race clock a false green flag on 2026-08-15. On the night of
+2026-08-16 five socket drops were traced to five pushes, several of them while
+the venue was still racing, and only one of the five actually changed this
+bridge.
+
+The leading slash is deliberate and should not be "tidied" away. Railway's watch
+patterns are evaluated **from the repository root even when the service has a
+Root Directory configured** — with a root of `kart-timing-bridge`, the pattern is
+still `/kart-timing-bridge/**`, not `/**` or `src/**`. Getting this wrong fails
+in the quiet direction: the service simply stops picking up its own changes, and
+you find out when a bridge fix doesn't take.
+
 ## Files
 
 | File            | Purpose                                                                                                                                                           |
@@ -114,7 +132,7 @@ secret keeps env config simple).
 | `package.json`  | `ws` as the one runtime dep; `tsx` + `typescript` as dev deps.                                                                                                    |
 | `tsconfig.json` | Strict TS, ESNext target.                                                                                                                                         |
 | `Dockerfile`    | Multi-stage build → ~50MB runtime image.                                                                                                                          |
-| `railway.json`  | Railway deploy config.                                                                                                                                            |
+| `railway.json`  | Railway deploy config + watch paths (see above).                                                                                                                  |
 | `fly.toml`      | Fly.io alternate config.                                                                                                                                          |
 | `.env.example`  | Required env vars.                                                                                                                                                |
 
