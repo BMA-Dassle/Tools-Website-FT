@@ -58,6 +58,30 @@ const LANE_TTL_SECONDS = 12 * 3600;
  *  `karts` is absent from lanes written before it existed, so every read of it
  *  is `?? null` — a lane mid-flow when this shipped must keep resolving. */
 interface StoredPitLane {
+  /**
+   * WHICH RACE DAY THIS LANE BELONGS TO (2026-08-16, red "Session 59").
+   *
+   * The TTL below was the only thing retiring a lane, and a TTL cannot tell last
+   * night's group from this morning's — it just counts. Red's lane still held
+   * heat 59 (session 58028942) when the building opened, so the morning's first
+   * Play Post on red armed against a race that had come in the previous evening:
+   * it sounded that group's announcement over the PA to an empty pit and wrote a
+   * `pitted` row into today's insurance log for a session with no send behind it.
+   *
+   * A DAY STAMP SAYS WHAT A CLOCK CANNOT. `readStoredLane` drops a lane stamped
+   * with an earlier business day outright, so a night nobody tidied up costs the
+   * morning nothing — the boards open empty, which is the truth.
+   *
+   * OPTIONAL, AND A MISSING STAMP IS TRUSTED. Lanes written before this field
+   * existed have no day, and treating that as "not today" would empty both live
+   * lanes the moment this deploys — mid-race-day, which is precisely the failure
+   * this exists to prevent. Only an EXPLICITLY older day is refused, so the guard
+   * starts protecting from the first lane written after the deploy.
+   *
+   * Business day, not calendar day: `businessDayYmdET` rolls at 2 AM, so a Friday
+   * night still running at 1 AM is still Friday's lane (race-business-day.ts).
+   */
+  businessDay?: string;
   holding: {
     sessionId: string;
     heatNumber: number | null;
@@ -113,7 +137,13 @@ function laneKey(track: TrackKey): string {
 async function readStoredLane(track: TrackKey): Promise<StoredPitLane | null> {
   try {
     const raw = await redis.get(laneKey(track));
-    return raw ? (JSON.parse(raw) as StoredPitLane) : null;
+    if (!raw) return null;
+    const stored = JSON.parse(raw) as StoredPitLane;
+    // Last night's lane is not this morning's — see the businessDay field. An
+    // absent stamp is legacy and trusted; only an explicitly older day is
+    // refused, and it reads as an empty lane rather than an error.
+    if (stored.businessDay != null && stored.businessDay !== businessDayYmdET()) return null;
+    return stored;
   } catch {
     return null;
   }
@@ -121,7 +151,10 @@ async function readStoredLane(track: TrackKey): Promise<StoredPitLane | null> {
 
 async function writeStoredLane(track: TrackKey, lane: StoredPitLane): Promise<void> {
   try {
-    await redis.set(laneKey(track), JSON.stringify(lane), "EX", LANE_TTL_SECONDS);
+    // Stamped on every write, so a lane carried across the 2 AM rollover by a
+    // late finish is re-dated to the day it is actually being worked on.
+    const stamped: StoredPitLane = { ...lane, businessDay: businessDayYmdET() };
+    await redis.set(laneKey(track), JSON.stringify(stamped), "EX", LANE_TTL_SECONDS);
   } catch {
     /* the durable event row is already written — see the header */
   }
@@ -551,7 +584,36 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
    */
   await clearAnsweredPitIn();
 
+  /**
+   * ── 4. IS A PRE-RACE ANNOUNCEMENT OWED? ─────────────────────────────────
+   *
+   * Read for the group the lane is FURTHEST ALONG with, because that is exactly
+   * who playPreRace would target: it takes `holding ?? karts`, and falls back to
+   * the racing group when nothing is staged. Reading the same subject here is
+   * what keeps the wall's verdict and the button's behaviour from drifting.
+   *
+   * Two cheap GETs per track on the pulse, and only when the lane holds anybody
+   * at all — an idle track pays nothing.
+   */
+  const preSubject = racing ?? karts ?? holding;
+  const preGate = preSubject
+    ? await (async () => {
+        const [startedAtMs, pre] = await Promise.all([
+          readRaceStartedMarker(preSubject.sessionId).catch(() => null),
+          readCueStamp("pre", preSubject.sessionId).catch(() => null),
+        ]);
+        return {
+          sessionId: preSubject.sessionId,
+          heatNumber: preSubject.heatNumber,
+          startedAtMs,
+          preRaceAtMs: pre?.atMs ?? null,
+          preRaceDurationS: pre?.durationS ?? null,
+        };
+      })()
+    : null;
+
   return {
+    preGate,
     holding: holding
       ? {
           sessionId: holding.sessionId,
@@ -598,13 +660,19 @@ export async function readPitLanes(): Promise<PitLanes> {
   const empty: PitLanes = { blue: EMPTY_PIT_LANE, red: EMPTY_PIT_LANE, mega: EMPTY_PIT_LANE };
   try {
     const raw = await redis.mget(...PIT_TRACKS.map((t) => laneKey(t)));
+    const today = businessDayYmdET();
     const out = { ...empty };
     await Promise.all(
       PIT_TRACKS.map(async (track, i) => {
         const value = raw[i];
         if (!value) return;
         try {
-          out[track] = await resolveLane(JSON.parse(value) as StoredPitLane, track);
+          const stored = JSON.parse(value) as StoredPitLane;
+          // The SAME day guard readStoredLane applies. This path exists only to
+          // save round trips on the 2-second pulse, so it must not be the one
+          // that shows last night's lane on every wall in the building.
+          if (stored.businessDay != null && stored.businessDay !== today) return;
+          out[track] = await resolveLane(stored, track);
         } catch {
           /* one malformed lane must not cost the other tracks */
         }
@@ -1181,14 +1249,50 @@ export async function markRacePitted(
     });
   }
 
+  /**
+   * A GROUP WHOSE KARTS ARE BACK IS NOT IN THE SEATS (2026-08-16, red heat 3).
+   *
+   * This press already emptied the slot naming the returning group — but only
+   * `pitIn`. The other three were handed back verbatim, and one of them was a
+   * ghost that jammed the lane for the rest of the day.
+   *
+   * WHY A GHOST GETS IN. `pitIn` is DERIVED, so `clearAnsweredPitIn` re-asks a
+   * durable session-keyed question on every read and can never be wrong for
+   * long. `holding` is STORED, and only two things vacate it: `markInKarts` —
+   * which is Play Pre — or a later `sendToHolding` displacing them. Red heat 3's
+   * pre was never played ("PRE-RACE: not played" on the desk's own log), so
+   * nothing took them out of the seats. They raced and finished regardless;
+   * resolveLane worked that out from the finish marker, but resolve does not
+   * persist, and this write handed the stale slot straight back.
+   *
+   * THE DEADLOCK THAT FOLLOWED. sendToHolding reads the STORED occupant and
+   * refuses to displace anybody it cannot see out on track or back in the pit.
+   * A group that has finished the whole cycle is in neither, so every later
+   * press was refused with "Session 3 is still in holding" — and since every
+   * screen draws the RESOLVED lane, where those seats read empty, there was no
+   * row and no Clear button. The only press that could have freed the slot was
+   * the press the slot refused.
+   *
+   * ONE SESSION, ONE PLACE. Their karts are back, so they are not in the seats,
+   * not in the karts and not on track — whatever the store still claims. Same
+   * session-keyed test the pit slot already used, applied to all four: no time
+   * comparisons, and a group can only be the returning one once.
+   *
+   * This does not change what any board draws. resolveLane already reached this
+   * conclusion on every read; the store simply now agrees with it, so the guard
+   * stops being measured against a ghost.
+   */
+  const spent = (slot: { sessionId: string } | null | undefined) =>
+    slot && slot.sessionId !== returning.sessionId ? slot : null;
+
   await writeStoredLane(track, {
-    holding: stored?.holding ?? null,
-    karts: stored?.karts ?? null,
-    racing: stored?.racing ?? null,
+    holding: spent(stored?.holding) as StoredPitLane["holding"],
+    karts: spent(stored?.karts) as StoredPitLane["karts"],
+    racing: spent(stored?.racing) as StoredPitLane["racing"],
     // A hand-placed pit-in is cleared by the same press that clears a derived
     // one — otherwise the override would outlive the announcement that answered
     // it, and the slot would never empty.
-    pitIn: stored?.pitIn?.sessionId === returning.sessionId ? null : (stored?.pitIn ?? null),
+    pitIn: spent(stored?.pitIn) as StoredPitLane["pitIn"],
     pitted: { sessionId: returning.sessionId, atMs: Date.now() },
   });
   return { ok: true, sessionId: returning.sessionId };

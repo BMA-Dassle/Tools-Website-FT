@@ -46,8 +46,11 @@ import {
   mergePitRoster,
   pitRailState,
   pitArrivalNoticeVisible,
+  preRaceTone,
+  preSendGateAt,
   type PitLaneFeed,
   type PitRosterEntry,
+  type PreTone,
 } from "../pit/pit-board";
 import { TvBrandLogo } from "../components/TvBrandLogo";
 import type { SceneProps } from "../director/types";
@@ -425,6 +428,8 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
+      {/* THE SEND GATE, over everything. See PreSendGateOverlay. */}
+      <PreSendGateOverlay gate={preSendGateAt(lane.preGate, nowMs)} accent={accent} />
       {/* Track identity, same vocabulary as the check-in boards: the colour
           owns the top bar, a floor glow, and a radial wash. */}
       <div
@@ -1502,64 +1507,10 @@ function PostRacePill({
 }
 
 /**
- * The pre-race PA cue's small indicator (owner 2026-08-14), now saying what to
- * DO rather than only what has happened (owner 2026-08-15).
- *
- * It reads the two things that gate a send, and only calls for the green when
- * BOTH are true:
- *
- *   no cue yet, group seated   → "Pre-race due"      amber, the cue is owed
- *   cue fired, race not armed  → "Pre-race playing"  the announcement is out
- *   cue fired AND race armed   → "READY TO SEND"     green, both gates cleared
- *   racing                     → "Pre-race ✓"        historical, nothing owed
- *
- * "Pre-race playing" flips the moment staff press the button in the pit,
- * because the press is what stamps `preRaceAtMs` — the board does not have the
- * PA's own playing state (Q-Sys knows it; the board payload does not carry it),
- * and rather than guess a clip length we hold "playing" until the race arms,
- * which is the next thing that actually happens.
- *
- * `armed` is the two-phase start's first window — see race-clock.ts. It is only
- * meaningful because the clock now models arm-vs-green off real wire events;
- * while `counting` was hardcoded true this pill could never have said this.
+ * The pre-race indicator's COLOURS. The ladder itself lives in pit/pit-board.ts
+ * with every other rule on this board — see preRaceTone there for what each
+ * tone means and why the pill flips on the press rather than on the sound.
  */
-type PreTone = "due" | "playing" | "ready" | "done";
-
-/**
- * The pre-race cue's verdict, shared by the pill and the half it sits in.
- *
- * Pulled out of the pill because the WHOLE LEFT BOX flashes on ready (owner
- * 2026-08-15: "i want the whole box"), so the rail has to know the verdict too
- * — and two copies of this ladder would drift the day someone edits one.
- */
-function preRaceTone(
-  session: {
-    inHolding: boolean;
-    preRaceAtMs: number | null;
-    preRaceDurationS: number | null;
-  } | null,
-  armed: boolean,
-  nowMs: number,
-): { label: string; tone: PreTone } | null {
-  if (!session) return null;
-  const played = session.preRaceAtMs != null;
-  if (!played && !session.inHolding) return null;
-
-  // "Playing" is bounded by the clip's OWN reported length — the stamp carries
-  // it, so the board never has to guess a duration.
-  const stillPlaying =
-    played &&
-    session.preRaceDurationS != null &&
-    nowMs < session.preRaceAtMs! + session.preRaceDurationS * 1000;
-
-  if (!played) return { label: "Pre-race due", tone: "due" };
-  if (stillPlaying) return { label: "Pre-race playing", tone: "playing" };
-  // No cue means "due" even once the race arms: the announcement is what sends
-  // the group to the karts, so an armed race with no cue waits on the cue.
-  if (armed) return { label: "Ready to send", tone: "ready" };
-  return { label: "Pre-race ✓", tone: "done" };
-}
-
 const PRE_TONE_COLOR: Record<PreTone, string> = {
   due: AMBER,
   playing: ACCENT_INFO,
@@ -1642,3 +1593,136 @@ function QualPill({
     </span>
   );
 }
+
+/* ── the send gate ──────────────────────────────────────────────────────── */
+
+/**
+ * FULL SCREEN, BECAUSE THE MISTAKE IS INVISIBLE (owner 2026-08-16: "if we go
+ * green and still haven't played pre, we should put up a full screen stop
+ * sending flash on that pit monitor… once pre finished, you could put a flash
+ * of green clear to send").
+ *
+ * WHY IT EARNS THE WHOLE SCREEN, when nothing else on this board does. Seating
+ * the next group does not postpone an owed pre-race announcement — it DESTROYS
+ * it. playPreRace takes `staged ?? racing`, and a staged group always wins, so
+ * the moment somebody is in the seats there is no control left in the building
+ * that can fire the previous group's cue. Nothing tells you that happened, and
+ * nothing can undo it. A banner in the corner of a board nobody is reading is
+ * not a gate; this is.
+ *
+ * It cost a whole day on red. Heat 3 skipped its pre entirely, heat 12 pressed
+ * it 46 seconds after the green flag — both left a group stranded in the stored
+ * seats, which locked Send to Holding with a refusal naming a session that no
+ * screen was showing.
+ *
+ * THE RED CLEARS ON THE PRESS, NOT ON THE SOUND. The pit TVs have no Q-SYS
+ * socket — that feed is the control station's — but they do not need one:
+ * claimAndPlay writes the cue stamp BEFORE it calls the player, so the stamp
+ * lands the instant a finger hits the button and the banner drops on the next
+ * 2-second pulse. A play that then FAILS releases the claim, and the banner
+ * comes straight back. That is better than a socket would be: it tracks whether
+ * the cue is actually owed, not merely whether a speaker is busy.
+ *
+ * MOTION IS NEVER THE ONLY SIGNAL. Same 1.4s beat as the briefing tablet's
+ * HOLDING FULL blink — one beat per canvas — and reduced motion keeps the
+ * colour and the words while dropping the pulse.
+ */
+function PreSendGateOverlay({
+  gate,
+  accent,
+}: {
+  gate: ReturnType<typeof preSendGateAt>;
+  accent: string;
+}) {
+  if (gate.state === "none") return null;
+  const stop = gate.state === "pre-required";
+  const tone = stop ? "#ff2d38" : "#25d366";
+  const heat = gate.heatNumber != null ? `Session ${gate.heatNumber}` : null;
+
+  return (
+    <div
+      role="alert"
+      className={stop ? "pit-gate pit-gate-stop" : "pit-gate pit-gate-clear"}
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 90,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "1.6vh",
+        textAlign: "center",
+        // Opaque, not a tint. Half-covering the roster would leave staff reading
+        // spots through a warning that is telling them to stop.
+        background: stop ? "#1a0206" : "#04180c",
+        borderTop: `1.2vh solid ${accent}`,
+      }}
+    >
+      <style>{PIT_GATE_STYLES}</style>
+      <div
+        style={{
+          fontSize: "13vh",
+          lineHeight: 0.92,
+          fontWeight: 900,
+          letterSpacing: "-0.02em",
+          color: tone,
+          textShadow: `0 0 8vh ${withAlpha(tone, 0.55)}`,
+        }}
+      >
+        {stop ? "STOP SENDING" : "CLEAR TO SEND"}
+      </div>
+      <div
+        style={{
+          fontSize: "6.4vh",
+          fontWeight: 800,
+          letterSpacing: "0.04em",
+          color: "#ffffff",
+        }}
+      >
+        {stop ? "PRE-RACE REQUIRED" : "PRE-RACE PLAYED"}
+      </div>
+      {/* WHY, in the words that make it actionable. A staff member who does not
+          know that seating the next group destroys the cue will read STOP as a
+          suggestion. */}
+      {stop && (
+        <div
+          style={{
+            fontSize: "3.4vh",
+            fontWeight: 600,
+            lineHeight: 1.3,
+            color: withAlpha("#ffffff", 0.82),
+            maxWidth: "72vw",
+          }}
+        >
+          {heat ? `${heat} went out without it. ` : "A group went out without it. "}
+          Play pre now — seating the next group makes it unplayable.
+        </div>
+      )}
+      {!stop && heat && (
+        <div style={{ fontSize: "3.4vh", fontWeight: 600, color: withAlpha("#ffffff", 0.82) }}>
+          {heat}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const PIT_GATE_STYLES = `
+.pit-gate-stop { animation: pit-gate-stop 1.4s ease-in-out infinite; }
+@keyframes pit-gate-stop {
+  0%, 100% { background-color: #1a0206; }
+  50%      { background-color: #48060f; }
+}
+.pit-gate-clear { animation: pit-gate-clear 1.4s ease-in-out infinite; }
+@keyframes pit-gate-clear {
+  0%, 100% { background-color: #04180c; }
+  50%      { background-color: #0b3a1d; }
+}
+/* A wall alert must never be motion-only — the colour and the words carry it. */
+@media (prefers-reduced-motion: reduce) {
+  .pit-gate { animation: none; }
+  .pit-gate-stop { background-color: #48060f; }
+  .pit-gate-clear { background-color: #0b3a1d; }
+}
+`;

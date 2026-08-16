@@ -333,6 +333,37 @@ export interface PitLaneFeed {
     postRaceAtMs: number | null;
     postRaceDurationS: number | null;
   } | null;
+  /**
+   * THE PRE-RACE DEBT, and whether the next group may be seated (owner
+   * 2026-08-16: "if we go green and still haven't played pre, we should put up a
+   * full screen stop sending flash on that pit monitor").
+   *
+   * WHY THIS IS A GATE AND NOT A REMINDER. A group that goes green without its
+   * pre can still be paid — playPreRace falls back to the racing group when
+   * nothing is staged. But `staged` WINS that choice, so the moment the next
+   * group is seated the PA belongs to their cycle and the owed announcement
+   * becomes unplayable by any control that exists. Seating the next group does
+   * not delay the debt, it destroys it. Hence "stop sending" rather than
+   * "remember to play the pre".
+   *
+   * THE RAW FACTS TRAVEL, NOT THE VERDICT. The window below is a clock
+   * comparison and the wall owns its own clock — same split as `pitIn`'s post
+   * stamps and `pitRailState`. Read for whichever group the lane is furthest
+   * along with, since that is exactly who playPreRace would target.
+   */
+  preGate: {
+    sessionId: string;
+    heatNumber: number | null;
+    /** Phase one of the two-phase start — karts rolling out. Null until the
+     *  broadcast stamps it, which is the whole "have they gone yet" question. */
+    startedAtMs: number | null;
+    /** The pre cue's stamp. Written by claimAndPlay BEFORE the play request
+     *  goes out, so it appears the instant the button is pressed — and is
+     *  DELETED again if the play fails, which is what makes the banner clear
+     *  on the press and come back if the PA never sounded. */
+    preRaceAtMs: number | null;
+    preRaceDurationS: number | null;
+  } | null;
 }
 
 export type PitLanes = Record<"blue" | "red" | "mega", PitLaneFeed>;
@@ -342,7 +373,128 @@ export const EMPTY_PIT_LANE: PitLaneFeed = {
   karts: null,
   racing: null,
   pitIn: null,
+  preGate: null,
 };
+
+/* ── may the next group be seated? ────────────────────────────────────── */
+
+/**
+ * `pre-required`   a group has gone green and their pre never played. The debt
+ *                  is still payable, but ONLY until somebody is seated — so the
+ *                  wall says stop, in red, full screen, until the cue fires.
+ * `clear-to-send`  the pre has finished sounding (owner 2026-08-16: "once pre
+ *                  finished, you could put a flash of green clear to send").
+ *                  Transient: an acknowledgement, not a state to live in.
+ * `none`           nothing to say — including WHILE the pre is sounding, which
+ *                  is the gap between the two: the red is already gone (staff
+ *                  pressed it) and the green has not been earned yet.
+ */
+export type PreSendGate = "none" | "pre-required" | "clear-to-send";
+
+/**
+ * How long CLEAR TO SEND holds after the cue ends.
+ *
+ * DELIBERATELY BRIEF, and shorter than it first wants to be. The red state can
+ * own the screen for as long as it likes — while it is up, nobody should be
+ * seating anyone, so the roster underneath is not wanted. The green is the
+ * opposite: it fires at exactly the moment staff turn to the board to seat the
+ * next group, so a generous window would hide the spot list precisely when it
+ * is needed. Four beats of the 1.4s pulse — long enough to catch from the
+ * fence, gone before it is in the way.
+ */
+export const CLEAR_TO_SEND_MS = 5_600;
+
+/** Assumed pre length when the player never reported one — the same 60s
+ *  audio.server.ts assumes in its stay-seated guard, and for the same reason:
+ *  over-estimating delays a green flash, under-estimating tells staff to send
+ *  while the announcement is still sounding. */
+const PRE_CLIP_NOMINAL_MS = 60_000;
+
+/* ── the pre-race pill ────────────────────────────────────────────────── */
+
+/**
+ * The pre-race cue's verdict — the pill on the wall, and the whole left box it
+ * sits in (owner 2026-08-15: "i want the whole box").
+ *
+ *   no cue yet, group seated    → "Pre-race due"      amber, the cue is owed
+ *   cue fired, race not armed   → "Pre-race playing"  the announcement is out
+ *   cue fired AND race armed    → "Ready to send"     green, both gates cleared
+ *   nothing owed                → "Pre-race ✓"
+ *
+ * IT FLIPS ON THE PRESS, NOT ON THE SOUND (owner 2026-08-16: "the pit pill that
+ * says pre-due can change to now play on press"). The board has no view of the
+ * PA's own playing state — Q-SYS knows it, this payload does not carry it — but
+ * the press is what stamps `preRaceAtMs`, so the stamp's existence IS the press.
+ *
+ * WHAT WAS BROKEN. "Playing" required a REPORTED clip length, and claimAndPlay
+ * writes the stamp with `durationS: null` first, filling the real length in only
+ * once the player answers. So the pill skipped "playing" for the second in
+ * between — and skipped it FOR EVER whenever the player reported no length at
+ * all, jumping from "due" straight to "✓" on the press. The prose above this
+ * function had described the correct behaviour ("rather than guess a clip length
+ * we hold 'playing' until the race arms") since the day it was written; only the
+ * code disagreed.
+ *
+ * So an unknown length HOLDS at playing until the race arms, which is the next
+ * thing that actually happens. A known length is still preferred and still
+ * exact — the stamp carries it, and nothing has to guess.
+ *
+ * Lives here rather than in the scene so it is testable arithmetic, like every
+ * other rule on this board.
+ */
+export type PreTone = "due" | "playing" | "ready" | "done";
+
+export function preRaceTone(
+  session: {
+    inHolding: boolean;
+    preRaceAtMs: number | null;
+    preRaceDurationS: number | null;
+  } | null,
+  armed: boolean,
+  nowMs: number,
+): { label: string; tone: PreTone } | null {
+  if (!session) return null;
+  const played = session.preRaceAtMs != null;
+  if (!played && !session.inHolding) return null;
+  if (!played) return { label: "Pre-race due", tone: "due" };
+
+  const stillPlaying =
+    session.preRaceDurationS != null
+      ? // The clip's OWN reported length — exact, nothing guessed.
+        nowMs < session.preRaceAtMs! + session.preRaceDurationS * 1000
+      : // No length reported. Hold at playing until the race arms rather than
+        // declaring a cue finished that we never saw start.
+        !armed;
+  if (stillPlaying) return { label: "Pre-race playing", tone: "playing" };
+  // No cue means "due" even once the race arms: the announcement is what sends
+  // the group to the karts, so an armed race with no cue waits on the cue.
+  if (armed) return { label: "Ready to send", tone: "ready" };
+  return { label: "Pre-race ✓", tone: "done" };
+}
+
+export function preSendGateAt(
+  gate: PitLaneFeed["preGate"],
+  nowMs: number,
+): { state: PreSendGate; heatNumber: number | null } {
+  if (!gate) return { state: "none", heatNumber: null };
+  const heatNumber = gate.heatNumber;
+
+  // NOT PLAYED. Only a problem once they have actually gone — a group still in
+  // the seats owes nothing yet, and shouting at the wall through every ordinary
+  // briefing would train staff to ignore this.
+  if (gate.preRaceAtMs == null) {
+    return { state: gate.startedAtMs != null ? "pre-required" : "none", heatNumber };
+  }
+
+  const endsAtMs =
+    gate.preRaceAtMs +
+    (gate.preRaceDurationS != null ? gate.preRaceDurationS * 1000 : PRE_CLIP_NOMINAL_MS);
+  if (nowMs < endsAtMs) return { state: "none", heatNumber };
+  return {
+    state: nowMs - endsAtMs <= CLEAR_TO_SEND_MS ? "clear-to-send" : "none",
+    heatNumber,
+  };
+}
 
 /* ── the rail state machine ───────────────────────────────────────────── */
 

@@ -989,3 +989,122 @@ describe("overrideLaneSlot — karts", () => {
     expect((await readPitLane("blue")).karts?.sessionId).toBe("s2");
   });
 });
+
+/* ── last night's lane is not this morning's ────────────────────────────── */
+
+/**
+ * RED "SESSION 59", 2026-08-16. Red's lane still held the previous evening's
+ * heat 59 when the building opened. Nothing retired it — the key's 12-hour TTL
+ * counts, it does not know which race day it is counting through — so the
+ * morning's first Play Post on red armed against that group, sounded last
+ * night's announcement to an empty pit, and wrote a `pitted` row into today's
+ * insurance log for a session with no send behind it.
+ */
+describe("the lane belongs to a race day, not just a TTL", () => {
+  it("reads a lane stamped with an earlier business day as EMPTY", async () => {
+    putLane({
+      businessDay: "2026-08-13",
+      holding: null,
+      karts: null,
+      racing: null,
+      pitIn: group("stale", 59),
+      pitted: null,
+    });
+
+    const lane = await readPitLane("blue");
+    expect(lane.pitIn).toBeNull();
+    expect(lane.holding).toBeNull();
+    expect(lane.racing).toBeNull();
+  });
+
+  it("TRUSTS a lane with no stamp at all — legacy keys must survive the deploy", async () => {
+    // Written before the field existed. Treating an absent stamp as "not today"
+    // would empty every live lane the moment this shipped, mid-race-day.
+    putLane({ holding: group("s1", 44), karts: null, racing: null, pitted: null });
+
+    expect((await readPitLane("blue")).holding?.sessionId).toBe("s1");
+  });
+
+  it("keeps a lane stamped with TODAY", async () => {
+    putLane({
+      businessDay: "2026-08-14",
+      holding: group("s1", 44),
+      karts: null,
+      racing: null,
+      pitted: null,
+    });
+
+    expect((await readPitLane("blue")).holding?.sessionId).toBe("s1");
+  });
+
+  it("stamps the day on every write, so a legacy lane is dated the moment it is touched", async () => {
+    putLane({ holding: null, racing: null, pitted: null });
+
+    await sendToHolding({
+      room: "blue",
+      track: "blue",
+      sessionId: "s44",
+      heatNumber: 44,
+      raceType: "Starter",
+    });
+
+    expect(JSON.parse(store.get(LANE)!).businessDay).toBe("2026-08-14");
+  });
+});
+
+/* ── the pitted press must not leave a ghost in the seats ───────────────── */
+
+/**
+ * RED HEAT 3, 2026-08-16. Play Pre was never pressed, so markInKarts never ran
+ * and the group was never taken out of the STORED holding slot. They raced and
+ * finished anyway. markRacePitted then handed that stale slot straight back, and
+ * sendToHolding — which reads the stored occupant — refused every later press
+ * with "Session 3 is still in holding" for the rest of the day. No screen showed
+ * the ghost, because every screen draws the RESOLVED lane.
+ */
+describe("markRacePitted clears every slot naming the returning group", () => {
+  it("frees the seats of a group that finished without ever getting a Play Pre", async () => {
+    const { markRacePitted } = await import("./lane.server");
+    // The exact shape red was in: never moved to karts, so still stored in
+    // holding, with a finish marker proving the race ran.
+    putLane({ holding: group("s3", 3), karts: null, racing: null, pitted: null });
+    finishedMarkers.set("s3", 9_000);
+
+    expect((await markRacePitted("blue")).sessionId).toBe("s3");
+
+    // The store now agrees with what resolve already concluded.
+    expect(JSON.parse(store.get(LANE)!).holding).toBeNull();
+
+    // And the next group can actually be seated.
+    const verdict = holdingAvailability({
+      holding: JSON.parse(store.get(LANE)!).holding,
+      racing: (await readPitLane("blue")).racing,
+      pitIn: (await readPitLane("blue")).pitIn,
+      sessionId: "s4",
+    });
+    expect(verdict.ok).toBe(true);
+  });
+
+  it("clears a stale racing slot naming the same group", async () => {
+    const { markRacePitted } = await import("./lane.server");
+    putLane({ holding: null, karts: null, racing: group("s2", 2), pitted: null });
+    finishedMarkers.set("s2", 9_000);
+
+    await markRacePitted("blue");
+
+    expect(JSON.parse(store.get(LANE)!).racing).toBeNull();
+  });
+
+  it("LEAVES a different group alone — this clears one session, not the lane", async () => {
+    const { markRacePitted } = await import("./lane.server");
+    // s9 is genuinely in the seats behind the returning group and must survive.
+    putLane({ holding: group("s9", 9), karts: null, racing: group("s8", 8), pitted: null });
+    finishedMarkers.set("s8", 9_000);
+
+    expect((await markRacePitted("blue")).sessionId).toBe("s8");
+
+    const after = JSON.parse(store.get(LANE)!);
+    expect(after.holding?.sessionId).toBe("s9");
+    expect(after.racing).toBeNull();
+  });
+});
