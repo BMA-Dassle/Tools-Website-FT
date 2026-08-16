@@ -108,22 +108,49 @@ secret keeps env config simple).
 
 ## Files
 
-| File            | Purpose                                              |
-| --------------- | ---------------------------------------------------- |
-| `src/index.ts`  | Single-file worker, Node 22+ built-in WebSocket.     |
-| `package.json`  | Zero runtime deps; `tsx` + `typescript` as dev deps. |
-| `tsconfig.json` | Strict TS, ESNext target.                            |
-| `Dockerfile`    | Multi-stage build → ~50MB runtime image.             |
-| `railway.json`  | Railway deploy config.                               |
-| `fly.toml`      | Fly.io alternate config.                             |
-| `.env.example`  | Required env vars.                                   |
+| File            | Purpose                                                                                                                                                           |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/index.ts`  | Single-file worker. Uses `ws@8`, NOT Node's built-in WebSocket — see the header comment; the built-in silently decoded every compressed frame to an empty string. |
+| `package.json`  | `ws` as the one runtime dep; `tsx` + `typescript` as dev deps.                                                                                                    |
+| `tsconfig.json` | Strict TS, ESNext target.                                                                                                                                         |
+| `Dockerfile`    | Multi-stage build → ~50MB runtime image.                                                                                                                          |
+| `railway.json`  | Railway deploy config.                                                                                                                                            |
+| `fly.toml`      | Fly.io alternate config.                                                                                                                                          |
+| `.env.example`  | Required env vars.                                                                                                                                                |
 
 ## Reconnect behavior
 
-- Exponential backoff on close/error: 1s → 5min cap, with jitter.
+- Exponential backoff on close/error: 1s → 5min cap, with jitter. Backoff
+  resets only after a session that carried a frame AND lasted 60s — a socket
+  that opens and dies instantly is a failure, not a clean close.
 - BcStart subscription auto-resends on every open (including reconnects).
-- 30s open watchdog: if the connection stalls in CONNECTING state
-  for 30s, force-close and let the loop retry.
+- **Three watchdogs**, because a half-open socket looks exactly like a quiet
+  venue (see the `src/index.ts` header for the full account):
+  1. **connect** — 30s to reach `open`.
+  2. **ping/pong** — every 25s; a ping issued while the last pong is still
+     outstanding means the peer is gone before TCP admits it.
+  3. **idle frame** — 45s with no raw frame at all, measured BEFORE the dedupe.
+     This is the one that catches the silent stall.
+
+  All three end with `terminate()`, never `close()`.
+
+### Did it recover, or did we restart it?
+
+Reconnects go to stdout, which is only readable in Railway. So the bridge also
+POSTs `boot` and `session-end` records to
+`/api/webhooks/kart-bridge-session` → `kart:bridge:sessions` in Redis:
+
+```bash
+cd apps/web && npx tsx scripts/kart-bridge-sessions.mts
+```
+
+`bootId` is generated per process. A **new bootId** means the process was
+replaced (deploy or crash); the **same bootId with an incrementing reconnect
+count** means the socket dropped and the bridge healed itself. `reason` names
+the watchdog that ended the session. Without those two fields the only way to
+tell the cases apart was correlating full-snapshot replays in
+`kart:events:queue` against commit timestamps — and that queue holds barely
+45 minutes during racing.
 
 ## Wire format — READ THIS BEFORE TOUCHING THE CLIENT
 

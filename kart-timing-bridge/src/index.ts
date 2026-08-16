@@ -23,6 +23,9 @@
  *                      `npm run probe` passes --probe instead, which needs
  *                      no shell-specific env syntax.
  *   LOG_LEVEL          "debug" → log raw frames + reconnect timing
+ *   SESSION_WEBHOOK_URL  override for the lifecycle endpoint. Defaults to
+ *                      /api/webhooks/kart-bridge-session on WEBHOOK_URL's host,
+ *                      so there is nothing to set in the normal case.
  *
  * Reconnect: exponential backoff (1s → 5min cap) on ws errors / closes.
  * Subscription resend: BcStart fires on every successful open.
@@ -73,11 +76,33 @@
  */
 
 import WebSocket from "ws";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 const WS_URL = process.env.WS_URL ?? "ws://68.171.192.138:10001";
 const WEBHOOK_URL = required("WEBHOOK_URL");
 const WEBHOOK_SECRET = required("WEBHOOK_SECRET");
+/**
+ * Where session lifecycle goes. DERIVED from WEBHOOK_URL rather than read from
+ * its own env var on purpose: a new required variable is a mechanism with no
+ * trigger — it works on the machine where someone remembered to set it and
+ * silently reports nothing everywhere else. Same host, different path.
+ */
+const SESSION_URL =
+  process.env.SESSION_WEBHOOK_URL ??
+  new URL("/api/webhooks/kart-bridge-session", WEBHOOK_URL).toString();
+/**
+ * Identifies THIS PROCESS. The whole point of the session log is telling two
+ * indistinguishable things apart:
+ *
+ *   new bootId          → the process was replaced (Railway deploy or crash)
+ *   same bootId, n+1    → the socket dropped and the bridge healed itself
+ *
+ * On 2026-08-16 that distinction cost a morning of forensics — five session
+ * breaks had to be tied back to commit timestamps, and one candidate event at
+ * 07:01:47 could only be narrowed to "venue-side" by measuring the phase drift
+ * of the BcTime ticker in Redis. Two fields here answer it outright.
+ */
+const BOOT_ID = randomUUID().slice(0, 8);
 // PROBE arrives three ways, because the old strict `=== "1"` check
 // silently ignored two of them: a Railway env var, a line in
 // .env.local (nothing loaded that file until the npm scripts grew
@@ -208,6 +233,53 @@ async function forward(message: unknown, arrivedAt: string): Promise<void> {
     if (attempt === 0) await sleep(1000);
   }
   console.error("[kart-bridge] webhook persistently failed; dropping message");
+}
+
+/** One entry in the bridge's own lifecycle log. */
+interface SessionReport {
+  /** "boot" once per process; "session-end" every time a socket dies. */
+  event: "boot" | "session-end";
+  bootId: string;
+  /** 0 on boot, then 1, 2, 3… WITHIN this process. Resets when bootId changes. */
+  reconnects: number;
+  at: string;
+  /** Absent on boot. */
+  frames?: number;
+  openMs?: number;
+  healthy?: boolean;
+  /** The watchdog that ended it, verbatim — "no frame in 45s", "no pong within
+   *  25s", "error: …", or a plain remote close. THE field you read first. */
+  reason?: string;
+  /** How long until the next attempt, so flapping is legible without maths. */
+  nextDelayMs?: number;
+}
+
+/**
+ * Report a lifecycle event. Fire-and-forget, and deliberately unable to hurt
+ * anything: any throw is swallowed, and the request is capped by a 5s abort so
+ * a wedged webhook can never stall the reconnect loop it is describing. The
+ * whole value here is being readable when the bridge is sick — so it must not
+ * become a way for the bridge to get sick.
+ */
+async function reportSession(report: SessionReport): Promise<void> {
+  try {
+    const res = await fetch(SESSION_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-kart-bridge-secret": WEBHOOK_SECRET,
+      },
+      body: JSON.stringify(report),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) console.warn(`[kart-bridge] session report ${res.status}`);
+  } catch (err) {
+    // Logged at warn, never rethrown: losing a line of telemetry is a nuisance,
+    // losing the reconnect loop is an outage.
+    console.warn(
+      `[kart-bridge] session report failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 /**
@@ -544,9 +616,18 @@ async function main(): Promise<void> {
     pingIntervalMs: PING_INTERVAL_MS,
     idleFrameTimeoutMs: IDLE_FRAME_TIMEOUT_MS,
   });
+  // A new bootId in the session log is how the reader knows the process itself
+  // was replaced, rather than the socket having healed in place.
+  void reportSession({
+    event: "boot",
+    bootId: BOOT_ID,
+    reconnects: 0,
+    at: new Date().toISOString(),
+  });
   let backoff = 1000;
   let reconnects = 0;
   while (true) {
+    let ended: Pick<SessionReport, "frames" | "openMs" | "healthy" | "reason">;
     try {
       const session = await consumeStream();
       // "Worked" means it carried DATA and stayed up. A socket that opens,
@@ -557,14 +638,35 @@ async function main(): Promise<void> {
         `[kart-bridge] session ended: frames=${session.frames} openMs=${session.openMs} ` +
           `healthy=${healthy} reason="${session.reason}"`,
       );
+      ended = {
+        frames: session.frames,
+        openMs: session.openMs,
+        healthy,
+        reason: session.reason,
+      };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("[kart-bridge] stream errored:", msg);
+      // The connect watchdog rejects rather than resolving, so this branch is
+      // "never reached open" — it still belongs in the log, and its absence
+      // would read as a healthy stretch.
+      ended = { frames: 0, openMs: 0, healthy: false, reason: `threw: ${msg}` };
     }
     reconnects++;
     const jitter = Math.floor(Math.random() * 1000);
     const delay = Math.min(backoff + jitter, 5 * 60 * 1000);
     console.log(`[kart-bridge] reconnect #${reconnects} in ${delay}ms (backoff ${backoff}ms)`);
+    // Deliberately NOT awaited: the report is capped at 5s, and blocking a
+    // reconnect on telemetry would let the slow webhook lengthen the outage it
+    // is reporting. Every failure inside is swallowed.
+    void reportSession({
+      event: "session-end",
+      bootId: BOOT_ID,
+      reconnects,
+      at: new Date().toISOString(),
+      ...ended,
+      nextDelayMs: delay,
+    });
     await sleep(delay);
     backoff = Math.min(backoff * 2, 5 * 60 * 1000);
   }
