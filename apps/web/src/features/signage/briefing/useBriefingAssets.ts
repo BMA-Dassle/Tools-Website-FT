@@ -69,9 +69,13 @@ export function useBriefingAssets(
   // url → last attempt, so a failing download backs off instead of retrying on
   // every 15-second poll.
   const attemptedAt = useRef<Record<string, number>>({});
-  // Object URLs we created, so they can be revoked. A blob URL left un-revoked
-  // pins its whole file in memory, and this page runs for weeks.
-  const created = useRef<Set<string>>(new Set());
+  // url → object URL for everything we created: the dedupe AND the revoke
+  // ledger, in one place. A blob URL left un-revoked pins its whole file in
+  // memory, and this page runs for weeks. A ref, deliberately — the unmount
+  // cleanup must see what was ACTUALLY adopted, not a state snapshot captured
+  // on the first render (the old Set+state pair revoked nothing, ever: the
+  // []-dep cleanup closed over the initial empty map).
+  const adoptedRef = useRef<Map<string, string>>(new Map());
   /** The in-flight prefetch, so it can be cut off the moment a film plays. */
   const abortRef = useRef<AbortController | null>(null);
 
@@ -133,13 +137,37 @@ export function useBriefingAssets(
     // Prune only AFTER the new files are safely down — see the header.
     await pruneCache(manifest);
 
+    // RELEASE SUPERSEDED OBJECT URLS — but only here, on an idle sync. This
+    // line is unreachable while `paused` (the return above), so a URL a playing
+    // briefing holds is never pulled out from under it; a re-upload mid-film
+    // keeps the old blob alive until the room goes idle, and the next idle poll
+    // releases it. Same planCacheOps policy that prunes the disk cache.
+    const { drop } = planCacheOps(Array.from(adoptedRef.current.keys()), manifest);
+    if (drop.length > 0) {
+      for (const url of drop) {
+        const objectUrl = adoptedRef.current.get(url);
+        adoptedRef.current.delete(url);
+        if (!objectUrl) continue;
+        try {
+          URL.revokeObjectURL(objectUrl);
+        } catch {
+          /* nothing to do */
+        }
+      }
+      setLocal((prev) => {
+        const next = { ...prev };
+        for (const url of drop) delete next[url];
+        return next;
+      });
+    }
+
     async function adopt(url: string) {
       // Already adopted this exact URL — nothing to do, and re-adopting would
       // leak an object URL per poll.
-      if (created.current.has(url)) return;
+      if (adoptedRef.current.has(url)) return;
       const objectUrl = await cachedObjectUrl(url);
       if (!objectUrl) return;
-      created.current.add(url);
+      adoptedRef.current.set(url, objectUrl);
       setLocal((prev) => ({ ...prev, [url]: objectUrl }));
     }
   }, [enabled, paused, starterUrl, intermediateUrl, proUrl, posterUrl]);
@@ -165,22 +193,23 @@ export function useBriefingAssets(
   // Nothing half-downloaded should outlive the screen either.
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  // Revoke on unmount only. Revoking when a URL leaves the manifest would pull
-  // the film out from under a briefing that is mid-play.
+  // Revoke everything on unmount — from the REF, which is the live ledger of
+  // what this mount actually adopted. (Reading state here was the leak: the
+  // []-dep cleanup captured the first render's empty map and revoked nothing,
+  // so every film this page ever adopted stayed pinned for the life of the
+  // tab — and every scene remount adopted, and pinned, a fresh set.)
   useEffect(() => {
-    const urls = created.current;
-    const map = local;
+    const adopted = adoptedRef.current;
     return () => {
-      for (const objectUrl of Object.values(map)) {
+      for (const objectUrl of adopted.values()) {
         try {
           URL.revokeObjectURL(objectUrl);
         } catch {
           /* nothing to do */
         }
       }
-      urls.clear();
+      adopted.clear();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return useMemo(() => {

@@ -119,6 +119,29 @@ export async function ensureCached(url: string, signal?: AbortSignal): Promise<b
 }
 
 /**
+ * RE-TYPE A VIDEO BLOB AS video/mp4 before handing it to <video>.
+ *
+ * A cached Response keeps the store's Content-Type, and an object URL inherits
+ * it from the Blob — so a film stored as `video/quicktime` stayed unplayable
+ * even from cache, because Chromium refuses that MIME type as media (owner
+ * 2026-08-11: a .mov briefing film played black). The bytes are H.264 in an ISO
+ * base-media container, which the MP4 demuxer reads happily once asked.
+ *
+ * Belt-and-braces with the upload-side contentType: this also rescues anything
+ * already sitting in a player's cache from before that fix.
+ *
+ * `slice()` rather than `new Blob([blob])`: the constructor MATERIALIZES a full
+ * copy of the bytes — a second few-hundred-MB buffer per film, resident in the
+ * renderer's blob store — where slice returns a typed VIEW of the same backing
+ * bytes. Same MIME rescue, no copy.
+ */
+export function retypeForPlayback(blob: Blob): Blob {
+  return blob.type && blob.type !== "video/mp4" && blob.type.startsWith("video/")
+    ? blob.slice(0, blob.size, "video/mp4")
+    : blob;
+}
+
+/**
  * A playable local URL for a cached video, or null if it is not cached.
  *
  * The caller OWNS the returned object URL and must revoke it on unmount —
@@ -131,22 +154,7 @@ export async function cachedObjectUrl(url: string): Promise<string | null> {
   try {
     const hit = await cache.match(url);
     if (!hit) return null;
-    const blob = await hit.blob();
-    // RE-TYPE A VIDEO BLOB AS video/mp4 before handing it to <video>.
-    //
-    // A cached Response keeps the store's Content-Type, and an object URL inherits
-    // it from the Blob — so a film stored as `video/quicktime` stayed unplayable
-    // even from cache, because Chromium refuses that MIME type as media (owner
-    // 2026-08-11: a .mov briefing film played black). The bytes are H.264 in an ISO
-    // base-media container, which the MP4 demuxer reads happily once asked.
-    //
-    // Belt-and-braces with the upload-side contentType: this also rescues anything
-    // already sitting in a player's cache from before that fix.
-    const typed =
-      blob.type && blob.type !== "video/mp4" && blob.type.startsWith("video/")
-        ? new Blob([blob], { type: "video/mp4" })
-        : blob;
-    return URL.createObjectURL(typed);
+    return URL.createObjectURL(retypeForPlayback(await hit.blob()));
   } catch {
     return null;
   }
