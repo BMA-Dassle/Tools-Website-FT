@@ -279,6 +279,24 @@ export interface PitLaneFeed {
     room: "red" | "blue" | null;
     /** When they got into the karts — the pre-race call, not the send. */
     atMs: number;
+    /**
+     * THEIR OWN PRE STAMP, so the rail can pill the group it actually names
+     * (owner 2026-08-16: "it just says session in karts nothing about pre or
+     * anything… that rail for in karts should still have the same blinks of
+     * ready to send as well").
+     *
+     * The rail follows `karts ?? holding` while the grid follows `holding ??
+     * karts`, so once somebody is strapped in the two halves are describing
+     * different groups — and a pill sourced from the grid's session would have
+     * been about the wrong one. Suppressing it instead left the rail bare and
+     * killed the READY TO SEND flash, which is exactly the moment staff most
+     * want it: pre played and the race armed means the seats are free for the
+     * next group.
+     *
+     * Same shape and same reason as `pitIn`'s post stamps.
+     */
+    preRaceAtMs: number | null;
+    preRaceDurationS: number | null;
   } | null;
   /**
    * ON TRACK, AND ONLY ON TRACK (owner 2026-08-15: "on track only is when

@@ -651,6 +651,10 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
    * Two cheap GETs per track on the pulse, and only when the lane holds anybody
    * at all — an idle track pays nothing.
    */
+  // The karts group's own cue, for the rail's pill. Only paid for when somebody
+  // is actually strapped in.
+  const kartsPre = karts ? await readCueStamp("pre", karts.sessionId).catch(() => null) : null;
+
   const preSubject = racing ?? karts ?? holding;
   const preGate = preSubject
     ? await (async () => {
@@ -686,6 +690,9 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
           raceType: karts.raceType,
           room: karts.room,
           atMs: karts.atMs,
+          // The rail names THIS group, so it needs their cue — see the field docs.
+          preRaceAtMs: kartsPre?.atMs ?? null,
+          preRaceDurationS: kartsPre?.durationS ?? null,
         }
       : null,
     racing: racing

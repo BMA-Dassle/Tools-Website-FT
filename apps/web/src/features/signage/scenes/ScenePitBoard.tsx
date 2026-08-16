@@ -711,7 +711,9 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
       <Rail
         kind={rail}
         accent={accent}
-        armed={armedNotCounting(session?.heatNumber ?? null)}
+        // The rail's subject, not the grid's — see the pill note in Rail. A
+        // karts group's READY TO SEND turns on THEIR race arming.
+        armed={armedNotCounting(lane.karts?.heatNumber ?? session?.heatNumber ?? null)}
         kartsComingIn={kartsComingIn}
         nowMs={nowMs}
         session={session}
@@ -1365,7 +1367,13 @@ function Rail({
    * sent to the seats it said "Seat Session 17 now" while 16 sat strapped into
    * their karts and no screen mentioned them at all.
    */
-  karts: { heatNumber: number | null; sessionId: string; atMs: number } | null;
+  karts: {
+    heatNumber: number | null;
+    sessionId: string;
+    atMs: number;
+    preRaceAtMs: number | null;
+    preRaceDurationS: number | null;
+  } | null;
   pitIn: {
     heatNumber: number | null;
     postRaceAtMs: number | null;
@@ -1392,15 +1400,32 @@ function Rail({
   // to the seat instruction, and there is nothing to seat until the karts clear.
   const leftGo = !karts && kind === "seat" && session?.inHolding === true;
   /**
-   * THE CUE IS HELD, NOT DUE, WHILE THE KARTS ARE OCCUPIED.
+   * THE PILL DESCRIBES WHOEVER THE RAIL NAMES (owner 2026-08-16: "it just says
+   * session in karts nothing about pre or anything… that rail for in karts
+   * should still have the same blinks of ready to send as well").
    *
-   * The pre-race announcement is what walks the seated group into their karts,
-   * so it cannot be owed while somebody else is still in them. The rail said
-   * PRE-RACE DUE for the seated group regardless — and acting on that prompt
-   * would have overwritten the karts group off the lane entirely.
+   * The first cut suppressed the pill outright while the karts were occupied,
+   * to stop it saying PRE-RACE DUE for the seated group — a prompt that would
+   * have overwritten the karts group off the lane. Right problem, wrong cure:
+   * it left the rail bare and killed the READY TO SEND flash at the exact
+   * moment it earns its keep, because pre-played-and-armed IS "the seats are
+   * free, send the next group".
+   *
+   * So the pill follows the rail's subject instead. `inHolding` is true because
+   * they have demonstrably reached the pit — the same thing pitDisplaySession
+   * means by it.
    */
-  const preHeld = karts != null && karts.sessionId !== session?.sessionId;
-  const pre = preHeld ? null : preRaceTone(session, armed, nowMs);
+  const pre = preRaceTone(
+    karts
+      ? {
+          inHolding: true,
+          preRaceAtMs: karts.preRaceAtMs,
+          preRaceDurationS: karts.preRaceDurationS,
+        }
+      : session,
+    armed,
+    nowMs,
+  );
   /** BOTH GATES CLEARED — the whole left box flashes, not just the pill. */
   const readyToSend = pre?.tone === "ready";
 
