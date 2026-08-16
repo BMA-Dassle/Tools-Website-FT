@@ -1167,8 +1167,9 @@ Quota-queued SMS survive up to 7 days and WOULD send at 3am when the 1h cooldown
 - [x] Unit tests: key scoping (FM legacy / Naples scoped), center config (centers.test.ts).
 
 ### PR B — `feat/eticket-overnight-clear` (stacked on A)
-- [x] `src/features/eticket/quiet-hours.ts`: quiet window default 00:00–08:00 ET (env-tunable
-      numbers `ETICKET_QUIET_START_ET`/`END_ET`, not opt-in flags). Gates the 5 e-ticket crons
+- [x] `src/features/eticket/quiet-hours.ts`: quiet window default 02:00–08:00 ET (owner call
+      2026-08-16 — HPFM/HPN run past midnight some nights; alternate is
+      `ETICKET_QUIET_START_ET=4`; env-tunable numbers, not opt-in flags). Gates the 5 e-ticket crons
       (pre-race-tickets, arena-tickets, checkin-alerts, arena-checkin-alerts,
       eticket-removals; dryRun bypasses for ops testing) + `drainRetries` (retry queue is
       e-ticket-only) + per-entry triage of e-ticket sources in the sweep's quota drain.
@@ -1191,8 +1192,11 @@ unclassifiedSessions → first real Naples session day, confirm SMS arrives from
 
 **Open for owner:** Naples ticket copy says "HP Arena desk" (BMI resource name at Naples IS
 "HP Arena", but guest-facing Naples branding is "NEXUS arena") — kept FM copy verbatim; flag
-if you want NEXUS wording. Quiet window boundaries (00–08 ET) are a policy default — tune via
-`ETICKET_QUIET_START_ET`/`ETICKET_QUIET_END_ET`.
+if you want NEXUS wording. Quiet window DECIDED 2026-08-16: start 2am ET (late-close nights);
+if ops prefers 4am, set `ETICKET_QUIET_START_ET=4` (env only, safe by construction — the
+stale-age drop covers the purge-to-quiet gap). Whole stack stays on
+`feat/eticket-overnight-clear` (contains `feat/hpn-arena-etickets`) for merge later — NOT
+merged to main, NOT pushed.
 
 ## Booking V1→V2 FULL CUTOVER + race-pack port (IN PROGRESS — 2026-06-07)
 

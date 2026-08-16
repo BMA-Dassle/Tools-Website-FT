@@ -125,10 +125,12 @@ named `HP Arena` (live probe 2026-08-16 — NEXUS/Arena/Gel Blaster variants all
 so `classifyArenaSession` and the sessions-route resource allowlist needed no
 change. The QR already carries locationId (HP form) and the scanner threads it.
 
-Quiet hours (2026-08-16): the whole e-ticket rail is gated 00:00–08:00 ET
-(`src/features/eticket/quiet-hours.ts`), stale queued sends are dropped at
-drain time, and `eticket-overnight-clear` (2–5am ET) purges the retry + quota
-queues with "expired in queue" audit rows on the admin board.
+Quiet hours (2026-08-16): the whole e-ticket rail is gated 02:00–08:00 ET
+(`src/features/eticket/quiet-hours.ts` — 2am not midnight because HPFM/HPN run
+past midnight some nights; owner's alternate is `ETICKET_QUIET_START_ET=4`),
+stale queued sends are dropped at drain time, and `eticket-overnight-clear`
+(2–5am ET) purges the retry + quota queues with "expired in queue" audit rows
+on the admin board.
 
 ## Key files
 

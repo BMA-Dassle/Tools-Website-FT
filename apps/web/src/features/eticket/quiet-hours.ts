@@ -16,13 +16,16 @@
  *   3. The eticket-overnight-clear cron (2–5am ET) purges whatever is
  *      still queued, with audit rows for the admin board.
  *
- * Window: quiet from midnight to 8am ET by default. Midnight (not
- * earlier) because check-in alerts must keep firing while a venue is
- * open late — suppressing an operational "NOW CHECKING IN" text for a
- * guest standing in the building is worse than a rare 11pm queue flush.
- * 8am end lets morning pre-sends go out for ~10am openings (the
- * pre-session window is 2h ahead). Numeric env tuning only — these are
- * policy numbers, not feature flags.
+ * Window: quiet from 2am to 8am ET by default. 2am (not midnight) is the
+ * owner's call 2026-08-16: HPFM and HPN run past midnight some nights,
+ * and suppressing an operational "NOW CHECKING IN" text for a guest
+ * standing in the building is worse than a rare 1am queue flush. 8am end
+ * lets morning pre-sends go out for ~10am openings (the pre-session
+ * window is 2h ahead). If ops later prefers 4am, set
+ * ETICKET_QUIET_START_ET=4 — numeric env tuning only, these are policy
+ * numbers, not feature flags. (A later start is safe by construction:
+ * the stale-age drop at drain catches anything queued between the ~3:20am
+ * purge and a 4am+ quiet start.)
  */
 
 import type { SmsRetryCron } from "@/lib/sms-retry";
@@ -46,9 +49,10 @@ function intEnv(name: string, fallback: number): number {
   return Number.isFinite(raw) && raw >= 0 && raw <= 23 ? raw : fallback;
 }
 
-/** Quiet window start hour ET (inclusive). Default 0 = midnight. */
+/** Quiet window start hour ET (inclusive). Default 2 = 2am — HPFM/HPN
+ *  close after midnight some nights (owner 2026-08-16). */
 export function quietStartHourET(): number {
-  return intEnv("ETICKET_QUIET_START_ET", 0);
+  return intEnv("ETICKET_QUIET_START_ET", 2);
 }
 
 /** Quiet window end hour ET (exclusive). Default 8 = 8am. */
@@ -69,7 +73,7 @@ export function hourET(now: Date = new Date()): number {
 /**
  * True when e-ticket sends must not go out right now. Handles windows
  * that wrap midnight (start 23, end 8) and the default same-day window
- * (start 0, end 8). start === end disables the gate.
+ * (start 2, end 8). start === end disables the gate.
  */
 export function inEticketQuietHours(now: Date = new Date()): boolean {
   const start = quietStartHourET();

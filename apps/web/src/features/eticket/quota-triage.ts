@@ -4,7 +4,7 @@
  * "clear-and-drain" button), so the quiet-hours + staleness guarantees
  * hold no matter who triggers the drain. (Review finding 2026-08-16:
  * the admin drain originally bypassed the sweep's private triage, so an
- * operator recovering from a quota outage at 12:30am would have flushed
+ * operator recovering from a quota outage at 3am would have flushed
  * stale "NOW CHECKING IN" texts overnight.)
  */
 

@@ -23,8 +23,10 @@ afterEach(() => {
 });
 
 describe("inEticketQuietHours", () => {
-  it("defaults to quiet midnight–8am ET, open otherwise", () => {
-    expect(inEticketQuietHours(edt(0, 1))).toBe(true); // 12:01am
+  it("defaults to quiet 2am–8am ET, open otherwise (HPFM/HPN run past midnight)", () => {
+    expect(inEticketQuietHours(edt(0, 30))).toBe(false); // 12:30am — late-close nights still send
+    expect(inEticketQuietHours(edt(1, 59))).toBe(false); // 1:59am — last pre-quiet minute
+    expect(inEticketQuietHours(edt(2, 0))).toBe(true); // 2:00am — quiet begins
     expect(inEticketQuietHours(edt(3, 0))).toBe(true); // 3am — the canonical bad send
     expect(inEticketQuietHours(edt(7, 59))).toBe(true); // 7:59am
     expect(inEticketQuietHours(edt(8, 0))).toBe(false); // 8:00am — morning pre-sends flow
@@ -33,9 +35,17 @@ describe("inEticketQuietHours", () => {
   });
 
   it("holds across DST (EST winter dates)", () => {
+    expect(inEticketQuietHours(est(1, 30))).toBe(false);
     expect(inEticketQuietHours(est(3, 0))).toBe(true);
     expect(inEticketQuietHours(est(9, 0))).toBe(false);
     expect(inEticketQuietHours(est(22, 0))).toBe(false);
+  });
+
+  it("owner's alternate 4am start is a pure env change", () => {
+    process.env.ETICKET_QUIET_START_ET = "4";
+    expect(inEticketQuietHours(edt(3, 30))).toBe(false); // still sending at 3:30am
+    expect(inEticketQuietHours(edt(4, 0))).toBe(true);
+    expect(inEticketQuietHours(edt(8, 0))).toBe(false);
   });
 
   it("supports a midnight-wrapping window via env", () => {
@@ -54,7 +64,8 @@ describe("inEticketQuietHours", () => {
 
     process.env.ETICKET_QUIET_START_ET = "not-a-number";
     process.env.ETICKET_QUIET_END_ET = "99";
-    expect(inEticketQuietHours(edt(3, 0))).toBe(true); // defaults 0–8 apply
+    expect(inEticketQuietHours(edt(3, 0))).toBe(true); // defaults 2–8 apply
+    expect(inEticketQuietHours(edt(1, 0))).toBe(false);
     expect(inEticketQuietHours(edt(9, 0))).toBe(false);
   });
 });

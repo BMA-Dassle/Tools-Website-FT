@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
         },
         // Same triage/audit pair as the sweep cron — the admin
         // "clear-and-drain" button must not bypass quiet hours or the
-        // staleness drop (a 12:30am drain after a quota outage would
+        // staleness drop (a 3am drain after a quota outage would
         // otherwise text guests stale check-in alerts overnight).
         { triage: eticketQuotaTriage, onDrop: logExpiredQuotaEntry },
       );
