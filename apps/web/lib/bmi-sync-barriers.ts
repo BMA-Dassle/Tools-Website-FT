@@ -74,15 +74,59 @@ const errored = (detail: string, unreachable = false): BarrierResult => ({
 const unreachable = (detail: string): BarrierResult => errored(detail, true);
 const impossible = (detail: string): BarrierResult => ({ verdict: "impossible", detail });
 
-/** Pandora locationIDs we can look a person up at, with names for the message. */
-const KNOWN_LOCATIONS: Array<[string, string]> = [
-  ["LAB52GY480CJF", "FastTrax"],
-  ["TXBSQN0FEKQ11", "HeadPinz Fort Myers"],
-  ["PPTR5G2N0QXF7", "HeadPinz Naples"],
+/**
+ * Distinct BMI LOCAL SERVERS — deliberately NOT a flat list of Pandora location ids.
+ *
+ * FastTrax (LAB52GY480CJF) and HeadPinz Fort Myers (TXBSQN0FEKQ11) are two
+ * location ids on ONE server. Probed across 61 person ids on 2026-08-15 they
+ * answered identically every single time — same name, same birthdate, same
+ * waiverExpiry — including a null-birthdate 500 and a bogus control id. Naples is
+ * a real second server. (`scripts/syncboard-0815-ft-vs-hpfm-twin.mts`.)
+ *
+ * Listing those two separately is what made `locateElsewhere` unsound: for a
+ * FastTrax-aimed row it re-asked THE SAME SERVER under the Fort Myers label, so a
+ * single transient 404 came back as "they are at HeadPinz Fort Myers" — an
+ * `impossible` verdict, which is terminal. For that pair the check could not
+ * produce a true positive, only false ones. On 2026-08-15 it parked all five
+ * `add-membership` rows at attempts=0 (racing licences bought and never granted)
+ * and settled waiver pushes `failed` for guests sitting right there at FastTrax.
+ *
+ * So the unit here is the SERVER: one probe each, and the server that just
+ * answered 404 is never re-probed under another of its names.
+ */
+const KNOWN_SERVERS: ReadonlyArray<{
+  /** The id used to probe this server — any of its `locationIds` would do. */
+  probeLocationId: string;
+  /** Every Pandora location id this one server answers to. */
+  locationIds: readonly string[];
+  /** What to call it in a message a human has to act on. */
+  name: string;
+}> = [
+  {
+    probeLocationId: "LAB52GY480CJF",
+    locationIds: ["LAB52GY480CJF", "TXBSQN0FEKQ11"],
+    name: "the Fort Myers server (FastTrax / HeadPinz Fort Myers)",
+  },
+  {
+    probeLocationId: "PPTR5G2N0QXF7",
+    locationIds: ["PPTR5G2N0QXF7"],
+    name: "HeadPinz Naples",
+  },
 ];
 
-/** Raw person probe: is this id readable at this location? (404 ⇒ absent.) */
-async function personVisibleAt(locationId: string, personId: string, key: string) {
+/**
+ * The HTTP status this person id answers with at this location — or `null` when
+ * we never got an answer at all.
+ *
+ * `null` is NOT "absent", and the two must not collapse into one boolean: that is
+ * how a network blip turns into a claim about a guest. Callers decide what an
+ * unanswered probe means for them.
+ */
+async function personStatusAt(
+  locationId: string,
+  personId: string,
+  key: string,
+): Promise<number | null> {
   try {
     // `picture=false` IS THE DEFAULT FLIPPED: Pandora's person GET defaults to
     // picture=TRUE (docs/pandora-api.md), so every probe here was hauling a
@@ -94,19 +138,25 @@ async function personVisibleAt(locationId: string, personId: string, key: string
       `${PANDORA_BASE}/bmi/person/${encodeURIComponent(locationId)}/${encodeURIComponent(personId)}?picture=false&allRelated=false`,
       { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15_000) },
     );
-    // 500 counts as present — the record exists, its birthdate is just null.
-    return res.status !== 404;
+    return res.status;
   } catch {
-    return false; // unreachable ≠ "lives here"
+    return null; // unreachable ≠ absent
   }
 }
 
+/** Is this id readable at this location? (404 ⇒ absent; unreachable ⇒ no claim.) */
+async function personVisibleAt(locationId: string, personId: string, key: string) {
+  const status = await personStatusAt(locationId, personId, key);
+  // 500 counts as present — the record exists, its birthdate is just null.
+  return status !== null && status !== 404;
+}
+
 /**
- * Does this person live at a DIFFERENT center than the one we are waiting on?
+ * Does this person live on a DIFFERENT SERVER than the one we are waiting on?
  *
  * Only called once a person has 404'd at the target location. Finding them
  * elsewhere converts an open-ended wait into a diagnosis, because BMI person ids
- * do not cross centers: no amount of sync will make a Fort Myers person appear
+ * do not cross servers: no amount of sync will make a Fort Myers person appear
  * at Naples.
  */
 async function locateElsewhere(
@@ -114,9 +164,11 @@ async function locateElsewhere(
   excludeLocationId: string,
   key: string,
 ): Promise<string | null> {
-  for (const [locationId, name] of KNOWN_LOCATIONS) {
-    if (locationId === excludeLocationId) continue;
-    if (await personVisibleAt(locationId, personId, key)) return name;
+  for (const server of KNOWN_SERVERS) {
+    // Never re-probe the server that just 404'd, whatever else it answers to.
+    // The absence of this guard is the whole bug described above.
+    if (server.locationIds.includes(excludeLocationId)) continue;
+    if (await personVisibleAt(server.probeLocationId, personId, key)) return server.name;
   }
   return null;
 }
@@ -160,11 +212,25 @@ export async function personLocalBarrier(
       // person id never crosses centers.
       const elsewhere = diagnoseElsewhere ? await locateElsewhere(personId, locationId, key) : null;
       if (elsewhere) {
+        // RE-CONFIRM BEFORE A TERMINAL VERDICT. `impossible` parks a row for a
+        // human and settles a waiver `failed`, so it must never rest on a single
+        // GET. Pandora hands out transient 404s — out-waiting them is the entire
+        // reason this queue exists — and the probes above have just bought the
+        // sync several more seconds, so this re-read is nearly free.
+        const recheck = await personStatusAt(locationId, personId, key);
+        if (recheck === null) {
+          // We asked again and got nothing. That is a statement about the vendor,
+          // not about this guest, so it must not spend the row's patience.
+          return unreachable("no answer on the re-read before parking");
+        }
+        if (recheck !== 404) {
+          return open(`present on re-read (HTTP ${recheck}) — the first 404 was transient`);
+        }
         return impossible(
-          `person ${personId} does not exist at this center — they are at ${elsewhere}. ` +
-            `BMI person ids do not cross centers, so this will never sync. ` +
-            `FIX: re-run this followup against ${elsewhere}, or use this center's own ` +
-            `record for the guest.`,
+          `person ${personId} does not exist at this center — their record is at ${elsewhere}. ` +
+            `BMI person ids do not cross servers, so this will never sync. ` +
+            `FIX: the guest needs a record at THIS center. Filing against ${elsewhere} ` +
+            `would land the work where the guest is not.`,
         );
       }
       return closed("404 — not on the local server yet");

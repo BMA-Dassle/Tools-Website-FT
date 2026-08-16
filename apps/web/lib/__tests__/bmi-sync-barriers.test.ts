@@ -48,19 +48,109 @@ describe("personLocalBarrier — 404 vs 500 vs 200", () => {
    * barrier would have sat "closed: not on the local server yet" until its
    * 02:43 give-up, describing a data mismatch as slow sync.
    */
-  it("404 HERE but present at ANOTHER center → impossible, not closed", async () => {
+  it("404 HERE but present on ANOTHER SERVER → impossible, not closed", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) =>
-        url.includes("TXBSQN0FEKQ11")
+        url.includes("LAB52GY480CJF")
           ? reply(200, { success: true, data: { id: "63000000008163542" } })
           : reply(404, { success: false, message: "No person found with that ID." }),
       ),
     );
     const r = await personLocalBarrier("PPTR5G2N0QXF7", "63000000008163542");
     expect(r.verdict).toBe("impossible");
-    expect(r.detail).toContain("HeadPinz Fort Myers");
+    expect(r.detail).toContain("Fort Myers");
     expect(r.detail).toMatch(/never sync/i);
+  });
+
+  /**
+   * THE 2026-08-15 PRODUCTION BUG, pinned.
+   *
+   * FastTrax and HeadPinz Fort Myers are two location ids on ONE server, so a
+   * FastTrax-aimed row that 404s can never legitimately be told "they are at
+   * HeadPinz Fort Myers" — that is the same box answering under its other name
+   * after a transient miss. The old code re-probed it and issued `impossible`,
+   * which parked all five `add-membership` rows (bought racing licences, never
+   * granted) at attempts=0 and settled waiver pushes `failed` for guests who
+   * were sitting right there.
+   *
+   * The only correct verdict is `closed`: keep waiting.
+   */
+  it("FT ≡ FM: a 404 at FastTrax is NEVER 'they are at Fort Myers'", async () => {
+    const f = vi.fn(async (url: string) =>
+      url.includes("TXBSQN0FEKQ11")
+        ? reply(200, { success: true, data: { id: "63000000008485469" } })
+        : reply(404, { success: false, message: "No person found with that ID." }),
+    );
+    vi.stubGlobal("fetch", f);
+    const r = await personLocalBarrier("LAB52GY480CJF", "63000000008485469");
+    expect(r.verdict).toBe("closed");
+    expect(r.detail).toMatch(/not on the local server yet/i);
+    // And it must not have wasted a probe on its own server's other name.
+    expect(f.mock.calls.every(([u]) => !String(u).includes("TXBSQN0FEKQ11"))).toBe(true);
+  });
+
+  /** ...and the mirror: a Fort Myers-aimed row is never "they are at FastTrax". */
+  it("FT ≡ FM: a 404 at Fort Myers is NEVER 'they are at FastTrax'", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url.includes("LAB52GY480CJF")
+          ? reply(200, { success: true, data: { id: "63000000008534718" } })
+          : reply(404, { success: false, message: "No person found with that ID." }),
+      ),
+    );
+    const r = await personLocalBarrier("TXBSQN0FEKQ11", "63000000008534718");
+    expect(r.verdict).toBe("closed");
+  });
+
+  /**
+   * A terminal verdict may not rest on ONE read. `impossible` parks a row for a
+   * human and settles a waiver `failed`, and Pandora hands out transient 404s —
+   * out-waiting them is the whole reason this queue exists. So re-confirm the
+   * absence before condemning the row.
+   */
+  it("re-reads before parking: present on the second look → open, not impossible", async () => {
+    let aimedCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.includes("PPTR5G2N0QXF7")) {
+          aimedCalls += 1;
+          // First look: a transient miss. Re-read: there all along.
+          return aimedCalls === 1
+            ? reply(404, { success: false, message: "No person found with that ID." })
+            : reply(200, { success: true, data: { id: "17618396" } });
+        }
+        return reply(200, { success: true, data: { id: "17618396" } });
+      }),
+    );
+    const r = await personLocalBarrier("PPTR5G2N0QXF7", "17618396");
+    expect(r.verdict).toBe("open");
+    expect(r.detail).toMatch(/transient/i);
+    expect(aimedCalls).toBe(2);
+  });
+
+  /** If the re-read gets no answer we learned nothing about the guest — that is a
+   *  statement about the vendor, so it must not burn the row's patience. */
+  it("re-read that cannot reach the vendor is unreachable, not impossible", async () => {
+    let aimedCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.includes("PPTR5G2N0QXF7")) {
+          aimedCalls += 1;
+          if (aimedCalls === 1) return reply(404, { success: false });
+          throw new Error("ETIMEDOUT");
+        }
+        return reply(200, { success: true, data: { id: "x" } });
+      }),
+    );
+    const r = await personLocalBarrier("PPTR5G2N0QXF7", "x");
+    expect(r.verdict).toBe("error");
+    expect(r.unreachable).toBe(true);
   });
 
   it("404 everywhere stays CLOSED — a fresh mint has simply not landed yet", async () => {
