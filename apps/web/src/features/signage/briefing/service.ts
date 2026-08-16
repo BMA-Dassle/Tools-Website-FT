@@ -78,14 +78,16 @@ export interface SendBriefingArgs {
   tier?: BriefingTier | null;
 }
 
-export interface SendBriefingResult {
-  ok: true;
-  tier: BriefingTier;
-  /** False when no film is uploaded for this tier — the room will open on the
-   *  helmet board instead. The caller surfaces this so staff are not left
-   *  wondering why a video did not play. */
-  hasVideo: boolean;
-}
+export type SendBriefingResult =
+  | {
+      ok: true;
+      tier: BriefingTier;
+      /** False when no film is uploaded for this tier — the room will open on the
+       *  helmet board instead. The caller surfaces this so staff are not left
+       *  wondering why a video did not play. */
+      hasVideo: boolean;
+    }
+  | { ok: false; error: string };
 
 /**
  * Send a called session to a briefing room.
@@ -113,6 +115,46 @@ export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefing
   // reads as "never left the room". Same session ⇒ nobody is displaced (a re-send
   // of the group already in there, and a Mega group legitimately in both rooms).
   const displaced = await readBriefingRoom(VENUE, args.room).catch(() => null);
+
+  /**
+   * ONE GROUP, ONE ROOM — refused rather than displaced.
+   *
+   * Until now nothing stopped a heat being sent to BOTH rooms. It was never
+   * reached because there was one desk and one operator; the in-room tablets
+   * (owner 2026-08-16, "allow them to pull to room") make it a live race between
+   * two screens, and the client-side guard on each of them reads a board poll up
+   * to five seconds stale.
+   *
+   * What it costs is not cosmetic: both rooms play a film at the same heat, the
+   * briefed marker ends up naming whichever room wrote last so Undo frees only
+   * one of them, the insurance log gets two "sent" rows for one group, and the
+   * room that did not win is occupied by people who are not in it — which blocks
+   * the next real send.
+   *
+   * REFUSING IS THE HOUSE POSTURE for two claimants on one slot (see the
+   * override route's note: refusing makes a human look). Both boards already
+   * render a refusal — it is what the note line under the buttons is for — so
+   * fixing it here covers the desk and both tablets with one guard.
+   *
+   * MEGA IS THE CARVE-OUT, and a real one: on a Mega night the two rooms serve
+   * the single circuit and a heat is deliberately split across them, which is
+   * why the displacement check below has always treated the same session in both
+   * rooms as legitimate.
+   */
+  if (args.track !== "mega") {
+    const otherRoom: BriefingRoom = args.room === "red" ? "blue" : "red";
+    const other = await readBriefingRoom(VENUE, otherRoom).catch(() => null);
+    if (
+      other?.sessionId === args.sessionId &&
+      briefingTimelineAt(other, Date.now()).phase !== "idle"
+    ) {
+      const who = args.heatNumber != null ? `Session ${args.heatNumber}` : "That group";
+      return {
+        ok: false,
+        error: `${who} is already in the ${otherRoom} room. Undo it there first, or send them on to holding.`,
+      };
+    }
+  }
 
   /**
    * THE TWO ANCHORS THAT ONLY EXIST RIGHT NOW (owner 2026-08-12, wait times).

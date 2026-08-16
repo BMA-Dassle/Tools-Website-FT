@@ -317,7 +317,10 @@ export async function POST(req: NextRequest) {
         raceType,
         tier: null,
       });
-      return NextResponse.json(result);
+      // Override reaches here having already vacated this session from the other
+      // room (vacateSessionElsewhere, above), so the one-group-one-room guard
+      // cannot fire on this path — placing by hand still displaces, by design.
+      return NextResponse.json(result, { status: result.ok ? 200 : 409 });
     }
 
     const result = await overrideLaneSlot({
@@ -424,7 +427,9 @@ export async function POST(req: NextRequest) {
       raceType: typeof body.raceType === "string" ? body.raceType : null,
       tier: parseBriefingTier(body.tier),
     });
-    return NextResponse.json(result);
+    // 409 for the one-group-one-room refusal, matching start/restart above —
+    // both boards render the message as an action note rather than a failure.
+    return NextResponse.json(result, { status: result.ok ? 200 : 409 });
   }
 
   return NextResponse.json({ error: "unknown action" }, { status: 400 });

@@ -8,13 +8,27 @@
  * do I press now", for somebody standing in front of twelve people who are
  * waiting on them. Everything here follows from that:
  *
- *  • ONE ACTION IS PRIMARY AT A TIME. Before the film, START is the screen. Once
- *    the helmets board is up, SEND TO HOLDING is. The other control never
- *    disappears — a briefing that has to be replayed is a real thing — it just
- *    stops competing, because a tablet with two equally loud buttons is a tablet
- *    somebody presses the wrong one on.
- *  • BUTTONS ARE 96px TALL. This is a wall-mounted touch screen operated by
- *    someone half-turned away from it. Desk-sized controls are the wrong tool.
+ *  • ONE ACTION IS PRIMARY AT A TIME. With the room empty, PULL is the screen.
+ *    Before the film, START is. Once the helmets board is up, SEND TO HOLDING is.
+ *    The other controls never disappear — a briefing that has to be replayed is a
+ *    real thing — they just stop competing, because a tablet with two equally
+ *    loud buttons is a tablet somebody presses the wrong one on.
+ *  • BUTTONS ARE 64px TALL. They were 96px, which was right when the screen was
+ *    a pair of controls and nothing else; with a session rail down the side it
+ *    was simply spending height it no longer had (owner 2026-08-16: "buttons are
+ *    huge right now we have room"). Still a wall-tablet target for someone
+ *    half-turned away — desk-sized controls remain the wrong tool.
+ *  • THE ROOM FETCHES ITS OWN GROUP (owner 2026-08-16). The screen already knew
+ *    when the next heat was fully through the desk and could only ask the staff
+ *    member to walk over and press somebody else's button. The rule on it is the
+ *    owner's: every racer checked in, or nothing. See pull-to-room.ts — the
+ *    verdict is pure and its refusals are the sentences printed on the button.
+ *  • EVERY FACT APPEARS ONCE. The film's clock lives in the room panel; the
+ *    Holding panel used to repeat it with a progress bar of its own, which was
+ *    defensible when those were the only two panels and stopped being so the
+ *    moment the rail arrived (owner 2026-08-16: "why show safety video playing
+ *    twice"). Its exact number moved into the refusal line under the button it
+ *    governs, which is where the finger already is.
  *  • A REFUSAL IS EXPLAINED BEFORE IT HAPPENS. "Send to holding" goes inert with
  *    the REASON on it — "Session 27 is still in holding" — rather than failing on
  *    press. The verdict comes from the same pure rule the server guard uses
@@ -40,7 +54,6 @@ import {
   IconAlertTriangleFilled,
   IconArrowRight,
   IconBackspace,
-  IconCircleCheckFilled,
   IconPlayerPlayFilled,
   IconRefresh,
 } from "@tabler/icons-react";
@@ -50,9 +63,22 @@ import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { checkinAlert } from "~/features/signage/briefing/desk-alerts";
 import { briefingReadyForHolding, briefingTimelineAt } from "~/features/signage/briefing/phase";
+import {
+  pullIsLate,
+  pullVerdict,
+  type PullRefusal,
+} from "~/features/signage/briefing/pull-to-room";
+import { buildStageRail, type StageRow } from "~/features/signage/briefing/stage-rail";
 import { startHoldRemainingMs, startHoldSeconds } from "~/features/signage/briefing/start-hold";
-import { BRIEFING_ROOMS, type BriefingRoom } from "~/features/signage/briefing/types";
+import {
+  BRIEFING_ROOMS,
+  resolveFilmTier,
+  tierForRaceType,
+  type BriefingRoom,
+} from "~/features/signage/briefing/types";
 import { holdingAvailability } from "~/features/signage/pit/holding-availability";
+import { useRaceClockForTrack } from "~/features/racing/use-race-clocks";
+import { liveHeatNumber } from "~/features/signage/briefing/room-return";
 import { useBriefingControl } from "../checkin/useBriefingControl";
 
 const ROOM_COLOR: Record<BriefingRoom, string> = { red: "#ff5a52", blue: "#4a9bff" };
@@ -67,6 +93,11 @@ const INK = "#e8eef7";
 /** Where this tablet's room choice is remembered, so the bare URL is bookmarkable
  *  and a reload (including the self-update below) comes back to the same room. */
 const ROOM_STORAGE_KEY = "ft-briefing-room";
+
+/** "red" → "Red", for a button that names a room in a sentence. */
+function cap(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
 
 /** mm:ss from ms. Tabular figures do the rest — see .brc-num. */
 function clock(ms: number): string {
@@ -89,10 +120,10 @@ function withAlpha(hex: string, alpha: number): string {
 
 const STYLES = `
 .brc-btn {
-  display: flex; align-items: center; justify-content: center; gap: 12px;
-  width: 100%; min-height: 96px; padding: 0 26px;
-  border: 1px solid transparent; border-radius: 16px;
-  font-size: 25px; font-weight: 800; letter-spacing: 0.01em; line-height: 1.15;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; min-height: 64px; padding: 0 20px;
+  border: 1px solid transparent; border-radius: 13px;
+  font-size: 20px; font-weight: 800; letter-spacing: 0.01em; line-height: 1.15;
   cursor: pointer; text-align: center;
   transition: filter 120ms ease, transform 60ms ease, background 140ms ease;
 }
@@ -104,7 +135,7 @@ const STYLES = `
 /* The secondary action. Present, reachable, and audibly quieter than the one the
    screen is actually asking for. */
 .brc-btn-ghost {
-  min-height: 62px; font-size: 17px; font-weight: 700; border-radius: 13px;
+  min-height: 46px; font-size: 15px; font-weight: 700; border-radius: 11px;
   background: transparent; color: ${PORTAL_DARK.muted};
   border-color: ${PORTAL_DARK.border};
 }
@@ -119,6 +150,32 @@ const STYLES = `
 }
 @keyframes brc-spin { to { transform: rotate(360deg); } }
 .brc-num { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+
+/* ONE HEADER RULE ACROSS EVERY PANEL. The hairline spans the full card, so the
+   three headings sit on one line and everything under them starts at the same
+   height — the alignment the screen was missing when the panels each began
+   wherever their own content did (owner 2026-08-16: "keep things aligned"). */
+.brc-head {
+  font-size: 11px; font-weight: 800; letter-spacing: 0.12em;
+  color: ${PORTAL_DARK.muted};
+  margin: 0 -20px; padding: 0 20px 11px;
+  border-bottom: 1px solid ${PORTAL_DARK.border};
+}
+/* THE CAPTION UNDER A BUTTON IS ALWAYS RENDERED, invisible when it has nothing
+   to say, so two panels keep a shared footer baseline and no control hops when a
+   reason appears. Same trick as the keypad's error line below. */
+.brc-why { font-size: 13px; font-weight: 700; text-align: center; min-height: 18px; }
+
+/* THE SESSION RAIL — six equal rows, so the eye runs straight down the stage
+   names and straight down the sessions, and an empty stage takes exactly as much
+   room as a full one. A column that reshuffled between polls would read as
+   groups moving. */
+.brc-stage {
+  display: grid; grid-template-columns: 64px 1fr; align-items: center;
+  gap: 0 10px; min-height: 52px; padding: 6px 0;
+  border-bottom: 1px solid ${withAlpha(PORTAL_DARK.border, 0.55)};
+}
+.brc-stage:last-child { border-bottom: 0; }
 
 /* THE MOMENT THE ROOM IS DONE. The film has ended, the group is getting kitted,
    and the only remaining job is to walk them to the seats — so the button that
@@ -309,6 +366,8 @@ function CheckInBand({
   windowMins,
   sentToRoom,
   nowMs,
+  trailing,
+  late,
 }: {
   trackKey: string;
   race: { heatNumber: number; raceType: string; calledAt: string; sessionId: number } | null;
@@ -317,6 +376,16 @@ function CheckInBand({
   /** Which room this heat has already gone to, if any. */
   sentToRoom: BriefingRoom | null;
   nowMs: number;
+  /**
+   * WHY THE PULL IS NOT ON OFFER, when the heat is otherwise ready — in practice
+   * always "this room still has somebody in it". It rides here rather than in
+   * the room panel because that panel is busy saying what the CURRENT group is
+   * doing, and this is about the next one.
+   */
+  trailing?: ReactNode;
+  /** The pull would go in late — see pullIsLate. Amber, never red: it is a
+   *  nudge about the clock, not a refusal. */
+  late?: boolean;
 }) {
   const accent = TRACK_COLOR[trackKey] ?? INK;
 
@@ -395,13 +464,18 @@ function CheckInBand({
   const checkedIn = stat?.checkedIn ?? 0;
   const ready = total > 0 && checkedIn >= total;
 
-  const pill = ready
-    ? { text: "READY TO PULL", color: "#062012", bg: GREEN }
-    : alert === "late"
-      ? { text: "WINDOW CLOSED", color: "#1c1204", bg: AMBER }
-      : alert === "warn"
-        ? { text: "LAST MINUTE", color: "#1c1204", bg: AMBER }
-        : { text: "CHECKING IN", color: PORTAL_DARK.fg, bg: PORTAL_DARK.muted2 };
+  const pill =
+    ready && late
+      ? // Complete, and going in late — the pill says which of the two matters,
+        // because "READY" beside a race with two minutes left reads as reassurance.
+        { text: "PULL NOW — RUNNING LATE", color: "#1c1204", bg: AMBER }
+      : ready
+        ? { text: "READY TO PULL", color: "#062012", bg: GREEN }
+        : alert === "late"
+          ? { text: "WINDOW CLOSED", color: "#1c1204", bg: AMBER }
+          : alert === "warn"
+            ? { text: "LAST MINUTE", color: "#1c1204", bg: AMBER }
+            : { text: "CHECKING IN", color: PORTAL_DARK.fg, bg: PORTAL_DARK.muted2 };
 
   return shell(
     <>
@@ -446,8 +520,131 @@ function CheckInBand({
       >
         {pill.text}
       </span>
+
+      {trailing}
     </>,
-    ready ? "brc-band-ready" : alert === "late" ? "brc-band-late" : undefined,
+    ready && late
+      ? "brc-band-late"
+      : ready
+        ? "brc-band-ready"
+        : alert === "late"
+          ? "brc-band-late"
+          : undefined,
+  );
+}
+
+/**
+ * WHERE EVERY SESSION ON THIS TRACK IS — the rail down the side (owner
+ * 2026-08-16: "on the side of the tablet can we also show where each group is
+ * for that track… sort of like the nothing to seat screens have the sessions and
+ * where").
+ *
+ * IT IS THE PIT BOARD'S OWN IDLE SCREEN, and deliberately not a second take on
+ * it: both call buildStageRail, so the wall the racers are reading and the
+ * tablet the staff member is holding cannot describe the same night in different
+ * words. Everything it needs was already being polled here for the Holding panel
+ * and the band — no new request.
+ *
+ * THE ROW THE BUTTON ACTS ON IS MARKED. Called is where the pull lands, so it
+ * wears the room's colour; the five rows under it are context — how far the
+ * group ahead has got — and stay quiet.
+ */
+function StageRail({
+  rows,
+  accent,
+  markHeat,
+}: {
+  rows: StageRow[];
+  accent: string;
+  /** The heat this screen's button is about, highlighted wherever it sits. */
+  markHeat: number | null;
+}) {
+  const toneColor = (tone: StageRow["tone"]): string =>
+    tone === "good"
+      ? GREEN
+      : tone === "warn"
+        ? AMBER
+        : tone === "alert"
+          ? DANGER
+          : PORTAL_DARK.muted;
+
+  return (
+    <section
+      style={{
+        flex: "0 0 250px",
+        display: "flex",
+        flexDirection: "column",
+        padding: "20px",
+        borderRadius: 18,
+        background: PORTAL_DARK.card,
+        border: `1px solid ${PORTAL_DARK.border}`,
+      }}
+      aria-label="Where each session is"
+    >
+      <p className="brc-head">WHERE EACH SESSION IS</p>
+      {rows.map((row) => {
+        const here = markHeat != null && row.heatNumber === markHeat;
+        return (
+          <div
+            key={row.label}
+            className="brc-stage"
+            style={
+              here
+                ? {
+                    margin: "0 -20px",
+                    paddingLeft: 17,
+                    paddingRight: 20,
+                    background: withAlpha(accent, 0.08),
+                    borderLeft: `3px solid ${accent}`,
+                  }
+                : undefined
+            }
+          >
+            <span
+              style={{
+                fontSize: 9,
+                fontWeight: 800,
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                color: here ? accent : PORTAL_DARK.muted,
+              }}
+            >
+              {row.label}
+            </span>
+            <span style={{ minWidth: 0 }}>
+              <span
+                className="brc-num"
+                style={{
+                  display: "block",
+                  fontSize: 16,
+                  fontWeight: 800,
+                  color: row.heatNumber == null ? withAlpha(INK, 0.3) : INK,
+                }}
+              >
+                {row.value}
+                {row.type && (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: PORTAL_DARK.muted,
+                      marginLeft: 6,
+                    }}
+                  >
+                    {row.type}
+                  </span>
+                )}
+              </span>
+              {row.detail && (
+                <span style={{ display: "block", fontSize: 11, color: toneColor(row.tone) }}>
+                  {row.detail}
+                </span>
+              )}
+            </span>
+          </div>
+        );
+      })}
+    </section>
   );
 }
 
@@ -732,10 +929,49 @@ export default function BriefingRoomClient({
    * do, so the prompt cannot fire a stale version of an action whose arguments
    * moved on underneath it (see HeatPrompt).
    */
-  const [challenge, setChallenge] = useState<{ label: string; run: () => void } | null>(null);
+  const [challenge, setChallenge] = useState<{
+    label: string;
+    run: () => void;
+    /**
+     * WHICH HEAT NUMBER UNLOCKS IT. Carried per action rather than read off the
+     * room, because the pull is about a group who are NOT in the room yet: its
+     * code is the incoming heat, and the room's own number is either absent (it
+     * is empty) or belongs to somebody else entirely.
+     */
+    code: number | null;
+  } | null>(null);
   // Plain, not useCallback: the React Compiler memoizes it correctly on its own,
   // and a hand-written [] dep list here is one it refuses to preserve.
-  const ask = (label: string, run: () => void) => setChallenge({ label, run });
+  const ask = (label: string, code: number | null, run: () => void) =>
+    setChallenge({ label, code, run });
+
+  /**
+   * WHICH TRACK THIS ROOM IS WATCHING FOR ITS NEXT GROUP.
+   *
+   * The room's own session decides it while one is in here. With the room empty
+   * it falls to the track of the same name — EXCEPT on a Mega night, when the two
+   * circuits run as one and both rooms serve it, so there is no red or blue heat
+   * to watch and the band would sit empty all evening.
+   *
+   * UP HERE, ABOVE THE ROOM PICKER'S EARLY RETURN, because the race clock below
+   * is a hook and hooks cannot be called after one. A tablet that has not been
+   * told which room it is passes null and gets no clock.
+   */
+  const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
+  const incomingTrack: "red" | "blue" | "mega" =
+    state?.track ?? (megaEnabled ? "mega" : (room ?? "red"));
+
+  /**
+   * THE RACE ON TRACK — the same clock the desk board and the leaderboards run,
+   * derived from the venue broadcast rather than the cloud socket's countdown.
+   *
+   * It costs this screen almost nothing: use-race-clocks is a module-level store
+   * with one fetch loop shared by every subscriber on the page, ticked locally
+   * and corrected for this tablet's own clock skew. A wall device left running
+   * for weeks keeps bad time, and a countdown ninety seconds out is worse than
+   * none at all.
+   */
+  const raceClock = useRaceClockForTrack(room ? incomingTrack : null);
 
   /**
    * SAFE TO RELOAD RIGHT NOW? (owner 2026-08-15: "make this screen live update on
@@ -888,16 +1124,7 @@ export default function BriefingRoomClient({
   const startKey = state?.kind === "timeline" ? `restart:${room}` : `start:${room}`;
   const sessionLabel = state?.heatNumber != null ? `Session ${state.heatNumber}` : "This group";
 
-  /**
-   * WHICH TRACK THIS ROOM IS WATCHING FOR ITS NEXT GROUP.
-   *
-   * The room's own session decides it while one is in here. With the room empty
-   * it falls to the track of the same name — EXCEPT on a Mega night, when the two
-   * circuits run as one and both rooms serve it, so there is no red or blue heat
-   * to watch and the band would sit empty all evening.
-   */
-  const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
-  const incomingTrack: "red" | "blue" | "mega" = state?.track ?? (megaEnabled ? "mega" : room);
+  /** The heat checking in for this room's track — see incomingTrack above. */
   const incomingRace = status?.currentRaces?.[incomingTrack] ?? null;
   // Matched on SESSION, never on the track label: the two feeds word tracks
   // differently and a mismatched string would silently show no count at all.
@@ -908,6 +1135,121 @@ export default function BriefingRoomClient({
   const incomingSentTo = incomingRace
     ? (control.board?.briefedSessions?.[String(incomingRace.sessionId)]?.room ?? null)
     : null;
+
+  const incomingLane = board?.lanes?.[incomingTrack] ?? null;
+  const trackHeatNumber = raceClock ? liveHeatNumber(raceClock.heatName) : null;
+
+  /**
+   * WHERE EVERY SESSION ON THIS TRACK IS. Built by the pit board's own builder —
+   * see StageRail. Both briefing rooms are handed in on a Mega night, when the
+   * two of them serve the single circuit.
+   */
+  const railRooms = megaEnabled
+    ? BRIEFING_ROOMS.map((r) => board?.rooms.find((x) => x.room === r)?.state ?? null)
+    : [state];
+  const railRows = buildStageRail({
+    called: incomingRace
+      ? { heatNumber: incomingRace.heatNumber, raceType: incomingRace.raceType }
+      : null,
+    rooms: railRooms,
+    lane: incomingLane,
+    nowMs,
+    liveHeatNumber: trackHeatNumber,
+    liveCounting: raceClock?.phase === "running",
+    liveRemainingMs: raceClock?.liveRemainingMs ?? null,
+    formatClock: clock,
+    checkedIn: incomingStat
+      ? { checkedIn: incomingStat.checkedIn, total: incomingStat.total }
+      : null,
+  });
+
+  /**
+   * IS A PULL GOING IN LATE — under five minutes of race left, so the film will
+   * still be running when the seats are wanted (owner 2026-08-16). A warning, and
+   * only ever a warning: with the group standing in front of you, pulling late
+   * usually still beats not pulling.
+   */
+  const pullLate = pullIsLate({
+    remainingMs: raceClock?.liveRemainingMs ?? null,
+    pitInOccupied: !!incomingLane?.pitIn,
+    onTrack: trackHeatNumber != null || !!incomingLane?.racing,
+  });
+
+  /**
+   * THE WARNING'S TWO NUMBERS. "2:40 left" is only a clock; it becomes a
+   * decision beside "the film runs 4:30".
+   *
+   * The film is the one this heat will ACTUALLY get — tier from the race type,
+   * then the Pro→Intermediate fallback — read from the same manifest the send
+   * resolves against, so the warning cannot quote a film the room will not play.
+   * With no length recorded the headline still fires and the tail simply stops.
+   */
+  const incomingTier = resolveFilmTier(
+    tierForRaceType(incomingRace?.raceType),
+    (t) => !!board?.videos?.[t]?.url,
+  );
+  const incomingFilmMs = board?.videos?.[incomingTier]?.durationMs ?? null;
+  const raceLeftMs = raceClock?.liveRemainingMs ?? null;
+  const lateHeadline =
+    raceLeftMs != null && raceLeftMs > 0 && trackHeatNumber != null
+      ? `Session ${trackHeatNumber} ends in ${clock(raceLeftMs)}.`
+      : raceLeftMs != null && raceLeftMs > 0
+        ? `The race ends in ${clock(raceLeftMs)}.`
+        : "The track is waiting.";
+  const lateTail = incomingFilmMs
+    ? `The ${incomingTier} film runs ${clock(incomingFilmMs)} — pull now and the track waits on this room.`
+    : "Pull now and the film will still be running when the seats are wanted.";
+
+  /** THE ONE RULE, and its sentences. Pure, shared, tested — pull-to-room.ts. */
+  const pull = pullVerdict({
+    enabled: board?.enabled,
+    incoming: incomingRace
+      ? { sessionId: String(incomingRace.sessionId), heatNumber: incomingRace.heatNumber }
+      : null,
+    sentToRoom: incomingSentTo,
+    inRoomHeatNumber: state?.heatNumber ?? null,
+    roomOccupied: !!state,
+    checkedIn: incomingStat
+      ? { checkedIn: incomingStat.checkedIn, total: incomingStat.total }
+      : null,
+    late: pullLate,
+  });
+
+  const sendCb = control.send;
+  const onPull = () => {
+    if (!incomingRace) return;
+    sendCb({
+      room,
+      // The track the HEAT belongs to, which on a Mega night is the shared
+      // circuit rather than this room's name.
+      track: incomingTrack,
+      sessionId: String(incomingRace.sessionId),
+      heatNumber: incomingRace.heatNumber,
+      raceType: incomingRace.raceType,
+    });
+  };
+
+  /** Why the pull is not on offer, in the words the room would use. Null when
+   *  there is nothing worth saying — an empty track needs no explanation. */
+  const pullRefusal = (reason: PullRefusal): string | null => {
+    const short = incomingStat ? Math.max(0, incomingStat.total - incomingStat.checkedIn) : 0;
+    switch (reason) {
+      case "not-all-checked-in":
+        return `${incomingStat?.checkedIn ?? 0} of ${incomingStat?.total ?? 0} checked in — ${short} still to scan.`;
+      case "no-roster":
+        return "Waiting on the roster — the desk has no count for this heat yet.";
+      case "room-occupied":
+        return state?.heatNumber != null
+          ? `Session ${state.heatNumber} is still in this room — send them to holding first.`
+          : "This room still has a group in it — send them to holding first.";
+      case "already-sent":
+        return `Already in the ${incomingSentTo} room.`;
+      case "disabled":
+        return "Briefing rooms are switched off.";
+      case "no-heat":
+        return null;
+    }
+  };
 
   return (
     <main
@@ -1004,6 +1346,26 @@ export default function BriefingRoomClient({
         windowMins={board?.checkinWindowMins?.[incomingTrack]}
         sentToRoom={incomingSentTo}
         nowMs={nowMs}
+        late={pullLate}
+        trailing={
+          /* THE ROOM IS BUSY AND THE NEXT HEAT IS READY. Said here, quietly,
+             rather than as a second big button: while a group is in the room the
+             screen has one thing to ask for, and it is not this. */
+          !pull.ok && pull.reason === "room-occupied" ? (
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: PORTAL_DARK.muted,
+                border: `1px solid ${PORTAL_DARK.border}`,
+                borderRadius: 999,
+                padding: "6px 13px",
+              }}
+            >
+              {pullRefusal("room-occupied")}
+            </span>
+          ) : undefined
+        }
       />
 
       {/* ── body: the room on the left, holding on the right ─────────── */}
@@ -1032,49 +1394,202 @@ export default function BriefingRoomClient({
           aria-label="In the room"
         >
           {!state ? (
-            /* IDLE IS A REAL STATE, NOT AN ERROR SCREEN. Nobody is in here and
-               nothing is owed — say exactly that, quietly, at a size that reads
-               from the doorway. */
-            <div
-              style={{
-                flex: 1,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                textAlign: "center",
-                gap: 12,
-              }}
-            >
-              <p style={{ fontSize: 34, fontWeight: 800, color: PORTAL_DARK.muted }}>
-                No group in this room
-              </p>
-              <p style={{ fontSize: 16, color: PORTAL_DARK.muted, maxWidth: 420 }}>
-                {board
-                  ? "The front desk sends the next heat here. This screen will wake up when they do."
-                  : "Connecting to the board…"}
-              </p>
-              {/* Who is still out and due back — an idle room is not a free room
-                  if its last group is mid-race with the kit. */}
-              {roomStatus?.groupOut?.heatNumber != null && !roomStatus.groupOut.endedAtMs && (
-                <p style={{ fontSize: 14, color: AMBER, fontWeight: 700 }}>
-                  Session {roomStatus.groupOut.heatNumber} is still out on track.
-                </p>
-              )}
-            </div>
-          ) : (
+            /**
+             * AN EMPTY ROOM IS WHERE THE PULL LIVES (owner 2026-08-16).
+             *
+             * This panel used to be a grey "No group in this room" and a
+             * sentence explaining that the front desk would send one — a whole
+             * half of the screen spent saying that nothing was happening, to the
+             * person best placed to make something happen. Now it is the press,
+             * and the sentence is only what remains when the press is not
+             * available.
+             */
             <>
-              <div>
-                <p
+              <p className="brc-head">NEXT IN THIS ROOM</p>
+
+              {incomingRace ? (
+                <>
+                  <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "baseline",
+                        gap: 9,
+                        padding: "5px 16px",
+                        borderRadius: 13,
+                        background: withAlpha(pull.ok && !pullLate ? GREEN : accent, 0.15),
+                        border: `2px solid ${pull.ok ? (pullLate ? AMBER : GREEN) : accent}`,
+                        color: INK,
+                        fontSize: 38,
+                        fontWeight: 800,
+                        letterSpacing: "-0.02em",
+                      }}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: "0.1em" }}>
+                        HEAT
+                      </span>
+                      <span className="brc-num">{incomingRace.heatNumber}</span>
+                    </span>
+                    {incomingRace.raceType && (
+                      <span
+                        style={{
+                          fontSize: 24,
+                          fontWeight: 700,
+                          color: pull.ok ? (pullLate ? AMBER : GREEN) : accent,
+                        }}
+                      >
+                        {incomingRace.raceType}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* THE COUNT, in its own strip — a fact about the group, not a
+                      heading, and the one the button turns on. */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "baseline",
+                      gap: 12,
+                      flexWrap: "wrap",
+                      padding: "10px 14px",
+                      borderRadius: 12,
+                      background: "rgba(0,0,0,0.18)",
+                      border: `1px solid ${PORTAL_DARK.border}`,
+                    }}
+                  >
+                    <span
+                      className="brc-num"
+                      style={{
+                        fontSize: 27,
+                        fontWeight: 800,
+                        color: pull.ok ? GREEN : INK,
+                      }}
+                    >
+                      {incomingStat && incomingStat.total > 0
+                        ? `${incomingStat.checkedIn} of ${incomingStat.total}`
+                        : "—"}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 15,
+                        fontWeight: 700,
+                        color: pull.ok ? GREEN : PORTAL_DARK.muted,
+                      }}
+                    >
+                      {pull.ok
+                        ? "everyone is through the desk"
+                        : (pullRefusal(pull.reason) ?? "waiting on the desk")}
+                    </span>
+                  </div>
+
+                  {/* THE LATE WARNING — two numbers or it is just a clock. The
+                      film's length comes from the manifest for the tier this
+                      heat will actually get, so it is the real film and not an
+                      average. */}
+                  {pull.ok && pull.late && (
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 10,
+                        alignItems: "flex-start",
+                        padding: "11px 13px",
+                        borderRadius: 11,
+                        background: withAlpha(AMBER, 0.12),
+                        border: `1px solid ${withAlpha(AMBER, 0.55)}`,
+                      }}
+                      role="status"
+                    >
+                      <IconAlertTriangleFilled
+                        size={17}
+                        style={{ flexShrink: 0, color: AMBER, marginTop: 2 }}
+                        aria-hidden
+                      />
+                      <span style={{ fontSize: 14, lineHeight: 1.4 }}>
+                        <b style={{ color: AMBER }}>{lateHeadline}</b> {lateTail}
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div
                   style={{
-                    fontSize: 12,
-                    fontWeight: 800,
-                    letterSpacing: "0.12em",
-                    color: PORTAL_DARK.muted,
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    textAlign: "center",
+                    gap: 12,
                   }}
                 >
-                  IN THE ROOM
-                </p>
+                  <p style={{ fontSize: 30, fontWeight: 800, color: PORTAL_DARK.muted }}>
+                    No group in this room
+                  </p>
+                  <p style={{ fontSize: 15, color: PORTAL_DARK.muted, maxWidth: 420 }}>
+                    {board
+                      ? "Nothing is checking in for this track yet. The next heat will appear here."
+                      : "Connecting to the board…"}
+                  </p>
+                  {/* Who is still out and due back — an idle room is not a free
+                      room if its last group is mid-race with the kit. */}
+                  {roomStatus?.groupOut?.heatNumber != null && !roomStatus.groupOut.endedAtMs && (
+                    <p style={{ fontSize: 14, color: AMBER, fontWeight: 700 }}>
+                      Session {roomStatus.groupOut.heatNumber} is still out on track.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div style={{ flex: 1 }} />
+
+              {incomingRace && (
+                <>
+                  <button
+                    type="button"
+                    className={`brc-btn${pull.ok && !pullLate ? " brc-ready" : ""}`}
+                    style={{
+                      background: pull.ok ? (pullLate ? AMBER : GREEN) : PORTAL_DARK.muted2,
+                      borderColor: pull.ok ? (pullLate ? AMBER : GREEN) : PORTAL_DARK.border,
+                      color: pull.ok ? (pullLate ? "#1c1204" : "#062012") : PORTAL_DARK.fg,
+                    }}
+                    disabled={!pull.ok || control.busy}
+                    aria-busy={pending === `send:${room}`}
+                    onClick={() =>
+                      ask(
+                        `Pull to the ${room} room`,
+                        // THE CODE IS THE INCOMING HEAT, not the room's own — the
+                        // room is empty, so there is no other number it could
+                        // mean, and this one is printed above the overlay.
+                        incomingRace.heatNumber,
+                        onPull,
+                      )
+                    }
+                  >
+                    {pending === `send:${room}` ? (
+                      <span className="brc-spin" aria-hidden />
+                    ) : (
+                      <IconArrowRight size={24} stroke={2.6} aria-hidden />
+                    )}
+                    {pull.ok && pullLate
+                      ? `Pull Session ${incomingRace.heatNumber} anyway`
+                      : `Pull Session ${incomingRace.heatNumber} to the ${cap(room)} Room`}
+                  </button>
+                  {/* Always rendered, invisible when empty, so this panel's
+                      footer and Holding's stay on one baseline. */}
+                  <p
+                    className="brc-why"
+                    style={{ color: pull.ok ? "transparent" : AMBER }}
+                    role={pull.ok ? undefined : "status"}
+                  >
+                    {pull.ok ? "·" : (pullRefusal(pull.reason) ?? "·")}
+                  </p>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="brc-head">IN THE ROOM</p>
+              <div>
                 {/* THE HEAT NUMBER, BIG (owner 2026-08-15: "show the heat number
                     on the screen"). It is the room's identity at a glance AND the
                     code the prompt asks for, so it has to be readable from
@@ -1082,7 +1597,7 @@ export default function BriefingRoomClient({
                     somebody has to walk over and squint at. */}
                 <p
                   style={{
-                    fontSize: 46,
+                    fontSize: 42,
                     fontWeight: 800,
                     letterSpacing: "-0.02em",
                     lineHeight: 1.1,
@@ -1204,7 +1719,7 @@ export default function BriefingRoomClient({
                   style={{ background: GREEN, borderColor: GREEN, color: "#062012" }}
                   disabled={control.busy || holdMs > 0}
                   aria-busy={pending === startKey}
-                  onClick={() => ask("Start video", () => onStart(false))}
+                  onClick={() => ask("Start video", state.heatNumber, () => onStart(false))}
                 >
                   {pending === startKey ? (
                     <span className="brc-spin" aria-hidden />
@@ -1219,7 +1734,7 @@ export default function BriefingRoomClient({
                   className="brc-btn brc-btn-ghost"
                   disabled={control.busy}
                   aria-busy={pending === startKey}
-                  onClick={() => ask("Play the video again", () => onStart(true))}
+                  onClick={() => ask("Play the video again", state.heatNumber, () => onStart(true))}
                 >
                   {pending === startKey ? (
                     <span className="brc-spin" aria-hidden />
@@ -1229,6 +1744,11 @@ export default function BriefingRoomClient({
                   Play the video again
                 </button>
               )}
+              {/* Keeps this panel's footer on the same baseline as Holding's,
+                  whose button carries a reason line. */}
+              <p className="brc-why" style={{ color: "transparent" }}>
+                ·
+              </p>
             </>
           )}
         </section>
@@ -1248,14 +1768,7 @@ export default function BriefingRoomClient({
           }}
           aria-label="Holding"
         >
-          <p
-            style={{
-              fontSize: 12,
-              fontWeight: 800,
-              letterSpacing: "0.12em",
-              color: holdingFull ? DANGER : PORTAL_DARK.muted,
-            }}
-          >
+          <p className="brc-head" style={holdingFull ? { color: DANGER } : undefined}>
             HOLDING · {room.toUpperCase()}
           </p>
 
@@ -1352,103 +1865,20 @@ export default function BriefingRoomClient({
           <div style={{ flex: 1 }} />
 
           {/**
-           * THE FILM, REPEATED WHERE THE HAND IS (owner 2026-08-15: "Also show
-           * video status in there please").
+           * THE FILM USED TO BE RESTATED HERE — a status line, a countdown and a
+           * progress bar of its own (owner 2026-08-15: "Also show video status in
+           * there please"). That was right at the time: the room panel's clock is
+           * on the far side of the screen, and "can I move them yet" is asked with
+           * a finger over THIS button.
            *
-           * The room panel on the left already carries the film's own clock, but
-           * that is the wrong side of the screen at the moment that matters — the
-           * question "can I move them yet" is asked with a finger over THIS
-           * button, and an answer three feet away goes unread. So the state is
-           * restated here, small, in the panel it governs.
-           *
-           * Same `timeline` arithmetic as the wall and the left panel, never a
-           * second derivation: the bar, the film and this line cannot disagree.
+           * It is not right any more. With the session rail added down the side
+           * the film was being told three times at once (owner 2026-08-16: "why
+           * show safety video playing twice"), and the third telling was the one
+           * that had another copy two inches away. So the box is gone and its one
+           * irreplaceable part — the exact time left, where the hand is — moved
+           * into the refusal line under the button, which had to say something
+           * anyway. Same `timeline` arithmetic, still never a second derivation.
            */}
-          {state && (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 8,
-                padding: "12px 14px",
-                borderRadius: 12,
-                background: PORTAL_DARK.hover,
-                border: `1px solid ${PORTAL_DARK.border}`,
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  justifyContent: "space-between",
-                  gap: 10,
-                }}
-              >
-                <span
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    fontSize: 15,
-                    fontWeight: 800,
-                    color: phase === "video" ? AMBER : phase === "helmet" ? GREEN : AMBER,
-                  }}
-                >
-                  {phase === "video" ? (
-                    <IconPlayerPlayFilled size={15} aria-hidden />
-                  ) : phase === "helmet" ? (
-                    <IconCircleCheckFilled size={16} aria-hidden />
-                  ) : (
-                    <IconAlertTriangleFilled size={15} aria-hidden />
-                  )}
-                  {phase === "video"
-                    ? "Safety video playing"
-                    : phase === "helmet"
-                      ? "Safety video complete"
-                      : phase === "waiting"
-                        ? "Briefing not started"
-                        : "Assignment timed out"}
-                </span>
-                {phase === "video" && (
-                  <span className="brc-num" style={{ fontSize: 22, fontWeight: 800, color: AMBER }}>
-                    {clock(timeline.nextInMs ?? 0)}
-                    <span style={{ fontSize: 11, fontWeight: 700, color: PORTAL_DARK.muted }}>
-                      {" "}
-                      LEFT
-                    </span>
-                  </span>
-                )}
-              </div>
-              {phase === "video" && (
-                <div
-                  style={{
-                    height: 8,
-                    borderRadius: 999,
-                    background: PORTAL_DARK.muted2,
-                    overflow: "hidden",
-                  }}
-                  role="progressbar"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={
-                    timeline.videoMs > 0
-                      ? Math.round((timeline.videoOffsetMs / timeline.videoMs) * 100)
-                      : 0
-                  }
-                  aria-label="Safety video progress"
-                >
-                  <div
-                    style={{
-                      height: "100%",
-                      width: `${timeline.videoMs > 0 ? Math.min(100, (timeline.videoOffsetMs / timeline.videoMs) * 100) : 0}%`,
-                      background: AMBER,
-                      transition: "width 1s linear",
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-          )}
 
           {/* THE SECOND PRESS. Inert with its reason on it rather than failing
               on push — see the header. */}
@@ -1459,13 +1889,12 @@ export default function BriefingRoomClient({
               background: canSendToHolding ? GREEN : PORTAL_DARK.muted2,
               borderColor: canSendToHolding ? GREEN : PORTAL_DARK.border,
               color: canSendToHolding ? "#062012" : PORTAL_DARK.fg,
-              fontSize: 23,
             }}
             disabled={!canSendToHolding || control.busy || board?.enabled === false}
             aria-busy={pending === `holding:${room}`}
             onClick={() => {
               if (!state) return;
-              ask("Send to holding", () =>
+              ask("Send to holding", state.heatNumber, () =>
                 sendToHoldingCb({
                   room,
                   track: state.track,
@@ -1484,31 +1913,54 @@ export default function BriefingRoomClient({
             Send to holding
           </button>
 
-          {/* WHY IT IS INERT. Never a silent dead button: either there is nobody
-              to send, or somebody is in the way and this says who. */}
-          {!state && (
-            <p style={{ fontSize: 14, color: PORTAL_DARK.muted, textAlign: "center" }}>
-              Nobody is in this room to send.
-            </p>
-          )}
-          {/* The banner above says THAT it is full; this says WHO is in the way
-              and what to do about it. No second warning triangle — the headline
-              already carries one, and two on one panel read as two problems. */}
-          {state && verdict && !verdict.ok && (
-            <p style={{ fontSize: 14, fontWeight: 700, color: DANGER }}>{verdict.error}</p>
-          )}
-          {/* THE FILM'S REFUSAL, and only when the seats are not ALSO the problem
-              — two red sentences under one dead button is a puzzle, not an
-              explanation. The panel above already shows the clock, so this says
-              the one thing it does not: what to do about it. */}
-          {state && verdict?.ok && !briefingReady.ok && (
-            <p style={{ fontSize: 14, fontWeight: 700, color: AMBER }}>
-              {briefingReady.reason === "video-playing"
-                ? "The safety video is still playing — they cannot go to the seats until it has finished."
-                : "Roll the film first. This group has not had the safety briefing yet."}
-            </p>
-          )}
+          {/**
+           * WHY IT IS INERT — one line, always rendered, so the footer never
+           * shifts and the panel opposite keeps its baseline. Never a silent dead
+           * button: either there is nobody to send, or somebody is in the way and
+           * this says who.
+           *
+           * ONE SENTENCE, NOT TWO. The seats and the film are both refusals and
+           * both used to print; two coloured sentences under one dead button is a
+           * puzzle rather than an explanation, so the seats win — they are the
+           * one a staff member has to do something about — and the film's line
+           * appears only when the seats are clear.
+           *
+           * THE FILM'S LINE CARRIES THE CLOCK now that the box above it is gone:
+           * the exact time left, in the panel the button lives in.
+           */}
+          <p
+            className="brc-why"
+            style={{
+              color: !state
+                ? PORTAL_DARK.muted
+                : verdict && !verdict.ok
+                  ? DANGER
+                  : !briefingReady.ok
+                    ? AMBER
+                    : "transparent",
+            }}
+            role="status"
+          >
+            {!state
+              ? "Nobody is in this room to send."
+              : verdict && !verdict.ok
+                ? verdict.error
+                : !briefingReady.ok
+                  ? briefingReady.reason === "video-playing"
+                    ? `${clock(timeline.nextInMs ?? 0)} of the safety video left — they cannot go to the seats until it finishes.`
+                    : "Roll the film first. This group has not had the safety briefing yet."
+                  : "·"}
+          </p>
         </section>
+
+        {/* ── WHERE EACH SESSION IS ────────────────────────────────── */}
+        <StageRail
+          rows={railRows}
+          accent={accent}
+          // The heat this screen's button is about — the one being pulled while
+          // the room is empty, otherwise the group in the room.
+          markHeat={state?.heatNumber ?? incomingRace?.heatNumber ?? null}
+        />
       </div>
 
       {/* The action receipt — the hook's own note, which is also where a server
@@ -1531,7 +1983,7 @@ export default function BriefingRoomClient({
       {challenge && (
         <HeatPrompt
           label={challenge.label}
-          heatNumber={state?.heatNumber ?? null}
+          heatNumber={challenge.code}
           onPass={() => {
             // Closed BEFORE the action runs, so the screen is already back on the
             // room when the button's own spinner appears.

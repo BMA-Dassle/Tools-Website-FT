@@ -86,12 +86,15 @@ import { useTrackStatus, type CurrentRace, type TrackInfo } from "@/hooks/useTra
 import { PORTAL_DARK } from "~/components/features/admin-skin/theme";
 import { briefingTimelineAt, type BriefingTimeline } from "~/features/signage/briefing/phase";
 import {
+  resolveFilmTier,
   tierForRaceType,
   type BriefingPhase,
   type BriefingRoom,
   type BriefingRoomState,
   type BriefingTier,
 } from "~/features/signage/briefing/types";
+import { pullIsLate } from "~/features/signage/briefing/pull-to-room";
+import { punctuality } from "~/features/signage/track-delay";
 import { liveHeatNumber } from "~/features/signage/briefing/room-return";
 import {
   checkinAlert,
@@ -474,6 +477,9 @@ export default function RaceControlPanels({
               delay={findDelay(status?.trackStatus.tracks, track)}
               status={board?.rooms.find((r) => r.room === room) ?? null}
               proFilmMissing={!board?.videos.pro}
+              // The uploaded films, so the late-send warning can quote the length
+              // of the one this heat will actually get rather than an average.
+              videos={board?.videos ?? null}
               // Once a session has gone to EITHER room it leaves the Called boxes
               // (owner 2026-08-11: "once a session is moved to the room it should
               // clear from these top boxes"). It is no longer waiting to be sent, so
@@ -1123,6 +1129,7 @@ function RoomColumn({
   delay,
   status,
   proFilmMissing,
+  videos,
   nowMs,
   checkinWindowMins,
   sentTo,
@@ -1150,6 +1157,7 @@ function RoomColumn({
   status: RoomStatus | null;
   /** No Pro film uploaded — a Pro pick will play the Intermediate film. */
   proFilmMissing: boolean;
+  videos: BoardStatus["videos"] | null;
   nowMs: number;
   /** This track's check-in window, from the track board's own config. 0 = not
    *  known yet (or the countdown is off), which raises no alert. */
@@ -1224,7 +1232,29 @@ function RoomColumn({
 
   const calledMs = race?.calledAt ? Date.parse(race.calledAt) : NaN;
   const checkingInMs = Number.isFinite(calledMs) ? Math.max(0, nowMs - calledMs) : null;
-  const delayMins = delay?.delayMinutes ?? null;
+  /** ON TIME / n BEHIND / no reading — see the chip in the identity row. */
+  const punctual = punctuality(delay);
+
+  /**
+   * IS A SEND GOING IN LATE (owner 2026-08-16: "add a warning to check in board
+   * and this board we try to pull to room with under 5 minutes").
+   *
+   * The same rule and the same five minutes as the room tablet's pull, from the
+   * same pure module — the two boards must not disagree about whether a group is
+   * being fetched too late, since either of them can be the one doing it.
+   *
+   * A WARNING, NEVER A REFUSAL. With the group already at the desk, sending late
+   * usually still beats not sending; what it must not do is happen unnoticed.
+   */
+  const sendLate = pullIsLate({
+    remainingMs: liveClock?.remainingMs ?? null,
+    pitInOccupied: !!lane?.pitIn,
+    onTrack: !!liveClock || !!lane?.racing,
+  });
+  /** The film this heat will ACTUALLY get, and how long it runs — the second
+   *  number the warning needs. Resolved through the Pro→Intermediate fallback so
+   *  it quotes the film the room will really play. Null when none is uploaded. */
+  const sendFilmMs = videos?.[resolveFilmTier(tier, (t) => !!videos?.[t]?.url)]?.durationMs ?? null;
 
   /**
    * THE TWO DEADLINES THIS PANEL IS RESPONSIBLE FOR (owner 2026-08-12).
@@ -1362,6 +1392,60 @@ function RoomColumn({
           {cap(room).toUpperCase()} ROOM
         </strong>
         <span style={{ fontSize: 11, color: PORTAL_DARK.muted }}>{cap(track)} Track</span>
+        {/**
+         * IS THIS TRACK RUNNING TO TIME (owner 2026-08-16: "add on time and not
+         * on time here please on check in board").
+         *
+         * It was already on the board, in the least readable place available: as
+         * the unit line under a number in the Called box, which only renders
+         * while a heat is waiting to be sent. So for most of a shift the board
+         * said nothing about whether the night was on schedule, and when it did
+         * it said it in 10px grey.
+         *
+         * IT LIVES IN THE IDENTITY ROW because that row is always there — the
+         * Called box comes and goes with the heats — and because it belongs
+         * beside the on-track clock, which is the other fact about how this
+         * track is running.
+         *
+         * AND UNKNOWN IS NOT ON TIME. The old line read a track missing from the
+         * feed as punctual; `punctuality` gives that its own verdict, so a board
+         * that cannot see a track says so rather than vouching for it.
+         */}
+        <span
+          style={{
+            marginLeft: liveClock ? undefined : "auto",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "3px 10px",
+            borderRadius: 999,
+            fontSize: 11,
+            fontWeight: 800,
+            letterSpacing: "0.04em",
+            background:
+              punctual.state === "late"
+                ? withAlpha(AMBER, 0.16)
+                : punctual.state === "on-time"
+                  ? withAlpha(GREEN, 0.14)
+                  : "transparent",
+            border: `1px solid ${
+              punctual.state === "late"
+                ? withAlpha(AMBER, 0.55)
+                : punctual.state === "on-time"
+                  ? withAlpha(GREEN, 0.45)
+                  : PORTAL_DARK.border
+            }`,
+            color:
+              punctual.state === "late"
+                ? AMBER
+                : punctual.state === "on-time"
+                  ? GREEN
+                  : PORTAL_DARK.muted,
+          }}
+          title="How far behind schedule this track is running, from the venue's own delay figure"
+        >
+          {punctual.state === "unknown" ? "NO DELAY READING" : punctual.label.toUpperCase()}
+        </span>
         {liveClock && (
           <span
             className="rc-num"
@@ -1446,13 +1530,47 @@ function RoomColumn({
                   }
                 />
               )}
-              <Stat
-                label="Track delay"
-                value={delayMins != null ? (delayMins > 0 ? `+${delayMins}` : "0") : "—"}
-                unit={delayMins && delayMins > 0 ? "min behind" : "on time"}
-                tone={delayMins && delayMins > 0 ? AMBER : undefined}
-              />
+              {/* TRACK DELAY MOVED TO THE IDENTITY ROW as an ON TIME / n BEHIND
+                  chip — it is a fact about the track, not about this heat, and
+                  down here it only existed while a heat happened to be waiting.
+                  See the chip above. */}
             </div>
+
+            {/* PULLING LATE — the same rule and the same five minutes the room
+                tablets run (pull-to-room.ts), so the two boards cannot disagree
+                about whether a group is being fetched too late. Amber, never
+                red: red on this board means a missed deadline that costs a race,
+                and a late send costs minutes. */}
+            {sendLate && (
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "flex-start",
+                  padding: "7px 10px",
+                  borderRadius: 8,
+                  background: withAlpha(AMBER, 0.12),
+                  border: `1px solid ${withAlpha(AMBER, 0.55)}`,
+                }}
+                role="status"
+              >
+                <IconAlertTriangleFilled
+                  size={14}
+                  style={{ flexShrink: 0, color: AMBER, marginTop: 2 }}
+                  aria-hidden
+                />
+                <span style={{ fontSize: 12, lineHeight: 1.4 }}>
+                  <b style={{ color: AMBER }}>
+                    {liveClock && liveClock.remainingMs > 0
+                      ? `${liveHeatNow != null ? `Session ${liveHeatNow}` : "The race"} ends in ${formatRemaining(liveClock.remainingMs)}.`
+                      : "The track is waiting."}
+                  </b>{" "}
+                  {sendFilmMs
+                    ? `The ${tier} film runs ${formatClock(sendFilmMs)} — send now and the track waits on the room.`
+                    : "Send now and the film will still be running when the seats are wanted."}
+                </span>
+              </div>
+            )}
 
             <div
               style={{
@@ -1509,8 +1627,12 @@ function RoomColumn({
                   }}
                 >
                   <ActionButton
-                    tone={occupied ? AMBER : color}
+                    // Late reads amber the same way an occupied room does — the
+                    // press is still yours to make, and the colour is the pause
+                    // before you make it.
+                    tone={occupied || sendLate ? AMBER : color}
                     outline={occupied}
+                    textColor={sendLate && !occupied ? "#1c1204" : undefined}
                     size="md"
                     pendingKey={`send:${room}`}
                     pending={pending}
@@ -1530,7 +1652,11 @@ function RoomColumn({
                       onSend();
                     }}
                   >
-                    {occupied ? "Replace" : `Send to ${cap(room)} →`}
+                    {occupied
+                      ? "Replace"
+                      : sendLate
+                        ? `Send to ${cap(room)} anyway →`
+                        : `Send to ${cap(room)} →`}
                   </ActionButton>
                 </span>
               )}

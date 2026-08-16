@@ -33,7 +33,7 @@ import { withAlpha } from "../color";
 import { LiveSessionChip, useLiveSessionClock } from "../live-session";
 import { useRaceClockForRace } from "~/features/racing/use-race-clocks";
 import { liveHeatNumber } from "../briefing/room-return";
-import { briefingTimelineAt } from "../briefing/phase";
+import { buildStageRail } from "../briefing/stage-rail";
 import {
   TRACK_ACCENTS,
   TRACK_LABELS,
@@ -310,119 +310,34 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
    * hands it on at the green flag (lane.server.ts). Its own column rather than
    * the detail slot, because the two say different things: the type is what the
    * session IS, the detail is what it is DOING.
+   *
+   * THE RULES MOVED OUT, THE SCREEN DID NOT CHANGE (2026-08-16). The in-room
+   * briefing tablet now asks this same question down its side, and two takes on
+   * "where is everyone" would let the wall the racers read and the tablet the
+   * staff hold describe one night differently. So the ordering, the
+   * one-session-per-stage rule and every sentence live in
+   * briefing/stage-rail.ts, and both call it. The extras that builder accepts —
+   * a clock formatter, the desk's check-in count — are deliberately NOT passed
+   * here: without them every row renders exactly the words this wall has always
+   * shown, so nothing a guest sees moved.
    */
-  const idleStages = useMemo(() => {
-    const rooms = feed?.briefingRooms ?? null;
-    const called = status?.currentRaces?.[track] ?? null;
-    const out: Array<{ label: string; value: string; type?: string; detail?: string }> = [];
-
-    /**
-     * A SESSION OCCUPIES EXACTLY ONE STAGE — the same rule the briefing API
-     * enforces when Override places a session (see vacateSessionElsewhere).
-     *
-     * The called record is Pandora's, and Pandora keeps it for roughly twenty
-     * minutes after the call — long after the group has been briefed, seated
-     * and sent out. Rendered raw, that put one heat in two places at once:
-     * owner 2026-08-14, live, "it's showing GF starter called, they're already
-     * racing", with session 18 sitting in Called and Holding simultaneously.
-     *
-     * So a heat that has demonstrably moved on is not still "called". Matched
-     * on the heat number because that is what every stage on this board
-     * displays, and blanking is the honest answer — the next call will fill it.
-     */
-    const downstreamHeats = new Set<number>();
-    for (const room of track === "mega" ? (["red", "blue"] as const) : ([track] as const)) {
-      const h = rooms?.[room as "red" | "blue"]?.heatNumber;
-      if (typeof h === "number") downstreamHeats.add(h);
-    }
-    if (typeof lane.holding?.heatNumber === "number") downstreamHeats.add(lane.holding.heatNumber);
-    // In karts counts as moved on for exactly the same reason the other two do:
-    // a group sitting in their karts is not still "called", and leaving it out
-    // would put one heat in two rows the moment the pre-race cue plays.
-    if (typeof lane.karts?.heatNumber === "number") downstreamHeats.add(lane.karts.heatNumber);
-    if (typeof lane.racing?.heatNumber === "number") downstreamHeats.add(lane.racing.heatNumber);
-    if (typeof lane.pitIn?.heatNumber === "number") downstreamHeats.add(lane.pitIn.heatNumber);
-    const calledMovedOn = called?.heatNumber != null && downstreamHeats.has(called.heatNumber);
-
-    out.push({
-      label: "Called",
-      value: called?.heatNumber != null && !calledMovedOn ? `Session ${called.heatNumber}` : "—",
-      type: calledMovedOn ? undefined : (called?.raceType ?? undefined),
-    });
-
-    // On a Mega day one circuit is served by both rooms, so both are ours.
-    const ourRooms: Array<"red" | "blue"> =
-      track === "mega" ? ["red", "blue"] : track === "red" ? ["red"] : ["blue"];
-    let briefingValue = "—";
-    let briefingType: string | undefined;
-    let briefingDetail: string | undefined;
-    for (const room of ourRooms) {
-      const state = rooms?.[room] ?? null;
-      if (!state?.sessionId) continue;
-      const t = briefingTimelineAt(state, feed?.now ?? Date.now());
-      if (t.phase === "idle") continue;
-      briefingValue = state.heatNumber != null ? `Session ${state.heatNumber}` : "In a room";
-      // The room's own level, NOT its tier: a Pro session with no Pro film
-      // plays the Intermediate one, and `tier` would tell a Pro grid they are
-      // in an Intermediate race (see BriefingRoomState.raceType).
-      briefingType = state.raceType ?? undefined;
-      briefingDetail =
-        t.phase === "video" && t.nextInMs != null
-          ? `${Math.max(1, Math.ceil(t.nextInMs / 60_000))} min of film left`
-          : t.phase === "helmet"
-            ? "helmets — ready to send"
-            : "waiting to start";
-      break;
-    }
-    out.push({
-      label: "Briefing",
-      value: briefingValue,
-      type: briefingType,
-      detail: briefingDetail,
-    });
-
-    out.push({
-      label: "Holding",
-      value: lane.holding?.heatNumber != null ? `Session ${lane.holding.heatNumber}` : "—",
-      type: lane.holding?.raceType ?? undefined,
-      detail: lane.holding ? "in the seats" : undefined,
-    });
-
-    // The stage between the seats and the green flag — filled when the pit
-    // station plays the pre-race cue (pit/audio.server.ts). Skippable, so this
-    // row reads "—" all evening on a night the PA never plays.
-    out.push({
-      label: "In karts",
-      value: lane.karts?.heatNumber != null ? `Session ${lane.karts.heatNumber}` : "—",
-      type: lane.karts?.raceType ?? undefined,
-      detail: lane.karts ? "seated — waiting on the green" : undefined,
-    });
-
-    const onTrackHeat =
-      lane.racing?.heatNumber ?? (liveClock ? liveHeatNumber(liveClock.heatName) : null);
-    out.push({
-      label: "On track",
-      value: onTrackHeat != null ? `Session ${onTrackHeat}` : "—",
-      // Only from the lane. When the heat number came from the timing socket
-      // instead, the socket knows a heat NAME and nothing about levels — and a
-      // type printed beside a session the lane cannot vouch for would be a
-      // guess about the group in front of the screen.
-      type: lane.racing?.raceType ?? undefined,
-      detail: liveClock?.counting ? "racing" : undefined,
-    });
-
-    // Back in the lane with their announcement owed. The last stage of the
-    // journey, and the one a group used to vanish from when the next race went
-    // out — see PitLaneFeed.pitIn.
-    out.push({
-      label: "Pit in",
-      value: lane.pitIn?.heatNumber != null ? `Session ${lane.pitIn.heatNumber}` : "—",
-      type: lane.pitIn?.raceType ?? undefined,
-      detail: lane.pitIn ? "karts in — waiting on post-race" : undefined,
-    });
-
-    return out;
-  }, [feed?.briefingRooms, feed?.now, status?.currentRaces, track, lane, liveClock]);
+  const idleStages = useMemo(
+    () =>
+      buildStageRail({
+        called: status?.currentRaces?.[track] ?? null,
+        // On a Mega night both rooms serve the one circuit, so both are ours.
+        rooms: (track === "mega" ? (["red", "blue"] as const) : ([track] as const)).map(
+          (r) => feed?.briefingRooms?.[r as "red" | "blue"] ?? null,
+        ),
+        lane,
+        // The pulse's own stamp when it has one, else the scene's ticking clock
+        // — never Date.now() in render, which is impure and was flagged as such.
+        nowMs: feed?.now ?? nowMs,
+        liveHeatNumber: liveClock ? liveHeatNumber(liveClock.heatName) : null,
+        liveCounting: liveClock?.counting === true,
+      }),
+    [feed?.briefingRooms, feed?.now, nowMs, status?.currentRaces, track, lane, liveClock],
+  );
 
   const delay = findDelay(status?.trackStatus.tracks, track);
 
