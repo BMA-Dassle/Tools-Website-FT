@@ -249,12 +249,10 @@ function Row({
   d,
   compact,
   fastestName,
-  targetLevel,
 }: {
   d: ResultsBoardDriver;
   compact: boolean;
   fastestName: string | null;
-  targetLevel: string | null;
 }) {
   const c = compact ? COLS_WIDE : COLS_NARROW;
   const isFastest = fastestName !== null && d.name === fastestName;
@@ -307,23 +305,11 @@ function Row({
       >
         {d.name}
       </div>
-      {d.qualified && targetLevel && (
-        <div
-          style={{
-            flex: "0 0 auto",
-            fontSize: compact ? 17 : 20,
-            fontWeight: 800,
-            letterSpacing: "0.12em",
-            textTransform: "uppercase",
-            color: "#04140c",
-            background: GEL,
-            padding: compact ? "4px 10px" : "5px 13px",
-            borderRadius: 999,
-          }}
-        >
-          {targetLevel}
-        </div>
-      )}
+      {/* NO PER-ROW LEVEL PILL. On a Starter grid nearly everybody qualifies —
+          the first live board showed nine identical "INTERMEDIATE" pills down
+          one column (owner 2026-08-15: "that's a lot"). A word repeated on
+          every row carries no information; the green rule and tint already say
+          who qualified, and the panel beside it names them. */}
       <div
         className="tv-num"
         style={{
@@ -357,25 +343,17 @@ function Standings({
   drivers,
   compact,
   fastestName,
-  targetLevel,
 }: {
   drivers: ResultsBoardDriver[];
   compact: boolean;
   fastestName: string | null;
-  targetLevel: string | null;
 }) {
   return (
     <div style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column" }}>
       <StandingsHead compact={compact} />
       <div style={{ display: "flex", flexDirection: "column", gap: 7, flex: "1 1 auto" }}>
         {drivers.map((d) => (
-          <Row
-            key={`${d.position}-${d.name}`}
-            d={d}
-            compact={compact}
-            fastestName={fastestName}
-            targetLevel={targetLevel}
-          />
+          <Row key={`${d.position}-${d.name}`} d={d} compact={compact} fastestName={fastestName} />
         ))}
       </div>
     </div>
@@ -411,7 +389,6 @@ function NarrowBoard({ view, venue }: { view: ResultsBoardView; venue: SignageVe
           drivers={view.drivers}
           compact={false}
           fastestName={view.fastest?.name ?? null}
-          targetLevel={view.target?.level ?? null}
         />
         <QualifyPanel view={view} />
       </div>
@@ -460,15 +437,26 @@ function QualifyPanel({ view }: { view: ResultsBoardView }) {
   );
 }
 
-/** How big the name cards can be, given how many there are. Same idea as the
- *  briefing board's pillScale: a panel that fits two names must not overflow
- *  on the night eight people qualify at once. */
-function cardScale(count: number): { name: number; time: number; padY: number; gap: number } {
-  if (count <= 2) return { name: 39, time: 37, padY: 16, gap: 14 };
-  if (count <= 4) return { name: 33, time: 31, padY: 12, gap: 11 };
-  if (count <= 6) return { name: 28, time: 26, padY: 9, gap: 9 };
-  if (count <= 9) return { name: 24, time: 22, padY: 7, gap: 7 };
-  return { name: 21, time: 19, padY: 5, gap: 6 };
+/**
+ * How the qualified names are laid out, given how many there are.
+ *
+ * TWO COLUMNS ABOVE SIX, and that is the actual fix for the clipped panel the
+ * owner hit on the first live board (Blue Starter, heat 53: NINE of ten
+ * qualified and the ninth name was sliced in half). A single column of nine,
+ * plus a subtitle that wraps to two lines, overflows the panel by a few pixels
+ * — and shrinking the type to fix that just moves the cliff to ten. Halving
+ * the row count is what actually holds, and a Starter grid where nearly
+ * everybody clears the time is the NORMAL case here, not the edge.
+ *
+ * Same discipline as the briefing board's pillScale: sized for the worst grid,
+ * not the emptiest one.
+ */
+function nameScale(count: number): { font: number; padY: number; gap: number; cols: number } {
+  if (count <= 3) return { font: 38, padY: 15, gap: 13, cols: 1 };
+  if (count <= 6) return { font: 31, padY: 11, gap: 10, cols: 1 };
+  if (count <= 10) return { font: 29, padY: 10, gap: 9, cols: 2 };
+  if (count <= 16) return { font: 25, padY: 8, gap: 8, cols: 2 };
+  return { font: 21, padY: 6, gap: 6, cols: 2 };
 }
 
 function PanelHead({
@@ -494,7 +482,7 @@ function PanelHead({
 }
 
 function MovedUpPanel({ view }: { view: ResultsBoardView }) {
-  const scale = cardScale(view.qualified.length);
+  const scale = nameScale(view.qualified.length);
   const level = view.target?.level ?? "";
   return (
     <>
@@ -513,11 +501,17 @@ function MovedUpPanel({ view }: { view: ResultsBoardView }) {
           </>
         }
       />
+      {/* NAMES ONLY (owner 2026-08-15). Each racer's time is already in the
+          standings a few inches to the left, on the same row as their position
+          and kart — repeating it here bought nothing and cost the width that
+          was making long names ellipsise. What this panel is FOR is the list of
+          who moved up, and a name is the whole of that. */}
       <div
         style={{
-          display: "flex",
-          flexDirection: "column",
+          display: "grid",
+          gridTemplateColumns: `repeat(${scale.cols}, minmax(0, 1fr))`,
           gap: scale.gap,
+          alignContent: "start",
           minHeight: 0,
           overflow: "hidden",
         }}
@@ -528,32 +522,17 @@ function MovedUpPanel({ view }: { view: ResultsBoardView }) {
             style={{
               background: withAlpha(GEL, 0.15),
               border: `2px solid ${withAlpha(GEL, 0.5)}`,
-              borderRadius: 16,
-              padding: `${scale.padY}px 22px`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 16,
+              borderRadius: 14,
+              padding: `${scale.padY}px 18px`,
+              fontSize: scale.font,
+              fontWeight: 650,
+              minWidth: 0,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
             }}
           >
-            <div
-              style={{
-                fontSize: scale.name,
-                fontWeight: 650,
-                minWidth: 0,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {d.name}
-            </div>
-            <div
-              className="tv-num"
-              style={{ fontSize: scale.time, fontWeight: 800, color: GEL, flex: "0 0 auto" }}
-            >
-              {d.bestMs === null ? "" : formatLap(d.bestMs)}
-            </div>
+            {d.name}
           </div>
         ))}
       </div>
@@ -787,7 +766,6 @@ function WideBoard({ view, venue }: { view: ResultsBoardView; venue: SignageVenu
   const left = view.drivers.slice(0, half);
   const right = view.drivers.slice(half);
   const fastestName = view.fastest?.name ?? null;
-  const targetLevel = view.target?.level ?? null;
 
   return (
     <div style={{ position: "absolute", inset: 0, background: "#000418" }}>
@@ -812,15 +790,8 @@ function WideBoard({ view, venue }: { view: ResultsBoardView; venue: SignageVenu
         }}
       >
         <div style={{ display: "flex", gap: 30, flex: "1 1 auto", minHeight: 0 }}>
-          <Standings drivers={left} compact fastestName={fastestName} targetLevel={targetLevel} />
-          {right.length > 0 && (
-            <Standings
-              drivers={right}
-              compact
-              fastestName={fastestName}
-              targetLevel={targetLevel}
-            />
-          )}
+          <Standings drivers={left} compact fastestName={fastestName} />
+          {right.length > 0 && <Standings drivers={right} compact fastestName={fastestName} />}
         </div>
         <QualifyBand view={view} />
       </div>

@@ -324,25 +324,46 @@ function demoResults(feed: TvFeed, mode: DemoMode, nowMs: number): ResultsBoardV
     "Trey Bannister",
   ];
 
-  // Lap times are built around each track's REAL cutoffs so the split lands
-  // where the preview claims it does.
-  const base = track === "mega" ? 63_000 : track === "red" ? 46_500 : 32_000;
-  const step = track === "mega" ? 2_400 : 900;
+  // Lap times are built around each track's REAL cutoff so the split lands
+  // where the preview claims it does — the fixture never hardcodes who
+  // qualified, it hands plausible times to the real rule and lets
+  // buildResultsView decide. Which cutoff applies depends on the RACE TYPE
+  // below, not just the track: a "Mega Intermediate" grid is chasing Pro
+  // (1:08.5), so Starter-paced laps there would demo nobody qualifying.
+  const step = track === "mega" ? 900 : 300;
+  const word = track === "mega" ? "Mega" : track === "red" ? "Red" : "Blue";
 
-  let count = 11;
-  let heatName = `59 - ${track === "mega" ? "Mega" : track === "red" ? "Red" : "Blue"} Intermediate`;
+  /**
+   * A STARTER GRID WHERE MOST OF THEM CLEAR THE TIME — because that is the
+   * ordinary night, not an edge case. The first live board was Blue Starter
+   * heat 53 with NINE of ten qualifying, and it clipped the panel; the previous
+   * fixture put one name in that panel and so proved nothing about it. A
+   * preview whose numbers are gentler than reality is a preview that hides the
+   * bug it exists to catch.
+   */
+  let count = 10;
+  let heatName = `53 - ${word} Starter`;
   let offset = 0;
+  // Starter pace: comfortably inside the Starter→Intermediate cutoff at the
+  // front of the grid, drifting past it at the back.
+  let base = track === "mega" ? 83_000 : track === "red" ? 43_700 : 38_700;
 
   if (mode === "results-none") {
-    // Everybody a little over the line — the "so close" board.
-    offset = step;
+    // Everybody just over the line — the "so close" board.
+    offset = track === "mega" ? 6_000 : 2_800;
     count = 8;
   } else if (mode === "results-pro") {
-    heatName = `61 - ${track === "mega" ? "Mega" : track === "red" ? "Red" : "Blue"} Pro`;
+    heatName = `61 - ${word} Pro`;
     count = 7;
+    // Pro pace. No target exists on this grid, but a Pro board showing
+    // Starter lap times would look wrong beside the real thing.
+    base = track === "mega" ? 64_000 : track === "red" ? 35_500 : 31_000;
   } else if (mode === "results-mega") {
     heatName = "66 - Mega Intermediate";
     count = 20;
+    // An INTERMEDIATE grid chases Pro (1:08.5) — so these are Pro-paced laps,
+    // not the Starter pace above, or the band would demo nobody qualifying.
+    base = 64_000;
   }
 
   const drivers = pool.slice(0, count).map((name, i) => ({
@@ -358,7 +379,7 @@ function demoResults(feed: TvFeed, mode: DemoMode, nowMs: number): ResultsBoardV
   return buildResultsView({
     track,
     sessionId: "demo",
-    heatNumber: mode === "results-pro" ? 61 : mode === "results-mega" ? 66 : 59,
+    heatNumber: mode === "results-pro" ? 61 : mode === "results-mega" ? 66 : 53,
     heatName,
     endedAtMs: nowMs - 90_000,
     drivers,
