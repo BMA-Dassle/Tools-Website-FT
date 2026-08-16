@@ -933,13 +933,13 @@ const WELCOME_AUDIO_MAX_MS = 2 * 60_000;
  * play failure is swallowed: a TV whose browser refuses autoplay shows the
  * board silently.
  */
-function useWelcomeBackAudio(url: string | null, endedAtMs: number, roomEmpty: boolean): void {
+function useWelcomeBackAudio(url: string | null, endedAtMs: number, armed: boolean): void {
   // When THIS race's greeting first became allowed to sound. A ref, so a
   // re-render cannot restart the window; keyed on the end stamp, so a new
   // race's board opens a fresh window instead of inheriting a spent one.
   const armedRef = useRef<{ ended: number; atMs: number } | null>(null);
   useEffect(() => {
-    if (!url || !roomEmpty) return;
+    if (!url || !armed) return;
     if (armedRef.current?.ended !== endedAtMs) {
       armedRef.current = { ended: endedAtMs, atMs: Date.now() };
     }
@@ -963,7 +963,7 @@ function useWelcomeBackAudio(url: string | null, endedAtMs: number, roomEmpty: b
       el.pause();
       el.removeAttribute("src");
     };
-  }, [url, endedAtMs, roomEmpty]);
+  }, [url, endedAtMs, armed]);
 }
 
 function WelcomeBack({
@@ -979,6 +979,7 @@ function WelcomeBack({
     raceType: string | null;
     track: "blue" | "red" | "mega";
     endedAtMs: number;
+    postPlayedAtMs: number | null;
     audioUrl: string | null;
     results: {
       levelledUp: Array<{ name: string; bestMs: number }>;
@@ -990,7 +991,10 @@ function WelcomeBack({
    *  it. Gates the greeting AUDIO only; the board itself shows regardless. */
   roomEmpty: boolean;
 }) {
-  useWelcomeBackAudio(info.audioUrl, info.endedAtMs, roomEmpty);
+  // BOTH gates, together (owner 2026-08-15): the room must be empty AND this
+  // race's post must have been pressed — the post is what calls the group
+  // back in, so a greeting before it would welcome people still in the pit.
+  useWelcomeBackAudio(info.audioUrl, info.endedAtMs, roomEmpty && info.postPlayedAtMs != null);
   const target = nextLevelTarget(info.track, info.raceType);
   const results = info.results;
   // The name board only exists where qualification exists: no target (a Pro

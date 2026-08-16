@@ -504,10 +504,12 @@ function demoBriefingSection(feed: TvFeed, mode: DemoMode): TvFeed["briefing"] {
             heatNumber: 58,
             raceType: "Starter",
             track: "red",
-            // A fresh end, so a preview with the jingle uploaded also plays it
-            // (its 2-minute window is anchored here). No audio in previews
-            // otherwise — same silent board a room without the upload shows.
+            // A fresh end with post already called, so a preview with the
+            // jingle uploaded also plays it (its 2-minute window is anchored
+            // here). No audio in previews otherwise — same silent board a
+            // room without the upload shows.
             endedAtMs: Date.now(),
+            postPlayedAtMs: Date.now(),
             audioUrl: real?.welcomeBack?.audioUrl ?? null,
             // Fabricated split so the preview lays out the name board — laps
             // straddle the Red Starter→Intermediate cutoff (46.000).

@@ -515,6 +515,9 @@ export interface TvFeed {
        *  for the greeting audio's 2-minute cap, server-stamped so both room
        *  TVs and a mid-window reboot all stop at the same moment. */
       endedAtMs: number;
+      /** When this race's post-race cue played, null until it has — the
+       *  greeting audio waits for it (the post is what calls them back in). */
+      postPlayedAtMs: number | null;
       /** The welcome-back jingle (signage asset `welcome-back-audio`) — null
        *  until one is uploaded, and the board simply greets silently. */
       audioUrl: string | null;

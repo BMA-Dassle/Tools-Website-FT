@@ -41,6 +41,7 @@ import { loadOrCaptureResults } from "./race-results.server";
 import { readRaceFinishedMarker } from "./race-finish.server";
 import { splitByTarget } from "./results-frame";
 import { racingAgainAfter } from "../pit/back-to-back.server";
+import { readCueStamp } from "../pit/audio-stamps.server";
 import type { JoiningGroup } from "../pit/back-to-back";
 import type { BriefingRoom } from "./types";
 
@@ -58,6 +59,10 @@ export interface WelcomeBackInfo {
   track: "blue" | "red" | "mega";
   /** The timing system's own end stamp, ms — what opened the window. */
   endedAtMs: number;
+  /** When this race's POST-RACE cue played (pit/audio-stamps), null until it
+   *  has. The post is what CALLS the group back into the room, so the room
+   *  TV's greeting audio must not sound before it (owner 2026-08-15). */
+  postPlayedAtMs: number | null;
   /** Null when capture never landed — the board renders name-less, as before. */
   results: WelcomeBackResults | null;
   /**
@@ -230,6 +235,10 @@ export async function resolveWelcomeBack(
   // separate upstream, and one failing must not cost the other. Both fail soft.
   const racingAgain = await racingAgainAfter(subject.sessionId, Date.now()).catch(() => []);
 
+  // Has this race been CALLED BACK IN — the pit station's post press, whose
+  // stamp is session-keyed so it can only be about this group's own return.
+  const postStamp = await readCueStamp("post", subject.sessionId).catch(() => null);
+
   const target = nextLevelTarget(track, subject.raceType);
   const split = recorded ? splitByTarget(recorded.drivers, target?.ms ?? null) : null;
 
@@ -238,6 +247,7 @@ export async function resolveWelcomeBack(
     raceType: subject.raceType,
     track,
     endedAtMs: actualEndMs as number,
+    postPlayedAtMs: postStamp?.atMs ?? null,
     racingAgain,
     results: split
       ? {
