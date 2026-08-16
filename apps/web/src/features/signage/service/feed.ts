@@ -31,6 +31,8 @@ import {
 import { resolveScreenConfig } from "../defaults";
 import { trackFromResourceIds } from "../track";
 import { raceCheckinInfo } from "./race-checkin";
+import { megaModeActive } from "./mega-mode.server";
+import { dedupeGuideRows } from "../race-guide";
 import { checkinProgress } from "./checkin-progress";
 import { afterResponse } from "../after-response.server";
 import { nudgeStaySeated } from "../pit/audio.server";
@@ -168,11 +170,21 @@ export async function buildTvFeed(
     raceGuideEnabled() && config.raceGuide && config.playlist.some((p) => p.scene === "race-guide")
       ? config.raceGuide.tracks
       : [];
-  const resultsTrack = config.resultsBoard?.track ?? null;
+  const configuredResultsTrack = config.resultsBoard?.track ?? null;
   const wantsResults =
     resultsBoardEnabled() &&
-    resultsTrack !== null &&
+    configuredResultsTrack !== null &&
     config.playlist.some((p) => p.scene === "race-results");
+  // ON A MEGA DAY THE SCORES WALL FOLLOWS THE COMBINED CIRCUIT, server-side,
+  // no admin knob: a blue-configured wall would otherwise idle all night — its
+  // resource has no sessions when the barrier is out. The await is paid only
+  // by screens that actually show a results board, and megaModeActive() is
+  // false on every normal day (the mega carry key does not exist then), so
+  // the configured track flows through untouched.
+  const resultsTrack =
+    wantsResults && configuredResultsTrack !== "mega" && (await megaModeActive().catch(() => false))
+      ? ("mega" as const)
+      : configuredResultsTrack;
 
   const [
     raceCheckin,
@@ -362,6 +374,10 @@ async function buildGuideSection(
       ).catch(() => null);
       return {
         track,
+        // Carried TRANSIENTLY for dedupe below, stripped before the payload
+        // leaves — the feed serves walls in public spaces and carries no ids
+        // of any kind (see the TvFeed.raceGuide doc).
+        sessionId: info.sessionId,
         heatNumber: info.heatNumber,
         raceType: info.raceType,
         briefedAtMs: briefed?.atMs ?? null,
@@ -369,7 +385,21 @@ async function buildGuideSection(
       };
     }),
   );
-  return { tracks: rows.filter((r): r is NonNullable<typeof r> => r !== null) };
+  // On a Mega day both configured tracks resolve to the ONE combined session,
+  // and two rows for it would double the takeover chip. dedupeGuideRows keeps
+  // one, relabeled mega; identity function on a normal day. The map below is
+  // an explicit ALLOWLIST of what leaves the server — the transient sessionId
+  // stays behind by construction, not by omission.
+  const deduped = dedupeGuideRows(rows.filter((r): r is NonNullable<typeof r> => r !== null));
+  return {
+    tracks: deduped.map((r) => ({
+      track: r.track,
+      heatNumber: r.heatNumber,
+      raceType: r.raceType,
+      briefedAtMs: r.briefedAtMs,
+      briefedRoom: r.briefedRoom,
+    })),
+  };
 }
 
 function safePaused(): string[] {

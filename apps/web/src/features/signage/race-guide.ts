@@ -154,6 +154,46 @@ export function pickTakeover(
   return { primary: live[0] ?? null, also: live.slice(1) };
 }
 
+/**
+ * ONE SESSION, ONE ROW — the Mega dedupe.
+ *
+ * On a Mega day the feed asks its configured tracks ("blue", "red") for their
+ * sessions and BOTH resolve to the one combined heat, so the wall would show
+ * the same group twice: once as the takeover and again as a chip underneath
+ * (pickTakeover cannot tell them apart — same stamps, different track labels).
+ *
+ * When one sessionId appears under two DISTINCT tracks, keep the first row in
+ * input order, relabeled `mega` — the only mechanism that puts one session
+ * under both tracks is the Mega fallback, so the relabel is truthful, and it
+ * buys the takeover the Mega accent and wording instead of arbitrarily
+ * claiming blue. Rows with a null sessionId pass through untouched (duplication
+ * cannot be proven), and on a normal day every track has its own session, so
+ * this is the identity function.
+ */
+export function dedupeGuideRows<T extends { track: TrackKey; sessionId: number | string | null }>(
+  rows: readonly T[],
+): T[] {
+  const out: T[] = [];
+  const firstBySession = new Map<string, { index: number; track: TrackKey }>();
+  for (const row of rows) {
+    if (row.sessionId == null) {
+      out.push(row);
+      continue;
+    }
+    const key = String(row.sessionId);
+    const seen = firstBySession.get(key);
+    if (!seen) {
+      firstBySession.set(key, { index: out.length, track: row.track });
+      out.push(row);
+      continue;
+    }
+    if (seen.track !== row.track) {
+      out[seen.index] = { ...out[seen.index], track: "mega" as TrackKey };
+    }
+  }
+  return out;
+}
+
 /* ── the qualifying card ──────────────────────────────────────────────── */
 
 export interface QualifyRow {

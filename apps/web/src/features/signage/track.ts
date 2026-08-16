@@ -70,6 +70,39 @@ export function trackFromName(name: string | null | undefined): TrackKey | null 
   return m ? (m[1].toLowerCase() as TrackKey) : null;
 }
 
+/** A track's delay line, as the status feed reports it. */
+export interface TrackDelay {
+  delayMinutes: number;
+  delayFormatted: string;
+}
+
+/**
+ * The track's row in the delay/status feed — THE ONE COPY.
+ *
+ * Three scenes each carried their own version of this, and one of them built
+ * its word boundary as `` `\b${track}\b` `` — inside a template literal `\b`
+ * is a BACKSPACE character, so that board's delay line never rendered for any
+ * track. Matching goes through trackFromName instead, which owns the real
+ * regex.
+ *
+ * MEGA HAS NO ROW UPSTREAM: the delay service publishes per-split-track rows
+ * only. On a Mega night the single reported delay is the first row —
+ * established precedent, components/home/TrackStatus.tsx does exactly this —
+ * and the fallback only ever fires when a scene is actually showing Mega, so
+ * normal days are untouched.
+ */
+export function findTrackDelay(
+  tracks: { trackName: string; delayMinutes?: number; delayFormatted?: string }[] | undefined,
+  track: TrackKey,
+): TrackDelay | null {
+  if (!tracks || tracks.length === 0) return null;
+  const hit =
+    tracks.find((t) => trackFromName(t.trackName) === track) ??
+    (track === "mega" ? tracks[0] : undefined);
+  if (!hit) return null;
+  return { delayMinutes: hit.delayMinutes ?? 0, delayFormatted: hit.delayFormatted ?? "" };
+}
+
 /**
  * Which track's session this screen should show right now.
  *

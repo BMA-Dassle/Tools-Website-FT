@@ -1,5 +1,43 @@
 # Open Tasks
 
+## Mega-night dynamic readiness — follow-ups (2026-08-16, from `feat/mega-night-ops`)
+
+The branch makes Mega mode effective-signal-driven (external flag OR newest-heat data) across
+signage, check-in, briefing, pit, and the watch crons. Deliberately NOT done, with the owner's
+sign-off, and the loose ends worth knowing about:
+
+- [ ] **Tuesday-hardcoded paths left as-is (owner 2026-08-16: "anything with a Tuesday hard
+      code we can skip — we know it's already working").** Revisit only if Mega ever runs on
+      non-Tuesdays for real: `pre-race-tickets` `activeResourcesForToday()` (no e-tickets /
+      wallet pushes / Mega sessions-cache warm off-Tuesday), camera-assign client + session
+      route weekday rules (no Mega chip off-Tuesday; API honours `?track=mega`), `demoIsMegaDay`
+      (simulate-scan stamps blue off-Tuesday).
+- [ ] **Booking/kiosk Tuesday shapes** (owner deferred, guest-visible): `race-pricing.ts`
+      `scheduleForDate` day===2, the junior-blocked-on-Mega gate (`getDay()===2` in
+      `app/book/race/page.tsx`), kiosk `isMegaTuesdayToday` attract slide + junior warning,
+      `TuesdayAlert` / `MegaTrackTuesdayJsonLd`. Off-Tuesday Mega = site sells Blue/Red
+      products with no heats behind them.
+- [ ] **Room-split UI** — owner: no. One briefing room per mega heat; the server carve-outs
+      (`briefing/service.ts` mega exception, `stillHeldElsewhere`) stay for Override-shaped
+      states.
+- [ ] **Upstream `tracks[]` has no Mega delay row** (external tools-track-status); our
+      `findTrackDelay` mega→`tracks[0]` fallback mirrors the home page until it does.
+- [ ] **`resolveCheckinWindows` mega window** always falls to the 8-min default unless a screen
+      is scoped to `-1` (which we deliberately never do) — desk escalation vs wall countdown
+      could disagree if track boards are configured ≠ 8 min.
+- [ ] **Latent mislabels**: `RaceCheckinInfo.track` / `PitBoardInfo.track` report the SCREEN's
+      track even when describing a mega session (unconsumed today); `tv.css --k-mega-track`
+      dead token; stale "returns null for Mega" comments (`SceneRaceCheckin` CheckingIn,
+      `ScenePitBoard` qual pill, `welcome-back.server.ts:50`).
+- [ ] **Level-up Mega score-group names unconfirmed** against live SMS-Timing records — if the
+      cron never reports a Mega group tonight, curl
+      `/api/leagues?action=sessions&track=Mega%20Track&scoreGroup=Mega%20Pro...` and adjust.
+- [ ] **Guest-visible consequence to know about**: home `TrackStatus` + leaderboards now flip
+      to Mega on the data signal alone (first mega heat called), even before the external flag
+      — intended ("everything reacts dynamically"), noted so nobody reads it as a bug.
+- [ ] **Morning-after**: the effective-mega OR cannot veto a stuck-ON external flag — flip
+      `megaTrackEnabled` back OFF after the test.
+
 ## "In Karts" — a fifth stage, and the rail that makes room for it (2026-08-14) — on `feat/checkin-board-in-karts`, NOT smoked
 
 A group now has a stage between the seats and the green flag. The journey is

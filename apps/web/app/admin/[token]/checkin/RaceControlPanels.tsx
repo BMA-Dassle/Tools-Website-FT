@@ -376,6 +376,35 @@ export default function RaceControlPanels({
    */
   const megaLaneOwner: BriefingRoom = board?.lanes?.mega?.holding?.room ?? "red";
 
+  /**
+   * WHICH ROOM THE NEXT MEGA SEND SHOULD GO TO — a suggestion, never a rule
+   * (owner 2026-08-16: auto-suggest, staff confirms; the press stays the
+   * assignment and the other button always works).
+   *
+   * One circuit feeding two rooms wants them leapfrogging: the free room takes
+   * the heat, and when both are free the one that did NOT take the previous
+   * group takes this one. "Previous group" is read off the mega lane's
+   * furthest-along occupant — the same recorded facts the columns already
+   * render. Both rooms busy = no suggestion: that send is a Replace, and
+   * which film to interrupt is a human call.
+   */
+  const suggestedRoom: BriefingRoom | null = (() => {
+    if (!megaEnabled) return null;
+    const roomFree = (room: BriefingRoom) => {
+      const st = board?.rooms.find((r) => r.room === room)?.state ?? null;
+      return briefingTimelineAt(st, nowMs).phase === "idle";
+    };
+    const free = rooms.filter(roomFree);
+    if (free.length === 0) return null;
+    if (free.length === 1) return free[0];
+    const megaLane = board?.lanes?.mega ?? null;
+    const lastRoom =
+      megaLane?.holding?.room ?? megaLane?.karts?.room ?? megaLane?.pitIn?.room ?? null;
+    if (lastRoom === "red") return "blue";
+    if (lastRoom === "blue") return "red";
+    return "red";
+  })();
+
   return (
     <section
       className="flex flex-col border-t"
@@ -515,6 +544,7 @@ export default function RaceControlPanels({
               onExpandCamera={(target) => control.setExpandedCamera(target)}
               lane={board?.lanes?.[track as "blue" | "red" | "mega"] ?? null}
               ownsLane={!megaEnabled || room === megaLaneOwner}
+              suggested={suggestedRoom === room}
               onRaceReturned={() => control.markPitted(track)}
               hasLaunched={control.hasLaunched}
               noteLaunched={control.noteLaunched}
@@ -1142,6 +1172,7 @@ function RoomColumn({
   onExpandCamera,
   lane,
   ownsLane,
+  suggested,
   onRaceReturned,
   hasLaunched,
   noteLaunched,
@@ -1184,6 +1215,9 @@ function RoomColumn({
    * twice — see megaLaneOwner in the parent.
    */
   ownsLane: boolean;
+  /** Mega days only: this room is the recommended target for the next send —
+   *  see suggestedRoom in the parent. A chip, never a gate. */
+  suggested: boolean;
   /** "Race returned" — the karts are fully back in the lane. */
   onRaceReturned: () => void;
   /** The station's memory of which sessions it has seen race — see the hook. */
@@ -1626,6 +1660,26 @@ function RoomColumn({
                     gap: 4,
                   }}
                 >
+                  {/* The leapfrog hint, on the room the rotation would pick.
+                      Advice with the same authority as any other chip — the
+                      other room's Send works exactly as it always has. */}
+                  {suggested && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 800,
+                        letterSpacing: "0.08em",
+                        padding: "2px 8px",
+                        borderRadius: 4,
+                        background: withAlpha(MEGA, 0.2),
+                        border: `1px solid ${withAlpha(MEGA, 0.6)}`,
+                        color: MEGA,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      SUGGESTED
+                    </span>
+                  )}
                   <ActionButton
                     // Late reads amber the same way an occupied room does — the
                     // press is still yours to make, and the colour is the pause
