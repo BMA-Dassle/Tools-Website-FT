@@ -41,7 +41,30 @@ import {
   type RaceTier,
 } from "./race-products";
 
-export interface RaceWarning {
+/**
+ * Anything that must be read and ticked through before a booking continues.
+ *
+ * Two things satisfy this today and they are NOT the same kind of thing, which
+ * is why the modal takes this shape rather than a `RaceWarning`:
+ *   - a tier-expectation warning (below) — "this race is slower than you think"
+ *   - a package disclaimer (`PackageDefinition.disclaimers`) — "your second
+ *     heat is conditional on qualifying"
+ *
+ * All copy is catalog keys so the one modal serves web and kiosk, EN and ES.
+ */
+export interface AckPrompt {
+  titleKey: MessageKey;
+  bodyKey: MessageKey;
+  /** The line that must survive being skimmed, in the warn colour. */
+  emphasisKey?: MessageKey;
+  ackKeys: readonly MessageKey[];
+  /** Label on the "yes, book this anyway" button. */
+  continueKey: MessageKey;
+  /** Label on the optional upsell button. */
+  upsellKey?: MessageKey;
+}
+
+export interface RaceWarning extends AckPrompt {
   /** Stable id. Recorded on the booking item when acknowledged, so the memo can
    *  say WHICH warning was shown rather than inferring it from the product. */
   id: string;
@@ -71,19 +94,6 @@ export interface RaceWarning {
    *  upsell. The caller still has to confirm a variant is actually bookable
    *  for the date before offering it — see `RaceWarningModal`. */
   upsellPackagePrefix: string | null;
-  /** Catalog keys. Copy never lives in this file — see the header. */
-  titleKey: MessageKey;
-  bodyKey: MessageKey;
-  /** The one line that must survive being skimmed, rendered in the warn colour
-   *  rather than body grey. Omit for a warning with no single headline term. */
-  emphasisKey?: MessageKey;
-  /** Label on the "yes, book this anyway" button. Names the tier, so it reads
-   *  as a deliberate choice rather than a generic Continue. */
-  continueKey: MessageKey;
-  /** Label on the upsell button. Paired with `upsellPackagePrefix` — a family
-   *  id can't produce a guest-facing name, so the copy is its own key. */
-  upsellKey?: MessageKey;
-  ackKeys: readonly MessageKey[];
   /** Staff-facing BMI bill memo, written only when the guest saw this warning
    *  and continued anyway. English — the booking memo is a staff surface (BMI
    *  Booking app "Memo and image" tab) and never reaches the guest. */

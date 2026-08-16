@@ -20,6 +20,7 @@
  * by id (`getPackage`) and reads only the fields it cares about.
  */
 import { etOffsetForLocalDate } from "./et-time";
+import type { MessageKey } from "~/features/kiosk/i18n";
 
 // ── Shared component prices ─────────────────────────────────────────────────
 // Stays here so PovUpsell, OrderSummary, the cart sync, and the
@@ -236,17 +237,23 @@ export interface PackageDefinition {
   maxQualifiedTier?: PackageTier;
 
   /** Optional disclaimer modal shown when the user picks the package
-   *  card. All `acks` checkboxes must be ticked before they can
-   *  continue. Used by Ultimate Qualifier to make clear the
-   *  Intermediate race is conditional on qualifying.
+   *  card. Every ack must be ticked before they can continue. Used by
+   *  Ultimate Qualifier to make clear the Intermediate race is
+   *  conditional on qualifying.
    *
-   *  `billMemo` is appended to the BMI bill after heats book so
-   *  ops staff sees the acknowledgment trail + any handling rules
-   *  (e.g. "verify level-up before assigning to Intermediate"). */
+   *  Copy is CATALOG KEYS, not literals. This modal renders on the kiosk,
+   *  where a hardcoded English string is a rule violation and, more to the
+   *  point, means a Spanish-speaking parent ticks three boxes they cannot
+   *  read. `useT()` falls back to English off-kiosk, so web is unaffected.
+   *  Same split as race-warnings.ts, and `RaceWarningModal` renders both.
+   *
+   *  `billMemo` stays a literal: it is staff-facing (BMI Booking app "Memo
+   *  and image" tab), English-only by design, and never shown to a guest. */
   disclaimers?: {
-    title: string;
-    body: string;
-    acks: string[];
+    titleKey: MessageKey;
+    bodyKey: MessageKey;
+    ackKeys: readonly MessageKey[];
+    continueKey: MessageKey;
     billMemo: string;
   };
 }
@@ -272,13 +279,14 @@ const UQ_LONG =
   "This is the premier FastTrax experience. Think you have what it takes to level up? This isn't for the faint of heart. You'll qualify in one of our Starter races, and if you level up, your Intermediate race will be waiting for you — scheduled 30 minutes later on the same track, or an hour later if you switch tracks. While you wait, you can review the included POV video to get better before you line up again. This ultimate pack also includes your license.";
 
 const UQ_DISCLAIMERS: PackageDefinition["disclaimers"] = {
-  title: "Heads Up — Ultimate Qualifier",
-  body: "Your Intermediate race in this package is reserved on the assumption you qualify in your Starter heat. About 75% of new racers level up on their first try. If you don't qualify, no problem — but please read carefully before continuing:",
-  acks: [
-    "I understand the Intermediate race is reserved only if I qualify (level up) in my Starter race",
-    "If I don't qualify, FastTrax will offer me another Starter race (if available) OR race credit toward a future visit — no cash refunds for this package",
-    "I have read and accept these terms",
+  titleKey: "packageDisclaimer.uq.title",
+  bodyKey: "packageDisclaimer.uq.body",
+  ackKeys: [
+    "packageDisclaimer.uq.ack.conditional",
+    "packageDisclaimer.uq.ack.noRefund",
+    "packageDisclaimer.uq.ack.accept",
   ],
+  continueKey: "packageDisclaimer.continue",
   billMemo:
     "** ULTIMATE QUALIFIER ** Customer is a NEW racer — has NOT yet qualified for Intermediate. STAFF: verify level-up before assigning kart to the Intermediate race. If customer did not qualify: offer additional Starter (if available) OR issue race credit. NO cash refunds — customer acknowledged disclaimer at booking.",
 };
@@ -302,14 +310,15 @@ const BOGO_LONG =
  * chargeback dispute.
  */
 const BOGO_DISCLAIMERS: PackageDefinition["disclaimers"] = {
-  title: "Heads Up — BOGO Races",
-  body: "Your second race in this deal is an Intermediate heat, reserved on the assumption you qualify in your Starter race. About 75% of new racers level up on their first try. If you don't, you'll have paid the regular price of a single race — nothing extra — and we'll make it right. Please read before continuing:",
-  acks: [
-    "I understand the second (Intermediate) race is reserved only if I qualify (level up) in my Starter race",
-    "If I don't qualify, FastTrax will offer me another Starter race (if available) OR race credit toward a future visit — no cash refunds for this deal",
-    "I understand this deal does NOT include the FastTrax license, POV video, or appetizer",
-    "I have read and accept these terms",
+  titleKey: "packageDisclaimer.bogo.title",
+  bodyKey: "packageDisclaimer.bogo.body",
+  ackKeys: [
+    "packageDisclaimer.bogo.ack.conditional",
+    "packageDisclaimer.bogo.ack.noRefund",
+    "packageDisclaimer.bogo.ack.noExtras",
+    "packageDisclaimer.bogo.ack.accept",
   ],
+  continueKey: "packageDisclaimer.continue",
   billMemo:
     "** BOGO RACES (FLASH SALE) ** Customer is a NEW racer — has NOT yet qualified for Intermediate. Paid ONE race price for TWO heats. NO license, NO POV, NO appetizer included — do not comp these. STAFF: verify level-up before assigning kart to the Intermediate race. If customer did not qualify: offer additional Starter (if available) OR issue race credit. NO cash refunds — customer acknowledged disclaimer at booking.",
 };

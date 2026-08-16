@@ -166,6 +166,38 @@ export const flowEn = {
   "raceWarning.juniorStarter.continue": "Continue with Junior Starter",
   "raceWarning.juniorStarter.upsell": "Book Ultimate Qualifier instead",
 
+  // --- Package disclaimers (PackageDefinition.disclaimers, lib/packages.ts) ---
+  //
+  // Shown when a guest picks a bundle whose second heat is CONDITIONAL on
+  // qualifying. Keyed rather than kept as literals in the registry because this
+  // modal renders on the kiosk: a Spanish-speaking parent was otherwise being
+  // asked to tick three English boxes accepting a no-cash-refund term.
+  //
+  // The 75% figure is the house qualification rate and is stated in both
+  // locales. "Starter" / "Intermediate" / "Ultimate Qualifier" / "FastTrax" are
+  // product names and stay English.
+  "packageDisclaimer.continue": "I Accept · Continue",
+
+  "packageDisclaimer.uq.title": "Heads Up — Ultimate Qualifier",
+  "packageDisclaimer.uq.body":
+    "Your Intermediate race in this package is reserved on the assumption you qualify in your Starter heat. About 75% of new racers level up on their first try. If you don’t qualify, no problem — but please read carefully before continuing:",
+  "packageDisclaimer.uq.ack.conditional":
+    "I understand the Intermediate race is reserved only if I qualify (level up) in my Starter race",
+  "packageDisclaimer.uq.ack.noRefund":
+    "If I don’t qualify, FastTrax will offer me another Starter race (if available) OR race credit toward a future visit — no cash refunds for this package",
+  "packageDisclaimer.uq.ack.accept": "I have read and accept these terms",
+
+  "packageDisclaimer.bogo.title": "Heads Up — BOGO Races",
+  "packageDisclaimer.bogo.body":
+    "Your second race in this deal is an Intermediate heat, reserved on the assumption you qualify in your Starter race. About 75% of new racers level up on their first try. If you don’t, you’ll have paid the regular price of a single race — nothing extra — and we’ll make it right. Please read before continuing:",
+  "packageDisclaimer.bogo.ack.conditional":
+    "I understand the second (Intermediate) race is reserved only if I qualify (level up) in my Starter race",
+  "packageDisclaimer.bogo.ack.noRefund":
+    "If I don’t qualify, FastTrax will offer me another Starter race (if available) OR race credit toward a future visit — no cash refunds for this deal",
+  "packageDisclaimer.bogo.ack.noExtras":
+    "I understand this deal does NOT include the FastTrax license, POV video, or appetizer",
+  "packageDisclaimer.bogo.ack.accept": "I have read and accept these terms",
+
   // --- Live progress under a vendor call ---
   "flow.progress.reservingHeats": "Reserving your heats…",
   "flow.progress.checkingInfo": "Checking everyone’s latest info…",
@@ -374,6 +406,29 @@ export const flowEs: Record<keyof typeof flowEn, string> = {
     "Me ofrecieron el Ultimate Qualifier y elijo reservar solo Junior Starter.",
   "raceWarning.juniorStarter.continue": "Continuar con Junior Starter",
   "raceWarning.juniorStarter.upsell": "Mejor reservar Ultimate Qualifier",
+
+  // --- Avisos de paquetes con carrera condicionada ---
+  "packageDisclaimer.continue": "Acepto · Continuar",
+
+  "packageDisclaimer.uq.title": "Atención — Ultimate Qualifier",
+  "packageDisclaimer.uq.body":
+    "La carrera Intermediate de este paquete se reserva asumiendo que califiques en tu carrera Starter. Cerca del 75% de los corredores nuevos suben de nivel en su primer intento. Si no calificas, no hay problema — pero lee esto con atención antes de continuar:",
+  "packageDisclaimer.uq.ack.conditional":
+    "Entiendo que la carrera Intermediate se reserva solo si califico (subo de nivel) en mi carrera Starter",
+  "packageDisclaimer.uq.ack.noRefund":
+    "Si no califico, FastTrax me ofrecerá otra carrera Starter (si hay disponible) O crédito para una próxima visita — no hay reembolsos en efectivo por este paquete",
+  "packageDisclaimer.uq.ack.accept": "He leído y acepto estos términos",
+
+  "packageDisclaimer.bogo.title": "Atención — Carreras BOGO",
+  "packageDisclaimer.bogo.body":
+    "Tu segunda carrera en esta oferta es una manga Intermediate, reservada asumiendo que califiques en tu carrera Starter. Cerca del 75% de los corredores nuevos suben de nivel en su primer intento. Si no lo logras, habrás pagado el precio normal de una sola carrera — nada extra — y lo compensaremos. Lee esto antes de continuar:",
+  "packageDisclaimer.bogo.ack.conditional":
+    "Entiendo que la segunda carrera (Intermediate) se reserva solo si califico (subo de nivel) en mi carrera Starter",
+  "packageDisclaimer.bogo.ack.noRefund":
+    "Si no califico, FastTrax me ofrecerá otra carrera Starter (si hay disponible) O crédito para una próxima visita — no hay reembolsos en efectivo por esta oferta",
+  "packageDisclaimer.bogo.ack.noExtras":
+    "Entiendo que esta oferta NO incluye la licencia FastTrax, el video POV ni el aperitivo",
+  "packageDisclaimer.bogo.ack.accept": "He leído y acepto estos términos",
 
   // --- Live progress under a vendor call ---
   "flow.progress.reservingHeats": "Reservando tus mangas…",

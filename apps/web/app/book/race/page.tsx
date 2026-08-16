@@ -169,7 +169,6 @@ export default function BookRacePage() {
   // lib/packages.ts. Used by Ultimate Qualifier to make the
   // "Intermediate is conditional on qualifying" trade-off explicit.
   const [disclaimerPending, setDisclaimerPending] = useState<PackageDefinition | null>(null);
-  const [disclaimerAcks, setDisclaimerAcks] = useState<boolean[]>([]);
   // Tier-expectation warning waiting on its acknowledgment ("Junior Starter is
   // the slow race"). Carries the selection it interrupted as a thunk rather
   // than re-deriving it on confirm — a product and a package resume down
@@ -923,9 +922,8 @@ export default function BookRacePage() {
   }
 
   function handlePackageAfterWarning(pkg: PackageDefinition) {
-    if (pkg.disclaimers && pkg.disclaimers.acks.length > 0) {
+    if (pkg.disclaimers && pkg.disclaimers.ackKeys.length > 0) {
       setDisclaimerPending(pkg);
-      setDisclaimerAcks(pkg.disclaimers.acks.map(() => false));
       return;
     }
     commitPackageSelection(pkg);
@@ -2422,77 +2420,17 @@ export default function BookRacePage() {
             list of checkboxes the user must tick before continuing.
             Cancel routes them back to the picker; Confirm advances
             to the heat step via commitPackageSelection. */}
-        {disclaimerPending &&
-          (() => {
-            const d = disclaimerPending.disclaimers!;
-            const allChecked =
-              disclaimerAcks.length === d.acks.length && disclaimerAcks.every(Boolean);
-            return (
-              <div
-                className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4"
-                {...modalBackdropProps(() => setDisclaimerPending(null))}
-              >
-                <div className="bg-[#0a1628] border border-amber-500/40 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
-                  <div className="text-center">
-                    <p className="text-amber-400 text-[11px] font-bold uppercase tracking-widest mb-1">
-                      {disclaimerPending.name}
-                    </p>
-                    <h3 className="text-white font-display text-xl uppercase tracking-widest">
-                      {d.title}
-                    </h3>
-                    <p className="text-white/60 text-sm mt-3 leading-relaxed">{d.body}</p>
-                  </div>
-
-                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
-                    <p className="text-amber-400 font-bold text-xs uppercase tracking-wider">
-                      Please acknowledge each
-                    </p>
-                    {d.acks.map((text, i) => (
-                      <label key={i} className="flex items-start gap-3 cursor-pointer group">
-                        <input
-                          type="checkbox"
-                          checked={disclaimerAcks[i] || false}
-                          onChange={(e) => {
-                            setDisclaimerAcks((prev) => {
-                              const next = [...prev];
-                              next[i] = e.target.checked;
-                              return next;
-                            });
-                          }}
-                          className="mt-0.5 w-4 h-4 rounded border-white/30 bg-white/5 accent-amber-400 shrink-0"
-                        />
-                        <span className="text-white/70 text-xs leading-relaxed group-hover:text-white/90 transition-colors">
-                          {text}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setDisclaimerPending(null)}
-                      className="flex-1 py-3 rounded-xl border border-white/15 text-white/70 hover:border-white/30 hover:text-white text-sm font-semibold transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!allChecked}
-                      onClick={() => {
-                        const pkg = disclaimerPending;
-                        setDisclaimerPending(null);
-                        commitPackageSelection(pkg);
-                      }}
-                      className="flex-1 py-3 rounded-xl bg-amber-400 text-[#000418] font-bold text-sm hover:bg-amber-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      {allChecked ? "I Accept · Continue" : "Acknowledge each to continue"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
+        {disclaimerPending?.disclaimers && (
+          <RaceWarningModal
+            warning={disclaimerPending.disclaimers}
+            onAcknowledge={() => {
+              const pkg = disclaimerPending;
+              setDisclaimerPending(null);
+              commitPackageSelection(pkg);
+            }}
+            onCancel={() => setDisclaimerPending(null)}
+          />
+        )}
 
         {/* Height/age confirmation modal for new racers */}
         {showHeightConfirm &&

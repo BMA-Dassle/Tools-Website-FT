@@ -60,7 +60,11 @@ import {
   packSkusForRaceDate,
 } from "~/features/booking/service/race-pack-kiosk";
 import { racerNeedsLicense } from "~/features/booking/service/license";
-import { raceWarningFor, type RaceWarning } from "~/features/booking/service/race-warnings";
+import {
+  raceWarningFor,
+  type AckPrompt,
+  type RaceWarning,
+} from "~/features/booking/service/race-warnings";
 import { useT, type Translate } from "~/features/kiosk/i18n";
 import { RaceWarningModal } from "./RaceWarningModal";
 import { racePackTeaserVisible } from "./RacePackTeaser";
@@ -558,10 +562,13 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
     const others = bundles.filter((p) => p !== hero);
     const memberships = racers.flatMap((m) => m.memberships ?? []);
 
-    // Tier-expectation warning waiting on its acknowledgment. Same shape as the
-    // product step's — see RaceProductStep for why the selection is a thunk.
+    // Acknowledgment prompt waiting to be ticked through — tier warning or
+    // package disclaimer. Same shape as the product step's; see RaceProductStep
+    // for why the selection is a thunk and the upsell is pre-resolved.
     const [pendingWarning, setPendingWarning] = useState<{
-      warning: RaceWarning;
+      prompt: AckPrompt;
+      warningId: string | null;
+      upsell: PackageDefinition | null;
       resume: () => void;
     } | null>(null);
 
@@ -648,12 +655,19 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
     const chooseBundle = (pkg: PackageDefinition) => {
       // Re-tapping the selected bundle is a no-op now that nothing auto-advances.
       if (pkg.id === selectedId) return;
-      // A starter-only bundle can be chosen HERE, one step before the product
-      // step — so the tier-expectation warning has to guard this seam too.
-      // Gating only the product step lets a junior Rookie Pack through unwarned.
+      // A bundle can be chosen HERE, one step before the product step — so both
+      // prompts have to guard this seam too. Gating only the product step let a
+      // junior Rookie Pack through unwarned, and let the Ultimate Qualifier be
+      // bought without its conditional-Intermediate disclaimer ever appearing.
       const warning = raceWarningFor({ category, memberships, packageId: pkg.id });
-      if (warning) {
-        setPendingWarning({ warning, resume: () => commitBundle(pkg) });
+      const prompt = warning ?? (pkg.disclaimers?.ackKeys.length ? pkg.disclaimers : null);
+      if (prompt) {
+        setPendingWarning({
+          prompt,
+          warningId: warning?.id ?? null,
+          upsell: warning ? upsellFor(warning) : null,
+          resume: () => commitBundle(pkg),
+        });
         return;
       }
       commitBundle(pkg);
@@ -677,24 +691,30 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
       <div className={S.container}>
         {pendingWarning && (
           <RaceWarningModal
-            warning={pendingWarning.warning}
+            warning={pendingWarning.prompt}
             onAcknowledge={() => {
-              const { warning, resume } = pendingWarning;
+              const { warningId, resume } = pendingWarning;
               setPendingWarning(null);
               resume();
-              onChange(
-                category === "adult"
-                  ? { warningAckAdult: warning.id }
-                  : { warningAckJunior: warning.id },
-              );
+              // A package disclaimer carries no id and leaves this clear — its
+              // trail is the package's own bill memo.
+              if (warningId) {
+                onChange(
+                  category === "adult"
+                    ? { warningAckAdult: warningId }
+                    : { warningAckJunior: warningId },
+                );
+              }
             }}
             onUpsell={
-              upsellFor(pendingWarning.warning)
+              pendingWarning.upsell
                 ? () => {
-                    const upsell = upsellFor(pendingWarning.warning)!;
+                    const upsell = pendingWarning.upsell!;
                     setPendingWarning(null);
-                    // Took the recommendation — nothing declined, no memo.
-                    commitBundle(upsell);
+                    // Took the recommendation — nothing declined, no memo. Back
+                    // through chooseBundle so the Ultimate Qualifier's own
+                    // disclaimer still gets raised.
+                    chooseBundle(upsell);
                   }
                 : undefined
             }

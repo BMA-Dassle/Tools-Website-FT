@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { IconAlertTriangle } from "@tabler/icons-react";
 import { modalBackdropProps } from "@/lib/a11y";
 import { useT } from "~/features/kiosk/i18n";
-import type { RaceWarning } from "~/features/booking/service/race-warnings";
+import type { AckPrompt } from "~/features/booking/service/race-warnings";
 
 /**
  * The "this race is slower than you think" confirm.
@@ -14,9 +14,15 @@ import type { RaceWarning } from "~/features/booking/service/race-warnings";
  * won't advance rather than sitting disabled. A disabled button with no
  * explanation is the version guests get stuck on.
  *
- * Renders whatever `warning` describes — it knows nothing about juniors or
- * Starter. Adding a warning for another category or tier is a record in
- * race-warnings.ts plus its copy keys; this file does not change.
+ * Renders whatever `warning` describes — it knows nothing about juniors,
+ * Starter, or packages. Adding a warning for another category or tier is a
+ * record in race-warnings.ts plus its copy keys; this file does not change.
+ *
+ * Serves BOTH prompt kinds (see `AckPrompt`): tier-expectation warnings and
+ * package disclaimers. They are different things that need the identical
+ * treatment — read this, tick every box, then you may continue — and having one
+ * component means the kiosk cannot end up with a localized version of one and a
+ * hardcoded-English version of the other.
  *
  * Shared web + kiosk: `useT()` falls back to English when there is no
  * LocaleProvider above it, so the web wizard renders English without web
@@ -26,7 +32,7 @@ import type { RaceWarning } from "~/features/booking/service/race-warnings";
  * bigger tap targets. This one exists because guests were missing the message.
  */
 interface RaceWarningModalProps {
-  warning: RaceWarning;
+  warning: AckPrompt;
   /** Ticked everything and chose to book it anyway. */
   onAcknowledge: () => void;
   /**

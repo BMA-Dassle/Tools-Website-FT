@@ -18,7 +18,12 @@ import {
 } from "~/features/booking/service/race-products";
 import { scheduleForDate, LICENSE_PRICE } from "~/features/booking/service/race-pricing";
 import { eligiblePackages, getPackage } from "~/features/booking/service/packages";
-import { raceWarningFor, type RaceWarning } from "~/features/booking/service/race-warnings";
+import type { PackageDefinition } from "@/lib/packages";
+import {
+  raceWarningFor,
+  type AckPrompt,
+  type RaceWarning,
+} from "~/features/booking/service/race-warnings";
 import { ComboUpsellCard } from "../combo/ComboUpsellCard";
 import { PackageCard } from "./PackageCard";
 import { RaceWarningModal } from "./RaceWarningModal";
@@ -288,19 +293,28 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
 
     const selectedProductId = category === "adult" ? item.productIdAdult : item.productIdJunior;
 
-    // Tier-expectation warning ("Junior Starter is the slow race") waiting on
-    // its acknowledgment. Holds the interrupted selection as a thunk: a product
-    // and a package resume down different paths, and re-deriving which is which
-    // on confirm is how the two drift apart.
+    // An acknowledgment prompt waiting to be ticked through — a tier-expectation
+    // warning ("Junior Starter is the slow race") or a package disclaimer ("your
+    // Intermediate heat is conditional"). Everything the confirm path needs is
+    // captured HERE, at the moment of the tap:
+    //   - `resume` as a thunk, because a product and a package resume down
+    //     different paths and re-deriving which is which on confirm is how the
+    //     two drift apart;
+    //   - `warningId` null for a disclaimer, so only tier warnings leave a memo;
+    //   - `upsell` already resolved, so the render can't re-resolve it against a
+    //     list that has since changed.
     const [pendingWarning, setPendingWarning] = useState<{
-      warning: RaceWarning;
+      prompt: AckPrompt;
+      warningId: string | null;
+      upsell: PackageDefinition | null;
       resume: () => void;
     } | null>(null);
 
-    /** The package the warning's upsell button books, or null when none is
-     *  bookable today — on a Mega Tuesday there is no junior Ultimate Qualifier
-     *  at all. Resolved from the SAME `packages` list the cards render from, so
-     *  the button can never offer a bundle the guest cannot see. */
+    /** The bundle a warning's upsell button books, or null when none is bookable
+     *  today — on a Mega Tuesday there is no junior Ultimate Qualifier at all,
+     *  and a button that leads nowhere is worse than no button. Resolved from
+     *  the SAME `packages` list the cards render from, so it can never offer a
+     *  bundle the guest cannot see. */
     const upsellFor = (warning: RaceWarning) =>
       warning.upsellPackagePrefix
         ? (packages.find((p) => p.id.startsWith(warning.upsellPackagePrefix!)) ?? null)
@@ -432,10 +446,45 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
       setProductWithTrack(product.productId, product.track);
     };
 
+    /** Pick a package, raising whichever prompt gates it first.
+     *
+     *  Two different prompts can gate a package, never both:
+     *   - a starter-only bundle (junior Rookie Pack) gets the tier-expectation
+     *     warning a bare Starter race gets;
+     *   - a bundle whose second heat is conditional on qualifying (Ultimate
+     *     Qualifier, BOGO) gets its own disclaimer.
+     *  The registry keeps them disjoint by construction: the packages carrying a
+     *  disclaimer are exactly the ones a warning recommends, and those are
+     *  deliberately absent from `warnOnPackagePrefixes`.
+     *
+     *  The warning's upsell button routes back through HERE, which is what makes
+     *  "Book Ultimate Qualifier instead" still raise the Ultimate Qualifier's own
+     *  disclaimer. Two modals in sequence is correct — they acknowledge two
+     *  different things. */
+    const selectPackage = (pkg: PackageDefinition) => {
+      const warning = raceWarningFor({ category, memberships, packageId: pkg.id });
+      const prompt = warning ?? (pkg.disclaimers?.ackKeys.length ? pkg.disclaimers : null);
+      if (prompt) {
+        setPendingWarning({
+          prompt,
+          warningId: warning?.id ?? null,
+          upsell: warning ? upsellFor(warning) : null,
+          resume: () => commitPackage(pkg.id),
+        });
+        return;
+      }
+      commitPackage(pkg.id);
+    };
+
     const handleCardClick = (product: RaceProduct) => {
       const warning = raceWarningFor({ category, memberships, product });
       if (warning) {
-        setPendingWarning({ warning, resume: () => commitProduct(product) });
+        setPendingWarning({
+          prompt: warning,
+          warningId: warning.id,
+          upsell: upsellFor(warning),
+          resume: () => commitProduct(product),
+        });
         return;
       }
       commitProduct(product);
@@ -497,28 +546,33 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
             and the package cards both. */}
         {pendingWarning && (
           <RaceWarningModal
-            warning={pendingWarning.warning}
+            warning={pendingWarning.prompt}
             onAcknowledge={() => {
-              const { warning, resume } = pendingWarning;
+              const { warningId, resume } = pendingWarning;
               setPendingWarning(null);
               resume();
               // Record WHICH warning was acknowledged, on this category's field.
               // Written after resume() so it rides the same render as the
-              // selection it belongs to.
-              onChange(
-                category === "adult"
-                  ? { warningAckAdult: warning.id }
-                  : { warningAckJunior: warning.id },
-              );
+              // selection it belongs to. A package disclaimer carries no id and
+              // leaves this clear — its trail is the package's own bill memo.
+              if (warningId) {
+                onChange(
+                  category === "adult"
+                    ? { warningAckAdult: warningId }
+                    : { warningAckJunior: warningId },
+                );
+              }
             }}
             onUpsell={
-              upsellFor(pendingWarning.warning)
+              pendingWarning.upsell
                 ? () => {
-                    const upsell = upsellFor(pendingWarning.warning)!;
+                    const upsell = pendingWarning.upsell!;
                     setPendingWarning(null);
                     // They took the recommendation — nothing was declined, so
                     // the ack field stays clear and no memo claims otherwise.
-                    commitPackage(upsell.id);
+                    // Back through selectPackage so the Ultimate Qualifier's
+                    // own disclaimer still gets raised.
+                    selectPackage(upsell);
                   }
                 : undefined
             }
@@ -632,19 +686,7 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
                       setAdvancePending(true);
                       return;
                     }
-                    // A starter-only bundle (junior Rookie Pack) gets the same
-                    // tier-expectation warning a bare Starter race does — the
-                    // extras are a licence and a video, not a faster heat.
-                    const warning = raceWarningFor({
-                      category,
-                      memberships,
-                      packageId: pkg.id,
-                    });
-                    if (warning) {
-                      setPendingWarning({ warning, resume: () => commitPackage(pkg.id) });
-                      return;
-                    }
-                    commitPackage(pkg.id);
+                    selectPackage(pkg);
                   }}
                 />
                 {/* THE way out of a package. Only under the selected one, so it
