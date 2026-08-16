@@ -107,6 +107,18 @@ function isQuotaQueued(e: EnrichedLogEntry): boolean {
 }
 
 /**
+ * Expired-in-queue state: the send sat in the retry/quota queue past
+ * business hours (or long enough that its session already ran) and the
+ * quiet-hours rail dropped it instead of texting a guest at 3am — see
+ * features/eticket/quiet-hours.ts + the eticket-overnight-clear cron.
+ * Ticket + short URL still exist, so a manual resend works if staff
+ * decide the guest should still get it.
+ */
+function isExpiredInQueue(e: EnrichedLogEntry): boolean {
+  return !e.ok && (e.error || "").startsWith("expired in queue");
+}
+
+/**
  * Consistent pill-chip status renderer — matches the video admin's
  * style (`text-[10px] uppercase px-1.5 py-0.5 rounded bg-{color}-500/20`).
  * Returns an array of chips so the table cell + mobile card render
@@ -161,6 +173,16 @@ function renderStatusPills(e: EnrichedLogEntry, noConsent: boolean): React.React
           title="Customer hasn't given verbal SMS consent — staff must collect it before resend"
         >
           needs verbal ok
+        </span>,
+      );
+    } else if (isExpiredInQueue(e)) {
+      pills.push(
+        <span
+          key="ds"
+          className={`${PILL_BASE} ${PILL_AMBER}`}
+          title="Queued send expired before it could go out (after hours / session already ran) — cleared without texting; resend manually if still wanted"
+        >
+          expired in queue
         </span>,
       );
     }

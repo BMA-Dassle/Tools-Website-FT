@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { drainRetries } from "@/lib/sms-retry";
 import { logCronRun } from "@/lib/sms-log";
 import { verifyCron } from "@/lib/cron-auth";
+import { inEticketQuietHours } from "~/features/eticket/quiet-hours";
 import { runArenaCheckinAlerts } from "~/features/arena-tickets/checkin-alerts";
 
 /**
@@ -18,6 +19,16 @@ export async function GET(req: NextRequest) {
   if (denied) return denied;
 
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
+
+  // Quiet hours — no e-ticket goes out after business hours. Belt to the
+  // overnight clear's braces; dryRun still passes for ops testing.
+  if (!dryRun && inEticketQuietHours()) {
+    return NextResponse.json(
+      { ok: true, skipped: "quiet-hours" },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   const started = Date.now();
 
   const retryStats = !dryRun

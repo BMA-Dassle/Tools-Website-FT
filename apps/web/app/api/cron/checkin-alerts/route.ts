@@ -23,6 +23,7 @@ import { clearFinishedLicenceFields, NO_NEXT_RACE } from "~/features/racing/wall
 import { formatHeat } from "~/features/racing/wallet/licence-meta";
 import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 import { verifyCron } from "@/lib/cron-auth";
+import { inEticketQuietHours } from "~/features/eticket/quiet-hours";
 import { vipComboPersonLegsOnDate, type VipComboPersonLeg } from "@/lib/bowling-db";
 import { appendBookingMemoLine } from "~/features/reservations-admin/bmi-notes";
 
@@ -803,6 +804,18 @@ export async function GET(req: NextRequest) {
   if (denied) return denied;
 
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
+
+  // Quiet hours — no e-ticket goes out after business hours. No races
+  // run overnight, wallet clear-down is wallet-overnight-clear's job at
+  // 3am, and the overnight clear purges anything queued. dryRun still
+  // passes for ops testing.
+  if (!dryRun && inEticketQuietHours()) {
+    return NextResponse.json(
+      { ok: true, skipped: "quiet-hours" },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   const started = Date.now();
   const now = Date.now();
 
