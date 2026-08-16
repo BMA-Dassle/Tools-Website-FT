@@ -1124,7 +1124,12 @@ export default function BriefingRoomClient({
               {/* THE STATE, IN ONE LINE plus its clock. */}
               {phase === "waiting" && (
                 <p style={{ fontSize: 21, fontWeight: 700, color: AMBER }}>
-                  Waiting to start — sit them down, then roll the film.
+                  {/* NOBODY SITS IN A BRIEFING ROOM (owner 2026-08-15: "they
+                      don't sit"). The line told staff to do something the room
+                      has no furniture for, which makes the rest of the sentence
+                      easy to distrust. The real wait is for the group to finish
+                      arriving. */}
+                  Waiting to start — once everyone is in, roll the film.
                 </p>
               )}
               {phase === "video" && (

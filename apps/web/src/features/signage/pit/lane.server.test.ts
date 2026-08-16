@@ -42,6 +42,10 @@ const startedMarkers = new Map<string, number>();
 const laterHeats = new Set<string>();
 /** Sessions whose post-race cue has demonstrably played. */
 const postCues = new Set<string>();
+/** Each briefing room's live state — what the server's film gate reads. NOT
+ *  mocked away as null, because a null room is the gate's own exempt case and
+ *  would make every test below pass without exercising the rule. */
+const briefingRooms = new Map<string, unknown>();
 
 vi.mock("@/lib/race-business-day", () => ({ businessDayYmdET: () => "2026-08-14" }));
 vi.mock("../after-response.server", () => ({ afterResponse: (fn: () => unknown) => void fn }));
@@ -60,6 +64,7 @@ vi.mock("../briefing/race-state-watch.server", () => ({
 vi.mock("../briefing/state.server", () => ({
   clearBriefingRoom: vi.fn(async () => {}),
   sessionBriefed: vi.fn(async () => null),
+  readBriefingRoom: vi.fn(async (_venue: string, room: string) => briefingRooms.get(room) ?? null),
 }));
 vi.mock("./audio-stamps.server", () => ({
   cueKey: (cue: string, sessionId: string) => `pit:cue:${cue}:${sessionId}`,
@@ -102,6 +107,122 @@ beforeEach(() => {
   startedMarkers.clear();
   laterHeats.clear();
   postCues.clear();
+  briefingRooms.clear();
+});
+
+/* ── the film gate, server side ─────────────────────────────────────────── */
+
+/**
+ * A room mid-film, keyed to real time because the gate asks Date.now().
+ * `back` is how long ago the send fired, so 0 is a film that just started.
+ */
+function putBriefingRoom(
+  room: "red" | "blue",
+  args: { sessionId: string; backMs: number; videoMs?: number; kind?: "assigned" | "timeline" },
+) {
+  briefingRooms.set(room, {
+    kind: args.kind ?? "timeline",
+    tier: "starter",
+    track: room,
+    raceType: "Starter",
+    sessionId: args.sessionId,
+    heatNumber: 44,
+    triggeredAtMs: Date.now() - args.backMs,
+    videoUrl: "https://example.test/starter.mp4",
+    videoDurationMs: args.videoMs ?? 4 * 60_000,
+  });
+}
+
+describe("sendToHolding — the safety film is a gate on the server too", () => {
+  it("REFUSES a staff press while the film is still playing", async () => {
+    // Owner 2026-08-15, live: "they were able to send to holding when briefing
+    // was playing". Both surfaces drew the rule; neither enforced it, so a
+    // tablet running older JS walked a group out mid-briefing.
+    putLane({ holding: null, racing: null, pitted: null });
+    putBriefingRoom("blue", { sessionId: "s44", backMs: 30_000 });
+
+    const result = await sendToHolding({
+      room: "blue",
+      track: "blue",
+      sessionId: "s44",
+      heatNumber: 44,
+      raceType: "Starter",
+    });
+    const lane = await readPitLane("blue");
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toMatch(/still playing/);
+    // and nothing moved — no seat taken, no room closed
+    expect(lane.holding).toBeNull();
+  });
+
+  it("REFUSES before the film has been rolled at all", async () => {
+    putLane({ holding: null, racing: null, pitted: null });
+    putBriefingRoom("blue", { sessionId: "s44", backMs: 5_000, kind: "assigned" });
+
+    const result = await sendToHolding({
+      room: "blue",
+      track: "blue",
+      sessionId: "s44",
+      heatNumber: 44,
+      raceType: "Starter",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toMatch(/not started/);
+  });
+
+  it("ALLOWS the send once the film has finished", async () => {
+    putLane({ holding: null, racing: null, pitted: null });
+    putBriefingRoom("blue", { sessionId: "s44", backMs: 4 * 60_000 + 5_000 });
+
+    const result = await sendToHolding({
+      room: "blue",
+      track: "blue",
+      sessionId: "s44",
+      heatNumber: 44,
+      raceType: "Starter",
+    });
+
+    expect(result.ok).toBe(true);
+    expect((await readPitLane("blue")).holding?.sessionId).toBe("s44");
+  });
+
+  it("ALLOWS a send when the room is holding a DIFFERENT session", async () => {
+    // Someone else's timeline says nothing about this group, and refusing on it
+    // would strand them with no way off the board.
+    putLane({ holding: null, racing: null, pitted: null });
+    putBriefingRoom("blue", { sessionId: "someone-else", backMs: 30_000 });
+
+    const result = await sendToHolding({
+      room: "blue",
+      track: "blue",
+      sessionId: "s44",
+      heatNumber: 44,
+      raceType: "Starter",
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("ALLOWS the camera sweep mid-film — an empty room is evidence, not a clock", async () => {
+    // auto-holding fires on having OBSERVED the room empty: the group has
+    // already walked out, so the send records where people are rather than
+    // moving them.
+    putLane({ holding: null, racing: null, pitted: null });
+    putBriefingRoom("blue", { sessionId: "s44", backMs: 30_000 });
+
+    const result = await sendToHolding({
+      room: "blue",
+      track: "blue",
+      sessionId: "s44",
+      heatNumber: 44,
+      raceType: "Starter",
+      reason: "auto-holding",
+    });
+
+    expect(result.ok).toBe(true);
+  });
 });
 
 /* ── a `finished` reading for a race that never ran ─────────────────────── */

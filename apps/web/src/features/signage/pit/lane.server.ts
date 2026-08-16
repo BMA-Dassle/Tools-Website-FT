@@ -37,7 +37,8 @@ import { bookmarkBriefingEndAfter } from "../briefing/bookmarks.server";
 import { recordBriefingEvent, type BriefingEndReason } from "../briefing/events-db";
 import { readRaceFinishedMarker, readRaceStartedMarker } from "../briefing/race-finish.server";
 import { liveHeatKey, type LiveHeat } from "../briefing/race-state-watch.server";
-import { clearBriefingRoom, sessionBriefed } from "../briefing/state.server";
+import { briefingReadyForHolding, briefingTimelineAt } from "../briefing/phase";
+import { clearBriefingRoom, readBriefingRoom, sessionBriefed } from "../briefing/state.server";
 import type { BriefingRoom } from "../briefing/types";
 import type { TrackKey } from "../track";
 import { readCueStamp } from "./audio-stamps.server";
@@ -674,6 +675,49 @@ export async function sendToHolding(
   }
 
   const reason = args.reason ?? "holding";
+
+  /**
+   * THE FILM IS A GATE, AND A GATE ONLY HOLDS ON THE SERVER (owner 2026-08-15,
+   * live: "they were able to send to holding when briefing was playing").
+   *
+   * Both surfaces already draw this rule — the desk disables its button on
+   * `filmRunning`, and the tablet grew the same refusal in the component. Drawn
+   * is not enforced. A tablet in a briefing room is a long-lived kiosk that
+   * nobody reloads: it keeps serving whatever JS it booted with, so the fix that
+   * landed in the component simply was not running on the device that did this.
+   * A rule that can be bypassed by a stale tab is a suggestion.
+   *
+   * SAME VERDICT, ONE COPY. briefingReadyForHolding is the pure rule the tablet
+   * already asks, so the sentence on the disabled button and the refusal from
+   * here can never drift — the split holding-availability.ts keeps, for the same
+   * reason.
+   *
+   * ONLY WHEN THE ROOM IS ACTUALLY THIS GROUP'S. A room holding a different
+   * session, or no state at all, tells us nothing about THIS group's film, and
+   * refusing on someone else's timeline would strand a group with no way off the
+   * board — the limbo the helmet phase was rewritten to kill.
+   *
+   * THE CAMERA SWEEP IS EXEMPT, deliberately. `auto-holding` fires on having
+   * OBSERVED THE ROOM EMPTY, which means the group has already walked out: that
+   * send records where people are, it does not move them. Refusing it would
+   * leave the board describing a room nobody is in.
+   */
+  if (reason === "holding") {
+    const state = await readBriefingRoom(VENUE, args.room).catch(() => null);
+    if (state && state.sessionId === args.sessionId) {
+      const readiness = briefingReadyForHolding(briefingTimelineAt(state, Date.now()));
+      if (!readiness.ok) {
+        return {
+          ok: false,
+          error:
+            readiness.reason === "video-playing"
+              ? "the safety film is still playing — send them when it finishes"
+              : "the safety film has not started yet — roll it before sending them",
+        };
+      }
+    }
+  }
+
   const endedAtMs = Date.now();
 
   // Durable first — the room occupancy's explicit end.
