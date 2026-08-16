@@ -735,9 +735,11 @@ function TrackCard({
    * group inherits the PRE section — the server's playPreRace resolves the
    * same subject, so the press plays for exactly who this card names.
    */
-  const preOwed =
-    !holding && racing != null && (audio[racing.sessionId]?.pre ?? null) == null ? racing : null;
-  const preSubject = holding ?? preOwed;
+  // THE DEBT OUTRANKS THE NEXT CYCLE, same as playPreRace — a group that went
+  // out unannounced is owed their cue even while the next group is seated,
+  // because seating them used to destroy the debt rather than delay it.
+  const preOwed = racing != null && (audio[racing.sessionId]?.pre ?? null) == null ? racing : null;
+  const preSubject = preOwed ?? holding;
   /**
    * THE KARTS ARE FULL — the same verdict the server will return (owner
    * 2026-08-16, live: blue 17 in the seats, blue 16 strapped in on the green).
@@ -748,9 +750,12 @@ function TrackCard({
    * shared rule rather than restating it keeps this button and playPreRace's
    * refusal from ever disagreeing.
    */
-  const kartsVerdict = preSubject
-    ? kartsAvailability({ karts: lane?.karts, sessionId: preSubject.sessionId })
-    : ({ ok: true } as const);
+  // Not applied to a late cue: that group is already on track, so they are not
+  // walking into the karts and an occupant there is none of their business.
+  const kartsVerdict =
+    preSubject && !preOwed
+      ? kartsAvailability({ karts: lane?.karts, sessionId: preSubject.sessionId })
+      : ({ ok: true } as const);
   const kartsHeld = kartsVerdict.ok ? null : kartsVerdict.error;
   const preStamp = preSubject ? (audio[preSubject.sessionId]?.pre ?? null) : null;
   const postStamp = pitIn ? (audio[pitIn.sessionId]?.post ?? null) : null;

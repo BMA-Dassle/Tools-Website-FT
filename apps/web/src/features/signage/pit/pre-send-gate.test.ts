@@ -217,3 +217,51 @@ describe("the pre subject is the same on every surface", () => {
     expect(pick(lane)).toEqual(lane.holding ?? lane.karts);
   });
 });
+
+/**
+ * THE DEBT OUTRANKS THE NEXT CYCLE (owner 2026-08-16). The cue used to fall back
+ * to the racing group only when NOTHING was staged, so seating the next group
+ * did not delay an owed announcement -- it destroyed it, and nothing could reach
+ * that group again. Blue 20 went green at 3:05:38 with no pre; the wall said
+ * play it; the 3:09:36 press paid blue 21's cycle because 21 was seated; 20 had
+ * to be stamped by hand. A banner that instructs an impossible press is worse
+ * than no banner.
+ */
+describe("pre-race subject: an outstanding debt is paid first", () => {
+  const pick = (lane: {
+    karts?: { sessionId: string } | null;
+    holding?: { sessionId: string } | null;
+    racing?: { sessionId: string } | null;
+    racingHasPre?: boolean;
+  }) => {
+    const staged = lane.karts ?? lane.holding ?? null;
+    if (lane.racing && !lane.racingHasPre) return { subject: lane.racing, late: true };
+    return { subject: staged, late: false };
+  };
+
+  it("pays the racing group EVEN WHILE the next group is seated", () => {
+    const v = pick({ holding: { sessionId: "s21" }, racing: { sessionId: "s20" } });
+    expect(v.subject?.sessionId).toBe("s20");
+    expect(v.late).toBe(true);
+  });
+
+  it("goes to the seated group once the debt is settled", () => {
+    const v = pick({
+      holding: { sessionId: "s21" },
+      racing: { sessionId: "s20" },
+      racingHasPre: true,
+    });
+    expect(v.subject?.sessionId).toBe("s21");
+    expect(v.late).toBe(false);
+  });
+
+  it("still pays a debt when nothing is staged at all", () => {
+    expect(pick({ racing: { sessionId: "s20" } }).subject?.sessionId).toBe("s20");
+  });
+
+  it("takes the karts group when nobody is racing", () => {
+    const v = pick({ karts: { sessionId: "s22" }, holding: { sessionId: "s23" } });
+    expect(v.subject?.sessionId).toBe("s22");
+    expect(v.late).toBe(false);
+  });
+});

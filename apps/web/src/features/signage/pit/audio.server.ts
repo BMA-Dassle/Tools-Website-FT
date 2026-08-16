@@ -274,16 +274,29 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
    *
    * The lane promotes on the green flag whether or not the cue ever sounded,
    * so reading only the staged slots made an unplayed pre UNPLAYABLE the
-   * moment the race started. When nothing is staged and the racing group has
-   * no pre stamp, they are the subject: the announcement plays late rather
-   * than never, and the insurance row still lands. A staged group always
-   * wins — once the next group is seated, the PA belongs to their cycle. The
-   * debt ends at the pit: a race that has already come in gets its post, not
-   * a pre after the fact.
+   * moment the race started. The debt ends at the pit: a race that has already
+   * come in gets its post, not a pre after the fact.
+   *
+   * THE DEBT OUTRANKS THE NEXT CYCLE (owner 2026-08-16). This used to be tried
+   * only when NOTHING was staged — "a staged group always wins, once the next
+   * group is seated the PA belongs to their cycle" — which meant seating the
+   * next group did not delay an owed announcement, it DESTROYED it. Nothing
+   * could reach that group again.
+   *
+   * It happened within minutes of the banner shipping. Blue 20 went green at
+   * 3:05:38 with no pre; the STOP SENDING wall told staff to play it; they
+   * pressed at 3:09:36 and the cue paid blue 21's cycle instead, because 21 was
+   * already seated. 20's stamp had to be written by hand for the wall to clear.
+   * A banner that instructs a press nobody can perform is worse than no banner.
+   *
+   * So an outstanding debt is checked FIRST. The seated group's cue waits one
+   * press, which costs them seconds; the racing group's cue is otherwise gone
+   * for good. That is the owner's own rule about this cue — "it is not optional
+   * and must be played".
    */
-  let subject = staged ?? null;
+  let subject: typeof staged | null = null;
   let lateForRacing = false;
-  if (!subject && lane.racing) {
+  if (lane.racing) {
     const played = await readCueStamp("pre", lane.racing.sessionId);
     if (!played) {
       subject = {
@@ -296,6 +309,7 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
       lateForRacing = true;
     }
   }
+  if (!subject) subject = staged ?? null;
   if (!subject) {
     return { ok: false, error: "no group is in holding — pre-race arms when a group is seated" };
   }
@@ -312,7 +326,7 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
    * the harm: stopping the lane write alone would still have put the wrong
    * instruction over the PA.
    */
-  {
+  if (!lateForRacing) {
     const verdict = kartsAvailability({ karts: lane.karts, sessionId: subject.sessionId });
     if (!verdict.ok) return { ok: false, error: verdict.error };
   }
