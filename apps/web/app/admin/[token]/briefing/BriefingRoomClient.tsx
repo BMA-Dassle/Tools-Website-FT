@@ -990,13 +990,20 @@ export default function BriefingRoomClient({
    * code would look like the tablet rejecting them). Both clear in seconds.
    */
   const safeToReload = !control.busy && !challenge;
+  // PRIMITIVES in the dependency list, never the `build` object — useBuildUpdate
+  // returns a fresh literal every render and this page re-renders at least once
+  // a second (useNowMs), so depending on the object re-armed the 4s timer every
+  // tick and the reload NEVER fired: these tablets ran whatever build was live
+  // the day someone opened them. Same shape as PitClient / CheckInClient.
+  const buildReady = build.ready;
+  const buildReloadNow = build.reloadNow;
   useEffect(() => {
-    if (!build.ready || !safeToReload) return;
+    if (!buildReady || !safeToReload) return;
     // Long enough for the pill in the header to be read as an explanation for
     // the screen blinking, short enough that the new build is genuinely live.
-    const t = setTimeout(() => build.reloadNow(), 4_000);
+    const t = setTimeout(buildReloadNow, 4_000);
     return () => clearTimeout(t);
-  }, [build, safeToReload]);
+  }, [buildReady, buildReloadNow, safeToReload]);
 
   const startCb = control.start;
   const sendToHoldingCb = control.sendToHolding;
