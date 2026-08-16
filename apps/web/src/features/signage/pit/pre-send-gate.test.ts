@@ -185,3 +185,35 @@ describe("kartsAvailability", () => {
     expect(v.ok === false && v.error).toContain("another group");
   });
 });
+
+/**
+ * ONE SUBJECT, EVERY SURFACE (owner 2026-08-16: "the pit controller should be
+ * showing race that's in the rail"). The wall's rail names `karts ?? holding`;
+ * the station card and playPreRace both read `holding ?? karts`. While a group
+ * was strapped in, the card named the seated group while the wall named the
+ * karts group, and the press -- resolving its own subject server-side -- would
+ * have played for whichever one the card was not showing.
+ */
+describe("the pre subject is the same on every surface", () => {
+  const pick = (lane: {
+    holding?: { sessionId: string } | null;
+    karts?: { sessionId: string } | null;
+  }) => lane.karts ?? lane.holding ?? null;
+
+  it("names the karts group while somebody is strapped in", () => {
+    expect(pick({ holding: { sessionId: "s22" }, karts: { sessionId: "s21" } })?.sessionId).toBe(
+      "s21",
+    );
+  });
+
+  it("falls through to the seated group the moment the karts clear", () => {
+    expect(pick({ holding: { sessionId: "s22" }, karts: null })?.sessionId).toBe("s22");
+  });
+
+  it("agrees with holding-first whenever the karts are empty", () => {
+    // The two orderings can only differ while the karts are occupied — which is
+    // exactly the window the seated group's cue cannot play in anyway.
+    const lane = { holding: { sessionId: "s22" }, karts: null };
+    expect(pick(lane)).toEqual(lane.holding ?? lane.karts);
+  });
+});

@@ -247,7 +247,26 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
    * seats and refused with "no group is in holding" about a group standing right
    * there. Same `holding ?? karts` rule the rest of the lane uses.
    */
-  const staged = lane.holding ?? lane.karts;
+  /**
+   * THE FURTHEST-ALONG GROUP, KARTS FIRST (owner 2026-08-16: "the pit
+   * controller should be showing race that's in the rail").
+   *
+   * This read `holding ?? karts`, while the wall's rail names `karts ??
+   * holding` — so once somebody was strapped in, the station card and the wall
+   * described different groups, and the press would have played for whichever
+   * one the card was NOT showing. One rule, two surfaces: they now agree.
+   *
+   * It is also the right order on its own terms. A group in the karts is closer
+   * to the flag than one in the seats, so if both somehow owe a cue, theirs is
+   * the urgent one. The two orderings only differ while the karts are occupied,
+   * and in that window the seated group's cue cannot play anyway — the karts
+   * are not free for them to walk into.
+   *
+   * The karts fallback that used to be second still works for its original
+   * purpose (a repeat press finding the group this very press just moved), it
+   * is simply now first.
+   */
+  const staged = lane.karts ?? lane.holding;
   /**
    * A GROUP THAT WENT OUT WITHOUT ITS PRE STILL OWES IT (owner 2026-08-15:
    * "it is not optional and must be played… when they phase one start it moves

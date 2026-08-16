@@ -719,7 +719,13 @@ function TrackCard({
   // PRE belongs to the group being staged (seats or karts — the pre cue is what
   // moves them between the two); POST belongs to the group in the PIT. Two
   // different groups, which is the whole reason pitIn exists (2026-08-15).
-  const holding = lane?.holding ?? lane?.karts ?? null;
+  // KARTS FIRST, matching the wall's rail and playPreRace (owner 2026-08-16:
+  // "the pit controller should be showing race that's in the rail"). This read
+  // `holding ?? karts`, so while somebody was strapped in this card named the
+  // seated group while the wall named the karts group -- and the press, which
+  // resolves its own subject server-side, would have played for whichever one
+  // the card was not showing.
+  const holding = lane?.karts ?? lane?.holding ?? null;
   const racing = lane?.racing ?? null;
   const pitIn = lane?.pitIn ?? null;
   /**
