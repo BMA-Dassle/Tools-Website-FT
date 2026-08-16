@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dataSaysMega, pickCurrentSession } from "./mega-mode";
+import { dataSaysMega, megaLadder, pickCurrentSession } from "./mega-mode";
 
 const at = (iso: string) => ({ calledAt: iso });
 
@@ -100,5 +100,36 @@ describe("pickCurrentSession", () => {
 
   it("returns null when both are null", () => {
     expect(pickCurrentSession(null, null)).toBeNull();
+  });
+});
+
+describe("megaLadder — the resilience order", () => {
+  const base = { flag: null, dataMega: false, dayPlannerMega: null, calendarMega: false } as const;
+
+  it("a fresh flag is authoritative either way", () => {
+    expect(megaLadder({ ...base, flag: true })).toBe(true);
+    // Fresh false wins over dayplanner AND calendar — ops can run split
+    // tracks on a Tuesday and the boards obey.
+    expect(
+      megaLadder({ flag: false, dataMega: false, dayPlannerMega: true, calendarMega: true }),
+    ).toBe(false);
+  });
+
+  it("the data signal still overrides a fresh false flag — a called heat cannot lie", () => {
+    expect(megaLadder({ ...base, flag: false, dataMega: true })).toBe(true);
+  });
+
+  it("flag unavailable: the data signal decides alone when it says mega", () => {
+    expect(megaLadder({ ...base, dataMega: true })).toBe(true);
+  });
+
+  it("blind: a definite dayplanner verdict is trusted over the calendar, both ways", () => {
+    expect(megaLadder({ ...base, dayPlannerMega: true })).toBe(true);
+    expect(megaLadder({ ...base, dayPlannerMega: false, calendarMega: true })).toBe(false);
+  });
+
+  it("everything dark: the Tuesday calendar is the last resort", () => {
+    expect(megaLadder({ ...base, calendarMega: true })).toBe(true);
+    expect(megaLadder({ ...base, calendarMega: false })).toBe(false);
   });
 });
