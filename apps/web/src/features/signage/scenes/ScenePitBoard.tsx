@@ -1079,6 +1079,40 @@ function Photo({ sessionId, personId }: { sessionId: string; personId: string })
             width: "100%",
             height: "100%",
             objectFit: "cover",
+            /**
+             * THE CROP KEEPS THE HEAD (owner 2026-08-16: "pictures on bigger
+             * squares sometimes do this — notice head cut off?").
+             *
+             * `cover` on a card wider than the photo scales the photo by WIDTH,
+             * so it overflows vertically and the default `50% 50%` throws away
+             * equal bands off the top and the bottom. The bottom band is a
+             * chest; the top band is the top of a head.
+             *
+             * WHAT THE SOURCE ACTUALLY IS, measured rather than assumed — 18
+             * real photos pulled off live personIds: 13 of 18 come back SQUARE
+             * (276×276 up to 334×334; BMI's own avatar crop), the rest are raw
+             * phone uploads at 0.56:1 to 1.5:1. A square photo in the six-up
+             * card's 245×139 box overflows by 43% of its own height, so the
+             * centred crop was throwing away the top 21% of the frame — which on
+             * a selfie is exactly where the head is.
+             *
+             * A PERCENTAGE, not a pixel offset, because it is scale-invariant:
+             * `50% 12%` aligns the point 12% down the PHOTO with the point 12%
+             * down the BOX, so the same band stays framed whatever the card size
+             * or the source aspect — and where there is no vertical overflow to
+             * distribute it changes nothing at all. 12% rather than 0% leaves a
+             * little headroom above the crown, so a tall portrait does not come
+             * out as a strip of ceiling.
+             *
+             * 12% RATHER THAN A GENTLER 25%, which was rendered side by side over
+             * the same 18 photos: at 25% the tightest selfies still lost the
+             * crown. 12% clears every head in the sample. What it costs is the
+             * handful of uploads that are a SCENE rather than a face (a full-body
+             * shot at a race track, a hot tub group) — those slide down the box
+             * and show more sky. They identify nobody at any crop, so they are
+             * the right thing to spend.
+             */
+            objectPosition: "50% 12%",
           }}
           onError={(e) => {
             // No photo in BMI — the silhouette underneath IS the design.
