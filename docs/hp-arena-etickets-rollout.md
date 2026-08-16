@@ -105,14 +105,30 @@ dedup `alert:arena-checkin:{sid}:{pid}`) — deployed tickets light up the
    the scanner accepts `HP:` payloads (green within −60/+30 min of start).
 6. Racing canary week: compare daily `bySource.eTicket` counts vs prior week.
 
-## Naples (before onboarding PPTR5G2N0QXF7)
+## Naples (PPTR5G2N0QXF7) — ONBOARDED 2026-08-16
 
 Naples runs a SEPARATE BMI server — sessionIds can collide with FM's
-namespace. These keys must gain a location segment first:
-`ticket:bySession:{sid}:{pid}`, `alert:arena-pre:{sid}:{pid}`,
-`race:called:{sid}`, participant-index `ticket:byParticipant:{participantId}`.
-The QR already carries locationId (HP form) and the scanner threads it, so the
-scan path is Naples-ready.
+namespace. Solved by `lib/bmi-key-scope.ts`: keys built from BMI ids keep
+their legacy shape for the shared FT/HP-FM server (no migration) and gain a
+`{locationId}:` segment for Naples — `ticket:bySession`, `ticket:byParticipant`,
+`alert:arena-pre`, `alert:arena-checkin(:session)`, `race:called`,
+`eticket-nocontact:arena-*`. Retry/quota entries carry `locationId` so drained
+retries rebuild the scoped dedup keys.
+
+Per-center wiring lives in `src/features/arena-tickets/centers.ts`: both arena
+crons and the scanner called-board loop FM + Naples. Naples sends from the
+existing Naples DID `+12394553755` (`VOX_FROM_HEADPINZ_NAPLES` override), and
+tickets/emails render the Radio Ln address via `arenaLocationMeta`. Kill switch
+`ARENA_NAPLES !== "false"` (default ON). Naples' dayplanner resource is ALSO
+named `HP Arena` (live probe 2026-08-16 — NEXUS/Arena/Gel Blaster variants all
+404), with the same "NN - Nexus Gel Blaster / Nexus Laser Tag" session names,
+so `classifyArenaSession` and the sessions-route resource allowlist needed no
+change. The QR already carries locationId (HP form) and the scanner threads it.
+
+Quiet hours (2026-08-16): the whole e-ticket rail is gated 00:00–08:00 ET
+(`src/features/eticket/quiet-hours.ts`), stale queued sends are dropped at
+drain time, and `eticket-overnight-clear` (2–5am ET) purges the retry + quota
+queues with "expired in queue" audit rows on the admin board.
 
 ## Key files
 
