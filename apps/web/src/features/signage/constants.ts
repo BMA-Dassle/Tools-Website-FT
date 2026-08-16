@@ -186,5 +186,9 @@ export const TV_UPDATE_CHECK_MS = 5 * 60_000;
  *         large arrow in the track's colour, pointing at the briefing room,
  *         the moment that heat is sent. Fires on the same `briefedAtMs` the
  *         check-in board reacts to.
+ * 0.5.1 — Pit board's idle stage list names each session's LEVEL, not just its
+ *         number: a group on the fence can tell whether the heat in the
+ *         briefing room is one of theirs. Needed the lane to carry raceType
+ *         through the green flag, which it had been dropping.
  */
-export const SIGNAGE_VERSION = "0.5.0";
+export const SIGNAGE_VERSION = "0.5.1";
