@@ -20,7 +20,18 @@
  */
 
 export const TV_RECYCLE_SOFT_MS = 12 * 3_600_000;
-export const TV_RECYCLE_HARD_MS = 24 * 3_600_000;
+/**
+ * 36h, NOT 24h — the cap must be long enough that a nightly window always
+ * comes first. At 24h it locked evening-booted screens into a daily
+ * trading-hours reload: a TV (re)based at 20:00 — an ordinary evening deploy
+ * re-bases every screen at once — reaches 2am at 6h and 6am at 10h, never
+ * crossing 12h inside the window, so the first trigger it ever met was the
+ * hard cap at 24h… at 20:00 again, forever. At 36h the second overnight
+ * window always wins (worst case ~32h), and the cap only acts when the venue
+ * hour is unreadable — where a 36h stride at least rotates around the clock
+ * instead of pinning to one hour.
+ */
+export const TV_RECYCLE_HARD_MS = 36 * 3_600_000;
 
 /** The overnight window (venue-local): screens are idle, safeToReload lands
  *  within one 5-minute check, and nobody sees the blink. */

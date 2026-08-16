@@ -376,8 +376,15 @@ export default function CameraAssignClient({
    * reload provides. Reloads after a minute of quiet: nothing mid-scan (a
    * reload under a half-entered barcode reads as the tablet rejecting it), no
    * block POST in flight, no session load running, and no modal open under
-   * somebody's thumb. Everything else on this page is server state — a reload
-   * repaints the same roster.
+   * somebody's thumb.
+   *
+   * CLIENT-ONLY MODES HOLD IT TOO. Most of this page is server state a reload
+   * repaints — but an armed Web-NFC scan (NDEFReader needs a user gesture to
+   * re-arm), a manually-entered fullscreen, and a toggled-on keyboard are all
+   * silently destroyed by navigation: an NFC station would go quietly dead in
+   * a staff member's hands, taps doing nothing with no error. A tablet living
+   * in one of those modes simply keeps today's behavior (no self-reload),
+   * which is no worse than before this existed.
    */
   const buildUpdate = useBuildUpdate(version ?? "");
   const assignBusy =
@@ -387,7 +394,10 @@ export default function CameraAssignClient({
     pastModalOpen ||
     heatModalOpen ||
     barcodeModalOpen ||
-    blockModalTarget !== null;
+    blockModalTarget !== null ||
+    nfcActive ||
+    isFullscreen ||
+    showKeyboard;
   useEffect(() => {
     if ((!buildUpdate.ready && !buildUpdate.staleUptime) || assignBusy) return;
     const t = setTimeout(() => window.location.reload(), 60_000);

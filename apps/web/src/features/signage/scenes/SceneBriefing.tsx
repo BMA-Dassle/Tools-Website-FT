@@ -435,16 +435,17 @@ function BriefingVideo({
       // feels like it — and this element is keyed per send, so a briefing room
       // detaches 50-odd of them a day. pause + srcless load() is the idiom
       // Chromium actually releases on.
-      const v = ref.current;
-      if (v) {
-        try {
-          v.pause();
-        } catch {
-          /* already torn down */
-        }
-        v.removeAttribute("src");
-        v.load();
+      //
+      // `el` from the effect body, NOT ref.current: on unmount React nulls
+      // host refs during the commit's mutation phase, BEFORE passive cleanups
+      // run — reading the ref here would make this whole block a silent no-op.
+      try {
+        el.pause();
+      } catch {
+        /* already torn down */
       }
+      el.removeAttribute("src");
+      el.load();
     };
     // NO clock-derived value in this list — that is what caused the reseek loop —
     // and mountSrc never changes, so this runs exactly once per element.

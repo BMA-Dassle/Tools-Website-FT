@@ -2676,6 +2676,23 @@ function useCameraFrame(room: CameraTarget, width: number, enabled: boolean, cad
   return useCameraStill(`/api/tv/camera?room=${room}&w=${width}`, cadenceMs, enabled, 6_000);
 }
 
+/** Media teardown for the live-viewer <video>, as a React 19 ref-callback
+ *  cleanup. Module-level so its identity never changes: the cleanup must run
+ *  only when the element actually leaves (unmount / key change), never on a
+ *  re-render. */
+function teardownLiveVideoRef(el: HTMLVideoElement | null) {
+  if (!el) return;
+  return () => {
+    try {
+      el.pause();
+    } catch {
+      /* already torn down */
+    }
+    el.removeAttribute("src");
+    el.load();
+  };
+}
+
 /**
  * THE LIVE STREAM, played by the browser itself.
  *
@@ -3263,19 +3280,14 @@ function CameraLightbox({
             // Ref-callback CLEANUP (React 19): keyed on the ticket URL, this
             // element is replaced on every retry — tear the media pipeline
             // down when each one goes, or the detached players and their
-            // buffers ride until GC.
-            ref={(el) => {
-              if (!el) return;
-              return () => {
-                try {
-                  el.pause();
-                } catch {
-                  /* already torn down */
-                }
-                el.removeAttribute("src");
-                el.load();
-              };
-            }}
+            // buffers ride until GC. MODULE-LEVEL for a stable identity: an
+            // inline arrow is a new callback every render, and React 19 runs
+            // the old cleanup + re-attaches on every identity change — which,
+            // on a panel that re-renders every second, tore the src off the
+            // PLAYING element one second in and left a black viewer that
+            // still said LIVE (React never re-writes an attribute it thinks
+            // is already there, and a srcless load() fires no error).
+            ref={teardownLiveVideoRef}
             src={live.url}
             autoPlay
             muted

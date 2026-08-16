@@ -76,6 +76,11 @@ export function useBriefingAssets(
   // on the first render (the old Set+state pair revoked nothing, ever: the
   // []-dep cleanup closed over the initial empty map).
   const adoptedRef = useRef<Map<string, string>>(new Map());
+  // False from the unmount cleanup onward, so an adopt() whose disk read
+  // resolves AFTER unmount revokes its freshly-minted URL instead of writing
+  // it into a ledger the cleanup has already emptied — where nothing would
+  // ever revoke it.
+  const aliveRef = useRef(true);
   /** The in-flight prefetch, so it can be cut off the moment a film plays. */
   const abortRef = useRef<AbortController | null>(null);
 
@@ -167,6 +172,17 @@ export function useBriefingAssets(
       if (adoptedRef.current.has(url)) return;
       const objectUrl = await cachedObjectUrl(url);
       if (!objectUrl) return;
+      if (!aliveRef.current) {
+        // The screen unmounted while the disk read was in flight. The ledger
+        // has already been swept — writing to it now would pin this film with
+        // nothing left to release it.
+        try {
+          URL.revokeObjectURL(objectUrl);
+        } catch {
+          /* nothing to do */
+        }
+        return;
+      }
       adoptedRef.current.set(url, objectUrl);
       setLocal((prev) => ({ ...prev, [url]: objectUrl }));
     }
@@ -200,7 +216,12 @@ export function useBriefingAssets(
   // tab — and every scene remount adopted, and pinned, a fresh set.)
   useEffect(() => {
     const adopted = adoptedRef.current;
+    // Re-arm on (re)mount — StrictMode's dev double-mount runs this cleanup
+    // and then the effect again on the same instance; without the reset,
+    // adopt() would refuse to work for the whole second life.
+    aliveRef.current = true;
     return () => {
+      aliveRef.current = false;
       for (const objectUrl of adopted.values()) {
         try {
           URL.revokeObjectURL(objectUrl);

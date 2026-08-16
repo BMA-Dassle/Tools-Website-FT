@@ -32,6 +32,21 @@ describe("shouldRecycle", () => {
     expect(shouldRecycle(uptime, -1)).toBe(true);
   });
 
+  it("an evening-booted screen waits for its second overnight window — never a daily trading-hours reload", () => {
+    // Boot (or deploy-reload) at 20:00. Walk the following hours: the first
+    // window passes under the soft threshold (2am = 6h, 5am = 9h), 24h lands
+    // back at 20:00 — the OLD hard cap fired exactly there, locking the
+    // screen into a peak-hours blink every day — and the second window
+    // (30h = 2am) is where it must finally go.
+    const hourAt = (uptimeH: number) => (20 + uptimeH) % 24;
+    let firedAtUptimeH: number | null = null;
+    for (let h = 1; h <= 36 && firedAtUptimeH === null; h++) {
+      if (shouldRecycle(h * HOUR, hourAt(h))) firedAtUptimeH = h;
+    }
+    expect(firedAtUptimeH).toBe(30);
+    expect(hourAt(30)).toBe(2);
+  });
+
   it("an unknown hour (-1) never matches the overnight window", () => {
     expect(shouldRecycle(13 * HOUR, -1)).toBe(false);
   });
