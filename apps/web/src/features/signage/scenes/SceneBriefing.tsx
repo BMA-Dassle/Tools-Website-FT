@@ -909,45 +909,47 @@ function QualifyTarget({
  *  the owner specs gaps on the pit's stay-seated loop). */
 const WELCOME_AUDIO_GAP_MS = 10_000;
 /** The greeting stops nagging after this (owner: "max of 2 minutes"), counted
- *  from the moment it was first ALLOWED to play — board up AND room empty —
- *  not from the race end: a room that stays occupied for a while must still
- *  get its full greeting once it clears. */
+ *  from the POST PRESS — see the anchor note on the hook. */
 const WELCOME_AUDIO_MAX_MS = 2 * 60_000;
 
 /**
- * Loop the welcome-back jingle while the board is up — AND THE ROOM IS EMPTY.
+ * Loop the welcome-back jingle while the board is up — AND THE ROOM IS EMPTY,
+ * AND THIS RACE'S POST HAS PLAYED.
  *
  * THE ROOM GATE (owner 2026-08-15: "audio cannot play at all unless briefing
  * is empty/coming back… welcome back appeared but people were still doing
  * helmet sizes"). The board legitimately shows while the PREVIOUS group still
  * occupies the room — the helmet board ages off the SCREEN after ~30s, but
  * the occupancy holds until the send-to-holding press — and greeting audio
- * over a group mid-helmet-fitting was wrong. So `roomEmpty` (the room
- * timeline reading idle) arms the sound; until then the board greets in
- * silence, exactly as it did before audio existed.
+ * over a group mid-helmet-fitting was wrong.
+ *
+ * THE ANCHOR IS THE POST STAMP, and nothing client-side (owner 2026-08-15:
+ * "it's playing the second the briefing video ends"). The window used to open
+ * at the first moment this mount found the gates clear — so when the next
+ * group's film replaced the board and the room then emptied again, the
+ * remount re-armed a FRESH two minutes and re-greeted a race that had walked
+ * in ten minutes earlier. The post press is the true start of the greeting:
+ * its gate already requires an empty room, its stamp is session-keyed and
+ * server-side, so every TV — remounted, rebooted, or both — agrees the window
+ * is postPlayedAtMs + 2 minutes and a spent greeting can never return.
  *
  * Plays on arming, then again WELCOME_AUDIO_GAP_MS after each play ends, until
- * the 2-minute window (from first arming, keyed to this race's end stamp so a
- * later race starts its own) closes. The next briefing taking the room
- * unmounts the board, and the cleanup below stops the sound mid-note. Every
- * play failure is swallowed: a TV whose browser refuses autoplay shows the
- * board silently.
+ * the window closes. The next briefing taking the room unmounts the board,
+ * and the cleanup below stops the sound mid-note. Every play failure is
+ * swallowed: a TV whose browser refuses autoplay shows the board silently.
  */
-function useWelcomeBackAudio(url: string | null, endedAtMs: number, armed: boolean): void {
-  // When THIS race's greeting first became allowed to sound. A ref, so a
-  // re-render cannot restart the window; keyed on the end stamp, so a new
-  // race's board opens a fresh window instead of inheriting a spent one.
-  const armedRef = useRef<{ ended: number; atMs: number } | null>(null);
+function useWelcomeBackAudio(
+  url: string | null,
+  postPlayedAtMs: number | null,
+  roomEmpty: boolean,
+): void {
   useEffect(() => {
-    if (!url || !armed) return;
-    if (armedRef.current?.ended !== endedAtMs) {
-      armedRef.current = { ended: endedAtMs, atMs: Date.now() };
-    }
-    const armedAtMs = armedRef.current.atMs;
+    if (!url || !roomEmpty || postPlayedAtMs == null) return;
+    const windowClosed = () => Date.now() - postPlayedAtMs > WELCOME_AUDIO_MAX_MS;
+    if (windowClosed()) return;
     const el = new Audio(url);
     let timer: number | null = null;
     let stopped = false;
-    const windowClosed = () => Date.now() - armedAtMs > WELCOME_AUDIO_MAX_MS;
     const playOnce = () => {
       if (stopped || windowClosed()) return;
       void el.play().catch(() => {});
@@ -963,7 +965,7 @@ function useWelcomeBackAudio(url: string | null, endedAtMs: number, armed: boole
       el.pause();
       el.removeAttribute("src");
     };
-  }, [url, endedAtMs, armed]);
+  }, [url, postPlayedAtMs, roomEmpty]);
 }
 
 function WelcomeBack({
@@ -994,7 +996,8 @@ function WelcomeBack({
   // BOTH gates, together (owner 2026-08-15): the room must be empty AND this
   // race's post must have been pressed — the post is what calls the group
   // back in, so a greeting before it would welcome people still in the pit.
-  useWelcomeBackAudio(info.audioUrl, info.endedAtMs, roomEmpty && info.postPlayedAtMs != null);
+  // The post stamp is also the window's anchor — see the hook.
+  useWelcomeBackAudio(info.audioUrl, info.postPlayedAtMs, roomEmpty);
   const target = nextLevelTarget(info.track, info.raceType);
   const results = info.results;
   // The name board only exists where qualification exists: no target (a Pro
