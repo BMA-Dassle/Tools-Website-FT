@@ -268,10 +268,12 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
   const deskBusy =
     scanState !== "idle" || !!briefing.pending || !!briefing.expandedCamera || showSettings;
   useEffect(() => {
-    if (!buildUpdate.ready || deskBusy) return;
+    // staleUptime: a tab past its max uptime recycles in the same quiet gap a
+    // new build would — the reload is also this station's memory amnesty.
+    if ((!buildUpdate.ready && !buildUpdate.staleUptime) || deskBusy) return;
     const t = setTimeout(() => window.location.reload(), 60_000);
     return () => clearTimeout(t);
-  }, [buildUpdate.ready, deskBusy]);
+  }, [buildUpdate.ready, buildUpdate.staleUptime, deskBusy]);
 
   // Test mode — ?test=1 opt-in, read at mount like the baud-rate setting
   const [testMode] = useState<boolean>(() => {

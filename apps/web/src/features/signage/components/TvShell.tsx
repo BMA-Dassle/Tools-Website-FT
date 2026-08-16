@@ -18,10 +18,11 @@
  * never mid-celebration. The reload doubles as memory amnesty for a page that
  * is never otherwise torn down.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { captureKioskBootVersion, kioskUpdateAvailable } from "~/features/kiosk/version";
 import { SIGNAGE_VERSION, TV_UPDATE_CHECK_MS } from "../constants";
+import { etHourNow, shouldRecycle } from "../recycle";
 
 export function TvShell({
   screenLabel,
@@ -96,9 +97,23 @@ export function TvShell({
     void captureKioskBootVersion();
   }, []);
 
+  /** When this tab booted — the uptime the nightly recycle measures. */
+  const bootedAtRef = useRef(Date.now());
+
   useVisibleInterval(async () => {
     if (updatePending) return;
-    if (await kioskUpdateAvailable()) setUpdatePending(true);
+    if (await kioskUpdateAvailable()) {
+      setUpdatePending(true);
+      return;
+    }
+    // MAX-UPTIME RECYCLE: the reload below is the page's only memory amnesty,
+    // and gating it on "a deploy shipped" meant a quiet week never reloaded at
+    // all. Latching the SAME flag inherits every safety for free — the reload
+    // still waits for a scene boundary, never cuts an interrupt, and never
+    // lands while a briefing or check-in owns the glass. Nightly in the small
+    // hours (venue time — see recycle.ts), hard-capped at 24h; uptime resets
+    // on reload, so it can never loop.
+    if (shouldRecycle(Date.now() - bootedAtRef.current, etHourNow())) setUpdatePending(true);
   }, TV_UPDATE_CHECK_MS);
 
   useEffect(() => {

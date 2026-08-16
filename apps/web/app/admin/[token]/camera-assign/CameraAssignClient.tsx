@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import { modalBackdropProps } from "@/lib/a11y";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { businessDayWeekdayET } from "@/lib/race-business-day";
@@ -367,6 +368,31 @@ export default function CameraAssignClient({
   const [barcodeActiveCam, setBarcodeActiveCam] = useState<number>(1);
   const [barcodeInput, setBarcodeInput] = useState<string>("");
   const barcodeInputRef = useRef<HTMLInputElement | null>(null);
+
+  /**
+   * SELF-UPDATE + MAX-UPTIME RECYCLE — same shape as the pit and check-in
+   * stations. This tablet is opened once and left open all shift (often all
+   * week), so a deploy never reached it and it never got the memory amnesty a
+   * reload provides. Reloads after a minute of quiet: nothing mid-scan (a
+   * reload under a half-entered barcode reads as the tablet rejecting it), no
+   * block POST in flight, no session load running, and no modal open under
+   * somebody's thumb. Everything else on this page is server state — a reload
+   * repaints the same roster.
+   */
+  const buildUpdate = useBuildUpdate(version ?? "");
+  const assignBusy =
+    !!scanBuffer ||
+    blockBusy ||
+    loading ||
+    pastModalOpen ||
+    heatModalOpen ||
+    barcodeModalOpen ||
+    blockModalTarget !== null;
+  useEffect(() => {
+    if ((!buildUpdate.ready && !buildUpdate.staleUptime) || assignBusy) return;
+    const t = setTimeout(() => window.location.reload(), 60_000);
+    return () => clearTimeout(t);
+  }, [buildUpdate.ready, buildUpdate.staleUptime, assignBusy]);
 
   /** Load the full mapping when the modal opens. */
   const loadBarcodes = useCallback(async () => {
