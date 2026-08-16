@@ -76,6 +76,11 @@ interface StoredPitLane {
   racing: {
     sessionId: string;
     heatNumber: number | null;
+    /** Carried forward from the staged slot on promotion, so a group does not
+     *  lose its level the moment it takes the track — the idle pit board names
+     *  the type at every stage, and `pitIn` derives its own from this. Optional
+     *  on the stored shape because it post-dates the key. */
+    raceType?: string | null;
     room: BriefingRoom | null;
   } | null;
   /**
@@ -365,7 +370,7 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
       pitIn = {
         sessionId: racing.sessionId,
         heatNumber: racing.heatNumber,
-        raceType: null,
+        raceType: racing.raceType ?? null,
         room: racing.room,
         finishedAtMs,
         atMs: finishedAtMs ?? stored.pitted?.atMs ?? Date.now(),
@@ -418,7 +423,7 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
         pitIn = {
           sessionId: racing.sessionId,
           heatNumber: racing.heatNumber,
-          raceType: null,
+          raceType: racing.raceType ?? null,
           room: racing.room,
           finishedAtMs: null,
           atMs: Date.now(),
@@ -426,7 +431,16 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
           postRaceDurationS: null,
         };
       }
-      racing = { sessionId: staged.sessionId, heatNumber: staged.heatNumber, room: staged.room };
+      racing = {
+        sessionId: staged.sessionId,
+        heatNumber: staged.heatNumber,
+        // THE LEVEL TRAVELS WITH THE GROUP. It was dropped here, which is why
+        // `racing` and every `pitIn` derived from it carried a null type — the
+        // staged slot is the only thing that knows it, and this is the one
+        // moment that knowledge could be handed on.
+        raceType: staged.raceType,
+        room: staged.room,
+      };
       // ONLY THE SLOTS NAMING THE PROMOTED SESSION. Blanking both would erase a
       // group sent to the seats behind a group already in the karts, which is
       // the normal shape of a busy night rather than an edge case.
@@ -459,7 +473,7 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
         pitIn = {
           sessionId: racing.sessionId,
           heatNumber: racing.heatNumber,
-          raceType: null,
+          raceType: racing.raceType ?? null,
           room: racing.room,
           finishedAtMs: finished.endedAtMs ?? null,
           atMs: finished.endedAtMs ?? Date.now(),
@@ -506,7 +520,13 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
           atMs: karts.atMs,
         }
       : null,
-    racing: racing ? { sessionId: racing.sessionId, heatNumber: racing.heatNumber } : null,
+    racing: racing
+      ? {
+          sessionId: racing.sessionId,
+          heatNumber: racing.heatNumber,
+          raceType: racing.raceType ?? null,
+        }
+      : null,
     pitIn: pitIn
       ? {
           ...pitIn,
@@ -704,6 +724,7 @@ export async function sendToHolding(
       ? {
           sessionId: displaced.sessionId,
           heatNumber: displaced.heatNumber,
+          raceType: displaced.raceType,
           room: displaced.room,
         }
       : (stored?.racing ?? null);
@@ -948,6 +969,7 @@ export async function overrideLaneSlot(args: {
       ? {
           sessionId: args.occupant.sessionId,
           heatNumber: args.occupant.heatNumber,
+          raceType: args.occupant.raceType,
           room: args.occupant.room,
         }
       : null;

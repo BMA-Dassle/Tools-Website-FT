@@ -205,6 +205,47 @@ describe("resolveLane — one predicate, two source slots", () => {
     expect(lane.pitIn?.sessionId).toBe("s12");
   });
 
+  /**
+   * THE LEVEL TRAVELS WITH THE GROUP (owner 2026-08-15, the idle pit board:
+   * "add the session type to those").
+   *
+   * `racing` never stored a raceType, so the type died at the green flag — and
+   * `pitIn`, which is DERIVED from `racing`, was therefore hardcoded null at
+   * all three of its construction sites. Every stage after the karts printed a
+   * bare session number.
+   */
+  it("carries the race type from the staged slot through racing and into the pit", async () => {
+    putLane({ karts: group("s1", 44), racing: null, pitted: null });
+    putLiveHeat(44, "running");
+
+    const out = await readPitLane("blue");
+    expect(out.racing?.raceType).toBe("Blue Starter");
+
+    // …and the same group, once their finish lands, keeps it in the pit.
+    putLane({ karts: null, racing: { ...group("s1", 44) }, pitted: null });
+    finishedMarkers.set("s1", 9_000);
+
+    const back = await readPitLane("blue");
+    expect(back.pitIn?.sessionId).toBe("s1");
+    expect(back.pitIn?.raceType).toBe("Blue Starter");
+  });
+
+  it("resolves a lane written before racing carried a type", async () => {
+    // Mid-flow when this shipped: the stored slot has no raceType at all, and
+    // a null type must be the answer rather than a crash or a stale guess.
+    putLane({
+      holding: null,
+      racing: { sessionId: "s62", heatNumber: 62, room: "blue" },
+      pitted: null,
+    });
+    finishedMarkers.set("s62", 9_000);
+
+    const lane = await readPitLane("blue");
+
+    expect(lane.pitIn?.sessionId).toBe("s62");
+    expect(lane.pitIn?.raceType).toBeNull();
+  });
+
   it("promotes the karts group, not the seats, when both are filled", async () => {
     putLane({
       holding: group("seated", 45, 2_000),

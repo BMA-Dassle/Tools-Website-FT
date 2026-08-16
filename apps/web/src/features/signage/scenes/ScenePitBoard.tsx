@@ -298,11 +298,20 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
    * All of it is already on this screen: the called record from the track
    * status it renders anyway, the rooms and lanes from the 2-second pulse. No
    * new read, and nothing here can disagree with the board above it.
+   *
+   * EVERY ROW NAMES ITS LEVEL (owner 2026-08-15: "add the session type to
+   * those"). A session number alone answers "how far away is my turn" but not
+   * "is that one of mine" — a Junior Starter group waiting on the fence cannot
+   * tell whether Session 44 in the briefing room is theirs. The type is the
+   * field that says so, and every stage already carries it now that the lane
+   * hands it on at the green flag (lane.server.ts). Its own column rather than
+   * the detail slot, because the two say different things: the type is what the
+   * session IS, the detail is what it is DOING.
    */
   const idleStages = useMemo(() => {
     const rooms = feed?.briefingRooms ?? null;
     const called = status?.currentRaces?.[track] ?? null;
-    const out: Array<{ label: string; value: string; detail?: string }> = [];
+    const out: Array<{ label: string; value: string; type?: string; detail?: string }> = [];
 
     /**
      * A SESSION OCCUPIES EXACTLY ONE STAGE — the same rule the briefing API
@@ -335,13 +344,14 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
     out.push({
       label: "Called",
       value: called?.heatNumber != null && !calledMovedOn ? `Session ${called.heatNumber}` : "—",
-      detail: calledMovedOn ? undefined : (called?.raceType ?? undefined),
+      type: calledMovedOn ? undefined : (called?.raceType ?? undefined),
     });
 
     // On a Mega day one circuit is served by both rooms, so both are ours.
     const ourRooms: Array<"red" | "blue"> =
       track === "mega" ? ["red", "blue"] : track === "red" ? ["red"] : ["blue"];
     let briefingValue = "—";
+    let briefingType: string | undefined;
     let briefingDetail: string | undefined;
     for (const room of ourRooms) {
       const state = rooms?.[room] ?? null;
@@ -349,6 +359,10 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
       const t = briefingTimelineAt(state, feed?.now ?? Date.now());
       if (t.phase === "idle") continue;
       briefingValue = state.heatNumber != null ? `Session ${state.heatNumber}` : "In a room";
+      // The room's own level, NOT its tier: a Pro session with no Pro film
+      // plays the Intermediate one, and `tier` would tell a Pro grid they are
+      // in an Intermediate race (see BriefingRoomState.raceType).
+      briefingType = state.raceType ?? undefined;
       briefingDetail =
         t.phase === "video" && t.nextInMs != null
           ? `${Math.max(1, Math.ceil(t.nextInMs / 60_000))} min of film left`
@@ -357,11 +371,17 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
             : "waiting to start";
       break;
     }
-    out.push({ label: "Briefing", value: briefingValue, detail: briefingDetail });
+    out.push({
+      label: "Briefing",
+      value: briefingValue,
+      type: briefingType,
+      detail: briefingDetail,
+    });
 
     out.push({
       label: "Holding",
       value: lane.holding?.heatNumber != null ? `Session ${lane.holding.heatNumber}` : "—",
+      type: lane.holding?.raceType ?? undefined,
       detail: lane.holding ? "in the seats" : undefined,
     });
 
@@ -371,6 +391,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
     out.push({
       label: "In karts",
       value: lane.karts?.heatNumber != null ? `Session ${lane.karts.heatNumber}` : "—",
+      type: lane.karts?.raceType ?? undefined,
       detail: lane.karts ? "seated — waiting on the green" : undefined,
     });
 
@@ -379,6 +400,11 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
     out.push({
       label: "On track",
       value: onTrackHeat != null ? `Session ${onTrackHeat}` : "—",
+      // Only from the lane. When the heat number came from the timing socket
+      // instead, the socket knows a heat NAME and nothing about levels — and a
+      // type printed beside a session the lane cannot vouch for would be a
+      // guess about the group in front of the screen.
+      type: lane.racing?.raceType ?? undefined,
       detail: liveClock?.counting ? "racing" : undefined,
     });
 
@@ -388,6 +414,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
     out.push({
       label: "Pit in",
       value: lane.pitIn?.heatNumber != null ? `Session ${lane.pitIn.heatNumber}` : "—",
+      type: lane.pitIn?.raceType ?? undefined,
       detail: lane.pitIn ? "karts in — waiting on post-race" : undefined,
     });
 
@@ -1118,7 +1145,7 @@ function Idle({
 }: {
   accent: string;
   hasSession: boolean;
-  stages: Array<{ label: string; value: string; detail?: string }>;
+  stages: Array<{ label: string; value: string; type?: string; detail?: string }>;
 }) {
   return (
     <div
@@ -1158,15 +1185,46 @@ function Idle({
                   >
                     {st.label}
                   </span>
+                  {/* The number and its level are ONE fact, so they share a
+                      column with a fixed width: ragged rows made the reader
+                      hunt for the type, and the eye should be able to run
+                      straight down the levels the way it runs down the
+                      sessions. 380px holds "Session 100" + "Junior Starter"
+                      with room to spare; anything longer simply pushes the
+                      detail right rather than clipping. */}
                   <span
-                    className="tv-display"
                     style={{
-                      fontSize: 46,
-                      color: empty ? withAlpha("#f5ecee", 0.28) : "#fff",
-                      whiteSpace: "nowrap",
+                      display: "inline-flex",
+                      alignItems: "baseline",
+                      gap: 20,
+                      minWidth: 380,
                     }}
                   >
-                    {st.value}
+                    <span
+                      className="tv-display"
+                      style={{
+                        fontSize: 46,
+                        color: empty ? withAlpha("#f5ecee", 0.28) : "#fff",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {st.value}
+                    </span>
+                    {/* Dimmer than the session number and brighter than the
+                        label: the type qualifies the number, it is not a second
+                        headline and it is not a caption. */}
+                    {st.type && (
+                      <span
+                        className="tv-display"
+                        style={{
+                          fontSize: 32,
+                          color: withAlpha("#f5ecee", 0.72),
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {st.type}
+                      </span>
+                    )}
                   </span>
                   {st.detail && (
                     <span
