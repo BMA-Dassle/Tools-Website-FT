@@ -309,6 +309,10 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
     scheduledStart: string;
     checkedIn: number;
     total: number;
+    /** Square location id — rows now span FT/HP-FM AND Naples, whose
+     *  separate BMI server can mint numerically identical sessionIds,
+     *  so sessionId alone is not a unique row identity. */
+    locationId?: string;
   }
   const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
 
@@ -1172,7 +1176,7 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
             const color = TRACK_COLORS[s.track.toLowerCase()] ?? PORTAL_BLUE;
             return (
               <div
-                key={s.sessionId}
+                key={`${s.locationId ?? ""}:${s.sessionId}`}
                 className="flex items-center gap-3 px-4 py-2.5 shrink-0"
                 style={{
                   backgroundColor: `${color}15`,

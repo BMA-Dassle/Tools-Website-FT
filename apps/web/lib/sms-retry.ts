@@ -359,8 +359,14 @@ export async function voxSend(
 
   // If we tried with an override and Voxtelesys rejected it (likely DID not owned),
   // degrade to default VOX_FROM and prepend a "From {planner}" prefix so the
-  // customer still knows who's texting.
+  // customer still knows who's texting. Warn loudly — a permanently
+  // misconfigured DID (e.g. the Naples number not provisioned on the SMS
+  // trunk) would otherwise be invisible: sends log ok=true while guests
+  // text back a number that never answers.
   if (!result.ok && opts?.fromOverride && (result.status === 400 || result.status === 403)) {
+    console.warn(
+      `[voxSend] Vox rejected fromOverride ${opts.fromOverride} (${result.status}) — falling back to ${VOX_FROM}. If this repeats, the DID is misconfigured.`,
+    );
     const prefix = opts.fallbackPrefix || `(From ${opts.fromOverride}) `;
     const fallbackBody = prefix + body;
     result = await voxSendOnce(toFormatted, fallbackBody, VOX_FROM);
@@ -503,7 +509,11 @@ export async function drainRetries(cron: SmsRetryCron): Promise<{
         phone: toFormatted,
         body: entry.body,
         source: cron,
-        queuedAt: ts,
+        // Preserve the ORIGINAL failure time, not the move time — the
+        // quota drain's staleness triage measures age from queuedAt, and
+        // the ~12.5 min the retry rail can hold an entry must not
+        // silently widen a check-in alert's 30-minute budget.
+        queuedAt: entry.firstFailedAt,
         shortCode: entry.audit.shortCode,
         ...(entry.from ? { from: entry.from } : {}),
         ...(entry.locationId ? { locationId: entry.locationId } : {}),

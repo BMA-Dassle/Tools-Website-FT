@@ -9,10 +9,14 @@
  * ETICKET_EXPIRED_ERROR) so the admin e-tickets board shows WHY a guest's
  * ticket never sent, with shortCode + body preserved for a manual resend.
  *
- * Sibling of wallet-overnight-clear: schedule fires 07:00Z + 08:00Z
- * year-round and the in-code 2–5am ET gate ensures exactly one firing
- * does the work whichever side of DST — a manual curl or misconfigured
- * schedule can never wipe the daytime queues.
+ * Sibling of wallet-overnight-clear: the schedule fires 07:20Z + 08:20Z
+ * year-round; the in-code 2–5am ET gate exists so a manual curl or
+ * misconfigured schedule can never wipe the daytime queues. Note BOTH
+ * nightly firings usually land inside the window (3:20+4:20am EDT,
+ * 2:20+3:20am EST) — the purge is idempotent (zrem-guarded, one audit
+ * row per removed entry) and the quiet-hours gate stops new e-ticket
+ * enqueues between them, so the second firing is a no-op. Keep any
+ * future work added here idempotent for the same reason.
  */
 
 import { purgeRetries, type RetryEntry } from "@/lib/sms-retry";

@@ -271,7 +271,16 @@ interface SessionStat {
   sessionId: number | string;
   checkedIn: number;
   total: number;
+  /** Square location id — stats rows now include HP arena sessions (FM +
+   *  Naples). Naples runs a separate BMI server whose sessionIds can
+   *  numerically collide with FastTrax heats, so racing matches must
+   *  exclude Naples rows. */
+  locationId?: string;
 }
+
+/** HeadPinz Naples — the one stats location whose sessionId namespace is
+ *  NOT shared with the FastTrax racing feed this board matches against. */
+const HP_NAPLES_LOCATION_ID = "PPTR5G2N0QXF7";
 
 function useSessionStats(token: string, enabled: boolean): SessionStat[] {
   const [stats, setStats] = useState<SessionStat[]>([]);
@@ -1130,7 +1139,13 @@ export default function BriefingRoomClient({
   // differently and a mismatched string would silently show no count at all.
   const incomingStat =
     (incomingRace &&
-      sessionStats.find((s) => String(s.sessionId) === String(incomingRace.sessionId))) ||
+      sessionStats.find(
+        (s) =>
+          String(s.sessionId) === String(incomingRace.sessionId) &&
+          // incomingRace is a FastTrax heat — never match a Naples arena
+          // row whose separate BMI server minted the same numeric id.
+          s.locationId !== HP_NAPLES_LOCATION_ID,
+      )) ||
     null;
   const incomingSentTo = incomingRace
     ? (control.board?.briefedSessions?.[String(incomingRace.sessionId)]?.room ?? null)

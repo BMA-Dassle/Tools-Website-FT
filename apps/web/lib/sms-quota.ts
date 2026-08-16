@@ -208,13 +208,20 @@ export async function drainQuotaQueue(
     };
   }
   const max = opts?.max ?? 100;
-  const raws = await redis.zrange(QUOTA_QUEUE, 0, max - 1);
-  let ok = 0,
+  // Held entries keep their FIFO rank, so a quiet-hours backlog of 100+
+  // held e-tickets must not hide a booking confirmation queued behind
+  // them — scan deeper (bounded) and count only real work (send
+  // attempts + drops) against `max`.
+  const SCAN_CAP = Math.max(max * 10, 1000);
+  const raws = await redis.zrange(QUOTA_QUEUE, 0, SCAN_CAP - 1);
+  let attempted = 0,
+    ok = 0,
     abandoned = 0,
     held = 0,
     dropped = 0;
   let stoppedOnQuota = false;
   for (const raw of raws) {
+    if (attempted + dropped >= max) break;
     let entry: QueuedSend;
     try {
       entry = JSON.parse(raw) as QueuedSend;
@@ -239,6 +246,7 @@ export async function drainQuotaQueue(
       }
       continue;
     }
+    attempted++;
     let result;
     try {
       result = await send(entry);
@@ -267,7 +275,7 @@ export async function drainQuotaQueue(
     abandoned++;
   }
   return {
-    attempted: raws.length,
+    attempted,
     ok,
     abandoned,
     held,

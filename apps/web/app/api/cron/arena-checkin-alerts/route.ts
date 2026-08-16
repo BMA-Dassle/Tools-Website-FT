@@ -14,6 +14,10 @@ import { runArenaCheckinAlerts } from "~/features/arena-tickets/checkin-alerts";
  *
  * ?dryRun=1 — log who would receive but don't send (and don't flag)
  */
+
+// Two centers run sequentially against Pandora — see arena-tickets route.
+export const maxDuration = 300;
+
 export async function GET(req: NextRequest) {
   const denied = verifyCron(req);
   if (denied) return denied;

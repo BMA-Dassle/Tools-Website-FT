@@ -10,6 +10,11 @@ import {
 } from "@/lib/sms-quota";
 import { voxSend } from "@/lib/sms-retry";
 import { logSms } from "@/lib/sms-log";
+import {
+  eticketQuotaTriage,
+  logExpiredQuotaEntry,
+  setDedupKeysForQuotaEntry,
+} from "~/features/eticket/quota-triage";
 
 /**
  * GET  /api/admin/sms-quota
@@ -57,6 +62,8 @@ export async function POST(req: NextRequest) {
       attempted: number;
       ok: number;
       abandoned: number;
+      held: number;
+      dropped: number;
       stoppedOnQuota: boolean;
       pendingAfter: number;
     } | null = null;
@@ -67,48 +74,56 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "drain" || action === "clear-and-drain") {
-      drainResult = await drainQuotaQueue(async (entry: QueuedSend) => {
-        const result = await voxSend(
-          entry.phone,
-          entry.body,
-          entry.from
-            ? { fromOverride: entry.from, fallbackPrefix: entry.fallbackPrefix }
-            : undefined,
-        );
-        await logSms({
-          ts: new Date().toISOString(),
-          phone: entry.phone,
-          source: entry.source,
-          status: result.status,
-          ok: result.ok,
-          error: result.ok ? undefined : `[admin-drain] ${result.error || "unknown"}`,
-          body: entry.body,
-          sessionIds: entry.audit?.sessionIds,
-          personIds: entry.audit?.personIds,
-          memberCount: entry.audit?.memberCount,
-          shortCode: entry.shortCode,
-          provider: result.provider,
-          failedOver: result.failedOver,
-        });
-        // Mirror the sweep cron's video-match patch path so the videos
-        // board flips chips green immediately on admin-triggered drain.
-        if (result.ok && entry.source === "video-match" && entry.shortCode) {
-          try {
-            const { getMatchByVideoCode, updateVideoMatch } = await import("@/lib/video-match");
-            const match = await getMatchByVideoCode(entry.shortCode);
-            if (match) {
-              match.notifySmsOk = true;
-              match.notifySmsError = undefined;
-              match.notifySmsSentTo = entry.phone;
-              match.notifySmsSentAt = new Date().toISOString();
-              await updateVideoMatch(match);
+      drainResult = await drainQuotaQueue(
+        async (entry: QueuedSend) => {
+          const result = await voxSend(
+            entry.phone,
+            entry.body,
+            entry.from
+              ? { fromOverride: entry.from, fallbackPrefix: entry.fallbackPrefix }
+              : undefined,
+          );
+          await logSms({
+            ts: new Date().toISOString(),
+            phone: entry.phone,
+            source: entry.source,
+            status: result.status,
+            ok: result.ok,
+            error: result.ok ? undefined : `[admin-drain] ${result.error || "unknown"}`,
+            body: entry.body,
+            sessionIds: entry.audit?.sessionIds,
+            personIds: entry.audit?.personIds,
+            memberCount: entry.audit?.memberCount,
+            shortCode: entry.shortCode,
+            provider: result.provider,
+            failedOver: result.failedOver,
+          });
+          // Mirror the sweep cron's video-match patch path so the videos
+          // board flips chips green immediately on admin-triggered drain.
+          if (result.ok && entry.source === "video-match" && entry.shortCode) {
+            try {
+              const { getMatchByVideoCode, updateVideoMatch } = await import("@/lib/video-match");
+              const match = await getMatchByVideoCode(entry.shortCode);
+              if (match) {
+                match.notifySmsOk = true;
+                match.notifySmsError = undefined;
+                match.notifySmsSentTo = entry.phone;
+                match.notifySmsSentAt = new Date().toISOString();
+                await updateVideoMatch(match);
+              }
+            } catch (err) {
+              console.warn("[admin/sms-quota drain] video-match patch failed:", err);
             }
-          } catch (err) {
-            console.warn("[admin/sms-quota drain] video-match patch failed:", err);
           }
-        }
-        return { ok: result.ok, status: result.status, error: result.error };
-      });
+          if (result.ok) await setDedupKeysForQuotaEntry(entry);
+          return { ok: result.ok, status: result.status, error: result.error };
+        },
+        // Same triage/audit pair as the sweep cron — the admin
+        // "clear-and-drain" button must not bypass quiet hours or the
+        // staleness drop (a 12:30am drain after a quota outage would
+        // otherwise text guests stale check-in alerts overnight).
+        { triage: eticketQuotaTriage, onDrop: logExpiredQuotaEntry },
+      );
     }
 
     if (!cleared && !drainResult) {

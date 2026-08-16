@@ -805,11 +805,17 @@ export async function GET(req: NextRequest) {
 
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
 
-  // Quiet hours — no e-ticket goes out after business hours. No races
-  // run overnight, wallet clear-down is wallet-overnight-clear's job at
-  // 3am, and the overnight clear purges anything queued. dryRun still
-  // passes for ops testing.
+  // Quiet hours — no e-ticket goes out after business hours; the
+  // overnight clear purges anything queued. The evidence-based wallet
+  // clear-down still runs first: evening heats routinely spill past
+  // midnight (median 19.8 min late), and a pass stuck on "Check in now"
+  // until the 3am failsafe is exactly what this per-minute clear exists
+  // to prevent. Sends and race:called writes stay suppressed. dryRun
+  // still passes for ops testing.
   if (!dryRun && inEticketQuietHours()) {
+    await clearFinishedLicenceFields(req.nextUrl.origin).catch((err) => {
+      console.error("[checkin-alerts] quiet-hours wallet clear failed:", err);
+    });
     return NextResponse.json(
       { ok: true, skipped: "quiet-hours" },
       { headers: { "Cache-Control": "no-store" } },

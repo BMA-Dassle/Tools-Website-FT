@@ -13,9 +13,10 @@ import {
  * src/features/eticket/overnight-clear.ts.
  *
  * Schedule: `20 7,8 * * *` in vercel.json — both UTC hours fire
- * year-round (07:20Z = 3:20am EDT, 08:20Z = 3:20am EST) and the in-code
- * 2–5am ET gate below ensures exactly ONE firing acts whichever side of
- * DST, and that a manual curl outside the window can never wipe the
+ * year-round so the window is covered whichever side of DST (3:20/4:20am
+ * EDT, 2:20/3:20am EST — usually BOTH land inside the 2–5am gate; the
+ * purge is idempotent so the second firing no-ops). The in-code gate
+ * below is so a manual curl outside the window can never wipe the
  * daytime queues. Offset :20 so it never stacks on wallet-overnight-clear
  * (:00). Same belt-and-braces pattern as that cron.
  *
