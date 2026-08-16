@@ -15,6 +15,39 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.23.0 — TWO NEW ACKNOWLEDGMENT SCREENS ON THE KIOSK, both EN + ES.
+ *         (1) JUNIOR STARTER IS THE SLOW RACE (owner 2026-08-16). A parent
+ *         books Junior Starter for a kid who already races karts, then finds
+ *         out at the track that Starter is our slowest speed and everyone
+ *         starts there whatever their experience — the disappointment lands on
+ *         Guest Services and the reservation says nothing about what they were
+ *         told. Picking Junior Starter (or a junior Rookie Pack, which is the
+ *         same one slow race plus a licence and a video) now raises a
+ *         tick-every-box modal that says so and offers the Ultimate Qualifier
+ *         instead. The upsell button only appears when a junior UQ variant is
+ *         actually bookable that day, resolved from the same eligible list the
+ *         cards render from — on a Mega Tuesday there is none, so it quietly
+ *         drops to two buttons. Taking it routes back through the normal select
+ *         path, so the UQ's own disclaimer still appears. Declining records the
+ *         acknowledgment on the item and puts a staff note on the BMI bill.
+ *         The rule is DATA (RACE_WARNINGS): covering adults later is one record
+ *         plus its copy, no screen changes. Guarded at BOTH kiosk seams — the
+ *         product step and the pay-mode bundle rows — because a Rookie Pack can
+ *         be chosen a step earlier and gating only the product step let it
+ *         through unwarned.
+ *         (2) THE PACKAGE DISCLAIMER NOW ACTUALLY RENDERS HERE. race.ts has
+ *         always written "customer acknowledged disclaimer at booking" onto the
+ *         bill for any package carrying one — but the kiosk (and web v2) never
+ *         showed pkg.disclaimers at all; only web v1 did. So a kiosk Ultimate
+ *         Qualifier produced a bill asserting the guest accepted the
+ *         no-cash-refund term with no such screen in existence. Both seams now
+ *         raise it. That required moving the UQ and BOGO disclaimer copy out of
+ *         packages.ts literals into the catalog: rendering the old raw strings
+ *         would have asked a Spanish-speaking parent to tick three English
+ *         boxes accepting a refund term. One shared modal serves both prompt
+ *         kinds, so the kiosk cannot end up with a localized version of one and
+ *         a hardcoded-English version of the other. Spanish is a first pass
+ *         pending native review; the bill memos stay English (staff-facing).
  * 1.22.3 — THE ULTIMATE QUALIFIER NO LONGER INCLUDES THE FREE APPETIZER (owner
  *         2026-08-12), in-center AND online. Cleared appetizerCode / note /
  *         items from all five UQ variants in the registry, which is the single
@@ -963,7 +996,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.22.3";
+export const KIOSK_VERSION = "1.23.0";
 
 let bootVersion: string | null = null;
 let captured = false;
