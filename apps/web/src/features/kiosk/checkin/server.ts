@@ -1498,6 +1498,14 @@ export async function completeCheckin(args: {
      *  party-ready barrier and lands once everyone is synced and waivered. This
      *  records that the followup was accepted, not that BMI shows the state. */
     let stateQueued = false;
+    /**
+     * The racer→heat pairs this check-in actually bound, hoisted out of the
+     * scheduling block because the state stamp below needs them: the
+     * "Confirmation - Express" flip waits on these seats being on the GRID, not
+     * merely on the party being local and waivered. Empty for a check-in with no
+     * racing seats, which degrades the gate to plain party-ready.
+     */
+    const seatRefs: Array<{ personId: string; heatStart: string }> = [];
 
     if (attachEnabled && hasRacing) {
       // Assign the added people to open heat slots (no bmiPersonId). The guest's
@@ -1575,6 +1583,10 @@ export async function completeCheckin(args: {
         racers.push({
           racerName: name,
           personId: schedulableId,
+          // The id we did NOT post under. The cloud roster may list this human
+          // under either form, and the guard must not read "absent" merely
+          // because the roster used the other one.
+          altPersonId: schedulableId === p.pandoraPersonId ? p.personId : p.pandoraPersonId,
           product: product?.name ?? "Race",
           productId,
           tier: heat.tier || product?.tier || "starter",
@@ -1587,6 +1599,7 @@ export async function completeCheckin(args: {
         if (!bound.some((b) => b.personRowId === p.id)) {
           bound.push({ personRowId: p.id, personId: schedulableId });
         }
+        seatRefs.push({ personId: schedulableId, heatStart: heat.heatId as string });
         const personHeats = heatsByPerson.get(p.id) ?? [];
         personHeats.push(heat);
         heatsByPerson.set(p.id, personHeats);
@@ -1655,6 +1668,36 @@ export async function completeCheckin(args: {
         "";
 
       if (racers.length > 0) {
+        /**
+         * Read the CLOUD roster ONCE for the whole schedule pass.
+         *
+         * Racers the cloud no longer carries are held back rather than posted —
+         * Pandora would resolve their project-person from the center's stale
+         * LOCAL copy and write a participant that orphans the moment the delete
+         * syncs down, wedging Fast WSync's upload batch (2026-08-16,
+         * T_PARTICIPANT 58922217). See projectRosterCloudBarrier.
+         *
+         * A roster we cannot READ yields null, and null disables the guard: an
+         * Office hiccup must never stop a check-in. Held racers are classified
+         * WAITING, so the sweep re-attaches and re-seats them.
+         */
+        let cloudRoster: ReadonlySet<string> | null = null;
+        if (officeProjectId) {
+          try {
+            const { projectRosterCloudBarrier } = await import("@/lib/bmi-sync-barriers");
+            const roster = await projectRosterCloudBarrier(
+              bmiClientKeyFor(center),
+              officeProjectId,
+            );
+            cloudRoster = roster.verdict === "open" ? roster.personIds : null;
+            console.log(
+              `[kiosk-checkin] ${billId}: cloud roster ${roster.verdict} — ${roster.detail}`,
+            );
+          } catch (err) {
+            console.error("[kiosk-checkin] cloud roster read failed (guard off):", err);
+          }
+        }
+
         // TWO BATCHES, deliberately. One bad id fails the WHOLE Pandora batch
         // (schedule-racers header, W52109), so a racer riding a 17-digit Office
         // id must never share a post with the known-good short ids.
@@ -1677,7 +1720,11 @@ export async function completeCheckin(args: {
           ["office-id", officeBatch],
         ] as const) {
           if (batch.length === 0) continue;
-          const part = await scheduleCheckinRacers({ reservationNumber, racers: batch });
+          const part = await scheduleCheckinRacers({
+            reservationNumber,
+            racers: batch,
+            cloudRoster,
+          });
           outcomes.push(...part.outcomes);
           if (label === "office-id") {
             console.warn(
@@ -1786,6 +1833,22 @@ export async function completeCheckin(args: {
             // Per reservation per business day: a resumed check-in refreshes the
             // party list rather than queuing a second stamp.
             idempotencyKey: `state-stamp:${billId}:${businessDate}`,
+            /**
+             * STAGE 1 OF A TWO-STAGE CUTOVER — still `party-ready`, deliberately.
+             *
+             * The gate this wants is `party-seated` (party-ready PLUS every seat
+             * verified on Pandora's session participants), and the consumer side
+             * of it ships in THIS commit: the barrier, the queue type, and the
+             * probe dispatch all understand the name already. The WRITER stays on
+             * the old name for one deploy because preview and production share
+             * the `bmi_sync_queue` table — a preview of this branch writing
+             * `party-seated` rows that production's consumer does not yet know
+             * reproduces row #170 (2026-08-13, 20 burned attempts) exactly.
+             *
+             * `seats` below is already written, so stage 2 is a ONE-LINE flip of
+             * this value once this deploy is live in production. Until then the
+             * stamp behaves precisely as it does today.
+             */
             barrier: "party-ready",
             barrierRef: officeProjectId,
             // Racing lives on the FastTrax Pandora location — the same one
@@ -1800,6 +1863,11 @@ export async function completeCheckin(args: {
               comboSpecialId: isVip ? comboSpecialId : null,
               label: "Confirmation Kiosk (check-in, sync-gated)",
               personIds: partyIds,
+              // Deduped: one racer may hold several heats, and proving the same
+              // seat twice buys nothing.
+              seats: [
+                ...new Map(seatRefs.map((s) => [`${s.personId}|${s.heatStart}`, s])).values(),
+              ],
             },
           });
           stateQueued = true;

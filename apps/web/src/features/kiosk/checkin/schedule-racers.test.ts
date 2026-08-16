@@ -56,6 +56,101 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+// ── cloud-roster guard ───────────────────────────────────────────────────────
+// A racer the CLOUD no longer carries must never reach the POST: Pandora would
+// resolve their project-person from the center's stale LOCAL copy and write a
+// participant that orphans when the delete syncs down, wedging Fast WSync's
+// upload batch (2026-08-16, T_PARTICIPANT 58922217). Held racers must come back
+// WAITING so the sweep re-attaches and re-seats them — never refused.
+
+/** Typed so `calls[0][1].body` is readable — the wire payload IS the assertion
+ *  here: a held racer must be absent from it, not merely reclassified. */
+const captureFetch = (data: unknown) =>
+  vi.fn(async (_url: string, _init: RequestInit) => pandoraResponse(data));
+const bodyOf = (m: ReturnType<typeof captureFetch>) =>
+  JSON.parse(String(m.mock.calls[0]?.[1]?.body)) as { racers: Array<Record<string, unknown>> };
+
+describe("scheduleCheckinRacers cloud-roster guard", () => {
+  it("does not POST a racer missing from the cloud roster, and marks them waiting", async () => {
+    const fetchMock = captureFetch({
+      results: [{ personId: "111", heatStart: "2026-08-12T16:12:00", status: "inserted" }],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await scheduleCheckinRacers({
+      reservationNumber: "W1",
+      racers: [racer("Ann", "111"), racer("Gone", "222")],
+      cloudRoster: new Set(["111"]),
+    });
+
+    // The removed racer is absent from the wire payload entirely.
+    const body = bodyOf(fetchMock);
+    expect(body.racers.map((r) => r.personId)).toEqual(["111"]);
+
+    expect(res.outcomes.find((o) => o.personId === "222")).toMatchObject({
+      kind: "waiting",
+      vendorStatus: "off-cloud-roster",
+    });
+    expect(res.linked).toBe(1);
+    // attempted still counts them — they were attempted, just not posted.
+    expect(res.attempted).toBe(2);
+    expect(res.unlinkedPersonIds).toContain("222");
+  });
+
+  it("skips the POST entirely when nobody is on the roster", async () => {
+    const fetchMock = captureFetch({ results: [] });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await scheduleCheckinRacers({
+      reservationNumber: "W1",
+      racers: [racer("Gone", "222")],
+      cloudRoster: new Set<string>(),
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(res.linked).toBe(0);
+    expect(res.outcomes[0]).toMatchObject({ kind: "waiting", vendorStatus: "off-cloud-roster" });
+  });
+
+  it("FAILS OPEN when the roster could not be read (null) — an Office hiccup must not stop check-in", async () => {
+    const fetchMock = captureFetch({
+      results: [
+        { personId: "111", heatStart: "2026-08-12T16:12:00", status: "inserted" },
+        { personId: "222", heatStart: "2026-08-12T16:12:00", status: "inserted" },
+      ],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await scheduleCheckinRacers({
+      reservationNumber: "W1",
+      racers: [racer("Ann", "111"), racer("Bob", "222")],
+      cloudRoster: null,
+    });
+
+    const body = bodyOf(fetchMock);
+    expect(body.racers).toHaveLength(2);
+    expect(res.linked).toBe(2);
+  });
+
+  it("matches a roster row carrying the racer's OTHER id, and never sends altPersonId on the wire", async () => {
+    const fetchMock = captureFetch({
+      results: [{ personId: "111", heatStart: "2026-08-12T16:12:00", status: "inserted" }],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await scheduleCheckinRacers({
+      reservationNumber: "W1",
+      racers: [{ ...racer("Ann", "111"), altPersonId: "63000000008486055" }],
+      cloudRoster: new Set(["63000000008486055"]),
+    });
+
+    const body = bodyOf(fetchMock);
+    expect(body.racers[0]).not.toHaveProperty("altPersonId");
+    expect(body.racers[0].personId).toBe("111");
+    expect(res.linked).toBe(1);
+  });
+});
+
 describe("scheduleCheckinRacers classification", () => {
   it("maps Pandora's per-racer statuses: inserted/already_linked=linked, person_not_on_project=waiting, schedule_not_found=refused", async () => {
     const racers = [

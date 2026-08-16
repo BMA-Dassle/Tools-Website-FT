@@ -9,6 +9,10 @@ import {
   type ScheduleResponseData,
   type AssignRacer,
 } from "~/features/booking/service/race-session-assign";
+import { projectRosterCloudBarrier } from "@/lib/bmi-sync-barriers";
+import { partitionByCloudRoster } from "@/lib/bmi-cloud-roster";
+import { officeClientKeyForCenter } from "@/lib/bmi-office-actions";
+import { officeProjectIdFromBillId } from "@/lib/bmi-office-ids";
 
 /**
  * GET /api/cron/race-session-assign-sweep
@@ -181,8 +185,63 @@ export async function GET(req: NextRequest) {
       return;
     }
 
-    const { ok, data } = await postScheduleOnce(resNum, assignable);
-    const summary = summarizeLink(assignable, ok, data);
+    /**
+     * CLOUD-ROSTER GUARD (2026-08-16 — WSync FK jam, T_PARTICIPANT 58922217).
+     *
+     * This sweep re-drives seating for reservations up to days old, so it is the
+     * caller most likely to POST a racer whose project-person was removed in the
+     * meantime. Pandora's own guard reads the CENTER'S LOCAL copy, which is
+     * stale-present in the window after a cloud-side delete — its check passes
+     * and the participant it writes orphans, wedging the whole upload batch.
+     *
+     * Held racers are simply not posted this tick and the row is left UNFLAGGED,
+     * so the next tick retries — identical to how an incomplete link is already
+     * handled. Unreadable roster ⇒ guard off, never a blocked sweep.
+     */
+    let toPost = assignable;
+    const projectId = row.bmiBillId ? officeProjectIdFromBillId(row.bmiBillId) : null;
+    if (projectId) {
+      try {
+        const roster = await projectRosterCloudBarrier(
+          officeClientKeyForCenter(row.centerCode ?? ""),
+          projectId,
+        );
+        if (roster.verdict === "open") {
+          const split = partitionByCloudRoster(assignable, roster.personIds, (r) => [r.personId]);
+          if (split.offRoster.length > 0) {
+            console.warn(
+              `[race-session-assign-sweep] ${resNum}: holding ${split.offRoster.length} racer(s) ` +
+                `off the POST — not on the cloud roster: ` +
+                split.offRoster.map((r) => r.racerName).join(", "),
+            );
+          }
+          toPost = split.onRoster;
+        }
+      } catch (err) {
+        console.error(
+          `[race-session-assign-sweep] ${resNum}: roster read failed (guard off):`,
+          err,
+        );
+      }
+    }
+
+    if (toPost.length === 0) {
+      // Nobody postable this tick. Deliberately NOT done-flagged: the roster can
+      // come back (the check-in sweep re-attaches), and this row ages out of the
+      // near-term candidate window on its own if it never does.
+      results.partial++;
+      outcomes.push({
+        reservationNumber: resNum,
+        status: "partial",
+        linked: 0,
+        attempted: assignable.length,
+        missing: [...new Set(assignable.map((r) => r.racerName))],
+      });
+      return;
+    }
+
+    const { ok, data } = await postScheduleOnce(resNum, toPost);
+    const summary = summarizeLink(toPost, ok, data);
 
     if (summary.complete) {
       results.linked++;

@@ -29,6 +29,16 @@ const CLIENT_KEYS: Record<string, string> = {
   naples: "headpinznaples",
 };
 
+/**
+ * Center slug → Office clientKey, for callers that hold a center rather than a
+ * location id. Same map every write path in this module already uses, exported
+ * rather than re-declared: a second copy is how a Naples record ends up written
+ * through the Fort Myers tenant.
+ */
+export function officeClientKeyForCenter(centerCode: string): string {
+  return CLIENT_KEYS[centerCode] || "headpinzftmyers";
+}
+
 const WAIVER_STATE_IDS: Record<string, string> = {
   headpinzftmyers: "3274635",
   headpinznaples: "1191926",
