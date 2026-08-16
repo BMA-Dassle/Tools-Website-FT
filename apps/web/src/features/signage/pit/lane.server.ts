@@ -1065,13 +1065,64 @@ export async function markInKarts(args: {
    * lives in kartsAvailability so the sentence on the held button and the
    * sentence returned here can never drift.
    */
+  /**
+   * ASK THE RESOLVED LANE, NEVER THE STORED ONE (2026-08-16, live, within the
+   * hour of shipping the guard above).
+   *
+   * The first cut of this tested `stored.karts`, and that is the same
+   * stored-vs-resolved split that jammed red heat 3 all morning. The stored
+   * karts slot is only vacated by a promotion being WRITTEN, and resolveLane
+   * never persists — so it keeps naming a group long after they have taken the
+   * green. playPreRace, which asks the RESOLVED lane, correctly saw the karts as
+   * free and played red 20's cue at 2:59:25; this then read the stale 19 still
+   * sitting in the stored slot and refused to move them. The announcement
+   * sounded, the group walked to their karts, and the board left them in the
+   * seats — with no way to retry, because the cue is a one-shot and a second
+   * press returns "already played" before it ever reaches here.
+   *
+   * Resolving costs one extra pass over state we have already read, and it is
+   * the only way this verdict can agree with the one playPreRace makes.
+   */
+  const resolved = await resolveLane(stored, args.track);
   {
-    const verdict = kartsAvailability({ karts: stored.karts, sessionId: args.sessionId });
+    const verdict = kartsAvailability({ karts: resolved.karts, sessionId: args.sessionId });
     if (!verdict.ok) return { ok: false, error: verdict.error };
   }
   if (stored.karts?.sessionId === args.sessionId) return { ok: true };
 
   const from = stored.holding?.sessionId === args.sessionId ? stored.holding : null;
+
+  /**
+   * THE PROMOTED GROUP RIDES THE WRITE — the other half of the same problem.
+   *
+   * Refusing on the resolved view is not enough on its own. When the karts slot
+   * resolves free it is because the group in it HAS TAKEN THE GREEN, and that
+   * promotion exists only in the resolved view: `stored.racing` is still null.
+   * Taking the karts slot without writing them down would erase them exactly as
+   * the stale-read refusal did, just one step later — red 19 were on track with
+   * nothing but the stored karts entry naming them.
+   *
+   * So this write carries the resolved view of the two slots it does not own,
+   * for the same reason sendToHolding persists `pitIn`: resolveLane never
+   * records its own conclusions, so whatever it derived is lost the instant
+   * anybody else writes the key. A resolved null is authoritative too — it means
+   * the slot is genuinely spent, and a stale stored copy must not resurrect it.
+   */
+  const racingAfter: StoredPitLane["racing"] = resolved.racing
+    ? {
+        sessionId: resolved.racing.sessionId,
+        heatNumber: resolved.racing.heatNumber,
+        raceType: resolved.racing.raceType,
+        // The room travels with the group; only the slot they were promoted OUT
+        // of can still tell us which one it was.
+        room:
+          stored.karts?.sessionId === resolved.racing.sessionId
+            ? (stored.karts.room ?? null)
+            : stored.holding?.sessionId === resolved.racing.sessionId
+              ? (stored.holding.room ?? null)
+              : (stored.racing?.room ?? null),
+      }
+    : null;
 
   await writeStoredLane(args.track, {
     ...stored,
@@ -1085,6 +1136,9 @@ export async function markInKarts(args: {
       room: args.room ?? from?.room ?? null,
       atMs: args.atMs ?? Date.now(),
     },
+    // See racingAfter — the promotion this write would otherwise sever.
+    racing: racingAfter,
+    pitIn: resolved.pitIn ? { ...resolved.pitIn } : null,
   });
 
   return { ok: true };

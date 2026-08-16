@@ -1258,3 +1258,51 @@ describe("markInKarts refuses an occupied karts slot", () => {
     expect(after.holding).toBeNull();
   });
 });
+
+/**
+ * RED 19/20, 2026-08-16, within the hour of shipping the karts guard. The guard
+ * tested the STORED karts slot, which is only vacated by a promotion being
+ * written — and resolveLane never persists. So playPreRace (which asks the
+ * RESOLVED lane) saw the karts free and played red 20's cue at 2:59:25, while
+ * this refused on the stale 19 and left 20 sitting in the seats. No retry
+ * possible: the cue is a one-shot and a second press returns "already played"
+ * before it ever reaches markInKarts.
+ */
+describe("markInKarts reads the resolved lane, not the stored one", () => {
+  it("lets the next group in once the karts group has taken the green", async () => {
+    // s19 stored in karts, already green — resolve promotes them to racing.
+    putLane({ holding: group("s20", 20), karts: group("s19", 19), racing: null, pitted: null });
+    finishedMarkers.set("s19", 9_000);
+
+    const result = await markInKarts({ track: "blue", sessionId: "s20", heatNumber: 20 });
+
+    expect(result.ok).toBe(true);
+    const after = JSON.parse(store.get(LANE)!);
+    expect(after.karts.sessionId).toBe("s20");
+    expect(after.holding).toBeNull();
+  });
+
+  it("WRITES DOWN the promoted group, instead of severing them", async () => {
+    // The other half: the promotion exists only in the resolved view, so taking
+    // the karts slot without persisting it would erase s19 off the lane.
+    putLane({ holding: group("s20", 20), karts: group("s19", 19), racing: null, pitted: null });
+    finishedMarkers.set("s19", 9_000);
+
+    await markInKarts({ track: "blue", sessionId: "s20", heatNumber: 20 });
+
+    const after = JSON.parse(store.get(LANE)!);
+    // s19 survives, in the slot that is actually true for them.
+    expect(after.racing?.sessionId ?? after.pitIn?.sessionId).toBe("s19");
+  });
+
+  it("STILL refuses while the karts group has genuinely not gone out", async () => {
+    // No witness at all — resolve leaves s19 in the karts, so the guard holds.
+    putLane({ holding: group("s20", 20), karts: group("s19", 19), racing: null, pitted: null });
+
+    const result = await markInKarts({ track: "blue", sessionId: "s20", heatNumber: 20 });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("Session 19");
+    expect(JSON.parse(store.get(LANE)!).karts.sessionId).toBe("s19");
+  });
+});
