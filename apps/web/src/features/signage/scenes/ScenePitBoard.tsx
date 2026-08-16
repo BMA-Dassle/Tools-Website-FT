@@ -715,6 +715,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
         kartsComingIn={kartsComingIn}
         nowMs={nowMs}
         session={session}
+        karts={lane.karts}
         pitIn={lane.pitIn}
       />
     </div>
@@ -1327,6 +1328,7 @@ function Rail({
   kartsComingIn,
   nowMs,
   session,
+  karts,
   pitIn,
 }: {
   kind: "info" | "seat" | "hold" | "racing";
@@ -1337,6 +1339,7 @@ function Rail({
   kartsComingIn: boolean;
   nowMs: number;
   session: {
+    sessionId: string;
     heatNumber: number | null;
     briefedRoom: "red" | "blue" | null;
     briefedAtMs: number | null;
@@ -1344,6 +1347,25 @@ function Rail({
     preRaceAtMs: number | null;
     preRaceDurationS: number | null;
   } | null;
+  /**
+   * THE GROUP ALREADY STRAPPED IN, waiting on the green (owner 2026-08-16).
+   *
+   * THE TWO HALVES OF THIS SCREEN ANSWER DIFFERENT QUESTIONS, and deliberately
+   * pick different groups:
+   *
+   *   the GRID is for the group in the SEATS. They study their square while they
+   *   wait, then walk straight to that kart when the cue calls them — which is
+   *   why pitDisplaySession takes `holding ?? karts` and must keep doing so.
+   *
+   *   the RAIL reports the LANE. While a group is in the karts, they are what is
+   *   happening down there, so they own the bottom left until they take the
+   *   green — `karts ?? holding`, the opposite precedence, on purpose.
+   *
+   * The rail used to read the grid's session, so the instant the next group was
+   * sent to the seats it said "Seat Session 17 now" while 16 sat strapped into
+   * their karts and no screen mentioned them at all.
+   */
+  karts: { heatNumber: number | null; sessionId: string; atMs: number } | null;
   pitIn: {
     heatNumber: number | null;
     postRaceAtMs: number | null;
@@ -1352,19 +1374,33 @@ function Rail({
 }) {
   const sessionName =
     session?.heatNumber != null ? `Session ${session.heatNumber}` : "Next session";
+  const kartsName = karts?.heatNumber != null ? `Session ${karts.heatNumber}` : "They";
 
   /** The left half's instruction, from the same four states as before. */
-  const leftText = !session
-    ? "Nothing to seat"
-    : kind === "racing"
-      ? `${sessionName} racing`
-      : session.inHolding
-        ? `Seat ${sessionName} now`
-        : session.briefedAtMs != null
-          ? `In briefing${session.briefedRoom ? ` · ${session.briefedRoom} room` : ""}`
-          : `${sessionName} checking in`;
-  const leftGo = kind === "seat" && session?.inHolding === true;
-  const pre = preRaceTone(session, armed, nowMs);
+  const leftText = karts
+    ? `${kartsName} in karts`
+    : !session
+      ? "Nothing to seat"
+      : kind === "racing"
+        ? `${sessionName} racing`
+        : session.inHolding
+          ? `Seat ${sessionName} now`
+          : session.briefedAtMs != null
+            ? `In briefing${session.briefedRoom ? ` · ${session.briefedRoom} room` : ""}`
+            : `${sessionName} checking in`;
+  // Not a call to action while somebody is strapped in — the green "go" belongs
+  // to the seat instruction, and there is nothing to seat until the karts clear.
+  const leftGo = !karts && kind === "seat" && session?.inHolding === true;
+  /**
+   * THE CUE IS HELD, NOT DUE, WHILE THE KARTS ARE OCCUPIED.
+   *
+   * The pre-race announcement is what walks the seated group into their karts,
+   * so it cannot be owed while somebody else is still in them. The rail said
+   * PRE-RACE DUE for the seated group regardless — and acting on that prompt
+   * would have overwritten the karts group off the lane entirely.
+   */
+  const preHeld = karts != null && karts.sessionId !== session?.sessionId;
+  const pre = preHeld ? null : preRaceTone(session, armed, nowMs);
   /** BOTH GATES CLEARED — the whole left box flashes, not just the pill. */
   const readyToSend = pre?.tone === "ready";
 

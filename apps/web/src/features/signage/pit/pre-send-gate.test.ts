@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { CLEAR_TO_SEND_MS, preRaceTone, preSendGateAt, type PitLaneFeed } from "./pit-board";
+import {
+  CLEAR_TO_SEND_MS,
+  kartsAvailability,
+  preRaceTone,
+  preSendGateAt,
+  type PitLaneFeed,
+} from "./pit-board";
 
 const T0 = 1_786_900_000_000;
 
@@ -142,5 +148,40 @@ describe("preRaceTone", () => {
   it("an unknown length stops holding once the race arms", () => {
     const s = { ...seated, preRaceAtMs: T0, preRaceDurationS: null };
     expect(preRaceTone(s, true, T0 + 5 * 60_000)?.tone).toBe("ready");
+  });
+});
+
+/**
+ * BLUE 17 IN THE SEATS, BLUE 16 STRAPPED IN (owner 2026-08-16, live). The board
+ * said PRE-RACE DUE for 17 while 16 waited on the green. Acting on it would have
+ * called 17 to karts that were not free, and markInKarts — which the press
+ * triggers — wrote that slot with no occupancy check, erasing 16 off the lane.
+ *
+ * Third instance of one bug: a single slot written without asking who is in it.
+ */
+describe("kartsAvailability", () => {
+  const k = (sessionId: string, heatNumber: number) => ({ sessionId, heatNumber });
+
+  it("allows the cue when the karts are empty", () => {
+    expect(kartsAvailability({ karts: null, sessionId: "s17" })).toEqual({ ok: true });
+  });
+
+  it("REFUSES while a different group is still in the karts", () => {
+    const v = kartsAvailability({ karts: k("s16", 16), sessionId: "s17" });
+    expect(v.ok).toBe(false);
+    // The refusal names who, because "wait" is only actionable if you know for what.
+    expect(v.ok === false && v.error).toContain("Session 16");
+  });
+
+  it("allows a REPEAT press for the group already in the karts", () => {
+    // playPreRace falls back to `karts` so a second press does not refuse about
+    // a group standing right there — that path must stay open.
+    expect(kartsAvailability({ karts: k("s16", 16), sessionId: "s16" })).toEqual({ ok: true });
+  });
+
+  it("still refuses when the occupant has no heat number to name", () => {
+    const v = kartsAvailability({ karts: { sessionId: "s16" }, sessionId: "s17" });
+    expect(v.ok).toBe(false);
+    expect(v.ok === false && v.error).toContain("another group");
   });
 });

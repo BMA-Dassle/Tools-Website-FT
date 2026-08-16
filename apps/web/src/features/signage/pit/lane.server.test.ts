@@ -1108,3 +1108,153 @@ describe("markRacePitted clears every slot naming the returning group", () => {
     expect(after.racing).toBeNull();
   });
 });
+
+/* ── a post can no longer be silently skipped ───────────────────────────── */
+
+/**
+ * SIX GROUPS CAME BACK WITHOUT AN ANNOUNCEMENT ON 2026-08-16 — red 7, 12, 14 and
+ * blue 10, 12, 14. Blue alternated 9 ok, 10 missed, 11 ok, 12 missed, 13 ok, 14
+ * missed, which is the signature of ONE pit slot serving TWO groups rather than
+ * staff forgetting to press.
+ *
+ * `pitIn` is derived from `stored.racing`, and there is one of each. The moment
+ * a second group finished behind an unposted one, the earlier group stopped
+ * being representable and their debt vanished off every board.
+ */
+describe("the pit slot is only taken if it is free", () => {
+  it("does not overwrite a group still owing its post when the next race finishes", async () => {
+    // s1 is in the pit owing a post; s2 has finished behind them.
+    putLane({
+      holding: null,
+      karts: null,
+      racing: group("s2", 2),
+      pitIn: {
+        ...group("s1", 1),
+        finishedAtMs: 5_000,
+        postRaceAtMs: null,
+        postRaceDurationS: null,
+      },
+      pitted: null,
+    });
+    finishedMarkers.set("s2", 9_000);
+
+    const lane = await readPitLane("blue");
+
+    // The earlier group keeps the slot — their announcement is still owed.
+    expect(lane.pitIn?.sessionId).toBe("s1");
+    // And s2 is not erased: they stay on track until the pit frees.
+    expect(lane.racing?.sessionId).toBe("s2");
+  });
+
+  it("settles the waiting group the moment the pit clears", async () => {
+    putLane({
+      holding: null,
+      karts: null,
+      racing: group("s2", 2),
+      pitIn: {
+        ...group("s1", 1),
+        finishedAtMs: 5_000,
+        postRaceAtMs: null,
+        postRaceDurationS: null,
+      },
+      pitted: null,
+    });
+    finishedMarkers.set("s2", 9_000);
+    // s1's post lands — the slot frees on the very next read.
+    postCues.add("s1");
+
+    const lane = await readPitLane("blue");
+    expect(lane.pitIn?.sessionId).toBe("s2");
+    expect(lane.racing).toBeNull();
+  });
+
+  it("HOLDS the promotion rather than erasing either group", async () => {
+    // s3 staged and demonstrably out, s2 on track, s1 still owed a post.
+    putLane({
+      holding: group("s3", 3),
+      karts: null,
+      racing: group("s2", 2),
+      pitIn: {
+        ...group("s1", 1),
+        finishedAtMs: 5_000,
+        postRaceAtMs: null,
+        postRaceDurationS: null,
+      },
+      pitted: null,
+    });
+    finishedMarkers.set("s3", 9_000);
+
+    const lane = await readPitLane("blue");
+
+    // Nobody is lost: s1 keeps the pit, s2 keeps the track, s3 waits its turn.
+    expect(lane.pitIn?.sessionId).toBe("s1");
+    expect(lane.racing?.sessionId).toBe("s2");
+    expect(lane.holding?.sessionId).toBe("s3");
+  });
+
+  it("resumes the succession once the outstanding post is played", async () => {
+    putLane({
+      holding: group("s3", 3),
+      karts: null,
+      racing: group("s2", 2),
+      pitIn: {
+        ...group("s1", 1),
+        finishedAtMs: 5_000,
+        postRaceAtMs: null,
+        postRaceDurationS: null,
+      },
+      pitted: null,
+    });
+    finishedMarkers.set("s3", 9_000);
+    postCues.add("s1");
+
+    const lane = await readPitLane("blue");
+    expect(lane.pitIn?.sessionId).toBe("s2");
+    expect(lane.racing?.sessionId).toBe("s3");
+    expect(lane.holding).toBeNull();
+  });
+
+  it("an ORDINARY turnover with a free pit is untouched", async () => {
+    // The normal shape of every night: nothing owed, so nothing defers.
+    putLane({ holding: group("s3", 3), karts: null, racing: group("s2", 2), pitted: null });
+    finishedMarkers.set("s3", 9_000);
+
+    const lane = await readPitLane("blue");
+    expect(lane.racing?.sessionId).toBe("s3");
+    expect(lane.pitIn?.sessionId).toBe("s2");
+    expect(lane.holding).toBeNull();
+  });
+});
+
+/* ── the karts slot is only taken if it is free ─────────────────────────── */
+
+describe("markInKarts refuses an occupied karts slot", () => {
+  it("does not overwrite a group already strapped in", async () => {
+    // Blue 17 in the seats, blue 16 waiting on the green.
+    putLane({ holding: group("s17", 17), karts: group("s16", 16), racing: null, pitted: null });
+
+    const result = await markInKarts({ track: "blue", sessionId: "s17", heatNumber: 17 });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("Session 16");
+    // 16 keeps the karts and 17 keeps the seats — nobody is erased.
+    const after = JSON.parse(store.get(LANE)!);
+    expect(after.karts.sessionId).toBe("s16");
+    expect(after.holding.sessionId).toBe("s17");
+  });
+
+  it("is still idempotent for the group already in the karts", async () => {
+    putLane({ holding: null, karts: group("s16", 16), racing: null, pitted: null });
+    expect((await markInKarts({ track: "blue", sessionId: "s16" })).ok).toBe(true);
+  });
+
+  it("still moves a seated group in when the karts are free", async () => {
+    putLane({ holding: group("s17", 17), karts: null, racing: null, pitted: null });
+
+    expect((await markInKarts({ track: "blue", sessionId: "s17", heatNumber: 17 })).ok).toBe(true);
+
+    const after = JSON.parse(store.get(LANE)!);
+    expect(after.karts.sessionId).toBe("s17");
+    expect(after.holding).toBeNull();
+  });
+});

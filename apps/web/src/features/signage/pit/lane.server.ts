@@ -44,7 +44,7 @@ import type { TrackKey } from "../track";
 import { readCueStamp } from "./audio-stamps.server";
 import { liveHeatIsLaterThan } from "./day-schedule.server";
 import { holdingAvailability } from "./holding-availability";
-import { EMPTY_PIT_LANE, type PitLaneFeed, type PitLanes } from "./pit-board";
+import { EMPTY_PIT_LANE, kartsAvailability, type PitLaneFeed, type PitLanes } from "./pit-board";
 
 const VENUE = "FT";
 const PIT_TRACKS: TrackKey[] = ["blue", "red", "mega"];
@@ -408,6 +408,18 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
   };
 
   /**
+   * FREE A SPENT SLOT BEFORE ANYTHING READS IT — now the FIRST of three calls.
+   *
+   * It already ran twice for exactly this reason ("the slot still looked
+   * occupied while the promotion below was deciding what to do"). Step 1 now
+   * makes the same kind of decision — it refuses to take an occupied pit — so it
+   * needs the same accurate view. Without this, a group whose post had just
+   * played still read as occupying the pit, and the race finishing behind them
+   * was made to wait a whole extra pass for a slot that was already free.
+   */
+  await clearAnsweredPitIn();
+
+  /**
    * ── 1. THE CHEQUERED FLAG PUTS A RACE INTO THE PIT ──────────────────────
    *
    * On track means ON TRACK now (owner 2026-08-15). A group whose race has
@@ -448,7 +460,29 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
      * is what it has to reach.
      */
     const pittedHere = stored.pitted?.sessionId === racing.sessionId;
-    if (finishedAtMs != null || pittedHere) {
+    /**
+     * THE PIT SLOT IS ONLY TAKEN IF IT IS FREE (2026-08-16).
+     *
+     * This assignment used to overwrite whatever was in `pitIn`, and step 2's
+     * succession did the same — while the third assignment below has always
+     * guarded on `pitIn == null` and its comment explains exactly why:
+     * overwriting "would destroy the only record that its post is owed". Two of
+     * the three did not follow the rule the third one states.
+     *
+     * That is how a post gets silently skipped. `pitIn` is DERIVED from
+     * `stored.racing`, and there is one of each: the moment a second group
+     * finishes behind a group that has not been posted yet, the earlier one
+     * stops being representable and their debt disappears off every board. Six
+     * groups came back without an announcement on 2026-08-16 — red 7, 12, 14 and
+     * blue 10, 12, 14 — and blue alternated 9✓ 10✗ 11✓ 12✗ 13✓ 14✗, which is the
+     * signature of one slot serving two groups rather than staff forgetting.
+     *
+     * Leaving this group in `racing` is the same "lesser wrong" the third
+     * assignment already chooses: they settle on the read after the pit clears,
+     * and nobody is erased in the meantime.
+     */
+    const pitFree = pitIn == null || pitIn.sessionId === racing.sessionId;
+    if ((finishedAtMs != null || pittedHere) && pitFree) {
       pitIn = {
         sessionId: racing.sessionId,
         heatNumber: racing.heatNumber,
@@ -492,7 +526,29 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
     // socket showing this heat on track (or a later one loaded).
     const goneOut =
       finished == null && (await liveSaysGoneOut(track, live, staged.heatNumber, staged.sessionId));
-    if (finished != null || goneOut) {
+    /**
+     * THE LANE DOES NOT ADVANCE PAST AN UNPAID POST (2026-08-16).
+     *
+     * Succession below moves the outgoing racing group into `pitIn` and then
+     * writes the staged group over `racing`. Both steps are needed together: if
+     * the pit is already occupied by a group still owing its announcement, then
+     * taking the slot destroys THEIR debt, and skipping the slot destroys the
+     * outgoing group instead — `racing = staged` overwrites them with nothing
+     * left to say they existed. There is one pit slot and this would be two
+     * groups in it.
+     *
+     * So the promotion WAITS. The staged group stays staged for another read,
+     * and the lane resumes the moment the outstanding post is played or the
+     * karts-back press releases the pit. Nobody is erased and no debt is lost.
+     *
+     * THIS IS AN OPERATIONAL CHANGE, not just a repair: a skipped post now holds
+     * the board up instead of quietly costing a group their announcement. That
+     * is the point — the pit slot is a safety statement, and the announcement is
+     * what calls a race back in. Only the succession case defers; a lane whose
+     * pit is free behaves exactly as before, which is every ordinary turnover.
+     */
+    const pitBlocked = racing != null && racing.sessionId !== staged.sessionId && pitIn != null;
+    if ((finished != null || goneOut) && !pitBlocked) {
       /**
        * SUCCESSION PUTS THE LAST GROUP IN THE PIT, NEVER IN THE BIN.
        *
@@ -993,6 +1049,26 @@ export async function markInKarts(args: {
     return { ok: false, error: "that session is already out on track" };
   }
 
+  /**
+   * THE KARTS SLOT IS ONLY TAKEN IF IT IS FREE (2026-08-16) — the third and last
+   * of the slots this lane was writing without asking who was in it.
+   *
+   * The write below set `karts` unconditionally. With blue 17 in the seats and
+   * blue 16 strapped in waiting on the green, a Play Pre press resolved to 17
+   * (`holding ?? karts`) and landed here, overwriting 16 off the lane entirely —
+   * the same erasure that cost six groups their post announcement earlier the
+   * same day, in a different slot.
+   *
+   * Enforced HERE and not only on the button, because the pit station is a
+   * long-lived kiosk nobody reloads: the send-to-holding film gate was defeated
+   * on 8/15 by a tablet still serving JS from before its fix. The verdict itself
+   * lives in kartsAvailability so the sentence on the held button and the
+   * sentence returned here can never drift.
+   */
+  {
+    const verdict = kartsAvailability({ karts: stored.karts, sessionId: args.sessionId });
+    if (!verdict.ok) return { ok: false, error: verdict.error };
+  }
   if (stored.karts?.sessionId === args.sessionId) return { ok: true };
 
   const from = stored.holding?.sessionId === args.sessionId ? stored.holding : null;

@@ -60,7 +60,12 @@ import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import { PORTAL_DARK, ADMIN_SANS } from "~/components/features/admin-skin/theme";
 import { formatRemaining, useLiveSessionClock } from "~/features/signage/live-session";
 import { liveHeatNumber } from "~/features/signage/briefing/room-return";
-import { pitRailState, type PitLaneFeed, type PitLanes } from "~/features/signage/pit/pit-board";
+import {
+  kartsAvailability,
+  pitRailState,
+  type PitLaneFeed,
+  type PitLanes,
+} from "~/features/signage/pit/pit-board";
 import type { TrackKey } from "~/features/signage/track";
 
 const TRACK_TONE: Record<TrackKey, string> = {
@@ -710,6 +715,20 @@ function TrackCard({
   const preOwed =
     !holding && racing != null && (audio[racing.sessionId]?.pre ?? null) == null ? racing : null;
   const preSubject = holding ?? preOwed;
+  /**
+   * THE KARTS ARE FULL — the same verdict the server will return (owner
+   * 2026-08-16, live: blue 17 in the seats, blue 16 strapped in on the green).
+   *
+   * The cue walks the seated group into their karts, so it cannot be owed while
+   * somebody else is in them. This card offered it as "due" regardless, and the
+   * press would have overwritten the karts group off the lane. Reading the
+   * shared rule rather than restating it keeps this button and playPreRace's
+   * refusal from ever disagreeing.
+   */
+  const kartsVerdict = preSubject
+    ? kartsAvailability({ karts: lane?.karts, sessionId: preSubject.sessionId })
+    : ({ ok: true } as const);
+  const kartsHeld = kartsVerdict.ok ? null : kartsVerdict.error;
   const preStamp = preSubject ? (audio[preSubject.sessionId]?.pre ?? null) : null;
   const postStamp = pitIn ? (audio[pitIn.sessionId]?.post ?? null) : null;
 
@@ -853,7 +872,7 @@ function TrackCard({
               : preStamp != null
                 ? "done"
                 : preSubject
-                  ? paBusyZone
+                  ? kartsHeld || paBusyZone
                     ? "blocked"
                     : "press"
                   : "idle"
@@ -867,13 +886,15 @@ function TrackCard({
                 : preStamp != null
                   ? clockTimeMs(preStamp.atMs)
                   : preSubject
-                    ? paBusyZone
-                      ? `PA busy · ${paBusyZone}`
-                      : preOwed
-                        ? "OWED — play now"
-                        : raceEndingSoon || pitIn != null
-                          ? "play now — track turning over"
-                          : "due"
+                    ? kartsHeld
+                      ? `Session ${lane?.karts?.heatNumber ?? "?"} in karts`
+                      : paBusyZone
+                        ? `PA busy · ${paBusyZone}`
+                        : preOwed
+                          ? "OWED — play now"
+                          : raceEndingSoon || pitIn != null
+                            ? "play now — track turning over"
+                            : "due"
                     : "no group seated"
           }
           busy={pending === `audio-pre:${track}`}

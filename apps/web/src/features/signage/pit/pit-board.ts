@@ -410,6 +410,47 @@ export const CLEAR_TO_SEND_MS = 5_600;
  *  while the announcement is still sounding. */
 const PRE_CLIP_NOMINAL_MS = 60_000;
 
+/* ── may the pre-race cue play? ───────────────────────────────────────── */
+
+/**
+ * ARE THE KARTS FREE FOR THIS GROUP? PURE — a lane slot and a session in, a
+ * verdict out. Same split as holdingAvailability, and for the same reason: the
+ * pit station has to decide whether to offer the button, and the sentence on the
+ * disabled button must be the sentence the server would have returned.
+ *
+ * WHY THE CUE NEEDS A GATE AT ALL (owner 2026-08-16, live: blue 17 in the seats,
+ * blue 16 strapped into their karts). The pre-race announcement is what walks
+ * the seated group into their karts, so it cannot be owed while somebody else is
+ * still sitting in them. Playing it would call 17 to karts that are not free —
+ * and `markInKarts`, which the press triggers, writes the karts slot with no
+ * occupancy check, so 16 would have been overwritten and vanished off the lane.
+ *
+ * That is the third instance of one bug: a single slot written without asking
+ * who is in it. The other two cost six groups their post announcement on
+ * 2026-08-16.
+ *
+ * DRAWN IS NOT ENFORCED. The pit station is a long-lived kiosk nobody reloads —
+ * the same device class that defeated the send-to-holding film gate on 8/15 by
+ * serving JS from before the fix. So this verdict is enforced in playPreRace and
+ * again in markInKarts; the button merely reads the same answer.
+ */
+export type KartsAvailability = { ok: true } | { ok: false; error: string };
+
+export function kartsAvailability(args: {
+  karts: { sessionId: string; heatNumber?: number | null } | null | undefined;
+  sessionId: string;
+}): KartsAvailability {
+  const occupant = args.karts ?? null;
+  // Empty karts, or a repeat press for the group already in them — the second
+  // is a refresh, not a displacement, and playPreRace relies on it.
+  if (!occupant || occupant.sessionId === args.sessionId) return { ok: true };
+  const who = occupant.heatNumber != null ? `Session ${occupant.heatNumber}` : "another group";
+  return {
+    ok: false,
+    error: `${who} is still in the karts — the pre-race call frees the seats when they take the green.`,
+  };
+}
+
 /* ── the pre-race pill ────────────────────────────────────────────────── */
 
 /**

@@ -44,7 +44,7 @@ import type { TrackKey } from "../track";
 import { sessionRoster } from "../service/checkin-progress";
 import { cueKey, readCueStamp, type PitCue } from "./audio-stamps.server";
 import { markInKarts, markRacePitted, readPitLane } from "./lane.server";
-import type { PitLaneFeed, PitLanes } from "./pit-board";
+import { kartsAvailability, type PitLaneFeed, type PitLanes } from "./pit-board";
 import {
   playQsysCue,
   readQsysLive,
@@ -285,6 +285,23 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
   }
   if (!subject) {
     return { ok: false, error: "no group is in holding — pre-race arms when a group is seated" };
+  }
+  /**
+   * NOT WHILE SOMEBODY ELSE IS IN THE KARTS (owner 2026-08-16, live: blue 17 in
+   * the seats with blue 16 strapped in waiting on the green).
+   *
+   * This cue is what walks the seated group into their karts, so it cannot be
+   * owed while the karts are full. Playing it would call 17 to a lane that is
+   * not free — and markInKarts, which this press triggers, would overwrite 16
+   * off the board entirely.
+   *
+   * Refused here as well as in markInKarts because the announcement itself is
+   * the harm: stopping the lane write alone would still have put the wrong
+   * instruction over the PA.
+   */
+  {
+    const verdict = kartsAvailability({ karts: lane.karts, sessionId: subject.sessionId });
+    if (!verdict.ok) return { ok: false, error: verdict.error };
   }
   // The ambient stay-seated loop yields to this press instantly; anything
   // else sounding keeps its refusal.
