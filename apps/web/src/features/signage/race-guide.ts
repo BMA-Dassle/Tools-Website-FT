@@ -19,10 +19,44 @@
 import { nextLevelTarget, type QualifyTargetLevel } from "~/features/racing/qualify";
 import { TRACK_LABELS, type TrackKey } from "./track";
 
-/** The four things this wall says. Order is the rotation order, and it is not
- *  arbitrary: the shoe rule can send somebody back to their car, so it leads. */
-export const GUIDE_CARDS = ["shoes", "lockers", "qualify", "night"] as const;
-export type GuideCard = (typeof GUIDE_CARDS)[number];
+/**
+ * ONE SCREEN, BOTH TRACKS (owner 2026-08-15: "the secondary check in screen was
+ * supposed to be ONE screen not separate for blue and red").
+ *
+ * That is also what "just need one for blue and one for red when it comes to
+ * qualifications" meant — TWO QUALIFYING CARDS in one rotation, not two
+ * screens. The lap times are the only content that differs by track, so they
+ * are the only thing that gets duplicated.
+ */
+export type GuideCard =
+  | { kind: "shoes" }
+  | { kind: "lockers" }
+  | { kind: "qualify"; track: TrackKey }
+  | { kind: "night" };
+
+/** Stable React key / test handle for a card. */
+export function guideCardKey(card: GuideCard): string {
+  return card.kind === "qualify" ? `qualify:${card.track}` : card.kind;
+}
+
+/**
+ * The rotation for a screen covering `tracks`.
+ *
+ * The shoe rule leads because it is the only one that can send somebody back
+ * to their car. The qualifying cards are INTERLEAVED rather than run back to
+ * back — two near-identical tables in a row read as a glitch, and splitting
+ * them means a guest glancing up twice a minute is more likely to catch their
+ * own track's numbers.
+ */
+export function guideCardsFor(tracks: readonly TrackKey[]): GuideCard[] {
+  const [first, ...rest] = tracks;
+  const cards: GuideCard[] = [{ kind: "shoes" }];
+  if (first) cards.push({ kind: "qualify", track: first });
+  cards.push({ kind: "lockers" });
+  for (const t of rest) cards.push({ kind: "qualify", track: t });
+  cards.push({ kind: "night" });
+  return cards;
+}
 
 /** How long each card holds. Long enough to read a headline and a line of body
  *  from across a corridor without hurrying, short enough that somebody waiting
@@ -52,11 +86,12 @@ export function clampHoldMs(value: unknown): number {
  * keeps two guide walls in step and what lets a screen that reboots rejoin
  * mid-rotation instead of restarting the loop.
  */
-export function guideCardAt(nowMs: number): GuideCard {
-  const i = Math.floor(nowMs / GUIDE_CARD_MS) % GUIDE_CARDS.length;
+export function guideCardAt(nowMs: number, cards: readonly GuideCard[]): GuideCard {
+  const list = cards.length > 0 ? cards : [{ kind: "shoes" } as GuideCard];
+  const i = Math.floor(nowMs / GUIDE_CARD_MS) % list.length;
   // A negative or non-finite clock must still name a card — a wall with no
   // content is the one outcome worse than the wrong card.
-  return GUIDE_CARDS[Number.isFinite(i) && i >= 0 ? i : 0];
+  return list[Number.isFinite(i) && i >= 0 ? i : 0];
 }
 
 /**
@@ -81,6 +116,42 @@ export function takeoverState(args: {
   const ago = args.nowMs - args.briefedAtMs;
   if (ago < -CLOCK_SKEW_TOLERANCE_MS || ago >= hold) return { on: false, remainingMs: 0 };
   return { on: true, remainingMs: Math.max(0, hold - ago) };
+}
+
+/* ── which send owns the wall ─────────────────────────────────────────── */
+
+/** One track's live send, as the wall sees it. */
+export interface GuideSend {
+  track: TrackKey;
+  room: "red" | "blue" | null;
+  heatNumber: number | null;
+  raceType: string | null;
+  briefedAtMs: number | null;
+}
+
+/**
+ * ONE WALL, AND SOMETIMES TWO GROUPS WALKING AT ONCE.
+ *
+ * A single screen cannot be blue and red simultaneously, and an arrow board
+ * that alternates is an arrow board nobody trusts. So the NEWEST send takes
+ * the screen — it is the group still standing at the desk, the one that has
+ * not started walking yet — and any other live send is named underneath
+ * rather than dropped. The earlier group has already had this wall, their own
+ * check-in board's takeover, and a member of staff pointing.
+ *
+ * Returns `primary: null` when nothing is live, which is the ordinary case and
+ * means "run the cards".
+ */
+export function pickTakeover(
+  sends: readonly GuideSend[],
+  nowMs: number,
+  holdMs?: number,
+): { primary: GuideSend | null; also: GuideSend[] } {
+  const live = sends
+    .filter((s) => takeoverState({ briefedAtMs: s.briefedAtMs, nowMs, holdMs }).on)
+    // Newest first. A null stamp cannot be live, so the assertion is safe.
+    .sort((a, b) => (b.briefedAtMs as number) - (a.briefedAtMs as number));
+  return { primary: live[0] ?? null, also: live.slice(1) };
 }
 
 /* ── the qualifying card ──────────────────────────────────────────────── */

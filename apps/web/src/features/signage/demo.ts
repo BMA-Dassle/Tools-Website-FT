@@ -168,22 +168,35 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
   // the send STAMP and the room — the scene's own takeoverState decides
   // whether the arrow is up and for how long, so a preview exercises the
   // shipped rule rather than a picture of it.
+  // THE WAYFINDING ARROW, without waiting for a real send. Fabricates only the
+  // send STAMPS — the scene's own pickTakeover decides which track owns the
+  // screen and which is named underneath, so a preview exercises the shipped
+  // rule rather than a picture of it.
+  //
+  // BOTH TRACKS AT ONCE, deliberately: one wall serving two tracks has to be
+  // reviewed in the state that is hardest to get right, and two groups sent
+  // within a couple of minutes is an ordinary Saturday. Red is stamped a beat
+  // later, so Red takes the wall and Blue is named along the bottom.
   if (mode === "guide-arrow") {
-    const track = feed.screen?.config?.raceGuide?.track;
-    const room = track === "red" ? ("red" as const) : ("blue" as const);
     return {
       ...feed,
-      raceCheckin: {
-        track: track ?? "blue",
-        sessionId: null,
-        heatNumber: 59,
-        raceType: room === "red" ? "Red Starter" : "Blue Intermediate",
-        vipOnHeat: false,
-        vipFirstNames: [],
-        checkedIn: 8,
-        total: 8,
-        briefedAtMs: nowMs,
-        briefedRoom: room,
+      raceGuide: {
+        tracks: [
+          {
+            track: "blue" as const,
+            heatNumber: 59,
+            raceType: "Blue Intermediate",
+            briefedAtMs: nowMs - 40_000,
+            briefedRoom: "blue" as const,
+          },
+          {
+            track: "red" as const,
+            heatNumber: 44,
+            raceType: "Red Starter",
+            briefedAtMs: nowMs,
+            briefedRoom: "red" as const,
+          },
+        ],
       },
     };
   }

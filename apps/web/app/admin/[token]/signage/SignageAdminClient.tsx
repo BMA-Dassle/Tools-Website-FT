@@ -865,7 +865,8 @@ interface Draft {
   resultsTrack: "" | "blue" | "red" | "mega";
   /** Check-in guide wall — owns its wall too. */
   showGuide: boolean;
-  guideTrack: "" | "blue" | "red" | "mega";
+  /** Which tracks the ONE check-in screen covers. */
+  guideTracks: "both" | "blue" | "red" | "mega";
   /** Which way the briefing rooms are FROM THIS SCREEN. */
   guideArrow: "left" | "right";
   vipEnabled: boolean;
@@ -883,6 +884,18 @@ interface Draft {
   pairCount: number;
   /** Percent inset per edge for a panel that crops its own picture. 0 = off. */
   overscanPct: number;
+}
+
+/** A stored guide config → the form's single choice. `tracks` is the field; the
+ *  singular `track` is still read so a row written before the one-screen change
+ *  edits cleanly instead of silently resetting. */
+function guideTracksFromConfig(g: ScreenConfig["raceGuide"]): Draft["guideTracks"] {
+  const list = g?.tracks ?? (g?.track ? [g.track] : []);
+  if (list.length === 1) {
+    const only = list[0];
+    if (only === "blue" || only === "red" || only === "mega") return only;
+  }
+  return "both";
 }
 
 function newDraft(): Draft {
@@ -904,7 +917,7 @@ function newDraft(): Draft {
     showResults: false,
     resultsTrack: "",
     showGuide: false,
-    guideTrack: "",
+    guideTracks: "both",
     guideArrow: "left",
     vipEnabled: true,
     vipLeadMins: 10,
@@ -956,10 +969,7 @@ function draftFromScreen(s: SignageScreen): Draft {
     // Read back for the same reason every other field here is: draftToConfig
     // REBUILDS the blob, so anything the form does not carry is dropped by
     // the next unrelated save.
-    guideTrack:
-      c.raceGuide?.track === "blue" || c.raceGuide?.track === "red" || c.raceGuide?.track === "mega"
-        ? c.raceGuide.track
-        : "",
+    guideTracks: guideTracksFromConfig(c.raceGuide),
     guideArrow: c.raceGuide?.arrow === "right" ? "right" : "left",
     // Read back for the same reason overscanPct is (see its note below):
     // draftToConfig REBUILDS the whole blob, so a field the form does not
@@ -1040,8 +1050,13 @@ function draftToConfig(d: Draft): ScreenConfig {
         }
       : {}),
     ...(d.showResults && d.resultsTrack ? { resultsBoard: { track: d.resultsTrack } } : {}),
-    ...(d.showGuide && d.guideTrack
-      ? { raceGuide: { track: d.guideTrack, arrow: d.guideArrow } }
+    ...(d.showGuide
+      ? {
+          raceGuide: {
+            tracks: d.guideTracks === "both" ? (["blue", "red"] as const) : [d.guideTracks],
+            arrow: d.guideArrow,
+          },
+        }
       : {}),
     interrupts: {
       "vip-welcome": { enabled: d.vipEnabled, leadMins: d.vipLeadMins },
@@ -1245,20 +1260,22 @@ function ScreenForm({
       {draft.showGuide && (
         <fieldset style={fieldset}>
           <legend style={legend}>Check-in screen</legend>
-          <Field label="Which track does this screen follow?">
+          <Field label="Which tracks does this screen cover?">
             <select
-              value={draft.guideTrack}
-              onChange={(e) => set("guideTrack", e.target.value as Draft["guideTrack"])}
+              value={draft.guideTracks}
+              onChange={(e) => set("guideTracks", e.target.value as Draft["guideTracks"])}
               style={input}
             >
-              <option value="">Choose a track…</option>
-              <option value="blue">Blue Track</option>
-              <option value="red">Red Track</option>
-              <option value="mega">Mega Track</option>
+              <option value="both">Both tracks &mdash; Blue and Red</option>
+              <option value="blue">Blue Track only</option>
+              <option value="red">Red Track only</option>
+              <option value="mega">Mega Track only</option>
             </select>
             <p style={hint}>
-              Required. It decides which desk&rsquo;s sends light up the arrow, and which
-              track&rsquo;s qualifying times the board advertises.
+              This is ONE screen for the whole check-in area, not one per track. On
+              &ldquo;both&rdquo; it carries a qualifying card for each track and takes the arrow
+              from whichever one is sent &mdash; if two go at once, the newest owns the screen and
+              the other is named along the bottom.
             </p>
           </Field>
           <Field label="Which way are the briefing rooms from this screen?">

@@ -254,7 +254,20 @@ export interface ScreenConfig {
    * NOTE this screen also needs `scope.resourceIds`, unlike the results board —
    * it follows one track's check-in desk, which is the entire point.
    */
-  raceGuide?: { track: "blue" | "red" | "mega"; arrow?: "left" | "right"; holdMs?: number };
+  raceGuide?: {
+    /**
+     * WHICH TRACKS this one wall covers. Plural, because it is ONE screen for
+     * the whole check-in area rather than one per track (owner 2026-08-15) —
+     * it carries a qualifying card per track and takes a send from either.
+     * Defaults to both when absent.
+     */
+    tracks?: Array<"blue" | "red" | "mega">;
+    /** Superseded by `tracks`; still read so a row written before the
+     *  one-screen change keeps working until it is next saved. */
+    track?: "blue" | "red" | "mega";
+    arrow?: "left" | "right";
+    holdMs?: number;
+  };
   /**
    * HOW MUCH OF THIS PANEL'S EDGE IS CROPPED — the one thing about a TV that the
    * TV cannot work out for itself.
@@ -637,6 +650,30 @@ export interface TvFeed {
    * which is the scene's designed idle card, not an error.
    */
   raceResults: ResultsBoardView | null;
+  /**
+   * Guide-wall extra: the live send state of EVERY track this one screen
+   * covers, so a single wall can point either group at their room.
+   *
+   * `raceCheckin` above cannot serve this. It is built from
+   * `scope.resourceIds` and describes exactly ONE track — fine for a board
+   * that belongs to a track, wrong for a wall that belongs to the check-in
+   * AREA and has to react to Blue and Red alike.
+   *
+   * No PII: a heat number, a race type and two timestamps.
+   * Null for every screen that is not a guide wall.
+   */
+  raceGuide: {
+    tracks: Array<{
+      track: "blue" | "red" | "mega";
+      heatNumber: number | null;
+      raceType: string | null;
+      /** When this heat was sent to a briefing room, or null. The trigger. */
+      briefedAtMs: number | null;
+      /** WHICH room to point at — never assumed from the track, because on a
+       *  Mega day both rooms serve the one circuit. */
+      briefedRoom: "red" | "blue" | null;
+    }>;
+  } | null;
   /** Product ids currently off-sale — never advertise a paused product. */
   pausedProductIds: string[];
   /** "Next available" per product key, e.g. { bowling: "3 lanes · 9:30 PM" }.

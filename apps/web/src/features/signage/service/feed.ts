@@ -39,7 +39,12 @@ import { readPitLanes } from "../pit/lane.server";
 import { readFastPitRosters } from "../pit/fast-roster.server";
 import { buildWelcomeBoard } from "./welcome";
 import { resolveResultsBoard } from "./results-board.server";
-import { briefingEnabled, cameraReturnBarEnabled, resultsBoardEnabled } from "../flags";
+import {
+  briefingEnabled,
+  cameraReturnBarEnabled,
+  raceGuideEnabled,
+  resultsBoardEnabled,
+} from "../flags";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
 import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
 import { resolveWelcomeBack } from "../briefing/welcome-back.server";
@@ -99,6 +104,7 @@ export async function buildTvFeed(
     checkinProgress: null,
     checkinReturning: null,
     raceResults: null,
+    raceGuide: null,
     pausedProductIds: safePaused(),
     nextAvailable: null,
     reloadAt: null,
@@ -155,6 +161,13 @@ export async function buildTvFeed(
   // The scores wall: the last race on ITS OWN configured track. Not `track`
   // above — that one comes from `scope.resourceIds`, which a results board
   // deliberately does not set (see ScreenConfig.resultsBoard).
+  // THE GUIDE WALL IS ONE SCREEN FOR BOTH TRACKS, so it cannot use `track`
+  // above (that comes from scope and names exactly one). It asks for each of
+  // its configured tracks by name instead.
+  const guideTracks =
+    raceGuideEnabled() && config.raceGuide && config.playlist.some((p) => p.scene === "race-guide")
+      ? config.raceGuide.tracks
+      : [];
   const resultsTrack = config.resultsBoard?.track ?? null;
   const wantsResults =
     resultsBoardEnabled() &&
@@ -171,6 +184,7 @@ export async function buildTvFeed(
     pitLanes,
     cameraReturning,
     raceResults,
+    guideSection,
   ] = await Promise.all([
     track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
     wantsWelcome
@@ -202,6 +216,9 @@ export async function buildTvFeed(
     // same track cost one build — and cannot show two different answers.
     wantsResults && resultsTrack
       ? resolveResultsBoard(parsed.venue, resultsTrack, ymd).catch(() => null)
+      : Promise.resolve(null),
+    guideTracks.length > 0
+      ? buildGuideSection(guideTracks, ymd).catch(() => null)
       : Promise.resolve(null),
   ]);
 
@@ -237,6 +254,7 @@ export async function buildTvFeed(
         ? { fromSession: cameraReturning.heatNumber, groups: cameraReturning.racingAgain }
         : null,
     raceResults,
+    raceGuide: guideSection,
     // `vip` (the bowling-leg takeover) lands with the next scene.
     vip: null,
     // Null events mean we could not ask — the welcome entry then self-skips
@@ -315,6 +333,43 @@ async function buildBriefingSection(
     },
     rooms,
   };
+}
+
+/**
+ * The guide wall's send state, for EVERY track it covers.
+ *
+ * One screen serves the whole check-in area, so it needs Blue and Red at once
+ * — which `raceCheckin` cannot give it, being built from `scope.resourceIds`
+ * and describing exactly one track. Same two reads per track the track boards
+ * already do (the heat, then its briefed marker), and the sessions behind them
+ * are cached per track, so a second track is not a second round trip to
+ * Pandora.
+ *
+ * A track that fails to read is DROPPED rather than reported empty: a wall
+ * that says nothing about Red is honest, one that implies Red has no session
+ * is not. Every failure path leaves the other track's arrow working.
+ */
+async function buildGuideSection(
+  tracks: readonly ("blue" | "red" | "mega")[],
+  businessDay: string,
+): Promise<NonNullable<TvFeed["raceGuide"]>> {
+  const rows = await Promise.all(
+    tracks.map(async (track) => {
+      const info = await raceCheckinInfo(track, businessDay).catch(() => null);
+      if (!info) return null;
+      const briefed = await sessionBriefed(
+        info.sessionId != null ? String(info.sessionId) : null,
+      ).catch(() => null);
+      return {
+        track,
+        heatNumber: info.heatNumber,
+        raceType: info.raceType,
+        briefedAtMs: briefed?.atMs ?? null,
+        briefedRoom: briefed?.room ?? null,
+      };
+    }),
+  );
+  return { tracks: rows.filter((r): r is NonNullable<typeof r> => r !== null) };
 }
 
 function safePaused(): string[] {

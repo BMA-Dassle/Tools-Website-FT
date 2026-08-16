@@ -298,9 +298,13 @@ export interface ResolvedScreenConfig {
    *  been picked yet — the board then shows a setup notice rather than
    *  reporting on a track at random. */
   resultsBoard: { track: "blue" | "red" | "mega" } | null;
-  /** Null for anything that is not a guide wall, or one whose track has not
-   *  been picked yet — the board then shows a setup notice. */
-  raceGuide: { track: "blue" | "red" | "mega"; arrow: "left" | "right"; holdMs: number } | null;
+  /** Null for anything that is not a guide wall. `tracks` is never empty when
+   *  this is non-null — a wall covering no track has nothing to point at. */
+  raceGuide: {
+    tracks: Array<"blue" | "red" | "mega">;
+    arrow: "left" | "right";
+    holdMs: number;
+  } | null;
   /** Percent inset per edge for a panel that crops its own input. 0 on every
    *  screen that has not been told otherwise, so the default path is the
    *  unchanged full-bleed fit. */
@@ -413,19 +417,24 @@ export function resolveScreenConfig(
       c.resultsBoard?.track === "mega"
         ? { track: c.resultsBoard.track }
         : null,
-    // Same posture as resultsBoard: only the three real tracks, anything else
-    // means "not a guide wall" and shows the setup notice rather than adopting
-    // a track. The arrow defaults LEFT (owner 2026-08-15) and the hold is
-    // clamped through the scene's own helper, so the legal range has one
-    // definition rather than one per reader.
-    raceGuide:
-      c.raceGuide?.track === "blue" || c.raceGuide?.track === "red" || c.raceGuide?.track === "mega"
-        ? {
-            track: c.raceGuide.track,
-            arrow: c.raceGuide.arrow === "right" ? "right" : "left",
-            holdMs: clampHoldMs(c.raceGuide.holdMs),
-          }
-        : null,
+    // ONE WALL, BOTH TRACKS (owner 2026-08-15). `tracks` is the field; the old
+    // singular `track` is still honoured so a row written before that change
+    // keeps working until it is next saved. An empty or unrecognisable list
+    // falls back to both rather than to nothing — a guide wall covering no
+    // track has nothing to point at, and an empty rotation is worse than a
+    // wrong one.
+    //
+    // The arrow defaults LEFT and belongs to the SCREEN, not the room: both
+    // rooms are the same way from this wall (owner: "both arrows go the same
+    // direction. Left"). The hold goes through the scene's own clamp so the
+    // legal range has one definition rather than one per reader.
+    raceGuide: c.raceGuide
+      ? {
+          tracks: guideTracks(c.raceGuide.tracks ?? (c.raceGuide.track ? [c.raceGuide.track] : [])),
+          arrow: c.raceGuide.arrow === "right" ? "right" : "left",
+          holdMs: clampHoldMs(c.raceGuide.holdMs),
+        }
+      : null,
     // Clamped through the same helper the stage uses, so "what inset is legal"
     // has exactly one definition. 0 for an absent, negative, non-numeric or
     // absurd value — every one of which means "this panel is fine", which is the
@@ -433,6 +442,22 @@ export function resolveScreenConfig(
     // one can leave a wall dark.
     overscanPct: clampOverscanPct(c.overscanPct),
   };
+}
+
+/** The tracks a guide wall covers, made safe. Unknown values are dropped and
+ *  an empty result becomes BOTH — the default posture for a wall that serves
+ *  the whole check-in area. */
+function guideTracks(v: unknown): Array<"blue" | "red" | "mega"> {
+  const list = Array.isArray(v) ? v : [];
+  const seen = new Set<string>();
+  const out: Array<"blue" | "red" | "mega"> = [];
+  for (const t of list) {
+    if (t !== "blue" && t !== "red" && t !== "mega") continue;
+    if (seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out.length > 0 ? out : ["blue", "red"];
 }
 
 function numOr(v: unknown, fallback: number): number {

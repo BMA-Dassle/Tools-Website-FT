@@ -29,11 +29,13 @@ import { withAlpha } from "../color";
 import { TV_PHOTOS } from "../assets";
 import { TvBrandLogo } from "../components/TvBrandLogo";
 import {
-  GUIDE_CARDS,
   guideCardAt,
+  guideCardKey,
+  guideCardsFor,
+  pickTakeover,
   qualifyBoardFor,
-  takeoverState,
   type GuideCard,
+  type GuideSend,
 } from "../race-guide";
 import type { SignageVenue } from "../constants";
 import type { SceneProps } from "../director/types";
@@ -44,21 +46,30 @@ const PAD_L = 108;
 const PAD_R = 96;
 const DIM = "rgba(245,236,238,0.80)";
 
-/** Which photograph each card sits on, per track.
+/** THE HOUSE ACCENT for the cards that belong to no track. This wall serves
+ *  the whole check-in area, so shoes, lockers and the running order are not
+ *  blue or red — only the qualifying cards, whose numbers genuinely differ,
+ *  wear a track colour. */
+const HOUSE = "#00e2e5";
+
+/** Which photograph a card sits on.
  *
- *  Two plates per track and they alternate, so no two consecutive cards share
- *  a background. `raceAction` is the quiet banked corner — it goes under the
- *  two cards that carry the most type. */
-function plateFor(track: TrackKey, card: GuideCard): { src: string; position: string } {
-  const busy = track === "red" ? TV_PHOTOS.redTrack : TV_PHOTOS.race;
+ *  Chosen per CARD rather than per screen now that one wall covers both
+ *  tracks: a qualifying card sits on its own track's photo, and the rest
+ *  alternate so no two consecutive cards share a background. `raceAction` is
+ *  the quiet banked corner — it goes under the cards carrying the most type. */
+function plateFor(card: GuideCard): { src: string; position: string } {
   const quiet = TV_PHOTOS.raceAction;
-  switch (card) {
+  switch (card.kind) {
     case "shoes":
-      return { src: busy, position: "center" };
+      return { src: TV_PHOTOS.race, position: "center" };
     case "lockers":
       return { src: quiet, position: "34% 60%" };
     case "qualify":
-      return { src: busy, position: "62% 50%" };
+      return {
+        src: card.track === "red" ? TV_PHOTOS.redTrack : TV_PHOTOS.race,
+        position: "62% 50%",
+      };
     case "night":
     default:
       return { src: quiet, position: "70% 40%" };
@@ -66,40 +77,46 @@ function plateFor(track: TrackKey, card: GuideCard): { src: string; position: st
 }
 
 export function SceneRaceGuide({ feed, nowMs, config, venue }: SceneProps) {
-  const track = config.raceGuide?.track ?? null;
-  if (!track) return <SetupNotice />;
+  const cfg = config.raceGuide;
+  if (!cfg) return <SetupNotice />;
 
-  const info = feed?.raceCheckin ?? null;
-  const takeover = takeoverState({
-    briefedAtMs: info?.briefedAtMs ?? null,
-    nowMs,
-    holdMs: config.raceGuide?.holdMs,
-  });
+  // ONE WALL, BOTH TRACKS. The sends come from the guide section rather than
+  // `raceCheckin`, which only ever describes the single track a screen is
+  // scoped to and so could not serve a screen that belongs to the whole
+  // check-in area.
+  const sends: GuideSend[] = (feed?.raceGuide?.tracks ?? []).map((t) => ({
+    track: t.track,
+    // The ROOM is the destination and the TRACK is who is being addressed.
+    // Never assumed from one another: on a Mega day both rooms serve one
+    // circuit.
+    room: t.briefedRoom,
+    heatNumber: t.heatNumber,
+    raceType: t.raceType,
+    briefedAtMs: t.briefedAtMs,
+  }));
 
-  if (takeover.on) {
-    return (
-      <Takeover
-        track={track}
-        venue={venue}
-        // The ROOM is the destination; the TRACK is the identity of the screen.
-        // They are the same on an ordinary night and can differ on Mega, so the
-        // room is never assumed from the track.
-        room={info?.briefedRoom ?? null}
-        heatNumber={info?.heatNumber ?? null}
-        raceType={info?.raceType ?? null}
-        arrow={config.raceGuide?.arrow ?? "left"}
-      />
-    );
+  const { primary, also } = pickTakeover(sends, nowMs, cfg.holdMs);
+  if (primary) {
+    return <Takeover send={primary} also={also} venue={venue} arrow={cfg.arrow} />;
   }
 
-  return <Card track={track} venue={venue} card={guideCardAt(nowMs)} />;
+  const cards = guideCardsFor(cfg.tracks);
+  return <Card venue={venue} card={guideCardAt(nowMs, cards)} cards={cards} />;
 }
 
 /* ── the rotation ─────────────────────────────────────────────────────── */
 
-function Card({ track, venue, card }: { track: TrackKey; venue: SignageVenue; card: GuideCard }) {
-  const accent = TRACK_ACCENTS[track];
-  const plate = plateFor(track, card);
+function Card({
+  venue,
+  card,
+  cards,
+}: {
+  venue: SignageVenue;
+  card: GuideCard;
+  cards: readonly GuideCard[];
+}) {
+  const accent = card.kind === "qualify" ? TRACK_ACCENTS[card.track] : HOUSE;
+  const plate = plateFor(card);
   return (
     <div style={{ position: "absolute", inset: 0, background: "#000418", overflow: "hidden" }}>
       {/* Mounted at -4% so the Ken Burns drift can never reveal an edge. */}
@@ -144,7 +161,7 @@ function Card({ track, venue, card }: { track: TrackKey; venue: SignageVenue; ca
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <TvBrandLogo venue={venue} height={64} />
-          <Dots current={card} accent={accent} />
+          <Dots cards={cards} current={card} accent={accent} />
         </div>
         <div
           style={{
@@ -155,29 +172,41 @@ function Card({ track, venue, card }: { track: TrackKey; venue: SignageVenue; ca
             justifyContent: "center",
           }}
         >
-          <CardBody card={card} track={track} accent={accent} />
+          <CardBody card={card} accent={accent} />
         </div>
       </div>
     </div>
   );
 }
 
-function Dots({ current, accent }: { current: GuideCard; accent: string }) {
+function Dots({
+  cards,
+  current,
+  accent,
+}: {
+  cards: readonly GuideCard[];
+  current: GuideCard;
+  accent: string;
+}) {
+  const currentKey = guideCardKey(current);
   return (
     <div style={{ display: "flex", gap: 12 }}>
-      {GUIDE_CARDS.map((c) => (
-        <span
-          key={c}
-          style={{
-            width: 15,
-            height: 15,
-            borderRadius: 999,
-            display: "block",
-            background: c === current ? accent : "rgba(255,255,255,0.24)",
-            boxShadow: c === current ? `0 0 18px ${accent}` : undefined,
-          }}
-        />
-      ))}
+      {cards.map((card) => {
+        const c = guideCardKey(card);
+        return (
+          <span
+            key={c}
+            style={{
+              width: 15,
+              height: 15,
+              borderRadius: 999,
+              display: "block",
+              background: c === currentKey ? accent : "rgba(255,255,255,0.24)",
+              boxShadow: c === currentKey ? `0 0 18px ${accent}` : undefined,
+            }}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -202,8 +231,8 @@ function Rule({ accent }: { accent: string }) {
 /** Line breaks are AUTHORED, not left to the wrap. Two lines of near-equal
  *  length; a headline that orphans one word on its own line is what "the
  *  headlines don't look clean" meant (owner 2026-08-15). */
-function CardBody({ card, track, accent }: { card: GuideCard; track: TrackKey; accent: string }) {
-  if (card === "shoes") {
+function CardBody({ card, accent }: { card: GuideCard; accent: string }) {
+  if (card.kind === "shoes") {
     return (
       <>
         <Eyebrow accent={accent}>Before you race</Eyebrow>
@@ -221,7 +250,7 @@ function CardBody({ card, track, accent }: { card: GuideCard; track: TrackKey; a
     );
   }
 
-  if (card === "lockers") {
+  if (card.kind === "lockers") {
     return (
       <>
         <Eyebrow accent={accent}>Before you race</Eyebrow>
@@ -238,7 +267,7 @@ function CardBody({ card, track, accent }: { card: GuideCard; track: TrackKey; a
     );
   }
 
-  if (card === "qualify") return <QualifyCard track={track} accent={accent} />;
+  if (card.kind === "qualify") return <QualifyCard track={card.track} accent={accent} />;
 
   return (
     <>
@@ -380,20 +409,18 @@ const TRACK_DEEP: Record<TrackKey, string> = {
 };
 
 function Takeover({
-  track,
+  send,
+  also,
   venue,
-  room,
-  heatNumber,
-  raceType,
   arrow,
 }: {
-  track: TrackKey;
+  send: GuideSend;
+  /** Any other group also walking right now — named, never dropped. */
+  also: GuideSend[];
   venue: SignageVenue;
-  room: "red" | "blue" | null;
-  heatNumber: number | null;
-  raceType: string | null;
   arrow: "left" | "right";
 }) {
+  const { track, room, heatNumber, raceType } = send;
   const accent = TRACK_ACCENTS[track];
   const deep = TRACK_DEEP[track];
   const photo = track === "red" ? TV_PHOTOS.redTrack : TV_PHOTOS.race;
@@ -532,10 +559,47 @@ function Takeover({
           borderTop: "3px solid rgba(255,255,255,0.22)",
         }}
       >
-        {/* The one line staff repeat to every single group. */}
-        <div style={{ fontSize: 32, fontWeight: 700, color: "#fff" }}>
-          Please do not put on helmets before the video
-        </div>
+        {/* ONE WALL, SOMETIMES TWO GROUPS. The newest send owns the screen;
+            anyone else still walking is named here rather than dropped, so a
+            group that was sent a minute ago is not abandoned by the wall the
+            moment the other track goes. Falls back to the line staff repeat to
+            every single group. */}
+        {also.length > 0 ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 18, minWidth: 0 }}>
+            {also.map((s) => (
+              <div
+                key={s.track}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 14,
+                  fontSize: 30,
+                  fontWeight: 700,
+                  color: "#fff",
+                  background: withAlpha(TRACK_ACCENTS[s.track], 0.32),
+                  border: `2px solid ${TRACK_ACCENTS[s.track]}`,
+                  borderRadius: 999,
+                  padding: "6px 22px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <span className="tv-num">
+                  {s.heatNumber != null ? `Session ${s.heatNumber}` : "Also"}
+                </span>
+                <span aria-hidden style={{ opacity: 0.7 }}>
+                  &rarr;
+                </span>
+                <span style={{ textTransform: "uppercase" }}>
+                  {s.room ? `${s.room} room` : "briefing room"}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize: 32, fontWeight: 700, color: "#fff" }}>
+            Please do not put on helmets before the video
+          </div>
+        )}
         <TvBrandLogo venue={venue} height={46} />
       </div>
     </div>
@@ -559,13 +623,13 @@ function SetupNotice() {
           padding: "0 160px",
         }}
       >
-        <div className="tv-eyebrow">Check-in guide screen</div>
+        <div className="tv-eyebrow">Check-in screen</div>
         <div className="tv-display" style={{ fontSize: 76, margin: "18px 0 20px" }}>
-          Pick a track
+          Not set up yet
         </div>
         <div style={{ fontSize: 32, color: "rgba(245,236,238,0.62)", maxWidth: 1100 }}>
-          This screen has no track yet. Choose {TRACK_LABELS.blue} or {TRACK_LABELS.red} on the
-          signage admin page and it will start showing that track&apos;s guide and directions.
+          Tick &ldquo;Check-in screen&rdquo; for this screen on the signage admin page. It covers
+          both {TRACK_LABELS.blue} and {TRACK_LABELS.red} from one wall.
         </div>
       </div>
     </div>
