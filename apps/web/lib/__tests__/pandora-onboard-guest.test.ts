@@ -70,10 +70,33 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
+/**
+ * A birthdate that is ALWAYS exactly `age` today.
+ *
+ * The ages are what this file is about — Naples' waiver templates start at 8, so
+ * only an under-8 guest reproduces the 404-after-mint that created five records.
+ * The dates were hardcoded 2019-08-16 / 2018-08-16 to mean 6 and 7, and on
+ * 2026-08-16 Mattis's birthday came round: he read as 7, the age-6 lookup found a
+ * template, the mint never failed, and the test went red for the calendar rather
+ * than for the code. Derive the dates so the case under test outlives the year.
+ * (One day back, so "birthday today" can never round down on any clock.)
+ */
+function dobForAge(age: number): string {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear() - age, now.getUTCMonth(), now.getUTCDate() - 1))
+    .toISOString()
+    .slice(0, 10);
+}
+
+/** Under Naples' age-8 template floor: the lookup 404s after the mint. */
+const DOB_NO_TEMPLATE = dobForAge(6);
+/** The guest's "corrected" birth year — still under 8, as in the real incident. */
+const DOB_CORRECTED = dobForAge(7);
+
 const mattis = {
   firstName: "Mattis",
   lastName: "Poeter",
-  birthdate: "2019-08-16", // age 6 — no Naples template
+  birthdate: DOB_NO_TEMPLATE, // age 6 — no Naples template
 };
 
 describe("pandoraOnboardGuest — one human, one person record", () => {
@@ -99,13 +122,13 @@ describe("pandoraOnboardGuest — one human, one person record", () => {
     expect(calls.create).toBe(1);
 
     // The guest changes the birth YEAR (exactly what happened: 2019 → 2018).
-    await pandoraOnboardGuest({ ...mattis, birthdate: "2018-08-16" }, "naples").catch(() => null);
+    await pandoraOnboardGuest({ ...mattis, birthdate: DOB_CORRECTED }, "naples").catch(() => null);
 
     expect(calls.create).toBe(1);
     expect(calls.patch).toHaveLength(1);
     expect(calls.patch[0]).toMatchObject({
       personId: "63000000000906317",
-      birthdate: "2018-08-16",
+      birthdate: DOB_CORRECTED,
     });
   });
 
