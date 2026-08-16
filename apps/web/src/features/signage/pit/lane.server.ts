@@ -42,6 +42,7 @@ import type { BriefingRoom } from "../briefing/types";
 import type { TrackKey } from "../track";
 import { readCueStamp } from "./audio-stamps.server";
 import { liveHeatIsLaterThan } from "./day-schedule.server";
+import { holdingAvailability } from "./holding-availability";
 import { EMPTY_PIT_LANE, type PitLaneFeed, type PitLanes } from "./pit-board";
 
 const VENUE = "FT";
@@ -600,27 +601,26 @@ export async function sendToHolding(
    * displace someone who is not actually out" — which still allows the normal
    * back-to-back flow, where the staged group HAS gone racing and the stored
    * lane simply has not caught up.
+   *
+   * THE RULE ITSELF LIVES IN holding-availability.ts, because the in-room
+   * briefing screen has to reach the same verdict to decide whether to offer the
+   * button — and the sentence it prints on a disabled button must be the sentence
+   * this would have returned. Only the READS stay here: the occupant comes from
+   * the stored lane, and the expensive resolve is paid for only when there is
+   * actually somebody in the way.
    */
   {
     const current = await readStoredLane(args.track);
     const occupant = current?.holding ?? null;
     if (occupant && occupant.sessionId !== args.sessionId) {
       const resolved = await resolveLane(current, args.track);
-      // Stale stored is the NORMAL case: the group in `holding` may already
-      // have taken the track, and the stored lane simply has not caught up.
-      // Displacing them then is right. Displacing them when they are genuinely
-      // still in the seats is what lost Blue 27.
-      const alreadyOut =
-        resolved.racing?.sessionId === occupant.sessionId ||
-        resolved.pitIn?.sessionId === occupant.sessionId;
-      if (!alreadyOut) {
-        const who =
-          occupant.heatNumber != null ? `Session ${occupant.heatNumber}` : "another group";
-        return {
-          ok: false,
-          error: `${who} is still in holding. Move them to the karts first — this would drop them off the boards.`,
-        };
-      }
+      const verdict = holdingAvailability({
+        holding: occupant,
+        racing: resolved.racing,
+        pitIn: resolved.pitIn,
+        sessionId: args.sessionId,
+      });
+      if (!verdict.ok) return verdict;
     }
   }
 
