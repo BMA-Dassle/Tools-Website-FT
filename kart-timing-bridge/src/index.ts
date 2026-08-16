@@ -27,6 +27,36 @@
  * Reconnect: exponential backoff (1s → 5min cap) on ws errors / closes.
  * Subscription resend: BcStart fires on every successful open.
  *
+ * WHY THERE ARE THREE WATCHDOGS AND NOT ONE (2026-08-15/16):
+ * this bridge went silent during a live session and stayed silent until it was
+ * rebooted by hand. Nothing was broken enough to notice: the socket sat in
+ * `readyState OPEN`, the process was healthy, Railway's `restartPolicyType:
+ * ON_FAILURE` never fired because the reconnect loop below never exits, and the
+ * only watchdog we had covered CONNECTING and had already been cleared. A
+ * half-open socket — venue PC rebooted, NAT or firewall dropping the flow —
+ * looks EXACTLY like a quiet venue from in here.
+ *
+ * So liveness is now asked three different ways, because each catches something
+ * the others cannot:
+ *
+ *   1. CONNECT   — 30s to reach `open`, or the attempt is stalled.  (existing)
+ *   2. PING      — every 25s; a ping sent while the previous pong is still
+ *                  outstanding means the peer is gone even though TCP has not
+ *                  admitted it yet.
+ *   3. IDLE DATA — 45s with no FRAME AT ALL. The subscription asks for a resend
+ *                  every second (`RaceStatsResendInterval`), so silence this
+ *                  long is death, not calm. This is the one that would have
+ *                  caught the outage above.
+ *
+ * All three end the same way: `terminate()`, never `close()`. A graceful close
+ * waits for a handshake reply from a peer that by definition is not answering,
+ * which would hang precisely when we need out. `terminate()` destroys the socket
+ * and fires `close`, and the reconnect loop takes it from there.
+ *
+ * Backoff resets only after a connection that actually WORKED (delivered a frame
+ * and lasted past HEALTHY_SESSION_MS). Resetting on any clean close let a socket
+ * that dies instantly retry ~1/sec forever.
+ *
  * WHY `ws` AND NOT NODE'S BUILT-IN WebSocket (2026-08-15, the whole night):
  * the venue runs websocket-sharp/1.0 and negotiates `permessage-deflate;
  * client_no_context_takeover; server_no_context_takeover`. EVERY frame comes
@@ -58,6 +88,30 @@ const PROBE_MODE =
   process.env.PROBE?.toLowerCase() === "true" ||
   process.argv.includes("--probe");
 const LOG_LEVEL = process.env.LOG_LEVEL ?? "info";
+
+/** How long to wait for `open` before calling the attempt stalled. */
+const CONNECT_TIMEOUT_MS = 30_000;
+/** Ping cadence once open. Comfortably under any sane idle-connection reaper,
+ *  and frequent enough that a dead peer is caught inside one IDLE window. */
+const PING_INTERVAL_MS = 25_000;
+/**
+ * Silence — measured on RAW FRAMES, before the dedupe — that means the peer is
+ * gone. `RaceStatsResendInterval: "00:00:01"` makes the server resend its
+ * snapshot every second even when nothing is happening, so a venue that is
+ * merely idle still talks constantly. 45s allows for a stall of ~44 missed
+ * resends before we act, which is generous and still well inside one race.
+ *
+ * MUST be measured on frames rather than on FORWARDS: `changedOnly()` suppresses
+ * unchanged snapshots, so a quiet hour legitimately produces almost no forwards.
+ * Watching forwards would fire this constantly and prove nothing.
+ */
+const IDLE_FRAME_TIMEOUT_MS = 45_000;
+/** How often the idle check runs. Cheap; the resolution just has to be well
+ *  under IDLE_FRAME_TIMEOUT_MS. */
+const IDLE_CHECK_INTERVAL_MS = 5_000;
+/** A session has to last this long AND have delivered a frame before we treat
+ *  it as healthy enough to reset the backoff. */
+const HEALTHY_SESSION_MS = 60_000;
 
 // SMS-Timing / Tournament Manager broadcast subscription. Sent on
 // every successful WebSocket open. Matches the protocol the user
@@ -222,6 +276,18 @@ function changedOnly(parsed: unknown): unknown | null {
   return fresh.length ? fresh : null;
 }
 
+/** What one connection did, so the reconnect loop can tell a working session
+ *  from a socket that opened and died. */
+interface SessionResult {
+  /** RAW frames received, pre-dedupe. Zero means the socket never carried data,
+   *  which is the difference between "quiet venue" and "never actually up". */
+  frames: number;
+  /** How long the socket was OPEN. 0 if `open` never fired. */
+  openMs: number;
+  /** Why it ended, for the log line. */
+  reason: string;
+}
+
 /**
  * Open the WebSocket, send BcStart, and forward every inbound
  * message until the connection closes.
@@ -229,13 +295,67 @@ function changedOnly(parsed: unknown): unknown | null {
  * Uses the `ws` package, NOT Node's built-in WebSocket — see the header
  * comment. `ws` inflates permessage-deflate and reassembles continuation
  * frames; the built-in silently produces empty strings for both.
+ *
+ * Holds the three liveness watchdogs described in the header. Every one of them
+ * ends the session the same way — `terminate()` — and every exit path runs
+ * `clearTimers()`, because a timer leaked per reconnect adds up quickly on a
+ * socket that is flapping every 30 seconds.
  */
-async function consumeStream(): Promise<void> {
+async function consumeStream(): Promise<SessionResult> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(WS_URL, { perMessageDeflate: true });
     let closed = false;
+    let frames = 0;
+    let openedAtMs = 0;
+    let lastFrameAtMs = 0;
+    let awaitingPong = false;
+    let endReason = "closed by peer";
+
+    let connectTimer: ReturnType<typeof setTimeout> | null = null;
+    let pingTimer: ReturnType<typeof setInterval> | null = null;
+    let idleTimer: ReturnType<typeof setInterval> | null = null;
+
+    const clearTimers = (): void => {
+      if (connectTimer !== null) {
+        clearTimeout(connectTimer);
+        connectTimer = null;
+      }
+      if (pingTimer !== null) {
+        clearInterval(pingTimer);
+        pingTimer = null;
+      }
+      if (idleTimer !== null) {
+        clearInterval(idleTimer);
+        idleTimer = null;
+      }
+    };
+
+    /**
+     * End this session now. `terminate()`, never `close()`: every caller of this
+     * has just concluded the peer is not answering, and a graceful close waits
+     * for a reply from exactly that peer. Destroying the socket fires `close`,
+     * which resolves the promise and lets the reconnect loop run.
+     */
+    const kill = (reason: string): void => {
+      endReason = reason;
+      console.warn(`[kart-bridge] ${reason} — terminating socket`);
+      clearTimers();
+      try {
+        ws.terminate();
+      } catch {
+        /* already gone */
+      }
+    };
 
     ws.on("open", () => {
+      openedAtMs = Date.now();
+      // Start the idle clock at open, not at socket creation — the first frame
+      // legitimately takes a moment to arrive after BcStart.
+      lastFrameAtMs = openedAtMs;
+      if (connectTimer !== null) {
+        clearTimeout(connectTimer);
+        connectTimer = null;
+      }
       console.log(`[kart-bridge] WebSocket open: ${WS_URL}`);
       try {
         ws.send(JSON.stringify(BC_START_MESSAGE));
@@ -245,6 +365,35 @@ async function consumeStream(): Promise<void> {
       } catch (err) {
         console.error("[kart-bridge] failed to send BcStart:", err);
       }
+
+      // WATCHDOG 2 — the peer is gone but TCP has not admitted it.
+      pingTimer = setInterval(() => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        if (awaitingPong) {
+          kill(`no pong within ${PING_INTERVAL_MS / 1000}s`);
+          return;
+        }
+        awaitingPong = true;
+        try {
+          ws.ping();
+        } catch (err) {
+          kill(`ping threw (${err instanceof Error ? err.message : String(err)})`);
+        }
+      }, PING_INTERVAL_MS);
+
+      // WATCHDOG 3 — the socket is open and answering pings, yet no DATA is
+      // arriving. The one that catches a venue-side stall.
+      idleTimer = setInterval(() => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        const silentMs = Date.now() - lastFrameAtMs;
+        if (silentMs > IDLE_FRAME_TIMEOUT_MS) {
+          kill(`no frame in ${Math.round(silentMs / 1000)}s (feed resends every 1s)`);
+        }
+      }, IDLE_CHECK_INTERVAL_MS);
+    });
+
+    ws.on("pong", () => {
+      awaitingPong = false;
     });
 
     ws.on("message", (data: Buffer, isBinary: boolean) => {
@@ -252,6 +401,12 @@ async function consumeStream(): Promise<void> {
       // race clock's green-flag anchor downstream, so it must predate our own
       // parsing, dedupe and queueing.
       const arrivedAt = new Date().toISOString();
+      // Liveness is counted here, on the RAW frame, and NOT further down past
+      // `changedOnly()`. The dedupe suppresses unchanged snapshots, so a quiet
+      // venue forwards almost nothing while still sending a frame every second.
+      // Counting forwards would make an idle hour look like a dead socket.
+      lastFrameAtMs = Date.now();
+      frames++;
       const raw = isBinary ? data.toString("utf8") : data.toString("utf8");
 
       // A zero-length frame now means something is wrong with the client,
@@ -309,28 +464,50 @@ async function consumeStream(): Promise<void> {
       // `ws` emits a real Error here (the built-in client emitted a bare
       // Event, which is why this used to log almost nothing useful).
       console.error(`[kart-bridge] WebSocket error: ${err.message}`);
+      endReason = `error: ${err.message}`;
+      // Terminate rather than trusting the socket to close itself. `ws` does
+      // normally emit `close` after `error`, but this promise only settles on
+      // `close` — so on the one path where it did not, the bridge would hang
+      // forever holding a dead socket. That is the failure we are here to end.
+      clearTimers();
+      try {
+        ws.terminate();
+      } catch {
+        /* already gone */
+      }
     });
 
     ws.on("close", (code: number, reason: Buffer) => {
       if (closed) return;
       closed = true;
+      clearTimers();
+      const openMs = openedAtMs === 0 ? 0 : Date.now() - openedAtMs;
       console.log(
-        `[kart-bridge] WebSocket closed code=${code} reason=${reason?.toString() || "(no reason)"}`,
+        `[kart-bridge] WebSocket closed code=${code} reason=${reason?.toString() || "(no reason)"} ` +
+          `frames=${frames} openMs=${openMs} why="${endReason}"`,
       );
       // A reconnect re-sends BcStart and the server replays its full
       // snapshot; clear the dedupe cache so that replay is forwarded once
       // rather than silently dropped as "unchanged".
+      //
+      // That replay is what fed the race clock a false green flag on 2026-08-15
+      // (see apps/web/src/features/racing/race-clock.ts). The fix belongs on the
+      // consumer, which now compares RecordVersion — NOT here. Swallowing the
+      // replay instead would trade that bug for the one this line was added to
+      // fix: a reconnect that silently drops everything it missed.
       lastSeen.clear();
-      resolve();
+      resolve({ frames, openMs, reason: endReason });
     });
 
-    // 30s safety timeout on the ws connection itself — if open
-    // never fires, abort and let the reconnect loop try again.
-    const watchdog = setTimeout(() => {
+    // WATCHDOG 1 — never reached `open`. Distinct from the other two because
+    // there is no session yet to report on, so this REJECTS and the backoff
+    // grows rather than resetting.
+    connectTimer = setTimeout(() => {
       if (ws.readyState === WebSocket.CONNECTING) {
-        console.error("[kart-bridge] open watchdog fired — connection stalled");
+        console.error(`[kart-bridge] connect watchdog fired after ${CONNECT_TIMEOUT_MS / 1000}s`);
+        clearTimers();
         try {
-          ws.close();
+          ws.terminate();
         } catch {
           /* ignore */
         }
@@ -339,15 +516,23 @@ async function consumeStream(): Promise<void> {
           reject(new Error("connection stalled"));
         }
       }
-    }, 30_000);
-
-    ws.on("open", () => clearTimeout(watchdog));
+    }, CONNECT_TIMEOUT_MS);
   });
 }
 
 /**
  * Main loop — connect, consume, reconnect with exponential backoff
  * on disconnect.
+ *
+ * The backoff resets ONLY after a session that actually worked. It used to
+ * reset on any clean close, which meant a socket that opened and died
+ * immediately retried roughly once a second forever, indistinguishable in the
+ * logs from a healthy bridge doing nothing.
+ *
+ * The reconnect counter is here so that flapping is legible after the fact.
+ * On 2026-08-15 the bridge never went dark for more than 50 seconds at a
+ * stretch, so nothing short of counting reconnects showed the pattern — and the
+ * dropped green flag that came out of it cost a race its clock.
  */
 async function main(): Promise<void> {
   console.log("[kart-bridge] starting", {
@@ -355,19 +540,31 @@ async function main(): Promise<void> {
     webhook: WEBHOOK_URL,
     probeMode: PROBE_MODE,
     logLevel: LOG_LEVEL,
+    connectTimeoutMs: CONNECT_TIMEOUT_MS,
+    pingIntervalMs: PING_INTERVAL_MS,
+    idleFrameTimeoutMs: IDLE_FRAME_TIMEOUT_MS,
   });
   let backoff = 1000;
+  let reconnects = 0;
   while (true) {
     try {
-      await consumeStream();
-      backoff = 1000; // clean disconnect — reconnect quickly
+      const session = await consumeStream();
+      // "Worked" means it carried DATA and stayed up. A socket that opens,
+      // delivers nothing and closes is a failure wearing a clean exit code.
+      const healthy = session.frames > 0 && session.openMs >= HEALTHY_SESSION_MS;
+      if (healthy) backoff = 1000;
+      console.log(
+        `[kart-bridge] session ended: frames=${session.frames} openMs=${session.openMs} ` +
+          `healthy=${healthy} reason="${session.reason}"`,
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("[kart-bridge] stream errored:", msg);
     }
+    reconnects++;
     const jitter = Math.floor(Math.random() * 1000);
     const delay = Math.min(backoff + jitter, 5 * 60 * 1000);
-    console.log(`[kart-bridge] reconnecting in ${delay}ms`);
+    console.log(`[kart-bridge] reconnect #${reconnects} in ${delay}ms (backoff ${backoff}ms)`);
     await sleep(delay);
     backoff = Math.min(backoff * 2, 5 * 60 * 1000);
   }
