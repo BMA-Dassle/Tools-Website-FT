@@ -86,7 +86,16 @@ async function main() {
       ...preset.config,
       // Both rooms are the same way from this wall (owner), so the arrow is a
       // per-screen fact rather than a per-room one.
-      raceGuide: { tracks: ["blue", "red"], arrow: "left" },
+      //
+      // `track` IS WRITTEN ALONGSIDE `tracks` ON PURPOSE, and it is not dead
+      // weight. A build that predates the one-screen change reads only the
+      // singular field, and a screen whose config it cannot parse falls all
+      // the way to the setup notice — which is exactly what happened when this
+      // row was reseeded a few minutes before its code was live: a wall in
+      // front of guests reading "pick a track". Writing both means a ROLLBACK
+      // degrades to the Blue-only guide instead of to a setup screen. The
+      // current resolver prefers `tracks`, so this changes nothing today.
+      raceGuide: { tracks: ["blue", "red"], track: "blue", arrow: "left" },
     },
   });
   console.log(`  ✓ saved FT:${keepNumber} — ${NAME}`);
