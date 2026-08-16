@@ -80,6 +80,9 @@ export interface QueuedSend {
   };
   /** Optional fallback prefix for fromOverride degradation (matches voxSend opts) */
   fallbackPrefix?: string;
+  /** Square/Pandora location the audit ids belong to (see bmiKeyScope in
+   *  lib/bmi-key-scope.ts). Absent = legacy shared-FM shape. */
+  locationId?: string;
 }
 
 /** True if we're currently in a quota-cooldown window. */

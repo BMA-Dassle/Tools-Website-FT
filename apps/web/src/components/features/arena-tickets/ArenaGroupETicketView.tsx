@@ -27,7 +27,7 @@ import {
   ArenaPreSessionCard,
 } from "./arena-cards";
 import ImportantArenaInfo from "./ImportantArenaInfo";
-import { ARENA_QR_ENABLED, HP_FM_ADDRESS } from "~/features/arena-tickets/constants";
+import { ARENA_QR_ENABLED, arenaLocationMeta } from "~/features/arena-tickets/constants";
 
 interface Props {
   group: GroupTicket;
@@ -91,10 +91,10 @@ export default function ArenaGroupETicketView({ group }: Props) {
           ),
         ),
         ...distinctSessions.map((sid) =>
-          fetch(`/api/race-session-state?sessionId=${encodeURIComponent(sid)}`, {
-            cache: "no-store",
-            signal,
-          }),
+          fetch(
+            `/api/race-session-state?sessionId=${encodeURIComponent(sid)}&locationId=${encodeURIComponent(group.locationId)}`,
+            { cache: "no-store", signal },
+          ),
         ),
       ]);
       if (signal.aborted) return;
@@ -240,6 +240,7 @@ export default function ArenaGroupETicketView({ group }: Props) {
               scheduledStart: m.scheduledStart,
               track: m.track,
               heatNumber: m.heatNumber,
+              locationId: group.locationId,
             };
             const qrBlock = ARENA_QR_ENABLED && s.onSession && qrByMember[key] && (
               <button
@@ -284,7 +285,7 @@ export default function ArenaGroupETicketView({ group }: Props) {
         </div>
 
         <div className="mt-6 text-center">
-          <p className="text-white/30 text-xs">{HP_FM_ADDRESS}</p>
+          <p className="text-white/30 text-xs">{arenaLocationMeta(group.locationId).address}</p>
           <p className="text-white/20 text-[11px] mt-1">
             Please have your e-ticket open and ready at the HP Arena desk
           </p>

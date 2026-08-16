@@ -6,9 +6,11 @@
  * Firebird notifications, entries expiring ~20 min after call —
  * mirroring races/current).
  *
- * Every minute (once scheduled):
- *   1. Pull sessions/current for HP FM → called arena sessions.
- *   2. Write race:called:{sessionId} — open ticket pages poll
+ * Every minute (once scheduled), for EACH active center (FM + Naples —
+ * see ./centers.ts; each center runs independently so buckets and group
+ * tickets never mix locations):
+ *   1. Pull sessions/current for the center → called arena sessions.
+ *   2. Write race:called:{scope}{sessionId} — open ticket pages poll
  *      /api/race-session-state and light the "checking in now" banner
  *      from this key (seam shipped with the launch build, no redeploy).
  *   3. For each called session not yet alerted, pull participants,
@@ -16,9 +18,10 @@
  *      HP-branded SMS/email reusing the SAME /t/{id} ticket the
  *      pre-session cron minted (upsert is keyed on sessionId+personId).
  *
- * No express-lane path (racing-only concept). Dedup:
- *   alert:arena-checkin:{sid}:{pid} (6h) per person,
- *   alert:arena-checkin:session:{sid} (6h) per session.
+ * No express-lane path (racing-only concept). Dedup (location-scoped via
+ * bmiKeyScope — legacy shape at FM, {locationId}: segment at Naples):
+ *   alert:arena-checkin:{scope}{sid}:{pid} (6h) per person,
+ *   alert:arena-checkin:session:{scope}{sid} (6h) per session.
  */
 import redis from "@/lib/redis";
 import { randomBytes } from "crypto";
@@ -38,7 +41,9 @@ import {
   type Participant,
 } from "@/lib/participant-contact";
 import { logSms } from "@/lib/sms-log";
-import { HEADPINZ_BASE_URL, HP_FM_LOCATION_ID } from "./constants";
+import { bmiKeyScope } from "@/lib/bmi-key-scope";
+import { HEADPINZ_BASE_URL } from "./constants";
+import { activeArenaCenters, type ArenaCenter } from "./centers";
 import { activityDisplay, classifyArenaSession, type ArenaActivity } from "./types";
 import { sendArenaEmail, sendArenaSms } from "./send";
 import {
@@ -83,9 +88,9 @@ export interface ArenaCheckinSummary {
   emailSends: number;
 }
 
-async function fetchCalledSessions(): Promise<CalledArenaSession[]> {
+async function fetchCalledSessions(center: ArenaCenter): Promise<CalledArenaSession[]> {
   try {
-    const res = await fetch(`${PANDORA_BASE}/v2/bmi/sessions/current/${HP_FM_LOCATION_ID}`, {
+    const res = await fetch(`${PANDORA_BASE}/v2/bmi/sessions/current/${center.locationId}`, {
       headers: {
         Authorization: `Bearer ${process.env.SWAGGER_ADMIN_KEY || ""}`,
         Accept: "application/json",
@@ -102,9 +107,9 @@ async function fetchCalledSessions(): Promise<CalledArenaSession[]> {
   }
 }
 
-async function fetchParticipants(sessionId: string): Promise<Participant[]> {
+async function fetchParticipants(center: ArenaCenter, sessionId: string): Promise<Participant[]> {
   const res = await fetch(
-    `${API_BASE}/api/pandora/session-participants?locationId=${HP_FM_LOCATION_ID}&sessionId=${sessionId}&warm=1`,
+    `${API_BASE}/api/pandora/session-participants?locationId=${center.locationId}&sessionId=${sessionId}&warm=1`,
     {
       cache: "no-store",
       headers: { "x-pandora-internal": process.env.SWAGGER_ADMIN_KEY || "" },
@@ -141,13 +146,14 @@ function memberFromCandidate(c: Candidate): GroupTicketMember {
 }
 
 function ticketFromCandidate(
+  center: ArenaCenter,
   c: Candidate,
   viaGuardian?: boolean,
   guardianFirstName?: string,
 ): RaceTicket {
   return {
     sessionId: c.session.sessionId,
-    locationId: HP_FM_LOCATION_ID,
+    locationId: center.locationId,
     personId: c.participant.personId,
     participantId: c.participant.participantId,
     firstName: c.participant.firstName || "Player",
@@ -165,14 +171,48 @@ function ticketFromCandidate(
   };
 }
 
-function personDedupKey(c: Candidate): string {
-  return `alert:arena-checkin:${c.session.sessionId}:${c.participant.personId}`;
+// Location-scoped — Naples BMI ids can collide numerically with FM's.
+function personDedupKey(center: ArenaCenter, c: Candidate): string {
+  return `alert:arena-checkin:${bmiKeyScope(center.locationId)}${c.session.sessionId}:${c.participant.personId}`;
 }
 
+/** Run every active center's alert pass and aggregate the summaries. */
 export async function runArenaCheckinAlerts(opts: {
   dryRun: boolean;
 }): Promise<ArenaCheckinSummary> {
-  const { dryRun } = opts;
+  const totals: ArenaCheckinSummary = {
+    calledSessions: [],
+    candidates: 0,
+    sent: 0,
+    skipped: 0,
+    errors: 0,
+    groupedSmsSends: 0,
+    singleSmsSends: 0,
+    emailSends: 0,
+  };
+  for (const center of activeArenaCenters()) {
+    try {
+      const s = await runArenaCheckinAlertsForCenter(center, opts.dryRun);
+      totals.calledSessions.push(...s.calledSessions);
+      totals.candidates += s.candidates;
+      totals.sent += s.sent;
+      totals.skipped += s.skipped;
+      totals.errors += s.errors;
+      totals.groupedSmsSends += s.groupedSmsSends;
+      totals.singleSmsSends += s.singleSmsSends;
+      totals.emailSends += s.emailSends;
+    } catch (err) {
+      console.error(`[arena-checkin] center ${center.key} run failed:`, err);
+      totals.errors++;
+    }
+  }
+  return totals;
+}
+
+async function runArenaCheckinAlertsForCenter(
+  center: ArenaCenter,
+  dryRun: boolean,
+): Promise<ArenaCheckinSummary> {
   const now = Date.now();
 
   let sent = 0;
@@ -183,11 +223,12 @@ export async function runArenaCheckinAlerts(opts: {
   let emailSends = 0;
   const calledSessions: ArenaCheckinSummary["calledSessions"] = [];
 
-  const called = await fetchCalledSessions();
+  const called = await fetchCalledSessions(center);
   const candidates: Candidate[] = [];
+  const scope = bmiKeyScope(center.locationId);
 
   for (const session of called) {
-    const name = sessionDisplayName(session);
+    const name = `${center.key}: ${sessionDisplayName(session)}`;
     const activity = classifyArenaSession(session.type || "");
     if (!activity) {
       // Party / event session on the arena resource — flag the page
@@ -200,7 +241,7 @@ export async function runArenaCheckinAlerts(opts: {
     // Light the "checking in now" banner on any open ticket page for
     // this session. 12h TTL so the flag persists through the day.
     if (!dryRun) {
-      await redis.set(`race:called:${session.sessionId}`, "1", "EX", 60 * 60 * 12);
+      await redis.set(`race:called:${scope}${session.sessionId}`, "1", "EX", 60 * 60 * 12);
     }
 
     // Stale guard — a called entry whose scheduled start is 30+ min
@@ -211,13 +252,13 @@ export async function runArenaCheckinAlerts(opts: {
       continue;
     }
 
-    const sessionKey = `alert:arena-checkin:session:${session.sessionId}`;
+    const sessionKey = `alert:arena-checkin:session:${scope}${session.sessionId}`;
     if (!dryRun && (await redis.get(sessionKey))) {
       calledSessions.push({ sessionId: session.sessionId, name, reason: "already-alerted" });
       continue;
     }
 
-    const participants = await fetchParticipants(session.sessionId);
+    const participants = await fetchParticipants(center, session.sessionId);
     if (participants.length === 0) {
       calledSessions.push({ sessionId: session.sessionId, name, reason: "no-participants" });
       continue;
@@ -267,7 +308,7 @@ export async function runArenaCheckinAlerts(opts: {
       const phone = resolved.phone;
       if (!allByPhone.has(phone)) allByPhone.set(phone, []);
       allByPhone.get(phone)!.push(c);
-      const already = !dryRun && (await redis.get(personDedupKey(c)));
+      const already = !dryRun && (await redis.get(personDedupKey(center, c)));
       if (already) {
         skipped++;
         continue;
@@ -278,7 +319,7 @@ export async function runArenaCheckinAlerts(opts: {
       const emailKey = resolved.email.trim().toLowerCase();
       if (!allByEmail.has(emailKey)) allByEmail.set(emailKey, []);
       allByEmail.get(emailKey)!.push(c);
-      const already = !dryRun && (await redis.get(personDedupKey(c)));
+      const already = !dryRun && (await redis.get(personDedupKey(center, c)));
       if (already) {
         skipped++;
         continue;
@@ -309,22 +350,28 @@ export async function runArenaCheckinAlerts(opts: {
       }
       try {
         const ticketId = await upsertRaceTicket(
-          ticketFromCandidate(c, isGuardianFlavored, guardianFirstName),
+          ticketFromCandidate(center, c, isGuardianFlavored, guardianFirstName),
         );
         const { code, url } = await shortenUrl(`${HEADPINZ_BASE_URL}/t/${ticketId}`);
         const member = memberFromCandidate(c);
         const body = isGuardianFlavored
           ? buildArenaCheckinGuardianSingleSmsBody(member, url)
           : buildArenaCheckinSingleSmsBody(member, url);
-        const ok = await sendArenaSms("arena-checkin-cron", phone, body, {
-          sessionIds: [c.session.sessionId],
-          personIds: [c.participant.personId],
-          memberCount: 1,
-          shortCode: code,
-          viaGuardian: isGuardianFlavored,
-        });
+        const ok = await sendArenaSms(
+          "arena-checkin-cron",
+          phone,
+          body,
+          {
+            sessionIds: [c.session.sessionId],
+            personIds: [c.participant.personId],
+            memberCount: 1,
+            shortCode: code,
+            viaGuardian: isGuardianFlavored,
+          },
+          { from: center.smsFrom, locationId: center.locationId },
+        );
         if (ok) {
-          await redis.set(personDedupKey(c), "1", "EX", DEDUP_TTL);
+          await redis.set(personDedupKey(center, c), "1", "EX", DEDUP_TTL);
           sessionsWithSends.add(String(c.session.sessionId));
           sent++;
           singleSmsSends++;
@@ -349,7 +396,7 @@ export async function runArenaCheckinAlerts(opts: {
     try {
       const groupId = await upsertGroupTicket({
         phone,
-        locationId: HP_FM_LOCATION_ID,
+        locationId: center.locationId,
         members,
         recipient: isGuardianFlavored ? "guardian" : "racer",
         guardianFirstName: isGuardianFlavored ? guardianFirstName : undefined,
@@ -359,16 +406,22 @@ export async function runArenaCheckinAlerts(opts: {
       const body = isGuardianFlavored
         ? buildArenaCheckinGuardianGroupSmsBody(members, url)
         : buildArenaCheckinGroupSmsBody(members, url);
-      const ok = await sendArenaSms("arena-checkin-cron", phone, body, {
-        sessionIds: Array.from(new Set(members.map((m) => m.sessionId))),
-        personIds: members.map((m) => m.personId),
-        memberCount: members.length,
-        shortCode: code,
-        viaGuardian: isGuardianFlavored,
-      });
+      const ok = await sendArenaSms(
+        "arena-checkin-cron",
+        phone,
+        body,
+        {
+          sessionIds: Array.from(new Set(members.map((m) => m.sessionId))),
+          personIds: members.map((m) => m.personId),
+          memberCount: members.length,
+          shortCode: code,
+          viaGuardian: isGuardianFlavored,
+        },
+        { from: center.smsFrom, locationId: center.locationId },
+      );
       if (ok) {
         for (const c of fresh) {
-          await redis.set(personDedupKey(c), "1", "EX", DEDUP_TTL);
+          await redis.set(personDedupKey(center, c), "1", "EX", DEDUP_TTL);
           sessionsWithSends.add(String(c.session.sessionId));
         }
         sent += fresh.length;
@@ -397,7 +450,7 @@ export async function runArenaCheckinAlerts(opts: {
       let shortCode: string;
       if (members.length === 1) {
         const c = members[0];
-        const ticketId = await upsertRaceTicket(ticketFromCandidate(c));
+        const ticketId = await upsertRaceTicket(ticketFromCandidate(center, c));
         const shortened = await shortenUrl(`${HEADPINZ_BASE_URL}/t/${ticketId}`);
         shortCode = shortened.code;
         body = buildArenaCheckinSingleSmsBody(memberFromCandidate(c), shortened.url);
@@ -405,7 +458,7 @@ export async function runArenaCheckinAlerts(opts: {
         const groupMembers: GroupTicketMember[] = members.map(memberFromCandidate);
         const groupId = await upsertGroupTicket({
           phone,
-          locationId: HP_FM_LOCATION_ID,
+          locationId: center.locationId,
           members: groupMembers,
           brand: "headpinz",
         });
@@ -438,10 +491,10 @@ export async function runArenaCheckinAlerts(opts: {
   // the row shows the name + is resendable after staff collect a contact, and
   // log a skipped row with the reason. One row per (session, person), deduped.
   for (const c of noContact) {
-    const auditKey = `eticket-nocontact:arena-checkin:${c.session.sessionId}:${c.participant.personId}`;
+    const auditKey = `eticket-nocontact:arena-checkin:${scope}${c.session.sessionId}:${c.participant.personId}`;
     if (dryRun || (await redis.get(auditKey))) continue;
     try {
-      const ticketId = await upsertRaceTicket(ticketFromCandidate(c));
+      const ticketId = await upsertRaceTicket(ticketFromCandidate(center, c));
       const { code, url } = await shortenUrl(`${HEADPINZ_BASE_URL}/t/${ticketId}`);
       await logSms({
         ts: new Date().toISOString(),
@@ -487,13 +540,13 @@ export async function runArenaCheckinAlerts(opts: {
       if (all.length === 1) {
         const c = fresh[0];
         const ticketId = await upsertRaceTicket(
-          ticketFromCandidate(c, isGuardianFlavored, c.resolved?.contactFirstName),
+          ticketFromCandidate(center, c, isGuardianFlavored, c.resolved?.contactFirstName),
         );
         url = (await shortenUrl(`${HEADPINZ_BASE_URL}/t/${ticketId}`)).url;
       } else {
         const groupId = await upsertGroupTicket({
           phone: "", // email-bucketed group has no phone
-          locationId: HP_FM_LOCATION_ID,
+          locationId: center.locationId,
           members,
           recipient: isGuardianFlavored ? "guardian" : "racer",
           guardianFirstName: isGuardianFlavored ? guardianFirstName : undefined,
@@ -508,11 +561,12 @@ export async function runArenaCheckinAlerts(opts: {
         members,
         url,
         isGuardianFlavored ? "guardian" : "racer",
+        center.address,
       );
       const ok = await sendArenaEmail(displayEmail, subject, html);
       if (ok) {
         for (const c of fresh) {
-          await redis.set(personDedupKey(c), "1", "EX", DEDUP_TTL);
+          await redis.set(personDedupKey(center, c), "1", "EX", DEDUP_TTL);
           sessionsWithSends.add(String(c.session.sessionId));
         }
         sent += fresh.length;
@@ -529,7 +583,7 @@ export async function runArenaCheckinAlerts(opts: {
   // Session-level dedup — one key per session with a successful send.
   if (!dryRun) {
     for (const sid of sessionsWithSends) {
-      await redis.set(`alert:arena-checkin:session:${sid}`, "1", "EX", DEDUP_TTL);
+      await redis.set(`alert:arena-checkin:session:${scope}${sid}`, "1", "EX", DEDUP_TTL);
     }
   }
 

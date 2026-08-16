@@ -656,7 +656,7 @@ async function releaseVacatedHeat(c: Candidate, ref: ParticipantTicketRef): Prom
 async function detectMove(c: Candidate): Promise<ParticipantTicketRef | null> {
   const pid = c.participant.participantId;
   if (pid == null || !String(pid).trim()) return null;
-  const ref = await getParticipantTicketRef(pid);
+  const ref = await getParticipantTicketRef(FASTTRAX_LOCATION_ID, pid);
   if (!ref) return null;
   if (String(ref.sessionId) === String(c.session.sessionId)) return null; // same heat
   const oldStart = new Date(ref.scheduledStart).getTime();
