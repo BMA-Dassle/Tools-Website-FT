@@ -140,6 +140,32 @@ export const flowEn = {
   "heightAge.checkAll": "Please check all boxes above to continue",
   "heightAge.changeParty": "Change Party Size",
 
+  // --- Tier-expectation warnings (race-warnings.ts) ---
+  //
+  // Shown when a guest is about to book a race that is slower than they expect.
+  // The registry decides WHEN; these decide what it says. Keys are per-warning
+  // (`raceWarning.<id>.*`) so adding a warning for another category or tier is
+  // a data change plus its own copy block — see race-warnings.ts.
+  //
+  // "Junior Starter", "Ultimate Qualifier" and "Intermediate" are product
+  // names and stay English in both locales.
+  "raceWarning.checkAll": "Please tick every box to continue",
+  "raceWarning.goBack": "Go back",
+
+  "raceWarning.juniorStarter.title": "Before You Book Junior Starter",
+  "raceWarning.juniorStarter.body":
+    "Junior Starter runs at our slowest kart speed — every junior racer starts here, no matter how much driving experience they already have. If your child already drives go-karts or anything similar, we strongly recommend the Ultimate Qualifier instead: two races, one at Starter speed to qualify and a second at Intermediate speed once they level up.",
+  "raceWarning.juniorStarter.permanent":
+    "Levelling up is not optional, and it is permanent on your child’s racing account.",
+  "raceWarning.juniorStarter.ack.slow":
+    "I understand Junior Starter runs at our slowest speed, and that every junior racer starts here regardless of experience.",
+  "raceWarning.juniorStarter.ack.permanent":
+    "I understand that if my child qualifies, the level-up is automatic — not optional — and stays on their account permanently.",
+  "raceWarning.juniorStarter.ack.declined":
+    "I was offered the Ultimate Qualifier and I choose to book Junior Starter only.",
+  "raceWarning.juniorStarter.continue": "Continue with Junior Starter",
+  "raceWarning.juniorStarter.upsell": "Book Ultimate Qualifier instead",
+
   // --- Live progress under a vendor call ---
   "flow.progress.reservingHeats": "Reserving your heats…",
   "flow.progress.checkingInfo": "Checking everyone’s latest info…",
@@ -327,6 +353,27 @@ export const flowEs: Record<keyof typeof flowEn, string> = {
     "FastTrax tiene requisitos estrictos de edad y estatura, algunos exigidos por regulaciones estatales. Declarar una edad falsa puede resultar en la expulsión de las instalaciones.",
   "heightAge.checkAll": "Marca todas las casillas de arriba para continuar",
   "heightAge.changeParty": "Cambiar el tamaño del grupo",
+
+  // --- Avisos de nivel de carrera ---
+  // "tu corredor" rather than "tu hijo/a": the racer is who the sentence is
+  // about, it avoids gendering a child the booking never asked us to gender,
+  // and it matches the vernacular the rest of the kiosk already uses.
+  "raceWarning.checkAll": "Marca todas las casillas para continuar",
+  "raceWarning.goBack": "Regresar",
+
+  "raceWarning.juniorStarter.title": "Antes de reservar Junior Starter",
+  "raceWarning.juniorStarter.body":
+    "Junior Starter es nuestra carrera más lenta — todos los corredores juveniles empiezan aquí, sin importar cuánta experiencia tengan manejando. Si tu corredor ya maneja go-karts o algo parecido, te recomendamos el Ultimate Qualifier: dos carreras, una a velocidad Starter para calificar y otra a velocidad Intermediate cuando suba de nivel.",
+  "raceWarning.juniorStarter.permanent":
+    "Subir de nivel no es opcional y queda permanente en la cuenta de tu corredor.",
+  "raceWarning.juniorStarter.ack.slow":
+    "Entiendo que Junior Starter es nuestra carrera más lenta y que todos los corredores juveniles empiezan aquí, sin importar su experiencia.",
+  "raceWarning.juniorStarter.ack.permanent":
+    "Entiendo que si mi corredor califica, subir de nivel es automático — no opcional — y queda permanente en su cuenta.",
+  "raceWarning.juniorStarter.ack.declined":
+    "Me ofrecieron el Ultimate Qualifier y elijo reservar solo Junior Starter.",
+  "raceWarning.juniorStarter.continue": "Continuar con Junior Starter",
+  "raceWarning.juniorStarter.upsell": "Mejor reservar Ultimate Qualifier",
 
   // --- Live progress under a vendor call ---
   "flow.progress.reservingHeats": "Reservando tus mangas…",

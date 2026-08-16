@@ -944,7 +944,10 @@ export function filterProducts(products: RaceProduct[], ctx: ProductFilterContex
   });
 }
 
-const TIER_QUAL_RANK: Record<RaceTier, number> = { starter: 0, intermediate: 1, pro: 2 };
+/** Tier ladder as a comparable rank. Exported so anything that needs
+ *  "at or below tier X" compares against the SAME ordering the booking
+ *  gate uses — a second copy of this map is how the two silently drift. */
+export const TIER_QUAL_RANK: Record<RaceTier, number> = { starter: 0, intermediate: 1, pro: 2 };
 
 /**
  * The tier a racer's BMI memberships qualify them for IN A GIVEN CATEGORY.
