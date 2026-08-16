@@ -339,15 +339,28 @@ async function stampConfirmationState(row: SyncQueueRow): Promise<HandlerResult>
       return again(`VIP stamp ${result.outcome}`);
     }
     if (!stateId) return dead("no stateId in payload (and not a VIP combo)");
-    const { setProjectState } = await import("@/lib/bmi-office-actions");
-    await setProjectState({
-      centerCode,
-      projectId,
-      stateId,
-      label,
-      // Out-wait a late cross-rail `-3` that would revert the custom state.
-      ensureAttempts: 3,
-    });
+    const office = await import("@/lib/bmi-office-actions");
+    try {
+      await office.setProjectState({
+        centerCode,
+        projectId,
+        stateId,
+        label,
+        // Out-wait a late cross-rail `-3` that would revert the custom state.
+        ensureAttempts: 3,
+      });
+    } catch (err) {
+      // A project that does not exist will not start existing. Terminal, so the
+      // row parks now with a true reason instead of spending its whole budget on
+      // a settled fact — row #1049 burned all 40 attempts over 4h33m re-fetching
+      // a project that was gone from Office and all three Pandora locations.
+      if (err instanceof office.BmiProjectNotFoundError) {
+        return dead(
+          `project ${projectId} no longer exists in Office (404) — cancelled or re-parented`,
+        );
+      }
+      throw err; // anything else is the vendor being unwell: the outer catch retries
+    }
     return done(`state ${stateId} stamped`);
   } catch (err) {
     return again(err instanceof Error ? err.message.slice(0, 200) : "state stamp failed");

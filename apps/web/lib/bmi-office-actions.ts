@@ -331,6 +331,29 @@ export const VIP_CONFIRMATION_STATE_IDS: Record<string, string> = {
 // into the bundle. Re-exported here so existing server callers keep their import.
 export { officeProjectIdFromBillId, billIdFromOfficeProjectId } from "./bmi-office-ids";
 
+/**
+ * The Office API answered, and the answer was "there is no such project".
+ *
+ * Worth its own type because it is the one ≥400 that WILL NOT change its mind. A
+ * cancelled or re-parented project never comes back (see the order-reparenting
+ * notes in docs/) — so a caller that retries a 404 is not being patient, it is
+ * spending its attempt budget on a settled fact. Everything else, especially a
+ * 5xx, is the vendor being unwell and says nothing about the project.
+ *
+ * Live cost of not having this (2026-08-15): sync row #1049 spent all 40 attempts
+ * over 4h33m re-fetching project 63000000008492343, which is gone from Office and
+ * from all three Pandora locations, and reported "Failed to fetch project: 404"
+ * forty times as if the next try might differ.
+ */
+export class BmiProjectNotFoundError extends Error {
+  readonly projectId: string;
+  constructor(projectId: string) {
+    super(`Failed to fetch project: 404 — project ${projectId} does not exist in Office`);
+    this.name = "BmiProjectNotFoundError";
+    this.projectId = projectId;
+  }
+}
+
 // ── Update project state (generic) ──────────────────────────────────
 
 export async function setProjectState(params: {
@@ -408,6 +431,7 @@ export async function setProjectState(params: {
       `/api/${clientKey}/project/${params.projectId}`,
       headers,
     );
+    if (getRes.status === 404) throw new BmiProjectNotFoundError(params.projectId);
     if (getRes.status >= 400) throw new Error(`Failed to fetch project: ${getRes.status}`);
     const project = JSON.parse(getRes.body);
     const minimal = toMinimalProject(project);
@@ -924,6 +948,7 @@ export async function updateProjectName(params: {
     `/api/${clientKey}/project/${params.projectId}`,
     headers,
   );
+  if (getRes.status === 404) throw new BmiProjectNotFoundError(params.projectId);
   if (getRes.status >= 400) throw new Error(`Failed to fetch project: ${getRes.status}`);
   const project = JSON.parse(getRes.body);
 
@@ -992,6 +1017,7 @@ export async function updateProjectPublicNotes(params: {
     `/api/${clientKey}/project/${params.projectId}`,
     headers,
   );
+  if (getRes.status === 404) throw new BmiProjectNotFoundError(params.projectId);
   if (getRes.status >= 400) throw new Error(`Failed to fetch project: ${getRes.status}`);
   const project = JSON.parse(getRes.body);
 
