@@ -189,8 +189,10 @@ export async function resolveRacerHub(code: string): Promise<RacerHub | null> {
   if (!/^\d+$/.test(personId)) return null;
 
   const nextRace = await nextRaceForPerson(personId);
+  // Racing is FastTrax-FM-only; the lookup key keeps its legacy shape for
+  // this shared-FM location (see lib/bmi-key-scope.ts).
   const ticketId = nextRace?.sessionId
-    ? await findTicketIdFor(nextRace.sessionId, personId)
+    ? await findTicketIdFor("LAB52GY480CJF", nextRace.sessionId, personId)
     : null;
   const pass = await getRacerPass(personId).catch(() => null);
 

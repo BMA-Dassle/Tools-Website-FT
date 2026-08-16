@@ -13,7 +13,7 @@
  */
 
 import { formatDate, formatTime, minutesUntil } from "@/app/t/[id]/cards";
-import { HP_FM_PHONE_DISPLAY } from "~/features/arena-tickets/constants";
+import { arenaLocationMeta } from "~/features/arena-tickets/constants";
 
 export interface ArenaCardDetails {
   firstName: string;
@@ -22,6 +22,9 @@ export interface ArenaCardDetails {
   /** Activity display name — "Laser Tag" | "Gel Blaster". */
   track: string;
   heatNumber: number;
+  /** Square location id from the ticket record — drives the help-line
+   *  number (FM vs Naples). Absent = FM (back-compat). */
+  locationId?: string;
 }
 
 /** Per-activity accent — matches the booking catalog's accentColor
@@ -337,7 +340,9 @@ export function ArenaInvalidCard({
         </div>
       )}
 
-      <p className="text-white/30 text-xs mt-6">Need help? Call {HP_FM_PHONE_DISPLAY}</p>
+      <p className="text-white/30 text-xs mt-6">
+        Need help? Call {arenaLocationMeta(details?.locationId).phoneDisplay}
+      </p>
     </div>
   );
 }
@@ -427,7 +432,9 @@ export function ArenaMovedCard({
         >
           View Updated E-Ticket
         </a>
-        <p className="text-white/30 text-xs mt-4">Need help? Call {HP_FM_PHONE_DISPLAY}</p>
+        <p className="text-white/30 text-xs mt-4">
+          Need help? Call {arenaLocationMeta(details.locationId).phoneDisplay}
+        </p>
       </div>
     </div>
   );

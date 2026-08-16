@@ -39,7 +39,7 @@ import {
   ArenaPreSessionCard,
 } from "./arena-cards";
 import ImportantArenaInfo from "./ImportantArenaInfo";
-import { ARENA_QR_ENABLED, HP_FM_ADDRESS } from "~/features/arena-tickets/constants";
+import { ARENA_QR_ENABLED, arenaLocationMeta } from "~/features/arena-tickets/constants";
 
 interface Props {
   ticket: RaceTicket;
@@ -84,10 +84,10 @@ export default function ArenaETicketView({ ticket }: Props) {
           `/api/pandora/session-participants?locationId=${encodeURIComponent(ticket.locationId)}&sessionId=${encodeURIComponent(String(ticket.sessionId))}&prefer=cache`,
           { cache: "no-store", signal },
         ),
-        fetch(`/api/race-session-state?sessionId=${encodeURIComponent(String(ticket.sessionId))}`, {
-          cache: "no-store",
-          signal,
-        }),
+        fetch(
+          `/api/race-session-state?sessionId=${encodeURIComponent(String(ticket.sessionId))}&locationId=${encodeURIComponent(ticket.locationId)}`,
+          { cache: "no-store", signal },
+        ),
       ]);
       if (signal.aborted) return;
       if (partRes.ok) {
@@ -130,6 +130,7 @@ export default function ArenaETicketView({ ticket }: Props) {
     scheduledStart: ticket.scheduledStart,
     track: ticket.track,
     heatNumber: ticket.heatNumber,
+    locationId: ticket.locationId,
   };
 
   const qrBlock = ARENA_QR_ENABLED && onSession && qrDataUrl && (
@@ -191,7 +192,7 @@ export default function ArenaETicketView({ ticket }: Props) {
         )}
 
         <div className="mt-6 text-center">
-          <p className="text-white/30 text-xs">{HP_FM_ADDRESS}</p>
+          <p className="text-white/30 text-xs">{arenaLocationMeta(ticket.locationId).address}</p>
           <p className="text-white/20 text-[11px] mt-1">
             Please have your e-ticket open and ready at the HP Arena desk
           </p>

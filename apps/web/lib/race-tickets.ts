@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import redis from "@/lib/redis";
+import { bmiKeyScope } from "@/lib/bmi-key-scope";
 
 /**
  * Shared ticket record used by the pre-race and now-checking-in flows.
@@ -80,12 +81,16 @@ function ticketKey(id: string) {
   return `ticket:${id}`;
 }
 
-function lookupKey(sessionId: number | string, personId: number | string) {
-  return `ticket:bySession:${sessionId}:${personId}`;
+// The bySession/byParticipant indexes are keyed on raw BMI ids, which are
+// only unique per BMI server — so both take the ticket's locationId and
+// scope via bmiKeyScope (legacy shape for the shared FM server, a
+// `{locationId}:` segment for separate-server locations like Naples).
+function lookupKey(locationId: string, sessionId: number | string, personId: number | string) {
+  return `ticket:bySession:${bmiKeyScope(locationId)}${sessionId}:${personId}`;
 }
 
-function participantRefKey(participantId: number | string) {
-  return `ticket:byParticipant:${participantId}`;
+function participantRefKey(locationId: string, participantId: number | string) {
+  return `ticket:byParticipant:${bmiKeyScope(locationId)}${participantId}`;
 }
 
 const PARTICIPANT_REF_TTL = 60 * 60 * 24; // 24h — long enough to span a day's moves
@@ -111,10 +116,11 @@ export interface ParticipantTicketRef {
 }
 
 export async function getParticipantTicketRef(
+  locationId: string,
   participantId: number | string,
 ): Promise<ParticipantTicketRef | null> {
   try {
-    const raw = await redis.get(participantRefKey(participantId));
+    const raw = await redis.get(participantRefKey(locationId, participantId));
     if (!raw) return null;
     return JSON.parse(raw) as ParticipantTicketRef;
   } catch {
@@ -123,10 +129,16 @@ export async function getParticipantTicketRef(
 }
 
 export async function setParticipantTicketRef(
+  locationId: string,
   participantId: number | string,
   ref: ParticipantTicketRef,
 ): Promise<void> {
-  await redis.set(participantRefKey(participantId), JSON.stringify(ref), "EX", PARTICIPANT_REF_TTL);
+  await redis.set(
+    participantRefKey(locationId, participantId),
+    JSON.stringify(ref),
+    "EX",
+    PARTICIPANT_REF_TTL,
+  );
 }
 
 /**
@@ -164,7 +176,7 @@ function newTicketId(): string {
  * new one. Returns the ticket id.
  */
 export async function upsertRaceTicket(ticket: RaceTicket): Promise<string> {
-  const lk = lookupKey(ticket.sessionId, ticket.personId);
+  const lk = lookupKey(ticket.locationId, ticket.sessionId, ticket.personId);
   const existing = await redis.get(lk);
   let id: string;
   if (existing) {
@@ -182,7 +194,7 @@ export async function upsertRaceTicket(ticket: RaceTicket): Promise<string> {
   // index earlier in the cron run (before any upsert), so updating it here is
   // safe. Only when we have a stable participantId to key on.
   if (ticket.participantId != null && String(ticket.participantId).trim()) {
-    await setParticipantTicketRef(ticket.participantId, {
+    await setParticipantTicketRef(ticket.locationId, ticket.participantId, {
       sessionId: ticket.sessionId,
       ticketId: id,
       group: false,
@@ -209,6 +221,7 @@ export async function upsertRaceTicket(ticket: RaceTicket): Promise<string> {
  * Redis has already OOM'd once.
  */
 export async function findTicketIdFor(
+  locationId: string,
   sessionId: number | string,
   personId: number | string,
 ): Promise<string | null> {
@@ -216,7 +229,7 @@ export async function findTicketIdFor(
   const pid = String(personId ?? "").trim();
   if (!sid || !pid) return null;
   try {
-    return (await redis.get(lookupKey(sid, pid))) || null;
+    return (await redis.get(lookupKey(locationId, sid, pid))) || null;
   } catch {
     // A ticket we cannot look up is indistinguishable from one that does not
     // exist yet, and both mean the same thing to every caller: show the licence.
@@ -303,7 +316,7 @@ export async function upsertGroupTicket(
   // superseded with a movedTo card in this version — see cron notes).
   for (const m of record.members) {
     if (m.participantId == null || !String(m.participantId).trim()) continue;
-    await setParticipantTicketRef(m.participantId, {
+    await setParticipantTicketRef(record.locationId, m.participantId, {
       sessionId: m.sessionId,
       ticketId: id,
       group: true,

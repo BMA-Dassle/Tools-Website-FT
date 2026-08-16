@@ -22,7 +22,8 @@ import {
   pickNextTwoHeats,
   type HeatCandidate,
 } from "@/lib/checkin-race-flags";
-import { ARENA_RESOURCES, HP_FM_LOCATION_ID } from "~/features/arena-tickets/constants";
+import { ARENA_RESOURCES } from "~/features/arena-tickets/constants";
+import { activeArenaCenters } from "~/features/arena-tickets/centers";
 import { activityDisplay, classifyArenaSession } from "~/features/arena-tickets/types";
 
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";
@@ -1063,43 +1064,46 @@ async function buildSessionStats(req: NextRequest): Promise<SessionStat[]> {
     });
   }
 
-  // HP Arena — currently-called sessions (sessions/current carries
-  // the full session detail, so no schedule lookup needed).
-  try {
-    const res = await fetch(`${PANDORA_BASE}/v2/bmi/sessions/current/${HP_FM_LOCATION_ID}`, {
-      headers: pandoraHeaders(),
-      cache: "no-store",
-      signal: AbortSignal.timeout(8000),
-    });
-    if (res.ok) {
-      const json = await res.json();
-      const called = Array.isArray(json?.data)
-        ? (json.data as {
-            sessionId?: string;
-            type?: string;
-            heatNumber?: number;
-            scheduledStart?: string | null;
-          }[])
-        : [];
-      for (const s of called) {
-        const sid = String(s.sessionId ?? "");
-        if (!sid) continue;
-        const activity = classifyArenaSession(s.type ?? "");
-        if (!activity) continue; // parties / events — not ticketed
-        sessions.push({
-          track: activityDisplay(activity),
-          raceType: "",
-          heatNumber: s.heatNumber ?? 0,
-          sessionId: sid,
-          scheduledStart: s.scheduledStart ?? "",
-          checkedIn: 0,
-          total: 0,
-          locationId: HP_FM_LOCATION_ID,
-        });
+  // HP Arena — currently-called sessions per active center (FM + Naples;
+  // sessions/current carries the full session detail, so no schedule
+  // lookup needed).
+  for (const center of activeArenaCenters()) {
+    try {
+      const res = await fetch(`${PANDORA_BASE}/v2/bmi/sessions/current/${center.locationId}`, {
+        headers: pandoraHeaders(),
+        cache: "no-store",
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const called = Array.isArray(json?.data)
+          ? (json.data as {
+              sessionId?: string;
+              type?: string;
+              heatNumber?: number;
+              scheduledStart?: string | null;
+            }[])
+          : [];
+        for (const s of called) {
+          const sid = String(s.sessionId ?? "");
+          if (!sid) continue;
+          const activity = classifyArenaSession(s.type ?? "");
+          if (!activity) continue; // parties / events — not ticketed
+          sessions.push({
+            track: activityDisplay(activity),
+            raceType: "",
+            heatNumber: s.heatNumber ?? 0,
+            sessionId: sid,
+            scheduledStart: s.scheduledStart ?? "",
+            checkedIn: 0,
+            total: 0,
+            locationId: center.locationId,
+          });
+        }
       }
+    } catch {
+      /* arena stats are best-effort — racing rows still render */
     }
-  } catch {
-    /* arena stats are best-effort — racing rows still render */
   }
 
   await Promise.all(

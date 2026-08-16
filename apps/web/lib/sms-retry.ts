@@ -1,5 +1,6 @@
 import redis from "@/lib/redis";
 import { randomBytes } from "crypto";
+import { bmiKeyScope } from "@/lib/bmi-key-scope";
 import { canonicalizePhone } from "@/lib/participant-contact";
 import { logSms } from "@/lib/sms-log";
 import { isQuotaError, isQuotaExhausted, markQuotaExhausted } from "@/lib/sms-quota";
@@ -51,6 +52,11 @@ export interface RetryEntry {
    *  HeadPinz-branded send isn't retried from the FastTrax number.
    *  Absent = default VOX_FROM (back-compat for queued entries). */
   from?: string;
+  /** Square/Pandora location the audit ids belong to, carried so a
+   *  successful retry rebuilds the SAME location-scoped dedup keys the
+   *  main cron scan checks (see bmiKeyScope). Absent = legacy shared-FM
+   *  shape (back-compat for queued entries + all FM sends). */
+  locationId?: string;
 }
 
 const PENDING = "sms:retry:pending";
@@ -81,6 +87,7 @@ export async function queueRetry(params: {
   status: number | null;
   error: string;
   from?: string;
+  locationId?: string;
 }): Promise<void> {
   try {
     const now = new Date().toISOString();
@@ -96,6 +103,7 @@ export async function queueRetry(params: {
       lastStatus: params.status,
       lastError: (params.error || "").slice(0, 500),
       ...(params.from ? { from: params.from } : {}),
+      ...(params.locationId ? { locationId: params.locationId } : {}),
     };
     const retryAt = Date.now() + backoffMsFor(1);
     await redis.zadd(PENDING, retryAt, JSON.stringify(entry));
@@ -438,9 +446,13 @@ export async function drainRetries(
         provider: result.provider,
         failedOver: result.failedOver,
       });
+      // Location-scoped exactly like the main cron scans write them —
+      // an unscoped rebuild here would leave a Naples send invisible to
+      // the Naples scan (double-send on the next tick).
+      const scope = bmiKeyScope(entry.locationId);
       for (const sid of entry.audit.sessionIds) {
         for (const pid of entry.audit.personIds) {
-          await redis.set(`${prefix}:${sid}:${pid}`, "1", "EX", dedupTtl);
+          await redis.set(`${prefix}:${scope}${sid}:${pid}`, "1", "EX", dedupTtl);
         }
       }
       ok++;
@@ -457,6 +469,7 @@ export async function drainRetries(
         queuedAt: ts,
         shortCode: entry.audit.shortCode,
         ...(entry.from ? { from: entry.from } : {}),
+        ...(entry.locationId ? { locationId: entry.locationId } : {}),
         audit: {
           sessionIds: entry.audit.sessionIds,
           personIds: entry.audit.personIds,
