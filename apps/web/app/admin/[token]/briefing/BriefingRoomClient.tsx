@@ -19,11 +19,14 @@
  *    the REASON on it — "Session 27 is still in holding" — rather than failing on
  *    press. The verdict comes from the same pure rule the server guard uses
  *    (pit/holding-availability.ts), so the two can never disagree.
- *  • THE HOLDING CAMERA IS ON THE SCREEN, NOT BEHIND A TAP (owner: "maybe show
- *    screenshots of holding as well"). It is the picture that answers the
- *    question the button is about — are those seats actually clear — and it
- *    answers it while the group is still watching the film, which is when the
- *    staff member can do something about the answer.
+ *  • HOLDING IS NAMED, NOT PHOTOGRAPHED. The first cut put the holding camera on
+ *    this panel and the owner cut it on sight (2026-08-15: "remove camera for
+ *    now it looks like crap… show who is in holding if anyone"). They were
+ *    right twice over: a fisheye thumbnail on a wall tablet is a smear, and the
+ *    question the button asks is not "are there shapes in the seats" but WHICH
+ *    GROUP is in the way — which a heat number answers exactly. The whole camera
+ *    stack (still poller, lightbox, Nx proxy calls) went with it; the desk board
+ *    keeps its viewer for the people who actually watch rooms fill.
  *
  * IT OWNS NO RULES. State, polling and every action come from useBriefingControl,
  * the desk board's hook, imported rather than copied: the send/start/holding
@@ -37,10 +40,8 @@ import {
   IconAlertTriangleFilled,
   IconArrowRight,
   IconBackspace,
-  IconMaximize,
   IconPlayerPlayFilled,
   IconRefresh,
-  IconX,
 } from "@tabler/icons-react";
 import { ADMIN_SANS, PORTAL_DARK } from "~/components/features/admin-skin/theme";
 import { useBuildUpdate } from "~/hooks/useBuildUpdate";
@@ -51,7 +52,7 @@ import { briefingTimelineAt } from "~/features/signage/briefing/phase";
 import { startHoldRemainingMs, startHoldSeconds } from "~/features/signage/briefing/start-hold";
 import { BRIEFING_ROOMS, type BriefingRoom } from "~/features/signage/briefing/types";
 import { holdingAvailability } from "~/features/signage/pit/holding-availability";
-import { useBriefingControl, type CameraTarget } from "../checkin/useBriefingControl";
+import { useBriefingControl } from "../checkin/useBriefingControl";
 
 const ROOM_COLOR: Record<BriefingRoom, string> = { red: "#ff5a52", blue: "#4a9bff" };
 const TRACK_COLOR: Record<string, string> = { red: "#ff5a52", blue: "#4a9bff", mega: "#a06bff" };
@@ -62,20 +63,6 @@ const INK = "#e8eef7";
 /** Where this tablet's room choice is remembered, so the bare URL is bookmarkable
  *  and a reload (including the self-update below) comes back to the same room. */
 const ROOM_STORAGE_KEY = "ft-briefing-room";
-
-/**
- * The holding camera for a room, keyed by ROOM rather than by the session's
- * track — deliberately the same mapping the desk board uses.
- *
- * The venue keeps these as Nx layouts named "FT Holding Red" / "FT Holding Blue"
- * (see nx/camera.server.ts), and they are physical areas beside the matching
- * room. On a Mega night the session's TRACK is mega while the group still walks
- * out of this room to these seats, so the room is the right key for the picture
- * even though the lane data below is per-track.
- */
-function holdingCameraFor(room: BriefingRoom): CameraTarget {
-  return room === "red" ? "holding-red" : "holding-blue";
-}
 
 /** mm:ss from ms. Tabular figures do the rest — see .brc-num. */
 function clock(ms: number): string {
@@ -189,18 +176,6 @@ const STYLES = `
 }
 @media (prefers-reduced-motion: reduce) { .brc-shake { animation: none; } }
 
-.brc-cam {
-  position: relative; padding: 0; border: 0; background: none; display: block;
-  width: 100%; cursor: zoom-in; text-align: left;
-}
-.brc-cam:focus-visible { outline: 3px solid ${INK}; outline-offset: 3px; }
-.brc-cam-shot {
-  display: block; position: relative; width: 100%; aspect-ratio: 16 / 9;
-  border-radius: 12px; overflow: hidden; background: #05070d;
-  box-shadow: inset 0 0 0 1px rgba(232,238,247,0.16);
-  transition: box-shadow 120ms ease;
-}
-.brc-cam:hover .brc-cam-shot { box-shadow: inset 0 0 0 2px rgba(232,238,247,0.5); }
 .brc-lb { animation: brc-fade 130ms ease-out; }
 @keyframes brc-fade { from { opacity: 0; } to { opacity: 1; } }
 `;
@@ -284,133 +259,6 @@ function useNowMs(): number {
     return () => clearInterval(iv);
   }, []);
   return now;
-}
-
-/**
- * A still-refresh of one camera, double-buffered so the picture never blanks.
- *
- * Same shape as the desk board's useCameraFrame, and deliberately the same 640px
- * width and 2s cadence for a holding view: the proxy caches frames by device AND
- * size with a single-flight lock, so a room tablet and the desk board asking for
- * the same key collapse into ONE transcode at the camera. A different width here
- * would silently double the load on an endpoint that measures 1.6s a frame.
- */
-function useCameraFrame(target: CameraTarget, width: number, enabled: boolean, cadenceMs: number) {
-  // The frame carries the camera it came from, so switching targets can never
-  // paint the other track's seats under this heading.
-  const [frame, setFrame] = useState<{ key: string; src: string } | null>(null);
-  const [offlineKey, setOfflineKey] = useState<string | null>(null);
-  const [lastOkAt, setLastOkAt] = useState(0);
-
-  const key = `${target}@${width}`;
-  const src = frame?.key === key ? frame.src : null;
-  const offline = offlineKey === key;
-
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let lastOk = 0;
-    const tick = () => {
-      const url = `/api/tv/camera?room=${target}&w=${width}&t=${Date.now()}`;
-      const img = new Image();
-      img.onload = () => {
-        if (cancelled) return;
-        lastOk = Date.now();
-        setLastOkAt(lastOk);
-        setFrame({ key, src: url });
-        setOfflineKey(null);
-        timer = setTimeout(tick, cadenceMs);
-      };
-      img.onerror = () => {
-        if (cancelled) return;
-        if (Date.now() - lastOk > 8_000) setOfflineKey(key);
-        // Back off on failure — a camera that is down must not be hammered.
-        timer = setTimeout(tick, Math.max(3_000, cadenceMs));
-      };
-      img.src = url;
-    };
-    tick();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [target, width, enabled, cadenceMs, key]);
-
-  return { src, offline, lastOkAt };
-}
-
-function CameraShot({
-  src,
-  offline,
-  alt,
-  label,
-}: {
-  src: string | null;
-  offline: boolean;
-  alt: string;
-  label: string;
-}) {
-  return (
-    <>
-      {src ? (
-        // A live proxied frame with a cache-busting query — not a static asset
-        // next/image can optimize.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={src}
-          alt={alt}
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "contain",
-            filter: offline ? "grayscale(0.6) brightness(0.6)" : "none",
-          }}
-        />
-      ) : (
-        // A span, not a div — this renders inside a <button>, which may only
-        // contain phrasing content.
-        <span
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 13,
-            color: PORTAL_DARK.muted,
-          }}
-        >
-          Connecting to camera…
-        </span>
-      )}
-      <span
-        style={{
-          position: "absolute",
-          bottom: 8,
-          left: 9,
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "4px 10px",
-          borderRadius: 999,
-          background: "rgba(8,12,20,0.8)",
-          fontSize: 10,
-          fontWeight: 800,
-          letterSpacing: "0.07em",
-          color: offline ? AMBER : PORTAL_DARK.muted,
-        }}
-      >
-        <span
-          aria-hidden
-          style={{ width: 7, height: 7, borderRadius: "50%", background: offline ? AMBER : GREEN }}
-        />
-        {offline ? "RECONNECTING…" : label}
-      </span>
-    </>
-  );
 }
 
 /**
@@ -839,7 +687,9 @@ export default function BriefingRoomClient({
   // known, so the picker makes no admin requests at all.
   const control = useBriefingControl(token, !!room);
   const nowMs = useNowMs();
-  const build = useBuildUpdate(version);
+  // A MINUTE, not the two-minute default: this is a wall fixture whose whole
+  // update path is this poll, and /api/kiosk/version is a single cached string.
+  const build = useBuildUpdate(version, 60_000);
   // 2s cadence reads the warm Redis carry (cacheOnly), never live Pandora — see
   // useTrackStatus. This is what names the heat currently checking in.
   const status = useTrackStatus(2_000);
@@ -851,12 +701,11 @@ export default function BriefingRoomClient({
    * The same problem the desk board has — a tablet opened in April is still
    * running April's code — with a stricter safety rule, because this screen is
    * a wall fixture nobody is watching between presses. It reloads only when the
-   * room is genuinely idle: no session in it, nothing in flight, no camera
-   * viewer open. A reload while a group is mid-film costs nothing on the wall
-   * (the TV derives its own timeline) but would blank the control in the hand of
-   * whoever is about to press Send to holding.
+   * room is genuinely idle: no session in it, nothing in flight, no code prompt
+   * open. A reload while a group is mid-film costs nothing on the wall (the TV
+   * derives its own timeline) but would blank the control in the hand of whoever
+   * is about to press Send to holding.
    */
-  const [expanded, setExpanded] = useState(false);
   const roomStatus = room ? (control.board?.rooms.find((r) => r.room === room) ?? null) : null;
   const state = roomStatus?.state ?? null;
 
@@ -871,12 +720,30 @@ export default function BriefingRoomClient({
   // and a hand-written [] dep list here is one it refuses to preserve.
   const ask = (label: string, run: () => void) => setChallenge({ label, run });
 
-  const quiet = !state && !control.busy && !expanded && !challenge;
+  /**
+   * SAFE TO RELOAD RIGHT NOW? (owner 2026-08-15: "make this screen live update on
+   * new pushes".)
+   *
+   * DELIBERATELY NOT "IS THE ROOM EMPTY". The first cut required an idle room,
+   * copying the desk board's caution — and the caution does not transfer. That
+   * board carries a serial scanner, a scan flash and a settings sheet, so a
+   * reload there is disruptive; this screen has none of those, and the room's TV
+   * derives its whole timeline from Redis, so reloading a tablet mid-film changes
+   * nothing a guest can see. Requiring an empty room on a busy Saturday means a
+   * fix pushed at 7pm reaches these tablets some time after closing.
+   *
+   * So the only things that hold a reload are things a PERSON is in the middle
+   * of: an action in flight, and the code prompt (reloading under a half-typed
+   * code would look like the tablet rejecting them). Both clear in seconds.
+   */
+  const safeToReload = !control.busy && !challenge;
   useEffect(() => {
-    if (!build.ready || !quiet) return;
+    if (!build.ready || !safeToReload) return;
+    // Long enough for the pill in the header to be read as an explanation for
+    // the screen blinking, short enough that the new build is genuinely live.
     const t = setTimeout(() => build.reloadNow(), 4_000);
     return () => clearTimeout(t);
-  }, [build, quiet]);
+  }, [build, safeToReload]);
 
   const startCb = control.start;
   const sendToHoldingCb = control.sendToHolding;
@@ -951,7 +818,14 @@ export default function BriefingRoomClient({
 
   const track = state?.track ?? room;
   const lane = board?.lanes?.[track] ?? null;
-  const camera = holdingCameraFor(room);
+  const occupant = lane?.holding ?? null;
+  const occupantIsOurs = !!occupant && !!state && occupant.sessionId === state.sessionId;
+  // How long they have been sitting there. Null unless the stamp is real and
+  // sane — a clock that counts up from a garbage number is worse than no clock.
+  const occupantSinceMs =
+    occupant && Number.isFinite(occupant.atMs) && nowMs > occupant.atMs
+      ? nowMs - occupant.atMs
+      : null;
 
   /**
    * MAY THIS GROUP GO TO THE SEATS? The server's own rule, run here so the button
@@ -1047,9 +921,11 @@ export default function BriefingRoomClient({
 
         <div style={{ flex: 1 }} />
 
+        {/* Says the screen is ABOUT to blink, so a reload that lands while
+            somebody is looking at it reads as an update rather than a fault. */}
         {build.ready && (
           <span style={{ fontSize: 12, fontWeight: 700, color: AMBER }}>
-            New version ready{quiet ? " — reloading…" : ""}
+            {safeToReload ? "Updating…" : "Update ready — finishing up"}
           </span>
         )}
         {/* The escape hatch for a tablet set to the wrong room. Small on purpose:
@@ -1327,65 +1203,86 @@ export default function BriefingRoomClient({
           }}
           aria-label="Holding"
         >
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-            <p
+          <p
+            style={{
+              fontSize: 12,
+              fontWeight: 800,
+              letterSpacing: "0.12em",
+              color: PORTAL_DARK.muted,
+            }}
+          >
+            HOLDING · {room.toUpperCase()}
+          </p>
+
+          {/**
+           * WHO IS IN THE SEATS (owner 2026-08-15: "show who is in holding if
+           * anyone"). This REPLACED a camera preview, which the owner cut on
+           * sight — and the name is the better answer anyway. A fisheye
+           * thumbnail could only ever show that shapes were sitting there; the
+           * question the button actually asks is WHICH GROUP is in the way, and
+           * a heat number answers it exactly, at a glance, in a room where the
+           * tablet is on a wall several feet from the reader.
+           *
+           * OUR OWN GROUP READS GREEN, ANYONE ELSE AMBER. The same panel is both
+           * the confirmation that a send landed ("Session 59 — this room's
+           * group") and the explanation of why the button is dead ("Session 27",
+           * still sitting there). One control, two meanings, told apart by
+           * colour rather than by reading.
+           */}
+          {occupant ? (
+            <div
               style={{
-                fontSize: 12,
-                fontWeight: 800,
-                letterSpacing: "0.12em",
-                color: PORTAL_DARK.muted,
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                padding: "16px 18px",
+                borderRadius: 14,
+                background: withAlpha(occupantIsOurs ? GREEN : AMBER, 0.1),
+                border: `1px solid ${withAlpha(occupantIsOurs ? GREEN : AMBER, 0.5)}`,
               }}
             >
-              HOLDING · {room.toUpperCase()}
-            </p>
-            <p style={{ fontSize: 12, color: PORTAL_DARK.muted }}>tap to enlarge</p>
-          </div>
-
-          {/* THE PICTURE THE BUTTON IS ABOUT — are those seats actually clear. */}
-          <button
-            type="button"
-            className="brc-cam"
-            onClick={() => setExpanded(true)}
-            aria-label={`Enlarge the ${room} holding camera`}
-          >
-            <span className="brc-cam-shot">
-              <HoldingFrame
-                target={camera}
-                paused={expanded}
-                label={`${room.toUpperCase()} HOLDING`}
-              />
-              <span
-                aria-hidden
+              <p
                 style={{
-                  position: "absolute",
-                  top: 8,
-                  right: 8,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                  padding: "5px 10px",
-                  borderRadius: 999,
-                  background: "rgba(8,12,20,0.86)",
-                  color: INK,
-                  fontSize: 10,
+                  fontSize: 30,
                   fontWeight: 800,
-                  letterSpacing: "0.06em",
+                  letterSpacing: "-0.01em",
+                  color: occupantIsOurs ? GREEN : AMBER,
                 }}
               >
-                <IconMaximize size={13} stroke={2.6} />
-                ENLARGE
-              </span>
-            </span>
-          </button>
+                {occupant.heatNumber != null ? `Session ${occupant.heatNumber}` : "A group"}
+                {occupant.raceType && (
+                  <span style={{ fontSize: 20, fontWeight: 700 }}> · {occupant.raceType}</span>
+                )}
+              </p>
+              <p style={{ fontSize: 14, color: PORTAL_DARK.muted }}>
+                {occupantIsOurs ? "This room's group — in the seats" : "In the seats"}
+                {/* Only ever counted from a stamp we actually have; a missing
+                    atMs prints nothing rather than "in the seats 0:00". */}
+                {occupantSinceMs != null && (
+                  <span className="brc-num"> · {clock(occupantSinceMs)}</span>
+                )}
+                {occupant.room && !occupantIsOurs && ` · from the ${occupant.room} room`}
+              </p>
+            </div>
+          ) : (
+            <p style={{ fontSize: 21, fontWeight: 700, color: PORTAL_DARK.muted }}>
+              Nobody is in the holding seats.
+            </p>
+          )}
 
-          {/* WHO IS IN THE SEATS, in words — the camera shows a picture, this
-              names the heat, and the two together are what the refusal below
-              refers to. */}
-          <p style={{ fontSize: 15, color: PORTAL_DARK.muted, minHeight: 22 }}>
-            {lane?.holding
-              ? `${lane.holding.heatNumber != null ? `Session ${lane.holding.heatNumber}` : "A group"} is in the seats.`
-              : "The seats are empty."}
-          </p>
+          {/* WHERE THE LAST GROUP GOT TO — the quiet line that explains when the
+              seats will free up, and nothing more. The desk board is the place
+              to see the whole lane; this room only needs to know whether the
+              blocker is about to move. */}
+          {(lane?.karts || lane?.racing) && (
+            <p style={{ fontSize: 13, color: PORTAL_DARK.muted }}>
+              {lane.racing?.heatNumber != null
+                ? `Session ${lane.racing.heatNumber} is on track.`
+                : lane.karts?.heatNumber != null
+                  ? `Session ${lane.karts.heatNumber} is in the karts.`
+                  : ""}
+            </p>
+          )}
 
           <div style={{ flex: 1 }} />
 
@@ -1469,14 +1366,6 @@ export default function BriefingRoomClient({
         </div>
       )}
 
-      {expanded && (
-        <HoldingLightbox
-          target={camera}
-          label={`${room.toUpperCase()} HOLDING`}
-          onClose={() => setExpanded(false)}
-        />
-      )}
-
       {challenge && (
         <HeatPrompt
           label={challenge.label}
@@ -1491,144 +1380,5 @@ export default function BriefingRoomClient({
         />
       )}
     </main>
-  );
-}
-
-/** The in-panel holding still. Split out so the lightbox and the panel can never
- *  disagree about what "offline" looks like. */
-function HoldingFrame({
-  target,
-  paused,
-  label,
-}: {
-  target: CameraTarget;
-  /** The lightbox has this camera open — hold the last frame and stop pulling,
-   *  so we never buy the same transcode twice. */
-  paused: boolean;
-  label: string;
-}) {
-  const { src, offline } = useCameraFrame(target, 640, !paused, 2_000);
-  return (
-    <CameraShot src={src} offline={offline} alt={label} label={paused ? "IN THE VIEWER" : label} />
-  );
-}
-
-/**
- * The full-screen holding view.
- *
- * STILLS ONLY, deliberately — no live stream. The desk board's viewer mints an Nx
- * ticket because staff there are watching a room fill and want motion; the
- * question in here is only "are those seats clear", which a 2s still answers at
- * a fraction of the cost. Adding live would put two more transcode sessions on a
- * camera that already measures 1.6s a frame.
- */
-function HoldingLightbox({
-  target,
-  label,
-  onClose,
-}: {
-  target: CameraTarget;
-  label: string;
-  onClose: () => void;
-}) {
-  const { src, offline } = useCameraFrame(target, 1280, true, 2_000);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return (
-    <div
-      className="brc-lb"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`${label} camera`}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 60,
-        background: "rgba(4,7,13,0.94)",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 16,
-        padding: 24,
-      }}
-    >
-      {/* THE BACKDROP IS A REAL BUTTON, sitting behind the content rather than
-          wrapping it. Tapping outside the picture closes the viewer — the gesture
-          staff expect — without hanging a click handler on a div that keyboard
-          users cannot reach. It also removes the need to stop propagation on the
-          picture, because a click there never touches this. */}
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close the camera"
-        tabIndex={-1}
-        style={{
-          position: "absolute",
-          inset: 0,
-          border: 0,
-          background: "transparent",
-          cursor: "default",
-        }}
-      />
-      <div
-        style={{
-          position: "relative",
-          display: "flex",
-          alignItems: "center",
-          gap: 16,
-          width: "100%",
-          maxWidth: 1280,
-          color: INK,
-        }}
-      >
-        <p style={{ fontSize: 18, fontWeight: 800, letterSpacing: "0.06em" }}>{label}</p>
-        <div style={{ flex: 1 }} />
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close the camera"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "12px 20px",
-            borderRadius: 12,
-            border: `1px solid ${PORTAL_DARK.border}`,
-            background: PORTAL_DARK.card,
-            color: INK,
-            fontSize: 16,
-            fontWeight: 700,
-            cursor: "pointer",
-          }}
-        >
-          <IconX size={19} stroke={2.6} aria-hidden />
-          Close
-        </button>
-      </div>
-      {/* Capped on both axes so a wide frame is never cropped and never
-          overflows a short screen. */}
-      <div
-        style={{
-          position: "relative",
-          width: "100%",
-          maxWidth: 1280,
-          aspectRatio: "16 / 9",
-          maxHeight: "78vh",
-          borderRadius: 14,
-          overflow: "hidden",
-          background: "#05070d",
-        }}
-      >
-        <CameraShot src={src} offline={offline} alt={label} label={label} />
-      </div>
-    </div>
   );
 }
