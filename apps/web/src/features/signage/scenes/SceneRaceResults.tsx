@@ -31,6 +31,8 @@ import { formatLap } from "~/features/racing/qualify";
 import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
 import { TRACK_ACCENTS, TRACK_LABELS, type TrackKey } from "../track";
 import { withAlpha } from "../color";
+import { TvBrandLogo } from "../components/TvBrandLogo";
+import type { SignageVenue } from "../constants";
 import type { ResultsBoardDriver, ResultsBoardView } from "../results-board";
 import type { SceneProps } from "../director/types";
 
@@ -58,7 +60,7 @@ const LINE = "rgba(255,255,255,0.12)";
  *  which is what actually sets `view.wide`. */
 const COL_SPLIT = 2;
 
-export function SceneRaceResults({ feed, config }: SceneProps) {
+export function SceneRaceResults({ feed, config, venue }: SceneProps) {
   const track = config.resultsBoard?.track ?? null;
   const view = feed?.raceResults ?? null;
 
@@ -66,20 +68,26 @@ export function SceneRaceResults({ feed, config }: SceneProps) {
   // adopting one — a scores wall showing the wrong track's names is worse than
   // one showing none.
   if (!track) return <SetupNotice />;
-  if (!view) return <IdleBoard track={track} />;
+  if (!view) return <IdleBoard track={track} venue={venue} />;
 
-  return view.wide ? <WideBoard view={view} /> : <NarrowBoard view={view} />;
+  return view.wide ? (
+    <WideBoard view={view} venue={venue} />
+  ) : (
+    <NarrowBoard view={view} venue={venue} />
+  );
 }
 
 /* ── shared chrome ────────────────────────────────────────────────────── */
 
 function Header({
   track,
+  venue,
   title,
   rightLabel,
   rightValue,
 }: {
   track: TrackKey;
+  venue: SignageVenue;
   title: string;
   rightLabel: string;
   rightValue: string;
@@ -103,11 +111,15 @@ function Header({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 28, minWidth: 0 }}>
+        {/* The mark, not the word (owner 2026-08-11 "use actual logos") — and at
+            TV distance a logo is recognised rather than read. TvBrandLogo falls
+            back to a wordmark rather than a broken-image glyph. */}
+        <TvBrandLogo venue={venue} height={78} />
         <div
           style={{ width: 14, height: 104, borderRadius: 7, background: accent, flex: "0 0 auto" }}
         />
         <div style={{ minWidth: 0 }}>
-          <div className="tv-eyebrow">FastTrax · {TRACK_LABELS[track]}</div>
+          <div className="tv-eyebrow">{TRACK_LABELS[track]}</div>
           <div
             className="tv-display"
             style={{
@@ -133,7 +145,7 @@ function Header({
   );
 }
 
-function Footer({ left, right }: { left: React.ReactNode; right: string }) {
+function Footer({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
   return (
     <div
       style={{
@@ -164,24 +176,19 @@ function Footer({ left, right }: { left: React.ReactNode; right: string }) {
       >
         {left}
       </div>
-      <div className="tv-num" style={{ fontSize: 23, color: DIM, flex: "0 0 auto" }}>
+      <div
+        className="tv-num"
+        style={{
+          fontSize: 23,
+          color: DIM,
+          flex: "0 0 auto",
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
         {right}
       </div>
     </div>
-  );
-}
-
-/** "Fastest lap of the heat — Renata Villalobos 31.044", or a plain line when
- *  nobody set one. Never an empty footer. */
-function fastestLine(view: ResultsBoardView): React.ReactNode {
-  if (!view.fastest) return <span style={{ color: DIM }}>No lap times recorded this race</span>;
-  return (
-    <>
-      Fastest lap of the heat —{" "}
-      <b style={{ color: FAST }}>
-        {view.fastest.name} <span className="tv-num">{formatLap(view.fastest.bestMs)}</span>
-      </b>
-    </>
   );
 }
 
@@ -377,11 +384,12 @@ function Standings({
 
 /* ── the single-column board ──────────────────────────────────────────── */
 
-function NarrowBoard({ view }: { view: ResultsBoardView }) {
+function NarrowBoard({ view, venue }: { view: ResultsBoardView; venue: SignageVenue }) {
   return (
     <div style={{ position: "absolute", inset: 0, background: "#000418" }}>
       <Header
         track={view.track}
+        venue={venue}
         title={view.heatLabel}
         rightLabel="Finished"
         rightValue={finishTime(view.endedAtMs)}
@@ -407,12 +415,21 @@ function NarrowBoard({ view }: { view: ResultsBoardView }) {
         />
         <QualifyPanel view={view} />
       </div>
-      <Footer
-        left={fastestLine(view)}
-        right={`Results final · ${racerCount(view)} · ${finishTime(view.endedAtMs)}`}
-      />
+      <Footer left={resultsFootLine(view)} right={<TvBrandLogo venue={venue} height={44} />} />
     </div>
   );
+}
+
+/** The quiet line under the standings.
+ *
+ *  "Results final" is the load-bearing half: this board holds the last race
+ *  until the next one lands, so it must always be possible to tell WHICH race
+ *  is on the wall and that it is not still being updated. The finish time is
+ *  repeated from the header on purpose — the header can be read from across the
+ *  room and this line from in front of it, and a stale-looking board is exactly
+ *  what a timestamp answers. */
+function resultsFootLine(view: ResultsBoardView): string {
+  return `Results final · ${racerCount(view)} · ${finishTime(view.endedAtMs)}`;
 }
 
 /* ── the right-hand panel, in its three moods ─────────────────────────── */
@@ -765,7 +782,7 @@ function PanelFoot({ label, value }: { label: string; value: React.ReactNode }) 
 
 /* ── the two-column board (Mega, and any big grid) ────────────────────── */
 
-function WideBoard({ view }: { view: ResultsBoardView }) {
+function WideBoard({ view, venue }: { view: ResultsBoardView; venue: SignageVenue }) {
   const half = Math.ceil(view.drivers.length / COL_SPLIT);
   const left = view.drivers.slice(0, half);
   const right = view.drivers.slice(half);
@@ -776,6 +793,7 @@ function WideBoard({ view }: { view: ResultsBoardView }) {
     <div style={{ position: "absolute", inset: 0, background: "#000418" }}>
       <Header
         track={view.track}
+        venue={venue}
         title={view.heatLabel}
         rightLabel="Finished"
         rightValue={finishTime(view.endedAtMs)}
@@ -806,10 +824,7 @@ function WideBoard({ view }: { view: ResultsBoardView }) {
         </div>
         <QualifyBand view={view} />
       </div>
-      <Footer
-        left={fastestLine(view)}
-        right={`Results final · ${racerCount(view)} · ${finishTime(view.endedAtMs)}`}
-      />
+      <Footer left={resultsFootLine(view)} right={<TvBrandLogo venue={venue} height={44} />} />
     </div>
   );
 }
@@ -889,6 +904,7 @@ function QualifyBand({ view }: { view: ResultsBoardView }) {
 
 function Shell({
   track,
+  venue,
   title,
   rightLabel,
   rightValue,
@@ -897,6 +913,7 @@ function Shell({
   footLeft,
 }: {
   track: TrackKey;
+  venue: SignageVenue;
   title: string;
   rightLabel: string;
   rightValue: string;
@@ -906,7 +923,13 @@ function Shell({
 }) {
   return (
     <div style={{ position: "absolute", inset: 0, background: "#000418" }}>
-      <Header track={track} title={title} rightLabel={rightLabel} rightValue={rightValue} />
+      <Header
+        track={track}
+        venue={venue}
+        title={title}
+        rightLabel={rightLabel}
+        rightValue={rightValue}
+      />
       <div
         style={{
           position: "absolute",
@@ -927,7 +950,7 @@ function Shell({
         </div>
         <div style={{ fontSize: 34, color: DIM, maxWidth: 1200 }}>{small}</div>
       </div>
-      <Footer left={footLeft} right="FastTrax Fort Myers" />
+      <Footer left={footLeft} right={<TvBrandLogo venue={venue} height={44} />} />
     </div>
   );
 }
@@ -941,10 +964,11 @@ function Shell({
  * ten-minute-old result — and every result on this board is stamped with its
  * own finish time, so nobody is misled about which race they are reading.
  */
-function IdleBoard({ track }: { track: TrackKey }) {
+function IdleBoard({ track, venue }: { track: TrackKey; venue: SignageVenue }) {
   return (
     <Shell
       track={track}
+      venue={venue}
       title="Race Results"
       rightLabel="Today"
       rightValue="—"
