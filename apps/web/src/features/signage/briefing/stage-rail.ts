@@ -102,6 +102,49 @@ function sessionLabel(heatNumber: number | null | undefined): string {
   return heatNumber != null ? `Session ${heatNumber}` : EMPTY;
 }
 
+/** The four pit stages a heat can be sitting in once it is past the desk. */
+const LANE_SLOTS = ["holding", "karts", "racing", "pitIn"] as const;
+
+/**
+ * THE HEATS THIS LANE CAN VOUCH FOR AS PAST THE DESK — in the seats, in the
+ * karts, out on track, or back in the pit.
+ *
+ * SEPARATE FROM THE BRIEFING ROOMS ON PURPOSE, because the two facts are used
+ * differently. The rail below folds both together (a heat in a room is no longer
+ * "called" either), but the room tablet needs the lane alone: "Session 37 is
+ * already in the red room" is a TRUE and useful thing to tell the staff member
+ * while the group is standing in it, and a lie the moment they have gone out.
+ *
+ * WHY IT IS THE LANE THAT DECIDES. Pandora keeps its called record for ~20
+ * minutes, and our own Redis carry keeps it for up to six hours or until the
+ * next heat is called — whichever is longer (races-current.server /
+ * current-race-freshness). On a track whose next heat is not called for a while,
+ * "checking in" therefore outlives the race itself. The lane is the feed that
+ * watches groups physically move, so it is the one that can say they have.
+ */
+export function laneHeats(lane: PitLaneFeed | null | undefined): Set<number> {
+  const heats = new Set<number>();
+  for (const slot of LANE_SLOTS) {
+    const h = lane?.[slot]?.heatNumber;
+    if (typeof h === "number") heats.add(h);
+  }
+  return heats;
+}
+
+/**
+ * HAS THIS HEAT LEFT THE DESK BEHIND? The one question the "checking in" band
+ * and the pull button both have to ask before they name a heat — see laneHeats.
+ * An unnumbered heat (a group event, a custom race) can never be matched, so it
+ * is never claimed to have moved: failing open leaves the pull available, which
+ * is the direction that costs a walk rather than a missed race.
+ */
+export function heatIsPastTheDesk(
+  heatNumber: number | null | undefined,
+  lane: PitLaneFeed | null | undefined,
+): boolean {
+  return heatNumber != null && laneHeats(lane).has(heatNumber);
+}
+
 export function buildStageRail(input: StageRailInput): StageRow[] {
   const { lane, nowMs } = input;
   const fmt = input.formatClock;
@@ -112,15 +155,11 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
    * found here is no longer "called" however long Pandora keeps saying it is.
    * Matched on heat number because that is what every stage displays.
    */
-  const downstream = new Set<number>();
+  const downstream = laneHeats(lane);
   for (const state of input.rooms) {
     if (state?.heatNumber != null && briefingTimelineAt(state, nowMs).phase !== "idle") {
       downstream.add(state.heatNumber);
     }
-  }
-  for (const slot of ["holding", "karts", "racing", "pitIn"] as const) {
-    const h = lane?.[slot]?.heatNumber;
-    if (typeof h === "number") downstream.add(h);
   }
 
   const called = input.called;

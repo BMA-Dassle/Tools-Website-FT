@@ -68,7 +68,11 @@ import {
   pullVerdict,
   type PullRefusal,
 } from "~/features/signage/briefing/pull-to-room";
-import { buildStageRail, type StageRow } from "~/features/signage/briefing/stage-rail";
+import {
+  buildStageRail,
+  heatIsPastTheDesk,
+  type StageRow,
+} from "~/features/signage/briefing/stage-rail";
 import { startHoldRemainingMs, startHoldSeconds } from "~/features/signage/briefing/start-hold";
 import {
   BRIEFING_ROOMS,
@@ -1124,8 +1128,41 @@ export default function BriefingRoomClient({
   const startKey = state?.kind === "timeline" ? `restart:${room}` : `start:${room}`;
   const sessionLabel = state?.heatNumber != null ? `Session ${state.heatNumber}` : "This group";
 
-  /** The heat checking in for this room's track — see incomingTrack above. */
-  const incomingRace = status?.currentRaces?.[incomingTrack] ?? null;
+  const incomingLane = board?.lanes?.[incomingTrack] ?? null;
+  const trackHeatNumber = raceClock ? liveHeatNumber(raceClock.heatName) : null;
+
+  /**
+   * THE HEAT CHECKING IN FOR THIS ROOM'S TRACK — once, and only while it really
+   * is checking in (owner 2026-08-16: "why is this briefing board still showing
+   * 37 in room, it has moved on").
+   *
+   * THE CALLED RECORD OUTLIVES THE RACE. Pandora keeps its entry ~20 minutes
+   * after the call and our own Redis carry holds it for up to six hours, or
+   * until the NEXT heat on that track is called — whichever is longer
+   * (races-current.server). That is right for the check-in boards a guest reads
+   * and wrong here: on a quiet track, Session 37 went to the room, to the seats,
+   * to the karts and out onto the tarmac while this screen still called it the
+   * incoming group and printed "Already in the red room" over a dead button. The
+   * rail beside it had 37 correctly on ON TRACK the whole time, because
+   * buildStageRail already refuses to leave a moved-on heat in Called — the band
+   * and the pull panel simply never asked the same question.
+   *
+   * So they ask it here, ONCE, at the top: a heat the lane can see in the seats,
+   * the karts, on track or in the pit is not the heat checking in, and every
+   * consumer below inherits that. The band falls to "No heat is checking in
+   * right now", the pull refuses with `no-heat`, and the rail is unchanged.
+   *
+   * DELIBERATELY THE LANE, NOT THE BRIEFING ROOMS. A heat sitting in a room IS
+   * still this band's business — "Already in the blue room" is exactly what the
+   * red room's staff member needs to know — and only stops being so once the
+   * group has physically left it.
+   */
+  const incomingRace = heatIsPastTheDesk(
+    status?.currentRaces?.[incomingTrack]?.heatNumber,
+    incomingLane,
+  )
+    ? null
+    : (status?.currentRaces?.[incomingTrack] ?? null);
   // Matched on SESSION, never on the track label: the two feeds word tracks
   // differently and a mismatched string would silently show no count at all.
   const incomingStat =
@@ -1135,9 +1172,6 @@ export default function BriefingRoomClient({
   const incomingSentTo = incomingRace
     ? (control.board?.briefedSessions?.[String(incomingRace.sessionId)]?.room ?? null)
     : null;
-
-  const incomingLane = board?.lanes?.[incomingTrack] ?? null;
-  const trackHeatNumber = raceClock ? liveHeatNumber(raceClock.heatName) : null;
 
   /**
    * WHERE EVERY SESSION ON THIS TRACK IS. Built by the pit board's own builder —

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildStageRail, STAGE_LABELS, type StageRailInput } from "./stage-rail";
+import { buildStageRail, heatIsPastTheDesk, STAGE_LABELS, type StageRailInput } from "./stage-rail";
 import { EMPTY_PIT_LANE, type PitLaneFeed } from "../pit/pit-board";
 import type { BriefingRoomState } from "./types";
 
@@ -260,5 +260,60 @@ describe("buildStageRail", () => {
     });
     expect(rowFor(rows, "Holding").detail).toBe("in the seats");
     expect(rowFor(rows, "In karts").detail).toBe("seated — waiting on the green");
+  });
+});
+
+/**
+ * The room tablet's own question — see heatIsPastTheDesk. The bug it exists for:
+ * Session 37 was on track with three minutes left while the tablet's band still
+ * said "CHECKING IN · RED — Session 37 — Already in the red room", because the
+ * called record outlives the race on a track whose next heat has not been called.
+ */
+describe("heatIsPastTheDesk", () => {
+  it("is true for a heat the lane can see in any pit stage", () => {
+    const seated = lane({
+      holding: { sessionId: "9100", heatNumber: 37, raceType: null, room: "red", atMs: NOW },
+    });
+    const racing = lane({
+      racing: { sessionId: "9100", heatNumber: 37, raceType: "Intermediate" },
+    });
+    const pitted = lane({
+      pitIn: {
+        sessionId: "9100",
+        heatNumber: 37,
+        raceType: null,
+        room: "red",
+        atMs: NOW,
+        finishedAtMs: NOW,
+        postRaceAtMs: null,
+        postRaceDurationS: null,
+      },
+    });
+    expect(heatIsPastTheDesk(37, seated)).toBe(true);
+    expect(heatIsPastTheDesk(37, racing)).toBe(true);
+    expect(heatIsPastTheDesk(37, pitted)).toBe(true);
+  });
+
+  it("is false for a heat the lane has never seen, and on an empty lane", () => {
+    const racing = lane({ racing: { sessionId: "9000", heatNumber: 36, raceType: "Starter" } });
+    expect(heatIsPastTheDesk(37, racing)).toBe(false);
+    expect(heatIsPastTheDesk(37, null)).toBe(false);
+    expect(heatIsPastTheDesk(37, EMPTY_PIT_LANE)).toBe(false);
+  });
+
+  it("never claims an unnumbered heat has moved — a group event stays pullable", () => {
+    const racing = lane({
+      racing: { sessionId: "9100", heatNumber: 37, raceType: "Intermediate" },
+    });
+    expect(heatIsPastTheDesk(null, racing)).toBe(false);
+    expect(heatIsPastTheDesk(undefined, racing)).toBe(false);
+  });
+
+  it("ignores the briefing rooms — a group still in a room is the band's business", () => {
+    // The rail folds rooms into its Called rule; this predicate deliberately does
+    // not, so "Already in the blue room" survives on the red room's tablet.
+    const rows = buildStageRail({ ...BASE, called: { heatNumber: 60, raceType: "Starter" } });
+    expect(rowFor(rows, "Called").value).toBe("Session 60");
+    expect(heatIsPastTheDesk(60, null)).toBe(false);
   });
 });
