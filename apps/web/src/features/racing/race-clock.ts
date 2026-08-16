@@ -66,6 +66,16 @@ export interface RaceClockState {
   /** True when clockStartMs is a FALLBACK guess (we joined mid-race and never
    *  saw phase two), so a caller can distrust it. See applyRaceStart. */
   anchorEstimated: boolean;
+  /**
+   * RecordVersion of the last `RaceStart` we ACTED on. A start repeating a
+   * version we have already folded is a reconnect replay, not a new event —
+   * see the replay guard in applyRaceStart.
+   *
+   * Null on states written before this field existed, which is deliberately
+   * permissive: a race already in flight when this deploys keeps behaving
+   * exactly as it did rather than having its anchor re-judged mid-countdown.
+   */
+  lastStartRecordVersion: string | null;
   /** Latest configured length. Changes when staff add time. */
   durationMs: number | null;
   /** Pause time banked from COMPLETED pause intervals. */
@@ -98,6 +108,7 @@ export function emptyClock(raceId: string, nowMs: number): RaceClockState {
     actualStartMs: null,
     clockStartMs: null,
     anchorEstimated: false,
+    lastStartRecordVersion: null,
     durationMs: null,
     pausedTotalMs: 0,
     pausedSinceMs: null,
@@ -204,6 +215,25 @@ function withIdentity(clock: RaceClockState, rec: VenueRaceFinish): RaceClockSta
  *
  * Duration is re-read every time, because a start following a time-add carries
  * the new total.
+ *
+ * ...AND A FOURTH CASE THAT LOOKS EXACTLY LIKE THE GREEN: A REPLAY.
+ *
+ * "The second RaceStart" is a statement about POSITION, and position is not
+ * trustworthy on this feed. The bridge clears its dedupe cache on reconnect —
+ * on purpose, so a catch-up dump is not swallowed — and that dump re-delivers
+ * records verbatim. Captured live 2026-08-15 21:36:08, five races replayed in
+ * one burst, every version already folded minutes before:
+ *
+ *   21:33:00  RaceStart  race 58586752  rv 13431438263023000   <- the ARM
+ *   21:36:08  RaceStart  race 58586752  rv 13431438263023000   <- the SAME record
+ *
+ * That second arrival was read as heat 59's green flag and anchored the clock
+ * 188s after the arm, where the night's real gaps ran 71-136s. Every Blue board
+ * in the building was a minute slow, and the owner spotted it from the floor.
+ *
+ * So the green flag is the start whose RecordVersion MOVED — identity, not
+ * arrival order. Same version means the same record said the same thing twice,
+ * which is not an event.
  */
 export function applyRaceStart(
   clock: RaceClockState,
@@ -213,6 +243,22 @@ export function applyRaceStart(
   const next = withIdentity(clock, rec);
   const actualStartMs = rec.actualStartMs ?? clock.actualStartMs;
   const durationMs = rec.durationMs ?? clock.durationMs;
+  const lastStartRecordVersion = rec.recordVersion ?? clock.lastStartRecordVersion;
+
+  // REPLAY — a version we have already acted on. Change nothing about the
+  // race's PHASE or anchor; a repeat is not a transition.
+  //
+  // Duration still lands: a staff time-add carried on an otherwise-repeated
+  // record is real, and dropping it would freeze the clock at the old length.
+  // `updatedAtMs` deliberately does NOT move — this record is not activity, and
+  // letting it bump the timestamp would keep a dead race alive in the index.
+  if (
+    rec.recordVersion !== null &&
+    clock.lastStartRecordVersion !== null &&
+    rec.recordVersion === clock.lastStartRecordVersion
+  ) {
+    return { ...next, durationMs };
+  }
 
   // RESUME — the race was paused; close the pause interval, anchor unchanged.
   if (clock.phase === "paused") {
@@ -221,6 +267,7 @@ export function applyRaceStart(
       phase: "running",
       actualStartMs,
       durationMs,
+      lastStartRecordVersion,
       pausedTotalMs:
         clock.pausedSinceMs === null
           ? clock.pausedTotalMs
@@ -233,7 +280,7 @@ export function applyRaceStart(
   // Already running: a repeated start record (the snapshot resends constantly)
   // must not re-anchor the clock and rewind the countdown.
   if (clock.phase === "running" || clock.phase === "finished") {
-    return { ...next, actualStartMs, durationMs, updatedAtMs: atMs };
+    return { ...next, actualStartMs, durationMs, lastStartRecordVersion, updatedAtMs: atMs };
   }
 
   // ARMED -> this is the green flag. THE anchor.
@@ -243,6 +290,7 @@ export function applyRaceStart(
       phase: "running",
       actualStartMs,
       durationMs,
+      lastStartRecordVersion,
       clockStartMs: atMs,
       anchorEstimated: false,
       updatedAtMs: atMs,
@@ -264,6 +312,7 @@ export function applyRaceStart(
     phase: joinedMidRace ? "running" : "armed",
     actualStartMs,
     durationMs,
+    lastStartRecordVersion,
     clockStartMs: joinedMidRace ? actualStartMs : null,
     anchorEstimated: joinedMidRace,
     updatedAtMs: atMs,

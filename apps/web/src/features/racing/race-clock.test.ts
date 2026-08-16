@@ -18,6 +18,7 @@ import {
   extractRaceStarts,
   parseVenueDurationMs,
 } from "./venue-broadcast";
+import fixture from "./__fixtures__/venue-broadcast-2026-08-15.json";
 
 /** Venue-local ET wall clock → the epoch ms the parser will produce. Written
  *  the long way so the tests read in the venue's own timezone, like the wire. */
@@ -38,6 +39,12 @@ function baseRec() {
     actualStartMs: START as number | null,
     actualEndMs: null as number | null,
     durationMs: (7 * 60_000) as number | null,
+    // Unversioned by default. These tests exercise the countdown ARITHMETIC —
+    // pause accrual, time-adds, the two-phase anchor — where identity is not the
+    // point, and a null version leaves the replay guard inert so they read as
+    // they always have. The guard itself is proved below against real captured
+    // versions, which is where it belongs.
+    recordVersion: null as string | null,
   };
 }
 
@@ -433,6 +440,190 @@ describe("foldMessageIntoClocks — the path the webhook actually runs", () => {
     expect(c.clockStartMs).toBe(t0 + 1000); // the SECOND start, and only that one
     expect(remainingMs(c, t0 + 1000)).toBe(420_000);
     expect(remainingMs(c, t0 + 61_000)).toBe(360_000);
+  });
+});
+
+describe("the replay guard — a reconnect must not fake a green flag", () => {
+  /**
+   * Blue heat 59, 2026-08-15. The bridge flapped through its arm→green window
+   * (four 30s dark gaps), the real green flag was dropped, and the reconnect's
+   * catch-up dump re-delivered the ARM verbatim 188s later. The old positional
+   * rule — "the second RaceStart is the green" — anchored there, and every Blue
+   * board in the building ran a minute slow until the race ended.
+   *
+   * Versions are the real 17-digit values off the wire. They are STRINGS: past
+   * Number.MAX_SAFE_INTEGER, so a numeric round-trip would round neighbours into
+   * false equality and silently eat a genuine green flag.
+   */
+  const ARM_AT = ET("2026-08-15T21:33:00.462");
+  const REPLAY_AT = ET("2026-08-15T21:36:08.045");
+  const ARM_RV = "13431438263023000";
+  const NEXT_RV = "13431438263024000"; // what a real green looks like: it MOVED
+  const SEVEN = 7 * 60_000;
+  const h59 = (over = {}) =>
+    rec({
+      raceId: "58586752",
+      heatName: "59 - Blue Starter",
+      heatNumber: 59,
+      actualStartMs: ET("2026-08-15T21:32:58.700"),
+      durationMs: SEVEN,
+      recordVersion: ARM_RV,
+      ...over,
+    });
+
+  it("does NOT anchor on a start whose RecordVersion we already folded", () => {
+    let c = applyRaceStart(emptyClock("58586752", ARM_AT), h59(), ARM_AT);
+    expect(c.phase).toBe("armed");
+
+    c = applyRaceStart(c, h59(), REPLAY_AT); // the catch-up dump, same record
+    expect(c.phase).toBe("armed");
+    expect(c.clockStartMs).toBeNull();
+    // Before the fix this anchored at REPLAY_AT and the wall read 188s late
+    // against a night whose real arm→green gaps ran 71-136s.
+    expect(remainingMs(c, REPLAY_AT)).toBe(SEVEN);
+  });
+
+  it("still anchors when the version genuinely MOVES", () => {
+    let c = applyRaceStart(emptyClock("58586752", ARM_AT), h59(), ARM_AT);
+    c = applyRaceStart(c, h59({ recordVersion: NEXT_RV }), REPLAY_AT);
+    expect(c.phase).toBe("running");
+    expect(c.clockStartMs).toBe(REPLAY_AT);
+    expect(c.anchorEstimated).toBe(false);
+  });
+
+  it("lets a real resume through — the version moves across a pause", () => {
+    // Verified on the wire 2026-08-15: Blue heat 60 paused on rv ...266283000
+    // and resumed on ...266888000. If a resume ever DID repeat its version this
+    // guard would freeze that race's clock, so this is the load-bearing case.
+    let c = applyRaceStart(emptyClock("58586752", ARM_AT), h59(), ARM_AT);
+    c = applyRaceStart(c, h59({ recordVersion: NEXT_RV }), ARM_AT + 120_000);
+    c = applyRaceStop(c, h59({ state: "Paused", recordVersion: NEXT_RV }), ARM_AT + 180_000);
+    expect(c.phase).toBe("paused");
+
+    c = applyRaceStart(c, h59({ recordVersion: "13431438263025000" }), ARM_AT + 300_000);
+    expect(c.phase).toBe("running");
+    expect(c.pausedTotalMs).toBe(120_000);
+  });
+
+  it("does not resume on a REPLAYED start while paused", () => {
+    let c = applyRaceStart(emptyClock("58586752", ARM_AT), h59(), ARM_AT);
+    c = applyRaceStart(c, h59({ recordVersion: NEXT_RV }), ARM_AT + 120_000);
+    c = applyRaceStop(c, h59({ state: "Paused", recordVersion: NEXT_RV }), ARM_AT + 180_000);
+    // The dump replays the start that opened this pause. Nothing happened.
+    c = applyRaceStart(c, h59({ recordVersion: NEXT_RV }), ARM_AT + 240_000);
+    expect(c.phase).toBe("paused");
+    expect(c.pausedSinceMs).toBe(ARM_AT + 180_000);
+  });
+
+  it("still takes a staff time-add carried on a replayed record", () => {
+    // A repeat is not an event, but the duration on it is still the truth —
+    // dropping it would pin the clock to the old length.
+    let c = applyRaceStart(emptyClock("58586752", ARM_AT), h59(), ARM_AT);
+    c = applyRaceStart(c, h59({ durationMs: 16 * 60_000 }), REPLAY_AT);
+    expect(c.phase).toBe("armed");
+    expect(c.durationMs).toBe(16 * 60_000);
+  });
+
+  it("falls back to the old positional rule when records carry no version", () => {
+    // Clock blobs written before this field existed, and any record the venue
+    // sends without one. Behaviour must be exactly what it was.
+    let c = applyRaceStart(emptyClock("1", ARM_AT), h59({ recordVersion: null }), ARM_AT);
+    c = applyRaceStart(c, h59({ recordVersion: null }), REPLAY_AT);
+    expect(c.phase).toBe("running");
+    expect(c.clockStartMs).toBe(REPLAY_AT);
+  });
+});
+
+describe("real traffic — the night Blue ran a minute slow (2026-08-15)", () => {
+  /**
+   * Captured verbatim out of the live ingest FIFO that evening: every lifecycle
+   * record for the five races around the incident, with the arrival stamps the
+   * webhook actually folded them with. Replaying it drives the SHIPPED fold, so
+   * this proves the fix against traffic rather than against my model of it.
+   *
+   * The burst at 21:36:08 is the reconnect catch-up dump — five races replayed
+   * in one instant, every version already folded minutes earlier. Four were
+   * RaceFinish replays and harmless (finish is idempotent); the fifth was heat
+   * 59's arm, and that is the one that became a false green flag.
+   */
+  const entries = fixture as { atMs: number; at: string; message: unknown[] }[];
+
+  /** Arrival stamp of the entry carrying this race's start at this version —
+   *  read from the fixture rather than hardcoded, so it cannot drift. */
+  function startAt(raceId: string, rv: string): number {
+    const e = entries.find((x) =>
+      x.message.some((m) => {
+        const r = m as Record<string, unknown>;
+        return (
+          r.$type === "RaceStart" && String(r.RaceId) === raceId && String(r.RecordVersion) === rv
+        );
+      }),
+    );
+    if (!e) throw new Error(`fixture has no RaceStart ${raceId} rv=${rv}`);
+    return e.atMs;
+  }
+
+  function replay(untilMs = Infinity) {
+    const clocks = new Map<string, ReturnType<typeof emptyClock>>();
+    for (const e of entries) {
+      if (e.atMs > untilMs) break;
+      foldMessageIntoClocks(clocks, e.message, e.atMs);
+    }
+    return clocks;
+  }
+
+  it("never anchors heat 59 on the replayed arm", () => {
+    const REPLAY_AT = startAt("58586752", "13431438263023000");
+    // The arm and the replay share a version, so `startAt` finds the arm — the
+    // fixture containing both under one version IS the bug.
+    const clocks = replay();
+    const h59 = clocks.get("58586752")!;
+    expect(h59.clockStartMs).toBeNull();
+    expect(h59.actualStartMs).not.toBeNull();
+    // The old code anchored at 21:36:08, 188s after a 21:33:00 arm.
+    expect(h59.clockStartMs).not.toBe(ET("2026-08-15T21:36:08.045"));
+    expect(REPLAY_AT).toBe(ET("2026-08-15T21:33:00.462")); // the arm, as captured
+  });
+
+  it("anchors every healthy race exactly where the green flag landed", () => {
+    const clocks = replay();
+    // race id -> [green's RecordVersion, the arm→green gap staff saw that night]
+    const healthy: Record<string, [string, number]> = {
+      "58028924": ["13431438256976000", 136], // 50 - Red Intermediate
+      "58586748": ["13431438257251000", 112], // 57 - Blue Junior Starter
+      "58586750": ["13431438259709000", 130], // 58 - Blue Intermediate
+      "58028928": ["13431438259687000", 71], //  52 - Red Starter
+    };
+    for (const [raceId, [greenRv, gapSeconds]] of Object.entries(healthy)) {
+      const c = clocks.get(raceId)!;
+      expect(c.clockStartMs).toBe(startAt(raceId, greenRv));
+      expect(c.anchorEstimated).toBe(false);
+      // ...and that anchor is the real gap after the arm, not minutes late.
+      expect(Math.round((c.clockStartMs! - c.actualStartMs!) / 1000)).toBe(gapSeconds);
+    }
+  });
+
+  it("holds heat 59 armed through the reconnect burst", () => {
+    // State at the moment the dump lands — before the race's own finish arrives.
+    const clocks = replay(ET("2026-08-15T21:36:08.045"));
+    const h59 = clocks.get("58586752")!;
+    expect(h59.phase).toBe("armed");
+    expect(h59.clockStartMs).toBeNull();
+    // Armed shows the full length, which is what the venue's own screens show
+    // pre-green — wrong-looking, but never a confidently wrong number.
+    expect(remainingMs(h59, ET("2026-08-15T21:36:08.045"))).toBe(7 * 60_000);
+  });
+
+  it("leaves the four replayed finishes exactly as they were", () => {
+    // The same burst replayed four RaceFinish records. Finish is idempotent, so
+    // they must be inert — asserted so the guard is not credited for it.
+    const before = replay(ET("2026-08-15T21:36:07.000"));
+    const after = replay(ET("2026-08-15T21:36:08.045"));
+    for (const raceId of ["58586748", "58586750", "58028924", "58028928"]) {
+      expect(after.get(raceId)!.phase).toBe("finished");
+      expect(after.get(raceId)!.actualEndMs).toBe(before.get(raceId)!.actualEndMs);
+      expect(after.get(raceId)!.clockStartMs).toBe(before.get(raceId)!.clockStartMs);
+    }
   });
 });
 

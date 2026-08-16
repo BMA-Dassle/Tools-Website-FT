@@ -1,0 +1,569 @@
+[
+  {
+    "atMs": 1786842398561,
+    "at": "8/15/2026, 21:06:38",
+    "message": [
+      {
+        "$type": "RaceStart",
+        "ActualStart": "2026-08-15T21:06:37.7094",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58028924,
+        "ScheduledEnd": "2026-08-15T21:00:00",
+        "ScheduledStart": "2026-08-15T20:48:00",
+        "State": "Started",
+        "RecordVersion": 13431438256565000,
+        "ResourceId": 11208660,
+        "ResourceName": "Red Track",
+        "Name": "50 - Red Intermediate"
+      }
+    ]
+  },
+  {
+    "atMs": 1786842499897,
+    "at": "8/15/2026, 21:08:19",
+    "message": [
+      {
+        "$type": "RaceStart",
+        "ActualStart": "2026-08-15T21:08:18.1539",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586748,
+        "ScheduledEnd": "2026-08-15T20:24:00",
+        "ScheduledStart": "2026-08-15T20:12:00",
+        "State": "Started",
+        "RecordVersion": 13431438256847000,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "57 - Blue Junior Starter"
+      }
+    ]
+  },
+  {
+    "atMs": 1786842533912,
+    "at": "8/15/2026, 21:08:53",
+    "message": [
+      {
+        "$type": "RaceStart",
+        "ActualStart": "2026-08-15T21:06:37.7094",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58028924,
+        "ScheduledEnd": "2026-08-15T21:00:00",
+        "ScheduledStart": "2026-08-15T20:48:00",
+        "State": "Started",
+        "RecordVersion": 13431438256976000,
+        "ResourceId": 11208660,
+        "ResourceName": "Red Track",
+        "Name": "50 - Red Intermediate"
+      }
+    ]
+  },
+  {
+    "atMs": 1786842610240,
+    "at": "8/15/2026, 21:10:10",
+    "message": [
+      {
+        "$type": "RaceStart",
+        "ActualStart": "2026-08-15T21:08:18.1539",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586748,
+        "ScheduledEnd": "2026-08-15T20:24:00",
+        "ScheduledStart": "2026-08-15T20:12:00",
+        "State": "Started",
+        "RecordVersion": 13431438257251000,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "57 - Blue Junior Starter"
+      }
+    ]
+  },
+  {
+    "atMs": 1786842952687,
+    "at": "8/15/2026, 21:15:52",
+    "message": [
+      {
+        "$type": "RaceStart",
+        "ActualStart": "2026-08-15T21:06:37.7094",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58028924,
+        "ScheduledEnd": "2026-08-15T21:00:00",
+        "ScheduledStart": "2026-08-15T20:48:00",
+        "State": "Finished",
+        "RecordVersion": 13431438258409000,
+        "ResourceId": 11208660,
+        "ResourceName": "Red Track",
+        "Name": "50 - Red Intermediate"
+      }
+    ]
+  },
+  {
+    "atMs": 1786842954103,
+    "at": "8/15/2026, 21:15:54",
+    "message": [
+      {
+        "$type": "RaceFinish",
+        "ActualStart": "2026-08-15T21:06:37.7094",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58028924,
+        "ScheduledEnd": "2026-08-15T21:00:00",
+        "ScheduledStart": "2026-08-15T20:48:00",
+        "State": "Finished",
+        "RecordVersion": 13431438258409000,
+        "ResourceId": 11208660,
+        "ResourceName": "Red Track",
+        "Name": "50 - Red Intermediate"
+      }
+    ]
+  },
+  {
+    "atMs": 1786843009195,
+    "at": "8/15/2026, 21:16:49",
+    "message": [
+      {
+        "$type": "RaceFinish",
+        "ActualEnd": "2026-08-15T21:16:47.932",
+        "ActualStart": "2026-08-15T21:06:37.7094",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58028924,
+        "ScheduledEnd": "2026-08-15T21:00:00",
+        "ScheduledStart": "2026-08-15T20:48:00",
+        "State": "Finished",
+        "RecordVersion": 13431438258783000,
+        "ResourceId": 11208660,
+        "ResourceName": "Red Track",
+        "Name": "50 - Red Intermediate"
+      }
+    ]
+  },
+  {
+    "atMs": 1786843029881,
+    "at": "8/15/2026, 21:17:09",
+    "message": [
+      {
+        "$type": "RaceStart",
+        "ActualStart": "2026-08-15T21:08:18.1539",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586748,
+        "ScheduledEnd": "2026-08-15T20:24:00",
+        "ScheduledStart": "2026-08-15T20:12:00",
+        "State": "Finished",
+        "RecordVersion": 13431438258923002,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "57 - Blue Junior Starter"
+      }
+    ]
+  },
+  {
+    "atMs": 1786843031256,
+    "at": "8/15/2026, 21:17:11",
+    "message": [
+      {
+        "$type": "RaceFinish",
+        "ActualStart": "2026-08-15T21:08:18.1539",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586748,
+        "ScheduledEnd": "2026-08-15T20:24:00",
+        "ScheduledStart": "2026-08-15T20:12:00",
+        "State": "Finished",
+        "RecordVersion": 13431438258923002,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "57 - Blue Junior Starter"
+      }
+    ]
+  },
+  {
+    "atMs": 1786843122246,
+    "at": "8/15/2026, 21:18:42",
+    "message": [
+      {
+        "$type": "RaceFinish",
+        "ActualEnd": "2026-08-15T21:18:41.3595",
+        "ActualStart": "2026-08-15T21:08:18.1539",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586748,
+        "ScheduledEnd": "2026-08-15T20:24:00",
+        "ScheduledStart": "2026-08-15T20:12:00",
+        "State": "Finished",
+        "RecordVersion": 13431438259290000,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "57 - Blue Junior Starter"
+      }
+    ]
+  },
+  {
+    "atMs": 1786843123672,
+    "at": "8/15/2026, 21:18:43",
+    "message": [
+      {
+        "$type": "RaceFinish",
+        "ActualEnd": "2026-08-15T21:18:41.3595",
+        "ActualStart": "2026-08-15T21:08:18.1539",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586748,
+        "ScheduledEnd": "2026-08-15T20:24:00",
+        "ScheduledStart": "2026-08-15T20:12:00",
+        "State": "Finished",
+        "RecordVersion": 13431438259293000,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "57 - Blue Junior Starter"
+      }
+    ]
+  },
+  {
+    "atMs": 1786843141772,
+    "at": "8/15/2026, 21:19:01",
+    "message": [
+      {
+        "$type": "RaceStart",
+        "ActualStart": "2026-08-15T21:19:00.4944",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586750,
+        "ScheduledEnd": "2026-08-15T20:36:00",
+        "ScheduledStart": "2026-08-15T20:24:00",
+        "State": "Started",
+        "RecordVersion": 13431438259320000,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "58 - Blue Intermediate"
+      }
+    ]
+  },
+  {
+    "atMs": 1786843188982,
+    "at": "8/15/2026, 21:19:48",
+    "message": [
+      {
+        "$type": "RaceStart",
+        "ActualStart": "2026-08-15T21:19:47.8665",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58028928,
+        "ScheduledEnd": "2026-08-15T21:24:00",
+        "ScheduledStart": "2026-08-15T21:12:00",
+        "State": "Started",
+        "RecordVersion": 13431438259388000,
+        "ResourceId": 11208660,
+        "ResourceName": "Red Track",
+        "Name": "52 - Red Starter"
+      }
+    ]
+  },
+  {
+    "atMs": 1786843259290,
+    "at": "8/15/2026, 21:20:59",
+    "message": [
+      {
+        "$type": "RaceStart",
+        "ActualStart": "2026-08-15T21:19:47.8665",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58028928,
+        "ScheduledEnd": "2026-08-15T21:24:00",
+        "ScheduledStart": "2026-08-15T21:12:00",
+        "State": "Started",
+        "RecordVersion": 13431438259687000,
+        "ResourceId": 11208660,
+        "ResourceName": "Red Track",
+        "Name": "52 - Red Starter"
+      }
+    ]
+  },
+  {
+    "atMs": 1786843270932,
+    "at": "8/15/2026, 21:21:10",
+    "message": [
+      {
+        "$type": "RaceStart",
+        "ActualStart": "2026-08-15T21:19:00.4944",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586750,
+        "ScheduledEnd": "2026-08-15T20:36:00",
+        "ScheduledStart": "2026-08-15T20:24:00",
+        "State": "Started",
+        "RecordVersion": 13431438259709000,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "58 - Blue Intermediate"
+      }
+    ]
+  },
+  {
+    "atMs": 1786843393309,
+    "at": "8/15/2026, 21:23:13",
+    "message": [
+      {
+        "$type": "RaceStart",
+        "ActualStart": "2026-08-15T21:19:00.4944",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586750,
+        "ScheduledEnd": "2026-08-15T20:36:00",
+        "ScheduledStart": "2026-08-15T20:24:00",
+        "State": "Started",
+        "RecordVersion": 13431438260516000,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "58 - Blue Intermediate"
+      }
+    ]
+  },
+  {
+    "atMs": 1786843678901,
+    "at": "8/15/2026, 21:27:58",
+    "message": [
+      {
+        "$type": "RaceFinish",
+        "ActualStart": "2026-08-15T21:19:47.8665",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58028928,
+        "ScheduledEnd": "2026-08-15T21:24:00",
+        "ScheduledStart": "2026-08-15T21:12:00",
+        "State": "Finished",
+        "RecordVersion": 13431438261850000,
+        "ResourceId": 11208660,
+        "ResourceName": "Red Track",
+        "Name": "52 - Red Starter"
+      }
+    ]
+  },
+  {
+    "atMs": 1786843691157,
+    "at": "8/15/2026, 21:28:11",
+    "message": [
+      {
+        "$type": "RaceFinish",
+        "ActualStart": "2026-08-15T21:19:00.4944",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586750,
+        "ScheduledEnd": "2026-08-15T20:36:00",
+        "ScheduledStart": "2026-08-15T20:24:00",
+        "State": "Finished",
+        "RecordVersion": 13431438261908000,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "58 - Blue Intermediate"
+      }
+    ]
+  },
+  {
+    "atMs": 1786843780678,
+    "at": "8/15/2026, 21:29:40",
+    "message": [
+      {
+        "$type": "RaceFinish",
+        "ActualEnd": "2026-08-15T21:29:39.8539",
+        "ActualStart": "2026-08-15T21:19:47.8665",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58028928,
+        "ScheduledEnd": "2026-08-15T21:24:00",
+        "ScheduledStart": "2026-08-15T21:12:00",
+        "State": "Finished",
+        "RecordVersion": 13431438262430000,
+        "ResourceId": 11208660,
+        "ResourceName": "Red Track",
+        "Name": "52 - Red Starter"
+      }
+    ]
+  },
+  {
+    "atMs": 1786843781925,
+    "at": "8/15/2026, 21:29:41",
+    "message": [
+      {
+        "$type": "RaceFinish",
+        "ActualEnd": "2026-08-15T21:29:39.8539",
+        "ActualStart": "2026-08-15T21:19:47.8665",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58028928,
+        "ScheduledEnd": "2026-08-15T21:24:00",
+        "ScheduledStart": "2026-08-15T21:12:00",
+        "State": "Finished",
+        "RecordVersion": 13431438262436000,
+        "ResourceId": 11208660,
+        "ResourceName": "Red Track",
+        "Name": "52 - Red Starter"
+      }
+    ]
+  },
+  {
+    "atMs": 1786843798449,
+    "at": "8/15/2026, 21:29:58",
+    "message": [
+      {
+        "$type": "RaceFinish",
+        "ActualEnd": "2026-08-15T21:29:56.8927",
+        "ActualStart": "2026-08-15T21:19:00.4944",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586750,
+        "ScheduledEnd": "2026-08-15T20:36:00",
+        "ScheduledStart": "2026-08-15T20:24:00",
+        "State": "Finished",
+        "RecordVersion": 13431438262531000,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "58 - Blue Intermediate"
+      }
+    ]
+  },
+  {
+    "atMs": 1786843980462,
+    "at": "8/15/2026, 21:33:00",
+    "message": [
+      {
+        "$type": "RaceStart",
+        "ActualStart": "2026-08-15T21:32:58.7006",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586752,
+        "ScheduledEnd": "2026-08-15T20:48:00",
+        "ScheduledStart": "2026-08-15T20:36:00",
+        "State": "Started",
+        "RecordVersion": 13431438263023000,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "59 - Blue Starter"
+      }
+    ]
+  },
+  {
+    "atMs": 1786844168045,
+    "at": "8/15/2026, 21:36:08",
+    "message": [
+      {
+        "$type": "RaceFinish",
+        "ActualEnd": "2026-08-15T21:18:41.3595",
+        "ActualStart": "2026-08-15T21:08:18.1539",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586748,
+        "ScheduledEnd": "2026-08-15T20:24:00",
+        "ScheduledStart": "2026-08-15T20:12:00",
+        "State": "Finished",
+        "RecordVersion": 13431438259293000,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "57 - Blue Junior Starter"
+      },
+      {
+        "$type": "RaceFinish",
+        "ActualEnd": "2026-08-15T21:29:56.8927",
+        "ActualStart": "2026-08-15T21:19:00.4944",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586750,
+        "ScheduledEnd": "2026-08-15T20:36:00",
+        "ScheduledStart": "2026-08-15T20:24:00",
+        "State": "Finished",
+        "RecordVersion": 13431438262531000,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "58 - Blue Intermediate"
+      },
+      {
+        "$type": "RaceFinish",
+        "ActualEnd": "2026-08-15T21:16:47.932",
+        "ActualStart": "2026-08-15T21:06:37.7094",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58028924,
+        "ScheduledEnd": "2026-08-15T21:00:00",
+        "ScheduledStart": "2026-08-15T20:48:00",
+        "State": "Finished",
+        "RecordVersion": 13431438258783000,
+        "ResourceId": 11208660,
+        "ResourceName": "Red Track",
+        "Name": "50 - Red Intermediate"
+      },
+      {
+        "$type": "RaceFinish",
+        "ActualEnd": "2026-08-15T21:29:39.8539",
+        "ActualStart": "2026-08-15T21:19:47.8665",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58028928,
+        "ScheduledEnd": "2026-08-15T21:24:00",
+        "ScheduledStart": "2026-08-15T21:12:00",
+        "State": "Finished",
+        "RecordVersion": 13431438262436000,
+        "ResourceId": 11208660,
+        "ResourceName": "Red Track",
+        "Name": "52 - Red Starter"
+      },
+      {
+        "$type": "RaceStart",
+        "ActualStart": "2026-08-15T21:32:58.7006",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586752,
+        "ScheduledEnd": "2026-08-15T20:48:00",
+        "ScheduledStart": "2026-08-15T20:36:00",
+        "State": "Started",
+        "RecordVersion": 13431438263023000,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "59 - Blue Starter"
+      }
+    ]
+  },
+  {
+    "atMs": 1786844553380,
+    "at": "8/15/2026, 21:42:33",
+    "message": [
+      {
+        "$type": "RaceFinish",
+        "ActualStart": "2026-08-15T21:32:58.7006",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586752,
+        "ScheduledEnd": "2026-08-15T20:48:00",
+        "ScheduledStart": "2026-08-15T20:36:00",
+        "State": "Finished",
+        "RecordVersion": 13431438264945000,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "59 - Blue Starter"
+      }
+    ]
+  },
+  {
+    "atMs": 1786844593171,
+    "at": "8/15/2026, 21:43:13",
+    "message": [
+      {
+        "$type": "RaceFinish",
+        "ActualEnd": "2026-08-15T21:43:11.7691",
+        "ActualStart": "2026-08-15T21:32:58.7006",
+        "DurationTime": "00:07:00",
+        "PendingFinishDurationTime": "00:05:00",
+        "RaceId": 58586752,
+        "ScheduledEnd": "2026-08-15T20:48:00",
+        "ScheduledStart": "2026-08-15T20:36:00",
+        "State": "Finished",
+        "RecordVersion": 13431438265167000,
+        "ResourceId": 11208654,
+        "ResourceName": "Blue Track",
+        "Name": "59 - Blue Starter"
+      }
+    ]
+  }
+]

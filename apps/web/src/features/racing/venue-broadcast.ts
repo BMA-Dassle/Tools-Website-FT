@@ -55,6 +55,23 @@ export interface VenueRaceFinish {
    *  every record rather than cached at start. Required, not optional: a
    *  clock that silently treats "missing" as "zero" is worse than no clock. */
   durationMs: number | null;
+  /**
+   * The venue's own version stamp for this record — THE ONLY WAY TO TELL A NEW
+   * EVENT FROM A REPLAYED ONE.
+   *
+   * A reconnect's catch-up dump re-sends records verbatim, version and all.
+   * Captured live 2026-08-15 21:36:08: five races replayed in a single burst,
+   * every one carrying a RecordVersion already folded minutes earlier. Anything
+   * that must fire once per real event has to compare this, because arrival
+   * order alone cannot distinguish the replay (see race-clock's applyRaceStart,
+   * where mistaking one for the green flag put every Blue board a minute slow).
+   *
+   * STRING, ALWAYS. These run 17 digits (13431438263023000) — past
+   * Number.MAX_SAFE_INTEGER, same hazard class as BMI ids. A Number round-trip
+   * would round neighbouring versions into false equality, which here reads as
+   * "nothing happened" and silently drops a real green flag.
+   */
+  recordVersion: string | null;
 }
 
 /**
@@ -156,6 +173,9 @@ function extractRaceRecords(message: unknown, type: string): VenueRaceFinish[] {
       actualStartMs: parseVenueLocalMs(r.ActualStart),
       actualEndMs: parseVenueLocalMs(r.ActualEnd),
       durationMs: parseVenueDurationMs(r.DurationTime),
+      // String(), never Number() — 17 digits, see the field doc.
+      recordVersion:
+        r.RecordVersion === undefined || r.RecordVersion === null ? null : String(r.RecordVersion),
     });
   }
   return out;
