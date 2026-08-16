@@ -221,7 +221,15 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
           // where scores are posted. A playing video always outranks it; the
           // helmet board outranks it only for its own 30 seconds (see
           // welcomeBackDue).
-          <WelcomeBack accent={accent} room={room} info={feed!.briefing!.welcomeBack!} />
+          <WelcomeBack
+            accent={accent}
+            room={room}
+            info={feed!.briefing!.welcomeBack!}
+            // Idle = the occupancy is actually closed. The helmetBoardDone
+            // path shows this board while the previous group is STILL in the
+            // room, and the greeting must not sound over their fitting.
+            roomEmpty={timeline.phase === "idle"}
+          />
         ) : (
           <Board
             accent={accent}
@@ -900,28 +908,46 @@ function QualifyTarget({
  *  ("every 10s", owner 2026-08-15 — measured from the clip's end, matching how
  *  the owner specs gaps on the pit's stay-seated loop). */
 const WELCOME_AUDIO_GAP_MS = 10_000;
-/** The greeting stops nagging after this, on screen or not (owner: "max of
- *  2 minutes"). Anchored on the race's own end stamp, so both room TVs — and
- *  a TV that reboots mid-window — all fall silent at the same moment. */
+/** The greeting stops nagging after this (owner: "max of 2 minutes"), counted
+ *  from the moment it was first ALLOWED to play — board up AND room empty —
+ *  not from the race end: a room that stays occupied for a while must still
+ *  get its full greeting once it clears. */
 const WELCOME_AUDIO_MAX_MS = 2 * 60_000;
 
 /**
- * Loop the welcome-back jingle while the board is up.
+ * Loop the welcome-back jingle while the board is up — AND THE ROOM IS EMPTY.
  *
- * Plays on appear, then again WELCOME_AUDIO_GAP_MS after each play ends, until
- * the 2-minute window (from the race's end stamp) closes. The next briefing
- * taking the room unmounts the board, and the cleanup below is what stops the
- * sound mid-note — no server coordination, because this audio exists only
- * where the board exists. Every play failure is swallowed: a TV whose browser
- * refuses autoplay shows the board silently, which is last week's behavior.
+ * THE ROOM GATE (owner 2026-08-15: "audio cannot play at all unless briefing
+ * is empty/coming back… welcome back appeared but people were still doing
+ * helmet sizes"). The board legitimately shows while the PREVIOUS group still
+ * occupies the room — the helmet board ages off the SCREEN after ~30s, but
+ * the occupancy holds until the send-to-holding press — and greeting audio
+ * over a group mid-helmet-fitting was wrong. So `roomEmpty` (the room
+ * timeline reading idle) arms the sound; until then the board greets in
+ * silence, exactly as it did before audio existed.
+ *
+ * Plays on arming, then again WELCOME_AUDIO_GAP_MS after each play ends, until
+ * the 2-minute window (from first arming, keyed to this race's end stamp so a
+ * later race starts its own) closes. The next briefing taking the room
+ * unmounts the board, and the cleanup below stops the sound mid-note. Every
+ * play failure is swallowed: a TV whose browser refuses autoplay shows the
+ * board silently.
  */
-function useWelcomeBackAudio(url: string | null, endedAtMs: number): void {
+function useWelcomeBackAudio(url: string | null, endedAtMs: number, roomEmpty: boolean): void {
+  // When THIS race's greeting first became allowed to sound. A ref, so a
+  // re-render cannot restart the window; keyed on the end stamp, so a new
+  // race's board opens a fresh window instead of inheriting a spent one.
+  const armedRef = useRef<{ ended: number; atMs: number } | null>(null);
   useEffect(() => {
-    if (!url) return;
+    if (!url || !roomEmpty) return;
+    if (armedRef.current?.ended !== endedAtMs) {
+      armedRef.current = { ended: endedAtMs, atMs: Date.now() };
+    }
+    const armedAtMs = armedRef.current.atMs;
     const el = new Audio(url);
     let timer: number | null = null;
     let stopped = false;
-    const windowClosed = () => Date.now() - endedAtMs > WELCOME_AUDIO_MAX_MS;
+    const windowClosed = () => Date.now() - armedAtMs > WELCOME_AUDIO_MAX_MS;
     const playOnce = () => {
       if (stopped || windowClosed()) return;
       void el.play().catch(() => {});
@@ -937,13 +963,14 @@ function useWelcomeBackAudio(url: string | null, endedAtMs: number): void {
       el.pause();
       el.removeAttribute("src");
     };
-  }, [url, endedAtMs]);
+  }, [url, endedAtMs, roomEmpty]);
 }
 
 function WelcomeBack({
   accent,
   room,
   info,
+  roomEmpty,
 }: {
   accent: string;
   room: BriefingRoom;
@@ -959,8 +986,11 @@ function WelcomeBack({
     } | null;
     racingAgain: Array<{ session: number | null; track: string; names: string[] }>;
   };
+  /** The room's timeline reads idle — nobody is briefing or helmet-fitting in
+   *  it. Gates the greeting AUDIO only; the board itself shows regardless. */
+  roomEmpty: boolean;
 }) {
-  useWelcomeBackAudio(info.audioUrl, info.endedAtMs);
+  useWelcomeBackAudio(info.audioUrl, info.endedAtMs, roomEmpty);
   const target = nextLevelTarget(info.track, info.raceType);
   const results = info.results;
   // The name board only exists where qualification exists: no target (a Pro
