@@ -35,7 +35,7 @@ import { afterResponse } from "../after-response.server";
 import { primeFastRoster } from "./fast-roster.server";
 import { bookmarkBriefingEndAfter } from "../briefing/bookmarks.server";
 import { recordBriefingEvent, type BriefingEndReason } from "../briefing/events-db";
-import { readRaceFinishedMarker } from "../briefing/race-finish.server";
+import { readRaceFinishedMarker, readRaceStartedMarker } from "../briefing/race-finish.server";
 import { liveHeatKey, type LiveHeat } from "../briefing/race-state-watch.server";
 import { clearBriefingRoom, sessionBriefed } from "../briefing/state.server";
 import type { BriefingRoom } from "../briefing/types";
@@ -212,13 +212,51 @@ async function readLiveHeat(track: TrackKey): Promise<LiveHeat | null> {
  * looks both heats up on today's schedule and compares `scheduledStart`, and
  * fails closed when it cannot.
  */
+/**
+ * `finished` IS THE AMBIGUOUS ONE, AND IT NEEDS A SECOND WITNESS (2026-08-15,
+ * Blue 66/67).
+ *
+ * race-state.ts maps the socket's `S` field as `1 running · 2 paused · >= 3
+ * finished`. That bucket is not only "the race ended" — a heat that is merely
+ * LOADED and has never turned a wheel lands in it too. On 8/15 the feed called
+ * Blue 66 `finished` at 10:41:07 PM; 66's own green flag was at 10:44:34 PM,
+ * three and a half minutes LATER. The group was still sitting in the briefing
+ * room.
+ *
+ * That one reading did all the damage: it promoted a seated group to `racing`,
+ * which satisfied holdingAvailability's "have they gone out" test, which let the
+ * tablet seat 67 behind them — and the pitted press then answered a race that
+ * had never run and erased 66 from every board.
+ *
+ * `running` and `paused` need no corroboration: both mean karts on track with a
+ * clock, and neither can be said of a race that has not started. Only
+ * `finished` has to prove the race happened, and the start marker is that proof.
+ *
+ * FAILING CLOSED IS THE RIGHT DIRECTION. With no marker the group stays in the
+ * seats where staff can see them, instead of being declared racing and
+ * overwritten. The broadcast's own finish marker still promotes on its own at
+ * the call site, so a genuine finish is never held up by this.
+ */
+async function liveWitnessIsTrustworthy(
+  live: LiveHeat,
+  sessionId: string | null,
+): Promise<boolean> {
+  if (live.state !== "finished") return true;
+  if (!sessionId) return false;
+  return (await readRaceStartedMarker(sessionId).catch(() => null)) != null;
+}
+
 async function liveSaysGoneOut(
   track: TrackKey,
   live: LiveHeat | null,
   heatNumber: number | null,
+  sessionId: string | null = null,
 ): Promise<boolean> {
   if (!live || heatNumber == null) return false;
-  if (live.heatNumber === heatNumber) return live.state !== "none";
+  if (live.heatNumber === heatNumber) {
+    if (live.state === "none") return false;
+    return liveWitnessIsTrustworthy(live, sessionId);
+  }
   return liveHeatIsLaterThan(track, live.heatNumber, heatNumber);
 }
 
@@ -258,9 +296,17 @@ async function liveSaysFinishedAtMs(
   track: TrackKey,
   live: LiveHeat | null,
   heatNumber: number | null,
+  sessionId: string | null = null,
 ): Promise<number | null> {
   if (!live || heatNumber == null) return null;
-  if (live.heatNumber === heatNumber) return live.state === "finished" ? live.atMs : null;
+  if (live.heatNumber === heatNumber) {
+    if (live.state !== "finished") return null;
+    // The SAME corroboration liveSaysGoneOut demands, and it matters more here:
+    // this value gets pinned NX by pinWitnessedFinish, so one bad reading is
+    // permanent for the session's whole life. Blue 66 carried a finish stamped
+    // 3.5 minutes before its own start until it was deleted by hand.
+    return (await liveWitnessIsTrustworthy(live, sessionId)) ? live.atMs : null;
+  }
   // Same schedule comparison as liveSaysGoneOut, and for the same reason.
   return (await liveHeatIsLaterThan(track, live.heatNumber, heatNumber)) ? live.atMs : null;
 }
@@ -337,7 +383,9 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
   if (racing) {
     const finish = await readRaceFinishedMarker(racing.sessionId).catch(() => null);
     const witnessedAtMs =
-      finish?.endedAtMs == null ? await liveSaysFinishedAtMs(track, live, racing.heatNumber) : null;
+      finish?.endedAtMs == null
+        ? await liveSaysFinishedAtMs(track, live, racing.heatNumber, racing.sessionId)
+        : null;
     /**
      * THE WITNESS TIME IS PINNED TO ITS FIRST SIGHTING (owner 2026-08-14: "Post
      * was completed on blue but the HOLD stayed up"). live.atMs is the pause
@@ -403,7 +451,8 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
     const finished = await readRaceFinishedMarker(staged.sessionId).catch(() => null);
     // Either witness will do: the broadcast's own finish marker, or the timing
     // socket showing this heat on track (or a later one loaded).
-    const goneOut = finished == null && (await liveSaysGoneOut(track, live, staged.heatNumber));
+    const goneOut =
+      finished == null && (await liveSaysGoneOut(track, live, staged.heatNumber, staged.sessionId));
     if (finished != null || goneOut) {
       /**
        * SUCCESSION PUTS THE LAST GROUP IN THE PIT, NEVER IN THE BIN.

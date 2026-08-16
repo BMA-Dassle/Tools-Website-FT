@@ -58,6 +58,9 @@ const ROOM_COLOR: Record<BriefingRoom, string> = { red: "#ff5a52", blue: "#4a9bf
 const TRACK_COLOR: Record<string, string> = { red: "#ff5a52", blue: "#4a9bff", mega: "#a06bff" };
 const GREEN = "#4ade80";
 const AMBER = "#f0b341";
+/** The desk board's own red (RaceControlPanels), so the two admin surfaces speak
+ *  one language — staff who learn it at the desk read it here without being told. */
+const DANGER = "#ff4d4f";
 const INK = "#e8eef7";
 
 /** Where this tablet's room choice is remembered, so the bare URL is bookmarkable
@@ -142,12 +145,25 @@ const STYLES = `
   0%, 100% { border-color: ${withAlpha(AMBER, 0.4)}; background-color: ${withAlpha(AMBER, 0.06)}; }
   50%      { border-color: ${AMBER};                 background-color: ${withAlpha(AMBER, 0.22)}; }
 }
+/* HOLDING IS FULL — THE ONE REFUSAL ON THIS SCREEN THAT COSTS A GROUP.
+   Red, and blinking, at the owner's call (2026-08-15). This is the exception the
+   .brc-band-late note carves out: red here is not a nudge, it is the missed
+   deadline itself. Sending anyway is what put Blue 66 on a track it had never
+   been on and wiped it off every board that night — the seats were occupied and
+   the screen said so only in small amber text under a dead button.
+   Same 1.4s beat as .brc-band-ready — one beat per canvas. */
+.brc-holding-full { animation: brc-holding-full 1.4s ease-in-out infinite; }
+@keyframes brc-holding-full {
+  0%, 100% { border-color: ${withAlpha(DANGER, 0.45)}; background-color: ${PORTAL_DARK.card}; }
+  50%      { border-color: ${DANGER};                  background-color: ${withAlpha(DANGER, 0.14)}; }
+}
 /* A staff alert must never be motion-only: reduced motion keeps the colour and
    drops the pulse, so the band still reads. */
 @media (prefers-reduced-motion: reduce) {
-  .brc-ready, .brc-band-ready, .brc-band-late { animation: none; }
+  .brc-ready, .brc-band-ready, .brc-band-late, .brc-holding-full { animation: none; }
   .brc-band-ready { border-color: ${GREEN}; background-color: ${withAlpha(GREEN, 0.16)}; }
   .brc-band-late { border-color: ${AMBER}; background-color: ${withAlpha(AMBER, 0.18)}; }
+  .brc-holding-full { border-color: ${DANGER}; background-color: ${withAlpha(DANGER, 0.12)}; }
 }
 
 /* THE KEYPAD. 76px keys in the 3x4 arrangement of every phone and door lock in
@@ -841,6 +857,17 @@ export default function BriefingRoomClient({
       })
     : null;
   const canSendToHolding = !!state && verdict?.ok === true;
+  /**
+   * HOLDING IS FULL — say it loudly, not in footnote amber.
+   *
+   * Same verdict the button already reads, so the box and the button can never
+   * disagree; this only changes how hard it is to miss. `holdingAvailability`
+   * refuses on exactly one condition — somebody is in the seats who has not gone
+   * out — so a false verdict IS "full", and the occupant is non-null whenever
+   * this is true.
+   */
+  const holdingFull = !!state && verdict?.ok === false;
+  const occupantAccent = holdingFull ? DANGER : occupantIsOurs ? GREEN : AMBER;
   // The film is over and they are getting kitted — the one moment this screen
   // exists to catch.
   const readyToMove = phase === "helmet" && canSendToHolding;
@@ -1191,6 +1218,7 @@ export default function BriefingRoomClient({
 
         {/* ── HOLDING ──────────────────────────────────────────────── */}
         <section
+          className={holdingFull ? "brc-holding-full" : undefined}
           style={{
             flex: "2 1 380px",
             display: "flex",
@@ -1208,11 +1236,31 @@ export default function BriefingRoomClient({
               fontSize: 12,
               fontWeight: 800,
               letterSpacing: "0.12em",
-              color: PORTAL_DARK.muted,
+              color: holdingFull ? DANGER : PORTAL_DARK.muted,
             }}
           >
             HOLDING · {room.toUpperCase()}
           </p>
+
+          {/* THE HEADLINE, not a footnote. `role="alert"` so the words reach a
+              screen reader the moment the seats fill — the blink cannot. */}
+          {holdingFull && (
+            <p
+              role="alert"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                fontSize: 27,
+                fontWeight: 800,
+                letterSpacing: "0.02em",
+                color: DANGER,
+              }}
+            >
+              <IconAlertTriangleFilled size={25} style={{ flexShrink: 0 }} aria-hidden />
+              HOLDING FULL
+            </p>
+          )}
 
           {/**
            * WHO IS IN THE SEATS (owner 2026-08-15: "show who is in holding if
@@ -1237,8 +1285,8 @@ export default function BriefingRoomClient({
                 gap: 6,
                 padding: "16px 18px",
                 borderRadius: 14,
-                background: withAlpha(occupantIsOurs ? GREEN : AMBER, 0.1),
-                border: `1px solid ${withAlpha(occupantIsOurs ? GREEN : AMBER, 0.5)}`,
+                background: withAlpha(occupantAccent, 0.1),
+                border: `1px solid ${withAlpha(occupantAccent, 0.5)}`,
               }}
             >
               <p
@@ -1246,7 +1294,7 @@ export default function BriefingRoomClient({
                   fontSize: 30,
                   fontWeight: 800,
                   letterSpacing: "-0.01em",
-                  color: occupantIsOurs ? GREEN : AMBER,
+                  color: occupantAccent,
                 }}
               >
                 {occupant.heatNumber != null ? `Session ${occupant.heatNumber}` : "A group"}
@@ -1327,24 +1375,11 @@ export default function BriefingRoomClient({
               Nobody is in this room to send.
             </p>
           )}
+          {/* The banner above says THAT it is full; this says WHO is in the way
+              and what to do about it. No second warning triangle — the headline
+              already carries one, and two on one panel read as two problems. */}
           {state && verdict && !verdict.ok && (
-            <p
-              style={{
-                display: "flex",
-                alignItems: "flex-start",
-                gap: 8,
-                fontSize: 14,
-                fontWeight: 700,
-                color: AMBER,
-              }}
-            >
-              <IconAlertTriangleFilled
-                size={17}
-                style={{ flexShrink: 0, marginTop: 1 }}
-                aria-hidden
-              />
-              {verdict.error}
-            </p>
+            <p style={{ fontSize: 14, fontWeight: 700, color: DANGER }}>{verdict.error}</p>
           )}
         </section>
       </div>

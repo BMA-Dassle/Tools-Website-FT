@@ -37,6 +37,8 @@ vi.mock("@/lib/redis", () => ({
 }));
 
 const finishedMarkers = new Map<string, number>();
+/** Sessions the venue broadcast has stamped a GREEN FLAG for. */
+const startedMarkers = new Map<string, number>();
 const laterHeats = new Set<string>();
 /** Sessions whose post-race cue has demonstrably played. */
 const postCues = new Set<string>();
@@ -50,6 +52,7 @@ vi.mock("../briefing/race-finish.server", () => ({
   readRaceFinishedMarker: vi.fn(async (sessionId: string) =>
     finishedMarkers.has(sessionId) ? { endedAtMs: finishedMarkers.get(sessionId)! } : null,
   ),
+  readRaceStartedMarker: vi.fn(async (sessionId: string) => startedMarkers.get(sessionId) ?? null),
 }));
 vi.mock("../briefing/race-state-watch.server", () => ({
   liveHeatKey: (track: string) => `race:live-heat:${track}`,
@@ -71,6 +74,7 @@ vi.mock("./day-schedule.server", () => ({
 }));
 
 const { markInKarts, readPitLane, sendToHolding, overrideLaneSlot } = await import("./lane.server");
+const { holdingAvailability } = await import("./holding-availability");
 
 const LANE = "pit:lane:FT:blue";
 
@@ -95,8 +99,111 @@ function putLiveHeat(heatNumber: number, state: string) {
 beforeEach(() => {
   store.clear();
   finishedMarkers.clear();
+  startedMarkers.clear();
   laterHeats.clear();
   postCues.clear();
+});
+
+/* ── a `finished` reading for a race that never ran ─────────────────────── */
+
+/**
+ * BLUE 66/67, 2026-08-15 — THE NIGHT A GROUP WAS ERASED BY ONE SOCKET FRAME.
+ *
+ * race-state.ts buckets the socket's `S` field as `>= 3 finished`, and a heat
+ * that is merely LOADED reports into that bucket too. The feed called Blue 66
+ * `finished` at 10:41:07 PM; 66's green flag was at 10:44:34 PM. The group was
+ * sitting in the briefing room the whole time.
+ *
+ * The damage was a chain, so these tests walk it: the bad promotion, the pinned
+ * finish that outlives it, and the tablet being cleared to seat the next group
+ * on top. `running` and `paused` must keep working with no marker at all — they
+ * cannot be said of a race that has not started, and requiring a marker for them
+ * would break every night the webhook is slow.
+ */
+describe("resolveLane — the live feed cannot retire a race that never started", () => {
+  for (const slot of ["holding", "karts"] as const) {
+    it(`does NOT promote from ${slot} on a "finished" reading with no start marker`, async () => {
+      putLane({ [slot]: group("s66", 66), racing: null, pitted: null });
+      putLiveHeat(66, "finished");
+      // No startedMarkers entry — this race has never turned a wheel.
+
+      const lane = await readPitLane("blue");
+
+      expect(lane.racing).toBeNull();
+      expect(lane.pitIn).toBeNull();
+      expect(lane[slot]?.sessionId).toBe("s66");
+    });
+
+    it(`DOES promote from ${slot} once the green flag has been stamped`, async () => {
+      putLane({ [slot]: group("s66", 66), racing: null, pitted: null });
+      putLiveHeat(66, "finished");
+      startedMarkers.set("s66", 5_000);
+
+      const lane = await readPitLane("blue");
+
+      // They leave the staged slot, which is the whole point: the marker makes
+      // the witness admissible again. They land in `racing` rather than the pit
+      // because only the BROADCAST finish marker routes straight there — the
+      // live witness is answered by step 1 on a later pass, once the pitted
+      // press or the post cue writes something to the stored lane.
+      expect(lane.racing?.sessionId).toBe("s66");
+      expect(lane[slot]).toBeNull();
+    });
+
+    for (const state of ["running", "paused"] as const) {
+      it(`still promotes from ${slot} on "${state}" with no marker`, async () => {
+        putLane({ [slot]: group("s66", 66), racing: null, pitted: null });
+        putLiveHeat(66, state);
+
+        const lane = await readPitLane("blue");
+
+        expect(lane.racing?.sessionId).toBe("s66");
+        expect(lane[slot]).toBeNull();
+      });
+    }
+  }
+
+  it("does not pin a finish time for a race that never started", async () => {
+    putLane({ holding: null, racing: group("s66", 66), pitted: null });
+    putLiveHeat(66, "finished");
+
+    const lane = await readPitLane("blue");
+
+    // Still on track as far as we can honestly tell — and, the point of the
+    // test, NOTHING was written to the NX pin, which would have been permanent.
+    expect(lane.racing?.sessionId).toBe("s66");
+    expect(lane.pitIn).toBeNull();
+    expect(store.get("pit:live-finished:s66")).toBeUndefined();
+  });
+
+  it("keeps the seats shut against the next group — the whole incident", async () => {
+    // 66 is in the seats. The feed calls the loaded heat `finished`.
+    putLane({ holding: group("s66", 66), racing: null, pitted: null });
+    putLiveHeat(66, "finished");
+
+    // The tablet and the server read the same rule off this lane.
+    const lane = await readPitLane("blue");
+    const verdict = holdingAvailability({
+      holding: lane.holding,
+      racing: lane.racing,
+      pitIn: lane.pitIn,
+      sessionId: "s67",
+    });
+    expect(verdict.ok).toBe(false);
+
+    // ...and the server refuses the send, so 67 never lands on top of 66.
+    const sent = await sendToHolding({
+      room: "blue",
+      track: "blue",
+      sessionId: "s67",
+      heatNumber: 67,
+      raceType: "Junior Intermediate",
+    });
+    expect(sent.ok).toBe(false);
+
+    const after = await readPitLane("blue");
+    expect(after.holding?.sessionId).toBe("s66");
+  });
 });
 
 /* ── the promotion, from both slots ─────────────────────────────────────── */
