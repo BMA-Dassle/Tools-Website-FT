@@ -48,30 +48,42 @@ describe("preSendGateAt", () => {
     expect(preSendGateAt(g, T0 + 29_000).state).toBe("none");
   });
 
-  it("flashes CLEAR TO SEND once the cue has finished", () => {
-    const g = gate({ preRaceAtMs: T0, preRaceDurationS: 30 });
-    expect(preSendGateAt(g, T0 + 30_500)).toEqual({ state: "clear-to-send", heatNumber: 12 });
+  it("flashes CLEAR TO SEND once a LATE cue has finished", () => {
+    // Green answers a red: the cue was stamped after the flag, so this group did
+    // show STOP SENDING and has now been paid.
+    const g = gate({ startedAtMs: T0, preRaceAtMs: T0 + 46_000, preRaceDurationS: 30 });
+    expect(preSendGateAt(g, T0 + 76_500)).toEqual({ state: "clear-to-send", heatNumber: 12 });
   });
 
   it("green is a flash, not a state — it expires", () => {
-    const g = gate({ preRaceAtMs: T0, preRaceDurationS: 30 });
-    expect(preSendGateAt(g, T0 + 30_000 + CLEAR_TO_SEND_MS).state).toBe("clear-to-send");
-    expect(preSendGateAt(g, T0 + 30_000 + CLEAR_TO_SEND_MS + 1).state).toBe("none");
+    const g = gate({ startedAtMs: T0, preRaceAtMs: T0 + 46_000, preRaceDurationS: 30 });
+    const endsAt = 46_000 + 30_000;
+    expect(preSendGateAt(g, T0 + endsAt + CLEAR_TO_SEND_MS).state).toBe("clear-to-send");
+    expect(preSendGateAt(g, T0 + endsAt + CLEAR_TO_SEND_MS + 1).state).toBe("none");
   });
 
-  it("greens the HEALTHY flow too — pre before the green flag", () => {
-    // The ordinary night: the cue plays while they are still seated, so there is
-    // no start marker yet. That must still earn its confirmation.
+  it("NEVER greens the healthy flow — a cue played before the flag was never red", () => {
+    // Owner 2026-08-16, live: "the clear to send blink of green came up even if
+    // we never got the red stop." The ordinary night plays the cue while the
+    // group is still seated; that earns no banner at all, because a wall whose
+    // job is showing spots must not cover them to say "nothing was wrong".
     const g = gate({ startedAtMs: null, preRaceAtMs: T0, preRaceDurationS: 25 });
-    expect(preSendGateAt(g, T0 + 26_000).state).toBe("clear-to-send");
+    expect(preSendGateAt(g, T0 + 26_000).state).toBe("none");
+  });
+
+  it("still never greens once the flag lands, if the cue came first", () => {
+    // Same group a moment later: they have now gone green, but the cue predates
+    // the flag so there was never a debt and never a red.
+    const g = gate({ startedAtMs: T0 + 60_000, preRaceAtMs: T0, preRaceDurationS: 25 });
+    expect(preSendGateAt(g, T0 + 60_100).state).toBe("none");
   });
 
   it("assumes 60s when the player never reported a length", () => {
     // Over-estimating delays a green flash; under-estimating would tell staff to
     // send while the announcement is still sounding.
-    const g = gate({ preRaceAtMs: T0, preRaceDurationS: null });
-    expect(preSendGateAt(g, T0 + 59_000).state).toBe("none");
-    expect(preSendGateAt(g, T0 + 61_000).state).toBe("clear-to-send");
+    const g = gate({ startedAtMs: T0, preRaceAtMs: T0 + 1_000, preRaceDurationS: null });
+    expect(preSendGateAt(g, T0 + 60_000).state).toBe("none");
+    expect(preSendGateAt(g, T0 + 62_000).state).toBe("clear-to-send");
   });
 
   it("says nothing for an empty lane", () => {

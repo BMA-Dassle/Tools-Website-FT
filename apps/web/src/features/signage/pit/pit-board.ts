@@ -486,6 +486,25 @@ export function preSendGateAt(
     return { state: gate.startedAtMs != null ? "pre-required" : "none", heatNumber };
   }
 
+  /**
+   * GREEN ONLY EVER ANSWERS A RED (owner 2026-08-16, live: "the clear to send
+   * blink of green came up even if we never got the red stop").
+   *
+   * It fired on every ordinary turnover, because the first cut greened whenever
+   * a cue finished. That is noise on a wall whose job is showing spots — and it
+   * covered the roster at exactly the moment staff turned to it to seat the next
+   * group, which is the one thing the short window was chosen to avoid.
+   *
+   * CLEAR TO SEND is the RESOLUTION of STOP SENDING, not a receipt for a cue.
+   * The red is raised only when a group has gone green with the pre unplayed, so
+   * the green belongs only to the same case: a cue stamped AFTER the flag, i.e.
+   * the late payment the banner demanded. A pre played while the group was still
+   * in the seats — the healthy night, every time — was never red and must never
+   * go green.
+   */
+  const paidLate = gate.startedAtMs != null && gate.preRaceAtMs > gate.startedAtMs;
+  if (!paidLate) return { state: "none", heatNumber };
+
   const endsAtMs =
     gate.preRaceAtMs +
     (gate.preRaceDurationS != null ? gate.preRaceDurationS * 1000 : PRE_CLIP_NOMINAL_MS);
