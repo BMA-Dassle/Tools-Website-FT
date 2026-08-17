@@ -1,6 +1,6 @@
 {
   "name": "kart-timing-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "WebSocket→webhook bridge for FastTrax kart timing broadcasts. Sibling to vt3-bridge.",
   "private": true,
   "type": "module",
