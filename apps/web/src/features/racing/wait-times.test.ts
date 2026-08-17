@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_RACE_BY_ALLOWANCE_MIN,
   MAX_PLAUSIBLE_SPAN_MS,
+  MIN_WINDOW_HEATS,
   RECENT_WINDOW_MS,
+  raceByAllowance,
   waitsSince,
   formatWaitMs,
   sessionWaits,
@@ -186,6 +189,7 @@ describe("summariseWaits", () => {
       n: 0,
       avgMs: null,
       medianMs: null,
+      p90Ms: null,
       minMs: null,
       maxMs: null,
       discarded: 0,
@@ -304,6 +308,69 @@ describe('waitsSince — the rolling window behind "are we behind right now"', (
     // the night — which is exactly the "we are calling behind" the day hides.
     expect(hour.roomToRaceMs.medianMs).toBe(20 * MIN);
     expect(day.roomToRaceMs.medianMs).toBe(14.5 * MIN);
+  });
+});
+
+/**
+ * THE "EST. RACING BY" CASCADE. Owner 2026-08-17: "shouldn't the heats coming up
+ * take account of what has happened last hour?" — and "if no data for the day use
+ * 30 minutes".
+ */
+describe("raceByAllowance", () => {
+  const stat = (n: number, p90Ms: number | null) => ({
+    n,
+    avgMs: p90Ms,
+    medianMs: p90Ms,
+    p90Ms,
+    minMs: p90Ms,
+    maxMs: p90Ms,
+    discarded: 0,
+  });
+
+  it("prefers the last hour once it has enough heats — recency wins", () => {
+    const r = raceByAllowance({
+      lastHour: stat(MIN_WINDOW_HEATS, 14 * MIN),
+      today: stat(40, 25 * MIN),
+      last7Days: stat(200, 22 * MIN),
+    });
+    expect(r).toEqual({ minutes: 14, basis: "last-hour", n: MIN_WINDOW_HEATS });
+  });
+
+  it("ignores a thin last hour — a p90 over two heats is the slower of two", () => {
+    // The night this was written, the wait-times panel showed LAST HOUR · 2.
+    const r = raceByAllowance({
+      lastHour: stat(2, 9 * MIN),
+      today: stat(40, 25 * MIN),
+      last7Days: stat(200, 22 * MIN),
+    });
+    expect(r.basis).toBe("today");
+    expect(r.minutes).toBe(25);
+  });
+
+  it("reaches back a week when today is thin — an opening hour, a quiet Tuesday", () => {
+    const r = raceByAllowance({
+      lastHour: stat(1, 9 * MIN),
+      today: stat(3, 12 * MIN),
+      last7Days: stat(200, 22 * MIN),
+    });
+    expect(r.basis).toBe("last-7-days");
+    expect(r.minutes).toBe(22);
+  });
+
+  it("falls back to the measured allowance when nothing has been measured", () => {
+    const r = raceByAllowance({ lastHour: null, today: null, last7Days: null });
+    expect(r).toEqual({ minutes: DEFAULT_RACE_BY_ALLOWANCE_MIN, basis: "default", n: 0 });
+  });
+
+  it("skips a window that has heats but no p90 to give", () => {
+    const r = raceByAllowance({ lastHour: stat(20, null), today: null, last7Days: null });
+    expect(r.basis).toBe("default");
+  });
+
+  it("never goes negative — an early night is not a reason to promise the past", () => {
+    const r = raceByAllowance({ lastHour: stat(20, -5 * MIN), today: null, last7Days: null });
+    expect(r.minutes).toBe(0);
+    expect(r.basis).toBe("last-hour");
   });
 });
 

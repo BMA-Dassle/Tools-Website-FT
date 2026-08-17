@@ -52,6 +52,12 @@ export interface RaceWindow {
   sessionId: string;
   startedAtMs: number | null;
   endedAtMs: number | null;
+  /**
+   * The slot the heat was SOLD as — the venue's ScheduledStart, verified
+   * 2026-08-17 to be identical to the minute to the time Pandora sold (113/113
+   * sessions). Null for every race before 2026-08-17; there is no backfill.
+   */
+  scheduledStartMs?: number | null;
 }
 
 /** What the fold needs from a briefing record — a structural subset, so the
@@ -97,6 +103,21 @@ export interface SessionWaits {
    */
   atMs: number;
   raceType: string | null;
+  /**
+   * THE PRINTED SLOT → THE GREEN FLAG. The only span here a GUEST is ever shown.
+   *
+   * Both ends are machine stamps off the venue broadcast — no staff press, no
+   * derivation — which is why this is the anchor for the kiosk's "Est. racing by"
+   * rather than called→race. Going via the call would mean adding back a ~5 min
+   * lead that is inferred from behaviour, never confirmed, and unknowable for a
+   * heat that has not been called yet.
+   *
+   * NOT `calledToRaceEndMs`, which the wait-times panel labels "TOTAL EXPERIENCE"
+   * — that one runs to the CHEQUERED flag and so carries the whole race (a ~9½
+   * min median) inside it. Quoting it on a booking card would overstate by ten
+   * minutes (owner 2026-08-17: "total experience includes the race though").
+   */
+  slotToRaceMs: number | null;
   /** First racer through the desk → sent to the briefing room. */
   checkinToRoomMs: number | null;
   /** How spread out the group's own arrivals were. 0 for a group check-in. */
@@ -133,6 +154,7 @@ export interface SessionWaits {
 
 /** The metric keys an average can be taken over. */
 export const WAIT_METRICS = [
+  "slotToRaceMs",
   "checkinToRoomMs",
   "checkinSpreadMs",
   "calledToRoomMs",
@@ -154,6 +176,13 @@ export interface WaitStat {
   /** The number to READ. A single stuck group drags a mean and leaves the median
    *  alone, and on a busy night the typical wait is what staff can act on. */
   medianMs: number | null;
+  /**
+   * The number to PLAN AGAINST. A median is beaten by half the field, so it is
+   * the wrong statistic for anything phrased as "by" — see raceByAllowance.
+   * Nearest-rank, because a night is tens of heats and interpolating between two
+   * of them would imply a precision the sample does not have.
+   */
+  p90Ms: number | null;
   minMs: number | null;
   maxMs: number | null;
   /** Spans thrown out as implausible — surfaced, never swallowed. */
@@ -204,6 +233,9 @@ export function sessionWaits(
     heatNumber: briefing.heatNumber,
     atMs: briefing.sentAtMs,
     raceType: briefing.raceType,
+    // The slot rides on the RACE row, not the briefing — it is the venue's own
+    // stamp for that session, and it is null for anything before 2026-08-17.
+    slotToRaceMs: at("slotToRaceMs", race?.scheduledStartMs ?? null, raceStartMs),
     checkinToRoomMs: at("checkinToRoomMs", briefing.checkinFirstAtMs, briefing.sentAtMs),
     checkinSpreadMs: at("checkinSpreadMs", briefing.checkinFirstAtMs, briefing.checkinLastAtMs),
     calledToRoomMs: at("calledToRoomMs", briefing.calledAtMs, briefing.sentAtMs),
@@ -255,6 +287,12 @@ function median(sorted: number[]): number | null {
   return sorted.length % 2 === 1 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
 }
 
+/** Nearest-rank percentile of an already-sorted list. */
+function percentile(sorted: number[], p: number): number | null {
+  if (sorted.length === 0) return null;
+  return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))];
+}
+
 /**
  * Average every metric across a set of groups.
  *
@@ -277,6 +315,7 @@ export function summariseWaits(waits: SessionWaits[]): WaitSummary {
       n: values.length,
       avgMs: values.length ? Math.round(sum / values.length) : null,
       medianMs: median(values),
+      p90Ms: percentile(values, 90),
       minMs: values.length ? values[0] : null,
       maxMs: values.length ? values[values.length - 1] : null,
       discarded,
@@ -306,6 +345,70 @@ export function summariseWaitsByTrack(waits: SessionWaits[]): Record<string, Wai
   const out: Record<string, WaitSummary> = {};
   for (const [track, rows] of byTrack) out[track] = summariseWaits(rows);
   return out;
+}
+
+/* ── "Est. racing by": how long to allow from the printed slot ──────────── */
+
+/**
+ * Heats a window needs before its p90 is worth quoting to a guest.
+ *
+ * Owner 2026-08-17: "shouldn't the heats coming up take account of what has
+ * happened last hour?" Yes — recency wins, and it is measured: predicting the
+ * next heat from the last completed one scored MAE 3.3 min, while smoothing over
+ * three was WORSE (76% vs 87% within 5 min). The offset drifts through a night.
+ *
+ * But the last hour is often two or four heats — the wait-times panel showed
+ * `LAST HOUR · 2` on the night this was written — and a p90 over two heats is
+ * just "the slower of two". Six is where the number stops swinging on one
+ * turnaround.
+ */
+export const MIN_WINDOW_HEATS = 6;
+
+/** The fallback when no window has enough heats (owner: "if no data for the day
+ *  use 30 minutes"). Measured, bounded, and an ALLOWANCE — see the duration note
+ *  in lib/karting-checkin-copy.ts, including that it was exceeded once in 100. */
+export const DEFAULT_RACE_BY_ALLOWANCE_MIN = 30;
+
+/** Which window an allowance actually came from, so a surface can be honest
+ *  about it and a report can tell a live number from a fallback. */
+export type RaceByBasis = "last-hour" | "today" | "last-7-days" | "default";
+
+export interface RaceByAllowance {
+  minutes: number;
+  basis: RaceByBasis;
+  /** Heats behind the figure. 0 when `basis` is "default". */
+  n: number;
+}
+
+/**
+ * How long to allow between the printed slot and the green flag.
+ *
+ * CASCADES BY SAMPLE SIZE, most recent first — the live picture when there is
+ * enough of one, today when there is not, the trailing week when today is thin
+ * (an opening hour, a quiet Tuesday), and the measured floor when all else fails.
+ *
+ * p90, NOT the median: this feeds a "racing by", and a bound that half the field
+ * beats is not a bound. Callers must render it as an estimate — owner
+ * 2026-08-17: "make sure we put est."
+ */
+export function raceByAllowance(windows: {
+  lastHour: WaitStat | null;
+  today: WaitStat | null;
+  last7Days: WaitStat | null;
+}): RaceByAllowance {
+  const tiers: Array<[RaceByBasis, WaitStat | null]> = [
+    ["last-hour", windows.lastHour],
+    ["today", windows.today],
+    ["last-7-days", windows.last7Days],
+  ];
+  for (const [basis, stat] of tiers) {
+    if (!stat || stat.n < MIN_WINDOW_HEATS || stat.p90Ms == null) continue;
+    // Never below zero: a window where everything went green early is not a
+    // reason to tell a guest their race already happened.
+    const minutes = Math.max(0, Math.round(stat.p90Ms / 60_000));
+    return { minutes, basis, n: stat.n };
+  }
+  return { minutes: DEFAULT_RACE_BY_ALLOWANCE_MIN, basis: "default", n: 0 };
 }
 
 /** `m:ss`, for a board or a log line. Hours when a span earns them. */

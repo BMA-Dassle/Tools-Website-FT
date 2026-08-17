@@ -21,7 +21,14 @@ import "server-only";
  */
 import redis from "@/lib/redis";
 import { businessDayYmdET } from "@/lib/race-business-day";
-import { listRaceTimings } from "./data/race-timings-db";
+import { listRaceTimings, listRaceTimingsSince } from "./data/race-timings-db";
+import {
+  MAX_PLAUSIBLE_SPAN_MS,
+  RECENT_WINDOW_MS,
+  raceByAllowance,
+  type RaceByAllowance,
+  type WaitStat,
+} from "./wait-times";
 import { listBriefingEvents } from "~/features/signage/briefing/events-db";
 import { onTimeByTrack, type OnTimeHeat, type OnTimeSnapshot } from "./on-time";
 
@@ -69,13 +76,74 @@ export async function readOnTimeHeats(
   return { heats, withSlot };
 }
 
+/**
+ * The slot → green flag spans behind "Est. racing by", per track and per window.
+ *
+ * Owner 2026-08-17: "shouldn't the heats coming up take account of what has
+ * happened last hour?" So this reads seven days of race rows and hands
+ * `raceByAllowance` three windows to cascade over. Race rows ALONE are enough —
+ * both ends of the span are venue stamps on the same row, so no briefing join is
+ * needed and a heat with no briefing record still counts.
+ */
+async function readRaceByByTrack(
+  venue: string,
+  businessDay: string,
+  nowMs: number,
+): Promise<Record<string, RaceByAllowance>> {
+  const from = businessDayYmdET(new Date(nowMs - 7 * 86_400_000));
+  const rows = await listRaceTimingsSince(venue, from, businessDay);
+
+  const spans = new Map<string, { hour: number[]; today: number[]; week: number[] }>();
+  for (const r of rows) {
+    if (!r.track || r.scheduledStartMs == null || r.startedAtMs == null) continue;
+    const ms = r.startedAtMs - r.scheduledStartMs;
+    // Same plausibility guard the rest of the module uses: a negative span or a
+    // multi-hour one is a pairing problem, not a wait.
+    if (ms < 0 || ms > MAX_PLAUSIBLE_SPAN_MS) continue;
+    const b = spans.get(r.track) ?? { hour: [], today: [], week: [] };
+    b.week.push(ms);
+    if (r.businessDay === businessDay) b.today.push(ms);
+    if (nowMs - r.startedAtMs <= RECENT_WINDOW_MS) b.hour.push(ms);
+    spans.set(r.track, b);
+  }
+
+  const out: Record<string, RaceByAllowance> = {};
+  for (const [track, b] of spans) {
+    out[track] = raceByAllowance({
+      lastHour: statOf(b.hour),
+      today: statOf(b.today),
+      last7Days: statOf(b.week),
+    });
+  }
+  return out;
+}
+
+/** The subset of WaitStat the cascade reads, over a raw span list. */
+function statOf(values: number[]): WaitStat | null {
+  if (values.length === 0) return null;
+  const s = [...values].sort((a, b) => a - b);
+  const at = (p: number) => s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))];
+  return {
+    n: s.length,
+    avgMs: Math.round(s.reduce((t, v) => t + v, 0) / s.length),
+    medianMs: at(50),
+    p90Ms: at(90),
+    minMs: s[0],
+    maxMs: s[s.length - 1],
+    discarded: 0,
+  };
+}
+
 /** Compute today's snapshot, no cache. */
 export async function computeOnTime(nowMs = Date.now(), venue = "FT"): Promise<OnTimeSnapshot> {
   const businessDay = businessDayYmdET(new Date(nowMs));
-  const { heats, withSlot } = await readOnTimeHeats(venue, businessDay);
+  const [{ heats, withSlot }, raceByByTrack] = await Promise.all([
+    readOnTimeHeats(venue, businessDay),
+    readRaceByByTrack(venue, businessDay, nowMs).catch(() => ({})),
+  ]);
   return {
     businessDay,
-    tracks: onTimeByTrack(heats, nowMs),
+    tracks: onTimeByTrack(heats, nowMs, raceByByTrack),
     atMs: nowMs,
     slotCoverage: { withSlot, total: heats.length },
   };

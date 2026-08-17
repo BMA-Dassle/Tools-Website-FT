@@ -16,9 +16,10 @@ function track(over: Partial<TrackOnTime> = {}): TrackOnTime {
     flagOffsetHeatNumber: 42,
     flagOffsetAtMs: NOW,
     // Saturday's real Blue figures — the p90 is what a "racing by" bound uses.
-    dayOffsetMedianMin: 18.2,
-    dayOffsetP90Min: 24.9,
-    dayOffsetN: 54,
+    // Saturday's real Blue p90 (24.9 min), rounded as the cascade would.
+    raceByMin: 25,
+    raceByBasis: "today",
+    raceByN: 54,
     feedStale: false,
     lastSignalAtMs: NOW,
     ...over,

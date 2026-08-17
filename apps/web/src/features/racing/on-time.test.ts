@@ -190,34 +190,38 @@ describe("trackOnTime", () => {
     expect(r.lateCalls).toEqual([]);
   });
 
-  describe("today's check-in → race span", () => {
-    /** N heats, each 12 min apart, going green `offsets[i]` min after its slot. */
-    const night = (offsets: number[]) =>
-      offsets.map((o, i) =>
-        heat({ id: `h${i}`, n: i + 1, slotMin: i * 12, calledOffset: -5, flagOffset: o }),
-      );
-
-    it("is null until enough heats have run to mean anything", () => {
-      const r = trackOnTime("blue", night([10, 20, 30]), now);
-      expect(r.dayOffsetN).toBe(3);
-      expect(r.dayOffsetP90Min).toBeNull();
-      expect(r.dayOffsetMedianMin).toBeNull();
+  describe("the racing-by allowance", () => {
+    it("falls back to the measured 30-minute allowance when none is supplied", () => {
+      const r = trackOnTime("blue", [heat({ id: "1", slotMin: 0, calledOffset: -5 })], now);
+      expect(r.raceByMin).toBe(30);
+      expect(r.raceByBasis).toBe("default");
+      expect(r.raceByN).toBe(0);
     });
 
-    it("reports the median and p90 once the night has run", () => {
-      const r = trackOnTime("blue", night([10, 12, 14, 16, 18, 25]), now);
-      expect(r.dayOffsetN).toBe(6);
-      expect(r.dayOffsetMedianMin).toBe(15);
-      // Nearest-rank p90 of 6 values is the 6th — the slowest.
-      expect(r.dayOffsetP90Min).toBe(25);
+    it("carries through whatever wait-times measured, with its provenance", () => {
+      // The cascade itself is wait-times' job and is tested there; this fold only
+      // has to pass it along without inventing anything.
+      const r = trackOnTime("blue", [heat({ id: "1", slotMin: 0, calledOffset: -5 })], now, {
+        minutes: 25,
+        basis: "last-hour",
+        n: 7,
+      });
+      expect(r.raceByMin).toBe(25);
+      expect(r.raceByBasis).toBe("last-hour");
+      expect(r.raceByN).toBe(7);
     });
 
-    it("never counts a heat whose offset was implausible", () => {
-      // Mega's nominal slots produce 47-56 min; those are dropped upstream by
-      // flagOffsetMin, so they must not inflate the day's bound either.
-      const r = trackOnTime("blue", night([10, 12, 14, 16, 18, 56]), now);
-      expect(r.dayOffsetN).toBe(5);
-      expect(r.dayOffsetP90Min).toBeNull(); // 5 < MIN_DAY_OFFSET_HEATS
+    it("gives each track its OWN allowance", () => {
+      const heats = [
+        heat({ id: "b", track: "blue", slotMin: 0, calledOffset: -5 }),
+        heat({ id: "r", track: "red", slotMin: 0, calledOffset: -5 }),
+      ];
+      const r = onTimeByTrack(heats, now, {
+        blue: { minutes: 25, basis: "today", n: 40 },
+        red: { minutes: 14, basis: "last-hour", n: 8 },
+      });
+      expect(r.blue.raceByMin).toBe(25);
+      expect(r.red.raceByMin).toBe(14);
     });
   });
 

@@ -51,6 +51,12 @@
  * night neither track had.
  */
 
+import {
+  DEFAULT_RACE_BY_ALLOWANCE_MIN,
+  type RaceByAllowance,
+  type RaceByBasis,
+} from "./wait-times";
+
 /** The desk's working policy: call the heat this many minutes BEFORE its slot.
  *
  *  INFERRED FROM BEHAVIOUR, not from a written rule — 85 of 99 calls on
@@ -81,25 +87,6 @@ export const RECENT_CALL_MS = 75 * 60_000;
  * out on the strength of a scheduling artefact, so we say "unknown" instead.
  */
 export const MAX_PLAUSIBLE_OFFSET_MIN = 45;
-
-/**
- * Completed heats needed before today's check-in → race span is worth quoting.
- *
- * Below this, a p90 is just "the slowest of a handful" and would swing the
- * estimate on every card in a grid that shows heats hours ahead. Six covers
- * roughly the first hour of a track's night, after which the figure settles.
- */
-export const MIN_DAY_OFFSET_HEATS = 6;
-
-/**
- * The fallback allowance, minutes, when today has not run enough heats yet.
- *
- * Measured, bounded, and deliberately an ALLOWANCE rather than an estimate — see
- * the duration note in lib/karting-checkin-copy.ts for the two samples behind it
- * and, more importantly, for the caveats (it was exceeded once in 100 heats, and
- * only one weekend day is in the sample).
- */
-export const DEFAULT_RACE_BY_ALLOWANCE_MIN = 30;
 
 /**
  * A track that has run heats today but has reported NOTHING for this long is a
@@ -174,23 +161,20 @@ export interface TrackOnTime {
   flagOffsetHeatNumber: number | null;
   flagOffsetAtMs: number | null;
   /**
-   * TODAY'S CHECK-IN → RACE SPAN, over every heat on this track that has already
-   * gone green. Owner 2026-08-17: "the race by can get more accurate using the
-   * check in to race estimate time for the day."
+   * HOW LONG TO ALLOW from the printed slot to the green flag, minutes.
    *
-   * `p90` is the one a "racing by" bound should use — it is a planning allowance,
-   * so the typical case (the median) would be beaten by nearly half the field and
-   * the max is one bad heat away from nonsense. The median rides along because it
-   * is the honest answer to "how long does this usually take".
+   * Computed by `raceByAllowance` in wait-times.ts, which cascades last hour →
+   * today → last 7 days → 30, taking the first window with enough heats to mean
+   * something. It lives THERE rather than here because that module already owns
+   * the rolling-window machinery this needs, and duplicating it produced two
+   * different answers to the same question (owner 2026-08-17).
    *
-   * Null until `dayOffsetN` clears MIN_DAY_OFFSET_HEATS: a p90 over three heats
-   * is just the slowest of three, and a booking grid showing heats four hours out
-   * must not swing on that.
+   * `raceByBasis` says which window it came from, so a surface can be honest and
+   * a report can tell a live figure from the fallback.
    */
-  dayOffsetMedianMin: number | null;
-  dayOffsetP90Min: number | null;
-  /** How many completed heats the two figures above were taken over. */
-  dayOffsetN: number;
+  raceByMin: number;
+  raceByBasis: RaceByBasis;
+  raceByN: number;
   /**
    * Heats ran today, but nothing has reported for STALE_FEED_MS — a suspected
    * dead feed rather than a finished night.
@@ -268,7 +252,13 @@ export function flagOffsetMin(heat: OnTimeHeat): number | null {
  * `heats` may arrive in any order and may contain other tracks; both are handled
  * here so callers can hand over the whole day.
  */
-export function trackOnTime(track: string, heats: OnTimeHeat[], nowMs: number): TrackOnTime {
+export function trackOnTime(
+  track: string,
+  heats: OnTimeHeat[],
+  nowMs: number,
+  /** From wait-times.ts. Falls back to the measured 30-minute allowance. */
+  raceBy: RaceByAllowance = DEFAULT_RACE_BY,
+): TrackOnTime {
   const mine = heats
     .filter((h) => h.track === track)
     .sort((a, b) => (a.scheduledStartMs ?? 0) - (b.scheduledStartMs ?? 0));
@@ -303,15 +293,6 @@ export function trackOnTime(track: string, heats: OnTimeHeat[], nowMs: number): 
     .sort((a, b) => (a.actualStartMs ?? 0) - (b.actualStartMs ?? 0));
   const last = started.length ? started[started.length - 1] : null;
 
-  // ── today's check-in → race span, across the whole night so far ──
-  // Every completed heat, not a rolling window: a booking grid quotes heats
-  // hours ahead, so it wants the day's shape rather than the last twenty minutes.
-  const dayOffsets = started
-    .map((h) => flagOffsetMin(h))
-    .filter((v): v is number => v !== null)
-    .sort((a, b) => a - b);
-  const enough = dayOffsets.length >= MIN_DAY_OFFSET_HEATS;
-
   // The most recent thing this track told us, of any kind — a call or a flag.
   // Both are pushes from a live pipe, so either one arriving means it is alive.
   const lastSignalAtMs = mine.reduce<number | null>((acc, h) => {
@@ -335,27 +316,37 @@ export function trackOnTime(track: string, heats: OnTimeHeat[], nowMs: number): 
     flagOffsetMin: last ? flagOffsetMin(last) : null,
     flagOffsetHeatNumber: last?.heatNumber ?? null,
     flagOffsetAtMs: last?.actualStartMs ?? null,
-    dayOffsetMedianMin: enough ? round1(median(dayOffsets) as number) : null,
-    dayOffsetP90Min: enough ? round1(percentile(dayOffsets, 90)) : null,
-    dayOffsetN: dayOffsets.length,
+    raceByMin: raceBy.minutes,
+    raceByBasis: raceBy.basis,
+    raceByN: raceBy.n,
     feedStale,
     lastSignalAtMs,
   };
 }
 
-/** Nearest-rank percentile of an already-sorted list. Small n by design here —
- *  a night is tens of heats, so there is nothing to gain from interpolating. */
-function percentile(sorted: number[], p: number): number {
-  const i = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
-  return sorted[i];
-}
+/** The allowance a track falls back to when no window has been measured. */
+const DEFAULT_RACE_BY: RaceByAllowance = {
+  minutes: DEFAULT_RACE_BY_ALLOWANCE_MIN,
+  basis: "default",
+  n: 0,
+};
 
-/** Every track present in the data, folded. */
-export function onTimeByTrack(heats: OnTimeHeat[], nowMs: number): Record<string, TrackOnTime> {
+/**
+ * Every track present in the data, folded.
+ *
+ * `raceByByTrack` comes from the rolling-window summaries in wait-times.ts —
+ * this module cannot compute it, because the windows it cascades over span the
+ * last seven days and this fold only ever sees today.
+ */
+export function onTimeByTrack(
+  heats: OnTimeHeat[],
+  nowMs: number,
+  raceByByTrack: Record<string, RaceByAllowance> = {},
+): Record<string, TrackOnTime> {
   const tracks = new Set<string>();
   for (const h of heats) if (h.track) tracks.add(h.track);
   const out: Record<string, TrackOnTime> = {};
-  for (const t of tracks) out[t] = trackOnTime(t, heats, nowMs);
+  for (const t of tracks) out[t] = trackOnTime(t, heats, nowMs, raceByByTrack[t]);
   return out;
 }
 
