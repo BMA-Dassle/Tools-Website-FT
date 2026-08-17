@@ -2943,6 +2943,30 @@ function useLiveCamera(
     playing: playingRoom === room && !!url,
     onPlaying: () => setPlayingRoom(room),
     /**
+     * SAY WHY LIVE DIED, don't just fall back.
+     *
+     * This hook's whole design is that failure is invisible — every path lands
+     * softly on the stills, which is right for the desk and wrong for anyone
+     * trying to fix it. A CSP rule blocked every stream for four days and the
+     * only symptom was a caption that never said LIVE; the HAR could not show
+     * it either, because a refused `<video>` leaves its reason in MediaError,
+     * not in the network log.
+     *
+     * So the element's own verdict goes to the console with the event that
+     * carried it. `error.code` is the MediaError enum: 1 ABORTED, 2 NETWORK,
+     * 3 DECODE, 4 SRC_NOT_SUPPORTED — and 4 is the one that means "the browser
+     * refused this source", which is what a policy block looks like from here.
+     */
+    onFailure: (event: "error" | "ended", el: HTMLVideoElement) => {
+      const err = el.error;
+      console.warn(
+        `[camera] live stream for ${room} ended on "${event}"` +
+          (err ? ` — MediaError code ${err.code}: ${err.message || "(no message)"}` : " — no MediaError (the source simply ended)") +
+          ` | readyState=${el.readyState} networkState=${el.networkState}` +
+          ` buffered=${el.buffered.length ? `${el.buffered.end(el.buffered.length - 1).toFixed(1)}s` : "nothing"}`,
+      );
+    },
+    /**
      * BUFFERING IS NOT A FAILURE. A stall spends no ticket and remounts nothing —
      * it just stops the board claiming LIVE and lets the still refresh take the
      * picture back until frames resume. Only a dead stream (`error`, `ended`)
@@ -3083,8 +3107,14 @@ function RoomCamera({
             onPlaying={live.onPlaying}
             onWaiting={live.onWaiting}
             onStalled={live.onWaiting}
-            onError={live.retry}
-            onEnded={live.retry}
+            onError={(e) => {
+              live.onFailure("error", e.currentTarget);
+              live.retry();
+            }}
+            onEnded={(e) => {
+              live.onFailure("ended", e.currentTarget);
+              live.retry();
+            }}
             style={{
               position: "absolute",
               inset: 0,
@@ -3545,8 +3575,14 @@ function CameraLightbox({
             onPlaying={live.onPlaying}
             onWaiting={live.onWaiting}
             onStalled={live.onWaiting}
-            onError={live.retry}
-            onEnded={live.retry}
+            onError={(e) => {
+              live.onFailure("error", e.currentTarget);
+              live.retry();
+            }}
+            onEnded={(e) => {
+              live.onFailure("ended", e.currentTarget);
+              live.retry();
+            }}
             style={{
               position: "absolute",
               inset: 0,
