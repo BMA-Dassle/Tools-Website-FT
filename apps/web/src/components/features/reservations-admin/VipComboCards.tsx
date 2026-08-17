@@ -13,6 +13,7 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { clickableDivProps, modalBackdropProps } from "@/lib/a11y";
+import { publicOrigin } from "~/lib/helpers/public-origin";
 import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
 import { cancelActionable } from "~/features/reservations-admin/actionable";
 import { stepProgress, type ComboGroup } from "~/features/reservations-admin/combo-board";
@@ -55,7 +56,10 @@ function VoucherBadge({ code, voided, items }: VipVoucherSummary) {
   // Tap-to-enlarge lightbox: a phone camera / kiosk scanner reads the big
   // version across the desk far more reliably than the 72px thumbnail.
   const [zoomed, setZoomed] = useState(false);
-  const url = `${typeof window !== "undefined" ? window.location.origin : ""}/v/${encodeURIComponent(code)}`;
+  // publicOrigin: a guest's phone scans this QR across the desk — rendered on
+  // the auth-walled admin proxy domain, location.origin would land them on a
+  // Vercel login instead of their voucher.
+  const url = `${publicOrigin(typeof window !== "undefined" ? window.location.origin : "")}/v/${encodeURIComponent(code)}`;
   useEffect(() => {
     let alive = true;
     // Rendered once at lightbox size; the badge shows it downscaled (crisp).
@@ -207,7 +211,10 @@ function VoucherBadge({ code, voided, items }: VipVoucherSummary) {
                 {[...byLabel.entries()].flatMap(([label, c]) => [
                   ...(c.avail > 0
                     ? [
-                        <span key={`${label}-avail`} style={{ color: "var(--ba-fg)", opacity: 0.85 }}>
+                        <span
+                          key={`${label}-avail`}
+                          style={{ color: "var(--ba-fg)", opacity: 0.85 }}
+                        >
                           ✓ {qty(c.avail)}
                           {label}
                         </span>,

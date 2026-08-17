@@ -1,42 +1,39 @@
 # Open Tasks
 
-## Mega-night dynamic readiness — follow-ups (2026-08-16, from `feat/mega-night-ops`)
+## Admin tools behind real auth — proxy shell at `apps/admin` (2026-08-16) — code on `feat/admin-deployment`, Vercel setup NOT started
 
-The branch makes Mega mode effective-signal-driven (external flag OR newest-heat data) across
-signage, check-in, briefing, pit, and the watch crons. Deliberately NOT done, with the owner's
-sign-off, and the loose ends worth knowing about:
+The 21 staff tools get clean URLs (`/pit`, `/videos`, …) on a SECOND Vercel project behind
+Vercel Authentication. Architecture: `apps/admin` is a tiny PROXY app (own Root Directory, no
+pages/API/secrets/vercel.json) that forwards every request to the main deployment with the
+admin token injected — routing table in `apps/admin/src/routes.ts`. Chosen over the shared-root
+design because the main project's sensitive env vars cannot be exported; the shell needs only
+`ADMIN_CAMERA_TOKEN` + a freshly minted `ADMIN_PROXY_KEY`. Existing `/admin/{token}/*` URLs on
+the main site are untouched; staff migration is manual, later. Endgame when staff have moved:
+rotate `ADMIN_CAMERA_TOKEN` on main (update the shell's copy) — humans then authenticate ONLY
+via Vercel login. Full plan + audit: `~/.claude/plans/i-want-to-convert-flickering-hanrahan.md`.
 
-- [ ] **Tuesday-hardcoded paths left as-is (owner 2026-08-16: "anything with a Tuesday hard
-      code we can skip — we know it's already working").** Revisit only if Mega ever runs on
-      non-Tuesdays for real: `pre-race-tickets` `activeResourcesForToday()` (no e-tickets /
-      wallet pushes / Mega sessions-cache warm off-Tuesday), camera-assign client + session
-      route weekday rules (no Mega chip off-Tuesday; API honours `?track=mega`), `demoIsMegaDay`
-      (simulate-scan stamps blue off-Tuesday).
-- [ ] **Booking/kiosk Tuesday shapes** (owner deferred, guest-visible): `race-pricing.ts`
-      `scheduleForDate` day===2, the junior-blocked-on-Mega gate (`getDay()===2` in
-      `app/book/race/page.tsx`), kiosk `isMegaTuesdayToday` attract slide + junior warning,
-      `TuesdayAlert` / `MegaTrackTuesdayJsonLd`. Off-Tuesday Mega = site sells Blue/Red
-      products with no heats behind them.
-- [ ] **Room-split UI** — owner: no. One briefing room per mega heat; the server carve-outs
-      (`briefing/service.ts` mega exception, `stillHeldElsewhere`) stay for Override-shaped
-      states.
-- [ ] **Upstream `tracks[]` has no Mega delay row** (external tools-track-status); our
-      `findTrackDelay` mega→`tracks[0]` fallback mirrors the home page until it does.
-- [ ] **`resolveCheckinWindows` mega window** always falls to the 8-min default unless a screen
-      is scoped to `-1` (which we deliberately never do) — desk escalation vs wall countdown
-      could disagree if track boards are configured ≠ 8 min.
-- [ ] **Latent mislabels**: `RaceCheckinInfo.track` / `PitBoardInfo.track` report the SCREEN's
-      track even when describing a mega session (unconsumed today); `tv.css --k-mega-track`
-      dead token; stale "returns null for Mega" comments (`SceneRaceCheckin` CheckingIn,
-      `ScenePitBoard` qual pill, `welcome-back.server.ts:50`).
-- [ ] **Level-up Mega score-group names unconfirmed** against live SMS-Timing records — if the
-      cron never reports a Mega group tonight, curl
-      `/api/leagues?action=sessions&track=Mega%20Track&scoreGroup=Mega%20Pro...` and adjust.
-- [ ] **Guest-visible consequence to know about**: home `TrackStatus` + leaderboards now flip
-      to Mega on the data signal alone (first mega heat called), even before the external flag
-      — intended ("everything reacts dynamically"), noted so nobody reads it as a bug.
-- [ ] **Morning-after**: the effective-mega OR cannot veto a stuck-ON external flag — flip
-      `megaTrackEnabled` back OFF after the test.
+Dashboard runbook (owner, ORDER MATTERS — protection before any custom domain):
+
+- [ ] Merge the `feat/admin-deployment` PR (main site: only additive/inert changes)
+- [ ] Mint a proxy key: `openssl rand -hex 32` (or any 32+ char secret)
+- [ ] MAIN project → Settings → Environment Variables → add `ADMIN_PROXY_KEY=<minted>`
+      (Production; takes effect on its next deploy — redeploy or ride the merge)
+- [ ] Add New Project → same repo → BEFORE first Deploy: Root Directory `apps/admin`; env:
+      `ADMIN_CAMERA_TOKEN=<current main value>` + `ADMIN_PROXY_KEY=<same minted value>`
+- [ ] New project → Settings → Deployment Protection → Vercel Authentication →
+      **All Deployments**
+- [ ] New project → Settings → Git → Ignored Build Step → `npx turbo-ignore` (shell only
+      rebuilds when apps/admin changes — no more double builds)
+- [ ] (No cron disable needed — apps/admin has no vercel.json, so no crons register)
+- [ ] Optional custom domain — NEVER a subdomain of fasttraxent.com / headpinz.com
+      (publicOrigin's keep-list would treat it as a guest host and QRs/TV URLs would
+      point at the auth wall)
+- [ ] Smoke on the `*.vercel.app` URL: logged-out → login wall everywhere; logged-in →
+      /pit /checkin /reservations /daily-events-v2 render WITH live data; / and
+      /fort-myers 404; /admin/{token}/pit redirects to /pit; VIP voucher QR + signage
+      TV/.bat URLs show headpinz.com (not the admin domain); no Clarity script tag on
+      admin pages; main site unchanged
+- [ ] Staff access: add staff as Vercel team members (that login IS the auth)
 
 ## "In Karts" — a fifth stage, and the rail that makes room for it (2026-08-14) — on `feat/checkin-board-in-karts`, NOT smoked
 
