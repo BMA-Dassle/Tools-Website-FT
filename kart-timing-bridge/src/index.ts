@@ -137,26 +137,6 @@ const IDLE_CHECK_INTERVAL_MS = 5_000;
 /** A session has to last this long AND have delivered a frame before we treat
  *  it as healthy enough to reset the backoff. */
 const HEALTHY_SESSION_MS = 60_000;
-/**
- * WATCHDOG 4 — the subscription itself goes stale (2026-08-17, the Mega
- * night). BcStart subscribes to the "Karting" CATEGORY, but the snapshot the
- * server builds for it is a fact about subscribe TIME: a resource that goes
- * live afterwards — the Mega circuit appearing when the barrier comes out —
- * never joined a connection that had been up for days, and the race clocks
- * derived from these frames sat dead on exactly the night that resource
- * mattered (owner: "our timing socket needs to restart/adjust since it now
- * has a new resource").
- *
- * So no session outlives this: a scheduled close, and the ordinary reconnect
- * re-sends BcStart with a fresh snapshot. Everything that makes that cheap
- * already exists — a healthy session resets the backoff (reconnect in ~1-2s),
- * the venue resends its snapshot every second, the dedupe cache is cleared on
- * close so the catch-up replay forwards, and the race-clock consumer guards
- * replays by RecordVersion (the 2026-08-15 lesson). Worst case is a one-beat
- * gap four times an hour; the alternative was a human remembering to restart
- * the bridge on Mega nights.
- */
-const SUBSCRIPTION_REFRESH_MS = 15 * 60_000;
 
 // SMS-Timing / Tournament Manager broadcast subscription. Sent on
 // every successful WebSocket open. Matches the protocol the user
@@ -406,7 +386,6 @@ async function consumeStream(): Promise<SessionResult> {
     let connectTimer: ReturnType<typeof setTimeout> | null = null;
     let pingTimer: ReturnType<typeof setInterval> | null = null;
     let idleTimer: ReturnType<typeof setInterval> | null = null;
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
     const clearTimers = (): void => {
       if (connectTimer !== null) {
@@ -420,10 +399,6 @@ async function consumeStream(): Promise<SessionResult> {
       if (idleTimer !== null) {
         clearInterval(idleTimer);
         idleTimer = null;
-      }
-      if (refreshTimer !== null) {
-        clearTimeout(refreshTimer);
-        refreshTimer = null;
       }
     };
 
@@ -487,35 +462,6 @@ async function consumeStream(): Promise<SessionResult> {
           kill(`no frame in ${Math.round(silentMs / 1000)}s (feed resends every 1s)`);
         }
       }, IDLE_CHECK_INTERVAL_MS);
-
-      // WATCHDOG 4 — the scheduled subscription refresh (see the constant).
-      // A GRACEFUL close, unlike the kills above: the peer is healthy, we just
-      // want a fresh BcStart snapshot. Terminate only if the close handshake
-      // itself hangs.
-      refreshTimer = setTimeout(() => {
-        endReason = `scheduled subscription refresh (${SUBSCRIPTION_REFRESH_MS / 60_000}m)`;
-        console.log(
-          `[kart-bridge] ${endReason} — reopening so BcStart re-snapshots the resource list`,
-        );
-        clearTimers();
-        try {
-          ws.close();
-        } catch {
-          try {
-            ws.terminate();
-          } catch {
-            /* already gone */
-          }
-        }
-        const failsafe = setTimeout(() => {
-          try {
-            ws.terminate();
-          } catch {
-            /* already gone */
-          }
-        }, 3_000);
-        failsafe.unref?.();
-      }, SUBSCRIPTION_REFRESH_MS);
     });
 
     ws.on("pong", () => {
