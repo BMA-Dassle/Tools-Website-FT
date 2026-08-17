@@ -32,9 +32,10 @@ import { businessDayYmdET } from "@/lib/race-business-day";
 import {
   extractRaceFinishes,
   extractRaceStarts,
+  extractRaceStops,
   isActionableFinish,
 } from "~/features/racing/venue-broadcast";
-import { recordRaceTiming } from "~/features/racing/data/race-timings-db";
+import { recordRacePause, recordRaceTiming } from "~/features/racing/data/race-timings-db";
 import { listBriefingAssignments } from "./assignments-db";
 import { announceReturnOnce } from "./return-announce.server";
 import { loadOrCaptureResults } from "./race-results.server";
@@ -164,6 +165,51 @@ async function recordRaceStarts(message: unknown): Promise<void> {
 }
 
 /**
+ * Write down every race STOP in a message — the e-stop record.
+ *
+ * WHY THIS EXISTS: `RaceStop` has been arriving and being parsed since the race
+ * clock was built, but the only thing that ever consumed it was
+ * `kart:raceclock:{raceId}`, which is gone within 90 minutes. So nothing could
+ * answer "was that heat red-flagged?" a day later — which the POV highlight reel
+ * has to know, because a stopped race must never reach a marketing wall.
+ *
+ * THE REPLAY TRAP, AND WHY THE CLAIM KEY IS SHAPED THIS WAY. The broadcast
+ * re-sends the whole day's race list on every state change, so while a race sits
+ * paused its `RaceStop` record rides along in EVERY push — dozens of times for one
+ * red flag. A naive increment would report a clean night as a massacre. The claim
+ * is therefore per (race, RecordVersion): the version moves when the race's state
+ * genuinely changes, so a second, later pause of the same race claims again and is
+ * counted, while the same pause re-arriving is not.
+ *
+ * RecordVersion is not guaranteed on every record (the bridge notes RaceAdvice
+ * often lacks one), so a record without it falls back to a MINUTE bucket — coarse
+ * enough to swallow the replay storm, fine enough that two pauses a few minutes
+ * apart still both land. Undercounting a repeat pause is the safe direction: the
+ * reel filters on `pause_count > 0`, and 1 excludes the race exactly as 2 would.
+ *
+ * Never throws: this is an archive riding an ingest webhook.
+ */
+async function recordRaceStops(message: unknown, receivedAtMs: number): Promise<void> {
+  for (const s of extractRaceStops(message)) {
+    const claimSuffix = s.recordVersion ?? `t${Math.floor(receivedAtMs / 60_000)}`;
+    const claim = await redis
+      .set(`race-pause:${s.raceId}:${claimSuffix}`, "1", "EX", 36 * 3600, "NX")
+      .catch(() => null);
+    if (claim !== "OK") continue;
+    await recordRacePause({
+      sessionId: s.raceId,
+      track: s.track,
+      heatNumber: s.heatNumber,
+      heatName: s.heatName || null,
+      startedAtMs: s.actualStartMs,
+      // `RaceStop` stamps no time of its own — the bridge's own receipt time is
+      // the honest anchor, and it is what the webhook already computed.
+      pausedAtMs: receivedAtMs,
+    }).catch((err) => console.error("[race-timings] pause write failed", err));
+  }
+}
+
+/**
  * Bookmark a race event across its track's cameras, gated on the kill switch.
  *
  * Wrapped rather than called directly so the switch check and the swallow live
@@ -201,7 +247,13 @@ async function markRaceCameras(args: {
  * gated three deep: the freshness rule (pure, tested), a per-race NX claim,
  * and the announcer's own per-(room,session) claim underneath.
  */
-export async function handleVenueMessage(message: unknown): Promise<void> {
+export async function handleVenueMessage(
+  message: unknown,
+  /** The bridge's own arrival stamp, shared with the race clock so a pause and
+   *  the countdown cannot disagree about when a message landed. Defaults to our
+   *  clock, which is honest to within the POST + queue lag. */
+  receivedAtMs: number = Date.now(),
+): Promise<void> {
   try {
     /**
      * THE FLAG DROPPING, RECORDED AS IT HAPPENS (owner 2026-08-12: "don't we have
@@ -217,6 +269,14 @@ export async function handleVenueMessage(message: unknown): Promise<void> {
      * carry starts and no finishes at all, which the old early-return dropped.
      */
     await recordRaceStarts(message);
+
+    /**
+     * THE RED FLAG, RECORDED. Independent of the finish loop for the same reason
+     * starts are: a message can carry a stop and no finish at all, and a race
+     * that is paused right now has not finished by definition. See
+     * recordRaceStops for why the claim key is shaped the way it is.
+     */
+    await recordRaceStops(message, receivedAtMs);
 
     const finishes = extractRaceFinishes(message);
     if (finishes.length === 0) return;
@@ -249,6 +309,10 @@ export async function handleVenueMessage(message: unknown): Promise<void> {
             heatName: f.heatName || null,
             startedAtMs: f.actualStartMs,
             endedAtMs: f.actualEndMs,
+            // Racing time excluding pauses, straight off the finish record. The
+            // cross-check on pause_count: a wall-clock span much longer than
+            // this is a stop we may have missed to a bridge outage.
+            durationMs: f.durationMs,
           }).catch((err) => {
             // Metrics data, not a guest-facing effect: a Neon blip must never
             // cost the radio call or the standings capture below it.

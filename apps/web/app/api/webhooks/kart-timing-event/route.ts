@@ -97,6 +97,17 @@ export async function POST(req: NextRequest) {
   // and any future heartbeat-gated cron, mirroring the VT3 pattern.
   redis.set(HEARTBEAT_KEY, new Date().toISOString(), "EX", HEARTBEAT_TTL).catch(() => void 0);
 
+  /**
+   * THE BRIDGE'S ARRIVAL STAMP — resolved once, ahead of both handlers below,
+   * because both now need it and they must not disagree about when a message
+   * landed. `Date.now()` here is that moment plus the POST, the bridge's serial
+   * queue and Vercel's scheduling; the wall showed the difference as a countdown
+   * ~3s slow (owner 2026-08-15). Falls back to our clock only if the stamp is
+   * missing or unparseable.
+   */
+  const bridgeStampMs = body.receivedAt ? Date.parse(body.receivedAt) : NaN;
+  const anchorMs = Number.isFinite(bridgeStampMs) ? bridgeStampMs : Date.now();
+
   // Phase 2: act on the race lifecycle. A fresh RaceFinish in this message
   // flips the welcome-back fast path, captures final standings off the timing
   // socket, and fires the return radio call — seconds after the flag instead
@@ -107,7 +118,7 @@ export async function POST(req: NextRequest) {
   // the very latency the fast path exists to fix (review 2026-08-12). The
   // handler never throws; a failure inside after() costs one race the fast
   // path, and the Pandora fallback still covers it.
-  after(() => handleVenueMessage(message));
+  after(() => handleVenueMessage(message, anchorMs));
 
   /**
    * The race countdown every TV in the building reads.
@@ -127,10 +138,8 @@ export async function POST(req: NextRequest) {
    * that plus the POST, the serial queue and Vercel's own scheduling, and the
    * wall showed it — a countdown ~3s slow (owner 2026-08-15). Falls back to our
    * clock only if the stamp is missing or unparseable, since a clock a few
-   * seconds out still beats no clock.
+   * seconds out still beats no clock — see the anchor resolved above.
    */
-  const bridgeStampMs = body.receivedAt ? Date.parse(body.receivedAt) : NaN;
-  const anchorMs = Number.isFinite(bridgeStampMs) ? bridgeStampMs : Date.now();
   after(() => updateRaceClocks(message, anchorMs));
 
   /**

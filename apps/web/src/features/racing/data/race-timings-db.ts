@@ -58,6 +58,28 @@ async function ensureSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS race_timings_day_idx
       ON race_timings (venue, business_day, started_at)
   `;
+  /**
+   * DID THIS RACE GET STOPPED? Added 2026-08-17 for the POV highlight reel, which
+   * must not put a red-flagged heat on a marketing wall.
+   *
+   * The signal was already arriving and already parsed — `RaceStop` (State:
+   * "Paused") comes over the venue broadcast and `extractRaceStops` has read it
+   * since the race clock was built. What was missing was anywhere to KEEP it: the
+   * accurate figure lives in Redis as `kart:raceclock:{raceId}.pausedTotalMs` and
+   * is gone inside 90 minutes, so "was last Tuesday's heat 44 stopped?" had no
+   * answer at all.
+   *
+   * ADD COLUMN IF NOT EXISTS rather than a migration file: this table self-creates
+   * (see above) and a deploy must be able to land on a database that already has
+   * the old shape.
+   *
+   * `duration_ms` rides along because the finish record has carried it all along
+   * and it is the cross-check on the pause columns — a wall-clock span far longer
+   * than the race duration is a pause we may have missed to a bridge outage.
+   */
+  await q`ALTER TABLE race_timings ADD COLUMN IF NOT EXISTS pause_count INTEGER NOT NULL DEFAULT 0`;
+  await q`ALTER TABLE race_timings ADD COLUMN IF NOT EXISTS first_paused_at TIMESTAMPTZ`;
+  await q`ALTER TABLE race_timings ADD COLUMN IF NOT EXISTS duration_ms BIGINT`;
   schemaReady = true;
 }
 
@@ -71,6 +93,17 @@ export interface RaceTiming {
   startedAtMs: number | null;
   /** The venue's own ActualEnd, ms. */
   endedAtMs: number | null;
+  /**
+   * How many times this race was stopped. **0 is only trustworthy for races that
+   * ran after 2026-08-17** — nothing recorded pauses before that, so an older row
+   * reads 0 because nobody was looking, not because the race ran clean.
+   */
+  pauseCount: number;
+  /** First pause, by MESSAGE ARRIVAL time — `RaceStop` carries no timestamp of
+   *  its own (see extractRaceStops). Honest to the pipe's delivery lag. */
+  firstPausedAtMs: number | null;
+  /** The venue's own DurationTime, ms — racing time, excluding pauses. */
+  durationMs: number | null;
 }
 
 export interface RecordRaceTimingArgs {
@@ -81,6 +114,8 @@ export interface RecordRaceTimingArgs {
   heatName: string | null;
   startedAtMs: number | null;
   endedAtMs: number | null;
+  /** The venue's own DurationTime, ms. Absent on records that do not carry it. */
+  durationMs?: number | null;
 }
 
 function toRow(r: Record<string, unknown>): RaceTiming {
@@ -92,6 +127,9 @@ function toRow(r: Record<string, unknown>): RaceTiming {
     heatName: r.heat_name == null ? null : String(r.heat_name),
     startedAtMs: r.started_at == null ? null : Date.parse(String(r.started_at)),
     endedAtMs: r.ended_at == null ? null : Date.parse(String(r.ended_at)),
+    pauseCount: r.pause_count == null ? 0 : Number(r.pause_count),
+    firstPausedAtMs: r.first_paused_at == null ? null : Date.parse(String(r.first_paused_at)),
+    durationMs: r.duration_ms == null ? null : Number(r.duration_ms),
   };
 }
 
@@ -115,16 +153,74 @@ export async function recordRaceTiming(args: RecordRaceTimingArgs): Promise<void
   const q = sql();
   await q`
     INSERT INTO race_timings
-      (session_id, venue, business_day, track, heat_number, heat_name, started_at, ended_at)
+      (session_id, venue, business_day, track, heat_number, heat_name,
+       started_at, ended_at, duration_ms)
     VALUES
       (${args.sessionId}, ${args.venue ?? "FT"}, ${businessDay}, ${args.track},
-       ${args.heatNumber}, ${args.heatName}, ${startedAt}, ${endedAt})
+       ${args.heatNumber}, ${args.heatName}, ${startedAt}, ${endedAt},
+       ${args.durationMs ?? null})
     ON CONFLICT (session_id) DO UPDATE SET
       started_at  = COALESCE(EXCLUDED.started_at, race_timings.started_at),
       ended_at    = COALESCE(EXCLUDED.ended_at, race_timings.ended_at),
       track       = COALESCE(EXCLUDED.track, race_timings.track),
       heat_number = COALESCE(EXCLUDED.heat_number, race_timings.heat_number),
-      heat_name   = COALESCE(EXCLUDED.heat_name, race_timings.heat_name)
+      heat_name   = COALESCE(EXCLUDED.heat_name, race_timings.heat_name),
+      duration_ms = COALESCE(EXCLUDED.duration_ms, race_timings.duration_ms)
+  `;
+}
+
+/**
+ * Write down that a race was STOPPED.
+ *
+ * Separate from recordRaceTiming because the semantics are opposite: that one
+ * COALESCEs (a replay may only ever fill a gap), while a pause must ACCUMULATE —
+ * a race stopped twice is a different race from one stopped once. Folding both
+ * into a single upsert would force one of them to lie.
+ *
+ * THE CALLER OWNS DUPLICATE SUPPRESSION. The broadcast re-sends the whole day's
+ * race list on every state change, so a paused race's `RaceStop` record arrives
+ * in EVERY push until it resumes — incrementing on each one would count a single
+ * red flag dozens of times. race-finish.server.ts claims per (raceId,
+ * recordVersion) before calling this; see recordRaceStops there.
+ *
+ * The row may not exist yet: a pause can be processed before the start write
+ * lands, so this INSERTs a partial row rather than dropping the fact.
+ */
+export async function recordRacePause(args: {
+  venue?: string;
+  sessionId: string;
+  track: string | null;
+  heatNumber: number | null;
+  heatName: string | null;
+  /** The race's own ActualStart, for the business-day anchor — `RaceStop`
+   *  carries it unchanged through a pause. */
+  startedAtMs: number | null;
+  /** Message ARRIVAL time. `RaceStop` stamps no time of its own. */
+  pausedAtMs: number;
+}): Promise<void> {
+  if (!isDbConfigured() || !args.sessionId) return;
+  await ensureSchema();
+
+  const anchorMs = args.startedAtMs ?? args.pausedAtMs;
+  const businessDay = businessDayYmdET(new Date(anchorMs));
+  const startedAt = args.startedAtMs == null ? null : new Date(args.startedAtMs).toISOString();
+  const pausedAt = new Date(args.pausedAtMs).toISOString();
+
+  const q = sql();
+  await q`
+    INSERT INTO race_timings
+      (session_id, venue, business_day, track, heat_number, heat_name,
+       started_at, pause_count, first_paused_at)
+    VALUES
+      (${args.sessionId}, ${args.venue ?? "FT"}, ${businessDay}, ${args.track},
+       ${args.heatNumber}, ${args.heatName}, ${startedAt}, 1, ${pausedAt})
+    ON CONFLICT (session_id) DO UPDATE SET
+      pause_count     = race_timings.pause_count + 1,
+      first_paused_at = COALESCE(race_timings.first_paused_at, EXCLUDED.first_paused_at),
+      started_at      = COALESCE(race_timings.started_at, EXCLUDED.started_at),
+      track           = COALESCE(race_timings.track, EXCLUDED.track),
+      heat_number     = COALESCE(race_timings.heat_number, EXCLUDED.heat_number),
+      heat_name       = COALESCE(race_timings.heat_name, EXCLUDED.heat_name)
   `;
 }
 
@@ -134,7 +230,8 @@ export async function listRaceTimings(venue: string, businessDay: string): Promi
   await ensureSchema();
   const q = sql();
   const rows = (await q`
-    SELECT session_id, business_day, track, heat_number, heat_name, started_at, ended_at
+    SELECT session_id, business_day, track, heat_number, heat_name, started_at, ended_at,
+           pause_count, first_paused_at, duration_ms
     FROM race_timings
     WHERE venue = ${venue} AND business_day = ${businessDay}
     ORDER BY started_at ASC NULLS LAST, session_id ASC
@@ -164,7 +261,8 @@ export async function listRaceTimingsSince(
   // this venue will ever write, so one query serves both shapes.
   const to = toBusinessDay ?? "9999-12-31";
   const rows = (await q`
-    SELECT session_id, business_day, track, heat_number, heat_name, started_at, ended_at
+    SELECT session_id, business_day, track, heat_number, heat_name, started_at, ended_at,
+           pause_count, first_paused_at, duration_ms
     FROM race_timings
     WHERE venue = ${venue} AND business_day >= ${fromBusinessDay} AND business_day <= ${to}
     ORDER BY business_day ASC, started_at ASC NULLS LAST

@@ -22,6 +22,7 @@ import "server-only";
  * personId or anything"). No BMI ids ride through here, so plain JSON is safe.
  */
 import redis from "@/lib/redis";
+import { recordRaceLapResults } from "~/features/racing/data/race-lap-results-db";
 import { captureTrackResults } from "./results-capture.server";
 import type { ResultsDriver } from "./results-frame";
 import type { TrackKey } from "../track";
@@ -110,5 +111,28 @@ export async function loadOrCaptureResults(args: {
   } catch {
     /* served this once from memory; the next poll re-captures */
   }
+
+  /**
+   * THE SAME STANDINGS, KEPT (Neon) — see racing/data/race-lap-results-db.ts.
+   *
+   * Redis above stays the hot path and the 48h TTL stays exactly as it was: this
+   * is an archive written underneath it, not a change to how any board reads.
+   * It exists because the TTL is the right lifetime for a welcome-back wall and
+   * the wrong one for "the fastest laps this week" — and because the POV overlay
+   * loses a fifth of its cards to that same expiry.
+   *
+   * AFTER the Redis write and swallowed on failure, in that order and on
+   * purpose: the boards must never lose their names to a Neon blip, and this
+   * capture window does not come round again.
+   */
+  await recordRaceLapResults({
+    sessionId: args.sessionId,
+    heatName: frame.heatName,
+    heatNumber: frame.heatNumber,
+    track: args.track,
+    capturedAtMs: record.capturedAtMs,
+    drivers: record.drivers,
+  }).catch((err) => console.error("[race-lap-results] archive write failed", err));
+
   return record;
 }
