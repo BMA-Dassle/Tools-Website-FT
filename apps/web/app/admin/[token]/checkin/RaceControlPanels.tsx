@@ -91,7 +91,6 @@ import {
   type BriefingPhase,
   type BriefingRoom,
   type BriefingRoomState,
-  type BriefingTier,
 } from "~/features/signage/briefing/types";
 import { pullIsLate } from "~/features/signage/briefing/pull-to-room";
 import { punctuality } from "~/features/signage/track-delay";
@@ -536,8 +535,6 @@ export default function RaceControlPanels({
               // deadline known", so a board still connecting never flashes at a
               // window it is guessing at.
               checkinWindowMins={board?.checkinWindowMins?.[track] ?? 0}
-              tierOverride={control.tierOverride[room] ?? null}
-              onTierOverride={(tier) => control.setTierOverride(room, tier)}
               locked={board?.enabled === false}
               pending={pending}
               expandedCamera={expanded}
@@ -1164,8 +1161,6 @@ function RoomColumn({
   checkinWindowMins,
   sentTo,
   checkedIn,
-  tierOverride,
-  onTierOverride,
   locked,
   pending,
   expandedCamera,
@@ -1198,8 +1193,6 @@ function RoomColumn({
   /** This heat's check-in progress, for the Called box. Null when the station
    *  has not reported one for this session. */
   checkedIn: CheckinCount | null;
-  tierOverride: BriefingTier | null;
-  onTierOverride: (tier: BriefingTier | null) => void;
   locked: boolean;
   pending: string | null;
   /** Which camera the full-screen viewer has open, if any — a preview whose own
@@ -1256,8 +1249,15 @@ function RoomColumn({
    *
    * So an idle room here means an empty room, and says so.
    */
-  const autoTier = tierForRaceType(race?.raceType);
-  const tier = tierOverride ?? autoTier;
+  /**
+   * WHICH FILM THIS HEAT GETS — derived from the session, full stop.
+   *
+   * There used to be a `tierOverride` layered on top of this, set by three
+   * buttons in the Called box. It is gone (owner 2026-08-16): the film a grid is
+   * briefed with is not a desk decision, and the send it rides on is recorded
+   * for insurance. See the VIDEO row below.
+   */
+  const tier = tierForRaceType(race?.raceType);
   // The desk says what will REALLY play before the send: a Pro pick with no Pro
   // film uploaded runs the Intermediate film (owner 2026-08-11). Availability
   // comes down as a prop — `board` lives in the parent.
@@ -1618,26 +1618,41 @@ function RoomColumn({
               <span style={{ fontSize: 10, color: PORTAL_DARK.muted, letterSpacing: "0.06em" }}>
                 VIDEO
               </span>
-              {(["starter", "intermediate", "pro"] as BriefingTier[]).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className="rcb"
-                  onClick={() => onTierOverride(t === autoTier ? null : t)}
-                  aria-pressed={tier === t}
-                  style={{
-                    padding: "4px 11px",
-                    borderRadius: 5,
-                    borderColor: tier === t ? withAlpha(color, 0.8) : PORTAL_DARK.border,
-                    background: tier === t ? withAlpha(color, 0.16) : "transparent",
-                    color: tier === t ? INK : PORTAL_DARK.muted,
-                    fontSize: 11,
-                  }}
-                >
-                  {cap(t)}
-                  {t === autoTier ? " · auto" : ""}
-                </button>
-              ))}
+              {/* A READOUT, NOT A PICKER (owner 2026-08-16: block the briefing
+                  video types from being changed on the check-in board).
+
+                  This was three buttons — Starter · auto / Intermediate / Pro —
+                  and a desk with a group standing in front of it is the worst
+                  place to be choosing a SAFETY film. The session's own race type
+                  already decides it (tierForRaceType), the Pro→Intermediate
+                  fallback already covers the one film that can be missing, and
+                  the choice is durable: whatever is picked here is what the
+                  insurance log records as the briefing that grid received. A
+                  mis-tap on a touch monitor could therefore put a first-timer
+                  grid in front of the returning-racer film, and the log would
+                  carry that as the fact of the night.
+
+                  So the row still says which film this heat gets — that is the
+                  thing staff actually read before a send — it just no longer
+                  offers to change it. The chip keeps the selected button's
+                  colours deliberately: the answer is unchanged, only the
+                  affordance is gone. Uploading the films is still a staff job,
+                  on the Lobby TVs page, where it belongs. */}
+              <span
+                title="The briefing film follows the session's race type and cannot be changed from this board."
+                style={{
+                  padding: "4px 11px",
+                  borderRadius: 5,
+                  border: `1px solid ${withAlpha(color, 0.8)}`,
+                  background: withAlpha(color, 0.16),
+                  color: INK,
+                  fontSize: 11,
+                  fontWeight: 650,
+                }}
+              >
+                {cap(tier)}
+              </span>
+              <span style={{ fontSize: 10, color: PORTAL_DARK.muted }}>set by race type</span>
               {/* Say what will REALLY play, before the send — the fallback is
                   server-side, and hiding it would leave staff thinking a Pro grid
                   is getting a film that does not exist yet. */}

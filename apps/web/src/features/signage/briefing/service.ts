@@ -74,8 +74,9 @@ export interface SendBriefingArgs {
   sessionId: string;
   heatNumber: number | null;
   raceType: string | null;
-  /** Staff override. Absent ⇒ derived from the session's own type. */
-  tier?: BriefingTier | null;
+  /* NO `tier` FIELD (owner 2026-08-16). It was the staff override, set by three
+     buttons on the check-in board; the film is derived from `raceType` below and
+     there is no longer any way to ask for a different one. */
 }
 
 export type SendBriefingResult =
@@ -95,10 +96,16 @@ export type SendBriefingResult =
  * The tier decides which film plays and defaults from the session type, with PRO
  * SESSIONS TAKING THE PRO FILM when one is uploaded, falling back to the
  * INTERMEDIATE film when it is not (owner 2026-08-11, superseding the earlier
- * Pro→Starter rule). Staff can still override per send.
+ * Pro→Starter rule).
+ *
+ * NOBODY PICKS THE FILM (owner 2026-08-16). Staff used to be able to override the
+ * tier per send from the check-in board; the session's own type is now the only
+ * input, so the film a grid is briefed with — and the film the insurance log
+ * records them as having been briefed with — cannot diverge from the race they
+ * are about to run.
  */
 export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefingResult> {
-  const requestedTier = args.tier ?? tierForRaceType(args.raceType);
+  const requestedTier = tierForRaceType(args.raceType);
   const businessDay = businessDayYmdET();
 
   // The EFFECTIVE film — a Pro request falls back to the Intermediate film when

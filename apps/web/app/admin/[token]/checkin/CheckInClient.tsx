@@ -198,11 +198,16 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
    * Briefing-room state lives HERE, not in the panels.
    *
    * The scan flash below is an early return, so the panels unmount for its four
-   * seconds. Held in the panels, a staff member's Starter/Intermediate override
-   * reset to auto on every scan (they could then send the wrong film), the
-   * "sent to the red room" note vanished mid-read, and the room panels repainted
-   * empty until the next poll. This component's own state survives the early
-   * return, so the state and its poller do too.
+   * seconds. Held in the panels, the "sent to the red room" note vanished
+   * mid-read, the open camera viewer slammed shut in the face of whoever was
+   * watching a room fill, and the room panels repainted empty until the next
+   * poll. This component's own state survives the early return, so the state and
+   * its poller do too.
+   *
+   * (A fourth reason retired 2026-08-16: a staff Starter/Intermediate film
+   * override used to reset to auto on every scan, which could send the wrong
+   * film. There is no override any more — see the VIDEO row in
+   * RaceControlPanels.)
    */
   const briefing = useBriefingControl(token, boardMode);
   /**
