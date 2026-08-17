@@ -126,6 +126,34 @@ export function briefingTimelineAt(
 }
 
 /**
+ * HAS THE HELMET BOARD HAD ITS FULL RUN? PURE — the one copy of that question.
+ *
+ * "The helmet phase is max 30 seconds, just don't auto send them to holding
+ * after 30 seconds" (owner 2026-08-14). The SCREEN moves on at that mark; the
+ * OCCUPANCY does not — `briefingTimelineAt` parks on `helmet` for ever and only
+ * a press or the camera sweep ends it. So this is not "are they gone", it is
+ * "have they had the board they were given", and two different screens now ask
+ * it: the welcome-back board takes the wall after it, and the room-blocked
+ * alert may not fire before it.
+ *
+ * ONE FUNCTION BECAUSE IT IS ONE MOMENT. It lived inline in SceneBriefing while
+ * only the greeting needed it; a second inline copy in the alert would be two
+ * places to get `videoMs + HELMET_PHASE_MS` right, and the failure would be
+ * silent — an alert that fires over a group still reading helmet sizes.
+ *
+ * False for an idle room and for one still on `assigned`/`video`: there is no
+ * helmet board to have finished.
+ */
+export function helmetBoardComplete(
+  state: BriefingRoomState | null | undefined,
+  timeline: BriefingTimeline,
+  nowMs: number,
+): boolean {
+  if (!state || timeline.phase !== "helmet") return false;
+  return nowMs - state.triggeredAtMs >= timeline.videoMs + HELMET_PHASE_MS;
+}
+
+/**
  * MAY THIS ROOM'S GROUP BE SENT TO THE SEATS YET? PURE — a timeline in, a
  * verdict out.
  *

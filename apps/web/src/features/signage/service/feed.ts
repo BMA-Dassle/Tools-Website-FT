@@ -51,6 +51,7 @@ import { loadSignageAssetsSafe } from "../data/signage-assets-db";
 import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
 import { resolveWelcomeBack } from "../briefing/welcome-back.server";
 import { resolveCameraReturn } from "../briefing/camera-return.server";
+import { resolveRoomBlocked } from "../briefing/room-blocked.server";
 import type { TvFeed, TvPulse } from "../types";
 
 /** Screens phone home on every poll; the admin page reads these for its
@@ -98,6 +99,9 @@ export async function buildTvFeed(
     raceCheckin: null,
     briefing: null,
     briefingRooms: null,
+    // PULSE-ONLY, like the fast roster below — the gate behind it is resolved
+    // on the 2-second beat, never on the 15s poll.
+    roomBlocked: null,
     pitBoard: null,
     pitLanes: null,
     // PULSE-ONLY — the full feed never carries the fast roster; useTvFeed
@@ -256,6 +260,7 @@ export async function buildTvFeed(
     nextAvailable,
     briefing: briefing?.section ?? null,
     briefingRooms: briefing?.rooms ?? null,
+    roomBlocked: null,
     pitBoard,
     pitLanes,
     checkinProgress: checkinRail,
@@ -442,6 +447,7 @@ export async function buildTvPulse(
       cameraReturn: null,
       pitLanes: null,
       pitRosters: null,
+      roomBlocked: null,
     };
   }
 
@@ -483,6 +489,19 @@ export async function buildTvPulse(
   // building of screens still plays it at most once per interval per track;
   // after the response, so the PA round trip never delays a wall repaint.
   if (pitLanes) afterResponse(() => nudgeStaySeated(pitLanes));
+  /**
+   * IS EITHER ROOM HOLDING UP A RACE THAT IS ALREADY BACK IN THE PIT?
+   *
+   * Both inputs are in hand already — the rooms MGET above and the lanes beside
+   * it — so this adds one Redis GET per occupied `pitIn` slot and nothing at all
+   * on a night when no race is waiting. Fails to "nothing is blocked": a wall
+   * that cannot read the gate must stay quiet rather than raise a full-screen
+   * alarm on a room that may be perfectly clear.
+   */
+  const roomBlocked =
+    wantsBriefing && briefingRooms && pitLanes
+      ? await resolveRoomBlocked(briefingRooms, pitLanes).catch(() => null)
+      : null;
   return {
     now,
     kioskEvents,
@@ -492,6 +511,7 @@ export async function buildTvPulse(
     cameraReturn,
     pitLanes,
     pitRosters,
+    roomBlocked,
   };
 }
 

@@ -138,6 +138,12 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
       // The fast roster is pulse-only (the full feed always carries null), so
       // a dropped beat keeps the last pulse's picture rather than blanking it.
       pitRosters: pulse.pitRosters ?? feed.pitRosters,
+      // Pulse-only too. "Nothing is blocked" arrives as an OBJECT of nulls, not
+      // as null, so it wins on its own and the alert clears the moment the room
+      // does — null here means the gate could not be read at all, and then the
+      // last known answer stands rather than a full-screen alarm appearing
+      // because one Redis call blipped.
+      roomBlocked: pulse.roomBlocked ?? feed.roomBlocked,
       /**
        * THE CAMERA STRIP, on the fast lane so a registration clears in seconds
        * rather than on the next 15s poll (owner 2026-08-12).

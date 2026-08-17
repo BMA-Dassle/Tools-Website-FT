@@ -576,6 +576,12 @@ export interface TvFeed {
    */
   briefingRooms: Record<"red" | "blue", BriefingRoomState | null> | null;
   /**
+   * PULSE-ONLY — which room, if either, is holding up a race that is already
+   * back in the pit. Always null on the full feed; useTvFeed merges the pulse's
+   * copy over it. See TvPulse.roomBlocked.
+   */
+  roomBlocked: Record<"red" | "blue", { heatNumber: number | null } | null> | null;
+  /**
    * Pit-board extra: the staged session, its roster with spots, and the
    * per-racer joins (camera, birthday, VIP). Null for every screen that is
    * not a pit board.
@@ -735,4 +741,22 @@ export interface TvPulse {
    * whatever the screen count (see pit/fast-roster.server.ts).
    */
   pitRosters: Record<"blue" | "red" | "mega", FastPitRoster | null> | null;
+  /**
+   * IS EITHER BRIEFING ROOM HOLDING UP A RACE THAT IS ALREADY BACK IN THE PIT,
+   * and which race (owner 2026-08-16)?
+   *
+   * The post-race announcement calls a finished group back in to hand kit over,
+   * so it cannot play into an occupied room — the rule `postRaceGate` has
+   * enforced since 2026-08-14. This is that same refusal, addressed to the room
+   * causing it, so the wall can raise it (briefing/room-blocked.ts).
+   *
+   * NOT DERIVED ON THE WALL from `pitLanes.pitIn.room`, deliberately: the gate
+   * decides the room from the briefed marker, which knows it in cases the lane
+   * slot does not. Resolving it here is what keeps the alert and the pit
+   * station's Play Post button describing one fact.
+   *
+   * FT only, and null whenever the gate could not be read — a wall that cannot
+   * answer stays quiet rather than raising a full-screen alarm on a clear room.
+   */
+  roomBlocked: Record<"red" | "blue", { heatNumber: number | null } | null> | null;
 }

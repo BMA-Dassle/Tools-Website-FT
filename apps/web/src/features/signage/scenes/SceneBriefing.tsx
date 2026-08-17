@@ -26,9 +26,10 @@ import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { withAlpha } from "../color";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { TRACK_ACCENTS, TRACK_LABELS, type TrackKey } from "../track";
-import { briefingTimelineAt } from "../briefing/phase";
+import { briefingTimelineAt, helmetBoardComplete } from "../briefing/phase";
+import { roomBlockedAlertAt } from "../briefing/room-blocked";
 import { incomingForRoom, normaliseCameraReturn } from "../briefing/camera-return";
-import { HELMET_PHASE_MS, tierForRaceType, type BriefingRoom } from "../briefing/types";
+import { tierForRaceType, type BriefingRoom } from "../briefing/types";
 import { LiveSessionChip } from "../live-session";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { useBriefingAssets } from "../briefing/useBriefingAssets";
@@ -166,9 +167,10 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
    * system's actualEnd for THIS room's latest group — so there is no window in
    * which this greets somebody who has not raced.
    */
-  const sinceStart = state ? nowMs - state.triggeredAtMs : 0;
-  const helmetBoardDone =
-    timeline.phase === "helmet" && sinceStart >= timeline.videoMs + HELMET_PHASE_MS;
+  // The board's own 30 seconds, from the one place that owns that question —
+  // the room-blocked alert below asks it too, and two inline copies of
+  // `videoMs + HELMET_PHASE_MS` is one of them getting it wrong later.
+  const helmetBoardDone = helmetBoardComplete(state, timeline, nowMs);
   const showWelcomeBack =
     (timeline.phase === "idle" || helmetBoardDone) && !!feed?.briefing?.welcomeBack;
 
@@ -302,9 +304,142 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
           {!cameraReturn && <LiveSessionChip track={liveTrack} accent={accent} />}
         </div>
       )}
+
+      {/* OVER EVERYTHING, the film included. See RoomBlockedOverlay. */}
+      <RoomBlockedOverlay
+        alert={roomBlockedAlertAt({ state, waiting: feed?.roomBlocked?.[room], nowMs })}
+        accent={accent}
+        room={room}
+      />
     </div>
   );
 }
+
+/* ── a race is waiting on this room ───────────────────────────────────── */
+
+/**
+ * FULL SCREEN, BECAUSE THE ROOM IS THE ONLY PLACE THE REFUSAL WAS NEVER SHOWN
+ * (owner 2026-08-16: "when a race is waiting in pit because the briefing room is
+ * occupied… flash a red full screen alert that a race is waiting in pit").
+ *
+ * The post-race announcement calls a finished group back in to hand kit over, so
+ * `postRaceGate` refuses to play it into an occupied room. That refusal has been
+ * visible at the pit station since 8/14 — a dark Play Post button with `red room
+ * busy` on it — and invisible to the fifteen people standing in the room causing
+ * it. This is the same verdict, addressed to them.
+ *
+ * IT ASKS FOR THE ONLY THING THE ROOM CAN DO (owner 2026-08-16: "it can't say
+ * leave room now — it can say helmet up and wait for a track marshal"). Nobody
+ * walks out of a briefing room unescorted, so an instruction to leave would be
+ * both unfollowable and unsafe. A group already helmeted and standing turns the
+ * marshal's trip into a twenty-second walk-out instead of a two-minute one,
+ * which is the whole of what this buys — it does not free the room, a marshal
+ * does, and the copy must not imply otherwise.
+ *
+ * NEVER DURING THE FILM OR THE HELMET BOARD'S OWN 30 SECONDS — that gate is
+ * `roomBlockedAlertAt`, and it is why this component takes a verdict rather than
+ * facts. Shouting at a group for watching the safety briefing they were sat down
+ * to watch is how a wall teaches a room to ignore it.
+ *
+ * MOTION IS NEVER THE ONLY SIGNAL. The same 1.4s beat the pit board's send gate
+ * uses — one beat per canvas — and reduced motion keeps the colour and the words
+ * while dropping the pulse.
+ */
+function RoomBlockedOverlay({
+  alert,
+  accent,
+  room,
+}: {
+  alert: ReturnType<typeof roomBlockedAlertAt>;
+  accent: string;
+  room: BriefingRoom;
+}) {
+  if (!alert) return null;
+  const heat = alert.heatNumber != null ? `Session ${alert.heatNumber}` : null;
+
+  return (
+    <div
+      role="alert"
+      className="room-gate"
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 90,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 18,
+        textAlign: "center",
+        padding: `0 ${PAD_X}px`,
+        // Opaque, not a tint. The helmet chart underneath has had its run, and a
+        // warning you can read a poster through is not a warning.
+        background: "#1a0206",
+        borderTop: `13px solid ${accent}`,
+      }}
+    >
+      <style>{ROOM_GATE_STYLES}</style>
+      <span className="tv-eyebrow" style={{ fontSize: 30, color: "rgba(245,236,238,0.6)" }}>
+        {ROOM_LABEL[room]}
+      </span>
+      <div
+        className="tv-display"
+        style={{
+          fontSize: 140,
+          lineHeight: 0.92,
+          color: STOP_RED,
+          textShadow: `0 0 86px ${withAlpha(STOP_RED, 0.55)}`,
+        }}
+      >
+        Helmet up
+      </div>
+      <div className="tv-display" style={{ fontSize: 69, color: "#fff" }}>
+        Wait for a track marshal
+      </div>
+      <div
+        aria-hidden
+        style={{
+          width: 280,
+          height: 5,
+          borderRadius: 3,
+          background: `linear-gradient(90deg, ${accent}, ${withAlpha(accent, 0)})`,
+        }}
+      />
+      {/* WHY, in the words that make it worth acting on. "Helmet up" with no
+          reason reads as ordinary signage; the waiting race is what turns it
+          into something to hurry for. */}
+      <p
+        style={{
+          fontSize: 37,
+          fontWeight: 600,
+          lineHeight: 1.3,
+          color: "rgba(255,255,255,0.82)",
+          margin: 0,
+          maxWidth: 1380,
+        }}
+      >
+        {heat ? `${heat} is waiting in the pit. ` : "A race is waiting in the pit. "}
+        Have your helmet on and be ready to move the moment a marshal comes for you.
+      </p>
+    </div>
+  );
+}
+
+/** The house alert red — the same one the pit board's STOP SENDING owns, so one
+ *  colour means one thing across every wall in the building. */
+const STOP_RED = "#ff2d38";
+
+const ROOM_GATE_STYLES = `
+.room-gate { animation: room-gate 1.4s ease-in-out infinite; }
+@keyframes room-gate {
+  0%, 100% { background-color: #1a0206; }
+  50%      { background-color: #48060f; }
+}
+/* A wall alert must never be motion-only — the colour and the words carry it. */
+@media (prefers-reduced-motion: reduce) {
+  .room-gate { animation: none; background-color: #48060f; }
+}
+`;
 
 /* ── the video ────────────────────────────────────────────────────────── */
 
