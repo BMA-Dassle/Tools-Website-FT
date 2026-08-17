@@ -29,6 +29,12 @@ const BUILD_SHA = (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || "dev").slice
 export function useTvFeed(screenId: string | null): TvFeed | null {
   const [feed, setFeed] = useState<TvFeed | null>(null);
   const lastGood = useRef<TvFeed | null>(null);
+  // What the mirror below last wrote (with the per-poll `now` stamp masked —
+  // it changes every response, so comparing it would never match), so an
+  // unchanged feed skips the setItem: a synchronous main-thread disk write,
+  // ~5,760 times a day per screen, almost all of them — overnight especially
+  // — identical to the last in everything but the stamp.
+  const lastWritten = useRef<string | null>(null);
 
   // Seed from the previous session so a boot mid-outage still has content.
   // Deferred a microtask so the state write lands in a callback rather than
@@ -72,7 +78,13 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
         lastGood.current = next;
         setFeed(next);
         try {
-          localStorage.setItem(CACHE_PREFIX + screenId, JSON.stringify(next));
+          const comparable = JSON.stringify({ ...next, now: 0 });
+          if (comparable !== lastWritten.current) {
+            // Stored WITH its real stamp — the boot-seed path reads it back as
+            // a whole feed, and briefing timelines derive from `now`.
+            localStorage.setItem(CACHE_PREFIX + screenId, JSON.stringify(next));
+            lastWritten.current = comparable;
+          }
         } catch {
           /* cache is an optimization, not a requirement */
         }

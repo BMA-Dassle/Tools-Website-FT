@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planCacheOps } from "./video-cache";
+import { planCacheOps, retypeForPlayback } from "./video-cache";
 
 /**
  * The cache POLICY, tested without a browser. The Cache Storage calls themselves
@@ -55,5 +55,43 @@ describe("planCacheOps", () => {
     // and must not queue two downloads of it.
     const plan = planCacheOps([], [STARTER_V1, STARTER_V1]);
     expect(plan.fetch).toEqual([STARTER_V1]);
+  });
+
+  it("names exactly the adopted object URLs safe to revoke on an idle sync", () => {
+    // The adoption ledger reuses this same policy: feeding it the ADOPTED urls
+    // instead of the cached ones, `drop` is precisely the set whose object URLs
+    // a superseding upload has stranded — and nothing a current manifest (and
+    // therefore possibly a playing briefing) still points at.
+    const idle = planCacheOps([STARTER_V1, INTER, POSTER], [STARTER_V2, INTER, POSTER]);
+    expect(idle.drop).toEqual([STARTER_V1]);
+
+    const unchanged = planCacheOps([STARTER_V2, INTER, POSTER], [STARTER_V2, INTER, POSTER]);
+    expect(unchanged.drop).toEqual([]);
+
+    const emptied = planCacheOps([STARTER_V2, INTER], []);
+    expect(emptied.drop.sort()).toEqual([INTER, STARTER_V2].sort());
+  });
+});
+
+describe("retypeForPlayback", () => {
+  it("re-types a non-mp4 video blob as video/mp4 without changing its bytes", () => {
+    // The .mov rescue: Chromium refuses video/quicktime as media even though the
+    // bytes are H.264 in an ISO container the MP4 demuxer reads happily.
+    const mov = new Blob(["not-really-video-bytes"], { type: "video/quicktime" });
+    const typed = retypeForPlayback(mov);
+    expect(typed.type).toBe("video/mp4");
+    expect(typed.size).toBe(mov.size);
+  });
+
+  it("returns an mp4 blob unchanged", () => {
+    const mp4 = new Blob(["bytes"], { type: "video/mp4" });
+    expect(retypeForPlayback(mp4)).toBe(mp4);
+  });
+
+  it("leaves non-video blobs alone (the helmet poster rides the same cache)", () => {
+    const png = new Blob(["png-bytes"], { type: "image/png" });
+    expect(retypeForPlayback(png)).toBe(png);
+    const untyped = new Blob(["mystery"]);
+    expect(retypeForPlayback(untyped)).toBe(untyped);
   });
 });

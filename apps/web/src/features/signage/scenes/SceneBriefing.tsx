@@ -563,7 +563,25 @@ function BriefingVideo({
         fail();
       }
     }, 2_000);
-    return () => clearInterval(poll);
+    return () => {
+      clearInterval(poll);
+      // TEAR THE MEDIA PIPELINE DOWN, not just the React node. A detached
+      // <video> keeps its demuxer, decoder and buffered frames alive until GC
+      // feels like it — and this element is keyed per send, so a briefing room
+      // detaches 50-odd of them a day. pause + srcless load() is the idiom
+      // Chromium actually releases on.
+      //
+      // `el` from the effect body, NOT ref.current: on unmount React nulls
+      // host refs during the commit's mutation phase, BEFORE passive cleanups
+      // run — reading the ref here would make this whole block a silent no-op.
+      try {
+        el.pause();
+      } catch {
+        /* already torn down */
+      }
+      el.removeAttribute("src");
+      el.load();
+    };
     // NO clock-derived value in this list — that is what caused the reseek loop —
     // and mountSrc never changes, so this runs exactly once per element.
   }, [mountSrc, onUnplayable]);
@@ -1097,8 +1115,12 @@ function useWelcomeBackAudio(
     return () => {
       stopped = true;
       if (timer != null) window.clearTimeout(timer);
+      el.onended = null;
       el.pause();
       el.removeAttribute("src");
+      // removeAttribute alone leaves the fetched resource selected; a srcless
+      // load() is what makes Edge actually let go of it.
+      el.load();
     };
   }, [url, postPlayedAtMs, roomEmpty]);
 }

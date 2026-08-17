@@ -228,6 +228,10 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
   const prevPositions = useRef<Map<string, number>>(new Map());
   const deltaClearTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const activeDeltas = useRef<Map<string, number>>(new Map());
+  // Which heat the position maps describe. A new heat clears them: they grow
+  // ~12 keys per heat forever on a page with no reload, and a driver racing
+  // consecutive heats would otherwise wear a bogus cross-heat position delta.
+  const heatKeyRef = useRef<string | null>(null);
   // Local countdown: sync from WS, tick locally every second
   const serverTimeRef = useRef(0);
   const serverReceivedAt = useRef(0);
@@ -268,12 +272,22 @@ function LiveTimingPanel({ serverKey, accent }: { serverKey: string; accent: str
           if (evt.data === "{}") {
             setNoRaces(true);
             setDrivers([]);
+            prevPositions.current.clear();
+            activeDeltas.current.clear();
+            heatKeyRef.current = null;
             return;
           }
           try {
             const data = JSON.parse(evt.data);
             setNoRaces(false);
             setHeatName((data.N || "").replace("[HEAT]", "Heat"));
+
+            const heatKey = (data.N as string) || "";
+            if (heatKey !== heatKeyRef.current) {
+              heatKeyRef.current = heatKey;
+              prevPositions.current.clear();
+              activeDeltas.current.clear();
+            }
 
             const state = data.S as number;
             setHeatState(

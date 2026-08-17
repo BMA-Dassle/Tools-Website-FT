@@ -463,10 +463,12 @@ export default function PitClient({ token, version }: { token: string; version: 
    */
   const buildUpdate = useBuildUpdate(version);
   useEffect(() => {
-    if (!buildUpdate.ready || pending != null) return;
+    // staleUptime: a tab past its max uptime recycles in the same quiet gap a
+    // new build would — the reload is also this tablet's memory amnesty.
+    if ((!buildUpdate.ready && !buildUpdate.staleUptime) || pending != null) return;
     const t = setTimeout(() => window.location.reload(), 60_000);
     return () => clearTimeout(t);
-  }, [buildUpdate.ready, pending]);
+  }, [buildUpdate.ready, buildUpdate.staleUptime, pending]);
 
   const play = useCallback(
     async (track: TrackKey, cue: "pre" | "post") => {

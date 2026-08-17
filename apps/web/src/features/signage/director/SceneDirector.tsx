@@ -126,6 +126,18 @@ export function SceneDirector({
   // the decision below can depend on it without reading a ref during render.
   const [seen, setSeen] = useState<ReadonlySet<string>>(() => new Set());
 
+  // The feed's CURRENT event ids, for pruning `seen` when it grows — a ref so
+  // the celebration timer below reads them at fire time without re-arming on
+  // every 15s poll. An id no longer in the feed cannot be chosen again
+  // (celebrationAt age-discards long before the feed forgets), so remembering
+  // it forever bought nothing — and on a lobby board firing on every kiosk
+  // booking, "forever" was thousands of retained ids on a page that never
+  // unmounts.
+  const feedEventIdsRef = useRef<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    feedEventIdsRef.current = new Set((feed?.kioskEvents ?? []).map((e) => e.id));
+  }, [feed]);
+
   useEffect(() => {
     const tick = () => setNowMs(Date.now() + offset);
     const iv = setInterval(tick, TICK_MS);
@@ -153,8 +165,15 @@ export function SceneDirector({
     if (!celebrationId) return;
     const remaining = Math.max(0, celebrationEndsAt - (Date.now() + offset));
     const t = setTimeout(() => {
-      // Timer callback, not a sync effect body.
-      setSeen((prev) => new Set(prev).add(celebrationId));
+      // Timer callback, not a sync effect body. Prunes to ids the feed still
+      // carries while it adds — see feedEventIdsRef above.
+      setSeen((prev) => {
+        const live = feedEventIdsRef.current;
+        const next = new Set<string>();
+        for (const id of prev) if (live.has(id)) next.add(id);
+        next.add(celebrationId);
+        return next;
+      });
     }, remaining);
     return () => clearTimeout(t);
   }, [celebrationId, celebrationEndsAt, offset]);
