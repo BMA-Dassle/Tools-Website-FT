@@ -75,14 +75,21 @@ export const raceinfoEn = {
   "raceInfo.upcoming.nowCheckingIn": "Now Checking In",
   "raceInfo.upcoming.onTime": "On Time",
   /**
-   * WHEN THE HEAT ACTUALLY GOES, replacing the old "On Time / +N Min" badge
-   * (2026-08-17). The tilde is doing real work: the prediction carries ±3-6 min
-   * of measured error and is rounded to five, so a bare "7:42" would claim a
-   * precision we do not have and a guest would read it as a promise.
+   * WHEN TO BE AT THE KARTING DESK, replacing the old "On Time / +N Min" badge
+   * (owner 2026-08-17: "shouldn't say race, it should be check in time").
+   *
+   * The printed slot is a check-in time, not a green-flag time — the flag drops
+   * a median 16 minutes later. Saying "racing" here would send a guest to a desk
+   * that had already closed.
+   *
+   * NAMES THE DESK, never the bare act: two check-ins exist half an hour apart
+   * on different floors (Guest Services 2nd, karting 1st), so a bare "Check-in"
+   * is true of both. Mirrors KARTING_CHECKIN_LABEL_SHORT in
+   * lib/karting-checkin-copy.ts — that module is the English source of truth and
+   * its guard test bans the ambiguous form; this key is its kiosk twin because
+   * the kiosk needs the same sentence in Spanish.
    */
-  "raceInfo.upcoming.racingAbout": "Racing ~{time}",
-  /** The fallback when we cannot predict — the printed slot, stated as printed. */
-  "raceInfo.upcoming.scheduledAt": "Scheduled {time}",
+  "raceInfo.upcoming.checkInAt": "Karting Desk by {time}",
   "raceInfo.filter.all": "All",
   "raceInfo.upcoming.loading": "Loading today’s races…",
   "raceInfo.upcoming.error":
@@ -145,11 +152,10 @@ export const raceinfoEs: Record<keyof typeof raceinfoEn, string> = {
 
   "raceInfo.upcoming.nowCheckingIn": "Registrándose ahora",
   "raceInfo.upcoming.onTime": "A tiempo",
-  // "En pista" = on track. Chosen over a literal "corriendo" because the chip
-  // answers WHEN the manga goes out, not what it is doing right now.
-  "raceInfo.upcoming.racingAbout": "En pista ~{time}",
-  // Feminine to agree with carrera/manga.
-  "raceInfo.upcoming.scheduledAt": "Programada {time}",
+  // Names the desk, like the English. "Karting" stays English (brand/product
+  // noun, same rule as FastTrax and Game Zone); "Mostrador" is the counter you
+  // walk up to, which is what a guest navigating the building is looking for.
+  "raceInfo.upcoming.checkInAt": "Mostrador de Karting a las {time}",
   "raceInfo.filter.all": "Todas",
   "raceInfo.upcoming.loading": "Cargando las carreras de hoy…",
   "raceInfo.upcoming.error":

@@ -12,22 +12,28 @@
  * beyond the tone enum — the kiosk needs every guest-facing word in English AND
  * Spanish, so the words live with the components that have a translator.
  *
- * ── THE TWO AUDIENCES WANT DIFFERENT NUMBERS ────────────────────────────────
+ * ── THE TWO AUDIENCES WANT DIFFERENT THINGS ─────────────────────────────────
  *
- * GUESTS want a time: "your heat goes at ~7:42". Built from the printed slot
- * plus the track's live flag offset — back-tested at 86% within 5 minutes for
- * the next heat (on-time.ts).
+ * GUESTS want to know WHEN TO BE AT THE DESK. That is the printed slot, and the
+ * slot is a CHECK-IN time (owner 2026-08-17: "shouldn't say race, it should be
+ * check in time"). This matters more than it looks: the flag drops a median 16
+ * minutes after the slot, so a chip reading "Racing ~7:40" would send a guest to
+ * the desk sixteen minutes after check-in had closed. The check-in time is also
+ * the one number here that does NOT drift — measured against the slot, last
+ * check-in ran a median 1.6 min EARLY with a 3.9 min spread, the tightest span
+ * in the whole set — so it is stated plainly, not predicted.
  *
- * STAFF want an exception: "heat 31 was called 14 minutes late". The median call
- * delay is ~0 essentially always (it was 0.2 min on both tracks on 2026-08-16),
- * so a staff board showing the AVERAGE would be as permanently green — and as
- * useless — as the outside service it replaced. The signal is the outliers.
+ * TVs want a VERDICT: "On Time", or "+14 late" (owner 2026-08-17). Computed from
+ * OUR call metric, so unlike the service it replaced, a green board is green
+ * because we actually called on time rather than because a 30-minute grace made
+ * it impossible to be late.
  *
- * NEITHER gets the raw flag offset presented as a delay. It is ~17 minutes on a
+ * NOBODY gets the raw flag offset presented as a delay. It is ~17 minutes on a
  * flawless night; calling that "17 minutes late" is how we ended up scoring
  * ourselves 4% on-time while actually hitting check-in 90% of the time.
  */
-import { predictStartMs, type OnTimeSnapshot, type TrackOnTime } from "./on-time";
+import type { OnTimeSnapshot, TrackOnTime } from "./on-time";
+import { LATE_CALL_MIN } from "./on-time";
 
 /**
  * How a surface should colour itself.
@@ -40,13 +46,23 @@ export type OnTimeTone = "ok" | "warn" | "unknown";
 
 export interface TrackDisplay {
   tone: OnTimeTone;
-  /** When the heat now checking in will actually go green. Null when we have no
-   *  offset yet, no slot, or nothing is checking in — show the printed time. */
-  predictedStartMs: number | null;
-  /** Trust in that prediction, by horizon. "low" ⇒ a surface should soften to a
-   *  range, or say nothing, rather than state a minute it will miss by ten. */
-  confidence: "high" | "fair" | "low" | null;
-  /** Calls that went out after the slot, worst first. THE staff signal. */
+  /**
+   * WHEN TO BE AT THE DESK — the heat's printed slot, stated as printed.
+   *
+   * Not predicted and not adjusted: check-in lands on the slot (median 1.6 min
+   * early, 3.9 min spread) and shifting it would be inventing drift that the
+   * data says is not there. Null when no heat is checking in on this track.
+   */
+  checkInAtMs: number | null;
+  /**
+   * The TV verdict, in minutes. `null` = "On Time"; a number = "+N late".
+   *
+   * Driven by the MEDIAN call delay rather than the worst recent call, so a
+   * single bad call cannot flip a wall to red and back between heats — that is
+   * the whole reason the median is taken over three heats (on-time.ts).
+   */
+  lateByMin: number | null;
+  /** Calls that went out after the slot, worst first. The staff detail line. */
   lateCalls: TrackOnTime["lateCalls"];
   /** Median minutes past the policy call time, and its sample size. Staff only —
    *  a guest has no use for it and it is ~0 almost always. */
@@ -71,17 +87,8 @@ export const MIN_SLOT_COVERAGE = 3;
  * `scheduledStartMs` is the slot of the heat currently checking in on this
  * track — from races-current, which is where every surface already gets it.
  *
- * "NOW" IS THE SNAPSHOT'S OWN `atMs`, deliberately, not `Date.now()`. Two
- * reasons, and the second is the load-bearing one:
- *
- *  1. The offset and the clock then come from the same read, so a confidence
- *     bucket can never be computed against a moment the offset did not know.
- *  2. `Date.now()` inside a component body is an impure render (react-hooks
- *     /purity, which is a pre-push gate here) — every surface calling this
- *     would have had to thread a ticking clock down to it. The snapshot is at
- *     most a few seconds old (an 8s server cache plus the poll), and the only
- *     thing `now` feeds is a 15/30-minute horizon bucket, so the precision is
- *     far beyond sufficient.
+ * The check-in time passes through untouched — it is the slot, and the slot is
+ * what the guest was told. Only the verdict is derived.
  */
 export function trackDisplay(
   snapshot: OnTimeSnapshot | null,
@@ -91,11 +98,15 @@ export function trackDisplay(
   const t = snapshot?.tracks?.[track] ?? null;
   const thin = !snapshot || snapshot.slotCoverage.withSlot < MIN_SLOT_COVERAGE;
 
+  // The check-in time survives a thin night: it is the printed slot, which is
+  // true whether or not we have measured anything. Only the VERDICT needs data.
+  const checkInAtMs = scheduledStartMs;
+
   if (!t || thin) {
     return {
       tone: "unknown",
-      predictedStartMs: null,
-      confidence: null,
+      checkInAtMs,
+      lateByMin: null,
       lateCalls: [],
       callDelayMin: null,
       callDelayN: 0,
@@ -103,14 +114,16 @@ export function trackDisplay(
     };
   }
 
-  const predicted = predictStartMs(scheduledStartMs, t.flagOffsetMin, snapshot.atMs);
+  const behind = t.callDelayMin !== null && t.callDelayMin > LATE_CALL_MIN;
 
   return {
     // Amber is reserved for a track whose CALLS are running late — the one thing
     // here that is both our fault and fixable. A long pipeline is not amber.
     tone: t.status === "behind" ? "warn" : t.status === "unknown" ? "unknown" : "ok",
-    predictedStartMs: predicted?.atMs ?? null,
-    confidence: predicted?.confidence ?? null,
+    checkInAtMs,
+    // Rounded here rather than at each surface, so the wall and the tablet
+    // opposite it can never disagree by a minute.
+    lateByMin: behind ? Math.round(t.callDelayMin as number) : null,
     lateCalls: t.lateCalls,
     callDelayMin: t.callDelayMin,
     callDelayN: t.callDelayN,
@@ -119,19 +132,13 @@ export function trackDisplay(
 }
 
 /**
- * Round a predicted time to the nearest 5 minutes.
+ * The TV verdict as a display string: "On Time", "+14 late", or null.
  *
- * A prediction carrying ±3-6 minutes of real error should not be printed to the
- * minute — "7:42" claims a precision the back-test does not support, and a guest
- * reads it as a promise. "~7:40" is the same information, honestly stated.
+ * Null when we have not measured enough of tonight to stand behind either — a
+ * wall must go quiet rather than claim "On Time" off two heats. Lives here so
+ * every TV in the building phrases it identically.
  */
-export function roundPredictedMs(atMs: number): number {
-  const five = 5 * 60_000;
-  return Math.round(atMs / five) * five;
-}
-
-/** Should a surface state a predicted time at all? "low" confidence at the far
- *  end of the night is where the back-test drops under half inside 5 minutes. */
-export function shouldShowPrediction(d: TrackDisplay): boolean {
-  return d.predictedStartMs !== null && d.confidence !== "low";
+export function verdictLabel(d: TrackDisplay): string | null {
+  if (d.insufficientData) return null;
+  return d.lateByMin === null ? "On Time" : `+${d.lateByMin} late`;
 }

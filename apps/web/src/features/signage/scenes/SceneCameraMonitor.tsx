@@ -33,7 +33,7 @@
 import { IconVideoOff, IconAlertTriangleFilled, IconPointFilled } from "@tabler/icons-react";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import type { OnTimeSnapshot } from "~/features/racing/on-time";
-import { trackDisplay } from "~/features/racing/on-time-display";
+import { trackDisplay, verdictLabel } from "~/features/racing/on-time-display";
 import { withAlpha } from "../color";
 import { useCameraStill } from "../useCameraStill";
 import { formatRemaining, useLiveSessionClock, type LiveSessionClock } from "../live-session";
@@ -769,25 +769,27 @@ function StatusBar({
   compact?: boolean;
 }) {
   const d = trackDisplay(onTime, track, null);
+  const verdict = verdictLabel(d);
   const worst = d.lateCalls[0] ?? null;
-  const unknown = d.insufficientData;
-  const late = worst !== null;
+  const unknown = verdict === null;
+  const late = d.lateByMin !== null;
 
   const bg = unknown ? "#26324a" : late ? BEHIND_AMBER : ON_TIME_GREEN;
   const dark = "#0a1005";
   const fg = unknown ? "rgba(245,236,238,0.9)" : dark;
 
-  const headline = unknown
-    ? trackLabel
-    : late
-      ? `${trackLabel} — Call ${Math.round(worst.delayMin)} min late`
-      : `${trackLabel} — Calls On Time`;
+  // The headline is the same verdict every other wall shows (owner 2026-08-17:
+  // "on TV it should show late + or on time").
+  const headline = unknown ? trackLabel : `${trackLabel} — ${verdict}`;
 
+  // The sub-line is where this board earns its keep over the guest walls: it is
+  // the marshal's, so it names the EXCEPTION. The median can sit at "On Time"
+  // while a single call went out 14 minutes late, and that call is the only
+  // thing here anyone can act on.
   const sub = unknown
     ? "Not enough of tonight measured yet"
-    : late
-      ? // Name the heat. "A call was late" is not actionable; "heat 31 was" is.
-        `Heat ${worst.heatNumber ?? "?"} called ${Math.round(worst.delayMin)} min late` +
+    : worst !== null
+      ? `Heat ${worst.heatNumber ?? "?"} called ${Math.round(worst.delayMin)} min late` +
         (d.lateCalls.length > 1 ? ` · ${d.lateCalls.length} late this hour` : "")
       : // Carry the sample size: a median over one heat must not read with the
         // same confidence as one over three.

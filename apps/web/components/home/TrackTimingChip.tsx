@@ -10,24 +10,31 @@
  * about how that ends ("extracted component misses later fixes"). One component,
  * one meaning.
  *
- * WHAT IT SAYS, in order of preference:
- *   1. "Racing ~7:40"    we have a slot and the track's live flag offset
- *   2. "Scheduled 7:24"  we have the printed slot but cannot predict yet
- *   3. nothing           no heat is checking in — a track between heats has no
- *                        honest time, and "On Time" is not a substitute
+ * IT SHOWS THE KARTING CHECK-IN TIME (owner 2026-08-17: "shouldn't say race, it
+ * should be check in time"). The printed slot is when to be at the desk, not
+ * when the flag drops — the flag is a median 16 minutes later, so a chip reading
+ * "Racing ~7:40" would send a guest to a desk that closed at 7:24.
  *
- * See features/racing/on-time.ts for why the raw slot→flag gap is NOT shown as a
- * delay, and on-time-display.ts for the tone rules.
+ * THE LABEL NAMES THE DESK, never the bare act. There are TWO check-ins in this
+ * building half an hour apart on different floors — reservation check-in at
+ * Guest Services on the 2nd, karting check-in at the 1st Floor counter — so
+ * "Check-in 7:24" is true of two different times and a guest cannot tell which
+ * he is reading. `KARTING_CHECKIN_LABEL_SHORT` is the sanctioned tight-surface
+ * wording; lib/karting-checkin-copy.ts deliberately exports no generic form and
+ * its guard test fails the build on any bare "check in".
+ *
+ * The time is stated, never predicted. Check-in lands on the slot (a median 1.6
+ * min early, 3.9 min spread — the tightest span we measured), so there is no
+ * drift to correct for and adjusting it would be inventing one.
+ *
+ * Renders nothing when no heat is checking in on this track. A wall between
+ * heats has no honest time to give, and "On Time" is not a substitute for one.
  */
 
 import type { CurrentRace } from "@/hooks/useTrackStatus";
 import type { OnTimeSnapshot } from "~/features/racing/on-time";
-import {
-  roundPredictedMs,
-  shouldShowPrediction,
-  trackDisplay,
-  type OnTimeTone,
-} from "~/features/racing/on-time-display";
+import { KARTING_CHECKIN_LABEL_SHORT } from "@/lib/karting-checkin-copy";
+import { trackDisplay, type OnTimeTone } from "~/features/racing/on-time-display";
 
 /** "ok" is the ordinary state and stays quiet. Amber means our CALLS are running
  *  late — ours, and fixable — never that the briefing pipeline is long. */
@@ -83,11 +90,7 @@ export default function TrackTimingChip({
   const d = trackDisplay(onTime, track, slotMs);
 
   const label =
-    shouldShowPrediction(d) && d.predictedStartMs !== null
-      ? `Racing ~${formatEtTime(roundPredictedMs(d.predictedStartMs))}`
-      : slotMs !== null
-        ? `Scheduled ${formatEtTime(slotMs)}`
-        : null;
+    d.checkInAtMs !== null ? `${KARTING_CHECKIN_LABEL_SHORT} ${formatEtTime(d.checkInAtMs)}` : null;
 
   return (
     <div className="flex items-center gap-2">

@@ -1505,10 +1505,11 @@ function SessionTracker({
   );
 }
 
-/* DelayLine lived here. Replaced by components/TrackTimingLine.tsx, which shows
-   WHEN the heat goes rather than a delay figure — the owner's "+6 min, not
-   Running +6 min behind" (2026-08-15) instinct about width still holds, and
-   "Racing ~7:40" is the same length. */
+/* DelayLine lived here. Replaced by components/TrackTimingLine.tsx, which keeps
+   the same verdict shape but computes it from OUR call metric instead of the
+   outside service's 30-minute grace. The owner's "+6 min, not Running +6 min
+   behind" (2026-08-15) instinct about width still holds — "+14 late" is
+   shorter still. */
 
 /* ── the seating rail ─────────────────────────────────────────────────── */
 

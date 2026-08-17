@@ -12,6 +12,14 @@ import { trackBookingComplete } from "@/lib/analytics";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import TrackTimingChip from "@/components/home/TrackTimingChip";
 import { modalBackdropProps } from "@/lib/a11y";
+import {
+  GUEST_SERVICES_LABEL,
+  GUEST_SERVICES_PLACE,
+  KARTING_CHECKIN_LABEL,
+  KARTING_CHECKIN_PLACE,
+  KARTING_CHECKIN_SUBLINE,
+  thenKartingBy,
+} from "@/lib/karting-checkin-copy";
 import { productDisplayNameFromPackages, getPackageIgnoreFlag } from "@/lib/packages";
 import { buildReservationMemo } from "~/features/booking/service/reservation-memo";
 import { raceWarningMemo } from "~/features/booking/service/race-warnings";
@@ -1509,31 +1517,43 @@ export default function ConfirmationPage() {
                               <div className="mt-3">
                                 {expressLane ? (
                                   <>
-                                    <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider">
-                                      Race Time
+                                    {/* This value is the KARTING check-in
+                                        cut-off, not the green flag. It read
+                                        "Race Time" until 2026-08-13. */}
+                                    <p className="text-red-400 text-xs font-bold uppercase tracking-wider">
+                                      {KARTING_CHECKIN_LABEL}
                                     </p>
                                     <p
                                       className="text-white font-display uppercase tracking-wider leading-none"
-                                      style={{ fontSize: "clamp(48px, 14vw, 72px)" }}
+                                      style={{ fontSize: "clamp(40px, 11vw, 56px)" }}
                                     >
                                       {formatTime(group.heatStart)}
                                     </p>
-                                    <p className="text-emerald-400/60 text-xs mt-1">
-                                      Arrive 5 min before — go straight to Karting, 1st Floor
+                                    <p className="text-white/40 text-xs mt-1">
+                                      {KARTING_CHECKIN_PLACE}
+                                    </p>
+                                    <p className="text-emerald-400/70 text-xs mt-1">
+                                      Express Lane — skip Guest Services, go straight there
+                                    </p>
+                                    <p className="text-amber-300/90 text-xs font-semibold mt-2 leading-snug">
+                                      {KARTING_CHECKIN_SUBLINE}
                                     </p>
                                   </>
                                 ) : (
                                   <>
-                                    <p className="text-red-400 text-xs font-bold uppercase tracking-wider">
-                                      Check In By
+                                    <p className="text-violet-300 text-xs font-bold uppercase tracking-wider">
+                                      {GUEST_SERVICES_LABEL}
                                     </p>
                                     <p className="text-white font-display text-3xl sm:text-4xl uppercase tracking-widest">
                                       {checkinTime(group.heatStart)}
                                     </p>
                                     <p className="text-white/30 text-xs">
                                       {checkInLocation === "fasttrax"
-                                        ? "FastTrax — Guest Services, 2nd Floor"
+                                        ? `FastTrax — Guest Services, ${GUEST_SERVICES_PLACE}`
                                         : "HeadPinz — Guest Services"}
+                                    </p>
+                                    <p className="text-amber-300/90 text-xs font-semibold mt-2 leading-snug">
+                                      {thenKartingBy(formatTime(group.heatStart))}
                                     </p>
                                   </>
                                 )}

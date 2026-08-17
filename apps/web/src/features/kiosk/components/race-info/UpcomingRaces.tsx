@@ -17,11 +17,7 @@ import { useState } from "react";
 import { IconAlertTriangle } from "@tabler/icons-react";
 import { useTrackStatus, type CurrentRace } from "@/hooks/useTrackStatus";
 import { slotMsOf } from "@/components/home/TrackTimingChip";
-import {
-  roundPredictedMs,
-  shouldShowPrediction,
-  trackDisplay,
-} from "~/features/racing/on-time-display";
+import { trackDisplay } from "~/features/racing/on-time-display";
 import { useKioskConfig } from "../../KioskConfigContext";
 import {
   useRaceGridDisplay,
@@ -117,14 +113,12 @@ function StatusBand() {
           // ~17-minute briefing pipeline is NOT a fault and must not light one,
           // or every kiosk in the building is amber every night.
           const dot = d.tone === "ok" ? "#46d68c" : d.tone === "warn" ? "#f0b341" : "#6b7280";
+          // The CHECK-IN time — when to be at the desk. Not the flag time, which
+          // is a median 16 min later and would send a guest to a closed desk.
           const timing =
-            shouldShowPrediction(d) && d.predictedStartMs !== null
-              ? t("raceInfo.upcoming.racingAbout", {
-                  time: etClock(roundPredictedMs(d.predictedStartMs)),
-                })
-              : slotMsOf(race) !== null
-                ? t("raceInfo.upcoming.scheduledAt", { time: etClock(slotMsOf(race) as number) })
-                : null;
+            d.checkInAtMs !== null
+              ? t("raceInfo.upcoming.checkInAt", { time: etClock(d.checkInAtMs) })
+              : null;
           return (
             <div
               key={track.trackName}

@@ -8,7 +8,6 @@ import {
   flagOffsetMin,
   median,
   onTimeByTrack,
-  predictStartMs,
   trackOnTime,
   type OnTimeHeat,
 } from "./on-time";
@@ -207,29 +206,5 @@ describe("onTimeByTrack", () => {
 
   it("does not invent a bucket for a track with no heats", () => {
     expect(Object.keys(onTimeByTrack([], T0))).toEqual([]);
-  });
-});
-
-describe("predictStartMs", () => {
-  it("shifts the printed slot by the track's current offset", () => {
-    const slot = T0 + min(30);
-    const p = predictStartMs(slot, 18, T0);
-    expect(p?.atMs).toBe(slot + min(18));
-    expect(p?.offsetMin).toBe(18);
-  });
-
-  it("degrades confidence with the horizon, per the back-test", () => {
-    const now = T0;
-    expect(predictStartMs(now + min(5), 5, now)?.confidence).toBe("high");
-    expect(predictStartMs(now + min(20), 5, now)?.confidence).toBe("fair");
-    expect(predictStartMs(now + min(60), 5, now)?.confidence).toBe("low");
-  });
-
-  it("returns null rather than guessing when the track has no offset yet", () => {
-    expect(predictStartMs(T0 + min(30), null, T0)).toBeNull();
-  });
-
-  it("returns null when the heat has no slot (pre-2026-08-17 rows)", () => {
-    expect(predictStartMs(null, 18, T0)).toBeNull();
   });
 });

@@ -127,8 +127,9 @@ export interface TrackOnTime {
    * The last completed heat's flag offset (`actualStart − scheduledStart`), in
    * minutes — the briefing pipeline as it is running right now.
    *
-   * NOT a delay. It is the input to predictStartMs and nothing else, and it is
-   * ~17 minutes on a perfectly on-time night.
+   * NOT a delay — it is ~17 minutes on a perfectly on-time night. Carried on the
+   * payload as the honest description of how long the pipeline is running; see
+   * the note at the foot of this file for what it can and cannot be used for.
    */
   flagOffsetMin: number | null;
   /** Which heat that offset came from, so a board can say how stale it is. */
@@ -257,10 +258,11 @@ export function onTimeByTrack(heats: OnTimeHeat[], nowMs: number): Record<string
   return out;
 }
 
-/**
- * How much to trust a predicted start, by how far out it is.
+/*
+ * A NOTE ON PREDICTING THE GREEN FLAG, so the next person does not re-derive it.
  *
- * Back-tested over 2026-08-16 (schedule + last completed heat's offset, blue and
+ * `flagOffsetMin` above is enough to predict when a heat will actually go:
+ * slot + the last completed heat's offset. Back-tested over 2026-08-16 (blue and
  * red, n≈95 per horizon):
  *
  *     ~12 min out (next heat)   MAE 3.3 min   86% within 5 min
@@ -268,40 +270,13 @@ export function onTimeByTrack(heats: OnTimeHeat[], nowMs: number): Record<string
  *     ~36 min out               MAE 5.8       55% within 5,  87% within 10
  *     ~48 min out               MAE 6.7       47% within 5,  80% within 10
  *
- * "low" is the honest label for the far end, and a surface is expected to show a
- * range or nothing at all rather than a confident time it will miss by ten.
- */
-export type PredictConfidence = "high" | "fair" | "low";
-
-export interface PredictedStart {
-  atMs: number;
-  confidence: PredictConfidence;
-  /** The offset applied, minutes — so a board can explain itself. */
-  offsetMin: number;
-}
-
-/**
- * When this heat will actually go green.
+ * Median-of-last-3 is WORSE than the single last heat (76% vs 87% within 5 min):
+ * the offset drifts through the night, so recency beats smoothing — the opposite
+ * of the call metric above, because it is a different question.
  *
- * `scheduledStartMs` is the heat's own slot; `offsetMin` is its track's current
- * flag offset (`TrackOnTime.flagOffsetMin`). Null when either is missing — a
- * board must then fall back to the printed time, which is honest, rather than
- * inventing one.
- *
- * Median-of-last-3 was tried and is WORSE than the single last heat (76% vs 87%
- * within 5 min): the offset drifts through the night, so recency beats smoothing.
- * This is the opposite of the call metric on purpose — different question,
- * different statistic.
+ * NOTHING RENDERS THIS, deliberately. Guest surfaces show the CHECK-IN time,
+ * because that is what the printed slot names and what a guest has to act on;
+ * telling them a flag time would send them to a desk that closed sixteen minutes
+ * earlier (owner 2026-08-17). The arithmetic is one line if a surface ever
+ * genuinely needs it, and the numbers above are what it would be worth.
  */
-export function predictStartMs(
-  scheduledStartMs: number | null,
-  offsetMin: number | null,
-  nowMs: number,
-): PredictedStart | null {
-  if (scheduledStartMs == null || offsetMin == null) return null;
-  if (!Number.isFinite(scheduledStartMs) || !Number.isFinite(offsetMin)) return null;
-  const atMs = scheduledStartMs + offsetMin * 60_000;
-  const minsOut = (atMs - nowMs) / 60_000;
-  const confidence: PredictConfidence = minsOut <= 15 ? "high" : minsOut <= 30 ? "fair" : "low";
-  return { atMs, confidence, offsetMin };
-}
