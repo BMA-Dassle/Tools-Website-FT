@@ -36,10 +36,11 @@ import type { OnTimeSnapshot } from "~/features/racing/on-time";
 import { KARTING_CHECKIN_LABEL_SHORT } from "@/lib/karting-checkin-copy";
 import { trackDisplay, type OnTimeTone } from "~/features/racing/on-time-display";
 
-/** "ok" is the ordinary state and stays quiet. Amber means our CALLS are running
- *  late — ours, and fixable — never that the briefing pipeline is long. */
+/** "ok" is the ordinary state and stays quiet — and it is also the default when
+ *  we know nothing (owner 2026-08-17). Amber means our CALLS are running late:
+ *  ours, and fixable — never that the briefing pipeline is long. */
 export function toneDotClass(tone: OnTimeTone): string {
-  return tone === "ok" ? "bg-green-400" : tone === "warn" ? "bg-yellow-400" : "bg-white/40";
+  return tone === "warn" ? "bg-yellow-400" : "bg-green-400";
 }
 
 export function formatEtTime(ms: number): string {

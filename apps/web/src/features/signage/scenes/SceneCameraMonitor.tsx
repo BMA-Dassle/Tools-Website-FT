@@ -769,24 +769,24 @@ function StatusBar({
   compact?: boolean;
 }) {
   const d = trackDisplay(onTime, track, null);
-  const verdict = verdictLabel(d);
   const worst = d.lateCalls[0] ?? null;
-  const unknown = verdict === null;
   const late = d.lateByMin !== null;
 
-  const bg = unknown ? "#26324a" : late ? BEHIND_AMBER : ON_TIME_GREEN;
+  // Green unless we are actually late. No grey state: a board with nothing to
+  // say says "On Time" (owner 2026-08-17), because a neutral slab reads as a
+  // broken screen to the marshal standing in front of it.
+  const bg = late ? BEHIND_AMBER : ON_TIME_GREEN;
   const dark = "#0a1005";
-  const fg = unknown ? "rgba(245,236,238,0.9)" : dark;
+  const fg = dark;
 
   // The headline is the same verdict every other wall shows (owner 2026-08-17:
   // "on TV it should show late + or on time").
-  const headline = unknown ? trackLabel : `${trackLabel} — ${verdict}`;
+  const headline = `${trackLabel} — ${verdictLabel(d)}`;
 
   // The sub-line is where this board earns its keep over the guest walls: it is
-  // the marshal's, so it names the EXCEPTION. The median can sit at "On Time"
-  // while a single call went out 14 minutes late, and that call is the only
-  // thing here anyone can act on.
-  const sub = unknown
+  // the marshal's, so it names the EXCEPTION, and it is the one place allowed to
+  // admit we are green because we know nothing rather than because all is well.
+  const sub = d.insufficientData
     ? "Not enough of tonight measured yet"
     : worst !== null
       ? `Heat ${worst.heatNumber ?? "?"} called ${Math.round(worst.delayMin)} min late` +
@@ -830,7 +830,8 @@ function StatusBar({
           style={{
             fontSize: 46,
             fontWeight: 600,
-            color: withAlpha(unknown ? "#f5ecee" : dark, 0.8),
+            // Always on a coloured slab now, so always the dark ink.
+            color: withAlpha(dark, 0.8),
           }}
         >
           {sub}

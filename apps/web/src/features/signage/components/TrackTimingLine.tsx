@@ -19,8 +19,11 @@
  * flip a wall to amber and back between heats. That stability is the entire
  * reason the median is taken over three heats (features/racing/on-time.ts).
  *
- * Renders NOTHING when too little of tonight has been measured. A wall that says
- * "On Time" off two heats is worse than a wall that says nothing.
+ * ALWAYS RENDERS. Owner 2026-08-17: "if no data or outside of business hours just
+ * mark tracks as on-time" — so a closed building, a dark day and a night we have
+ * not measured yet all read "On Time" rather than leaving a wall blank. A blank
+ * board reads as broken; see the default-green note in on-time-display.ts for
+ * what that costs.
  */
 
 import type { CurrentRace } from "@/hooks/useTrackStatus";
@@ -53,7 +56,6 @@ export default function TrackTimingLine({
 }: TrackTimingLineProps) {
   const d = trackDisplay(onTime, track, slotMsOf(race));
   const label = verdictLabel(d);
-  if (!label) return null;
 
   // Blink ONLY when we are actually late — the thing that is ours and fixable.
   // The ordinary ~17-minute briefing pipeline is normal and must never make a

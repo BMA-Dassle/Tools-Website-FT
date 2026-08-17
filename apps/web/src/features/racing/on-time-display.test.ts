@@ -52,6 +52,9 @@ describe("trackDisplay — the guest number is the CHECK-IN time", () => {
     const d = trackDisplay(null, "blue", SLOT);
     expect(d.checkInAtMs).toBe(SLOT);
     expect(d.insufficientData).toBe(true);
+    // Green, not grey — the check-in time is still true and nothing is known
+    // to be wrong.
+    expect(d.tone).toBe("ok");
   });
 });
 
@@ -81,13 +84,26 @@ describe("verdictLabel — what the TVs show", () => {
     expect(d.lateCalls).toHaveLength(1);
   });
 
-  it("goes SILENT rather than claiming On Time off a thin night", () => {
+  // Owner 2026-08-17: "if no data or outside of business hours just mark tracks
+  // as on-time." A blank board reads as broken; green is the default.
+  it("reads On Time on a night too thin to score, rather than going quiet", () => {
     const d = trackDisplay(snap({}, MIN_SLOT_COVERAGE - 1), "blue", SLOT);
-    expect(verdictLabel(d)).toBeNull();
+    expect(verdictLabel(d)).toBe("On Time");
+    // …but it still ADMITS it, so a staff surface can say why underneath.
+    expect(d.insufficientData).toBe(true);
   });
 
-  it("is silent for a track that ran nothing", () => {
-    expect(verdictLabel(trackDisplay(snap(), "red", SLOT))).toBeNull();
+  it("reads On Time for a track that has run nothing", () => {
+    expect(verdictLabel(trackDisplay(snap(), "red", SLOT))).toBe("On Time");
+  });
+
+  it("reads On Time with no snapshot at all — the closed building", () => {
+    // Before opening and after the last heat both arrive here: no heats today,
+    // or every call aged out of the recent window. Indistinguishable from
+    // "nothing is wrong", which is what green means.
+    const d = trackDisplay(null, "blue", null);
+    expect(verdictLabel(d)).toBe("On Time");
+    expect(d.tone).toBe("ok");
   });
 });
 

@@ -41,8 +41,14 @@ import { LATE_CALL_MIN } from "./on-time";
  * "ok" is the ordinary state and must stay visually quiet — if the ordinary
  * ~17-minute pipeline lit an amber, every screen on the property would be amber
  * every night and the colour would stop meaning anything.
+ *
+ * THERE IS NO "unknown" TONE. Owner 2026-08-17: "if no data or outside of
+ * business hours just mark tracks as on-time." A grey or blank board reads as
+ * broken to a guest and to staff, and every screen in the building shows this —
+ * so silence is the wrong default even though it is the more literal one. See
+ * the default-green note on `trackDisplay`.
  */
-export type OnTimeTone = "ok" | "warn" | "unknown";
+export type OnTimeTone = "ok" | "warn";
 
 export interface TrackDisplay {
   tone: OnTimeTone;
@@ -68,8 +74,14 @@ export interface TrackDisplay {
    *  a guest has no use for it and it is ~0 almost always. */
   callDelayMin: number | null;
   callDelayN: number;
-  /** True when today's data is too thin to say anything. Surfaces must fall back
-   *  to the printed schedule, never to a confident "On Time". */
+  /**
+   * True when we have not measured enough of tonight to have an opinion.
+   *
+   * The verdict still reads "On Time" in this state, by decision — see the
+   * default-green note on `trackDisplay`. This flag exists so a STAFF surface can
+   * add the reason underneath ("Not enough of tonight measured yet") while the
+   * guest-facing headline stays green. Do not use it to blank a board.
+   */
   insufficientData: boolean;
 }
 
@@ -89,6 +101,24 @@ export const MIN_SLOT_COVERAGE = 3;
  *
  * The check-in time passes through untouched — it is the slot, and the slot is
  * what the guest was told. Only the verdict is derived.
+ *
+ * ── DEFAULT GREEN ───────────────────────────────────────────────────────────
+ *
+ * Owner 2026-08-17: "if no data or outside of business hours just mark tracks as
+ * on-time." So an absent snapshot, a track that has run nothing, and a night too
+ * thin to score all read "On Time" rather than going quiet.
+ *
+ * BOTH CASES THE OWNER NAMED LAND HERE WITHOUT AN HOURS TABLE, which is why
+ * there is no opening-times constant to keep in sync with reality:
+ *   - before opening, or on a dark day, no heats exist at all ⇒ no track entry;
+ *   - after the last heat, every call has aged out of RECENT_CALL_MS ⇒ no median.
+ * Both are indistinguishable from "nothing is wrong", which is what green means.
+ *
+ * THE COST, STATED PLAINLY: a genuine outage mid-evening — the bridge down, Neon
+ * unreachable — is also indistinguishable from a quiet night, so a board would
+ * read "On Time" while the track ran twenty minutes behind. That is the accepted
+ * trade for never showing a blank board. `insufficientData` is how a staff
+ * surface says so underneath; it is deliberately NOT allowed to blank anything.
  */
 export function trackDisplay(
   snapshot: OnTimeSnapshot | null,
@@ -104,7 +134,8 @@ export function trackDisplay(
 
   if (!t || thin) {
     return {
-      tone: "unknown",
+      // Green, not grey — nothing is known to be wrong. See the note above.
+      tone: "ok",
       checkInAtMs,
       lateByMin: null,
       lateCalls: [],
@@ -118,8 +149,9 @@ export function trackDisplay(
 
   return {
     // Amber is reserved for a track whose CALLS are running late — the one thing
-    // here that is both our fault and fixable. A long pipeline is not amber.
-    tone: t.status === "behind" ? "warn" : t.status === "unknown" ? "unknown" : "ok",
+    // here that is both our fault and fixable. A long pipeline is not amber, and
+    // neither is a track we simply have no median for yet.
+    tone: t.status === "behind" ? "warn" : "ok",
     checkInAtMs,
     // Rounded here rather than at each surface, so the wall and the tablet
     // opposite it can never disagree by a minute.
@@ -132,13 +164,12 @@ export function trackDisplay(
 }
 
 /**
- * The TV verdict as a display string: "On Time", "+14 late", or null.
+ * The TV verdict as a display string: "On Time" or "+14 late".
  *
- * Null when we have not measured enough of tonight to stand behind either — a
- * wall must go quiet rather than claim "On Time" off two heats. Lives here so
+ * NEVER NULL. A board always has something to say (owner 2026-08-17), and the
+ * default is green — see the default-green note on `trackDisplay`. Lives here so
  * every TV in the building phrases it identically.
  */
-export function verdictLabel(d: TrackDisplay): string | null {
-  if (d.insufficientData) return null;
+export function verdictLabel(d: TrackDisplay): string {
   return d.lateByMin === null ? "On Time" : `+${d.lateByMin} late`;
 }

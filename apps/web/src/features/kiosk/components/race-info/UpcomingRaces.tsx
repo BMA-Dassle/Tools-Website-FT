@@ -112,7 +112,9 @@ function StatusBand() {
           // Amber is for our CALLS running late — ours and fixable. The ordinary
           // ~17-minute briefing pipeline is NOT a fault and must not light one,
           // or every kiosk in the building is amber every night.
-          const dot = d.tone === "ok" ? "#46d68c" : d.tone === "warn" ? "#f0b341" : "#6b7280";
+          // Green by default — a kiosk with no data shows on-time, never grey
+          // (owner 2026-08-17).
+          const dot = d.tone === "warn" ? "#f0b341" : "#46d68c";
           // The CHECK-IN time — when to be at the desk. Not the flag time, which
           // is a median 16 min later and would send a guest to a closed desk.
           const timing =
