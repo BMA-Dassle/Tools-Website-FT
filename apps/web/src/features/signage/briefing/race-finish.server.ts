@@ -33,7 +33,7 @@ import {
   extractLapPassings,
   extractRaceFinishes,
   extractRaceStarts,
-  extractRaceStops,
+  extractSessionLifecycle,
   isActionableFinish,
 } from "~/features/racing/venue-broadcast";
 import { recordLapPassings } from "~/features/racing/data/race-best-laps-db";
@@ -167,46 +167,46 @@ async function recordRaceStarts(message: unknown): Promise<void> {
 }
 
 /**
- * Write down every race STOP in a message — the e-stop record.
+ * COUNT THE TIMES A RACE WAS STOPPED — the flag the highlight reel filters on.
  *
- * WHY THIS EXISTS: `RaceStop` has been arriving and being parsed since the race
- * clock was built, but the only thing that ever consumed it was
- * `kart:raceclock:{raceId}`, which is gone within 90 minutes. So nothing could
- * answer "was that heat red-flagged?" a day later — which the POV highlight reel
- * has to know, because a stopped race must never reach a marketing wall.
+ * WHY A COUNTER WHEN track-events.server.ts ALREADY LOGS PAUSES. That module
+ * keeps the incident LOG: every pause, resume and emergency as its own row, with
+ * the correlation that tells a desk pause from an emergency-driven one. This is
+ * a denormalised count on the race's own row, so "was that heat red-flagged?" is
+ * a column read rather than a scan of an event log per candidate. Different
+ * shapes for different questions; neither is the other's source.
  *
- * THE REPLAY TRAP, AND WHY THE CLAIM KEY IS SHAPED THIS WAY. The broadcast
- * re-sends the whole day's race list on every state change, so while a race sits
- * paused its `RaceStop` record rides along in EVERY push — dozens of times for one
- * red flag. A naive increment would report a clean night as a massacre. The claim
- * is therefore per (race, RecordVersion): the version moves when the race's state
- * genuinely changes, so a second, later pause of the same race claims again and is
- * counted, while the same pause re-arriving is not.
+ * READS SessionPausedNotification, NOT RaceStop. Both say a race is paused, but
+ * `RaceStop` carries no stamp of its own — an earlier version of this function
+ * had to use the bridge's arrival time and a RecordVersion claim to survive the
+ * broadcast's replays. The lifecycle notification carries `SessionId` AND its own
+ * `Date`, so the pause is an instant rather than "somewhere around when we heard",
+ * and the claim can key on that exact instant. Strictly better on both counts.
  *
- * RecordVersion is not guaranteed on every record (the bridge notes RaceAdvice
- * often lacks one), so a record without it falls back to a MINUTE bucket — coarse
- * enough to swallow the replay storm, fine enough that two pauses a few minutes
- * apart still both land. Undercounting a repeat pause is the safe direction: the
- * reel filters on `pause_count > 0`, and 1 excludes the race exactly as 2 would.
+ * The claim is per (session, stamp): the same pause re-arriving carries the same
+ * `Date` and is ignored, while a genuine second pause of the same race has a
+ * different one and counts. A record whose `Date` will not parse is skipped
+ * rather than counted at "now" — a miscounted pause is worse than a missing one,
+ * since the reel only asks whether the count is above zero.
  *
  * Never throws: this is an archive riding an ingest webhook.
  */
-async function recordRaceStops(message: unknown, receivedAtMs: number): Promise<void> {
-  for (const s of extractRaceStops(message)) {
-    const claimSuffix = s.recordVersion ?? `t${Math.floor(receivedAtMs / 60_000)}`;
+async function recordRaceStops(message: unknown): Promise<void> {
+  for (const ev of extractSessionLifecycle(message)) {
+    if (ev.kind !== "paused" || ev.atMs === null) continue;
     const claim = await redis
-      .set(`race-pause:${s.raceId}:${claimSuffix}`, "1", "EX", 36 * 3600, "NX")
+      .set(`race-pause:${ev.sessionId}:${ev.atMs}`, "1", "EX", 36 * 3600, "NX")
       .catch(() => null);
     if (claim !== "OK") continue;
     await recordRacePause({
-      sessionId: s.raceId,
-      track: s.track,
-      heatNumber: s.heatNumber,
-      heatName: s.heatName || null,
-      startedAtMs: s.actualStartMs,
-      // `RaceStop` stamps no time of its own — the bridge's own receipt time is
-      // the honest anchor, and it is what the webhook already computed.
-      pausedAtMs: receivedAtMs,
+      sessionId: ev.sessionId,
+      track: ev.track,
+      heatNumber: ev.heatNumber,
+      heatName: ev.sessionName || null,
+      // The lifecycle record names the session but not its start; the finish
+      // write fills that in, and the upsert COALESCEs so neither blanks it.
+      startedAtMs: null,
+      pausedAtMs: ev.atMs,
     }).catch((err) => console.error("[race-timings] pause write failed", err));
   }
 }
@@ -249,13 +249,7 @@ async function markRaceCameras(args: {
  * gated three deep: the freshness rule (pure, tested), a per-race NX claim,
  * and the announcer's own per-(room,session) claim underneath.
  */
-export async function handleVenueMessage(
-  message: unknown,
-  /** The bridge's own arrival stamp, shared with the race clock so a pause and
-   *  the countdown cannot disagree about when a message landed. Defaults to our
-   *  clock, which is honest to within the POST + queue lag. */
-  receivedAtMs: number = Date.now(),
-): Promise<void> {
+export async function handleVenueMessage(message: unknown): Promise<void> {
   try {
     /**
      * THE FLAG DROPPING, RECORDED AS IT HAPPENS (owner 2026-08-12: "don't we have
@@ -278,7 +272,7 @@ export async function handleVenueMessage(
      * that is paused right now has not finished by definition. See
      * recordRaceStops for why the claim key is shaped the way it is.
      */
-    await recordRaceStops(message, receivedAtMs);
+    await recordRaceStops(message);
 
     /**
      * EVERY LAP, KEPT AS A BEST — the record that makes a lap findable inside a
