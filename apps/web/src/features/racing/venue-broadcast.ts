@@ -225,6 +225,113 @@ export function extractRaceStops(message: unknown): VenueRaceFinish[] {
   return extractRaceRecords(message, "RaceStop");
 }
 
+/**
+ * THE SESSION LIFECYCLE NOTIFICATIONS — the same four moments the race records
+ * describe, but stamped by the venue instead of inferred by us.
+ *
+ * Surveyed live 2026-08-16 (1.4h of `kart:events:queue`, 24 message types). All
+ * four share one shape and differ only by `$type` and `NotificationMetaId`:
+ *
+ *   { $type: "SessionPausedNotification", ResourceId: 11208654,
+ *     SessionId: 58599025, SessionName: "60 - Blue Starter",
+ *     NotificationMetaId: -5013, Id: 58992427, Date: "2026-08-16T23:18:10.028" }
+ *
+ * WHY THESE AND NOT `RaceStop`, which we already read. RaceStop says the race is
+ * NOW paused and carries no stamp for WHEN — extractRaceStops' own doc admits
+ * pause boundaries have to come from message arrival time. This carries `Date`,
+ * so a pause is finally an instant rather than "somewhere around when we heard".
+ *
+ * `Id` IS 17 DIGITS and is already rounded by the time anything JSON.parses it
+ * (58992427 here is small, but ProjectStateChangedNotification's runs to
+ * 63000000008659300). It is deliberately NOT extracted — nothing needs it, and
+ * carrying a corrupted value invites somebody to key on it later.
+ */
+export type SessionLifecycleKind = "started" | "paused" | "resumed" | "finished";
+
+const LIFECYCLE_TYPES: Record<string, SessionLifecycleKind> = {
+  SessionStartedNotification: "started",
+  SessionPausedNotification: "paused",
+  SessionResumedNotification: "resumed",
+  SessionFinishedNotification: "finished",
+};
+
+export interface VenueSessionLifecycle {
+  /** String, always — same id space as Pandora sessionIds (house rule). */
+  sessionId: string;
+  sessionName: string;
+  heatNumber: number | null;
+  track: TrackKey | null;
+  kind: SessionLifecycleKind;
+  /** The venue's own stamp. Null when unparseable — never silently "now". */
+  atMs: number | null;
+}
+
+export function extractSessionLifecycle(message: unknown): VenueSessionLifecycle[] {
+  const records = Array.isArray(message) ? message : [message];
+  const out: VenueSessionLifecycle[] = [];
+  for (const rec of records) {
+    if (!rec || typeof rec !== "object") continue;
+    const r = rec as Record<string, unknown>;
+    const kind = LIFECYCLE_TYPES[String(r["$type"])];
+    if (!kind) continue;
+    if (r.SessionId === undefined || r.SessionId === null) continue;
+    const sessionName = typeof r.SessionName === "string" ? r.SessionName : "";
+    out.push({
+      sessionId: String(r.SessionId),
+      sessionName,
+      heatNumber: parseVenueHeatNumber(sessionName),
+      track: VENUE_RESOURCE_TRACKS[String(r.ResourceId)] ?? null,
+      kind,
+      atMs: parseVenueLocalMs(r.Date),
+    });
+  }
+  return out;
+}
+
+/**
+ * THE TRACK E-STOP.
+ *
+ *   { $type: "EmergencyOnNotification", NotificationMetaId: -106,
+ *     ResourceId: 11208654, Id: 58992455, Date: "2026-08-16T23:18:20.574" }
+ *
+ * POLARITY, ESTABLISHED FROM THE WIRE AND NOT FROM THE NAME (2026-08-16, Blue,
+ * heat 60): `EmergencyOn` is the emergency being ACTIVE. The sequence is
+ * unambiguous — On at 23:15:02.651, the session pauses 0.56s later, karts flag
+ * as crashed over the next few seconds, the session resumes at 23:18:02, and
+ * only then does `EmergencyOff` land. Getting this backwards would invert every
+ * row of an incident log, which is the one error a safety record cannot make.
+ *
+ * NO SESSION ON THIS RECORD — 0 of 16 carried a SessionId or RaceId. An
+ * emergency belongs to a TRACK; tying it to a heat is the caller's inference and
+ * has to be recorded as such (track-events.server.ts).
+ *
+ * IT CHATTERS. Off at 23:18:07.866 was followed by On at 23:18:08.809, 0.9s
+ * later. Anything holding state off these must tolerate rapid re-arming.
+ */
+export interface VenueEmergency {
+  track: TrackKey | null;
+  /** True = emergency ACTIVE. See the polarity note above. */
+  on: boolean;
+  atMs: number | null;
+}
+
+export function extractEmergencies(message: unknown): VenueEmergency[] {
+  const records = Array.isArray(message) ? message : [message];
+  const out: VenueEmergency[] = [];
+  for (const rec of records) {
+    if (!rec || typeof rec !== "object") continue;
+    const r = rec as Record<string, unknown>;
+    const type = String(r["$type"]);
+    if (type !== "EmergencyOnNotification" && type !== "EmergencyOffNotification") continue;
+    out.push({
+      track: VENUE_RESOURCE_TRACKS[String(r.ResourceId)] ?? null,
+      on: type === "EmergencyOnNotification",
+      atMs: parseVenueLocalMs(r.Date),
+    });
+  }
+  return out;
+}
+
 /** Every `SessionDurationChangedNotification` — a staff time-add/cut. */
 export function extractDurationChanges(message: unknown): VenueDurationChange[] {
   const records = Array.isArray(message) ? message : [message];

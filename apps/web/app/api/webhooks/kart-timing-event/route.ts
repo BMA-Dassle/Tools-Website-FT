@@ -3,6 +3,7 @@ import { after } from "next/server";
 import redis from "@/lib/redis";
 import { handleVenueMessage } from "~/features/signage/briefing/race-finish.server";
 import { updateRaceClocks } from "~/features/racing/race-clock.server";
+import { handleTrackEvents } from "~/features/racing/track-events.server";
 
 /**
  * Kart timing broadcast webhook — receives messages forwarded by
@@ -131,6 +132,18 @@ export async function POST(req: NextRequest) {
   const bridgeStampMs = body.receivedAt ? Date.parse(body.receivedAt) : NaN;
   const anchorMs = Number.isFinite(bridgeStampMs) ? bridgeStampMs : Date.now();
   after(() => updateRaceClocks(message, anchorMs));
+
+  /**
+   * THE TRACK INCIDENT LOG — emergency stops, session starts and finishes, and
+   * desk pauses, into Neon and onto the track's cameras.
+   *
+   * Third and separate from the two above because it writes a SAFETY RECORD
+   * rather than a live effect or clock state. It takes no anchor: every event it
+   * handles carries the VENUE's own stamp, which is the whole reason it can be
+   * honest about a 76-second incident that a once-a-minute sampler could only
+   * smear. Never throws — see track-events.server.ts.
+   */
+  after(() => handleTrackEvents(message));
 
   console.log(`[kart-webhook] queued type=${messageType}`);
   return NextResponse.json({ ok: true, kind: "queued", messageType });

@@ -49,6 +49,13 @@ export interface CheckinLookupMatch {
   activitiesLabel: string;
 }
 
+/** Which physical BUILDING the kiosk is in. `center` can't say this — FastTrax
+ *  and HeadPinz FM share "fort-myers" — and bowling check-in is a HeadPinz-
+ *  building action (owner 2026-08-16: a guest must never check in / open a
+ *  HeadPinz lane from a FastTrax kiosk). Client-declared and therefore
+ *  spoofable, which is fine: it gates UX confusion, not possession. */
+export type CheckinKioskVenue = "FT" | "HPFM" | "HPN";
+
 /** POST /api/kiosk/checkin/lookup request. */
 export interface CheckinLookupRequest {
   center: string;
@@ -62,6 +69,10 @@ export interface CheckinLookupRequest {
   /** Sender's kiosk id ("center:number") — grants nothing unless the server
    *  env KIOSK_CHECKIN_OTP_BYPASS_KIOSK_IDS lists it (default: unset, off). */
   kioskId?: string;
+  /** Sending kiosk's building. "FT" suppresses bowling-only results — those
+   *  guests get the "check in at HeadPinz" redirect instead of a confusing
+   *  not-found. Absent = no suppression (old clients, direct API use). */
+  venue?: CheckinKioskVenue;
 }
 
 export interface CheckinLookupResponse {
@@ -80,7 +91,12 @@ export interface CheckinLookupResponse {
     /** A racer scan resolved to a real person who has NO booking here today.
      *  Distinct from `not-found` because it is not a failure: the caller sends
      *  them to sign-in instead of showing "we couldn't find that". */
-    | "no-reservation";
+    | "no-reservation"
+    /** A REAL HeadPinz bowling reservation was found, but this kiosk is in the
+     *  FastTrax building — bowling check-in happens at HeadPinz (owner
+     *  2026-08-16). Distinct from `not-found` so the guest is redirected
+     *  instead of being told their booking doesn't exist. */
+    | "bowling-elsewhere";
 }
 
 /** POST /api/kiosk/checkin/lookup?action=send-otp — text the booking contact.
@@ -224,6 +240,11 @@ export interface CheckinActivity {
   lanePhase?: "not_ready" | "ready" | "running" | "completed" | "cancelled";
   laneLabel?: string;
   neonReservationId?: number;
+  /** Bowling only: this leg takes the kiosk bowler-details check-in (names /
+   *  shoe sizes / bumpers). True only for HeadPinz FM + Naples lanes — never
+   *  FastTrax duckpin (owner rule 2026-08-16). The done-screen lane-open panel
+   *  is NOT gated on this; it keeps its existing behavior. */
+  bowlingCheckinEligible?: boolean;
 }
 
 export interface CheckinRosterPerson {

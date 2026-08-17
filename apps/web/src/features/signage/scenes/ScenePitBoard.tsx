@@ -33,7 +33,9 @@ import { withAlpha } from "../color";
 import { LiveSessionChip, useLiveSessionClock } from "../live-session";
 import { useRaceClockForRace } from "~/features/racing/use-race-clocks";
 import { liveHeatNumber } from "../briefing/room-return";
-import { buildStageRail } from "../briefing/stage-rail";
+import { buildStageRail, type StageRow } from "../briefing/stage-rail";
+import { briefingTimelineAt } from "../briefing/phase";
+import type { BriefingRoomState } from "../briefing/types";
 import {
   TRACK_ACCENTS,
   TRACK_LABELS,
@@ -341,6 +343,35 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
   );
 
   const delay = findTrackDelay(status?.trackStatus.tracks, track);
+
+  // THE MEGA SPLIT, the pit signs' version (owner 2026-08-17: "one on the
+  // right is assignment, one on the left would be session tracker"). Both pit
+  // signs read the one combined lane on a Mega day, so a sign whose
+  // pitMegaRole says so becomes the SESSION TRACKER — the idle wall's
+  // where-is-everyone rail, promoted to the whole screen, always on, with the
+  // extras the idle rail deliberately omits (check-in count, live clock).
+  // Per-screen setting in admin; default keeps today's assignment board.
+  if (track === "mega" && config.pitMegaRole === "tracker") {
+    return (
+      <SessionTracker
+        accent={accent}
+        delay={delay}
+        called={status?.currentRaces?.mega ?? null}
+        checkedIn={
+          feed?.raceCheckin?.checkedIn != null && feed?.raceCheckin?.total != null
+            ? { checkedIn: feed.raceCheckin.checkedIn, total: feed.raceCheckin.total }
+            : null
+        }
+        rooms={{
+          red: feed?.briefingRooms?.red ?? null,
+          blue: feed?.briefingRooms?.blue ?? null,
+        }}
+        lane={lane}
+        liveClock={liveClock}
+        nowMs={feed?.now ?? nowMs}
+      />
+    );
+  }
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
@@ -1173,6 +1204,288 @@ function Idle({
           background: `linear-gradient(90deg, ${accent}, ${withAlpha(accent, 0)})`,
         }}
       />
+    </div>
+  );
+}
+
+/* ── the session tracker (Mega pit-sign role) ─────────────────────────── */
+
+/** mm:ss for the tracker's clocks — the rail's formatter, local because this
+ *  scene has no other duration in this shape. */
+function fmtTrackerClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+const TRACKER_TONE: Record<StageRow["tone"], string> = {
+  none: "rgba(245,236,238,0.62)",
+  good: OK,
+  warn: AMBER,
+  alert: RED,
+};
+
+/** One briefing room's stage, in the rail's own words — split back out of the
+ *  rail's single Briefing row because on a Mega night BOTH rooms brief at
+ *  once, and that is exactly what this screen exists to show. */
+function trackerRoomStage(
+  state: BriefingRoomState | null,
+  nowMs: number,
+): { value: string; type?: string; detail?: string; tone: StageRow["tone"] } {
+  if (!state?.sessionId) return { value: "—", tone: "none" };
+  const t = briefingTimelineAt(state, nowMs);
+  if (t.phase === "idle") return { value: "—", tone: "none" };
+  return {
+    value: state.heatNumber != null ? `Session ${state.heatNumber}` : "In the room",
+    type: state.raceType ?? undefined,
+    detail:
+      t.phase === "video" && t.nextInMs != null
+        ? `${Math.max(1, Math.ceil(t.nextInMs / 60_000))} min of film left`
+        : t.phase === "helmet"
+          ? "helmets — ready to send"
+          : "waiting to start",
+    tone: t.phase === "helmet" ? "good" : "none",
+  };
+}
+
+/**
+ * THE SESSION TRACKER — a Mega pit sign's other job (owner 2026-08-17).
+ *
+ * Both pit signs read the one combined lane on a Mega day, so a pair showing
+ * identical seat grids wastes a screen. This is the idle wall's
+ * where-is-everyone rail promoted to the WHOLE screen, always on, with the
+ * extras the idle rail deliberately omits: the desk's check-in count, the
+ * live race clock, and one row PER BRIEFING ROOM — two briefings feeding one
+ * lane is the shape of a Mega night, and a single folded Briefing row would
+ * hide half of it. Same builder as the idle rail and the room tablet
+ * (buildStageRail), so no two surfaces can describe the night differently.
+ *
+ * PII: session numbers and levels only — the full-names posture stays on the
+ * assignment board alone.
+ */
+function SessionTracker({
+  accent,
+  delay,
+  called,
+  checkedIn,
+  rooms,
+  lane,
+  liveClock,
+  nowMs,
+}: {
+  accent: string;
+  delay: { delayMinutes: number; delayFormatted: string } | null;
+  called: { heatNumber: number | null; raceType: string | null } | null;
+  checkedIn: { checkedIn: number; total: number } | null;
+  rooms: Record<"red" | "blue", BriefingRoomState | null>;
+  lane: PitLaneFeed;
+  liveClock: ReturnType<typeof useLiveSessionClock>;
+  nowMs: number;
+}) {
+  const rows = buildStageRail({
+    called,
+    rooms: [rooms.red, rooms.blue],
+    lane,
+    nowMs,
+    liveHeatNumber: liveClock ? liveHeatNumber(liveClock.heatName) : null,
+    liveCounting: liveClock?.counting === true,
+    liveRemainingMs: liveClock?.remainingMs ?? null,
+    formatClock: fmtTrackerClock,
+    checkedIn,
+  });
+  const byLabel = new Map(rows.map((r) => [r.label, r]));
+  const calledRow = byLabel.get("Called");
+  const laneRows = (["Holding", "In karts", "On track", "Pit in"] as const).map(
+    (l) => byLabel.get(l),
+  );
+  const pitInRoom = lane.pitIn?.room ?? null;
+
+  const stageBand = (args: {
+    key: string;
+    label: string;
+    labelColor?: string;
+    value: string;
+    type?: string;
+    detail?: string;
+    tone: StageRow["tone"];
+    chip?: { text: string; color: string } | null;
+  }) => (
+    <div
+      key={args.key}
+      style={{
+        flex: 1,
+        minHeight: 0,
+        display: "flex",
+        alignItems: "center",
+        gap: 40,
+        borderTop: "1px solid rgba(245,236,238,0.12)",
+        padding: `0 ${PAD_X}px`,
+      }}
+    >
+      <span
+        className="tv-display"
+        style={{
+          fontSize: 26,
+          letterSpacing: "0.14em",
+          textTransform: "uppercase",
+          fontStyle: "normal",
+          color: args.labelColor ?? "rgba(245,236,238,0.5)",
+          width: 260,
+          flexShrink: 0,
+        }}
+      >
+        {args.label}
+      </span>
+      <span
+        className="tv-display"
+        style={{
+          fontSize: 58,
+          lineHeight: 1,
+          whiteSpace: "nowrap",
+          color: args.value === "—" ? "rgba(245,236,238,0.28)" : "#fff",
+          textShadow: args.value === "—" ? undefined : `0 0 40px ${withAlpha(accent, 0.4)}`,
+        }}
+      >
+        {args.value}
+      </span>
+      {args.type && (
+        <span
+          className="tv-display"
+          style={{
+            fontSize: 24,
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
+            fontStyle: "normal",
+            color: "rgba(245,236,238,0.6)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {args.type}
+        </span>
+      )}
+      <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 22 }}>
+        {args.detail && (
+          <span
+            className="tv-display"
+            style={{
+              fontSize: 30,
+              whiteSpace: "nowrap",
+              color: TRACKER_TONE[args.tone],
+            }}
+          >
+            {args.detail}
+          </span>
+        )}
+        {args.chip && (
+          <span
+            className="tv-display"
+            style={{
+              fontSize: 28,
+              whiteSpace: "nowrap",
+              color: "#fff",
+              padding: "5px 18px",
+              borderRadius: 9,
+              border: `3px solid ${args.chip.color}`,
+              background: withAlpha(args.chip.color, 0.2),
+              boxShadow: `0 0 28px ${withAlpha(args.chip.color, 0.5)}`,
+            }}
+          >
+            {args.chip.text}
+          </span>
+        )}
+      </span>
+    </div>
+  );
+
+  return (
+    <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 16,
+          background: accent,
+          boxShadow: `0 0 60px ${accent}`,
+        }}
+      />
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: `radial-gradient(75% 65% at 50% 30%, ${withAlpha(accent, 0.3)}, transparent 74%)`,
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          inset: `${PAD_Y + 16}px 0 24px`,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <header
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 28,
+            padding: `0 ${PAD_X}px 14px`,
+            flexShrink: 0,
+          }}
+        >
+          <TvBrandLogo venue="FT" height={40} />
+          <span
+            className="tv-display"
+            style={{ fontSize: 40, color: "#fff", whiteSpace: "nowrap" }}
+          >
+            Session tracker
+          </span>
+          <DelayLine delay={delay} />
+          <span style={{ marginLeft: "auto" }}>
+            <LiveSessionChip track="mega" accent={accent} />
+          </span>
+        </header>
+
+        {calledRow &&
+          stageBand({
+            key: "called",
+            label: "Checking in",
+            value: calledRow.value,
+            type: calledRow.type,
+            detail: calledRow.detail,
+            tone: calledRow.tone,
+          })}
+        {(["red", "blue"] as const).map((room) => {
+          const stage = trackerRoomStage(rooms[room], nowMs);
+          return stageBand({
+            key: `room-${room}`,
+            label: `${room} room`,
+            labelColor: TRACK_ACCENTS[room],
+            value: stage.value,
+            type: stage.type,
+            detail: stage.detail,
+            tone: stage.tone,
+          });
+        })}
+        {laneRows.map(
+          (row) =>
+            row &&
+            stageBand({
+              key: row.label,
+              label: row.label,
+              value: row.value,
+              type: row.type,
+              detail: row.detail,
+              tone: row.tone,
+              chip:
+                row.label === "Pit in" && row.heatNumber != null && pitInRoom
+                  ? { text: `→ ${pitInRoom.toUpperCase()} ROOM`, color: TRACK_ACCENTS[pitInRoom] }
+                  : null,
+            }),
+        )}
+      </div>
     </div>
   );
 }

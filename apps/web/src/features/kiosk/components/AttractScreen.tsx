@@ -531,15 +531,14 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
 
       {/* Self-service check-in + race-info entries — "not booking" affordances,
           so they sit OUTSIDE the welcome-zone start button. One flex row: with
-          both flags on they sit side by side; with one on it spans full width
-          (owner 2026-07-21). Both OPT-IN, default OFF — set
-          NEXT_PUBLIC_KIOSK_CHECKIN_ENABLED / NEXT_PUBLIC_KIOSK_RACE_INFO_ENABLED
-          to "true" in Vercel to show. BOTH are Fort-Myers-only (the two FM
-          venues share center "fort-myers") — racing never advertises at Naples
-          (owner 2026-07-25). */}
+          both on they sit side by side; with one on it spans full width
+          (owner 2026-07-21). Check-in shows at EVERY venue since bowling
+          check-in (owner 2026-08-16) — HeadPinz venues wear the venue-neutral
+          label; FastTrax keeps its racing one. The race grid stays
+          Fort-Myers-only — racing never advertises at Naples (owner 2026-07-25). */}
       {attractLayout === "adzone" &&
-        config.center === "fort-myers" &&
-        (kioskCheckinEnabled() || kioskRaceInfoEnabled()) && (
+        (kioskCheckinEnabled() ||
+          (config.center === "fort-myers" && kioskRaceInfoEnabled())) && (
           <div className="relative z-10 mx-[64px] mb-[8px] flex shrink-0 gap-[16px]">
             {kioskCheckinEnabled() && (
               <button
@@ -549,10 +548,14 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
               >
                 <span className="k-display flex items-center gap-[14px] text-[30px]">
                   <IconUserCheck size={30} aria-hidden="true" />
-                  {t("attract.raceReservation")}
+                  {venueSlug(config) !== "FT"
+                    ? t("attract.reservationCheckin")
+                    : t("attract.raceReservation")}
                 </span>
                 <span className="text-[19px] text-[#00e2e5]/70">
-                  {t("attract.raceReservationSub")}
+                  {venueSlug(config) !== "FT"
+                    ? t("attract.reservationCheckinSub")
+                    : t("attract.raceReservationSub")}
                 </span>
               </button>
             )}

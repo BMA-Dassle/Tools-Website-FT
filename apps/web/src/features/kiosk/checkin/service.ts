@@ -29,9 +29,14 @@ async function postLookup(
   });
 }
 
-export async function lookupByScan(center: string, scan: string): Promise<CheckinLookupResponse> {
+export async function lookupByScan(
+  center: string,
+  scan: string,
+  /** Kiosk building — "FT" makes the server withhold bowling-only results. */
+  venue?: string,
+): Promise<CheckinLookupResponse> {
   try {
-    const res = await postLookup({ center, scan });
+    const res = await postLookup({ center, scan, ...(venue ? { venue } : {}) });
     return (await res.json()) as CheckinLookupResponse;
   } catch {
     return { ok: false, reason: "invalid" };
@@ -43,9 +48,16 @@ export async function lookupByPhone(
   phone: string,
   /** Test-bypass kioskId — server honors it only via its env allowlist. */
   kioskId?: string,
+  /** Kiosk building — "FT" makes the server withhold bowling-only results. */
+  venue?: string,
 ): Promise<CheckinLookupResponse> {
   try {
-    const res = await postLookup({ center, phone, ...(kioskId ? { kioskId } : {}) });
+    const res = await postLookup({
+      center,
+      phone,
+      ...(kioskId ? { kioskId } : {}),
+      ...(venue ? { venue } : {}),
+    });
     return (await res.json()) as CheckinLookupResponse;
   } catch {
     return { ok: false, reason: "invalid" };
@@ -68,9 +80,13 @@ export async function lookupByRefBypass(
   }
 }
 
-export async function lookupBrowse(center: string): Promise<CheckinLookupResponse> {
+export async function lookupBrowse(
+  center: string,
+  /** Kiosk building — "FT" keeps the browse list racing-only. */
+  venue?: string,
+): Promise<CheckinLookupResponse> {
   try {
-    const res = await postLookup({ center, browse: true });
+    const res = await postLookup({ center, browse: true, ...(venue ? { venue } : {}) });
     return (await res.json()) as CheckinLookupResponse;
   } catch {
     return { ok: false, reason: "invalid" };

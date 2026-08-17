@@ -36,7 +36,7 @@ import { slotLabel, type FirstOpen } from "../service/first-available";
 import { AdminTapZone } from "./AdminTapZone";
 import { UTIL_TILE_BORDER_ALPHA, UTIL_TILE_CLASS, UtilityTile } from "./UtilityTile";
 import { useKioskConfig } from "../KioskConfigContext";
-import { gameZoneCapability } from "../config";
+import { gameZoneCapability, venueSlug } from "../config";
 import { useT, useLocale, LanguageSwitcher, type Translate } from "../i18n";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 
@@ -215,7 +215,14 @@ export function KioskCategories({
       node: (
         <UtilityTile
           icon={<IconUserCheck size={28} aria-hidden="true" />}
-          label={t("attract.raceReservation")}
+          // FastTrax keeps its racing-flavored door; HeadPinz venues (HPFM +
+          // Naples) check bowling reservations in too (2026-08-16), so the
+          // label is venue-neutral there.
+          label={
+            config && venueSlug(config) !== "FT"
+              ? t("attract.reservationCheckin")
+              : t("attract.raceReservation")
+          }
           color="#00e2e5"
           onClick={onOpenCheckin}
         />

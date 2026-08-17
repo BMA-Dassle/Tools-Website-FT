@@ -1,39 +1,72 @@
 # Open Tasks
 
-## Admin tools behind real auth — proxy shell at `apps/admin` (2026-08-16) — code on `feat/admin-deployment`, Vercel setup NOT started
+## Kiosk BOWLING check-in (2026-08-16) — BUILT, NOT live-smoked
 
-The 21 staff tools get clean URLs (`/pit`, `/videos`, …) on a SECOND Vercel project behind
-Vercel Authentication. Architecture: `apps/admin` is a tiny PROXY app (own Root Directory, no
-pages/API/secrets/vercel.json) that forwards every request to the main deployment with the
-admin token injected — routing table in `apps/admin/src/routes.ts`. Chosen over the shared-root
-design because the main project's sensitive env vars cannot be exported; the shell needs only
-`ADMIN_CAMERA_TOKEN` + a freshly minted `ADMIN_PROXY_KEY`. Existing `/admin/{token}/*` URLs on
-the main site are untouched; staff migration is manual, later. Endgame when staff have moved:
-rotate `ADMIN_CAMERA_TOKEN` on main (update the shell's copy) — humans then authenticate ONLY
-via Vercel login. Full plan + audit: `~/.claude/plans/i-want-to-convert-flickering-hanrahan.md`.
+Owner ask: add bowling to the kiosk check-in flow. Bowling needs NO account/waiver; it
+exists only at HPFM + HPN (never FastTrax — duckpin is excluded); the flow must mirror the
+web self check-in (`components/bowling/BowlingCheckin.tsx`): names, shoe sizes, bumpers —
+the full check-in — then the lane-open the done screen already has.
 
-Dashboard runbook (owner, ORDER MATTERS — protection before any custom domain):
+**Grounding (all read in full):** KioskCheckinFlow.tsx, checkin/{types,server,service,
+itinerary,browse-row,express}.ts, kiosk-checkins-db.ts, lookup/complete routes,
+BowlingCheckin.tsx (via research), BowlingPlayersEditor.tsx, players + checkin API routes,
+KioskBowlingDetailsStep.tsx, qamf-centers.ts, kiosk config.ts/flags.ts, bowling-db.ts
+(reservation type, contact/group/short-code lookups), i18n catalog mechanics.
 
-- [ ] Merge the `feat/admin-deployment` PR (main site: only additive/inert changes)
-- [ ] Mint a proxy key: `openssl rand -hex 32` (or any 32+ char secret)
-- [ ] MAIN project → Settings → Environment Variables → add `ADMIN_PROXY_KEY=<minted>`
-      (Production; takes effect on its next deploy — redeploy or ride the merge)
-- [ ] Add New Project → same repo → BEFORE first Deploy: Root Directory `apps/admin`; env:
-      `ADMIN_CAMERA_TOKEN=<current main value>` + `ADMIN_PROXY_KEY=<same minted value>`
-- [ ] New project → Settings → Deployment Protection → Vercel Authentication →
-      **All Deployments**
-- [ ] New project → Settings → Git → Ignored Build Step → `npx turbo-ignore` (shell only
-      rebuilds when apps/admin changes — no more double builds)
-- [ ] (No cron disable needed — apps/admin has no vercel.json, so no crons register)
-- [ ] Optional custom domain — NEVER a subdomain of fasttraxent.com / headpinz.com
-      (publicOrigin's keep-list would treat it as a guest host and QRs/TV URLs would
-      point at the auth wall)
-- [ ] Smoke on the `*.vercel.app` URL: logged-out → login wall everywhere; logged-in →
-      /pit /checkin /reservations /daily-events-v2 render WITH live data; / and
-      /fort-myers 404; /admin/{token}/pit redirects to /pit; VIP voucher QR + signage
-      TV/.bat URLs show headpinz.com (not the admin domain); no Clarity script tag on
-      admin pages; main site unchanged
-- [ ] Staff access: add staff as Vercel team members (that login IS the auth)
+**Key facts driving the design:**
+- A bowling-only guest is INVISIBLE to kiosk check-in today, three ways: their `/s/{code}`
+  scan resolves no billId (stored URL is `?code=` only), phone lookup drops rows without
+  `bmi_bill_id` (server.ts matchByContact), and browse is racing-only by design. Standalone
+  HP-wizard bookings never get a `bmi_bill_id`; only unified-cart anchors do.
+- The checkin rail is billId-keyed end to end (proof/ref tokens, events table, lock) but
+  `kiosk_checkin_events.bill_id` is TEXT and `completeCheckin` already no-ops every BMI
+  write when there is no racing — so a second handle kind rides through cleanly.
+- Naples kiosks have NO check-in entry today (both doors gated `center === "fort-myers"`).
+- Web check-in semantics to mirror: ≥1 real bowler name to finish; name required for any
+  bowler holding a shoe size; rentals ≤ shoePairsAllowed (server 422); no edits after lanes
+  open (server 409); "Bowler N" placeholders display as empty; bumpers = pure preference.
+
+**Plan:**
+- [x] `checkin/res-key.ts` (pure, tested): `bowl:{neonId}` handle helpers + HP-center
+      bowling-row predicate (HPFM `TXBSQN0FEKQ11` / HPN `PPTR5G2N0QXF7`; FT duckpin
+      excluded — this IS the "never at FT" gate)
+- [x] server.ts: `loadSummary` bowl-key branch (anchor = getBowlingReservation, group =
+      listCancelGroupReservations, record = null); scan resolution for bowling short codes
+      (possession of the emailed/SMS link = proof); matchByContact includes HP bowling
+      rows without a bill (dedupe combo legs through their money group); browse regroups
+      by money key (deposit order → bill → row, listCancelGroupReservations precedence)
+      and includes HP-bowling groups (racing rule unchanged, duckpin/attraction-only
+      still excluded); bindPartyMembers/listBindableParty short-circuit on bowl keys
+- [x] types.ts + itinerary.ts: `bowlingCheckinEligible` on bowling activities
+- [x] `checkin/bowler-details.ts` (pure, tested): prefill mapping (hide "Bowler N"),
+      validation (name-with-shoes, allowance), rental count
+- [x] `shoe-catalog.ts` extraction (SHOE_SIZES/SHOE_CATEGORIES/categoryOf) shared by
+      KioskBowlingDetailsStep + the new screen — kills a would-be third copy
+- [x] `checkin/CheckinBowlingDetails.tsx`: kiosk-styled bowler cards (name, Own shoes /
+      Toddler / Men's / Women's cascade, bumpers Yes/No, shoe counter), loads players +
+      lane phase per eligible reservation, saves via the SAME players PATCH the web uses,
+      409 = lanes already open (notice, continue), then hands off to checkInEveryone
+- [x] KioskCheckinFlow.tsx: new `bowling` stage. bowling-only → itinerary → bowler details
+      → complete → done (party/waiver skipped entirely); racing/attraction combos keep
+      party (+assign) and get bowler details LAST before complete; done-screen subtitle
+      is bowling-truthful (`checkin.done.bowlingSet`) instead of "front desk knows"
+- [x] Doors: KioskFlow chooser + AttractScreen adzone button open at ALL venues (label
+      venue-aware: FT keeps "Race Reservation", HP venues say "Reservation Check-In")
+- [x] FT-building kiosks NEVER do bowling (owner 2026-08-16: "people being confused if
+      they try to do a lane from FT"): lookup carries the kiosk's `venue`; at FT the
+      browse list stays racing-only, phone/scan hits on bowling-only reservations answer
+      `bowling-elsewhere` → "check in at the HeadPinz kiosks" (never a bare not-found),
+      combos check in racing-only (bowler details skipped) and the done screen shows a
+      HeadPinz note instead of the lane-open button
+- [x] i18n: `checkin.bowl.*` in parts/checkin.ts + `attract.reservationCheckin*` in core —
+      EN + ES same commit
+- [x] Tests green (189/189 checkin suite incl. 15 new) + `tsc --noEmit` clean + eslint
+      clean on touched files. `next build` NOT run this session — multiple agents share
+      this working tree and a build would fight their `.next`; run it before commit.
+- [ ] LIVE smoke (owner): standalone HP bowling res found by phone AND by scanning the
+      confirmation link; names/shoes/bumpers land in Neon + QAMF + shoe KDS; lane opens
+      from the done screen; a combo still schedules racers first, then bowler details;
+      Naples kiosk now shows the check-in door (new there — was FM-only)
 
 ## "In Karts" — a fifth stage, and the rail that makes room for it (2026-08-14) — on `feat/checkin-board-in-karts`, NOT smoked
 

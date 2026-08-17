@@ -18,6 +18,7 @@ import {
   confirmContactOtp,
 } from "~/features/kiosk/checkin/server";
 import { isExpressBooking } from "~/features/kiosk/checkin/express";
+import { isBowlKey } from "~/features/kiosk/checkin/res-key";
 import { racerHandleFromRaw } from "~/features/kiosk/entry-scan/classify-entry";
 import { lookupMemberMatches } from "~/features/kiosk/license/lookup.server";
 import { RACER_LOGIN_CODE_RE } from "~/features/kiosk/license/types";
@@ -65,6 +66,13 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+  // The kiosk's BUILDING (FT / HPFM / HPN) — `center` can't distinguish the two
+  // FM venues. "FT" keeps bowling check-in out of the FastTrax building (owner
+  // 2026-08-16); anything else (or absent) changes nothing.
+  const venue =
+    body.venue === "FT" || body.venue === "HPFM" || body.venue === "HPN"
+      ? body.venue
+      : undefined;
 
   // ── OTP to the booking contact (browse path) ──────────────────────────────
   if (action === "send-otp") {
@@ -136,7 +144,7 @@ export async function POST(req: NextRequest) {
 
   // Browse — PII-lean list of today's reservations at this center.
   if (body.browse === true) {
-    const rows = await listBrowseRows(center);
+    const rows = await listBrowseRows(center, venue);
     return NextResponse.json<CheckinLookupResponse>({ ok: true, rows });
   }
 
@@ -211,6 +219,7 @@ export async function POST(req: NextRequest) {
       const matches = await matchByRacerContacts(
         center,
         people.map((p) => ({ phone: p.phone || undefined, email: p.email || undefined })),
+        venue,
       );
       if (matches.length === 0) {
         // Known racer, no booking here today — a sign-in, not a failure.
@@ -225,6 +234,16 @@ export async function POST(req: NextRequest) {
         { ok: false, reason: resolved.reason ?? "not-found" },
         { status: 200 },
       );
+    }
+    // A REAL HeadPinz bowling reservation scanned at a FastTrax-building kiosk:
+    // don't open it (its check-in would end at "open your lane" in the wrong
+    // building) and don't claim it's not found — redirect the guest to the
+    // HeadPinz kiosks (owner 2026-08-16).
+    if (venue === "FT" && isBowlKey(resolved.billId)) {
+      return NextResponse.json<CheckinLookupResponse>({
+        ok: false,
+        reason: "bowling-elsewhere",
+      });
     }
     const summary = await loadSummary(resolved.billId);
     if (!summary) {
@@ -288,9 +307,14 @@ export async function POST(req: NextRequest) {
     if (!bypass && !(await phoneIsVerified(body.phone))) {
       return NextResponse.json<CheckinLookupResponse>({ ok: false, reason: "needs-otp" });
     }
-    const matches = await matchByPhone(center, body.phone);
+    const { matches, bowlingSuppressed } = await matchByPhone(center, body.phone, venue);
     if (matches.length === 0) {
-      return NextResponse.json<CheckinLookupResponse>({ ok: false, reason: "not-found" });
+      // Their ONLY booking today is HeadPinz bowling and this is a FastTrax
+      // kiosk — say where to go, never "no reservations found".
+      return NextResponse.json<CheckinLookupResponse>({
+        ok: false,
+        reason: bowlingSuppressed ? "bowling-elsewhere" : "not-found",
+      });
     }
     return NextResponse.json<CheckinLookupResponse>({ ok: true, matches });
   }

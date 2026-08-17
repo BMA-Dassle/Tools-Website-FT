@@ -281,6 +281,7 @@ export interface ResolvedScreenConfig {
   checkinWindowMins: number;
   showCheckinCountdown: boolean;
   megaRole: "session" | "checkin";
+  pitMegaRole: "assignment" | "tracker";
   showRecordsQr: boolean;
   welcomeLeadMins: number;
   welcomeTrailMins: number;
@@ -385,6 +386,9 @@ export function resolveScreenConfig(
     checkinWindowMins: Math.max(1, numOr(c.checkinWindowMins, 8)),
     showCheckinCountdown: c.showCheckinCountdown !== false,
     megaRole: c.megaRole === "checkin" ? "checkin" : "session",
+    // Same posture as megaRole: only the non-default literal switches, so an
+    // untouched pit sign keeps today's behavior (both show the assignment).
+    pitMegaRole: c.pitMegaRole === "tracker" ? "tracker" : "assignment",
     showRecordsQr: c.showRecordsQr === true,
     welcomeLeadMins: numOr(c.welcomeLeadMins, 75),
     welcomeTrailMins: numOr(c.welcomeTrailMins, 30),

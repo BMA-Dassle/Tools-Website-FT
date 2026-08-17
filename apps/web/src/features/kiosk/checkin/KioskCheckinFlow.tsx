@@ -40,7 +40,7 @@ import { IdleWatcher } from "../components/IdleWatcher";
 import { BrandedLoader } from "../components/BrandedLoader";
 import { RacingWhatsNext } from "../components/RacingWhatsNext";
 import { useKioskConfig } from "../KioskConfigContext";
-import { isTestKiosk, kioskId } from "../config";
+import { isTestKiosk, kioskId, venueSlug } from "../config";
 import { resetToKiosk } from "../version";
 import { consumeEntryScan } from "../entry-scan/handoff";
 import { useT } from "../i18n";
@@ -60,6 +60,7 @@ import {
 } from "./service";
 import { prefillPartyMembers } from "./party-prefill";
 import { kioskVoucherPrefillEnabled } from "../flags";
+import { CheckinBowlingDetails } from "./CheckinBowlingDetails";
 import { useWedgeScan } from "./wedge-scan";
 import { useQrScanner } from "../qr-scanner";
 import { heatsConflict } from "~/features/booking/service/conflict";
@@ -113,6 +114,7 @@ type Stage =
   | "itinerary"
   | "party"
   | "assign"
+  | "bowling"
   | "done";
 
 const DONE_RESET_MS = 60_000;
@@ -138,6 +140,12 @@ export function KioskCheckinFlow() {
   const t = useT();
   const hydrated = useHydrated();
   const center = config?.center ?? "fort-myers";
+  // Which BUILDING this kiosk is in — center can't say (FastTrax + HeadPinz FM
+  // share "fort-myers"). Bowling check-in is a HeadPinz-building action (owner
+  // 2026-08-16): at "FT" the server withholds bowling-only results and this
+  // flow never opens the bowler-details step or the lane-open button.
+  const venue = config ? venueSlug(config) : undefined;
+  const atFtKiosk = venue === "FT";
   // (No Pandora location needed here any more — check-in no longer mints or
   // reads a person to resolve an id; it uses the id the cloud already assigned.)
 
@@ -200,6 +208,8 @@ export function KioskCheckinFlow() {
   const [complete, setComplete] = useState<CheckinCompleteResponse | null>(null);
   // Race-slot assignment ("who is who") — open-slot heatId → party member id.
   const [assignMap, setAssignMap] = useState<Record<string, string>>({});
+  // Bowler-details PATCH in flight — pauses the idle watcher and locks back.
+  const [bowlSaving, setBowlSaving] = useState(false);
 
   const goHome = useCallback(() => {
     void resetToKiosk(() => router.replace("/kiosk"));
@@ -225,9 +235,14 @@ export function KioskCheckinFlow() {
       setItinerary(data);
       setProofToken(token);
       setStage("itinerary");
+      // A bowling-only reservation never mounts the party step — no accounts,
+      // no waivers — so the (7.7–15.5s) BMI roster fetch would be pure waste;
+      // the server answers empty for its key anyway.
+      const dataBowlingOnly =
+        data.activities.length > 0 && data.activities.every((a) => a.kind === "bowling");
       // Prefill roster rides the same proof — fire-and-forget so the itinerary
       // never waits on it; a failure just means no shortcut button.
-      if (kioskVoucherPrefillEnabled()) {
+      if (kioskVoucherPrefillEnabled() && !dataBowlingOnly) {
         // The roster is a TWO-HOP lookup (BMI project → person profiles) plus a
         // live Pandora waiver read per person: measured 7.7–15.5s on real
         // reservations, and it used to run behind a blank list with no hint
@@ -313,6 +328,23 @@ export function KioskCheckinFlow() {
   }, [session.party]);
 
   const openRaceSlots = itinerary?.raceSlots.filter((s) => s.open) ?? [];
+  // Bowling legs that take the kiosk bowler-details check-in (names / shoes /
+  // bumpers) — HeadPinz lanes only, flagged by the server; FT duckpin and
+  // cancelled legs never qualify. NEVER at a FastTrax-building kiosk: a combo
+  // checked in at FT does racing only, and its bowling is checked in at the
+  // HeadPinz kiosks (owner 2026-08-16).
+  const bowlingDetailActivities = atFtKiosk
+    ? []
+    : (itinerary?.activities ?? []).filter(
+        (a): a is CheckinActivity & { neonReservationId: number } =>
+          a.kind === "bowling" && a.bowlingCheckinEligible === true && !!a.neonReservationId,
+      );
+  // Bowling is the WHOLE reservation → no accounts, no waivers, no party step
+  // (owner 2026-08-16: "bowling does not need a full account/waiver").
+  const bowlingOnly =
+    !!itinerary &&
+    itinerary.activities.length > 0 &&
+    itinerary.activities.every((a) => a.kind === "bowling");
   const slotByKey = (key: string) => openRaceSlots.find((s) => s.slotKey === key);
   const assignRace = (slotKey: string, memberId: string) => {
     const target = slotByKey(slotKey);
@@ -540,7 +572,7 @@ export function KioskCheckinFlow() {
   const onScan = async (raw: string) => {
     setBusy(true);
     setError(null);
-    const res = await lookupByScan(center, raw);
+    const res = await lookupByScan(center, raw, venue);
     setBusy(false);
     // A signed link opens directly; an enumerable code/W# comes back as an
     // OTP-gated row → run the same text-a-code-to-the-contact flow as browse.
@@ -553,7 +585,11 @@ export function KioskCheckinFlow() {
       return;
     }
     setError(
-      res.reason === "cancelled" ? t("checkin.err.cancelled") : t("checkin.err.codeNotFound"),
+      res.reason === "cancelled"
+        ? t("checkin.err.cancelled")
+        : res.reason === "bowling-elsewhere"
+          ? t("checkin.bowl.wrongVenue")
+          : t("checkin.err.codeNotFound"),
     );
   };
 
@@ -587,7 +623,7 @@ export function KioskCheckinFlow() {
     // agrees — the lookup answers directly. A needs-otp refusal (env unset)
     // falls through to the normal text-a-code flow.
     if (isTestKiosk(config) && config) {
-      const direct = await lookupByPhone(center, phone, kioskId(config));
+      const direct = await lookupByPhone(center, phone, kioskId(config), venue);
       if (direct.ok && direct.matches && direct.matches.length > 0) {
         setBusy(false);
         if (direct.matches.length === 1) {
@@ -598,9 +634,16 @@ export function KioskCheckinFlow() {
         setStage("matches");
         return;
       }
-      if (direct.ok === false && direct.reason === "not-found") {
+      if (
+        direct.ok === false &&
+        (direct.reason === "not-found" || direct.reason === "bowling-elsewhere")
+      ) {
         setBusy(false);
-        setError(t("checkin.err.noReservations"));
+        setError(
+          direct.reason === "bowling-elsewhere"
+            ? t("checkin.bowl.wrongVenue")
+            : t("checkin.err.noReservations"),
+        );
         return;
       }
     }
@@ -627,10 +670,14 @@ export function KioskCheckinFlow() {
       );
       return;
     }
-    const res = await lookupByPhone(center, phone);
+    const res = await lookupByPhone(center, phone, undefined, venue);
     setBusy(false);
     if (!res.ok || !res.matches || res.matches.length === 0) {
-      setError(t("checkin.err.noReservations"));
+      setError(
+        res.reason === "bowling-elsewhere"
+          ? t("checkin.bowl.wrongVenue")
+          : t("checkin.err.noReservations"),
+      );
       return;
     }
     if (res.matches.length === 1) {
@@ -644,7 +691,7 @@ export function KioskCheckinFlow() {
   const openBrowse = async () => {
     setBusy(true);
     setError(null);
-    const res = await lookupBrowse(center);
+    const res = await lookupBrowse(center, venue);
     setBusy(false);
     setRows(res.rows ?? []);
     setStage("browse");
@@ -674,7 +721,13 @@ export function KioskCheckinFlow() {
     else if (stage === "browse") setStage("find");
     else if (stage === "browse-verify") setStage("browse");
     else if (stage === "browse-otp") setStage("browse-verify");
-    else if (stage === "assign") setStage("party");
+    else if (stage === "bowling") {
+      // Mirror the forward path: racing combos came from assign, other combos
+      // from party, bowling-only straight from the itinerary.
+      if (openRaceSlots.length > 0) setStage("assign");
+      else if (!bowlingOnly) setStage("party");
+      else setStage("itinerary");
+    } else if (stage === "assign") setStage("party");
     else if (stage === "party") setStage("itinerary");
     else if (stage === "itinerary") {
       setItinerary(null);
@@ -692,7 +745,11 @@ export function KioskCheckinFlow() {
 
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-[#000418]">
-      <IdleWatcher timeoutMs={IDLE_MS} paused={busy || peopleBusy || binding} onReset={goHome} />
+      <IdleWatcher
+        timeoutMs={IDLE_MS}
+        paused={busy || peopleBusy || binding || bowlSaving}
+        onReset={goHome}
+      />
 
       {/* The kiosk's QR reader is a SERIAL (COM-port) device — it never types
           keystrokes, so the wedge hook alone hears nothing from it. Mounted
@@ -720,7 +777,7 @@ export function KioskCheckinFlow() {
         <button
           type="button"
           onClick={back}
-          disabled={binding}
+          disabled={binding || bowlSaving}
           className="k-tap flex h-[88px] items-center gap-[8px] rounded-2xl border-2 border-white/15 px-[28px] text-[28px] font-bold text-white/70 disabled:opacity-40"
         >
           <IconChevronLeft size={36} aria-hidden="true" />
@@ -733,13 +790,15 @@ export function KioskCheckinFlow() {
               ? t("checkin.doneTitle")
               : stage === "assign"
                 ? t("checkin.assignTitle")
-                : stage === "party"
-                  ? t("checkin.addGroup.eyebrow")
-                  : stage === "itinerary" && itinerary
-                    ? t("checkin.welcomeBack", {
-                        name: itinerary.firstName || t("checkin.friend"),
-                      })
-                    : t("checkin.findReservation")}
+                : stage === "bowling"
+                  ? t("checkin.bowl.title")
+                  : stage === "party"
+                    ? t("checkin.addGroup.eyebrow")
+                    : stage === "itinerary" && itinerary
+                      ? t("checkin.welcomeBack", {
+                          name: itinerary.firstName || t("checkin.friend"),
+                        })
+                      : t("checkin.findReservation")}
           </div>
         </div>
         <IconUserCheck size={56} className="shrink-0 text-white/25" aria-hidden="true" />
@@ -920,7 +979,15 @@ export function KioskCheckinFlow() {
             ) : (
               <button
                 type="button"
-                onClick={() => setStage("party")}
+                // Bowling-only skips the party step entirely — bowling needs no
+                // account and no waiver (owner 2026-08-16); the guest goes
+                // straight to bowler details. Everything else keeps the party
+                // (waiver/sign-in) step first.
+                onClick={() =>
+                  setStage(
+                    bowlingOnly && bowlingDetailActivities.length > 0 ? "bowling" : "party",
+                  )
+                }
                 className="k-btn-primary k-tap h-[112px] w-full text-[36px]"
               >
                 {t("checkin.continue")}
@@ -972,8 +1039,9 @@ export function KioskCheckinFlow() {
                   </div>
                 )}
 
-                {/* Racing → the dedicated "Who's racing?" step; otherwise finalize.
-                peopleBusy gates BOTH: a sign-in lookup / waiver check still in
+                {/* Racing → the dedicated "Who's racing?" step; a reservation
+                with HeadPinz bowling → bowler details next; otherwise finalize.
+                peopleBusy gates ALL: a sign-in lookup / waiver check still in
                 flight means the roster isn't settled yet — advancing early let a
                 guest skip past their own account resolving. */}
                 {openRaceSlots.length > 0 ? (
@@ -984,6 +1052,15 @@ export function KioskCheckinFlow() {
                     className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
                   >
                     {t("checkin.nextWhosRacing")}
+                  </button>
+                ) : bowlingDetailActivities.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setStage("bowling")}
+                    disabled={partyNeedsSetup || nobodyIncluded || peopleBusy}
+                    className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
+                  >
+                    {t("checkin.bowl.next")}
                   </button>
                 ) : (
                   <button
@@ -1012,11 +1089,34 @@ export function KioskCheckinFlow() {
             assignMap={assignMap}
             onAssign={assignRace}
             onClear={clearRace}
-            onCheckIn={checkInEveryone}
+            // A reservation with HeadPinz bowling collects bowler details LAST,
+            // then finalizes from that screen; racing-only finalizes here.
+            onCheckIn={
+              bowlingDetailActivities.length > 0 ? () => setStage("bowling") : checkInEveryone
+            }
+            checkInLabel={
+              bowlingDetailActivities.length > 0 ? t("checkin.bowl.next") : undefined
+            }
             onBackToParty={() => setStage("party")}
             autoFilled={autoFilled}
             binding={binding}
             bindMsg={bindMsg}
+          />
+        )}
+
+        {stage === "bowling" && itinerary && (
+          <CheckinBowlingDetails
+            activities={bowlingDetailActivities.map((a) => ({
+              neonReservationId: a.neonReservationId,
+              title: a.title,
+              timeLabel: a.timeLabel,
+              totalCount: a.totalCount,
+            }))}
+            requireName={bowlingOnly}
+            finishing={binding}
+            finishError={bindMsg}
+            onFinish={checkInEveryone}
+            onBusyChange={setBowlSaving}
           />
         )}
 
@@ -1025,6 +1125,7 @@ export function KioskCheckinFlow() {
             itinerary={itinerary}
             complete={complete}
             raceLineup={raceLineup}
+            atFtKiosk={atFtKiosk}
             onFinish={goHome}
             onBusyChange={setBinding}
           />
@@ -1414,6 +1515,9 @@ function RaceAssignScreen(props: {
   onAssign: (heatId: string, memberId: string) => void;
   onClear: (slotKey: string) => void;
   onCheckIn: () => void;
+  /** Overrides the finalize label — a combo with HeadPinz bowling goes to
+   *  bowler details next instead of finishing here. */
+  checkInLabel?: string;
   onBackToParty: () => void;
   autoFilled: boolean;
   binding: boolean;
@@ -1579,7 +1683,9 @@ function RaceAssignScreen(props: {
         disabled={binding || assignedCount === 0}
         className="k-btn-primary k-tap h-[112px] w-full text-[36px] disabled:opacity-40"
       >
-        {binding ? t("checkin.puttingOnGridWait") : t("checkin.checkEveryone")}
+        {binding
+          ? t("checkin.puttingOnGridWait")
+          : (props.checkInLabel ?? t("checkin.checkEveryone"))}
       </button>
       <p className="text-center text-[24px] text-white/45">
         {assignedCount === 0
@@ -1607,10 +1713,14 @@ function DoneScreen(props: {
     timeLabel: string;
     names: string[];
   }>;
+  /** FastTrax-building kiosk: never offer the lane-open button — the lane is at
+   *  HeadPinz, and opening it from here is exactly the confusion the owner
+   *  ruled out (2026-08-16). A note points the guest to the HeadPinz kiosks. */
+  atFtKiosk: boolean;
   onFinish: () => void;
   onBusyChange: (busy: boolean) => void;
 }) {
-  const { itinerary, complete, raceLineup } = props;
+  const { itinerary, complete, raceLineup, atFtKiosk } = props;
   const t = useT();
   const scheduled = complete?.scheduled ?? 0;
   const laneOpenEnabled = complete?.laneOpenEnabled === true;
@@ -1630,12 +1740,16 @@ function DoneScreen(props: {
         <div className="k-display mt-[20px] text-[64px]">{t("checkin.done.allCheckedIn")}</div>
         <p className="mt-[10px] text-[30px] text-white/60">
           {/* A resumed finalize added only the LATE arrivals, so the bare
-              "N racers added" would read as the whole party. Say which it is. */}
+              "N racers added" would read as the whole party. Say which it is.
+              Bowling with no racers gets its own line — "the front desk knows"
+              wasn't a claim this rail could back for bowling-only. */}
           {complete?.resumed && scheduled > 0
             ? t("checkin.done.racersAddedLater", { count: scheduled })
             : scheduled > 0
               ? t("checkin.done.racersAdded", { count: scheduled })
-              : t("checkin.done.frontDeskKnows")}
+              : bowlingActivities.length > 0 && !atFtKiosk
+                ? t("checkin.done.bowlingSet")
+                : t("checkin.done.frontDeskKnows")}
         </p>
       </div>
 
@@ -1723,16 +1837,25 @@ function DoneScreen(props: {
       )}
 
       {/* Bowling lane-open — interactive only when the check-in attach gate is
-          on (dark-safe: staff testing never fires a real lane / KDS ticket). */}
-      {bowlingActivities.map((a) => (
-        <LaneOpenPanel
-          key={a.neonReservationId}
-          neonReservationId={a.neonReservationId as number}
-          laneLabel={a.laneLabel ?? a.title}
-          interactive={laneOpenEnabled}
-          onBusyChange={props.onBusyChange}
-        />
-      ))}
+          on (dark-safe: staff testing never fires a real lane / KDS ticket).
+          NEVER at a FastTrax-building kiosk: the lane is at HeadPinz, so a
+          note replaces the button (owner 2026-08-16). */}
+      {atFtKiosk && bowlingActivities.length > 0 ? (
+        <div className="k-glass p-[24px] text-[26px] text-white/55">
+          <IconClock size={26} className="mr-[10px] inline text-[#2dd4ea]" aria-hidden="true" />
+          {t("checkin.bowl.laneAtHp")}
+        </div>
+      ) : (
+        bowlingActivities.map((a) => (
+          <LaneOpenPanel
+            key={a.neonReservationId}
+            neonReservationId={a.neonReservationId as number}
+            laneLabel={a.laneLabel ?? a.title}
+            interactive={laneOpenEnabled}
+            onBusyChange={props.onBusyChange}
+          />
+        ))
+      )}
 
       <button
         type="button"

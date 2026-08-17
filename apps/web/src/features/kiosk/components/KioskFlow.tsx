@@ -2187,9 +2187,10 @@ export function KioskFlow({
           // "Not booking" side doors, moved off the attract screen (owner
           // 2026-07-28). Flag + venue gating lives HERE — a callback only arrives
           // when the door applies — so KioskCategories stays presentational and
-          // the rules are not duplicated across two components. Check-in and the
-          // race grid are Fort-Myers-only: the two FM venues share the center
-          // code, and racing never advertises at Naples.
+          // the rules are not duplicated across two components. Check-in opens at
+          // EVERY venue since bowling check-in (owner 2026-08-16) — Naples has
+          // bowling reservations to check in even though racing never advertises
+          // there; the race grid stays Fort-Myers-only.
           // Vendor outage: check-in's finishing writes (registerProjectPerson,
           // racer schedule, state stamp) are on the BMI booking rail and fail
           // SILENTLY by design, so a dark rail means the kiosk would confirm a
@@ -2198,7 +2199,7 @@ export function KioskFlow({
           // and typed-URL routes, so this is the tidy front door, not the
           // enforcement.
           onOpenCheckin={
-            config.center === "fort-myers" && kioskCheckinEnabled() && !vendorPaused("checkin")
+            kioskCheckinEnabled() && !vendorPaused("checkin")
               ? () => router.push("/kiosk/checkin")
               : undefined
           }

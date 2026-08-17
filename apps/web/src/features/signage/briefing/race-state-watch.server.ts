@@ -1,29 +1,41 @@
 import "server-only";
 
 /**
- * THE PAUSE WATCHER — samples each track's run state once a minute and marks
- * the cameras when a race pauses or resumes.
+ * THE PAUSE WATCHER — samples each track's run state once a minute, publishes
+ * which heat each track is on, and marks the cameras on a pause or resume WHEN
+ * NOTHING BETTER IS AVAILABLE.
  *
- * WHY A SAMPLER AND NOT AN EVENT. Three of the four race events the owner asked
- * for arrive on the venue broadcast with the venue's own timestamp: RaceStart
- * and RaceFinish are pushed to our webhook within seconds of the flag, and
- * race-finish.server.ts marks the cameras straight off them. A PAUSE is pushed
- * nowhere. It exists only as the `S` field on the SMS-Timing socket frame
- * (1 running · 2 paused), which is a state you can read but not subscribe to
- * from a serverless function. So it gets polled.
+ * ─── THIS USED TO BE THE ONLY WAY. IT NO LONGER IS. ───────────────────────
  *
- * WHAT THAT COSTS, SAID PLAINLY: a pause shorter than the sampling interval can
- * be missed entirely, and a pause that IS caught carries a timestamp up to a
- * minute late. Both are handled rather than hidden — the marker's range leads
- * in two minutes (race-bookmarks.server.ts) so the footage behind it contains
- * the actual incident, and its description says the moment is approximate. A
- * bookmark that silently implied second-accuracy would send somebody to the
- * wrong minute of an incident review.
+ * The original note here said a pause "is pushed nowhere… so it gets polled",
+ * and that was true when it was written. It is not true now: a survey of the
+ * venue broadcast on 2026-08-16 found `SessionPausedNotification` and
+ * `SessionResumedNotification` flowing with the venue's OWN timestamp — the
+ * exact thing this sampler was built to approximate. They are handled on the
+ * webhook by racing/track-events.server.ts, seconds after the event rather than
+ * up to a minute later.
  *
- * WHY IT IS STILL WORTH HAVING: a pause in karting is almost always an
- * incident — a spin, a stall, a marshal on the circuit — and those are exactly
- * the moments an insurance question is later about. Most of them last well over
- * a minute, so most of them are caught.
+ * So the bookmarking here is now a FALLBACK, gated on the bridge's heartbeat
+ * (racing/timing-feed.server.ts): it marks only while the feed is NOT live. When
+ * the bridge is healthy the exact stamp wins and this stands down; when the
+ * bridge dies — as it did silently for seven hours on 2026-08-14 — this is what
+ * keeps the ribbon annotated. The gate also keeps the two paths from
+ * double-marking, which they otherwise would, since they key their claims
+ * differently (`heat-{n}` here, the real session id there).
+ *
+ * WHAT SAMPLING COSTS, SAID PLAINLY, because it still applies whenever this
+ * fires: a pause shorter than the interval can be missed entirely, and one that
+ * IS caught carries a timestamp up to a minute late. Both are handled rather
+ * than hidden — the marker's range leads in two minutes
+ * (race-bookmarks.server.ts) and its description says the moment is
+ * approximate.
+ *
+ * ─── THE PART THAT IS NOT A FALLBACK ──────────────────────────────────────
+ *
+ * `race:live-heat:{track}` below is published unconditionally and must stay
+ * that way. It is the pit lane's SECOND OPINION and its whole value is that it
+ * does not come through the bridge — gating it on the bridge's health would
+ * remove exactly the cover it exists to provide.
  *
  * COST: two websocket connects a minute, each sub-second, only while a track
  * has a race loaded. A track sitting empty settles to `none` and stops being
@@ -35,6 +47,8 @@ import { captureTrackState } from "./results-capture.server";
 import { raceStateTransition, type RaceStateMemory, type RaceTransition } from "./race-state";
 import { bookmarkRaceEvent } from "./race-bookmarks.server";
 import { raceBookmarksEnabled } from "./race-bookmarks-setting.server";
+import { readTimingFeedStatus } from "~/features/racing/timing-feed.server";
+import { recordTrackEvent } from "~/features/racing/data/track-events-db";
 import type { TrackKey } from "../track";
 
 /** ALL THREE, mega last. The old fear — that sampling mega as well would
@@ -134,6 +148,11 @@ export interface RaceStateWatchTrack {
 export interface RaceStateWatchResult {
   ok: true;
   enabled: boolean;
+  /** The bridge heartbeat this run decided on. Reported so a dryRun answers
+   *  "why did it not mark?" without a second query. */
+  feedState: string;
+  /** True when the feed was live and the webhook is therefore the one marking. */
+  pushCovering: boolean;
   tracks: RaceStateWatchTrack[];
 }
 
@@ -141,6 +160,18 @@ export async function runRaceStateWatch(
   opts: { dryRun?: boolean } = {},
 ): Promise<RaceStateWatchResult> {
   const enabled = await raceBookmarksEnabled();
+  /**
+   * STAND DOWN WHILE THE PUSH PATH IS WORKING. `live` means the bridge
+   * delivered something within the last 90 seconds, which is precisely the
+   * window in which a pause notification would have reached
+   * track-events.server.ts with the venue's exact stamp. `stale`, `down` and
+   * `unknown` all mean we cannot count on that, so the sampler covers.
+   *
+   * Erring towards sampling on `unknown` is deliberate: a duplicate marker is
+   * recoverable, an unmarked incident is not.
+   */
+  const feed = await readTimingFeedStatus();
+  const pushCovering = feed.state === "live";
   const tracks: RaceStateWatchTrack[] = [];
 
   for (const track of WATCHED) {
@@ -172,11 +203,17 @@ export async function runRaceStateWatch(
 
     let camerasMarked = 0;
     let note: string | undefined;
-    if (transition && !enabled) {
+    if (transition && pushCovering) {
+      // The webhook already marked this with the venue's own stamp — or will
+      // within seconds. Said in the note rather than silently skipped, so a
+      // dryRun still shows what the sampler SAW.
+      note = `push covering (feed ${feed.state}, ${Math.round((feed.ageMs ?? 0) / 1000)}s)`;
+    } else if (transition && !enabled) {
       note = "switched off";
     } else if (transition && opts.dryRun) {
       note = "would mark (dry run)";
     } else if (transition) {
+      const atMs = Date.now();
       camerasMarked = await bookmarkRaceEvent({
         track,
         // The heat number is the id we have here; the socket frame carries no
@@ -186,11 +223,31 @@ export async function runRaceStateWatch(
         heatNumber: frame.heatNumber,
         heatName: frame.heatName || null,
         phase: transition,
-        atMs: Date.now(),
+        atMs,
         sampled: true,
       }).catch((err) => {
         console.error(`[race-state-watch] ${track} ${transition} bookmark failed`, err);
         return 0;
+      });
+      /**
+       * LOG IT TOO, so the incident record does not go blank exactly when the
+       * bridge does — which is the only time this branch runs.
+       *
+       * `session_id` is left NULL on purpose: `heat-{n}` above is a claim key,
+       * not a Pandora session id, and putting it in that column would be a
+       * fabricated identifier in a safety log. The heat number carries the
+       * identity instead, and `source: "sampled"` says the stamp is within the
+       * preceding minute rather than exact.
+       */
+      await recordTrackEvent({
+        track,
+        action: transition,
+        atMs,
+        sessionId: null,
+        heatNumber: frame.heatNumber,
+        heatName: frame.heatName || null,
+        camerasMarked,
+        source: "sampled",
       });
     }
 
@@ -209,5 +266,5 @@ export async function runRaceStateWatch(
     });
   }
 
-  return { ok: true, enabled, tracks };
+  return { ok: true, enabled, feedState: feed.state, pushCovering, tracks };
 }
