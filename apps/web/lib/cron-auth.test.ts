@@ -8,25 +8,11 @@ const req = (auth?: string): NextRequest =>
   });
 
 beforeEach(() => {
-  delete process.env.ADMIN_DEPLOYMENT;
   delete process.env.VERCEL_ENV;
   delete process.env.CRON_SECRET;
 });
 
 describe("verifyCron", () => {
-  it("skips on the admin deployment — even with a valid bearer", async () => {
-    process.env.ADMIN_DEPLOYMENT = "1";
-    process.env.CRON_SECRET = "s3cret";
-    try {
-      const res = verifyCron(req("Bearer s3cret"));
-      expect(res).not.toBeNull();
-      expect(await res!.json()).toEqual({ ok: true, skipped: "admin deployment" });
-    } finally {
-      delete process.env.ADMIN_DEPLOYMENT;
-      delete process.env.CRON_SECRET;
-    }
-  });
-
   it("skips on preview deployments", async () => {
     process.env.VERCEL_ENV = "preview";
     try {
@@ -57,9 +43,11 @@ describe("verifyCron", () => {
   });
 
   it("passes anything when CRON_SECRET is unset (documents today's fail-open)", () => {
-    // Pinned on purpose: this open door is WHY the admin-deployment guard
-    // above exists — omitting CRON_SECRET on the second project would not
-    // have stopped its crons.
+    // Pinned on purpose: any second Vercel project sharing apps/web's root
+    // would register vercel.json's crons too, and omitting CRON_SECRET there
+    // would NOT stop them (see the note on verifyCron). The staff admin
+    // project sidesteps this by living at its own root (apps/admin, no
+    // vercel.json) — this pin is the tripwire if that ever changes.
     expect(verifyCron(req())).toBeNull();
   });
 });

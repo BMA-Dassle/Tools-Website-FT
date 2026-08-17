@@ -4296,51 +4296,83 @@ Fortunately a single `Resource: "Karting"` subscription on `BcFormat: "0"`
 carries every track's notifications (Blue + Red in one snapshot), so one socket
 is both necessary and sufficient.
 
-## Serving origin ≠ public origin once the app has a second deployment (2026-08-16)
+## Serving origin ≠ public origin once the app serves a second domain (2026-08-16)
 
-**What happened (caught in review, not production):** the admin tools moved to a
-second Vercel project behind Vercel Authentication — same repo, same `apps/web`
-root, clean URLs rewritten onto the existing `/admin/{token}/*` pages. The
-adversarial pass found that "just deploy the same app twice" silently breaks
-every absolute URL derived from the SERVING origin (`req.nextUrl.origin` /
-`window.location.origin`) when the code runs on the protected deployment:
+**What happened (caught in review, not production):** the admin tools moved
+behind Vercel Authentication on a second Vercel project serving clean URLs
+(`/pit`, `/reservations`, …). The first design deployed the whole `apps/web`
+app twice (same root dir, env-discriminated middleware); the adversarial pass
+found that silently breaks every absolute URL derived from the SERVING origin
+(`req.nextUrl.origin` / `window.location.origin`) when code runs on the
+protected deployment: guest pay-difference links, the VIP voucher QR a guest
+scans across the desk, signage `.bat` startup scripts baked into TV players
+(deferred failure — appears at the board's next reboot), and server-side
+self-fetches (`/api/notifications/bowling-confirmation`,
+`/api/pandora/races-current`) that get the login interstitial instead of JSON —
+one caller 500s, two swallow it silently (a reschedule that never notifies the
+guest; a check-in board with an empty session strip).
 
-- **Guest-facing URLs** — the reservation-edit pay-difference link, the VIP
-  voucher QR a guest scans across the desk, the signage `.bat` startup scripts
-  baked into TV players. All would have pointed guests and cookie-less devices
-  at the Vercel login wall. The TV failure is deferred — it appears at the
-  board's next reboot, days later.
-- **Server-side self-fetches** — admin routes that fetch their own public API
-  (`/api/notifications/bowling-confirmation`, `/api/pandora/races-current`) go
-  back out through the edge, where deployment protection returns the login
-  interstitial instead of JSON. One caller `await res.json()`s it (hard 500);
-  two swallow it (`.catch(() => {})` / `return {}`) — a reschedule that never
-  notifies the guest and a check-in board with an empty session strip.
+**Final design (v2, after the owner hit Vercel's sensitive-env wall):** the
+whole-app-twice approach also required duplicating all ~290 env vars, and
+sensitive-typed vars cannot be exported from Vercel at all. Replaced with a
+PROXY SHELL — `apps/admin`, its own Root Directory, no pages/API/secrets —
+that forwards every request to the main deployment with the token injected
+(`apps/admin/src/routes.ts` + `proxy.ts`). Server code then always executes on
+the main deployment with the correct origin, so only the two CLIENT-side sites
+(VIP QR, signage copy-URL) need `publicOrigin()` — now host-based, no env.
 
 **The rules:**
 
 1. **An absolute URL built from the serving origin is a latent bug the moment
-   the app gains a second deployment.** Any URL that must work for a guest, a
-   device, or a server-to-server hop goes through `publicOrigin()`
-   (`~/lib/helpers/public-origin`) — identity on the main project, the public
-   site origin on the admin project via `NEXT_PUBLIC_ADMIN_PUBLIC_ORIGIN`.
-2. **Silent-failure self-fetches hide deployment breakage.** `.catch(() => {})`
-   and `catch { return {} }` turned "auth wall" into "guest never notified" and
-   "empty board" — grep for fire-and-forget self-fetches when auditing any
-   deployment-topology change.
-3. **A shared vercel.json is a cron multiplier.** Two projects on one root dir
-   both register every cron; `verifyCron()` FAILS OPEN without `CRON_SECRET`,
-   so omitting the secret on project #2 stops nothing. The kill is in code
-   (`ADMIN_DEPLOYMENT` skip in `lib/cron-auth.ts`) with the dashboard
-   "Disable Cron Jobs" toggle as the second layer. Vercel Queues are safe —
-   topics are project-scoped.
-4. **Client-side "am I on an admin page?" guards die under rewrites.** Clarity's
-   only admin exclusion was `pathname.startsWith("/admin")`; the clean-URL
-   rewrite made the browser path `/reservations` and it would have recorded
-   staff sessions full of customer PII. The `x-admin-route` request header set
-   by middleware is the only truthful signal — the root layout now gates
-   `<ClarityAnalytics />` on it server-side.
-5. **The admin project's domain must not be a guest-domain subdomain** —
-   middleware brand detection keys on `hostname.includes("headpinz.com")`, and
-   the guest-host safety check would dead-code the admin block on
-   `admin.fasttraxent.com`. Use the `*.vercel.app` domain or a dedicated apex.
+   the app answers on a second domain.** Client-side URLs that must work for a
+   guest's phone or a cookie-less device go through `publicOrigin()`
+   (`~/lib/helpers/public-origin`) — keeps brand-domain/localhost origins,
+   falls back to the public site anywhere else.
+2. **Silent-failure self-fetches hide deployment-topology breakage.**
+   `.catch(() => {})` and `catch { return {} }` turned "auth wall" into "guest
+   never notified" and "empty board" — grep for fire-and-forget self-fetches
+   when auditing any deployment change. (The proxy design sidesteps this class
+   by never executing server code on the walled domain.)
+3. **A second Vercel project sharing `apps/web`'s root directory registers all
+   of vercel.json's crons**, and `verifyCron()` FAILS OPEN without
+   `CRON_SECRET` (pinned by `lib/cron-auth.test.ts`) — omitting the secret on
+   project #2 stops nothing. `apps/admin` avoids the whole class by having its
+   own root and no vercel.json. Vercel Queues are safe — topics are
+   project-scoped.
+4. **Client-side "am I on an admin page?" guards die when admin serves at
+   clean URLs.** Clarity's only admin exclusion was
+   `pathname.startsWith("/admin")`; through the proxy the browser path is
+   `/reservations` and it would have recorded staff sessions full of customer
+   PII. The `x-admin-route` request header is the only truthful signal — the
+   root layout gates `<ClarityAnalytics />` on it server-side.
+5. **The admin domain must not be a subdomain of fasttraxent.com /
+   headpinz.com** — `publicOrigin()`'s keep-list would treat it as a guest
+   host (QRs/TV URLs would point at the auth wall), and middleware brand
+   detection keys on `hostname.includes("headpinz.com")`. Use the
+   `*.vercel.app` domain or a dedicated apex.
+6. **A trusted-proxy header beats a duplicated secret store.** The main gate
+   accepts `x-admin-proxy-key` (env `ADMIN_PROXY_KEY`, additive, inert until
+   set) so the shell stays authenticated when `ADMIN_CAMERA_TOKEN` is later
+   rotated to a machine-only value — the endgame where humans can ONLY get in
+   via Vercel login.
+
+## A destructive shell command with relative paths trusts a cwd you didn't verify (2026-08-16)
+
+`rm -f apps/web/.env.local` was meant for a git worktree but executed in the main
+checkout — the session's working directory had silently reset (backgrounded
+commands don't carry `cd` forward) — and deleted the REAL local-dev secrets
+file. Gitignored, so unrecoverable from git; restored only via
+`vercel env pull` + re-entering what pull can't return.
+
+**The rules:**
+
+1. **Destructive or writing shell commands (`rm`, `mv`, `>`, `git clean`,
+   `git checkout --`) use ABSOLUTE paths, always** — or start the compound
+   command with an explicit `cd <absolute> &&`. Relative paths are only for
+   read-only commands where a wrong cwd fails loudly instead of deleting
+   quietly.
+2. **When agents share a machine with multiple checkouts of the same repo
+   (worktrees), a wrong-cwd mistake is invisible** — both trees have the same
+   layout, so the command "works" either way. Verify with `pwd` before the
+   first destructive command of any session segment, and after any
+   backgrounded command.

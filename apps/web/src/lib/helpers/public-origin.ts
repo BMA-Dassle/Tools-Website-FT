@@ -1,16 +1,34 @@
 /**
- * publicOrigin — the origin to bake into absolute URLs that must be reachable
- * WITHOUT a Vercel Authentication session: guest payment links, QR payloads,
- * TV startup scripts, and server-side self-fetches of our own public API.
+ * publicOrigin — the origin to bake into URLs that must work OUTSIDE an
+ * authenticated staff browser: QR payloads a guest scans across the desk,
+ * TV-player URLs copied into device configs.
  *
- * On the main project NEXT_PUBLIC_ADMIN_PUBLIC_ORIGIN is unset, so this is
- * the identity function — behavior is byte-identical to before it existed.
- * On the admin Vercel project (which serves the same code behind Vercel
- * Authentication) the var carries the public site origin, because anything
- * derived from THAT deployment's own origin would point guests and
- * cookie-less devices at the auth wall — and a serverless self-fetch of the
- * protected origin gets the auth interstitial instead of JSON.
- * (Audit finding 2026-08-16; the var is set per-project in Vercel.)
+ * Staff reach the admin tools from two places: the brand domains (token
+ * URLs) and the admin proxy project (apps/admin — Vercel-Authentication-
+ * walled, serves the main site's client bundle at clean URLs). On a brand
+ * domain the serving origin IS the public origin, so it passes through
+ * unchanged — identical behavior to before this helper existed. Anywhere
+ * else (the admin domain, a *.vercel.app URL) a URL built from
+ * window.location.origin would point a guest's phone or a wall TV at an
+ * auth wall, so fall back to the canonical public site. localhost keeps
+ * itself so dev QRs stay scannable against the dev server.
+ * (Audit finding 2026-08-16 — see tasks/lessons.md § Serving origin.)
  */
-export const publicOrigin = (fallback: string): string =>
-  process.env.NEXT_PUBLIC_ADMIN_PUBLIC_ORIGIN || fallback;
+const PUBLIC_SITE_FALLBACK = "https://headpinz.com";
+
+const KEEP_DOMAINS = ["fasttraxent.com", "headpinz.com"];
+
+export const publicOrigin = (origin: string): string => {
+  if (!origin) return origin; // SSR placeholder — client re-renders with a real one
+  let host: string;
+  try {
+    host = new URL(origin).hostname.toLowerCase();
+  } catch {
+    return origin;
+  }
+  const keep =
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    KEEP_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
+  return keep ? origin : PUBLIC_SITE_FALLBACK;
+};

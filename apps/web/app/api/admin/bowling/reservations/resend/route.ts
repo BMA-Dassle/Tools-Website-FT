@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordAdminAction } from "~/features/reservations-admin/audit";
-import { publicOrigin } from "~/lib/helpers/public-origin";
 
 /**
  * POST /api/admin/bowling/reservations/resend
@@ -37,11 +36,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "neonId and channel required" }, { status: 400 });
   }
 
-  // Delegate to the notification route with forceResend + explicit channel.
-  // publicOrigin: on the auth-walled admin deployment a self-fetch of the
-  // serving origin gets the Vercel login page, not JSON — go via the public
-  // main-site origin instead (identical route, same Neon behind it).
-  const origin = publicOrigin(req.nextUrl.origin);
+  // Delegate to the notification route with forceResend + explicit channel
+  const origin = req.nextUrl.origin;
   const res = await fetch(`${origin}/api/notifications/bowling-confirmation`, {
     method: "POST",
     headers: { "content-type": "application/json" },

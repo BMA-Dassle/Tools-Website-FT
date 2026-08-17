@@ -7,20 +7,16 @@ import { NextRequest, NextResponse } from "next/server";
  * `Authorization: Bearer <secret>`. Returns a 401 response
  * if the header doesn't match, or null if the request is valid.
  *
- * Also blocks non-production environments (preview deployments) and the
- * admin Vercel project (which builds this same app — see below).
+ * Also blocks non-production environments (preview deployments).
+ *
+ * NOTE: when CRON_SECRET is unset this FAILS OPEN (no auth at all) — pinned
+ * by cron-auth.test.ts. Any future second Vercel project sharing this app's
+ * root directory would register vercel.json's crons too and run them against
+ * the same Neon/BMI/Square; omitting CRON_SECRET there would NOT stop them.
+ * (The staff admin project avoids this entirely — apps/admin has its own
+ * root and no vercel.json.)
  */
 export function verifyCron(req: NextRequest): NextResponse | null {
-  // The admin deployment (second Vercel project, same repo root, behind
-  // Vercel Authentication) registers the exact same vercel.json crons as the
-  // main project. The main project owns ALL scheduled work — without this
-  // guard every sweep would double-fire against the same Neon/BMI/Square.
-  // Defense-in-depth behind the dashboard "Disable Cron Jobs" toggle; the
-  // 200 "skipped" keeps Vercel from flagging any gap invocations as failures.
-  if (process.env.ADMIN_DEPLOYMENT) {
-    return NextResponse.json({ ok: true, skipped: "admin deployment" });
-  }
-
   if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
     return NextResponse.json({ ok: true, skipped: "not production" });
   }

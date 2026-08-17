@@ -1,29 +1,39 @@
 # Open Tasks
 
-## Admin tools on a second Vercel project (2026-08-16) — code on `feat/admin-deployment`, Vercel setup NOT started
+## Admin tools behind real auth — proxy shell at `apps/admin` (2026-08-16) — code on `feat/admin-deployment`, Vercel setup NOT started
 
 The 21 staff tools get clean URLs (`/pit`, `/videos`, …) on a SECOND Vercel project behind
-Vercel Authentication — same repo, same `apps/web` root, zero page clones (middleware rewrite
-injects the token; routing table in `src/lib/constants/admin-deployment.ts`). Existing
-`/admin/{token}/*` URLs on the main site are untouched; staff migration is manual, later.
-Full plan + audit findings: `~/.claude/plans/i-want-to-convert-flickering-hanrahan.md`.
+Vercel Authentication. Architecture: `apps/admin` is a tiny PROXY app (own Root Directory, no
+pages/API/secrets/vercel.json) that forwards every request to the main deployment with the
+admin token injected — routing table in `apps/admin/src/routes.ts`. Chosen over the shared-root
+design because the main project's sensitive env vars cannot be exported; the shell needs only
+`ADMIN_CAMERA_TOKEN` + a freshly minted `ADMIN_PROXY_KEY`. Existing `/admin/{token}/*` URLs on
+the main site are untouched; staff migration is manual, later. Endgame when staff have moved:
+rotate `ADMIN_CAMERA_TOKEN` on main (update the shell's copy) — humans then authenticate ONLY
+via Vercel login. Full plan + audit: `~/.claude/plans/i-want-to-convert-flickering-hanrahan.md`.
 
 Dashboard runbook (owner, ORDER MATTERS — protection before any custom domain):
 
-- [ ] Merge the `feat/admin-deployment` PR (inert everywhere the env vars are unset)
-- [ ] `vercel env pull` from the main project; append `ADMIN_DEPLOYMENT=1` +
-      `NEXT_PUBLIC_ADMIN_PUBLIC_ORIGIN=https://headpinz.com` (Production + Preview scopes)
-- [ ] Add New Project → same repo → BEFORE first Deploy: Root Directory `apps/web`,
-      bulk-paste the env file
-- [ ] Settings → Deployment Protection → Vercel Authentication → **All Deployments**
-- [ ] Settings → Cron Jobs → **Disable** (verifyCron 200-skips any gap invocations)
-- [ ] Optional custom domain — NEVER a subdomain of fasttraxent.com / headpinz.com /
-      swflpassport.com (brand detection + the guest-host guard key on those suffixes)
-- [ ] Smoke: logged-out → login wall everywhere; logged-in → /pit /checkin /daily-events-v2
-      render with live data; / and /fort-myers 404; check-in board session strip populated
-      (proves the publicOrigin self-fetch fix); resend + pay-link emit headpinz.com URLs;
-      no Clarity tag on admin pages; main site unchanged
-- [ ] Staff access: add staff as Vercel team members (or switch to Password Protection)
+- [ ] Merge the `feat/admin-deployment` PR (main site: only additive/inert changes)
+- [ ] Mint a proxy key: `openssl rand -hex 32` (or any 32+ char secret)
+- [ ] MAIN project → Settings → Environment Variables → add `ADMIN_PROXY_KEY=<minted>`
+      (Production; takes effect on its next deploy — redeploy or ride the merge)
+- [ ] Add New Project → same repo → BEFORE first Deploy: Root Directory `apps/admin`; env:
+      `ADMIN_CAMERA_TOKEN=<current main value>` + `ADMIN_PROXY_KEY=<same minted value>`
+- [ ] New project → Settings → Deployment Protection → Vercel Authentication →
+      **All Deployments**
+- [ ] New project → Settings → Git → Ignored Build Step → `npx turbo-ignore` (shell only
+      rebuilds when apps/admin changes — no more double builds)
+- [ ] (No cron disable needed — apps/admin has no vercel.json, so no crons register)
+- [ ] Optional custom domain — NEVER a subdomain of fasttraxent.com / headpinz.com
+      (publicOrigin's keep-list would treat it as a guest host and QRs/TV URLs would
+      point at the auth wall)
+- [ ] Smoke on the `*.vercel.app` URL: logged-out → login wall everywhere; logged-in →
+      /pit /checkin /reservations /daily-events-v2 render WITH live data; / and
+      /fort-myers 404; /admin/{token}/pit redirects to /pit; VIP voucher QR + signage
+      TV/.bat URLs show headpinz.com (not the admin domain); no Clarity script tag on
+      admin pages; main site unchanged
+- [ ] Staff access: add staff as Vercel team members (that login IS the auth)
 
 ## "In Karts" — a fifth stage, and the rail that makes room for it (2026-08-14) — on `feat/checkin-board-in-karts`, NOT smoked
 

@@ -4,7 +4,6 @@ import { HEADPINZ_FM_CENTER_CODE, HEADPINZ_NAPLES_CENTER_CODE } from "@/lib/qamf
 import { googleReviewUrl } from "~/lib/constants/review-links";
 import { maintenanceRedirectForPath, SERVICE_NOTICE_PATH } from "~/features/maintenance";
 import { isChromeFreePath, isMobileBarFreePath } from "~/lib/constants/chrome-routes";
-import { isGuestHost, resolveAdminDeploymentPath } from "~/lib/constants/admin-deployment";
 
 /**
  * Stamp the chrome decision for a path onto a request-header set. ONE rule for
@@ -30,52 +29,6 @@ function applyChromeFlags(headers: Headers, pathname: string): void {
 export async function middleware(request: NextRequest) {
   const hostname = request.headers.get("host") || "";
   const pathname = request.nextUrl.pathname;
-  const host = hostname.split(":")[0].toLowerCase();
-
-  // ── Admin deployment: clean-URL surface for the staff-tools project ──────
-  // A SECOND Vercel project builds this same app (same repo, same root dir),
-  // sits behind Vercel Authentication, and sets ADMIN_DEPLOYMENT=1. There —
-  // and only there — /pit, /videos, /daily-events-v2, … serve the existing
-  // /admin/{token}/* pages via rewrite with ADMIN_CAMERA_TOKEN injected
-  // server-side, and every non-admin path 404s. The full routing table lives
-  // in ~/lib/constants/admin-deployment (pure + unit-tested); this block only
-  // reads the env and executes the decision.
-  //
-  // The guest-host check is belt-and-suspenders: even if the env var is ever
-  // mis-copied onto the MAIN project, customer traffic on the brand domains
-  // never enters this branch — it would take the var AND a non-guest host to
-  // serve a token-less admin page.
-  if (process.env.ADMIN_DEPLOYMENT === "1" && !isGuestHost(host)) {
-    const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-    const decision = resolveAdminDeploymentPath(pathname, expected);
-    if (decision.kind === "redirect") {
-      // 307, not 308: browsers heuristically cache 308s, and a cached
-      // token-path mapping would outlive an ADMIN_CAMERA_TOKEN rotation.
-      const url = request.nextUrl.clone(); // query survives the clone
-      url.pathname = decision.pathname;
-      return NextResponse.redirect(url, 307);
-    }
-    if (decision.kind === "rewrite") {
-      const url = request.nextUrl.clone(); // query survives the clone
-      url.pathname = decision.pathname;
-      // This response returns before the unified admin gate below runs, so
-      // set the flag the root layout keys chrome-strip + analytics-off on.
-      const requestHeaders = new Headers(request.headers);
-      requestHeaders.set("x-admin-route", "1");
-      requestHeaders.set("x-admin-via", "admin-deployment");
-      return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
-    }
-    if (decision.kind === "not-found") {
-      // Same opaque fail-closed body as the unified gate. (Also swallows any
-      // public/ asset whose extension isn't in the matcher's exclusion list,
-      // e.g. .mp3/.json — fine today, revisit if an admin tool needs one.)
-      return new NextResponse("Not found", {
-        status: 404,
-        headers: { "content-type": "text/plain" },
-      });
-    }
-    // passthrough: /api/*, /admin/*, /contract/*, /v/* continue below.
-  }
 
   // ── Local dev brand override ────────────────────────────────────────────
   // PRODUCTION SAFETY: dead code when NODE_ENV === "production". In dev,
@@ -93,6 +46,7 @@ export async function middleware(request: NextRequest) {
   // exists only to forward scans: a valid card id goes to the reload flow with
   // the id preserved; anything else (bare visit, no/invalid id) goes to the
   // HeadPinz home. 308 keeps it permanent + method-safe.
+  const host = hostname.split(":")[0].toLowerCase();
   if (host === "swflpassport.com" || host.endsWith(".swflpassport.com")) {
     // Find the card id from the query (ANY case: id / ID / Id) or, failing
     // that, a numeric path segment. Always land on the reload page — never the
@@ -263,6 +217,23 @@ export async function middleware(request: NextRequest) {
       }
       // No api-key OR wrong api-key → fall through to the standard
       // admin-token check below. Operator UI keeps working unchanged.
+    }
+
+    // ── Trusted-proxy auth (staff admin project) ──────────────────────
+    // The apps/admin shell — a separate Vercel project behind Vercel
+    // Authentication — forwards staff traffic here with this shared-secret
+    // header. Accepting it as a credential is what lets ADMIN_CAMERA_TOKEN
+    // later rotate to a machine-only value once staff migrate off the
+    // token URLs: the shell stays authenticated by header, humans by
+    // Vercel login. Additive and inert until ADMIN_PROXY_KEY is set on
+    // this project; token auth below is unchanged either way.
+    const proxyKey = process.env.ADMIN_PROXY_KEY || "";
+    const providedProxyKey = request.headers.get("x-admin-proxy-key") || "";
+    if (proxyKey && providedProxyKey.length === proxyKey.length && providedProxyKey === proxyKey) {
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set("x-admin-route", "1");
+      requestHeaders.set("x-admin-via", "proxy-key");
+      return NextResponse.next({ request: { headers: requestHeaders } });
     }
 
     // Token extraction: for /admin/{token}/..., token is the 2nd

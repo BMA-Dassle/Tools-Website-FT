@@ -57,8 +57,8 @@ function VoucherBadge({ code, voided, items }: VipVoucherSummary) {
   // version across the desk far more reliably than the 72px thumbnail.
   const [zoomed, setZoomed] = useState(false);
   // publicOrigin: a guest's phone scans this QR across the desk — rendered on
-  // the auth-walled admin deployment, the deployment's own origin would land
-  // them on a Vercel login instead of their voucher.
+  // the auth-walled admin proxy domain, location.origin would land them on a
+  // Vercel login instead of their voucher.
   const url = `${publicOrigin(typeof window !== "undefined" ? window.location.origin : "")}/v/${encodeURIComponent(code)}`;
   useEffect(() => {
     let alive = true;

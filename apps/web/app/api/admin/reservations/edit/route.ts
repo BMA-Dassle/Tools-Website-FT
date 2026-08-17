@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { buildEditPlan } from "~/features/reservation-edit/plan";
 import { editFlagEnabled, isRefundOnlyPlan } from "~/features/reservation-edit/guards";
 import { EditGuardError, type EditSettlement, type EditSpec } from "~/features/reservation-edit";
-import { publicOrigin } from "~/lib/helpers/public-origin";
 
 // Live Square reads (order snapshots + orders/calculate per leg) can stack up
 // for combo groups.
@@ -134,10 +133,7 @@ export async function POST(req: NextRequest) {
       paymentSource,
       notifyGuest: body.notifyGuest !== false,
       actor: "admin",
-      // publicOrigin, not the serving origin: the cascade bakes this into the
-      // guest's pay-difference link and self-fetches our notifications route —
-      // both must work when this runs on the auth-walled admin deployment.
-      origin: publicOrigin(req.nextUrl.origin),
+      origin: req.nextUrl.origin,
       // Staff-entered, recorded on the Square refund for the day-of leg. The
       // executor rejects a missing/reserved value before any money moves.
       dayofRefundReason:

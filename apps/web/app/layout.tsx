@@ -375,7 +375,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <Analytics />
         {/* Session replay must NEVER see an admin surface (customer PII —
             hard rule). The component's own pathname guard only covers
-            /admin/* urls; on the admin deployment the browser path is the
+            /admin/* urls; on the admin proxy domain the browser path is the
             CLEAN url (/sales, /reservations, …), so the x-admin-route header
             is the only truthful signal there. */}
         {!isAdmin && <ClarityAnalytics />}
