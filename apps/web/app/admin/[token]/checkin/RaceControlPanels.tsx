@@ -490,7 +490,11 @@ export default function RaceControlPanels({
           gap: 14,
           gridTemplateColumns: "repeat(auto-fit,minmax(430px,1fr))",
           alignItems: "stretch",
-          flex: 1,
+          // On a Mega day the unified lane row sits BELOW this grid, so the
+          // grid sizes to its content and the slack collects under the row
+          // instead of between the columns and the lane. Split nights keep
+          // the columns owning the full height, exactly as before.
+          ...(megaEnabled ? {} : { flex: 1 }),
           minHeight: 0,
         }}
       >
@@ -578,11 +582,15 @@ export default function RaceControlPanels({
             />
           );
         })}
-        {/* THE UNIFIED BOTTOM — Mega only. Everything after the briefing is
-            one single-file lane, so it renders once, spanning both columns,
-            instead of sitting inside one room's column with dead space
-            beside it. */}
-        {megaEnabled && (
+      </div>
+
+      {/* THE UNIFIED BOTTOM — Mega only. Everything after the briefing is one
+          single-file lane, so it renders once, full width, directly under both
+          columns. A SIBLING of the grid, never a grid item: a spanning item
+          stops auto-fit collapsing its empty tracks, which squeezed the two
+          columns into half the board (owner screenshot, 2026-08-17). */}
+      {megaEnabled && (
+        <div style={{ marginTop: 14, flexShrink: 0 }}>
           <MegaLaneRow
             room={megaLaneOwner}
             lane={board?.lanes?.mega ?? null}
@@ -595,8 +603,8 @@ export default function RaceControlPanels({
             hasLaunched={control.hasLaunched}
             noteLaunched={control.noteLaunched}
           />
-        )}
-      </div>
+        </div>
+      )}
 
       {/* TODAY'S BRIEFING LOG — the durable record, one button away.
 
@@ -1909,7 +1917,7 @@ function MegaLaneRow({
     noteLaunched,
   );
   return (
-    <div style={{ gridColumn: "1 / -1", minWidth: 0 }}>
+    <div style={{ minWidth: 0 }}>
       <OutOfRoomPanel
         room={room}
         track="mega"
