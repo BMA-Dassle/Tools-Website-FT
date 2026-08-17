@@ -25,9 +25,16 @@
  *  3. TRACK STATUS — the same On Time / +N late verdict every other surface
  *     shows, from our own data (features/racing/on-time.ts).
  *
- * Shared by the web booking flow and the kiosk (the kiosk registry mounts the
- * same step), so every string goes through the kiosk catalog — `useT` falls back
- * to English outside a LocaleProvider, which is what the web gets.
+ * MOUNTED BY THE KIOSK VARIANT ONLY. Owner 2026-08-17: "web would get confusing
+ * on when they check in upstairs or karting" — at heat-pick time we do not know
+ * whether the party will be Express Lane, and a standard guest is due at Guest
+ * Services on the 2nd floor half an hour earlier, so naming the karting desk on a
+ * web card could send them to the wrong floor. See KartingCheckInContext in
+ * RaceHeatPickerStep for the wiring.
+ *
+ * Strings come from the kiosk catalog because the kiosk needs Spanish;
+ * lib/karting-checkin-copy.ts stays the English source of truth for every
+ * non-kiosk surface.
  */
 
 import { useTrackStatus } from "@/hooks/useTrackStatus";
