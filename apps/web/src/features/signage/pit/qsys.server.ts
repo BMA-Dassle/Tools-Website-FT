@@ -20,6 +20,11 @@ import { STAY_SEATED_CLIP_FILE } from "./pit-board";
  * `mega` (our TrackKey), clips are `pre` / `post` / `big` (our cues — `big`
  * is the pre-race with the extra big-race warnings, configured on the Core
  * since 2026-08-15; audio.server.ts owns the 8+ grid rule that picks it).
+ * `post-red` / `post-blue` are the post-race with the RETURNING ROOM named
+ * (owner 2026-08-16: on a Mega night two rooms serve one circuit, so the
+ * generic post cannot say where to walk) — audio.server.ts picks by the
+ * returning group's briefed room and falls back to the generic `post` until
+ * the Core has those clips configured UNDER EXACTLY THOSE IDS.
  * The one FILE-played sound is the stay-seated loop, which has no configured
  * clip (/play takes exactly one of clip | file). Zones run independently —
  * playing one never cancels another.
@@ -36,7 +41,7 @@ const PANDORA_KEY = process.env.SWAGGER_ADMIN_KEY || "";
  *  The same constant the rest of the repo uses for FT's Square ledger. */
 const FT_SQUARE_LOCATION_ID = "LAB52GY480CJF";
 
-export type QsysClip = "pre" | "post" | "big" | "stay-seated";
+export type QsysClip = "pre" | "post" | "post-red" | "post-blue" | "big" | "stay-seated";
 
 /**
  * The ambient "karts are rolling in — stay in your kart" loop, played by file

@@ -44,6 +44,7 @@ import type { BriefingRoom, BriefingRoomState } from "../briefing/types";
 import type { TrackKey } from "../track";
 import { sessionRoster } from "../service/checkin-progress";
 import { cueKey, readCueStamp, type PitCue } from "./audio-stamps.server";
+import { postClipCandidates } from "./post-clip";
 import { markInKarts, markRacePitted, readPitLane } from "./lane.server";
 import { isStaySeatedFile, kartsAvailability, type PitLaneFeed, type PitLanes } from "./pit-board";
 import {
@@ -656,7 +657,26 @@ export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
   const cleared = await yieldStaySeated(await paBusy(track));
   if (!cleared.cleared) return { ok: false, error: cleared.error ?? "the PA is busy" };
 
-  const result = await claimAndPlay(track, "post", returning.sessionId);
+  /**
+   * THE ANNOUNCEMENT NAMES THE ROOM (owner 2026-08-16). The returning group's
+   * room rides the pitIn slot from the send; the briefed marker is the
+   * fallback for a slot written before the field existed or hand-placed from
+   * Override. Candidates are tried in order and the generic `post` is always
+   * last — a room clip the Core does not know yet fails its play, releases
+   * the claim, and the plain announcement still sounds on the same press.
+   * ONE one-shot whichever version plays: same clip/cue split as the
+   * big-race pre.
+   */
+  const briefedRoom = (await sessionBriefed(returning.sessionId).catch(() => null))?.room ?? null;
+  const room = returning.room ?? briefedRoom;
+  let result: Awaited<ReturnType<typeof claimAndPlay>> = {
+    outcome: "failed",
+    error: "the PA did not start the cue",
+  };
+  for (const clip of postClipCandidates(room)) {
+    result = await claimAndPlay(track, "post", returning.sessionId, clip);
+    if (result.outcome !== "failed") break;
+  }
   if (result.outcome === "failed") return { ok: false, error: result.error };
   if (result.outcome === "already") {
     // Same cycle, pressed again — re-assert the release (see the header for
@@ -671,12 +691,13 @@ export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
     };
   }
 
-  const room = (await sessionBriefed(returning.sessionId).catch(() => null))?.room ?? null;
-  if (room) {
+  // The insurance row keeps the MARKER's room, as it always has — fetched
+  // once above, where the clip choice needed it too.
+  if (briefedRoom) {
     await recordBriefingEvent({
       venue: VENUE,
       businessDay: businessDayYmdET(),
-      room,
+      room: briefedRoom,
       track,
       sessionId: returning.sessionId,
       heatNumber: returning.heatNumber,
