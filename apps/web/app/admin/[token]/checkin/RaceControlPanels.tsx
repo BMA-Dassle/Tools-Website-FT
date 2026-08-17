@@ -1502,7 +1502,36 @@ function RoomColumn({
       </div>
 
       {/* ── CALLED ── */}
-      <Panel label="Called" flat alert={calledAlert} ready={gridComplete}>
+      <Panel
+        label="Called"
+        flat
+        alert={calledAlert}
+        ready={gridComplete}
+        // THE LEAPFROG HINT, top-right where the eye lands before the button
+        // (owner 2026-08-17: "bigger/more obvious… the top right corner is
+        // empty"). Solid Mega violet so it reads as the Mega rotation
+        // speaking, not this room's own colour. Advice, never a gate — the
+        // other room's Send works exactly as it always has.
+        badge={
+          suggested && race && !sentTo && !sameSessionInRoom ? (
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 800,
+                letterSpacing: "0.08em",
+                padding: "5px 14px",
+                borderRadius: 6,
+                background: MEGA,
+                color: "#fff",
+                whiteSpace: "nowrap",
+                boxShadow: `0 0 16px ${withAlpha(MEGA, 0.55)}`,
+              }}
+            >
+              SUGGESTED ROOM
+            </span>
+          ) : undefined
+        }
+      >
         {race && !sentTo ? (
           <>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
@@ -1666,26 +1695,8 @@ function RoomColumn({
                     gap: 4,
                   }}
                 >
-                  {/* The leapfrog hint, on the room the rotation would pick.
-                      Advice with the same authority as any other chip — the
-                      other room's Send works exactly as it always has. */}
-                  {suggested && (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 800,
-                        letterSpacing: "0.08em",
-                        padding: "2px 8px",
-                        borderRadius: 4,
-                        background: withAlpha(MEGA, 0.2),
-                        border: `1px solid ${withAlpha(MEGA, 0.6)}`,
-                        color: MEGA,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      SUGGESTED
-                    </span>
-                  )}
+                  {/* The leapfrog hint lives on the panel header now — big,
+                      top-right, above this button (owner 2026-08-17). */}
                   <ActionButton
                     // Late reads amber the same way an occupied room does — the
                     // press is still yours to make, and the colour is the pause
