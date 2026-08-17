@@ -17,6 +17,7 @@
  * exact boundary instead of arriving halfway through a word.
  */
 import { BILLBOARD_CYCLE_MS } from "~/features/kiosk/attract/billboard";
+import { TRACK_RESOURCE_IDS } from "../track";
 import type { ResolvedScreenConfig } from "../defaults";
 import type { SceneType, SignageEvent, VipEntry } from "../types";
 
@@ -223,7 +224,18 @@ export function isBowlingStep(label: string): boolean {
 /** Does this event belong to this screen? Empty scope = the whole venue. */
 export function eventInScope(e: SignageEvent, scopeResourceIds: string[]): boolean {
   if (scopeResourceIds.length === 0) return true;
-  return !!e.resourceId && scopeResourceIds.includes(e.resourceId);
+  if (!e.resourceId) return false;
+  if (scopeResourceIds.includes(e.resourceId)) return true;
+  // A MEGA event belongs to both track boards. The combined circuit is one
+  // resource ("-1") and the physical boards stay scoped to their own track,
+  // so a scan or celebration stamped with the Mega id would otherwise reach
+  // no board at all. "-1" events are only minted on Mega days, so this
+  // widening matches nothing on a normal day — and the `.some` guard keeps
+  // it away from boards scoped to non-track resources (bowling, lobby).
+  return (
+    e.resourceId === TRACK_RESOURCE_IDS.mega &&
+    scopeResourceIds.some((id) => id === TRACK_RESOURCE_IDS.blue || id === TRACK_RESOURCE_IDS.red)
+  );
 }
 
 /**

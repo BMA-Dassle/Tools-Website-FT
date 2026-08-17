@@ -41,6 +41,10 @@ import { logSms } from "@/lib/sms-log";
 import { voxSend } from "@/lib/sms-retry";
 import { getParticipantTicketRef, getRaceTicket } from "@/lib/race-tickets";
 
+// Racing is FastTrax-FM-only; the participant index is location-scoped
+// (legacy shape for this shared-FM location — see lib/bmi-key-scope.ts).
+const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
+
 const NOTIFIED_TTL = 60 * 60 * 24;
 const SEEN_TTL = 60 * 60 * 6;
 const SENT_TTL = 60 * 60 * 24;
@@ -375,7 +379,7 @@ export async function moveSignals(
   }
   try {
     if (racer.participantId) {
-      const ref = await getParticipantTicketRef(racer.participantId);
+      const ref = await getParticipantTicketRef(FASTTRAX_LOCATION_ID, racer.participantId);
       if (ref?.sessionId != null) refSessionId = String(ref.sessionId);
     }
   } catch {

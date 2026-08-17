@@ -17,7 +17,9 @@ import {
   personCloudBarrier,
   projectLocalBarrier,
   partyReadyBarrier,
+  partySeatedBarrier,
   type BarrierResult,
+  type SeatRef,
 } from "@/lib/bmi-sync-barriers";
 import type { SyncQueueRow } from "@/lib/bmi-sync-queue";
 
@@ -59,6 +61,23 @@ export async function probeBarrier(row: SyncQueueRow): Promise<BarrierResult> {
         ? (row.payload.personIds as unknown[]).map(String).filter(Boolean)
         : [];
       return partyReadyBarrier(loc, ids);
+    }
+    case "party-seated": {
+      const ids = Array.isArray(row.payload.personIds)
+        ? (row.payload.personIds as unknown[]).map(String).filter(Boolean)
+        : [];
+      // Seats are the racer→heat pairs this check-in bound. A row written before
+      // seats existed in the payload degrades to party-ready semantics rather
+      // than blocking forever — an older deploy's row must never wedge.
+      const seats: SeatRef[] = Array.isArray(row.payload.seats)
+        ? (row.payload.seats as unknown[])
+            .map((s) => s as { personId?: unknown; heatStart?: unknown })
+            .filter(
+              (s) => s && typeof s.personId !== "undefined" && typeof s.heatStart === "string",
+            )
+            .map((s) => ({ personId: String(s.personId), heatStart: String(s.heatStart) }))
+        : [];
+      return partySeatedBarrier(loc, ids, seats);
     }
     default:
       // Unknown barrier value (a row written by a newer deploy, say). Do NOT run

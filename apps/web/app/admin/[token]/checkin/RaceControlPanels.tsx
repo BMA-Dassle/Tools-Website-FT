@@ -91,7 +91,6 @@ import {
   type BriefingPhase,
   type BriefingRoom,
   type BriefingRoomState,
-  type BriefingTier,
 } from "~/features/signage/briefing/types";
 import { pullIsLate } from "~/features/signage/briefing/pull-to-room";
 import { punctuality } from "~/features/signage/track-delay";
@@ -102,6 +101,7 @@ import {
   type AlertLevel,
 } from "~/features/signage/briefing/desk-alerts";
 import { startHoldRemainingMs, startHoldSeconds } from "~/features/signage/briefing/start-hold";
+import { useCameraStill } from "~/features/signage/useCameraStill";
 import { formatWaitMs } from "~/features/racing/wait-times";
 import type {
   BoardStatus,
@@ -376,6 +376,35 @@ export default function RaceControlPanels({
    */
   const megaLaneOwner: BriefingRoom = board?.lanes?.mega?.holding?.room ?? "red";
 
+  /**
+   * WHICH ROOM THE NEXT MEGA SEND SHOULD GO TO — a suggestion, never a rule
+   * (owner 2026-08-16: auto-suggest, staff confirms; the press stays the
+   * assignment and the other button always works).
+   *
+   * One circuit feeding two rooms wants them leapfrogging: the free room takes
+   * the heat, and when both are free the one that did NOT take the previous
+   * group takes this one. "Previous group" is read off the mega lane's
+   * furthest-along occupant — the same recorded facts the columns already
+   * render. Both rooms busy = no suggestion: that send is a Replace, and
+   * which film to interrupt is a human call.
+   */
+  const suggestedRoom: BriefingRoom | null = (() => {
+    if (!megaEnabled) return null;
+    const roomFree = (room: BriefingRoom) => {
+      const st = board?.rooms.find((r) => r.room === room)?.state ?? null;
+      return briefingTimelineAt(st, nowMs).phase === "idle";
+    };
+    const free = rooms.filter(roomFree);
+    if (free.length === 0) return null;
+    if (free.length === 1) return free[0];
+    const megaLane = board?.lanes?.mega ?? null;
+    const lastRoom =
+      megaLane?.holding?.room ?? megaLane?.karts?.room ?? megaLane?.pitIn?.room ?? null;
+    if (lastRoom === "red") return "blue";
+    if (lastRoom === "blue") return "red";
+    return "red";
+  })();
+
   return (
     <section
       className="flex flex-col border-t"
@@ -507,14 +536,13 @@ export default function RaceControlPanels({
               // deadline known", so a board still connecting never flashes at a
               // window it is guessing at.
               checkinWindowMins={board?.checkinWindowMins?.[track] ?? 0}
-              tierOverride={control.tierOverride[room] ?? null}
-              onTierOverride={(tier) => control.setTierOverride(room, tier)}
               locked={board?.enabled === false}
               pending={pending}
               expandedCamera={expanded}
               onExpandCamera={(target) => control.setExpandedCamera(target)}
               lane={board?.lanes?.[track as "blue" | "red" | "mega"] ?? null}
               ownsLane={!megaEnabled || room === megaLaneOwner}
+              suggested={suggestedRoom === room}
               onRaceReturned={() => control.markPitted(track)}
               hasLaunched={control.hasLaunched}
               noteLaunched={control.noteLaunched}
@@ -1134,14 +1162,13 @@ function RoomColumn({
   checkinWindowMins,
   sentTo,
   checkedIn,
-  tierOverride,
-  onTierOverride,
   locked,
   pending,
   expandedCamera,
   onExpandCamera,
   lane,
   ownsLane,
+  suggested,
   onRaceReturned,
   hasLaunched,
   noteLaunched,
@@ -1167,8 +1194,6 @@ function RoomColumn({
   /** This heat's check-in progress, for the Called box. Null when the station
    *  has not reported one for this session. */
   checkedIn: CheckinCount | null;
-  tierOverride: BriefingTier | null;
-  onTierOverride: (tier: BriefingTier | null) => void;
   locked: boolean;
   pending: string | null;
   /** Which camera the full-screen viewer has open, if any — a preview whose own
@@ -1184,6 +1209,9 @@ function RoomColumn({
    * twice — see megaLaneOwner in the parent.
    */
   ownsLane: boolean;
+  /** Mega days only: this room is the recommended target for the next send —
+   *  see suggestedRoom in the parent. A chip, never a gate. */
+  suggested: boolean;
   /** "Race returned" — the karts are fully back in the lane. */
   onRaceReturned: () => void;
   /** The station's memory of which sessions it has seen race — see the hook. */
@@ -1222,8 +1250,15 @@ function RoomColumn({
    *
    * So an idle room here means an empty room, and says so.
    */
-  const autoTier = tierForRaceType(race?.raceType);
-  const tier = tierOverride ?? autoTier;
+  /**
+   * WHICH FILM THIS HEAT GETS — derived from the session, full stop.
+   *
+   * There used to be a `tierOverride` layered on top of this, set by three
+   * buttons in the Called box. It is gone (owner 2026-08-16): the film a grid is
+   * briefed with is not a desk decision, and the send it rides on is recorded
+   * for insurance. See the VIDEO row below.
+   */
+  const tier = tierForRaceType(race?.raceType);
   // The desk says what will REALLY play before the send: a Pro pick with no Pro
   // film uploaded runs the Intermediate film (owner 2026-08-11). Availability
   // comes down as a prop — `board` lives in the parent.
@@ -1584,26 +1619,41 @@ function RoomColumn({
               <span style={{ fontSize: 10, color: PORTAL_DARK.muted, letterSpacing: "0.06em" }}>
                 VIDEO
               </span>
-              {(["starter", "intermediate", "pro"] as BriefingTier[]).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className="rcb"
-                  onClick={() => onTierOverride(t === autoTier ? null : t)}
-                  aria-pressed={tier === t}
-                  style={{
-                    padding: "4px 11px",
-                    borderRadius: 5,
-                    borderColor: tier === t ? withAlpha(color, 0.8) : PORTAL_DARK.border,
-                    background: tier === t ? withAlpha(color, 0.16) : "transparent",
-                    color: tier === t ? INK : PORTAL_DARK.muted,
-                    fontSize: 11,
-                  }}
-                >
-                  {cap(t)}
-                  {t === autoTier ? " · auto" : ""}
-                </button>
-              ))}
+              {/* A READOUT, NOT A PICKER (owner 2026-08-16: block the briefing
+                  video types from being changed on the check-in board).
+
+                  This was three buttons — Starter · auto / Intermediate / Pro —
+                  and a desk with a group standing in front of it is the worst
+                  place to be choosing a SAFETY film. The session's own race type
+                  already decides it (tierForRaceType), the Pro→Intermediate
+                  fallback already covers the one film that can be missing, and
+                  the choice is durable: whatever is picked here is what the
+                  insurance log records as the briefing that grid received. A
+                  mis-tap on a touch monitor could therefore put a first-timer
+                  grid in front of the returning-racer film, and the log would
+                  carry that as the fact of the night.
+
+                  So the row still says which film this heat gets — that is the
+                  thing staff actually read before a send — it just no longer
+                  offers to change it. The chip keeps the selected button's
+                  colours deliberately: the answer is unchanged, only the
+                  affordance is gone. Uploading the films is still a staff job,
+                  on the Lobby TVs page, where it belongs. */}
+              <span
+                title="The briefing film follows the session's race type and cannot be changed from this board."
+                style={{
+                  padding: "4px 11px",
+                  borderRadius: 5,
+                  border: `1px solid ${withAlpha(color, 0.8)}`,
+                  background: withAlpha(color, 0.16),
+                  color: INK,
+                  fontSize: 11,
+                  fontWeight: 650,
+                }}
+              >
+                {cap(tier)}
+              </span>
+              <span style={{ fontSize: 10, color: PORTAL_DARK.muted }}>set by race type</span>
               {/* Say what will REALLY play, before the send — the fallback is
                   server-side, and hiding it would leave staff thinking a Pro grid
                   is getting a film that does not exist yet. */}
@@ -1626,6 +1676,26 @@ function RoomColumn({
                     gap: 4,
                   }}
                 >
+                  {/* The leapfrog hint, on the room the rotation would pick.
+                      Advice with the same authority as any other chip — the
+                      other room's Send works exactly as it always has. */}
+                  {suggested && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 800,
+                        letterSpacing: "0.08em",
+                        padding: "2px 8px",
+                        borderRadius: 4,
+                        background: withAlpha(MEGA, 0.2),
+                        border: `1px solid ${withAlpha(MEGA, 0.6)}`,
+                        color: MEGA,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      SUGGESTED
+                    </span>
+                  )}
                   <ActionButton
                     // Late reads amber the same way an occupied room does — the
                     // press is still yours to make, and the colour is the pause
@@ -2665,58 +2735,31 @@ function InRoom({
  * size, so two pollers at two sizes are two upstream pulls at the camera.
  */
 function useCameraFrame(room: CameraTarget, width: number, enabled: boolean, cadenceMs = 1_000) {
-  /**
-   * A NEW CAMERA MUST NOT WEAR THE OLD ONE'S PICTURE (owner 2026-08-12: "when you
-   * switch between rooms on that page we need loading, it just holds the last
-   * camera"). Switching rooms restarts the poll below, but the last frame belonged
-   * to the room we just left — so the viewer showed the RED room under a BLUE room
-   * heading until a new frame decoded, and a staff member could act on the wrong
-   * room entirely.
-   *
-   * The frame therefore CARRIES THE CAMERA IT CAME FROM, and a frame from another
-   * camera simply does not render. Derived rather than reset in an effect: there is
-   * no moment, however brief, where the wrong picture is on screen, and no cascade
-   * of renders to blank it.
-   */
-  const [frame, setFrame] = useState<{ key: string; src: string } | null>(null);
-  const [offlineKey, setOfflineKey] = useState<string | null>(null);
-  const lastOkRef = useRef(0);
+  // The shared still-poller carries every rule this hook used to own: the
+  // room-switch "a new camera must not wear the old one's picture" derivation
+  // (owner 2026-08-12), the double-buffered decode, the failure backoff — and
+  // adds the hang watchdog plus one-live-blob memory behavior these previews
+  // need on a desk PC that runs all shift. Room and width both live in the
+  // base URL, so a change to either is a new camera as far as the frame key
+  // is concerned, exactly as before.
+  return useCameraStill(`/api/tv/camera?room=${room}&w=${width}`, cadenceMs, enabled, 6_000);
+}
 
-  const key = `${room}@${width}`;
-  const src = frame?.key === key ? frame.src : null;
-  const offline = offlineKey === key;
-
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const tick = () => {
-      const url = `/api/tv/camera?room=${room}&w=${width}&t=${Date.now()}`;
-      const img = new Image();
-      img.onload = () => {
-        if (cancelled) return;
-        lastOkRef.current = Date.now();
-        setFrame({ key, src: url });
-        setOfflineKey(null);
-        timer = setTimeout(tick, cadenceMs);
-      };
-      img.onerror = () => {
-        if (cancelled) return;
-        if (Date.now() - lastOkRef.current > 6000) setOfflineKey(key);
-        // Back off on failure whatever the cadence — a camera that is down must
-        // not be hammered at viewer speed.
-        timer = setTimeout(tick, Math.max(2_000, cadenceMs));
-      };
-      img.src = url;
-    };
-    tick();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [room, width, enabled, cadenceMs, key]);
-
-  return { src, offline };
+/** Media teardown for the live-viewer <video>, as a React 19 ref-callback
+ *  cleanup. Module-level so its identity never changes: the cleanup must run
+ *  only when the element actually leaves (unmount / key change), never on a
+ *  re-render. */
+function teardownLiveVideoRef(el: HTMLVideoElement | null) {
+  if (!el) return;
+  return () => {
+    try {
+      el.pause();
+    } catch {
+      /* already torn down */
+    }
+    el.removeAttribute("src");
+    el.load();
+  };
 }
 
 /**
@@ -3303,6 +3346,17 @@ function CameraLightbox({
           // A live CCTV feed: no audio track, nothing to caption.
           <video
             key={live.url}
+            // Ref-callback CLEANUP (React 19): keyed on the ticket URL, this
+            // element is replaced on every retry — tear the media pipeline
+            // down when each one goes, or the detached players and their
+            // buffers ride until GC. MODULE-LEVEL for a stable identity: an
+            // inline arrow is a new callback every render, and React 19 runs
+            // the old cleanup + re-attaches on every identity change — which,
+            // on a panel that re-renders every second, tore the src off the
+            // PLAYING element one second in and left a black viewer that
+            // still said LIVE (React never re-writes an attribute it thinks
+            // is already there, and a srcless load() fires no error).
+            ref={teardownLiveVideoRef}
             src={live.url}
             autoPlay
             muted

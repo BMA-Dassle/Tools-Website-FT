@@ -25,7 +25,7 @@ function sessionLabel(m: GroupTicketMember | ParticipantTicketRef): string {
   return `${m.track} Session ${m.heatNumber} · ${formatTimeET(m.scheduledStart)}`;
 }
 
-function shell(heading: string, inner: string): string {
+function shell(heading: string, inner: string, address: string): string {
   return `<!doctype html>
 <html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a">
   <table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 12px">
@@ -37,7 +37,7 @@ function shell(heading: string, inner: string): string {
         </td></tr>
         <tr><td style="padding:26px 28px">
           ${inner}
-          <p style="margin:24px 0 0 0;font-size:12px;color:#888;text-align:center">${HP_FM_ADDRESS}</p>
+          <p style="margin:24px 0 0 0;font-size:12px;color:#888;text-align:center">${address}</p>
         </td></tr>
       </table>
     </td></tr>
@@ -56,6 +56,7 @@ export function buildArenaEmailHtml(
   activityDisplay: string,
   scheduledStart: string,
   shortUrl: string,
+  address: string = HP_FM_ADDRESS,
 ): string {
   const time = formatTimeET(scheduledStart);
   return shell(
@@ -63,6 +64,7 @@ export function buildArenaEmailHtml(
     `<p style="margin:0 0 12px 0;font-size:16px;line-height:1.5">Hey ${firstName} — your <strong>${activityDisplay} session</strong> is coming up at <strong>${time}</strong>.</p>
      <p style="margin:0 0 20px 0;font-size:15px;line-height:1.5">Arrive 15 minutes early to check in and gear up. Save this email or screenshot your e-ticket — show the e-ticket screen at the HP Arena desk, no paper ticket needed.</p>
      ${cta(shortUrl, "View My E-Ticket")}`,
+    address,
   );
 }
 
@@ -74,6 +76,7 @@ export function buildArenaGroupEmailHtml(
   members: GroupTicketMember[],
   shortUrl: string,
   recipient: "racer" | "guardian",
+  address: string = HP_FM_ADDRESS,
 ): string {
   const sorted = [...members].sort(
     (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
@@ -97,11 +100,12 @@ export function buildArenaGroupEmailHtml(
      <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px 0;font-size:15px">${rows}</table>
      <p style="margin:0 0 20px 0;font-size:14px;line-height:1.5;color:#555">Arrive 15 minutes early to check in and gear up. Show the e-ticket screen at the HP Arena desk — no paper ticket needed.</p>
      ${cta(shortUrl, "View E-Tickets")}`,
+    address,
   );
 }
 
 /** Green-header shell variant for the urgent "now checking in" email. */
-function checkinShell(heading: string, inner: string): string {
+function checkinShell(heading: string, inner: string, address: string): string {
   return `<!doctype html>
 <html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a">
   <table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 12px">
@@ -113,7 +117,7 @@ function checkinShell(heading: string, inner: string): string {
         </td></tr>
         <tr><td style="padding:26px 28px">
           ${inner}
-          <p style="margin:24px 0 0 0;font-size:12px;color:#888;text-align:center">${HP_FM_ADDRESS}</p>
+          <p style="margin:24px 0 0 0;font-size:12px;color:#888;text-align:center">${address}</p>
         </td></tr>
       </table>
     </td></tr>
@@ -130,6 +134,7 @@ export function buildArenaCheckinEmailHtml(
   members: GroupTicketMember[],
   shortUrl: string,
   recipient: "racer" | "guardian",
+  address: string = HP_FM_ADDRESS,
 ): string {
   const sorted = [...members].sort(
     (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
@@ -154,6 +159,7 @@ export function buildArenaCheckinEmailHtml(
      <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px 0;font-size:15px">${rows}</table>
      <p style="margin:0 0 20px 0;font-size:15px;line-height:1.5">Head straight to the <strong>HP Arena desk</strong> to gear up.</p>
      ${cta(shortUrl, "View E-Ticket")}`,
+    address,
   );
 }
 
@@ -165,6 +171,7 @@ export function buildArenaMoveEmailHtml(
   entries: { member: GroupTicketMember; movedFrom?: ParticipantTicketRef | null }[],
   shortUrl: string,
   recipient: "racer" | "guardian",
+  address: string = HP_FM_ADDRESS,
 ): string {
   const sorted = [...entries].sort(
     (a, b) =>
@@ -192,5 +199,6 @@ export function buildArenaMoveEmailHtml(
      <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px 0;font-size:15px">${rows}</table>
      <p style="margin:0 0 20px 0;font-size:14px;line-height:1.5;color:#555">Show the e-ticket screen at the HP Arena desk — no paper ticket needed.</p>
      ${cta(shortUrl, "View Updated E-Ticket")}`,
+    address,
   );
 }

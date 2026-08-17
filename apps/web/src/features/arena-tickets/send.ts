@@ -22,12 +22,24 @@ export interface ArenaSmsAudit {
   viaGuardian?: boolean;
 }
 
+export interface ArenaSendOpts {
+  /** Sender DID for this center (FM vs Naples). Defaults to the FM DID
+   *  for back-compat with pre-multi-center callers. */
+  from?: string;
+  /** Square/Pandora location the audit ids belong to — carried into the
+   *  retry + quota queues so a drained retry rebuilds the SAME
+   *  location-scoped dedup keys the cron scan checks (bmiKeyScope). */
+  locationId?: string;
+}
+
 export async function sendArenaSms(
   source: ArenaSmsSource,
   to: string,
   body: string,
   audit: ArenaSmsAudit,
+  opts?: ArenaSendOpts,
 ): Promise<boolean> {
+  const from = opts?.from || VOX_FROM_HEADPINZ_FM;
   const ts = new Date().toISOString();
   const toFormatted = canonicalizePhone(to);
   if (!toFormatted) {
@@ -45,7 +57,7 @@ export async function sendArenaSms(
   }
 
   const result = await voxSend(toFormatted, body, {
-    fromOverride: VOX_FROM_HEADPINZ_FM,
+    fromOverride: from,
     fallbackPrefix: "HeadPinz: ",
   });
   if (result.ok) {
@@ -72,8 +84,9 @@ export async function sendArenaSms(
       source,
       queuedAt: ts,
       shortCode: audit.shortCode,
-      from: VOX_FROM_HEADPINZ_FM,
+      from,
       fallbackPrefix: "HeadPinz: ",
+      ...(opts?.locationId ? { locationId: opts.locationId } : {}),
       audit: {
         sessionIds: audit.sessionIds,
         personIds: audit.personIds,
@@ -111,7 +124,8 @@ export async function sendArenaSms(
     audit,
     status: result.status,
     error: result.error || "",
-    from: VOX_FROM_HEADPINZ_FM,
+    from,
+    ...(opts?.locationId ? { locationId: opts.locationId } : {}),
   });
   return false;
 }

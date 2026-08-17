@@ -25,6 +25,7 @@ import { logSms, logCronRun } from "@/lib/sms-log";
 import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 import { sendEmail as sendGridEmail } from "@/lib/sendgrid";
 import { verifyCron } from "@/lib/cron-auth";
+import { inEticketQuietHours } from "~/features/eticket/quiet-hours";
 import { warmRacerCodes } from "~/features/kiosk/license/code-cache";
 import { recordNotified, forgetNotified } from "~/features/racing/eticket/removal-sweep";
 import { updateLicencePasses } from "~/features/racing/wallet/licence-pass";
@@ -656,7 +657,7 @@ async function releaseVacatedHeat(c: Candidate, ref: ParticipantTicketRef): Prom
 async function detectMove(c: Candidate): Promise<ParticipantTicketRef | null> {
   const pid = c.participant.participantId;
   if (pid == null || !String(pid).trim()) return null;
-  const ref = await getParticipantTicketRef(pid);
+  const ref = await getParticipantTicketRef(FASTTRAX_LOCATION_ID, pid);
   if (!ref) return null;
   if (String(ref.sessionId) === String(c.session.sessionId)) return null; // same heat
   const oldStart = new Date(ref.scheduledStart).getTime();
@@ -677,6 +678,16 @@ export async function GET(req: NextRequest) {
   if (denied) return denied;
 
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
+
+  // Quiet hours — no e-ticket goes out after business hours. Belt to the
+  // overnight clear's braces; dryRun still passes for ops testing.
+  if (!dryRun && inEticketQuietHours()) {
+    return NextResponse.json(
+      { ok: true, skipped: "quiet-hours" },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   const started = Date.now();
   const windowStart = Date.now() - WINDOW_SKEW_BEHIND_MS;
   const windowEnd = Date.now() + WINDOW_AHEAD_MS;

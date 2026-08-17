@@ -135,10 +135,12 @@ export interface BriefingControl {
    * its own spinner while the others merely go inert.
    */
   pending: string | null;
-  /** Staff's film override, per ROOM — on a Mega day both rooms read one
-   *  session, so choosing Intermediate for Red must not change Blue. */
-  tierOverride: Record<string, BriefingTier | null>;
-  setTierOverride: (room: BriefingRoom, tier: BriefingTier | null) => void;
+  /* THE FILM OVERRIDE IS GONE (owner 2026-08-16). `tierOverride` /
+     `setTierOverride` used to live here, per ROOM, so a Mega day's two rooms
+     could differ. Nothing picks a film at the desk any more — the session's race
+     type decides it, the send carries no `tier` at all, and sendBriefing derives
+     the film itself, so there is exactly one answer. See the VIDEO row in
+     RaceControlPanels. */
   /**
    * Which camera is open in the full-screen viewer, if any — a briefing room or
    * a holding area.
@@ -305,7 +307,6 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
-  const [tierOverride, setTierOverrideState] = useState<Record<string, BriefingTier | null>>({});
   const [expandedCamera, setExpandedCamera] = useState<CameraTarget | null>(null);
   const [openPanel, setOpenPanel] = useState<BoardPanel | null>(null);
   const [waitTimes, setWaitTimes] = useState<WaitTimesBoard | null>(null);
@@ -383,10 +384,6 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [token, loadBoard],
   );
 
-  const setTierOverride = useCallback((room: BriefingRoom, tier: BriefingTier | null) => {
-    setTierOverrideState((prev) => ({ ...prev, [room]: tier }));
-  }, []);
-
   const send = useCallback<BriefingControl["send"]>(
     (args) => {
       void post(
@@ -397,13 +394,14 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
           sessionId: args.sessionId,
           heatNumber: args.heatNumber,
           raceType: args.raceType,
-          tier: tierOverride[args.room] ?? undefined,
+          // NO `tier`. The board does not choose films (owner 2026-08-16), so
+          // the server derives it from raceType — one answer, one place.
         },
         `Session ${args.heatNumber ?? ""} sent to the ${args.room} room`,
         `send:${args.room}`,
       );
     },
-    [post, tierOverride],
+    [post],
   );
 
   const start = useCallback<BriefingControl["start"]>(
@@ -594,8 +592,6 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     note,
     busy,
     pending,
-    tierOverride,
-    setTierOverride,
     expandedCamera,
     setExpandedCamera,
     openPanel,

@@ -24,16 +24,30 @@
  * FAILS TO SILENT: a dev build, an empty version, or an unreachable endpoint never
  * reports an update, so a flaky network cannot put a board into a reload loop.
  */
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 
 /** Two minutes. A deploy is not urgent to the second, and this rides the same
  *  visibility-aware poller as everything else on these boards. */
 const DEFAULT_POLL_MS = 120_000;
 
+/** A tab open past this long should recycle at its next quiet gap even with no
+ *  new build — the reload is these boards' only memory amnesty, and a page
+ *  left open across a quiet week otherwise never gets one. A day, flat: an
+ *  admin tablet's reload is invisible to guests, so it needs no overnight
+ *  window (the wall TVs have one — features/signage/recycle.ts). */
+const MAX_UPTIME_MS = 24 * 3_600_000;
+
 export interface BuildUpdate {
   /** The server is serving a different deploy than this tab booted on. */
   ready: boolean;
+  /**
+   * This tab has been open past its max uptime — reload at the next quiet
+   * gap. Deliberately NOT folded into `ready`: `ready` drives the "new build"
+   * pills in page headers, and a pill announcing a deploy that never happened
+   * would teach staff to ignore it.
+   */
+  staleUptime: boolean;
   /** What the server is serving now, short-form. Null until the first poll. */
   serverVersion: string | null;
   /** Hard-reload into the new build. */
@@ -48,6 +62,8 @@ function short(v: string): string {
 
 export function useBuildUpdate(currentVersion: string, pollMs = DEFAULT_POLL_MS): BuildUpdate {
   const [serverVersion, setServerVersion] = useState<string | null>(null);
+  const [staleUptime, setStaleUptime] = useState(false);
+  const bootedAtRef = useRef(Date.now());
   const boot = short(currentVersion || "");
   // "dev" is a local build with no deploy behind it; an empty sha means the page
   // could not name its own build, and comparing against that would flag every
@@ -56,6 +72,10 @@ export function useBuildUpdate(currentVersion: string, pollMs = DEFAULT_POLL_MS)
 
   useVisibleInterval(
     async (signal) => {
+      // Piggybacks on the version poll (so a dev build, which never polls,
+      // also never recycles). Latched, never cleared: uptime only grows, and
+      // the reload it asks for resets it by definition.
+      if (Date.now() - bootedAtRef.current > MAX_UPTIME_MS) setStaleUptime(true);
       try {
         const res = await fetch("/api/kiosk/version", { cache: "no-store", signal });
         if (!res.ok || signal.aborted) return;
@@ -77,5 +97,5 @@ export function useBuildUpdate(currentVersion: string, pollMs = DEFAULT_POLL_MS)
   const ready =
     comparable && serverVersion !== null && serverVersion !== "dev" && serverVersion !== boot;
 
-  return { ready, serverVersion, reloadNow };
+  return { ready, staleUptime, serverVersion, reloadNow };
 }

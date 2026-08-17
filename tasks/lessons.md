@@ -1,5 +1,58 @@
 # Lessons Learned
 
+## A vendor's guard can be correct and still useless — it read the copy that goes stale (2026-08-16)
+
+Fast WSync's UPLOAD rail wedged for the whole center: `T_PARTICIPANT` 58922217
+referenced a project-person (`63000000008522132`) deleted cloud-side, so every
+retry re-violated `FK_PAR_PRJP_ID` and nothing local — walk-ins, desk edits,
+onsite check-ins — reached the cloud. Second time in five days. Full writeup:
+[docs/postmortems/2026-08-16-wsync-fk-orphan-jam.md](../docs/postmortems/2026-08-16-wsync-fk-orphan-jam.md).
+
+1. **A guard is only as fresh as the copy it reads.** Pandora's `/bmi/schedule`
+   already refuses a racer whose project-person is missing — it calls
+   `getProjectPersonId(centerIP, …)` and skips with `person_not_on_project`. But
+   `centerIP` means the CENTER'S LOCAL table, and in the window after a
+   cloud-side delete that copy is stale-PRESENT. The check passed, the
+   participant was written, the delete landed moments later. Before concluding
+   "the vendor already validates this", ask **which replica** it validates
+   against. Ours now asks the cloud, where deletes land first.
+2. **Repairing the row does not clear the queue.** Nulling `T_PARTICIPANT`'s FK
+   changed nothing: WSync replays from `W_PARTICIPANT`, which still held the old
+   revision (`13431524507100005`) with the dead id, while the live row had moved
+   on to `13431524534936000`. `T_` = current, `W_` = pending upload, `X_` =
+   audit/history (never touch). When a sync error names a VERSION, check whether
+   that version still exists in the live table before assuming the error is
+   stale.
+3. **The error text named a column that does not exist.** It prints
+   `F_PRJ_ID`; the real FK column is `F_PRJP_ID`, and the constraint points at
+   `T_PROJECT_PERSON`, not `T_PROJECT`. Let `RDB$RELATION_CONSTRAINTS` name the
+   parent table and column rather than trusting the message or guessing a name.
+4. **"Not in Neon" does not exonerate our code.** The 8/11 note dismissed that
+   jam as "not our bookings". But our kiosk checks in reservations we did not
+   book, and `/bmi/schedule` is keyed by W-number — a desk-booked reservation
+   checked in at our kiosk hits the same path. Absence from `bowling_reservations`
+   says nothing about whether our rail touched the record.
+5. **Verify an endpoint's semantics before building a gate on it.**
+   `race/next` looked like the obvious "is this racer on a grid" probe. Probed
+   live, it 404s for a racer seated earlier the SAME day (it only looks forward)
+   and returned a **2023** session as "upcoming" for someone else. The seated
+   gate reads session participants instead.
+6. **Gate on the world, not on our own status column.** The tempting source for
+   "is the party seated" was `kiosk_checkin_people.schedule_status` — which
+   `server.ts` already warns goes stale the moment staff hand-seat someone. A
+   hand-seated party would never flip, turning a gate into a permanent block.
+7. **A hold is only safe if something re-drives it.** Held racers are classified
+   `waiting`, never `refused`, because the sweep re-attaches and re-seats them
+   every 2 minutes. The guard also fails OPEN on an unreadable roster. A guard
+   that can strand a real racer is worse than the jam it prevents.
+8. **Office `search?token=W…` is FUZZY.** A nonexistent W still returns
+   `kind===2` rows for unrelated reservations (`W61280` → `"Josh Lund (№W48037)"`).
+   It reported a cloud frontier of W61299 when the truth was W61279. Always
+   confirm with `GET /project/{localId}` and require `project.number` to match.
+9. **Measure BOTH rails before calling sync healthy.** Downloads were fully
+   current (cloud and local both at W61279) while uploads were hard-wedged. One
+   frontier reading tells you nothing about the other direction.
+
 ## A tolerance belongs to the STAMP, not to the comparison — and an ops tool that rebuilds from a subset of the server's facts will contradict the wall (2026-08-13)
 
 **What happened:** the briefing wall showed 7 POV cameras on the chase list. Two of
@@ -4295,3 +4348,84 @@ across other open connections**. You cannot hold one subscription per track.
 Fortunately a single `Resource: "Karting"` subscription on `BcFormat: "0"`
 carries every track's notifications (Blue + Red in one snapshot), so one socket
 is both necessary and sufficient.
+
+## Serving origin ≠ public origin once the app serves a second domain (2026-08-16)
+
+**What happened (caught in review, not production):** the admin tools moved
+behind Vercel Authentication on a second Vercel project serving clean URLs
+(`/pit`, `/reservations`, …). The first design deployed the whole `apps/web`
+app twice (same root dir, env-discriminated middleware); the adversarial pass
+found that silently breaks every absolute URL derived from the SERVING origin
+(`req.nextUrl.origin` / `window.location.origin`) when code runs on the
+protected deployment: guest pay-difference links, the VIP voucher QR a guest
+scans across the desk, signage `.bat` startup scripts baked into TV players
+(deferred failure — appears at the board's next reboot), and server-side
+self-fetches (`/api/notifications/bowling-confirmation`,
+`/api/pandora/races-current`) that get the login interstitial instead of JSON —
+one caller 500s, two swallow it silently (a reschedule that never notifies the
+guest; a check-in board with an empty session strip).
+
+**Final design (v2, after the owner hit Vercel's sensitive-env wall):** the
+whole-app-twice approach also required duplicating all ~290 env vars, and
+sensitive-typed vars cannot be exported from Vercel at all. Replaced with a
+PROXY SHELL — `apps/admin`, its own Root Directory, no pages/API/secrets —
+that forwards every request to the main deployment with the token injected
+(`apps/admin/src/routes.ts` + `proxy.ts`). Server code then always executes on
+the main deployment with the correct origin, so only the two CLIENT-side sites
+(VIP QR, signage copy-URL) need `publicOrigin()` — now host-based, no env.
+
+**The rules:**
+
+1. **An absolute URL built from the serving origin is a latent bug the moment
+   the app answers on a second domain.** Client-side URLs that must work for a
+   guest's phone or a cookie-less device go through `publicOrigin()`
+   (`~/lib/helpers/public-origin`) — keeps brand-domain/localhost origins,
+   falls back to the public site anywhere else.
+2. **Silent-failure self-fetches hide deployment-topology breakage.**
+   `.catch(() => {})` and `catch { return {} }` turned "auth wall" into "guest
+   never notified" and "empty board" — grep for fire-and-forget self-fetches
+   when auditing any deployment change. (The proxy design sidesteps this class
+   by never executing server code on the walled domain.)
+3. **A second Vercel project sharing `apps/web`'s root directory registers all
+   of vercel.json's crons**, and `verifyCron()` FAILS OPEN without
+   `CRON_SECRET` (pinned by `lib/cron-auth.test.ts`) — omitting the secret on
+   project #2 stops nothing. `apps/admin` avoids the whole class by having its
+   own root and no vercel.json. Vercel Queues are safe — topics are
+   project-scoped.
+4. **Client-side "am I on an admin page?" guards die when admin serves at
+   clean URLs.** Clarity's only admin exclusion was
+   `pathname.startsWith("/admin")`; through the proxy the browser path is
+   `/reservations` and it would have recorded staff sessions full of customer
+   PII. The `x-admin-route` request header is the only truthful signal — the
+   root layout gates `<ClarityAnalytics />` on it server-side.
+5. **The admin domain must not be a subdomain of fasttraxent.com /
+   headpinz.com** — `publicOrigin()`'s keep-list would treat it as a guest
+   host (QRs/TV URLs would point at the auth wall), and middleware brand
+   detection keys on `hostname.includes("headpinz.com")`. Use the
+   `*.vercel.app` domain or a dedicated apex.
+6. **A trusted-proxy header beats a duplicated secret store.** The main gate
+   accepts `x-admin-proxy-key` (env `ADMIN_PROXY_KEY`, additive, inert until
+   set) so the shell stays authenticated when `ADMIN_CAMERA_TOKEN` is later
+   rotated to a machine-only value — the endgame where humans can ONLY get in
+   via Vercel login.
+
+## A destructive shell command with relative paths trusts a cwd you didn't verify (2026-08-16)
+
+`rm -f apps/web/.env.local` was meant for a git worktree but executed in the main
+checkout — the session's working directory had silently reset (backgrounded
+commands don't carry `cd` forward) — and deleted the REAL local-dev secrets
+file. Gitignored, so unrecoverable from git; restored only via
+`vercel env pull` + re-entering what pull can't return.
+
+**The rules:**
+
+1. **Destructive or writing shell commands (`rm`, `mv`, `>`, `git clean`,
+   `git checkout --`) use ABSOLUTE paths, always** — or start the compound
+   command with an explicit `cd <absolute> &&`. Relative paths are only for
+   read-only commands where a wrong cwd fails loudly instead of deleting
+   quietly.
+2. **When agents share a machine with multiple checkouts of the same repo
+   (worktrees), a wrong-cwd mistake is invisible** — both trees have the same
+   layout, so the command "works" either way. Verify with `pwd` before the
+   first destructive command of any session segment, and after any
+   backgrounded command.

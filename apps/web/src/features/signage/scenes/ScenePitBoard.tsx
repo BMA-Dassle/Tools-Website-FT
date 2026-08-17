@@ -38,6 +38,7 @@ import {
   TRACK_ACCENTS,
   TRACK_LABELS,
   effectiveTrack,
+  findTrackDelay,
   trackFromResourceIds,
   type TrackKey,
 } from "../track";
@@ -339,7 +340,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
     [feed?.briefingRooms, feed?.now, nowMs, status?.currentRaces, track, lane, liveClock],
   );
 
-  const delay = findDelay(status?.trackStatus.tracks, track);
+  const delay = findTrackDelay(status?.trackStatus.tracks, track);
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
@@ -1196,16 +1197,6 @@ function DelayLine({ delay }: { delay: { delayMinutes: number; delayFormatted: s
   );
 }
 
-function findDelay(
-  tracks: { trackName: string; delayMinutes: number; delayFormatted: string }[] | undefined,
-  track: TrackKey,
-): { delayMinutes: number; delayFormatted: string } | null {
-  if (!tracks) return null;
-  const hit = tracks.find((t) => new RegExp(`\\b${track}\\b`, "i").test(t.trackName));
-  if (!hit) return null;
-  return { delayMinutes: hit.delayMinutes ?? 0, delayFormatted: hit.delayFormatted ?? "" };
-}
-
 /* ── the seating rail ─────────────────────────────────────────────────── */
 
 /**
@@ -1291,6 +1282,12 @@ function Rail({
   } | null;
   pitIn: {
     heatNumber: number | null;
+    /** The briefing room this group came from — where their post-race results
+     *  and video are waiting, so it is where they walk BACK to. Carried on the
+     *  lane's pitIn slot since the slot was born; rendered since 2026-08-16
+     *  (owner: "as they come back, indicate which briefing they need to go
+     *  to" — this chip is the one place they see it, walking past this wall). */
+    room: "red" | "blue" | null;
     postRaceAtMs: number | null;
     postRaceDurationS: number | null;
   } | null;
@@ -1425,6 +1422,30 @@ function Rail({
               {pitIn.heatNumber != null ? `Session ${pitIn.heatNumber}` : "A race"}
             </span>
             <PostRacePill pitIn={pitIn} nowMs={nowMs} />
+            {/* WHERE THEY WALK NEXT — the room their results and video are in,
+                in that room's own colour so "red" reads across the pit lane
+                without a word (owner 2026-08-16, mockup-approved: rail chip
+                only, no banner). Wears the ROOM's colour, never the track's —
+                the room is the instruction. Gone the moment the post press
+                clears the slot, so it can never point a new group at an old
+                room. */}
+            {pitIn.room && (
+              <span
+                className="tv-display"
+                style={{
+                  fontSize: 34,
+                  whiteSpace: "nowrap",
+                  color: "#fff",
+                  padding: "6px 22px",
+                  borderRadius: 10,
+                  border: `3px solid ${TRACK_ACCENTS[pitIn.room]}`,
+                  background: withAlpha(TRACK_ACCENTS[pitIn.room], 0.2),
+                  boxShadow: `0 0 34px ${withAlpha(TRACK_ACCENTS[pitIn.room], 0.55)}`,
+                }}
+              >
+                → {pitIn.room.toUpperCase()} ROOM
+              </span>
+            )}
           </>
         ) : (
           <span

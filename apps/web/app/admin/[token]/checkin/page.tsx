@@ -28,9 +28,17 @@ export default async function Page({ params, searchParams }: Props) {
   const query = await searchParams;
   const boardMode = query.board === "1";
 
+  /**
+   * `?loc=ft|hpfm|naples` scopes the session-counts strip to one building —
+   * each desk bookmarks its own URL. View-only: scanning accepts every
+   * payload regardless (licence codes and FT QRs carry no location).
+   * No `?loc=` (or an unknown value) keeps the all-venues view.
+   */
+  const locFilter = typeof query.loc === "string" ? query.loc : undefined;
+
   return (
     <div className={adminPoppins.variable}>
-      <CheckInClient token={token} version={version} boardMode={boardMode} />
+      <CheckInClient token={token} version={version} boardMode={boardMode} locFilter={locFilter} />
     </div>
   );
 }

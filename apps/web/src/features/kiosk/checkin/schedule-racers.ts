@@ -32,6 +32,8 @@
  * composes the single staff memo from the returned outcomes.
  */
 
+import { partitionByCloudRoster } from "@/lib/bmi-cloud-roster";
+
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net/v2";
 const FASTTRAX_RACING_LOCATION_ID = "LAB52GY480CJF";
 const HEAT_DURATION_MIN = 7;
@@ -40,6 +42,13 @@ export interface ScheduleRacer {
   racerName: string;
   /** SHORT Pandora id — the only id the schedule endpoint accepts. */
   personId: string | null;
+  /**
+   * The OTHER id this human is known by (17-digit Office id when `personId` is
+   * the short one, and vice versa). Never sent to Pandora — stripped before the
+   * POST — it exists only so the cloud-roster guard can match a roster row that
+   * carries the person under whichever id its minting rail used.
+   */
+  altPersonId?: string | null;
   product: string;
   productId: string | null;
   tier: string;
@@ -121,6 +130,14 @@ interface ScheduleResponseRow {
 export async function scheduleCheckinRacers(args: {
   reservationNumber: string; // the W-number (path segment), NOT the 17-digit billId
   racers: ScheduleRacer[];
+  /**
+   * Person ids the CLOUD still carries on this reservation, from
+   * `projectRosterCloudBarrier`. Racers absent from it are NOT posted — see the
+   * WSync FK-orphan note below. Pass `null` when the roster could not be read:
+   * the guard then does nothing and behaviour is exactly as before, because a
+   * guard that fails CLOSED on an Office hiccup would stop every check-in.
+   */
+  cloudRoster?: ReadonlySet<string> | null;
 }): Promise<ScheduleResult> {
   const assignable = args.racers.filter((r) => r.personId && r.heatStart);
   const result: ScheduleResult = {
@@ -142,7 +159,11 @@ export async function scheduleCheckinRacers(args: {
       {
         method: "POST",
         headers: { Authorization: `Bearer ${pandoraKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ racers: batch }),
+        // altPersonId is ours, not the vendor's — strip it so the wire payload
+        // stays byte-identical to the shape this endpoint has always accepted.
+        body: JSON.stringify({
+          racers: batch.map(({ altPersonId: _alt, ...wire }) => wire),
+        }),
         signal: AbortSignal.timeout(10_000),
       },
     );
@@ -169,12 +190,49 @@ export async function scheduleCheckinRacers(args: {
     });
   };
 
+  /**
+   * CLOUD-ROSTER GUARD (2026-08-16 — WSync FK jam, T_PARTICIPANT 58922217).
+   *
+   * Pandora's own insert already refuses a racer whose project-person is
+   * missing (`person_not_on_project`) — but it looks that up in the CENTER'S
+   * LOCAL table. In the window after a project-person is deleted cloud-side and
+   * before that delete syncs down, the local row is stale-PRESENT, Pandora's
+   * check passes, and the participant it writes is orphaned the moment the
+   * delete lands. Its queued upload then violates FK_PAR_PRJP_ID and wedges Fast
+   * WSync's whole upload batch for the center.
+   *
+   * So: anyone the CLOUD no longer has on this reservation is not posted at all.
+   * They are recorded WAITING, never refused — the kiosk-bmi-sync-sweep re-drives
+   * waiting rows every 2 minutes and its own barrier re-ATTACHES a person who is
+   * genuinely missing from the project before re-seating them. A racer held here
+   * is therefore queued, not dropped, which is what makes holding safe.
+   */
+  const guarded = args.cloudRoster
+    ? partitionByCloudRoster(assignable, args.cloudRoster, (r) => [r.personId, r.altPersonId])
+    : { onRoster: assignable, offRoster: [] as ScheduleRacer[] };
+  for (const r of guarded.offRoster) record(r, "waiting", "off-cloud-roster");
+  if (guarded.offRoster.length > 0) {
+    console.warn(
+      `[kiosk-checkin] ${args.reservationNumber}: held ${guarded.offRoster.length} racer(s) off the ` +
+        `schedule POST — not on the cloud roster (would orphan a participant): ` +
+        guarded.offRoster.map((r) => `${r.racerName}/${r.personId}`).join(", "),
+    );
+  }
+
+  if (guarded.onRoster.length === 0) {
+    result.outcomes = assignable.map((r) => outcomeFor.get(rKey(r))!);
+    result.linked = 0;
+    result.unlinked = [...new Set(result.outcomes.map((o) => o.racerName))];
+    result.unlinkedPersonIds = [...new Set(result.outcomes.map((o) => o.personId))];
+    return result;
+  }
+
   try {
-    const d = await withRetry("checkin schedule", () => postSchedule(assignable));
+    const d = await withRetry("checkin schedule", () => postSchedule(guarded.onRoster));
     if (Array.isArray(d.results)) {
       const byKey = new Map<string, ScheduleResponseRow>();
       for (const row of d.results) byKey.set(rKey(row), row);
-      for (const r of assignable) {
+      for (const r of guarded.onRoster) {
         const status = byKey.get(rKey(r))?.status;
         if (status === "inserted" || status === "already_linked") {
           record(r, "linked", status);
@@ -186,19 +244,19 @@ export async function scheduleCheckinRacers(args: {
           record(r, "waiting", status ?? "no-result-row");
         }
       }
-    } else if ((d.inserted ?? 0) >= assignable.length) {
+    } else if ((d.inserted ?? 0) >= guarded.onRoster.length) {
       // Count-only response covering the whole batch — everyone landed.
-      for (const r of assignable) record(r, "linked", "count-only");
+      for (const r of guarded.onRoster) record(r, "linked", "count-only");
     } else {
       // Count-only PARTIAL: Pandora didn't say WHO. The insert is idempotent
       // per racer (≥2.4.57 returns already_linked), so the sweep re-POSTs the
       // whole set safely — mark everyone unconfirmed as waiting. (The old code
       // skipped retries entirely here, which stranded real racers.)
-      for (const r of assignable) record(r, "waiting", "count-only-partial");
+      for (const r of guarded.onRoster) record(r, "waiting", "count-only-partial");
     }
   } catch (err) {
     console.error("[kiosk-checkin] schedule failed:", err instanceof Error ? err.message : err);
-    for (const r of assignable) record(r, "waiting", "transport");
+    for (const r of guarded.onRoster) record(r, "waiting", "transport");
   }
 
   result.outcomes = assignable.map((r) => outcomeFor.get(rKey(r))!);

@@ -349,6 +349,11 @@ export function resolveScreenConfig(
       minShowMs: numOr(vip.minShowMs, 45_000),
     },
     celebration: {
+      // Defaults ON for a config that omits the block. Briefing-room, pit,
+      // camera and results screens should carry an explicit `enabled: false`
+      // (the role presets write one at creation) — a celebration interrupt
+      // remounts the scene it cuts across, which on a briefing room means
+      // re-adopting the film set from disk for no guest-visible reason.
       enabled: cel.enabled !== false,
       maxAgeSecs: numOr(cel.maxAgeSecs, 90),
       showMs: numOr(cel.showMs, 8_000),

@@ -219,6 +219,23 @@ export async function middleware(request: NextRequest) {
       // admin-token check below. Operator UI keeps working unchanged.
     }
 
+    // ── Trusted-proxy auth (staff admin project) ──────────────────────
+    // The apps/admin shell — a separate Vercel project behind Vercel
+    // Authentication — forwards staff traffic here with this shared-secret
+    // header. Accepting it as a credential is what lets ADMIN_CAMERA_TOKEN
+    // later rotate to a machine-only value once staff migrate off the
+    // token URLs: the shell stays authenticated by header, humans by
+    // Vercel login. Additive and inert until ADMIN_PROXY_KEY is set on
+    // this project; token auth below is unchanged either way.
+    const proxyKey = process.env.ADMIN_PROXY_KEY || "";
+    const providedProxyKey = request.headers.get("x-admin-proxy-key") || "";
+    if (proxyKey && providedProxyKey.length === proxyKey.length && providedProxyKey === proxyKey) {
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set("x-admin-route", "1");
+      requestHeaders.set("x-admin-via", "proxy-key");
+      return NextResponse.next({ request: { headers: requestHeaders } });
+    }
+
     // Token extraction: for /admin/{token}/..., token is the 2nd
     // path segment. For /api/admin/..., we accept header
     // `x-admin-token` OR query `?token=...`.

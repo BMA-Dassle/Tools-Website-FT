@@ -68,7 +68,11 @@ import {
   pullVerdict,
   type PullRefusal,
 } from "~/features/signage/briefing/pull-to-room";
-import { buildStageRail, type StageRow } from "~/features/signage/briefing/stage-rail";
+import {
+  buildStageRail,
+  heatIsPastTheDesk,
+  type StageRow,
+} from "~/features/signage/briefing/stage-rail";
 import { startHoldRemainingMs, startHoldSeconds } from "~/features/signage/briefing/start-hold";
 import {
   BRIEFING_ROOMS,
@@ -271,7 +275,16 @@ interface SessionStat {
   sessionId: number | string;
   checkedIn: number;
   total: number;
+  /** Square location id — stats rows now include HP arena sessions (FM +
+   *  Naples). Naples runs a separate BMI server whose sessionIds can
+   *  numerically collide with FastTrax heats, so racing matches must
+   *  exclude Naples rows. */
+  locationId?: string;
 }
+
+/** HeadPinz Naples — the one stats location whose sessionId namespace is
+ *  NOT shared with the FastTrax racing feed this board matches against. */
+const HP_NAPLES_LOCATION_ID = "PPTR5G2N0QXF7";
 
 function useSessionStats(token: string, enabled: boolean): SessionStat[] {
   const [stats, setStats] = useState<SessionStat[]>([]);
@@ -990,13 +1003,23 @@ export default function BriefingRoomClient({
    * code would look like the tablet rejecting them). Both clear in seconds.
    */
   const safeToReload = !control.busy && !challenge;
+  // PRIMITIVES in the dependency list, never the `build` object — useBuildUpdate
+  // returns a fresh literal every render and this page re-renders at least once
+  // a second (useNowMs), so depending on the object re-armed the 4s timer every
+  // tick and the reload NEVER fired: these tablets ran whatever build was live
+  // the day someone opened them. Same shape as PitClient / CheckInClient.
+  const buildReady = build.ready;
+  const buildStale = build.staleUptime;
+  const buildReloadNow = build.reloadNow;
   useEffect(() => {
-    if (!build.ready || !safeToReload) return;
+    // A stale tab reloads the same way a new build does — the reload is this
+    // tablet's only memory amnesty, and a quiet week must not mean never.
+    if ((!buildReady && !buildStale) || !safeToReload) return;
     // Long enough for the pill in the header to be read as an explanation for
     // the screen blinking, short enough that the new build is genuinely live.
-    const t = setTimeout(() => build.reloadNow(), 4_000);
+    const t = setTimeout(buildReloadNow, 4_000);
     return () => clearTimeout(t);
-  }, [build, safeToReload]);
+  }, [buildReady, buildStale, buildReloadNow, safeToReload]);
 
   const startCb = control.start;
   const sendToHoldingCb = control.sendToHolding;
@@ -1124,20 +1147,56 @@ export default function BriefingRoomClient({
   const startKey = state?.kind === "timeline" ? `restart:${room}` : `start:${room}`;
   const sessionLabel = state?.heatNumber != null ? `Session ${state.heatNumber}` : "This group";
 
-  /** The heat checking in for this room's track — see incomingTrack above. */
-  const incomingRace = status?.currentRaces?.[incomingTrack] ?? null;
+  const incomingLane = board?.lanes?.[incomingTrack] ?? null;
+  const trackHeatNumber = raceClock ? liveHeatNumber(raceClock.heatName) : null;
+
+  /**
+   * THE HEAT CHECKING IN FOR THIS ROOM'S TRACK — once, and only while it really
+   * is checking in (owner 2026-08-16: "why is this briefing board still showing
+   * 37 in room, it has moved on").
+   *
+   * THE CALLED RECORD OUTLIVES THE RACE. Pandora keeps its entry ~20 minutes
+   * after the call and our own Redis carry holds it for up to six hours, or
+   * until the NEXT heat on that track is called — whichever is longer
+   * (races-current.server). That is right for the check-in boards a guest reads
+   * and wrong here: on a quiet track, Session 37 went to the room, to the seats,
+   * to the karts and out onto the tarmac while this screen still called it the
+   * incoming group and printed "Already in the red room" over a dead button. The
+   * rail beside it had 37 correctly on ON TRACK the whole time, because
+   * buildStageRail already refuses to leave a moved-on heat in Called — the band
+   * and the pull panel simply never asked the same question.
+   *
+   * So they ask it here, ONCE, at the top: a heat the lane can see in the seats,
+   * the karts, on track or in the pit is not the heat checking in, and every
+   * consumer below inherits that. The band falls to "No heat is checking in
+   * right now", the pull refuses with `no-heat`, and the rail is unchanged.
+   *
+   * DELIBERATELY THE LANE, NOT THE BRIEFING ROOMS. A heat sitting in a room IS
+   * still this band's business — "Already in the blue room" is exactly what the
+   * red room's staff member needs to know — and only stops being so once the
+   * group has physically left it.
+   */
+  const incomingRace = heatIsPastTheDesk(
+    status?.currentRaces?.[incomingTrack]?.heatNumber,
+    incomingLane,
+  )
+    ? null
+    : (status?.currentRaces?.[incomingTrack] ?? null);
   // Matched on SESSION, never on the track label: the two feeds word tracks
   // differently and a mismatched string would silently show no count at all.
   const incomingStat =
     (incomingRace &&
-      sessionStats.find((s) => String(s.sessionId) === String(incomingRace.sessionId))) ||
+      sessionStats.find(
+        (s) =>
+          String(s.sessionId) === String(incomingRace.sessionId) &&
+          // incomingRace is a FastTrax heat — never match a Naples arena
+          // row whose separate BMI server minted the same numeric id.
+          s.locationId !== HP_NAPLES_LOCATION_ID,
+      )) ||
     null;
   const incomingSentTo = incomingRace
     ? (control.board?.briefedSessions?.[String(incomingRace.sessionId)]?.room ?? null)
     : null;
-
-  const incomingLane = board?.lanes?.[incomingTrack] ?? null;
-  const trackHeatNumber = raceClock ? liveHeatNumber(raceClock.heatName) : null;
 
   /**
    * WHERE EVERY SESSION ON THIS TRACK IS. Built by the pit board's own builder —

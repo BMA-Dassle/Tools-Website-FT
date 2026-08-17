@@ -28,7 +28,7 @@
  *
  * Reads only. Nothing here writes to any rail.
  */
-import { fetchOfficePerson } from "@/lib/bmi-office-actions";
+import { fetchOfficePerson, fetchProjectRawIds } from "@/lib/bmi-office-actions";
 
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net/v2";
 
@@ -440,4 +440,232 @@ export async function projectLocalBarrier(
   } catch (err) {
     return errored(err instanceof Error ? err.message.slice(0, 120) : "network error");
   }
+}
+
+/**
+ * WHO IS STILL ON THE RESERVATION, ACCORDING TO THE CLOUD?
+ *
+ * Not an arrival probe — the only one here that asks whether something has GONE.
+ * Every other barrier in this file waits for a thing to appear and treats
+ * absence as "not yet"; this one exists because a roster row that DISAPPEARS is
+ * the thing that jams the upload rail.
+ *
+ * WHY IT MUST BE THE CLOUD (2026-08-16, T_PARTICIPANT 58922217). Pandora's
+ * `/bmi/schedule` ALREADY guards this — its own source calls
+ * `getProjectPersonId(centerIP, prjId, racer.personId)` and, when that misses,
+ * skips the racer with `person_not_on_project` rather than inserting. But
+ * `centerIP` says which copy it asks: the CENTER'S LOCAL project-person table.
+ * When a project-person is deleted cloud-side there is a window before that
+ * delete syncs down in which the local row is stale-PRESENT — so Pandora's
+ * lookup SUCCEEDS, it stamps that id into a brand-new T_PARTICIPANT, and the
+ * delete lands moments later. The participant is orphaned, its queued
+ * W_PARTICIPANT upload violates FK_PAR_PRJP_ID, and Fast WSync's upload batch
+ * wedges for the whole center until someone edits Firebird by hand.
+ *
+ * So this is not a second copy of Pandora's check — it is the same check against
+ * the copy that is not stale. The cloud is where the delete lands first, which
+ * is the owner's "cloud is first, Pandora second" rule applied to a read we had
+ * delegated to Pandora entirely.
+ *
+ * KNOWN FALSE-POSITIVE, accepted deliberately: a person added to the project at
+ * the DESK exists locally before the cloud has them, and if the upload rail is
+ * itself wedged that can persist. Such a racer reads as "off roster" here and is
+ * held back. That is survivable only because held racers are classified WAITING
+ * (retryable, re-driven by the sweep, never dropped) — see the caller. A guard
+ * that FAILED them would be worse than the jam it prevents.
+ *
+ * COLLECT IDS LIBERALLY. A roster row may carry the person under a 17-digit
+ * Office id, a short local id, or both, and callers match on whichever id they
+ * hold. A superset only ever makes the guard more permissive, and permissive is
+ * the safe direction: a false "still on the roster" costs us the pre-existing
+ * behaviour, while a false "removed" would strand a real racer.
+ *
+ * An EMPTY roster is returned as `open` with an empty set, not as an error —
+ * projectPersons: 0 on a reservation that still shows persons: N is precisely
+ * the emptied-roster state W61030 was in, and callers must be able to see it.
+ */
+export interface RosterBarrierResult extends BarrierResult {
+  /**
+   * Every id form the cloud roster carries. Trustworthy ONLY on `open` — on any
+   * other verdict this is empty because we could not read, which must never be
+   * mistaken for "nobody is on the reservation".
+   */
+  personIds: ReadonlySet<string>;
+}
+
+export async function projectRosterCloudBarrier(
+  clientKey: string,
+  projectId: string,
+): Promise<RosterBarrierResult> {
+  const none: ReadonlySet<string> = new Set<string>();
+  let project: Record<string, unknown> | null;
+  try {
+    project = await fetchProjectRawIds(clientKey, projectId);
+  } catch (err) {
+    return {
+      ...unreachable(err instanceof Error ? err.message.slice(0, 120) : "office unreachable"),
+      personIds: none,
+    };
+  }
+  // null = the Office GET was >=400. Not "the roster is empty" — we never read it.
+  if (!project) return { ...closed("project not readable in the cloud"), personIds: none };
+
+  const rows = Array.isArray(project.projectPersons)
+    ? (project.projectPersons as Array<Record<string, unknown>>)
+    : null;
+  // The GET is expected to carry projectPersons (removeProjectPersonRow reads it
+  // from the same body). Its ABSENCE is a shape change, not an empty roster.
+  if (!rows) return { ...errored("project carries no projectPersons array"), personIds: none };
+
+  const ids = new Set<string>();
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    for (const [k, v] of Object.entries(row)) {
+      if (!/^(person.*id|externalid)$/i.test(k)) continue;
+      if (typeof v !== "string" && typeof v !== "number") continue;
+      const s = String(v).trim();
+      if (s && s !== "0" && s !== "null") ids.add(s);
+    }
+  }
+  return {
+    ...open(`${ids.size} id(s) across ${rows.length} roster row(s)`),
+    personIds: ids,
+  };
+}
+
+/**
+ * IS THE PARTY ACTUALLY ON THE GRID? — party-ready, plus every seat proven.
+ *
+ * The "Confirmation Kiosk / Confirmation - Express" stamp is read by staff as
+ * "this party is here and checked in". `party-ready` alone only proves each
+ * member is local and waivered, which is true well before anyone is seated, so
+ * the stamp could still arrive claiming work that had not finished. This adds
+ * the seats.
+ *
+ * WE ASK THE GRID, NOT OURSELVES. `kiosk_checkin_people.schedule_status` is the
+ * obvious source and the wrong one: server.ts already warns it "goes stale the
+ * moment staff" hand-seat a racer at the desk, so a party seated by hand would
+ * sit at 'waiting-sync' forever and the flip would never arrive — turning a
+ * gate into a permanent block. Pandora's session participants show a hand-seated
+ * racer exactly like an API-seated one.
+ *
+ * `race/next` was evaluated for this and REJECTED — probed live 2026-08-16, it
+ * 404s "No upcoming race found" for a racer demonstrably seated earlier the same
+ * day (it only looks forward) while returning a 2023 session as "upcoming" for
+ * another. It answers a different question than the one this barrier asks.
+ *
+ * Seats are matched on (local wall-clock start, personId). Pandora's
+ * `scheduledStart` is real UTC and our heat ids are naive center-local, so the
+ * comparison is normalized to a New York wall-clock key — never on raw strings
+ * (the trap documented in scripts/bmi-cloud-vs-local-sync-diff.mts).
+ */
+export interface SeatRef {
+  personId: string;
+  /** Naive center-local heat start, as stored in bound_heats ("2026-08-16T12:02:00"). */
+  heatStart: string;
+}
+
+const nyWallClockKey = (utcIso: string): string =>
+  new Date(utcIso)
+    .toLocaleString("sv-SE", { timeZone: "America/New_York" })
+    .replace(" ", "T")
+    .slice(0, 16);
+
+export async function partySeatedBarrier(
+  locationId: string,
+  personIds: string[],
+  seats: SeatRef[],
+): Promise<BarrierResult> {
+  // The waiver/local half is unchanged — a party that isn't ready can't be
+  // seated-and-done either, and this keeps one gate rather than two.
+  const ready = await partyReadyBarrier(locationId, personIds);
+  if (ready.verdict !== "open") return ready;
+
+  const wanted = seats.filter((s) => s.personId && s.heatStart);
+  // No racing seats in this check-in (bowling-only, or a party whose members are
+  // deliberately not racing) — party-ready IS the whole gate.
+  if (wanted.length === 0) return open(`${ready.detail}; no racing seats to verify`);
+
+  const key = process.env.SWAGGER_ADMIN_KEY || "";
+  if (!key) return errored("SWAGGER_ADMIN_KEY missing");
+
+  // One sessions read per distinct DAY the seats fall on (a check-in's heats are
+  // same-day in practice, so this is one call).
+  const days = [...new Set(wanted.map((s) => s.heatStart.slice(0, 10)))];
+  const sessionsByStart = new Map<string, string[]>();
+  for (const day of days) {
+    try {
+      const res = await fetch(
+        `${PANDORA_BASE}/bmi/sessions/${encodeURIComponent(locationId)}?startDate=${day}T00:00:00&endDate=${day}T23:59:59`,
+        { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20_000) },
+      );
+      if (!res.ok) return unreachable(`sessions ${day} → HTTP ${res.status}`);
+      const body = (await res.json().catch(() => null)) as {
+        data?: Array<{ sessionId?: unknown; scheduledStart?: unknown }>;
+      } | null;
+      for (const s of body?.data ?? []) {
+        if (!s?.sessionId || typeof s.scheduledStart !== "string") continue;
+        // Two tracks can run a heat on the same minute, so a start key maps to a
+        // LIST of sessions and a racer counts if they are on any of them.
+        const k = nyWallClockKey(s.scheduledStart);
+        sessionsByStart.set(k, [...(sessionsByStart.get(k) ?? []), String(s.sessionId)]);
+      }
+    } catch (err) {
+      return unreachable(err instanceof Error ? err.message.slice(0, 120) : "sessions unreachable");
+    }
+  }
+
+  const rosterCache = new Map<string, Set<string>>();
+  const participantsOf = async (sessionId: string): Promise<Set<string> | null> => {
+    const hit = rosterCache.get(sessionId);
+    if (hit) return hit;
+    try {
+      const res = await fetch(
+        `${PANDORA_BASE}/bmi/session/${encodeURIComponent(locationId)}/${encodeURIComponent(sessionId)}/participants?excludeRemoved=true`,
+        { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20_000) },
+      );
+      if (!res.ok) return null;
+      const body = (await res.json().catch(() => null)) as {
+        data?: Array<Record<string, unknown>>;
+      } | null;
+      const ids = new Set<string>();
+      for (const p of body?.data ?? []) {
+        for (const k of ["personId", "personID", "participantId"]) {
+          const v = p?.[k];
+          if (typeof v === "string" || typeof v === "number") ids.add(String(v));
+        }
+      }
+      rosterCache.set(sessionId, ids);
+      return ids;
+    } catch {
+      return null;
+    }
+  };
+
+  const missing: string[] = [];
+  for (const seat of wanted) {
+    const sessionIds = sessionsByStart.get(seat.heatStart.slice(0, 16)) ?? [];
+    if (sessionIds.length === 0) {
+      // The heat block itself hasn't synced down — the same "not yet" every other
+      // barrier means by closed.
+      missing.push(`${seat.personId}@${seat.heatStart.slice(11, 16)} (no local session)`);
+      continue;
+    }
+    let seated = false;
+    for (const sid of sessionIds) {
+      const ids = await participantsOf(sid);
+      if (ids === null) return unreachable(`participants ${sid} unreadable`);
+      if (ids.has(seat.personId)) {
+        seated = true;
+        break;
+      }
+    }
+    if (!seated) missing.push(`${seat.personId}@${seat.heatStart.slice(11, 16)}`);
+  }
+
+  return missing.length === 0
+    ? open(`${ready.detail}; all ${wanted.length} seat(s) on the grid`)
+    : closed(
+        `${missing.length}/${wanted.length} seat(s) not on the grid: ${missing.slice(0, 4).join(", ")}`,
+      );
 }

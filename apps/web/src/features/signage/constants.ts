@@ -190,5 +190,11 @@ export const TV_UPDATE_CHECK_MS = 5 * 60_000;
  *         number: a group on the fence can tell whether the heat in the
  *         briefing room is one of theirs. Needed the lane to carry raceType
  *         through the green flag, which it had been dropping.
+ * 0.6.0 — Endurance release: blob-URL revocation + zero-copy retype for the
+ *         briefing films, media-element teardown, camera stills via
+ *         fetch+watchdog (a hung frame can no longer freeze a board), nightly
+ *         max-uptime recycle on the wall TVs, admin tablets self-update on
+ *         uptime. Built to survive weeks of uptime instead of leaking through
+ *         them.
  */
-export const SIGNAGE_VERSION = "0.5.1";
+export const SIGNAGE_VERSION = "0.6.0";

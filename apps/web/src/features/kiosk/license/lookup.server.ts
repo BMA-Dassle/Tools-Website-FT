@@ -101,16 +101,20 @@ interface SearchHit {
 
 /** The token search (combined "LastName M/D/YYYY" or a member-QR code). One
  *  retry on 5xx; throws when the search stays unavailable (route → 502 → the
- *  kiosk falls back to the manual form). */
-async function officeSearchPerson(searchToken: string): Promise<SearchHit[]> {
-  const token = await getOfficeToken(CLIENT_KEY);
+ *  kiosk falls back to the manual form). clientKey defaults to the FM Office
+ *  (every pre-Naples caller); lookupMemberMatchesAt passes another center's. */
+async function officeSearchPerson(
+  searchToken: string,
+  clientKey: string = CLIENT_KEY,
+): Promise<SearchHit[]> {
+  const token = await getOfficeToken(clientKey);
   const path =
-    `/api/${CLIENT_KEY}/search/person` + `?token=${encodeURIComponent(searchToken)}&maxResults=500`;
+    `/api/${clientKey}/search/person` + `?token=${encodeURIComponent(searchToken)}&maxResults=500`;
   const headers = {
     Authorization: `Bearer ${token}`,
     "x-fast-version": SMS_VERSION,
     "x-session-id": randomUUID(),
-    clientkey: CLIENT_KEY,
+    clientkey: clientKey,
   };
   let res = await officeHttpsGet(path, headers);
   if (res.status >= 500) res = await officeHttpsGet(path, headers); // one retry
@@ -152,8 +156,12 @@ interface MatchConfirm {
  *  (different last name / birthdate — a token false-positive) or the fetch
  *  died. No waiverValid here — importLinked resolves it right after sign-in,
  *  exactly like the phone OTP path. */
-async function buildMatch(hit: SearchHit, confirm: MatchConfirm): Promise<LicenseMatch | null> {
-  const office = await fetchPersonRaw<OfficePerson>(CLIENT_KEY, hit.localId).catch(() => null);
+async function buildMatch(
+  hit: SearchHit,
+  confirm: MatchConfirm,
+  clientKey: string = CLIENT_KEY,
+): Promise<LicenseMatch | null> {
+  const office = await fetchPersonRaw<OfficePerson>(clientKey, hit.localId).catch(() => null);
   if (!office) return null;
   // Authoritative confirmation off the person record itself.
   if (confirm.lastName && office.name && norm(office.name) !== norm(confirm.lastName)) return null;
@@ -296,6 +304,35 @@ export async function lookupMemberMatches(
   if (matches.length === 1) {
     await rememberCodes(matches[0].personId, [code]);
   }
+  return matches.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+}
+
+/**
+ * Same member-QR resolution against a DIFFERENT center's Office DB — added
+ * so the check-in desk can resolve Naples-issued app QRs (clientKey
+ * "headpinznaples"). Naples runs its own BMI server, so the personIds this
+ * returns live in a SEPARATE namespace from FM's: callers must only match
+ * them against Naples surfaces (numeric ids can collide across servers).
+ *
+ * Deliberately skips the code→personId cache: personIdForCode/rememberCodes
+ * are FM-namespace stores, and writing a Naples personId into them would be
+ * exactly the cross-server collision this feature exists to prevent. A
+ * Naples scan pays the ~1 s Office search each time — fine for a desk.
+ *
+ * For the default (FM) key this delegates to lookupMemberMatches so the two
+ * paths can never drift.
+ */
+export async function lookupMemberMatchesAt(
+  clientKey: string,
+  code: string,
+): Promise<LicenseMatch[]> {
+  if (!clientKey || clientKey === CLIENT_KEY) return lookupMemberMatches(code, clientKey || undefined);
+  const hits = (await officeSearchPerson(code, clientKey))
+    .filter((h) => h?.localId)
+    .slice(0, MAX_CANDIDATES);
+  const matches = (await Promise.all(hits.map((h) => buildMatch(h, {}, clientKey)))).filter(
+    (m): m is LicenseMatch => m !== null,
+  );
   return matches.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
 }
 

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   clampHoldMs,
+  dedupeGuideRows,
   GUIDE_CARD_MS,
   GUIDE_HOLD_MAX_MS,
   GUIDE_HOLD_MIN_MS,
@@ -218,5 +219,58 @@ describe("qualifyBoardFor", () => {
     for (const t of ["blue", "red", "mega"] as const) {
       expect(qualifyBoardFor(t).adult).toHaveLength(2);
     }
+  });
+});
+
+describe("dedupeGuideRows — one session, one row", () => {
+  const row = (track: "blue" | "red" | "mega", sessionId: number | null, extra = {}) => ({
+    track,
+    sessionId,
+    briefedAtMs: null as number | null,
+    briefedRoom: null as "red" | "blue" | null,
+    ...extra,
+  });
+
+  it("is the identity function on a normal day — distinct sessions, input order kept", () => {
+    const rows = [row("blue", 59), row("red", 61)];
+    expect(dedupeGuideRows(rows)).toEqual(rows);
+  });
+
+  it("collapses one session under two tracks to a single row relabeled mega", () => {
+    const out = dedupeGuideRows([row("blue", 62), row("red", 62)]);
+    expect(out).toHaveLength(1);
+    expect(out[0].track).toBe("mega");
+    expect(out[0].sessionId).toBe(62);
+  });
+
+  it("keeps the FIRST row's send facts on the collapsed entry", () => {
+    const out = dedupeGuideRows([
+      row("blue", 62, { briefedAtMs: 1_000, briefedRoom: "red" as const }),
+      row("red", 62, { briefedAtMs: 1_000, briefedRoom: "red" as const }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].briefedAtMs).toBe(1_000);
+    expect(out[0].briefedRoom).toBe("red");
+  });
+
+  it("never collapses rows whose sessionId is null — duplication cannot be proven", () => {
+    const rows = [row("blue", null), row("red", null)];
+    expect(dedupeGuideRows(rows)).toEqual(rows);
+  });
+
+  it("feeds pickTakeover exactly one live send after the collapse — the duplicate chip dies", () => {
+    const sends: GuideSend[] = dedupeGuideRows([
+      row("blue", 62, { briefedAtMs: 10_000, briefedRoom: "red" as const }),
+      row("red", 62, { briefedAtMs: 10_000, briefedRoom: "red" as const }),
+    ]).map((r) => ({
+      track: r.track,
+      room: r.briefedRoom,
+      heatNumber: 62,
+      raceType: "Intermediate",
+      briefedAtMs: r.briefedAtMs,
+    }));
+    const { primary, also } = pickTakeover(sends, 15_000);
+    expect(primary?.track).toBe("mega");
+    expect(also).toHaveLength(0);
   });
 });

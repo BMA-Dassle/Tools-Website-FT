@@ -40,9 +40,11 @@ import redis from "@/lib/redis";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { recordBriefingEvent } from "../briefing/events-db";
 import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
+import type { BriefingRoom, BriefingRoomState } from "../briefing/types";
 import type { TrackKey } from "../track";
 import { sessionRoster } from "../service/checkin-progress";
 import { cueKey, readCueStamp, type PitCue } from "./audio-stamps.server";
+import { postClipCandidates } from "./post-clip";
 import { markInKarts, markRacePitted, readPitLane } from "./lane.server";
 import { isStaySeatedFile, kartsAvailability, type PitLaneFeed, type PitLanes } from "./pit-board";
 import {
@@ -543,14 +545,37 @@ export interface PostRaceGate {
   allowed: boolean;
   reason: string | null;
   short: string | null;
+  /**
+   * WHICH ROOMS ARE DOING THE BLOCKING — the same refusal, addressed.
+   *
+   * The prose above says it in a sentence meant for a button label at the pit
+   * station. The briefing room's own wall needs the fact rather than the
+   * sentence, so it can raise the alert in the room that is actually in the way
+   * (briefing/room-blocked.ts). Empty whenever `allowed`.
+   *
+   * TWO ENTRIES IS A REAL ANSWER, not a hedge: when the record has lost which
+   * room was theirs the group returns to whichever is open, so the refusal is
+   * "both are busy" and both rooms are equally the cause. Telling only one of
+   * them to get moving would be a guess with a 50% chance of shouting at the
+   * wrong room.
+   */
+  blockedRooms: BriefingRoom[];
 }
 
-export async function postRaceGate(sessionId: string): Promise<PostRaceGate> {
-  const [briefed, rooms] = await Promise.all([
-    sessionBriefed(sessionId).catch(() => null),
-    readBriefingRooms(VENUE).catch(() => ({ red: null, blue: null }) as const),
-  ]);
-  const room = briefed?.room ?? null;
+/**
+ * The gate itself — PURE, so it can be asked twice from different places
+ * without two copies of the rule.
+ *
+ * Split out because the pulse already holds both rooms in hand (one MGET for
+ * every wall in the building) and re-reading them per lane per 2-second beat
+ * would be three more Redis round trips on the one poll that is deliberately a
+ * fixed handful. The reads stay in `postRaceGate` below; the decision lives
+ * here and both callers get the identical verdict.
+ */
+export function postRaceGateFrom(
+  room: BriefingRoom | null,
+  rooms: Record<BriefingRoom, BriefingRoomState | null>,
+): PostRaceGate {
   if (room) {
     const occupant = rooms[room];
     if (occupant) {
@@ -560,9 +585,10 @@ export async function postRaceGate(sessionId: string): Promise<PostRaceGate> {
           occupant.heatNumber != null ? ` Session ${occupant.heatNumber}` : ""
         } — post-race calls the race back into it, so it must be empty first`,
         short: `${room} room busy`,
+        blockedRooms: [room],
       };
     }
-    return { allowed: true, reason: null, short: null };
+    return { allowed: true, reason: null, short: null, blockedRooms: [] };
   }
   if (rooms.red && rooms.blue) {
     return {
@@ -570,9 +596,18 @@ export async function postRaceGate(sessionId: string): Promise<PostRaceGate> {
       reason:
         "both briefing rooms are busy — post-race calls the race back in, so a room must be empty first",
       short: "rooms busy",
+      blockedRooms: ["red", "blue"],
     };
   }
-  return { allowed: true, reason: null, short: null };
+  return { allowed: true, reason: null, short: null, blockedRooms: [] };
+}
+
+export async function postRaceGate(sessionId: string): Promise<PostRaceGate> {
+  const [briefed, rooms] = await Promise.all([
+    sessionBriefed(sessionId).catch(() => null),
+    readBriefingRooms(VENUE).catch(() => ({ red: null, blue: null }) as const),
+  ]);
+  return postRaceGateFrom(briefed?.room ?? null, rooms);
 }
 
 /**
@@ -622,7 +657,31 @@ export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
   const cleared = await yieldStaySeated(await paBusy(track));
   if (!cleared.cleared) return { ok: false, error: cleared.error ?? "the PA is busy" };
 
-  const result = await claimAndPlay(track, "post", returning.sessionId);
+  /**
+   * THE ANNOUNCEMENT NAMES THE ROOM (owner 2026-08-16). The returning group's
+   * room rides the pitIn slot from the send; the briefed marker is the
+   * fallback for a slot written before the field existed or hand-placed from
+   * Override. Candidates are tried in order and the generic `post` is always
+   * last — a room clip the Core does not know yet fails its play, releases
+   * the claim, and the plain announcement still sounds on the same press.
+   * ONE one-shot whichever version plays: same clip/cue split as the
+   * big-race pre.
+   */
+  const briefedRoom = (await sessionBriefed(returning.sessionId).catch(() => null))?.room ?? null;
+  const room = returning.room ?? briefedRoom;
+  // MEGA ONLY (owner 2026-08-16: "this only happens on Mega"). The room is
+  // only ambiguous when two rooms serve one circuit; a split night's zone
+  // already carries its own post clip that knows its room, and it plays
+  // exactly as it always has — no extra attempt, no file dependency.
+  const roomForClip = track === "mega" ? room : null;
+  let result: Awaited<ReturnType<typeof claimAndPlay>> = {
+    outcome: "failed",
+    error: "the PA did not start the cue",
+  };
+  for (const clip of postClipCandidates(roomForClip)) {
+    result = await claimAndPlay(track, "post", returning.sessionId, clip);
+    if (result.outcome !== "failed") break;
+  }
   if (result.outcome === "failed") return { ok: false, error: result.error };
   if (result.outcome === "already") {
     // Same cycle, pressed again — re-assert the release (see the header for
@@ -637,12 +696,13 @@ export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
     };
   }
 
-  const room = (await sessionBriefed(returning.sessionId).catch(() => null))?.room ?? null;
-  if (room) {
+  // The insurance row keeps the MARKER's room, as it always has — fetched
+  // once above, where the clip choice needed it too.
+  if (briefedRoom) {
     await recordBriefingEvent({
       venue: VENUE,
       businessDay: businessDayYmdET(),
-      room,
+      room: briefedRoom,
       track,
       sessionId: returning.sessionId,
       heatNumber: returning.heatNumber,

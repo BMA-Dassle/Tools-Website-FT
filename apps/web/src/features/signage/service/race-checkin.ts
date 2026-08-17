@@ -24,6 +24,7 @@ import "server-only";
 import redis from "@/lib/redis";
 import { vipComboPersonLegsOnDate } from "@/lib/bowling-db";
 import { sessionCheckinCounts } from "./checkin-progress";
+import { bestCurrentSession } from "./mega-mode.server";
 import type { TrackKey } from "../track";
 
 /** Pandora location id for FastTrax — the only venue with tracks. */
@@ -57,6 +58,10 @@ export interface CachedRace {
   heatNumber?: number;
   raceType?: string;
   scheduledStart?: string;
+  /** Always present on the stored record (races-current.server.ts writes it,
+   *  preserveFirstCall pins it) — optional here only because old cached rows
+   *  predate the field. It is what newest-wins selection compares. */
+  calledAt?: string | null;
 }
 
 interface CachedParticipant {
@@ -119,14 +124,18 @@ export async function raceCheckinInfo(
   };
 
   // MEGA FALLBACK, and it is load-bearing for the send-clears-the-board flow.
-  // A track board is scoped to blue or red, but on a Mega day the only warm
-  // last-race key is `mega` — the scoped read returns null, this whole section
-  // came back empty, and the board never received `briefedAtMs`, so sending a
-  // group to a room cleared nothing (owner 2026-08-11, on a Mega night). The
-  // physical board's question is "what is checking in HERE", and on a Mega day
-  // the answer for both boards is the Mega session. Exact track first, so a
-  // normal day never reads the stale mega key.
-  const race = (await currentSession(track)) ?? (await currentSession("mega"));
+  // A track board is scoped to blue or red, but on a Mega day the answer to
+  // "what is checking in HERE" is the Mega session for both boards (owner
+  // 2026-08-11, on a Mega night — the scoped read came back empty and sends
+  // cleared nothing).
+  //
+  // NEWEST-WINS, not null-fallback (2026-08-16): the carry keys live to end
+  // of ET day, so on a Mega night that follows a split-track afternoon the
+  // track's own STALE key used to win all evening — its hours-old briefedAtMs
+  // read as sessionExpired and the board idled with a live Mega heat feet
+  // away. bestCurrentSession keeps exact-track-first as the tie rule, so a
+  // normal day (no mega key at all) still never reads mega.
+  const race = await bestCurrentSession(track);
   const sessionId = typeof race?.sessionId === "number" ? race.sessionId : null;
   if (sessionId == null) return empty;
 

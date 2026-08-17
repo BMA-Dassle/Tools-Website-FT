@@ -76,6 +76,13 @@ export type SyncBarrier =
    *  Stricter than person-local: needs a real 200 per member, because an
    *  unreadable record cannot prove a waiver. */
   | "party-ready"
+  /** party-ready AND every seat in `payload.seats` is on the local GRID —
+   *  the racers this check-in bound are actually on their sessions, verified
+   *  against Pandora's session participants rather than our own
+   *  `schedule_status` (which goes stale the moment staff hand-seat someone).
+   *  This is what the "Confirmation - Express" flip waits on: staff read that
+   *  state as "here and checked in", and seating is part of checked in. */
+  | "party-seated"
   /** EVERY person in payload.personIds exists on the LOCAL server. Presence
    *  only — no waiver required, which is what separates it from party-ready.
    *  Exists for the guardian-signed waiver: Pandora's write names both the

@@ -31,6 +31,8 @@ import {
 import { resolveScreenConfig } from "../defaults";
 import { trackFromResourceIds } from "../track";
 import { raceCheckinInfo } from "./race-checkin";
+import { megaModeActive } from "./mega-mode.server";
+import { dedupeGuideRows } from "../race-guide";
 import { checkinProgress } from "./checkin-progress";
 import { afterResponse } from "../after-response.server";
 import { nudgeStaySeated } from "../pit/audio.server";
@@ -49,6 +51,7 @@ import { loadSignageAssetsSafe } from "../data/signage-assets-db";
 import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
 import { resolveWelcomeBack } from "../briefing/welcome-back.server";
 import { resolveCameraReturn } from "../briefing/camera-return.server";
+import { resolveRoomBlocked } from "../briefing/room-blocked.server";
 import type { TvFeed, TvPulse } from "../types";
 
 /** Screens phone home on every poll; the admin page reads these for its
@@ -96,6 +99,9 @@ export async function buildTvFeed(
     raceCheckin: null,
     briefing: null,
     briefingRooms: null,
+    // PULSE-ONLY, like the fast roster below — the gate behind it is resolved
+    // on the 2-second beat, never on the 15s poll.
+    roomBlocked: null,
     pitBoard: null,
     pitLanes: null,
     // PULSE-ONLY — the full feed never carries the fast roster; useTvFeed
@@ -168,11 +174,21 @@ export async function buildTvFeed(
     raceGuideEnabled() && config.raceGuide && config.playlist.some((p) => p.scene === "race-guide")
       ? config.raceGuide.tracks
       : [];
-  const resultsTrack = config.resultsBoard?.track ?? null;
+  const configuredResultsTrack = config.resultsBoard?.track ?? null;
   const wantsResults =
     resultsBoardEnabled() &&
-    resultsTrack !== null &&
+    configuredResultsTrack !== null &&
     config.playlist.some((p) => p.scene === "race-results");
+  // ON A MEGA DAY THE SCORES WALL FOLLOWS THE COMBINED CIRCUIT, server-side,
+  // no admin knob: a blue-configured wall would otherwise idle all night — its
+  // resource has no sessions when the barrier is out. The await is paid only
+  // by screens that actually show a results board, and megaModeActive() is
+  // false on every normal day (the mega carry key does not exist then), so
+  // the configured track flows through untouched.
+  const resultsTrack =
+    wantsResults && configuredResultsTrack !== "mega" && (await megaModeActive().catch(() => false))
+      ? ("mega" as const)
+      : configuredResultsTrack;
 
   const [
     raceCheckin,
@@ -244,6 +260,7 @@ export async function buildTvFeed(
     nextAvailable,
     briefing: briefing?.section ?? null,
     briefingRooms: briefing?.rooms ?? null,
+    roomBlocked: null,
     pitBoard,
     pitLanes,
     checkinProgress: checkinRail,
@@ -362,6 +379,10 @@ async function buildGuideSection(
       ).catch(() => null);
       return {
         track,
+        // Carried TRANSIENTLY for dedupe below, stripped before the payload
+        // leaves — the feed serves walls in public spaces and carries no ids
+        // of any kind (see the TvFeed.raceGuide doc).
+        sessionId: info.sessionId,
         heatNumber: info.heatNumber,
         raceType: info.raceType,
         briefedAtMs: briefed?.atMs ?? null,
@@ -369,7 +390,21 @@ async function buildGuideSection(
       };
     }),
   );
-  return { tracks: rows.filter((r): r is NonNullable<typeof r> => r !== null) };
+  // On a Mega day both configured tracks resolve to the ONE combined session,
+  // and two rows for it would double the takeover chip. dedupeGuideRows keeps
+  // one, relabeled mega; identity function on a normal day. The map below is
+  // an explicit ALLOWLIST of what leaves the server — the transient sessionId
+  // stays behind by construction, not by omission.
+  const deduped = dedupeGuideRows(rows.filter((r): r is NonNullable<typeof r> => r !== null));
+  return {
+    tracks: deduped.map((r) => ({
+      track: r.track,
+      heatNumber: r.heatNumber,
+      raceType: r.raceType,
+      briefedAtMs: r.briefedAtMs,
+      briefedRoom: r.briefedRoom,
+    })),
+  };
 }
 
 function safePaused(): string[] {
@@ -412,6 +447,7 @@ export async function buildTvPulse(
       cameraReturn: null,
       pitLanes: null,
       pitRosters: null,
+      roomBlocked: null,
     };
   }
 
@@ -453,6 +489,19 @@ export async function buildTvPulse(
   // building of screens still plays it at most once per interval per track;
   // after the response, so the PA round trip never delays a wall repaint.
   if (pitLanes) afterResponse(() => nudgeStaySeated(pitLanes));
+  /**
+   * IS EITHER ROOM HOLDING UP A RACE THAT IS ALREADY BACK IN THE PIT?
+   *
+   * Both inputs are in hand already — the rooms MGET above and the lanes beside
+   * it — so this adds one Redis GET per occupied `pitIn` slot and nothing at all
+   * on a night when no race is waiting. Fails to "nothing is blocked": a wall
+   * that cannot read the gate must stay quiet rather than raise a full-screen
+   * alarm on a room that may be perfectly clear.
+   */
+  const roomBlocked =
+    wantsBriefing && briefingRooms && pitLanes
+      ? await resolveRoomBlocked(briefingRooms, pitLanes).catch(() => null)
+      : null;
   return {
     now,
     kioskEvents,
@@ -462,6 +511,7 @@ export async function buildTvPulse(
     cameraReturn,
     pitLanes,
     pitRosters,
+    roomBlocked,
   };
 }
 

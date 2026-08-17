@@ -31,6 +31,7 @@ function baseFeed(now: number): TvFeed {
     raceCheckin: null,
     briefing: null,
     briefingRooms: null,
+    roomBlocked: null,
     pitBoard: null,
     pitLanes: null,
     pitRosters: null,

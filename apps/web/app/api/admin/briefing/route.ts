@@ -23,11 +23,7 @@ import { setRaceBookmarksEnabled } from "~/features/signage/briefing/race-bookma
 import { readPitLane } from "~/features/signage/pit/lane.server";
 import { recordBriefingEvent } from "~/features/signage/briefing/events-db";
 import { businessDayYmdET } from "@/lib/race-business-day";
-import {
-  isBriefingAssetKey,
-  parseBriefingRoom,
-  parseBriefingTier,
-} from "~/features/signage/briefing/types";
+import { isBriefingAssetKey, parseBriefingRoom } from "~/features/signage/briefing/types";
 import { deleteSignageAsset, saveSignageAsset } from "~/features/signage/data/signage-assets-db";
 import { briefingEnabled } from "~/features/signage/flags";
 
@@ -315,7 +311,6 @@ export async function POST(req: NextRequest) {
         sessionId,
         heatNumber,
         raceType,
-        tier: null,
       });
       // Override reaches here having already vacated this session from the other
       // room (vacateSessionElsewhere, above), so the one-group-one-room guard
@@ -425,7 +420,11 @@ export async function POST(req: NextRequest) {
       sessionId,
       heatNumber: Number.isInteger(body.heatNumber) ? (body.heatNumber as number) : null,
       raceType: typeof body.raceType === "string" ? body.raceType : null,
-      tier: parseBriefingTier(body.tier),
+      // NO TIER FROM THE CLIENT (owner 2026-08-16). The check-in board used to
+      // send a staff-picked film here; blocking that in the UI alone would not
+      // hold — a board tab left open across a deploy keeps posting the old body
+      // shape — so `body.tier` is now ignored outright and sendBriefing derives
+      // the film from the session's race type.
     });
     // 409 for the one-group-one-room refusal, matching start/restart above —
     // both boards render the message as an action note rather than a failure.

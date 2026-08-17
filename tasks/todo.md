@@ -1204,6 +1204,68 @@ gel blaster · full HeadPinz identity (HP sender `+12393022155`, headpinz.com li
       server / sessionId namespace), but Naples is a separate BMI server → add a location
       segment to these keys first.
 
+## HPN Arena E-Tickets (Naples) + e-ticket overnight clear (IN PROGRESS — 2026-08-16)
+
+**Owner ask:** (1) e-tickets fully working for HeadPinz Naples (Gel Blasters); (2) no e-ticket
+sends outside business hours — queued sends still in the retry/quota queues overnight must be
+cleared, not sent.
+
+**Grounding (verified 2026-08-16):** Naples' arena dayplanner resource is ALSO named `HP Arena`
+(live Pandora probe: 200 with "55 - Nexus Laser Tag" today; NEXUS/Arena/Gel Blaster variants all
+404). Session names use the same "NN - Nexus Gel Blaster / Nexus Laser Tag" convention →
+`classifyArenaSession` works unchanged. Pandora proxies already allowlist `PPTR5G2N0QXF7`.
+Quota-queued SMS survive up to 7 days and WOULD send at 3am when the 1h cooldown lapses
+(`sms-retry-sweep` runs `* * * * *`, no hour gate anywhere in the e-ticket send rail).
+
+### PR A — `feat/hpn-arena-etickets` (BUILT 2026-08-16, commit 7132f0f6)
+- [x] Location-scope BMI-id-keyed Redis keys, legacy-default (`lib/bmi-key-scope.ts`): FM/FT
+      (shared BMI server) key shapes stay byte-identical (no migration); non-FM locations
+      (Naples) gain a `{locationId}` segment. Keys: `ticket:bySession`, `ticket:byParticipant`,
+      `alert:arena-pre`, `alert:arena-checkin(:session)`, `race:called`,
+      `eticket-nocontact:arena-*`. `getParticipantTicketRef`/`findTicketIdFor`/
+      `setParticipantTicketRef` gain a locationId arg (racing callers pass FT const).
+- [x] RetryEntry + QueuedSend gain `locationId?`; `drainRetries` dedup-map writes SCOPED keys
+      for Naples entries (else retry-path double-send).
+- [x] `src/features/arena-tickets/centers.ts`: per-center config (FM + Naples: locationId,
+      resources `["HP Arena"]`, DID +12394553755, 8525 Radio Ln address, phone). Both arena
+      crons + scanner called-board loop centers. Kill switch `ARENA_NAPLES !== "false"`.
+- [x] Ticket views + email footers + cards help line: address/phone by `ticket.locationId`
+      (`arenaLocationMeta`). `/api/race-session-state` accepts `locationId`; admin resend
+      picks the ticket center's DID. Scanner scan path already threads QR locationId.
+- [x] Unit tests: key scoping (FM legacy / Naples scoped), center config (centers.test.ts).
+
+### PR B — `feat/eticket-overnight-clear` (stacked on A)
+- [x] `src/features/eticket/quiet-hours.ts`: quiet window default 02:00–08:00 ET (owner call
+      2026-08-16 — HPFM/HPN run past midnight some nights; alternate is
+      `ETICKET_QUIET_START_ET=4`; env-tunable numbers, not opt-in flags). Gates the 5 e-ticket crons
+      (pre-race-tickets, arena-tickets, checkin-alerts, arena-checkin-alerts,
+      eticket-removals; dryRun bypasses for ops testing) + `drainRetries` (retry queue is
+      e-ticket-only) + per-entry triage of e-ticket sources in the sweep's quota drain.
+- [x] Age cap at drain: e-ticket entries older than `maxQueueAgeMs` (30 min check-in alerts /
+      3h pre-session) are logged + dropped in BOTH drains (never send stale even if the clear
+      cron misses).
+- [x] New cron `eticket-overnight-clear` (`20 7,8 * * *` + in-code 2–5am ET gate, the
+      wallet-overnight-clear pattern): purge e-ticket entries from `sms:retry:pending` +
+      `sms:quota:queue` with `logSms` audit rows (error "expired in queue — not sent
+      (after hours / stale)"). dryRun + kill switch `ETICKET_OVERNIGHT_CLEAR !== "false"`.
+- [x] Admin board: amber "expired in queue" pill in EticketAdminClient (resend stays possible).
+- [x] vercel.json entry. Unit tests: quiet-hours boundaries + source scoping + age caps.
+
+**Verify before calling live (owner):** deploy → `curl ?dryRun=1` on arena-tickets (expect
+hp-naples candidates once Naples has arena sessions in the next 2h) and on
+eticket-overnight-clear (expect wouldRun/etHour + empty-queue report) → watch admin board
+arena rows + `cron:log` `arena-pre`/`arena-checkin` for `hp-naples:`-prefixed
+unclassifiedSessions → first real Naples session day, confirm SMS arrives from
+(239) 455-3755 with Radio Ln address on the ticket.
+
+**Open for owner:** Naples ticket copy says "HP Arena desk" (BMI resource name at Naples IS
+"HP Arena", but guest-facing Naples branding is "NEXUS arena") — kept FM copy verbatim; flag
+if you want NEXUS wording. Quiet window DECIDED 2026-08-16: start 2am ET (late-close nights);
+if ops prefers 4am, set `ETICKET_QUIET_START_ET=4` (env only, safe by construction — the
+stale-age drop covers the purge-to-quiet gap). Whole stack stays on
+`feat/eticket-overnight-clear` (contains `feat/hpn-arena-etickets`) for merge later — NOT
+merged to main, NOT pushed.
+
 ## Booking V1→V2 FULL CUTOVER + race-pack port (IN PROGRESS — 2026-06-07)
 
 **Goal (user directive):** V2 is the booking system. Replace ALL booking entry points

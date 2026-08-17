@@ -8,6 +8,13 @@ import { NextRequest, NextResponse } from "next/server";
  * if the header doesn't match, or null if the request is valid.
  *
  * Also blocks non-production environments (preview deployments).
+ *
+ * NOTE: when CRON_SECRET is unset this FAILS OPEN (no auth at all) — pinned
+ * by cron-auth.test.ts. Any future second Vercel project sharing this app's
+ * root directory would register vercel.json's crons too and run them against
+ * the same Neon/BMI/Square; omitting CRON_SECRET there would NOT stop them.
+ * (The staff admin project avoids this entirely — apps/admin has its own
+ * root and no vercel.json.)
  */
 export function verifyCron(req: NextRequest): NextResponse | null {
   if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {

@@ -23,6 +23,7 @@ import { clearFinishedLicenceFields, NO_NEXT_RACE } from "~/features/racing/wall
 import { formatHeat } from "~/features/racing/wallet/licence-meta";
 import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 import { verifyCron } from "@/lib/cron-auth";
+import { inEticketQuietHours } from "~/features/eticket/quiet-hours";
 import { vipComboPersonLegsOnDate, type VipComboPersonLeg } from "@/lib/bowling-db";
 import { appendBookingMemoLine } from "~/features/reservations-admin/bmi-notes";
 
@@ -803,6 +804,24 @@ export async function GET(req: NextRequest) {
   if (denied) return denied;
 
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
+
+  // Quiet hours — no e-ticket goes out after business hours; the
+  // overnight clear purges anything queued. The evidence-based wallet
+  // clear-down still runs first: evening heats routinely spill past
+  // midnight (median 19.8 min late), and a pass stuck on "Check in now"
+  // until the 3am failsafe is exactly what this per-minute clear exists
+  // to prevent. Sends and race:called writes stay suppressed. dryRun
+  // still passes for ops testing.
+  if (!dryRun && inEticketQuietHours()) {
+    await clearFinishedLicenceFields(req.nextUrl.origin).catch((err) => {
+      console.error("[checkin-alerts] quiet-hours wallet clear failed:", err);
+    });
+    return NextResponse.json(
+      { ok: true, skipped: "quiet-hours" },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   const started = Date.now();
   const now = Date.now();
 

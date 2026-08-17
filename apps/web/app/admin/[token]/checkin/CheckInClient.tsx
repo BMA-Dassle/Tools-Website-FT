@@ -191,18 +191,43 @@ interface Props {
    * and every existing behaviour here is untouched.
    */
   boardMode?: boolean;
+  /**
+   * `?loc=` — scope the SESSION-COUNTS STRIP to one building. View-only:
+   * scanning is never gated by this (licence codes and FT QRs carry no
+   * location at all, and any ticket must scan at whichever desk the guest
+   * walks up to — the scan resolves against the ticket's own venue).
+   * Absent/unknown values fall back to the unfiltered all-venues view,
+   * so a bad bookmark degrades to exactly today's behaviour.
+   */
+  locFilter?: string;
 }
 
-export default function CheckInClient({ token, version, boardMode = false }: Props) {
+/** `?loc=` slugs → the Square location id the strip filters on. Aliases
+ *  are deliberate — desks will type these from memory into a bookmark. */
+const LOC_FILTERS: Record<string, { locationId: string; label: string }> = {
+  ft: { locationId: "LAB52GY480CJF", label: "FastTrax" },
+  fasttrax: { locationId: "LAB52GY480CJF", label: "FastTrax" },
+  hpfm: { locationId: "TXBSQN0FEKQ11", label: "HeadPinz FM" },
+  headpinz: { locationId: "TXBSQN0FEKQ11", label: "HeadPinz FM" },
+  naples: { locationId: "PPTR5G2N0QXF7", label: "HeadPinz Naples" },
+  hpn: { locationId: "PPTR5G2N0QXF7", label: "HeadPinz Naples" },
+};
+
+export default function CheckInClient({ token, version, boardMode = false, locFilter }: Props) {
   /**
    * Briefing-room state lives HERE, not in the panels.
    *
    * The scan flash below is an early return, so the panels unmount for its four
-   * seconds. Held in the panels, a staff member's Starter/Intermediate override
-   * reset to auto on every scan (they could then send the wrong film), the
-   * "sent to the red room" note vanished mid-read, and the room panels repainted
-   * empty until the next poll. This component's own state survives the early
-   * return, so the state and its poller do too.
+   * seconds. Held in the panels, the "sent to the red room" note vanished
+   * mid-read, the open camera viewer slammed shut in the face of whoever was
+   * watching a room fill, and the room panels repainted empty until the next
+   * poll. This component's own state survives the early return, so the state and
+   * its poller do too.
+   *
+   * (A fourth reason retired 2026-08-16: a staff Starter/Intermediate film
+   * override used to reset to auto on every scan, which could send the wrong
+   * film. There is no override any more — see the VIDEO row in
+   * RaceControlPanels.)
    */
   const briefing = useBriefingControl(token, boardMode);
   /**
@@ -268,10 +293,12 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
   const deskBusy =
     scanState !== "idle" || !!briefing.pending || !!briefing.expandedCamera || showSettings;
   useEffect(() => {
-    if (!buildUpdate.ready || deskBusy) return;
+    // staleUptime: a tab past its max uptime recycles in the same quiet gap a
+    // new build would — the reload is also this station's memory amnesty.
+    if ((!buildUpdate.ready && !buildUpdate.staleUptime) || deskBusy) return;
     const t = setTimeout(() => window.location.reload(), 60_000);
     return () => clearTimeout(t);
-  }, [buildUpdate.ready, deskBusy]);
+  }, [buildUpdate.ready, buildUpdate.staleUptime, deskBusy]);
 
   // Test mode — ?test=1 opt-in, read at mount like the baud-rate setting
   const [testMode] = useState<boolean>(() => {
@@ -309,8 +336,25 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
     scheduledStart: string;
     checkedIn: number;
     total: number;
+    /** Square location id — rows now span FT/HP-FM AND Naples, whose
+     *  separate BMI server can mint numerically identical sessionIds,
+     *  so sessionId alone is not a unique row identity. */
+    locationId?: string;
   }
   const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
+
+  /**
+   * Rows the session strip shows at THIS station. The strip aggregates
+   * every venue (FT racing + called arena sessions at HP FM and Naples),
+   * which is noise for a single desk — `?loc=` scopes the display. The
+   * poll/API stays shared and unfiltered (several stations share one
+   * server-side cache), and rows missing a locationId fail OPEN so a
+   * mid-deploy cache row is over-shown rather than hidden from its desk.
+   */
+  const locScope = LOC_FILTERS[(locFilter ?? "").toLowerCase()] ?? null;
+  const stripSessions = locScope
+    ? activeSessions.filter((s) => !s.locationId || s.locationId === locScope.locationId)
+    : activeSessions;
 
   useEffect(() => {
     let mounted = true;
@@ -1163,16 +1207,29 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
           session — and the space it was holding at the top of the board is where
           today's wait times now live. The plain check-in station keeps the strip:
           it has no room columns to move the number into. */}
-      {!boardMode && activeSessions.length > 0 && (
+      {!boardMode && stripSessions.length > 0 && (
         <div
           className="flex gap-3 px-6 py-3 border-b overflow-x-auto"
           style={{ borderColor: PORTAL_DARK.border }}
         >
-          {activeSessions.map((s) => {
+          {locScope && (
+            <div className="flex items-center shrink-0 pr-1">
+              <p
+                className="text-[10px] font-bold uppercase tracking-wider"
+                style={{ color: PORTAL_DARK.muted }}
+                title="This station's ?loc= bookmark scopes the counts strip — scanning is unaffected. Drop the ?loc= to see every venue."
+              >
+                {locScope.label}
+                <br />
+                only
+              </p>
+            </div>
+          )}
+          {stripSessions.map((s) => {
             const color = TRACK_COLORS[s.track.toLowerCase()] ?? PORTAL_BLUE;
             return (
               <div
-                key={s.sessionId}
+                key={`${s.locationId ?? ""}:${s.sessionId}`}
                 className="flex items-center gap-3 px-4 py-2.5 shrink-0"
                 style={{
                   backgroundColor: `${color}15`,

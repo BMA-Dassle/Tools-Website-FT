@@ -12,7 +12,7 @@ import { type BowlingReservation, updateBowlingReservationLaneOpen } from "@/lib
  * Steps per reservation:
  *  1. Guard: cancelled or already processed → skip
  *  2. Fetch the open day-of Square order
- *  3. Add SHIPMENT fulfillment (display_name = laneLabel) so the KDS
+ *  3. Add IN_STORE fulfillment (display_name = laneLabel) so the KDS
  *     routes the order to kitchen staff, AND prepend "Lane N |" to
  *     kitchen display item notes (Chips & Salsa, Pizza Bowl Pizza,
  *     Pizza Bowl Soda Pitcher) via sparse UpdateOrder
@@ -217,12 +217,23 @@ export async function processLaneOpen(opts: {
     // If order is already terminal, skip Square steps but still record in Neon
     const terminal = order.state === "CANCELED" || order.state === "COMPLETED";
     if (!terminal && laneLabel) {
-      // ── 2. Add SHIPMENT fulfillment + update kitchen item notes ───
-      // The SHIPMENT fulfillment (display_name = lane label) is what routes
-      // the order to the KDS so kitchen staff see it. Line item notes are
-      // updated concurrently so staff see the lane on each item.
+      // ── 2. Add IN_STORE fulfillment + update kitchen item notes ───
+      // The fulfillment is what routes the order to the KDS so kitchen and
+      // shoe-desk staff see it. Line item notes are updated concurrently so
+      // staff see the lane on each item.
       // Square adds new fulfillments (no uid provided) without removing
       // existing ones — no fields_to_clear required.
+      //
+      // Type is IN_STORE (was SHIPMENT until 2026-08-16). SHIPMENT rendered a
+      // literal "Shipment" badge on the KDS ticket, which is wrong for food and
+      // shoes carried to a lane; IN_STORE is the type Square added for exactly
+      // this (order fulfilled at the seller's location, no schedule, no
+      // expiration) and renders the lane line instead. Verified live at HeadPinz
+      // FM on $0 test tickets across SHIPMENT / PICKUP / IN_STORE.
+      // Routing is NOT affected by type (established 2026-06-21) — this is
+      // purely how the ticket reads. `note` mirrors the POS convention
+      // ("Deliver to: Lane N"). Accepted on every Square-Version back to the
+      // 2024-12-18 pinned above, so no version bump is required.
       const kitchenItems = (order.line_items ?? []).filter(isKitchenItem);
       const updatedItems = kitchenItems.map((li) => ({
         uid: li.uid,
@@ -240,12 +251,13 @@ export async function processLaneOpen(opts: {
               order: {
                 version: order.version,
                 location_id: order.location_id,
-                // SHIPMENT fulfillment → KDS routing
+                // IN_STORE fulfillment → KDS routing
                 fulfillments: [
                   {
-                    type: "SHIPMENT",
-                    shipment_details: {
+                    type: "IN_STORE",
+                    in_store_details: {
                       recipient: { display_name: laneLabel },
+                      note: `Deliver to: ${laneLabel}`,
                     },
                   },
                 ],
