@@ -61,7 +61,6 @@ import { ADMIN_SANS, PORTAL_DARK } from "~/components/features/admin-skin/theme"
 import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
-import { useCameraStill } from "~/features/signage/useCameraStill";
 import { checkinAlert } from "~/features/signage/briefing/desk-alerts";
 import { briefingReadyForHolding, briefingTimelineAt } from "~/features/signage/briefing/phase";
 import {
@@ -84,7 +83,7 @@ import {
 import { holdingAvailability } from "~/features/signage/pit/holding-availability";
 import { useRaceClockForTrack } from "~/features/racing/use-race-clocks";
 import { liveHeatNumber } from "~/features/signage/briefing/room-return";
-import { useBriefingControl, type CameraTarget } from "../checkin/useBriefingControl";
+import { useBriefingControl } from "../checkin/useBriefingControl";
 
 const ROOM_COLOR: Record<BriefingRoom, string> = { red: "#ff5a52", blue: "#4a9bff" };
 const TRACK_COLOR: Record<string, string> = { red: "#ff5a52", blue: "#4a9bff", mega: "#a06bff" };
@@ -99,12 +98,6 @@ const INK = "#e8eef7";
  *  and a reload (including the self-update below) comes back to the same room. */
 const ROOM_STORAGE_KEY = "ft-briefing-room";
 
-/** Which holding camera belongs to a room. Keyed off the PHYSICAL room, never
- *  the track: on a Mega day the track is "mega" and there is no such camera,
- *  but the room a tablet is bolted to never changes. */
-function holdingCameraFor(room: BriefingRoom): CameraTarget {
-  return room === "red" ? "holding-red" : "holding-blue";
-}
 
 /** "red" → "Red", for a button that names a room in a sentence. */
 function cap(s: string): string {
@@ -1319,116 +1312,6 @@ export default function BriefingRoomClient({
   };
 
 
-/**
- * THE HOLDING SEATS, ON THE ROOM'S OWN TABLET (owner 2026-08-17: "add holding
- * area to the tablets in briefing rooms").
- *
- * A STILL, NOT VIDEO — deliberately, and after trying it the other way. The
- * first cut played the same 480p h264 stream the desk board plays, and the
- * owner called it the same day: "remove video from briefing control page, I
- * don't think those tablets can handle it." A desk PC decoding four streams and
- * an in-room tablet decoding one are not the same machine, and the tablet has a
- * job that must not stutter — it is the thing a marshal presses START on.
- *
- * So this asks for one JPEG every two seconds through our own proxy: no decode
- * loop, no transcode session held open on the NVR for the length of a shift, no
- * ticket to re-mint. It answers the panel's question — are they actually sitting
- * in the seats — which does not need 20 frames a second to answer.
- *
- * A camera was also cut from this panel once for looking wrong rather than for
- * costing too much ("remove camera for now it looks like crap", 2026-08-15).
- * That is why this one is full panel width and 16:9 rather than a thumbnail
- * borrowed from a desk board built for a mouse.
- */
-function HoldingView({
-  target,
-  label,
-  accent,
-}: {
-  target: CameraTarget;
-  label: string;
-  accent: string;
-}) {
-  // 640 wide for a full-width 16:9 box on a tablet: the seats are what matters,
-  // not the grain. Two seconds because the view is DEWARPED, and a dewarped
-  // frame is a transcode on the NVR — see the note in /api/tv/camera.
-  const { src, offline } = useCameraStill(`/api/tv/camera?room=${target}&w=640`, 2_000, true, 6_000);
-
-  return (
-    <div style={{ marginTop: 14 }}>
-      <div
-        style={{
-          position: "relative",
-          width: "100%",
-          aspectRatio: "16 / 9",
-          borderRadius: 10,
-          overflow: "hidden",
-          background: "#05070d",
-          border: `1px solid ${withAlpha(accent, 0.3)}`,
-        }}
-      >
-        {src ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={src}
-            alt={label}
-            style={{
-              position: "absolute",
-              inset: 0,
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              filter: offline ? "grayscale(0.6) brightness(0.6)" : "none",
-            }}
-          />
-        ) : (
-          <span
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 13,
-              color: PORTAL_DARK.muted,
-            }}
-          >
-            Connecting to the camera…
-          </span>
-        )}
-        <span
-          aria-hidden
-          style={{
-            position: "absolute",
-            bottom: 8,
-            left: 9,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "4px 9px",
-            borderRadius: 999,
-            background: "rgba(8,12,20,0.78)",
-            fontSize: 10,
-            fontWeight: 800,
-            letterSpacing: "0.06em",
-            color: offline ? "#ffb020" : PORTAL_DARK.muted,
-          }}
-        >
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: offline ? "#ffb020" : accent,
-            }}
-          />
-          {offline ? "RECONNECTING…" : label.toUpperCase()}
-        </span>
-      </div>
-    </div>
-  );
-}
-
   return (
     <main
       style={{
@@ -2039,14 +1922,6 @@ function HoldingView({
                   : ""}
             </p>
           )}
-
-          {/* THE SEATS THEMSELVES. Above the spacer, so it sits with the words
-              about holding rather than floating over the button. */}
-          <HoldingView
-            target={holdingCameraFor(room)}
-            label={`${room} holding`}
-            accent={accent}
-          />
 
           <div style={{ flex: 1 }} />
 
