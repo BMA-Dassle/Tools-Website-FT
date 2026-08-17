@@ -699,6 +699,15 @@ export async function phoneIsVerified(phone: string): Promise<boolean> {
   }
 }
 
+/** A contact lookup's result: the openable matches, plus whether a REAL
+ *  HeadPinz bowling-only reservation was withheld because the asking kiosk is
+ *  in the FastTrax building — so the route can answer "check in at HeadPinz"
+ *  instead of the confusing "no reservations found". */
+interface ContactMatchResult {
+  matches: CheckinLookupMatch[];
+  bowlingSuppressed: boolean;
+}
+
 /**
  * Today's reservations at this center for one contact channel, each carrying
  * its own proof token.
@@ -707,16 +716,24 @@ export async function phoneIsVerified(phone: string): Promise<boolean> {
  * unfiltered scan), so phone and email are separate calls — `seen` is passed in
  * by callers that need to merge several channels for the same human without
  * minting two proofs for one booking.
+ *
+ * `venue` is the asking kiosk's BUILDING: "FT" withholds bowling-only
+ * reservations, because bowling check-in (and the lane it would open) is a
+ * HeadPinz-building action — owner 2026-08-16, "people being confused if they
+ * try to do a lane from FT". Combos still match through their bill anchor;
+ * only the bowl-key mint is withheld.
  */
 async function matchByContact(
   center: CenterSlug,
   contact: { phone?: string; email?: string },
   verifiedVia: CheckinVerifiedVia,
   seen: Set<string> = new Set(),
-): Promise<CheckinLookupMatch[]> {
+  venue?: string,
+): Promise<ContactMatchResult> {
   const rows = await getReservationsByContact({ ...contact, limit: 200 }).catch(() => []);
   const today = todayET();
   const matches: CheckinLookupMatch[] = [];
+  let bowlingSuppressed = false;
   // Row order is event_at DESC; group by reservation KEY and keep today + this
   // center. A verified own-phone match IS proof of possession (the phone is the
   // booking contact), so each match carries its own proof token.
@@ -734,6 +751,10 @@ async function matchByContact(
       // NULL bill and must join its anchor's key instead of double-matching.
       // HeadPinz lanes only (never FT duckpin — owner rule 2026-08-16).
       if (!isKioskBowlingRow(row)) continue;
+      if (venue === "FT") {
+        bowlingSuppressed = true;
+        continue;
+      }
       const group = await listCancelGroupReservations(row).catch(() => [row]);
       key = group.find((r) => r.bmiBillId)?.bmiBillId ?? makeBowlKey(row.id);
     }
@@ -749,14 +770,15 @@ async function matchByContact(
       activitiesLabel: summary.activitiesLabel,
     });
   }
-  return matches;
+  return { matches, bowlingSuppressed };
 }
 
 export async function matchByPhone(
   center: CenterSlug,
   phone: string,
-): Promise<CheckinLookupMatch[]> {
-  return matchByContact(center, { phone }, "otp");
+  venue?: string,
+): Promise<ContactMatchResult> {
+  return matchByContact(center, { phone }, "otp", new Set(), venue);
 }
 
 /**
@@ -775,17 +797,20 @@ export async function matchByPhone(
 export async function matchByRacerContacts(
   center: CenterSlug,
   contacts: Array<{ phone?: string; email?: string }>,
+  venue?: string,
 ): Promise<CheckinLookupMatch[]> {
   const seen = new Set<string>();
   const matches: CheckinLookupMatch[] = [];
   for (const contact of contacts) {
     if (contact.phone) {
-      matches.push(...(await matchByContact(center, { phone: contact.phone }, "racer", seen)));
+      const r = await matchByContact(center, { phone: contact.phone }, "racer", seen, venue);
+      matches.push(...r.matches);
     }
     // Email is a FALLBACK, not a second pass: a racer whose Office record has
     // no mobile still has an address, and that is the only channel left.
     if (contact.email) {
-      matches.push(...(await matchByContact(center, { email: contact.email }, "racer", seen)));
+      const r = await matchByContact(center, { email: contact.email }, "racer", seen, venue);
+      matches.push(...r.matches);
     }
   }
   return matches;
@@ -812,7 +837,12 @@ function kindsToActivitiesLabel(kinds: Set<string>): {
   return { label, kind };
 }
 
-export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseRow[]> {
+export async function listBrowseRows(
+  center: CenterSlug,
+  /** Asking kiosk's building — "FT" keeps the list racing-only (bowling
+   *  check-in is a HeadPinz-building action, owner 2026-08-16). */
+  venue?: string,
+): Promise<CheckinBrowseRow[]> {
   const today = todayET();
   const rows = await listBowlingReservations({
     startDate: today,
@@ -912,8 +942,10 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
   for (const g of ordered) {
     // Racing check-in (owner 2026-07-25) OR a HeadPinz bowling leg (owner
     // 2026-08-16 — bowling check-in at HPFM/HPN, never FT duckpin). An
-    // attraction-only reservation still never lists here.
-    if (!g.kinds.has("race") && !g.hasHpBowling) continue;
+    // attraction-only reservation still never lists here. FastTrax-building
+    // kiosks stay racing-only: a bowling-only row there would invite the guest
+    // to open a HeadPinz lane from the wrong building.
+    if (!g.kinds.has("race") && (venue === "FT" || !g.hasHpBowling)) continue;
     const { label: activitiesLabel, kind } = kindsToActivitiesLabel(g.kinds);
     // Express Lane is per-RESERVATION truth, not "is this a race" — badging
     // every racing row (the pre-fix behaviour) told guests who DO need to check

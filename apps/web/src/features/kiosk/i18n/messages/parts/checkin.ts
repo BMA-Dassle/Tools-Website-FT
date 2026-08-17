@@ -121,6 +121,15 @@ export const checkinEn = {
   // Done-screen subtitle for a check-in with bowling and no scheduled racers.
   "checkin.done.bowlingSet":
     "Your bowlers are set up — open your lane below when it’s ready.",
+  // FastTrax-building kiosk found a HeadPinz bowling reservation — bowling
+  // check-in never happens at FT (owner 2026-08-16). Say WHERE to go, never
+  // "we couldn't find that".
+  "checkin.bowl.wrongVenue":
+    "That’s a HeadPinz bowling reservation — bowling check-in happens at the HeadPinz kiosks. Head over to HeadPinz and check in there.",
+  // Done screen at a FastTrax kiosk when the reservation also has bowling: the
+  // lane-open button is withheld here; the HeadPinz kiosks own the lane.
+  "checkin.bowl.laneAtHp":
+    "Bowling: check in at a HeadPinz kiosk to add bowler details and open your lane.",
 } as const;
 
 export const checkinEs: Record<keyof typeof checkinEn, string> = {
@@ -214,6 +223,10 @@ export const checkinEs: Record<keyof typeof checkinEn, string> = {
     "No pudimos guardar los datos de los jugadores. Inténtalo de nuevo o acude a recepción.",
   "checkin.bowl.needOneName": "Ingresa el nombre de al menos un jugador para registrarte.",
   "checkin.bowl.saving": "Guardando los datos de los jugadores…",
+  "checkin.bowl.wrongVenue":
+    "Esa es una reservación de boliche de HeadPinz — el check-in de boliche se hace en los kioscos de HeadPinz. Dirígete a HeadPinz y regístrate ahí.",
+  "checkin.bowl.laneAtHp":
+    "Boliche: regístrate en un kiosco de HeadPinz para agregar los datos de los jugadores y abrir tu línea.",
   "checkin.done.bowlingSet":
     "Tus jugadores están configurados — abre tu línea abajo cuando esté lista.",
 };

@@ -52,6 +52,12 @@ KioskBowlingDetailsStep.tsx, qamf-centers.ts, kiosk config.ts/flags.ts, bowling-
       is bowling-truthful (`checkin.done.bowlingSet`) instead of "front desk knows"
 - [x] Doors: KioskFlow chooser + AttractScreen adzone button open at ALL venues (label
       venue-aware: FT keeps "Race Reservation", HP venues say "Reservation Check-In")
+- [x] FT-building kiosks NEVER do bowling (owner 2026-08-16: "people being confused if
+      they try to do a lane from FT"): lookup carries the kiosk's `venue`; at FT the
+      browse list stays racing-only, phone/scan hits on bowling-only reservations answer
+      `bowling-elsewhere` → "check in at the HeadPinz kiosks" (never a bare not-found),
+      combos check in racing-only (bowler details skipped) and the done screen shows a
+      HeadPinz note instead of the lane-open button
 - [x] i18n: `checkin.bowl.*` in parts/checkin.ts + `attract.reservationCheckin*` in core —
       EN + ES same commit
 - [x] Tests green (189/189 checkin suite incl. 15 new) + `tsc --noEmit` clean + eslint
