@@ -62,16 +62,6 @@ import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { useCameraStill } from "~/features/signage/useCameraStill";
-import {
-  MOTION_RESOLUTION,
-  parseCameraPreviewMode,
-  type LiveResolution,
-} from "~/features/signage/nx/camera-preview";
-import {
-  LIVE_RECYCLE_MS,
-  teardownLiveVideoRef,
-  useLiveCamera,
-} from "~/features/signage/nx/useLiveCamera";
 import { checkinAlert } from "~/features/signage/briefing/desk-alerts";
 import { briefingReadyForHolding, briefingTimelineAt } from "~/features/signage/briefing/phase";
 import {
@@ -1333,50 +1323,36 @@ export default function BriefingRoomClient({
  * THE HOLDING SEATS, ON THE ROOM'S OWN TABLET (owner 2026-08-17: "add holding
  * area to the tablets in briefing rooms").
  *
- * A CAMERA WAS HERE ONCE AND WAS CUT ON SIGHT — 2026-08-15, "remove camera for
- * now it looks like crap". That verdict was about a picture, not the idea: the
- * old one was a 208px still box borrowed from the desk board, dropped into a
- * panel built for large type at arm's length, refreshing once a second so it
- * read as a broken image rather than a view. So this is not that camera back.
+ * A STILL, NOT VIDEO — deliberately, and after trying it the other way. The
+ * first cut played the same 480p h264 stream the desk board plays, and the
+ * owner called it the same day: "remove video from briefing control page, I
+ * don't think those tablets can handle it." A desk PC decoding four streams and
+ * an in-room tablet decoding one are not the same machine, and the tablet has a
+ * job that must not stutter — it is the thing a marshal presses START on.
  *
- * What is different, and why it is worth a second try:
- *  - IT MOVES. 480p h264 video, the same rail the desk board now plays, rather
- *    than a still that changes when you are not looking at it.
- *  - IT IS SIZED FOR THE ROOM. Full panel width, 16:9, on a tablet a marshal
- *    reads from across a briefing room — not a thumbnail.
- *  - IT ANSWERS THIS PANEL'S QUESTION. The panel already says WHO is in the
- *    seats; the picture says whether they are actually sitting in them, which
- *    is the thing the marshal is about to walk out and check.
+ * So this asks for one JPEG every two seconds through our own proxy: no decode
+ * loop, no transcode session held open on the NVR for the length of a shift, no
+ * ticket to re-mint. It answers the panel's question — are they actually sitting
+ * in the seats — which does not need 20 frames a second to answer.
  *
- * It stays under the desk-wide Stills setting, and falls back to the same
- * still refresh as everything else if live cannot start — a tablet must never
- * show a black rectangle where the seats were.
+ * A camera was also cut from this panel once for looking wrong rather than for
+ * costing too much ("remove camera for now it looks like crap", 2026-08-15).
+ * That is why this one is full panel width and 16:9 rather than a thumbnail
+ * borrowed from a desk board built for a mouse.
  */
 function HoldingView({
   target,
   label,
   accent,
-  getLiveUrl,
-  liveCameras,
 }: {
   target: CameraTarget;
   label: string;
   accent: string;
-  getLiveUrl: (target: CameraTarget, res?: LiveResolution) => Promise<string | null>;
-  liveCameras: boolean;
 }) {
-  const live = useLiveCamera(target, getLiveUrl, {
-    enabled: liveCameras,
-    resolution: MOTION_RESOLUTION,
-    recycleMs: LIVE_RECYCLE_MS,
-  });
-  // 640 wide is plenty for the fallback: it is a bridge to video, not the view.
-  const { src, offline } = useCameraStill(
-    `/api/tv/camera?room=${target}&w=640`,
-    2_000,
-    !live.playing,
-    6_000,
-  );
+  // 640 wide for a full-width 16:9 box on a tablet: the seats are what matters,
+  // not the grain. Two seconds because the view is DEWARPED, and a dewarped
+  // frame is a transcode on the NVR — see the note in /api/tv/camera.
+  const { src, offline } = useCameraStill(`/api/tv/camera?room=${target}&w=640`, 2_000, true, 6_000);
 
   return (
     <div style={{ marginTop: 14 }}>
@@ -1402,49 +1378,23 @@ function HoldingView({
               width: "100%",
               height: "100%",
               objectFit: "cover",
-              opacity: live.playing ? 0 : 1,
               filter: offline ? "grayscale(0.6) brightness(0.6)" : "none",
             }}
           />
         ) : (
-          !live.playing && (
-            <span
-              style={{
-                position: "absolute",
-                inset: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 13,
-                color: PORTAL_DARK.muted,
-              }}
-            >
-              Connecting to the camera…
-            </span>
-          )
-        )}
-        {live.url && (
-          <video
-            key={live.url}
-            ref={teardownLiveVideoRef}
-            src={live.url}
-            autoPlay
-            muted
-            playsInline
-            onPlaying={live.onPlaying}
-            onWaiting={live.onWaiting}
-            onStalled={live.onWaiting}
-            onError={live.retry}
-            onEnded={live.retry}
+          <span
             style={{
               position: "absolute",
               inset: 0,
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              opacity: live.playing ? 1 : 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 13,
+              color: PORTAL_DARK.muted,
             }}
-          />
+          >
+            Connecting to the camera…
+          </span>
         )}
         <span
           aria-hidden
@@ -1472,7 +1422,7 @@ function HoldingView({
               background: offline ? "#ffb020" : accent,
             }}
           />
-          {offline ? "RECONNECTING…" : `${live.playing ? "LIVE · " : ""}${label.toUpperCase()}`}
+          {offline ? "RECONNECTING…" : label.toUpperCase()}
         </span>
       </div>
     </div>
@@ -2096,8 +2046,6 @@ function HoldingView({
             target={holdingCameraFor(room)}
             label={`${room} holding`}
             accent={accent}
-            getLiveUrl={control.liveCameraUrl}
-            liveCameras={parseCameraPreviewMode(control.board?.cameraPreview?.mode) === "live"}
           />
 
           <div style={{ flex: 1 }} />
