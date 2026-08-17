@@ -14,7 +14,7 @@ import { handleTrackEvents } from "~/features/racing/track-events.server";
  * inbound broadcast message here.
  *
  * Phase 1 (this commit): receive, gate-check, push into a Redis
- * FIFO `kart:events:queue` (capped 5000, 24h TTL) for inspection.
+ * FIFO `kart:events:queue` (capped 100,000 ≈ 72h, 72h TTL) for inspection.
  * Same pattern as the VT3 webhook — see what flows through
  * before deciding what to act on.
  *
@@ -27,8 +27,25 @@ import { handleTrackEvents } from "~/features/racing/track-events.server";
 const KART_SECRET = process.env.KART_BRIDGE_SECRET || "";
 const VT3_SECRET = process.env.VT3_BRIDGE_SECRET || "";
 const QUEUE_KEY = "kart:events:queue";
-const QUEUE_MAX_LEN = 5000;
-const QUEUE_TTL = 60 * 60 * 24; // 24h
+/**
+ * THE CAP IS THE REAL WINDOW — THE TTL ONLY SETS AN UPPER BOUND, and the two
+ * must be sized together or the pair lies. The old values said "5000, 24h TTL"
+ * while actually holding **3.6 hours**: measured 2026-08-17, the pipe runs
+ * ~33,000 entries a day at a 434-byte mean, so the cap evicted long before the
+ * TTL ever fired. Per-lap passings aged out before anything could read them.
+ *
+ * Sized for 72h at the measured rate (owner 2026-08-17): 3 × ~33,000 ≈ 100,000
+ * entries, and the TTL raised to match so neither one silently truncates the
+ * other. Cost is ~41 MB.
+ *
+ * STILL NOT THE PLACE FOR LONG-LIVED DATA. Only 10% of these bytes are the
+ * passings we want — SpeedChange alone is 33%, Crash/UnCrash another 18% — so a
+ * week here would be ~95 MB to keep ~0.1 MB of useful rows. Anything that must
+ * outlive a weekend belongs in its own store (best-lap-per-(session,driver) is
+ * ~330 rows a week). This queue remains a debug buffer, now a deep one.
+ */
+const QUEUE_MAX_LEN = 100_000;
+const QUEUE_TTL = 60 * 60 * 72; // 72h — matched to the cap above
 const HEARTBEAT_KEY = "kart:bridge:last-event";
 const HEARTBEAT_TTL = 60 * 60; // 1h
 

@@ -30,11 +30,13 @@ import "server-only";
 import redis from "@/lib/redis";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import {
+  extractLapPassings,
   extractRaceFinishes,
   extractRaceStarts,
   extractRaceStops,
   isActionableFinish,
 } from "~/features/racing/venue-broadcast";
+import { recordLapPassings } from "~/features/racing/data/race-best-laps-db";
 import { recordRacePause, recordRaceTiming } from "~/features/racing/data/race-timings-db";
 import { listBriefingAssignments } from "./assignments-db";
 import { announceReturnOnce } from "./return-announce.server";
@@ -277,6 +279,22 @@ export async function handleVenueMessage(
      * recordRaceStops for why the claim key is shaped the way it is.
      */
     await recordRaceStops(message, receivedAtMs);
+
+    /**
+     * EVERY LAP, KEPT AS A BEST — the record that makes a lap findable inside a
+     * video (see race-best-laps-db.ts).
+     *
+     * Handled here rather than at finish because passings arrive DURING the
+     * race, and the Redis buffer they pass through turns over in hours. The
+     * upsert only takes a strictly faster lap, so replays and out-of-order
+     * delivery are both harmless and no claim key is needed.
+     */
+    const passings = extractLapPassings(message);
+    if (passings.length > 0) {
+      await recordLapPassings(passings).catch((err) =>
+        console.error("[race-best-laps] fold failed", err),
+      );
+    }
 
     const finishes = extractRaceFinishes(message);
     if (finishes.length === 0) return;

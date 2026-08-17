@@ -332,6 +332,81 @@ export function extractEmergencies(message: unknown): VenueEmergency[] {
   return out;
 }
 
+/**
+ * ONE COMPLETED LAP, with the instant it was completed.
+ *
+ * `TimingPassingNotification` is the only thing on any of our wires that says
+ * WHEN a particular lap happened. Everything else — the standings capture, the
+ * Pandora scores API — carries aggregates: a best lap with no timestamp, which
+ * cannot be located inside a video.
+ *
+ * Surveyed live 2026-08-17 (251 in one queue window):
+ *
+ *   { $type: "TimingPassingNotification", LapTimeMs: 42084,
+ *     PassingTimeUtc: "2026-08-17T03:24:25.618Z", PassingId: 58992702,
+ *     ParticipantName: "Genn A", ParticipantId: 58964159,
+ *     RentalObjectName: "27", TransponderCode: "...",
+ *     SessionId: 58599025, SessionName: "60 - Blue Starter", ... }
+ *
+ * NOTE THIS ARRIVES DESPITE `Timing: "false"` in the bridge's BcStart. Earlier
+ * lore said per-lap data was gated behind that flag; it is not, and no
+ * subscription change is needed.
+ *
+ * `PassingTimeUtc` is a REAL UTC instant with a Z suffix — unlike the venue's
+ * ActualStart/ActualEnd, which are local wall clock with no zone (see
+ * parseVenueLocalMs). Parse it directly; do not route it through that helper.
+ *
+ * Ids are stringified rather than Number()'d per the house rule, even though
+ * these are 8-digit today.
+ */
+export interface VenueLapPassing {
+  sessionId: string;
+  sessionName: string;
+  /** Display name exactly as the timing system shows it — often abbreviated
+   *  ("Genn A"), because it is what a human typed at the kiosk. */
+  participantName: string;
+  /** Kart number, from RentalObjectName. */
+  kart: string;
+  lapTimeMs: number;
+  /** When the racer crossed the line COMPLETING this lap, epoch ms. The lap
+   *  itself therefore occupies [passingAtMs − lapTimeMs, passingAtMs]. */
+  passingAtMs: number;
+  passingId: string | null;
+}
+
+export function extractLapPassings(message: unknown): VenueLapPassing[] {
+  const records = Array.isArray(message) ? message : [message];
+  const out: VenueLapPassing[] = [];
+  for (const rec of records) {
+    if (!rec || typeof rec !== "object") continue;
+    const r = rec as Record<string, unknown>;
+    if (r["$type"] !== "TimingPassingNotification") continue;
+
+    const lapTimeMs = Number(r.LapTimeMs);
+    const passingAtMs = Date.parse(String(r.PassingTimeUtc ?? ""));
+    const sessionId = r.SessionId === undefined || r.SessionId === null ? "" : String(r.SessionId);
+    const participantName = typeof r.ParticipantName === "string" ? r.ParticipantName.trim() : "";
+
+    // A passing with no session, no name, no time or no lap length cannot be
+    // joined to anything — skipping beats storing a row nothing can use. The
+    // out lap in particular arrives with a nonsense length.
+    if (!sessionId || !participantName) continue;
+    if (!Number.isFinite(lapTimeMs) || lapTimeMs <= 0) continue;
+    if (!Number.isFinite(passingAtMs)) continue;
+
+    out.push({
+      sessionId,
+      sessionName: typeof r.SessionName === "string" ? r.SessionName : "",
+      participantName,
+      kart: typeof r.RentalObjectName === "string" ? r.RentalObjectName : "",
+      lapTimeMs,
+      passingAtMs,
+      passingId: r.PassingId === undefined || r.PassingId === null ? null : String(r.PassingId),
+    });
+  }
+  return out;
+}
+
 /** Every `SessionDurationChangedNotification` — a staff time-add/cut. */
 export function extractDurationChanges(message: unknown): VenueDurationChange[] {
   const records = Array.isArray(message) ? message : [message];
