@@ -446,6 +446,28 @@ export const CLEAR_TO_SEND_MS = 5_600;
  *  while the announcement is still sounding. */
 const PRE_CLIP_NOMINAL_MS = 60_000;
 
+/**
+ * WHEN THE PRE-RACE CUE STOPS SOUNDING. One line, because two surfaces have to
+ * agree on it to the millisecond (owner 2026-08-16: it holds "till the clip ends
+ * and we put the green flash on pit board").
+ *
+ * The wall's CLEAR TO SEND and the pit station's PRE card are one moment seen
+ * from two places: the wall flashes green as the card lets go of the group it
+ * was holding. They had different arithmetic for it — the wall assumed 60s for
+ * an unreported clip, the card 90s plus 10s of slack — so the card would have
+ * kept a finished announcement alive for ten seconds after the wall said it was
+ * safe to send. A staff member standing where they can see both would have been
+ * told two different things about the same clip.
+ *
+ * The slack belongs to the OTHER question the card asks — "is the noise coming
+ * out of that zone attributable to this stamp", which wants to be forgiving
+ * about a player that starts late. This one is "has the clip finished", and it
+ * must be exact and shared.
+ */
+export function preCueEndsAtMs(stamp: { atMs: number; durationS: number | null }): number {
+  return stamp.atMs + (stamp.durationS != null ? stamp.durationS * 1000 : PRE_CLIP_NOMINAL_MS);
+}
+
 /* ── the ambient loop never blocks a real announcement ─────────────────── */
 
 /**
@@ -632,9 +654,10 @@ export function preSendGateAt(
   const paidLate = gate.startedAtMs != null && gate.preRaceAtMs > gate.startedAtMs;
   if (!paidLate) return { state: "none", heatNumber, remainingMs: null };
 
-  const endsAtMs =
-    gate.preRaceAtMs +
-    (gate.preRaceDurationS != null ? gate.preRaceDurationS * 1000 : PRE_CLIP_NOMINAL_MS);
+  // The SHARED clip-end — the pit station's PRE card releases its subject on
+  // this same instant, so the green flash here and the card letting go over
+  // there are one moment. See preCueEndsAtMs.
+  const endsAtMs = preCueEndsAtMs({ atMs: gate.preRaceAtMs, durationS: gate.preRaceDurationS });
   // STILL SOUNDING — the hole the red used to vanish into. See PreSendGate.
   if (nowMs < endsAtMs) {
     return { state: "pre-playing", heatNumber, remainingMs: endsAtMs - nowMs };

@@ -64,6 +64,7 @@ import {
   isStaySeatedFile,
   kartsAvailability,
   pitRailState,
+  preCueEndsAtMs,
   type PitLaneFeed,
   type PitLanes,
 } from "~/features/signage/pit/pit-board";
@@ -738,8 +739,45 @@ function TrackCard({
   // THE DEBT OUTRANKS THE NEXT CYCLE, same as playPreRace — a group that went
   // out unannounced is owed their cue even while the next group is seated,
   // because seating them used to destroy the debt rather than delay it.
-  const preOwed = racing != null && (audio[racing.sessionId]?.pre ?? null) == null ? racing : null;
-  const preSubject = preOwed ?? holding;
+  const racingPre = racing ? (audio[racing.sessionId]?.pre ?? null) : null;
+  const preOwed = racing != null && racingPre == null ? racing : null;
+  /**
+   * THE DEBT ENDS WHEN THE ANNOUNCEMENT ENDS, NOT WHEN IT STARTS (owner
+   * 2026-08-16: it holds "till the clip ends and we put the green flash on pit
+   * board").
+   *
+   * `preOwed` is defined by the ABSENCE of the stamp and was ALSO the subject,
+   * so the press that answered it deleted the group this card is about. Blue
+   * Session 43: staff pressed a 133.8-second late pre and the card dropped
+   * straight through to `holding` — Session 44, "Pre-race due" — while 43's cue
+   * was still sounding over their heads. Owner: "they hit play then seemed like
+   * everything just cleared, didn't show it playing." A second press then aimed
+   * at the wrong group.
+   *
+   * Nothing else needed adding: this card already ran due -> playing -> played
+   * off `preLive` and `CueLengthStrip`. The ladder was fine, the subject
+   * evaporated before it could climb it.
+   *
+   * ON THE SAME MILLISECOND AS THE WALL. The release uses `preCueEndsAtMs`, the
+   * one the pit board's CLEAR TO SEND flash fires on — the card letting go and
+   * the wall going green are one moment seen from two places. It deliberately
+   * does NOT use the zone-attribution slack below: that slack is forgiving about
+   * a player that starts late, and borrowing it here would keep a finished cue
+   * alive for ten seconds after the wall had already said it was safe to send.
+   */
+  const preSounding = racing != null && racingPre != null && nowMs < preCueEndsAtMs(racingPre);
+  const preLate = preOwed ?? (preSounding ? racing : null);
+  const preSubject = preLate ?? holding;
+  /**
+   * The held cue's own countdown, on that same shared clip end. `preLive` covers
+   * this whenever the player reported a length — but when it never did,
+   * stampClockAt returns null and the button would read "played" while the wall
+   * still read PRE-RACE PLAYING. Both fall back to the same nominal instead.
+   */
+  const preHeldRemainingS =
+    preSounding && racingPre != null
+      ? Math.max(0, (preCueEndsAtMs(racingPre) - nowMs) / 1000)
+      : null;
   /**
    * THE KARTS ARE FULL — the same verdict the server will return (owner
    * 2026-08-16, live: blue 17 in the seats, blue 16 strapped in on the green).
@@ -752,8 +790,10 @@ function TrackCard({
    */
   // Not applied to a late cue: that group is already on track, so they are not
   // walking into the karts and an occupant there is none of their business.
+  // `preLate`, not `preOwed` — a cue that is still sounding is the same late cue
+  // it was a second ago, and must not pick up the karts guard mid-clip.
   const kartsVerdict =
-    preSubject && !preOwed
+    preSubject && !preLate
       ? kartsAvailability({ karts: lane?.karts, sessionId: preSubject.sessionId })
       : ({ ok: true } as const);
   const kartsHeld = kartsVerdict.ok ? null : kartsVerdict.error;
@@ -882,11 +922,16 @@ function TrackCard({
         sub={
           preOwed
             ? "already on track — pre-race still owed"
-            : holding
-              ? `next up · seated ${formatClock(nowMs - holding.atMs)}${
-                  holding.room ? ` · from the ${holding.room} room` : ""
-                }`
-              : "No group in holding — pre-race arms when a group is seated."
+            : // The middle of the ladder, and the state that used to have no
+              // words at all: the debt has been paid but the cue is still in
+              // the air, so the card stays on THIS group rather than moving on.
+              preSounding
+              ? "already on track — pre-race playing now"
+              : holding
+                ? `next up · seated ${formatClock(nowMs - holding.atMs)}${
+                    holding.room ? ` · from the ${holding.room} room` : ""
+                  }`
+                : "No group in holding — pre-race arms when a group is seated."
         }
         subTone={preUrgent && preStamp == null ? AMBER : undefined}
       >
@@ -895,7 +940,10 @@ function TrackCard({
           playingLabel="Pre-race playing"
           doneLabel="Pre-race played"
           state={
-            preLive
+            // preHeldRemainingS is the belt to preLive's braces — a player that
+            // reported no clip length must still read "playing" here for exactly
+            // as long as the wall's amber says it is playing.
+            preLive || preHeldRemainingS != null
               ? "playing"
               : preStamp != null
                 ? "done"
@@ -911,19 +959,21 @@ function TrackCard({
               ? `${formatSeconds(preLive.remainingS)} left`
               : preLive
                 ? "playing"
-                : preStamp != null
-                  ? clockTimeMs(preStamp.atMs)
-                  : preSubject
-                    ? kartsHeld
-                      ? `Session ${lane?.karts?.heatNumber ?? "?"} in karts`
-                      : paBusyZone
-                        ? `PA busy · ${paBusyZone}`
-                        : preOwed
-                          ? "OWED — play now"
-                          : raceEndingSoon || pitIn != null
-                            ? "play now — track turning over"
-                            : "due"
-                    : "no group seated"
+                : preHeldRemainingS != null
+                  ? `${formatSeconds(preHeldRemainingS)} left`
+                  : preStamp != null
+                    ? clockTimeMs(preStamp.atMs)
+                    : preSubject
+                      ? kartsHeld
+                        ? `Session ${lane?.karts?.heatNumber ?? "?"} in karts`
+                        : paBusyZone
+                          ? `PA busy · ${paBusyZone}`
+                          : preOwed
+                            ? "OWED — play now"
+                            : raceEndingSoon || pitIn != null
+                              ? "play now — track turning over"
+                              : "due"
+                      : "no group seated"
           }
           busy={pending === `audio-pre:${track}`}
           onPress={() => onPlay("pre")}

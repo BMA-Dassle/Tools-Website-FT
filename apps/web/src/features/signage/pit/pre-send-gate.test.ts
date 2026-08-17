@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CLEAR_TO_SEND_MS,
   kartsAvailability,
+  preCueEndsAtMs,
   preRaceTone,
   preSendGateAt,
   type PitLaneFeed,
@@ -137,6 +138,32 @@ describe("preSendGateAt", () => {
       heatNumber: null,
       remainingMs: null,
     });
+  });
+
+  /**
+   * ONE MOMENT, TWO SCREENS (owner 2026-08-16: it holds "till the clip ends and
+   * we put the green flash on pit board"). The wall's green and the pit
+   * station's PRE card releasing its subject are the same instant, so they must
+   * be the same arithmetic — the card used to carry its own 90s guess plus 10s
+   * of attribution slack, which would have held a finished cue on the tablet for
+   * ten seconds after the wall said it was safe to send.
+   */
+  it("hands over to green on the exact millisecond preCueEndsAtMs names", () => {
+    const stamp = { atMs: T0 + 15_600, durationS: 133.8 };
+    const g = gate({
+      startedAtMs: T0,
+      preRaceAtMs: stamp.atMs,
+      preRaceDurationS: stamp.durationS,
+    });
+    const endsAt = preCueEndsAtMs(stamp);
+    expect(preSendGateAt(g, endsAt - 1).state).toBe("pre-playing");
+    expect(preSendGateAt(g, endsAt).state).toBe("clear-to-send");
+  });
+
+  it("shares the same 60s nominal when the player reported no length", () => {
+    // Both surfaces fall back here, so neither can outlast the other.
+    expect(preCueEndsAtMs({ atMs: T0, durationS: null })).toBe(T0 + 60_000);
+    expect(preCueEndsAtMs({ atMs: T0, durationS: 133.8 })).toBe(T0 + 133_800);
   });
 });
 
