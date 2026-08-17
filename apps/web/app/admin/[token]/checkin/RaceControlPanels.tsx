@@ -2874,6 +2874,17 @@ function useLiveCamera(
   const [stream, setStream] = useState<{ room: CameraTarget; url: string } | null>(null);
   const [playingRoom, setPlayingRoom] = useState<CameraTarget | null>(null);
   const retriesRef = useRef(0);
+  /**
+   * WHY LIVE GAVE UP, ON THE GLASS — temporary, and it earns its place.
+   *
+   * Three rounds of diagnosis have now come back as a network trace, which
+   * cannot carry the one fact that decides this: a browser that refuses a media
+   * source records its reason in MediaError, never on the wire. The console has
+   * it, but the artefact that actually reaches me is a screenshot.
+   *
+   * So the tile says it. Remove this the moment live plays.
+   */
+  const [failure, setFailure] = useState<string | null>(null);
 
   // The parent's callback, kept current in a ref so re-creating it cannot restart
   // a healthy stream. Only the room should do that.
@@ -2941,6 +2952,8 @@ function useLiveCamera(
   return {
     url,
     playing: playingRoom === room && !!url,
+    /** Diagnostic only — see `failure` above. Null until something fails. */
+    failure,
     onPlaying: () => setPlayingRoom(room),
     /**
      * SAY WHY LIVE DIED, don't just fall back.
@@ -2959,6 +2972,13 @@ function useLiveCamera(
      */
     onFailure: (event: "error" | "ended", el: HTMLVideoElement) => {
       const err = el.error;
+      // Short enough for a caption: "ended r4 n3 b0.0" reads as event / readyState
+      // / networkState / seconds buffered, with the MediaError code when there is
+      // one. Every one of those separates a refused source from a stalled one.
+      setFailure(
+        `${event}${err ? ` e${err.code}` : ""} r${el.readyState} n${el.networkState}` +
+          ` b${el.buffered.length ? el.buffered.end(el.buffered.length - 1).toFixed(1) : "0"}`,
+      );
       console.warn(
         `[camera] live stream for ${room} ended on "${event}"` +
           (err ? ` — MediaError code ${err.code}: ${err.message || "(no message)"}` : " — no MediaError (the source simply ended)") +
@@ -3186,7 +3206,9 @@ function RoomCamera({
             ? "RECONNECTING…"
             : paused
               ? "IN THE VIEWER"
-              : `${live.playing ? "LIVE" : "STILLS"} · ${room.toUpperCase()}`}
+              : `${live.playing ? "LIVE" : "STILLS"} · ${room.toUpperCase()}${
+                  !live.playing && live.failure ? ` · ${live.failure}` : ""
+                }`}
         </span>
       </span>
     </button>
