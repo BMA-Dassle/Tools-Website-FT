@@ -110,7 +110,16 @@ const nextConfig: NextConfig = {
             // allowance — CSP is only half of that lock).
             "connect-src 'self' https: ws: wss://webserver22.sms-timing.com:10015 wss://bma-pandora-api.azurewebsites.net",
             "frame-src 'self' https:",
-            "media-src 'self' blob: https://wuce3at4k1appcmf.public.blob.vercel-storage.com",
+            // *.vmsproxy.com — Nx Witness live camera video, played by the
+            // browser straight from the cloud relay because a serverless
+            // function cannot hold a stream open (see nx/camera.server.ts).
+            // TWO hosts, and both must match: the relay answers on
+            // <cloudSystemId>.relay.vmsproxy.com and 307s to a regional node
+            // (<id>.relay-us-mia-1-prod-dp.vmsproxy.com), and CSP is checked
+            // against the redirect target too. Its absence is why the
+            // full-screen viewer silently fell back to stills from the day it
+            // shipped: the fetch worked, the <video> was blocked.
+            "media-src 'self' blob: https://wuce3at4k1appcmf.public.blob.vercel-storage.com https://*.vmsproxy.com",
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self' https:",
@@ -166,7 +175,16 @@ const nextConfig: NextConfig = {
             // the admin block above.
             "connect-src 'self' https: ws: wss://webserver22.sms-timing.com:10015 wss://bma-pandora-api.azurewebsites.net http://127.0.0.1:4599 http://localhost:4599",
             "frame-src 'self' https://www.cognitoforms.com https://kiosk.bmileisure.com https://*.3cx.us https://profile.squareup.com https://squareup.com https://pci-connect.squareup.com https://web.squarecdn.com https:",
-            "media-src 'self' blob: https://wuce3at4k1appcmf.public.blob.vercel-storage.com",
+            // *.vmsproxy.com — Nx Witness live camera video, played by the
+            // browser straight from the cloud relay because a serverless
+            // function cannot hold a stream open (see nx/camera.server.ts).
+            // TWO hosts, and both must match: the relay answers on
+            // <cloudSystemId>.relay.vmsproxy.com and 307s to a regional node
+            // (<id>.relay-us-mia-1-prod-dp.vmsproxy.com), and CSP is checked
+            // against the redirect target too. Its absence is why the
+            // full-screen viewer silently fell back to stills from the day it
+            // shipped: the fetch worked, the <video> was blocked.
+            "media-src 'self' blob: https://wuce3at4k1appcmf.public.blob.vercel-storage.com https://*.vmsproxy.com",
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self' https://www.cognitoforms.com https:",
