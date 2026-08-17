@@ -30,7 +30,22 @@ import { FASTTRAX_OG, FASTTRAX_OG_IMAGE, HEADPINZ_OG, HEADPINZ_OG_IMAGE } from "
 /* FastTrax fonts */
 const exo2 = Exo_2({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800", "900"],
+  /**
+   * NO `weight` ARRAY — THAT ASKS FOR THE VARIABLE FONT, and it is the only
+   * thing Google still serves.
+   *
+   * This listed six static weights until 2026-08-16, when a Vercel build died
+   * with 30 `Module not found` errors on the font module. The cause was not
+   * ours: Google moved Exo 2 to a variable font inside version v26 and DELETED
+   * the static instances, so every URL in the build's cached CSS started
+   * 404ing (verified — those exact URLs return 404 while a fresh request for
+   * the same family returns working variable files). A restored build cache is
+   * what kept feeding the dead list to the build.
+   *
+   * The variable font covers 100-900 continuously, so every weight this site
+   * uses still resolves — and it is fewer files and fewer bytes than six
+   * static faces were.
+   */
   /**
    * ITALIC IS LOADED, and it is not cosmetic.
    *
@@ -40,6 +55,9 @@ const exo2 = Exo_2({
    * opens uneven gaps between letters. That is what "the headlines don't look
    * clean" was (owner 2026-08-15), on every board in the building rather than
    * any one scene.
+   *
+   * Still true of the variable font: `style` is a separate axis from `weight`,
+   * so this must keep naming italic explicitly.
    */
   style: ["normal", "italic"],
   variable: "--font-exo2",
