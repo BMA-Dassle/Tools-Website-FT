@@ -29,6 +29,10 @@
       "schedule": "0 */6 * * *"
     },
     {
+      "path": "/api/cron/pov-reel-build",
+      "schedule": "0 8 * * *"
+    },
+    {
       "path": "/api/cron/race-day-emails",
       "schedule": "*/10 * * * *"
     },

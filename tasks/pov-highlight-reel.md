@@ -1,7 +1,15 @@
 # POV highlight reel — check-in guide wall
 
-**Status 2026-08-17: data layers SHIPPED to main, clipper written but UNSMOKED, display not built.**
-Paused here deliberately. Everything below is resumable without re-deriving anything.
+**Status 2026-08-17 (evening): data layers SHIPPED to main; clipper written, UNSMOKED, and the
+Railway service does not exist yet; cron + result webhook + manifest table BUILT on
+`worktree-pov-reel-plumbing`, also unsmoked; display not built.**
+
+**The one blocker is the Railway service** — `pov-clipper/` is inert until someone creates it
+(root `pov-clipper/`, Dockerfile builder, env `KART_BRIDGE_SECRET` + `BLOB_READ_WRITE_TOKEN`,
+leave `CLIP_RESULT_WEBHOOK` empty for the first dry run). Then set `POV_CLIPPER_URL` in Vercel and
+hit `/api/cron/pov-reel-build?dryRun=1` before letting a real run go.
+
+Everything below is resumable without re-deriving anything.
 
 ## What it is
 
@@ -54,14 +62,22 @@ but ffmpeg-over-HTTP + tesseract only exist inside that container. **First `/bui
 test.** Watch `anchor` in the results: `"burn-in"` is exact, a wall of `"estimate"` means OCR is
 broken.
 
-### 2. Daily cron + result webhook
+### 2. Daily cron + result webhook — ✅ BUILT 2026-08-17, UNSMOKED
 
-- `app/api/cron/pov-reel-build/route.ts` — `verifyCron` + `?dryRun=1`, house pattern. Reads
-  `race_best_laps` over 7 days, runs `selectReel`, POSTs jobs to the clipper's `/build`.
-  A dry-run harness already exists: `apps/web/scripts/_pov-reel-dryrun.mts`.
-- `app/api/webhooks/pov-reel-clip/route.ts` — receives per-clip results, writes the manifest.
-- **`pov_reel_clips` table, keyed on `video_code`** (not week+rank — that cannot express "this clip
-  survived into today's top 10").
+Branch `worktree-pov-reel-plumbing`. Typecheck + build clean, 41 tests green. **Nothing has run
+against a live video or a real Neon table yet** — this is plumbing, not proof.
+
+- `app/api/cron/pov-reel-build/route.ts` — thin shell: `verifyCron` + `?dryRun=1` → delegates.
+- `src/features/pov-reel/service.ts` — the build. Joins `race_best_laps` × `video-match` ×
+  `race_timings` over 7 days, `selectReel`, `reconcileReel`, POSTs only new cuts to `/build`.
+- `src/features/pov-reel/reconcile.ts` — the pure keep/cut/retire/delete diff, 11 tests.
+- `src/features/pov-reel/match-video.ts` — the racer↔video name join, 11 tests.
+- `src/features/pov-reel/data/pov-reel-clips-db.ts` — `pov_reel_clips`, keyed on `video_code`.
+- `app/api/webhooks/pov-reel-clip/route.ts` — per-clip results; warns loudly on `anchor=estimate`.
+- `vercel.json` — `0 8 * * *` (4am ET, after the 2am business-day rollover).
+
+**NEEDS `POV_CLIPPER_URL`** in Vercel — the service returns `error: "clipper not configured"`
+without it. `KART_BRIDGE_SECRET` is already set and is reused as the clipper's auth.
 
 **RECONCILE, NEVER REBUILD.** Re-cutting all ten nightly would burn ~94MB of uploads and ten VT3
 impressions to reproduce yesterday's reel.
@@ -70,10 +86,15 @@ impressions to reproduce yesterday's reel.
 | --- | --- |
 | Still in the top 10 | Keep the blob. No re-cut, no `/check`, no impression. |
 | New entry | Cut, upload, insert row. |
-| Dropped out | `del()` the blob, delete the row. |
+| Dropped out | Stamp `retired_at`; the NEXT run deletes blob + row. |
+| Dispatched, never reported | Re-dispatched. Nothing else in the system retries it. |
 
 Delete on the run **after** a clip leaves the reel, not the same one — a wall may be mid-loop on it.
 There is no automatic blob expiry and no cleanup cron in this repo; it must clean up after itself.
+
+**Two fail-closed decisions worth keeping:** an unreadable block state excludes the clip rather than
+promoting it, and an AMBIGUOUS name match excludes it too — `"Genn A"` fits both `"Genn Alvarez"`
+and `"Genn Anderson"`, so the service requires exactly one video per racer per session.
 
 ### 3. The signage scene
 
