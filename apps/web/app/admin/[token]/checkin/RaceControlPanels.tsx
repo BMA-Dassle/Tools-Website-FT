@@ -626,6 +626,8 @@ export default function RaceControlPanels({
             pending={pending}
             cameraExpanded={expanded === holdingCameraFor(megaLaneOwner)}
             onExpandCamera={() => control.setExpandedCamera(holdingCameraFor(megaLaneOwner))}
+            getLiveUrl={control.liveCameraUrl}
+            liveCameras={liveCameras}
             onRaceReturned={() => control.markPitted("mega")}
             hasLaunched={control.hasLaunched}
             noteLaunched={control.noteLaunched}
@@ -1946,6 +1948,8 @@ function MegaLaneRow({
   pending,
   cameraExpanded,
   onExpandCamera,
+  getLiveUrl,
+  liveCameras,
   onRaceReturned,
   hasLaunched,
   noteLaunched,
@@ -1957,6 +1961,10 @@ function MegaLaneRow({
   pending: string | null;
   cameraExpanded: boolean;
   onExpandCamera: () => void;
+  /** The Mega lane shows the same holding camera as a room column would — one
+   *  circuit, one set of seats, so it needs the same two props. */
+  getLiveUrl: (target: CameraTarget, res?: LiveResolution) => Promise<string | null>;
+  liveCameras: boolean;
   onRaceReturned: () => void;
   hasLaunched: (sessionId: string | null | undefined) => boolean;
   noteLaunched: (sessionId: string | null | undefined) => void;
@@ -1982,6 +1990,8 @@ function MegaLaneRow({
         pending={pending}
         cameraExpanded={cameraExpanded}
         onExpandCamera={onExpandCamera}
+        getLiveUrl={getLiveUrl}
+        liveCameras={liveCameras}
         onRaceReturned={onRaceReturned}
       />
     </div>
