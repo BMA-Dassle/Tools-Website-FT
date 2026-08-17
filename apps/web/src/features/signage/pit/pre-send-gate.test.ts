@@ -33,14 +33,19 @@ describe("preSendGateAt", () => {
 
   it("STOPS SENDING once they have gone green with no pre", () => {
     const g = gate({ startedAtMs: T0 });
-    expect(preSendGateAt(g, T0 + 1_000)).toEqual({ state: "pre-required", heatNumber: 12 });
+    expect(preSendGateAt(g, T0 + 1_000)).toEqual({
+      state: "pre-required",
+      heatNumber: 12,
+      remainingMs: null,
+    });
   });
 
-  it("clears the moment the cue is claimed, before the PA has answered", () => {
+  it("turns AMBER the moment the cue is claimed, before the PA has answered", () => {
     // claimAndPlay writes the stamp NX BEFORE calling the player, so the press
-    // itself takes the banner down — no waiting on the clip.
+    // itself takes the red down — no waiting on the clip. What replaces it must
+    // not be nothing: see the next test for the night that proved it.
     const g = gate({ startedAtMs: T0, preRaceAtMs: T0 + 46_000, preRaceDurationS: 30 });
-    expect(preSendGateAt(g, T0 + 46_100).state).toBe("none");
+    expect(preSendGateAt(g, T0 + 46_100).state).toBe("pre-playing");
   });
 
   it("comes BACK if the play failed and the claim was released", () => {
@@ -49,16 +54,45 @@ describe("preSendGateAt", () => {
     expect(preSendGateAt(g, T0 + 50_000).state).toBe("pre-required");
   });
 
-  it("stays quiet WHILE the cue is sounding", () => {
-    const g = gate({ startedAtMs: T0, preRaceAtMs: T0, preRaceDurationS: 30 });
-    expect(preSendGateAt(g, T0 + 29_000).state).toBe("none");
+  /**
+   * BLUE SESSION 43, 2026-08-16. Green flag 19:42:14, pre pressed 19:42:29 —
+   * 15.6s late, and the clip was the BIG pre: 133.8 seconds. The red vanished on
+   * the press and the board showed nothing at all until a 5.6s green flash two
+   * minutes and fourteen seconds later. Owner: "they hit play then seemed like
+   * everything just cleared, didn't show it playing."
+   */
+  it("SAYS IT IS PLAYING for the whole late clip, counting down", () => {
+    const g = gate({ startedAtMs: T0, preRaceAtMs: T0 + 15_600, preRaceDurationS: 133.8 });
+    // One second after the press.
+    expect(preSendGateAt(g, T0 + 16_600)).toEqual({
+      state: "pre-playing",
+      heatNumber: 12,
+      remainingMs: 132_800,
+    });
+    // Two minutes in — the window that used to be blank.
+    expect(preSendGateAt(g, T0 + 135_600).state).toBe("pre-playing");
+    // And it hands straight over to the green, with no gap between them.
+    const endsAt = 15_600 + 133_800;
+    expect(preSendGateAt(g, T0 + endsAt - 1).state).toBe("pre-playing");
+    expect(preSendGateAt(g, T0 + endsAt).state).toBe("clear-to-send");
+  });
+
+  it("never goes amber for the healthy flow — the cue predates the flag", () => {
+    // The ordinary night. This clip sounds while staff are loading karts, so an
+    // amber band every heat would be covering the board it exists to protect.
+    const g = gate({ startedAtMs: T0 + 60_000, preRaceAtMs: T0, preRaceDurationS: 90 });
+    expect(preSendGateAt(g, T0 + 60_100).state).toBe("none");
   });
 
   it("flashes CLEAR TO SEND once a LATE cue has finished", () => {
     // Green answers a red: the cue was stamped after the flag, so this group did
     // show STOP SENDING and has now been paid.
     const g = gate({ startedAtMs: T0, preRaceAtMs: T0 + 46_000, preRaceDurationS: 30 });
-    expect(preSendGateAt(g, T0 + 76_500)).toEqual({ state: "clear-to-send", heatNumber: 12 });
+    expect(preSendGateAt(g, T0 + 76_500)).toEqual({
+      state: "clear-to-send",
+      heatNumber: 12,
+      remainingMs: null,
+    });
   });
 
   it("green is a flash, not a state — it expires", () => {
@@ -86,14 +120,23 @@ describe("preSendGateAt", () => {
 
   it("assumes 60s when the player never reported a length", () => {
     // Over-estimating delays a green flash; under-estimating would tell staff to
-    // send while the announcement is still sounding.
+    // send while the announcement is still sounding. The countdown simply
+    // reflects the assumption rather than inventing a second one.
     const g = gate({ startedAtMs: T0, preRaceAtMs: T0 + 1_000, preRaceDurationS: null });
-    expect(preSendGateAt(g, T0 + 60_000).state).toBe("none");
+    expect(preSendGateAt(g, T0 + 60_000)).toEqual({
+      state: "pre-playing",
+      heatNumber: 12,
+      remainingMs: 1_000,
+    });
     expect(preSendGateAt(g, T0 + 62_000).state).toBe("clear-to-send");
   });
 
   it("says nothing for an empty lane", () => {
-    expect(preSendGateAt(null, T0)).toEqual({ state: "none", heatNumber: null });
+    expect(preSendGateAt(null, T0)).toEqual({
+      state: "none",
+      heatNumber: null,
+      remainingMs: null,
+    });
   });
 });
 

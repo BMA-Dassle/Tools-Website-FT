@@ -400,14 +400,32 @@ export const EMPTY_PIT_LANE: PitLaneFeed = {
  * `pre-required`   a group has gone green and their pre never played. The debt
  *                  is still payable, but ONLY until somebody is seated — so the
  *                  wall says stop, in red, full screen, until the cue fires.
+ * `pre-playing`    that debt is being paid RIGHT NOW — the late cue is sounding.
+ *                  Amber, and the middle of a traffic light staff already read
+ *                  without being taught: red stop, amber wait, green go.
  * `clear-to-send`  the pre has finished sounding (owner 2026-08-16: "once pre
  *                  finished, you could put a flash of green clear to send").
  *                  Transient: an acknowledgement, not a state to live in.
- * `none`           nothing to say — including WHILE the pre is sounding, which
- *                  is the gap between the two: the red is already gone (staff
- *                  pressed it) and the green has not been earned yet.
+ * `none`           nothing to say.
+ *
+ * WHY `pre-playing` EXISTS (blue Session 43, 2026-08-16). The ladder used to run
+ * red → NOTHING → green, and the nothing lasted the whole clip: the red vanished
+ * on the press and the next thing to appear was a 5.6s green flash 2m14s later.
+ * Blue 43 went green at 19:42:14 with no pre, the wall went red, staff pressed at
+ * 19:42:29 — and the screen emptied. Owner: "they hit play then seemed like
+ * everything just cleared, didn't show it playing." A gate that goes blank the
+ * instant you obey it teaches staff the press did nothing, and the natural next
+ * move is to press again, or to send.
+ *
+ * IT ONLY EVER CONTINUES A RED, never appears on its own — it sits behind the
+ * SAME `paidLate` guard the green already earns its way past (see below), so an
+ * ordinary pre played to a seated group stays silent through all three states.
+ * That matters more for amber than for green: the healthy clip sounds through
+ * exactly the window staff are loading karts in, and a rail that read "do not
+ * send yet" for 82 seconds of every single heat would be a worse board than the
+ * one this fixed — the wall would be wrong far more often than it was right.
  */
-export type PreSendGate = "none" | "pre-required" | "clear-to-send";
+export type PreSendGate = "none" | "pre-required" | "pre-playing" | "clear-to-send";
 
 /**
  * How long CLEAR TO SEND holds after the cue ends.
@@ -568,15 +586,26 @@ export function preRaceTone(
 export function preSendGateAt(
   gate: PitLaneFeed["preGate"],
   nowMs: number,
-): { state: PreSendGate; heatNumber: number | null } {
-  if (!gate) return { state: "none", heatNumber: null };
+): {
+  state: PreSendGate;
+  heatNumber: number | null;
+  /** How much of the late cue is left to sound, ms. Only ever set on
+   *  `pre-playing` — the wall counts it down, so "wait" has an end staff can
+   *  see coming instead of an amber strip of unknown length. */
+  remainingMs: number | null;
+} {
+  if (!gate) return { state: "none", heatNumber: null, remainingMs: null };
   const heatNumber = gate.heatNumber;
 
   // NOT PLAYED. Only a problem once they have actually gone — a group still in
   // the seats owes nothing yet, and shouting at the wall through every ordinary
   // briefing would train staff to ignore this.
   if (gate.preRaceAtMs == null) {
-    return { state: gate.startedAtMs != null ? "pre-required" : "none", heatNumber };
+    return {
+      state: gate.startedAtMs != null ? "pre-required" : "none",
+      heatNumber,
+      remainingMs: null,
+    };
   }
 
   /**
@@ -594,17 +623,26 @@ export function preSendGateAt(
    * the late payment the banner demanded. A pre played while the group was still
    * in the seats — the healthy night, every time — was never red and must never
    * go green.
+   *
+   * AMBER RIDES THIS SAME LINE, deliberately, instead of testing the fact again:
+   * red, amber and green are one sequence about one debt, so whatever
+   * disqualifies the green disqualifies the wait in front of it. See
+   * PreSendGate for why an ordinary pre must stay silent through all three.
    */
   const paidLate = gate.startedAtMs != null && gate.preRaceAtMs > gate.startedAtMs;
-  if (!paidLate) return { state: "none", heatNumber };
+  if (!paidLate) return { state: "none", heatNumber, remainingMs: null };
 
   const endsAtMs =
     gate.preRaceAtMs +
     (gate.preRaceDurationS != null ? gate.preRaceDurationS * 1000 : PRE_CLIP_NOMINAL_MS);
-  if (nowMs < endsAtMs) return { state: "none", heatNumber };
+  // STILL SOUNDING — the hole the red used to vanish into. See PreSendGate.
+  if (nowMs < endsAtMs) {
+    return { state: "pre-playing", heatNumber, remainingMs: endsAtMs - nowMs };
+  }
   return {
     state: nowMs - endsAtMs <= CLEAR_TO_SEND_MS ? "clear-to-send" : "none",
     heatNumber,
+    remainingMs: null,
   };
 }
 

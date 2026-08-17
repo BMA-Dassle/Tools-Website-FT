@@ -1623,6 +1623,18 @@ function QualPill({
  * MOTION IS NEVER THE ONLY SIGNAL. Same 1.4s beat as the briefing tablet's
  * HOLDING FULL blink — one beat per canvas — and reduced motion keeps the
  * colour and the words while dropping the pulse.
+ *
+ * THE MIDDLE STATE IS NOT A TAKEOVER (blue Session 43, 2026-08-16 — "they hit
+ * play then seemed like everything just cleared, didn't show it playing"). Red
+ * and green may own the whole screen because they are MOMENTS: the red ends the
+ * instant somebody presses, the green is a 5.6s flash. Amber is a DURATION — the
+ * clip itself, 82s for the normal pre and 134s for the big one, which is what
+ * blue 43 played. Blanking the wall for over two minutes would take the spot
+ * list away from a group that may well be walking into holding right then (heat
+ * 44 was sent to the seats seven seconds before 43's late cue finished) and hide
+ * their own "find your name, stand on your square" instruction for the whole
+ * wait. The rule during the wait is only "do not send yet", and that does not
+ * need the screen — so it takes the rail instead. See PreSendGateWaiting.
  */
 function PreSendGateOverlay({
   gate,
@@ -1636,6 +1648,9 @@ function PreSendGateOverlay({
   track: TrackKey;
 }) {
   if (gate.state === "none") return null;
+  if (gate.state === "pre-playing") {
+    return <PreSendGateWaiting heatNumber={gate.heatNumber} remainingMs={gate.remainingMs} />;
+  }
   const stop = gate.state === "pre-required";
   const tone = stop ? "#ff2d38" : "#25d366";
   const heat = gate.heatNumber != null ? `Session ${gate.heatNumber}` : null;
@@ -1710,6 +1725,106 @@ function PreSendGateOverlay({
           {heat}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * THE WAIT — amber, and it takes the RAIL, not the screen.
+ *
+ * The middle of a traffic light nobody has to be taught: red stop, amber wait,
+ * green go. It exists because the ladder used to run red → nothing → green, and
+ * the nothing lasted the whole clip — see PreSendGate in pit/pit-board.ts for
+ * the night that produced it, and PreSendGateOverlay for why red and green may
+ * own the screen and this may not.
+ *
+ * WHY THE RAIL IS THE RIGHT SLOT, rather than a band bolted over the header. The
+ * rail is already this board's "what do I do right now" line — it is where READY
+ * TO SEND flashes — so during the wait it should be answering the same question
+ * with "not yet, 1:22". Sitting exactly on RAIL_H also means it covers one whole
+ * element and no part of another: a strip sized in vh over a header sized in px
+ * would leave a sliver of the old header showing on some wall, some resolution.
+ * The roster keeps every pixel it had, which is the entire point.
+ *
+ * STEADY, NOT PULSING, and that is not an oversight. The red flashes because it
+ * is an alarm somebody must act on; this is a countdown somebody must sit
+ * through, and two minutes of strobe reads as a fault. The seconds ticking down
+ * ARE the motion — one beat per canvas — and they leave the arrival flash above
+ * uncontested, which matters because a group can be walking into holding during
+ * exactly this window.
+ *
+ * THE NUMBER IS THE POINT. "Wait" with no end is what staff press through; a
+ * visible 1:22 is what they wait out. It comes from the clip's OWN reported
+ * length via the gate's `remainingMs`, so it is the real cue and not a guess —
+ * and when the player never reported one, the gate's nominal 60s is what the
+ * countdown reflects rather than inventing a second assumption here.
+ */
+function PreSendGateWaiting({
+  heatNumber,
+  remainingMs,
+}: {
+  heatNumber: number | null;
+  remainingMs: number | null;
+}) {
+  const left = Math.max(0, Math.ceil((remainingMs ?? 0) / 1000));
+  const clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+  return (
+    <div
+      role="status"
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: RAIL_H,
+        // Above the rail it replaces (zIndex 2) and the track stripe (3).
+        zIndex: 90,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 40,
+        padding: `0 ${PAD_X}px`,
+        // Opaque, not a tint: the rail underneath is talking about the next
+        // group, and reading both at once is how the wrong one gets acted on.
+        background: "#231602",
+        borderTop: `4px solid ${AMBER}`,
+      }}
+    >
+      <span
+        style={{
+          fontSize: 46,
+          fontWeight: 900,
+          letterSpacing: "-0.01em",
+          color: AMBER,
+          textShadow: `0 0 46px ${withAlpha(AMBER, 0.5)}`,
+          whiteSpace: "nowrap",
+        }}
+      >
+        PRE-RACE PLAYING
+      </span>
+      <span
+        style={{
+          fontSize: 28,
+          fontWeight: 700,
+          color: withAlpha("#ffffff", 0.86),
+          whiteSpace: "nowrap",
+        }}
+      >
+        {heatNumber != null ? `Session ${heatNumber} · ` : ""}do not send yet
+      </span>
+      {/* Tabular figures: a proportional face re-flows the whole line every time
+          the seconds tick, which on a wall reads as a flicker. */}
+      <span
+        style={{
+          fontSize: 46,
+          fontWeight: 900,
+          color: "#ffffff",
+          fontVariantNumeric: "tabular-nums",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {clock}
+      </span>
     </div>
   );
 }
