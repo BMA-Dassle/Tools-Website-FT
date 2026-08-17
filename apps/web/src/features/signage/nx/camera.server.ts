@@ -1,4 +1,5 @@
 import "server-only";
+import { liveStreamQuery } from "./camera-preview";
 
 /**
  * Nx Witness (Network Optix) camera bridge — SERVER ONLY.
@@ -571,23 +572,14 @@ export async function cameraLiveStream(
   const json = (await res.json()) as { token?: string; expiresInS?: number };
   if (!json.token) throw new Error("nx ticket: no token in response");
 
-  // No `positionMs` ⇒ LIVE. 720p by default: the viewer is full-screen, and at the
-  // measured bitrate the resolution is not what costs anything.
-  const params = new URLSearchParams({
+  // No `positionMs` ⇒ LIVE. The query — including the h264 codec ask, without
+  // which no browser can play this at all, and the saved dewarp aim — is built
+  // in nx/camera-preview.ts, where the reasoning and the measurements live.
+  const params = liveStreamQuery({
     resolution: opts?.resolution ?? "720p",
-    _ticket: json.token,
+    ticket: json.token,
+    dewarp: opts?.dewarp,
   });
-  // THE SAVED AIM TRAVELS WITH THE STREAM. Live video is the one surface where
-  // dewarping is free — it is a transcode option, and the transcode is already
-  // happening. So the full-screen holding view is the layout's own view, moving,
-  // rather than a raw fisheye the staff member has to re-interpret.
-  if (opts?.dewarp) {
-    params.set("dewarping", "true");
-    params.set("dewarpingXangle", String(opts.dewarp.xAngle));
-    params.set("dewarpingYangle", String(opts.dewarp.yAngle));
-    params.set("dewarpingFov", String(opts.dewarp.fov));
-    params.set("dewarpingPanofactor", String(opts.dewarp.panoFactor));
-  }
   const url = `${relayBase()}/rest/v4/devices/${encodeURIComponent(deviceId)}/media.mp4?${params}`;
   return { url, expiresInS: Number(json.expiresInS) || 300 };
 }

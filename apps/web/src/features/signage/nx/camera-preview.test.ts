@@ -3,6 +3,7 @@ import {
   DEFAULT_CAMERA_PREVIEW_MODE,
   MOTION_RESOLUTION,
   VIEWER_RESOLUTION,
+  liveStreamQuery,
   parseCameraPreviewMode,
   parseLiveResolution,
 } from "./camera-preview";
@@ -56,5 +57,45 @@ describe("the resolutions the desk asks for", () => {
   it("gives the tile the small transcode and the viewer the sharp one", () => {
     expect(MOTION_RESOLUTION).toBe("480p");
     expect(VIEWER_RESOLUTION).toBe("1080p");
+  });
+});
+
+/**
+ * THE REGRESSION THAT COST A DAY. Without `videoCodec=h264` Nx transcodes to
+ * MPEG-4 Part 2, which no browser decodes — and the failure is silent, because
+ * the stills fall back underneath and the network log looks perfect.
+ */
+describe("liveStreamQuery", () => {
+  it("ALWAYS asks for h264 — Nx's default transcode is mp4v, which no browser plays", () => {
+    const q = liveStreamQuery({ resolution: "480p", ticket: "vmsTicket-abc" });
+    expect(q.get("videoCodec")).toBe("h264");
+  });
+
+  it("carries the resolution and the single-use ticket", () => {
+    const q = liveStreamQuery({ resolution: "1080p", ticket: "vmsTicket-xyz" });
+    expect(q.get("resolution")).toBe("1080p");
+    expect(q.get("_ticket")).toBe("vmsTicket-xyz");
+  });
+
+  it("omits every dewarp key when there is no saved aim", () => {
+    const q = liveStreamQuery({ resolution: "480p", ticket: "t" });
+    for (const k of ["dewarping", "dewarpingXangle", "dewarpingYangle", "dewarpingFov"]) {
+      expect(q.has(k)).toBe(false);
+    }
+  });
+
+  /** Red and Blue holding are the SAME device at two aims, so the aim travelling
+   *  with the stream is what stops one track's view showing the other's seats. */
+  it("carries the saved aim when the camera is a dewarped fisheye", () => {
+    const q = liveStreamQuery({
+      resolution: "480p",
+      ticket: "t",
+      dewarp: { xAngle: 1.5, yAngle: -0.25, fov: 1.2, panoFactor: 2 },
+    });
+    expect(q.get("dewarping")).toBe("true");
+    expect(q.get("dewarpingXangle")).toBe("1.5");
+    expect(q.get("dewarpingYangle")).toBe("-0.25");
+    expect(q.get("dewarpingFov")).toBe("1.2");
+    expect(q.get("dewarpingPanofactor")).toBe("2");
   });
 });

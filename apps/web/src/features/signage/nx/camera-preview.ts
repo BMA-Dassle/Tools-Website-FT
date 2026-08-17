@@ -79,3 +79,56 @@ export const DEFAULT_CAMERA_PREVIEW_MODE: CameraPreviewMode = "live";
 export function parseCameraPreviewMode(v: string | null | undefined): CameraPreviewMode {
   return v === "live" || v === "stills" ? v : DEFAULT_CAMERA_PREVIEW_MODE;
 }
+
+/**
+ * THE ONE PARAMETER WITHOUT WHICH NO BROWSER CAN PLAY THIS: `videoCodec=h264`.
+ *
+ * Nx's transcoder emits **MPEG-4 Part 2** by default (`stsd` → `mp4v` + `esds`;
+ * ffprobe calls it `mpeg4`, Simple Profile). Chrome has never decoded that. So
+ * every transcoded stream we asked for was downloaded in full, parsed, and
+ * refused — which looked exactly like a flaky camera: three attempts, ~2s each,
+ * data flowing the whole time, then a silent fall back to stills. Only the
+ * 720p SUBSTREAM escaped it, because that is passed through untouched and the
+ * camera itself publishes H.264 (at 2fps, which is the other trap above).
+ *
+ * With `videoCodec=h264` the same request returns `avc1` + `avcC` (verified:
+ * avc1.42C01F at 480p, avc1.42C02A at 1080p), and it is far CHEAPER, because
+ * H.264 compresses what MPEG-4 Part 2 could not:
+ *
+ *   480p   60 KB/s as mp4v  ->   31 KB/s as h264
+ *   1080p 589 KB/s as mp4v  ->  118 KB/s as h264
+ *
+ * `codec=` and `transcodingCodec=` are silently IGNORED by Nx — both come back
+ * mpeg4. Only `videoCodec` is honoured, which is why this lives in one tested
+ * place instead of being spelled out at a call site.
+ */
+export const LIVE_VIDEO_CODEC = "h264";
+
+export interface LiveStreamParams {
+  resolution: LiveResolution;
+  ticket: string;
+  dewarp?: {
+    xAngle: number;
+    yAngle: number;
+    fov: number;
+    panoFactor: number;
+  };
+}
+
+/** The query for a live media.mp4, as a browser needs it. Pure so the codec
+ *  cannot quietly go missing again — see the test. */
+export function liveStreamQuery({ resolution, ticket, dewarp }: LiveStreamParams): URLSearchParams {
+  const params = new URLSearchParams({
+    resolution,
+    videoCodec: LIVE_VIDEO_CODEC,
+    _ticket: ticket,
+  });
+  if (dewarp) {
+    params.set("dewarping", "true");
+    params.set("dewarpingXangle", String(dewarp.xAngle));
+    params.set("dewarpingYangle", String(dewarp.yAngle));
+    params.set("dewarpingFov", String(dewarp.fov));
+    params.set("dewarpingPanofactor", String(dewarp.panoFactor));
+  }
+  return params;
+}
