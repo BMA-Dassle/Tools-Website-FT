@@ -366,13 +366,14 @@ export default function RaceControlPanels({
   const expandedStatus = expanded ? (board?.rooms.find((r) => r.room === expanded) ?? null) : null;
 
   /**
-   * WHICH COLUMN OWNS A TRACK'S LANE.
+   * WHICH HOLDING PEN THE UNIFIED MEGA ROW WATCHES.
    *
-   * There is one pit lane per TRACK but two room columns, and on a Mega day both
-   * rooms serve the one circuit — so a naive render would put the same holding
-   * group, and the same "race returned" button, in both columns. The lane belongs
-   * to the column whose room the group was briefed in (the holding record carries
-   * it); with nobody in holding it falls to Red so the control still has a home.
+   * On a Mega day the lane renders ONCE, full width, below both columns
+   * (owner 2026-08-17: "unify the whole bottom part — remove the divider and
+   * fill the whole bottom") — so this no longer picks a column, it picks the
+   * holding CAMERA: the pen of the room the current holding group was briefed
+   * in (the record carries it); with nobody in holding it falls to Red so the
+   * preview still has a home.
    */
   const megaLaneOwner: BriefingRoom = board?.lanes?.mega?.holding?.room ?? "red";
 
@@ -541,7 +542,9 @@ export default function RaceControlPanels({
               expandedCamera={expanded}
               onExpandCamera={(target) => control.setExpandedCamera(target)}
               lane={board?.lanes?.[track as "blue" | "red" | "mega"] ?? null}
-              ownsLane={!megaEnabled || room === megaLaneOwner}
+              // On a Mega day NO column owns the lane — it renders once,
+              // full width, below both columns (MegaLaneRow).
+              ownsLane={!megaEnabled}
               suggested={suggestedRoom === room}
               onRaceReturned={() => control.markPitted(track)}
               hasLaunched={control.hasLaunched}
@@ -575,6 +578,24 @@ export default function RaceControlPanels({
             />
           );
         })}
+        {/* THE UNIFIED BOTTOM — Mega only. Everything after the briefing is
+            one single-file lane, so it renders once, spanning both columns,
+            instead of sitting inside one room's column with dead space
+            beside it. */}
+        {megaEnabled && (
+          <MegaLaneRow
+            room={megaLaneOwner}
+            lane={board?.lanes?.mega ?? null}
+            nowMs={nowMs}
+            locked={board?.enabled === false}
+            pending={pending}
+            cameraExpanded={expanded === holdingCameraFor(megaLaneOwner)}
+            onExpandCamera={() => control.setExpandedCamera(holdingCameraFor(megaLaneOwner))}
+            onRaceReturned={() => control.markPitted("mega")}
+            hasLaunched={control.hasLaunched}
+            noteLaunched={control.noteLaunched}
+          />
+        )}
       </div>
 
       {/* TODAY'S BRIEFING LOG — the durable record, one button away.
@@ -1227,7 +1248,16 @@ function RoomColumn({
   // The heat ON TRACK right now, live from the timing system — the same clock
   // the TVs and /leaderboards show (owner 2026-08-11: "add a race timer to
   // checkin?board=1"). In the identity row so it reads even between check-ins.
-  const liveClock = useLiveSessionClock(track as TrackKey);
+  // The launched/hold verdicts ride the same hook the Mega unified lane row
+  // uses — see useLaneVerdicts.
+  const { liveClock, launched, holdLive } = useLaneVerdicts(
+    track,
+    lane,
+    hasLaunched,
+    noteLaunched,
+  );
+  // The late-send warning names the heat the clock is counting.
+  const liveHeatNow = liveClock ? liveHeatNumber(liveClock.heatName) : null;
   const state = status?.state ?? null;
   const timeline = briefingTimelineAt(state, nowMs);
   const occupied = timeline.phase !== "idle";
@@ -1357,54 +1387,6 @@ function RoomColumn({
    * its value, a running one decreases). Matched on heat number, never on track
    * alone, so a neighbouring heat can never empty this group's seats.
    */
-  /**
-   * WHICHEVER SLOT HOLDS THE GROUP WAITING ON THE GREEN — the karts if they have
-   * climbed in, otherwise the seats. The SAME `karts ?? holding` rule the server
-   * promotes on (resolveLane), because a desk that watched a different group than
-   * the server did is a desk that disagrees with its own wall.
-   *
-   * Before In Karts this could only ever be `holding`. Reading only that now
-   * would mean a group who reached the karts first never got its green-flag
-   * verdict, and sat on the board until a finish marker happened to arrive.
-   */
-  const stagedGroup = lane?.karts ?? lane?.holding ?? null;
-  const stagedHeat = stagedGroup?.heatNumber ?? null;
-  const stagedSessionId = stagedGroup?.sessionId ?? null;
-  const liveHeatNow = liveClock ? liveHeatNumber(liveClock.heatName) : null;
-  const countingNow =
-    stagedHeat != null &&
-    liveHeatNow != null &&
-    stagedHeat === liveHeatNow &&
-    liveClock?.counting === true;
-
-  /**
-   * ONCE SEEN RACING, ALWAYS RACED. The clock only publishes while a heat is
-   * running, so the verdict above evaporates the moment the flag drops — and the
-   * group reappeared in seats they had long since left (owner 2026-08-14:
-   * "session 64 both tracks when finished went back to holding state"). The lane
-   * would normally have ended the claim on its finish marker, but that marker
-   * rides the timing webhook and tonight has shown it does not always arrive.
-   *
-   * So the station remembers, above the scan flash, what it watched happen.
-   */
-  useEffect(() => {
-    if (countingNow) noteLaunched(stagedSessionId);
-  }, [countingNow, stagedSessionId, noteLaunched]);
-
-  const launched =
-    stagedHeat != null && (countingNow || hasLaunched(stagedSessionId))
-      ? { heatNumber: stagedHeat, sessionId: stagedSessionId }
-      : null;
-
-  /**
-   * IS THE LANE STILL HELD — i.e. is anybody in the pit with an announcement
-   * still owed. The same rule the pit board's own rail runs (pitRailState in
-   * pit/pit-board.ts), and it is now a single fact: a group sits in `pitIn`
-   * from their chequered flag until their post cue clears them, so the slot
-   * being occupied IS the hold. No pair of timestamps left to compare.
-   */
-  const holdLive = !!lane?.pitIn;
-
   return (
     <div
       style={{
@@ -1828,6 +1810,124 @@ function RoomColumn({
 }
 
 /* ── out of the room ───────────────────────────────────────────────────── */
+
+/**
+ * THE LANE'S THREE VERDICTS, one hook — the live clock, the green-flag memory
+ * and the hold. Extracted from RoomColumn so the Mega board's UNIFIED lane row
+ * (below the columns, full width) reads the identical rules; two copies of
+ * "has this group launched" is how a column and the strip would disagree.
+ *
+ * WHICHEVER SLOT HOLDS THE GROUP WAITING ON THE GREEN — the karts if they have
+ * climbed in, otherwise the seats. The SAME `karts ?? holding` rule the server
+ * promotes on (resolveLane), because a desk that watched a different group
+ * than the server did is a desk that disagrees with its own wall.
+ *
+ * ONCE SEEN RACING, ALWAYS RACED. The clock only publishes while a heat is
+ * running, so the counting verdict evaporates the moment the flag drops — and
+ * the group reappeared in seats they had long since left (owner 2026-08-14:
+ * "session 64 both tracks when finished went back to holding state"). The lane
+ * would normally have ended the claim on its finish marker, but that marker
+ * rides the timing webhook and has been seen not to arrive. So the station
+ * remembers, via noteLaunched/hasLaunched, what it watched happen.
+ *
+ * IS THE LANE STILL HELD — is anybody in the pit with an announcement still
+ * owed. The same rule the pit board's own rail runs (pitRailState in
+ * pit/pit-board.ts): a group sits in `pitIn` from their chequered flag until
+ * their post cue clears them, so the slot being occupied IS the hold.
+ */
+function useLaneVerdicts(
+  track: string,
+  lane: PitLaneFeed | null,
+  hasLaunched: (sessionId: string | null | undefined) => boolean,
+  noteLaunched: (sessionId: string | null | undefined) => void,
+): {
+  liveClock: LiveSessionClock | null;
+  launched: { heatNumber: number; sessionId: string | null } | null;
+  holdLive: boolean;
+} {
+  const liveClock = useLiveSessionClock(track as TrackKey);
+  const stagedGroup = lane?.karts ?? lane?.holding ?? null;
+  const stagedHeat = stagedGroup?.heatNumber ?? null;
+  const stagedSessionId = stagedGroup?.sessionId ?? null;
+  const liveHeatNow = liveClock ? liveHeatNumber(liveClock.heatName) : null;
+  const countingNow =
+    stagedHeat != null &&
+    liveHeatNow != null &&
+    stagedHeat === liveHeatNow &&
+    liveClock?.counting === true;
+
+  useEffect(() => {
+    if (countingNow) noteLaunched(stagedSessionId);
+  }, [countingNow, stagedSessionId, noteLaunched]);
+
+  const launched =
+    stagedHeat != null && (countingNow || hasLaunched(stagedSessionId))
+      ? { heatNumber: stagedHeat, sessionId: stagedSessionId }
+      : null;
+
+  const holdLive = !!lane?.pitIn;
+  return { liveClock, launched, holdLive };
+}
+
+/**
+ * THE UNIFIED LANE ROW — Mega only. Below the two briefing columns the
+ * pipeline is ONE lane (owner 2026-08-16/17: "two possible briefings but
+ * everything after brief is a unified single step… remove the divider and
+ * fill the whole bottom"), so the Out-of-the-room rail stops living inside
+ * one room's column with dead space beside it and spans the full board.
+ * Wears the MEGA violet, not a room's colour — the lane belongs to the
+ * circuit, and the holding camera follows whichever pen the current group
+ * was briefed toward (the parent's megaLaneOwner).
+ */
+function MegaLaneRow({
+  room,
+  lane,
+  nowMs,
+  locked,
+  pending,
+  cameraExpanded,
+  onExpandCamera,
+  onRaceReturned,
+  hasLaunched,
+  noteLaunched,
+}: {
+  room: BriefingRoom;
+  lane: PitLaneFeed | null;
+  nowMs: number;
+  locked: boolean;
+  pending: string | null;
+  cameraExpanded: boolean;
+  onExpandCamera: () => void;
+  onRaceReturned: () => void;
+  hasLaunched: (sessionId: string | null | undefined) => boolean;
+  noteLaunched: (sessionId: string | null | undefined) => void;
+}) {
+  const { liveClock, launched, holdLive } = useLaneVerdicts(
+    "mega",
+    lane,
+    hasLaunched,
+    noteLaunched,
+  );
+  return (
+    <div style={{ gridColumn: "1 / -1", minWidth: 0 }}>
+      <OutOfRoomPanel
+        room={room}
+        track="mega"
+        color={MEGA}
+        lane={lane}
+        liveClock={liveClock}
+        launched={launched}
+        holdLive={holdLive}
+        nowMs={nowMs}
+        locked={locked}
+        pending={pending}
+        cameraExpanded={cameraExpanded}
+        onExpandCamera={onExpandCamera}
+        onRaceReturned={onRaceReturned}
+      />
+    </div>
+  );
+}
 
 /**
  * AN EMPTY STAGE SAYS SO ONCE (owner 2026-08-14: "is the extra nobody in karts,
