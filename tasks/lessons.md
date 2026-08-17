@@ -1,5 +1,58 @@
 # Lessons Learned
 
+## A vendor's guard can be correct and still useless — it read the copy that goes stale (2026-08-16)
+
+Fast WSync's UPLOAD rail wedged for the whole center: `T_PARTICIPANT` 58922217
+referenced a project-person (`63000000008522132`) deleted cloud-side, so every
+retry re-violated `FK_PAR_PRJP_ID` and nothing local — walk-ins, desk edits,
+onsite check-ins — reached the cloud. Second time in five days. Full writeup:
+[docs/postmortems/2026-08-16-wsync-fk-orphan-jam.md](../docs/postmortems/2026-08-16-wsync-fk-orphan-jam.md).
+
+1. **A guard is only as fresh as the copy it reads.** Pandora's `/bmi/schedule`
+   already refuses a racer whose project-person is missing — it calls
+   `getProjectPersonId(centerIP, …)` and skips with `person_not_on_project`. But
+   `centerIP` means the CENTER'S LOCAL table, and in the window after a
+   cloud-side delete that copy is stale-PRESENT. The check passed, the
+   participant was written, the delete landed moments later. Before concluding
+   "the vendor already validates this", ask **which replica** it validates
+   against. Ours now asks the cloud, where deletes land first.
+2. **Repairing the row does not clear the queue.** Nulling `T_PARTICIPANT`'s FK
+   changed nothing: WSync replays from `W_PARTICIPANT`, which still held the old
+   revision (`13431524507100005`) with the dead id, while the live row had moved
+   on to `13431524534936000`. `T_` = current, `W_` = pending upload, `X_` =
+   audit/history (never touch). When a sync error names a VERSION, check whether
+   that version still exists in the live table before assuming the error is
+   stale.
+3. **The error text named a column that does not exist.** It prints
+   `F_PRJ_ID`; the real FK column is `F_PRJP_ID`, and the constraint points at
+   `T_PROJECT_PERSON`, not `T_PROJECT`. Let `RDB$RELATION_CONSTRAINTS` name the
+   parent table and column rather than trusting the message or guessing a name.
+4. **"Not in Neon" does not exonerate our code.** The 8/11 note dismissed that
+   jam as "not our bookings". But our kiosk checks in reservations we did not
+   book, and `/bmi/schedule` is keyed by W-number — a desk-booked reservation
+   checked in at our kiosk hits the same path. Absence from `bowling_reservations`
+   says nothing about whether our rail touched the record.
+5. **Verify an endpoint's semantics before building a gate on it.**
+   `race/next` looked like the obvious "is this racer on a grid" probe. Probed
+   live, it 404s for a racer seated earlier the SAME day (it only looks forward)
+   and returned a **2023** session as "upcoming" for someone else. The seated
+   gate reads session participants instead.
+6. **Gate on the world, not on our own status column.** The tempting source for
+   "is the party seated" was `kiosk_checkin_people.schedule_status` — which
+   `server.ts` already warns goes stale the moment staff hand-seat someone. A
+   hand-seated party would never flip, turning a gate into a permanent block.
+7. **A hold is only safe if something re-drives it.** Held racers are classified
+   `waiting`, never `refused`, because the sweep re-attaches and re-seats them
+   every 2 minutes. The guard also fails OPEN on an unreadable roster. A guard
+   that can strand a real racer is worse than the jam it prevents.
+8. **Office `search?token=W…` is FUZZY.** A nonexistent W still returns
+   `kind===2` rows for unrelated reservations (`W61280` → `"Josh Lund (№W48037)"`).
+   It reported a cloud frontier of W61299 when the truth was W61279. Always
+   confirm with `GET /project/{localId}` and require `project.number` to match.
+9. **Measure BOTH rails before calling sync healthy.** Downloads were fully
+   current (cloud and local both at W61279) while uploads were hard-wedged. One
+   frontier reading tells you nothing about the other direction.
+
 ## A tolerance belongs to the STAMP, not to the comparison — and an ops tool that rebuilds from a subset of the server's facts will contradict the wall (2026-08-13)
 
 **What happened:** the briefing wall showed 7 POV cameras on the chase list. Two of
