@@ -19,6 +19,8 @@ function track(over: Partial<TrackOnTime> = {}): TrackOnTime {
     dayOffsetMedianMin: 18.2,
     dayOffsetP90Min: 24.9,
     dayOffsetN: 54,
+    feedStale: false,
+    lastSignalAtMs: NOW,
     ...over,
   };
 }

@@ -1094,7 +1094,16 @@ function makeHeatPickerComponent(
                       })}
                     </div>
                   ) : (
-                    <div className="mb-2 text-xs text-white/40">→ {formatTime(block.stop)}</div>
+                    /* WEB: no second time at all, rather than the old
+                       "→ {block.stop}". That value is BMI's session end — the
+                       slot plus the 7-minute race length — so it claimed the
+                       guest raced 3:00-3:07 and was finished, while the flag
+                       actually drops a median 16 min after the slot. Removing a
+                       wrong line is not the same change as the kiosk's karting
+                       labelling, which stays off web on purpose (Express Lane is
+                       unknown at pick time — see KartingCheckInContext). Web has
+                       no honest second time to offer yet, so it offers none. */
+                    <div className="mb-2" />
                   )}
                   <div className="mb-1 text-xs font-medium text-white/60">{block.name}</div>
                   <div className={`text-[13px] font-medium ${statusClass}`}>{statusLabel}</div>

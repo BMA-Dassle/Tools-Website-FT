@@ -101,6 +101,25 @@ export const MIN_DAY_OFFSET_HEATS = 6;
  */
 export const DEFAULT_RACE_BY_ALLOWANCE_MIN = 30;
 
+/**
+ * A track that has run heats today but has reported NOTHING for this long is a
+ * suspected outage rather than a quiet night.
+ *
+ * This exists because green is the default (owner 2026-08-17: "if no data or
+ * outside of business hours just mark tracks as on-time"), and that default has
+ * one hole: a dead bridge and a finished night look identical, so a board would
+ * read "On Time" while a track ran twenty minutes behind. The distinguishing fact
+ * is that heats ALREADY RAN today — an empty night never had any.
+ *
+ * 40 minutes is a bit over three heats on a 12-minute grid, so an ordinary gap
+ * (a long turnaround, a stoppage, a track reset) never trips it.
+ *
+ * STAFF SURFACES ONLY. This must not turn a guest wall amber — a guest cannot
+ * act on our data pipe, and the owner's decision was explicitly that guest boards
+ * stay green.
+ */
+export const STALE_FEED_MS = 40 * 60_000;
+
 /** One heat, as much as we know about it. Any field may be null — half of these
  *  only exist for heats that got far enough to have them. */
 export interface OnTimeHeat {
@@ -172,6 +191,16 @@ export interface TrackOnTime {
   dayOffsetP90Min: number | null;
   /** How many completed heats the two figures above were taken over. */
   dayOffsetN: number;
+  /**
+   * Heats ran today, but nothing has reported for STALE_FEED_MS — a suspected
+   * dead feed rather than a finished night.
+   *
+   * The ONE hole in default-green, surfaced for staff only. False on a night that
+   * never started, because an empty night has no heats to have gone quiet.
+   */
+  feedStale: boolean;
+  /** When this track last told us anything (a call or a green flag). */
+  lastSignalAtMs: number | null;
 }
 
 /**
@@ -283,6 +312,20 @@ export function trackOnTime(track: string, heats: OnTimeHeat[], nowMs: number): 
     .sort((a, b) => a - b);
   const enough = dayOffsets.length >= MIN_DAY_OFFSET_HEATS;
 
+  // The most recent thing this track told us, of any kind — a call or a flag.
+  // Both are pushes from a live pipe, so either one arriving means it is alive.
+  const lastSignalAtMs = mine.reduce<number | null>((acc, h) => {
+    const stamps = [h.calledAtMs, h.actualStartMs].filter(
+      (v): v is number => v != null && Number.isFinite(v),
+    );
+    const newest = stamps.length ? Math.max(...stamps) : null;
+    return newest != null && (acc == null || newest > acc) ? newest : acc;
+  }, null);
+
+  // A night that never started has nothing to have gone quiet — feedStale is
+  // about a pipe that WAS delivering and stopped.
+  const feedStale = lastSignalAtMs !== null && nowMs - lastSignalAtMs > STALE_FEED_MS;
+
   return {
     track,
     status: med === null ? "unknown" : med > LATE_CALL_MIN ? "behind" : "on-time",
@@ -295,6 +338,8 @@ export function trackOnTime(track: string, heats: OnTimeHeat[], nowMs: number): 
     dayOffsetMedianMin: enough ? round1(median(dayOffsets) as number) : null,
     dayOffsetP90Min: enough ? round1(percentile(dayOffsets, 90)) : null,
     dayOffsetN: dayOffsets.length,
+    feedStale,
+    lastSignalAtMs,
   };
 }
 

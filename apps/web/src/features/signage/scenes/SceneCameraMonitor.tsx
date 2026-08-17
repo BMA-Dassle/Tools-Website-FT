@@ -786,9 +786,15 @@ function StatusBar({
   // The sub-line is where this board earns its keep over the guest walls: it is
   // the marshal's, so it names the EXCEPTION, and it is the one place allowed to
   // admit we are green because we know nothing rather than because all is well.
-  const sub = d.insufficientData
-    ? "Not enough of tonight measured yet"
-    : worst !== null
+  const sub = d.feedStale
+    ? // THE ONE HOLE IN DEFAULT-GREEN, named. Heats ran tonight and then the feed
+      // went silent, so this slab is green because we stopped hearing anything —
+      // not because the track is fine. Only this board says so: a guest cannot act
+      // on our data pipe, and the owner's call was that guest walls stay green.
+      "No timing data for 40+ min — status may be stale"
+    : d.insufficientData
+      ? "Not enough of tonight measured yet"
+      : worst !== null
       ? `Heat ${worst.heatNumber ?? "?"} called ${Math.round(worst.delayMin)} min late` +
         (d.lateCalls.length > 1 ? ` · ${d.lateCalls.length} late this hour` : "")
       : // Carry the sample size: a median over one heat must not read with the

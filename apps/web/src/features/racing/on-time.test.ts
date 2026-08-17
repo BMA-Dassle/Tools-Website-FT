@@ -189,6 +189,68 @@ describe("trackOnTime", () => {
     expect(r.callDelayN).toBe(0);
     expect(r.lateCalls).toEqual([]);
   });
+
+  describe("today's check-in → race span", () => {
+    /** N heats, each 12 min apart, going green `offsets[i]` min after its slot. */
+    const night = (offsets: number[]) =>
+      offsets.map((o, i) =>
+        heat({ id: `h${i}`, n: i + 1, slotMin: i * 12, calledOffset: -5, flagOffset: o }),
+      );
+
+    it("is null until enough heats have run to mean anything", () => {
+      const r = trackOnTime("blue", night([10, 20, 30]), now);
+      expect(r.dayOffsetN).toBe(3);
+      expect(r.dayOffsetP90Min).toBeNull();
+      expect(r.dayOffsetMedianMin).toBeNull();
+    });
+
+    it("reports the median and p90 once the night has run", () => {
+      const r = trackOnTime("blue", night([10, 12, 14, 16, 18, 25]), now);
+      expect(r.dayOffsetN).toBe(6);
+      expect(r.dayOffsetMedianMin).toBe(15);
+      // Nearest-rank p90 of 6 values is the 6th — the slowest.
+      expect(r.dayOffsetP90Min).toBe(25);
+    });
+
+    it("never counts a heat whose offset was implausible", () => {
+      // Mega's nominal slots produce 47-56 min; those are dropped upstream by
+      // flagOffsetMin, so they must not inflate the day's bound either.
+      const r = trackOnTime("blue", night([10, 12, 14, 16, 18, 56]), now);
+      expect(r.dayOffsetN).toBe(5);
+      expect(r.dayOffsetP90Min).toBeNull(); // 5 < MIN_DAY_OFFSET_HEATS
+    });
+  });
+
+  describe("feedStale — the one hole in default-green", () => {
+    it("is false on a night that never started", () => {
+      // Nothing to have gone quiet: a closed building is not a broken pipe.
+      expect(trackOnTime("blue", [], now).feedStale).toBe(false);
+    });
+
+    it("is false while the feed is talking", () => {
+      // `now` is T0+60, so a heat slotted at +55 was called ~10 min ago.
+      const r = trackOnTime("blue", [heat({ id: "1", slotMin: 55, calledOffset: -5 })], now);
+      expect(r.feedStale).toBe(false);
+    });
+
+    it("goes true when heats ran and then nothing reported for 40+ min", () => {
+      // Called an hour before "now" and never heard from again.
+      const h = heat({ id: "1", slotMin: -70, calledOffset: -5 });
+      const r = trackOnTime("blue", [h], now);
+      expect(r.feedStale).toBe(true);
+      expect(r.lastSignalAtMs).toBe(h.calledAtMs);
+    });
+
+    it("takes the NEWEST signal, so a late green flag keeps it alive", () => {
+      const h = {
+        ...heat({ id: "1", slotMin: -70, calledOffset: -5 }),
+        actualStartMs: now - min(5),
+      };
+      const r = trackOnTime("blue", [h], now);
+      expect(r.feedStale).toBe(false);
+      expect(r.lastSignalAtMs).toBe(now - min(5));
+    });
+  });
 });
 
 describe("onTimeByTrack", () => {

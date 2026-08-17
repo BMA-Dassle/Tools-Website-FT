@@ -83,6 +83,15 @@ export interface TrackDisplay {
    * guest-facing headline stays green. Do not use it to blank a board.
    */
   insufficientData: boolean;
+  /**
+   * Heats ran today and then the feed went quiet — a suspected outage.
+   *
+   * STAFF SURFACES ONLY, and never the verdict or the tone. Default-green means a
+   * dead pipe and a finished night look identical to a guest; this is how the one
+   * board with a marshal standing in front of it can tell them apart. A guest
+   * cannot act on our data pipe, so guest walls stay green regardless.
+   */
+  feedStale: boolean;
 }
 
 /**
@@ -142,6 +151,9 @@ export function trackDisplay(
       callDelayMin: null,
       callDelayN: 0,
       insufficientData: true,
+      // No track entry means no heats ran, which is a closed building rather
+      // than a broken pipe.
+      feedStale: t?.feedStale ?? false,
     };
   }
 
@@ -160,6 +172,7 @@ export function trackDisplay(
     callDelayMin: t.callDelayMin,
     callDelayN: t.callDelayN,
     insufficientData: false,
+    feedStale: t.feedStale,
   };
 }
 
