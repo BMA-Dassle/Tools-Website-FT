@@ -51,6 +51,10 @@ describe("no unmeasured duration claims", () => {
     expect(others).toEqual(["thenKartingBy"]);
   });
 
+  // STILL ZERO DURATION CLAIMS IN THIS MODULE. The kiosk heat grid does now quote
+  // an allowance, but it lives in the kiosk i18n catalog (race.heat.bannerAllowance)
+  // because it needs a Spanish twin, and the number itself is computed from the day
+  // in features/racing/on-time.ts. Nothing here may assert how long anything takes.
   it.each(strings)("%s makes no duration claim", (_name, value) => {
     // "30 min", "about 20 minutes", "~45 mins", "30-45 min" ...
     expect(value).not.toMatch(/\d+\s*(?:-\s*\d+\s*)?(?:min|minute|hour|hr)/i);

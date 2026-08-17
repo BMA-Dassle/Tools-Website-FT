@@ -15,15 +15,40 @@
  * generic "check in by" string to this file — there is deliberately no such
  * export, so a surface cannot reach for the ambiguous one.
  *
- * NO DURATION CLAIMS LIVE HERE. This file used to say "your race begins about
- * 30 min after check-in". Measured against `race_timings` (n=65): booked slot ->
- * green flag is p50 9.4 min, p95 15.7, max 23.9, and min -2.5 — some heats go
- * green BEFORE the booked minute. The 30 was wrong by ~3x in the direction that
- * costs guests their grid slot, and its "after check-in" anchor named whichever
- * desk the surrounding page was about (a standard guest reading it beside the
- * Guest Services time computes 7:15 + 30 = 7:45, landing exactly on the karting
- * cut-off — our own copy handing him the arithmetic for the mistake).
- * Say SEQUENCE, not duration, until the pace has been measured across weekends.
+ * STILL NO DURATION CLAIMS IN THIS FILE — but the pace has now been measured, so
+ * here is what the measurement says, for whoever reaches for a duration next.
+ *
+ * This file used to say "your race begins about 30 min after check-in" — an
+ * AVERAGE claim, and wrong by ~3x. Deleted 2026-08-13 with the note "say
+ * SEQUENCE, not duration, until the pace has been measured across weekends".
+ *
+ * Measured twice since, on the KARTING anchor both times (booked slot -> green
+ * flag):
+ *
+ *   2026-08-13   n=65    p50  9.4   p95 15.7   max 23.9   min -2.5
+ *   2026-08-16   n=100   p50 16.1   p90 24.9   max 32.0   (blue+red, Saturday)
+ *
+ * So the honest form is an ALLOWANCE, not an estimate: "allow up to 30 minutes"
+ * is true of ~99 heats in 100 and is safe in the direction that matters — a
+ * guest who plans for 30 and races at +16 is early, which costs nothing, while
+ * the old "about 30" sent people away for half an hour.
+ *
+ * CAVEATS THE NEXT PERSON MUST KNOW BEFORE TRUSTING THE 30:
+ *  - it is EXCEEDED. One heat in the 8/16 sample took 32.0 min. "Up to" is a
+ *    planning allowance, not a guarantee, and the copy must never promise it.
+ *  - only ONE weekend day is in the sample, so the 8/13 bar ("across weekends")
+ *    is not fully met. The number is an owner decision (2026-08-17) taken on
+ *    this evidence, not a statistic that earned its own way in.
+ *  - it is anchored to KARTING check-in, never to Guest Services. Adding 30 to
+ *    the Guest Services time lands a standard guest exactly on the karting
+ *    cut-off, which is the original defect this file exists to prevent.
+ *
+ * WHERE THE ALLOWANCE ACTUALLY LIVES: the kiosk heat grid quotes it, from the
+ * i18n catalog (`race.heat.bannerAllowance`, EN + ES) with the number computed
+ * per-day in features/racing/on-time.ts — today's p90 where the night has run
+ * enough heats, this 30 as the floor when it has not. It is NOT exported from
+ * here, because a Spanish twin is required and this module is English-only. The
+ * guard test still fails the build on any duration string added to THIS file.
  *
  * Imported by both client components (app/t/[id]/*) and server-side
  * email/SMS builders, so wording changes land everywhere at once.

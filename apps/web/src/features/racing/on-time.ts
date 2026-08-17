@@ -82,6 +82,25 @@ export const RECENT_CALL_MS = 75 * 60_000;
  */
 export const MAX_PLAUSIBLE_OFFSET_MIN = 45;
 
+/**
+ * Completed heats needed before today's check-in → race span is worth quoting.
+ *
+ * Below this, a p90 is just "the slowest of a handful" and would swing the
+ * estimate on every card in a grid that shows heats hours ahead. Six covers
+ * roughly the first hour of a track's night, after which the figure settles.
+ */
+export const MIN_DAY_OFFSET_HEATS = 6;
+
+/**
+ * The fallback allowance, minutes, when today has not run enough heats yet.
+ *
+ * Measured, bounded, and deliberately an ALLOWANCE rather than an estimate — see
+ * the duration note in lib/karting-checkin-copy.ts for the two samples behind it
+ * and, more importantly, for the caveats (it was exceeded once in 100 heats, and
+ * only one weekend day is in the sample).
+ */
+export const DEFAULT_RACE_BY_ALLOWANCE_MIN = 30;
+
 /** One heat, as much as we know about it. Any field may be null — half of these
  *  only exist for heats that got far enough to have them. */
 export interface OnTimeHeat {
@@ -135,6 +154,24 @@ export interface TrackOnTime {
   /** Which heat that offset came from, so a board can say how stale it is. */
   flagOffsetHeatNumber: number | null;
   flagOffsetAtMs: number | null;
+  /**
+   * TODAY'S CHECK-IN → RACE SPAN, over every heat on this track that has already
+   * gone green. Owner 2026-08-17: "the race by can get more accurate using the
+   * check in to race estimate time for the day."
+   *
+   * `p90` is the one a "racing by" bound should use — it is a planning allowance,
+   * so the typical case (the median) would be beaten by nearly half the field and
+   * the max is one bad heat away from nonsense. The median rides along because it
+   * is the honest answer to "how long does this usually take".
+   *
+   * Null until `dayOffsetN` clears MIN_DAY_OFFSET_HEATS: a p90 over three heats
+   * is just the slowest of three, and a booking grid showing heats four hours out
+   * must not swing on that.
+   */
+  dayOffsetMedianMin: number | null;
+  dayOffsetP90Min: number | null;
+  /** How many completed heats the two figures above were taken over. */
+  dayOffsetN: number;
 }
 
 /**
@@ -237,6 +274,15 @@ export function trackOnTime(track: string, heats: OnTimeHeat[], nowMs: number): 
     .sort((a, b) => (a.actualStartMs ?? 0) - (b.actualStartMs ?? 0));
   const last = started.length ? started[started.length - 1] : null;
 
+  // ── today's check-in → race span, across the whole night so far ──
+  // Every completed heat, not a rolling window: a booking grid quotes heats
+  // hours ahead, so it wants the day's shape rather than the last twenty minutes.
+  const dayOffsets = started
+    .map((h) => flagOffsetMin(h))
+    .filter((v): v is number => v !== null)
+    .sort((a, b) => a - b);
+  const enough = dayOffsets.length >= MIN_DAY_OFFSET_HEATS;
+
   return {
     track,
     status: med === null ? "unknown" : med > LATE_CALL_MIN ? "behind" : "on-time",
@@ -246,7 +292,17 @@ export function trackOnTime(track: string, heats: OnTimeHeat[], nowMs: number): 
     flagOffsetMin: last ? flagOffsetMin(last) : null,
     flagOffsetHeatNumber: last?.heatNumber ?? null,
     flagOffsetAtMs: last?.actualStartMs ?? null,
+    dayOffsetMedianMin: enough ? round1(median(dayOffsets) as number) : null,
+    dayOffsetP90Min: enough ? round1(percentile(dayOffsets, 90)) : null,
+    dayOffsetN: dayOffsets.length,
   };
+}
+
+/** Nearest-rank percentile of an already-sorted list. Small n by design here —
+ *  a night is tens of heats, so there is nothing to gain from interpolating. */
+function percentile(sorted: number[], p: number): number {
+  const i = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
+  return sorted[i];
 }
 
 /** Every track present in the data, folded. */

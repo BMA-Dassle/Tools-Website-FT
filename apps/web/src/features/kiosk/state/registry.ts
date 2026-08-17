@@ -6,6 +6,10 @@
  * web registry — zero risk to the live booking flow.
  */
 import { STEP_REGISTRY, type SessionItem, type StepDef } from "~/features/booking";
+import {
+  RaceHeatPickerStepAdultKiosk,
+  RaceHeatPickerStepJuniorKiosk,
+} from "~/components/features/booking/steps/race/RaceHeatPickerStep";
 import { classicOnly, hiddenForDuckpin } from "~/features/booking/state/steps";
 import { getPackage } from "@/lib/packages";
 import { KioskSlotStep } from "../steps/KioskSlotStep";
@@ -104,6 +108,19 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     // menu"); KioskFlow treats the cursor landing past combo-start as
     // combo-complete and returns to the category chooser.
     STEP_REGISTRY.race
+      // KARTING CHECK-IN treatment on the heat grid — kiosk only. The guest is
+      // already in the building at the karting end, so the karting desk is the
+      // only check-in the screen can mean; on the web, Express Lane is unknown at
+      // pick time and the label would risk sending a standard guest to the wrong
+      // floor (owner 2026-08-17). Same step ids, so breadcrumbs and canAdvance
+      // are untouched — see RaceHeatPickerStep's kiosk variants.
+      .map((s) =>
+        s.id === "race-heat-adult"
+          ? (RaceHeatPickerStepAdultKiosk as StepDef)
+          : s.id === "race-heat-junior"
+            ? (RaceHeatPickerStepJuniorKiosk as StepDef)
+            : s,
+      )
       .filter(
         (s) =>
           s.id !== "race-date" &&

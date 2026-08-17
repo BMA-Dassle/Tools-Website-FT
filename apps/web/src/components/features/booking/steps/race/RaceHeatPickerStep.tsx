@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PartyMember, RaceHeatAssignment, RaceItem, StepDef } from "~/features/booking";
 import {
@@ -45,6 +45,11 @@ import { packageComponentsCovered } from "~/features/booking/service/package-pic
 import { PackageHeatPicker } from "./PackageHeatPicker";
 import { useEagerHeatHold } from "./useEagerHeatHold";
 import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track-visuals";
+import KartingCheckInBanner from "./KartingCheckInBanner";
+import { useTrackStatus } from "@/hooks/useTrackStatus";
+import { useT } from "~/features/kiosk/i18n";
+import type { OnTimeSnapshot } from "~/features/racing/on-time";
+import { raceByAtMs } from "~/features/racing/on-time-display";
 
 /**
  * Race step — pick heats for ONE category (adult or junior).
@@ -143,6 +148,16 @@ function formatTime(iso: string): string {
   });
 }
 
+/** Same clock format from epoch ms — the "racing by" estimate is arithmetic on a
+ *  slot, so it never has an ISO string to start from. */
+function formatMs(ms: number): string {
+  return new Date(ms).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
 function spotsLabel(free: number, capacity: number): { text: string; label: string } {
   if (free === 0) return { text: "text-red-400", label: "Full" };
   if (free / capacity <= 0.3) {
@@ -202,7 +217,50 @@ function entriesForPick(
   }));
 }
 
-function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Component"] {
+/**
+ * KIOSK-ONLY karting-check-in treatment, shared down to the cards.
+ *
+ * Owner 2026-08-17: "do only kiosk for now because web would get confusing on
+ * when they check in upstairs or karting. Label check in here as Karting Check
+ * In."
+ *
+ * That is the right call and the reason is structural: at heat-pick time we do
+ * not yet know whether the party will be Express Lane. A standard web guest must
+ * be at GUEST SERVICES on the 2nd floor half an hour earlier, so stamping
+ * "Karting Check In" on a web card would send them to the wrong floor. On a kiosk
+ * the guest is already standing in the building, at the karting end of it, and
+ * the karting desk is the only check-in the screen can mean.
+ *
+ * WHY A CONTEXT RATHER THAN A PROP THREADED DOWN: the estimate needs the live
+ * on-time snapshot, and a hook per card would mount twenty pollers on a
+ * twenty-heat grid. The kiosk variant calls `useTrackStatus` ONCE and publishes
+ * it here; the web variant never mounts the provider, so the web booking flow
+ * gains no polling at all and its cards read the inert default.
+ */
+interface KartingCheckInCtx {
+  enabled: boolean;
+  onTime: OnTimeSnapshot | null;
+}
+const KartingCheckInContext = createContext<KartingCheckInCtx>({
+  enabled: false,
+  onTime: null,
+});
+
+/** Mounted by the kiosk variant only. One poll for the whole grid. */
+function KartingCheckInProvider({ children }: { children: React.ReactNode }) {
+  const status = useTrackStatus();
+  const value = useMemo<KartingCheckInCtx>(
+    () => ({ enabled: true, onTime: status?.onTime ?? null }),
+    [status?.onTime],
+  );
+  return <KartingCheckInContext.Provider value={value}>{children}</KartingCheckInContext.Provider>;
+}
+
+function makeHeatPickerComponent(
+  category: Category,
+  /** Kiosk only — see KartingCheckInContext above. */
+  kartingCheckIn = false,
+): StepDef<RaceItem>["Component"] {
   const Component: StepDef<RaceItem>["Component"] = ({
     item,
     session,
@@ -286,6 +344,10 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     dispatch,
     setBusy,
   }) => {
+    const t = useT();
+    // Inert on web — the provider is only mounted by the kiosk variant, so the
+    // web booking flow gains no polling and its cards render exactly as before.
+    const { enabled: kartingEnabled, onTime: kartingOnTime } = useContext(KartingCheckInContext);
     const racers = racersOfCategory(session.party, category);
     const partySize = racers.length;
     const productId = productIdForCategory(item, category);
@@ -761,6 +823,14 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           </p>
         </div>
 
+        {/* KIOSK ONLY — the strip above the grid was empty, and this is the first
+            place a guest ever sees one of these times. Owner 2026-08-17: "in all
+            that empty space at the top I think we need to utilize it better."
+            Not on web: see the note on KartingCheckInContext. */}
+        {kartingEnabled && (
+          <KartingCheckInBanner tracks={gridTracks.map((tr) => tr.toLowerCase())} />
+        )}
+
         {/* Racer count summary — v1 HeatPicker:251-258 */}
         <div className="bg-white/3 mx-auto max-w-sm rounded-xl border border-white/8 p-3 text-center">
           <p className="text-xs text-white/50">
@@ -993,10 +1063,39 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                       </span>
                     </div>
                   )}
+                  {/* KIOSK: the big time is a KARTING check-in deadline and now
+                      says so. Unlabelled it read as a race time — the defect
+                      lib/karting-checkin-copy.ts exists to prevent. Not on web:
+                      Express Lane is unknown at pick time, so naming the karting
+                      desk there could send a standard guest to the wrong floor. */}
+                  {kartingEnabled && (
+                    <div className="text-[10px] font-bold tracking-wide text-white/45 uppercase">
+                      {t("race.heat.kartingCheckIn")}
+                    </div>
+                  )}
                   <div className="mb-0.5 text-base font-bold text-white">
                     {formatTime(block.start)}
                   </div>
-                  <div className="mb-2 text-xs text-white/40">→ {formatTime(block.stop)}</div>
+                  {kartingEnabled ? (
+                    /* Replaces "→ {block.stop}". `stop` is BMI's session end —
+                       the slot plus the 7-minute race length — so the card
+                       claimed the guest raced 3:00-3:07 and was finished, while
+                       the flag actually drops a median 16 min after the slot.
+                       This answers the question that range was being read for. */
+                    <div className="mb-2 text-xs text-white/40">
+                      {t("race.heat.racingBy", {
+                        time: formatMs(
+                          raceByAtMs(
+                            parseLocal(block.start).getTime(),
+                            kartingOnTime,
+                            (tp.track ?? "").toLowerCase(),
+                          ),
+                        ),
+                      })}
+                    </div>
+                  ) : (
+                    <div className="mb-2 text-xs text-white/40">→ {formatTime(block.stop)}</div>
+                  )}
                   <div className="mb-1 text-xs font-medium text-white/60">{block.name}</div>
                   <div className={`text-[13px] font-medium ${statusClass}`}>{statusLabel}</div>
                   <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
@@ -1089,7 +1188,17 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       </div>
     );
   };
-  return Component;
+  if (!kartingCheckIn) return Component;
+
+  // The provider has to sit OUTSIDE the component that reads the context, so the
+  // kiosk variant is a thin wrapper rather than a flag inside the body.
+  const KioskComponent: StepDef<RaceItem>["Component"] = (props) => (
+    <KartingCheckInProvider>
+      <Component {...props} />
+    </KartingCheckInProvider>
+  );
+  KioskComponent.displayName = `KioskHeatPicker(${category})`;
+  return KioskComponent;
 }
 
 function hasCategory(session: { party: PartyMember[] }, category: Category): boolean {
@@ -1181,4 +1290,22 @@ export const RaceHeatPickerStepJunior: StepDef<RaceItem> = {
   Component: makeHeatPickerComponent("junior"),
   isVisible: (_item, session) => hasCategory(session, "junior"),
   canAdvance: (item, session) => canAdvanceFor(item, session, "junior"),
+};
+
+/**
+ * KIOSK VARIANTS — same step, plus the karting-check-in treatment.
+ *
+ * Identical ids so the kiosk registry can swap them in with `replaceStep` and
+ * every breadcrumb, URL hash and canAdvance gate keeps working. The ONLY
+ * difference is that the karting context is mounted; see
+ * KartingCheckInContext for why this is kiosk-only.
+ */
+export const RaceHeatPickerStepAdultKiosk: StepDef<RaceItem> = {
+  ...RaceHeatPickerStepAdult,
+  Component: makeHeatPickerComponent("adult", true),
+};
+
+export const RaceHeatPickerStepJuniorKiosk: StepDef<RaceItem> = {
+  ...RaceHeatPickerStepJunior,
+  Component: makeHeatPickerComponent("junior", true),
 };

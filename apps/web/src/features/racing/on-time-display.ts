@@ -33,7 +33,7 @@
  * ourselves 4% on-time while actually hitting check-in 90% of the time.
  */
 import type { OnTimeSnapshot, TrackOnTime } from "./on-time";
-import { LATE_CALL_MIN } from "./on-time";
+import { DEFAULT_RACE_BY_ALLOWANCE_MIN, LATE_CALL_MIN, MAX_PLAUSIBLE_OFFSET_MIN } from "./on-time";
 
 /**
  * How a surface should colour itself.
@@ -161,6 +161,47 @@ export function trackDisplay(
     callDelayN: t.callDelayN,
     insufficientData: false,
   };
+}
+
+/**
+ * HOW LONG TO ALLOW between karting check-in and the green flag, minutes.
+ *
+ * Owner 2026-08-17: "the race by can get more accurate using the check in to
+ * race estimate time for the day" — and "if no data for the day use 30 minutes".
+ *
+ * So: today's own p90 across every completed heat on that track once enough have
+ * run (MIN_DAY_OFFSET_HEATS), otherwise the measured 30-minute allowance. p90 and
+ * not the median, because this feeds a "by" — a bound half the field beats is not
+ * a bound. Clamped to MAX_PLAUSIBLE_OFFSET_MIN so a data artefact (Mega's nominal
+ * slots, a stale id paired with the wrong race) cannot put an absurd hour on a
+ * booking card.
+ *
+ * ALWAYS AN ESTIMATE, and the caller must say so — every surface renders it
+ * behind an "Est." The number moves through the night by design.
+ */
+export function raceByAllowanceMin(snapshot: OnTimeSnapshot | null, track: string): number {
+  const p90 = snapshot?.tracks?.[track]?.dayOffsetP90Min ?? null;
+  if (p90 === null || !Number.isFinite(p90)) return DEFAULT_RACE_BY_ALLOWANCE_MIN;
+  // A negative p90 would mean the whole day went green before its slots, which is
+  // not a thing a guest should be told to plan around.
+  return Math.min(Math.max(p90, 0), MAX_PLAUSIBLE_OFFSET_MIN);
+}
+
+/**
+ * When to tell a guest they will be racing BY, given their heat's check-in slot.
+ *
+ * Rounded UP to the next 5 minutes, deliberately: this is a bound, so rounding
+ * down would make it wrong in the one direction that costs someone their grid
+ * slot.
+ */
+export function raceByAtMs(
+  checkInAtMs: number,
+  snapshot: OnTimeSnapshot | null,
+  track: string,
+): number {
+  const at = checkInAtMs + raceByAllowanceMin(snapshot, track) * 60_000;
+  const five = 5 * 60_000;
+  return Math.ceil(at / five) * five;
 }
 
 /**

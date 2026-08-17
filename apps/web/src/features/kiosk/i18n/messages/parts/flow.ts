@@ -166,6 +166,31 @@ export const flowEn = {
   "raceWarning.juniorStarter.continue": "Continue with Junior Starter",
   "raceWarning.juniorStarter.upsell": "Book Ultimate Qualifier instead",
 
+  // --- Heat grid: what the times on the cards MEAN (kiosk only) -------------
+  //
+  // The grid is the first place a guest ever sees one of these times, so getting
+  // the model right here saves every later surface from undoing it.
+  //
+  // KIOSK ONLY, deliberately. At pick time we do not know whether the party will
+  // be Express Lane, and a standard guest checks in at GUEST SERVICES on the 2nd
+  // floor half an hour earlier — so naming the karting desk on the web could send
+  // them to the wrong floor (owner 2026-08-17). On a kiosk the guest is already in
+  // the building at the karting end, and the karting desk is the only check-in the
+  // screen can mean.
+  //
+  // The English here mirrors lib/karting-checkin-copy.ts, which stays the source
+  // of truth for every non-kiosk surface. The place is spelled out rather than
+  // interpolated from that module so the Spanish can translate it.
+  "race.heat.kartingCheckIn": "Karting Check In",
+  // "Est." is load-bearing (owner 2026-08-17: "make sure we put est.") — the
+  // number moves through the night and must never read as a promise.
+  "race.heat.racingBy": "Est. racing by {time}",
+  "race.heat.bannerTitle": "These are karting check-in times",
+  "race.heat.bannerBody":
+    "Not your race time. Be at the Karting Desk — 1st Floor, by the Red Track — by the time you pick.",
+  "race.heat.bannerAllowance":
+    "Racing starts after your safety briefing · allow up to {mins} min after check-in (est.)",
+
   // --- Package disclaimers (PackageDefinition.disclaimers, lib/packages.ts) ---
   //
   // Shown when a guest picks a bundle whose second heat is CONDITIONAL on
@@ -406,6 +431,20 @@ export const flowEs: Record<keyof typeof flowEn, string> = {
     "Me ofrecieron el Ultimate Qualifier y elijo reservar solo Junior Starter.",
   "raceWarning.juniorStarter.continue": "Continuar con Junior Starter",
   "raceWarning.juniorStarter.upsell": "Mejor reservar Ultimate Qualifier",
+
+  // --- Heat grid: what the times on the cards MEAN (kiosk only) -------------
+  // "Karting" stays English (brand/product noun, same rule as FastTrax and Game
+  // Zone). "Registro" is the catalog's established noun for check-in, and
+  // "Mostrador" is the counter a guest walks up to — what someone navigating the
+  // building is actually looking for.
+  "race.heat.kartingCheckIn": "Registro de Karting",
+  // "aprox." carries the same warning as the English "Est."
+  "race.heat.racingBy": "En pista aprox. {time}",
+  "race.heat.bannerTitle": "Estos son los horarios de registro de Karting",
+  "race.heat.bannerBody":
+    "No es la hora de tu carrera. Preséntate en el Mostrador de Karting — 1er piso, junto a la pista Red — a la hora que elijas.",
+  "race.heat.bannerAllowance":
+    "La carrera empieza después de tu charla de seguridad · calcula hasta {mins} min desde el registro (aprox.)",
 
   // --- Avisos de paquetes con carrera condicionada ---
   "packageDisclaimer.continue": "Acepto · Continuar",
