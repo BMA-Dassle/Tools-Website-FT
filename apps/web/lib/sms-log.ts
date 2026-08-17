@@ -292,7 +292,8 @@ export interface CronRunEntry {
     | "video-match"
     | "arena-pre"
     | "arena-checkin"
-    | "racing-survey-sweep";
+    | "racing-survey-sweep"
+    | "eticket-overnight-clear";
   dryRun: boolean;
   elapsedMs: number;
   /** Caller IP / source (approximate — useful to distinguish Vercel cron vs manual curl) */

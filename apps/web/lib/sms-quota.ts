@@ -166,6 +166,12 @@ export function isQuotaError(status: number | null, body: string): boolean {
   return false;
 }
 
+/** Per-entry drain decision: "send" (default), "hold" (leave queued,
+ *  keep scanning others), or "drop" (remove without sending — caller
+ *  audits via onDrop). Lets the sweep hold e-ticket sends during quiet
+ *  hours and drop stale ones without blocking booking-confirm drains. */
+export type QuotaDrainVerdict = "send" | "hold" | "drop";
+
 /**
  * Drain queued sends FIFO. Caller provides a `send` function — we don't
  * import voxSend here to avoid a circular dependency with sms-retry.ts.
@@ -175,11 +181,17 @@ export function isQuotaError(status: number | null, body: string): boolean {
  */
 export async function drainQuotaQueue(
   send: (e: QueuedSend) => Promise<{ ok: boolean; status: number | null; error?: string }>,
-  opts?: { max?: number },
+  opts?: {
+    max?: number;
+    triage?: (e: QueuedSend) => QuotaDrainVerdict;
+    onDrop?: (e: QueuedSend) => Promise<void>;
+  },
 ): Promise<{
   attempted: number;
   ok: number;
   abandoned: number;
+  held: number;
+  dropped: number;
   stoppedOnQuota: boolean;
   pendingAfter: number;
 }> {
@@ -189,16 +201,27 @@ export async function drainQuotaQueue(
       attempted: 0,
       ok: 0,
       abandoned: 0,
+      held: 0,
+      dropped: 0,
       stoppedOnQuota: false,
       pendingAfter: await quotaQueueSize(),
     };
   }
   const max = opts?.max ?? 100;
-  const raws = await redis.zrange(QUOTA_QUEUE, 0, max - 1);
-  let ok = 0,
-    abandoned = 0;
+  // Held entries keep their FIFO rank, so a quiet-hours backlog of 100+
+  // held e-tickets must not hide a booking confirmation queued behind
+  // them — scan deeper (bounded) and count only real work (send
+  // attempts + drops) against `max`.
+  const SCAN_CAP = Math.max(max * 10, 1000);
+  const raws = await redis.zrange(QUOTA_QUEUE, 0, SCAN_CAP - 1);
+  let attempted = 0,
+    ok = 0,
+    abandoned = 0,
+    held = 0,
+    dropped = 0;
   let stoppedOnQuota = false;
   for (const raw of raws) {
+    if (attempted + dropped >= max) break;
     let entry: QueuedSend;
     try {
       entry = JSON.parse(raw) as QueuedSend;
@@ -208,6 +231,22 @@ export async function drainQuotaQueue(
       abandoned++;
       continue;
     }
+    const verdict = opts?.triage ? opts.triage(entry) : "send";
+    if (verdict === "hold") {
+      held++;
+      continue;
+    }
+    if (verdict === "drop") {
+      await redis.zrem(QUOTA_QUEUE, raw);
+      dropped++;
+      try {
+        await opts?.onDrop?.(entry);
+      } catch {
+        /* audit is best-effort — the drop itself already happened */
+      }
+      continue;
+    }
+    attempted++;
     let result;
     try {
       result = await send(entry);
@@ -236,10 +275,38 @@ export async function drainQuotaQueue(
     abandoned++;
   }
   return {
-    attempted: raws.length,
+    attempted,
     ok,
     abandoned,
+    held,
+    dropped,
     stoppedOnQuota,
     pendingAfter: await quotaQueueSize(),
   };
+}
+
+/**
+ * Remove every queued send matching `predicate`, returning the removed
+ * entries so the caller can audit them (the overnight clear logs each as
+ * an expired sms-log row). Scans the whole queue — it's capped by the
+ * 7-day TTL and drains at 100/min whenever quota is clear, so "whole
+ * queue" is small in practice.
+ */
+export async function purgeQuotaQueue(
+  predicate: (e: QueuedSend) => boolean,
+): Promise<QueuedSend[]> {
+  const raws = await redis.zrange(QUOTA_QUEUE, 0, -1);
+  const removed: QueuedSend[] = [];
+  for (const raw of raws) {
+    let entry: QueuedSend;
+    try {
+      entry = JSON.parse(raw) as QueuedSend;
+    } catch {
+      continue; // corrupt entries are reaped by drain, not the purge
+    }
+    if (!predicate(entry)) continue;
+    const n = await redis.zrem(QUOTA_QUEUE, raw);
+    if (n > 0) removed.push(entry);
+  }
+  return removed;
 }

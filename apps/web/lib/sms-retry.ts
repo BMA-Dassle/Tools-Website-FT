@@ -359,8 +359,14 @@ export async function voxSend(
 
   // If we tried with an override and Voxtelesys rejected it (likely DID not owned),
   // degrade to default VOX_FROM and prepend a "From {planner}" prefix so the
-  // customer still knows who's texting.
+  // customer still knows who's texting. Warn loudly — a permanently
+  // misconfigured DID (e.g. the Naples number not provisioned on the SMS
+  // trunk) would otherwise be invisible: sends log ok=true while guests
+  // text back a number that never answers.
   if (!result.ok && opts?.fromOverride && (result.status === 400 || result.status === 403)) {
+    console.warn(
+      `[voxSend] Vox rejected fromOverride ${opts.fromOverride} (${result.status}) — falling back to ${VOX_FROM}. If this repeats, the DID is misconfigured.`,
+    );
     const prefix = opts.fallbackPrefix || `(From ${opts.fromOverride}) `;
     const fallbackBody = prefix + body;
     result = await voxSendOnce(toFormatted, fallbackBody, VOX_FROM);
@@ -401,9 +407,14 @@ export async function voxSend(
  * main cron handlers and the dedicated retry-sweep cron — sweep runs every
  * minute so 5-minute pre-race gaps don't strand retries.
  */
-export async function drainRetries(
-  cron: SmsRetryCron,
-): Promise<{ attempted: number; ok: number; requeued: number; dead: number; quotaQueued: number }> {
+export async function drainRetries(cron: SmsRetryCron): Promise<{
+  attempted: number;
+  ok: number;
+  requeued: number;
+  dead: number;
+  quotaQueued: number;
+  expired: number;
+}> {
   const DEDUP: Record<SmsRetryCron, { prefix: string; ttl: number }> = {
     "pre-race-cron": { prefix: "alert:pre-race", ttl: 60 * 60 * 24 },
     "checkin-cron": { prefix: "alert:checkin", ttl: 60 * 60 * 6 },
@@ -412,12 +423,22 @@ export async function drainRetries(
   };
   const { prefix, ttl: dedupTtl } = DEDUP[cron];
 
+  // Every retry-queue entry IS an e-ticket send (the cron union above is
+  // the whole rail), so the quiet-hours guarantee gates the entire drain:
+  // held entries stay queued for the overnight clear to purge/audit.
+  const { inEticketQuietHours, maxQueueAgeMs, ETICKET_EXPIRED_ERROR } =
+    await import("~/features/eticket/quiet-hours");
+  if (inEticketQuietHours()) {
+    return { attempted: 0, ok: 0, requeued: 0, dead: 0, quotaQueued: 0, expired: 0 };
+  }
+
   const { quotaEnqueue } = await import("@/lib/sms-quota");
   const due = await dueRetries(cron);
   let ok = 0,
     requeued = 0,
     dead = 0,
-    quotaQueued = 0;
+    quotaQueued = 0,
+    expired = 0;
   for (const { raw, entry } of due) {
     const toFormatted = canonicalizePhone(entry.phone);
     if (!toFormatted) {
@@ -425,6 +446,28 @@ export async function drainRetries(
       continue;
     }
     const ts = new Date().toISOString();
+    // Stale guard — a queued e-ticket whose session has long since
+    // started is wrong to deliver even in business hours (e.g. held
+    // overnight because the clear cron missed it, or a long quota hold).
+    const ageMs = Date.now() - new Date(entry.firstFailedAt).getTime();
+    if (Number.isFinite(ageMs) && ageMs > maxQueueAgeMs(cron)) {
+      await removeRetry(raw);
+      await logSms({
+        ts,
+        phone: toFormatted,
+        source: cron,
+        status: null,
+        ok: false,
+        error: ETICKET_EXPIRED_ERROR,
+        body: entry.body,
+        sessionIds: entry.audit.sessionIds,
+        personIds: entry.audit.personIds,
+        memberCount: entry.audit.memberCount,
+        shortCode: entry.audit.shortCode,
+      });
+      expired++;
+      continue;
+    }
     const result = await voxSend(
       toFormatted,
       entry.body,
@@ -466,7 +509,11 @@ export async function drainRetries(
         phone: toFormatted,
         body: entry.body,
         source: cron,
-        queuedAt: ts,
+        // Preserve the ORIGINAL failure time, not the move time — the
+        // quota drain's staleness triage measures age from queuedAt, and
+        // the ~12.5 min the retry rail can hold an entry must not
+        // silently widen a check-in alert's 30-minute budget.
+        queuedAt: entry.firstFailedAt,
         shortCode: entry.audit.shortCode,
         ...(entry.from ? { from: entry.from } : {}),
         ...(entry.locationId ? { locationId: entry.locationId } : {}),
@@ -509,5 +556,28 @@ export async function drainRetries(
       else requeued++;
     }
   }
-  return { attempted: due.length, ok, requeued, dead, quotaQueued };
+  return { attempted: due.length, ok, requeued, dead, quotaQueued, expired };
+}
+
+/**
+ * Remove every pending retry matching `predicate` (regardless of its
+ * retry-after), returning the removed entries so the caller can audit
+ * them. Used by the overnight clear — queued e-tickets must not survive
+ * into the next business day.
+ */
+export async function purgeRetries(predicate: (e: RetryEntry) => boolean): Promise<RetryEntry[]> {
+  const raws = await redis.zrange(PENDING, 0, -1);
+  const removed: RetryEntry[] = [];
+  for (const raw of raws) {
+    let entry: RetryEntry;
+    try {
+      entry = JSON.parse(raw) as RetryEntry;
+    } catch {
+      continue; // corrupt entries are skipped by dueRetries already
+    }
+    if (!predicate(entry)) continue;
+    const n = await redis.zrem(PENDING, raw);
+    if (n > 0) removed.push(entry);
+  }
+  return removed;
 }

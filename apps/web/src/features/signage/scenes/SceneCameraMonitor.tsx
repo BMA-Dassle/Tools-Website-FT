@@ -39,7 +39,9 @@ import {
   TRACK_ACCENTS,
   TRACK_LABELS,
   effectiveTrack,
+  findTrackDelay,
   trackFromName,
+  type TrackDelay,
   type TrackKey,
 } from "../track";
 import {
@@ -68,27 +70,6 @@ const TRACK_SHORT: Record<TrackKey, string> = { blue: "Blue", red: "Red", mega: 
 const ON_TIME_GREEN = "#22c55e";
 const BEHIND_AMBER = "#f0b341";
 
-interface DelayInfo {
-  delayMinutes: number;
-  delayFormatted: string;
-}
-
-/**
- * The track's row in the status feed, matched by NAME ("Blue Track" → blue).
- * Uses trackFromName — a real `\b(red|blue|mega)\b` regex — rather than building
- * the pattern in a template string, where `\b` is a backspace char and never
- * matches. Null when the track is not reporting.
- */
-function findDelay(
-  tracks: { trackName: string; delayMinutes: number; delayFormatted: string }[] | undefined,
-  track: TrackKey,
-): DelayInfo | null {
-  if (!tracks) return null;
-  const hit = tracks.find((t) => trackFromName(t.trackName) === track);
-  if (!hit) return null;
-  return { delayMinutes: hit.delayMinutes ?? 0, delayFormatted: hit.delayFormatted ?? "" };
-}
-
 export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
   const cam = config.cameraMonitor;
   // The proxy is addressed by SCREEN, not by camera id — the server maps the
@@ -101,7 +82,7 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
   const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
   const track = cam?.track ? effectiveTrack(cam.track, megaEnabled) : null;
   const sessionClock = useLiveSessionClock(track);
-  const delay = track ? findDelay(status?.trackStatus.tracks, track) : null;
+  const delay = track ? findTrackDelay(status?.trackStatus.tracks, track) : null;
 
   // Which session is in THIS briefing room, and where the safety video is up to.
   // The room is the board's own track (a Blue camera watches the Blue room); Mega
@@ -794,7 +775,7 @@ function StatusBar({
   compact,
 }: {
   trackLabel: string;
-  delay: DelayInfo | null;
+  delay: TrackDelay | null;
   /** Half height, headline only — when the pane above needs the room. */
   compact?: boolean;
 }) {

@@ -3,6 +3,7 @@ import redis from "@/lib/redis";
 import { drainRetries } from "@/lib/sms-retry";
 import { logCronRun } from "@/lib/sms-log";
 import { verifyCron } from "@/lib/cron-auth";
+import { inEticketQuietHours } from "~/features/eticket/quiet-hours";
 import { runArenaTicketCron } from "~/features/arena-tickets/service";
 
 /**
@@ -23,11 +24,27 @@ import { runArenaTicketCron } from "~/features/arena-tickets/service";
 const CRON_LOCK_KEY = "cron-lock:arena-pre";
 const CRON_LOCK_TTL = 90;
 
+// Two centers now run sequentially with warm (45-55s) Pandora fetches —
+// without this, a Pandora slowdown on the FM leg could hard-kill the
+// invocation before Naples runs, invisibly (no catch fires on a platform
+// timeout). Matches healthnet's precedent.
+export const maxDuration = 300;
+
 export async function GET(req: NextRequest) {
   const denied = verifyCron(req);
   if (denied) return denied;
 
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
+
+  // Quiet hours — no e-ticket goes out after business hours. Belt to the
+  // overnight clear's braces; dryRun still passes for ops testing.
+  if (!dryRun && inEticketQuietHours()) {
+    return NextResponse.json(
+      { ok: true, skipped: "quiet-hours" },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   const started = Date.now();
 
   if (!dryRun) {

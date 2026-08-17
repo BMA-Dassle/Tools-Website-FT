@@ -26,6 +26,7 @@ vi.mock("@/lib/redis", () => ({
 
 import { GET } from "./route";
 import redis from "@/lib/redis";
+import { businessDayYmdET } from "@/lib/race-business-day";
 
 const CACHE_KEY = "track-status:cache:v1";
 const LOCK_KEY = "track-status:lock";
@@ -34,6 +35,15 @@ const PAYLOAD = { megaTrackEnabled: false, tracks: [{ trackName: "Blue Track" }]
 /** Seed the cache as though the last good read happened `ageMs` ago. */
 function seedCache(ageMs: number, data: unknown = PAYLOAD) {
   store.set(CACHE_KEY, JSON.stringify({ fetchedAt: Date.now() - ageMs, data }));
+}
+
+/**
+ * Pin the dayplanner tier of the synthetic answer, so these tests are
+ * deterministic on every weekday — without this, the ladder's Tuesday
+ * calendar fallback would flip the expected verdict once a week.
+ */
+function seedDayPlannerVerdict(isMegaDay: boolean) {
+  store.set(`mega-day:${businessDayYmdET()}`, isMegaDay ? "1" : "0");
 }
 
 /**
@@ -87,7 +97,10 @@ describe("GET /api/track-status", () => {
 
   it("bounds the upstream call so a hung upstream cannot pin the lock holder", async () => {
     // No cache at all, upstream hangs: the request must still come back,
-    // and it must come back because OUR timeout fired.
+    // and it must come back because OUR timeout fired. It now comes back
+    // as a SYNTHETIC answer — the mega ladder — rather than a 502 the
+    // client hook would discard.
+    seedDayPlannerVerdict(false);
     const upstream = hangingUpstream();
     vi.stubGlobal("fetch", upstream);
 
@@ -95,9 +108,13 @@ describe("GET /api/track-status", () => {
     const res = await GET();
     const elapsed = Date.now() - started;
 
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Cache")).toBe("SYNTH-ERROR");
+    expect(res.headers.get("X-Upstream-Error")).toContain("aborted");
     await expect(res.json()).resolves.toEqual({
-      error: "The operation was aborted due to timeout",
+      megaTrackEnabled: false,
+      tracks: [],
+      degraded: true,
     });
     // Proves the abort came from the route's own signal, not from waiting
     // out the function duration.
@@ -144,17 +161,37 @@ describe("GET /api/track-status", () => {
     expect(res.headers.get("X-Cache")).toBe("STALE-ERROR");
   });
 
-  it("refuses to state a reading older than the serve cap", async () => {
+  it("refuses to state a reading older than the serve cap — and synthesizes instead", async () => {
     // 5 hours — older than the centre has been open. That is not a delay
     // figure any more, and stating it would be a wrong answer stated
-    // confidently.
+    // confidently. The route now answers the one question it CAN still
+    // answer (mega mode, via the ladder) with an empty delay list.
+    seedDayPlannerVerdict(false);
     seedCache(5 * 60 * 60_000);
     vi.stubGlobal("fetch", abortingUpstream());
 
     const res = await GET();
 
-    expect(res.status).toBe(502);
-    expect(res.headers.get("X-Cache")).not.toBe("STALE-ERROR");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Cache")).toBe("SYNTH-ERROR");
+    const body = await res.json();
+    expect(body.degraded).toBe(true);
+    expect(body.tracks).toEqual([]); // never the fossil reading
+  });
+
+  it("the synthetic answer rides the mega ladder — a dayplanner mega day reads as mega", async () => {
+    // Status app dark, no cache, no mega heat called yet — but BMI's
+    // dayplanner says today is a Mega day. The degraded payload must say so,
+    // which is what keeps the boards in mega layout through a status outage.
+    seedDayPlannerVerdict(true);
+    vi.stubGlobal("fetch", abortingUpstream());
+
+    const res = await GET();
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.megaTrackEnabled).toBe(true);
+    expect(body.degraded).toBe(true);
   });
 
   it("keeps Redis retention above the serve cap", async () => {

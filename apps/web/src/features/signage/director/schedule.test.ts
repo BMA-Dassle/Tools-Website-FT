@@ -11,6 +11,7 @@ import {
   totalSlots,
   crownActiveAt,
   celebrationAt,
+  eventInScope,
   isRacingBoard,
   recentScans,
   vipCandidatesAt,
@@ -633,5 +634,35 @@ describe("frameKey — a scene that stays on screen is ONE frame", () => {
       isInterrupt: true,
     });
     expect(frameKey(crown(0))).not.toBe(frameKey(crown(SLOT_MS)));
+  });
+});
+
+describe("eventInScope — the Mega widening", () => {
+  const BLUE = "11208654";
+  const RED = "11208660";
+  const MEGA = "-1";
+  const BOWLING = "99999999";
+
+  it("empty scope still matches everything — a venue-wide screen", () => {
+    expect(eventInScope(evt({ resourceId: MEGA }), [])).toBe(true);
+    expect(eventInScope(evt(), [])).toBe(true);
+  });
+
+  it("ordinary track events behave exactly as before", () => {
+    expect(eventInScope(evt({ resourceId: BLUE }), [BLUE])).toBe(true);
+    expect(eventInScope(evt({ resourceId: BLUE }), [RED])).toBe(false);
+    expect(eventInScope(evt(), [BLUE])).toBe(false);
+  });
+
+  it("a Mega ('-1') event reaches a Blue-scoped board", () => {
+    expect(eventInScope(evt({ resourceId: MEGA }), [BLUE])).toBe(true);
+  });
+
+  it("and a Red-scoped board — both track boards serve the one circuit", () => {
+    expect(eventInScope(evt({ resourceId: MEGA }), [RED])).toBe(true);
+  });
+
+  it("but never a board scoped to non-track resources — a bowling or lobby screen", () => {
+    expect(eventInScope(evt({ resourceId: MEGA }), [BOWLING])).toBe(false);
   });
 });

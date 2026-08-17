@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import redis from "@/lib/redis";
+import { megaModeWithoutFlag } from "~/features/signage/service/mega-mode.server";
 
 /**
  * Cached proxy for the BMA track-status service that drives the
@@ -168,6 +169,30 @@ function servable(entry: CachedEntry | null): entry is CachedEntry {
   return entry !== null && Date.now() - entry.fetchedAt <= MAX_SERVE_AGE_MS;
 }
 
+/**
+ * LAST RESORT: the upstream is dark and the cache is past the serve ceiling
+ * (or gone). This used to be a 503/502, which the client hook rightly
+ * discards — meaning a dead status app also took `megaTrackEnabled` down
+ * with it, on the one night that flag matters most.
+ *
+ * Instead, answer the ONE question we can still answer without the upstream:
+ * are we in mega mode? megaModeWithoutFlag runs the resilience ladder —
+ * called mega heat → BMI dayplanner → Tuesday calendar (owner 2026-08-16:
+ * "can't always guarantee the track status app will be up"). `tracks: []`
+ * is honest: we genuinely do not know the delays, and every consumer already
+ * renders an empty delay list; `degraded: true` marks the payload for
+ * anyone debugging why the widget has no rows.
+ */
+async function serveSynthetic(cacheState: string, extra?: Record<string, string>) {
+  const megaTrackEnabled = await megaModeWithoutFlag().catch(() => false);
+  return NextResponse.json(
+    { megaTrackEnabled, tracks: [], degraded: true },
+    {
+      headers: { "X-Cache": cacheState, "Cache-Control": "no-store", ...(extra ?? {}) },
+    },
+  );
+}
+
 export async function GET() {
   // ── Hot path: serve fresh cache ─────────────────────────────────────
   const cached = await readCache();
@@ -190,10 +215,7 @@ export async function GET() {
     const retried = await readCache();
     if (servable(retried)) return serveCached(retried, "WAITED");
 
-    return NextResponse.json(
-      { error: "track-status warming up" },
-      { status: 503, headers: { "Cache-Control": "no-store" } },
-    );
+    return serveSynthetic("SYNTH-LOCKED");
   }
 
   // We hold the lock — fetch upstream, bounded.
@@ -211,14 +233,11 @@ export async function GET() {
   } catch (err) {
     const reason = (err instanceof Error ? err.message : "fetch failed").slice(0, 100);
     // Upstream failed — serve the last known reading if it's recent
-    // enough to still mean something, else say so.
+    // enough to still mean something, else synthesize.
     if (servable(cached)) {
       return serveCached(cached, "STALE-ERROR", { "X-Upstream-Error": reason });
     }
-    return NextResponse.json(
-      { error: reason },
-      { status: 502, headers: { "Cache-Control": "no-store" } },
-    );
+    return serveSynthetic("SYNTH-ERROR", { "X-Upstream-Error": reason });
   } finally {
     await releaseLock(lockToken);
   }
