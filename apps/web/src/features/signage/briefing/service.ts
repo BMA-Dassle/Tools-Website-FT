@@ -39,6 +39,7 @@ import { captureRoomPhoto } from "./room-photo.server";
 import { bookmarkBriefingStartAfter } from "./bookmarks.server";
 import { autoHoldingEnabled } from "./auto-holding.server";
 import { raceBookmarksEnabled } from "./race-bookmarks-setting.server";
+import { cameraPreviewMode, type CameraPreviewMode } from "./camera-preview-setting.server";
 import { readTimingFeedStatus, type TimingFeedStatus } from "~/features/racing/timing-feed.server";
 import { readRaceFinishedMarker } from "./race-finish.server";
 import { GROUP_OUT_WINDOW_MS, type GroupOut } from "./room-return";
@@ -539,6 +540,13 @@ export interface BriefingBoardStatus {
    */
   raceBookmarks: { enabled: boolean };
   /**
+   * Whether the desk's room previews play video or fall back to a picture a
+   * second. A CHOICE rather than a switch, because both positions are a
+   * reasonable way to run a night — see camera-preview-setting.server.ts for
+   * what each costs the Nx server.
+   */
+  cameraPreview: { mode: CameraPreviewMode };
+  /**
    * IS THE KART TIMING FEED ALIVE? Same reasoning as the briefing log above: a
    * signal nobody can see is a signal nobody notices has stopped.
    *
@@ -679,6 +687,7 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     lanes,
     autoHolding,
     raceBookmarks,
+    cameraPreview,
     timing,
   ] = await Promise.all([
     readBriefingRooms(VENUE).catch(() => ({ red: null, blue: null })),
@@ -693,6 +702,9 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     // so the toggle never shows OFF for a switch that is actually armed.
     autoHoldingEnabled().catch(() => true),
     raceBookmarksEnabled().catch(() => true),
+    // Swallows to the same default the getter uses, for the same reason as the
+    // two above: a Redis blip must not show staff a setting they did not choose.
+    cameraPreviewMode().catch((): CameraPreviewMode => "live"),
     // Swallows its own failures to "unknown" — a Redis blip must show an
     // honest "we don't know", never a red DOWN that sends staff chasing a
     // feed that is fine.
@@ -745,6 +757,7 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     lanes,
     autoHolding: { enabled: autoHolding },
     raceBookmarks: { enabled: raceBookmarks },
+    cameraPreview: { mode: cameraPreview },
     timing,
   };
 }

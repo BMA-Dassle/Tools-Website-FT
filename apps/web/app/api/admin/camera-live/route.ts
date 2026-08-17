@@ -6,6 +6,7 @@ import {
   nxConfigured,
   resolveFixedCamera,
 } from "~/features/signage/nx/camera.server";
+import { parseLiveResolution } from "~/features/signage/nx/camera-preview";
 
 /**
  * ONE live-stream URL for a briefing-room or holding-area camera, for the
@@ -30,6 +31,13 @@ import {
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * `?res=` picks FRAME RATE, not sharpness — on these cameras 720p is the 2 fps
+ * substream and 480p is the 20 fps transcode. The measurements and the reason
+ * live in live-resolution.ts. Unknown or absent leaves cameraLiveStream's own
+ * default standing, so an older caller behaves exactly as it did.
+ */
 
 function authed(req: NextRequest): boolean {
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
@@ -61,7 +69,10 @@ export async function GET(req: NextRequest) {
     // The holding cameras carry their layout's saved aim — see DewarpView. Live
     // video is transcoded anyway, so the dewarp rides along for free and the
     // full-screen view matches the picture the panel was showing.
-    const stream = await cameraLiveStream(camera.deviceId, { dewarp: camera.dewarp });
+    const stream = await cameraLiveStream(camera.deviceId, {
+      dewarp: camera.dewarp,
+      resolution: parseLiveResolution(req.nextUrl.searchParams.get("res")),
+    });
     return NextResponse.json(stream, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     // The viewer falls back to the still refresh, which is why this is a plain

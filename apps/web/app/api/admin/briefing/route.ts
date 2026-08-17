@@ -20,6 +20,10 @@ import {
 import { readBriefingRoom } from "~/features/signage/briefing/state.server";
 import { setAutoHoldingEnabled } from "~/features/signage/briefing/auto-holding.server";
 import { setRaceBookmarksEnabled } from "~/features/signage/briefing/race-bookmarks-setting.server";
+import {
+  setCameraPreviewMode,
+  type CameraPreviewMode,
+} from "~/features/signage/briefing/camera-preview-setting.server";
 import { readPitLane } from "~/features/signage/pit/lane.server";
 import { recordBriefingEvent } from "~/features/signage/briefing/events-db";
 import { businessDayYmdET } from "@/lib/race-business-day";
@@ -133,6 +137,7 @@ export async function POST(req: NextRequest) {
     size?: number;
     durationMs?: number;
     enabled?: boolean;
+    mode?: string;
   };
   try {
     body = await req.json();
@@ -210,6 +215,22 @@ export async function POST(req: NextRequest) {
     }
     await setRaceBookmarksEnabled(body.enabled);
     return NextResponse.json({ ok: true, enabled: body.enabled });
+  }
+
+  /**
+   * How hard the desk's room previews work the NVR — the third setting on that
+   * sheet, and the only one that is a CHOICE rather than a switch, so it takes a
+   * word instead of a boolean. Rejected rather than defaulted on a bad value:
+   * this arrives from our own settings sheet, so anything else is a bug worth
+   * seeing, not a value to quietly interpret.
+   */
+  if (action === "camera-preview") {
+    if (body.mode !== "live" && body.mode !== "stills") {
+      return NextResponse.json({ error: "mode must be live or stills" }, { status: 400 });
+    }
+    const mode: CameraPreviewMode = body.mode;
+    await setCameraPreviewMode(mode);
+    return NextResponse.json({ ok: true, mode });
   }
 
   /**

@@ -5,6 +5,10 @@ import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { modalBackdropProps } from "@/lib/a11y";
 import RaceControlPanels from "./RaceControlPanels";
 import { useBriefingControl, type TimingFeedStatus } from "./useBriefingControl";
+import {
+  parseCameraPreviewMode,
+  type CameraPreviewMode,
+} from "~/features/signage/nx/camera-preview";
 import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import {
   ADMIN_SANS,
@@ -239,6 +243,10 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
   const autoHoldingOn = briefing.board?.autoHolding?.enabled !== false;
   /** Race-event camera bookmarks — the second server-wide switch on the sheet. */
   const raceBookmarksOn = briefing.board?.raceBookmarks?.enabled !== false;
+  /** Live video or stills on the room tiles — the third, and a choice rather
+   *  than a switch. Anything unrecognised (or a station on an older deploy)
+   *  reads as the default, the same way the server's getter does. */
+  const cameraPreviewMode = parseCameraPreviewMode(briefing.board?.cameraPreview?.mode);
 
   // Declared HERE, above every reader. It used to sit just before the return, and
   // the board-mode header below reads it — a const referenced above its own
@@ -1384,6 +1392,60 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               {raceBookmarksOn
                 ? "Session start, pause, resume and end are marked in Nx on every camera for that track, so footage can be found by session instead of by scrubbing."
                 : "Nothing new is written to the track cameras. Bookmarks already written stay."}{" "}
+              Applies to every station.
+            </p>
+          </div>
+
+          {/*
+            ROOM PREVIEWS — the third server-wide setting, and the only one that
+            is a CHOICE rather than a switch (owner 2026-08-16: "can we select in
+            board settings and save for all?").
+
+            Two buttons, not a toggle, because neither position is "off": the
+            tiles show the room either way. What changes is who does the work —
+            live plays video the Nx server transcodes per tile per station,
+            stills pull a JPEG a second through our own proxy and cost the
+            camera server nothing. The copy names that trade rather than the
+            resolutions, because the reason to reach for this at 9pm is that the
+            cameras have gone slow.
+          */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+              Room camera previews
+            </p>
+            <div className="flex gap-2">
+              {(
+                [
+                  { mode: "live" as const, label: "Live video" },
+                  { mode: "stills" as const, label: "Stills" },
+                ] satisfies ReadonlyArray<{ mode: CameraPreviewMode; label: string }>
+              ).map(({ mode, label }) => {
+                const on = cameraPreviewMode === mode;
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-pressed={on}
+                    disabled={!briefing.board}
+                    onClick={() => briefing.setCameraPreview(mode)}
+                    className="px-3 py-1.5 text-xs border hover:bg-white/5"
+                    style={{
+                      borderRadius: 8,
+                      borderColor: on ? GREEN : PORTAL_DARK.inputBorder,
+                      backgroundColor: on ? `${GREEN}22` : "transparent",
+                      color: on ? GREEN : PORTAL_DARK.muted,
+                      opacity: briefing.board ? 1 : 0.5,
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+              {cameraPreviewMode === "live"
+                ? "The room tiles play moving video, and the full-screen viewer plays it sharp. Each open tile is one transcode on the camera server — drop to Stills if the cameras start lagging."
+                : "The room tiles refresh a picture a second through our own proxy, and the camera server does no extra work. You still see the room; you just will not see it move."}{" "}
               Applies to every station.
             </p>
           </div>

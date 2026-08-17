@@ -102,6 +102,12 @@ import {
 } from "~/features/signage/briefing/desk-alerts";
 import { startHoldRemainingMs, startHoldSeconds } from "~/features/signage/briefing/start-hold";
 import { useCameraStill } from "~/features/signage/useCameraStill";
+import {
+  MOTION_RESOLUTION,
+  VIEWER_RESOLUTION,
+  parseCameraPreviewMode,
+  type LiveResolution,
+} from "~/features/signage/nx/camera-preview";
 import { formatWaitMs } from "~/features/racing/wait-times";
 import type {
   BoardStatus,
@@ -361,6 +367,20 @@ export default function RaceControlPanels({
   // independent overlays could both be open, stacked on each other, each pulling
   // its own 1600px frame every second.
   const expanded = control.expandedCamera;
+  /**
+   * MAY THE CAMERA SURFACES PLAY VIDEO? The desk-wide setting, chosen once in
+   * the settings sheet and read here so every station agrees within one 5s poll.
+   *
+   * IT GOVERNS THE VIEWER TOO, not just the tiles. The reason staff reach for
+   * "Stills" is that the Nx server has gone slow, and the full-screen viewer is
+   * the single most expensive thing on this page when it is open (~590 KB/s and
+   * a 1080p transcode). A setting that relieved the NVR of four small streams
+   * and then let one big one through would not do what its copy promises.
+   *
+   * Undefined — a station on an older deploy, or Redis never written — reads as
+   * live, matching the server's own default.
+   */
+  const liveCameras = parseCameraPreviewMode(board?.cameraPreview?.mode) === "live";
   // Only a ROOM has a briefing timeline; a holding view has no film and no
   // phase, so the viewer gets null and renders its holding half instead.
   const expandedStatus = expanded ? (board?.rooms.find((r) => r.room === expanded) ?? null) : null;
@@ -540,6 +560,8 @@ export default function RaceControlPanels({
               pending={pending}
               expandedCamera={expanded}
               onExpandCamera={(target) => control.setExpandedCamera(target)}
+              getLiveUrl={control.liveCameraUrl}
+              liveCameras={liveCameras}
               lane={board?.lanes?.[track as "blue" | "red" | "mega"] ?? null}
               ownsLane={!megaEnabled || room === megaLaneOwner}
               suggested={suggestedRoom === room}
@@ -755,6 +777,7 @@ export default function RaceControlPanels({
           onSwitch={(next) => control.setExpandedCamera(next)}
           onClose={() => control.setExpandedCamera(null)}
           getLiveUrl={control.liveCameraUrl}
+          liveCameras={liveCameras}
         />
       )}
     </section>
@@ -1166,6 +1189,8 @@ function RoomColumn({
   pending,
   expandedCamera,
   onExpandCamera,
+  getLiveUrl,
+  liveCameras,
   lane,
   ownsLane,
   suggested,
@@ -1200,6 +1225,12 @@ function RoomColumn({
    *  camera is up there stops pulling frames. */
   expandedCamera: CameraTarget | null;
   onExpandCamera: (target: CameraTarget) => void;
+  /** Mints a live stream for this column's room preview. Threaded from the page
+   *  because the admin token lives in useBriefingControl, never in a panel. */
+  getLiveUrl: (target: CameraTarget, res?: LiveResolution) => Promise<string | null>;
+  /** Whether the room previews may play video at all — the desk-wide setting,
+   *  read from the board so every station agrees within one 5s poll. */
+  liveCameras: boolean;
   /** This column's pit lane: who is in holding, who is racing, whether the lane
    *  is still held. Null before the first poll lands. */
   lane: PitLaneFeed | null;
@@ -1786,6 +1817,8 @@ function RoomColumn({
           pending={pending}
           cameraExpanded={expandedCamera === room}
           onExpandCamera={() => onExpandCamera(room)}
+          getLiveUrl={getLiveUrl}
+          liveCameras={liveCameras}
           alert={roomAlert}
           /**
            * The RESOLVED lane is what makes this self-clearing: resolve promotes
@@ -2340,6 +2373,8 @@ function InRoom({
   pending,
   cameraExpanded,
   onExpandCamera,
+  getLiveUrl,
+  liveCameras,
   alert,
   holdingBlockedBy,
   onStart,
@@ -2355,6 +2390,10 @@ function InRoom({
   pending: string | null;
   cameraExpanded: boolean;
   onExpandCamera: () => void;
+  /** Mints the room preview's live stream — see RoomCamera. */
+  getLiveUrl: (target: CameraTarget, res?: LiveResolution) => Promise<string | null>;
+  /** The desk-wide "Live video" / "Stills" choice. */
+  liveCameras: boolean;
   /** How overdue the wait for Start is — the box is already flashing, so the
    *  number itself follows rather than staying a calm amber under a red border. */
   alert: AlertLevel;
@@ -2671,7 +2710,13 @@ function InRoom({
             Shown in every phase, idle included, so staff can watch a room fill
             before the send; backed by the same frame proxy the TV boards use. */}
         <div style={{ flex: "0 0 auto", width: CAM_W, maxWidth: "100%" }}>
-          <RoomCamera room={room} paused={cameraExpanded} onExpand={onExpandCamera} />
+          <RoomCamera
+            room={room}
+            paused={cameraExpanded}
+            onExpand={onExpandCamera}
+            getLiveUrl={getLiveUrl}
+            liveCameras={liveCameras}
+          />
         </div>
       </div>
 
@@ -2783,7 +2828,41 @@ function teardownLiveVideoRef(el: HTMLVideoElement | null) {
  */
 const LIVE_MAX_RETRIES = 2;
 
-function useLiveCamera(room: CameraTarget, getUrl: (room: CameraTarget) => Promise<string | null>) {
+/**
+ * A LIVE TILE IS OPEN FOR A WHOLE SHIFT, AND A PROGRESSIVE MP4 NEVER ENDS.
+ *
+ * The viewer's streams were always short — someone opens it, looks, closes it.
+ * A room preview is different: it starts when the desk PC loads the board at
+ * 10am and is still going at midnight, feeding one `<video>` element a stream
+ * with no last byte. Whatever the browser retains of that (and it is not ours to
+ * assume), a stream that is never replaced is a number that only goes up.
+ *
+ * So the tile takes a fresh ticket on a timer and swaps the element for a new
+ * one — the same replacement that already happens on every retry, just arriving
+ * on purpose instead of after a failure. The stills underneath cover the second
+ * it takes to buffer, exactly as they do on first load, so the picture never
+ * blanks. This sits INSIDE the estate's 12-24h page recycle (see recycle.ts),
+ * not instead of it: that reload is the amnesty for everything else on the page.
+ */
+const LIVE_RECYCLE_MS = 10 * 60_000;
+
+function useLiveCamera(
+  room: CameraTarget,
+  getUrl: (room: CameraTarget, res?: LiveResolution) => Promise<string | null>,
+  opts?: {
+    /** False stands the stream down entirely — no ticket, no element, no
+     *  connection. The tile uses it while the viewer has the same camera up,
+     *  so one room is never two streams. */
+    enabled?: boolean;
+    /** Frame rate, in disguise — see live-resolution.ts. */
+    resolution?: LiveResolution;
+    /** Re-mint on this interval, or 0 to stream until something breaks. */
+    recycleMs?: number;
+  },
+) {
+  const enabled = opts?.enabled ?? true;
+  const resolution = opts?.resolution;
+  const recycleMs = opts?.recycleMs ?? 0;
   // Both pieces of state CARRY THE CAMERA they describe, for the same reason the
   // still hook does: switching cameras must not leave the blue room's stream
   // playing under a red heading for the second it takes to mint a new ticket.
@@ -2803,15 +2882,49 @@ function useLiveCamera(room: CameraTarget, getUrl: (room: CameraTarget) => Promi
     getUrlRef.current = getUrl;
   });
 
-  const load = useCallback(async (target: CameraTarget) => {
-    const url = await getUrlRef.current(target);
-    setStream(url ? { room: target, url } : null);
-  }, []);
+  const load = useCallback(
+    async (target: CameraTarget) => {
+      const url = await getUrlRef.current(target, resolution);
+      setStream(url ? { room: target, url } : null);
+    },
+    // A literal from the call site, so this is as stable as the empty-deps
+    // version it replaces — and honest about what the URL depends on.
+    [resolution],
+  );
+
+  /**
+   * STANDING DOWN DROPS THE ELEMENT, NOT JUST THE PICTURE — a paused tile that
+   * kept its stream would hold a second transcode open on the camera the viewer
+   * is already watching, which is the one moment the NVR is busiest.
+   *
+   * Adjusted DURING RENDER, not in an effect (react.dev, "You Might Not Need an
+   * Effect" → adjusting state when a prop changes). An effect would leave one
+   * committed frame where a spent ticket is still mounted, and the retry it
+   * provokes would mint a ticket for a stream nobody is watching. React re-runs
+   * this render before committing, so the `<video>` never reaches the DOM.
+   */
+  if (!enabled && (stream !== null || playingRoom !== null)) {
+    setStream(null);
+    setPlayingRoom(null);
+  }
 
   useEffect(() => {
     retriesRef.current = 0;
+    if (!enabled) return;
     void load(room);
-  }, [room, load]);
+  }, [room, load, enabled]);
+
+  /** THE SCHEDULED SWAP IS NOT A RETRY, so it resets the budget it is not
+   *  spending. Leaving retriesRef alone would mean two unlucky drops in an
+   *  eight-hour shift permanently demoted a healthy tile to stills. */
+  useEffect(() => {
+    if (!enabled || recycleMs <= 0) return;
+    const id = setInterval(() => {
+      retriesRef.current = 0;
+      void load(room);
+    }, recycleMs);
+    return () => clearInterval(id);
+  }, [enabled, recycleMs, load, room]);
 
   /** The stream dropped or was refused — take one more ticket, then stand down. */
   const retry = useCallback(() => {
@@ -2910,13 +3023,33 @@ function RoomCamera({
   room,
   paused,
   onExpand,
+  getLiveUrl,
+  liveCameras,
 }: {
   room: BriefingRoom;
   /** Viewer has this room open — hold the last frame, stop pulling. */
   paused: boolean;
   onExpand: () => void;
+  getLiveUrl: (target: CameraTarget, res?: LiveResolution) => Promise<string | null>;
+  /** The desk's server-wide choice: video, or a picture a second. False leaves
+   *  this tile exactly as it was before live existed. */
+  liveCameras: boolean;
 }) {
-  const { src, offline } = useCameraFrame(room, 640, !paused);
+  // THE TILE IS LIVE NOW, NOT A PICTURE A SECOND (owner 2026-08-16: "I want a
+  // live view"). 480p because that is what MOVES — 720p is the camera's 2fps
+  // substream, and the tile is ~208px wide, so 640x480 is already twice the
+  // picture the box can show. See live-resolution.ts for the measurements.
+  const live = useLiveCamera(room, getLiveUrl, {
+    enabled: !paused && liveCameras,
+    resolution: MOTION_RESOLUTION,
+    recycleMs: LIVE_RECYCLE_MS,
+  });
+  // STILLS REMAIN THE FLOOR. They paint while the ticket is minted and the
+  // stream buffers, take the picture back the moment live stalls or dies, and
+  // are all there is if Nx refuses a stream at all — the tile is never worse
+  // than it was before this. They stand down once video is actually playing, so
+  // a live tile costs no proxy pulls rather than paying for both pictures.
+  const { src, offline } = useCameraFrame(room, 640, !paused && !live.playing);
 
   return (
     <button
@@ -2928,12 +3061,41 @@ function RoomCamera({
     >
       {/* 4:3 — the room sensors are 2592x1944, and a 16:9 box pillarboxed them. */}
       <span className="rc-cam-shot" style={{ aspectRatio: "4 / 3" }}>
-        <CameraFrame
-          src={src}
-          offline={offline}
-          alt={`${room} briefing room`}
-          connectingSize={11}
-        />
+        <span style={{ opacity: live.playing ? 0 : 1 }}>
+          <CameraFrame
+            src={src}
+            offline={offline}
+            alt={`${room} briefing room`}
+            connectingSize={11}
+          />
+        </span>
+        {live.url && (
+          // No `controls`, so this stays non-interactive content and remains
+          // legal inside the button — and `pointer-events: none` guarantees the
+          // click lands on the button whatever a browser thinks of a <video>.
+          <video
+            key={live.url}
+            ref={teardownLiveVideoRef}
+            src={live.url}
+            autoPlay
+            muted
+            playsInline
+            onPlaying={live.onPlaying}
+            onWaiting={live.onWaiting}
+            onStalled={live.onWaiting}
+            onError={live.retry}
+            onEnded={live.retry}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              opacity: live.playing ? 1 : 0,
+              pointerEvents: "none",
+            }}
+          />
+        )}
         <span
           className="rc-cam-chip"
           aria-hidden
@@ -2986,7 +3148,15 @@ function RoomCamera({
               background: offline ? AMBER : GREEN,
             }}
           />
-          {offline ? "RECONNECTING…" : paused ? "IN THE VIEWER" : `LIVE · ${room.toUpperCase()}`}
+          {/* THE WORD MATCHES THE PICTURE. This said LIVE over a 1fps still
+              refresh before there was any video behind it; now it says which
+              one you are actually looking at, so a staff member judging motion
+              in the room knows whether motion is something this box can show. */}
+          {offline
+            ? "RECONNECTING…"
+            : paused
+              ? "IN THE VIEWER"
+              : `${live.playing ? "LIVE" : "STILLS"} · ${room.toUpperCase()}`}
         </span>
       </span>
     </button>
@@ -3115,6 +3285,7 @@ function CameraLightbox({
   onSwitch,
   onClose,
   getLiveUrl,
+  liveCameras,
 }: {
   target: CameraTarget;
   track: string;
@@ -3128,10 +3299,20 @@ function CameraLightbox({
   onStart: (restart: boolean) => void;
   onSwitch: (target: CameraTarget) => void;
   onClose: () => void;
-  getLiveUrl: (target: CameraTarget) => Promise<string | null>;
+  getLiveUrl: (target: CameraTarget, res?: LiveResolution) => Promise<string | null>;
+  /** The desk-wide choice. False keeps this viewer on its 1600px stills, which
+   *  is what it showed before live existed. */
+  liveCameras: boolean;
 }) {
   const room = isRoom(target) ? target : null;
-  const live = useLiveCamera(target, getLiveUrl);
+  // The viewer is the one place someone is deliberately watching, so it buys the
+  // sharp MOVING picture — 1440x1080 at ~19fps. It used to ask for 720p, which
+  // Nx answers from the 2fps substream, so "LIVE" here was a slideshow.
+  // No recycle: this overlay is opened, looked at, and closed.
+  const live = useLiveCamera(target, getLiveUrl, {
+    enabled: liveCameras,
+    resolution: VIEWER_RESOLUTION,
+  });
   // STILLS ARE THE BRIDGE, NOT THE FALLBACK ONLY. They paint in ~200ms while the
   // ticket is minted and the video buffers, then stand down the moment live is
   // actually playing — so the viewer is never blank waiting for video, and never

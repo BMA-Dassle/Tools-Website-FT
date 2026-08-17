@@ -32,6 +32,7 @@ import type {
 } from "~/features/signage/briefing/types";
 import type { GroupOut } from "~/features/signage/briefing/room-return";
 import type { BriefingRecord } from "~/features/signage/briefing/briefing-log";
+import type { LiveResolution, CameraPreviewMode } from "~/features/signage/nx/camera-preview";
 import type { PitLanes } from "~/features/signage/pit/pit-board";
 
 export interface RoomStatus {
@@ -90,6 +91,10 @@ export interface BoardStatus {
   /** Is race-event camera bookmarking armed? Optional for the same
    *  older-deploy reason as the fields above it. */
   raceBookmarks?: { enabled: boolean };
+  /** Do the room previews play video, or a picture a second? Optional for the
+   *  same older-deploy reason — `undefined` reads as "live", which is what a
+   *  station on this build does when Redis has never been written. */
+  cameraPreview?: { mode: CameraPreviewMode };
   /**
    * IS THE KART TIMING FEED ALIVE? Drives the desk's TIMING chip.
    *
@@ -208,6 +213,8 @@ export interface BriefingControl {
    * for this is volume — a Mega heat marks ~33 cameras four times.
    */
   setRaceBookmarks: (enabled: boolean) => void;
+  /** Live video or a picture a second on the room previews, for every station. */
+  setCameraPreview: (mode: CameraPreviewMode) => void;
   /**
    * STAFF OVERRIDE — put a session in a lane slot by hand, or empty it.
    *
@@ -245,8 +252,11 @@ export interface BriefingControl {
    *
    * Each call mints a SINGLE-USE Nx ticket, so every <video> load — first play,
    * camera switch, retry after a drop — needs its own call.
+   *
+   * `res` picks FRAME RATE, not sharpness — 480p is the 20fps transcode, 720p is
+   * the camera's 2fps substream. See the table in /api/admin/camera-live.
    */
-  liveCameraUrl: (target: CameraTarget) => Promise<string | null>;
+  liveCameraUrl: (target: CameraTarget, res?: LiveResolution) => Promise<string | null>;
   /**
    * SESSIONS THIS STATION HAS SEEN GO GREEN — and it must not forget.
    *
@@ -466,6 +476,19 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  const setCameraPreview = useCallback<BriefingControl["setCameraPreview"]>(
+    (mode) => {
+      void post(
+        { action: "camera-preview", mode },
+        mode === "live"
+          ? "Room previews are LIVE — moving video on every check-in station"
+          : "Room previews are STILLS — a picture a second, and no load on the camera server",
+        "camera-preview",
+      );
+    },
+    [post],
+  );
+
   const overrideSlot = useCallback<BriefingControl["overrideSlot"]>(
     (args) => {
       const where =
@@ -569,10 +592,11 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   }, []);
 
   const liveCameraUrl = useCallback<BriefingControl["liveCameraUrl"]>(
-    async (target) => {
+    async (target, resolution) => {
       try {
         const res = await fetch(
-          `/api/admin/camera-live?token=${encodeURIComponent(token)}&room=${target}`,
+          `/api/admin/camera-live?token=${encodeURIComponent(token)}&room=${target}` +
+            (resolution ? `&res=${resolution}` : ""),
           { cache: "no-store" },
         );
         if (!res.ok) return null;
@@ -603,6 +627,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     markPitted,
     setAutoHolding,
     setRaceBookmarks,
+    setCameraPreview,
     overrideSlot,
     liveCameraUrl,
     hasLaunched,
