@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { parseCheckinQr } from "@/lib/qr-checkin";
 import { parseMemberQr } from "~/features/kiosk/qr-scanner/member-qr";
-import { lookupMemberMatches } from "~/features/kiosk/license/lookup.server";
+import {
+  lookupMemberMatches,
+  lookupMemberMatchesAt,
+} from "~/features/kiosk/license/lookup.server";
 import { getRacerPass } from "~/features/racing/data/racer-wallet-db";
 import { recordSignageEvent } from "~/features/signage/events.server";
 import { trackFromName, TRACK_RESOURCE_IDS } from "~/features/signage/track";
@@ -22,13 +25,18 @@ import {
   pickNextTwoHeats,
   type HeatCandidate,
 } from "@/lib/checkin-race-flags";
-import { ARENA_RESOURCES } from "~/features/arena-tickets/constants";
-import { activeArenaCenters } from "~/features/arena-tickets/centers";
+import { ARENA_RESOURCES, HP_NAPLES_LOCATION_ID } from "~/features/arena-tickets/constants";
+import { activeArenaCenters, type ArenaCenter } from "~/features/arena-tickets/centers";
 import { activityDisplay, classifyArenaSession } from "~/features/arena-tickets/types";
 
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
 const HEADSOCK_DEPOSIT_KIND_ID = DEPOSIT_KIND.HEADSOCK;
+
+/** SMS-Timing client key for the Naples Office DB (its own BMI server —
+ *  personIds from it must never be matched against FM sessions). Same
+ *  literal bmi-office-actions keys its Naples config on. */
+const NAPLES_CLIENT_KEY = "headpinznaples";
 
 function pandoraHeaders(): HeadersInit {
   const key = process.env.SWAGGER_ADMIN_KEY || "";
@@ -435,6 +443,49 @@ async function handleArenaScan(
   });
 }
 
+/**
+ * Licence/member-QR → CALLED arena session. A licence identifies a person,
+ * never a venue, so once the racing feed misses we ask each candidate
+ * center "is one of this person's sessions being called right now?" —
+ * the same green gate an HP QR scan uses. Roster reads come from the
+ * cron-warmed participants cache (a CALLED session was re-read by the
+ * arena alert cron within the last minute), so a miss degrades to the
+ * not-checking-in fallback rather than a cold Pandora fetch.
+ *
+ * CALLERS PICK THE CENTERS BY NAMESPACE: FM-server licences may match
+ * HP FM (shared BMI server with FastTrax); Naples-issued QRs may match
+ * ONLY Naples — numeric personIds collide across the two BMI servers.
+ */
+async function resolveCalledArenaSessionByPerson(
+  centers: ArenaCenter[],
+  personIds: string[],
+): Promise<{
+  locationId: string;
+  personId: string;
+  sessionId: string;
+  participantId: string | null;
+} | null> {
+  for (const center of centers) {
+    const calledIds = await fetchCalledArenaSessionIds(center.locationId);
+    for (const sessionId of calledIds) {
+      if (!sessionId) continue;
+      for (const personId of personIds) {
+        const match = await lookupGuest(sessionId, personId, center.locationId);
+        if (match.participant) {
+          const pid = match.participant.participantId;
+          return {
+            locationId: center.locationId,
+            personId,
+            sessionId,
+            participantId: pid != null && String(pid).trim() ? String(pid) : null,
+          };
+        }
+      }
+    }
+  }
+  return null;
+}
+
 interface NextRace {
   track: string | null;
   raceType: string | null;
@@ -582,9 +633,17 @@ export async function POST(req: NextRequest) {
     const qr = parseMemberQr(body.raw.trim());
     if (qr) {
       licenceCode = qr.code;
-      const people = await lookupMemberMatches(qr.code, qr.clientKey || undefined).catch(
-        () => null,
-      );
+      // NAMESPACE ROUTING. A Naples-issued app QR (clientKey
+      // "headpinznaples") resolves against the Naples Office DB and may
+      // ONLY match Naples sessions — Naples runs its own BMI server, so
+      // its numeric personIds collide with FM's. Everything else (wallet
+      // licences carry no clientKey; FM app QRs carry headpinzftmyers)
+      // resolves against the FM Office as always and may match FT racing
+      // + HP FM arena, which share one BMI server.
+      const isNaplesQr = (qr.clientKey || "") === NAPLES_CLIENT_KEY;
+      const people = isNaplesQr
+        ? await lookupMemberMatchesAt(NAPLES_CLIENT_KEY, qr.code).catch(() => null)
+        : await lookupMemberMatches(qr.code, qr.clientKey || undefined).catch(() => null);
       if (people === null || people.length === 0) {
         // `[]` is also what a degraded Office person subsystem returns — it
         // answers empty rather than erroring (four hours of that on
@@ -603,6 +662,54 @@ export async function POST(req: NextRequest) {
           detail: "Licence not recognised",
         });
       }
+      const personIds = people.map((p) => String(p.personId));
+
+      // Naples namespace: arena is the only surface, and the only venue
+      // these personIds are valid against.
+      if (isNaplesQr) {
+        const arena = await resolveCalledArenaSessionByPerson(
+          activeArenaCenters().filter((c) => c.locationId === HP_NAPLES_LOCATION_ID),
+          personIds,
+        );
+        if (arena) {
+          return handleArenaScan(
+            req,
+            arena.locationId,
+            arena.personId,
+            arena.sessionId,
+            arena.participantId,
+          );
+        }
+        // Known Naples guest, nothing called right now — say when their
+        // next session is (mirrors the racing fallback below; the FM racer
+        // pass has nothing for a Naples-namespace personId).
+        const m = people[0];
+        const next = await fetchNextArenaSession(HP_NAPLES_LOCATION_ID, "person", personIds[0]);
+        const nextRaceText =
+          next.status === "found" && next.race.scheduledStart
+            ? `${new Date(next.race.scheduledStart).toLocaleTimeString("en-US", {
+                hour: "numeric",
+                minute: "2-digit",
+                timeZone: "America/New_York",
+              })}${next.race.track ? ` · ${next.race.track}` : ""}`
+            : null;
+        return NextResponse.json({
+          success: false,
+          guest: {
+            firstName: m.fullName.split(/\s+/)[0] ?? "",
+            lastName: m.fullName.split(/\s+/).slice(1).join(" "),
+          },
+          session: { track: null, raceType: null, heatNumber: null, scheduledStart: null },
+          currentlyCheckingIn: false,
+          headsock: { detected: false, deducted: false, balance: 0 },
+          nextRaceStatus: "none",
+          nextRaceText,
+          detail: nextRaceText
+            ? "Not checking in yet — next session shown"
+            : "No session checking in right now",
+        });
+      }
+
       // One human can hold several Office records; the live roster is the
       // tie-breaker, which beats guessing by recency.
       const current0 = await fetchCurrentRaces(req);
@@ -615,6 +722,24 @@ export async function POST(req: NextRequest) {
         }
       }
       if (!picked) {
+        // No FT racing heat open — the same person may be checking into an
+        // HP FM ARENA session (same BMI server, same personId namespace),
+        // so ask the arena's called feed before concluding "nothing".
+        // Licences were FT-only until 2026-08-16; this is what makes them
+        // work at every desk on this server.
+        const arena = await resolveCalledArenaSessionByPerson(
+          activeArenaCenters().filter((c) => c.locationId !== HP_NAPLES_LOCATION_ID),
+          personIds,
+        );
+        if (arena) {
+          return handleArenaScan(
+            req,
+            arena.locationId,
+            arena.personId,
+            arena.sessionId,
+            arena.participantId,
+          );
+        }
         // Known racer, no heat OPEN yet. Not an error — but "No upcoming race
         // found" is the wrong thing to tell a desk attendant about a racer who
         // is on tonight's grid, so say WHEN they race.
