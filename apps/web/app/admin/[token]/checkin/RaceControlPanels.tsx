@@ -1853,6 +1853,8 @@ function RoomColumn({
           pending={pending}
           cameraExpanded={expandedCamera === holdingCameraFor(room)}
           onExpandCamera={() => onExpandCamera(holdingCameraFor(room))}
+          getLiveUrl={getLiveUrl}
+          liveCameras={liveCameras}
           onRaceReturned={onRaceReturned}
         />
       )}
@@ -2020,6 +2022,8 @@ function OutOfRoomPanel({
   pending,
   cameraExpanded,
   onExpandCamera,
+  getLiveUrl,
+  liveCameras,
   onRaceReturned,
 }: {
   room: BriefingRoom;
@@ -2039,6 +2043,10 @@ function OutOfRoomPanel({
   pending: string | null;
   cameraExpanded: boolean;
   onExpandCamera: () => void;
+  /** Mints the holding preview's live stream — see HoldingCamera. */
+  getLiveUrl: (target: CameraTarget, res?: LiveResolution) => Promise<string | null>;
+  /** The desk-wide "Live video" / "Stills" choice. */
+  liveCameras: boolean;
   onRaceReturned: () => void;
 }) {
   /**
@@ -2353,6 +2361,8 @@ function OutOfRoomPanel({
               paused={cameraExpanded}
               onExpand={onExpandCamera}
               accent={color}
+              getLiveUrl={getLiveUrl}
+              liveCameras={liveCameras}
             />
           </div>
         </div>
@@ -3232,9 +3242,7 @@ function RoomCamera({
             ? "RECONNECTING…"
             : paused
               ? "IN THE VIEWER"
-              : `${live.playing ? "LIVE" : "STILLS"} · ${room.toUpperCase()}${
-                  !live.playing && live.failure ? ` · ${live.failure}` : ""
-                }`}
+              : `${live.playing ? "LIVE" : "STILLS"} · ${room.toUpperCase()}`}
         </span>
       </span>
     </button>
@@ -3262,16 +3270,39 @@ function HoldingCamera({
   paused,
   onExpand,
   accent,
+  getLiveUrl,
+  liveCameras,
 }: {
   target: CameraTarget;
   label: string;
   paused: boolean;
   onExpand: () => void;
   accent: string;
+  getLiveUrl: (target: CameraTarget, res?: LiveResolution) => Promise<string | null>;
+  liveCameras: boolean;
 }) {
+  /**
+   * HOLDING PLAYS TOO NOW (owner 2026-08-17), and the reason it did not is gone.
+   *
+   * This was left on stills deliberately: a dewarped view is a transcode on the
+   * NVR whatever we ask for, and the mp4v streams it was answering with cost
+   * ~590 KB/s at full size. With `videoCodec=h264` the same dewarped view is a
+   * fifth of that, so the bandwidth argument for holding back no longer holds —
+   * and the transcode session it costs is the same one the still refresh was
+   * already paying for every two seconds.
+   *
+   * The desk's Stills setting still governs it, which is the real relief valve
+   * if the NVR ever does struggle.
+   */
+  const live = useLiveCamera(target, getLiveUrl, {
+    enabled: !paused && liveCameras,
+    resolution: MOTION_RESOLUTION,
+    recycleMs: LIVE_RECYCLE_MS,
+  });
   // 640, not 960: the box is CAM_W wide, so even a 2x panel wants ~416px — and
   // every pixel here is transcoded, not merely resized (see fetchDewarpedFrame).
-  const { src, offline } = useCameraFrame(target, 640, !paused, 2_000);
+  // Stands down once video plays, and is the floor if it never does.
+  const { src, offline } = useCameraFrame(target, 640, !paused && !live.playing, 2_000);
 
   return (
     <button
@@ -3282,7 +3313,39 @@ function HoldingCamera({
       aria-label={`Enlarge the ${label.toLowerCase()} camera`}
     >
       <span className="rc-cam-shot">
-        <CameraFrame src={src} offline={offline} alt={label} connectingSize={11} />
+        <span style={{ opacity: live.playing ? 0 : 1 }}>
+          <CameraFrame src={src} offline={offline} alt={label} connectingSize={11} />
+        </span>
+        {live.url && (
+          <video
+            key={live.url}
+            ref={teardownLiveVideoRef}
+            src={live.url}
+            autoPlay
+            muted
+            playsInline
+            onPlaying={live.onPlaying}
+            onWaiting={live.onWaiting}
+            onStalled={live.onWaiting}
+            onError={(e) => {
+              live.onFailure("error", e.currentTarget);
+              live.retry();
+            }}
+            onEnded={(e) => {
+              live.onFailure("ended", e.currentTarget);
+              live.retry();
+            }}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              opacity: live.playing ? 1 : 0,
+              pointerEvents: "none",
+            }}
+          />
+        )}
         <span
           className="rc-cam-chip"
           aria-hidden
@@ -3329,7 +3392,11 @@ function HoldingCamera({
               background: offline ? AMBER : accent,
             }}
           />
-          {offline ? "RECONNECTING…" : paused ? "IN THE VIEWER" : label.toUpperCase()}
+          {offline
+            ? "RECONNECTING…"
+            : paused
+              ? "IN THE VIEWER"
+              : `${live.playing ? "LIVE · " : ""}${label.toUpperCase()}`}
         </span>
       </span>
     </button>
