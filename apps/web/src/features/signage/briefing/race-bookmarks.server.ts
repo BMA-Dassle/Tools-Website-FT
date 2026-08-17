@@ -59,7 +59,7 @@ async function trackCameras(track: CameraTrack): Promise<NamedCamera[]> {
 
 /* ── the four events ──────────────────────────────────────────────────── */
 
-export type RacePhase = "start" | "paused" | "resumed" | "end";
+export type RacePhase = "start" | "paused" | "resumed" | "end" | "emergency-on" | "emergency-off";
 
 /** How much footage each marker spans, per phase.
  *
@@ -68,12 +68,22 @@ export type RacePhase = "start" | "paused" | "resumed" | "end";
  *  spin, a stall, a marshal walking out — so its range leads in far enough to
  *  contain the cause rather than only the consequence. The resume marker is the
  *  other end of that same interruption and needs no lead-in.
+ *
+ *  AN EMERGENCY STOP IS THE WIDEST OF ALL, and it stands in for the pause it
+ *  causes. Measured on the wire 2026-08-16: the E-stop lands 0.56s BEFORE the
+ *  session pauses, so the two are one incident and only this one is marked
+ *  (owner: "we pause after estop so don't need both logged"). Its span
+ *  therefore has to cover what the pause marker would have covered — the same
+ *  two-minute lead-in to catch the cause, and longer after, because whatever
+ *  made somebody hit the button is still being dealt with.
  */
 const SPAN_MS: Record<RacePhase, { leadInMs: number; durationMs: number }> = {
   start: { leadInMs: 15_000, durationMs: 60_000 },
   paused: { leadInMs: 120_000, durationMs: 150_000 },
   resumed: { leadInMs: 10_000, durationMs: 45_000 },
   end: { leadInMs: 15_000, durationMs: 90_000 },
+  "emergency-on": { leadInMs: 120_000, durationMs: 180_000 },
+  "emergency-off": { leadInMs: 15_000, durationMs: 60_000 },
 };
 
 const PHASE_WORDS: Record<RacePhase, string> = {
@@ -81,6 +91,8 @@ const PHASE_WORDS: Record<RacePhase, string> = {
   paused: "paused",
   resumed: "resumed",
   end: "finished",
+  "emergency-on": "STOPPED — emergency",
+  "emergency-off": "emergency cleared",
 };
 
 /** Claims outlive a race night and expire before the next one. */
@@ -124,11 +136,29 @@ export interface RaceBookmarkArgs {
 export async function bookmarkRaceEvent(args: RaceBookmarkArgs): Promise<number> {
   if (!nxConfigured() || !args.sessionId || !Number.isFinite(args.atMs)) return 0;
 
-  // CLAIM FIRST — see the replay trap in the header. A resume can legitimately
-  // happen more than once in a heat, so those two carry an occurrence suffix
-  // derived from the minute they were seen; start and end are once per race.
-  const bucket =
-    args.phase === "paused" || args.phase === "resumed" ? `:${Math.floor(args.atMs / 60_000)}` : "";
+  // CLAIM FIRST — see the replay trap in the header. Start and end happen once
+  // per race and need no suffix. The interruption phases can each happen
+  // repeatedly within one heat, so they carry an occurrence suffix — and WHICH
+  // suffix depends on how good the stamp is:
+  //
+  //   sampled  the watcher stamps Date.now(), which differs on every run, so an
+  //            exact key would never dedupe. The minute it was seen in is the
+  //            finest bucket that still collapses re-observations.
+  //   pushed   the venue's own stamp, identical across every replay of the same
+  //            event, so the stamp IS the identity. Exact, and it has to be:
+  //            heat 60 was E-stopped twice inside minute 23:18 (23:18:08.809 and
+  //            23:18:20.574, twelve seconds apart) and a minute bucket would
+  //            have thrown the second incident away as a duplicate.
+  const repeatable =
+    args.phase === "paused" ||
+    args.phase === "resumed" ||
+    args.phase === "emergency-on" ||
+    args.phase === "emergency-off";
+  const bucket = !repeatable
+    ? ""
+    : args.sampled
+      ? `:${Math.floor(args.atMs / 60_000)}`
+      : `:${args.atMs}`;
   const claimKey = `bookmark:race:${args.sessionId}:${args.phase}${bucket}`;
   try {
     const claim = await redis.set(claimKey, String(args.atMs), "EX", CLAIM_TTL_SECONDS, "NX");
@@ -150,15 +180,31 @@ export async function bookmarkRaceEvent(args: RaceBookmarkArgs): Promise<number>
 
   const span = SPAN_MS[args.phase];
   const startTimeMs = Math.floor(args.atMs - span.leadInMs);
-  const name = args.heatNumber != null ? `Session ${args.heatNumber}` : "Session";
+  const emergency = args.phase === "emergency-on" || args.phase === "emergency-off";
+  // An E-stop is the TRACK's event, not the session's — the wire does not even
+  // tell us which heat it belongs to. Naming it after the incident rather than
+  // the session is what makes it findable in a ribbon of session markers.
+  const name = emergency
+    ? "EMERGENCY STOP"
+    : args.heatNumber != null
+      ? `Session ${args.heatNumber}`
+      : "Session";
   const heat = args.heatName ? ` (${args.heatName})` : "";
   const when = args.sampled
     ? " Detected by a once-a-minute check, so the exact moment is within the minute before this marker."
     : "";
-  const description =
-    `${args.track === "mega" ? "Mega" : args.track[0].toUpperCase() + args.track.slice(1)} ` +
-    `track session ${PHASE_WORDS[args.phase]}${heat}.${when}`;
-  const tags = ["race", args.phase, `${args.track} track`];
+  const trackWord =
+    args.track === "mega" ? "Mega" : args.track[0].toUpperCase() + args.track.slice(1);
+  // The pause an E-stop causes is not marked separately, so this marker has to
+  // say that it covers it — otherwise the ribbon looks like the race carried on.
+  const description = emergency
+    ? `${trackWord} track ${PHASE_WORDS[args.phase]}${heat}.` +
+      (args.phase === "emergency-on"
+        ? " The session pause that follows is part of this incident and is not marked separately."
+        : "") +
+      when
+    : `${trackWord} track session ${PHASE_WORDS[args.phase]}${heat}.${when}`;
+  const tags = ["race", args.phase, `${args.track} track`, ...(emergency ? ["emergency"] : [])];
 
   const body = { name, description, startTimeMs, durationMs: span.durationMs, tags };
   const writeOne = async (cam: NamedCamera): Promise<boolean> => {
