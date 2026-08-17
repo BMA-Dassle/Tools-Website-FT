@@ -141,6 +141,11 @@ async function recordRaceStarts(message: unknown): Promise<void> {
       heatName: s.heatName || null,
       startedAtMs: s.actualStartMs,
       endedAtMs: null,
+      // The slot this heat was sold as. Written on the START rather than waiting
+      // for the finish, so "are we on time" can be answered while the night is
+      // still running rather than only in the morning.
+      scheduledStartMs: s.scheduledStartMs,
+      scheduledEndMs: s.scheduledEndMs,
     }).catch((err) => console.error("[race-timings] start write failed", err));
 
     /**
@@ -325,6 +330,10 @@ export async function handleVenueMessage(message: unknown): Promise<void> {
             // cross-check on pause_count: a wall-clock span much longer than
             // this is a stop we may have missed to a bridge outage.
             durationMs: f.durationMs,
+            // Also on the finish, so a race whose START push we missed (bridge
+            // outage) still lands its slot when the catch-up dump replays it.
+            scheduledStartMs: f.scheduledStartMs,
+            scheduledEndMs: f.scheduledEndMs,
           }).catch((err) => {
             // Metrics data, not a guest-facing effect: a Neon blip must never
             // cost the radio call or the standings capture below it.

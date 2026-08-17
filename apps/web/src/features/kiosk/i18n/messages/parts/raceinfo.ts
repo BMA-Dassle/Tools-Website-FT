@@ -74,6 +74,15 @@ export const raceinfoEn = {
   // statusLabel come from the live feed and stay as returned.
   "raceInfo.upcoming.nowCheckingIn": "Now Checking In",
   "raceInfo.upcoming.onTime": "On Time",
+  /**
+   * WHEN THE HEAT ACTUALLY GOES, replacing the old "On Time / +N Min" badge
+   * (2026-08-17). The tilde is doing real work: the prediction carries ±3-6 min
+   * of measured error and is rounded to five, so a bare "7:42" would claim a
+   * precision we do not have and a guest would read it as a promise.
+   */
+  "raceInfo.upcoming.racingAbout": "Racing ~{time}",
+  /** The fallback when we cannot predict — the printed slot, stated as printed. */
+  "raceInfo.upcoming.scheduledAt": "Scheduled {time}",
   "raceInfo.filter.all": "All",
   "raceInfo.upcoming.loading": "Loading today’s races…",
   "raceInfo.upcoming.error":
@@ -136,6 +145,11 @@ export const raceinfoEs: Record<keyof typeof raceinfoEn, string> = {
 
   "raceInfo.upcoming.nowCheckingIn": "Registrándose ahora",
   "raceInfo.upcoming.onTime": "A tiempo",
+  // "En pista" = on track. Chosen over a literal "corriendo" because the chip
+  // answers WHEN the manga goes out, not what it is doing right now.
+  "raceInfo.upcoming.racingAbout": "En pista ~{time}",
+  // Feminine to agree with carrera/manga.
+  "raceInfo.upcoming.scheduledAt": "Programada {time}",
   "raceInfo.filter.all": "Todas",
   "raceInfo.upcoming.loading": "Cargando las carreras de hoy…",
   "raceInfo.upcoming.error":

@@ -16,6 +16,12 @@
 import { useState } from "react";
 import { IconAlertTriangle } from "@tabler/icons-react";
 import { useTrackStatus, type CurrentRace } from "@/hooks/useTrackStatus";
+import { slotMsOf } from "@/components/home/TrackTimingChip";
+import {
+  roundPredictedMs,
+  shouldShowPrediction,
+  trackDisplay,
+} from "~/features/racing/on-time-display";
 import { useKioskConfig } from "../../KioskConfigContext";
 import {
   useRaceGridDisplay,
@@ -44,6 +50,21 @@ const TIER_LABEL: Record<DisplayHeat["tier"], string> = {
   intermediate: "Intermediate",
   pro: "Pro",
 };
+
+/** Wall-clock ET, e.g. "7:40 PM". The digits are locale-neutral; the words
+ *  around them come from the catalog, which is why this returns a time and not
+ *  a sentence. */
+function etClock(ms: number): string {
+  try {
+    return new Date(ms).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: "America/New_York",
+    });
+  } catch {
+    return "";
+  }
+}
 
 // TODO(i18n): module-scope helper (can't reach useT). Builds "{raceType} Heat
 // #{n} · {time}"; raceType is server data that stays English, so the "Heat #"
@@ -88,42 +109,47 @@ function StatusBand() {
         </div>
       )}
       <div className="flex gap-[20px]">
-        {trackStatus.tracks.map((track) => (
-          <div
-            key={track.trackName}
-            className="flex flex-1 items-center gap-[16px] rounded-[18px] border px-[24px] py-[16px]"
-            style={{
-              borderColor: `${track.colors.trackIdentity}55`,
-              background: "rgba(0,0,0,0.25)",
-            }}
-          >
-            <span
-              className="h-[16px] w-[16px] shrink-0 rounded-full"
+        {trackStatus.tracks.map((track) => {
+          const key = track.trackName.toLowerCase().replace(/\s+track/i, "");
+          const race = currentRaces[key as "blue" | "red" | "mega"] ?? null;
+          const d = trackDisplay(result.onTime, key, slotMsOf(race));
+          // Amber is for our CALLS running late — ours and fixable. The ordinary
+          // ~17-minute briefing pipeline is NOT a fault and must not light one,
+          // or every kiosk in the building is amber every night.
+          const dot = d.tone === "ok" ? "#46d68c" : d.tone === "warn" ? "#f0b341" : "#6b7280";
+          const timing =
+            shouldShowPrediction(d) && d.predictedStartMs !== null
+              ? t("raceInfo.upcoming.racingAbout", {
+                  time: etClock(roundPredictedMs(d.predictedStartMs)),
+                })
+              : slotMsOf(race) !== null
+                ? t("raceInfo.upcoming.scheduledAt", { time: etClock(slotMsOf(race) as number) })
+                : null;
+          return (
+            <div
+              key={track.trackName}
+              className="flex flex-1 items-center gap-[16px] rounded-[18px] border px-[24px] py-[16px]"
               style={{
-                background:
-                  track.status === "ok"
-                    ? "#46d68c"
-                    : track.status === "delayed"
-                      ? "#f0b341"
-                      : "#e53935",
-                boxShadow: `0 0 14px ${
-                  track.status === "ok"
-                    ? "#46d68c"
-                    : track.status === "delayed"
-                      ? "#f0b341"
-                      : "#e53935"
-                }`,
+                borderColor: `${track.colors.trackIdentity}55`,
+                background: "rgba(0,0,0,0.25)",
               }}
-            />
-            <span className="flex-1 text-[28px] font-semibold text-white">{track.trackName}</span>
-            <span
-              className="k-num text-[26px] font-bold"
-              style={{ color: track.colors.trackIdentity }}
             >
-              {track.delayFormatted || t("raceInfo.upcoming.onTime")}
-            </span>
-          </div>
-        ))}
+              <span
+                className="h-[16px] w-[16px] shrink-0 rounded-full"
+                style={{ background: dot, boxShadow: `0 0 14px ${dot}` }}
+              />
+              <span className="flex-1 text-[28px] font-semibold text-white">{track.trackName}</span>
+              {timing && (
+                <span
+                  className="k-num text-[26px] font-bold"
+                  style={{ color: track.colors.trackIdentity }}
+                >
+                  {timing}
+                </span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

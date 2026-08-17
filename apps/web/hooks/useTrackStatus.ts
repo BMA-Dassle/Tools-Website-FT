@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
+import type { OnTimeSnapshot as OnTimeSnapshotType } from "~/features/racing/on-time";
 import { dataSaysMega } from "~/features/racing/mega-mode";
 
 // Cached proxy on our own backend — see app/api/track-status/route.ts.
@@ -54,11 +55,24 @@ export type CurrentRaces = {
   mega: CurrentRace | null;
 };
 
+// ── OUR OWN on-time picture (2026-08-17) ─────────────────────────────────────
+
+/**
+ * Computed from our archives, not bought from the BMA service — see
+ * features/racing/on-time.ts for why the two disagree and which one is right.
+ *
+ * Null when the kill switch is off, when the read failed, or on an old cached
+ * payload. Every consumer must handle null by falling back to the printed
+ * schedule rather than inventing a time.
+ */
+export type { OnTimeSnapshot, TrackOnTime } from "~/features/racing/on-time";
+
 // ── Combined return type ─────────────────────────────────────────────────────
 
 export type TrackStatusResult = {
   trackStatus: TrackStatusData;
   currentRaces: CurrentRaces;
+  onTime: OnTimeSnapshotType | null;
 };
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
@@ -120,6 +134,13 @@ export function useTrackStatus(pollMs: number = POLL_INTERVAL): TrackStatusResul
         megaTrackEnabled: Boolean(statusJson.megaTrackEnabled),
         tracks: statusJson.tracks,
       };
+      // Ours rides along on the same payload. Absent (kill switch off, read
+      // failed, older deploy still serving) is a first-class case: consumers
+      // fall back to the printed schedule rather than to a made-up time.
+      const onTime: OnTimeSnapshotType | null =
+        statusJson.onTime && typeof statusJson.onTime === "object"
+          ? (statusJson.onTime as OnTimeSnapshotType)
+          : null;
 
       let currentRaces: CurrentRaces = { blue: null, red: null, mega: null };
       let effectiveMega = trackStatus.megaTrackEnabled;
@@ -143,6 +164,7 @@ export function useTrackStatus(pollMs: number = POLL_INTERVAL): TrackStatusResul
       setData({
         trackStatus: { ...trackStatus, megaTrackEnabled: effectiveMega },
         currentRaces,
+        onTime,
       });
     } catch {
       /* silent — keep last known state */

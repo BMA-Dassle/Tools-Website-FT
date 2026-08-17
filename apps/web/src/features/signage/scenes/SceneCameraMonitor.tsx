@@ -32,6 +32,8 @@
  */
 import { IconVideoOff, IconAlertTriangleFilled, IconPointFilled } from "@tabler/icons-react";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
+import type { OnTimeSnapshot } from "~/features/racing/on-time";
+import { trackDisplay } from "~/features/racing/on-time-display";
 import { withAlpha } from "../color";
 import { useCameraStill } from "../useCameraStill";
 import { formatRemaining, useLiveSessionClock, type LiveSessionClock } from "../live-session";
@@ -39,9 +41,7 @@ import {
   TRACK_ACCENTS,
   TRACK_LABELS,
   effectiveTrack,
-  findTrackDelay,
   trackFromName,
-  type TrackDelay,
   type TrackKey,
 } from "../track";
 import {
@@ -82,7 +82,6 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
   const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
   const track = cam?.track ? effectiveTrack(cam.track, megaEnabled) : null;
   const sessionClock = useLiveSessionClock(track);
-  const delay = track ? findTrackDelay(status?.trackStatus.tracks, track) : null;
 
   // Which session is in THIS briefing room, and where the safety video is up to.
   // The room is the board's own track (a Blue camera watches the Blue room); Mega
@@ -160,7 +159,8 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
           if needed for more space"). */}
       <StatusBar
         trackLabel={TRACK_LABELS[track]}
-        delay={delay}
+        onTime={status?.onTime ?? null}
+        track={track}
         compact={!!feed?.checkinReturning}
       />
     </div>
@@ -743,34 +743,57 @@ function ReturningPanel({ returning }: { returning: TvFeed["checkinReturning"] }
 }
 
 /**
- * The track-status bar across the bottom — big. Green and "On Time" when on
- * schedule, amber and "N min behind" when late. Neutral with just the track name
- * when the track is not reporting, rather than a status it cannot stand behind.
+ * The track-status bar across the bottom — big.
+ *
+ * STAFF READ THIS, so it shows an EXCEPTION, not an average (2026-08-17). The
+ * median call delay is ~0 essentially always — it was +0.2 min on both tracks
+ * across 99 heats on 2026-08-16 — so a bar showing the average would be green
+ * every night of its life, which is exactly the failure of the outside service
+ * this replaced. The signal is the outliers: 8 of those 99 calls went out after
+ * the slot, and those are the ones a marshal can do something about.
+ *
+ * Amber therefore means OUR CALLS ARE LATE. It deliberately does NOT fire on the
+ * ordinary ~17-minute briefing pipeline, which is not a fault and would paint
+ * every board on the property amber every night.
  */
 function StatusBar({
   trackLabel,
-  delay,
+  onTime,
+  track,
   compact,
 }: {
   trackLabel: string;
-  delay: TrackDelay | null;
+  onTime: OnTimeSnapshot | null;
+  track: TrackKey;
   /** Half height, headline only — when the pane above needs the room. */
   compact?: boolean;
 }) {
-  const unknown = delay === null;
-  const late = !unknown && delay.delayMinutes > 0;
+  const d = trackDisplay(onTime, track, null);
+  const worst = d.lateCalls[0] ?? null;
+  const unknown = d.insufficientData;
+  const late = worst !== null;
+
   const bg = unknown ? "#26324a" : late ? BEHIND_AMBER : ON_TIME_GREEN;
   const dark = "#0a1005";
   const fg = unknown ? "rgba(245,236,238,0.9)" : dark;
-  const behindText = !unknown && late ? delay.delayFormatted || `${delay.delayMinutes} min` : "";
+
   const headline = unknown
     ? trackLabel
-    : `${trackLabel} — ${late ? `${behindText} behind` : "On Time"}`;
-  const sub = unknown
-    ? "Track status unavailable"
     : late
-      ? `Running ${behindText} behind`
-      : "Running on schedule";
+      ? `${trackLabel} — Call ${Math.round(worst.delayMin)} min late`
+      : `${trackLabel} — Calls On Time`;
+
+  const sub = unknown
+    ? "Not enough of tonight measured yet"
+    : late
+      ? // Name the heat. "A call was late" is not actionable; "heat 31 was" is.
+        `Heat ${worst.heatNumber ?? "?"} called ${Math.round(worst.delayMin)} min late` +
+        (d.lateCalls.length > 1 ? ` · ${d.lateCalls.length} late this hour` : "")
+      : // Carry the sample size: a median over one heat must not read with the
+        // same confidence as one over three.
+        `Median ${d.callDelayMin !== null && d.callDelayMin >= 0 ? "+" : ""}${
+          d.callDelayMin ?? "—"
+        } min over ${d.callDelayN} heat${d.callDelayN === 1 ? "" : "s"}`;
 
   return (
     <div

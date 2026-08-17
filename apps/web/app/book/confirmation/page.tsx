@@ -10,6 +10,7 @@ import BrandNav from "@/components/BrandNav";
 import { bmiGet, bmiPost, getRaceProductById } from "../race/data";
 import { trackBookingComplete } from "@/lib/analytics";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
+import TrackTimingChip from "@/components/home/TrackTimingChip";
 import { modalBackdropProps } from "@/lib/a11y";
 import { productDisplayNameFromPackages, getPackageIgnoreFlag } from "@/lib/packages";
 import { buildReservationMemo } from "~/features/booking/service/reservation-memo";
@@ -2175,13 +2176,11 @@ const journeySteps = [
   },
 ];
 
-function dotColor(status: string) {
-  return status === "ok" ? "bg-green-400" : status === "delayed" ? "bg-yellow-400" : "bg-red-400";
-}
-
 function ExpressTrackStatus({ liveStatus }: { liveStatus: ReturnType<typeof useTrackStatus> }) {
   if (!liveStatus) return null;
   const { trackStatus: trackData, currentRaces } = liveStatus;
+  // `liveStatus` is non-null past the guard above, so the chip reads onTime
+  // straight off it — see TrackTimingChip for what it renders when that is null.
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
       <p className="text-white/40 text-xs uppercase tracking-wider font-semibold mb-3">
@@ -2204,10 +2203,12 @@ function ExpressTrackStatus({ liveStatus }: { liveStatus: ReturnType<typeof useT
                 <span className="text-sm font-semibold" style={{ color: t.colors.trackIdentity }}>
                   {t.trackName}
                 </span>
-                <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full ${dotColor(t.status)}`} />
-                  <span className="text-white/70 text-sm">{t.delayFormatted}</span>
-                </div>
+                <TrackTimingChip
+                  onTime={liveStatus.onTime}
+                  track={key}
+                  race={race}
+                  textClassName="text-white/70 text-sm"
+                />
               </div>
               {race &&
                 (() => {
@@ -2277,10 +2278,13 @@ function RacerJourneySteps({ liveStatus }: { liveStatus: ReturnType<typeof useTr
                   <span className="text-sm font-semibold" style={{ color: t.colors.trackIdentity }}>
                     {t.trackName}
                   </span>
-                  <div className="flex items-center gap-2">
-                    <span className={`w-1.5 h-1.5 rounded-full ${dotColor(t.status)}`} />
-                    <span className="text-white/70 text-xs">{t.delayFormatted}</span>
-                  </div>
+                  <TrackTimingChip
+                    onTime={liveStatus?.onTime ?? null}
+                    track={key}
+                    race={race}
+                    dotClassName="w-1.5 h-1.5"
+                    textClassName="text-white/70 text-xs"
+                  />
                 </div>
                 {race &&
                   (() => {

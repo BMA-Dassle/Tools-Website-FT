@@ -111,7 +111,10 @@ describe("GET /api/track-status", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("X-Cache")).toBe("SYNTH-ERROR");
     expect(res.headers.get("X-Upstream-Error")).toContain("aborted");
-    await expect(res.json()).resolves.toEqual({
+    // toMatchObject, not toEqual: our own `onTime` block rides along on every
+    // response now (see the route header). The upstream-shaped fields are what
+    // this test is about.
+    await expect(res.json()).resolves.toMatchObject({
       megaTrackEnabled: false,
       tracks: [],
       degraded: true,
@@ -132,7 +135,7 @@ describe("GET /api/track-status", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("X-Cache")).toBe("STALE-ERROR");
     expect(res.headers.get("X-Upstream-Error")).toContain("aborted");
-    await expect(res.json()).resolves.toEqual(PAYLOAD);
+    await expect(res.json()).resolves.toMatchObject(PAYLOAD);
   });
 
   it("survives an outage longer than the old 60s cache TTL — the 503-storm regression", async () => {
@@ -272,7 +275,90 @@ describe("GET /api/track-status", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("X-Cache")).toBe("MISS");
     expect(store.has(LOCK_KEY)).toBe(false);
-    // And the fresh reading is now cached for everyone else.
+    // And the fresh reading is now cached for everyone else. toEqual, not
+    // toMatchObject: what goes in the CACHE must stay the upstream payload
+    // alone — freezing our block behind the upstream's 3-hour serve ceiling
+    // would serve tonight's on-time picture from this afternoon.
     expect(JSON.parse(store.get(CACHE_KEY)!).data).toEqual(PAYLOAD);
+  });
+});
+
+/**
+ * OUR OWN on-time block (2026-08-17). The contract is ADDITIVE: whatever the
+ * upstream said still arrives untouched, so nothing reading `tracks[]` can break.
+ */
+describe("GET /api/track-status — the onTime block", () => {
+  beforeEach(() => {
+    store.clear();
+    vi.clearAllMocks();
+    seedDayPlannerVerdict(false);
+    delete process.env.ONTIME_OWN_SOURCE;
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.ONTIME_OWN_SOURCE;
+  });
+
+  it("rides along on a cache HIT without disturbing the upstream fields", async () => {
+    seedCache(1_000);
+
+    const body = (await (await GET()).json()) as Record<string, unknown>;
+
+    expect(body.megaTrackEnabled).toBe(false);
+    expect(body.tracks).toEqual(PAYLOAD.tracks);
+    expect(body.onTime).toBeTruthy();
+  });
+
+  it("reports slot coverage, so a surface can refuse to score a thin night", async () => {
+    seedCache(1_000);
+
+    const body = (await (await GET()).json()) as {
+      onTime: { slotCoverage: { withSlot: number; total: number }; businessDay: string };
+    };
+
+    // No DB in this environment ⇒ zero heats. The point is that the field EXISTS
+    // and reads zero rather than being absent, which is what lets a board say
+    // "not enough measured yet" instead of a confident "On Time".
+    expect(body.onTime.slotCoverage).toEqual({ withSlot: 0, total: 0 });
+    expect(body.onTime.businessDay).toBe(businessDayYmdET());
+  });
+
+  it("survives a dark upstream — it is computed from OUR archives", async () => {
+    vi.stubGlobal("fetch", abortingUpstream());
+
+    const res = await GET();
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(res.headers.get("X-Cache")).toBe("SYNTH-ERROR");
+    expect(body.degraded).toBe(true);
+    expect(body.onTime).toBeTruthy();
+  });
+
+  it("KILL SWITCH: ONTIME_OWN_SOURCE=false drops the block and nothing else", async () => {
+    process.env.ONTIME_OWN_SOURCE = "false";
+    seedCache(1_000);
+
+    const body = (await (await GET()).json()) as Record<string, unknown>;
+
+    expect(body.onTime).toBeUndefined();
+    // The route is exactly what it was before this feature existed.
+    expect(body).toEqual(PAYLOAD);
+  });
+
+  it("is ON by default — a merged feature is on, per the flags rule", async () => {
+    delete process.env.ONTIME_OWN_SOURCE;
+    seedCache(1_000);
+
+    const body = (await (await GET()).json()) as Record<string, unknown>;
+    expect(body.onTime).toBeTruthy();
+  });
+
+  it("does not treat any other value as off", async () => {
+    process.env.ONTIME_OWN_SOURCE = "0";
+    seedCache(1_000);
+
+    const body = (await (await GET()).json()) as Record<string, unknown>;
+    expect(body.onTime).toBeTruthy();
   });
 });

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { megaModeWithoutFlag } from "~/features/signage/service/mega-mode.server";
+import { getOnTime, type OnTimeSnapshot } from "~/features/racing/on-time.server";
 
 /**
  * Cached proxy for the BMA track-status service that drives the
@@ -35,6 +36,24 @@ import { megaModeWithoutFlag } from "~/features/signage/service/mega-mode.server
  * Hooks/components consuming this:
  *   - hooks/useTrackStatus.ts  (powers <TrackStatus /> on home/racing
  *                                + every e-ticket / group e-ticket)
+ *
+ * ── `onTime`: OUR OWN NUMBERS, added 2026-08-17 ─────────────────────
+ *
+ * Every response now also carries an `onTime` block computed from our
+ * own two archives (features/racing/on-time.server.ts). It is ADDITIVE:
+ * the upstream `tracks[]` array is passed through untouched, so nothing
+ * that reads it can break, and `megaTrackEnabled` still comes from the
+ * upstream (plus the synthetic ladder) because we cannot derive it.
+ *
+ * WHY OURS AT ALL. The upstream calls a heat delayed only once it is 30
+ * minutes past its slot, which on 2026-08-16 marked 1 heat out of 100 —
+ * green by construction, and so carrying no information. Ours measures
+ * lateness at the CALL, which is the moment the printed slot actually
+ * names, and surfaces late calls as exceptions. See on-time.ts for why
+ * that distinction is the whole ballgame.
+ *
+ * KILL SWITCH: ONTIME_OWN_SOURCE=false drops the block and leaves this
+ * route exactly as it was. Default ON — a merged feature is on.
  */
 
 const UPSTREAM = "https://tools-track-status.vercel.app/api/v1/status";
@@ -148,13 +167,37 @@ async function releaseLock(token: string): Promise<void> {
   }
 }
 
+/**
+ * OUR on-time block, or null.
+ *
+ * NEVER THROWS, and never blocks the upstream answer. This route's first job is
+ * still to keep `megaTrackEnabled` and the delay rows flowing; our own metric is
+ * a passenger on it. A Neon blip must cost the block, not the response.
+ */
+async function readOwnOnTime(): Promise<OnTimeSnapshot | null> {
+  if (process.env.ONTIME_OWN_SOURCE === "false") return null;
+  try {
+    return await getOnTime();
+  } catch (err) {
+    console.error("[track-status] own on-time read failed", err);
+    return null;
+  }
+}
+
+/** Merge our block into whatever the upstream (or the fallback) produced. */
+function withOnTime(data: unknown, onTime: OnTimeSnapshot | null): unknown {
+  if (!onTime || typeof data !== "object" || data === null) return data;
+  return { ...(data as Record<string, unknown>), onTime };
+}
+
 /** Serve a cached reading, tagging how we arrived at it. */
 function serveCached(
   entry: CachedEntry,
   cacheState: string,
+  onTime: OnTimeSnapshot | null,
   extra?: Record<string, string>,
 ): NextResponse {
-  return NextResponse.json(entry.data, {
+  return NextResponse.json(withOnTime(entry.data, onTime), {
     headers: {
       "X-Cache": cacheState,
       "X-Cache-Age-Ms": String(Date.now() - entry.fetchedAt),
@@ -183,10 +226,16 @@ function servable(entry: CachedEntry | null): entry is CachedEntry {
  * renders an empty delay list; `degraded: true` marks the payload for
  * anyone debugging why the widget has no rows.
  */
-async function serveSynthetic(cacheState: string, extra?: Record<string, string>) {
+async function serveSynthetic(
+  cacheState: string,
+  onTime: OnTimeSnapshot | null,
+  extra?: Record<string, string>,
+) {
   const megaTrackEnabled = await megaModeWithoutFlag().catch(() => false);
   return NextResponse.json(
-    { megaTrackEnabled, tracks: [], degraded: true },
+    // `onTime` survives a dark upstream on purpose: it is computed from OUR
+    // archives, so an outage over there is exactly when it is most useful.
+    withOnTime({ megaTrackEnabled, tracks: [], degraded: true }, onTime),
     {
       headers: { "X-Cache": cacheState, "Cache-Control": "no-store", ...(extra ?? {}) },
     },
@@ -194,11 +243,16 @@ async function serveSynthetic(cacheState: string, extra?: Record<string, string>
 }
 
 export async function GET() {
+  // Ours and theirs are independent reads, so start ours immediately rather
+  // than after the upstream dance — on the HIT path this is the only latency
+  // either of them adds, and it is a Redis get.
+  const onTimePromise = readOwnOnTime();
+
   // ── Hot path: serve fresh cache ─────────────────────────────────────
   const cached = await readCache();
   const ageMs = cached ? Date.now() - cached.fetchedAt : Infinity;
   if (cached && ageMs < FRESH_MS) {
-    return serveCached(cached, "HIT");
+    return serveCached(cached, "HIT", await onTimePromise);
   }
 
   // ── Slow path: cache stale (or missing). Try to be the one fetcher. ─
@@ -207,15 +261,15 @@ export async function GET() {
   if (!lockToken) {
     // Someone else is fetching — return what we have (even stale)
     // rather than dog-pile upstream.
-    if (servable(cached)) return serveCached(cached, "STALE-LOCKED");
+    if (servable(cached)) return serveCached(cached, "STALE-LOCKED", await onTimePromise);
 
     // Nothing servable + can't get the lock → give the holder a moment
     // and look again; it may have just written a fresh value.
     await new Promise((r) => setTimeout(r, 250));
     const retried = await readCache();
-    if (servable(retried)) return serveCached(retried, "WAITED");
+    if (servable(retried)) return serveCached(retried, "WAITED", await onTimePromise);
 
-    return serveSynthetic("SYNTH-LOCKED");
+    return serveSynthetic("SYNTH-LOCKED", await onTimePromise);
   }
 
   // We hold the lock — fetch upstream, bounded.
@@ -226,8 +280,10 @@ export async function GET() {
     });
     if (!res.ok) throw new Error(`upstream ${res.status}`);
     const data = await res.json();
+    // Cache the UPSTREAM payload only. Ours has its own (much shorter) cache and
+    // must not be frozen for three hours behind the upstream's serve ceiling.
     await writeCache(data);
-    return NextResponse.json(data, {
+    return NextResponse.json(withOnTime(data, await onTimePromise), {
       headers: { "X-Cache": "MISS", "Cache-Control": "no-store" },
     });
   } catch (err) {
@@ -235,9 +291,11 @@ export async function GET() {
     // Upstream failed — serve the last known reading if it's recent
     // enough to still mean something, else synthesize.
     if (servable(cached)) {
-      return serveCached(cached, "STALE-ERROR", { "X-Upstream-Error": reason });
+      return serveCached(cached, "STALE-ERROR", await onTimePromise, {
+        "X-Upstream-Error": reason,
+      });
     }
-    return serveSynthetic("SYNTH-ERROR", { "X-Upstream-Error": reason });
+    return serveSynthetic("SYNTH-ERROR", await onTimePromise, { "X-Upstream-Error": reason });
   } finally {
     await releaseLock(lockToken);
   }

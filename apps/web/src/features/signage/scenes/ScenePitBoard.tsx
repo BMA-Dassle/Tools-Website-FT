@@ -27,7 +27,9 @@
  * signage estate stays first-names-only.
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { useTrackStatus } from "@/hooks/useTrackStatus";
+import { useTrackStatus, type CurrentRace } from "@/hooks/useTrackStatus";
+import type { OnTimeSnapshot } from "~/features/racing/on-time";
+import TrackTimingLine from "../components/TrackTimingLine";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { withAlpha } from "../color";
 import { LiveSessionChip, useLiveSessionClock } from "../live-session";
@@ -40,7 +42,6 @@ import {
   TRACK_ACCENTS,
   TRACK_LABELS,
   effectiveTrack,
-  findTrackDelay,
   trackFromResourceIds,
   type TrackKey,
 } from "../track";
@@ -342,8 +343,6 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
     [feed?.briefingRooms, feed?.now, nowMs, status?.currentRaces, track, lane, liveClock],
   );
 
-  const delay = findTrackDelay(status?.trackStatus.tracks, track);
-
   // THE MEGA SPLIT, the pit signs' version (owner 2026-08-17: "one on the
   // right is assignment, one on the left would be session tracker"). Both pit
   // signs read the one combined lane on a Mega day, so a sign whose
@@ -355,7 +354,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
     return (
       <SessionTracker
         accent={accent}
-        delay={delay}
+        onTime={status?.onTime ?? null}
         called={status?.currentRaces?.mega ?? null}
         checkedIn={
           feed?.raceCheckin?.checkedIn != null && feed?.raceCheckin?.total != null
@@ -459,7 +458,14 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
               taking the flexible gap the session title wanted. */}
           <TvBrandLogo venue="FT" height={40} />
           <div>
-            <DelayLine delay={delay} />
+            <TrackTimingLine
+              onTime={status?.onTime ?? null}
+              track={track}
+              race={status?.currentRaces?.[track] ?? null}
+              fontSize={26}
+              okColor={OK}
+              warnColor={AMBER}
+            />
           </div>
           {/* nowrap THROUGHOUT this block: .tv-display carries text-wrap:
               balance, which broke "Session 56" onto two lines the first time
@@ -1264,7 +1270,7 @@ function trackerRoomStage(
  */
 function SessionTracker({
   accent,
-  delay,
+  onTime,
   called,
   checkedIn,
   rooms,
@@ -1273,8 +1279,10 @@ function SessionTracker({
   nowMs,
 }: {
   accent: string;
-  delay: { delayMinutes: number; delayFormatted: string } | null;
-  called: { heatNumber: number | null; raceType: string | null } | null;
+  /** Our own on-time picture — the tracker shows the mega heat's predicted
+   *  start, not a delay. `called` doubles as the heat the time belongs to. */
+  onTime: OnTimeSnapshot | null;
+  called: CurrentRace | null;
   checkedIn: { checkedIn: number; total: number } | null;
   rooms: Record<"red" | "blue", BriefingRoomState | null>;
   lane: PitLaneFeed;
@@ -1294,8 +1302,8 @@ function SessionTracker({
   });
   const byLabel = new Map(rows.map((r) => [r.label, r]));
   const calledRow = byLabel.get("Called");
-  const laneRows = (["Holding", "In karts", "On track", "Pit in"] as const).map(
-    (l) => byLabel.get(l),
+  const laneRows = (["Holding", "In karts", "On track", "Pit in"] as const).map((l) =>
+    byLabel.get(l),
   );
   const pitInRoom = lane.pitIn?.room ?? null;
 
@@ -1442,7 +1450,14 @@ function SessionTracker({
           >
             Session tracker
           </span>
-          <DelayLine delay={delay} />
+          <TrackTimingLine
+            onTime={onTime}
+            track="mega"
+            race={called}
+            fontSize={26}
+            okColor={OK}
+            warnColor={AMBER}
+          />
           <span style={{ marginLeft: "auto" }}>
             <LiveSessionChip track="mega" accent={accent} />
           </span>
@@ -1490,25 +1505,10 @@ function SessionTracker({
   );
 }
 
-function DelayLine({ delay }: { delay: { delayMinutes: number; delayFormatted: string } | null }) {
-  if (!delay) return null;
-  const late = delay.delayMinutes > 0;
-  const color = late ? AMBER : OK;
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 4 }}>
-      <span
-        aria-hidden
-        className={late ? "tv-blink" : undefined}
-        style={{ width: 11, height: 11, borderRadius: "50%", background: color }}
-      />
-      {/* "+6 min", not "Running +6 min behind" (owner 2026-08-15). The sign
-          carries the meaning and the header needs the width back. */}
-      <span className="tv-display" style={{ fontSize: 26, color }}>
-        {late ? `+${delay.delayMinutes} min` : "On time"}
-      </span>
-    </div>
-  );
-}
+/* DelayLine lived here. Replaced by components/TrackTimingLine.tsx, which shows
+   WHEN the heat goes rather than a delay figure — the owner's "+6 min, not
+   Running +6 min behind" (2026-08-15) instinct about width still holds, and
+   "Racing ~7:40" is the same length. */
 
 /* ── the seating rail ─────────────────────────────────────────────────── */
 

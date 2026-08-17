@@ -38,6 +38,11 @@ function baseRec() {
     state: "Started",
     actualStartMs: START as number | null,
     actualEndMs: null as number | null,
+    // The clock never reads the slot — it counts from the flag. Null here keeps
+    // that explicit: if a countdown ever starts depending on scheduled time,
+    // these tests should be the ones that notice.
+    scheduledStartMs: null as number | null,
+    scheduledEndMs: null as number | null,
     durationMs: (7 * 60_000) as number | null,
     // Unversioned by default. These tests exercise the countdown ARITHMETIC —
     // pause accrual, time-adds, the two-phase anchor — where identity is not the

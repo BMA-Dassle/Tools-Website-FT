@@ -10,6 +10,7 @@ import { getBookingClientKey, clearBookingLocation } from "@/lib/booking-locatio
 import { bmiGet, getRaceProductById } from "../../race/data";
 import { trackBookingComplete } from "@/lib/analytics";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
+import TrackTimingChip from "@/components/home/TrackTimingChip";
 import { modalBackdropProps } from "@/lib/a11y";
 import { productDisplayNameFromPackages, getPackageIgnoreFlag } from "@/lib/packages";
 import { raceWarningMemo } from "~/features/booking/service/race-warnings";
@@ -3573,10 +3574,6 @@ const journeySteps = [
   },
 ];
 
-function dotColor(status: string) {
-  return status === "ok" ? "bg-green-400" : status === "delayed" ? "bg-yellow-400" : "bg-red-400";
-}
-
 function ExpressTrackStatus({ liveStatus }: { liveStatus: ReturnType<typeof useTrackStatus> }) {
   if (!liveStatus) return null;
   const { trackStatus: trackData, currentRaces } = liveStatus;
@@ -3602,10 +3599,12 @@ function ExpressTrackStatus({ liveStatus }: { liveStatus: ReturnType<typeof useT
                 <span className="text-sm font-semibold" style={{ color: t.colors.trackIdentity }}>
                   {t.trackName}
                 </span>
-                <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full ${dotColor(t.status)}`} />
-                  <span className="text-white/70 text-sm">{t.delayFormatted}</span>
-                </div>
+                <TrackTimingChip
+                  onTime={liveStatus.onTime}
+                  track={key}
+                  race={race}
+                  textClassName="text-white/70 text-sm"
+                />
               </div>
               {race &&
                 (() => {
@@ -3675,10 +3674,13 @@ function RacerJourneySteps({ liveStatus }: { liveStatus: ReturnType<typeof useTr
                   <span className="text-sm font-semibold" style={{ color: t.colors.trackIdentity }}>
                     {t.trackName}
                   </span>
-                  <div className="flex items-center gap-2">
-                    <span className={`w-1.5 h-1.5 rounded-full ${dotColor(t.status)}`} />
-                    <span className="text-white/70 text-xs">{t.delayFormatted}</span>
-                  </div>
+                  <TrackTimingChip
+                    onTime={liveStatus?.onTime ?? null}
+                    track={key}
+                    race={race}
+                    dotClassName="w-1.5 h-1.5"
+                    textClassName="text-white/70 text-xs"
+                  />
                 </div>
                 {race &&
                   (() => {

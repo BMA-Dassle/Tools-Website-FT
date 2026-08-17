@@ -19,6 +19,7 @@
  */
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
+import TrackTimingLine from "../components/TrackTimingLine";
 import { withAlpha } from "../color";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { LiveSessionChip } from "../live-session";
@@ -27,9 +28,7 @@ import {
   TRACK_LABELS,
   TRACK_RESOURCE_IDS,
   effectiveTrack,
-  findTrackDelay,
   trackFromResourceIds,
-  type TrackDelay,
 } from "../track";
 import { recentScans, eventInScope } from "../director/schedule";
 import { RecordsQr } from "../components/RecordsQr";
@@ -176,7 +175,6 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
         // re-listed every old scan whenever no session was current — which is how
         // Marcus outstayed his welcome (owner).
         nowMs - SCAN_ORPHAN_MS;
-  const delay = findTrackDelay(status?.trackStatus.tracks, track);
 
   // VIPs DO NOT SCAN IN — they are met and escorted (owner 2026-08-11). The
   // banner is driven by who is entered on the heat, computed server-side from
@@ -380,7 +378,15 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
             >
               {TRACK_LABELS[track]}
             </div>
-            <DelayLine delay={delay} />
+            <TrackTimingLine
+              onTime={status?.onTime ?? null}
+              track={track}
+              race={status?.currentRaces?.[track] ?? null}
+              fontSize={34}
+              okColor="#46d68c"
+              warnColor="#f0b341"
+              marginTop={6}
+            />
           </div>
           {/* The heat ON TRACK right now, live from the timing system — the same
               clock /leaderboards shows (owner 2026-08-11: "add to the sign-in
@@ -1018,35 +1024,13 @@ function ActionStrip({
   );
 }
 
-/* ── delay ────────────────────────────────────────────────────────────── */
+/* ── timing ───────────────────────────────────────────────────────────── */
 
-/**
- * On time, or how far behind — sitting directly under the track name.
- *
- * A racer reads "Blue Track" and immediately wants to know whether it is
- * running late; putting the two at opposite ends of the screen made them look
- * like unrelated facts. Amber and blinking when behind, so it is noticed
- * without being alarming.
- */
-function DelayLine({ delay }: { delay: TrackDelay | null }) {
-  if (!delay) return null;
-  const late = delay.delayMinutes > 0;
-  const color = late ? "#f0b341" : "#46d68c";
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6 }}>
-      <span
-        aria-hidden
-        className={late ? "tv-blink" : undefined}
-        style={{ width: 12, height: 12, borderRadius: "50%", background: color }}
-      />
-      <span className="tv-display" style={{ fontSize: 34, color }}>
-        {late
-          ? `Running ${delay.delayFormatted || `${delay.delayMinutes} min`} behind`
-          : "Running on time"}
-      </span>
-    </div>
-  );
-}
+/* The old DelayLine lived here. It said "Running on time" off the outside
+   service's figure, which was green 99 nights in 100 by construction, and
+   "Running N behind" off the slot→flag gap, which is the ordinary briefing
+   pipeline rather than a fault. Both are now one shared component that shows a
+   TIME — components/TrackTimingLine.tsx. */
 
 /** mm:ss, never negative. */
 function fmtCountdown(ms: number): string {

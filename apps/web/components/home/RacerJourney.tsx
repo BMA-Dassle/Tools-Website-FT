@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
+import TrackTimingChip from "./TrackTimingChip";
 import { trackBookingClick } from "@/lib/analytics";
 
 // Exact data from live site: 3 step cards with precise colors
@@ -35,10 +36,6 @@ const steps = [
     borderColor: "rgb(134,82,255)",
   },
 ];
-
-function dotColor(status: string) {
-  return status === "ok" ? "bg-green-400" : status === "delayed" ? "bg-yellow-400" : "bg-red-400";
-}
 
 export default function RacerJourney() {
   const result = useTrackStatus();
@@ -111,20 +108,18 @@ export default function RacerJourney() {
                       >
                         {t.trackName}
                       </span>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`w-2 h-2 rounded-full ${dotColor(t.status)} animate-pulse`}
-                        />
-                        <span
-                          style={{
-                            color: "rgb(245,236,238)",
-                            fontSize: "16px",
-                            fontFamily: "var(--font-body)",
-                          }}
-                        >
-                          {t.delayFormatted}
-                        </span>
-                      </div>
+                      <TrackTimingChip
+                        onTime={result?.onTime ?? null}
+                        track={key}
+                        race={race}
+                        textClassName=""
+                        textStyle={{
+                          color: "rgb(245,236,238)",
+                          fontSize: "16px",
+                          fontFamily: "var(--font-body)",
+                        }}
+                        pulse
+                      />
                     </div>
                     {race &&
                       (() => {
