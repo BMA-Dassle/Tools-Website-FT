@@ -204,3 +204,34 @@ describe("isActionableFinish — the catch-up-dump gate", () => {
     expect(isActionableFinish(advice, HEAT_67_END_UTC)).toBe(false);
   });
 });
+
+/**
+ * THE SLOT — parsed as of 2026-08-17, having been on the wire (and dropped on the
+ * floor) since this feed was built. It is the field that lets "are we on time" be
+ * answered from our own data instead of an outside service.
+ */
+describe("scheduled start/end", () => {
+  it("reads the slot off a finish record", () => {
+    const [f] = extractRaceFinishes([FINISH_67]);
+    // 22:40 venue-local ET on 2026-08-11 (EDT, -04:00).
+    expect(f.scheduledStartMs).toBe(Date.parse("2026-08-11T22:40:00-04:00"));
+    expect(f.scheduledEndMs).toBe(Date.parse("2026-08-11T22:50:00-04:00"));
+  });
+
+  it("reads it off a START record too — the slot must land while the night runs", () => {
+    const [s] = extractRaceStarts([{ ...FINISH_67, $type: "RaceStart", State: "Started" }]);
+    expect(s.scheduledStartMs).toBe(Date.parse("2026-08-11T22:40:00-04:00"));
+  });
+
+  it("is null, never zero, when a record omits it", () => {
+    const [f] = extractRaceFinishes([FINISH_65_UNSTAMPED]);
+    expect(f.scheduledStartMs).toBeNull();
+    expect(f.scheduledEndMs).toBeNull();
+  });
+
+  it("does not disturb the stamps that were already parsed", () => {
+    const [f] = extractRaceFinishes([FINISH_67]);
+    expect(f.actualStartMs).toBe(Date.parse("2026-08-11T22:52:44.374-04:00"));
+    expect(f.durationMs).toBe(420_000);
+  });
+});

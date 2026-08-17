@@ -49,6 +49,24 @@ export interface VenueRaceFinish {
   state: string;
   actualStartMs: number | null;
   actualEndMs: number | null;
+  /**
+   * THE SLOT THIS HEAT WAS SOLD AS — the venue's own `ScheduledStart`.
+   *
+   * Present on every record type, and present on ALL of them: 103/103 races on
+   * 2026-08-16 carried it, zero missing. We had been dropping it on the floor,
+   * which is the only reason "are we on time" ever had to be bought from an
+   * outside service (owner 2026-08-17: "I'm thinking we control ourselves").
+   *
+   * IT IS A CHECK-IN TIME, NOT A GREEN-FLAG TIME. Measured against the same
+   * night's briefing log: check-in completes a median 1.6 min BEFORE this stamp,
+   * while the flag drops a median 16.1 min AFTER it. Anything comparing this to
+   * `actualStartMs` and calling the difference "delay" is measuring the briefing
+   * pipeline, not lateness — see features/racing/on-time.ts.
+   */
+  scheduledStartMs: number | null;
+  /** The slot's own end. Slot spacing (start→end) is the printed grid — 12 min
+   *  on Blue and Red — which is what makes a missing heat visible. */
+  scheduledEndMs: number | null;
   /** The race's CONFIGURED length ("00:07:00" → 420000), not time remaining.
    *  Staff extend it mid-race and the venue reflects that here within a second
    *  (watched go 40:00 → 46:00 → 53:00 on 2026-08-15), so it is read fresh from
@@ -172,6 +190,8 @@ function extractRaceRecords(message: unknown, type: string): VenueRaceFinish[] {
       state: typeof r.State === "string" ? r.State : "",
       actualStartMs: parseVenueLocalMs(r.ActualStart),
       actualEndMs: parseVenueLocalMs(r.ActualEnd),
+      scheduledStartMs: parseVenueLocalMs(r.ScheduledStart),
+      scheduledEndMs: parseVenueLocalMs(r.ScheduledEnd),
       durationMs: parseVenueDurationMs(r.DurationTime),
       // String(), never Number() — 17 digits, see the field doc.
       recordVersion:
