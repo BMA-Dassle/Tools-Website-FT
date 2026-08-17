@@ -76,6 +76,15 @@ async function repairPersonDetails(row: SyncQueueRow): Promise<HandlerResult> {
    * 500, so every waiver check reports "no waiver" and they cannot be scheduled.
    * That message names the fix (add a DOB in BMI Office) and the likely cause
    * (a duplicate record — the real one usually has the DOB).
+   *
+   * RETRYABLE, NOT TERMINAL — and the distinction is the whole point of the
+   * message above. `dead()` here meant the row died on ONE look at Office: a
+   * manager who followed the instruction and typed the birth date in ten minutes
+   * later changed nothing, because nothing ever asked again (live 2026-08-16,
+   * Jamie Aman …8616962, terminal thirteen seconds after being created). The fix
+   * this row is REQUESTING is external and slow, so the row has to outlive the
+   * request. It retries inside its give-up window, parks, and the cron's recheck
+   * sweep keeps re-asking on an escalating cadence for about a day after that.
    */
   if (!birthdate) {
     const office = await fetchOfficePerson(personId).catch(() => null);
@@ -83,10 +92,10 @@ async function repairPersonDetails(row: SyncQueueRow): Promise<HandlerResult> {
     if (officeDob) {
       birthdate = officeDob.slice(0, 10);
     } else {
-      return dead(
+      return again(
         `person ${personId} has NO date of birth in Office either — Pandora returns 500 for them, ` +
           `so every waiver check reads "no waiver" and they cannot be scheduled. ` +
-          `FIX: add a birth date to this person in BMI Office. ` +
+          `FIX: add a birth date to this person in BMI Office — this will pick it up by itself. ` +
           `Often a DUPLICATE record — check for another with the same name/phone (that one usually has the DOB).`,
       );
     }

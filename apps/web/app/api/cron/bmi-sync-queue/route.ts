@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyCron } from "@/lib/cron-auth";
 import {
   listDueSyncRows,
+  listParkedForRecheck,
   listParkedSyncRows,
   markSyncDone,
   markSyncRetry,
   parkSyncRow,
+  reviveSyncRow,
   syncQueueCounts,
-  type SyncQueueRow,
 } from "@/lib/bmi-sync-queue";
 import { probeBarrier } from "@/lib/bmi-sync-probe";
 import { SYNC_HANDLERS } from "@/lib/bmi-sync-handlers";
@@ -43,6 +44,14 @@ export const maxDuration = 60;
 
 const DEADLINE_MS = 45_000;
 const BATCH = 100;
+
+/**
+ * How many parked rows to re-probe per run. Small on purpose: eligible rows carry
+ * a 15-minute minimum cooldown, so a normal run finds ZERO and spends nothing,
+ * and a backlog drains at 10 per 2-minute tick without ever crowding out the due
+ * rows a guest is actually standing there waiting for.
+ */
+const RECHECK_BATCH = 10;
 
 function enabled(): boolean {
   return process.env.BMI_SYNC_QUEUE !== "false";
@@ -230,6 +239,43 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  /**
+   * ── THE RECHECK SWEEP: parked is not a grave ──────────────────────────────
+   *
+   * Re-ask the barrier of rows that gave up, and bring back the ones it now lets
+   * through. Without this, a fix only ever protects FUTURE rows: on 2026-08-16
+   * five paid racing licences sat parked 21-31 hours reporting "this person is at
+   * another center" while every one of them read a clean 200 with a valid waiver
+   * at the exact location they were parked against, and the bug that mis-parked
+   * them had been fixed three hours later.
+   *
+   * Runs AFTER the due rows and inside the same deadline, because a guest waiting
+   * on a live followup outranks a row that has already waited an hour. Starving
+   * this pass costs nothing — the cooldowns are measured in tens of minutes, so
+   * the next tick picks it up.
+   */
+  const rechecked: Outcome[] = [];
+  let revived = 0;
+  if (Date.now() - started < DEADLINE_MS) {
+    for (const row of await listParkedForRecheck(RECHECK_BATCH)) {
+      if (Date.now() - started > DEADLINE_MS) break;
+      const barrier = await probeBarrier(row);
+      // Only an OPEN barrier earns a revival. `closed` and `error` mean the row
+      // would come straight back; `impossible` means the original diagnosis still
+      // stands — and re-parking it would reset its cooldown for nothing.
+      const open = barrier.verdict === "open";
+      if (open && !dryRun && (await reviveSyncRow(row, barrier.detail))) revived++;
+      rechecked.push({
+        id: row.id,
+        kind: row.kind,
+        barrier: row.barrier,
+        verdict: barrier.verdict,
+        result: open ? (dryRun ? "would-revive" : "revived") : "still-parked",
+        detail: barrier.detail,
+      });
+    }
+  }
+
   // ALWAYS report parked rows — including on an idle run.
   const parked = await listParkedSyncRows(25);
   const summary = await syncQueueCounts();
@@ -237,8 +283,18 @@ export async function GET(req: NextRequest) {
   console.log(
     `[bmi-sync-queue] dryRun=${dryRun} due=${counts.due} ran=${counts.ran} done=${counts.done} ` +
       `waiting=${counts.waiting} retry=${counts.retry} parked=${counts.parked} ` +
-      `deferred=${counts.deferred} parkedTotal=${parked.length} elapsedMs=${Date.now() - started}`,
+      `deferred=${counts.deferred} rechecked=${rechecked.length} revived=${revived} ` +
+      `parkedTotal=${parked.length} elapsedMs=${Date.now() - started}`,
   );
+  if (revived > 0) {
+    console.log(
+      `[bmi-sync-queue] REVIVED ${revived} parked row(s) whose barrier reopened: ` +
+        rechecked
+          .filter((r) => r.result === "revived")
+          .map((r) => `#${r.id} ${r.kind} — ${r.detail ?? "?"}`)
+          .join(" | "),
+    );
+  }
   if (parked.length > 0) {
     console.error(
       `[bmi-sync-queue] PARKED (needs a human): ` +
@@ -254,6 +310,8 @@ export async function GET(req: NextRequest) {
     dryRun,
     elapsedMs: Date.now() - started,
     ...counts,
+    revived,
+    rechecked,
     parked: parked.map((p) => ({
       id: p.id,
       kind: p.kind,

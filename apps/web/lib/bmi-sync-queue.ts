@@ -112,6 +112,9 @@ export interface SyncQueueRow {
    *  null, which means the cron picked it up. Recorded at enqueue — it cannot be
    *  derived later, because `next_attempt_at` moves on every retry. */
   pushTransport: string | null;
+  /** How many times this row has come BACK from `parked`. The lifetime cap on
+   *  resurrection, however it happens — see MAX_REVIVALS. */
+  revivals: number;
 }
 
 /** Per-kind patience. Deliberately generous: the whole point is to out-wait
@@ -133,6 +136,49 @@ export const MAX_ATTEMPTS = 40;
  *  ~30s because a cloud→local PERSON lands in ~19-32s (measured 2026-08-12). */
 export function backoffSeconds(attempts: number): number {
   return Math.min(600, 30 * Math.max(1, attempts));
+}
+
+/**
+ * ── PARKED IS NOT A GRAVE ────────────────────────────────────────────────────
+ *
+ * Everything below exists because `parked` was a write-once dead end and NOTHING
+ * ever re-asked whether its reason still held. Measured live 2026-08-16: five
+ * `add-membership` rows (the "Customer Registration" grant every guest needs) sat
+ * parked for 21-31 hours saying "this person is at another center", while all five
+ * read a clean 200 WITH A VALID WAIVER at the very location they were parked
+ * against. The bug that mis-diagnosed them had been fixed three hours after the
+ * last one died — and the fix could not reach them, because a fix stops NEW damage
+ * and never repairs OLD rows.
+ *
+ * Two doors back out, and both are bounded by `revivals`:
+ *   1. the cron's recheck sweep — the barrier flipped open on its own
+ *   2. a fresh `enqueueSync` for the same idempotency key — a live request wants
+ *      this followup again (see the ON CONFLICT clause, which used to swallow it)
+ *
+ * WHAT MAY NOT COME BACK, and why the rule is `attempts`, not a reason string:
+ * a row that spent its whole attempt budget, or that a handler declared terminal
+ * (attempts stamped to 9_999), failed at the HANDLER. Its barrier reading `open`
+ * says nothing about that — project 63000000008492343 answered 404 everywhere for
+ * 40 attempts across 4h33m and is simply gone. So revival is for rows the barrier
+ * kept out, never for rows the work itself defeated.
+ */
+export const MAX_REVIVALS = 8;
+
+/** Don't resurrect ancient history — a row parked days ago belongs to a day that
+ *  is over, and reviving it would write against a reservation nobody is waiting on. */
+export const REVIVE_HORIZON_HOURS = 72;
+
+/**
+ * How long a parked row must sit before its barrier is worth re-asking.
+ *
+ * Doubles per revival off a 15-minute base, capped at 6h: 15m, 30m, 1h, 2h, 4h,
+ * 6h, 6h, 6h — about 26 hours of patience across the 8 allowed revivals. That
+ * shape is deliberate. The first recheck is soon because the common case is a
+ * transient vendor 404 that healed in minutes; the tail is long because the other
+ * common case is a human typing a birth date into BMI Office tomorrow morning.
+ */
+export function revivalCooldownMinutes(revivals: number): number {
+  return Math.min(360, 15 * 2 ** Math.max(0, revivals));
 }
 
 let schemaReady = false;
@@ -190,6 +236,8 @@ async function ensureSchema(): Promise<void> {
    * travelled. Stamp it once, at the moment we know.
    */
   await q`ALTER TABLE bmi_sync_queue ADD COLUMN IF NOT EXISTS push_transport TEXT`;
+  /** Resurrection counter — the bound on both doors out of `parked`. */
+  await q`ALTER TABLE bmi_sync_queue ADD COLUMN IF NOT EXISTS revivals INTEGER NOT NULL DEFAULT 0`;
   await q`
     CREATE UNIQUE INDEX IF NOT EXISTS bmi_sync_queue_idem
     ON bmi_sync_queue (idempotency_key)
@@ -233,6 +281,7 @@ function mapRow(r: Record<string, unknown>): SyncQueueRow {
     updatedAt: String(r.updated_at),
     resolvedAt: r.resolved_at === null ? null : String(r.resolved_at),
     pushTransport: r.push_transport === null ? null : String(r.push_transport),
+    revivals: Number(r.revivals ?? 0),
   };
 }
 
@@ -263,6 +312,20 @@ export interface EnqueueSyncParams {
  * repaired a person's birthdate while losing the email and phone that the first
  * enqueue carried. jsonb `||` keeps every key and lets the newer value win on
  * the ones that overlap, so a replay can refresh a field but never erase one.
+ *
+ * ── A PARKED ROW IS REVIVED HERE, NOT SWALLOWED ─────────────────────────────
+ * The conflict clause used to be gated `WHERE status = 'pending'`, which meant a
+ * parked row kept its idempotency key and POISONED it forever: the one natural
+ * healing path — the guest comes back, the flow re-enqueues the same followup —
+ * hit the conflict, updated nothing, returned null, and was dropped without a
+ * word. That followup could never be created again by any means. So a live
+ * request now REVIVES a parked row (fresh attempt budget, fresh patience,
+ * `revivals` bumped), because a caller asking again is real demand, not a sweep.
+ *
+ * `done` and `cancelled` are still untouchable, and that is the whole original
+ * safety property: a FINISHED followup must never run twice because a retried
+ * request replayed the enqueue. Only `parked` — which means "we stopped trying" —
+ * is allowed back.
  */
 export async function enqueueSync(params: EnqueueSyncParams): Promise<SyncQueueRow | null> {
   if (!isDbConfigured()) return null;
@@ -283,12 +346,28 @@ export async function enqueueSync(params: EnqueueSyncParams): Promise<SyncQueueR
     ON CONFLICT (idempotency_key) DO UPDATE SET
       payload         = bmi_sync_queue.payload || EXCLUDED.payload,
       reservation_ref = COALESCE(EXCLUDED.reservation_ref, bmi_sync_queue.reservation_ref),
+      -- Everything from here down is a no-op for a row that is already pending
+      -- (CASE falls through to its own value); it only bites when reviving.
+      status          = 'pending',
+      attempts        = CASE WHEN bmi_sync_queue.status = 'parked'
+                             THEN 0 ELSE bmi_sync_queue.attempts END,
+      revivals        = bmi_sync_queue.revivals
+                        + CASE WHEN bmi_sync_queue.status = 'parked' THEN 1 ELSE 0 END,
+      next_attempt_at = CASE WHEN bmi_sync_queue.status = 'parked'
+                             THEN EXCLUDED.next_attempt_at ELSE bmi_sync_queue.next_attempt_at END,
+      give_up_at      = CASE WHEN bmi_sync_queue.status = 'parked'
+                             THEN EXCLUDED.give_up_at ELSE bmi_sync_queue.give_up_at END,
+      resolved_at     = NULL,
+      last_error      = CASE WHEN bmi_sync_queue.status = 'parked'
+                             THEN 'revived — a live request asked for this followup again'
+                             ELSE bmi_sync_queue.last_error END,
       updated_at      = now()
     WHERE bmi_sync_queue.status = 'pending'
+       OR (bmi_sync_queue.status = 'parked' AND bmi_sync_queue.revivals < ${MAX_REVIVALS})
     RETURNING *
   `) as Array<Record<string, unknown>>;
-  // No row returned = the conflict hit a non-pending row, which is the correct
-  // no-op (already done/parked/cancelled).
+  // No row returned = the conflict hit a row we must not touch — done, cancelled,
+  // or a parked row that has used up its resurrections. All correct no-ops.
   const row = rows[0] ? mapRow(rows[0]) : null;
   if (!row) return null;
 
@@ -465,6 +544,86 @@ export async function listParkedSyncRows(limit = 50): Promise<SyncQueueRow[]> {
     LIMIT ${limit}
   `) as Array<Record<string, unknown>>;
   return rows.map(mapRow);
+}
+
+/**
+ * Parked rows whose BARRIER is worth re-asking now.
+ *
+ * The eligibility rules are the interesting part, and each one is a deliberate
+ * refusal to resurrect something:
+ *
+ *  - `attempts < MAX_ATTEMPTS` — the row must still have work budget. This is
+ *    what separates "the barrier kept it out" (attempts 0, revive it) from "the
+ *    handler failed 40 times" or "a handler declared it terminal" (attempts
+ *    stamped to 9_999, leave it). A barrier reading open tells you nothing about
+ *    a handler that already failed, so it is not allowed to speak for one.
+ *  - `revivals < MAX_REVIVALS` — bounded resurrection, shared with the enqueue door.
+ *  - past its escalating cooldown, measured from when it PARKED.
+ *  - parked within REVIVE_HORIZON_HOURS — yesterday's work order, not last week's.
+ *
+ * Cheapest-first ordering is not worth it here: the caller probes a handful per
+ * run and the set is tiny by construction. Oldest park first, so nothing starves.
+ */
+export async function listParkedForRecheck(limit = 10): Promise<SyncQueueRow[]> {
+  if (!isDbConfigured()) return [];
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    SELECT * FROM bmi_sync_queue
+    WHERE status = 'parked'
+      AND attempts < ${MAX_ATTEMPTS}
+      AND revivals < ${MAX_REVIVALS}
+      AND resolved_at IS NOT NULL
+      AND resolved_at > now() - (${REVIVE_HORIZON_HOURS} * INTERVAL '1 hour')
+      AND resolved_at < now() - (LEAST(360, 15 * POWER(2, revivals)) * INTERVAL '1 minute')
+    ORDER BY resolved_at ASC
+    LIMIT ${limit}
+  `) as Array<Record<string, unknown>>;
+  return rows.map(mapRow);
+}
+
+/**
+ * Bring a parked row back to `pending` because its barrier opened.
+ *
+ * EXTENDS PATIENCE, NEVER THE BUDGET. `give_up_at` is pushed out by the kind's
+ * full window and `attempts` is left exactly where it was — so the 40-attempt
+ * ceiling still bounds the total work a row can ever cause, no matter how many
+ * times it is revived, and the revival loop provably converges: once attempts
+ * reach MAX_ATTEMPTS the row stops being eligible at all.
+ *
+ * That invariant is also what keeps this SAFE FOR VENDOR WRITES. Handlers here
+ * POST to Pandora, and not all of them can tell a lost response from a refusal —
+ * `addMembership` has no already-granted check, so a write that succeeded and
+ * timed out becomes a duplicate on the next try. That hazard is inherent in the
+ * existing retry loop; holding `attempts` fixed means revival does not enlarge
+ * it. The number of vendor writes a row can ever cause is the same 40 it was
+ * before this function existed.
+ *
+ * (The enqueue door resets attempts instead, and that asymmetry is the point: a
+ * live caller asking again is new demand and deserves a fresh budget; a sweep
+ * noticing a flag flip is not.)
+ *
+ * Guarded `WHERE status = 'parked'` so it can never disturb a row that some other
+ * rail has already moved on.
+ */
+export async function reviveSyncRow(row: SyncQueueRow, reason: string): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  await ensureSchema();
+  const q = sql();
+  const giveUp = GIVE_UP_MINUTES[row.kind] ?? 120;
+  const res = (await q`
+    UPDATE bmi_sync_queue
+    SET status          = 'pending',
+        revivals        = revivals + 1,
+        next_attempt_at = now(),
+        give_up_at      = now() + (${giveUp} * INTERVAL '1 minute'),
+        resolved_at     = NULL,
+        last_error      = ${`revived: ${reason}`.slice(0, 500)},
+        updated_at      = now()
+    WHERE id = ${row.id} AND status = 'parked'
+    RETURNING id
+  `) as Array<Record<string, unknown>>;
+  return res.length > 0;
 }
 
 /** Ops/among-tests visibility for one entity's outstanding followups. */

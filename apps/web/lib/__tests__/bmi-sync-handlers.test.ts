@@ -59,6 +59,7 @@ const row = (over: Partial<SyncQueueRow> = {}): SyncQueueRow => ({
   // null = the cron picked this row up, which is what every fixture here
   // predating the push rail describes.
   pushTransport: null,
+  revivals: 0,
   ...over,
 });
 
@@ -151,16 +152,39 @@ describe("repair-person-details", () => {
     );
   });
 
-  it("no DOB in Office either → terminal, with a message a HUMAN can act on", async () => {
+  /**
+   * The fix this row asks for happens in ANOTHER SYSTEM, on human time — so the
+   * row has to outlive the request. Terminal here meant the row died on one look
+   * at Office (live 2026-08-16: Jamie Aman …8616962, terminal 13 seconds after
+   * being created), and a manager who typed the birth date in ten minutes later
+   * changed nothing at all, because nothing ever asked again.
+   */
+  it("no DOB in Office either → RETRYABLE, with a message a HUMAN can act on", async () => {
     office.fetchOfficePerson.mockResolvedValueOnce({ birthDate: null });
     const r = await h(row({ payload: { personId: "63000000008163540" } }));
     expect(r.ok).toBe(false);
-    expect(r.retry).toBe(false);
+    expect(r.retry).toBe(true);
     // Names the consequence, the fix, and the usual cause — not just "can't".
     expect(r.detail).toMatch(/500/);
     expect(r.detail).toMatch(/add a birth date/i);
     expect(r.detail).toMatch(/duplicate/i);
+    // And it promises the guest's side of the deal: type it in and this heals.
+    expect(r.detail).toMatch(/pick it up by itself/i);
     expect(person.patchBmiPersonBirthdate).not.toHaveBeenCalled();
+  });
+
+  /** The other half of the same promise: once Office HAS the date, the very next
+   *  run reads it and repairs without anyone re-filing anything. */
+  it("picks up a birth date typed into Office after the row was created", async () => {
+    office.fetchOfficePerson.mockResolvedValueOnce({ birthDate: "1994-03-02T00:00:00" });
+    person.patchBmiPersonBirthdate.mockResolvedValueOnce({ ok: true, status: 200 });
+    const r = await h(row({ payload: { personId: "63000000008616962" } }));
+    expect(r.ok).toBe(true);
+    expect(person.patchBmiPersonBirthdate).toHaveBeenCalledWith(
+      "63000000008616962",
+      "1994-03-02",
+      expect.anything(),
+    );
   });
 });
 
