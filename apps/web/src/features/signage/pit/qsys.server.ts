@@ -24,9 +24,9 @@ import { STAY_SEATED_CLIP_FILE } from "./pit-board";
  * (owner 2026-08-16: on a Mega night two rooms serve one circuit, so the
  * generic post cannot say where to walk) — audio.server.ts picks by the
  * returning group's briefed room and falls back to the generic `post` until
- * the Core has those clips configured UNDER EXACTLY THOSE IDS.
- * The one FILE-played sound is the stay-seated loop, which has no configured
- * clip (/play takes exactly one of clip | file). Zones run independently —
+ * the files exist. They play BY FILE like the stay-seated loop (owner: an
+ * upload beats Core clip config) — see POST_ROOM_FILES for the exact names.
+ * /play takes exactly one of clip | file. Zones run independently —
  * playing one never cancels another.
  *
  * Bearer auth with SWAGGER_ADMIN_KEY, same as every other Pandora call in
@@ -123,10 +123,24 @@ export interface PlayQsysResult {
  * Throws nothing: the caller (audio.server.ts) releases its one-shot claim
  * on a failed play, so every failure must come back as `ok: false`.
  */
+/**
+ * The room-phrase post announcements, played BY FILE like the stay-seated
+ * loop (owner 2026-08-16: "we can send file names as well — can we just do
+ * that?"). Upload is the whole job: drop these two MP3s on the Core's media
+ * drive under EXACTLY these names — no Control Script clip config needed.
+ * The zone param does the routing, same as Stay Seated.
+ */
+export const POST_ROOM_FILES = {
+  "post-red": "Post Race Red Room.mp3",
+  "post-blue": "Post Race Blue Room.mp3",
+} as const;
+
 /** Which clips play by FILE rather than by the Core's clip config. Null means
  *  a real configured clip (`pre` / `post` / `big`). */
 function fileFor(clip: QsysClip): string | null {
-  return clip === "stay-seated" ? STAY_SEATED_FILE : null;
+  if (clip === "stay-seated") return STAY_SEATED_FILE;
+  if (clip === "post-red" || clip === "post-blue") return POST_ROOM_FILES[clip];
+  return null;
 }
 
 export async function playQsysCue(zone: TrackKey, clip: QsysClip): Promise<PlayQsysResult> {

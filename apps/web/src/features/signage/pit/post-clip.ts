@@ -7,13 +7,13 @@
  * dynamically which room phrase it uses"). The room is the same recorded fact
  * everything else reads — the lane's pitIn slot carries it from the send.
  *
- * CANDIDATES IN ORDER, GENERIC LAST, ALWAYS. The room clips are configured on
- * the Q-SYS Core under exactly `post-red` / `post-blue`; until they exist —
- * and against any misconfiguration after — a failed room-clip play falls
- * through to the generic `post`, because a returning group hearing the plain
- * announcement beats one hearing nothing. The caller spends ONE `post`
- * one-shot whichever candidate sounds (the clip/cue split the big-race pre
- * established).
+ * CANDIDATES IN ORDER, GENERIC LAST, ALWAYS. The room variants play BY FILE
+ * (qsys.server's POST_ROOM_FILES — an upload to the Core's media drive, no
+ * clip config, owner 2026-08-16); until those files exist — and against a
+ * renamed or missing file after — a failed room play falls through to the
+ * generic `post`, because a returning group hearing the plain announcement
+ * beats one hearing nothing. The caller spends ONE `post` one-shot whichever
+ * candidate sounds (the clip/cue split the big-race pre established).
  */
 export function postClipCandidates(
   room: "red" | "blue" | null | undefined,
