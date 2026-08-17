@@ -124,6 +124,16 @@ still `/kart-timing-bridge/**`, not `/**` or `src/**`. Getting this wrong fails
 in the quiet direction: the service simply stops picking up its own changes, and
 you find out when a bridge fix doesn't take.
 
+> **STATUS 2026-08-16: this pattern is UNVERIFIED in production.** The push that
+> introduced it did not deploy — but **auto-deploy was disabled on the Railway
+> service at the time**, which explains the result on its own, so it says nothing
+> about whether the pattern is right. (Re-enabling auto-deploy does not replay
+> the missed push; only the next push deploys.) Do not treat the pattern as
+> proven, and do not "fix" it based on that non-result either. Prove it with two
+> pushes: a bridge-only change MUST create a deployment, and an `apps/web`-only
+> change MUST NOT. Until both are seen, assume nothing — and prefer deploying too
+> often over the silent failure of not deploying at all.
+
 ## Files
 
 | File            | Purpose                                                                                                                                                           |

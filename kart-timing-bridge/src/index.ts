@@ -608,8 +608,15 @@ async function consumeStream(): Promise<SessionResult> {
  */
 async function main(): Promise<void> {
   console.log("[kart-bridge] starting", {
+    // Printed here as well as POSTed to the session log, so a Railway log line
+    // and a `kart:bridge:sessions` row can be tied to the same process. The
+    // session POST is fire-and-forget with no retry — if the bridge boots while
+    // the webhook is mid-deploy, that record is simply lost, and then this line
+    // is the only surviving record that this process ever started.
+    bootId: BOOT_ID,
     wsUrl: WS_URL,
     webhook: WEBHOOK_URL,
+    sessionLog: SESSION_URL,
     probeMode: PROBE_MODE,
     logLevel: LOG_LEVEL,
     connectTimeoutMs: CONNECT_TIMEOUT_MS,
