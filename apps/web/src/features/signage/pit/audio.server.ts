@@ -669,11 +669,16 @@ export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
    */
   const briefedRoom = (await sessionBriefed(returning.sessionId).catch(() => null))?.room ?? null;
   const room = returning.room ?? briefedRoom;
+  // MEGA ONLY (owner 2026-08-16: "this only happens on Mega"). The room is
+  // only ambiguous when two rooms serve one circuit; a split night's zone
+  // already carries its own post clip that knows its room, and it plays
+  // exactly as it always has — no extra attempt, no file dependency.
+  const roomForClip = track === "mega" ? room : null;
   let result: Awaited<ReturnType<typeof claimAndPlay>> = {
     outcome: "failed",
     error: "the PA did not start the cue",
   };
-  for (const clip of postClipCandidates(room)) {
+  for (const clip of postClipCandidates(roomForClip)) {
     result = await claimAndPlay(track, "post", returning.sessionId, clip);
     if (result.outcome !== "failed") break;
   }
