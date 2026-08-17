@@ -1,4 +1,5 @@
 import { buildSquareLineItem } from "@/lib/plu-catalog-map";
+import { buildDayofOrderShape } from "@/lib/gf-square-tax";
 import {
   updateGfQuoteDetails,
   appendAuditLog,
@@ -9,9 +10,11 @@ import {
  * Creates the OPEN day-of Square order for a group function event. Staff redeem the loaded
  * gift card against it at the event, and the day-of payout cron applies the gift card.
  *
- * Best-effort: tries catalog-linked line items first, then ad-hoc (name + price). Returns
- * the order id, or `undefined` if both attempts fail — the caller decides how to handle it.
- * Its failure is intentionally non-fatal to the deposit charge.
+ * Best-effort, in descending order of correctness: the taxed shape (tax booked as tax, the
+ * service charge as a real Square service charge — see gf-square-tax.ts), then the legacy
+ * shape, then ad-hoc (name + price) if the catalog links themselves are the problem.
+ * Returns the order id, or `undefined` if every attempt fails — the caller decides how to
+ * handle it. Its failure is intentionally non-fatal to the deposit charge.
  *
  * Shared by the deposit flow (initial creation) and group-quote-sync (self-heal backfill
  * when the deposit-time attempt failed — e.g. a transient Square error). Keep this the
@@ -34,6 +37,8 @@ export interface DayofOrder {
   totalCents: number;
 }
 
+const DAYOF_RECONCILE_TOLERANCE_CENTS = 50;
+
 export async function createDayofOrder(
   quote: GroupFunctionQuote,
   baseKey: string,
@@ -46,6 +51,12 @@ export async function createDayofOrder(
     total: number;
     plu: string;
   }>;
+  /**
+   * LEGACY shape, kept only as a fallback. It books `tax_cents` as a service charge and
+   * lets the contract's service-charge PLU ride in as a "Legacy Service Charge"
+   * merchandise line — the right total in the wrong two slots. See gf-square-tax.ts for
+   * why that was wrong and what replaced it.
+   */
   const serviceCharges =
     quote.tax_cents > 0
       ? [
@@ -58,25 +69,65 @@ export async function createDayofOrder(
       : [];
   const refId = `GF-${quote.event_number || quote.bmi_reservation_id}`.slice(0, 40);
 
-  // Attempt 1: catalog-linked. base_price_money carries the (possibly overridden)
-  // price, which Square honors over the catalog default — see plu-catalog-map.ts.
-  try {
-    const lineItems = rawItems.map((p) => buildSquareLineItem(quote.center_code, p));
+  const post = async (idempotencyKey: string, order: object) => {
     const res = await fetch(`${SQUARE_BASE}/orders`, {
       method: "POST",
       headers: sqHeaders(),
       body: JSON.stringify({
-        idempotency_key: `gf-dayof-${baseKey}`,
-        order: {
-          location_id: quote.square_location_id,
-          reference_id: refId,
-          line_items: lineItems,
-          service_charges: serviceCharges.length > 0 ? serviceCharges : undefined,
-        },
+        idempotency_key: idempotencyKey,
+        order: { location_id: quote.square_location_id, reference_id: refId, ...order },
       }),
     });
-    const data = await res.json();
-    if (res.ok && data.order?.id) {
+    return { ok: res.ok, data: await res.json() };
+  };
+
+  // Attempt 1: the taxed shape — tax in `taxes`, service charge in `service_charges`.
+  // Square computes both from catalog objects, so the total is its arithmetic, not ours.
+  // It agrees with the contract to the cent on real events at all three venues; the guard
+  // below is for the case it someday does not, because booking a WRONG AMOUNT is worse
+  // than booking a right amount in the wrong slot for one more event.
+  const shape = buildDayofOrderShape({
+    centerCode: quote.center_code,
+    locationId: quote.square_location_id,
+    products: rawItems,
+    taxExempt: quote.is_tax_exempt,
+  });
+  if (shape) {
+    try {
+      const { ok, data } = await post(`gf-dayof-taxed-${baseKey}`, shape);
+      if (ok && data.order?.id) {
+        const totalCents = data.order.total_money?.amount ?? 0;
+        const drift = Math.abs(totalCents - quote.total_cents);
+        if (drift <= DAYOF_RECONCILE_TOLERANCE_CENTS) {
+          return { id: data.order.id, totalCents };
+        }
+        console.warn(
+          `[gf-dayof] taxed shape totalled ${totalCents} vs contract ${quote.total_cents} ` +
+            `(drift ${drift}c) for ${refId} — canceling and falling back to the legacy shape`,
+        );
+        await cancelDayofOrder(data.order.id, quote.square_location_id).catch(() => {});
+      } else {
+        console.warn("[gf-dayof] taxed shape rejected by Square, falling back:", data);
+      }
+    } catch (err) {
+      console.warn("[gf-dayof] taxed shape error, falling back:", err);
+    }
+  } else {
+    console.warn(
+      `[gf-dayof] ${refId} cannot be modelled with catalog taxes ` +
+        `(location=${quote.square_location_id}) — using the legacy shape`,
+    );
+  }
+
+  // Attempt 2: legacy catalog-linked. base_price_money carries the (possibly overridden)
+  // price, which Square honors over the catalog default — see plu-catalog-map.ts.
+  try {
+    const lineItems = rawItems.map((p) => buildSquareLineItem(quote.center_code, p));
+    const { ok, data } = await post(`gf-dayof-${baseKey}`, {
+      line_items: lineItems,
+      service_charges: serviceCharges.length > 0 ? serviceCharges : undefined,
+    });
+    if (ok && data.order?.id) {
       return { id: data.order.id, totalCents: data.order.total_money?.amount ?? 0 };
     }
     console.warn("[gf-dayof] catalog day-of order failed, falling back to ad-hoc:", data);
@@ -84,28 +135,18 @@ export async function createDayofOrder(
     console.warn("[gf-dayof] catalog day-of order error, falling back to ad-hoc:", err);
   }
 
-  // Attempt 2: ad-hoc line items (name + price, no catalog link)
+  // Attempt 3: ad-hoc line items (name + price, no catalog link)
   try {
     const adHocItems = rawItems.map((p) => ({
       name: p.name,
       quantity: String(p.qty),
       base_price_money: { amount: Math.round(p.price * 100), currency: "USD" },
     }));
-    const res = await fetch(`${SQUARE_BASE}/orders`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        idempotency_key: `gf-dayof-adhoc-${baseKey}`,
-        order: {
-          location_id: quote.square_location_id,
-          reference_id: refId,
-          line_items: adHocItems,
-          service_charges: serviceCharges.length > 0 ? serviceCharges : undefined,
-        },
-      }),
+    const { ok, data } = await post(`gf-dayof-adhoc-${baseKey}`, {
+      line_items: adHocItems,
+      service_charges: serviceCharges.length > 0 ? serviceCharges : undefined,
     });
-    const data = await res.json();
-    if (res.ok && data.order?.id) {
+    if (ok && data.order?.id) {
       console.log("[gf-dayof] day-of order created via ad-hoc fallback:", data.order.id);
       return { id: data.order.id, totalCents: data.order.total_money?.amount ?? 0 };
     }
@@ -131,8 +172,6 @@ async function cancelDayofOrder(orderId: string, locationId: string): Promise<vo
     }),
   });
 }
-
-const DAYOF_RECONCILE_TOLERANCE_CENTS = 50;
 
 export type DayofReconcileResult =
   | { action: "noop" | "skipped_no_order"; reason?: string }

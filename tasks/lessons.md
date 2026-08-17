@@ -4429,3 +4429,53 @@ file. Gitignored, so unrecoverable from git; restored only via
    layout, so the command "works" either way. Verify with `pwd` before the
    first destructive command of any session segment, and after any
    backgrounded command.
+
+## Square has no fixed-amount tax — so "make the total right" lands tax in the service-charge slot (2026-08-17)
+
+Every group-function day-of order since 2026-05-28 recorded **$0.00 of tax**. The tax
+dollars were collected correctly (guests paid the exact contract total, no over/undercharge)
+but they were written into `service_charges: [{ name: "Service Charge" }]`, so Square's
+`total_tax_money` was zero on all 211 live day-of orders — **$22,616.55 of tax invisible to
+every Square tax report.** Separately, the contract's service charge rode in as a catalog
+LINE ITEM under a Square item named "Legacy Service Charge" — **$105,732.58 booked as
+merchandise** across 381 events. Two amounts, both in the wrong slot, and they look alike
+in the dashboard, which is why it survived three months.
+
+**The trap:** Square's order `taxes[]` accepts only a `percentage`. There is no
+fixed-amount tax. BMI gives us tax as DOLLARS (`tax_cents`). The only order-level slot
+that accepts an arbitrary dollar amount is `service_charges[].amount_money` — so
+"I have $71.87 of tax and the order total is short by $71.87" leads a careful person
+straight to the wrong field, and the total comes out right, so nothing looks broken.
+
+**The rules:**
+
+1. **To record tax in Square you must hand it a PERCENTAGE and let Square compute the
+   amount.** If you find yourself putting a tax figure into any `amount_money`, the tax
+   is going to be invisible to tax reporting. Reconcile our stored total to Square's
+   arithmetic, not the reverse.
+2. **`total_tax_money == 0` on an order that charged tax is the whole tell.** Any new
+   Square write that carries tax must be smoke-checked on that one field. A correct
+   ORDER TOTAL proves nothing about classification — that is exactly what hid this.
+3. **A generic PLU pass-through will book anything as merchandise.** `buildSquareLineItem`
+   forwards any BMI `plu` as `catalog_object_id`, so a fee/surcharge product mapped to a
+   Square ITEM becomes revenue. Non-product amounts (service charge, gratuity, fees) need
+   an explicit non-line-item home; check what the catalog id actually IS before trusting
+   a pass-through.
+4. **Check the catalog before building anything — the right objects may already exist.**
+   Proper `SERVICE_CHARGE` objects (15/14/13/12% tiers, T/E variants, a custom
+   amount-based one) had existed since 2025-12-18, and the old item was renamed
+   "Legacy Service Charge" on 2026-04-28 by someone signalling the migration. The code
+   was never moved across. The word "Legacy" in a vendor dashboard is a message.
+5. **Per-line tax rates rule out an order-scope tax.** 13 of 436 events mix rates
+   (Naples 6.0% + 6.59% where BMI stacks the 0.59% alcohol tax, incl. on soda; some Fort
+   Myers events carry genuinely untaxed lines). `scope: "ORDER"` applies to every line
+   with no way to exempt one. Use `scope: "LINE_ITEM"` + per-line `applied_taxes`, and
+   put `applied_taxes` on the SERVICE CHARGE too — BMI taxes it, and forgetting it loses
+   exactly the tax-on-service-charge amount.
+6. **When a shape can't be modelled faithfully, return null and keep the old shape.**
+   An unmapped location or a rate that is neither county nor county+alcohol must never be
+   approximated: mis-TAXING a guest is far worse than mis-CLASSIFYING a correct total for
+   one more event. Guard the created order against the contract total (±50c) and fall back.
+7. **Two writers, one bug.** `backfill-dayof/route.ts` carried its own copy of the
+   order-building logic even though `group-function-dayof.ts` declares itself the single
+   source of truth. A duplicated writer is how a fix in "the" place stays half-applied.
