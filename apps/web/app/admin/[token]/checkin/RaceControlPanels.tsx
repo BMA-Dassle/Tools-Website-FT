@@ -2846,6 +2846,21 @@ const LIVE_MAX_RETRIES = 2;
  */
 const LIVE_RECYCLE_MS = 10 * 60_000;
 
+/**
+ * AND TRY AGAIN AFTER GIVING UP, because "gave up" was too final.
+ *
+ * The retry budget stops a jittery relay burning tickets in a loop, which is
+ * right. But it also meant a tile that failed its three attempts at 10am sat on
+ * stills for the rest of the shift even after the cause was fixed — and every
+ * trace captured afterwards showed a page doing nothing, which is not evidence
+ * of anything.
+ *
+ * A minute is long enough not to hammer a camera that is genuinely down, and
+ * short enough that a fix, a reconnect, or an Nx restart is picked up while
+ * somebody is still standing at the desk.
+ */
+const LIVE_COOLDOWN_MS = 60_000;
+
 function useLiveCamera(
   room: CameraTarget,
   getUrl: (room: CameraTarget, res?: LiveResolution) => Promise<string | null>,
@@ -2921,6 +2936,7 @@ function useLiveCamera(
 
   useEffect(() => {
     retriesRef.current = 0;
+    clearTimeout(cooldownRef.current);
     if (!enabled) return;
     void load(room);
   }, [room, load, enabled]);
@@ -2937,16 +2953,26 @@ function useLiveCamera(
     return () => clearInterval(id);
   }, [enabled, recycleMs, load, room]);
 
-  /** The stream dropped or was refused — take one more ticket, then stand down. */
+  /** The stream dropped or was refused — take one more ticket, then stand down
+   *  for a cooldown rather than for good. */
+  const cooldownRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const retry = useCallback(() => {
     setPlayingRoom(null);
     if (retriesRef.current >= LIVE_MAX_RETRIES) {
       setStream(null);
+      clearTimeout(cooldownRef.current);
+      cooldownRef.current = setTimeout(() => {
+        retriesRef.current = 0;
+        void load(room);
+      }, LIVE_COOLDOWN_MS);
       return;
     }
     retriesRef.current += 1;
     void load(room);
   }, [load, room]);
+
+  // The cooldown must not outlive the tile, or a closed viewer keeps minting.
+  useEffect(() => () => clearTimeout(cooldownRef.current), []);
 
   const url = stream?.room === room ? stream.url : null;
   return {
