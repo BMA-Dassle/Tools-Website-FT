@@ -164,12 +164,16 @@ session participants.
   (it only looks forward), and returned a **2023** session as "upcoming" for
   another. It answers a different question.
 
-**Shipped as stage 1 of a two-stage cutover.** Consumer support (barrier, queue
-type, probe dispatch) ships now; the writer still emits `party-ready`. Preview
-and production share `bmi_sync_queue`, so emitting a barrier name production's
-consumer does not know reproduces row #170 (2026-08-13, 20 burned attempts).
-`seats` is already in the payload — **stage 2 is a one-line flip** of
-`barrier:` in `server.ts` once this deploy is live in production.
+**Deploy order.** Writer and consumer (barrier, `SyncBarrier` union,
+`probeBarrier` dispatch) ship in the same commit, so production is consistent the
+moment it deploys. The residual exposure is **preview-only and lasts until
+merge**: preview and production share `bmi_sync_queue`, and production's older
+consumer cannot read a `party-seated` row a preview writes — it burns the row's
+attempts, which is row #170 (2026-08-13, 20 attempts) all over again.
+
+> **Do not exercise kiosk check-in on a preview deployment of this branch before
+> it is merged and live.** Any state stamp queued from a preview check-in will
+> park instead of flipping.
 
 ## Verification
 

@@ -1834,22 +1834,26 @@ export async function completeCheckin(args: {
             // party list rather than queuing a second stamp.
             idempotencyKey: `state-stamp:${billId}:${businessDate}`,
             /**
-             * STAGE 1 OF A TWO-STAGE CUTOVER — still `party-ready`, deliberately.
+             * party-SEATED, not party-ready (owner 2026-08-16): staff read this
+             * state as "here and checked in", and a party whose racers are not
+             * yet on the grid is not checked in. party-seated is party-ready
+             * PLUS every seat in `seats` verified against Pandora's session
+             * participants — the grid itself, never our own `schedule_status`,
+             * which goes stale the moment staff hand-seat someone and would
+             * otherwise turn this gate into a permanent block.
              *
-             * The gate this wants is `party-seated` (party-ready PLUS every seat
-             * verified on Pandora's session participants), and the consumer side
-             * of it ships in THIS commit: the barrier, the queue type, and the
-             * probe dispatch all understand the name already. The WRITER stays on
-             * the old name for one deploy because preview and production share
-             * the `bmi_sync_queue` table — a preview of this branch writing
-             * `party-seated` rows that production's consumer does not yet know
-             * reproduces row #170 (2026-08-13, 20 burned attempts) exactly.
-             *
-             * `seats` below is already written, so stage 2 is a ONE-LINE flip of
-             * this value once this deploy is live in production. Until then the
-             * stamp behaves precisely as it does today.
+             * DEPLOY ORDER MATTERS. Preview and production share the
+             * `bmi_sync_queue` table, and a consumer that does not recognise a
+             * barrier name burns the row's attempts (row #170, 2026-08-13). The
+             * consumer half — the barrier, the `SyncBarrier` union, and the
+             * `probeBarrier` dispatch — ships in the SAME commit as this writer,
+             * so production is consistent the moment it deploys. The exposure is
+             * PREVIEW-ONLY and lasts until merge: a check-in run against a
+             * preview URL writes a row production's older consumer cannot read.
+             * Do not exercise kiosk check-in on a preview deployment of this
+             * branch before it is merged and live.
              */
-            barrier: "party-ready",
+            barrier: "party-seated",
             barrierRef: officeProjectId,
             // Racing lives on the FastTrax Pandora location — the same one
             // schedule-racers posts to, so the party barrier probes where the
