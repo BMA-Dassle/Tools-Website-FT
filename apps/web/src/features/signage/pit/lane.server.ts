@@ -786,6 +786,64 @@ export async function sendToHolding(
   args: SendToHoldingArgs,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   /**
+   * ONE SEND AT A TIME PER LANE (owner 2026-08-16: "they cannot double stack —
+   * two possible briefings but everything after brief is a unified single
+   * step"). On a Mega night TWO rooms feed this ONE lane, so two send presses
+   * can land within the same second — and the occupancy check below is
+   * separated from the lane write by a Neon insert and a room clear, a window
+   * wide enough for both presses to pass the check and the second write to
+   * erase the first group without a trace (the Blue-27 shape, concurrently).
+   *
+   * A short NX claim serializes the whole read-check-write. The loser gets a
+   * plain "try again" — by the time a human re-presses, the winner's write is
+   * visible and the ordinary occupancy verdict says the real answer. TTL
+   * covers the slowest Neon write we have seen; a crash mid-send self-heals
+   * when it lapses.
+   */
+  const claimKey = `pit:send-holding-claim:${VENUE}:${args.track}`;
+  const claimToken = `${args.sessionId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  let claimed = false;
+  try {
+    const won = await redis.set(claimKey, claimToken, "EX", 15, "NX");
+    if (won !== "OK") {
+      return {
+        ok: false,
+        error: "another group is being sent to holding right now — try again in a moment",
+      };
+    }
+    claimed = true;
+  } catch {
+    /* Redis down: the lane write below would fail anyway; fall through so the
+       failure surfaces from the real work, not the guard. */
+  }
+  try {
+    return await sendToHoldingSerialized(args);
+  } finally {
+    // Compare-and-delete, and only if we actually claimed: a blind DEL from
+    // the losing press (or from a holder whose TTL lapsed mid-send) would
+    // free the CURRENT winner's claim — the same unlock trap the track-status
+    // route documents. Token mismatch = the claim is not ours any more, and
+    // the TTL retires it.
+    if (claimed) {
+      await redis
+        .eval(RELEASE_CLAIM_IF_MINE, 1, claimKey, claimToken)
+        .catch(() => undefined);
+    }
+  }
+}
+
+/** DEL only when the key still holds OUR token — see the release note above. */
+const RELEASE_CLAIM_IF_MINE = `
+  if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+  end
+  return 0
+`;
+
+async function sendToHoldingSerialized(
+  args: SendToHoldingArgs,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  /**
    * REFUSE WHEN IT WOULD EVICT A GROUP THAT HAS NOT GONE OUT (owner 2026-08-15:
    * "if holding is full we need to prevent them from hitting send to holding").
    *

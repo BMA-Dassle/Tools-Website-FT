@@ -24,7 +24,10 @@ const store = new Map<string, string>();
 vi.mock("@/lib/redis", () => ({
   default: {
     get: vi.fn(async (k: string) => store.get(k) ?? null),
-    set: vi.fn(async (k: string, v: string) => {
+    // Honors NX so the send-to-holding claim under test has real semantics:
+    // the first SET wins, a second against a live key answers null.
+    set: vi.fn(async (k: string, v: string, ...rest: (string | number)[]) => {
+      if (rest.includes("NX") && store.has(k)) return null;
       store.set(k, v);
       return "OK";
     }),
@@ -32,6 +35,15 @@ vi.mock("@/lib/redis", () => ({
     del: vi.fn(async (k: string) => {
       store.delete(k);
       return 1;
+    }),
+    // The claim release is compare-and-delete — real semantics here so a test
+    // can prove the losing press never frees the winner's claim.
+    eval: vi.fn(async (_script: string, _n: number, key: string, token: string) => {
+      if (store.get(key) === token) {
+        store.delete(key);
+        return 1;
+      }
+      return 0;
     }),
   },
 }));
@@ -1304,5 +1316,68 @@ describe("markInKarts reads the resolved lane, not the stored one", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("Session 19");
     expect(JSON.parse(store.get(LANE)!).karts.sessionId).toBe("s19");
+  });
+});
+
+/* ── one send at a time per lane — the Mega double-stack guard ──────────── */
+
+/**
+ * Two briefing rooms feed ONE lane on a Mega night (owner 2026-08-16: "two
+ * possible briefings but everything after brief is a unified single step").
+ * The occupancy verdict and the lane write are separated by a Neon insert, so
+ * without the claim two near-simultaneous sends could both pass the check and
+ * the second write would erase the first group without a trace.
+ */
+describe("sendToHolding — one send at a time per lane", () => {
+  const send = (sessionId: string, heatNumber = 61) =>
+    sendToHolding({
+      room: "blue",
+      track: "blue",
+      sessionId,
+      heatNumber,
+      raceType: "Blue Starter",
+    });
+
+  it("refuses while another send holds the claim, and touches nothing", async () => {
+    putLane({ holding: null, racing: null, pitted: null });
+    store.set("pit:send-holding-claim:FT:blue", "another-send-in-flight");
+
+    const result = await send("201");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("another group is being sent");
+    expect(JSON.parse(store.get(LANE)!).holding).toBeNull();
+    // The loser must not release the winner's claim on its way out.
+    expect(store.get("pit:send-holding-claim:FT:blue")).toBe("another-send-in-flight");
+  });
+
+  it("releases its claim after a successful send", async () => {
+    putLane({ holding: null, racing: null, pitted: null });
+
+    const result = await send("202");
+
+    expect(result.ok).toBe(true);
+    expect(store.has("pit:send-holding-claim:FT:blue")).toBe(false);
+    expect(JSON.parse(store.get(LANE)!).holding.sessionId).toBe("202");
+  });
+
+  it("releases the claim on a refusal too — a blocked send must not wedge the lane", async () => {
+    // Occupied by a group with no evidence of having gone out.
+    putLane({ holding: group("100", 44), racing: null, pitted: null });
+
+    const result = await send("201");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("still in holding");
+    expect(store.has("pit:send-holding-claim:FT:blue")).toBe(false);
+  });
+
+  it("lanes claim independently — a mega send in flight never blocks a split-track one", async () => {
+    store.set("pit:send-holding-claim:FT:mega", "in-flight");
+    putLane({ holding: null, racing: null, pitted: null });
+
+    const result = await send("203");
+
+    expect(result.ok).toBe(true);
   });
 });
