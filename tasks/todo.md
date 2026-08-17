@@ -1691,3 +1691,25 @@ says the moment is approximate. Worth having: a kart pause is nearly always an i
       `cameraOnTrack`.
 - [ ] Pause detection has never been observed against a real pause — no race was running
       when this was built. First race night, watch `/api/cron/race-state-watch`.
+
+---
+
+## POV highlight reel — check-in guide wall (PAUSED 2026-08-17)
+
+Full tracker: **[tasks/pov-highlight-reel.md](pov-highlight-reel.md)**
+
+Racers' fastest laps, cut from their Viewpoint video, on the guide wall.
+
+- [x] Data layers **on main**: `race_lap_results`, `race_best_laps` (best lap + `PassingTimeUtc`),
+      `race_timings.pause_count`, `pov-reel/select.ts`. Queue 5,000 → 100,000 / 72h.
+- [x] **Alignment SOLVED** — the camera burns a wall clock into every frame, so a lap time maps to
+      a file offset. Verified to ~50ms. No vendor ask, no bridge change.
+- [x] `pov-clipper/` Railway service written (also on `feat/pov-reel-clipper`).
+- [ ] **Deploy the clipper — it has NEVER run against a live video.** Watch `anchor` in the
+      results; a wall of `"estimate"` means the OCR is broken.
+- [ ] Daily cron → `/build`, result webhook, `pov_reel_clips` manifest with **reconcile, not
+      rebuild** (keep survivors, cut only new, delete droppers a run late).
+- [ ] Signage scene on the guide wall. **Must not re-download the reel** — Cache Storage with its
+      own cache name, and the briefing takeover must still win.
+- [ ] Re-check the 5 Pro / 5 Intermediate split once a full week exists: 3 days of real data
+      produced 44 eligible candidates and **zero Pro**.
