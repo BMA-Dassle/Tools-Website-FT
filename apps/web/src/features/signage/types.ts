@@ -193,6 +193,11 @@ export interface ScreenConfig {
    *  and the pair would otherwise show the same thing: keep showing the
    *  session, or become a big live check-in feed where names never clear. */
   megaRole?: "session" | "checkin";
+  /** The PIT boards' version of the same choice (owner 2026-08-17): on a Mega
+   *  day the two pit signs read the one combined lane, so the pair splits the
+   *  job — one keeps the seat-assignment board, the other becomes the SESSION
+   *  TRACKER: every stage a heat passes through, full screen. */
+  pitMegaRole?: "assignment" | "tracker";
   /** Show a labelled "scan for track records" QR on the track boards. */
   showRecordsQr?: boolean;
   /** Minutes before an event's first leg that it appears on the welcome board. */

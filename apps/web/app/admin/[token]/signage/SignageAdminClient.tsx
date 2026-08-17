@@ -881,6 +881,7 @@ interface Draft {
   checkinWindowMins: number;
   showCheckinCountdown: boolean;
   megaRole: "session" | "checkin";
+  pitMegaRole: "assignment" | "tracker";
   showRecordsQr: boolean;
   trackResourceId: string;
   pairGroupId: string;
@@ -931,6 +932,7 @@ function newDraft(): Draft {
     checkinWindowMins: 8,
     showCheckinCountdown: true,
     megaRole: "session",
+    pitMegaRole: "assignment",
     showRecordsQr: true,
     trackResourceId: "",
     pairGroupId: "",
@@ -992,6 +994,7 @@ function draftFromScreen(s: SignageScreen): Draft {
     checkinWindowMins: c.checkinWindowMins ?? 8,
     showCheckinCountdown: c.showCheckinCountdown !== false,
     megaRole: c.megaRole === "checkin" ? "checkin" : "session",
+    pitMegaRole: c.pitMegaRole === "tracker" ? "tracker" : "assignment",
     showRecordsQr: c.showRecordsQr === true,
     trackResourceId: c.scope?.resourceIds?.[0] ?? "",
     pairGroupId: c.pairing?.groupId ?? "",
@@ -1071,6 +1074,7 @@ function draftToConfig(d: Draft): ScreenConfig {
     checkinWindowMins: d.checkinWindowMins,
     showCheckinCountdown: d.showCheckinCountdown,
     megaRole: d.megaRole,
+    pitMegaRole: d.pitMegaRole,
     showRecordsQr: d.showRecordsQr,
     scope: d.trackResourceId ? { resourceIds: [d.trackResourceId] } : {},
     // Omitted entirely at 0 rather than written as a zero, so a screen that has
@@ -1458,6 +1462,25 @@ function ScreenForm({
             On Mega days both tracks run as one circuit, so the pair of boards would show the same
             thing. Set one to the check-in feed and the pair splits the job: one board carries the
             session, the other lists everyone as they scan — names never age off.
+          </p>
+        </Field>
+      )}
+
+      {draft.showPitBoard && (
+        <Field label="On Mega days, this pit sign shows">
+          <select
+            value={draft.pitMegaRole}
+            onChange={(e) => set("pitMegaRole", e.target.value as "assignment" | "tracker")}
+            style={input}
+          >
+            <option value="assignment">Seat assignments (the pit board, as today)</option>
+            <option value="tracker">Session tracker (every stage, checking in to pit in)</option>
+          </select>
+          <p style={hint}>
+            On Mega days both pit signs read the one combined lane, so the pair would show the
+            same seats. Set one to the session tracker and the pair splits the job: one sign
+            seats the group, the other shows every session&rsquo;s place in the pipeline —
+            called, briefing rooms, holding, karts, on track, pit in.
           </p>
         </Field>
       )}
