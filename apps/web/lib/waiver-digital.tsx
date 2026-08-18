@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { resolvePandoraLocation, isKnownPandoraLocationId } from "@/lib/pandora-locations";
+import { resolveWaiverTemplate, waiverBandForAge } from "~/features/waiver/template-cache";
 
 /**
  * Digital waiver acceptance → Pandora/BMI.
@@ -35,52 +36,39 @@ export interface WaiverTemplate {
   name: string;
 }
 
-// Cache the (location → adult waiver template) lookup; it's the same template
-// for every adult and the Pandora API cold-starts, so we fetch it at most once.
+// In-process L1 in front of the shared Redis cache: within one lambda the same
+// template is asked for once per signer, and this saves the Redis hop. Keyed by
+// (location, band) — keying by location alone silently handed a MINOR signer the
+// adult template that an earlier adult call had parked there.
 const templateCache = new Map<string, WaiverTemplate>();
 
-/** Fetch (and cache) the age-appropriate adult waiver template for a location. */
+/**
+ * Fetch (and cache) the age-appropriate waiver template for a location.
+ *
+ * The lookup itself, its retry policy and its 30-day outage fallback all live in
+ * ~/features/waiver/template-cache, shared with the two waiver routes — the
+ * Pandora API cold-starts and 5xx's under concurrent load, and a single
+ * un-retried failure here kills the whole sign. A retained contentID is what
+ * keeps event signing alive through a vendor wobble.
+ */
 export async function getWaiverTemplate(locationId: string, age = 35): Promise<WaiverTemplate> {
-  const cached = templateCache.get(locationId);
+  const l1Key = `${locationId}:${waiverBandForAge(age)}`;
+  const cached = templateCache.get(l1Key);
   if (cached) return cached;
 
-  // The Pandora API (Azure App Service) cold-starts and 5xx's under concurrent
-  // load — a single un-retried failure here kills the whole sign. Retry on
-  // 5xx/network; 4xx is a real error and fails fast.
-  let lastErr = "";
-  for (let attempt = 0; attempt < 4; attempt++) {
-    if (attempt) await new Promise((r) => setTimeout(r, 1000 * attempt));
-    let res: Response;
-    try {
-      res = await fetch(`${PANDORA_URL}/bmi/waiver/search?locationID=${locationId}&age=${age}`, {
-        headers: { Authorization: `Bearer ${API_KEY}` },
-        cache: "no-store",
-      });
-    } catch (e) {
-      lastErr = e instanceof Error ? e.message : String(e); // network — retry
-      continue;
-    }
-    if (res.ok) {
-      const raw = await res.json();
-      const t = raw?.data ?? raw;
-      if (!t?.contentID) throw new Error("no waiver template contentID returned");
-      const tmpl: WaiverTemplate = {
-        contentID: String(t.contentID),
-        // Duration is in YEARS (BMI template semantics) — unused here (event
-        // waivers override with WAIVER_VALID_DAYS) but kept coherent.
-        duration: t.duration ?? 1,
-        name: t.name || "",
-      };
-      templateCache.set(locationId, tmpl);
-      return tmpl;
-    }
-    if (res.status < 500) {
-      const text = await res.text();
-      throw new Error(`waiver template search ${res.status}: ${text.slice(0, 200)}`);
-    }
-    lastErr = `HTTP ${res.status}`; // 5xx — retry
+  const resolved = await resolveWaiverTemplate({ locationID: locationId, age });
+  if (!resolved.ok) {
+    throw new Error(`waiver template search failed (${resolved.reason}): ${resolved.detail}`);
   }
-  throw new Error(`waiver template search failed after retries: ${lastErr}`);
+  const tmpl: WaiverTemplate = {
+    contentID: resolved.template.contentID,
+    // Duration is in YEARS (BMI template semantics) — unused here (event
+    // waivers override with WAIVER_VALID_DAYS) but kept coherent.
+    duration: resolved.template.duration,
+    name: resolved.template.name,
+  };
+  templateCache.set(l1Key, tmpl);
+  return tmpl;
 }
 
 /**

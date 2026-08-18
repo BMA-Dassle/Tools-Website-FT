@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PANDORA_DEFAULT_LOCATION_ID, PANDORA_LOCATION_MAP } from "@/lib/pandora-locations";
 import { inhouseWaiverTemplate, type WaiverLang } from "~/features/kiosk/waiver/templates";
+import { resolveWaiverTemplate, waiverTemplateCacheLabel } from "~/features/waiver/template-cache";
 
 /**
  * In-house waiver template (behind `kioskWaiverInhouseEnabled()`, gated in the
@@ -12,12 +13,16 @@ import { inhouseWaiverTemplate, type WaiverLang } from "~/features/kiosk/waiver/
  *
  * GET ?age=25&location=headpinz&lang=es  → { id, contentID (BMI's), name, duration, body (ours) }
  *
- * If BMI can't hand us a contentID (Azure down), we fail exactly like today — a
- * signature needs a BMI contentID to record, so there is no silent divergence.
+ * If BMI can't hand us a contentID, we fail exactly like today — a signature
+ * needs a BMI contentID to record, so there is no silent divergence.
+ *
+ * ── The contentID no longer costs a vendor call per load (2026-08-18) ───────
+ * It comes from ~/features/waiver/template-cache: cached per (location,
+ * adult|minor) — the two templates BMI actually has, proven by probe — fresh for
+ * an hour, retained 30 days and served when Pandora is unreachable. This route
+ * was 21 × 500 in the hour Pandora degraded, all of it spent re-fetching an
+ * identifier that changes only when BMI revises the waiver document.
  */
-
-const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
-const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
 
 function resolveLocation(key: string | null): string {
   return (key && PANDORA_LOCATION_MAP[key]) || PANDORA_DEFAULT_LOCATION_ID;
@@ -47,40 +52,34 @@ export async function GET(req: NextRequest) {
   const ours = inhouseWaiverTemplate(age, lang);
 
   try {
-    const res = await fetch(
-      `${PANDORA_URL}/bmi/waiver/search?locationID=${locationID}&age=${age}`,
-      {
-        headers: { Authorization: `Bearer ${API_KEY}` },
-        cache: "no-store",
-      },
-    );
-    if (!res.ok) {
-      const text = await res.text();
+    const resolved = await resolveWaiverTemplate({ locationID, age });
+    if (!resolved.ok) {
       console.error(
-        `[kiosk-waiver-template] BMI contentID lookup failed ${res.status}: ${text.substring(0, 200)}`,
+        `[kiosk-waiver-template] BMI contentID lookup failed (${resolved.reason}): ${resolved.detail}`,
       );
-      return NextResponse.json({ error: "Waiver template not found" }, { status: res.status });
-    }
-    const raw = await res.json();
-    const bmi = raw?.data ?? raw;
-    if (!bmi || !bmi.contentID) {
-      console.error(
-        `[kiosk-waiver-template] unexpected BMI shape:`,
-        JSON.stringify(raw).substring(0, 300),
+      return NextResponse.json(
+        {
+          error:
+            resolved.reason === "no-contentid"
+              ? "No waiver template found"
+              : "Waiver template not found",
+        },
+        { status: resolved.status },
       );
-      return NextResponse.json({ error: "No waiver template found" }, { status: 404 });
     }
+    const bmi = resolved.template;
 
     // OUR text + variant name, BMI's contentID + duration (so signing is unchanged).
     const merged = {
       id: String(bmi.id || ours.id),
-      contentID: String(bmi.contentID),
+      contentID: bmi.contentID,
       name: ours.name,
       duration: bmi.duration ?? ours.duration,
       body: ours.body,
     };
     console.log(
-      `[kiosk-waiver-template] served in-house ${lang} body (bodyLen=${merged.body.length}) with BMI contentID=${merged.contentID}`,
+      `[kiosk-waiver-template] served in-house ${lang} body (bodyLen=${merged.body.length}) ` +
+        `with BMI contentID=${merged.contentID} [${waiverTemplateCacheLabel(resolved)}]`,
     );
     return NextResponse.json(merged);
   } catch (err) {
