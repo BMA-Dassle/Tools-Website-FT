@@ -26,6 +26,14 @@ import { ARENA_RESOURCES, HP_NAPLES_LOCATION_ID } from "~/features/arena-tickets
 import { activeArenaCenters, type ArenaCenter } from "~/features/arena-tickets/centers";
 import { activityDisplay, classifyArenaSession } from "~/features/arena-tickets/types";
 import { loadAllFromRedis, refreshRacesCurrent } from "~/features/racing/races-current.server";
+import type { Participant as RosterParticipant } from "@/lib/participant-contact";
+import {
+  dropNullParticipants,
+  participantsCacheKey,
+  PARTICIPANTS_CACHE_TTL_SEC,
+  rosterIsWorthCaching,
+  rosterUpstreamQuery,
+} from "~/features/racing/session-roster.server";
 import {
   applyLocalFloor,
   parseStoredRoster,
@@ -1311,8 +1319,14 @@ async function rosterFor(s: SessionStat): Promise<RosterCount> {
 
   let fresh: { checkedIn: number; total: number } | null = null;
   try {
+    // THE SAME QUERY THE PROXY USES, because we write into the same cache below.
+    // `excludeUnpaid` is pinned false: the shared key holds the unpaid SUPERSET,
+    // and storing a paid-only slice would delete unpaid racers from every reader
+    // of it — including the scan lookup, which would then tell a racer standing
+    // at the desk that they are not in any active session. See
+    // ~/features/racing/session-roster.server.
     const pRes = await fetch(
-      `${PANDORA_BASE}/v2/bmi/session/${s.locationId}/${s.sessionId}/participants?excludeRemoved=true`,
+      `${PANDORA_BASE}/v2/bmi/session/${s.locationId}/${s.sessionId}/participants?${rosterUpstreamQuery(true)}`,
       {
         headers: pandoraHeaders(),
         cache: "no-store",
@@ -1326,11 +1340,38 @@ async function rosterFor(s: SessionStat): Promise<RosterCount> {
     );
     if (pRes.ok) {
       const pData = await pRes.json();
-      const list = Array.isArray(pData?.data) ? pData.data : [];
+      const raw = Array.isArray(pData?.data) ? (pData.data as RosterParticipant[]) : [];
+      const list = dropNullParticipants(raw);
       fresh = {
         total: list.length,
-        checkedIn: list.filter((p: { checkedIn?: string | null }) => !!p.checkedIn).length,
+        checkedIn: list.filter((p) => !!(p as { checkedIn?: string | null }).checkedIn).length,
       };
+
+      // WRITE THE ROSTER THE SCAN LOOKUP READS.
+      //
+      // lookupGuest / lookupByParticipantId resolve a badge against this key and
+      // return "not found in any active session" on a miss. Its only writer was
+      // the check-in-alerts cron, once a minute — which on a bad Pandora night
+      // fails a large share of its ticks, and if none succeeds inside the 10
+      // minute TTL the key EXPIRES and every badge for that heat scans as
+      // unknown.
+      //
+      // We are already holding a live, clean roster for a called session, pulled
+      // with the proxy's own query. Storing it means the lookup is refreshed by
+      // whatever the board is doing anyway — and a racer moved into this heat is
+      // findable within a poll rather than within a cron tick.
+      if (rosterIsWorthCaching(list)) {
+        void redis
+          .set(
+            participantsCacheKey(s.locationId, s.sessionId, true),
+            JSON.stringify(list),
+            "EX",
+            PARTICIPANTS_CACHE_TTL_SEC,
+          )
+          .catch(() => {
+            /* a roster we failed to share is still a roster we can count */
+          });
+      }
     }
   } catch {
     /* fresh stays null — resolveRosterCount decides what we may claim */

@@ -53,10 +53,12 @@ import redis from "@/lib/redis";
  * documented bypass).
  */
 
-const CACHE_TTL_SECONDS = 600; // 10 min — long enough to weather a Pandora outage
-function cacheKey(locationId: string, sessionId: string, excludeRemoved: boolean): string {
-  return `pandora:participants:${locationId}:${sessionId}:R${excludeRemoved ? 1 : 0}`;
-}
+// The key, the TTL, the cleaning rule and the upstream query all live in
+// ~/features/racing/session-roster.server — shared with the check-in board's
+// roster read, which now write-throughs to the same key. Two writers of one
+// cache are only safe while they agree on every one of those.
+const CACHE_TTL_SECONDS = PARTICIPANTS_CACHE_TTL_SEC;
+const cacheKey = participantsCacheKey;
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
 const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
@@ -70,6 +72,13 @@ const ALLOWED_LOCATIONS = new Set([
 // The upstream shape — re-export our shared canonical type for consumers.
 export type { Participant } from "@/lib/participant-contact";
 import type { Participant } from "@/lib/participant-contact";
+import {
+  dropNullParticipants,
+  participantsCacheKey,
+  PARTICIPANTS_CACHE_TTL_SEC,
+  rosterIsWorthCaching,
+  rosterUpstreamQuery,
+} from "~/features/racing/session-roster.server";
 
 /** Parse a query-string boolean that defaults to `true`. */
 function boolParam(raw: string | null, defaultValue: boolean): boolean {
@@ -102,18 +111,6 @@ function applyUnpaidFilter(participants: Participant[], excludeUnpaid: boolean):
  *    - personId is the known "DRIVER 1 PLACEHOLDER" id (17750277), the
  *      unassigned-seat stand-in already gated in
  *      lib/participant-contact.ts. */
-const PLACEHOLDER_PERSON_IDS: ReadonlySet<string> = new Set(["17750277"]);
-
-function dropNullParticipants(participants: Participant[]): Participant[] {
-  return participants.filter((p) => {
-    if (p.personId == null) return false;
-    const pidStr = String(p.personId).trim();
-    if (!pidStr) return false;
-    if (PLACEHOLDER_PERSON_IDS.has(pidStr)) return false;
-    return true;
-  });
-}
-
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const locationId = searchParams.get("locationId");
@@ -221,10 +218,7 @@ export async function GET(req: NextRequest) {
     // caller's filter combo. We only let Pandora apply
     // `excludeRemoved` (it's a server-state filter we can't
     // reproduce at the proxy without the F_PAR_STATE field).
-    const upstreamQs = new URLSearchParams({
-      excludeRemoved: String(excludeRemoved),
-      excludeUnpaid: "false",
-    }).toString();
+    const upstreamQs = rosterUpstreamQuery(excludeRemoved);
     const res = await fetch(
       `${PANDORA_URL}/bmi/session/${locationId}/${sessionId}/participants?${upstreamQs}`,
       {
@@ -259,7 +253,7 @@ export async function GET(req: NextRequest) {
     // (the cleaned unpaid superset, NOT the per-caller filtered
     // slice). Fire-and-forget — never block the response on a
     // Redis hiccup.
-    if (fullSuperset.length > 0) {
+    if (rosterIsWorthCaching(fullSuperset)) {
       const key = cacheKey(locationId, sessionId, excludeRemoved);
       redis
         .set(key, JSON.stringify(fullSuperset), "EX", CACHE_TTL_SECONDS)
