@@ -45,6 +45,7 @@ import type { TrackKey } from "../track";
 import { sessionRoster } from "../service/checkin-progress";
 import { cueKey, readCueStamp, type PitCue } from "./audio-stamps.server";
 import { postClipCandidates } from "./post-clip";
+import { preClipFor, preClipNeedsRoster } from "./pre-clip";
 import { markInKarts, markRacePitted, readPitLane } from "./lane.server";
 import { isStaySeatedFile, kartsAvailability, type PitLaneFeed, type PitLanes } from "./pit-board";
 import {
@@ -72,10 +73,6 @@ const VENUE = "FT";
 /** Outlives any race night; short enough that Redis stays display state —
  *  the durable record is the Neon event row written on the claim. */
 const STAMP_TTL_SECONDS = 12 * 3600;
-
-/** The biggest grid the NORMAL pre-race clip covers — more than this plays
- *  `big`, the version with the extra warnings ("more than 7 people"). */
-const BIG_RACE_MAX_NORMAL = 7;
 
 /**
  * THE CLIPS' KNOWN LENGTHS, measured by the player itself: every successful
@@ -338,19 +335,15 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
   if (!cleared.cleared) return { ok: false, error: cleared.error ?? "the PA is busy" };
 
   /**
-   * WHICH PRE-RACE CLIP (owner 2026-08-15: "we have technically 2 versions
-   * pre and big. They are the same but Big race has some extra warnings. If
-   * there are more than 7 people in a race we play big instead of normal pre").
-   *
-   * Counted off the session's FULL roster, not the checked-in count, and
-   * deliberately: the extra warnings are safety copy, so the failure to prefer
-   * is playing the longer clip to a group that shrank, never the short clip to
-   * a big grid — and a straggler still being walked to a kart is exactly who
-   * they are for. An unreadable roster plays the normal pre: the announcement
-   * itself must never be held up by a Pandora blip.
+   * WHICH PRE-RACE CLIP — the rule, the Mega exemption and the incident that
+   * bought it all live in pre-clip.ts. Mega skips the roster read entirely:
+   * it plays the normal pre at every grid size, so the answer could not
+   * change the clip.
    */
-  const roster = await sessionRoster(subject.sessionId, Date.now()).catch(() => null);
-  const clip: QsysClip = (roster?.length ?? 0) > BIG_RACE_MAX_NORMAL ? "big" : "pre";
+  const roster = preClipNeedsRoster(track)
+    ? await sessionRoster(subject.sessionId, Date.now()).catch(() => null)
+    : null;
+  const clip: QsysClip = preClipFor(track, roster?.length ?? null);
 
   const result = await claimAndPlay(track, "pre", subject.sessionId, clip);
   if (result.outcome === "failed") return { ok: false, error: result.error };
