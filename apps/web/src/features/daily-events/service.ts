@@ -937,15 +937,23 @@ interface SquareOrderPayload {
   id: string;
   state?: string;
   total_money?: { amount?: number };
+  total_tax_money?: { amount?: number };
+  total_service_charge_money?: { amount?: number };
   net_amount_due_money?: { amount?: number };
   tenders?: Array<{ payment_id?: string; amount_money?: { amount?: number } }>;
   line_items?: Array<{
     name?: string;
     variation_name?: string;
     quantity?: string;
+    gross_sales_money?: { amount?: number };
     total_money?: { amount?: number };
   }>;
-  service_charges?: Array<{ name?: string; total_money?: { amount?: number } }>;
+  service_charges?: Array<{
+    name?: string;
+    /** Pre-tax amount. `total_money` on a service charge is tax-INCLUSIVE. */
+    applied_money?: { amount?: number };
+    total_money?: { amount?: number };
+  }>;
 }
 
 async function squareOrderNode(
@@ -968,11 +976,13 @@ async function squareOrderNode(
       qty: li.quantity ?? "1",
       totalCents: li.total_money?.amount ?? 0,
     }));
+    // Pre-tax (`applied_money`), so the row is comparable to a line item's gross and the
+    // order's tax is not double-counted in the displayed breakdown.
     for (const sc of o.service_charges ?? []) {
       lineItems.push({
         name: sc.name || "Service charge",
         qty: "",
-        totalCents: sc.total_money?.amount ?? 0,
+        totalCents: sc.applied_money?.amount ?? sc.total_money?.amount ?? 0,
       });
     }
 
@@ -1000,6 +1010,12 @@ async function squareOrderNode(
         state: o.state ?? "?",
         totalCents: o.total_money?.amount ?? 0,
         netDueCents: o.net_amount_due_money?.amount ?? 0,
+        subtotalCents: (o.line_items ?? []).reduce(
+          (s, li) => s + (li.gross_sales_money?.amount ?? 0),
+          0,
+        ),
+        serviceChargeCents: o.total_service_charge_money?.amount ?? 0,
+        taxCents: o.total_tax_money?.amount ?? 0,
         lineItems,
         tenders,
       },

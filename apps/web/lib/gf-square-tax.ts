@@ -150,8 +150,15 @@ export function buildDayofOrderShape(args: {
   const county = COUNTY_TAX_BY_LOCATION[locationId];
   if (!county) return null;
 
-  const scProduct = products.find((p) => isServiceChargeProduct(p.name, p.plu));
-  const merch = products.filter((p) => p !== scProduct);
+  /**
+   * A contract can carry MORE THAN ONE service-charge line — H3222 has two identical
+   * "GF Service Charge - 15%" lines, one per section. They collapse into a single Square
+   * service charge; taking only the first (an early `.find` here) left the rest booked as
+   * "Legacy Service Charge" merchandise with the total still coming out right, which is
+   * exactly the failure this whole module exists to end.
+   */
+  const scProducts = products.filter((p) => isServiceChargeProduct(p.name, p.plu));
+  const merch = products.filter((p) => !scProducts.includes(p));
   if (merch.length === 0) return null;
 
   let usesCounty = false;
@@ -175,10 +182,15 @@ export function buildDayofOrderShape(args: {
   }
 
   let service_charges: Array<Record<string, unknown>> | undefined;
-  const scCents = Math.round((scProduct?.total || 0) * 100);
-  if (scProduct && scCents > 0) {
-    const scRefs = taxesForRate(taxExempt ? 0 : scProduct.tax || 0, county.rate);
-    if (scRefs === null) return null;
+  const scCents = scProducts.reduce((s, p) => s + Math.round((p.total || 0) * 100), 0);
+  if (scProducts.length > 0 && scCents > 0) {
+    // Every service-charge line must imply the SAME taxes, or they cannot be collapsed
+    // into one Square service charge without misstating tax on part of it.
+    const perLine = scProducts.map((p) => taxesForRate(taxExempt ? 0 : p.tax || 0, county.rate));
+    if (perLine.some((r) => r === null)) return null;
+    const keys = new Set(perLine.map((r) => r!.map((x) => x.tax_uid).join("+")));
+    if (keys.size > 1) return null;
+    const scRefs = perLine[0]!;
     noteUsage(scRefs);
 
     const merchCents = Math.round(merch.reduce((s, p) => s + (p.total || 0), 0) * 100);

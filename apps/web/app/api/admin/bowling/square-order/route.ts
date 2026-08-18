@@ -4,7 +4,16 @@ import { NextRequest, NextResponse } from "next/server";
  * GET /api/admin/bowling/square-order?token=...&orderId=...
  *
  * Fetches a Square day-of order by ID and returns its line items.
- * Used by the admin reservations page to inspect order contents.
+ * Used by the admin reservations page — and by the portal's events page (Payments tab →
+ * "Square Order") — to inspect order contents.
+ *
+ * SERVICE CHARGES ARE PART OF THE TOTAL. This originally returned only line items + tax,
+ * so a Square `service_charges` entry was invisible and the displayed figures did not add
+ * up to the total. It went unnoticed because group-function service charges used to arrive
+ * disguised as a "Legacy Service Charge" LINE ITEM, so they happened to be counted; once
+ * they moved to the correct slot (see lib/gf-square-tax.ts) the gap showed as
+ * `subtotal + tax != total`. `subtotalCents` and `serviceChargeCents` are now returned
+ * explicitly so no consumer has to infer either by subtraction.
  */
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
@@ -54,7 +63,17 @@ export async function GET(req: NextRequest) {
         total_money?: { amount: number; currency: string };
         total_tax_money?: { amount: number; currency: string };
         total_discount_money?: { amount: number; currency: string };
+        total_service_charge_money?: { amount: number; currency: string };
         net_amount_due_money?: { amount: number; currency: string };
+        service_charges?: Array<{
+          uid?: string;
+          name?: string;
+          taxable?: boolean;
+          /** Pre-tax service-charge amount. `total_money` here is tax-INCLUSIVE. */
+          applied_money?: { amount: number; currency: string };
+          total_money?: { amount: number; currency: string };
+          total_tax_money?: { amount: number; currency: string };
+        }>;
         line_items?: Array<{
           uid: string;
           name?: string;
@@ -95,6 +114,19 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    // Pre-tax, so it sits alongside the line items' grossCents in a Subtotal row.
+    const serviceCharges = (order.service_charges ?? []).map((sc) => ({
+      uid: sc.uid ?? null,
+      name: sc.name ?? "Service charge",
+      amountCents: sc.applied_money?.amount ?? 0,
+      taxCents: sc.total_tax_money?.amount ?? 0,
+      taxable: sc.taxable ?? false,
+    }));
+    const subtotalCents = lineItems.reduce((s, li) => s + li.grossCents, 0);
+    const serviceChargeCents =
+      order.total_service_charge_money?.amount ??
+      serviceCharges.reduce((s, sc) => s + sc.amountCents, 0);
+
     return NextResponse.json({
       orderId: order.id,
       state: order.state,
@@ -102,6 +134,10 @@ export async function GET(req: NextRequest) {
       taxCents: order.total_tax_money?.amount ?? 0,
       discountCents: order.total_discount_money?.amount ?? 0,
       remainingCents: order.net_amount_due_money?.amount ?? 0,
+      /** Line items only, pre-tax. subtotal + serviceCharge + tax - discount = total. */
+      subtotalCents,
+      serviceChargeCents,
+      serviceCharges,
       lineItems,
     });
   } catch (err) {

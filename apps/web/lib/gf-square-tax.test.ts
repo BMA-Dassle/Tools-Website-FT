@@ -157,6 +157,46 @@ describe("buildDayofOrderShape", () => {
     expect(shapeOf([p({ name: "Service Charge", plu: "IBXWNWIZRCEY4B4RXK4JXD5G" })])).toBeNull();
   });
 
+  it("collapses MULTIPLE service-charge lines into one, leaving none as merchandise", () => {
+    // H3222: two identical "GF Service Charge - 15%" lines, one per section. An early
+    // `.find` lifted only the first and left the second booked as merchandise.
+    const twoCharges: GfTaxProduct[] = [
+      p({ name: "GF Duckpin Per Hour", price: 30, qty: 8, total: 240 }),
+      p({ name: "GF Race Blue Starter", price: 399.99, total: 399.99 }),
+      p({
+        name: "GF Service Charge - 15%",
+        price: 159.82,
+        total: 159.82,
+        plu: "IBXWNWIZRCEY4B4RXK4JXD5G",
+      }),
+      p({
+        name: "GF Service Charge - 15%",
+        price: 159.82,
+        total: 159.82,
+        plu: "IBXWNWIZRCEY4B4RXK4JXD5G",
+      }),
+    ];
+    const shape = shapeOf(twoCharges)!;
+    expect(shape.line_items).toHaveLength(2);
+    expect(JSON.stringify(shape.line_items)).not.toContain("IBXWNWIZRCEY4B4RXK4JXD5G");
+    expect(shape.service_charges).toHaveLength(1);
+    // both lines summed: $159.82 + $159.82
+    expect(shape.service_charges![0]).toMatchObject({
+      catalog_object_id: CUSTOM_SERVICE_CHARGE_ID,
+      amount_money: { amount: 31964, currency: "USD" },
+    });
+  });
+
+  it("refuses (null) service-charge lines whose tax treatment disagrees", () => {
+    expect(
+      shapeOf([
+        p({ name: "Thing", total: 100 }),
+        p({ name: "Service Charge", total: 50, tax: 0.065, plu: "IBXWNWIZRCEY4B4RXK4JXD5G" }),
+        p({ name: "Service Charge", total: 50, tax: 0, plu: "IBXWNWIZRCEY4B4RXK4JXD5G" }),
+      ]),
+    ).toBeNull();
+  });
+
   it("omits service_charges entirely when the contract has none", () => {
     const shape = shapeOf([p({ total: 100 })])!;
     expect(shape.service_charges).toBeUndefined();

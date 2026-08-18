@@ -39,6 +39,34 @@ export interface DayofOrder {
 
 const DAYOF_RECONCILE_TOLERANCE_CENTS = 50;
 
+/** Square's CreateOrder response, narrowed to what the callers here actually read. */
+interface CreateOrderResponse {
+  order?: {
+    id?: string;
+    total_money?: { amount?: number };
+    total_tax_money?: { amount?: number };
+  };
+  errors?: unknown;
+}
+
+/** POST an order at a quote's location under its `GF-<event>` reference. */
+async function postOrder(
+  quote: GroupFunctionQuote,
+  idempotencyKey: string,
+  order: object,
+): Promise<{ ok: boolean; data: CreateOrderResponse }> {
+  const refId = `GF-${quote.event_number || quote.bmi_reservation_id}`.slice(0, 40);
+  const res = await fetch(`${SQUARE_BASE}/orders`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      idempotency_key: idempotencyKey,
+      order: { location_id: quote.square_location_id, reference_id: refId, ...order },
+    }),
+  });
+  return { ok: res.ok, data: await res.json() };
+}
+
 export async function createDayofOrder(
   quote: GroupFunctionQuote,
   baseKey: string,
@@ -69,17 +97,7 @@ export async function createDayofOrder(
       : [];
   const refId = `GF-${quote.event_number || quote.bmi_reservation_id}`.slice(0, 40);
 
-  const post = async (idempotencyKey: string, order: object) => {
-    const res = await fetch(`${SQUARE_BASE}/orders`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        idempotency_key: idempotencyKey,
-        order: { location_id: quote.square_location_id, reference_id: refId, ...order },
-      }),
-    });
-    return { ok: res.ok, data: await res.json() };
-  };
+  const post = (idempotencyKey: string, order: object) => postOrder(quote, idempotencyKey, order);
 
   // Attempt 1: the taxed shape — tax in `taxes`, service charge in `service_charges`.
   // Square computes both from catalog objects, so the total is its arithmetic, not ours.
@@ -293,5 +311,135 @@ export async function reconcileDayofOrder(
     oldTotalCents: currentTotal,
     newTotalCents: dayof.totalCents,
     ...(relocated ? { relocatedFrom: currentLocation } : {}),
+  };
+}
+
+export type DayofReshapeResult =
+  | {
+      action: "reshaped";
+      oldOrderId: string;
+      newOrderId: string;
+      totalCents: number;
+      taxCents: number;
+    }
+  | { action: "skipped"; reason: string };
+
+/**
+ * Re-create an EXISTING day-of order in the tax/service-charge-correct shape, leaving the
+ * amount the guest owes untouched.
+ *
+ * Why this is separate from reconcileDayofOrder: reconcile rebuilds when the CONTRACT has
+ * moved, and no-ops when the order total already matches — which is precisely the case
+ * here. The total is right; only the slots are wrong. So this is the one operation that
+ * rebuilds an order whose total is already correct.
+ *
+ * STRICT, and deliberately unlike createDayofOrder: there is NO legacy fallback. The order
+ * being replaced is already the legacy shape, so swapping it for another legacy order is
+ * churn with a changed order id and nothing gained. If the taxed shape cannot be built, is
+ * refused, or does not reproduce the live total AND the contract tax exactly, we cancel
+ * whatever we made and leave the original order standing.
+ *
+ * Refuses anything not safely re-creatable: no existing order; an order that is not OPEN or
+ * already carries tenders (real money); an order at a different location than the quote (a
+ * center move — reconcileDayofOrder's job, and it must cancel at the OLD location); or an
+ * order that already reports tax (already reshaped).
+ */
+export async function reshapeDayofOrder(
+  quote: GroupFunctionQuote,
+  baseKey: string,
+  /**
+   * Re-shape an order that ALREADY reports tax. Needed when the builder itself is
+   * corrected and orders reshaped under the old logic must be redone (H3222: a second
+   * service-charge line was left as merchandise). Every money guard below still applies —
+   * `force` only waives the "already has tax, nothing to do" shortcut.
+   */
+  opts: { force?: boolean } = {},
+): Promise<DayofReshapeResult> {
+  const existingId = quote.square_dayof_order_id;
+  if (!existingId) return { action: "skipped", reason: "no day-of order" };
+  if (quote.square_settled_order_id)
+    return { action: "skipped", reason: `settled at the POS (${quote.square_settled_order_id})` };
+
+  /** The live order, narrowed to the fields the eligibility checks below read. */
+  let live:
+    | {
+        state?: string;
+        location_id?: string;
+        tenders?: unknown[];
+        total_money?: { amount?: number };
+        total_tax_money?: { amount?: number };
+      }
+    | undefined;
+  try {
+    live = (
+      await (await fetch(`${SQUARE_BASE}/orders/${existingId}`, { headers: sqHeaders() })).json()
+    ).order;
+  } catch (err) {
+    return { action: "skipped", reason: `could not read order ${existingId}: ${String(err)}` };
+  }
+  if (!live) return { action: "skipped", reason: `order ${existingId} not readable` };
+  if (live.state !== "OPEN") return { action: "skipped", reason: `order state=${live.state}` };
+  const tenderCount = (live.tenders ?? []).length;
+  if (tenderCount > 0) return { action: "skipped", reason: `order has ${tenderCount} tender(s)` };
+  if (live.location_id !== quote.square_location_id)
+    return {
+      action: "skipped",
+      reason: `order at ${live.location_id}, quote at ${quote.square_location_id} (center move)`,
+    };
+  if (!opts.force && (live.total_tax_money?.amount ?? 0) > 0)
+    return { action: "skipped", reason: "order already reports tax — already reshaped" };
+
+  const liveTotal: number = live.total_money?.amount ?? 0;
+  const shape = buildDayofOrderShape({
+    centerCode: quote.center_code,
+    locationId: quote.square_location_id,
+    products: quote.line_items as Parameters<typeof buildDayofOrderShape>[0]["products"],
+    taxExempt: quote.is_tax_exempt,
+  });
+  if (!shape) return { action: "skipped", reason: "contract not modellable with catalog taxes" };
+
+  const { ok, data } = await postOrder(quote, `gf-dayof-reshape-${baseKey}`, shape);
+  if (!ok || !data.order?.id)
+    return { action: "skipped", reason: `Square refused: ${JSON.stringify(data.errors ?? data)}` };
+
+  const newId: string = data.order.id;
+  const newTotal: number = data.order.total_money?.amount ?? 0;
+  const newTax: number = data.order.total_tax_money?.amount ?? 0;
+
+  // The guest must owe the same to the CENT — the loaded gift card was sized on it — and
+  // the tax must match the contract, or this is not a pure re-slotting.
+  const problem =
+    newTotal !== liveTotal
+      ? `new total ${newTotal} != live ${liveTotal}`
+      : newTotal !== quote.total_cents
+        ? `new total ${newTotal} != contract ${quote.total_cents}`
+        : newTax !== quote.tax_cents
+          ? `new tax ${newTax} != contract tax ${quote.tax_cents}`
+          : "";
+  if (problem) {
+    await cancelDayofOrder(newId, quote.square_location_id).catch(() => {});
+    return { action: "skipped", reason: problem };
+  }
+
+  await updateGfQuoteDetails(quote.id, { square_dayof_order_id: newId });
+  await cancelDayofOrder(existingId, live.location_id).catch(() => {});
+  await appendAuditLog({
+    quoteId: quote.id,
+    event: "dayof_order_reshaped",
+    metadata: {
+      oldOrderId: existingId,
+      newOrderId: newId,
+      totalCents: newTotal,
+      taxCents: newTax,
+      trigger: "tax_slot_remediation",
+    },
+  }).catch(() => {});
+
+  return {
+    action: "reshaped",
+    oldOrderId: existingId,
+    newOrderId: newId,
+    totalCents: newTotal,
+    taxCents: newTax,
   };
 }

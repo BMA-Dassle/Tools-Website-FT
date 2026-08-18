@@ -4479,3 +4479,56 @@ straight to the wrong field, and the total comes out right, so nothing looks bro
 7. **Two writers, one bug.** `backfill-dayof/route.ts` carried its own copy of the
    order-building logic even though `group-function-dayof.ts` declares itself the single
    source of truth. A duplicated writer is how a fix in "the" place stays half-applied.
+
+## Tax that was never BILLED, hidden by tax that was never RECORDED (2026-08-17)
+
+The Square slot bug (above) had a twin, and they concealed each other. Separately from the
+$22,616.55 that was collected but mis-recorded, **$2,416.20 of tax across 23 events was
+never charged to the guest at all** — the contract's `tax_cents` was $0.00, or a token
+$0.33, while its own line items carried 6.5% rates.
+
+Two mechanisms, one blind spot:
+
+1. **An old formula.** Line tax was computed as `(tax * total) / price`, which reduces to
+   `rate × qty` — so a $487 event billed **$0.33** instead of $31.69. Values like $0.33 /
+   $0.39 / $0.46 / $1.69 in a tax column are the fingerprint of that formula. Fixed in
+   `group-function-pricing.ts`, but rows already written stayed wrong.
+2. **The repair had no trigger.** `app/api/cron/group-quote-tax-backfill/route.ts` exists
+   precisely to recompute those rows — and was never added to `vercel.json`. It had never
+   run. (Same shape as the existing lesson: *a mechanism with no TRIGGER is worse than
+   none* — nobody re-greps for a route that isn't scheduled.)
+
+**Why nothing caught it for three months:** Square's tax report showed **$0.00 tax on every
+group event** because of the slot bug. So an event that billed no tax looked *identical* to
+a healthy one. The one report that should have exposed the under-billing was blinded by the
+unrelated mis-recording. Two independent defects in the same column is what made both
+survive.
+
+**The rules:**
+
+1. **Assert the invariant, don't trust the pipeline.** `app/api/cron/group-tax-invariant-watch`
+   now checks two things nightly and emails on any FUTURE-dated breach:
+   (A) `tax_cents == Σ(line.tax × line.total)` for every non-exempt contract — catches tax
+   never billed; (B) an OPEN day-of order's `total_tax_money == tax_cents` — catches tax in
+   the wrong slot. Both read the source data independently; neither trusts the other.
+2. **Never derive tax (or any component) by SUBTRACTION.** `/api/admin/bowling/square-order`
+   returned line items + tax and no service charge, so consumers inferred the rest from the
+   total — which silently absorbed whatever was misfiled. State `subtotalCents`,
+   `serviceChargeCents` and `taxCents` explicitly and let the sum be checkable.
+3. **A displayed breakdown that does not ADD UP is a bug report.** The portal's Square Order
+   modal showed `Subtotal $1793.00 + Tax $134.03` against a `Total $2195.98` and had been
+   $268.95 short for months (before that, $134.40 short). Nobody read the columns as a sum.
+   If a UI shows components and a total, something must assert they reconcile.
+4. **Alert on the SET, nag weekly, page immediately on change.** The watch fingerprints the
+   exact breach set: a new breach mails on the next run, an unchanged known-stuck set mails
+   weekly. Daily mail about the same eight items is how an alert becomes wallpaper.
+5. **`.find()` where the data allows many.** The reshape verifier caught H3222 quietly
+   keeping a second "Legacy Service Charge" line as merchandise: a contract can carry more
+   than one service-charge product (one per section) and the builder lifted only the first.
+   Total and tax still came out right, which is exactly why only an explicit
+   "no legacy line survives" assertion found it. When lifting rows out of a list by
+   predicate, `filter` and collapse — and assert the source list is empty afterwards.
+6. **Verify a bulk remediation against the goal, not the exit code.** The reshape reported
+   "59 reshaped, 0 skipped" and was still wrong on one event. A separate read-only verifier
+   that re-fetched every order and asserted the four end-state facts (pointer moved, new
+   order OPEN + taxed + exact total, old order CANCELED, no legacy line) is what caught it.
