@@ -24,16 +24,21 @@
 
 /* ══════════════════════════════════════════════════════════════════════
    THE WALL, IN THE KIOSK'S OWN LANGUAGE
-   Every value here is lifted from AttractHeadline.tsx and
-   attract/billboard.ts rather than invented — scrim, bloom, both headline
-   treatments, the centred logo/headline/prompt stack, and the 900/1000/
-   2200/3800 timeline. Canvas px map to cqw as px / 19.2.
+   Scrim, bloom, both headline treatments, the centred stack and the
+   900/1000/2200/3800 timeline are all lifted from AttractHeadline.tsx
+   and attract/billboard.ts. Canvas px map to cqw as px / 19.2.
+
+   VIP GOLD IS AN EVENT. It appears in three places only — the hairline
+   that frames the wall while the show runs, the finale, and one resting
+   slide on the centre screen. Gold that is always on would stop meaning
+   All Access, which is the only thing it is allowed to mean.
    ══════════════════════════════════════════════════════════════════════ */
 
 :root {
   --deep:#000418; --page:#07080d; --panel:#111119;
   --ink:#f5ecee; --dim:rgba(245,236,238,.6); --faint:rgba(245,236,238,.32);
-  --line:rgba(255,255,255,.09); --cyan:#00e2e5; --vip:#d4af37; --measure:64ch;
+  --line:rgba(255,255,255,.09); --cyan:#00e2e5;
+  --gold:#d4af37; --gold-soft:#e8b14c; --measure:64ch;
   --display:"Exo 2","Helvetica Neue",Arial,sans-serif;
   --body:"Barlow","Helvetica Neue",Arial,system-ui,sans-serif;
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
@@ -50,14 +55,14 @@ h2{font-family:var(--display);font-style:italic;font-weight:900;text-transform:u
 .masthead{padding:clamp(50px,8vw,96px) 0 0;max-width:var(--measure);margin-inline:auto}
 .masthead p{margin-top:20px;font-size:clamp(17px,1.8vw,21px);color:var(--dim);max-width:53ch}
 .eyebrow{font-family:var(--display);font-style:italic;font-weight:800;font-size:12px;
-  letter-spacing:.3em;text-transform:uppercase;color:var(--cyan);margin:0 0 16px}
+  letter-spacing:.3em;text-transform:uppercase;color:var(--gold);margin:0 0 16px}
 .sec{margin-top:clamp(56px,6.5vw,96px)}
 .sec-head{max-width:var(--measure);margin:0 auto 18px}
 .sec-head p{margin:0;color:var(--dim)}
 
 .moment{margin-top:26px}
 .label{max-width:var(--measure);margin:0 auto 10px;font-family:var(--mono);font-size:11.5px;
-  letter-spacing:.14em;text-transform:uppercase;color:var(--cyan);display:flex;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--gold);display:flex;
   align-items:baseline;gap:14px}
 .label em{font-style:normal;color:var(--faint);letter-spacing:.04em;text-transform:none;
   font-family:var(--body);font-size:13.5px}
@@ -77,10 +82,22 @@ h2{font-family:var(--display);font-style:italic;font-weight:900;text-transform:u
 .ken{animation:ken 60s ease-in-out infinite alternate}
 @keyframes ken{from{transform:scale(1)}to{transform:scale(1.09) translate(-1.3%,-1%)}}
 
-/* the kiosk's own scrim + accent bloom + sweep, in that order */
 .scrim{position:absolute;inset:0;
   background:linear-gradient(to top,#000418 8%,rgba(2,10,34,.8) 55%,rgba(4,14,44,.6))}
 .bloom{position:absolute;inset:0;transition:background 1s}
+
+/* ── the gold event ─────────────────────────────────────────────────── */
+/* a warm cast over the whole wall for the ~11s the show runs */
+.goldwash{position:absolute;inset:0;
+  background:linear-gradient(to top,rgba(212, 175, 55, 0.2),transparent 62%);
+  mix-blend-mode:soft-light}
+/* hairlines top and bottom. At six inches apart these read as ONE gold line
+   running the length of the wall — the whole reason a 4ft gap could not use it. */
+.vipline{position:absolute;left:0;right:0;height:.22cqw;
+  background:linear-gradient(90deg,rgba(212, 175, 55, 0.15),#d4af37 22%,#d4af37 78%,rgba(212, 175, 55, 0.15));
+  box-shadow:0 0 1.4cqw rgba(212, 175, 55, 0.55)}
+.vipline.top{top:0} .vipline.bot{bottom:0}
+
 .sweep{position:absolute;inset:0;pointer-events:none;
   background:linear-gradient(100deg,transparent 40%,rgba(255,255,255,.06) 50%,transparent 60%);
   background-size:250% 100%;animation:sweep 7.5s linear infinite}
@@ -88,42 +105,49 @@ h2{font-family:var(--display);font-style:italic;font-weight:900;text-transform:u
 
 /* logo -> headline -> prompt, centred, the kiosk's 40px gaps (2.1cqw) */
 .stack{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
-  justify-content:center;gap:2.1cqw;padding:3.4cqw 3.4cqw}
-.brand{height:4.4cqw;width:auto;display:block;
-  filter:drop-shadow(0 0 1.8cqw rgba(0,226,229,.35))}
-.mark{width:52cqw;height:auto;display:block;
-  filter:drop-shadow(0 0 1.8cqw rgba(0,226,229,.35))}
-.slot{min-height:19cqw;display:flex;align-items:center;justify-content:center;width:100%}
+  justify-content:center;gap:2.1cqw;padding:3.4cqw}
+.brand{height:4.4cqw;width:auto;display:block}
+.mark{width:52cqw;height:auto;display:block}
+.slot{min-height:19cqw;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;width:100%;gap:1.5cqw}
 
 /* .k-display, verbatim */
 .k{font-family:var(--display);font-style:italic;font-weight:800;text-transform:uppercase;
   letter-spacing:.01em;line-height:.95;text-align:center;font-size:8.6cqw}
 .k.grad{background-clip:text;-webkit-background-clip:text;color:transparent;line-height:.98}
+.slot.fin .k{font-size:7.4cqw}
+.goldrule{width:26cqw;height:.24cqw;
+  background:linear-gradient(90deg,transparent,#d4af37,transparent);
+  box-shadow:0 0 1.2cqw rgba(212, 175, 55, 0.6)}
+.price{font-family:var(--display);font-style:italic;font-weight:800;text-transform:uppercase;
+  font-size:2.1cqw;letter-spacing:.2em;color:#e8b14c;
+  text-shadow:0 0 1.6cqw rgba(212, 175, 55, 0.5)}
+
 .prompt{display:grid;justify-items:center;gap:.7cqw;color:rgba(255,255,255,.7);
   font-family:var(--display);font-style:italic;font-weight:800;text-transform:uppercase;
   font-size:1.72cqw;letter-spacing:.22em}
+.prompt.gold{color:rgba(232, 177, 76, 0.92)}
 .prompt .chev{font-size:2.6cqw;line-height:.6;animation:chev 2.8s ease-in-out infinite}
 @keyframes chev{0%,100%{transform:translateY(0)}50%{transform:translateY(.5cqw)}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 
 .note{max-width:var(--measure);margin:22px auto 0;padding:16px 20px;background:var(--panel);
-  border-left:3px solid var(--vip);font-size:15.5px;color:var(--dim)}
+  border-left:3px solid var(--gold);font-size:15.5px;color:var(--dim)}
 .note b{color:var(--ink);font-weight:600}
 .note.cyan{border-left-color:var(--cyan)}
 code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid var(--line);
-  border-radius:4px;padding:1px 5px;color:var(--vip)}
+  border-radius:4px;padding:1px 5px;color:var(--gold)}
 </style>
 
 <div class="wrap">
 <header class="masthead">
-  <p class="eyebrow">HeadPinz Fort Myers &middot; Front desk wall &middot; Round 5</p>
+  <p class="eyebrow">HeadPinz Fort Myers &middot; Front desk wall &middot; Round 6 &middot; VIP gold</p>
   <h1>The Wall,<br />As a Kiosk</h1>
   <p>
-    You said the kiosks look great, so this is not a new design &mdash; it is your kiosk attract
-    screen, on five landscape panels. Same scrim, same accent bloom, same two headline treatments,
-    same centred logo-headline-prompt stack, and the same billboard choreography your bank already
-    runs: every screen cuts to its picture together, the words light up left to right, then one
-    line lands on all five at once.
+    Your kiosk attract screen on five landscape panels &mdash; same scrim, same bloom, same two
+    headline treatments, same centred stack, and the same bank choreography. Now with the VIP gold
+    worked in as an <em>event</em>: it frames the wall while the show runs, owns the finale, and
+    holds one screen at rest. Nowhere else, so it never stops meaning All Access.
   </p>
 </header>
 
@@ -132,21 +156,22 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
     <h2>One cycle, four moments</h2>
     <p>
       The bank timeline from <code>attract/billboard.ts</code>, unchanged: a 900ms lead-in, one
-      screen per second, a 2.2s hold, then a 3.8s finale. About eleven seconds of show inside a
-      forty-second cycle &mdash; bursts against stillness.
+      screen per second, a 2.2s hold, then a 3.8s finale. Gold arrives with the curtain and stays
+      up for the whole show.
     </p>
   </div>
   
   <div class="moment">
-    <p class="label">t + 0.4s<em>curtain up together — every screen cuts to its billboard image, no words yet</em></p>
+    <p class="label">t + 0.4s<em>curtain up together — gold frames the wall, no words yet</em></p>
     <div class="frame"><div class="strip">
       <div class="p">
         <div class="bg" style="background-image:var(--img-race)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(74, 134, 232, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="fasttrax" alt="" />
+          <img class="brand" src="" data-img="fasttrax" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
           <div class="slot"></div>
           
         </div>
@@ -155,9 +180,10 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-bowl)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(253, 91, 86, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
+          <img class="brand" src="" data-img="headpinz" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
           <div class="slot"></div>
           
         </div>
@@ -166,9 +192,10 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-red)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(229, 57, 53, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="fasttrax" alt="" />
+          <img class="brand" src="" data-img="fasttrax" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
           <div class="slot"></div>
           
         </div>
@@ -177,9 +204,10 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-arcade)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(240, 179, 65, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
+          <img class="brand" src="" data-img="headpinz" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
           <div class="slot"></div>
           
         </div>
@@ -188,9 +216,10 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-duck)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(232, 177, 76, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
+          <img class="brand" src="" data-img="headpinz" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
           <div class="slot"></div>
           
         </div>
@@ -200,16 +229,17 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
   </div>
 
   <div class="moment">
-    <p class="label">t + 2.4s<em>words light left to right, one per second</em></p>
+    <p class="label">t + 2.4s<em>words light left to right, one per second, in their own colours</em></p>
     <div class="frame"><div class="strip">
       <div class="p">
         <div class="bg" style="background-image:var(--img-race)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(74, 134, 232, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="fasttrax" alt="" />
-          <div class="slot"><div class="k lit" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #4a86e8">Starter<br />race</div></div>
+          <img class="brand" src="" data-img="fasttrax" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
+          <div class="slot"><div class="k" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #4a86e8">Starter<br />race</div></div>
           
         </div>
       </div>
@@ -217,10 +247,11 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-bowl)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(253, 91, 86, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
-          <div class="slot"><div class="k lit" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #fd5b56">VIP<br />bowling</div></div>
+          <img class="brand" src="" data-img="headpinz" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
+          <div class="slot"><div class="k" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #fd5b56">VIP<br />bowling</div></div>
           
         </div>
       </div>
@@ -228,9 +259,10 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-red)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(229, 57, 53, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="fasttrax" alt="" />
+          <img class="brand" src="" data-img="fasttrax" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
           <div class="slot"></div>
           
         </div>
@@ -239,9 +271,10 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-arcade)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(240, 179, 65, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
+          <img class="brand" src="" data-img="headpinz" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
           <div class="slot"></div>
           
         </div>
@@ -250,9 +283,10 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-duck)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(232, 177, 76, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
+          <img class="brand" src="" data-img="headpinz" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
           <div class="slot"></div>
           
         </div>
@@ -268,10 +302,11 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-race)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(74, 134, 232, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="fasttrax" alt="" />
-          <div class="slot"><div class="k lit" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #4a86e8">Starter<br />race</div></div>
+          <img class="brand" src="" data-img="fasttrax" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
+          <div class="slot"><div class="k" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #4a86e8">Starter<br />race</div></div>
           
         </div>
       </div>
@@ -279,10 +314,11 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-bowl)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(253, 91, 86, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
-          <div class="slot"><div class="k lit" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #fd5b56">VIP<br />bowling</div></div>
+          <img class="brand" src="" data-img="headpinz" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
+          <div class="slot"><div class="k" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #fd5b56">VIP<br />bowling</div></div>
           
         </div>
       </div>
@@ -290,10 +326,11 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-red)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(229, 57, 53, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="fasttrax" alt="" />
-          <div class="slot"><div class="k lit" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #e53935">Intermediate<br />race</div></div>
+          <img class="brand" src="" data-img="fasttrax" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
+          <div class="slot"><div class="k" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #e53935">Intermediate<br />race</div></div>
           
         </div>
       </div>
@@ -301,10 +338,11 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-arcade)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(240, 179, 65, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
-          <div class="slot"><div class="k lit" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #f0b341">Game Zone<br />card</div></div>
+          <img class="brand" src="" data-img="headpinz" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
+          <div class="slot"><div class="k" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #f0b341">Game Zone<br />card</div></div>
           
         </div>
       </div>
@@ -312,10 +350,11 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-duck)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(232, 177, 76, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
-          <div class="slot"><div class="k lit" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #e8b14c">&hellip;and<br />more</div></div>
+          <img class="brand" src="" data-img="headpinz" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
+          <div class="slot"><div class="k" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #e8b14c">&hellip;and<br />more</div></div>
           
         </div>
       </div>
@@ -324,16 +363,18 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
   </div>
 
   <div class="moment">
-    <p class="label">t + 9.0s<em>the finale lands on every screen at the same instant</em></p>
+    <p class="label">t + 9.0s<em>the finale — the wall goes gold on every screen at once, with the price</em></p>
     <div class="frame"><div class="strip">
       <div class="p">
         <div class="bg" style="background-image:var(--img-race)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(212, 175, 55, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="fasttrax" alt="" />
-          <div class="slot"><div class="k lit" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #d4af37">One VIP<br />experience.</div></div>
+          <img class="brand" src="" data-img="fasttrax" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
+          <div class="slot fin"><div class="k" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.9),0 0 3.33cqw #d4af37">One VIP<br />experience.</div>
+            <div class="goldrule"></div><div class="price">From $79 per person</div></div>
           
         </div>
       </div>
@@ -341,10 +382,12 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-bowl)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(212, 175, 55, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
-          <div class="slot"><div class="k lit" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #d4af37">One VIP<br />experience.</div></div>
+          <img class="brand" src="" data-img="headpinz" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
+          <div class="slot fin"><div class="k" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.9),0 0 3.33cqw #d4af37">One VIP<br />experience.</div>
+            <div class="goldrule"></div><div class="price">From $79 per person</div></div>
           
         </div>
       </div>
@@ -352,10 +395,12 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-red)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(212, 175, 55, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="fasttrax" alt="" />
-          <div class="slot"><div class="k lit" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #d4af37">One VIP<br />experience.</div></div>
+          <img class="brand" src="" data-img="fasttrax" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
+          <div class="slot fin"><div class="k" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.9),0 0 3.33cqw #d4af37">One VIP<br />experience.</div>
+            <div class="goldrule"></div><div class="price">From $79 per person</div></div>
           
         </div>
       </div>
@@ -363,10 +408,12 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-arcade)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(212, 175, 55, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
-          <div class="slot"><div class="k lit" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #d4af37">One VIP<br />experience.</div></div>
+          <img class="brand" src="" data-img="headpinz" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
+          <div class="slot fin"><div class="k" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.9),0 0 3.33cqw #d4af37">One VIP<br />experience.</div>
+            <div class="goldrule"></div><div class="price">From $79 per person</div></div>
           
         </div>
       </div>
@@ -374,20 +421,23 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-duck)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(212, 175, 55, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
-          <div class="slot"><div class="k lit" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #d4af37">One VIP<br />experience.</div></div>
+          <img class="brand" src="" data-img="headpinz" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
+          <div class="slot fin"><div class="k" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.9),0 0 3.33cqw #d4af37">One VIP<br />experience.</div>
+            <div class="goldrule"></div><div class="price">From $79 per person</div></div>
           
         </div>
       </div>
     </div>
     <div class="ids"><span>TV 1</span><span>TV 2</span><span>TV 3</span><span>TV 4</span><span>TV 5</span></div></div>
   </div>
-  <div class="note cyan">
-    <b>This is the piece I kept missing.</b> Every mockup before this was a still frame, so the
-    wall had to carry itself with layout alone. The kiosk doesn't do that &mdash; it carries itself
-    with <em>timing</em>, and it already has choreography built for exactly five screens in a row.
+  <div class="note">
+    <b>The gold hairline is the piece that needs six inches.</b> Top and bottom of every panel,
+    it reads as one continuous line running the length of the wall &mdash; the same trick that
+    would have been impossible on the karting boards four feet apart. It is on only while the
+    show runs, so the wall visibly becomes the VIP event and then hands back.
   </div>
 </section>
 
@@ -397,21 +447,22 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
     <p>
       Between shows each panel runs the ordinary attract loop &mdash; one photograph, the brand
       mark, one headline filled with the <code>#f5ecee &rarr; accent</code> gradient, and the
-      prompt. The kiosk's prompt is "touch anywhere to start"; a TV can't be touched, so on the
-      wall it becomes the instruction that actually applies.
+      prompt. The centre screen holds the gold <em>All access.</em> slide, so the product is on the
+      wall even at rest &mdash; one screen of five, never five of five.
     </p>
   </div>
   
   <div class="moment">
-    <p class="label">idle rotation<em>the wall's resting state — five headlines, five accents, one system</em></p>
+    <p class="label">idle rotation<em>four venue accents and one gold, with All Access holding the centre</em></p>
     <div class="frame"><div class="strip">
       <div class="p">
         <div class="bg ken" style="background-image:var(--img-raceaction)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(229, 57, 53, 0.22), transparent 68%)"></div>
+        
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="fasttrax" alt="" />
+          <img class="brand" src="" data-img="fasttrax" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(0,226,229,.35))" />
           <div class="slot"><div class="k grad" style="background-image:linear-gradient(90deg,#f5ecee 52%,#e53935)">Let's race.</div></div>
           <div class="prompt"><span>Book at any kiosk below</span><span class="chev">&#8964;</span></div>
         </div>
@@ -420,31 +471,34 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg ken" style="background-image:var(--img-bowl)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(253, 91, 86, 0.22), transparent 68%)"></div>
+        
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
+          <img class="brand" src="" data-img="headpinz" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(0,226,229,.35))" />
           <div class="slot"><div class="k grad" style="background-image:linear-gradient(90deg,#f5ecee 52%,#fd5b56)">Let's bowl.</div></div>
           <div class="prompt"><span>Book at any kiosk below</span><span class="chev">&#8964;</span></div>
         </div>
       </div>
       <div class="p">
-        <div class="bg ken" style="background-image:var(--img-gel)"></div>
+        <div class="bg ken" style="background-image:var(--img-vip)"></div>
         <div class="scrim"></div>
-        <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(70, 214, 140, 0.22), transparent 68%)"></div>
+        <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(212, 175, 55, 0.22), transparent 68%)"></div>
+        
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
-          <div class="slot"><div class="k grad" style="background-image:linear-gradient(90deg,#f5ecee 52%,#46d68c)">Let's blast.</div></div>
-          <div class="prompt"><span>Book at any kiosk below</span><span class="chev">&#8964;</span></div>
+          <img class="brand" src="" data-img="fasttrax" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
+          <div class="slot"><div class="k grad" style="background-image:linear-gradient(90deg,#f5ecee 52%,#d4af37)">All access.</div></div>
+          <div class="prompt gold"><span>Book at any kiosk below</span><span class="chev">&#8964;</span></div>
         </div>
       </div>
       <div class="p">
         <div class="bg ken" style="background-image:var(--img-arcade)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(240, 179, 65, 0.22), transparent 68%)"></div>
+        
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
+          <img class="brand" src="" data-img="headpinz" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(0,226,229,.35))" />
           <div class="slot"><div class="k grad" style="background-image:linear-gradient(90deg,#f5ecee 52%,#f0b341)">Game on.</div></div>
           <div class="prompt"><span>Book at any kiosk below</span><span class="chev">&#8964;</span></div>
         </div>
@@ -453,9 +507,10 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg ken" style="background-image:var(--img-duck)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(79, 169, 255, 0.22), transparent 68%)"></div>
+        
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
+          <img class="brand" src="" data-img="headpinz" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(0,226,229,.35))" />
           <div class="slot"><div class="k grad" style="background-image:linear-gradient(90deg,#f5ecee 52%,#4fa9ff)">Let's roll.</div></div>
           <div class="prompt"><span>Book at any kiosk below</span><span class="chev">&#8964;</span></div>
         </div>
@@ -463,11 +518,10 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
     </div>
     <div class="ids"><span>TV 1</span><span>TV 2</span><span>TV 3</span><span>TV 4</span><span>TV 5</span></div></div>
   </div>
-  <div class="note">
-    <b>The prompt is the only thing I changed.</b> Everything else is the kiosk's, down to the
-    gradient stop at 52% and the 0.22em tracking. "Book at any kiosk below" with the chevron does
-    the job "touch anywhere" does downstairs &mdash; it names the gesture once, and it points at
-    the machines the wall is standing over.
+  <div class="note cyan">
+    <b>The prompt is the only thing I changed from the kiosk.</b> Everything else is yours, down to
+    the gradient stop at 52% and the 0.22em tracking. A TV can't be touched, so "touch anywhere to
+    start" becomes the instruction that actually applies &mdash; and it goes gold on the VIP panel.
   </div>
 </section>
 
@@ -475,8 +529,8 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
   <div class="sec-head">
     <h2>Your statement, in the same voice</h2>
     <p>
-      The outer marks and the inner three lines you asked for, rendered as a billboard finale
-      rather than as a separate design. It lights up the same way.
+      The outer marks and the inner three lines you asked for, lit as a billboard finale rather
+      than designed separately. Full gold, framed by the hairline, on all five.
     </p>
   </div>
   
@@ -486,11 +540,12 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
       <div class="p">
         <div class="bg" style="background-image:var(--img-raceaction)"></div>
         <div class="scrim"></div>
-        <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(229, 57, 53, 0.22), transparent 68%)"></div>
+        <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(212, 175, 55, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
           
-          <div class="slot"><img class="mark" src="" data-img="fasttrax" alt="" /></div>
+          <div class="slot"><img class="mark" src="" data-img="fasttrax" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.5))" /></div>
           
         </div>
       </div>
@@ -498,10 +553,11 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-vip)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(212, 175, 55, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
-          <div class="slot"><div class="k lit" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #d4af37">Two<br />locations</div></div>
+          <img class="brand" src="" data-img="fasttrax" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
+          <div class="slot"><div class="k" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #d4af37">Two<br />locations</div></div>
           
         </div>
       </div>
@@ -509,10 +565,11 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-duck)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(212, 175, 55, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="headpinz" alt="" />
-          <div class="slot"><div class="k lit" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #d4af37">One<br />price</div></div>
+          <img class="brand" src="" data-img="fasttrax" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
+          <div class="slot"><div class="k" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #d4af37">One<br />price</div></div>
           
         </div>
       </div>
@@ -520,21 +577,23 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
         <div class="bg" style="background-image:var(--img-race)"></div>
         <div class="scrim"></div>
         <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(212, 175, 55, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
-          <img class="brand" src="" data-img="fasttrax" alt="" />
-          <div class="slot"><div class="k lit" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #d4af37">One VIP<br />experience</div></div>
+          <img class="brand" src="" data-img="fasttrax" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.42))" />
+          <div class="slot"><div class="k" style="color:#fff;text-shadow:0 0 .52cqw rgba(255,255,255,.88),0 0 3.33cqw #d4af37">One VIP<br />experience</div></div>
           
         </div>
       </div>
       <div class="p">
         <div class="bg" style="background-image:var(--img-bowl)"></div>
         <div class="scrim"></div>
-        <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(253, 91, 86, 0.22), transparent 68%)"></div>
+        <div class="bloom" style="background:radial-gradient(62% 38% at 50% 30%, rgba(212, 175, 55, 0.22), transparent 68%)"></div>
+        <div class="goldwash"></div><div class="vipline top"></div><div class="vipline bot"></div>
         <div class="sweep"></div>
         <div class="stack">
           
-          <div class="slot"><img class="mark" src="" data-img="headpinz" alt="" /></div>
+          <div class="slot"><img class="mark" src="" data-img="headpinz" alt="" style="filter:drop-shadow(0 0 1.8cqw rgba(212, 175, 55, 0.5))" /></div>
           
         </div>
       </div>
@@ -544,10 +603,10 @@ code{font-family:var(--mono);font-size:.85em;background:#000;border:1px solid va
 </section>
 
 <div class="note" style="margin-top:clamp(56px,6vw,88px)">
-  <b>What this buys beyond the look.</b> The wall stops being a second design to maintain. New
-  attraction, new photo, changed accent &mdash; it lands on the kiosks and the wall from the same
-  place, and the two surfaces cannot drift apart, because they are reading the same slides off the
-  same shared clock.
+  <b>What this buys beyond the look.</b> The wall stops being a second design to maintain. A new
+  attraction, a new photo, a changed accent &mdash; it lands on the kiosks and the wall from the
+  same place, and the two cannot drift apart, because they are reading the same slides off the same
+  shared clock.
 </div>
 </div>
 
