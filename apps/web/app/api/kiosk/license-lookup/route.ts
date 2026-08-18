@@ -51,11 +51,18 @@ export async function POST(req: NextRequest) {
   // {"warm": true} — pre-fetch the Office auth token (fired when a
   // scan-capable kiosk screen mounts, so the guest's real scan is fast).
   // No PII involved; own rate bucket so warming can't starve real lookups.
+  // Parsed BEFORE the warm branch: the Office token is cached per client key,
+  // so a Naples kiosk must warm the Naples key or its guest still pays the
+  // auth on their first scan. Only the three known slugs are forwarded — an
+  // arbitrary string must never reach a BMI client key.
+  const rawLocation = String(body.location ?? "").trim();
+  const location = LOCATIONS.has(rawLocation) ? rawLocation : "";
+
   if (body.warm === true) {
     if (await rateLimited("license-warm", clientIp(req), 30)) {
       return NextResponse.json<LicenseLookupResponse>({ ok: false }, { status: 429 });
     }
-    await warmLicenseLookup();
+    await warmLicenseLookup(location || undefined);
     return NextResponse.json<LicenseLookupResponse>({ ok: true });
   }
 
@@ -125,7 +132,6 @@ export async function POST(req: NextRequest) {
   const lastName = String(body.lastName ?? "").trim();
   const dobIso = String(body.dobIso ?? "").trim();
   const firstName = String(body.firstName ?? "").trim();
-  const location = String(body.location ?? "").trim();
   if (!lastName || lastName.length > 60 || !/^\d{4}-\d{2}-\d{2}$/.test(dobIso)) {
     return NextResponse.json<LicenseLookupResponse>(
       { ok: false, error: "lastName and dobIso (YYYY-MM-DD) required" },
@@ -138,9 +144,11 @@ export async function POST(req: NextRequest) {
       lastName,
       dobIso,
       ...(firstName ? { firstName } : {}),
-      ...(LOCATIONS.has(location) ? { location } : {}),
+      ...(location ? { location } : {}),
     });
-    console.log(`[license-lookup] ${matches.length} match(es)`); // no PII — count only
+    // Center is logged: a Naples lookup that quietly ran against Fort Myers is
+    // the whole 2026-08-17 defect, and the count alone could never show it.
+    console.log(`[license-lookup] ${matches.length} match(es) center=${location || "(default)"}`);
     return NextResponse.json<LicenseLookupResponse>({ ok: true, matches });
   } catch (err) {
     console.warn(`[license-lookup] failed: ${err instanceof Error ? err.message : String(err)}`);

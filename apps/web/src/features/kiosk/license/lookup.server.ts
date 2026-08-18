@@ -53,11 +53,63 @@ import {
 import { personIdForCode, rememberCodes } from "./code-cache";
 import type { LicenseMatch } from "./types";
 
-// Same host/key/version as app/api/bmi-office/route.ts — one Office DB serves
-// both brands (racing/waiver accounts live in the FastTrax BMI).
 const OFFICE_HOST = "office-api22.sms-timing.com";
-const CLIENT_KEY = process.env.BMI_CLIENT_KEY || "headpinzftmyers";
 const SMS_VERSION = "6251006 202511051229";
+
+/**
+ * THE SEARCH IS CENTER-SCOPED, AND SO IS EVERY ID IT RETURNS.
+ *
+ * `GET /api/{clientKey}/search/person` answers from ONE BMI local server, and
+ * a BMI person id means nothing on any other server. Proved live 2026-08-17:
+ * the same `2/4/2013` token returns 4 hits at `headpinznaples` and 23 wholly
+ * different ids at `headpinzftmyers`.
+ *
+ * This used to be a module-level `BMI_CLIENT_KEY || "headpinzftmyers"`, and
+ * `location` was taken and dropped ("the Office search is not center-scoped").
+ * So search-before-create at a NAPLES kiosk searched FORT MYERS, found the
+ * guest's Fort Myers record, and the match gate adopted a person id Naples has
+ * never heard of — after which every Naples write against it 404s: the waiver
+ * push, the bill attach, the licence grant.
+ *
+ * Measured cost on 2026-08-17, Naples adds in 72 h: all 4 cloud-MINTED ids
+ * attached (mint was always center-correct — `createOfficePerson` takes a
+ * per-center clientKey); both LOOKUP-sourced ids failed. 100% of the failures
+ * were on this one line. Naples ran a 15.9% waiver failure rate against
+ * ~0.4% at Fort Myers.
+ *
+ * FastTrax and HP Fort Myers are the SAME local server (61/61 ids
+ * byte-identical, 2026-08-15), so they share a key and only "naples" moves.
+ *
+ * STILL CENTER-BLIND, deliberately out of scope here: `app/api/bmi-office`
+ * hardcodes the same key for its `search`/`person` proxy. Its callers are the
+ * web racing flows, which are Fort Myers only, so it has produced no known
+ * casualties — but it is the same defect and wants the same treatment if a
+ * Naples surface ever calls it.
+ */
+const CLIENT_KEY_BY_LOCATION: Record<string, string> = {
+  naples: "headpinznaples",
+  headpinz: "headpinzftmyers",
+  fasttrax: "headpinzftmyers",
+};
+
+/** Fort Myers stays the default: it serves both FT brands, and it is the only
+ *  center the racing surfaces (member QR / login code) ever address. */
+const CLIENT_KEY = process.env.BMI_CLIENT_KEY || "headpinzftmyers";
+
+/**
+ * Center slug → BMI client key. An unknown or missing slug falls back to Fort
+ * Myers rather than throwing: every caller predating Naples support omits it,
+ * and a lookup that cannot run at all blocks the guest at the kiosk, whereas
+ * one that searches the wrong center returns no match — which the
+ * search-before-create gate already handles by minting a fresh record AT the
+ * correct center.
+ */
+export function clientKeyForLookup(location?: string): string {
+  const slug = String(location ?? "")
+    .trim()
+    .toLowerCase();
+  return CLIENT_KEY_BY_LOCATION[slug] || CLIENT_KEY;
+}
 
 /** Candidates enriched per scan — the guest's own records are few (≤ ~6);
  *  anything above this is same-DOB noise the filters somehow let through. */
@@ -69,7 +121,11 @@ export interface LicenseLookupInput {
   dobIso: string;
   /** Ranking signal only (nicknames: license "ALEXANDER" vs account "Alex"). */
   firstName?: string;
-  /** Accepted for API stability; the Office search is not center-scoped. */
+  /**
+   * WHICH CENTER TO SEARCH — "fasttrax" | "headpinz" | "naples". Load-bearing:
+   * a person id only resolves on the server it was searched from (see
+   * CLIENT_KEY_BY_LOCATION). Omitted → Fort Myers.
+   */
   location?: string;
 }
 
@@ -231,8 +287,12 @@ async function buildMatch(
  * the search itself is unavailable.
  */
 export async function lookupLicenseMatches(input: LicenseLookupInput): Promise<LicenseMatch[]> {
+  // ONE key for the whole lookup: the search that FINDS the ids and the person
+  // detail that CONFIRMS them must address the same server, or a Naples hit
+  // would be confirmed against a Fort Myers record of the same numeric id.
+  const clientKey = clientKeyForLookup(input.location);
   const dobToken = dobTokenOf(input.dobIso);
-  const hits = await officeSearchPerson(`${input.lastName.trim()} ${dobToken}`);
+  const hits = await officeSearchPerson(`${input.lastName.trim()} ${dobToken}`, clientKey);
   const dobMark = `(${dobToken})`;
   const candidates = hits
     .filter(
@@ -243,9 +303,9 @@ export async function lookupLicenseMatches(input: LicenseLookupInput): Promise<L
     )
     .slice(0, MAX_CANDIDATES);
 
-  const matches = (await Promise.all(candidates.map((h) => buildMatch(h, input)))).filter(
-    (m): m is LicenseMatch => m !== null,
-  );
+  const matches = (
+    await Promise.all(candidates.map((h) => buildMatch(h, input, clientKey)))
+  ).filter((m): m is LicenseMatch => m !== null);
   // Affinity is BINARY for ordering: records whose first name plausibly
   // matches the scan (exact OR prefix — "Alex" vs ALEXANDER) rank by RECENCY
   // among themselves, so the guest's live duplicate tops the list; only
@@ -326,7 +386,8 @@ export async function lookupMemberMatchesAt(
   clientKey: string,
   code: string,
 ): Promise<LicenseMatch[]> {
-  if (!clientKey || clientKey === CLIENT_KEY) return lookupMemberMatches(code, clientKey || undefined);
+  if (!clientKey || clientKey === CLIENT_KEY)
+    return lookupMemberMatches(code, clientKey || undefined);
   const hits = (await officeSearchPerson(code, clientKey))
     .filter((h) => h?.localId)
     .slice(0, MAX_CANDIDATES);
@@ -341,9 +402,12 @@ export async function lookupMemberMatchesAt(
  * after a deploy/idle doesn't pay it. Fired fire-and-forget by scan-capable
  * kiosk screens on mount. (The Office API itself is always hot — unlike the
  * Pandora path this replaced, there is no Azure cold start to absorb.)
+ *
+ * The token is cached PER CLIENT KEY, so a Naples kiosk warming Fort Myers
+ * warms the wrong one and its guest still pays the auth on the first scan.
  */
-export async function warmLicenseLookup(): Promise<void> {
-  await getOfficeToken(CLIENT_KEY).catch(() => undefined);
+export async function warmLicenseLookup(location?: string): Promise<void> {
+  await getOfficeToken(clientKeyForLookup(location)).catch(() => undefined);
 }
 
 export { OfficeApiError };
