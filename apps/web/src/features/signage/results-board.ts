@@ -198,6 +198,15 @@ export interface FinishedCandidate {
   /** Null while the race is still running — such rows never become the
    *  subject, but they are carried so a caller can look for a finish marker. */
   endedAtMs: number | null;
+  /**
+   * WHICH TRACK THIS RACE RAN ON.
+   *
+   * A board's candidate list is not single-track: a Blue wall considers Blue
+   * AND Mega, because on a Mega day the racing moves to the combined circuit
+   * (see pickSubject). Once two tracks are in one list, each race has to carry
+   * its own, or the board would caption a Mega race as Blue.
+   */
+  track: TrackKey;
 }
 
 /**
@@ -228,6 +237,10 @@ export function mergeCandidates(sources: FinishedCandidate[][]): FinishedCandida
         heatNumber: cur.heatNumber ?? c.heatNumber,
         heatName: cur.heatName ?? c.heatName,
         endedAtMs: cur.endedAtMs ?? c.endedAtMs,
+        // First source wins, like every other field here. One session id is one
+        // physical race, so the two can only disagree if a source is wrong —
+        // and the earlier source is the more authoritative one by construction.
+        track: cur.track,
       });
     }
   }
@@ -241,6 +254,33 @@ export function mergeCandidates(sources: FinishedCandidate[][]): FinishedCandida
  * creation-order rather than schedule-order (a staff-inserted session takes the
  * day-max number whatever slot it runs in), so ordering by number would let an
  * inserted heat masquerade as the most recent race all night.
+ *
+ * THIS IS ALSO THE MEGA RULE, because the candidate list spans this board's own
+ * track AND Mega (see buildBoard). It is deliberately not the rule the check-in
+ * and pit boards use: those answer "which track is racing NOW", for which
+ * `megaModeActive()` is exactly right. A scores wall answers "what just came
+ * back in" — and the honest answer is whichever race ended most recently, which
+ * lands on the right track without ever asking about Mega at all:
+ *
+ *   Ordinary day  — only Blue has finishes, so Blue wins. Unchanged behaviour.
+ *   Mega day      — only Mega has finishes, so a Blue-labelled wall follows the
+ *                   combined circuit, exactly as the pit board does.
+ *   MIXED day     — split-track in the afternoon, Mega in the evening. The
+ *                   evening's Mega races are newer, so they win. This is the
+ *                   case that defeats a plain "own track first, else Mega"
+ *                   fallback, which would sit on the afternoon's last Blue race
+ *                   all evening — the stale-carry poisoning that
+ *                   mega-mode.server exists to prevent.
+ *   FLAG AHEAD    — after midnight on a Mega day the flag reads Mega while the
+ *   OF THE DATA     business day is still yesterday's split-track night. Ranking
+ *                   by finish time shows yesterday's last real race rather than
+ *                   an empty board, which is what a wall at the kart return is
+ *                   for. (Observed live 2026-08-18 00:30: flag true, 37 Blue and
+ *                   Red timings for the 8/17 business day, zero Mega.)
+ *
+ * Ties do not occur and could not be broken meaningfully: two races on one
+ * circuit cannot end in the same millisecond, and on a Mega day the split
+ * tracks are not running at all.
  */
 export function rankFinished(candidates: FinishedCandidate[]): FinishedCandidate[] {
   return candidates

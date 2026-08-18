@@ -44,6 +44,7 @@ import { fetchTrackSessions } from "~/features/reservations-admin/race-live-stat
 import { listRaceTimings } from "~/features/racing/data/race-timings-db";
 import { loadOrCaptureResults, readRecordedResults } from "../briefing/race-results.server";
 import { readRaceFinishedMarker } from "../briefing/race-finish.server";
+import { megaModeActive } from "./mega-mode.server";
 import {
   buildResultsView,
   mergeCandidates,
@@ -130,6 +131,21 @@ export async function resolveResultsBoard(
   return view;
 }
 
+/** Pandora's session list for one track, as candidates. It carries no heat
+ *  NAME, so that field stays null for race_timings to supply. */
+function pandoraCandidates(
+  sessions: Awaited<ReturnType<typeof fetchTrackSessions>>,
+  track: TrackKey,
+): FinishedCandidate[] {
+  return (sessions ?? []).map((s) => ({
+    sessionId: String(s.sessionId),
+    heatNumber: typeof s.heatNumber === "number" ? s.heatNumber : null,
+    heatName: null,
+    endedAtMs: s.actualEnd ? Date.parse(s.actualEnd) : null,
+    track,
+  }));
+}
+
 async function buildBoard(
   venue: SignageVenue,
   track: TrackKey,
@@ -139,30 +155,54 @@ async function buildBoard(
   // different. The sessions cache is keyed the way its warming cron keys it
   // (todayETRange), while a race that runs past midnight belongs to the night
   // it started. Each source is asked in its own frame.
-  const [sessions, timings] = await Promise.all([
+  //
+  // Neon first, alone, because it decides whether the second Pandora read below
+  // is worth making. It is one indexed query against a table this resolver was
+  // already reading.
+  const timings = await listRaceTimings(venue, businessDay).catch(() => []);
+
+  /**
+   * THIS BOARD'S OWN TRACK, PLUS MEGA.
+   *
+   * On a Mega day the barrier between Blue and Red comes out and every race
+   * runs on the combined circuit, so a wall that only ever asked about its own
+   * resource would sit on its idle card all night — the busiest night of the
+   * week, at the kart return, in front of the group whose result it exists to
+   * show. `rankFinished` then picks whichever of the two ended most recently;
+   * see the rule and its cases in results-board.ts.
+   *
+   * The extra Pandora read is paid ONLY when Mega could plausibly have run.
+   * `timings` above spans every track, so a Mega row in it is free evidence;
+   * the flag covers the one case Neon cannot know about yet — a Mega race that
+   * finished in the last few minutes and has not been delivered by the bridge.
+   * On an ordinary day neither holds and this costs nothing.
+   */
+  const megaRelevant =
+    track !== "mega" &&
+    (timings.some((t) => t.track === "mega") || (await megaModeActive().catch(() => false)));
+
+  const [sessions, megaSessions] = await Promise.all([
     fetchTrackSessions(track, calendarYmdET(), { fresh: true }).catch(() => null),
-    listRaceTimings(venue, businessDay).catch(() => []),
+    megaRelevant
+      ? fetchTrackSessions("mega", calendarYmdET(), { fresh: true }).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
-  const fromPandora: FinishedCandidate[] = (sessions ?? []).map((s) => ({
-    sessionId: String(s.sessionId),
-    heatNumber: typeof s.heatNumber === "number" ? s.heatNumber : null,
-    // Pandora's session list carries no heat name — race_timings supplies it.
-    heatName: null,
-    endedAtMs: s.actualEnd ? Date.parse(s.actualEnd) : null,
-  }));
+  const fromPandora = pandoraCandidates(sessions, track);
+  const fromPandoraMega = pandoraCandidates(megaSessions, "mega");
 
   const fromNeon: FinishedCandidate[] = timings
-    // race_timings spans every track; this board speaks for one.
-    .filter((t) => t.track === track)
+    // race_timings spans every track; this board speaks for its own and Mega.
+    .filter((t) => t.track === track || t.track === "mega")
     .map((t) => ({
       sessionId: t.sessionId,
       heatNumber: t.heatNumber,
       heatName: t.heatName,
       endedAtMs: t.endedAtMs,
+      track: t.track as TrackKey,
     }));
 
-  const merged = mergeCandidates([fromPandora, fromNeon]);
+  const merged = mergeCandidates([fromPandora, fromPandoraMega, fromNeon]);
 
   /**
    * THE FAST PATH, and the only reason a just-finished race reaches this wall
@@ -194,7 +234,10 @@ async function buildBoard(
     const recorded =
       i === 0
         ? await loadOrCaptureResults({
-            track,
+            // The RACE's track, not the board's: the capture reads that track's
+            // timing feed, and asking Blue's feed for a Mega heat would capture
+            // nothing at all.
+            track: race.track,
             sessionId: race.sessionId,
             heatNumber: race.heatNumber,
           }).catch(() => null)
@@ -203,7 +246,9 @@ async function buildBoard(
     if (!recorded || recorded.drivers.length === 0) continue;
 
     return buildResultsView({
-      track,
+      // Likewise the race's own track, so a Mega heat on a Blue-labelled wall
+      // is captioned and coloured MEGA rather than Blue.
+      track: race.track,
       sessionId: race.sessionId,
       heatNumber: race.heatNumber,
       // The capture's own heatName is the timing system's, which is the same

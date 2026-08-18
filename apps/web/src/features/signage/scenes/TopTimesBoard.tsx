@@ -144,11 +144,16 @@ function TierColumn({
         overflow: "hidden",
       }}
     >
+      {/* The label NEVER sits on a fill of its own colour. A tint that fails to
+          apply — which is exactly what happened when withAlpha met this
+          catalog's rgb() strings — leaves the text invisible; a dark bar with a
+          coloured rule under it cannot fail that way, and it matches the
+          /leaderboards card the same records feed already draws. */}
       <div
         style={{
           padding: "16px 24px",
-          borderBottom: `2px solid ${withAlpha(color, 0.45)}`,
-          background: withAlpha(color, 0.16),
+          borderBottom: `4px solid ${color}`,
+          background: "rgba(0,4,24,0.72)",
           flex: "0 0 auto",
         }}
       >

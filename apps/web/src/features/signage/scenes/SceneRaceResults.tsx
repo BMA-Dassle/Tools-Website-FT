@@ -29,7 +29,8 @@
  */
 import { formatLap } from "~/features/racing/qualify";
 import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
-import { TRACK_LABELS, type TrackKey } from "../track";
+import { TRACK_LABELS, effectiveTrack, type TrackKey } from "../track";
+import { useTrackStatus } from "@/hooks/useTrackStatus";
 import {
   Footer,
   Header,
@@ -71,6 +72,17 @@ export function SceneRaceResults({ feed, config, venue, nowMs, demo }: SceneProp
   const view = feed?.raceResults ?? null;
   const top = feed?.topTimes ?? null;
 
+  // THE SAME MEGA SIGNAL EVERY OTHER BOARD SCENE READS. The pit board, the
+  // check-in board and the camera monitor all take useTrackStatus +
+  // effectiveTrack; this one did not, and it was the only screen in the venue
+  // that still announced "BLUE TRACK" on a Mega night (owner 2026-08-18).
+  //
+  // The hook already corrects a lagging external flag with the data signal, so
+  // by the time it is read here a stale flag has been dealt with once, in one
+  // place, for the whole fleet.
+  const status = useTrackStatus();
+  const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
+
   // PREVIEW BEATS CONFIG, for this one field and only on a test screen. The
   // role lives in Neon and is shared with production, so the alternative way to
   // review this board would be to re-point a real screen at it — which is a
@@ -84,16 +96,21 @@ export function SceneRaceResults({ feed, config, venue, nowMs, demo }: SceneProp
   if (!configured) return <SetupNotice />;
 
   /**
-   * THE TRACK THE DATA IS ABOUT WINS over the one on the config.
+   * WHAT THIS WALL CALLS ITSELF. Two different questions, in this order:
    *
-   * On a Mega day the feed swaps a blue- or red-configured results screen onto
-   * the combined circuit (see `resultsTrack` in service/feed.ts), so the view it
-   * hands back can legitimately be a Mega one. Labelling that "Blue Track" in
-   * the header — and painting it blue — would caption a Mega race as a Blue
-   * race on the wall the group walks past. The config track is only the
-   * fallback for the idle cards, where there is no data to ask.
+   *   1. IF THERE IS A RACE ON SCREEN, it is captioned with the track it
+   *      ACTUALLY RAN ON. A Mega heat under a "Blue Track" header would be a
+   *      lie told in front of the group that just ran it — and the resolver can
+   *      legitimately hand a Blue board a Mega race (see rankFinished).
+   *   2. WITH NOTHING TO SHOW, the board takes the venue's current circuit, so
+   *      an idle wall on a Mega night reads MEGA TRACK in purple like every
+   *      other screen in the building rather than announcing a track whose
+   *      barrier is currently stacked against the fence.
+   *
+   * The configured track is the last resort, for an ordinary day before the
+   * first race has finished.
    */
-  const track = view?.track ?? top?.track ?? configured;
+  const track = view?.track ?? top?.track ?? effectiveTrack(configured, megaEnabled) ?? configured;
 
   if (role === "top-times") {
     if (!top || top.panels.length === 0) {

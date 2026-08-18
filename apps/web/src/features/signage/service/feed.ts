@@ -181,13 +181,20 @@ export async function buildTvFeed(
     resultsBoardEnabled() &&
     configuredResultsTrack !== null &&
     config.playlist.some((p) => p.scene === "race-results");
-  // ON A MEGA DAY THE SCORES WALL FOLLOWS THE COMBINED CIRCUIT, server-side,
-  // no admin knob: a blue-configured wall would otherwise idle all night — its
-  // resource has no sessions when the barrier is out. The await is paid only
-  // by screens that actually show a results board, and megaModeActive() is
-  // false on every normal day (the mega carry key does not exist then), so
-  // the configured track flows through untouched.
-  const resultsTrack =
+  // THE LAST-RACE BOARD RESOLVES MEGA ITSELF, from the data, so its configured
+  // track is passed through untouched. It considers its own track AND Mega and
+  // shows whichever race ended most recently — see rankFinished. That is
+  // strictly better than force-swapping the track here, which blanked the wall
+  // whenever the flag ran ahead of the business day (observed 2026-08-18 00:30:
+  // flag true on a Tuesday, but the 8/17 business day was split-track, so a
+  // Mega-swapped board found nothing while Heat 60 Blue sat unshown).
+  //
+  // TOP-TIMES STILL USES THE FLAG, deliberately: a hall of fame is not about
+  // one race, so "which race ended last" cannot answer it. "Which circuit is
+  // the venue running" is the right question there, and megaModeActive() is
+  // exactly that.
+  const resultsTrack = configuredResultsTrack;
+  const topTimesTrack =
     wantsResults && configuredResultsTrack !== "mega" && (await megaModeActive().catch(() => false))
       ? ("mega" as const)
       : configuredResultsTrack;
@@ -244,10 +251,12 @@ export async function buildTvFeed(
       : Promise.resolve(null),
     // Same deal, and cached harder: a hall of fame only moves when somebody
     // beats a time. See CACHE_TTL_SECONDS in top-times.server.
-    wantsTopTimes && resultsTrack
-      ? resolveTopTimes(parsed.venue, resultsTrack, config.resultsBoard?.ranges ?? ["today"]).catch(
-          () => null,
-        )
+    wantsTopTimes && topTimesTrack
+      ? resolveTopTimes(
+          parsed.venue,
+          topTimesTrack,
+          config.resultsBoard?.ranges ?? ["today"],
+        ).catch(() => null)
       : Promise.resolve(null),
     guideTracks.length > 0
       ? buildGuideSection(guideTracks, ymd).catch(() => null)
