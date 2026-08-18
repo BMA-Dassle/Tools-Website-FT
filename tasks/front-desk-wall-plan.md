@@ -113,6 +113,22 @@ slot boundary. 4 slots = two full passes. Slide index is `Math.floor(nowMs / VIP
 Content comes from `getLiveVipCombo()` — `includes`, `perks`, `voucherIncludes`, `price`. Never a
 hand-typed copy.
 
+**THE IDENTITY RAIL — every slide must name its own product.** (Owner 2026-08-17: "what if I walk
+up after VIP is already stated, I'd never know what I'm looking at.") Slides 2 and 3 carried no
+product name at all: five panels of legs or inclusions belonging to nothing. A persistent gold
+band runs along the bottom of **all four** slides:
+
+| pos 0        | pos 1          | pos 2                 | pos 3                | pos 4               |
+| ------------ | -------------- | --------------------- | -------------------- | ------------------- |
+| ALL ACCESS   | VIP EXPERIENCE | FASTTRAX + HEADPINZ   | FROM $79 PER PERSON  | BOOK AT ANY KIOSK ▼ |
+
+Read across it is one line. Read alone, the two tokens that matter each land **whole on a single
+panel** — the name on pos 0, the price on pos 3 — so the wall still identifies itself with a
+player down. It also puts the price on screen for the full 2m40s rather than only slide 4's 20
+seconds, which is why slide 4's separate CTA band was removed as redundant.
+
+Eyebrows are self-identifying for the same reason: "Your VIP night", "All Access includes".
+
 **Price rule.** `$79` / `$99` read from `getLiveVipCombo().price`; day tier from the combos
 feature's own resolver, never re-derived here (Mega Tuesday bills as weekday tier for combos but
 `scheduleForDate` returns `"mega"` — re-deriving is how that gets quoted wrong). Both tiers stay
@@ -216,6 +232,26 @@ The seed script's verify pass asserts, and fails loudly on:
 
 Smoke before hanging: all five panels on one laptop, same shared clock. Watch one full 5m20s
 loop and confirm the statement slide lands on all five at the same instant.
+
+## Photography — a real gap, and a live bug
+
+The venue photo library does not currently contain a usable VIP-lanes shot:
+
+- **`KIOSK_PHOTOS.vipLanes` (`/images/headpinz/hyperbowling.jpg`) is not a photograph.** It is a
+  6.8 KB video still with **"NO MATTER WHO YOU ARE" burned into it**. Its own comment in
+  `features/kiosk/assets.ts` says it exists to be the bowling-tier card because `vip` "looked
+  wrong on a lanes card" — so this text-laden frame is on the **kiosk's live bowling card today**.
+  That is a bug outside this wall's scope, but it should be fixed.
+- **`KIOSK_PHOTOS.vip` (`pricing-combos.webp`) is a racing shot**, not bowling.
+
+The mockups fall back to `gallery-bowling.webp` and `duckpin-bowling.webp`, both real interiors.
+Neither shows a VIP suite.
+
+**Recommendation: shoot the missing set before this wall goes up.** A ~2-hour evening shoot
+covering the VIP suite lit for glow, the NeoVerse wall, a group at a VIP lane, chips & salsa on
+the table, and the kiosk bank in use would serve this wall, the kiosk cards and the website. That
+is a better spend than generated imagery: a guest standing in the building recognises their own
+lanes, and an invented interior that is nearly-but-not-quite the room reads as a stock photo.
 
 ## Open decisions
 
