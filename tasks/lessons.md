@@ -4599,3 +4599,51 @@ read by a long-lived closure must be a ref, not state.**
 memo, kept consistent by a comment rather than by code. (The wall's author had already
 reached rule 1 independently: "A HEAT WE CANNOT COUNT IS DROPPED, never shown as zero.")
 One shared source is the right end state.
+
+---
+
+## An upstream that answers fast or never needs CONCURRENCY, not a longer timeout (2026-08-18)
+
+**Symptom.** The races-current carry froze on heat 34 for fifteen minutes while heats 35 and
+36 were called. Every board in the building showed the stale heat; staff were calling sessions
+the board would not name.
+
+**The measurement that decided the fix.** Twelve consecutive `races/current` reads:
+
+```
+5 answered:  716ms · 1827ms · 4320ms · 5222ms · 7349ms
+7 still open at 45 SECONDS — never replied
+```
+
+This upstream does not have a latency distribution with a long tail. It has **two modes**:
+answer in under 7.4s, or never answer. That single fact invalidates the obvious fix.
+
+**Why the obvious fix was wrong.** The warm loop capped each read at 8s, and "8s is too tight
+for a slow upstream" is the natural reading — it is what we assumed before measuring. But every
+success was already inside 8s. Raising the ceiling would have changed nothing, because **you
+cannot wait out a request that never returns.** The ceiling was never the problem.
+
+**The actual bug was the loop's SHAPE.** It awaited each read before starting the next, so a bad
+minute was spent asleep on dead sockets and produced ~5 attempts. At a ~40% answer rate, a run
+of bad minutes writes nothing — and the carry is what every board reads.
+
+**The rules:**
+
+1. **Characterise the failure MODE before tuning the timeout.** "Slow" and "hangs forever" look
+   identical in an error rate and want opposite fixes. Print the latency of the SUCCESSES
+   separately from the failures — if every success is well inside the current ceiling, the
+   ceiling is not your bug.
+2. **Against a hang-prone upstream, overlap the attempts.** Several reads in flight, first
+   useful answer wins. Serial-with-timeout converts one dead socket into N seconds of doing
+   nothing, exactly when you can least afford it.
+3. **A timeout on a hedged call has a different job: RECYCLING THE SLOT, not patience.** Set it
+   just above the observed success ceiling (12s here, against a 7.4s worst success). Longer is
+   strictly worse — it holds a slot hostage to a request that will never reply.
+4. **Concurrency reintroduces ordering. Guard the write.** Overlapping reads land out of order,
+   so a stale answer could put the previous heat over the current one and jump the board
+   backwards. `callIsStalerThanStored` refuses a DIFFERENT session called EARLIER than the one
+   already held. Add the guard in the same commit as the concurrency, never after.
+5. **Keep the manual recovery and know its name.** `scripts/checkin-board-seed-called.mts` reads
+   Pandora directly and writes the carry; it never invents a heat. It is what recovered heat 35
+   while the loop was still broken. A frozen board needs a one-command answer at 5pm on a
+   Friday, not a deploy.
