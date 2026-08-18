@@ -195,6 +195,15 @@ export interface SquareTimelineNode {
     state: string;
     totalCents: number;
     netDueCents: number;
+    /**
+     * Money breakdown, stated rather than inferred. A consumer must never derive tax or the
+     * service charge by subtracting line items from the total — that is how $22,616.55 of
+     * tax sat in the service-charge slot unnoticed (see lib/gf-square-tax.ts).
+     * subtotalCents + serviceChargeCents + taxCents = totalCents.
+     */
+    subtotalCents: number;
+    serviceChargeCents: number;
+    taxCents: number;
     /** Order contents — line items then service charges (qty empty). */
     lineItems: Array<{ name: string; qty: string; totalCents: number }>;
     tenders: Array<{

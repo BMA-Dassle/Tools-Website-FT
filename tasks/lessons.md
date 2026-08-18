@@ -4429,3 +4429,106 @@ file. Gitignored, so unrecoverable from git; restored only via
    layout, so the command "works" either way. Verify with `pwd` before the
    first destructive command of any session segment, and after any
    backgrounded command.
+
+## Square has no fixed-amount tax — so "make the total right" lands tax in the service-charge slot (2026-08-17)
+
+Every group-function day-of order since 2026-05-28 recorded **$0.00 of tax**. The tax
+dollars were collected correctly (guests paid the exact contract total, no over/undercharge)
+but they were written into `service_charges: [{ name: "Service Charge" }]`, so Square's
+`total_tax_money` was zero on all 211 live day-of orders — **$22,616.55 of tax invisible to
+every Square tax report.** Separately, the contract's service charge rode in as a catalog
+LINE ITEM under a Square item named "Legacy Service Charge" — **$105,732.58 booked as
+merchandise** across 381 events. Two amounts, both in the wrong slot, and they look alike
+in the dashboard, which is why it survived three months.
+
+**The trap:** Square's order `taxes[]` accepts only a `percentage`. There is no
+fixed-amount tax. BMI gives us tax as DOLLARS (`tax_cents`). The only order-level slot
+that accepts an arbitrary dollar amount is `service_charges[].amount_money` — so
+"I have $71.87 of tax and the order total is short by $71.87" leads a careful person
+straight to the wrong field, and the total comes out right, so nothing looks broken.
+
+**The rules:**
+
+1. **To record tax in Square you must hand it a PERCENTAGE and let Square compute the
+   amount.** If you find yourself putting a tax figure into any `amount_money`, the tax
+   is going to be invisible to tax reporting. Reconcile our stored total to Square's
+   arithmetic, not the reverse.
+2. **`total_tax_money == 0` on an order that charged tax is the whole tell.** Any new
+   Square write that carries tax must be smoke-checked on that one field. A correct
+   ORDER TOTAL proves nothing about classification — that is exactly what hid this.
+3. **A generic PLU pass-through will book anything as merchandise.** `buildSquareLineItem`
+   forwards any BMI `plu` as `catalog_object_id`, so a fee/surcharge product mapped to a
+   Square ITEM becomes revenue. Non-product amounts (service charge, gratuity, fees) need
+   an explicit non-line-item home; check what the catalog id actually IS before trusting
+   a pass-through.
+4. **Check the catalog before building anything — the right objects may already exist.**
+   Proper `SERVICE_CHARGE` objects (15/14/13/12% tiers, T/E variants, a custom
+   amount-based one) had existed since 2025-12-18, and the old item was renamed
+   "Legacy Service Charge" on 2026-04-28 by someone signalling the migration. The code
+   was never moved across. The word "Legacy" in a vendor dashboard is a message.
+5. **Per-line tax rates rule out an order-scope tax.** 13 of 436 events mix rates
+   (Naples 6.0% + 6.59% where BMI stacks the 0.59% alcohol tax, incl. on soda; some Fort
+   Myers events carry genuinely untaxed lines). `scope: "ORDER"` applies to every line
+   with no way to exempt one. Use `scope: "LINE_ITEM"` + per-line `applied_taxes`, and
+   put `applied_taxes` on the SERVICE CHARGE too — BMI taxes it, and forgetting it loses
+   exactly the tax-on-service-charge amount.
+6. **When a shape can't be modelled faithfully, return null and keep the old shape.**
+   An unmapped location or a rate that is neither county nor county+alcohol must never be
+   approximated: mis-TAXING a guest is far worse than mis-CLASSIFYING a correct total for
+   one more event. Guard the created order against the contract total (±50c) and fall back.
+7. **Two writers, one bug.** `backfill-dayof/route.ts` carried its own copy of the
+   order-building logic even though `group-function-dayof.ts` declares itself the single
+   source of truth. A duplicated writer is how a fix in "the" place stays half-applied.
+
+## Tax that was never BILLED, hidden by tax that was never RECORDED (2026-08-17)
+
+The Square slot bug (above) had a twin, and they concealed each other. Separately from the
+$22,616.55 that was collected but mis-recorded, **$2,416.20 of tax across 23 events was
+never charged to the guest at all** — the contract's `tax_cents` was $0.00, or a token
+$0.33, while its own line items carried 6.5% rates.
+
+Two mechanisms, one blind spot:
+
+1. **An old formula.** Line tax was computed as `(tax * total) / price`, which reduces to
+   `rate × qty` — so a $487 event billed **$0.33** instead of $31.69. Values like $0.33 /
+   $0.39 / $0.46 / $1.69 in a tax column are the fingerprint of that formula. Fixed in
+   `group-function-pricing.ts`, but rows already written stayed wrong.
+2. **The repair had no trigger.** `app/api/cron/group-quote-tax-backfill/route.ts` exists
+   precisely to recompute those rows — and was never added to `vercel.json`. It had never
+   run. (Same shape as the existing lesson: *a mechanism with no TRIGGER is worse than
+   none* — nobody re-greps for a route that isn't scheduled.)
+
+**Why nothing caught it for three months:** Square's tax report showed **$0.00 tax on every
+group event** because of the slot bug. So an event that billed no tax looked *identical* to
+a healthy one. The one report that should have exposed the under-billing was blinded by the
+unrelated mis-recording. Two independent defects in the same column is what made both
+survive.
+
+**The rules:**
+
+1. **Assert the invariant, don't trust the pipeline.** `app/api/cron/group-tax-invariant-watch`
+   now checks two things nightly and emails on any FUTURE-dated breach:
+   (A) `tax_cents == Σ(line.tax × line.total)` for every non-exempt contract — catches tax
+   never billed; (B) an OPEN day-of order's `total_tax_money == tax_cents` — catches tax in
+   the wrong slot. Both read the source data independently; neither trusts the other.
+2. **Never derive tax (or any component) by SUBTRACTION.** `/api/admin/bowling/square-order`
+   returned line items + tax and no service charge, so consumers inferred the rest from the
+   total — which silently absorbed whatever was misfiled. State `subtotalCents`,
+   `serviceChargeCents` and `taxCents` explicitly and let the sum be checkable.
+3. **A displayed breakdown that does not ADD UP is a bug report.** The portal's Square Order
+   modal showed `Subtotal $1793.00 + Tax $134.03` against a `Total $2195.98` and had been
+   $268.95 short for months (before that, $134.40 short). Nobody read the columns as a sum.
+   If a UI shows components and a total, something must assert they reconcile.
+4. **Alert on the SET, nag weekly, page immediately on change.** The watch fingerprints the
+   exact breach set: a new breach mails on the next run, an unchanged known-stuck set mails
+   weekly. Daily mail about the same eight items is how an alert becomes wallpaper.
+5. **`.find()` where the data allows many.** The reshape verifier caught H3222 quietly
+   keeping a second "Legacy Service Charge" line as merchandise: a contract can carry more
+   than one service-charge product (one per section) and the builder lifted only the first.
+   Total and tax still came out right, which is exactly why only an explicit
+   "no legacy line survives" assertion found it. When lifting rows out of a list by
+   predicate, `filter` and collapse — and assert the source list is empty afterwards.
+6. **Verify a bulk remediation against the goal, not the exit code.** The reshape reported
+   "59 reshaped, 0 skipped" and was still wrong on one event. A separate read-only verifier
+   that re-fetched every order and asserted the four end-state facts (pointer moved, new
+   order OPEN + taxed + exact total, old order CANCELED, no legacy line) is what caught it.

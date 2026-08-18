@@ -149,6 +149,14 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/group-tax-invariant-watch",
+      "schedule": "20 13 * * *"
+    },
+    {
+      "path": "/api/cron/group-quote-tax-backfill?dryRun=0",
+      "schedule": "40 13 * * *"
+    },
+    {
       "path": "/api/cron/group-balance-charge",
       "schedule": "*/15 * * * *"
     },
