@@ -1,5 +1,38 @@
 # Open Tasks
 
+## Mega session tracker — the return-room pill (2026-08-18) — ON MAIN, NOT smoked
+
+Owner ask: "for mega keep a pill next to the race on what room they will be returning to."
+
+The tracker (a Mega pit sign with `pitMegaRole: "tracker"`, ScenePitBoard → SessionTracker)
+pilled the room at **Pit in only**. So on a Mega night — one lane fed by two rooms — a race
+wore its room through Holding and In karts, LOST it at the green flag, and got it back
+fourteen minutes later. That gap is precisely when staff are deciding which room to clear.
+
+**Root cause:** the stored lane has carried `room` on the racing slot all along (it travels
+with the group through the promotion in `resolveLane`); the WIRE projection dropped it.
+
+- [x] `PitLaneFeed.racing.room` added, and `resolveLane` passes `racing.room` through
+- [x] `buildStageRail` puts `room` on all four lane rows (Holding / In karts / On track /
+      Pit in) — each stage's OWN room, never a neighbour's, because on a busy night those
+      four slots hold four different groups briefed in different rooms. Null where it is
+      genuinely unknown: a heat only the timing feed put on track, and a hand-placed group
+      from Override. The desk stages (Called, Briefing) carry no room at all
+- [x] Tracker renders the pill beside the SESSION (after the level) instead of out at the
+      right edge, on every lane row — the room is the half of "Session 25" that says whose
+      it is. Guarded on `heatNumber != null` so no pill floats beside a "—"
+- [x] Tests: 4 new in `briefing/stage-rail.test.ts` (each stage's own room; live-feed-only
+      heat has none; hand-placed group has none; desk stages roomless) — verified they FAIL
+      without the builder change — plus 2 in `pit/lane.server.test.ts` (the room travels
+      onto the track; null stays null)
+- [x] Gates: tsc, 5342 tests, eslint (0 new), prettier, `next build`, a11y gate
+- [ ] **Smoke on a Mega night**: set a pit sign's `pitMegaRole` to tracker and watch one
+      group carry its pill from the seats through the flag to the pit
+- [ ] The other rail surfaces (idle pit wall, in-room briefing tablet) now HAVE `row.room`
+      and ignore it. Only add it there if staff ask — the room is ambiguous only on Mega
+
+Shipped straight to main as `66a58ee7d` (owner: "you can push this to main when done").
+
 ## Kiosk BOWLING check-in (2026-08-16) — BUILT, NOT live-smoked
 
 Owner ask: add bowling to the kiosk check-in flow. Bowling needs NO account/waiver; it
