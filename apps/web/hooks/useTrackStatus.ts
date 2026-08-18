@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import type { OnTimeSnapshot as OnTimeSnapshotType } from "~/features/racing/on-time";
+import type { NextCheckIn as NextCheckInType } from "~/features/racing/session-call";
 import { dataSaysMega } from "~/features/racing/mega-mode";
 
 // Cached proxy on our own backend — see app/api/track-status/route.ts.
@@ -67,12 +68,18 @@ export type CurrentRaces = {
  */
 export type { OnTimeSnapshot, TrackOnTime } from "~/features/racing/on-time";
 
+/** The next session needing a call, per track. Same posture as `onTime`:
+ *  absent is first-class and means "fall back to the printed schedule". */
+export type { NextCheckIn } from "~/features/racing/session-call";
+
 // ── Combined return type ─────────────────────────────────────────────────────
 
 export type TrackStatusResult = {
   trackStatus: TrackStatusData;
   currentRaces: CurrentRaces;
   onTime: OnTimeSnapshotType | null;
+  /** Keyed by track. Empty when nothing needs calling anywhere. */
+  nextCheckIn: Record<string, NextCheckInType>;
 };
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
@@ -141,6 +148,12 @@ export function useTrackStatus(pollMs: number = POLL_INTERVAL): TrackStatusResul
         statusJson.onTime && typeof statusJson.onTime === "object"
           ? (statusJson.onTime as OnTimeSnapshotType)
           : null;
+      // Same rules as `onTime` above: an older deploy, a failed read or nothing
+      // due yields {} — never a fabricated time.
+      const nextCheckIn: Record<string, NextCheckInType> =
+        statusJson.nextCheckIn && typeof statusJson.nextCheckIn === "object"
+          ? (statusJson.nextCheckIn as Record<string, NextCheckInType>)
+          : {};
 
       let currentRaces: CurrentRaces = { blue: null, red: null, mega: null };
       let effectiveMega = trackStatus.megaTrackEnabled;
@@ -165,6 +178,7 @@ export function useTrackStatus(pollMs: number = POLL_INTERVAL): TrackStatusResul
         trackStatus: { ...trackStatus, megaTrackEnabled: effectiveMega },
         currentRaces,
         onTime,
+        nextCheckIn,
       });
     } catch {
       /* silent — keep last known state */
