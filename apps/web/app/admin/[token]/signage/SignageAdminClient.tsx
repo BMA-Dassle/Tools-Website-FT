@@ -867,6 +867,15 @@ interface Draft {
   showResults: boolean;
   /** "" = no track picked, which shows the board's setup notice. */
   resultsTrack: "" | "blue" | "red" | "mega";
+  /** What this scores wall reports: the race that just finished, or the
+   *  fastest-laps hall of fame. Same idea as megaRole / pitMegaRole. */
+  resultsRole: "last-race" | "top-times";
+  /** Windows the top-times board cycles through, one per 40s slot. Stored as
+   *  three booleans rather than a multi-select so the form stays a form; at
+   *  least one is forced on at save (see draftToConfig). */
+  resultsRangeToday: boolean;
+  resultsRangeWeek: boolean;
+  resultsRangeMonth: boolean;
   /** Check-in guide wall — owns its wall too. */
   showGuide: boolean;
   /** Which tracks the ONE check-in screen covers. */
@@ -921,6 +930,10 @@ function newDraft(): Draft {
     showPitBoard: false,
     showResults: false,
     resultsTrack: "",
+    resultsRole: "last-race",
+    resultsRangeToday: true,
+    resultsRangeWeek: false,
+    resultsRangeMonth: false,
     showGuide: false,
     guideTracks: "both",
     guideArrow: "left",
@@ -986,6 +999,12 @@ function draftFromScreen(s: SignageScreen): Draft {
       c.resultsBoard?.track === "mega"
         ? c.resultsBoard.track
         : "",
+    resultsRole: c.resultsBoard?.role === "top-times" ? "top-times" : "last-race",
+    // A saved board with no `ranges` predates the field; it reads back as
+    // today-only, which is what resolveScreenConfig resolves it to.
+    resultsRangeToday: (c.resultsBoard?.ranges ?? ["today"]).includes("today"),
+    resultsRangeWeek: (c.resultsBoard?.ranges ?? []).includes("week"),
+    resultsRangeMonth: (c.resultsBoard?.ranges ?? []).includes("month"),
     vipEnabled: c.interrupts?.["vip-welcome"]?.enabled !== false,
     vipLeadMins: c.interrupts?.["vip-welcome"]?.leadMins ?? 10,
     celebrationEnabled: c.interrupts?.celebration?.enabled !== false,
@@ -1005,6 +1024,16 @@ function draftFromScreen(s: SignageScreen): Draft {
     // the form does not carry is a field the next save silently drops.
     overscanPct: typeof c.overscanPct === "number" ? c.overscanPct : 0,
   };
+}
+
+/** The ticked windows, in a fixed order. Never empty — see the note at the
+ *  call site. */
+function resultRangesFromDraft(d: Draft): Array<"today" | "week" | "month"> {
+  const out: Array<"today" | "week" | "month"> = [];
+  if (d.resultsRangeToday) out.push("today");
+  if (d.resultsRangeWeek) out.push("week");
+  if (d.resultsRangeMonth) out.push("month");
+  return out.length > 0 ? out : ["today"];
 }
 
 /** Draft → the config blob the TV actually reads. */
@@ -1056,7 +1085,19 @@ function draftToConfig(d: Draft): ScreenConfig {
           },
         }
       : {}),
-    ...(d.showResults && d.resultsTrack ? { resultsBoard: { track: d.resultsTrack } } : {}),
+    ...(d.showResults && d.resultsTrack
+      ? {
+          resultsBoard: {
+            track: d.resultsTrack,
+            role: d.resultsRole,
+            // Windows only mean anything to the top-times role, and they are
+            // written in a fixed order so two boards ticked the same way rotate
+            // the same way. Everything unticked resolves to today rather than to
+            // an empty rotation, which would render no panel at all.
+            ...(d.resultsRole === "top-times" ? { ranges: resultRangesFromDraft(d) } : {}),
+          },
+        }
+      : {}),
     ...(d.showGuide
       ? {
           raceGuide: {
@@ -1305,23 +1346,72 @@ function ScreenForm({
       )}
 
       {draft.showResults && (
-        <Field label="Which track's results does this screen show?">
-          <select
-            value={draft.resultsTrack}
-            onChange={(e) => set("resultsTrack", e.target.value as Draft["resultsTrack"])}
-            style={input}
-          >
-            <option value="">Choose a track…</option>
-            <option value="blue">Blue Track</option>
-            <option value="red">Red Track</option>
-            <option value="mega">Mega Track</option>
-          </select>
-          <p style={hint}>
-            Required. Until it is set the screen shows a setup notice rather than guessing a track.
-            Heat numbers repeat across tracks — Blue 59 and Red 59 are two different races — so this
-            is what decides which one the board is reporting.
-          </p>
-        </Field>
+        <fieldset style={fieldset}>
+          <legend style={legend}>Scores wall</legend>
+          <Field label="Which track's results does this screen show?">
+            <select
+              value={draft.resultsTrack}
+              onChange={(e) => set("resultsTrack", e.target.value as Draft["resultsTrack"])}
+              style={input}
+            >
+              <option value="">Choose a track…</option>
+              <option value="blue">Blue Track</option>
+              <option value="red">Red Track</option>
+              <option value="mega">Mega Track</option>
+            </select>
+            <p style={hint}>
+              Required. Until it is set the screen shows a setup notice rather than guessing a
+              track. Heat numbers repeat across tracks — Blue 59 and Red 59 are two different races
+              — so this is what decides which one the board is reporting. On a Mega day a Blue or
+              Red board follows the combined circuit on its own; there is nothing to change here.
+            </p>
+          </Field>
+
+          <Field label="What does this screen report?">
+            <select
+              value={draft.resultsRole}
+              onChange={(e) => set("resultsRole", e.target.value as Draft["resultsRole"])}
+              style={input}
+            >
+              <option value="last-race">Last race &mdash; the race that just finished</option>
+              <option value="top-times">Top times &mdash; fastest laps by tier</option>
+            </select>
+            <p style={hint}>
+              Two scores walls on one track show the same thing, which is exactly what a Mega day
+              makes of the Blue and Red pair. Set one to <strong>Last race</strong> and the other to{" "}
+              <strong>Top times</strong> and the pair covers both.
+            </p>
+          </Field>
+
+          {draft.resultsRole === "top-times" && (
+            <Field label="Which windows does it cycle through?">
+              <Check
+                checked={draft.resultsRangeToday}
+                onChange={(v) => set("resultsRangeToday", v)}
+                label="Today"
+                hint="Fastest laps set since 6am today."
+              />
+              <Check
+                checked={draft.resultsRangeWeek}
+                onChange={(v) => set("resultsRangeWeek", v)}
+                label="This week"
+                hint="A rolling seven days, not since Sunday — a Monday board would otherwise be nearly empty."
+              />
+              <Check
+                checked={draft.resultsRangeMonth}
+                onChange={(v) => set("resultsRangeMonth", v)}
+                label="This month"
+                hint="Since the 1st."
+              />
+              <p style={hint}>
+                One window per 40-second slot, in the order listed. Tick more than one and the board
+                rotates through them. Everything unticked is treated as Today. Adult and junior get
+                their own turn automatically, and only when somebody has actually raced that class
+                in the window — nothing to configure.
+              </p>
+            </Field>
+          )}
+        </fieldset>
       )}
 
       {draft.showBriefing && (
@@ -1477,10 +1567,10 @@ function ScreenForm({
             <option value="tracker">Session tracker (every stage, checking in to pit in)</option>
           </select>
           <p style={hint}>
-            On Mega days both pit signs read the one combined lane, so the pair would show the
-            same seats. Set one to the session tracker and the pair splits the job: one sign
-            seats the group, the other shows every session&rsquo;s place in the pipeline —
-            called, briefing rooms, holding, karts, on track, pit in.
+            On Mega days both pit signs read the one combined lane, so the pair would show the same
+            seats. Set one to the session tracker and the pair splits the job: one sign seats the
+            group, the other shows every session&rsquo;s place in the pipeline — called, briefing
+            rooms, holding, karts, on track, pit in.
           </p>
         </Field>
       )}

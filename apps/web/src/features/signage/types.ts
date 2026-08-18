@@ -18,6 +18,7 @@ import type { BriefingRoomState } from "./briefing/types";
 import type { CheckinProgressSession } from "./checkin-progress";
 import type { FastPitRoster, PitBoardInfo, PitLanes } from "./pit/pit-board";
 import type { ResultsBoardView } from "./results-board";
+import type { TopTimesView } from "./top-times";
 
 /**
  * A scene is one full-screen visual. Adding a scene type is the only reason
@@ -242,8 +243,24 @@ export interface ScreenConfig {
    *
    * Absent on every screen that is not a results board, which then shows the
    * setup notice rather than adopting a track at random.
+   *
+   * `role` is WHAT this wall reports, and it is the same idea as `megaRole` and
+   * `pitMegaRole` next door: two scores walls on one track — which is what a
+   * Mega day makes of the Blue and Red pair, since both then follow the one
+   * combined circuit — would otherwise show byte-identical content and waste a
+   * screen. `last-race` is the race that just came back in (the default, and
+   * today's behaviour to the pixel); `top-times` is the hall-of-fame board,
+   * fastest laps over a window.
+   *
+   * `ranges` belongs to `top-times` only: which windows it cycles through, in
+   * order, one per playlist slot. Empty or absent means `["today"]` — the
+   * window a kart-return wall is actually about. Ignored by `last-race`.
    */
-  resultsBoard?: { track: "blue" | "red" | "mega" };
+  resultsBoard?: {
+    track: "blue" | "red" | "mega";
+    role?: "last-race" | "top-times";
+    ranges?: Array<"today" | "week" | "month">;
+  };
   /**
    * The check-in guide wall: which track it speaks for, WHICH WAY THE BRIEFING
    * ROOMS ARE, and how long the wayfinding takeover holds.
@@ -661,6 +678,18 @@ export interface TvFeed {
    * which is the scene's designed idle card, not an error.
    */
   raceResults: ResultsBoardView | null;
+  /**
+   * The OTHER face of the scores wall: fastest laps over a window, by tier and
+   * class, for a `race-results` screen whose `resultsBoard.role` is
+   * `top-times`. Null on every other screen, including a results wall in its
+   * default `last-race` role — the two roles are mutually exclusive and the
+   * feed only ever builds the one this screen asked for.
+   *
+   * PII NOTE — participant names as the timing system holds them, same posture
+   * as `raceResults` above and as the public /leaderboards page, which shows
+   * these exact rows.
+   */
+  topTimes: TopTimesView | null;
   /**
    * Guide-wall extra: the live send state of EVERY track this one screen
    * covers, so a single wall can point either group at their room.

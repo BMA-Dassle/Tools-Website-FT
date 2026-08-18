@@ -41,6 +41,7 @@ import { readPitLanes } from "../pit/lane.server";
 import { readFastPitRosters } from "../pit/fast-roster.server";
 import { buildWelcomeBoard } from "./welcome";
 import { resolveResultsBoard } from "./results-board.server";
+import { resolveTopTimes } from "./top-times.server";
 import {
   briefingEnabled,
   cameraReturnBarEnabled,
@@ -110,6 +111,7 @@ export async function buildTvFeed(
     checkinProgress: null,
     checkinReturning: null,
     raceResults: null,
+    topTimes: null,
     raceGuide: null,
     pausedProductIds: safePaused(),
     nextAvailable: null,
@@ -189,6 +191,12 @@ export async function buildTvFeed(
     wantsResults && configuredResultsTrack !== "mega" && (await megaModeActive().catch(() => false))
       ? ("mega" as const)
       : configuredResultsTrack;
+  // THE TWO ROLES ARE MUTUALLY EXCLUSIVE, so only one of the two resolvers ever
+  // runs for a given screen. `top-times` is the hall-of-fame face of the same
+  // scene — see ScreenConfig.resultsBoard.role — and it follows the Mega swap
+  // above for the same reason the last-race board does: on a Mega day nobody
+  // has raced this screen's own track since morning.
+  const wantsTopTimes = wantsResults && config.resultsBoard?.role === "top-times";
 
   const [
     raceCheckin,
@@ -200,6 +208,7 @@ export async function buildTvFeed(
     pitLanes,
     cameraReturning,
     raceResults,
+    topTimes,
     guideSection,
   ] = await Promise.all([
     track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
@@ -230,8 +239,15 @@ export async function buildTvFeed(
       : Promise.resolve(null),
     // Cached per venue+track inside the resolver, so two scores walls on the
     // same track cost one build — and cannot show two different answers.
-    wantsResults && resultsTrack
+    wantsResults && resultsTrack && !wantsTopTimes
       ? resolveResultsBoard(parsed.venue, resultsTrack, ymd).catch(() => null)
+      : Promise.resolve(null),
+    // Same deal, and cached harder: a hall of fame only moves when somebody
+    // beats a time. See CACHE_TTL_SECONDS in top-times.server.
+    wantsTopTimes && resultsTrack
+      ? resolveTopTimes(parsed.venue, resultsTrack, config.resultsBoard?.ranges ?? ["today"]).catch(
+          () => null,
+        )
       : Promise.resolve(null),
     guideTracks.length > 0
       ? buildGuideSection(guideTracks, ymd).catch(() => null)
@@ -271,6 +287,7 @@ export async function buildTvFeed(
         ? { fromSession: cameraReturning.heatNumber, groups: cameraReturning.racingAgain }
         : null,
     raceResults,
+    topTimes,
     raceGuide: guideSection,
     // `vip` (the bowling-leg takeover) lands with the next scene.
     vip: null,
