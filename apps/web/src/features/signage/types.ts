@@ -253,13 +253,15 @@ export interface ScreenConfig {
    * fastest laps over a window.
    *
    * `ranges` belongs to `top-times` only: which windows it cycles through, in
-   * order, one per playlist slot. Empty or absent means `["today"]` — the
-   * window a kart-return wall is actually about. Ignored by `last-race`.
+   * order, one per playlist slot. Empty or absent means `["month"]`, which is
+   * the window /leaderboards itself opens on — a hall of fame is about the
+   * standing record, whereas a "today" wall is a list of the session that just
+   * finished. Ignored by `last-race`.
    */
   resultsBoard?: {
     track: "blue" | "red" | "mega";
     role?: "last-race" | "top-times";
-    ranges?: Array<"today" | "week" | "month">;
+    ranges?: Array<"today" | "week" | "month" | "year" | "alltime">;
   };
   /**
    * The check-in guide wall: which track it speaks for, WHICH WAY THE BRIEFING

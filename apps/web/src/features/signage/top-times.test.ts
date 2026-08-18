@@ -114,7 +114,15 @@ describe("panelTitle", () => {
   });
 
   it("has a label for every window a board can be configured with", () => {
-    expect(Object.keys(RANGE_LABELS).sort()).toEqual(["month", "today", "week"]);
+    // Exactly RecordTimeRange: the wall offers what /leaderboards offers.
+    expect(Object.keys(RANGE_LABELS).sort()).toEqual(["alltime", "month", "today", "week", "year"]);
+  });
+
+  it("labels the long windows the way the website does", () => {
+    expect(panelTitle(panel("year", "adult", [["Pro", 1]]))).toBe("This Year · Fastest Laps");
+    expect(panelTitle(panel("alltime", "junior", [["Junior Pro", 1]]))).toBe(
+      "All Time · Junior Fastest Laps",
+    );
   });
 });
 
@@ -146,10 +154,10 @@ describe("?demo=top-times", () => {
     expect(out?.topTimes?.panels.length).toBeGreaterThan(0);
   });
 
-  it("covers all three windows, so the rotation itself gets reviewed", () => {
+  it("covers every window, so the rotation itself gets reviewed", () => {
     const out = applyDemo(feedFor("blue"), "top-times", 0);
     expect(new Set(out?.topTimes?.panels.map((p) => p.range))).toEqual(
-      new Set(["today", "week", "month"]),
+      new Set(["today", "week", "month", "year", "alltime"]),
     );
   });
 

@@ -11,8 +11,8 @@
  * preset would silently drop whatever else had been set on them.
  *
  * Usage:
- *   npx tsx scripts/signage-set-results-role.mts FT:10 top-times today,month
- *   npx tsx scripts/signage-set-results-role.mts FT:10 top-times today,month --apply
+ *   npx tsx scripts/signage-set-results-role.mts FT:10 top-times month,year,alltime
+ *   npx tsx scripts/signage-set-results-role.mts FT:10 top-times month,year,alltime --apply
  *
  * Idempotent: re-running asserts the same value.
  */
@@ -26,15 +26,15 @@ for (const line of envText.split(/\r?\n/)) {
 }
 
 type Role = "last-race" | "top-times";
-type Range = "today" | "week" | "month";
+type Range = "today" | "week" | "month" | "year" | "alltime";
 
-const [screenIdArg, roleArg, rangesRaw] = process.argv
-  .slice(2)
-  .filter((a) => !a.startsWith("--"));
+const [screenIdArg, roleArg, rangesRaw] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const APPLY = process.argv.includes("--apply");
 
 if (!screenIdArg || (roleArg !== "top-times" && roleArg !== "last-race")) {
-  console.error("usage: <screenId> <last-race|top-times> [today,week,month] [--apply]");
+  console.error(
+    "usage: <screenId> <last-race|top-times> [today,week,month,year,alltime] [--apply]",
+  );
   process.exit(1);
 }
 
@@ -45,15 +45,16 @@ if (!screenIdArg || (roleArg !== "top-times" && roleArg !== "last-race")) {
 const screenId: string = screenIdArg;
 const role: Role = roleArg === "top-times" ? "top-times" : "last-race";
 
+const RANGES: Range[] = ["today", "week", "month", "year", "alltime"];
+
 const ranges: Range[] = (rangesRaw ?? "")
   .split(",")
   .map((r) => r.trim())
-  .filter((r): r is Range => r === "today" || r === "week" || r === "month");
+  .filter((r): r is Range => (RANGES as string[]).includes(r));
 
 async function main() {
-  const { listSignageScreens, saveSignageScreen } = await import(
-    "../src/features/signage/data/signage-screens-db"
-  );
+  const { listSignageScreens, saveSignageScreen } =
+    await import("../src/features/signage/data/signage-screens-db");
 
   const screens = await listSignageScreens();
   const screen = screens.find((s) => s.screenId === screenId);
@@ -74,8 +75,9 @@ async function main() {
     track: current.track,
     role,
     // Windows only mean anything to a top-times wall. Writing them onto a
-    // last-race one would be dead config that reads as intent.
-    ...(role === "top-times" ? { ranges: ranges.length > 0 ? ranges : ["today"] } : {}),
+    // last-race one would be dead config that reads as intent. An unspecified
+    // list becomes the month, which is what /leaderboards opens on.
+    ...(role === "top-times" ? { ranges: ranges.length > 0 ? ranges : ["month"] } : {}),
   };
 
   console.log(`\n── ${screenId} — ${screen.name} ──`);

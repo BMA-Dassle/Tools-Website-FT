@@ -255,7 +255,7 @@ export async function buildTvFeed(
       ? resolveTopTimes(
           parsed.venue,
           topTimesTrack,
-          config.resultsBoard?.ranges ?? ["today"],
+          config.resultsBoard?.ranges ?? ["month"],
         ).catch(() => null)
       : Promise.resolve(null),
     guideTracks.length > 0

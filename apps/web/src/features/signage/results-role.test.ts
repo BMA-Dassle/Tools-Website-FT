@@ -10,7 +10,7 @@ const board = (resultsBoard: ScreenConfig["resultsBoard"]): ScreenConfig => ({
 describe("resultsBoard.role", () => {
   it("defaults to last-race, so a wall saved before the field existed is unchanged", () => {
     const r = resolveScreenConfig(board({ track: "blue" }), "FT");
-    expect(r.resultsBoard).toEqual({ track: "blue", role: "last-race", ranges: ["today"] });
+    expect(r.resultsBoard).toEqual({ track: "blue", role: "last-race", ranges: ["month"] });
   });
 
   it("switches only on the exact literal", () => {
@@ -43,22 +43,33 @@ describe("resultsBoard.ranges", () => {
     expect(ranges(["today", "today", "week"])).toEqual(["today", "week"]);
   });
 
-  it("drops windows this board does not offer", () => {
-    // `year` and `alltime` are real RecordTimeRange values, and belong to the
-    // kiosk hub — not to a wall.
-    expect(ranges(["today", "year", "alltime", "nonsense"])).toEqual(["today"]);
+  it("accepts every window /leaderboards offers, and nothing else", () => {
+    // The wall reports the same hall of fame the website does (owner
+    // 2026-08-18), so `year` and `alltime` are wall windows now — but a value
+    // from a newer deploy, or a typo, still has to fall away rather than buy
+    // itself a slot of the rotation.
+    expect(ranges(["today", "week", "month", "year", "alltime"])).toEqual([
+      "today",
+      "week",
+      "month",
+      "year",
+      "alltime",
+    ]);
+    expect(ranges(["year", "nonsense"])).toEqual(["year"]);
   });
 
-  it("falls back to today rather than to an empty rotation", () => {
-    // An empty list would render no panel at all — a dark screen.
-    expect(ranges([])).toEqual(["today"]);
-    expect(ranges(undefined)).toEqual(["today"]);
-    expect(ranges("today")).toEqual(["today"]);
+  it("falls back to the month rather than to an empty rotation", () => {
+    // An empty list would render no panel at all — a dark screen. The month is
+    // the fallback because it is what /leaderboards opens on; "today" reads as
+    // the session that just finished, which is the board next door's job.
+    expect(ranges([])).toEqual(["month"]);
+    expect(ranges(undefined)).toEqual(["month"]);
+    expect(ranges("today")).toEqual(["month"]);
   });
 
   it("resolves ranges even on a last-race board, so toggling the role cannot yield an empty list", () => {
     expect(resolveScreenConfig(board({ track: "red" }), "FT").resultsBoard?.ranges).toEqual([
-      "today",
+      "month",
     ]);
   });
 });

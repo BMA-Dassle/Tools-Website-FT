@@ -26,10 +26,22 @@
  */
 import type { TrackKey } from "./track";
 
-/** The windows a board can cycle through. A subset of RecordTimeRange —
- *  `year` and `alltime` belong to the kiosk hub and /leaderboards, where
- *  somebody is standing still and choosing; a wall is about recent racing. */
-export type TopTimesRange = "today" | "week" | "month";
+/**
+ * The windows a board can cycle through — every window /leaderboards offers,
+ * which is the whole of RecordTimeRange.
+ *
+ * `year` and `alltime` were left out at first, on the theory that a wall is
+ * about recent racing while the kiosk hub and /leaderboards are where somebody
+ * stands still and chooses. ON THE WALL IT READ THE OTHER WAY ROUND: "Today"
+ * at the kart return is the handful of laps the session that just came off the
+ * track set, which is not a hall of fame — it is the last race, and the board
+ * beside it already shows that (owner 2026-08-18: "top times is filtering by
+ * session; it should look at the existing top times on our website").
+ *
+ * So the wall speaks the same language as the site: same catalog, same windows,
+ * the same rows a racer finds when they look themselves up at home.
+ */
+export type TopTimesRange = "today" | "week" | "month" | "year" | "alltime";
 
 export type TopTimesClass = "adult" | "junior";
 
@@ -67,10 +79,14 @@ export interface TopTimesView {
   panels: TopTimesPanel[];
 }
 
+/** Word for word what /leaderboards prints over the same rows — a racer who
+ *  has seen one should recognise the other. */
 export const RANGE_LABELS: Record<TopTimesRange, string> = {
   today: "Today",
   week: "This Week",
   month: "This Month",
+  year: "This Year",
+  alltime: "All Time",
 };
 
 /** The eyebrow over the board: "Today · Fastest Laps". Junior says so; adult

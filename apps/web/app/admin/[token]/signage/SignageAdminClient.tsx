@@ -35,6 +35,7 @@ import {
 } from "~/features/signage/startup-script";
 import { resolvePair } from "~/features/signage/pairing";
 import type { ScreenConfig, SignageScreen } from "~/features/signage/types";
+import type { TopTimesRange } from "~/features/signage/top-times";
 import BriefingAssetManager, { type BriefingAssetState } from "./BriefingAssetManager";
 
 /** The build THIS admin page was served from, for comparing against a screen. */
@@ -888,11 +889,14 @@ interface Draft {
    *  fastest-laps hall of fame. Same idea as megaRole / pitMegaRole. */
   resultsRole: "last-race" | "top-times";
   /** Windows the top-times board cycles through, one per 40s slot. Stored as
-   *  three booleans rather than a multi-select so the form stays a form; at
-   *  least one is forced on at save (see draftToConfig). */
+   *  one boolean each rather than a multi-select so the form stays a form; at
+   *  least one is forced on at save (see draftToConfig). The five are exactly
+   *  what /leaderboards offers — see TopTimesRange. */
   resultsRangeToday: boolean;
   resultsRangeWeek: boolean;
   resultsRangeMonth: boolean;
+  resultsRangeYear: boolean;
+  resultsRangeAlltime: boolean;
   /** Check-in guide wall — owns its wall too. */
   showGuide: boolean;
   /** Which tracks the ONE check-in screen covers. */
@@ -948,9 +952,14 @@ function newDraft(): Draft {
     showResults: false,
     resultsTrack: "",
     resultsRole: "last-race",
-    resultsRangeToday: true,
+    resultsRangeToday: false,
     resultsRangeWeek: false,
-    resultsRangeMonth: false,
+    // The month is the default because it is what /leaderboards opens on: a
+    // hall of fame reports the standing record, not the session that just
+    // came off the track.
+    resultsRangeMonth: true,
+    resultsRangeYear: false,
+    resultsRangeAlltime: false,
     showGuide: false,
     guideTracks: "both",
     guideArrow: "left",
@@ -1018,10 +1027,12 @@ function draftFromScreen(s: SignageScreen): Draft {
         : "",
     resultsRole: c.resultsBoard?.role === "top-times" ? "top-times" : "last-race",
     // A saved board with no `ranges` predates the field; it reads back as
-    // today-only, which is what resolveScreenConfig resolves it to.
-    resultsRangeToday: (c.resultsBoard?.ranges ?? ["today"]).includes("today"),
+    // month-only, which is what resolveScreenConfig resolves it to.
+    resultsRangeToday: (c.resultsBoard?.ranges ?? []).includes("today"),
     resultsRangeWeek: (c.resultsBoard?.ranges ?? []).includes("week"),
-    resultsRangeMonth: (c.resultsBoard?.ranges ?? []).includes("month"),
+    resultsRangeMonth: (c.resultsBoard?.ranges ?? ["month"]).includes("month"),
+    resultsRangeYear: (c.resultsBoard?.ranges ?? []).includes("year"),
+    resultsRangeAlltime: (c.resultsBoard?.ranges ?? []).includes("alltime"),
     vipEnabled: c.interrupts?.["vip-welcome"]?.enabled !== false,
     vipLeadMins: c.interrupts?.["vip-welcome"]?.leadMins ?? 10,
     celebrationEnabled: c.interrupts?.celebration?.enabled !== false,
@@ -1043,14 +1054,16 @@ function draftFromScreen(s: SignageScreen): Draft {
   };
 }
 
-/** The ticked windows, in a fixed order. Never empty — see the note at the
- *  call site. */
-function resultRangesFromDraft(d: Draft): Array<"today" | "week" | "month"> {
-  const out: Array<"today" | "week" | "month"> = [];
+/** The ticked windows, in a fixed order — shortest first, the way
+ *  /leaderboards lists them. Never empty — see the note at the call site. */
+function resultRangesFromDraft(d: Draft): TopTimesRange[] {
+  const out: TopTimesRange[] = [];
   if (d.resultsRangeToday) out.push("today");
   if (d.resultsRangeWeek) out.push("week");
   if (d.resultsRangeMonth) out.push("month");
-  return out.length > 0 ? out : ["today"];
+  if (d.resultsRangeYear) out.push("year");
+  if (d.resultsRangeAlltime) out.push("alltime");
+  return out.length > 0 ? out : ["month"];
 }
 
 /** Draft → the config blob the TV actually reads. */
@@ -1109,8 +1122,8 @@ function draftToConfig(d: Draft): ScreenConfig {
             role: d.resultsRole,
             // Windows only mean anything to the top-times role, and they are
             // written in a fixed order so two boards ticked the same way rotate
-            // the same way. Everything unticked resolves to today rather than to
-            // an empty rotation, which would render no panel at all.
+            // the same way. Everything unticked resolves to the month rather
+            // than to an empty rotation, which would render no panel at all.
             ...(d.resultsRole === "top-times" ? { ranges: resultRangesFromDraft(d) } : {}),
           },
         }
@@ -1418,13 +1431,31 @@ function ScreenForm({
                 checked={draft.resultsRangeMonth}
                 onChange={(v) => set("resultsRangeMonth", v)}
                 label="This month"
-                hint="Since the 1st."
+                hint="Since the 1st — the window the website's leaderboard opens on."
+              />
+              <Check
+                checked={draft.resultsRangeYear}
+                onChange={(v) => set("resultsRangeYear", v)}
+                label="This year"
+                hint="Since January 1st."
+              />
+              <Check
+                checked={draft.resultsRangeAlltime}
+                onChange={(v) => set("resultsRangeAlltime", v)}
+                label="All time"
+                hint="Every lap we hold a record for."
               />
               <p style={hint}>
                 One window per 40-second slot, in the order listed. Tick more than one and the board
-                rotates through them. Everything unticked is treated as Today. Adult and junior get
-                their own turn automatically, and only when somebody has actually raced that class
-                in the window — nothing to configure.
+                rotates through them. Everything unticked is treated as This month. Adult and junior
+                get their own turn automatically, and only when somebody has actually raced that
+                class in the window — nothing to configure.
+              </p>
+              <p style={hint}>
+                These are the same windows, and the same records, as the leaderboard on the website
+                — a racer who checks their time at home sees the wall they walked past. Today and
+                This week are narrow enough to read as one session’s times rather than a hall of
+                fame, which is why neither is on by default.
               </p>
             </Field>
           )}

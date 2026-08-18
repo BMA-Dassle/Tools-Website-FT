@@ -16,6 +16,7 @@
  */
 import { clampOverscanPct, VENUE_INFO, type SignageVenue } from "./constants";
 import { clampHoldMs } from "./race-guide";
+import type { TopTimesRange } from "./top-times";
 import type { PlaylistEntry, ScreenConfig, SceneType } from "./types";
 
 export type ScreenRole =
@@ -299,11 +300,11 @@ export interface ResolvedScreenConfig {
    *  been picked yet — the board then shows a setup notice rather than
    *  reporting on a track at random. `ranges` is never empty when this is
    *  non-null: a top-times wall with no window to report on has nothing to
-   *  show, so it resolves to `["today"]` rather than to nothing. */
+   *  show, so it resolves to `["month"]` rather than to nothing. */
   resultsBoard: {
     track: "blue" | "red" | "mega";
     role: "last-race" | "top-times";
-    ranges: Array<"today" | "week" | "month">;
+    ranges: TopTimesRange[];
   } | null;
   /** Null for anything that is not a guide wall. `tracks` is never empty when
    *  this is non-null — a wall covering no track has nothing to point at. */
@@ -433,9 +434,10 @@ export function resolveScreenConfig(
     // keeps showing the last race rather than silently becoming a leaderboard.
     //
     // `ranges` is filtered to the literals we know and de-duplicated (a list
-    // saved as ["today","today"] would otherwise buy itself two slots of the
-    // rotation), and an empty result resolves to ["today"]: a top-times wall
-    // with nothing to cycle through would render no panel at all.
+    // saved as ["month","month"] would otherwise buy itself two slots of the
+    // rotation), and an empty result resolves to ["month"]: a top-times wall
+    // with nothing to cycle through would render no panel at all, and the month
+    // is the window /leaderboards itself opens on.
     resultsBoard:
       c.resultsBoard?.track === "blue" ||
       c.resultsBoard?.track === "red" ||
@@ -492,20 +494,22 @@ function guideTracks(v: unknown): Array<"blue" | "red" | "mega"> {
 /** Which windows a top-times wall cycles through, in the order given.
  *
  *  Order is the SAVED order, not a canonical one — a wall that should open on
- *  the month and settle on today is a legitimate thing to want, and sorting
- *  here would quietly take it away. Unknown values and repeats are dropped;
- *  see the note at the `resultsBoard` branch for why empty becomes today. */
-function resultRanges(v: unknown): Array<"today" | "week" | "month"> {
+ *  the month and settle on the all-time board is a legitimate thing to want,
+ *  and sorting here would quietly take it away. Unknown values and repeats are
+ *  dropped; see the note at the `resultsBoard` branch for why empty becomes the
+ *  month. The accepted values are exactly RecordTimeRange, so every window
+ *  /leaderboards offers can be put on a wall. */
+function resultRanges(v: unknown): TopTimesRange[] {
   const list = Array.isArray(v) ? v : [];
   const seen = new Set<string>();
-  const out: Array<"today" | "week" | "month"> = [];
+  const out: TopTimesRange[] = [];
   for (const r of list) {
-    if (r !== "today" && r !== "week" && r !== "month") continue;
+    if (r !== "today" && r !== "week" && r !== "month" && r !== "year" && r !== "alltime") continue;
     if (seen.has(r)) continue;
     seen.add(r);
     out.push(r);
   }
-  return out.length > 0 ? out : ["today"];
+  return out.length > 0 ? out : ["month"];
 }
 
 function numOr(v: unknown, fallback: number): number {

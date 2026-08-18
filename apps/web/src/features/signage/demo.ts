@@ -402,7 +402,7 @@ function demoTopTimes(feed: TvFeed): TopTimesView {
         ];
 
   const panels = prunePanels(
-    (["today", "week", "month"] as const).flatMap((range) => [
+    (["today", "week", "month", "year", "alltime"] as const).flatMap((range) => [
       { range, cls: "adult" as const, columns: adult },
       { range, cls: "junior" as const, columns: junior },
     ]),
