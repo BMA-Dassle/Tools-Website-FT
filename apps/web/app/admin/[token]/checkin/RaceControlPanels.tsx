@@ -84,6 +84,7 @@ import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } fr
 import { IconAlertTriangleFilled, IconCamera, IconMaximize, IconX } from "@tabler/icons-react";
 import { useTrackStatus, type CurrentRace } from "@/hooks/useTrackStatus";
 import type { OnTimeSnapshot } from "~/features/racing/on-time";
+import { CALL_WINDOW_MIN, type NextCheckIn } from "~/features/racing/session-call";
 import { PORTAL_DARK } from "~/components/features/admin-skin/theme";
 import { briefingTimelineAt, type BriefingTimeline } from "~/features/signage/briefing/phase";
 import {
@@ -535,6 +536,8 @@ export default function RaceControlPanels({
               track={track}
               race={race}
               onTime={status?.onTime ?? null}
+              // Read-only: which session BMI still owes a call for on this track.
+              nextCall={status?.nextCheckIn?.[track] ?? null}
               status={board?.rooms.find((r) => r.room === room) ?? null}
               proFilmMissing={!board?.videos.pro}
               // The uploaded films, so the late-send warning can quote the length
@@ -1215,6 +1218,7 @@ function RoomColumn({
   track,
   race,
   onTime,
+  nextCall,
   status,
   proFilmMissing,
   videos,
@@ -1243,6 +1247,14 @@ function RoomColumn({
   track: string;
   race: CurrentRace | null;
   onTime: OnTimeSnapshot | null;
+  /**
+   * The next session on this track that BMI has not called yet, or null.
+   *
+   * Only ever READ. The call is made in BMI, so this box notices and stops
+   * noticing — there is no button here and must not be one (owner 2026-08-17:
+   * "you can't have a call button because that comes from BMI").
+   */
+  nextCall: NextCheckIn | null;
   status: RoomStatus | null;
   /** No Pro film uploaded — a Pro pick will play the Intermediate film. */
   proFilmMissing: boolean;
@@ -1297,12 +1309,7 @@ function RoomColumn({
   // checkin?board=1"). In the identity row so it reads even between check-ins.
   // The launched/hold verdicts ride the same hook the Mega unified lane row
   // uses — see useLaneVerdicts.
-  const { liveClock, launched, holdLive } = useLaneVerdicts(
-    track,
-    lane,
-    hasLaunched,
-    noteLaunched,
-  );
+  const { liveClock, launched, holdLive } = useLaneVerdicts(track, lane, hasLaunched, noteLaunched);
   // The late-send warning names the heat the clock is counting.
   const liveHeatNow = liveClock ? liveHeatNumber(liveClock.heatName) : null;
   const state = status?.state ?? null;
@@ -1409,6 +1416,19 @@ function RoomColumn({
     race && !sentTo && checkingInMs != null
       ? checkinAlert(checkingInMs, checkinWindowMins)
       : "none";
+  /**
+   * IS THIS TRACK OWING A CALL, right now?
+   *
+   * Only while the Called box is EMPTY. With a heat sitting in it the box already
+   * has a job — its own check-in window — and two amber deadlines in one box
+   * cannot both be read.
+   */
+  const calledBoxEmpty = !(race && !sentTo);
+  const callDue = calledBoxEmpty && nextCall != null && nextCall.state !== "quiet";
+  /** The far edge of the owner's window: call time + 5 + 2. */
+  const callWindowEndsMs =
+    nextCall != null ? nextCall.callAtMs + CALL_WINDOW_MIN * 60_000 : Number.NaN;
+
   /** Time left in the check-in window; negative once it has passed. Null when no
    *  window is known, which is also when no alert can fire. */
   const checkinRemainingMs =
@@ -1499,13 +1519,9 @@ function RoomColumn({
             fontSize: 11,
             fontWeight: 800,
             letterSpacing: "0.04em",
-            background:
-              late ? withAlpha(AMBER, 0.16) : withAlpha(GREEN, 0.14),
-            border: `1px solid ${
-              late ? withAlpha(AMBER, 0.55) : withAlpha(GREEN, 0.45)
-            }`,
-            color:
-              late ? AMBER : GREEN,
+            background: late ? withAlpha(AMBER, 0.16) : withAlpha(GREEN, 0.14),
+            border: `1px solid ${late ? withAlpha(AMBER, 0.55) : withAlpha(GREEN, 0.45)}`,
+            color: late ? AMBER : GREEN,
           }}
           title="Whether this track's heats are being CALLED on time, from our own timing data"
         >
@@ -1545,7 +1561,11 @@ function RoomColumn({
       <Panel
         label="Called"
         flat
-        alert={calledAlert}
+        // With a heat in the box this is its check-in-window deadline, exactly as
+        // before. With the box EMPTY it is the call this track owes — amber only,
+        // never red: red on this board means a missed deadline that costs a race,
+        // and a late call costs minutes (same rule as the late-send notice).
+        alert={race && !sentTo ? calledAlert : callDue ? "warn" : undefined}
         ready={gridComplete}
         // THE LEAPFROG HINT, top-right where the eye lands before the button
         // (owner 2026-08-17: "bigger/more obvious… the top right corner is
@@ -1773,6 +1793,41 @@ function RoomColumn({
               )}
             </div>
           </>
+        ) : callDue && nextCall ? (
+          /* NOBODY CALLED, AND ONE IS DUE. The dash below is the right answer
+             when there is nothing to say; this is the case where there is.
+             Same banner shape as the late-send notice above, because it is the
+             same kind of fact: a clock the desk is about to lose. */
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "flex-start",
+              padding: "7px 10px",
+              borderRadius: 8,
+              background: withAlpha(AMBER, 0.12),
+              border: `1px solid ${withAlpha(AMBER, 0.55)}`,
+            }}
+            role="status"
+          >
+            <IconAlertTriangleFilled
+              size={14}
+              style={{ flexShrink: 0, color: AMBER, marginTop: 2 }}
+              aria-hidden
+            />
+            <span style={{ fontSize: 12, lineHeight: 1.4 }}>
+              <b style={{ color: AMBER }}>
+                {nextCall.heatNumber != null
+                  ? `Session ${nextCall.heatNumber}`
+                  : "The next session"}
+                {nextCall.state === "overdue"
+                  ? ` is ${nextCall.overdueMin} min overdue to be called.`
+                  : " has not been called."}
+              </b>{" "}
+              {`${nextCall.booked} booked · check-in ${clockMinuteMs(nextCall.slotMs)}`}
+              {nextCall.state === "overdue" ? "" : ` · call by ${clockMinuteMs(callWindowEndsMs)}`}
+            </span>
+          </div>
         ) : (
           /* Nothing called, or the called heat has already gone to a room —
              either way this box has nobody, and the room box below names
@@ -3996,7 +4051,6 @@ function phaseColor(phase: BriefingPhase, roomColor: string): string {
   return roomColor;
 }
 
-
 /** `m:ss`, ceiled — a timer reading 0:00 while a film still plays is worse than one
  *  that rounds up. */
 function formatClock(ms: number): string {
@@ -4030,6 +4084,18 @@ function clockTimeMs(ms: number): string {
     hour: "numeric",
     minute: "2-digit",
     second: "2-digit",
+    timeZone: "America/New_York",
+  });
+}
+
+/** The same venue-local wall time to the MINUTE. A scheduled slot is a minute-
+ *  precision fact — printing "7:45:00 PM" for it reads as a measurement rather
+ *  than the time on somebody's ticket. */
+function clockMinuteMs(ms: number): string {
+  if (!Number.isFinite(ms)) return "—";
+  return new Date(ms).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
     timeZone: "America/New_York",
   });
 }
