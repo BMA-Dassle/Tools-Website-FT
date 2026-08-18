@@ -66,11 +66,17 @@ const GAP = 34;
  *  which is what actually sets `view.wide`. */
 const COL_SPLIT = 2;
 
-export function SceneRaceResults({ feed, config, venue, nowMs }: SceneProps) {
+export function SceneRaceResults({ feed, config, venue, nowMs, demo }: SceneProps) {
   const configured = config.resultsBoard?.track ?? null;
-  const role = config.resultsBoard?.role ?? "last-race";
   const view = feed?.raceResults ?? null;
   const top = feed?.topTimes ?? null;
+
+  // PREVIEW BEATS CONFIG, for this one field and only on a test screen. The
+  // role lives in Neon and is shared with production, so the alternative way to
+  // review this board would be to re-point a real screen at it — which is a
+  // live wall on the floor. `?demo=top-times` reviews it without touching one.
+  // Preview-only: a live board follows its configured role.
+  const role = demo === "top-times" ? "top-times" : (config.resultsBoard?.role ?? "last-race");
 
   // A board nobody has pointed at a track yet. Says so, quietly, rather than
   // adopting one — a scores wall showing the wrong track's names is worse than

@@ -727,6 +727,23 @@ function ScreenRow({
                 Preview results (Mega)
               </button>
             )}
+            {canResults && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSimulate(
+                    "preview",
+                    { screenId: screen.screenId, mode: "top-times" },
+                    `Top-times preview pushed to ${screen.screenId}.`,
+                  )
+                }
+                style={btn}
+                disabled={busy}
+                title="The fastest-laps board, cycling today / this week / this month — works whatever role the screen is saved with"
+              >
+                Preview top times
+              </button>
+            )}
             {canVip && (
               <button
                 type="button"
