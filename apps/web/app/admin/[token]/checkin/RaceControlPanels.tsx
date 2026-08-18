@@ -1297,12 +1297,7 @@ function RoomColumn({
   // checkin?board=1"). In the identity row so it reads even between check-ins.
   // The launched/hold verdicts ride the same hook the Mega unified lane row
   // uses — see useLaneVerdicts.
-  const { liveClock, launched, holdLive } = useLaneVerdicts(
-    track,
-    lane,
-    hasLaunched,
-    noteLaunched,
-  );
+  const { liveClock, launched, holdLive } = useLaneVerdicts(track, lane, hasLaunched, noteLaunched);
   // The late-send warning names the heat the clock is counting.
   const liveHeatNow = liveClock ? liveHeatNumber(liveClock.heatName) : null;
   const state = status?.state ?? null;
@@ -1499,13 +1494,9 @@ function RoomColumn({
             fontSize: 11,
             fontWeight: 800,
             letterSpacing: "0.04em",
-            background:
-              late ? withAlpha(AMBER, 0.16) : withAlpha(GREEN, 0.14),
-            border: `1px solid ${
-              late ? withAlpha(AMBER, 0.55) : withAlpha(GREEN, 0.45)
-            }`,
-            color:
-              late ? AMBER : GREEN,
+            background: late ? withAlpha(AMBER, 0.16) : withAlpha(GREEN, 0.14),
+            border: `1px solid ${late ? withAlpha(AMBER, 0.55) : withAlpha(GREEN, 0.45)}`,
+            color: late ? AMBER : GREEN,
           }}
           title="Whether this track's heats are being CALLED on time, from our own timing data"
         >
@@ -2022,6 +2013,44 @@ function EmptyStage() {
 }
 
 /**
+ * THE ROOM THIS GROUP WILL WALK BACK INTO, beside the session itself (owner
+ * 2026-08-18: "check in board should have the pill as well").
+ *
+ * MEGA ONLY, and that is the whole point of it. On a split night this rail
+ * lives inside its own room's column, so every group in it came from that room
+ * and a pill would only repeat the column header. Mega runs TWO rooms into ONE
+ * lane, and then the room is the half of "Session 28" that says whose it is —
+ * the fact staff need while deciding which room to clear, and the one the lane
+ * used to lose between the green flag and the pit.
+ *
+ * Same pill, same words, same reason as the Mega session tracker's
+ * (ScenePitBoard) — the wall and the desk must not describe a night
+ * differently. Sized for this board, not that one: the rail is four rows on a
+ * desk monitor, not a sign read from the fence.
+ */
+function RoomPill({ room }: { room: BriefingRoom | null }) {
+  if (!room) return null;
+  return (
+    <span
+      className="rc-num"
+      style={{
+        fontSize: 10,
+        fontWeight: 800,
+        letterSpacing: "0.05em",
+        whiteSpace: "nowrap",
+        color: ROOM_COLOR[room],
+        border: `1px solid ${withAlpha(ROOM_COLOR[room], 0.7)}`,
+        background: withAlpha(ROOM_COLOR[room], 0.14),
+        borderRadius: 6,
+        padding: "2px 8px",
+      }}
+    >
+      {`→ ${room.toUpperCase()} ROOM`}
+    </span>
+  );
+}
+
+/**
  * ONE STAGE OF THE RAIL — one group, one clock, one badge, one row.
  *
  * The three stages after the briefing room (Holding, In karts, On track) are
@@ -2210,9 +2239,32 @@ function OutOfRoomPanel({
   const heldMs = holding ? Math.max(0, nowMs - holding.atMs) : 0;
   const kartsMs = karts ? Math.max(0, nowMs - karts.atMs) : 0;
 
+  /** The pill, per row — see RoomPill for why it is Mega-only. Each slot's OWN
+   *  room: on a busy night these four hold four groups briefed in two rooms. */
+  const pillRoom = (g: { room: BriefingRoom | null } | null | undefined) =>
+    track === "mega" ? (g?.room ?? null) : null;
+
   // WHO IS OUT. The green-flag verdict is the fresher of the two — the desk sees
   // a counting clock before any marker reaches the lane.
   const outHeat = launched?.heatNumber ?? racing?.heatNumber ?? null;
+
+  /**
+   * ...AND WHOSE ROOM THAT IS. The verdict above can name a group the lane has
+   * not promoted out of the seats yet, so the room has to come from the slot
+   * that same session is still sitting in. Reading `racing.room` regardless
+   * would pill this row with the room of the group BEFORE them.
+   */
+  const launchedSessionId = launched?.sessionId ?? null;
+  const launchedHeat = launched?.heatNumber ?? null;
+  const outGroup = launched
+    ? ([lane?.karts, lane?.holding, racing].find(
+        (g) =>
+          g != null &&
+          (launchedSessionId != null
+            ? g.sessionId === launchedSessionId
+            : g.heatNumber === launchedHeat),
+      ) ?? null)
+    : racing;
 
   // Does the live clock belong to the group we are naming? On a shared circuit
   // it might be someone else's heat, and a clock against the wrong session is
@@ -2363,6 +2415,7 @@ function OutOfRoomPanel({
                           {holding.raceType}
                         </span>
                       )}
+                      <RoomPill room={pillRoom(holding)} />
                     </div>
                     {/* NO PROSE ON AN OCCUPIED ROW. "Hold them — karts are still
                         coming into the lane" said in a sentence what the LANE
@@ -2409,6 +2462,7 @@ function OutOfRoomPanel({
                           {karts.raceType}
                         </span>
                       )}
+                      <RoomPill room={pillRoom(karts)} />
                     </div>
                   </>
                 ) : (
@@ -2438,6 +2492,7 @@ function OutOfRoomPanel({
                       >
                         Session {outHeat}
                       </span>
+                      <RoomPill room={pillRoom(outGroup)} />
                     </div>
                   </>
                 ) : (
@@ -2481,6 +2536,7 @@ function OutOfRoomPanel({
                           {pitIn.raceType}
                         </span>
                       )}
+                      <RoomPill room={pillRoom(pitIn)} />
                     </div>
                   </>
                 ) : (
@@ -3995,7 +4051,6 @@ function phaseColor(phase: BriefingPhase, roomColor: string): string {
   if (phase === "idle") return PORTAL_DARK.muted;
   return roomColor;
 }
-
 
 /** `m:ss`, ceiled — a timer reading 0:00 while a film still plays is worse than one
  *  that rounds up. */
