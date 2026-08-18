@@ -47,20 +47,6 @@ const TIER_LABEL: Record<DisplayHeat["tier"], string> = {
   pro: "Pro",
 };
 
-/** Wall-clock ET, e.g. "7:40 PM". The digits are locale-neutral; the words
- *  around them come from the catalog, which is why this returns a time and not
- *  a sentence. */
-function etClock(ms: number): string {
-  try {
-    return new Date(ms).toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      timeZone: "America/New_York",
-    });
-  } catch {
-    return "";
-  }
-}
 
 // TODO(i18n): module-scope helper (can't reach useT). Builds "{raceType} Heat
 // #{n} · {time}"; raceType is server data that stays English, so the "Heat #"
@@ -115,12 +101,14 @@ function StatusBand() {
           // Green by default — a kiosk with no data shows on-time, never grey
           // (owner 2026-08-17).
           const dot = d.tone === "warn" ? "#f0b341" : "#46d68c";
-          // The CHECK-IN time — when to be at the desk. Not the flag time, which
-          // is a median 16 min later and would send a guest to a closed desk.
+          // A STATUS, not a time. The "Now Checking In" line directly above this
+          // band already prints the check-in minute, so a time here repeated its
+          // neighbour and dropped the verdict this band exists for (owner
+          // 2026-08-17: "it should show on-time or + whatever").
           const timing =
-            d.checkInAtMs !== null
-              ? t("raceInfo.upcoming.checkInAt", { time: etClock(d.checkInAtMs) })
-              : null;
+            d.lateByMin === null
+              ? t("raceInfo.upcoming.onTime")
+              : t("raceInfo.upcoming.lateBy", { mins: d.lateByMin });
           return (
             <div
               key={track.trackName}

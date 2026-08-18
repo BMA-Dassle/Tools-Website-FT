@@ -82,7 +82,8 @@
  */
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { IconAlertTriangleFilled, IconCamera, IconMaximize, IconX } from "@tabler/icons-react";
-import { useTrackStatus, type CurrentRace, type TrackInfo } from "@/hooks/useTrackStatus";
+import { useTrackStatus, type CurrentRace } from "@/hooks/useTrackStatus";
+import type { OnTimeSnapshot } from "~/features/racing/on-time";
 import { PORTAL_DARK } from "~/components/features/admin-skin/theme";
 import { briefingTimelineAt, type BriefingTimeline } from "~/features/signage/briefing/phase";
 import {
@@ -93,7 +94,7 @@ import {
   type BriefingRoomState,
 } from "~/features/signage/briefing/types";
 import { pullIsLate } from "~/features/signage/briefing/pull-to-room";
-import { punctuality } from "~/features/signage/track-delay";
+import { trackDisplay, verdictLabel } from "~/features/racing/on-time-display";
 import { liveHeatNumber } from "~/features/signage/briefing/room-return";
 import {
   checkinAlert,
@@ -533,7 +534,7 @@ export default function RaceControlPanels({
               room={room}
               track={track}
               race={race}
-              delay={findDelay(status?.trackStatus.tracks, track)}
+              onTime={status?.onTime ?? null}
               status={board?.rooms.find((r) => r.room === room) ?? null}
               proFilmMissing={!board?.videos.pro}
               // The uploaded films, so the late-send warning can quote the length
@@ -1213,7 +1214,7 @@ function RoomColumn({
   room,
   track,
   race,
-  delay,
+  onTime,
   status,
   proFilmMissing,
   videos,
@@ -1241,7 +1242,7 @@ function RoomColumn({
   room: BriefingRoom;
   track: string;
   race: CurrentRace | null;
-  delay: TrackInfo | null;
+  onTime: OnTimeSnapshot | null;
   status: RoomStatus | null;
   /** No Pro film uploaded — a Pro pick will play the Intermediate film. */
   proFilmMissing: boolean;
@@ -1343,8 +1344,17 @@ function RoomColumn({
 
   const calledMs = race?.calledAt ? Date.parse(race.calledAt) : NaN;
   const checkingInMs = Number.isFinite(calledMs) ? Math.max(0, nowMs - calledMs) : null;
-  /** ON TIME / n BEHIND / no reading — see the chip in the identity row. */
-  const punctual = punctuality(delay);
+  /**
+   * ON TIME / +n LATE — from OUR data, not the outside service (2026-08-17).
+   *
+   * This board was the last surface still reading the vendor's delay, which only
+   * called a heat late once it was 30 minutes past its slot — 1 heat in 100 on
+   * 2026-08-16, so the chip was green by construction on the one screen the desk
+   * actually works from. Ours measures lateness at the CALL, which is the moment
+   * the printed slot names and the thing this desk controls.
+   */
+  const punctual = trackDisplay(onTime, track, null);
+  const late = punctual.lateByMin !== null;
 
   /**
    * IS A SEND GOING IN LATE (owner 2026-08-16: "add a warning to check in board
@@ -1470,9 +1480,13 @@ function RoomColumn({
          * beside the on-track clock, which is the other fact about how this
          * track is running.
          *
-         * AND UNKNOWN IS NOT ON TIME. The old line read a track missing from the
-         * feed as punctual; `punctuality` gives that its own verdict, so a board
-         * that cannot see a track says so rather than vouching for it.
+         * UNKNOWN NOW READS AS ON TIME, which is a reversal worth naming. This
+         * chip used to give a track it could not see its own third verdict. The
+         * owner's call (2026-08-17) is that a board with nothing to say says "On
+         * Time" rather than going grey, because a neutral chip reads as a broken
+         * screen. The cost is real and accepted: a dead feed looks like a calm
+         * night here. The camera monitor's sub-line is the one surface that still
+         * admits it (see `feedStale`).
          */}
         <span
           style={{
@@ -1486,28 +1500,16 @@ function RoomColumn({
             fontWeight: 800,
             letterSpacing: "0.04em",
             background:
-              punctual.state === "late"
-                ? withAlpha(AMBER, 0.16)
-                : punctual.state === "on-time"
-                  ? withAlpha(GREEN, 0.14)
-                  : "transparent",
+              late ? withAlpha(AMBER, 0.16) : withAlpha(GREEN, 0.14),
             border: `1px solid ${
-              punctual.state === "late"
-                ? withAlpha(AMBER, 0.55)
-                : punctual.state === "on-time"
-                  ? withAlpha(GREEN, 0.45)
-                  : PORTAL_DARK.border
+              late ? withAlpha(AMBER, 0.55) : withAlpha(GREEN, 0.45)
             }`,
             color:
-              punctual.state === "late"
-                ? AMBER
-                : punctual.state === "on-time"
-                  ? GREEN
-                  : PORTAL_DARK.muted,
+              late ? AMBER : GREEN,
           }}
-          title="How far behind schedule this track is running, from the venue's own delay figure"
+          title="Whether this track's heats are being CALLED on time, from our own timing data"
         >
-          {punctual.state === "unknown" ? "NO DELAY READING" : punctual.label.toUpperCase()}
+          {verdictLabel(punctual).toUpperCase()}
         </span>
         {liveClock && (
           <span
@@ -3994,10 +3996,6 @@ function phaseColor(phase: BriefingPhase, roomColor: string): string {
   return roomColor;
 }
 
-function findDelay(tracks: TrackInfo[] | undefined, track: string): TrackInfo | null {
-  if (!tracks) return null;
-  return tracks.find((t) => (t.trackName || "").toLowerCase().includes(track)) ?? null;
-}
 
 /** `m:ss`, ceiled — a timer reading 0:00 while a film still plays is worse than one
  *  that rounds up. */

@@ -75,21 +75,14 @@ export const raceinfoEn = {
   "raceInfo.upcoming.nowCheckingIn": "Now Checking In",
   "raceInfo.upcoming.onTime": "On Time",
   /**
-   * WHEN TO BE AT THE KARTING DESK, replacing the old "On Time / +N Min" badge
-   * (owner 2026-08-17: "shouldn't say race, it should be check in time").
+   * THE LATE HALF OF THE STATUS BAND. `onTime` above is the other half.
    *
-   * The printed slot is a check-in time, not a green-flag time — the flag drops
-   * a median 16 minutes later. Saying "racing" here would send a guest to a desk
-   * that had already closed.
-   *
-   * NAMES THE DESK, never the bare act: two check-ins exist half an hour apart
-   * on different floors (Guest Services 2nd, karting 1st), so a bare "Check-in"
-   * is true of both. Mirrors KARTING_CHECKIN_LABEL_SHORT in
-   * lib/karting-checkin-copy.ts — that module is the English source of truth and
-   * its guard test bans the ambiguous form; this key is its kiosk twin because
-   * the kiosk needs the same sentence in Spanish.
+   * The band briefly showed a check-in time instead; that was wrong twice over —
+   * a band labelled STATUS should carry a verdict, and the "Now Checking In" line
+   * directly above it already prints that same minute (owner 2026-08-17: "it
+   * should show on-time or + whatever").
    */
-  "raceInfo.upcoming.checkInAt": "Karting Desk by {time}",
+  "raceInfo.upcoming.lateBy": "+{mins} late",
   "raceInfo.filter.all": "All",
   "raceInfo.upcoming.loading": "Loading today’s races…",
   "raceInfo.upcoming.error":
@@ -152,10 +145,8 @@ export const raceinfoEs: Record<keyof typeof raceinfoEn, string> = {
 
   "raceInfo.upcoming.nowCheckingIn": "Registrándose ahora",
   "raceInfo.upcoming.onTime": "A tiempo",
-  // Names the desk, like the English. "Karting" stays English (brand/product
-  // noun, same rule as FastTrax and Game Zone); "Mostrador" is the counter you
-  // walk up to, which is what a guest navigating the building is looking for.
-  "raceInfo.upcoming.checkInAt": "Mostrador de Karting a las {time}",
+  // Pairs with "A tiempo" above. Short enough for the band's 26px chip.
+  "raceInfo.upcoming.lateBy": "+{mins} de retraso",
   "raceInfo.filter.all": "Todas",
   "raceInfo.upcoming.loading": "Cargando las carreras de hoy…",
   "raceInfo.upcoming.error":

@@ -10,31 +10,25 @@
  * about how that ends ("extracted component misses later fixes"). One component,
  * one meaning.
  *
- * IT SHOWS THE KARTING CHECK-IN TIME (owner 2026-08-17: "shouldn't say race, it
- * should be check in time"). The printed slot is when to be at the desk, not
- * when the flag drops — the flag is a median 16 minutes later, so a chip reading
- * "Racing ~7:40" would send a guest to a desk that closed at 7:24.
+ * IT SHOWS A STATUS — "On Time" or "+14 late" — because that is what a thing
+ * labelled LIVE TRACK STATUS is for (owner 2026-08-17: "this should be showing
+ * the on-time or not").
  *
- * THE LABEL NAMES THE DESK, never the bare act. There are TWO check-ins in this
- * building half an hour apart on different floors — reservation check-in at
- * Guest Services on the 2nd, karting check-in at the 1st Floor counter — so
- * "Check-in 7:24" is true of two different times and a guest cannot tell which
- * he is reading. `KARTING_CHECKIN_LABEL_SHORT` is the sanctioned tight-surface
- * wording; lib/karting-checkin-copy.ts deliberately exports no generic form and
- * its guard test fails the build on any bare "check in".
+ * IT BRIEFLY SHOWED A CHECK-IN TIME AND THAT WAS WRONG, twice over. The earlier
+ * note that a guest label must say check-in and never "race" was about the HEAT
+ * CARDS, where a time is the whole point; carrying it into the status chip
+ * replaced the verdict with a time. And it was redundant on every surface that
+ * renders it: the "Now Checking In" line directly beside this chip already
+ * prints that exact minute, so the chip repeated its neighbour and dropped the
+ * one fact only it was carrying.
  *
- * The time is stated, never predicted. Check-in lands on the slot (a median 1.6
- * min early, 3.9 min spread — the tightest span we measured), so there is no
- * drift to correct for and adjusting it would be inventing one.
- *
- * Renders nothing when no heat is checking in on this track. A wall between
- * heats has no honest time to give, and "On Time" is not a substitute for one.
+ * The check-in time still belongs on the heat cards (KARTING CHECK IN) and on
+ * the Now Checking In line. It does not belong here.
  */
 
 import type { CurrentRace } from "@/hooks/useTrackStatus";
 import type { OnTimeSnapshot } from "~/features/racing/on-time";
-import { KARTING_CHECKIN_LABEL_SHORT } from "@/lib/karting-checkin-copy";
-import { trackDisplay, type OnTimeTone } from "~/features/racing/on-time-display";
+import { trackDisplay, verdictLabel, type OnTimeTone } from "~/features/racing/on-time-display";
 
 /** "ok" is the ordinary state and stays quiet — and it is also the default when
  *  we know nothing (owner 2026-08-17). Amber means our CALLS are running late:
@@ -90,8 +84,10 @@ export default function TrackTimingChip({
   const slotMs = slotMsOf(race);
   const d = trackDisplay(onTime, track, slotMs);
 
-  const label =
-    d.checkInAtMs !== null ? `${KARTING_CHECKIN_LABEL_SHORT} ${formatEtTime(d.checkInAtMs)}` : null;
+  // Always a verdict, never null — a board with nothing to say says "On Time"
+  // (owner 2026-08-17). The slot is still passed in because the tone and the
+  // day's figures are computed against it.
+  const label = verdictLabel(d);
 
   return (
     <div className="flex items-center gap-2">

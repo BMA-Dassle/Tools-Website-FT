@@ -2,7 +2,6 @@
 import {
   TRACK_RESOURCE_IDS,
   effectiveTrack,
-  findTrackDelay,
   megaPairing,
   trackFromName,
   trackFromResourceIds,
@@ -74,48 +73,3 @@ describe("megaPairing", () => {
   });
 });
 
-describe("findTrackDelay", () => {
-  const FEED = [
-    { trackName: "Blue Track", delayMinutes: 0, delayFormatted: "On time" },
-    { trackName: "Red Track", delayMinutes: 12, delayFormatted: "12 min behind" },
-  ];
-
-  it("matches each track's row by name", () => {
-    expect(findTrackDelay(FEED, "blue")?.delayFormatted).toBe("On time");
-    expect(findTrackDelay(FEED, "red")?.delayMinutes).toBe(12);
-  });
-
-  it("REGRESSION: real names match - the template-literal backspace bug matched nothing", () => {
-    // The check-in board built its regex in a template string where a
-    // backslash-b is U+0008 BACKSPACE, so the pattern could never match a
-    // track name and that board's delay line never rendered. This pins the
-    // fixed behavior: ordinary upstream names DO match.
-    expect(findTrackDelay(FEED, "blue")).not.toBeNull();
-    expect(
-      findTrackDelay([{ trackName: "blue", delayMinutes: 3, delayFormatted: "3 min" }], "blue")
-        ?.delayMinutes,
-    ).toBe(3);
-  });
-
-  it("mega with no upstream row falls back to the first row — the home-page precedent", () => {
-    expect(findTrackDelay(FEED, "mega")?.delayFormatted).toBe("On time");
-  });
-
-  it("mega with an explicit Mega row takes that row, not the fallback", () => {
-    const withMega = [
-      { trackName: "Mega Track", delayMinutes: 5, delayFormatted: "5 min behind" },
-      ...FEED,
-    ];
-    expect(findTrackDelay(withMega, "mega")?.delayMinutes).toBe(5);
-  });
-
-  it("blue and red never leak another track's row", () => {
-    const redOnly = [{ trackName: "Red Track", delayMinutes: 9, delayFormatted: "9 min" }];
-    expect(findTrackDelay(redOnly, "blue")).toBeNull();
-  });
-
-  it("empty or missing feeds report nothing", () => {
-    expect(findTrackDelay(undefined, "blue")).toBeNull();
-    expect(findTrackDelay([], "mega")).toBeNull();
-  });
-});
