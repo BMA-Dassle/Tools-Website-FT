@@ -25,6 +25,7 @@ import {
 import { ARENA_RESOURCES, HP_NAPLES_LOCATION_ID } from "~/features/arena-tickets/constants";
 import { activeArenaCenters, type ArenaCenter } from "~/features/arena-tickets/centers";
 import { activityDisplay, classifyArenaSession } from "~/features/arena-tickets/types";
+import { loadAllFromRedis, refreshRacesCurrent } from "~/features/racing/races-current.server";
 import {
   applyLocalFloor,
   parseStoredRoster,
@@ -175,28 +176,38 @@ interface CurrentRaces {
  * been reading it that way all along; the two halves of one box were being fed
  * from two different views of the world, which is its own bug.
  *
- *   "stats"  → cacheOnly: the carry or nothing. A board's count must never be
- *              the thing that queues behind a sick upstream.
- *   "scan"   → prefer=cache: the carry, falling through to a live read only if
- *              the carry is completely empty. The green/yellow decision keeps
- *              its live backstop for the cold-start case; it just stops paying
- *              9s for it on every badge.
+ *   "stats"  → the carry or nothing (races-current's own `cacheOnly=1` rule). A
+ *              board's count must never be the thing that queues behind a sick
+ *              upstream.
+ *   "scan"   → the carry, falling through to one live read only when the carry
+ *              holds nothing at all (its `prefer=cache` rule). The green/yellow
+ *              decision keeps its live backstop for the cold-start case; it
+ *              just stops paying ~9s for it on every badge.
  */
-async function fetchCurrentRaces(
-  req: NextRequest,
-  mode: "stats" | "scan" = "scan",
-): Promise<CurrentRaces> {
+async function fetchCurrentRaces(mode: "stats" | "scan" = "scan"): Promise<CurrentRaces> {
   try {
-    const origin = req.nextUrl.origin;
-    const query = mode === "stats" ? "cacheOnly=1" : "prefer=cache";
-    const res = await fetch(`${origin}/api/pandora/races-current?${query}`, {
-      cache: "no-store",
-      // Still generous, because prefer=cache can fall through to a live read.
-      // It is now a backstop against a wedged hop, not the expected path.
-      signal: AbortSignal.timeout(12_000),
-    });
-    if (!res.ok) return {};
-    return (await res.json()) as CurrentRaces;
+    // READ THE CARRY IN-PROCESS. This used to fetch our OWN route over HTTP —
+    // `${origin}/api/pandora/races-current` — which cost a whole extra lambda
+    // hop to reach three Redis GETs we can do right here.
+    //
+    // It was also silently broken anywhere the deployment is protected: a
+    // lambda calling its own public URL carries no session cookie, so Vercel's
+    // SSO wall answered 302, `res.ok` was false, and this returned `{}` — no
+    // called sessions, so the board's count box vanished entirely. Every
+    // preview deployment has been showing a check-in board with no counts on
+    // it for exactly this reason, which is precisely the surface you would
+    // want to test a check-in change on before it reaches the desk.
+    //
+    // The route's own logic is two exported functions; call them.
+    const fromCarry = await loadAllFromRedis();
+    if (mode === "stats") return fromCarry;
+
+    // "scan" keeps prefer=cache's shape: the carry, and a live read ONLY when
+    // the carry holds nothing at all (a cold Redis, a first boot of the day).
+    // The green/yellow gate keeps its backstop; it just stops paying ~9s for it
+    // on every badge when the carry already has the answer.
+    if (fromCarry.blue || fromCarry.red || fromCarry.mega) return fromCarry;
+    return await refreshRacesCurrent(9_000);
   } catch {
     return {};
   }
@@ -740,7 +751,7 @@ export async function POST(req: NextRequest) {
 
       // One human can hold several Office records; the live roster is the
       // tie-breaker, which beats guessing by recency.
-      const current0 = await fetchCurrentRaces(req);
+      const current0 = await fetchCurrentRaces();
       let picked: { personId: string; sessionId: string } | null = null;
       for (const p of people) {
         const live = await resolveActiveSessionByPerson(current0, String(p.personId));
@@ -851,7 +862,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Get races-current first (needed for both e-ticket QR and paper QR paths)
-  const current = await fetchCurrentRaces(req);
+  const current = await fetchCurrentRaces();
 
   // Move-resilient e-ticket QR: a 4-part QR carries a stable participantId.
   // The baked sessionId may be stale (racer moved heats), so resolve the
@@ -1334,11 +1345,11 @@ async function rosterFor(s: SessionStat): Promise<RosterCount> {
   return floored;
 }
 
-async function buildSessionStats(req: NextRequest): Promise<SessionStat[]> {
+async function buildSessionStats(): Promise<SessionStat[]> {
   const sessions: SessionStat[] = [];
 
   // Racing — currently-called heats per track, from the carry.
-  const current = await fetchCurrentRaces(req, "stats");
+  const current = await fetchCurrentRaces("stats");
   for (const [track, data] of Object.entries(current)) {
     if (!data || typeof data !== "object") continue;
     const d = data as {
@@ -1421,13 +1432,13 @@ async function buildSessionStats(req: NextRequest): Promise<SessionStat[]> {
 }
 
 /** Cached/deduped entry point — see SESSION_STATS_TTL_MS. */
-async function getSessionStats(req: NextRequest): Promise<SessionStat[]> {
+async function getSessionStats(): Promise<SessionStat[]> {
   // No snapshot to check: the session list is read fresh from the carry every
   // time (three Redis GETs) so it can never name a heat that has rolled, and
   // the expensive per-session roster is cached in Redis by rosterFor. All this
   // is left holding is the collapse of concurrent polls on one instance.
   if (sessionStatsInFlight) return sessionStatsInFlight;
-  sessionStatsInFlight = buildSessionStats(req).finally(() => {
+  sessionStatsInFlight = buildSessionStats().finally(() => {
     sessionStatsInFlight = null;
   });
   return sessionStatsInFlight;
@@ -1448,7 +1459,7 @@ export async function GET(req: NextRequest) {
   const action = req.nextUrl.searchParams.get("action");
   if (action === "session-stats") {
     try {
-      return NextResponse.json({ sessions: await getSessionStats(req) });
+      return NextResponse.json({ sessions: await getSessionStats() });
     } catch {
       return NextResponse.json({ sessions: [] });
     }
@@ -1481,7 +1492,7 @@ export async function GET(req: NextRequest) {
   {
     const start = Date.now();
     try {
-      const current = await fetchCurrentRaces(req);
+      const current = await fetchCurrentRaces();
       const tracks = Object.entries(current)
         .filter(([, v]) => v)
         .map(([k, v]) => `${k}: sid ${v?.sessionId ?? "?"}`)
