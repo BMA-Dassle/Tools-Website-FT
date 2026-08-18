@@ -17,6 +17,7 @@
  * Idempotent: re-running asserts the same value.
  */
 import { readFileSync } from "node:fs";
+import type { ScreenConfig } from "../src/features/signage/types";
 
 const envText = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
 for (const line of envText.split(/\r?\n/)) {
@@ -24,18 +25,30 @@ for (const line of envText.split(/\r?\n/)) {
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim().replace(/^"|"$/g, "");
 }
 
-const [screenId, role, rangesRaw] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+type Role = "last-race" | "top-times";
+type Range = "today" | "week" | "month";
+
+const [screenIdArg, roleArg, rangesRaw] = process.argv
+  .slice(2)
+  .filter((a) => !a.startsWith("--"));
 const APPLY = process.argv.includes("--apply");
 
-if (!screenId || (role !== "top-times" && role !== "last-race")) {
+if (!screenIdArg || (roleArg !== "top-times" && roleArg !== "last-race")) {
   console.error("usage: <screenId> <last-race|top-times> [today,week,month] [--apply]");
   process.exit(1);
 }
 
-const ranges = (rangesRaw ?? "")
+// Re-stated with explicit types rather than leaning on the guard above: these
+// are read inside main(), and TypeScript does not carry a module-scope
+// narrowing across a function boundary. Inferring `string` here is what broke
+// the production build once already.
+const screenId: string = screenIdArg;
+const role: Role = roleArg === "top-times" ? "top-times" : "last-race";
+
+const ranges: Range[] = (rangesRaw ?? "")
   .split(",")
   .map((r) => r.trim())
-  .filter((r): r is "today" | "week" | "month" => r === "today" || r === "week" || r === "month");
+  .filter((r): r is Range => r === "today" || r === "week" || r === "month");
 
 async function main() {
   const { listSignageScreens, saveSignageScreen } = await import(
@@ -55,12 +68,14 @@ async function main() {
     process.exit(1);
   }
 
-  const next = {
+  // Annotated against ScreenConfig's own field rather than inferred, so a
+  // future change to the shape fails HERE instead of at the spread below.
+  const next: NonNullable<ScreenConfig["resultsBoard"]> = {
     track: current.track,
     role,
     // Windows only mean anything to a top-times wall. Writing them onto a
     // last-race one would be dead config that reads as intent.
-    ...(role === "top-times" ? { ranges: ranges.length > 0 ? ranges : (["today"] as const) } : {}),
+    ...(role === "top-times" ? { ranges: ranges.length > 0 ? ranges : ["today"] } : {}),
   };
 
   console.log(`\n── ${screenId} — ${screen.name} ──`);
