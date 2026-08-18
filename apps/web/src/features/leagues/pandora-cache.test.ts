@@ -22,7 +22,13 @@ const redisMock = {
 };
 vi.mock("@/lib/redis", () => ({ default: redisMock }));
 
-const { FRESH_WINDOW_MS, leagueCacheHeaders, leagueReadThrough } = await import("./pandora-cache");
+const {
+  FRESH_WINDOW_MS,
+  __resetFreezeMemo,
+  isLeaguePullFrozen,
+  leagueCacheHeaders,
+  leagueReadThrough,
+} = await import("./pandora-cache");
 
 const PATH = "/v2/bmi/records/standings/LAB52GY480CJF?startDate=x&scoreGroupName=Blue%20Pro";
 const KEY = `pandora:leagues:v1:${PATH}`;
@@ -38,6 +44,7 @@ beforeEach(() => {
   store.clear();
   redisMock.get.mockClear();
   redisMock.set.mockClear();
+  __resetFreezeMemo();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => vi.restoreAllMocks());
@@ -220,6 +227,87 @@ describe("leagueReadThrough — keying", () => {
 
     expect(r.source).toBe("fresh");
     expect(r.json).toEqual({ success: true, data: [{ persId: 9 }] });
+  });
+});
+
+describe("leagueReadThrough — the ops freeze", () => {
+  it("serves a copy of ANY age and never calls Pandora", async () => {
+    seed('{"success":true,"data":[{"persId":10}]}', 20 * 24 * 60 * 60_000); // 20 days
+    const fetcher = ok("SHOULD NOT BE CALLED");
+
+    const r = await leagueReadThrough({
+      path: PATH,
+      freshForMs: FRESH_WINDOW_MS.standings,
+      pullEnabled: false,
+      fetcher,
+    });
+
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(r.source).toBe("frozen");
+    expect(r.status).toBe(200);
+    expect(r.json).toEqual({ success: true, data: [{ persId: 10 }] });
+    expect(leagueCacheHeaders(r)["X-Cache"]).toBe("FROZEN");
+  });
+
+  it("fresh=1 does NOT punch through the freeze", async () => {
+    seed('{"success":true,"data":[{"persId":11}]}', 5 * 60 * 60_000);
+    const fetcher = ok('{"success":true,"data":[{"persId":999}]}');
+
+    const r = await leagueReadThrough({
+      path: PATH,
+      freshForMs: FRESH_WINDOW_MS.standings,
+      pullEnabled: false,
+      forceFresh: true,
+      fetcher,
+    });
+
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(r.json).toEqual({ success: true, data: [{ persId: 11 }] });
+  });
+
+  it("503s rather than quietly reopening the tap on a cold key", async () => {
+    const fetcher = ok('{"success":true,"data":[]}');
+
+    const r = await leagueReadThrough({
+      path: PATH,
+      freshForMs: FRESH_WINDOW_MS.standings,
+      pullEnabled: false,
+      fetcher,
+    });
+
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(r.status).toBe(503);
+    expect(r.source).toBe("frozen");
+    expect(leagueCacheHeaders(r)["X-Cache"]).toBe("FROZEN-no-cached-copy");
+  });
+});
+
+describe("isLeaguePullFrozen", () => {
+  it("is false when the switch key is absent", async () => {
+    expect(await isLeaguePullFrozen()).toBe(false);
+  });
+
+  it("is true once the switch key is set", async () => {
+    store.set("pandora:leagues:pull-frozen", new Date().toISOString());
+    expect(await isLeaguePullFrozen()).toBe(true);
+  });
+
+  it("treats an explicit 0/false as not frozen, so the key can be parked", async () => {
+    store.set("pandora:leagues:pull-frozen", "false");
+    expect(await isLeaguePullFrozen()).toBe(false);
+  });
+
+  it("FAILS OPEN — a dead Redis pulls live rather than serving nothing", async () => {
+    redisMock.get.mockRejectedValueOnce(new Error("redis down"));
+    expect(await isLeaguePullFrozen()).toBe(false);
+  });
+
+  it("memoises, so a cache hit doesn't pay a Redis round trip per request", async () => {
+    store.set("pandora:leagues:pull-frozen", "1");
+    expect(await isLeaguePullFrozen()).toBe(true);
+    const reads = redisMock.get.mock.calls.length;
+    expect(await isLeaguePullFrozen()).toBe(true);
+    expect(redisMock.get.mock.calls.length).toBe(reads);
   });
 });
 

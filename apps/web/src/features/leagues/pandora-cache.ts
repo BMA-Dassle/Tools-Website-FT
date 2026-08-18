@@ -36,8 +36,60 @@
  */
 import redis from "@/lib/redis";
 
-/** How long a copy is kept for outage fallback, well past any fresh window. */
-const STALE_RETENTION_SECONDS = 6 * 60 * 60;
+/**
+ * How long a copy is kept for outage fallback, well past any fresh window.
+ *
+ * 30 days, not hours, for one reason: the FREEZE below stops refreshing
+ * entirely, and a retention shorter than the off-season would quietly expire the
+ * frozen page into a 503 some hours after ops turned the pull off. A month of
+ * retention makes "frozen" mean frozen. It costs nothing when the pull is live —
+ * a retained copy is only ever served on failure, and always with the age on it.
+ */
+const STALE_RETENTION_SECONDS = 30 * 24 * 60 * 60;
+
+/**
+ * OPS KILL SWITCH for the standings pull — the presence of this Redis key means
+ * "stop calling Pandora for league standings; serve the copy you have".
+ *
+ * Why Redis and not an env var: it flips instantly, from a script, with no
+ * deploy and no "did you redeploy?" round trip, and it survives one. Absence =
+ * enabled, so this is an OFF switch for a live feature, never an opt-in gate
+ * (house rule). Set by scripts/leagues-pull.mts.
+ *
+ * Owner 2026-08-18: the April–July league season is over, so there is nothing
+ * left to pull until the next one starts — standings that cannot change should
+ * not cost a vendor call.
+ */
+const FROZEN_KEY = "pandora:leagues:pull-frozen";
+
+/** Re-reading the switch on every request would put a Redis round trip in front
+ *  of a cache hit; a few seconds of memo is plenty for an ops toggle. */
+const FROZEN_MEMO_MS = 10_000;
+let frozenMemo: { value: boolean; readAt: number } | null = null;
+
+/**
+ * Is the standings pull frozen right now?
+ *
+ * FAILS OPEN — if Redis can't be read we pull. A dead Redis means the cache is
+ * unusable anyway, so the only way to answer a guest at all is to go live.
+ */
+export async function isLeaguePullFrozen(): Promise<boolean> {
+  if (frozenMemo && Date.now() - frozenMemo.readAt < FROZEN_MEMO_MS) return frozenMemo.value;
+  try {
+    const raw = await redis.get(FROZEN_KEY);
+    const value = raw !== null && raw !== "0" && raw !== "false";
+    frozenMemo = { value, readAt: Date.now() };
+    return value;
+  } catch (err) {
+    console.warn("[leagues-cache] freeze-switch read failed, pulling live:", err);
+    return false;
+  }
+}
+
+/** Test seam — the memo would otherwise leak between cases. */
+export function __resetFreezeMemo(): void {
+  frozenMemo = null;
+}
 
 /** Fresh windows, by how fast the underlying data actually moves. */
 export const FRESH_WINDOW_MS = {
@@ -48,8 +100,9 @@ export const FRESH_WINDOW_MS = {
   live: 60 * 1000,
 } as const;
 
-/** Where the answer came from. `stale` carries the reason the live call failed. */
-export type LeagueCacheSource = "fresh" | "cache" | "stale";
+/** Where the answer came from. `stale` carries the reason the live call failed;
+ *  `frozen` means the pull is switched off and this is the copy we kept. */
+export type LeagueCacheSource = "fresh" | "cache" | "stale" | "frozen";
 
 export interface LeagueReadResult {
   /** HTTP status to hand the caller. A served stale copy reports its own 2xx. */
@@ -112,14 +165,44 @@ export async function leagueReadThrough(opts: {
   freshForMs: number;
   /** Bypass the fresh window — still writes through, still falls back to stale. */
   forceFresh?: boolean;
+  /** False = the ops freeze is on: serve the copy we have, at ANY age, and never
+   *  call Pandora. Beats `forceFresh` — a kill switch a query param can punch
+   *  through is not a kill switch. */
+  pullEnabled?: boolean;
   fetcher: (path: string) => Promise<{ status: number; body: string }>;
 }): Promise<LeagueReadResult> {
-  const { path, freshForMs, forceFresh = false, fetcher } = opts;
+  const { path, freshForMs, forceFresh = false, pullEnabled = true, fetcher } = opts;
   const key = cacheKey(path);
 
   // One GET serves both jobs: the fresh-window answer, and the stale copy the
   // failure path would otherwise have to re-read.
   const cached = await readEnvelope(key);
+
+  if (!pullEnabled) {
+    // Frozen: any age will do — the data it describes cannot change while the
+    // season is over, which is the whole reason the pull is off.
+    if (cached) {
+      return {
+        status: cached.status,
+        body: cached.body,
+        json: parseOrNull(cached.body),
+        source: "frozen",
+        staleReason: null,
+        ageMs: Date.now() - cached.cachedAt,
+      };
+    }
+    // Nothing kept for this exact request. Deliberately NOT a live pull: a
+    // freeze that quietly reopens the tap on a cache miss is not a freeze.
+    // Seed it with `npx tsx scripts/leagues-pull.mts warm` instead.
+    return {
+      status: 503,
+      body: JSON.stringify({ error: "league standings pull is frozen and nothing is cached" }),
+      json: null,
+      source: "frozen",
+      staleReason: "no-cached-copy",
+      ageMs: null,
+    };
+  }
 
   if (cached && !forceFresh) {
     const ageMs = Date.now() - cached.cachedAt;
@@ -212,10 +295,15 @@ export async function leagueReadThrough(opts: {
 /** Response headers that say which copy the caller got — the field evidence for
  *  "is the leagues page live or riding the cache right now". */
 export function leagueCacheHeaders(result: LeagueReadResult): Record<string, string> {
+  const label =
+    result.source === "stale"
+      ? `STALE-${result.staleReason}`
+      : result.source === "frozen" && result.staleReason
+        ? `FROZEN-${result.staleReason}`
+        : result.source.toUpperCase();
   return {
     "Cache-Control": "no-store",
-    "X-Cache":
-      result.source === "stale" ? `STALE-${result.staleReason}` : result.source.toUpperCase(),
+    "X-Cache": label,
     ...(result.ageMs === null ? {} : { "X-Cache-Age": String(Math.round(result.ageMs / 1000)) }),
   };
 }

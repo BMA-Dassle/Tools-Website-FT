@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import https from "https";
 import {
   FRESH_WINDOW_MS,
+  isLeaguePullFrozen,
   leagueCacheHeaders,
   leagueReadThrough,
 } from "~/features/leagues/pandora-cache";
@@ -55,10 +56,25 @@ function pandoraGet(path: string): Promise<{ status: number; body: string }> {
  * /api/cron/level-up-watch only looks at sessions that finished in the last ten
  * minutes and an hour-old list would switch level-up detection off.
  *
- * A failed live call serves the retained copy (up to 6h) instead of the 500 this
- * route used to return — 123 of them in the hour Pandora degraded on 2026-08-18.
- * `X-Cache: FRESH | CACHE | STALE-<reason>` says which copy you got, and
- * `?fresh=1` skips the fresh window for a manual pull.
+ * A failed live call serves the retained copy (kept 30 days) instead of the 500
+ * this route used to return — 123 of them in the hour Pandora degraded on
+ * 2026-08-18. `X-Cache: FRESH | CACHE | STALE-<reason> | FROZEN` says which copy
+ * you got, and `?fresh=1` skips the fresh window for a manual pull.
+ *
+ * ── The standings FREEZE (owner 2026-08-18: "league is done, disable all that")
+ * `standings` and `summary` — the only two reads the public /leagues page makes —
+ * additionally honour an ops kill switch (a Redis key, flipped by
+ * scripts/leagues-pull.mts). While it is set they NEVER call Pandora: the page
+ * serves the copy we kept, at any age, because a finished season's standings
+ * cannot change. `?fresh=1` does not punch through it.
+ *
+ * `sessions` and `scores` are deliberately NOT frozen, and are not league reads
+ * despite living on this route: `/api/cron/level-up-watch` polls them every two
+ * minutes for the Blue/Red Starter/Intermediate/Pro score groups to spot a racer
+ * whose best lap just qualified them for the next TIER. That is everyday racing,
+ * it runs whether or not a league season is on, and freezing it would silently
+ * switch level-up notifications off. (`scores` is also the /leagues page's
+ * per-heat drill-down, which is why a frozen page can still open a heat.)
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -66,9 +82,22 @@ export async function GET(req: NextRequest) {
   const locationId = searchParams.get("location") || "LAB52GY480CJF";
   const forceFresh = searchParams.get("fresh") === "1";
 
-  /** One read: cache-or-live, stale on failure, headers that say which. */
-  async function serve(path: string, freshForMs: number, failureMessage: string) {
-    const result = await leagueReadThrough({ path, freshForMs, forceFresh, fetcher: pandoraGet });
+  /** One read: cache-or-live, stale on failure, headers that say which.
+   *  `freezable` marks the two league-standings reads the ops kill switch owns. */
+  async function serve(
+    path: string,
+    freshForMs: number,
+    failureMessage: string,
+    freezable = false,
+  ) {
+    const pullEnabled = freezable ? !(await isLeaguePullFrozen()) : true;
+    const result = await leagueReadThrough({
+      path,
+      freshForMs,
+      forceFresh,
+      pullEnabled,
+      fetcher: pandoraGet,
+    });
     const headers = leagueCacheHeaders(result);
     if (result.json === null) {
       return NextResponse.json(
@@ -101,7 +130,7 @@ export async function GET(req: NextRequest) {
       const encodedEnd = encodeURIComponent(endDate);
 
       const path = `/v2/bmi/records/standings/${locationId}?startDate=${encodedStart}&endDate=${encodedEnd}&excludePractice=${excludePractice}&scoreGroupName=${encodedGroups}`;
-      return await serve(path, FRESH_WINDOW_MS.standings, "Failed to fetch standings");
+      return await serve(path, FRESH_WINDOW_MS.standings, "Failed to fetch standings", true);
     }
 
     if (action === "summary") {
@@ -119,7 +148,7 @@ export async function GET(req: NextRequest) {
       const encodedEnd = encodeURIComponent(endDate);
 
       const path = `/v2/bmi/records/summary/${locationId}/${encodedTrack}/${encodedGroup}?startDate=${encodedStart}&endDate=${encodedEnd}&excludePractice=${excludePractice}`;
-      return await serve(path, FRESH_WINDOW_MS.standings, "Failed to fetch standings");
+      return await serve(path, FRESH_WINDOW_MS.standings, "Failed to fetch standings", true);
     }
 
     if (action === "sessions") {
