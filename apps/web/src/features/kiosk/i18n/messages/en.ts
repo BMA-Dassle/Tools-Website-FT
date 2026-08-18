@@ -410,6 +410,14 @@ export const en = {
   // stays live (nothing was claimed here).
   "codeEntry.voucherGz.printingSubElsewhere":
     "Pick up at the front kiosk or Guest Services — your voucher stays good",
+  // UPFRONT twin of the line above (owner 2026-08-18). The message above only
+  // appears once cards are already on the receipt; a guest holding a multi-item
+  // voucher deserves to know BEFORE they commit that this machine can't hand
+  // them a card. The reassurance is the point — a bare "can't dispense" reads
+  // as "your voucher is no good here", which is the opposite of the truth.
+  "codeEntry.noDispenser.title": "This kiosk doesn’t dispense new cards",
+  "codeEntry.noDispenser.body":
+    "You can still redeem part of your voucher here — pick up your card at the front kiosk or Guest Services.",
   // Back with unprinted cards. Cards are NEVER printed later automatically —
   // the pink home-screen tile is the way back.
   "codeEntry.voucherGz.leaveWarn":

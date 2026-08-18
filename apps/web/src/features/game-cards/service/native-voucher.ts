@@ -44,7 +44,7 @@ import { VOUCHER_PACKAGE_PREFIX } from "../vouchers/grants";
  * that credits nothing. See the long note on that constant; a test pins them
  * together.
  */
-export const NATIVE_GRANT_DENOMINATIONS = [50, 100, 150, 200, 300, 500, 1000] as const;
+export const NATIVE_GRANT_DENOMINATIONS = [50, 100, 150, 200, 250, 300, 500, 1000] as const;
 
 export type NativeVoucherRefusal =
   | "bad_format"

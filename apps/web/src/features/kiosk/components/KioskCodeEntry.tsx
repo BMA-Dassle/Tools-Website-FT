@@ -1446,6 +1446,29 @@ export function KioskCodeEntry({
     </div>
   );
 
+  /**
+   * Shown on BOTH entry screens when this kiosk has no dispenser (owner
+   * 2026-08-18). Deliberately up front rather than on the receipt: a guest with
+   * a multi-item voucher (the Groupon deal is one card + four laser tag
+   * entries) needs to know before they start that the card can't come out here
+   * — and, just as importantly, that redeeming the rest here is still fine.
+   *
+   * Informational, not an error: it uses the amber/among-friends treatment and
+   * never blocks the input. `canDispenseCards` is
+   * `gameZoneCapability(config) === "full"`, so this also covers a kiosk whose
+   * CRT is merely toggled off, not just one that never had hardware.
+   */
+  const noDispenserNotice = canDispenseCards ? null : (
+    <div className="mt-[20px] rounded-[18px] border border-[rgba(255,176,32,0.45)] bg-[rgba(255,176,32,0.08)] px-[28px] py-[18px] text-left">
+      <div className="text-[28px] font-semibold text-[#ffb020]">
+        {t("codeEntry.noDispenser.title")}
+      </div>
+      <div className="mt-[6px] text-[24px] leading-[1.35] text-white/70">
+        {t("codeEntry.noDispenser.body")}
+      </div>
+    </div>
+  );
+
   if (mode === "scan") {
     return (
       <div className="flex h-full flex-col items-center px-[64px] pb-[40px] pt-[96px] text-center">
@@ -1454,6 +1477,7 @@ export function KioskCodeEntry({
         <p className="mt-[20px] max-w-[24ch] text-[30px] leading-[1.4] text-white/70">
           {t("codeEntry.scanHint.body")}
         </p>
+        {noDispenserNotice}
 
         {/* The scan target — dead center. The kiosk's scanner sits below the
             screen; the pulsing frame is the "present it here" affordance. */}
@@ -1492,6 +1516,7 @@ export function KioskCodeEntry({
     <div className="flex h-full flex-col px-[64px] pb-[40px] pt-[104px]">
       <div className="k-eyebrow">{t("codeEntry.eyebrow")}</div>
       <h1 className="k-display mt-[24px] text-[80px]">{t("codeEntry.title")}</h1>
+      {noDispenserNotice}
 
       <input
         ref={inputRef}

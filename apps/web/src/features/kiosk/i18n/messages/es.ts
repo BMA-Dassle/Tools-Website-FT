@@ -354,6 +354,9 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherGz.done": "Listo",
   "codeEntry.voucherGz.printingSubElsewhere":
     "Recógelas en el quiosco principal o en Servicios al Huésped — tu vale sigue válido",
+  "codeEntry.noDispenser.title": "Este kiosco no entrega tarjetas nuevas",
+  "codeEntry.noDispenser.body":
+    "Aquí puedes canjear parte de tu vale — recoge tu tarjeta en el kiosco principal o en Servicios al Huésped.",
   "codeEntry.voucherGz.leaveWarn":
     "{n, plural, one {Tu tarjeta de juego aún no se imprime} other {Tus # tarjetas de juego aún no se imprimen}}. No se imprimirán solas después — el botón rosa en la pantalla de inicio te trae de vuelta aquí.",
   "codeEntry.voucherGz.leaveAnyway": "Salir de todos modos",

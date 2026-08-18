@@ -39,23 +39,27 @@ Two rules drive every decision below.
 
 ## 2. The deal
 
-"$25 Worth of Arcade Game Play and Four Laser Tag Entries" — the $25 is
-**divided across four cards as bonus tokens** (owner 2026-08-18). So one
-voucher = **8 independently-claimable items**:
+"$25 Worth of Arcade Game Play and Four Laser Tag Entries" — the $25 lands
+**whole on ONE card** as bonus tokens (owner 2026-08-18). So one voucher =
+**5 independently-claimable items**:
 
-- 4 × `{kind:"gamezone", bonusTokens:N}`
+- 1 × `{kind:"gamezone", tokens:0, bonusTokens:250, bonusCashDollars:0}`
 - 4 × `{kind:"attraction", slug:"laser-tag", qty:1}`
 
 This maps onto the existing `VoucherItem[]` model with no schema change — items
 are already claimed per `(code, item_index)`, which is exactly what "guest took
-two cards today, comes back Saturday for the rest" needs.
+the card today, brings three friends back Saturday" needs.
 
-> **BLOCKING QUESTION — token math.** At the 10¢/token package rate, $25 = 250
-> tokens ÷ 4 = **62.5 tokens per card**, which is not an integer. Need the owner's
-> call: 62 or 63 per card, or is the per-card grant expressed as $6.25 bonus
-> cash? Everything else can be built; this number is the grant itself and must
-> not be guessed. **Never** infer it from the deal title — that is the BMI
-> comp-name mistake.
+250 tokens = $25 at our 10¢/token rate, the same rate that makes the deal packs'
+"$15 game card" 150 tokens. **250 was missing from BOTH denomination
+allowlists** (`COMP_TOKEN_DENOMINATIONS` and `NATIVE_GRANT_DENOMINATIONS`) and
+had to be added to each: the file's own warning is that adding it to only the
+mint side lets a voucher mint happily and then credit NOTHING when the card
+dispenses — silent, and the guest walks away with an empty card.
+`grants.test.ts` pins the two arrays together and passes.
+
+(An earlier reading split the $25 across four cards, which is 62.5 tokens per
+card — not an integer. One card avoids inventing a rounding rule.)
 
 `deal.id → items[]` lives in **our own table**, one row per deal. The GET
 response carries no deal identifier at all (`attributes` is null on these test
