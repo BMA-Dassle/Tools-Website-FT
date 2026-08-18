@@ -4532,3 +4532,70 @@ survive.
    "59 reshaped, 0 skipped" and was still wrong on one event. A separate read-only verifier
    that re-fetched every order and asserted the four end-state facts (pointer moved, new
    order OPEN + taxed + exact total, old order CANCELED, no legacy line) is what caught it.
+
+---
+
+## A failed read is not a zero — the check-in board's 0/0 flap (2026-08-18)
+
+**Symptom.** On a Mega night the desk board alternated between "CHECKED IN 0/0 · 0 still to
+scan" and "5/5 all here" for the same called heat, several times a minute, while the roster
+never moved. Scanning felt slow and occasionally flashed the wrong guest.
+
+**Measured, not inferred.** A read-only watch polled Pandora directly beside our own
+endpoint for 45 ticks (~13 min). Pandora's `races/current` hung past 15s on more than half
+of all calls; `participants` hard-hung at 20s repeatedly. **27 of 45 consecutive polls
+changed what the board would display.** At one tick the raw roster answered `5/5` in 705ms
+while our endpoint answered `0/0` in 127ms — a cache hit serving a poisoned snapshot.
+
+**Three defects, ours not theirs. Pandora being sick was the trigger; these turned it into a
+board that lied confidently.**
+
+1. **A silent catch left the initialised zeros standing.** `buildSessionStats` created each
+   row with `checkedIn: 0, total: 0` and both failure paths `return`ed without touching
+   them. The board cannot tell "the read failed" from "nobody is booked", so it printed the
+   second. Staff read `0/0` as "send them"; `—` reads as "ask the desk". **Initialise
+   unknown as `null`, never as the zero that is also a valid answer.**
+
+2. **Module-level cache = per lambda instance.** The 10s snapshot lived in module memory.
+   Vercel fans polls across instances, so one cached `0/0` caught during a hang while
+   another cached `5/5` from a good window, and the board **alternated instead of
+   converging**. A shared cache in Redis cannot disagree with itself. **If two readers must
+   agree, the cache goes in Redis — module memory is per-instance by definition.**
+
+3. **Caching the whole strip cached the session IDENTITY too.** When Pandora rolled heat 26
+   → 27, a snapshot went on naming heat 26, with heat 26's count, for ~26 seconds. **Cache
+   the expensive part under the id it belongs to; never cache the list that says which id is
+   current.** The cheap thing (three Redis GETs off the carry) is read every time.
+
+**Also found, same file:** the scan re-entrancy guard read `scanState` from a closure that
+`startReading` captured at first render (memoised on `token`, exhaustive-deps disabled), so
+it compared against `"idle"` forever and never fired. Harmless at 300ms; at Pandora's 9s it
+let staff fire a second concurrent check-in whose response flashed out of order. **A guard
+read by a long-lived closure must be a ref, not state.**
+
+**The rules:**
+
+1. **Unknown is not zero, and the UI must be able to say so.** Any count crossing a network
+   boundary needs a third state. `number | null`, rendered `—`.
+2. **A failed read keeps the last value it had, scoped to the thing it described.** A roster
+   from earlier in the SAME heat is very nearly right; a blank is certainly useless. Scope
+   it to the session id so it can never survive a roll, and dim it so "counted just now"
+   still means something — the green "all here" cue must never fire on a carried value.
+3. **Prefer the warm carry to a live upstream read on any staff surface.** `races-current`
+   has `cacheOnly=1` / `prefer=cache` for exactly this; the bare URL is the LIVE path. The
+   check-in route was the last caller still paying 9s for what the carry already had.
+4. **We already know our own writes — use them.** Every green scan is our own write, so the
+   desk keeps a set of the people it scanned into a session and floors the reported count
+   with it. A poll that catches the upstream before it has caught up can no longer drag the
+   number backwards. Pandora is then only for what we could not have seen.
+5. **Measure the upstream beside your own endpoint before blaming either.** Raw-vs-ours,
+   side by side, is what separated "Pandora is slow" from "we cache a lie". Note that a
+   probe from the office is not the lambda: this repo has measured Pandora at 5-10s from
+   iad1 while it answered in under a second from Fort Myers — a 5s timeout was being blown
+   by a HEALTHY upstream.
+
+**Still open:** the counts are computed by two independent pipelines — this route, and
+`features/signage/service/checkin-progress.ts` for the walls — each with its own per-instance
+memo, kept consistent by a comment rather than by code. (The wall's author had already
+reached rule 1 independently: "A HEAT WE CANNOT COUNT IS DROPPED, never shown as zero.")
+One shared source is the right end state.

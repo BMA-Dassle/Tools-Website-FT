@@ -342,8 +342,16 @@ function useNowMs(intervalMs = 1_000): number {
 export interface CheckinCount {
   track: string;
   sessionId: number | string;
-  checkedIn: number;
-  total: number;
+  /**
+   * NULL MEANS THE ROSTER READ DID NOT COME BACK — it does NOT mean the heat is
+   * empty. Until 2026-08-18 a failed read arrived here as 0, and this box
+   * printed "0/0 · 0 still to scan" over a full grid, then the true count on the
+   * next poll, flipping on eight of ten polls. See features/racing/roster-count.ts.
+   */
+  checkedIn: number | null;
+  total: number | null;
+  /** The numbers are the last ones counted, not a fresh read. Shown dimmed. */
+  stale?: boolean;
 }
 
 export default function RaceControlPanels({
@@ -1407,13 +1415,24 @@ function RoomColumn({
    *
    * Only while the heat is still WAITING TO BE SENT: once it is in a room the
    * box is no longer asking anything of anyone, and a pulse there would be
-   * celebrating a decision already taken. `total > 0` guards the empty roster —
-   * 0/0 is "we do not know yet", not "everybody is here".
+   * celebrating a decision already taken.
+   *
+   * THREE THINGS MUST ALL BE TRUE BEFORE THIS FLASHES, because it is the cue a
+   * grid gets sent on:
+   *   - we have a count at all (null = the roster read failed; that used to
+   *     arrive as 0 and "0/0" was one bad comparison away from reading as
+   *     complete — see roster-count.ts),
+   *   - the count is a FRESH one, not the last known (a carried-over count says
+   *     what was true minutes ago, which is not what "everyone is here" claims),
+   *   - and there is somebody to be complete: `total > 0`.
    */
   const gridComplete =
     !!race &&
     !sentTo &&
     !!checkedIn &&
+    !checkedIn.stale &&
+    checkedIn.total !== null &&
+    checkedIn.checkedIn !== null &&
     checkedIn.total > 0 &&
     checkedIn.checkedIn >= checkedIn.total;
 
@@ -1616,22 +1635,38 @@ function RoomColumn({
                   top of the board (owner 2026-08-12) so the number sits with the
                   heat it counts rather than in a strip of its own. Green once the
                   whole grid is through the desk — the moment staff can send. */}
-              {checkedIn && (
-                <Stat
-                  label="Checked in"
-                  value={`${checkedIn.checkedIn}/${checkedIn.total}`}
-                  unit={
-                    checkedIn.total > 0 && checkedIn.checkedIn >= checkedIn.total
-                      ? "all here"
-                      : `${Math.max(0, checkedIn.total - checkedIn.checkedIn)} still to scan`
-                  }
-                  tone={
-                    checkedIn.total > 0 && checkedIn.checkedIn >= checkedIn.total
-                      ? GREEN
-                      : undefined
-                  }
-                />
-              )}
+              {checkedIn &&
+                (checkedIn.total === null || checkedIn.checkedIn === null ? (
+                  /* NO COUNT IS NOT A COUNT OF NONE. The roster read did not come
+                     back, so the box says so and stays quiet — it does not go
+                     green, and it does not tell anyone there is nobody to wait
+                     for. Staff read "—" as "ask the desk", which is correct;
+                     they read "0/0" as "send them", which is how a full grid got
+                     sent early. */
+                  <Stat label="Checked in" value="—" unit="no roster read" />
+                ) : (
+                  <Stat
+                    label="Checked in"
+                    value={`${checkedIn.checkedIn}/${checkedIn.total}`}
+                    unit={
+                      checkedIn.stale
+                        ? "last known"
+                        : checkedIn.total > 0 && checkedIn.checkedIn >= checkedIn.total
+                          ? "all here"
+                          : `${Math.max(0, checkedIn.total - checkedIn.checkedIn)} still to scan`
+                    }
+                    /* A CARRIED-OVER COUNT NEVER TURNS THE BOX GREEN. Green is
+                       the cue to send a grid; it has to mean "counted, just now",
+                       not "counted at some point". */
+                    tone={
+                      !checkedIn.stale &&
+                      checkedIn.total > 0 &&
+                      checkedIn.checkedIn >= checkedIn.total
+                        ? GREEN
+                        : undefined
+                    }
+                  />
+                ))}
               {/* TRACK DELAY MOVED TO THE IDENTITY ROW as an ON TIME / n BEHIND
                   chip — it is a fact about the track, not about this heat, and
                   down here it only existed while a heat happened to be waiting.
