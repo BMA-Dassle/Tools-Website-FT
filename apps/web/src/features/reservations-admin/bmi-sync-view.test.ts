@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { onsitePillCopy, guestAddStatus, type ReservationSyncState } from "./bmi-sync-view";
+import {
+  onsitePillCopy,
+  guestAddStatus,
+  guestAddVerdict,
+  type ReservationSyncState,
+} from "./bmi-sync-view";
 
 const state = (over: Partial<ReservationSyncState>): ReservationSyncState => ({
   state: "unknown",
@@ -29,6 +34,56 @@ describe("guestAddStatus — 'handed to the queue' is not 'BMI has it'", () => {
 
   it("a failed attach needs a human regardless of the waiver", () => {
     expect(guestAddStatus("failed", "signed")).toBe("parked");
+  });
+});
+
+describe("guestAddVerdict — 'we have not asked yet' is not 'they owe a waiver'", () => {
+  const CREATED = "2026-08-18T14:00:00.000Z";
+  const verdict = (covered: boolean | undefined, waiver: string | null = null) =>
+    guestAddVerdict({ attach: "attached", waiver, covered, attachError: null, createdAt: CREATED });
+
+  it("BMI says covered → done, and says why", () => {
+    const v = verdict(true);
+    expect(v.status).toBe("done");
+    expect(v.resolvedAt).toBe(CREATED);
+    expect(v.lastError).toContain("BMI already holds a current waiver");
+  });
+
+  it("BMI says no → pending, and claims we asked", () => {
+    const v = verdict(false);
+    expect(v.status).toBe("pending");
+    expect(v.resolvedAt).toBeNull();
+    expect(v.lastError).toContain("waiver not recorded yet");
+  });
+
+  it("nobody has asked yet → pending, and says SO — not 'not recorded yet'", () => {
+    // The regression this guards: the coverage read moved off the request path
+    // (2026-08-18), so a cold cache is now normal for one poll. Spelling that the
+    // same way as a real "BMI says no" is how a board starts crying wolf.
+    const v = verdict(undefined);
+    expect(v.status).toBe("pending");
+    expect(v.lastError).toContain("checking BMI");
+    expect(v.lastError).not.toContain("not recorded yet");
+  });
+
+  it("a waiver WE filed wins without asking BMI at all", () => {
+    const v = verdict(undefined, "signed");
+    expect(v.status).toBe("done");
+    expect(v.resolvedAt).toBe(CREATED);
+    expect(v.lastError).not.toContain("checking BMI");
+  });
+
+  it("a failed attach still needs a human, whatever the coverage says", () => {
+    const v = guestAddVerdict({
+      attach: "failed",
+      waiver: null,
+      covered: true,
+      attachError: "person 63000000008791316 not visible at LAB52GY480CJF",
+      createdAt: CREATED,
+    });
+    expect(v.status).toBe("parked");
+    expect(v.resolvedAt).toBeNull();
+    expect(v.lastError).toContain("not visible");
   });
 });
 

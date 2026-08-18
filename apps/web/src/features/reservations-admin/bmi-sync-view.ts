@@ -29,11 +29,6 @@
  */
 import { sql, isDbConfigured } from "@/lib/db";
 
-/** FastTrax racing — where kiosk waiver joins are added, and the same default the
- *  sync cron and barrier probe use. A person id from another centre simply 404s
- *  here, which fails closed (still shown as owed) rather than wrongly cleared. */
-const RACING_LOCATION_ID = "LAB52GY480CJF";
-
 export interface AdminSyncRow {
   id: number;
   kind: string;
@@ -148,59 +143,31 @@ export function guestAddStatus(attach: string, waiver: string | null): string {
 }
 
 /**
- * Does BMI already hold a CURRENT waiver for this person?
+ * What BMI says about people's own waivers: `true` covered, `false` not, and
+ * ABSENT FROM THE MAP for "we have not got an answer" — a third state, not a
+ * synonym for `false`.
  *
- * Read-only, and fails CLOSED: anything other than a 200 with a future
- * `waiverExpiry` returns false, so the guest keeps showing as owed. A 500 here
- * means a null birthdate (the record exists but the vendor's own schema rejects
- * it) — "we cannot tell", never "they are covered".
- *
- * `kiosk_waiver_joins.location_id` is a BMI centre code, not a Pandora location id,
- * so it cannot be used directly; the default racing location is where these guests
- * are being added.
+ * Injected as a function rather than imported, so this module stays free of the
+ * server-only lookup (and its Redis import) while still deciding for itself which
+ * rows are worth asking about. The caller supplies
+ * `cachedWaiverCoverage` from ./waiver-coverage.server; a caller that supplies
+ * nothing gets every suspect back in `unresolved`.
  */
-async function bmiHoldsCurrentWaiver(personId: string, _joinLocationId: string): Promise<boolean> {
-  /**
-   * TWO ATTEMPTS, 12s each — MEASURED, not guessed.
-   *
-   * This shipped at 6s and was too tight for the endpoint it calls: median 3.7s,
-   * max 6.6s over six samples, so roughly one render in six timed out. Because the
-   * check fails CLOSED, a timeout put a guest who is demonstrably covered back into
-   * "waiver not recorded yet" — so rebecca wolfson flickered between Waiting and
-   * Cleared depending on how Pandora felt that second (2026-08-13).
-   *
-   * An intermittently wrong board is worse than a consistently wrong one: it
-   * teaches staff the panel is unreliable, and then the real rows get ignored too.
-   * The retry is what makes fail-closed honest — it should mean "we asked properly
-   * and BMI says no", never "the vendor was slow".
-   */
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const res = await fetch(
-        `https://bma-pandora-api.azurewebsites.net/v2/bmi/person/${RACING_LOCATION_ID}/${personId}?picture=false&allRelated=false`,
-        {
-          headers: { Authorization: `Bearer ${process.env.SWAGGER_ADMIN_KEY || ""}` },
-          cache: "no-store",
-          signal: AbortSignal.timeout(12000),
-        },
-      );
-      // A 404/500 is a real answer (wrong centre / unreadable record) — no retry.
-      if (!res.ok) return false;
-      const d = (await res.json()) as {
-        success?: boolean;
-        data?: { waiverExpiry?: string | null };
-      };
-      const exp = d?.success && d.data?.waiverExpiry ? Date.parse(d.data.waiverExpiry) : NaN;
-      return Number.isFinite(exp) && exp > Date.now();
-    } catch {
-      // Timeout or network only. Fall through and ask once more.
-    }
-  }
-  return false;
+export type WaiverCoverageLookup = (personIds: string[]) => Promise<Map<string, boolean>>;
+
+export interface RecentGuestAdds {
+  rows: AdminSyncRow[];
+  /** People whose rows would read as owed and whose coverage is still unknown —
+   *  what the caller should go and find out, AFTER it has answered. */
+  unresolved: string[];
 }
 
-export async function listRecentGuestAdds(minutes = 720, limit = 100): Promise<AdminSyncRow[]> {
-  if (!isDbConfigured()) return [];
+export async function listRecentGuestAdds(
+  opts: { minutes?: number; limit?: number; coverage?: WaiverCoverageLookup } = {},
+): Promise<RecentGuestAdds> {
+  if (!isDbConfigured()) return { rows: [], unresolved: [] };
+  const minutes = opts.minutes ?? 720;
+  const limit = opts.limit ?? 100;
   try {
     const q = sql();
     const rows = (await q`
@@ -216,89 +183,130 @@ export async function listRecentGuestAdds(minutes = 720, limit = 100): Promise<A
       LIMIT ${limit}
     `) as Array<Record<string, unknown>>;
     /**
-     * ASK BMI BEFORE CLAIMING A GUEST OWES US A WAIVER.
+     * ASK BMI BEFORE CLAIMING A GUEST OWES US A WAIVER — BUT NOT FROM HERE.
      *
      * A missing `waiver_signatures` row means only that they did not sign THROUGH
      * US. The commonest reason is the happy one: they already hold a valid waiver,
      * so the kiosk never asked them to sign. rebecca wolfson sat on this board for
      * 90 minutes reading "waiver not recorded yet" while BMI had her covered until
-     * 2027-01-03 (2026-08-13).
+     * 2027-01-03 (2026-08-13). A board that cries wolf gets ignored, and then the
+     * real rows get ignored with it.
      *
-     * A board that cries wolf gets ignored, and then the real rows get ignored with
-     * it — which is the same failure as calling unfinished work done, pointed the
-     * other way.
+     * That check used to run INLINE, right here, five people at a time. It is now
+     * a CACHE lookup, and the live read happens after the response — see
+     * ./waiver-coverage.server.ts for the measurements that forced the move. Only
+     * the rows that would otherwise read as owed are involved either way, so a
+     * clean board costs nothing.
      *
-     * Only the rows that would otherwise read as owed are checked, so a clean board
-     * costs nothing — and on a busy board that is a handful of rows, not the 100 the
-     * query can return.
-     *
-     * Deliberately a BARE FETCH rather than `waiverValidNow`, whose Redis import
-     * drags `ioredis` (and therefore `tls`) into this module. This file is in the
-     * CLIENT bundle graph — `BmiSyncPanel` imports `guestAddStatus` and
-     * `onsitePillCopy` from it — so a server-only dependency here fails the build
-     * with `Module not found: Can't resolve 'tls'`, which neither tsc nor vitest
+     * The vendor call cannot live in this file regardless: it is in the CLIENT
+     * bundle graph (`chips.tsx` imports `onsitePillCopy`), so anything that drags
+     * `ioredis` — and therefore `tls` — in fails the build with
+     * `Module not found: Can't resolve 'tls'`, which neither tsc nor vitest
      * catches because neither bundles for the browser (2026-08-13).
-     *
-     * Losing the cache costs nothing here: these rows have NO signature record by
-     * definition, so the vendor's answer is the only one that exists. Unreadable
-     * stays PENDING — never silently "covered" — so a Pandora outage cannot turn
-     * into "nobody owes a waiver".
      */
-    const suspect = rows.filter(
-      (r) =>
-        String(r.bmi_attach_status) === "attached" &&
-        guestAddStatus(
-          String(r.bmi_attach_status),
-          r.waiver_outcome === null ? null : String(r.waiver_outcome),
-        ) === "pending",
-    );
-    const coveredAnyway = new Set<string>();
-    const CHECK_CONCURRENCY = 5;
-    for (let i = 0; i < suspect.length; i += CHECK_CONCURRENCY) {
-      const batch = suspect.slice(i, i + CHECK_CONCURRENCY);
-      await Promise.all(
-        batch.map(async (r) => {
-          const pid = String(r.person_id ?? "");
-          if (!pid) return;
-          if (await bmiHoldsCurrentWaiver(pid, String(r.location_id ?? ""))) coveredAnyway.add(pid);
-        }),
-      );
-    }
+    const suspectIds = [
+      ...new Set(
+        rows
+          .filter(
+            (r) =>
+              r.person_id !== null &&
+              String(r.bmi_attach_status) === "attached" &&
+              guestAddStatus(
+                String(r.bmi_attach_status),
+                r.waiver_outcome === null ? null : String(r.waiver_outcome),
+              ) === "pending",
+          )
+          .map((r) => String(r.person_id)),
+      ),
+    ];
+    const coverage =
+      opts.coverage && suspectIds.length > 0
+        ? await opts.coverage(suspectIds).catch(() => new Map<string, boolean>())
+        : new Map<string, boolean>();
+    const unresolved = suspectIds.filter((id) => !coverage.has(id));
 
-    return rows.map((r) => {
+    const out = rows.map((r) => {
+      const personId = r.person_id === null ? null : String(r.person_id);
       const attach = String(r.bmi_attach_status);
       const waiver = r.waiver_outcome === null ? null : String(r.waiver_outcome);
-      const covered = coveredAnyway.has(String(r.person_id ?? ""));
-      const status = covered && attach === "attached" ? "done" : guestAddStatus(attach, waiver);
+      const covered = personId ? coverage.get(personId) : undefined;
+      const createdAt = String(r.created_at);
       return {
         // Negative ids keep these distinct from real queue rows in React keys.
         id: -Number(r.person_id ? String(r.person_id).slice(-9) : Math.random() * 1e9),
         kind: "guest-added",
         transport: null,
-        status,
+        ...guestAddVerdict({
+          attach,
+          waiver,
+          covered,
+          attachError: r.bmi_attach_error === null ? null : String(r.bmi_attach_error),
+          createdAt,
+        }),
         barrier: "none",
-        barrierRef: r.person_id === null ? null : String(r.person_id),
+        barrierRef: personId,
         reservationRef: r.project_id === null ? null : String(r.project_id),
         attempts: 0,
-        lastError:
-          attach === "attached"
-            ? covered && !waiver
-              ? "attached; BMI already holds a current waiver — nothing owed"
-              : `attached${waiver ? `, waiver ${waiver}` : ", waiver not recorded yet"}`
-            : `attach ${attach}${r.bmi_attach_error ? `: ${String(r.bmi_attach_error).slice(0, 120)}` : ""}`,
-        createdAt: String(r.created_at),
-        nextAttemptAt: String(r.created_at),
+        createdAt,
+        nextAttemptAt: createdAt,
         giveUpAt: null,
-        resolvedAt: status === "done" ? String(r.created_at) : null,
         ageMin: Math.round(Number(r.age_min ?? 0)),
         who: r.display_name === null ? null : String(r.display_name),
         center: centerName(r.location_id === null ? null : String(r.location_id)),
       } satisfies AdminSyncRow;
     });
+    return { rows: out, unresolved };
   } catch (err) {
     console.warn("[bmi-sync-view] recent guest adds failed:", err);
-    return [];
+    return { rows: [], unresolved: [] };
   }
+}
+
+/**
+ * Status + last-message + resolvedAt for one guest-added row.
+ *
+ * THREE coverage states, not two. `undefined` means nobody has asked BMI yet, and
+ * it must not be spelled the same way as "we asked and BMI says no": the first is
+ * a gap in our knowledge that closes on the next poll, the second is a guest who
+ * genuinely still owes a waiver. Collapsing them is how a board starts crying
+ * wolf — the exact failure the coverage check was added to fix.
+ *
+ * Pure, so the copy staff read is unit-testable without Pandora or Redis.
+ */
+export function guestAddVerdict(input: {
+  attach: string;
+  waiver: string | null;
+  /** `true` covered, `false` not, `undefined` nobody has asked BMI yet. */
+  covered: boolean | undefined;
+  attachError: string | null;
+  /** Stamped as `resolvedAt` on a finished row — these rows have no separate
+   *  completion time, so "when the guest was added" is the honest one. */
+  createdAt: string;
+}): Pick<AdminSyncRow, "status" | "lastError" | "resolvedAt"> {
+  const { attach, waiver, covered, attachError, createdAt } = input;
+  const done = (lastError: string) => ({ status: "done", lastError, resolvedAt: createdAt });
+  const pending = (lastError: string) => ({ status: "pending", lastError, resolvedAt: null });
+
+  if (attach !== "attached") {
+    const lastError = `attach ${attach}${attachError ? `: ${attachError.slice(0, 120)}` : ""}`;
+    return attach === "failed"
+      ? { status: "parked", lastError, resolvedAt: null }
+      : pending(lastError);
+  }
+  if (guestAddStatus(attach, waiver) === "done") return done(`attached, waiver ${waiver}`);
+  if (covered === true) {
+    return done(
+      waiver
+        ? `attached, waiver ${waiver}; BMI already holds a current waiver — nothing owed`
+        : "attached; BMI already holds a current waiver — nothing owed",
+    );
+  }
+  if (covered === false) {
+    return pending(`attached${waiver ? `, waiver ${waiver}` : ", waiver not recorded yet"}`);
+  }
+  return pending(
+    `attached${waiver ? `, waiver ${waiver}` : ""} — checking BMI for an existing waiver`,
+  );
 }
 
 /**

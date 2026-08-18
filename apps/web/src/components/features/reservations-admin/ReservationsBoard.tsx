@@ -311,7 +311,14 @@ export default function ReservationsBoard({
   const refsKey = visibleRefs.join(",");
   useEffect(() => {
     let alive = true;
+    // ONE REQUEST AT A TIME. A tick that fires while the previous one is still
+    // out is skipped, not queued: when the feed slowed to ~30s (Pandora hanging,
+    // 2026-08-18) the 20s timer stacked requests two and three deep, so every
+    // extra copy piled more load onto the thing that was already struggling.
+    let inFlight = false;
     const load = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const res = await fetch(
           `/api/admin/bmi-sync?token=${encodeURIComponent(token)}&refs=${encodeURIComponent(refsKey)}`,
@@ -327,6 +334,8 @@ export default function ReservationsBoard({
         setSyncByRes(data.byReservation ?? {});
       } catch {
         /* leave the last good data; the pill hides rather than guessing */
+      } finally {
+        inFlight = false;
       }
     };
     void load();
