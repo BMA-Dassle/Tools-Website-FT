@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import https from "https";
+import {
+  FRESH_WINDOW_MS,
+  leagueCacheHeaders,
+  leagueReadThrough,
+} from "~/features/leagues/pandora-cache";
 
 const PANDORA_URL = "bma-pandora-api.azurewebsites.net";
 const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
@@ -41,11 +46,38 @@ function pandoraGet(path: string): Promise<{ status: number; body: string }> {
  *
  * GET ?action=sessions&location=...&track=...&scoreGroup=...&startDate=...&endDate=...
  * GET ?action=scores&location=...&sessionId=12345
+ *
+ * ── Caching (2026-08-18) ────────────────────────────────────────────────────
+ * Every read goes through the Redis read-through in
+ * ~/features/leagues/pandora-cache: standings/summary answer from a copy up to
+ * an HOUR old (owner: "leagues needs a cache for sure, could be hour for now"),
+ * sessions/scores from one up to 60s old — short on purpose, because
+ * /api/cron/level-up-watch only looks at sessions that finished in the last ten
+ * minutes and an hour-old list would switch level-up detection off.
+ *
+ * A failed live call serves the retained copy (up to 6h) instead of the 500 this
+ * route used to return — 123 of them in the hour Pandora degraded on 2026-08-18.
+ * `X-Cache: FRESH | CACHE | STALE-<reason>` says which copy you got, and
+ * `?fresh=1` skips the fresh window for a manual pull.
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const action = searchParams.get("action");
   const locationId = searchParams.get("location") || "LAB52GY480CJF";
+  const forceFresh = searchParams.get("fresh") === "1";
+
+  /** One read: cache-or-live, stale on failure, headers that say which. */
+  async function serve(path: string, freshForMs: number, failureMessage: string) {
+    const result = await leagueReadThrough({ path, freshForMs, forceFresh, fetcher: pandoraGet });
+    const headers = leagueCacheHeaders(result);
+    if (result.json === null) {
+      return NextResponse.json(
+        { error: failureMessage, details: result.body.substring(0, 200) },
+        { status: result.status, headers },
+      );
+    }
+    return NextResponse.json(result.json, { status: result.status, headers });
+  }
 
   try {
     if (action === "standings") {
@@ -69,14 +101,7 @@ export async function GET(req: NextRequest) {
       const encodedEnd = encodeURIComponent(endDate);
 
       const path = `/v2/bmi/records/standings/${locationId}?startDate=${encodedStart}&endDate=${encodedEnd}&excludePractice=${excludePractice}&scoreGroupName=${encodedGroups}`;
-      const res = await pandoraGet(path);
-      if (res.status >= 400) {
-        return NextResponse.json(
-          { error: "Failed to fetch standings", details: res.body.substring(0, 200) },
-          { status: res.status },
-        );
-      }
-      return NextResponse.json(JSON.parse(res.body));
+      return await serve(path, FRESH_WINDOW_MS.standings, "Failed to fetch standings");
     }
 
     if (action === "summary") {
@@ -94,14 +119,7 @@ export async function GET(req: NextRequest) {
       const encodedEnd = encodeURIComponent(endDate);
 
       const path = `/v2/bmi/records/summary/${locationId}/${encodedTrack}/${encodedGroup}?startDate=${encodedStart}&endDate=${encodedEnd}&excludePractice=${excludePractice}`;
-      const res = await pandoraGet(path);
-      if (res.status >= 400) {
-        return NextResponse.json(
-          { error: "Failed to fetch standings", details: res.body.substring(0, 200) },
-          { status: res.status },
-        );
-      }
-      return NextResponse.json(JSON.parse(res.body));
+      return await serve(path, FRESH_WINDOW_MS.standings, "Failed to fetch standings");
     }
 
     if (action === "sessions") {
@@ -113,11 +131,7 @@ export async function GET(req: NextRequest) {
       if (!scoreGroup) return NextResponse.json({ error: "scoreGroup required" }, { status: 400 });
 
       const path = `/v2/bmi/records/sessions/${locationId}/${encodeURIComponent(track)}/${encodeScoreGroup(scoreGroup)}?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
-      const res = await pandoraGet(path);
-      if (res.status >= 400) {
-        return NextResponse.json({ error: "Failed to fetch sessions" }, { status: res.status });
-      }
-      return NextResponse.json(JSON.parse(res.body));
+      return await serve(path, FRESH_WINDOW_MS.live, "Failed to fetch sessions");
     }
 
     if (action === "scores") {
@@ -127,11 +141,7 @@ export async function GET(req: NextRequest) {
 
       let path = `/v2/bmi/records/scores/${locationId}/${sessionId}`;
       if (scoreGroup) path += `?scoreGroupName=${encodeScoreGroup(scoreGroup)}`;
-      const res = await pandoraGet(path);
-      if (res.status >= 400) {
-        return NextResponse.json({ error: "Failed to fetch scores" }, { status: res.status });
-      }
-      return NextResponse.json(JSON.parse(res.body));
+      return await serve(path, FRESH_WINDOW_MS.live, "Failed to fetch scores");
     }
 
     return NextResponse.json(
