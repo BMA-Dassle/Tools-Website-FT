@@ -1,0 +1,128 @@
+GROUPON POS REDEMPTION — INTEGRATION TEST TRANSCRIPT
+Integration : HeadPinz   |   Config: headpinz-preprod   |   Funnel: POS
+Host        : https://offer-api.groupon.com
+Captured    : 2026-08-18T18:33:22.323Z
+
+======================================================================
+REDEMPTION CODE: WNDXH4DJ
+======================================================================
+
+GET /partners/headpinz-preprod/v1/units?redemptionCodes=WNDXH4DJ
+HTTP 200
+{
+  "data": [
+    {
+      "id": "ae5d7713-bda1-45ee-b96f-49e12ce0048d",
+      "status": "redeemed",
+      "grouponCode": "VS-VBGZ-M2YF-FC13-NF4K",
+      "redemptionCode": "WNDXH4DJ",
+      "redeemedAt": "2026-08-18T18:29:32Z",
+      "value": {
+        "amount": 100,
+        "currencyCode": "USD"
+      },
+      "price": {
+        "amount": 1,
+        "currencyCode": "USD"
+      },
+      "attributes": null
+    }
+  ],
+  "errors": null
+}
+
+======================================================================
+REDEMPTION CODE: XV4PQ5BK
+======================================================================
+
+GET /partners/headpinz-preprod/v1/units?redemptionCodes=XV4PQ5BK
+HTTP 200
+{
+  "data": [
+    {
+      "id": "5f955284-6a06-434b-b57d-62aab4a013ca",
+      "status": "redeemed",
+      "grouponCode": "VS-WKM9-THTN-L2RL-7WSG",
+      "redemptionCode": "XV4PQ5BK",
+      "redeemedAt": "2026-08-18T18:30:33Z",
+      "value": {
+        "amount": 100,
+        "currencyCode": "USD"
+      },
+      "price": {
+        "amount": 1,
+        "currencyCode": "USD"
+      },
+      "attributes": null
+    }
+  ],
+  "errors": null
+}
+
+======================================================================
+REDEMPTION CODE: CCH749Q3
+======================================================================
+
+GET /partners/headpinz-preprod/v1/units?redemptionCodes=CCH749Q3
+HTTP 200
+{
+  "data": [
+    {
+      "id": "c04b494b-3b60-428a-951b-75863443017b",
+      "status": "available",
+      "grouponCode": "VS-6FHT-SNZH-S4T6-KF2W",
+      "redemptionCode": "CCH749Q3",
+      "redeemedAt": null,
+      "value": {
+        "amount": 100,
+        "currencyCode": "USD"
+      },
+      "price": {
+        "amount": 1,
+        "currencyCode": "USD"
+      },
+      "attributes": null
+    }
+  ],
+  "errors": null
+}
+
+======================================================================
+IDEMPOTENCY CHECK — re-redeem of an already-redeemed unit (WNDXH4DJ)
+======================================================================
+
+PATCH /partners/headpinz-preprod/v1/units?client_id=<client_id>
+request body:
+{
+  "data": [
+    {
+      "id": "ae5d7713-bda1-45ee-b96f-49e12ce0048d",
+      "status": "redeemed",
+      "grouponCode": "VS-VBGZ-M2YF-FC13-NF4K",
+      "redemptionCode": "WNDXH4DJ",
+      "redeemedAt": "2026-08-18T18:33:24.053Z",
+      "value": {
+        "amount": 100,
+        "currencyCode": "USD"
+      },
+      "price": {
+        "amount": 1,
+        "currencyCode": "USD"
+      },
+      "attributes": null,
+      "updatedAt": "2026-08-18T18:33:24.053Z"
+    }
+  ]
+}
+HTTP 400
+{
+  "errors": [
+    {
+      "code": "INVALID_STATE_TRANSITION",
+      "id": null,
+      "redemptionCode": "WNDXH4DJ",
+      "message": null
+    }
+  ],
+  "httpCode": 400
+}
