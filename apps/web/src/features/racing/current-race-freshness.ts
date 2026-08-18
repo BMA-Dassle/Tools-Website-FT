@@ -110,6 +110,44 @@ export function preserveFirstCall<T extends CalledRaceWithSession>(
   return { ...incoming, calledAt: stored.calledAt };
 }
 
+/**
+ * THE CARRY NEVER MOVES BACKWARDS IN TIME.
+ *
+ * Pandora's races/current either answers in about a second or hangs forever —
+ * measured 2026-08-18 from the office: five answers between 0.7s and 7.3s, and
+ * seven requests that were still open at 45 seconds. A warm loop that waits for
+ * each attempt before starting the next therefore spends most of a bad minute
+ * asleep on a socket that will never reply, and the carry freezes on whatever
+ * heat it last managed to record (that night: fifteen minutes on heat 34).
+ *
+ * The cure is to stop letting one hung request own the loop — several attempts
+ * in flight at once, first useful answer wins. Which introduces the hazard this
+ * function exists to close: those answers can land OUT OF ORDER. An attempt
+ * started before a heat was called can return after one started later, and
+ * without a guard it would write the previous heat over the current one and the
+ * board would jump backwards.
+ *
+ * So: an incoming call for a DIFFERENT session that was called EARLIER than the
+ * one we already hold is stale, and is refused. Same session is not this
+ * function's business — preserveFirstCall owns that, pinning the earliest
+ * calledAt for a re-called heat.
+ */
+export function callIsStalerThanStored(
+  incoming: CalledRaceWithSession | null | undefined,
+  stored: CalledRaceWithSession | null | undefined,
+): boolean {
+  if (!incoming || !stored) return false;
+  if (incoming.sessionId == null || stored.sessionId == null) return false;
+  // The same heat arriving again is a re-call, not a regression.
+  if (String(incoming.sessionId) === String(stored.sessionId)) return false;
+  const incomingMs = incoming.calledAt ? Date.parse(incoming.calledAt) : NaN;
+  const storedMs = stored.calledAt ? Date.parse(stored.calledAt) : NaN;
+  // Without two readable timestamps we cannot order them; let the write through
+  // rather than pin the board to a heat we can no longer displace.
+  if (!Number.isFinite(incomingMs) || !Number.isFinite(storedMs)) return false;
+  return incomingMs < storedMs;
+}
+
 /** Minutes since the call, for logs and diagnostics. Null when unknown. */
 export function raceAgeMinutes(
   race: CalledRaceLike | null | undefined,

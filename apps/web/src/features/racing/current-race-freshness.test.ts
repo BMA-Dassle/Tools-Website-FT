@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  callIsStalerThanStored,
   MAX_DISPLAY_AGE_MS,
   preserveFirstCall,
   raceAgeMinutes,
@@ -148,5 +149,47 @@ describe("raceAgeMinutes", () => {
   it("is null when there is nothing to measure", () => {
     expect(raceAgeMinutes(null, NOW)).toBeNull();
     expect(raceAgeMinutes({ calledAt: "nonsense" }, NOW)).toBeNull();
+  });
+});
+
+describe("callIsStalerThanStored", () => {
+  const call = (sessionId: string, calledAt: string) => ({ sessionId, calledAt });
+
+  it("refuses an older heat arriving after a newer one", () => {
+    // The warm loop keeps several reads open at once, so a slow answer can land
+    // after a fast one. Without this the board would jump back to heat 34 after
+    // 35 was already showing.
+    const stored = call("58571834", "2026-08-18T17:19:11-04:00"); // heat 35
+    const late = call("58571833", "2026-08-18T17:04:11-04:00"); // heat 34, in flight since earlier
+    expect(callIsStalerThanStored(late, stored)).toBe(true);
+  });
+
+  it("lets a genuinely newer heat through", () => {
+    const stored = call("58571833", "2026-08-18T17:04:11-04:00");
+    const fresh = call("58571834", "2026-08-18T17:19:11-04:00");
+    expect(callIsStalerThanStored(fresh, stored)).toBe(false);
+  });
+
+  it("does not interfere with a re-call of the SAME heat", () => {
+    // preserveFirstCall owns that case; this guard must keep its hands off it,
+    // or a re-called heat could never refresh.
+    const stored = call("58571834", "2026-08-18T17:19:11-04:00");
+    const recalled = call("58571834", "2026-08-18T17:15:00-04:00");
+    expect(callIsStalerThanStored(recalled, stored)).toBe(false);
+  });
+
+  it("lets the write through when either timestamp is unreadable", () => {
+    // Better a possibly-out-of-order write than a board pinned to a heat that
+    // nothing can ever displace.
+    const stored = call("58571834", "2026-08-18T17:19:11-04:00");
+    expect(callIsStalerThanStored(call("58571833", "garbage"), stored)).toBe(false);
+    expect(
+      callIsStalerThanStored(call("58571833", "2026-08-18T17:04:11-04:00"), call("58571834", "")),
+    ).toBe(false);
+  });
+
+  it("is a no-op with nothing stored, or nothing incoming", () => {
+    expect(callIsStalerThanStored(call("1", "2026-08-18T17:00:00-04:00"), null)).toBe(false);
+    expect(callIsStalerThanStored(null, call("1", "2026-08-18T17:00:00-04:00"))).toBe(false);
   });
 });
