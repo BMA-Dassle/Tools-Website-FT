@@ -94,6 +94,7 @@ import {
   type BriefingRoomState,
 } from "~/features/signage/briefing/types";
 import { pullIsLate } from "~/features/signage/briefing/pull-to-room";
+import { laneReturnRoom, suggestMegaRoom } from "~/features/signage/briefing/room-suggest";
 import { trackDisplay, verdictLabel } from "~/features/racing/on-time-display";
 import { liveHeatNumber } from "~/features/signage/briefing/room-return";
 import {
@@ -408,29 +409,23 @@ export default function RaceControlPanels({
    * (owner 2026-08-16: auto-suggest, staff confirms; the press stays the
    * assignment and the other button always works).
    *
-   * One circuit feeding two rooms wants them leapfrogging: the free room takes
-   * the heat, and when both are free the one that did NOT take the previous
-   * group takes this one. "Previous group" is read off the mega lane's
-   * furthest-along occupant — the same recorded facts the columns already
-   * render. Both rooms busy = no suggestion: that send is a Replace, and
-   * which film to interrupt is a human call.
+   * The leapfrog itself is briefing/room-suggest.ts, pure and tested, so the
+   * chip and the late-send warning below cannot end up naming the same room —
+   * they are the same fact from two sides, and the night they disagreed the
+   * desk suggested the very room a race was walking back into.
    */
-  const suggestedRoom: BriefingRoom | null = (() => {
-    if (!megaEnabled) return null;
-    const roomFree = (room: BriefingRoom) => {
-      const st = board?.rooms.find((r) => r.room === room)?.state ?? null;
-      return briefingTimelineAt(st, nowMs).phase === "idle";
-    };
-    const free = rooms.filter(roomFree);
-    if (free.length === 0) return null;
-    if (free.length === 1) return free[0];
-    const megaLane = board?.lanes?.mega ?? null;
-    const lastRoom =
-      megaLane?.holding?.room ?? megaLane?.karts?.room ?? megaLane?.pitIn?.room ?? null;
-    if (lastRoom === "red") return "blue";
-    if (lastRoom === "blue") return "red";
-    return "red";
-  })();
+  const suggestedRoom: BriefingRoom | null = megaEnabled
+    ? suggestMegaRoom({
+        // The phase test stays here — it is the board's own read of the room
+        // states; the leapfrog itself is the rule, and it lives in the module.
+        free: rooms.filter(
+          (room) =>
+            briefingTimelineAt(board?.rooms.find((r) => r.room === room)?.state ?? null, nowMs)
+              .phase === "idle",
+        ),
+        lane: board?.lanes?.mega ?? null,
+      })
+    : null;
 
   return (
     <section
@@ -1362,11 +1357,33 @@ function RoomColumn({
    * A WARNING, NEVER A REFUSAL. With the group already at the desk, sending late
    * usually still beats not sending; what it must not do is happen unnoticed.
    */
-  const sendLate = pullIsLate({
+  const laneLate = pullIsLate({
     remainingMs: liveClock?.remainingMs ?? null,
     pitInOccupied: !!lane?.pitIn,
     onTrack: !!liveClock || !!lane?.racing,
   });
+  /**
+   * ...AND IT BELONGS TO ONE ROOM (owner 2026-08-18: "the session ends in
+   * warning should only show on the side where the returning race is going
+   * to").
+   *
+   * On a Mega night both columns read the SAME lane, so one race ending put the
+   * identical amber banner — and the identical "Send anyway" button — on both
+   * sides. Only one of them is true. The group out on track walks back into the
+   * room they were briefed in, and that is the room this send would collide
+   * with: their post-race announcement will not play into a room holding a film
+   * (postRaceGate, pit/audio.server.ts). The other room is not late at all — it
+   * is where this group SHOULD go, which is what the suggestion chip beside it
+   * is already saying.
+   *
+   * UNKNOWN ROOM STILL WARNS BOTH. A group hand-placed from Override carries no
+   * room, and a warning that cannot attribute itself must go quiet on neither
+   * side rather than the wrong one. Split nights are untouched — one room, one
+   * track, and the returning race is always this column's.
+   */
+  const returningRoom = laneReturnRoom(lane);
+  const sendLate =
+    laneLate && (track !== "mega" || returningRoom == null || returningRoom === room);
   /** The film this heat will ACTUALLY get, and how long it runs — the second
    *  number the warning needs. Resolved through the Pro→Intermediate fallback so
    *  it quotes the film the room will really play. Null when none is uploaded. */
