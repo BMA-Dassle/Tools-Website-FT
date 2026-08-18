@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { verifyCron } from "@/lib/cron-auth";
-import { refreshRacesCurrent } from "~/features/racing/races-current.server";
+import { refreshRacesCurrent, type TrackKey } from "~/features/racing/races-current.server";
+import { warmSessionRoster } from "~/features/racing/session-roster.server";
 
 /**
  * THE SESSION-STATUS WARM LOOP — what makes "called" state ~realtime
@@ -34,6 +35,9 @@ const STEP_MS = 1_000;
 const FETCH_TIMEOUT_MS = 8_000;
 
 const CLAIM_KEY = "races-current:warm-loop";
+/** Races run at FastTrax only. */
+const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
+const TRACKS: TrackKey[] = ["blue", "red", "mega"];
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -51,11 +55,42 @@ export async function GET(req: NextRequest) {
   const startedAt = Date.now();
   let refreshed = 0;
   let failed = 0;
+  let rostersWarmed = 0;
+  /** Last session id whose roster we warmed, per track — so a called heat costs
+   *  one Pandora read rather than one every second it stays called. */
+  const warmedRoster = new Map<TrackKey, string>();
   try {
     while (Date.now() - startedAt < LOOP_BUDGET_MS) {
       try {
-        await refreshRacesCurrent(FETCH_TIMEOUT_MS);
+        const merged = await refreshRacesCurrent(FETCH_TIMEOUT_MS);
         refreshed++;
+
+        // WARM THE ROSTER ON THE CALL EVENT, NOT A MINUTE LATER.
+        //
+        // This loop already knows the exact second a heat becomes called — it
+        // is the thing that writes the carry. The ROSTER behind that heat had
+        // no such warm: it rode on the check-in-alerts cron, once a minute. So
+        // a heat called at 8:15:02 could sit on the desk with no count beside
+        // it until 8:16, which is precisely the minute staff are scanning it
+        // (owner 2026-08-18: "we need that data soon as we call").
+        //
+        // ONLY ON CHANGE. The session id we last warmed is remembered per
+        // track, so this is one Pandora read per called heat — not one per
+        // second. Fire and forget: the carry refresh is this loop's job and
+        // must not slow down behind a roster pull.
+        for (const track of TRACKS) {
+          const sid = merged[track]?.sessionId;
+          if (!sid) continue;
+          const key = String(sid);
+          if (warmedRoster.get(track) === key) continue;
+          warmedRoster.set(track, key);
+          void warmSessionRoster(FASTTRAX_LOCATION_ID, key, {
+            apiKey: process.env.SWAGGER_ADMIN_KEY || "",
+            timeoutMs: FETCH_TIMEOUT_MS,
+          }).then((list) => {
+            if (list) rostersWarmed++;
+          });
+        }
       } catch {
         failed++;
       }
@@ -66,5 +101,11 @@ export async function GET(req: NextRequest) {
     await redis.del(CLAIM_KEY).catch(() => void 0);
   }
 
-  return NextResponse.json({ ok: true, refreshed, failed, ranMs: Date.now() - startedAt });
+  return NextResponse.json({
+    ok: true,
+    refreshed,
+    failed,
+    rostersWarmed,
+    ranMs: Date.now() - startedAt,
+  });
 }

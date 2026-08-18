@@ -79,3 +79,56 @@ export function dropNullParticipants(participants: Participant[]): Participant[]
 export function rosterIsWorthCaching(participants: Participant[]): boolean {
   return participants.length > 0;
 }
+
+const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
+
+/**
+ * PULL A SESSION'S ROSTER AND SHARE IT — the one place that fetch is written.
+ *
+ * Called from two places, both of which want the same bytes under the same key:
+ * the races-current warm loop, the moment a heat becomes called, and the
+ * check-in board when it needs a count Redis does not have yet.
+ *
+ * WHY THE WARM LOOP CALLS IT. "Called" state has a ~1s warm; the roster only
+ * had a 60s one (a side effect of the check-in-alerts cron). So a heat called
+ * at 8:15:02 could sit there with no count beside it until 8:16 — and that is
+ * the exact minute staff are scanning it (owner 2026-08-18: "we need that data
+ * soon as we call"). Warming it on the call event closes that window to about a
+ * second, and costs one Pandora read per heat rather than one per minute.
+ */
+export async function warmSessionRoster(
+  locationId: string,
+  sessionId: string | number,
+  opts: { apiKey: string; timeoutMs?: number },
+): Promise<Participant[] | null> {
+  try {
+    const res = await fetch(
+      `${PANDORA_URL}/bmi/session/${locationId}/${sessionId}/participants?${rosterUpstreamQuery(true)}`,
+      {
+        headers: { Authorization: `Bearer ${opts.apiKey}`, Accept: "application/json" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(opts.timeoutMs ?? 9_000),
+      },
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    const raw = Array.isArray(json?.data) ? (json.data as Participant[]) : [];
+    const list = dropNullParticipants(raw);
+    if (rosterIsWorthCaching(list)) {
+      const redis = (await import("@/lib/redis")).default;
+      await redis
+        .set(
+          participantsCacheKey(locationId, sessionId, true),
+          JSON.stringify(list),
+          "EX",
+          PARTICIPANTS_CACHE_TTL_SEC,
+        )
+        .catch(() => {
+          /* a roster we failed to share is still a roster we can count */
+        });
+    }
+    return list;
+  } catch {
+    return null;
+  }
+}

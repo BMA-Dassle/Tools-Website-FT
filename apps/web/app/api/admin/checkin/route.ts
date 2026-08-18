@@ -1307,17 +1307,32 @@ async function saveRosterCount(
  * One session's roster: the shared fresh copy, else a live read, else the last
  * number we counted for THIS session, else honestly unknown.
  */
-async function rosterFor(s: SessionStat): Promise<RosterCount> {
-  const now = Date.now();
-  const [lastKnown, credited] = await Promise.all([
-    loadRosterCount(s.locationId, s.sessionId),
-    localCheckInCount(s.locationId, s.sessionId),
-  ]);
-  if (rosterIsFresh(lastKnown, now)) {
-    return applyLocalFloor({ ...lastKnown!, stale: false }, credited);
+/** The roster the scan lookup reads, if Redis already holds it. Instant. */
+async function loadSharedRoster(
+  locationId: string,
+  sessionId: string | number,
+): Promise<RosterParticipant[] | null> {
+  try {
+    const raw = await redis.get(participantsCacheKey(locationId, sessionId, true));
+    if (!raw) return null;
+    const list = JSON.parse(raw) as RosterParticipant[];
+    if (!Array.isArray(list) || list.length === 0) return null;
+    return dropNullParticipants(list);
+  } catch {
+    return null;
   }
+}
 
-  let fresh: { checkedIn: number; total: number } | null = null;
+/**
+ * One live roster read: the count it produces, and the roster it shares.
+ *
+ * Extracted so it can be AWAITED when we have nothing else to show, and fired
+ * and forgotten when we have already answered from the shared cache. Returns
+ * null on any failure — the caller decides what may be claimed.
+ */
+async function refreshRosterFromPandora(
+  s: SessionStat,
+): Promise<{ checkedIn: number; total: number } | null> {
   try {
     // THE SAME QUERY THE PROXY USES, because we write into the same cache below.
     // `excludeUnpaid` is pinned false: the shared key holds the unpaid SUPERSET,
@@ -1338,44 +1353,86 @@ async function rosterFor(s: SessionStat): Promise<RosterCount> {
         signal: AbortSignal.timeout(9_000),
       },
     );
-    if (pRes.ok) {
-      const pData = await pRes.json();
-      const raw = Array.isArray(pData?.data) ? (pData.data as RosterParticipant[]) : [];
-      const list = dropNullParticipants(raw);
-      fresh = {
-        total: list.length,
-        checkedIn: list.filter((p) => !!(p as { checkedIn?: string | null }).checkedIn).length,
-      };
+    if (!pRes.ok) return null;
+    const pData = await pRes.json();
+    const raw = Array.isArray(pData?.data) ? (pData.data as RosterParticipant[]) : [];
+    const list = dropNullParticipants(raw);
 
-      // WRITE THE ROSTER THE SCAN LOOKUP READS.
-      //
-      // lookupGuest / lookupByParticipantId resolve a badge against this key and
-      // return "not found in any active session" on a miss. Its only writer was
-      // the check-in-alerts cron, once a minute — which on a bad Pandora night
-      // fails a large share of its ticks, and if none succeeds inside the 10
-      // minute TTL the key EXPIRES and every badge for that heat scans as
-      // unknown.
-      //
-      // We are already holding a live, clean roster for a called session, pulled
-      // with the proxy's own query. Storing it means the lookup is refreshed by
-      // whatever the board is doing anyway — and a racer moved into this heat is
-      // findable within a poll rather than within a cron tick.
-      if (rosterIsWorthCaching(list)) {
-        void redis
-          .set(
-            participantsCacheKey(s.locationId, s.sessionId, true),
-            JSON.stringify(list),
-            "EX",
-            PARTICIPANTS_CACHE_TTL_SEC,
-          )
-          .catch(() => {
-            /* a roster we failed to share is still a roster we can count */
-          });
-      }
+    // WRITE THE ROSTER THE SCAN LOOKUP READS.
+    //
+    // lookupGuest / lookupByParticipantId resolve a badge against this key and
+    // return "not found in any active session" on a miss. Its only writer was
+    // the check-in-alerts cron, once a minute — which on a bad Pandora night
+    // fails a large share of its ticks, and if none succeeds inside the 10
+    // minute TTL the key EXPIRES and every badge for that heat scans as unknown.
+    //
+    // We are already holding a live, clean roster for a called session, pulled
+    // with the proxy's own query. Storing it means the lookup is refreshed by
+    // whatever the board is doing anyway — and a racer moved into this heat is
+    // findable within a poll rather than within a cron tick.
+    if (rosterIsWorthCaching(list)) {
+      void redis
+        .set(
+          participantsCacheKey(s.locationId, s.sessionId, true),
+          JSON.stringify(list),
+          "EX",
+          PARTICIPANTS_CACHE_TTL_SEC,
+        )
+        .catch(() => {
+          /* a roster we failed to share is still a roster we can count */
+        });
     }
+
+    return {
+      total: list.length,
+      checkedIn: list.filter((p) => !!(p as { checkedIn?: string | null }).checkedIn).length,
+    };
   } catch {
-    /* fresh stays null — resolveRosterCount decides what we may claim */
+    return null;
   }
+}
+
+async function rosterFor(s: SessionStat): Promise<RosterCount> {
+  const now = Date.now();
+  const [lastKnown, credited] = await Promise.all([
+    loadRosterCount(s.locationId, s.sessionId),
+    localCheckInCount(s.locationId, s.sessionId),
+  ]);
+  if (rosterIsFresh(lastKnown, now)) {
+    return applyLocalFloor({ ...lastKnown!, stale: false }, credited);
+  }
+
+  // THE MOMENT A HEAT IS CALLED, THE COUNT HAS TO BE THERE (owner 2026-08-18:
+  // "we need that data soon as we call").
+  //
+  // A heat called seconds ago has no `checkin:roster` entry yet, so the only
+  // way to a number used to be a live Pandora read — and on a night when that
+  // takes 9s, or times out, the desk got a called heat with no count beside it
+  // at exactly the moment staff start scanning it.
+  //
+  // But the roster is very often ALREADY IN REDIS: the check-in-alerts cron
+  // warms `pandora:participants:{loc}:{sid}:R1` for every called session, once
+  // a minute, and the scan lookup has always resolved badges against it. So
+  // count THAT, immediately, and refresh behind it. A number that is up to a
+  // minute old and instant beats a fresher one that arrives after the group has
+  // walked away.
+  const shared = await loadSharedRoster(s.locationId, s.sessionId);
+  if (shared) {
+    const seeded: RosterCount = {
+      checkedIn: shared.filter((p) => !!(p as { checkedIn?: string | null }).checkedIn).length,
+      total: shared.length,
+      atMs: now,
+      stale: false,
+    };
+    const floored = applyLocalFloor(seeded, credited);
+    // Remember it so the next poll is a single Redis read, and refresh from
+    // Pandora in the background — nobody waits on that.
+    void saveRosterCount(s.locationId, s.sessionId, floored);
+    void refreshRosterFromPandora(s);
+    return floored;
+  }
+
+  const fresh = await refreshRosterFromPandora(s);
 
   const resolved = resolveRosterCount(fresh, lastKnown, now);
   // The floor is applied BEFORE storing, so the number we remember for this
@@ -1416,14 +1473,27 @@ async function buildSessionStats(): Promise<SessionStat[]> {
   // HP Arena — currently-called sessions per active center (FM + Naples;
   // sessions/current carries the full session detail, so no schedule
   // lookup needed).
-  for (const center of activeArenaCenters()) {
-    try {
-      const res = await fetch(`${PANDORA_BASE}/v2/bmi/sessions/current/${center.locationId}`, {
-        headers: pandoraHeaders(),
-        cache: "no-store",
-        signal: AbortSignal.timeout(8000),
-      });
-      if (res.ok) {
+  // ARENA DISCOVERY MUST NOT HOLD UP THE RACING COUNTS.
+  //
+  // This was a sequential `for await` over the centers, each a live Pandora
+  // call with an 8s ceiling — so on a night when Pandora is hanging, two
+  // centers could burn 16s before the racing rows even started fetching their
+  // rosters. The board aborts its own poll at 20s, so the strip never landed
+  // and the desk saw a called heat with no count beside it at all (2026-08-18,
+  // owner: "we need that data soon as we call").
+  //
+  // The centers now run concurrently with each other, on a tighter ceiling: an
+  // arena row is a nice-to-have on a racing desk, and a slow one must cost the
+  // racing rows nothing.
+  const arenaRows = await Promise.all(
+    activeArenaCenters().map(async (center): Promise<SessionStat[]> => {
+      try {
+        const res = await fetch(`${PANDORA_BASE}/v2/bmi/sessions/current/${center.locationId}`, {
+          headers: pandoraHeaders(),
+          cache: "no-store",
+          signal: AbortSignal.timeout(4000),
+        });
+        if (!res.ok) return [];
         const json = await res.json();
         const called = Array.isArray(json?.data)
           ? (json.data as {
@@ -1433,12 +1503,13 @@ async function buildSessionStats(): Promise<SessionStat[]> {
               scheduledStart?: string | null;
             }[])
           : [];
+        const rows: SessionStat[] = [];
         for (const s of called) {
           const sid = String(s.sessionId ?? "");
           if (!sid) continue;
           const activity = classifyArenaSession(s.type ?? "");
           if (!activity) continue; // parties / events — not ticketed
-          sessions.push({
+          rows.push({
             track: activityDisplay(activity),
             raceType: "",
             heatNumber: s.heatNumber ?? 0,
@@ -1450,11 +1521,14 @@ async function buildSessionStats(): Promise<SessionStat[]> {
             locationId: center.locationId,
           });
         }
+        return rows;
+      } catch {
+        /* arena stats are best-effort — racing rows still render */
+        return [];
       }
-    } catch {
-      /* arena stats are best-effort — racing rows still render */
-    }
-  }
+    }),
+  );
+  for (const rows of arenaRows) sessions.push(...rows);
 
   await Promise.all(
     sessions.map(async (s) => {
