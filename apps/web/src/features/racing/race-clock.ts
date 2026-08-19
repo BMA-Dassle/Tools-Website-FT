@@ -349,12 +349,19 @@ const GREEN_STAMP_SLACK_MS = 60_000;
  * `SessionStartedNotification` arrived — THE GREEN FLAG, stamped by the venue.
  *
  * WHY THIS EXISTS ALONGSIDE THE TWO-PHASE `RaceStart`. The phase-two start bump
- * is a POSITIONAL signal: "the second RaceStart". It is normally reliable and
- * lands 1-2s after this notification —
+ * is a POSITIONAL signal: "the second RaceStart". It is normally reliable, and
+ * lands within a few seconds of this notification — venue STAMP against our
+ * ARRIVAL stamp, which is the whole point: the lag is on our side, not theirs —
  *
  *   heat 48  SessionStarted 19:54:41.626   phase-two RaceStart 19:54:43
  *   heat 49  SessionStarted 20:04:15.135   phase-two RaceStart 20:04:18
  *   heat 50  SessionStarted 20:13:57.354   phase-two RaceStart 20:13:59
+ *
+ * ORDER IS NOT GUARANTEED, though, and the fix does not assume it: measured the
+ * same night against the shipped anchor, heat 53 had the notification 1.63s
+ * AHEAD and heat 54 had it 5.49s BEHIND. Whichever lands first anchors; the
+ * other is a no-op. Either way the two agree to within seconds on a healthy
+ * heat, so this changes no clock anyone is watching.
  *
  * — but on 2026-08-18 heat 47 the venue simply never sent it. The notification
  * DID arrive, on time, at 19:45:25.354, while the race sat armed showing a
