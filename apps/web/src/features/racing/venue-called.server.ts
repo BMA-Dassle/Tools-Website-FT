@@ -1,27 +1,31 @@
 import "server-only";
 
 /**
- * THE CALLED-HEAT SHADOW — phase 0 of moving session status off Pandora polling.
+ * THE CALLED HEAT, FROM THE VENUE INSTEAD OF FROM A POLL.
  *
- * `/api/cron/races-current-warm` learns the called heat by asking Pandora once a
- * second, all day: ~2,200 calls an hour, ~53,000 a day, and more than half of
- * everything we send that vendor. The venue's own WebSocket already pushes the
- * same fact — `SessionAboutToStartNotification` — and we have never listened.
+ * `/api/cron/races-current-warm` used to learn the called heat by asking Pandora
+ * once a second, all day: ~2,200 calls an hour, ~53,000 a day, and more than half
+ * of everything we send that vendor. The venue's own WebSocket pushes the same
+ * fact — `SessionAboutToStartNotification` — and nothing listened until now.
  *
- * THIS FILE CHANGES NOTHING THAT ANYONE SEES. It writes to its own keys
- * (`venue:called:*`), which no board, wall or route reads. Its whole job is to
- * earn the right to write the real carry (`pandora:last-race:fasttrax:*`) by
- * proving, against a live race day, that it agrees with Pandora about every
- * called heat and is never wrong about a track. `scripts/venue-called-diff.mts`
- * is the scoreboard.
+ * This writes the real carry (`pandora:last-race:fasttrax:*`) that every board,
+ * wall and tablet reads, and the poll drops to a 30s net behind it. It also keeps
+ * writing its own `venue:called:*` keys, which nothing reads, because those are
+ * what `scripts/venue-called-diff.mts` compares the two rails with — the
+ * scoreboard stays live after the switch.
  *
- * WHY A SHADOW AND NOT JUST THE SWITCH: the carry is the single piece of state
- * the entire estate reads, and `refreshRacesCurrent` wraps it in behaviour that
- * is easy to miss — `preserveFirstCall` pins a re-called heat to its FIRST
- * calledAt so clocks don't reset, and the desk's "Clear" tombstones must swallow
- * a call and retire on a genuine re-call. A second writer that gets any of that
- * wrong puts a wrong heat, or a cleared heat, on every screen in the building.
- * The v2 cutover rule in CLAUDE.md says deploy alongside, prove, then switch.
+ * EVERY WRITE GOES THROUGH `recordCalledRace` → `applyCalledRace`, never directly
+ * to Redis. The carry is the single piece of state the entire estate reads, and it
+ * is wrapped in behaviour that is easy to miss: `preserveFirstCall` pins a
+ * re-called heat to its FIRST calledAt so no countdown restarts, the desk's
+ * "Clear" tombstone must swallow a call and be spent by a genuine re-call, and
+ * `callIsStalerThanStored` stops a late answer moving the board backwards. A
+ * second writer that reimplemented any of that is how a cleared heat returns to
+ * every screen in the building.
+ *
+ * AND IT DECLINES RATHER THAN GUESSES. No track from `ResourceId`, no race type
+ * from the dayplanner row, no heat number, no venue stamp → no write, and the poll
+ * picks it up within one cycle. A fast lie on a wall is worse than a slow truth.
  *
  * ── WHAT THE HISTORY ALREADY PROVED (2026-08-19, 95 called heats, 8/16-8/19) ──
  *   - `ResourceId` gives the track outright and never lied: 11208654 blue,
@@ -66,22 +70,67 @@ import "server-only";
 import redis from "@/lib/redis";
 import type { TrackKey } from "~/features/signage/track";
 import {
+  extractRaceAdvice,
   extractRaceFinishes,
   extractRaceStarts,
   extractSessionCalls,
   extractSessionLifecycle,
 } from "~/features/racing/venue-broadcast";
+import { recordCalledRace, type CurrentRace } from "~/features/racing/races-current.server";
 
-/** One key per track, mirroring the real carry's shape so a later promotion is a
- *  change of key name and a merge call, not a reshape. */
+/** One key per track, mirroring the real carry's shape. Still written after the
+ *  promotion below: it is the scoreboard `scripts/venue-called-diff.mts` reads to
+ *  keep checking the two rails against each other. */
 const CALLED_KEY = (t: TrackKey) => `venue:called:${t}`;
+/** What the heat IS — race type and scheduled start — learned from RaceAdvice,
+ *  which the call notification does not carry. Keyed by session. */
+const META_KEY = (sessionId: string) => `venue:session-meta:${sessionId}`;
+const META_TTL_SECONDS = 60 * 60 * 24;
+
+/**
+ * KILL SWITCH, default ON (house rule: a flag exists to turn a live feature OFF,
+ * never to gate one in). `false` reverts the estate to Pandora-only, which is
+ * exactly what it does today — the loop keeps running either way.
+ */
+export function venueCalledFastPathEnabled(): boolean {
+  return process.env.VENUE_CALLED_FAST_PATH !== "false";
+}
+
+export interface VenueSessionMeta {
+  track: TrackKey;
+  heatNumber: number | null;
+  /** "Starter", "Junior Pro", "GF Starter" — the label Pandora puts in raceType. */
+  raceType: string;
+  scheduledStartIso: string | null;
+  heatName: string;
+}
+
+/** Pandora's trackName values, which every board already renders. */
+const TRACK_NAMES: Record<TrackKey, string> = { blue: "Blue", red: "Red", mega: "Mega" };
+
+/**
+ * "68 - Mega Starter" → "Starter"; "35 - Blue Junior Pro" → "Junior Pro";
+ * "41 - Mega GF Starter" → "GF Starter"; "34 - Adult Only" → "Adult Only".
+ *
+ * Split the way Pandora splits it: strip the heat number, then the track word if
+ * it leads. A name with neither (an un-configured "Heat 69") yields "", and the
+ * caller refuses to write rather than put a blank type on a board.
+ */
+export function parseRaceType(heatName: string, track: TrackKey): string {
+  const withoutHeat = heatName.replace(/^\s*\d+\s*-\s*/, "").trim();
+  const trackWord = TRACK_NAMES[track];
+  const withoutTrack = withoutHeat.replace(new RegExp(`^${trackWord}\\s+`, "i"), "").trim();
+  // "Mega Track 67" and bare "Heat 69" carry no race type at all.
+  if (!withoutTrack || /^track\b/i.test(withoutTrack) || /^heat\b/i.test(withoutTrack)) return "";
+  return withoutTrack;
+}
 /** Append-only evidence: every call/green/finish with BOTH stamps, so the diff
  *  script can compare a whole day instead of only the current state. */
 const LOG_KEY = "venue:called:log";
 const LOG_MAX = 2_000;
 const LOG_TTL_SECONDS = 60 * 60 * 72;
-/** Long enough to outlive a race day, short enough that a stale shadow cannot
- *  masquerade as today's state. */
+/** Long enough to outlive a race day, short enough that a stale comparison copy
+ *  cannot masquerade as today's state. */
 const CALLED_TTL_SECONDS = 60 * 60 * 18;
 
 export type VenueCalledPhase = "called" | "started" | "finished";
@@ -92,11 +141,11 @@ export interface VenueCalledState {
   heatNumber: number | null;
   sessionName: string;
   phase: VenueCalledPhase;
-  /** The venue's stamp for the FIRST "due" firing. Not necessarily the call —
-   *  see the header. */
+  /** The venue's stamp for the FIRST firing — the call. See the header for why
+   *  the later ones are re-announcements and must not displace it. */
   calledAtMs: number | null;
-  /** The most recent firing, which on multi-fire heats is the one that actually
-   *  lined up with the desk's call. */
+  /** The most recent firing, kept only so the diff script can show how long a heat
+   *  went on being re-announced before it started. */
   latestFiringMs: number | null;
   /** How many DISTINCT firings this heat got (duplicate deliveries excluded). */
   firings: number;
@@ -142,7 +191,62 @@ async function writeState(state: VenueCalledState): Promise<void> {
 }
 
 /**
- * Fold one webhook message into the shadow state.
+ * Put a venue-sourced call into the real carry, through `recordCalledRace` — the
+ * one seam that owns re-call pinning, the desk's Clear tombstone and the
+ * out-of-order guard. This function's only job is to build a `CurrentRace` that
+ * is honest, or to decline.
+ *
+ * IT DECLINES ON MISSING METADATA, on purpose. The call notification carries a
+ * session, a name and a resource; it does NOT carry the race type or the
+ * scheduled start, both of which every board renders. Writing a heat with a blank
+ * type would look like a bug on the glass, and inventing a scheduled start would
+ * corrupt the on-time numbers. The 30-second poll fills those cases within one
+ * cycle, which is strictly better than a fast lie.
+ */
+async function writeCarryFromCall(
+  sessionId: string,
+  track: TrackKey,
+  heatNumber: number | null,
+  calledAtMs: number,
+): Promise<void> {
+  let meta: VenueSessionMeta | null = null;
+  try {
+    const rawMeta = await redis.get(META_KEY(sessionId));
+    if (rawMeta) meta = JSON.parse(rawMeta) as VenueSessionMeta;
+  } catch (err) {
+    console.warn("[venue-called] meta read failed:", err);
+  }
+  const heat = heatNumber ?? meta?.heatNumber ?? null;
+  if (!meta?.raceType || heat == null) {
+    console.log(
+      `[venue-called] not writing carry for ${track} session ${sessionId} — ` +
+        `${!meta ? "no RaceAdvice metadata yet" : !meta.raceType ? "no race type" : "no heat number"}; ` +
+        `leaving it to the poll`,
+    );
+    return;
+  }
+
+  const race: CurrentRace = {
+    trackName: TRACK_NAMES[track],
+    raceType: meta.raceType,
+    heatNumber: heat,
+    scheduledStart: meta.scheduledStartIso ?? undefined,
+    calledAt: new Date(calledAtMs).toISOString(),
+    // Number, matching what races/current sends and what every consumer of the
+    // carry already reads. Safe here and only here: RaceIds are 8 digits on this
+    // wire (verified, 2,496 records) — a 17-digit id would need the string path.
+    sessionId: Number(sessionId),
+  };
+  const held = await recordCalledRace(track, race);
+  console.log(
+    held?.sessionId === race.sessionId
+      ? `[venue-called] CARRY ${track} ← heat ${heat} ${meta.raceType} (called ${race.calledAt})`
+      : `[venue-called] carry unchanged for ${track} — seam refused (cleared or staler)`,
+  );
+}
+
+/**
+ * Fold one webhook message into the carry and the comparison keys.
  *
  * Ordering is guaranteed by the bridge POSTing serially, which is what makes the
  * read-modify-write below safe without a lock — the same reasoning
@@ -150,6 +254,28 @@ async function writeState(state: VenueCalledState): Promise<void> {
  */
 export async function observeVenueCalls(message: unknown, seenAtMs: number): Promise<void> {
   try {
+    // ── what each heat IS, from the dayplanner rows that stream all day ───────
+    // Learned BEFORE the call is handled, because a call for a heat we know
+    // nothing about cannot be written to the carry (see below) — and a heat's
+    // RaceAdvice almost always precedes its call by minutes or hours.
+    for (const advice of extractRaceAdvice(message)) {
+      if (!advice.track || !advice.heatName) continue;
+      const raceType = parseRaceType(advice.heatName, advice.track);
+      if (!raceType) continue;
+      const meta: VenueSessionMeta = {
+        track: advice.track,
+        heatNumber: advice.heatNumber,
+        raceType,
+        scheduledStartIso: advice.scheduledStartMs
+          ? new Date(advice.scheduledStartMs).toISOString()
+          : null,
+        heatName: advice.heatName,
+      };
+      await redis
+        .set(META_KEY(advice.raceId), JSON.stringify(meta), "EX", META_TTL_SECONDS)
+        .catch(() => void 0);
+    }
+
     // ── the call ──────────────────────────────────────────────────────────────
     for (const call of extractSessionCalls(message)) {
       if (!call.track) {
@@ -188,6 +314,17 @@ export async function observeVenueCalls(message: unknown, seenAtMs: number): Pro
         `[venue-called] DUE ${call.track} heat ${call.heatNumber ?? "?"} session ${call.sessionId}` +
           `${isSameHeat ? ` (firing #${state.firings})` : ""}`,
       );
+
+      // ── AND NOW THE CARRY ITSELF ────────────────────────────────────────────
+      // Only the FIRST firing writes: later ones are the venue re-announcing a
+      // heat still on the grid, and `preserveFirstCall` would pin them anyway —
+      // skipping saves a pointless read-modify-write on every re-announcement.
+      if (!venueCalledFastPathEnabled() || isSameHeat) continue;
+      // A heat that has already run is not "called". Without this, a late
+      // re-announcement could resurrect a finished heat onto the board.
+      if (prior?.sessionId === call.sessionId && prior.phase === "finished") continue;
+      if (!call.atMs) continue; // no stamp, no clock — leave it to the poll
+      await writeCarryFromCall(call.sessionId, call.track, call.heatNumber, call.atMs);
     }
 
     // ── the green: either notification or the RaceStart record ────────────────
@@ -205,8 +342,8 @@ export async function observeVenueCalls(message: unknown, seenAtMs: number): Pro
       if (!green.track) continue;
       const prior = await readState(green.track);
       // Only advance the heat we are actually holding: a green for some other
-      // session means our shadow missed its call, and inventing state here would
-      // hide exactly the gap the shadow day is meant to measure.
+      // session means we missed its call, and inventing state here would hide
+      // exactly the coverage gap the diff script exists to surface.
       if (!prior || prior.sessionId !== green.sessionId) continue;
       if (prior.phase === "started" || prior.phase === "finished") continue;
       const state: VenueCalledState = { ...prior, phase: "started", startedAtMs: green.atMs };
@@ -231,20 +368,21 @@ export async function observeVenueCalls(message: unknown, seenAtMs: number): Pro
       if (!prior || prior.sessionId !== end.sessionId) continue;
       if (prior.phase === "finished") continue;
       // NOT deleted. The real carry deliberately holds a finished heat between
-      // races (age-gated) so a board is not blank in the gap; the shadow keeps
-      // the same shape so the comparison stays like-for-like.
+      // races (age-gated) so a board is not blank in the gap; these keys keep the
+      // same shape so the comparison stays like-for-like.
       const state: VenueCalledState = { ...prior, phase: "finished", finishedAtMs: end.atMs };
       await writeState(state);
       await appendLog({ ...state, event: "finish" });
     }
   } catch (err) {
-    // Swallowed by design — see the file header. A shadow that can break the
-    // webhook is worse than no shadow.
+    // Swallowed by design — see the file header. This runs beside the race clock
+    // and the incident log; a handler that can break the webhook is worse than a
+    // handler that misses one heat, which the 30s poll then covers.
     console.error("[venue-called] observe failed:", err);
   }
 }
 
-/** All three shadow keys — for the diff script and any future admin panel. */
+/** All three comparison keys — for the diff script and any future admin panel. */
 export async function readVenueCalledAll(): Promise<Record<TrackKey, VenueCalledState | null>> {
   const [blue, red, mega] = await Promise.all([
     readState("blue"),

@@ -206,6 +206,21 @@ export function extractRaceFinishes(message: unknown): VenueRaceFinish[] {
 }
 
 /**
+ * Every `RaceAdvice` record — the dayplanner row, roster and all.
+ *
+ * This is where the venue says what a heat IS: `Name` ("68 - Mega Starter"),
+ * `ResourceId`, `ScheduledStart`, and `Drivers[]`. The call notification carries
+ * only a session id, a name and a resource, so anything needing the heat's race
+ * type or scheduled start joins to this by `RaceId`.
+ *
+ * `state` is always empty here — RaceAdvice has no `State` field, unlike the
+ * finish/start records this shares a parser with.
+ */
+export function extractRaceAdvice(message: unknown): VenueRaceFinish[] {
+  return extractRaceRecords(message, "RaceAdvice");
+}
+
+/**
  * Every `RaceStart` record — THE FLAG DROPPING, as it happens.
  *
  * Owner 2026-08-12: "don't we have race start from the karting websocket?" We do,

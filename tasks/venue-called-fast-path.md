@@ -62,17 +62,36 @@ Ran against the 8/16-8/19 buffer joined to `briefing_events.called_at` (95 calle
 
 ---
 
-## Phase 1 — the WS writes the carry, through the existing merge seam
+## Phase 1 — the WS writes the carry, through the existing merge seam — BUILT
 
-- [ ] **Extract the merge** out of `refreshRacesCurrent` so ONE function owns
-      `preserveFirstCall` + Clear tombstones + the age gate, and both writers call it. A
-      second writer that reimplements any of it is how a cleared heat returns to the wall.
-- [ ] WS handler writes the real carry (`pandora:last-race:fasttrax:*`) through that seam,
-      first-firing-wins per session, ignoring firings for a heat already finished.
-- [ ] **Slow the loop, do not delete it**: step 1s → 30s. ~2,200/hr → ~120/hr.
-- [ ] **Bridge-health gate**: `kart:bridge:last-event` older than ~2 min → back to 1s
-      stepping automatically. Proven necessary by the 8/17 dead window.
-- [ ] Kill switch `VENUE_CALLED_FAST_PATH=false` → Pandora-only. Default ON (house rule).
+- [x] **Merge extracted** to `applyCalledRace(track, incoming, stored, cleared)` in
+      `races-current.server.ts`, with `recordCalledRace(track, race)` as the per-track door
+      for a non-Pandora writer. `refreshRacesCurrent` now calls the same function in its
+      loop, so `preserveFirstCall`, the Clear tombstone and `callIsStalerThanStored` cannot
+      diverge between the two rails.
+- [x] **WS writes the carry** — first-firing-wins, skips re-announcements, refuses a heat
+      already finished, and **declines rather than guesses**: no `ResourceId` track, no race
+      type from `RaceAdvice`, no heat number or no venue stamp → no write, poll covers it
+      within a cycle. `venue:session-meta:{sessionId}` carries race type + scheduled start,
+      learned from the dayplanner rows that stream all day.
+- [x] **Loop is now the net**: `warmLoopStepMs` — 30s while the bridge is alive, **1s the
+      moment it is not** (`kart:bridge:last-event` older than 2 min, unparseable, or absent),
+      and 1s whenever the kill switch is off. Decided once per invocation, not per tick.
+      The response reports `stepMs`, `bridgeLastEvent` and `fastPath` for diagnosis.
+- [x] Kill switch `VENUE_CALLED_FAST_PATH=false` → Pandora-only at 1s, i.e. exactly today's
+      behaviour. Default ON (house rule).
+- [x] 35 tests: 19 on the wire + observer, 10 on the carry writer (including the desk Clear
+      being honoured and tracks not bleeding), 6 on the step decision.
+
+### Owed before this can be trusted
+
+- [ ] **One race day watched.** Nothing here has seen a live call. Watch
+      `[venue-called] CARRY` in the logs, then run `scripts/venue-called-diff.mts`.
+- [ ] **Confirm Pandora traffic actually falls.** `stepMs: 30000` in the cron response and a
+      ~95% drop on `/bmi/races/current`. If it stays at 1,000 the bridge heartbeat is stale
+      and the gate is doing its job — fix the bridge, not the gate.
+- [ ] **Watch for a heat the WS places that Pandora never confirms** — the diff script's
+      WS-only column. One would mean the two rails disagree about what "called" means.
 
 **Why not "the venue triggers a Pandora read" instead** (considered, rejected): a triggered
 read is still a Pandora read, so it fails in exactly the window the WS is most valuable —

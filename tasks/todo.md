@@ -10,11 +10,14 @@ writes only `venue:called:*` and is read by nothing.
 
 - [x] `extractSessionCalls`, `venue-called.server.ts`, fourth `after()` in the kart webhook,
       `scripts/venue-called-diff.mts`, 17 tests on verbatim frames.
-- [ ] **Run `venue-called-diff.mts` after a real race day** — coverage, wrong-track, lead,
-      re-calls. Measured historically at a median 4.8s lead (and 789s on one degraded heat),
-      but the live day is the gate.
-- [ ] Then phase 1: share the merge seam, WS writes the carry, loop 1s → 30s behind a
-      bridge-health gate and a kill switch.
+- [x] Gates answered from HISTORY instead of a race day (owner pushed for this): track 0
+      wrong, coverage 91/95 with all four misses inside a dead-bridge window, median 4.8s
+      lead, and the first firing is the call — the later ones are re-announcements.
+- [x] **Phase 1 BUILT**: merge extracted to one seam, WS writes the carry, loop 1s → 30s
+      behind a bridge-health gate and a kill switch.
+- [ ] **NOT SMOKED — nothing here has seen a live call.** Watch `[venue-called] CARRY` on the
+      next race day, confirm the cron reports `stepMs: 30000`, and check `/bmi/races/current`
+      traffic actually drops ~95%.
 
 ## Mega session tracker — the return-room pill (2026-08-18) — ON MAIN, NOT smoked
 
@@ -483,8 +486,8 @@ the event. See lessons.md § "A derived flag written only at INSERT rots" (third
 instance) and § "Refunding a deposit while its gift card stays funded pays twice".
 
 - [x] **`syncQuoteCenter`** (group-quote-dispatch) re-derives `center_code /
-    center_name / square_location_id / brand / base_url / gan_prefix /
-    hermes_center` on every "Send Contract" pass, gated on
+  center_name / square_location_id / brand / base_url / gan_prefix /
+  hermes_center` on every "Send Contract" pass, gated on
       `center_code`/`square_location_id` so ~170 legacy `gan_prefix` rows don't churn.
       Audit-logs `center_moved`, writes a BMI private note, folds the move into the
       post-sign `changes[]` set (a venue change can move zero money, which the
