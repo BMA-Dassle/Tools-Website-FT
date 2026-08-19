@@ -41,28 +41,41 @@ import { WALL_ACCENT } from "../wall-content";
 const SWEEP_PERIOD_MS = 7500;
 
 /**
- * WHICH END THE LIGHT ENTERS FROM.
+ * DOES THE SHINE TRAVEL ALONG THE WALL, OR LAND ON ALL FIVE AT ONCE?
  *
- * `tv-sweep` animates background-position from 140% to -60%, so within one panel the
- * bright band travels RIGHT TO LEFT. For the wall to read as one pass rather than
- * five simultaneous glints, each panel is offset by where it stands on the virtual
- * canvas — gaps included, which is what `wallSpan` is for.
+ * UNISON is the default, and it is what the owner asked for (2026-08-18, three
+ * times: "the shine on the 5 TVs is not in sync"). Every panel is seeked to the same
+ * phase of the shared clock, so the light crosses all five simultaneously and the
+ * wall reads as ONE surface catching the light.
  *
- * Flip this if the wave runs the wrong way on the glass. It is a fact about how the
- * wall is hung and how the eye reads it, not something derivable here, and it is one
- * constant precisely so it takes one look and one character to correct.
+ * A travelling pass was tried first, on a reading of the design's phrase "light
+ * wave", and it is the wrong instinct here: staggering the panels is by definition
+ * not in sync, and on a wall this tight it reads as five screens disagreeing rather
+ * than as one gesture. The mechanism is kept because it is three lines and the kiosk
+ * bank genuinely wants it (that is how the attract car hands off screen to screen) —
+ * but it is OFF, and turning it on is a deliberate design decision, not a default.
  */
+const SWEEP_TRAVELS_ALONG_THE_WALL = false;
+
+/** Whether the travelling pass enters from the right. `tv-sweep` animates
+ *  background-position 140% → -60%, so within one panel the band moves right to
+ *  left; leading the right-hand panel therefore continues that direction across the
+ *  wall. Only consulted when the pass is travelling at all. */
 const SWEEP_LEADS_FROM_RIGHT = true;
 
 /**
- * The phase shift that puts THIS panel at its place in a wall-long light pass.
+ * The phase shift for THIS panel's light pass.
  *
- * Returns 0 for a screen that is not on a wall, so every existing board keeps the
- * synchronised-glint behaviour it has today. `syncGlowPhase` adds this to the shared
- * clock before seeking, so a larger shift means further through the cycle — i.e.
- * that panel leads.
+ * ZERO in unison mode, which is the default and which is what keeps all five in
+ * step: `syncGlowPhase` seeks every panel to `sharedClock % period`, so with no shift
+ * they are at the same point in the same 7.5s cycle at the same instant, whatever
+ * time each panel happened to boot.
+ *
+ * Also zero for any screen that is not on a wall, so every existing board is
+ * untouched either way.
  */
 function sweepPhaseMs(wall: { position: number; count: number; gapPct: number } | null): number {
+  if (!SWEEP_TRAVELS_ALONG_THE_WALL) return 0;
   if (!wall || wall.count <= 1) return 0;
   const { start } = wallSpan(wall.position, wall.count, wall.gapPct);
   const fraction = SWEEP_LEADS_FROM_RIGHT ? start : 1 - start;

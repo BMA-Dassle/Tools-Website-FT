@@ -411,6 +411,16 @@ export interface BowlingWallOffer {
   unit: string;
   /** e.g. "1.5 hours", when the offer has a fixed length. */
   durationLabel: string | null;
+  /**
+   * Are shoes in the price?
+   *
+   * NOT a constant, and not something to assume of a "special": Fun 4 All and Pizza
+   * Bowl include them, MIDNIGHT MADNESS DOES NOT, and neither does an hourly lane.
+   * Blanket-printing "shoes included" would be a $5-per-person surprise at the desk
+   * on a Friday night. Derived from the catalog's own description so the wall follows
+   * whatever the offer actually says.
+   */
+  shoesIncluded: boolean;
 }
 
 /** A provisioned screen — one row of `signage_screens`. */

@@ -27,6 +27,7 @@ import {
 import { resolveScreenConfig } from "../defaults";
 import { useTvFeed } from "../useTvFeed";
 import { applyDemo, effectiveDemoMode, parseDemoMode, type DemoMode } from "../demo";
+import { WallIdentify } from "./WallIdentify";
 import { briefingTimelineAt } from "../briefing/phase";
 import type { SceneDecision } from "../director/schedule";
 import { SceneDirector } from "../director/SceneDirector";
@@ -337,6 +338,20 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
           demo={effectiveDemo}
           onDecision={setDecision}
         />
+        {/* THE SETUP + SYNC TEST. An overlay rather than a scene: it has to be
+            readable whatever the wall happens to be showing, and it must not
+            disturb the rotation underneath — so the panels are still in step the
+            moment it clears. */}
+        {effectiveDemo === "identify" && (
+          <WallIdentify
+            screenId={screenId}
+            screenName={feed?.screen?.name || VENUE_INFO[venue]?.label || ""}
+            buildSha={BUILD_SHA}
+            offset={offset}
+            wall={config.wall}
+            pairing={config.pairing}
+          />
+        )}
         {debug && (
           <pre
             style={{

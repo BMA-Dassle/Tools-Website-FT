@@ -227,6 +227,11 @@ export async function POST(req: NextRequest) {
         "results-mega",
         "top-times",
         "guide-arrow",
+        // Not a fabricated-data preview like the others: it prints the panel's OWN
+        // identity and sync numbers. That is the only way to check a wall's physical
+        // order and whether the shine is genuinely in step, both of which can only
+        // be judged standing in front of the glass.
+        "identify",
       ].includes(mode)
     ) {
       await requestScreenDemo(body.screenId, mode);

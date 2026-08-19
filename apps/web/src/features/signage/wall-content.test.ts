@@ -213,7 +213,12 @@ describe("the VIP showcase", () => {
       .replace(/\n/g, " ");
     expect(sentence.toLowerCase()).toContain("two locations");
     expect(sentence.toLowerCase()).toContain("one price");
-    expect(sentence.toLowerCase()).toContain("one vip experience");
+    // THE STATEMENT NAMES THE PRODUCT. It used to end on the phrase "one VIP
+    // experience", which describes it without naming it — a guest could read the
+    // whole wall and still not know what to ask for (owner 2026-08-18).
+    expect(sentence).toContain(COMBO?.name ?? "VIP Experience");
+    const named = panels[3];
+    expect("rule" in named && named.rule).toBe("All Access");
   });
 
   it("NO WORD CROSSES A GAP — every headline is whole on its own panel", () => {
@@ -332,17 +337,31 @@ describe("the menu board — one subject per panel", () => {
         priceLabel: "$15.99",
         unit: "per person",
         durationLabel: "1.5 hours",
+        shoesIncluded: true,
       },
       vip: {
         label: "Fun 4 All VIP",
         priceLabel: "$17.99",
         unit: "per person",
         durationLabel: "1.5 hours",
+        shoesIncluded: true,
       },
     },
     hourly: {
-      regular: { label: "Regular", priceLabel: "$45", unit: "per lane", durationLabel: null },
-      vip: { label: "VIP", priceLabel: "$67.50", unit: "per lane", durationLabel: null },
+      regular: {
+        label: "Regular",
+        priceLabel: "$45",
+        unit: "per lane",
+        durationLabel: null,
+        shoesIncluded: false,
+      },
+      vip: {
+        label: "VIP",
+        priceLabel: "$67.50",
+        unit: "per lane",
+        durationLabel: null,
+        shoesIncluded: false,
+      },
     },
   };
 
@@ -424,17 +443,31 @@ describe("the bowling panel — the one attraction with no static price", () => 
         priceLabel: "$15.99",
         unit: "per person",
         durationLabel: "1.5 hours",
+        shoesIncluded: true,
       },
       vip: {
         label: "Fun 4 All VIP",
         priceLabel: "$17.99",
         unit: "per person",
         durationLabel: "1.5 hours",
+        shoesIncluded: true,
       },
     },
     hourly: {
-      regular: { label: "Regular", priceLabel: "$45", unit: "per lane", durationLabel: null },
-      vip: { label: "VIP", priceLabel: "$67.50", unit: "per lane", durationLabel: null },
+      regular: {
+        label: "Regular",
+        priceLabel: "$45",
+        unit: "per lane",
+        durationLabel: null,
+        shoesIncluded: false,
+      },
+      vip: {
+        label: "VIP",
+        priceLabel: "$67.50",
+        unit: "per lane",
+        durationLabel: null,
+        shoesIncluded: false,
+      },
     },
   };
 
@@ -457,6 +490,15 @@ describe("the bowling panel — the one attraction with no static price", () => 
     expect(panel.rows[2].name.toLowerCase()).toContain("by the hour");
     expect(panel.rows[2].price).toBe("$45");
     expect(panel.rows[2].note).toContain("per lane");
+  });
+
+  it("says SHOES INCLUDED only where the offer actually includes them", () => {
+    // Fun 4 All includes shoes; an hourly lane does not, and neither does Midnight
+    // Madness. Blanket-printing it would be a $5-a-head surprise at the desk.
+    const panel = menuPanelAt(now, 0, BOWLING)!;
+    expect(panel.rows[0].note).toContain("shoes included");
+    expect(panel.rows[1].note).toContain("shoes included");
+    expect(panel.rows[2].note).not.toContain("shoes");
   });
 
   it("says WHICH UNIT every price is in — per lane is not per person", () => {
@@ -489,7 +531,13 @@ describe("the bowling panel — the one attraction with no static price", () => 
   it("a catalog row with no priced item shows no price rather than a zero", () => {
     const panel = menuPanelAt(now, 0, {
       special: {
-        regular: { label: "Fun 4 All", priceLabel: null, unit: "per person", durationLabel: null },
+        regular: {
+          label: "Fun 4 All",
+          priceLabel: null,
+          unit: "per person",
+          durationLabel: null,
+          shoesIncluded: true,
+        },
         vip: null,
       },
       hourly: null,

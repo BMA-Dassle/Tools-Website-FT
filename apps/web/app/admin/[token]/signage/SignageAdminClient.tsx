@@ -297,6 +297,7 @@ export default function SignageAdminClient({ token }: { token: string }) {
                 // Resolved here rather than in the row: the row only knows its
                 // own screen, and a pair is a fact about the whole list.
                 pairedWith={pairSidesFor(data.screens, s.screenId)}
+                wallMates={wallMatesFor(data.screens, s.screenId)}
                 token={token}
                 heartbeat={data.seen[s.screenId] ?? null}
                 nowMs={loadedAt}
@@ -311,6 +312,25 @@ export default function SignageAdminClient({ token }: { token: string }) {
                 onSimulate={(action, extra, label) =>
                   post({ action, center: s.center, firstName: "Marcus", ...extra }, label)
                 }
+                // One press, every panel of the wall. Sent SEQUENTIALLY so a
+                // failure part-way names the screen it stopped on, rather than
+                // leaving a wall half-labelled with nothing to say which half.
+                onIdentifyWall={async (screenIds, on) => {
+                  for (const id of screenIds) {
+                    const ok = await post({
+                      action: "preview",
+                      center: s.center,
+                      screenId: id,
+                      mode: on ? "identify" : "off",
+                    });
+                    if (!ok) return;
+                  }
+                  setNote(
+                    on
+                      ? `✓ Identify sent to ${screenIds.join(", ")} — walk the wall; the filled box must move left to right. Clears itself in 5 minutes.`
+                      : `✓ Identify cleared on ${screenIds.join(", ")}.`,
+                  );
+                }}
                 onSimulateScan={(track, opts, label) =>
                   post(
                     {
@@ -337,6 +357,23 @@ export default function SignageAdminClient({ token }: { token: string }) {
 
 /* ── row ──────────────────────────────────────────────────────────────── */
 
+/** Every screen on this screen's WALL, in position order — itself included. Empty
+ *  for a screen that is not part of a wall. Resolved in the parent for the same
+ *  reason a pair is: a row only knows its own screen, and a wall is a fact about the
+ *  whole list. */
+function wallMatesFor(screens: SignageScreen[], screenId: string): string[] {
+  const wallId = screens.find((s) => s.screenId === screenId)?.config.wall?.wallId;
+  if (!wallId) return [];
+  return screens
+    .filter((s) => s.config.wall?.wallId === wallId)
+    .sort(
+      (a, b) =>
+        (a.config.wall?.position ?? 0) - (b.config.wall?.position ?? 0) ||
+        a.screenId.localeCompare(b.screenId),
+    )
+    .map((s) => s.screenId);
+}
+
 /** The two screen ids of this screen's pairing group, left first, or null. */
 function pairSidesFor(
   screens: SignageScreen[],
@@ -349,6 +386,7 @@ function pairSidesFor(
 function ScreenRow({
   screen,
   pairedWith,
+  wallMates,
   token,
   heartbeat,
   nowMs,
@@ -357,11 +395,15 @@ function ScreenRow({
   onTest,
   onSimulateScan,
   onSimulate,
+  onIdentifyWall,
   busy,
 }: {
   screen: SignageScreen;
   /** Set only when this screen is half of a two-screen pairing group. */
   pairedWith: { leftId: string; rightId: string } | null;
+  /** Every screen on this screen's wall, in position order. Empty when it is not on
+   *  one, which is what hides the wall-wide test. */
+  wallMates: string[];
   token: string;
   heartbeat: { at: string; build: string | null } | null;
   /** Clock read once per load by the parent — never Date.now() during render. */
@@ -375,6 +417,8 @@ function ScreenRow({
     label?: string,
   ) => void;
   onSimulate: (action: string, extra?: Record<string, unknown>, label?: string) => void;
+  /** Put every panel of the wall into (or out of) the identify test at once. */
+  onIdentifyWall: (screenIds: string[], on: boolean) => void;
   busy: boolean;
 }) {
   const [showSetup, setShowSetup] = useState(false);
@@ -671,6 +715,46 @@ function ScreenRow({
             {/* One button per mood the scores wall can be in. They are separate
                 buttons rather than a dropdown because the whole reason to press
                 one is to compare it against the others on the wall. */}
+            {/* THE SETUP TEST, first because it is what you reach for when a wall is
+                newly hung: it prints each panel's number, its player and its monitor
+                side, and the two numbers that say whether the shine is in step. */}
+            <button
+              type="button"
+              onClick={() =>
+                onSimulate(
+                  "preview",
+                  { screenId: screen.screenId, mode: "identify" },
+                  `Identify sent to ${screen.screenId} — clears itself in 5 minutes.`,
+                )
+              }
+              style={{ ...btn, borderColor: "#00e2e5", color: "#00e2e5" }}
+              disabled={busy}
+              title="Print this panel's own number, player and monitor side on the glass, with its clock offset and shine phase"
+            >
+              Identify this screen
+            </button>
+            {wallMates.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onIdentifyWall(wallMates, true)}
+                  style={{ ...btn, borderColor: "#00e2e5", color: "#00e2e5", fontWeight: 700 }}
+                  disabled={busy}
+                  title={`Label all ${wallMates.length} panels at once (${wallMates.join(", ")}) — then walk the wall and check the filled box moves left to right`}
+                >
+                  Identify whole wall ({wallMates.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onIdentifyWall(wallMates, false)}
+                  style={btn}
+                  disabled={busy}
+                  title="Clear the test on every panel now, rather than waiting for it to expire"
+                >
+                  Clear wall test
+                </button>
+              </>
+            )}
             {canGuide && (
               <button
                 type="button"

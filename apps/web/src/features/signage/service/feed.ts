@@ -341,6 +341,25 @@ function venueDayOfWeek(nowMs: number): number {
   return new Date(nowMs).getDay();
 }
 
+/**
+ * Does this offer include shoes?
+ *
+ * Read off the catalog's own `description`, which states it either way on every row
+ * — "1.5 hours of unlimited bowling with shoes included" versus a flat "Shoes not
+ * included." The NEGATIVE is tested first and wins, because "Shoes not included"
+ * also contains the word "shoes" and a naive contains-check would invert every row
+ * that says so (Midnight Madness, both hourly rates, both KBF tiers).
+ *
+ * Returns false when the description is silent: an unstated inclusion is not a
+ * promise the wall may make on the desk's behalf.
+ */
+function offerIncludesShoes(description: string | null): boolean {
+  if (!description) return false;
+  const text = description.toLowerCase();
+  if (/shoes?\s+(are\s+)?not\s+included/.test(text)) return false;
+  return /\bshoes?\b/.test(text);
+}
+
 /** Cents to a wall price. Whole dollars drop the dead ".00". */
 function bowlingPriceLabel(cents: number | undefined): string | null {
   if (typeof cents !== "number" || !(cents > 0)) return null;
@@ -410,6 +429,7 @@ async function buildBowlingTonight(
       priceLabel: bowlingPriceLabel(primary?.priceCents),
       unit: isPerLaneExperience(e) ? "per lane" : "per person",
       durationLabel: mins ? `${mins / 60} hours` : null,
+      shoesIncluded: offerIncludesShoes(e.description),
     };
   };
 

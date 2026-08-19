@@ -262,6 +262,13 @@ export interface CardPanel {
 export type WallPanel = PosterPanel | CardPanel;
 
 /**
+ * "VIP Experience includes" — the PRODUCT's name, not the wall's badge (owner
+ * 2026-08-18). Read from the registry so a rebrand carries through, and computed once
+ * because all five inclusion panels share the one eyebrow.
+ */
+const INCLUDES_EYEBROW = `${activeVipCombo()?.name ?? "VIP Experience"} includes`;
+
+/**
  * The four showcase slides, one panel's worth at a time.
  *
  * LAYOUT IS CHOSEN BY THE PANEL'S JOB, which is the rule the whole design hangs
@@ -296,7 +303,18 @@ export function vipSlidePanel(
         { layout: "poster", bigBrand: true, accent: A.vip },
         { layout: "poster", smallBrand: "fasttrax", word: "Two\nlocations", accent: A.vip },
         { layout: "poster", smallBrand: "headpinz", word: "One\nprice", accent: A.vip },
-        { layout: "poster", smallBrand: "fasttrax", word: "One VIP\nexperience", accent: A.vip },
+        {
+          layout: "poster",
+          smallBrand: "fasttrax",
+          // THE PRODUCT, NAMED, with the wall's badge under it (owner 2026-08-18).
+          // This beat used to read "one VIP experience" — which describes the thing
+          // without ever naming it, so a guest could read the whole wall and still
+          // not know what to ask for. `activeVipCombo().name` is what the kiosk sells
+          // it as, so a rebrand carries through here too.
+          word: activeVipCombo()?.name ?? "VIP Experience",
+          rule: "All Access",
+          accent: A.vip,
+        },
         { layout: "poster", bigBrand: true, accent: A.vip },
       ];
       return atWallPosition(panels, position);
@@ -366,35 +384,35 @@ export function vipSlidePanel(
       const panels: CardPanel[] = [
         {
           layout: "card",
-          eyebrow: "All Access includes",
+          eyebrow: INCLUDES_EYEBROW,
           word: "Racing\nlicence",
           line: "Yours to keep",
           accent: A.starter,
         },
         {
           layout: "card",
-          eyebrow: "All Access includes",
+          eyebrow: INCLUDES_EYEBROW,
           word: "POV race\nvideo",
           line: "Every lap, from the seat",
           accent: A.race,
         },
         {
           layout: "card",
-          eyebrow: "All Access includes",
+          eyebrow: INCLUDES_EYEBROW,
           word: "NeoVerse\nVIP lane",
           line: "Video wall, chips & salsa",
           accent: A.bowl,
         },
         {
           layout: "card",
-          eyebrow: "All Access includes",
+          eyebrow: INCLUDES_EYEBROW,
           word: "$10 Game\nZone card",
           line: "Per person",
           accent: A.arcade,
         },
         {
           layout: "card",
-          eyebrow: "All Access includes",
+          eyebrow: INCLUDES_EYEBROW,
           word: "Laser tag or\ngel blaster",
           line: "Per person, plus Shuffly",
           accent: A.laser,
@@ -522,7 +540,13 @@ export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuP
           // zero — the same rule the static catalogue's `price: 0` forces.
           price: offer.priceLabel ?? undefined,
           word: offer.priceLabel ? undefined : "Ask at the desk",
-          note: [offer.durationLabel, offer.unit].filter(Boolean).join(" · "),
+          // "shoes included" earns its place next to the price: it is the
+          // difference between a quoted number and what a family of four actually
+          // pays. Only ever printed when the offer really says so — an hourly lane
+          // and Midnight Madness do not include them.
+          note: [offer.durationLabel, offer.unit, offer.shoesIncluded ? "shoes included" : null]
+            .filter(Boolean)
+            .join(" · "),
         }
       : null;
 
