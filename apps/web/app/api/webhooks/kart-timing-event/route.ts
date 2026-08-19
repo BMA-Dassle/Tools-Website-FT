@@ -3,6 +3,7 @@ import { after } from "next/server";
 import redis from "@/lib/redis";
 import { handleVenueMessage } from "~/features/signage/briefing/race-finish.server";
 import { updateRaceClocks } from "~/features/racing/race-clock.server";
+import { venueDedupeKey, VENUE_DEDUPE_TTL_SECONDS } from "~/features/racing/venue-dedupe";
 import { handleTrackEvents } from "~/features/racing/track-events.server";
 import { observeVenueCalls } from "~/features/racing/venue-called.server";
 
@@ -91,6 +92,40 @@ export async function POST(req: NextRequest) {
   if (typeof message === "object" && message !== null && "$type" in message) {
     const t = (message as Record<string, unknown>).$type;
     if (typeof t === "string") messageType = t;
+  }
+
+  /**
+   * DROP THE SECOND COPY — the venue sends nearly everything twice.
+   *
+   * Measured over 88,172 invocations (2026-08-17→19): 80,836 singleton
+   * notifications carrying ~39,000 distinct payloads, i.e. 2.07 deliveries per
+   * real event. Everything below this gate — the FIFO write, the race-finish
+   * handler, the clock fold — ran twice for every one of them.
+   *
+   * The heartbeat is deliberately ABOVE nothing and below nothing: it is set
+   * before this returns either way, because a duplicate still proves the bridge
+   * is alive, and freezing the heartbeat on a quiet-but-duplicating pipe would
+   * make every bridge-liveness gate think the bridge had died.
+   *
+   * Fails OPEN. A Redis error here returns `null` from the claim, which we treat
+   * as "not seen" and process normally — a degraded cache must cost duplicate
+   * work, never a dropped event.
+   */
+  const dedupeKey = venueDedupeKey(message);
+  if (dedupeKey) {
+    let firstDelivery = true;
+    try {
+      // NX+EX in one op: the claim IS the check, so two invocations racing the
+      // same duplicate cannot both win.
+      firstDelivery =
+        (await redis.set(dedupeKey, "1", "EX", VENUE_DEDUPE_TTL_SECONDS, "NX")) === "OK";
+    } catch (err) {
+      console.warn("[kart-webhook] dedupe claim failed, processing anyway:", err);
+    }
+    if (!firstDelivery) {
+      redis.set(HEARTBEAT_KEY, new Date().toISOString(), "EX", HEARTBEAT_TTL).catch(() => void 0);
+      return NextResponse.json({ ok: true, kind: "duplicate", messageType });
+    }
   }
 
   // Stash compact entry in the FIFO. Bridge already snapshotted
