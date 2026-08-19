@@ -91,8 +91,10 @@ export function TvShell({
   /* ── self-update ─────────────────────────────────────────────────────
      Latch "a newer deploy is live" on a timer; act on it only when the screen
      is between scenes. useVisibleInterval gives us no-overlap + abort, which
-     matters far more here than its pause-on-hidden (a wall TV is never
-     hidden) — this page runs for weeks. */
+     matters far more here than its pause-on-hidden — this page runs for weeks.
+     The pause itself no longer applies: TvApp marks this document never-hidden,
+     because Edge calls an occluded wall panel hidden and a screen that stopped
+     checking for deploys is a screen that never takes one (2026-08-19). */
   useEffect(() => {
     void captureKioskBootVersion();
   }, []);

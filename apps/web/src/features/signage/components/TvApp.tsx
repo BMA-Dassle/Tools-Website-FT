@@ -38,6 +38,24 @@ import { TvShell } from "./TvShell";
 // a wall booting should look like the kiosks it hangs above rather than inventing
 // a second one.
 import { BrandedLoader } from "~/features/kiosk/components/BrandedLoader";
+import { setDocumentNeverHidden } from "@/lib/use-visible-interval";
+
+/**
+ * A WALL PANEL IS NEVER HIDDEN, WHATEVER THE BROWSER SAYS.
+ *
+ * Edge marks a fullscreen player window hidden the moment Windows thinks it is
+ * occluded or backgrounded, and every poll on this page runs through
+ * useVisibleInterval, which pauses on exactly that signal. The TV then sits in
+ * front of guests painting a feed from ten minutes ago — and stops writing the
+ * heartbeat, so admin calls it offline while staff are looking straight at it
+ * (owner 2026-08-19, the five HeadPinz front-desk screens).
+ *
+ * MODULE SCOPE, not an effect: React runs child effects before the parent's, so
+ * every poll in the tree would already have been scheduled the wrong way by the
+ * time a TvApp effect could set this. Importing this module is what makes it
+ * true, which is exactly when it needs to be true.
+ */
+setDocumentNeverHidden(true);
 
 const IDENTITY_KEY = "tv_screen_id";
 /**
