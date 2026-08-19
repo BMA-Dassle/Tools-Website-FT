@@ -64,7 +64,7 @@ export function SceneVipShowcase({ nowMs, config }: SceneProps) {
   const slide = vipSlideIndex(nowMs);
   const price = vipWallPrice(nowMs);
   const panel = vipSlidePanel(slide, position, price);
-  const rail = identityRail(position, price);
+  const rail = identityRail(position, price, slide);
   // The panel's own picture when its subject has one, else the panel's standing
   // ground. Reading it off the content rather than the position is what lets one
   // slide be five things and another be five words.

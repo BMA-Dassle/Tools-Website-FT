@@ -196,8 +196,21 @@ export interface RailCell {
  * Returns null past the end of the rail: a wider wall's extra panels carry no
  * rail rather than repeating "All Access", which would read as two products.
  */
-export function identityRail(position: number, price: VipWallPrice | null): RailCell | null {
+export function identityRail(
+  position: number,
+  price: VipWallPrice | null,
+  slide?: number,
+): RailCell | null {
   const combo = activeVipCombo();
+  const name = combo?.name ?? "VIP Experience";
+
+  // ON THE INCLUSIONS SLIDE the rail is the PRODUCT NAME on every panel (owner
+  // 2026-08-18). That slide is five different things a guest gets, and the rail's
+  // usual read-across sentence competes with them — five inclusions over five
+  // fragments of a different sentence is two things to read at once. Naming the
+  // product on all five instead makes the whole wall answer "included in WHAT".
+  if (slide === 2) return { text: name, isName: true };
+
   const cells: RailCell[] = [
     { text: "All Access", isName: true },
     { text: combo?.name ?? "VIP Experience" },
