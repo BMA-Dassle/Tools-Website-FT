@@ -8,8 +8,9 @@
  * moved in from the page body).
  */
 import { useEffect, useState } from "react";
-import type { SquareLineItem } from "~/features/reservations-admin/types";
+import type { SquareLineItem, SquareServiceCharge } from "~/features/reservations-admin/types";
 import ModalShell from "../ModalShell";
+import { squareOrderTotals } from "./squareOrderTotals";
 
 export interface OrderTarget {
   guestName: string;
@@ -26,6 +27,12 @@ interface OrderMeta {
   taxCents: number;
   discountCents: number;
   remainingCents: number;
+  /**
+   * Pre-tax service charges. A Square order's service charges are NOT line items, so
+   * without this the footer showed `Subtotal + Tax` against a larger `Total` and the
+   * difference was invisible — group events carry a 12–15% service charge.
+   */
+  serviceChargeCents: number;
 }
 
 export default function SquareOrderModal({
@@ -38,6 +45,7 @@ export default function SquareOrderModal({
   onClose: () => void;
 }) {
   const [orderItems, setOrderItems] = useState<SquareLineItem[] | null>(null);
+  const [orderCharges, setOrderCharges] = useState<SquareServiceCharge[]>([]);
   const [orderLoading, setOrderLoading] = useState(false);
   const [orderMeta, setOrderMeta] = useState<OrderMeta | null>(null);
 
@@ -47,6 +55,7 @@ export default function SquareOrderModal({
     let alive = true;
     setOrderLoading(true);
     setOrderItems(null);
+    setOrderCharges([]);
     setOrderMeta(null);
     const params = new URLSearchParams({ token, orderId: target.squareDayofOrderId });
     fetch(`/api/admin/bowling/square-order?${params}`, { cache: "no-store" })
@@ -58,12 +67,14 @@ export default function SquareOrderModal({
           return;
         }
         setOrderItems(data.lineItems ?? []);
+        setOrderCharges(data.serviceCharges ?? []);
         setOrderMeta({
           state: data.state,
           totalCents: data.totalCents,
           taxCents: data.taxCents ?? 0,
           discountCents: data.discountCents ?? 0,
           remainingCents: data.remainingCents,
+          serviceChargeCents: data.serviceChargeCents ?? 0,
         });
       })
       .catch(() => {
@@ -192,11 +203,10 @@ export default function SquareOrderModal({
       {orderItems &&
         orderItems.length > 0 &&
         (() => {
-          const subtotalCents = orderItems.reduce((s, li) => s + li.grossCents, 0);
-          const taxCents = orderMeta?.taxCents ?? orderItems.reduce((s, li) => s + li.taxCents, 0);
-          const discountCents =
-            orderMeta?.discountCents ?? orderItems.reduce((s, li) => s + li.discountCents, 0);
-          const totalCents = orderMeta?.totalCents ?? subtotalCents + taxCents - discountCents;
+          // Footer maths lives in squareOrderTotals (unit-tested) — service charges are
+          // their own array on a Square order and are easy to leave out of a sum.
+          const { subtotalCents, serviceChargeCents, taxCents, discountCents, totalCents } =
+            squareOrderTotals(orderItems, orderCharges, orderMeta);
           return (
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
               <thead>
@@ -281,6 +291,59 @@ export default function SquareOrderModal({
                     ${(subtotalCents / 100).toFixed(2)}
                   </td>
                 </tr>
+                {/* Named where Square names it ("GF Service Charge - 15%"), so staff can
+                    match the row to the contract; falls back to one combined row. */}
+                {orderCharges.length > 0
+                  ? orderCharges.map((sc, i) => (
+                      <tr key={sc.uid ?? `sc-${i}`}>
+                        <td
+                          colSpan={2}
+                          style={{
+                            padding: "2px 8px",
+                            textAlign: "right",
+                            color: "var(--ba-muted)",
+                            fontSize: "0.72rem",
+                          }}
+                        >
+                          {sc.name}
+                        </td>
+                        <td
+                          style={{
+                            padding: "2px 8px",
+                            textAlign: "right",
+                            color: "var(--ba-fg)",
+                            fontSize: "0.72rem",
+                          }}
+                        >
+                          ${(sc.amountCents / 100).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))
+                  : serviceChargeCents > 0 && (
+                      <tr>
+                        <td
+                          colSpan={2}
+                          style={{
+                            padding: "2px 8px",
+                            textAlign: "right",
+                            color: "var(--ba-muted)",
+                            fontSize: "0.72rem",
+                          }}
+                        >
+                          Service charge
+                        </td>
+                        <td
+                          style={{
+                            padding: "2px 8px",
+                            textAlign: "right",
+                            color: "var(--ba-fg)",
+                            fontSize: "0.72rem",
+                          }}
+                        >
+                          ${(serviceChargeCents / 100).toFixed(2)}
+                        </td>
+                      </tr>
+                    )}
                 {taxCents > 0 && (
                   <tr>
                     <td
