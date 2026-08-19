@@ -110,6 +110,35 @@ the weaker of the two, so `ads` is now only a FALLBACK, never a scheduled turn.
 - [ ] 11. Smoke on the glass: five windows, one 6-minute cycle, confirm the takeover lands
       on all five at the same instant and the wings hold through the standing slots
 
+## TV 1 — the check-in story, in two columns
+
+Owner numbering, and the off-by-one worth stating: **TV 1-5 are `HPFM:2`-`HPFM:6`**, so
+TV 4 is `HPFM:5`. TV 1 and TV 5 are the WINGS; TV 2, 3 and 4 carry the pricing.
+
+TV 1 shows both halves of check-in side by side (owner 2026-08-19):
+
+| Check in now | Checked in |
+| --- | --- |
+| due about now, `checkin_method IS NULL` | self-checked in, with the lane |
+| their booked TIME (no lane yet) | `Lane 12` + "Ready now" / "Getting it ready" |
+
+Both, because either alone speaks to half the lobby: the right column answers what a
+guest asks AFTER they have worked out what to do, and the left is what tells someone
+walking through the door that they are expected and can go to a kiosk rather than queue.
+
+**The eligibility window is wider before than after** — 90 minutes back, 45 forward.
+Guests arrive early far more often than a booking is genuinely still checkable an hour
+late, and the pre-arrival notice goes out ~30 minutes ahead, so someone who got that text
+and walked straight over sees themselves listed.
+
+Verified against 11,071 real rows at HeadPinz FM: 439 self check-ins, **every one of them
+with a lane assigned**, 247 matching the eligible predicate, 3,175 carrying a lane-ready
+stamp. Last night's board would have read "Sara — Lane 15 — Ready now".
+
+**`checkin_method = 'desk'` has never been set** (0 rows of 11,071). So filtering the
+right column to `'self'` currently excludes nobody — it stays the correct filter for when
+the desk starts stamping it, but do not read the current board as proof the filter works.
+
 ## The dead-panel guard
 
 `SceneEventWelcome` returns **null** with no events and no VIPs. That is safe for an

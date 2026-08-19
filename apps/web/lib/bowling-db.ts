@@ -1356,6 +1356,46 @@ export async function getNoShowBowlingReservations(): Promise<BowlingReservation
  * EXCLUDES combos (charging a combo no-show's shared gift card stays manual).
  */
 /**
+ * Reservations that could check themselves in RIGHT NOW — due about now, and nobody
+ * has checked them in yet.
+ *
+ * The other half of the front-desk wall's left panel. On its own the "checked in" list
+ * only ever speaks to people who have already worked out what to do; this is the half
+ * that tells a guest walking through the door that they are expected and can go
+ * straight to a kiosk instead of queueing at the desk.
+ *
+ * `checkin_method IS NULL` is the whole definition of "not yet": it is set by both the
+ * kiosk and the desk, so a party the desk has already handled drops off this list
+ * without needing a second flag.
+ *
+ * THE WINDOW IS DELIBERATELY WIDER BEFORE THAN AFTER. Guests arrive early far more
+ * often than a reservation is genuinely still checkable an hour late, and the
+ * pre-arrival notice already goes out ~30 minutes ahead — so someone who got that text
+ * and walked straight over should see themselves listed. An hour and a half afterwards
+ * covers a late party without carrying no-shows all evening; `closePastReservationStatuses`
+ * eventually flips those to no_show anyway.
+ */
+export async function getSelfCheckinEligible(
+  centerCode: string,
+  limit = 8,
+): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE center_code = ${centerCode}
+      AND checkin_method IS NULL
+      AND status IN ('confirmed', 'arrived')
+      AND product_kind IN ('open', 'kbf')
+      AND booked_at BETWEEN NOW() - INTERVAL '90 minutes' AND NOW() + INTERVAL '45 minutes'
+    ORDER BY booked_at ASC
+    LIMIT ${limit}
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
  * Everyone who SELF-checked in today and has a lane, newest first.
  *
  * Drives the front-desk wall's left panel: a guest who checked themselves in at a

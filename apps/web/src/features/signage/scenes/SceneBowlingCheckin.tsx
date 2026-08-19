@@ -1,23 +1,28 @@
 "use client";
 
 /**
- * WHO CHECKED THEMSELVES IN, AND WHICH LANE — the front-desk wall's left panel.
+ * THE CHECK-IN STORY, IN TWO COLUMNS — the front-desk wall's left panel.
  *
- * A guest who checked in at a kiosk was never told a lane number by a person. This
- * board is the only place they learn it, which is why it exists and why it sits at
- * the end of the wall nearest the lanes rather than taking a turn in the rotation.
+ * Left: who can check themselves in right now. Right: who has, and which lane.
  *
- * IT ALSO ANSWERS THE QUESTION THEY ASK NEXT. Self check-in doesn't hand out shoes,
- * so every guest on this list is about to wonder about them — the board says their
- * shoes are being brought out, standing, so nobody has to queue at the desk to ask.
+ * Both halves, because either alone only speaks to half the lobby. The "checked in"
+ * list answers the question a guest has AFTER they have worked out what to do; the
+ * "check in now" list is what tells someone walking through the door that they are
+ * expected and can go straight to a kiosk instead of queueing at the desk. Read
+ * left to right it is the whole journey, which is why it earns a panel of its own
+ * rather than a turn in the rotation (owner 2026-08-19).
+ *
+ * A guest who checked in at a kiosk was never told a lane number by a person, so the
+ * right column is the only place they learn it — and it answers what they ask next,
+ * standing: self check-in does not hand out shoes, so the board says theirs are
+ * coming rather than making them queue to ask.
  *
  * FIRST NAMES ONLY. Printed a foot tall in a public lobby, so it follows the same PII
- * posture as every other board on the estate: the server reduces to a first name
- * before this ever sees it.
+ * posture as every other board: the server reduces to a first name before this sees it.
  *
- * A WING IS A COMPOSITION OF ONE. This scene never spans, so it takes no position
- * from `choreo()` — which is also what makes it safe for it to appear and disappear
- * with the data while the middle three carry on unchanged. See SceneSpan.
+ * A WING IS A COMPOSITION OF ONE. This scene never spans, so it takes no position from
+ * `choreo()` — which is what makes it safe for its content to come and go with the
+ * data while the middle three carry on unchanged. See SceneSpan.
  */
 import type { SceneProps } from "../director/types";
 import { WALL_ACCENT } from "../wall-content";
@@ -25,17 +30,20 @@ import { TV_PHOTOS } from "../assets";
 import { WallGround } from "../components/WallPanel";
 import { withAlpha } from "../color";
 
-/** How many fit legibly before the rows get too short to read from across a lobby.
- *  The server asks for eight; this is the visual ceiling. */
-const MAX_ROWS = 6;
+/** How many fit per column before the rows get too short to read across a lobby. The
+ *  server asks for eight of each; this is the visual ceiling. */
+const MAX_ROWS = 5;
+
+const READY = WALL_ACCENT.cyan;
+const WAITING = WALL_ACCENT.arcade;
 
 export function SceneBowlingCheckin({ feed }: SceneProps) {
-  const rows = (feed?.bowlingCheckins ?? []).slice(0, MAX_ROWS);
-  const accent = WALL_ACCENT.cyan;
+  const eligible = (feed?.bowlingCheckins?.eligible ?? []).slice(0, MAX_ROWS);
+  const checkedIn = (feed?.bowlingCheckins?.checkedIn ?? []).slice(0, MAX_ROWS);
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
-      <WallGround photo={TV_PHOTOS.bowl} accent={accent} deepScrim />
+      <WallGround photo={TV_PHOTOS.bowl} accent={READY} deepScrim />
 
       <div
         style={{
@@ -43,115 +51,163 @@ export function SceneBowlingCheckin({ feed }: SceneProps) {
           inset: 0,
           display: "flex",
           flexDirection: "column",
-          justifyContent: "flex-end",
-          gap: 26,
-          padding: "77px 78px 88px",
+          gap: 30,
+          padding: "70px 74px 80px",
         }}
       >
-        <div>
-          <div
-            className="tv-display"
-            style={{
-              fontSize: 78,
-              lineHeight: 0.94,
-              color: "#fff",
-              textShadow: `0 0 8px rgba(255,255,255,0.82), 0 0 56px ${accent}`,
-            }}
-          >
-            Checked in
-          </div>
-          <div
-            className="tv-display"
-            style={{ fontSize: 32, letterSpacing: "0.2em", color: accent, marginTop: 14 }}
-          >
-            Your lane is ready
-          </div>
+        <div
+          className="tv-display"
+          style={{
+            fontSize: 66,
+            lineHeight: 0.94,
+            color: "#fff",
+            textShadow: `0 0 8px rgba(255,255,255,0.82), 0 0 56px ${READY}`,
+          }}
+        >
+          Bowling check-in
         </div>
 
-        {rows.length > 0 ? (
-          <>
-            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              {rows.map((r) => (
-                <Row key={`${r.firstName}-${r.lanes}`} row={r} accent={accent} />
-              ))}
-            </div>
-            {/* STANDING, not per-row: it is true of everyone on the list, and repeating
-                it six times would crowd out the lanes, which are the reason to look. */}
-            <div style={{ fontSize: 30, color: "rgba(245,236,238,0.72)", lineHeight: 1.3 }}>
-              Your shoes are being brought out to you.
-            </div>
-          </>
-        ) : (
-          // NOT AN ERROR, and not a blank panel. Nobody has self-checked in yet, which
-          // is the normal state early in the evening — so the panel says what to do
-          // instead of what is missing. The wall never widens to cover this; a quiet
-          // wing is still a wing (see SceneSpan).
-          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-            <div style={{ fontSize: 40, color: "rgba(245,236,238,0.9)", lineHeight: 1.25 }}>
-              Check in at any kiosk below and your lane will show up here.
-            </div>
-            <div style={{ fontSize: 30, color: "rgba(245,236,238,0.62)", lineHeight: 1.3 }}>
-              We&rsquo;ll bring your shoes out to you.
-            </div>
-          </div>
-        )}
+        {/* TWO COLUMNS, EQUAL WIDTH, with a hairline between them. Equal because
+            neither side is the subordinate one — a lobby has both kinds of guest in
+            it at once — and a rule rather than a gap because the two lists are the
+            same story in two states, not two unrelated boards. */}
+        <div
+          style={{
+            flex: 1,
+            display: "grid",
+            gridTemplateColumns: "1fr 1px 1fr",
+            gap: 34,
+            minHeight: 0,
+          }}
+        >
+          <Column
+            heading="Check in now"
+            accent={WAITING}
+            empty="Nobody waiting to check in."
+            rows={eligible.map((g) => ({
+              key: `${g.firstName}-${g.timeLabel}`,
+              name: g.firstName,
+              value: g.timeLabel,
+              status: null,
+            }))}
+          />
+
+          <div aria-hidden style={{ background: "rgba(255,255,255,0.14)" }} />
+
+          <Column
+            heading="Checked in"
+            accent={READY}
+            empty="No lanes assigned yet."
+            footer={checkedIn.length > 0 ? "Your shoes are being brought out to you." : null}
+            rows={checkedIn.map((g) => ({
+              key: `${g.firstName}-${g.lanes}`,
+              name: g.firstName,
+              value: g.lanes.includes(",") ? `Lanes ${g.lanes}` : `Lane ${g.lanes}`,
+              // A lane physically READY reads differently from one merely assigned:
+              // the first means walk over now, the second means nearly. The pit boards
+              // draw the same distinction for the same reason.
+              status: g.laneReady ? "Ready now" : "Getting it ready",
+            }))}
+          />
+        </div>
+
+        {/* The instruction sits under BOTH columns, because it is the answer to the
+            left one and the reassurance for the right. */}
+        <div style={{ fontSize: 30, color: "rgba(245,236,238,0.72)", lineHeight: 1.3 }}>
+          Check in at any kiosk below — we&rsquo;ll bring your shoes out to you.
+        </div>
       </div>
     </div>
   );
 }
 
-function Row({
-  row,
+function Column({
+  heading,
   accent,
+  rows,
+  empty,
+  footer,
 }: {
-  row: { firstName: string; lanes: string; laneReady: boolean };
+  heading: string;
   accent: string;
+  rows: { key: string; name: string; value: string; status: string | null }[];
+  /** What the column says with nothing in it. NOT a blank space: an empty half of a
+   *  two-column board reads as a fault, whereas a sentence reads as "nobody yet". */
+  empty: string;
+  footer?: string | null;
 }) {
-  // A lane that is physically READY reads differently from one that is merely
-  // assigned — the first means "walk over now", the second means "nearly". Staff
-  // asked for that distinction on the pit boards for the same reason.
-  const ink = row.laneReady ? accent : "rgba(245,236,238,0.72)";
   return (
-    <div
-      style={{
-        borderLeft: `8px solid ${ink}`,
-        background: "rgba(3,8,24,0.76)",
-        borderRadius: "0 17px 17px 0",
-        padding: "24px 30px",
-        display: "flex",
-        alignItems: "baseline",
-        justifyContent: "space-between",
-        gap: 22,
-      }}
-    >
-      <span className="tv-display" style={{ fontSize: 52, color: "#fff", lineHeight: 1 }}>
-        {row.firstName}
-      </span>
-      <span style={{ textAlign: "right", flexShrink: 0 }}>
-        <span
-          className="tv-display"
-          style={{
-            fontSize: 52,
-            color: ink,
-            lineHeight: 1,
-            fontVariantNumeric: "tabular-nums",
-            textShadow: row.laneReady ? `0 0 24px ${withAlpha(accent, 0.5)}` : undefined,
-          }}
-        >
-          {row.lanes.includes(",") ? `Lanes ${row.lanes}` : `Lane ${row.lanes}`}
-        </span>
-        <span
-          style={{
-            display: "block",
-            fontSize: 26,
-            fontWeight: 600,
-            marginTop: 10,
-            color: row.laneReady ? WALL_ACCENT.gel : "rgba(245,236,238,0.45)",
-          }}
-        >
-          {row.laneReady ? "Ready now" : "Getting it ready"}
-        </span>
-      </span>
+    <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
+      <div
+        className="tv-display"
+        style={{ fontSize: 30, letterSpacing: "0.2em", color: accent, flexShrink: 0 }}
+      >
+        {heading}
+      </div>
+
+      {rows.length === 0 ? (
+        <div style={{ fontSize: 27, color: "rgba(245,236,238,0.45)", lineHeight: 1.3 }}>
+          {empty}
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {rows.map((r) => (
+            <div
+              key={r.key}
+              style={{
+                borderLeft: `6px solid ${accent}`,
+                background: "rgba(3,8,24,0.74)",
+                borderRadius: "0 14px 14px 0",
+                padding: "18px 22px",
+                display: "flex",
+                alignItems: "baseline",
+                justifyContent: "space-between",
+                gap: 16,
+              }}
+            >
+              <span
+                className="tv-display"
+                style={{ fontSize: 42, color: "#fff", lineHeight: 1, minWidth: 0 }}
+              >
+                {r.name}
+              </span>
+              <span style={{ textAlign: "right", flexShrink: 0 }}>
+                <span
+                  className="tv-display"
+                  style={{
+                    fontSize: 38,
+                    color: accent,
+                    lineHeight: 1,
+                    fontVariantNumeric: "tabular-nums",
+                    textShadow: `0 0 20px ${withAlpha(accent, 0.45)}`,
+                  }}
+                >
+                  {r.value}
+                </span>
+                {r.status && (
+                  <span
+                    style={{
+                      display: "block",
+                      fontSize: 22,
+                      fontWeight: 600,
+                      marginTop: 8,
+                      color: r.status === "Ready now" ? WALL_ACCENT.gel : "rgba(245,236,238,0.5)",
+                    }}
+                  >
+                    {r.status}
+                  </span>
+                )}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {footer && (
+        <div style={{ fontSize: 24, color: "rgba(245,236,238,0.6)", lineHeight: 1.3 }}>
+          {footer}
+        </div>
+      )}
     </div>
   );
 }

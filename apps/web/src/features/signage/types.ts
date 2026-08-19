@@ -898,17 +898,25 @@ export interface TvFeed {
    * printed a foot tall in a public lobby. Null for every screen that does not run
    * the board, and when the read fails.
    */
-  bowlingCheckins:
-    | {
-        /** First name only. */
-        firstName: string;
-        /** "12" or "12, 13" — whatever lanes they were given. */
-        lanes: string;
-        /** True once the lane-ready notification has gone out, i.e. the lane is
-         *  physically ready and they can walk over. */
-        laneReady: boolean;
-      }[]
-    | null;
+  bowlingCheckins: {
+    /**
+     * Due about now and NOT yet checked in — the half that tells a guest walking
+     * in that they are expected and can go straight to a kiosk rather than queue
+     * at the desk. Carries their booked TIME rather than a lane, because they do
+     * not have one yet.
+     */
+    eligible: { firstName: string; timeLabel: string }[];
+    /** Checked themselves in, with the lane they were given. */
+    checkedIn: {
+      /** First name only. */
+      firstName: string;
+      /** "12" or "12, 13" — whatever lanes they were given. */
+      lanes: string;
+      /** True once the lane-ready notification has gone out, i.e. the lane is
+       *  physically ready and they can walk over. */
+      laneReady: boolean;
+    }[];
+  } | null;
   /** Product ids currently off-sale — never advertise a paused product. */
   pausedProductIds: string[];
   /** "Next available" per product key, e.g. { bowling: "3 lanes · 9:30 PM" }.

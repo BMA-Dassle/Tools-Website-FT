@@ -333,29 +333,61 @@ export async function buildTvFeed(
  * reservation to the three things the glass needs.
  */
 async function buildBowlingCheckins(venue: SignageVenue): Promise<TvFeed["bowlingCheckins"]> {
-  const { getSelfCheckedInWithLanes } = await import("@/lib/bowling-db");
-  const rows = await getSelfCheckedInWithLanes(VENUE_INFO[venue].squareLocationId);
-  const out: NonNullable<TvFeed["bowlingCheckins"]> = [];
-  for (const r of rows) {
-    // FIRST TOKEN ONLY. `guestName` is whatever was typed at booking, so it may be
-    // "Marcus", "Marcus Webb" or "marcus webb" — take the first word and title-case
-    // it rather than trusting the input's own casing on a 1080p wall.
-    const raw = (r.guestName ?? "").trim();
-    const first = raw.split(/\s+/)[0] ?? "";
-    if (!first) continue;
+  const { getSelfCheckedInWithLanes, getSelfCheckinEligible } = await import("@/lib/bowling-db");
+  const center = VENUE_INFO[venue].squareLocationId;
+
+  // One round trip each, in parallel: the two halves are independent queries over the
+  // same table and neither blocks the other.
+  const [done, waiting] = await Promise.all([
+    getSelfCheckedInWithLanes(center),
+    getSelfCheckinEligible(center),
+  ]);
+
+  const checkedIn: NonNullable<TvFeed["bowlingCheckins"]>["checkedIn"] = [];
+  for (const r of done) {
+    const firstName = firstNameOf(r.guestName);
+    if (!firstName) continue;
     const lanes = (r.dayofOrderLane ?? "")
       .split(",")
       .map((l) => l.trim())
       .filter(Boolean)
       .join(", ");
     if (!lanes) continue;
-    out.push({
-      firstName: first.charAt(0).toUpperCase() + first.slice(1).toLowerCase(),
-      lanes,
-      laneReady: !!r.laneReadySentAt,
-    });
+    checkedIn.push({ firstName, lanes, laneReady: !!r.laneReadySentAt });
   }
-  return out.length > 0 ? out : null;
+
+  const eligible: NonNullable<TvFeed["bowlingCheckins"]>["eligible"] = [];
+  for (const r of waiting) {
+    const firstName = firstNameOf(r.guestName);
+    if (!firstName) continue;
+    // Their booked time, so a guest can pick their own line out of several — and in ET
+    // wall-clock, which is the TIME RULE this file already documents for the
+    // availability cache: `new Date(naive)` parses as the SERVER's zone and shifts an
+    // 8:00 PM slot to 4:00 PM on Vercel.
+    const timeLabel = fmtTime12(toEtWallClock(r.bookedAt)) ?? "";
+    if (!timeLabel) continue;
+    eligible.push({ firstName, timeLabel });
+  }
+
+  // Null only when there is nothing to say on EITHER side. The scene has a designed
+  // state for one-empty-one-full, so a half-populated board is content, not a fault.
+  if (checkedIn.length === 0 && eligible.length === 0) return null;
+  return { eligible, checkedIn };
+}
+
+/**
+ * FIRST TOKEN ONLY, title-cased.
+ *
+ * `guestName` is whatever was typed at booking, so it arrives as "Marcus", "Marcus Webb"
+ * or "marcus webb". First names only is the estate's PII posture for anything printed on
+ * a wall, and the re-casing is because a lobby board a foot tall should not shout
+ * somebody's typo back at them.
+ */
+function firstNameOf(name: string | undefined): string | null {
+  const raw = (name ?? "").trim();
+  const first = raw.split(/\s+/)[0] ?? "";
+  if (!first) return null;
+  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
 }
 
 /** Day of week (0=Sun) AT THE VENUE. A UTC-clocked server has already rolled over
