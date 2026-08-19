@@ -28,7 +28,7 @@ import { SceneRaceResults } from "./SceneRaceResults";
 import { SceneRaceGuide } from "./SceneRaceGuide";
 import { SceneVipShowcase } from "./SceneVipShowcase";
 import { SceneOpenNow } from "./SceneOpenNow";
-import { SceneKioskHowto } from "./SceneKioskHowto";
+import { SceneBowlingCheckin } from "./SceneBowlingCheckin";
 import { raceGuideEnabled } from "../flags";
 
 /**
@@ -69,8 +69,8 @@ export function SceneSlot(props: SceneProps) {
       return <SceneVipShowcase {...props} />;
     case "open-now":
       return <SceneOpenNow {...props} />;
-    case "kiosk-howto":
-      return <SceneKioskHowto {...props} />;
+    case "bowling-checkin":
+      return <SceneBowlingCheckin {...props} />;
     case "event-welcome":
       return <SceneEventWelcome {...props} />;
     case "vip-welcome":
@@ -120,7 +120,7 @@ const IMPLEMENTED: ReadonlySet<SceneType> = new Set<SceneType>([
   "celebration",
   "vip-showcase",
   "open-now",
-  "kiosk-howto",
+  "bowling-checkin",
 ]);
 
 export function isSceneImplemented(scene: SceneType): boolean {
@@ -176,7 +176,6 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
       // is not up at the one moment it matters.
       return true;
     case "vip-showcase":
-    case "kiosk-howto":
       // Always true, and it MUST be. These are copy and live prices, not a feed
       // selector — but more importantly, a data-gated entry that closes changes
       // `totalSlots` on ONE panel, and scene selection is `slot % totalSlots`. Five
@@ -185,8 +184,15 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
       return true;
     case "open-now":
       // Always true for the same reason. The menu board degrades WITHIN itself
-      // when the availability cache is cold — tiles keep their names and prices
-      // and simply carry no times — rather than dropping out of the rotation.
+      // when the availability cache is cold — rows keep their names and prices and
+      // simply carry no times — rather than dropping out of the rotation.
+      return true;
+    case "bowling-checkin":
+      // Always true, and this one matters most. It is a WING scene: it is selected
+      // because a panel sits outside the running span, never because it has data. It
+      // has a designed empty state telling guests to check in at a kiosk, and a wing
+      // that fell out of the rotation would leave a dead panel at the end of the wall
+      // — or worse, invite the middle scene to widen and tear the wall (see SceneSpan).
       return true;
     case "race-results":
       // Always true: the last race's result HOLDS until the next one lands, so

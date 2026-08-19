@@ -57,14 +57,24 @@ interface Plan {
   /** Absent = the lone monitor on its player; no dual launcher offered. */
   pair?: { groupId: string; position: number };
   brand?: "fasttrax" | "headpinz";
+  /**
+   * What this panel shows when the running scene does not reach it — only the two WING
+   * panels have one.
+   *
+   * The pricing board spans the middle three, which is what frees the ends to do their
+   * own jobs: the self check-in list on the left (nearest the lanes, and the only place
+   * a kiosk check-in learns its lane number) and today's events on the right. Absent on
+   * the middle three, which are never outside a span.
+   */
+  outsideScene?: "bowling-checkin" | "event-welcome";
 }
 
 const PLAN: Plan[] = [
-  { screenNumber: 2, name: "Front desk TV 1 (far left)", position: 0, pair: { groupId: "hpfm-fd-a", position: 0 }, brand: "fasttrax" },
+  { screenNumber: 2, name: "Front desk TV 1 (far left)", position: 0, pair: { groupId: "hpfm-fd-a", position: 0 }, brand: "fasttrax", outsideScene: "bowling-checkin" },
   { screenNumber: 3, name: "Front desk TV 2", position: 1, pair: { groupId: "hpfm-fd-a", position: 1 } },
   { screenNumber: 4, name: "Front desk TV 3 (centre)", position: 2 },
   { screenNumber: 5, name: "Front desk TV 4", position: 3, pair: { groupId: "hpfm-fd-c", position: 0 } },
-  { screenNumber: 6, name: "Front desk TV 5 (far right)", position: 4, brand: "headpinz" },
+  { screenNumber: 6, name: "Front desk TV 5 (far right)", position: 4, brand: "headpinz", outsideScene: "event-welcome" },
 ];
 // TV 5 completes player C's pair; kept out of the literal above only to keep the
 // row short, so set it here where it is impossible to miss.
@@ -107,7 +117,7 @@ async function main() {
   for (const p of PLAN) {
     const pair = p.pair ? `${p.pair.groupId}#${p.pair.position}/2` : "— (single monitor)";
     console.log(
-      `  ${VENUE}:${String(p.screenNumber).padEnd(2)}  pos ${p.position}/${COUNT}  pair ${pair.padEnd(18)} mark ${p.brand ?? "—"}`,
+      `  ${VENUE}:${String(p.screenNumber).padEnd(2)}  pos ${p.position}/${COUNT}  pair ${pair.padEnd(18)} mark ${(p.brand ?? "—").padEnd(9)} off-span ${p.outsideScene ?? "ads"}`,
     );
   }
 
@@ -134,6 +144,7 @@ async function main() {
           count: COUNT,
           gapPct: GAP_PCT,
           ...(p.brand ? { brand: p.brand } : {}),
+          ...(p.outsideScene ? { outsideScene: p.outsideScene } : {}),
         },
         ...(p.pair
           ? { pairing: { groupId: p.pair.groupId, position: p.pair.position, count: 2 } }
@@ -202,6 +213,28 @@ async function main() {
     pass("brand marks on the outer screens only (FastTrax left, HeadPinz right)");
   } else {
     fail(`brand marks are [${marks.join(", ")}] — expected fasttrax, …, headpinz`);
+  }
+
+  // 6. the WINGS carry their own boards, the middle three do not
+  const wings = wall.map((w) => w.config.wall!.outsideScene ?? null);
+  if (
+    wings[0] === "bowling-checkin" &&
+    wings[COUNT - 1] === "event-welcome" &&
+    wings.slice(1, -1).every((w) => w == null)
+  ) {
+    pass("wings carry their own boards (check-in left, events right); middle three do not");
+  } else {
+    fail(`off-span scenes are [${wings.join(", ")}] - expected bowling-checkin, ..., event-welcome`);
+  }
+
+  // 7. the playlist's SPANS are what frees the wings in the first place. Without
+  //    `open-now: middle` the pricing board covers all five and the two end panels
+  //    never get a turn at their own job, however they are configured.
+  const spans = (wall[0]?.config.playlist ?? []).map((e) => `${e.scene}:${e.span ?? "wall"}`);
+  if (spans.includes("open-now:middle") && spans.includes("vip-showcase:wall")) {
+    pass("pricing spans the middle three, the showcase spans the whole wall");
+  } else {
+    fail(`spans are [${spans.join(", ")}] - the wings are only free if pricing is "middle"`);
   }
 
   console.log(`\n── preview these five side by side BEFORE hanging anything ──`);

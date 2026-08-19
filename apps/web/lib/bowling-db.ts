@@ -1355,6 +1355,45 @@ export async function getNoShowBowlingReservations(): Promise<BowlingReservation
  * No-shows (never lane-opened) are handled by bowling-no-show-close — which still
  * EXCLUDES combos (charging a combo no-show's shared gift card stays manual).
  */
+/**
+ * Everyone who SELF-checked in today and has a lane, newest first.
+ *
+ * Drives the front-desk wall's left panel: a guest who checked themselves in at a
+ * kiosk was never told a lane number by a person, so the wall is the only place
+ * they learn it. `checkin_method = 'self'` is the whole point — a DESK check-in
+ * already had a human say it out loud, and listing those would pad the board with
+ * people who do not need it.
+ *
+ * `dayof_order_lane` is only populated when lanes actually OPENED, which is exactly
+ * the moment there is something true to display. Rows without it are excluded rather
+ * than shown as pending: "checked in, lane coming" is a promise the board cannot
+ * keep, and an empty lane column reads as a fault.
+ *
+ * Scoped to the last six hours rather than to a calendar day — the centre trades
+ * past midnight on weekend nights, and a business-day boundary would blank the board
+ * at the busiest moment (see the e-ticket quiet-hours lesson).
+ */
+export async function getSelfCheckedInWithLanes(
+  centerCode: string,
+  limit = 8,
+): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE center_code = ${centerCode}
+      AND checkin_method = 'self'
+      AND dayof_order_lane IS NOT NULL
+      AND dayof_order_lane <> ''
+      AND status NOT IN ('cancelled', 'no_show')
+      AND booked_at > NOW() - INTERVAL '6 hours'
+    ORDER BY booked_at DESC
+    LIMIT ${limit}
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
 export async function getCheckedInOrdersToComplete(): Promise<BowlingReservation[]> {
   if (!isDbConfigured()) return [];
   await ensureBowlingSchema();

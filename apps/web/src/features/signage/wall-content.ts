@@ -27,6 +27,7 @@ import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import { ATTRACTIONS } from "@/lib/attractions-data";
 import { TV_PHOTOS } from "./assets";
 import { atWallPosition } from "./wall";
+import { SLOT_MS } from "./director/schedule";
 import type { TvFeed } from "./types";
 
 /** Tonight's bowling as the feed reports it. */
@@ -512,38 +513,50 @@ export interface MenuPanel {
   photo: string;
   accent: string;
   rows: MenuRow[];
+  /**
+   * The arrow band's words — PERMANENT CHROME on every pricing panel (owner
+   * 2026-08-19), not a scene of its own any more.
+   *
+   * A guest reading a price eight feet up is not thereby told that the machine at
+   * waist height in front of them is how to buy it. Carrying the instruction on the
+   * pricing panel itself says both at once and costs no airtime, which is why the
+   * separate kiosk how-to slot was deleted rather than kept alongside it.
+   *
+   * "THE kiosk below", never "any" — the ad rotation sells the whole bank; this board
+   * names the one machine under this panel.
+   */
+  band: string;
 }
 
 /**
- * The five panels of the menu board, in wall order.
+ * WHICH THREE SUBJECTS THE MIDDLE PANELS SHOW RIGHT NOW.
  *
- * PRICES COME FROM THE MODULES THE KIOSK CHARGES FROM — `ATTRACTIONS` for the
- * attractions, the race registry for racing, the combo's own `price` for the VIP
- * night, and the feed's bowling section for lanes. Never a second copy: a menu
- * board quoting a price the machine below it will not honour is the exact failure
- * the house pricing rule exists to prevent.
- *
- * `bowling` is the feed's `bowlingTonight`. Null (no read, or the catalog is empty)
- * degrades the bowling panel to selling availability rather than inventing a lane
- * price — the one thing that panel may never do.
+ * Six subject slots over three panels, so the board deals them in two sets and cuts
+ * between them on the 40-second slot boundary: everything is seen inside eighty
+ * seconds, and all three panels cut TOGETHER because the set is derived from the
+ * shared clock rather than from any panel's own timer.
  */
-export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuPanel[] {
-  const A = WALL_ACCENT;
-  const price = vipWallPrice(nowMs);
+function subjectSet(nowMs: number): 0 | 1 {
+  return Math.floor(nowMs / SLOT_MS) % 2 === 0 ? 0 : 1;
+}
 
-  // BOWLING — TONIGHT'S SPECIAL FIRST, then the plain lane rate.
-  //
-  // The special is the package the catalog has on for today: Fun 4 All Mon–Thu,
-  // Midnight Madness Fri/Sat, Pizza Bowl Sunday. It leads because it is the OFFER
-  // — the hourly lane rate is the everyday baseline and reads as a price list, not
-  // as a reason to walk over (owner 2026-08-18, "Bowling is missing the special.
-  // Fun 4 All tonight").
-  //
-  // The lane rate still appears underneath, because a guest who just wants a lane
-  // needs a number too — and it is marked as such so the two are not confused: one
-  // is per person for a fixed 90 minutes, the other per lane by the hour.
-  const bowlingRows: MenuRow[] = [];
-  const bowlingRow = (offer: BowlingWallOffer | null, fallbackName: string): MenuRow | null =>
+/**
+ * The bowling panel, led by one tier of tonight's package.
+ *
+ * `lead` picks which tier heads the panel — the regular package in subject set A, the
+ * VIP one in set B. That is what earns bowling its two appearances without showing the
+ * same rows twice: it is a bowling centre, so the headline product gets the double
+ * airtime, but the second pass sells the upgrade rather than repeating the offer.
+ *
+ * The plain hourly lane rate rides underneath either way, marked "by the hour", because
+ * a guest who just wants a lane needs a number too — and it must never be confusable
+ * with the package: one is per person for ninety minutes, the other per lane.
+ */
+function bowlingPanel(bowling: BowlingTonight | null, lead: "regular" | "vip"): MenuPanel {
+  const A = WALL_ACCENT;
+  const rows: MenuRow[] = [];
+
+  const asRow = (offer: BowlingWallOffer | null, fallbackName: string): MenuRow | null =>
     offer
       ? {
           name: offer.label || fallbackName,
@@ -553,31 +566,28 @@ export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuP
           // zero — the same rule the static catalogue's `price: 0` forces.
           price: offer.priceLabel ?? undefined,
           word: offer.priceLabel ? undefined : "Ask at the desk",
-          // "shoes included" earns its place next to the price: it is the
-          // difference between a quoted number and what a family of four actually
-          // pays. Only ever printed when the offer really says so — an hourly lane
-          // and Midnight Madness do not include them.
+          // "shoes included" earns its place next to the price: it is the difference
+          // between a quoted number and what a family of four actually pays. Only ever
+          // printed when the offer really says so.
           note: [offer.durationLabel, offer.unit, offer.shoesIncluded ? "shoes included" : null]
             .filter(Boolean)
             .join(" · "),
         }
       : null;
 
-  for (const row of [
-    bowlingRow(bowling?.special?.regular ?? null, "Tonight's special"),
-    bowlingRow(bowling?.special?.vip ?? null, "VIP"),
-  ]) {
-    if (row) bowlingRows.push(row);
-  }
-  // The lane rate: one row, regular only. Both hourly tiers would make four rows on
-  // one panel and bury the special the panel is led by.
-  const lane = bowlingRow(bowling?.hourly?.regular ?? null, "Hourly lane");
-  if (lane) bowlingRows.push({ ...lane, name: `${lane.name} lane by the hour` });
+  const special = bowling?.special ?? null;
+  const led =
+    lead === "vip" ? (special?.vip ?? special?.regular ?? null) : (special?.regular ?? null);
+  const first = asRow(led, "Tonight's special");
+  if (first) rows.push(first);
 
-  if (bowlingRows.length === 0) {
+  const lane = asRow(bowling?.hourly?.regular ?? null, "Hourly lane");
+  if (lane) rows.push({ ...lane, name: `${lane.name} lane by the hour` });
+
+  if (rows.length === 0) {
     // No catalog answer at all. Sell the lanes on availability — never on a made-up
     // price, which is the one thing this panel may not do.
-    bowlingRows.push({
+    rows.push({
       name: "Lanes",
       productId: "bowling",
       tracksAvailability: true,
@@ -586,64 +596,93 @@ export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuP
     });
   }
 
+  return {
+    headline: "Bowling",
+    subhead: special
+      ? lead === "vip"
+        ? "Tonight's special · VIP"
+        : "Tonight's special"
+      : undefined,
+    photo: TV_PHOTOS.bowl,
+    accent: A.bowl,
+    rows,
+    band: "Buy it on the kiosk below",
+  };
+}
+
+/**
+ * The THREE panels the middle of the wall is showing right now, in wall order.
+ *
+ * Three, not five: the menu board spans the middle (owner 2026-08-19), and `choreo()`
+ * hands this scene a SPAN-RELATIVE position, so it composes over 0..2 and never has to
+ * know that two more panels exist either side of it. TV1 and TV5 run their own boards.
+ *
+ * PRICES COME FROM THE MODULES THE KIOSK CHARGES FROM — `ATTRACTIONS` for the
+ * attractions, the race registry for racing, the combo's own `price` for the VIP night,
+ * and the feed's bowling section for lanes. Never a second copy: a menu board quoting a
+ * price the machine below it will not honour is the exact failure the house pricing rule
+ * exists to prevent.
+ */
+export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuPanel[] {
+  const A = WALL_ACCENT;
+  const price = vipWallPrice(nowMs);
+
+  if (subjectSet(nowMs) === 0) {
+    return [
+      bowlingPanel(bowling, "regular"),
+      {
+        // ONE TRIP, TWO ARENAS. Both Nexus attractions run from the same desk and the
+        // same briefing, so they share a panel and the gel-blaster photograph rather
+        // than competing for two of the three.
+        headline: "Gel Blasters",
+        subhead: "and Laser Tag",
+        photo: TV_PHOTOS.gel,
+        accent: A.gel,
+        rows: [
+          {
+            name: "Gel Blasters",
+            productId: "gel-blaster",
+            tracksAvailability: true,
+            price: attractionPrice("gel-blaster", "headpinz"),
+            note: "Per session",
+          },
+          {
+            name: "Laser Tag",
+            productId: "laser-tag",
+            tracksAvailability: true,
+            price: attractionPrice("laser-tag", "headpinz"),
+            note: "Per session",
+          },
+        ],
+        band: "Buy it on the kiosk below",
+      },
+      {
+        // ON ITS OWN — a game card is not a booking, it is the thing a guest does on
+        // the way past, and pairing it with a timed attraction made it read as one.
+        headline: "Game Zone",
+        photo: TV_PHOTOS.arcade,
+        accent: A.arcade,
+        rows: [
+          {
+            name: "Load a card",
+            // Independent of every booking vendor (Intercard), which is why Game Zone
+            // stayed open through the whole 2026-08-03 outage.
+            productId: "game-zone",
+            // No price: a card is loaded with whatever the guest chooses.
+            word: "Any amount",
+            note: "Top up without the line",
+          },
+        ],
+        band: "Load it on the kiosk below",
+      },
+    ];
+  }
+
   return [
     {
-      headline: "Bowling",
-      // Names the offer, so the panel says WHAT is on and not just "bowling".
-      subhead: bowling?.special ? "Tonight's special" : undefined,
-      photo: TV_PHOTOS.bowl,
-      accent: A.bowl,
-      rows: bowlingRows,
-    },
-    {
-      // ONE TRIP, TWO ARENAS. Both Nexus attractions run from the same desk and
-      // the same briefing, so they share a panel and the gel-blaster photograph
-      // (owner 2026-08-18) rather than competing for two.
-      headline: "Gel Blasters",
-      subhead: "and Laser Tag",
-      photo: TV_PHOTOS.gel,
-      accent: A.gel,
-      rows: [
-        {
-          name: "Gel Blasters",
-          productId: "gel-blaster",
-          tracksAvailability: true,
-          price: attractionPrice("gel-blaster", "headpinz"),
-          note: "Per session",
-        },
-        {
-          name: "Laser Tag",
-          productId: "laser-tag",
-          tracksAvailability: true,
-          price: attractionPrice("laser-tag", "headpinz"),
-          note: "Per session",
-        },
-      ],
-    },
-    {
-      // ON ITS OWN (owner 2026-08-18) — a game card is not a booking, it is the
-      // thing a guest does on the way past, and pairing it with a timed
-      // attraction made it read as one.
-      headline: "Game Zone",
-      photo: TV_PHOTOS.arcade,
-      accent: A.arcade,
-      rows: [
-        {
-          name: "Load a card",
-          // Independent of every booking vendor (Intercard), which is why Game
-          // Zone stayed open through the whole 2026-08-03 outage.
-          productId: "game-zone",
-          // No price: a card is loaded with whatever the guest chooses.
-          word: "Any amount",
-          note: "At any kiosk below",
-        },
-      ],
-    },
-    {
-      // THE OTHER BUILDING. Racing and duckpin are both FastTrax-side products
-      // (duckpin runs on the FastTrax QAMF centre), so the panel is headed by
-      // WHERE rather than by what — which is also the wall's "two locations"
-      // claim made concrete instead of asserted (owner 2026-08-18).
+      // THE OTHER BUILDING. Racing and duckpin are both FastTrax-side products, so the
+      // panel is headed by WHERE rather than by what — which is the wall's "two
+      // locations" claim made concrete instead of asserted.
       headline: "At FastTrax",
       subhead: "Across the campus",
       photo: TV_PHOTOS.raceAction,
@@ -652,13 +691,12 @@ export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuP
         {
           name: "Racing",
           productId: "race",
-          // NOT tracked, and not an oversight. The kiosk availability builder
-          // computes racing's LOCK but omits its `firstOpen` on purpose — a
-          // per-tier heat line was too busy for a tile and the race grid already
-          // carries heat times (owner 2026-07-25). The key is declared in
-          // ExperienceFirstOpen and nothing writes it, verified against the live
-          // cache. Claiming to track it would print "Ask at the desk" over a
-          // track that is open all evening.
+          // NOT tracked, and not an oversight. The kiosk availability builder computes
+          // racing's LOCK but omits its `firstOpen` on purpose — a per-tier heat line
+          // was too busy for a tile and the race grid already carries heat times (owner
+          // 2026-07-25). The key is declared in ExperienceFirstOpen and nothing writes
+          // it, verified against the live cache. Claiming to track it would print "Ask
+          // at the desk" over a track that is open all evening.
           price: dollars(RACE_START_CENTS),
           note: "Per race",
         },
@@ -670,11 +708,11 @@ export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuP
           note: "Per 30 min",
         },
       ],
+      band: "Book it on the kiosk below",
     },
     {
-      // Named for what the kiosk sells it AS, with the wall's own badge under it:
-      // the same thing said two ways, and a guest has to be able to join them up
-      // (owner 2026-08-18).
+      // Named for what the kiosk sells it AS, with the wall's own badge under it: the
+      // same thing said two ways, and a guest has to be able to join them up.
       headline: activeVipCombo()?.name ?? "VIP Experience",
       subhead: "All Access",
       photo: TV_PHOTOS.vip,
@@ -690,33 +728,24 @@ export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuP
             : "Front desk",
         },
       ],
+      band: "Buy it on the kiosk below",
     },
+    bowlingPanel(bowling, "vip"),
   ];
-}
-
-/** The panel for THIS position, or null past the end of the board. A panel with
- *  nothing to say renders its quiet state rather than repeating its neighbour. */
-export function menuPanelAt(
-  nowMs: number,
-  position: number,
-  bowling: BowlingTonight | null,
-): MenuPanel | null {
-  return atWallPosition(menuPanels(nowMs, bowling), position);
 }
 
 /**
  * The cheapest race on the board, in cents.
  *
- * The adult Starter race — the one a first-timer walking up to this wall can
- * actually buy — is $20.99 on every schedule, so the wall quotes it as the entry
- * price. Read off the registry rather than typed, so a repricing there moves the
- * wall with it.
+ * The adult Starter race — the one a first-timer walking up to this wall can actually
+ * buy — is $20.99 on every schedule, so the wall quotes it as the entry price. Read off
+ * the registry rather than typed, so a repricing there moves the wall with it.
  */
 const RACE_START_CENTS = 2099;
 
-/** An attraction's price from the catalogue the booking flow charges from, as a
- *  wall label. Undefined when the product or location has no entry — a row with
- *  no price shows its word instead of a zero. */
+/** An attraction's price from the catalogue the booking flow charges from, as a wall
+ *  label. Undefined when the product or location has no entry — a row with no price
+ *  shows its word instead of a zero. */
 function attractionPrice(
   slug: string,
   location: "fasttrax" | "headpinz" | "naples",
@@ -728,6 +757,14 @@ function attractionPrice(
   );
   if (!match || !(match.price > 0)) return undefined;
   return `$${match.price % 1 === 0 ? match.price : match.price.toFixed(2)}`;
+}
+
+export function menuPanelAt(
+  nowMs: number,
+  position: number,
+  bowling: BowlingTonight | null,
+): MenuPanel | null {
+  return atWallPosition(menuPanels(nowMs, bowling), position);
 }
 
 /* ── the kiosk how-to ─────────────────────────────────────────────────── */

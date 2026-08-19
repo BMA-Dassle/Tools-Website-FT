@@ -218,15 +218,24 @@ const RACE_GUIDE_CONFIG: ScreenConfig = {
  * has its own position) and the seed script writes it around this config.
  */
 const FRONT_DESK_CONFIG: ScreenConfig = {
-  // SPANS (owner 2026-08-18). The VIP showcase is the hero and takes the whole wall;
-  // everything else runs across the MIDDLE THREE, leaving TV1 as the self-check-in
-  // board and TV5 as today's events. A span is part of this byte-identical playlist,
-  // so every panel agrees on it without being told — see SceneSpan.
+  // A STANDING STATE THAT GETS TAKEN OVER (owner 2026-08-19), and the reason this is
+  // nine slots rather than a new mechanism: 9 x 40s is SIX MINUTES exactly, of which
+  // the VIP showcase takes two slots — 80 seconds, which is precisely one full pass of
+  // its four 20-second slides, so no slide is ever cut in half. Pricing holds the wall
+  // the other 4m40s. VIP is on 22% of the time, against 50% in the first cut.
+  //
+  // SPANS. The showcase is the hero and takes all five; the menu board runs across the
+  // MIDDLE THREE, which is what frees TV1 for the self-check-in list and TV5 for
+  // tonight's events (their `wall.outsideScene`). A span rides on this byte-identical
+  // playlist, so every panel agrees on it without being told — see SceneSpan.
+  //
+  // NO SEPARATE KIOSK HOW-TO. "Buy it on the kiosk below" is permanent chrome under
+  // every pricing panel now, so telling a guest where to buy costs no airtime at all.
+  // NO HOUSE ADS EITHER: this wall's job is to price what is on sale tonight, and a
+  // generic advert alongside a real price is the weaker of the two.
   playlist: [
-    { scene: "vip-showcase", slots: 4, span: "wall" },
-    { scene: "open-now", slots: 2, span: "middle" },
-    { scene: "kiosk-howto", slots: 1, span: "middle" },
-    { scene: "ads", slots: 1, span: "middle" },
+    { scene: "open-now", slots: 7, span: "middle" },
+    { scene: "vip-showcase", slots: 2, span: "wall" },
   ],
   interrupts: {
     "vip-welcome": { enabled: false },

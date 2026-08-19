@@ -452,7 +452,7 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
   // Falls back to ads for a wing with no board of its own, and for an `outsideScene`
   // this deploy cannot render — the same refusal every other scene gets, so an unbuilt
   // name can never paint as something else.
-  const scene = substituteOutsideSpan(segment, config, implemented);
+  const scene = substituteOutsideSpan(segment, config, implemented, input.hasData);
   return { scene, startedAtMs, durationMs, isInterrupt: false };
 }
 
@@ -466,11 +466,24 @@ function substituteOutsideSpan(
   segment: RotationSegment,
   config: ResolvedScreenConfig,
   implemented: (scene: SceneType) => boolean,
+  hasData: (scene: SceneType) => boolean,
 ): SceneType {
   const wall = config.wall;
   if (!wall || segment.span === "wall") return segment.scene;
   const { first, last } = spanRange(segment.span, wall.count);
   if (wall.position >= first && wall.position <= last) return segment.scene;
+
   const own = wall.outsideScene;
-  return own && implemented(own) ? own : "ads";
+  // A WING'S OWN BOARD ONLY SHOWS WHEN IT HAS SOMETHING, and that check is what stops
+  // a dead panel at the end of the wall: SceneEventWelcome renders NOTHING with no
+  // events and no VIPs — which is safe for an ordinary rotation entry, because
+  // `requiresData` keeps it from being selected, but a wing is substituted here
+  // directly and would have gone black on a quiet night.
+  //
+  // The fallback is house ads rather than the menu board, and it has to be: the menu
+  // board is a THREE-PANEL composition, so a single wing rendering it would paint
+  // panel 0 of that set and duplicate its neighbour. Ads is the one scene that is
+  // complete on any single panel, which is also why it is the floor everywhere else.
+  if (own && implemented(own) && hasData(own)) return own;
+  return "ads";
 }

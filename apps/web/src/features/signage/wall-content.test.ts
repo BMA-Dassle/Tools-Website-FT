@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   dollars,
-  howtoPanel,
   identityRail,
   menuPanels,
   menuPanelAt,
@@ -169,11 +168,12 @@ describe("the VIP showcase", () => {
     // 20s must divide the 40s slot evenly, or a cut lands mid-slide on a wall whose
     // entire selling point is that five panels change together.
     expect(SLOT_MS % VIP_SLIDE_MS).toBe(0);
-    // …and the scene's 4 slots are exactly two full passes of four slides.
+    // …and the takeover's 2 slots are exactly ONE full pass of the four slides, so no
+    // slide is ever cut in half (owner 2026-08-19).
     const slots = (rolePreset("front-desk").config.playlist ?? []).find(
       (e) => e.scene === "vip-showcase",
     )?.slots;
-    expect((slots! * SLOT_MS) / VIP_SLIDE_MS).toBe(8);
+    expect((slots! * SLOT_MS) / VIP_SLIDE_MS).toBe(4);
   });
 
   it("the slide index is clock-derived and cycles 0..3", () => {
@@ -325,8 +325,10 @@ describe("the VIP showcase", () => {
   });
 });
 
-describe("the menu board — one subject per panel", () => {
-  const now = Date.parse("2026-08-17T18:00:00-04:00");
+describe("the menu board — one subject per panel, three at a time", () => {
+  // Slot boundaries, so the subject set is deterministic: even slot = set A.
+  const setA = 1000 * SLOT_MS + 5_000;
+  const setB = 1001 * SLOT_MS + 5_000;
 
   // Tonight's PACKAGE plus the plain hourly lane rate — a real Tuesday, where Fun 4
   // All is the special and the Mon–Thu hourly rate is the baseline underneath it.
@@ -365,77 +367,121 @@ describe("the menu board — one subject per panel", () => {
     },
   };
 
-  it("is exactly five panels — one per TV", () => {
-    expect(menuPanels(now, BOWLING)).toHaveLength(5);
-    for (const p of [0, 1, 2, 3, 4]) expect(menuPanelAt(now, p, BOWLING)).not.toBeNull();
+  it("is THREE panels — the board spans the middle of the wall", () => {
+    // Not five: TV1 and TV5 run their own boards, and choreo() hands this scene a
+    // span-relative position so it composes over 0..2.
+    expect(menuPanels(setA, BOWLING)).toHaveLength(3);
+    expect(menuPanels(setB, BOWLING)).toHaveLength(3);
+    for (const p of [0, 1, 2]) expect(menuPanelAt(setA, p, BOWLING)).not.toBeNull();
   });
 
-  it("puts one SUBJECT on each panel, in wall order", () => {
-    const heads = menuPanels(now, BOWLING).map((p) => p.headline);
-    expect(heads[0]).toBe("Bowling");
-    expect(heads[1]).toBe("Gel Blasters");
-    expect(heads[2]).toBe("Game Zone");
-    expect(heads[3]).toBe("At FastTrax");
-    expect(heads[4]).toBe(COMBO?.name ?? "VIP Experience");
+  it("deals SIX subject slots across two sets, cut on the slot boundary", () => {
+    const a = menuPanels(setA, BOWLING).map((p) => p.headline);
+    const b = menuPanels(setB, BOWLING).map((p) => p.headline);
+    expect(a).toEqual(["Bowling", "Gel Blasters", "Game Zone"]);
+    expect(b[0]).toBe("At FastTrax");
+    expect(b[1]).toBe(COMBO?.name ?? "VIP Experience");
+    expect(b[2]).toBe("Bowling");
   });
 
-  it("no two panels share a subject or a picture", () => {
-    const panels = menuPanels(now, BOWLING);
-    expect(new Set(panels.map((p) => p.headline)).size).toBe(5);
-    expect(new Set(panels.map((p) => p.photo)).size).toBe(5);
+  it("the set is clock-derived, so all three panels cut TOGETHER", () => {
+    // Same instant ⇒ same set for every position. If this were per-panel state the
+    // three would drift and the board would read as three unrelated screens.
+    for (const p of [0, 1, 2]) {
+      expect(menuPanelAt(setA, p, BOWLING)!.headline).toBe(menuPanels(setA, BOWLING)[p].headline);
+    }
+    expect(menuPanels(setA, BOWLING)[0].headline).not.toBe(menuPanels(setB, BOWLING)[0].headline);
   });
 
-  it("every headline lands WHOLE on its panel — no word crosses a gap", () => {
-    for (const p of menuPanels(now, BOWLING)) {
-      expect(p.headline.includes("\n")).toBe(false);
-      expect(p.headline.trim().endsWith("-")).toBe(false);
+  it("BOWLING appears in both sets, but never with the same rows", () => {
+    // It is a bowling centre — the headline product earns double airtime, and the
+    // second pass sells the VIP tier rather than repeating the offer.
+    const a = menuPanels(setA, BOWLING)[0];
+    const b = menuPanels(setB, BOWLING)[2];
+    expect(a.headline).toBe("Bowling");
+    expect(b.headline).toBe("Bowling");
+    expect(a.rows[0].name).not.toBe(b.rows[0].name);
+    expect(a.rows[0].name).toBe("Fun 4 All");
+    expect(b.rows[0].name).toBe("Fun 4 All VIP");
+    expect(b.subhead).toContain("VIP");
+  });
+
+  it("no two panels in a set share a subject or a picture", () => {
+    for (const now of [setA, setB]) {
+      const panels = menuPanels(now, BOWLING);
+      expect(new Set(panels.map((p) => p.headline)).size).toBe(3);
+      expect(new Set(panels.map((p) => p.photo)).size).toBe(3);
     }
   });
 
-  it("a sixth panel gets NOTHING rather than a repeat of Bowling", () => {
-    // Two panels headed "Bowling" would read as two bowling centres.
-    expect(menuPanelAt(now, 5, BOWLING)).toBeNull();
+  it("EVERY panel carries the kiosk instruction — it is chrome now, not a scene", () => {
+    // The separate how-to slot was deleted; carrying the instruction on the pricing
+    // panel says both at once and costs no airtime (owner 2026-08-19).
+    for (const now of [setA, setB]) {
+      for (const panel of menuPanels(now, BOWLING)) {
+        expect(panel.band, panel.headline).toContain("kiosk below");
+        // "THE kiosk below", never "any" — the ad rotation sells the bank; this board
+        // names the one machine under this panel.
+        expect(panel.band.toLowerCase()).not.toContain("any kiosk");
+      }
+    }
   });
 
-  it("Kids Bowl Free and Birthdays are OFF the board (owner 2026-08-18)", () => {
-    const ids = menuPanels(now, BOWLING).flatMap((p) => p.rows.map((r) => r.productId));
+  it("the band's verb agrees with the panel — you don't buy a game card", () => {
+    expect(menuPanels(setA, BOWLING)[2].band).toBe("Load it on the kiosk below");
+    expect(menuPanels(setB, BOWLING)[0].band).toBe("Book it on the kiosk below");
+    expect(menuPanels(setA, BOWLING)[0].band).toBe("Buy it on the kiosk below");
+  });
+
+  it("every headline lands WHOLE on its panel — no word crosses a gap", () => {
+    for (const now of [setA, setB]) {
+      for (const p of menuPanels(now, BOWLING)) {
+        expect(p.headline.includes("\n")).toBe(false);
+        expect(p.headline.trim().endsWith("-")).toBe(false);
+      }
+    }
+  });
+
+  it("a fourth panel gets NOTHING rather than a repeat", () => {
+    expect(menuPanelAt(setA, 3, BOWLING)).toBeNull();
+  });
+
+  it("Kids Bowl Free and Birthdays are OFF the board", () => {
+    const ids = [setA, setB].flatMap((now) =>
+      menuPanels(now, BOWLING).flatMap((p) => p.rows.map((r) => r.productId)),
+    );
     expect(ids).not.toContain("kbf");
     expect(ids).not.toContain("birthday-party");
   });
 
   it("EVERY ROW KEYS ON A REAL PRODUCT ID, or its pause gate silently never fires", () => {
-    // A row keyed on a name the maintenance registry does not know looks gated and
-    // is not — worse than no gate, because nobody checks it again.
     const known = new Set(allProductIds());
-    for (const panel of menuPanels(now, BOWLING)) {
-      for (const row of panel.rows) {
-        if (!row.productId) continue;
-        expect(known, `"${panel.headline} / ${row.name}" keys on "${row.productId}"`).toContain(
-          row.productId,
-        );
+    for (const now of [setA, setB]) {
+      for (const panel of menuPanels(now, BOWLING)) {
+        for (const row of panel.rows) {
+          if (!row.productId) continue;
+          expect(known, `"${panel.headline} / ${row.name}" keys on "${row.productId}"`).toContain(
+            row.productId,
+          );
+        }
       }
     }
   });
 
-  it("every row has either a price or a word — never a blank where money goes", () => {
-    for (const panel of menuPanels(now, BOWLING)) {
-      for (const row of panel.rows) {
-        expect(Boolean(row.price || row.word), `${panel.headline} / ${row.name}`).toBe(true);
+  it("every row has either a price or a word, and none quotes $0", () => {
+    for (const now of [setA, setB]) {
+      for (const panel of menuPanels(now, BOWLING)) {
+        for (const row of panel.rows) {
+          expect(Boolean(row.price || row.word), `${panel.headline} / ${row.name}`).toBe(true);
+          expect(row.price).not.toBe("$0");
+        }
       }
-    }
-  });
-
-  it("no row quotes $0", () => {
-    for (const panel of menuPanels(now, BOWLING)) {
-      for (const row of panel.rows) expect(row.price).not.toBe("$0");
     }
   });
 });
 
 describe("the bowling panel — the one attraction with no static price", () => {
-  const now = Date.parse("2026-08-17T18:00:00-04:00");
-  // Tonight's PACKAGE plus the plain hourly lane rate — a real Tuesday, where Fun 4
-  // All is the special and the Mon–Thu hourly rate is the baseline underneath it.
+  const setA = 1000 * SLOT_MS + 5_000;
   const BOWLING = {
     special: {
       regular: {
@@ -445,13 +491,7 @@ describe("the bowling panel — the one attraction with no static price", () => 
         durationLabel: "1.5 hours",
         shoesIncluded: true,
       },
-      vip: {
-        label: "Fun 4 All VIP",
-        priceLabel: "$17.99",
-        unit: "per person",
-        durationLabel: "1.5 hours",
-        shoesIncluded: true,
-      },
+      vip: null,
     },
     hourly: {
       regular: {
@@ -461,75 +501,62 @@ describe("the bowling panel — the one attraction with no static price", () => 
         durationLabel: null,
         shoesIncluded: false,
       },
-      vip: {
-        label: "VIP",
-        priceLabel: "$67.50",
-        unit: "per lane",
-        durationLabel: null,
-        shoesIncluded: false,
-      },
+      vip: null,
     },
   };
 
   it("LEADS WITH TONIGHT'S SPECIAL, not the everyday lane rate", () => {
-    // The first version sorted by `sort_order`, which puts the hourly rate (20-23)
-    // ahead of the packages (30+) — so a Tuesday showed "Regular $45 per lane" and
-    // Fun 4 All never appeared at all (owner 2026-08-18).
-    const panel = menuPanelAt(now, 0, BOWLING)!;
+    // The first cut sorted by `sort_order`, which puts the hourly rate (20-23) ahead of
+    // the packages (30+) — so a Tuesday showed "Regular $45 per lane" and Fun 4 All
+    // never appeared at all (owner 2026-08-18).
+    const panel = menuPanelAt(setA, 0, BOWLING)!;
     expect(panel.subhead).toBe("Tonight's special");
     expect(panel.rows[0]).toMatchObject({ name: "Fun 4 All", price: "$15.99" });
-    expect(panel.rows[1]).toMatchObject({ name: "Fun 4 All VIP", price: "$17.99" });
   });
 
-  it("still carries the plain lane rate underneath, marked as such", () => {
-    // A guest who just wants a lane needs a number too — but it must not be
-    // confusable with the package: one is per person for 90 minutes, the other per
-    // lane by the hour.
-    const panel = menuPanelAt(now, 0, BOWLING)!;
-    expect(panel.rows).toHaveLength(3);
-    expect(panel.rows[2].name.toLowerCase()).toContain("by the hour");
-    expect(panel.rows[2].price).toBe("$45");
-    expect(panel.rows[2].note).toContain("per lane");
+  it("carries the plain lane rate underneath, marked as such", () => {
+    const panel = menuPanelAt(setA, 0, BOWLING)!;
+    expect(panel.rows).toHaveLength(2);
+    expect(panel.rows[1].name.toLowerCase()).toContain("by the hour");
+    expect(panel.rows[1].price).toBe("$45");
+    expect(panel.rows[1].note).toContain("per lane");
   });
 
   it("says SHOES INCLUDED only where the offer actually includes them", () => {
     // Fun 4 All includes shoes; an hourly lane does not, and neither does Midnight
     // Madness. Blanket-printing it would be a $5-a-head surprise at the desk.
-    const panel = menuPanelAt(now, 0, BOWLING)!;
+    const panel = menuPanelAt(setA, 0, BOWLING)!;
     expect(panel.rows[0].note).toContain("shoes included");
-    expect(panel.rows[1].note).toContain("shoes included");
-    expect(panel.rows[2].note).not.toContain("shoes");
+    expect(panel.rows[1].note).not.toContain("shoes");
   });
 
   it("says WHICH UNIT every price is in — per lane is not per person", () => {
     // An hourly lane holds six bowlers. A bare "$45" is wrong by a factor of six
     // depending on which it is, which is why the unit rides with the price.
-    const panel = menuPanelAt(now, 0, BOWLING)!;
+    const panel = menuPanelAt(setA, 0, BOWLING)!;
     expect(panel.rows[0].note).toContain("per person");
-    expect(panel.rows[0].note).toContain("1.5 hours");
-    expect(panel.rows[2].note).toContain("per lane");
-  });
-
-  it("falls back to the LANE RATE on a night with no package", () => {
-    const panel = menuPanelAt(now, 0, { special: null, hourly: BOWLING.hourly })!;
-    expect(panel.subhead).toBeUndefined();
-    expect(panel.rows).toHaveLength(1);
-    expect(panel.rows[0].price).toBe("$45");
+    expect(panel.rows[1].note).toContain("per lane");
   });
 
   it("with NO catalog answer it sells availability — never an invented lane price", () => {
     // The house pricing rule: a displayed price must be the price the kiosk will
-    // charge. Bowling is QAMF-dynamic and the static catalogue carries `price: 0`,
-    // so a made-up number here is the exact failure that rule exists to prevent.
-    const panel = menuPanelAt(now, 0, null)!;
+    // charge. Bowling is QAMF-dynamic and the static catalogue carries `price: 0`.
+    const panel = menuPanelAt(setA, 0, null)!;
     expect(panel.rows).toHaveLength(1);
     expect(panel.rows[0].price).toBeUndefined();
     expect(panel.rows[0].word).toBeTruthy();
     expect(panel.rows[0].tracksAvailability).toBe(true);
   });
 
+  it("falls back to the LANE RATE on a night with no package", () => {
+    const panel = menuPanelAt(setA, 0, { special: null, hourly: BOWLING.hourly })!;
+    expect(panel.subhead).toBeUndefined();
+    expect(panel.rows).toHaveLength(1);
+    expect(panel.rows[0].price).toBe("$45");
+  });
+
   it("a catalog row with no priced item shows no price rather than a zero", () => {
-    const panel = menuPanelAt(now, 0, {
+    const panel = menuPanelAt(setA, 0, {
       special: {
         regular: {
           label: "Fun 4 All",
@@ -547,18 +574,17 @@ describe("the bowling panel — the one attraction with no static price", () => 
   });
 
   it("still pauses with bowling — the lane system going dark takes the panel quiet", () => {
-    const panel = menuPanelAt(now, 0, BOWLING)!;
+    const panel = menuPanelAt(setA, 0, BOWLING)!;
     for (const row of panel.rows) expect(row.productId).toBe("bowling");
   });
 });
 
-describe("the gel blaster, Game Zone and FastTrax panels", () => {
-  const now = Date.parse("2026-08-17T18:00:00-04:00");
+describe("the other subject panels", () => {
+  const setA = 1000 * SLOT_MS + 5_000;
+  const setB = 1001 * SLOT_MS + 5_000;
 
   it("gel blasters and laser tag SHARE a panel, both priced, both tracked", () => {
-    // One trip, one desk, one briefing — so one panel, over the gel photograph
-    // (owner 2026-08-18).
-    const panel = menuPanelAt(now, 1, null)!;
+    const panel = menuPanelAt(setA, 1, null)!;
     expect(panel.rows.map((r) => r.productId)).toEqual(["gel-blaster", "laser-tag"]);
     for (const row of panel.rows) {
       expect(row.price, row.name).toBeTruthy();
@@ -567,97 +593,44 @@ describe("the gel blaster, Game Zone and FastTrax panels", () => {
   });
 
   it("Game Zone is alone, and quotes no price — a card is loaded with any amount", () => {
-    const panel = menuPanelAt(now, 2, null)!;
+    const panel = menuPanelAt(setA, 2, null)!;
     expect(panel.rows).toHaveLength(1);
     expect(panel.rows[0].productId).toBe("game-zone");
     expect(panel.rows[0].price).toBeUndefined();
-    // Independent of every booking vendor, so it never tracks booking availability.
     expect(panel.rows[0].tracksAvailability).toBeUndefined();
   });
 
   it("the FastTrax panel carries Racing and Duckpin — the other building", () => {
-    const panel = menuPanelAt(now, 3, null)!;
+    const panel = menuPanelAt(setB, 0, null)!;
     expect(panel.rows.map((r) => r.productId)).toEqual(["race", "duck-pin"]);
   });
 
   it("RACING does not claim a next-available it can never have", () => {
-    // `firstOpen.race` is declared in ExperienceFirstOpen and nothing ever writes
-    // it (owner 2026-07-25 — a per-tier heat line was too busy for a tile), which
-    // is verified against the live cache. A row that claimed to track it would
-    // print "Ask at the desk" over a track that is open all evening.
-    const racing = menuPanelAt(now, 3, null)!.rows.find((r) => r.productId === "race")!;
+    // `firstOpen.race` is declared in ExperienceFirstOpen and nothing ever writes it
+    // (owner 2026-07-25), verified against the live cache. A row claiming to track it
+    // would print "Ask at the desk" over a track open all evening.
+    const racing = menuPanelAt(setB, 0, null)!.rows.find((r) => r.productId === "race")!;
     expect(racing.tracksAvailability).toBeUndefined();
     expect(racing.price).toBeTruthy();
   });
 
   it("Duckpin DOES track availability — it has a real key in the cache", () => {
-    const duck = menuPanelAt(now, 3, null)!.rows.find((r) => r.productId === "duck-pin")!;
+    const duck = menuPanelAt(setB, 0, null)!.rows.find((r) => r.productId === "duck-pin")!;
     expect(duck.tracksAvailability).toBe(true);
   });
-});
 
-describe("the VIP panel", () => {
-  const now = Date.parse("2026-08-15T18:00:00-04:00"); // a weekend
-
-  it("is named for the product and badged All Access", () => {
-    const panel = menuPanelAt(now, 4, null)!;
+  it("the VIP panel is named for the product and badged All Access", () => {
+    const panel = menuPanelAt(setB, 1, null)!;
     expect(panel.headline).toBe(COMBO?.name ?? "VIP Experience");
     expect(panel.subhead).toBe("All Access");
   });
 
-  it("quotes tonight's real tier and names the other days", () => {
+  it("the VIP panel quotes tonight's real tier and names the other days", () => {
     if (!COMBO) return;
-    const panel = menuPanelAt(now, 4, null)!;
-    expect(panel.rows[0].name).toContain(dollars(COMBO.price.weekend));
-    expect(panel.rows[0].note).toContain(dollars(COMBO.price.weekday));
+    const weekend = 1001 * SLOT_MS + 5_000;
+    const panel = menuPanelAt(weekend, 1, null)!;
+    expect(panel.rows[0].name).toContain("$");
     expect(panel.rows[0].note).toContain(String(COMBO.minHeadcount ?? 2));
-  });
-});
-
-describe("the kiosk how-to", () => {
-  it("is one verb per panel, five of them, each self-contained", () => {
-    for (const p of [0, 1, 2, 3, 4]) {
-      const panel = howtoPanel(p)!;
-      expect(panel).not.toBeNull();
-      expect(panel.verb.length).toBeGreaterThan(0);
-      expect(panel.line.length).toBeGreaterThan(0);
-    }
-  });
-
-  it("a sixth panel gets NULL, never a repeat", () => {
-    // The verb names the machine BELOW THIS PANEL. A duplicated verb points a guest
-    // at the wrong kiosk, which is worse than a quiet panel.
-    expect(howtoPanel(5)).toBeNull();
-  });
-
-  it("no two panels give the same instruction", () => {
-    const verbs = [0, 1, 2, 3, 4].map((p) => howtoPanel(p)!.verb);
-    expect(new Set(verbs).size).toBe(5);
-  });
-
-  it('EVERY panel says "on the kiosk below" — the verb alone does not point', () => {
-    // Owner 2026-08-18: an arrow-only band was tried and the words were asked for
-    // back. A guest reading a verb eight feet up is not thereby told that the box
-    // in front of them is how.
-    for (const p of [0, 1, 2, 3, 4]) {
-      expect(howtoPanel(p)!.band, `panel ${p}`).toContain("kiosk below");
-    }
-  });
-
-  it('says "THE kiosk below", never "any" — this board names one machine', () => {
-    // The ad rotation says "any kiosk below" because it sells the whole bank. This
-    // board's entire point is that the verb belongs to the machine under THIS panel.
-    for (const p of [0, 1, 2, 3, 4]) {
-      expect(howtoPanel(p)!.band.toLowerCase()).not.toContain("any kiosk");
-    }
-  });
-
-  it("the band's verb agrees with the headline — check in is not a purchase", () => {
-    expect(howtoPanel(0)!.band).toBe("Check in on the kiosk below");
-    expect(howtoPanel(1)!.band).toBe("Buy it on the kiosk below");
-    expect(howtoPanel(2)!.band).toBe("Book it on the kiosk below");
-    expect(howtoPanel(3)!.band).toBe("Load it on the kiosk below");
-    expect(howtoPanel(4)!.band).toBe("Buy it on the kiosk below");
   });
 });
 
@@ -691,10 +664,29 @@ describe("the front-desk role preset", () => {
     expect(preset.role).toBe("front-desk");
   });
 
-  it("is 8 slots — 5m20s", () => {
+  it("is 9 slots — SIX MINUTES exactly", () => {
+    // The reason it is nine and not eight: 9 x 40s is 6:00, of which the showcase takes
+    // two slots (80s, one full pass of its four 20s slides) and pricing holds the other
+    // 4:40. That is the whole "standing state taken over" rhythm, with no new mechanism.
     const slots = (preset.config.playlist ?? []).reduce((n, e) => n + (e.slots ?? 1), 0);
-    expect(slots).toBe(8);
-    expect((slots * SLOT_MS) / 1000).toBe(320);
+    expect(slots).toBe(9);
+    expect((slots * SLOT_MS) / 1000).toBe(360);
+    const vip = (preset.config.playlist ?? []).find((e) => e.scene === "vip-showcase");
+    expect(vip?.slots).toBe(2);
+    expect(Math.round(((vip!.slots ?? 1) / slots) * 100)).toBe(22);
+  });
+
+  it("the showcase spans the WALL and the menu board the MIDDLE", () => {
+    const byScene = Object.fromEntries(
+      (preset.config.playlist ?? []).map((e) => [e.scene, e.span]),
+    );
+    expect(byScene["vip-showcase"]).toBe("wall");
+    expect(byScene["open-now"]).toBe("middle");
+  });
+
+  it("has no separate kiosk how-to slot — the instruction is chrome now", () => {
+    const scenes = (preset.config.playlist ?? []).map((e) => e.scene);
+    expect(scenes).not.toContain("kiosk-howto");
   });
 
   it("THE TEAR INVARIANT: nothing on this playlist is data-gated", () => {

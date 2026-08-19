@@ -886,6 +886,29 @@ export interface TvFeed {
      *  price. Null on a night with no hourly offer. */
     hourly: { regular: BowlingWallOffer | null; vip: BowlingWallOffer | null } | null;
   } | null;
+  /**
+   * WHO SELF-CHECKED IN AND WHICH LANE — the front-desk wall's left panel.
+   *
+   * Only SELF check-ins: a guest who checked in at the desk already had a human say
+   * the lane number, so listing them would pad the board with people who do not need
+   * it. Only rows whose lane has actually been assigned, because "checked in, lane
+   * coming" is a promise the board cannot keep.
+   *
+   * FIRST NAMES ONLY, like every other guest-facing board on the estate — this one is
+   * printed a foot tall in a public lobby. Null for every screen that does not run
+   * the board, and when the read fails.
+   */
+  bowlingCheckins:
+    | {
+        /** First name only. */
+        firstName: string;
+        /** "12" or "12, 13" — whatever lanes they were given. */
+        lanes: string;
+        /** True once the lane-ready notification has gone out, i.e. the lane is
+         *  physically ready and they can walk over. */
+        laneReady: boolean;
+      }[]
+    | null;
   /** Product ids currently off-sale — never advertise a paused product. */
   pausedProductIds: string[];
   /** "Next available" per product key, e.g. { bowling: "3 lanes · 9:30 PM" }.

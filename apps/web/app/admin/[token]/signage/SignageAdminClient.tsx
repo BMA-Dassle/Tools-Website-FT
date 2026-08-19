@@ -1040,6 +1040,9 @@ interface Draft {
   wallGapPct: number;
   /** "" = derive from the ends (first fasttrax, last headpinz, inner none). */
   wallBrand: "" | "fasttrax" | "headpinz" | "none";
+  /** What this panel shows when the running scene does not reach it. "" = house ads.
+   *  Only the WING panels of a wall need one. */
+  wallOutsideScene: "" | "bowling-checkin" | "event-welcome";
   /** Percent inset per edge for a panel that crops its own picture. 0 = off. */
   overscanPct: number;
 }
@@ -1110,6 +1113,7 @@ function newDraft(): Draft {
     // ~6 inches on a ~48in picture (owner 2026-08-17).
     wallGapPct: 12,
     wallBrand: "",
+    wallOutsideScene: "",
     // A new screen assumes a panel that behaves. Nothing is inset until somebody
     // stands in front of a TV that is cropping and says so.
     overscanPct: 0,
@@ -1194,6 +1198,13 @@ function draftFromScreen(s: SignageScreen): Draft {
     wallBrand:
       c.wall?.brand === "fasttrax" || c.wall?.brand === "headpinz" || c.wall?.brand === "none"
         ? c.wall.brand
+        : "",
+    // Read back like every other wall field: draftToConfig rebuilds the whole blob, so
+    // a field the form does not carry is one the next unrelated save drops — and
+    // dropping this turns a wing into house ads with nothing to say why.
+    wallOutsideScene:
+      c.wall?.outsideScene === "bowling-checkin" || c.wall?.outsideScene === "event-welcome"
+        ? c.wall.outsideScene
         : "",
 
     // Read back so that editing anything else on a corrected screen does not
@@ -1330,6 +1341,7 @@ function draftToConfig(d: Draft): ScreenConfig {
             count: d.wallCount,
             gapPct: d.wallGapPct,
             ...(d.wallBrand ? { brand: d.wallBrand } : {}),
+            ...(d.wallOutsideScene ? { outsideScene: d.wallOutsideScene } : {}),
           },
         }
       : {}),
@@ -1919,6 +1931,16 @@ function ScreenForm({
             <option value="headpinz">HeadPinz</option>
             <option value="none">No mark</option>
           </select>
+          <select
+            value={draft.wallOutsideScene}
+            onChange={(e) => set("wallOutsideScene", e.target.value as Draft["wallOutsideScene"])}
+            style={{ ...input, width: 300 }}
+            aria-label="What this panel shows when the scene does not reach it"
+          >
+            <option value="">When not part of the scene: house ads</option>
+            <option value="bowling-checkin">Self check-in list and lanes</option>
+            <option value="event-welcome">Today&apos;s events and VIPs</option>
+          </select>
         </div>
         <p style={hint}>
           Several screens hung close enough to read as ONE picture. Give every panel the same wall
@@ -1935,6 +1957,14 @@ function ScreenForm({
           The gap is what a wall-long light pass has to travel across — measure it, don&apos;t
           guess. ~6 inches on a ~48 inch picture is about 12%. It is a percentage of{" "}
           <b>one panel&apos;s width</b>, not of the whole wall.
+        </p>
+        <p style={hint}>
+          <b>Some scenes use the whole wall, some only the middle.</b> When a scene covers the
+          middle three, the two END panels are not part of it &mdash; so each one shows whatever you
+          pick above instead. That is how the far-left panel becomes the self check-in list and the
+          far-right becomes today&rsquo;s events, while the middle three carry the pricing. A panel
+          with nothing of its own falls back to house advertising, and so does one whose board has
+          nothing to say tonight.
         </p>
         <p style={hint}>
           This is separate from pairing below, and both can be set at once: pairing is which two

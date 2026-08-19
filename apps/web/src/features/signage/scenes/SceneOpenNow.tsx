@@ -32,6 +32,7 @@ import type { SceneProps } from "../director/types";
 import { choreo } from "../wall";
 import { menuPanelAt, WALL_ACCENT, type MenuRow } from "../wall-content";
 import { WallGround } from "../components/WallPanel";
+import { KioskCallout } from "../components/KioskCallout";
 import { withAlpha } from "../color";
 
 export function SceneOpenNow({ feed, nowMs, config }: SceneProps) {
@@ -72,7 +73,9 @@ export function SceneOpenNow({ feed, nowMs, config }: SceneProps) {
           flexDirection: "column",
           justifyContent: "flex-end",
           gap: 26,
-          padding: "77px 78px 88px",
+          // Room for the callout band, which is permanent chrome here rather than a
+          // scene of its own (owner 2026-08-19).
+          padding: "77px 78px 173px",
         }}
       >
         {/* THE SUBJECT, whole on this panel. The rows beneath it are its offers, so
@@ -117,6 +120,12 @@ export function SceneOpenNow({ feed, nowMs, config }: SceneProps) {
           ))}
         </div>
       </div>
+
+      {/* THE INSTRUCTION RIDES WITH THE PRICE. A guest reading a price eight feet up is
+          not thereby told that the machine at waist height is how to buy it — and
+          carrying it here costs no airtime, which is why the separate kiosk how-to
+          scene was deleted rather than kept alongside. */}
+      <KioskCallout accent={panel.accent} text={panel.band} />
     </div>
   );
 }

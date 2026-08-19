@@ -114,6 +114,7 @@ export async function buildTvFeed(
     topTimes: null,
     raceGuide: null,
     bowlingTonight: null,
+    bowlingCheckins: null,
     pausedProductIds: safePaused(),
     nextAvailable: null,
     reloadAt: null,
@@ -171,6 +172,10 @@ export async function buildTvFeed(
   // exists at the bowling venues — FastTrax has no lanes, so a FastTrax screen
   // asking would be one Neon round trip per poll for a section it cannot use.
   const wantsBowling = parsed.venue !== "FT" && config.playlist.some((p) => p.scene === "open-now");
+  // The self-check-in board is a WING scene, so it is named by `wall.outsideScene`
+  // rather than by the playlist — the playlist is identical on all five panels and
+  // only the wings run this.
+  const wantsCheckins = parsed.venue !== "FT" && config.wall?.outsideScene === "bowling-checkin";
   // The scores wall: the last race on ITS OWN configured track. Not `track`
   // above — that one comes from `scope.resourceIds`, which a results board
   // deliberately does not set (see ScreenConfig.resultsBoard).
@@ -223,6 +228,7 @@ export async function buildTvFeed(
     topTimes,
     guideSection,
     bowlingTonight,
+    bowlingCheckins,
   ] = await Promise.all([
     track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
     wantsWelcome
@@ -268,6 +274,7 @@ export async function buildTvFeed(
       ? buildGuideSection(guideTracks, ymd).catch(() => null)
       : Promise.resolve(null),
     wantsBowling ? buildBowlingTonight(parsed.venue, now).catch(() => null) : Promise.resolve(null),
+    wantsCheckins ? buildBowlingCheckins(parsed.venue).catch(() => null) : Promise.resolve(null),
   ]);
 
   // Has the heat on the track board already been sent to a briefing room? One
@@ -306,12 +313,49 @@ export async function buildTvFeed(
     topTimes,
     raceGuide: guideSection,
     bowlingTonight,
+    bowlingCheckins,
     // `vip` (the bowling-leg takeover) lands with the next scene.
     vip: null,
     // Null events mean we could not ask — the welcome entry then self-skips
     // and the rotation closes over it rather than showing an empty board.
     degraded: wantsWelcome && events === null,
   };
+}
+
+/**
+ * WHO SELF-CHECKED IN AND WHICH LANE.
+ *
+ * First names only, and that is not a nicety: this list is printed a foot tall in a
+ * public lobby, so it follows the same PII posture as every other board on the estate
+ * (see the note on SignageEvent). A surname is dropped even when we hold one.
+ *
+ * The reader already filters to self check-ins that have a lane; this only reduces a
+ * reservation to the three things the glass needs.
+ */
+async function buildBowlingCheckins(venue: SignageVenue): Promise<TvFeed["bowlingCheckins"]> {
+  const { getSelfCheckedInWithLanes } = await import("@/lib/bowling-db");
+  const rows = await getSelfCheckedInWithLanes(VENUE_INFO[venue].squareLocationId);
+  const out: NonNullable<TvFeed["bowlingCheckins"]> = [];
+  for (const r of rows) {
+    // FIRST TOKEN ONLY. `guestName` is whatever was typed at booking, so it may be
+    // "Marcus", "Marcus Webb" or "marcus webb" — take the first word and title-case
+    // it rather than trusting the input's own casing on a 1080p wall.
+    const raw = (r.guestName ?? "").trim();
+    const first = raw.split(/\s+/)[0] ?? "";
+    if (!first) continue;
+    const lanes = (r.dayofOrderLane ?? "")
+      .split(",")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .join(", ");
+    if (!lanes) continue;
+    out.push({
+      firstName: first.charAt(0).toUpperCase() + first.slice(1).toLowerCase(),
+      lanes,
+      laneReady: !!r.laneReadySentAt,
+    });
+  }
+  return out.length > 0 ? out : null;
 }
 
 /** Day of week (0=Sun) AT THE VENUE. A UTC-clocked server has already rolled over

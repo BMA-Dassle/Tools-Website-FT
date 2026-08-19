@@ -10,6 +10,9 @@ import {
   SOLO,
 } from "./wall";
 import { resolveScreenConfig } from "./defaults";
+import { resolveActiveScene, SLOT_MS } from "./director/schedule";
+import { isSceneImplemented } from "./scenes/registry";
+import type { SceneType } from "./types";
 
 /**
  * The front-desk wall's geometry, and the ONE claim that makes it additive:
@@ -312,5 +315,101 @@ describe("wallBrand — marks bookend the wall", () => {
 
   it("a solo screen carries no wall mark", () => {
     expect(wallBrand(0, 1, undefined)).toBeNull();
+  });
+});
+
+describe("the wings — what a panel outside the span actually renders", () => {
+  const FD = { wallId: "hpfm-front-desk", position: 0, count: 5, gapPct: 12 };
+
+  /** The front-desk playlist, resolved: 7 slots of middle-span pricing, 2 of wall-span
+   *  showcase. Position and the wing's own scene vary per panel. */
+  const screen = (position: number, outsideScene?: string) =>
+    resolveScreenConfig(
+      {
+        playlist: [
+          { scene: "open-now", slots: 7, span: "middle" },
+          { scene: "vip-showcase", slots: 2, span: "wall" },
+        ],
+        wall: { ...FD, position, ...(outsideScene ? { outsideScene } : {}) },
+      } as never,
+      "HPFM",
+    );
+
+  /** What this panel shows at `slot` of the nine. */
+  const sceneAt = (
+    position: number,
+    slot: number,
+    outsideScene?: string,
+    hasData: (s: SceneType) => boolean = () => true,
+  ) =>
+    resolveActiveScene({
+      nowMs: slot * SLOT_MS + 5_000,
+      config: screen(position, outsideScene),
+      hasData,
+      events: [],
+      seenEventIds: new Set(),
+      isImplemented: isSceneImplemented,
+    }).scene;
+
+  it("the MIDDLE three run the menu board through the standing slots", () => {
+    for (const position of [1, 2, 3]) {
+      for (const slot of [0, 1, 2, 3, 4, 5, 6]) {
+        expect(sceneAt(position, slot), `panel ${position} slot ${slot}`).toBe("open-now");
+      }
+    }
+  });
+
+  it("the WINGS run their own board through the standing slots", () => {
+    expect(sceneAt(0, 3, "bowling-checkin")).toBe("bowling-checkin");
+    expect(sceneAt(4, 3, "event-welcome")).toBe("event-welcome");
+  });
+
+  it("ALL FIVE run the showcase in the takeover slots — including the wings", () => {
+    for (const position of [0, 1, 2, 3, 4]) {
+      for (const slot of [7, 8]) {
+        expect(sceneAt(position, slot, "bowling-checkin"), `panel ${position}`).toBe(
+          "vip-showcase",
+        );
+      }
+    }
+  });
+
+  it("a wing with NO board of its own falls to house ads, never to the menu board", () => {
+    // Never `open-now`: that is a three-panel composition, so a single wing rendering
+    // it would paint panel 0 of the set and duplicate its neighbour.
+    expect(sceneAt(0, 3)).toBe("ads");
+    expect(sceneAt(4, 3)).toBe("ads");
+  });
+
+  it("a wing whose board has NO DATA falls to ads — the dead-panel guard", () => {
+    // SceneEventWelcome renders NOTHING with no events and no VIPs. Safe for a
+    // rotation entry (requiresData keeps it unselected) but a wing is substituted
+    // directly, so without this check TV5 went black on a quiet night.
+    expect(sceneAt(4, 3, "event-welcome", (sc) => sc !== "event-welcome")).toBe("ads");
+    // The check-in board always has data — it owns a designed empty state — so it
+    // stays up whether or not anyone has checked in.
+    expect(sceneAt(0, 3, "bowling-checkin")).toBe("bowling-checkin");
+  });
+
+  it("an UNBUILT wing scene falls to ads, like every other unbuilt scene", () => {
+    expect(sceneAt(0, 3, "kiosk-howto")).toBe("ads");
+    expect(sceneAt(0, 3, "not-a-scene")).toBe("ads");
+  });
+
+  it("a screen OFF a wall ignores spans — every existing board is untouched", () => {
+    const lone = resolveScreenConfig(
+      { playlist: [{ scene: "open-now", slots: 7, span: "middle" }] } as never,
+      "HPFM",
+    );
+    expect(
+      resolveActiveScene({
+        nowMs: 3 * SLOT_MS,
+        config: lone,
+        hasData: () => true,
+        events: [],
+        seenEventIds: new Set(),
+        isImplemented: isSceneImplemented,
+      }).scene,
+    ).toBe("open-now");
   });
 });
