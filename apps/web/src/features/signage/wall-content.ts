@@ -204,6 +204,16 @@ export interface RailCell {
   quiet?: string;
   /** A gold glyph inside the cell (the "+" joining the brands, the ▼). */
   glyph?: string;
+  /**
+   * Render these brands as their actual LOGOS, joined by `glyph`, in place of `text`.
+   *
+   * The two brands are the one thing on this wall that must never be spelled out: a
+   * guest recognises the FastTrax and HeadPinz marks from the building they are
+   * standing in, and "FastTrax HeadPinz" set as words reads as one invented company
+   * rather than two venues on one pass (owner 2026-08-19). `text` stays as the
+   * accessible name for the pair.
+   */
+  brands?: Array<"fasttrax" | "headpinz">;
 }
 
 /**
@@ -249,7 +259,8 @@ export function identityRail(
     // …which frees this cell, since it used to be the product name and would now say
     // it twice. The duration is the next most useful thing about the night.
     { text: comboDurationLabel() },
-    { text: "FastTrax HeadPinz", glyph: "+" },
+    // THE TWO BRANDS AS MARKS, never as words — see RailCell.brands.
+    { text: "FastTrax + HeadPinz", brands: ["fasttrax", "headpinz"], glyph: "+" },
     price
       ? { text: price.fromLabel, isPrice: true, quiet: "per person" }
       : { text: "Ask at the desk" },

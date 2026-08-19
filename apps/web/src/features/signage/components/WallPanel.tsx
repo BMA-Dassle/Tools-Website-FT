@@ -26,6 +26,7 @@
  * showcase and the one resting slide in five). Gold that were always on would stop
  * meaning All Access, which is the only thing it is allowed to mean.
  */
+import { Fragment } from "react";
 import { withAlpha } from "../color";
 import { TvBrandLogo } from "./TvBrandLogo";
 import { wallSpan } from "../wall";
@@ -408,36 +409,59 @@ export function WallIdentityRail({ cell }: { cell: RailCell }) {
         whiteSpace: "nowrap",
       }}
     >
-      {/* The name sits ABOVE its badge, so a guest reads the thing they can ask for
-          first and the wall's word for it second. */}
-      <span style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+      {cell.brands && cell.brands.length > 0 ? (
+        /* THE BRAND PAIR AS MARKS. `cell.text` becomes the accessible name for the
+           lockup, so the pair still reads as "FastTrax + HeadPinz" to a screen
+           reader while the glass shows the logos a guest actually recognises. */
         <span
-          className="tv-display"
-          style={{
-            fontSize: cell.isName ? 37 : 29,
-            letterSpacing: cell.isName ? "0.14em" : "0.2em",
-            color: cell.isName || cell.isPrice ? g : "rgba(245,236,238,0.74)",
-          }}
+          aria-label={cell.text}
+          style={{ display: "flex", alignItems: "center", gap: 18, minWidth: 0 }}
         >
-          {cell.text}
+          {cell.brands.map((brand, i) => (
+            <Fragment key={brand}>
+              {i > 0 && cell.glyph && (
+                <span aria-hidden className="tv-display" style={{ fontSize: 29, color: g }}>
+                  {cell.glyph}
+                </span>
+              )}
+              <BrandMark brand={brand} height={46} glow />
+            </Fragment>
+          ))}
         </span>
-        {cell.small && (
-          <span
-            className="tv-display"
-            style={{
-              fontSize: 20,
-              letterSpacing: "0.24em",
-              color: "rgba(245,236,238,0.62)",
-            }}
-          >
-            {cell.small}
+      ) : (
+        <>
+          {/* The name sits ABOVE its badge, so a guest reads the thing they can ask for
+              first and the wall's word for it second. */}
+          <span style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+            <span
+              className="tv-display"
+              style={{
+                fontSize: cell.isName ? 37 : 29,
+                letterSpacing: cell.isName ? "0.14em" : "0.2em",
+                color: cell.isName || cell.isPrice ? g : "rgba(245,236,238,0.74)",
+              }}
+            >
+              {cell.text}
+            </span>
+            {cell.small && (
+              <span
+                className="tv-display"
+                style={{
+                  fontSize: 20,
+                  letterSpacing: "0.24em",
+                  color: "rgba(245,236,238,0.62)",
+                }}
+              >
+                {cell.small}
+              </span>
+            )}
           </span>
-        )}
-      </span>
-      {cell.glyph && (
-        <span className="tv-display" style={{ fontSize: 29, color: g }}>
-          {cell.glyph}
-        </span>
+          {cell.glyph && (
+            <span className="tv-display" style={{ fontSize: 29, color: g }}>
+              {cell.glyph}
+            </span>
+          )}
+        </>
       )}
       {cell.quiet && (
         <span
