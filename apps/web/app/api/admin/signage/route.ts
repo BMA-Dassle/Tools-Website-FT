@@ -225,6 +225,7 @@ export async function POST(req: NextRequest) {
         "results-none",
         "results-pro",
         "results-mega",
+        "top-times",
         "guide-arrow",
       ].includes(mode)
     ) {

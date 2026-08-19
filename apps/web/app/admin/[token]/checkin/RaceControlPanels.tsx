@@ -94,6 +94,7 @@ import {
   type BriefingRoomState,
 } from "~/features/signage/briefing/types";
 import { pullIsLate } from "~/features/signage/briefing/pull-to-room";
+import { laneReturnRoom, suggestMegaRoom } from "~/features/signage/briefing/room-suggest";
 import { trackDisplay, verdictLabel } from "~/features/racing/on-time-display";
 import { liveHeatNumber } from "~/features/signage/briefing/room-return";
 import {
@@ -341,8 +342,16 @@ function useNowMs(intervalMs = 1_000): number {
 export interface CheckinCount {
   track: string;
   sessionId: number | string;
-  checkedIn: number;
-  total: number;
+  /**
+   * NULL MEANS THE ROSTER READ DID NOT COME BACK — it does NOT mean the heat is
+   * empty. Until 2026-08-18 a failed read arrived here as 0, and this box
+   * printed "0/0 · 0 still to scan" over a full grid, then the true count on the
+   * next poll, flipping on eight of ten polls. See features/racing/roster-count.ts.
+   */
+  checkedIn: number | null;
+  total: number | null;
+  /** The numbers are the last ones counted, not a fresh read. Shown dimmed. */
+  stale?: boolean;
 }
 
 export default function RaceControlPanels({
@@ -408,29 +417,23 @@ export default function RaceControlPanels({
    * (owner 2026-08-16: auto-suggest, staff confirms; the press stays the
    * assignment and the other button always works).
    *
-   * One circuit feeding two rooms wants them leapfrogging: the free room takes
-   * the heat, and when both are free the one that did NOT take the previous
-   * group takes this one. "Previous group" is read off the mega lane's
-   * furthest-along occupant — the same recorded facts the columns already
-   * render. Both rooms busy = no suggestion: that send is a Replace, and
-   * which film to interrupt is a human call.
+   * The leapfrog itself is briefing/room-suggest.ts, pure and tested, so the
+   * chip and the late-send warning below cannot end up naming the same room —
+   * they are the same fact from two sides, and the night they disagreed the
+   * desk suggested the very room a race was walking back into.
    */
-  const suggestedRoom: BriefingRoom | null = (() => {
-    if (!megaEnabled) return null;
-    const roomFree = (room: BriefingRoom) => {
-      const st = board?.rooms.find((r) => r.room === room)?.state ?? null;
-      return briefingTimelineAt(st, nowMs).phase === "idle";
-    };
-    const free = rooms.filter(roomFree);
-    if (free.length === 0) return null;
-    if (free.length === 1) return free[0];
-    const megaLane = board?.lanes?.mega ?? null;
-    const lastRoom =
-      megaLane?.holding?.room ?? megaLane?.karts?.room ?? megaLane?.pitIn?.room ?? null;
-    if (lastRoom === "red") return "blue";
-    if (lastRoom === "blue") return "red";
-    return "red";
-  })();
+  const suggestedRoom: BriefingRoom | null = megaEnabled
+    ? suggestMegaRoom({
+        // The phase test stays here — it is the board's own read of the room
+        // states; the leapfrog itself is the rule, and it lives in the module.
+        free: rooms.filter(
+          (room) =>
+            briefingTimelineAt(board?.rooms.find((r) => r.room === room)?.state ?? null, nowMs)
+              .phase === "idle",
+        ),
+        lane: board?.lanes?.mega ?? null,
+      })
+    : null;
 
   return (
     <section
@@ -1297,12 +1300,7 @@ function RoomColumn({
   // checkin?board=1"). In the identity row so it reads even between check-ins.
   // The launched/hold verdicts ride the same hook the Mega unified lane row
   // uses — see useLaneVerdicts.
-  const { liveClock, launched, holdLive } = useLaneVerdicts(
-    track,
-    lane,
-    hasLaunched,
-    noteLaunched,
-  );
+  const { liveClock, launched, holdLive } = useLaneVerdicts(track, lane, hasLaunched, noteLaunched);
   // The late-send warning names the heat the clock is counting.
   const liveHeatNow = liveClock ? liveHeatNumber(liveClock.heatName) : null;
   const state = status?.state ?? null;
@@ -1367,11 +1365,33 @@ function RoomColumn({
    * A WARNING, NEVER A REFUSAL. With the group already at the desk, sending late
    * usually still beats not sending; what it must not do is happen unnoticed.
    */
-  const sendLate = pullIsLate({
+  const laneLate = pullIsLate({
     remainingMs: liveClock?.remainingMs ?? null,
     pitInOccupied: !!lane?.pitIn,
     onTrack: !!liveClock || !!lane?.racing,
   });
+  /**
+   * ...AND IT BELONGS TO ONE ROOM (owner 2026-08-18: "the session ends in
+   * warning should only show on the side where the returning race is going
+   * to").
+   *
+   * On a Mega night both columns read the SAME lane, so one race ending put the
+   * identical amber banner — and the identical "Send anyway" button — on both
+   * sides. Only one of them is true. The group out on track walks back into the
+   * room they were briefed in, and that is the room this send would collide
+   * with: their post-race announcement will not play into a room holding a film
+   * (postRaceGate, pit/audio.server.ts). The other room is not late at all — it
+   * is where this group SHOULD go, which is what the suggestion chip beside it
+   * is already saying.
+   *
+   * UNKNOWN ROOM STILL WARNS BOTH. A group hand-placed from Override carries no
+   * room, and a warning that cannot attribute itself must go quiet on neither
+   * side rather than the wrong one. Split nights are untouched — one room, one
+   * track, and the returning race is always this column's.
+   */
+  const returningRoom = laneReturnRoom(lane);
+  const sendLate =
+    laneLate && (track !== "mega" || returningRoom == null || returningRoom === room);
   /** The film this heat will ACTUALLY get, and how long it runs — the second
    *  number the warning needs. Resolved through the Pro→Intermediate fallback so
    *  it quotes the film the room will really play. Null when none is uploaded. */
@@ -1395,13 +1415,24 @@ function RoomColumn({
    *
    * Only while the heat is still WAITING TO BE SENT: once it is in a room the
    * box is no longer asking anything of anyone, and a pulse there would be
-   * celebrating a decision already taken. `total > 0` guards the empty roster —
-   * 0/0 is "we do not know yet", not "everybody is here".
+   * celebrating a decision already taken.
+   *
+   * THREE THINGS MUST ALL BE TRUE BEFORE THIS FLASHES, because it is the cue a
+   * grid gets sent on:
+   *   - we have a count at all (null = the roster read failed; that used to
+   *     arrive as 0 and "0/0" was one bad comparison away from reading as
+   *     complete — see roster-count.ts),
+   *   - the count is a FRESH one, not the last known (a carried-over count says
+   *     what was true minutes ago, which is not what "everyone is here" claims),
+   *   - and there is somebody to be complete: `total > 0`.
    */
   const gridComplete =
     !!race &&
     !sentTo &&
     !!checkedIn &&
+    !checkedIn.stale &&
+    checkedIn.total !== null &&
+    checkedIn.checkedIn !== null &&
     checkedIn.total > 0 &&
     checkedIn.checkedIn >= checkedIn.total;
 
@@ -1499,13 +1530,9 @@ function RoomColumn({
             fontSize: 11,
             fontWeight: 800,
             letterSpacing: "0.04em",
-            background:
-              late ? withAlpha(AMBER, 0.16) : withAlpha(GREEN, 0.14),
-            border: `1px solid ${
-              late ? withAlpha(AMBER, 0.55) : withAlpha(GREEN, 0.45)
-            }`,
-            color:
-              late ? AMBER : GREEN,
+            background: late ? withAlpha(AMBER, 0.16) : withAlpha(GREEN, 0.14),
+            border: `1px solid ${late ? withAlpha(AMBER, 0.55) : withAlpha(GREEN, 0.45)}`,
+            color: late ? AMBER : GREEN,
           }}
           title="Whether this track's heats are being CALLED on time, from our own timing data"
         >
@@ -1608,22 +1635,38 @@ function RoomColumn({
                   top of the board (owner 2026-08-12) so the number sits with the
                   heat it counts rather than in a strip of its own. Green once the
                   whole grid is through the desk — the moment staff can send. */}
-              {checkedIn && (
-                <Stat
-                  label="Checked in"
-                  value={`${checkedIn.checkedIn}/${checkedIn.total}`}
-                  unit={
-                    checkedIn.total > 0 && checkedIn.checkedIn >= checkedIn.total
-                      ? "all here"
-                      : `${Math.max(0, checkedIn.total - checkedIn.checkedIn)} still to scan`
-                  }
-                  tone={
-                    checkedIn.total > 0 && checkedIn.checkedIn >= checkedIn.total
-                      ? GREEN
-                      : undefined
-                  }
-                />
-              )}
+              {checkedIn &&
+                (checkedIn.total === null || checkedIn.checkedIn === null ? (
+                  /* NO COUNT IS NOT A COUNT OF NONE. The roster read did not come
+                     back, so the box says so and stays quiet — it does not go
+                     green, and it does not tell anyone there is nobody to wait
+                     for. Staff read "—" as "ask the desk", which is correct;
+                     they read "0/0" as "send them", which is how a full grid got
+                     sent early. */
+                  <Stat label="Checked in" value="—" unit="no roster read" />
+                ) : (
+                  <Stat
+                    label="Checked in"
+                    value={`${checkedIn.checkedIn}/${checkedIn.total}`}
+                    unit={
+                      checkedIn.stale
+                        ? "last known"
+                        : checkedIn.total > 0 && checkedIn.checkedIn >= checkedIn.total
+                          ? "all here"
+                          : `${Math.max(0, checkedIn.total - checkedIn.checkedIn)} still to scan`
+                    }
+                    /* A CARRIED-OVER COUNT NEVER TURNS THE BOX GREEN. Green is
+                       the cue to send a grid; it has to mean "counted, just now",
+                       not "counted at some point". */
+                    tone={
+                      !checkedIn.stale &&
+                      checkedIn.total > 0 &&
+                      checkedIn.checkedIn >= checkedIn.total
+                        ? GREEN
+                        : undefined
+                    }
+                  />
+                ))}
               {/* TRACK DELAY MOVED TO THE IDENTITY ROW as an ON TIME / n BEHIND
                   chip — it is a fact about the track, not about this heat, and
                   down here it only existed while a heat happened to be waiting.
@@ -2022,6 +2065,44 @@ function EmptyStage() {
 }
 
 /**
+ * THE ROOM THIS GROUP WILL WALK BACK INTO, beside the session itself (owner
+ * 2026-08-18: "check in board should have the pill as well").
+ *
+ * MEGA ONLY, and that is the whole point of it. On a split night this rail
+ * lives inside its own room's column, so every group in it came from that room
+ * and a pill would only repeat the column header. Mega runs TWO rooms into ONE
+ * lane, and then the room is the half of "Session 28" that says whose it is —
+ * the fact staff need while deciding which room to clear, and the one the lane
+ * used to lose between the green flag and the pit.
+ *
+ * Same pill, same words, same reason as the Mega session tracker's
+ * (ScenePitBoard) — the wall and the desk must not describe a night
+ * differently. Sized for this board, not that one: the rail is four rows on a
+ * desk monitor, not a sign read from the fence.
+ */
+function RoomPill({ room }: { room: BriefingRoom | null }) {
+  if (!room) return null;
+  return (
+    <span
+      className="rc-num"
+      style={{
+        fontSize: 10,
+        fontWeight: 800,
+        letterSpacing: "0.05em",
+        whiteSpace: "nowrap",
+        color: ROOM_COLOR[room],
+        border: `1px solid ${withAlpha(ROOM_COLOR[room], 0.7)}`,
+        background: withAlpha(ROOM_COLOR[room], 0.14),
+        borderRadius: 6,
+        padding: "2px 8px",
+      }}
+    >
+      {`→ ${room.toUpperCase()} ROOM`}
+    </span>
+  );
+}
+
+/**
  * ONE STAGE OF THE RAIL — one group, one clock, one badge, one row.
  *
  * The three stages after the briefing room (Holding, In karts, On track) are
@@ -2210,9 +2291,32 @@ function OutOfRoomPanel({
   const heldMs = holding ? Math.max(0, nowMs - holding.atMs) : 0;
   const kartsMs = karts ? Math.max(0, nowMs - karts.atMs) : 0;
 
+  /** The pill, per row — see RoomPill for why it is Mega-only. Each slot's OWN
+   *  room: on a busy night these four hold four groups briefed in two rooms. */
+  const pillRoom = (g: { room: BriefingRoom | null } | null | undefined) =>
+    track === "mega" ? (g?.room ?? null) : null;
+
   // WHO IS OUT. The green-flag verdict is the fresher of the two — the desk sees
   // a counting clock before any marker reaches the lane.
   const outHeat = launched?.heatNumber ?? racing?.heatNumber ?? null;
+
+  /**
+   * ...AND WHOSE ROOM THAT IS. The verdict above can name a group the lane has
+   * not promoted out of the seats yet, so the room has to come from the slot
+   * that same session is still sitting in. Reading `racing.room` regardless
+   * would pill this row with the room of the group BEFORE them.
+   */
+  const launchedSessionId = launched?.sessionId ?? null;
+  const launchedHeat = launched?.heatNumber ?? null;
+  const outGroup = launched
+    ? ([lane?.karts, lane?.holding, racing].find(
+        (g) =>
+          g != null &&
+          (launchedSessionId != null
+            ? g.sessionId === launchedSessionId
+            : g.heatNumber === launchedHeat),
+      ) ?? null)
+    : racing;
 
   // Does the live clock belong to the group we are naming? On a shared circuit
   // it might be someone else's heat, and a clock against the wrong session is
@@ -2363,6 +2467,7 @@ function OutOfRoomPanel({
                           {holding.raceType}
                         </span>
                       )}
+                      <RoomPill room={pillRoom(holding)} />
                     </div>
                     {/* NO PROSE ON AN OCCUPIED ROW. "Hold them — karts are still
                         coming into the lane" said in a sentence what the LANE
@@ -2409,6 +2514,7 @@ function OutOfRoomPanel({
                           {karts.raceType}
                         </span>
                       )}
+                      <RoomPill room={pillRoom(karts)} />
                     </div>
                   </>
                 ) : (
@@ -2438,6 +2544,7 @@ function OutOfRoomPanel({
                       >
                         Session {outHeat}
                       </span>
+                      <RoomPill room={pillRoom(outGroup)} />
                     </div>
                   </>
                 ) : (
@@ -2481,6 +2588,7 @@ function OutOfRoomPanel({
                           {pitIn.raceType}
                         </span>
                       )}
+                      <RoomPill room={pillRoom(pitIn)} />
                     </div>
                   </>
                 ) : (
@@ -3995,7 +4103,6 @@ function phaseColor(phase: BriefingPhase, roomColor: string): string {
   if (phase === "idle") return PORTAL_DARK.muted;
   return roomColor;
 }
-
 
 /** `m:ss`, ceiled — a timer reading 0:00 while a film still plays is worse than one
  *  that rounds up. */

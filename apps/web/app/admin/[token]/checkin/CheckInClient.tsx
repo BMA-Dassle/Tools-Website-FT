@@ -280,6 +280,23 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
   const [lastError, setLastError] = useState<string>("");
   const [lastRaw, setLastRaw] = useState<string>("");
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * ONE SCAN IN FLIGHT, and it has to be a REF.
+   *
+   * The guard below used to read `scanState`, which is state — and the serial
+   * read loop calls the `handleScan` captured when `startReading` was memoised
+   * (on `token`, with exhaustive-deps disabled). That closure kept the FIRST
+   * render's `scanState` forever, so the guard compared against "idle" for the
+   * rest of the shift and never once fired.
+   *
+   * It went unnoticed while check-ins answered in a few hundred milliseconds.
+   * On 2026-08-18, with Pandora hanging, a scan took ~9s — long enough for staff
+   * to scan again, which posted a SECOND check-in concurrently; the two
+   * responses then flashed in whatever order they returned, so the desk could
+   * see the wrong guest's card. A ref is read at call time, so it cannot go
+   * stale in a closure.
+   */
+  const scanBusyRef = useRef(false);
 
   // Settings
   const [baudRate, setBaudRate] = useState<number>(() => {
@@ -342,8 +359,12 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
     heatNumber: number;
     sessionId: number | string;
     scheduledStart: string;
-    checkedIn: number;
-    total: number;
+    /** NULL = the roster could not be read, NOT an empty heat. Rendered "—".
+     *  See features/racing/roster-count.ts. */
+    checkedIn: number | null;
+    total: number | null;
+    /** The count is the last one read rather than a fresh one — shown dimmed. */
+    stale?: boolean;
     /** Square location id — rows now span FT/HP-FM AND Naples, whose
      *  separate BMI server can mint numerically identical sessionIds,
      *  so sessionId alone is not a unique row identity. */
@@ -525,7 +546,9 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
   // --------------- Scan Handling ---------------
 
   async function handleScan(raw: string) {
-    if (scanState === "processing") return;
+    // See scanBusyRef — this MUST NOT be read off `scanState`.
+    if (scanBusyRef.current) return;
+    scanBusyRef.current = true;
     setLastRaw(raw);
     setScanState("processing");
     setLastResult(null);
@@ -551,6 +574,12 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
     } catch (e) {
       setLastError(e instanceof Error ? e.message : "Network error");
       setScanState("result");
+    } finally {
+      // Released the moment this scan has ANSWERED, not when its flash clears:
+      // the desk must be able to scan the next racer straight away. `finally`
+      // so a thrown render or an aborted fetch can never wedge the scanner for
+      // the rest of the shift.
+      scanBusyRef.current = false;
     }
 
     // Auto-dismiss after FLASH_DURATION
@@ -1260,14 +1289,31 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                   )}
                 </div>
                 <div className="text-right">
-                  <p className="font-black text-xl leading-none" style={{ color: PORTAL_DARK.fg }}>
-                    {s.checkedIn}
-                    <span className="text-sm font-normal" style={{ color: PORTAL_DARK.muted }}>
-                      /{s.total}
-                    </span>
+                  {/* A COUNT WE DO NOT HAVE READS "—", NEVER "0/0". Zero is a
+                      claim that nobody is booked on the heat; the dash says the
+                      roster read did not come back, which is a different thing
+                      and the one staff need to tell apart. A count carried over
+                      from the last good read is dimmed rather than hidden. */}
+                  <p
+                    className="font-black text-xl leading-none"
+                    style={{ color: s.stale ? PORTAL_DARK.muted : PORTAL_DARK.fg }}
+                    title={
+                      s.stale ? "Last known count — the latest read did not come back" : undefined
+                    }
+                  >
+                    {s.total === null ? (
+                      "—"
+                    ) : (
+                      <>
+                        {s.checkedIn}
+                        <span className="text-sm font-normal" style={{ color: PORTAL_DARK.muted }}>
+                          /{s.total}
+                        </span>
+                      </>
+                    )}
                   </p>
                   <p className="text-[10px] uppercase" style={{ color: PORTAL_DARK.muted }}>
-                    checked in
+                    {s.total === null ? "no roster read" : s.stale ? "last known" : "checked in"}
                   </p>
                 </div>
               </div>

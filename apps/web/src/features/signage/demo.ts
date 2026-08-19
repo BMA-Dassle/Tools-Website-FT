@@ -20,6 +20,7 @@
  * review is the true rendering, not a mock of it.
  */
 import { buildResultsView, type ResultsBoardView } from "./results-board";
+import { prunePanels, type TopTimesView } from "./top-times";
 import type { TrackKey } from "./track";
 import type { BriefingRoomState } from "./briefing/types";
 import type { TvFeed, VipEntry, WelcomeEntry } from "./types";
@@ -34,6 +35,7 @@ export type DemoMode =
   | "results-none"
   | "results-pro"
   | "results-mega"
+  | "top-times"
   | "guide-arrow"
   | "off";
 
@@ -48,6 +50,7 @@ export function parseDemoMode(raw: string | null): DemoMode {
     raw === "results-none" ||
     raw === "results-pro" ||
     raw === "results-mega" ||
+    raw === "top-times" ||
     raw === "guide-arrow"
   ) {
     return raw;
@@ -208,6 +211,13 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
   ) {
     return { ...feed, raceResults: demoResults(feed, mode, nowMs) };
   }
+  // THE HALL OF FAME, all three windows at once so the rotation itself is what
+  // gets reviewed — the panel on screen still comes from the shipped `panelAt`
+  // against the real clock, so a preview exercises the rotation rule rather
+  // than a picture of one of its frames.
+  if (mode === "top-times") {
+    return { ...feed, topTimes: demoTopTimes(feed) };
+  }
   if (mode === "race") {
     // A VIP is on the heat too, so the in-field banner can be reviewed in the
     // same pass — and the rail/check-in feed gets a burst of fabricated scans,
@@ -329,6 +339,77 @@ export function demoIsMegaDay(nowMs: number): boolean {
  * except on `results-mega`, which is about the big-grid layout and needs the
  * combined circuit's cutoffs to make sense of 1-minute laps.
  */
+/**
+ * The top-times wall, all three windows and both classes.
+ *
+ * FABRICATED ROWS ONLY. The panels go through the shipped `prunePanels`, and
+ * which one is on screen is decided by the shipped `panelAt` against the real
+ * clock — so what a preview shows is the production rotation, not a mock of it.
+ *
+ * The junior panels are deliberately thinner than the adult ones (and Red's
+ * junior catalog is a single generic group), because the layout that is easiest
+ * to get wrong is the one with fewer than three columns.
+ */
+function demoTopTimes(feed: TvFeed): TopTimesView {
+  const configured = feed.screen?.config?.resultsBoard?.track;
+  const track: TrackKey =
+    configured === "blue" || configured === "red" || configured === "mega" ? configured : "blue";
+
+  // Obviously fabricated, same posture as demoResults: a preview that reads
+  // like real guests is one screenshot away from looking like a leak.
+  const pool = [
+    "Kenny Rosencrans",
+    "Dana Whitfield",
+    "Marcus Webb",
+    "Priya Raghunathan",
+    "Tyler Boone",
+    "Alicia Duarte",
+    "Sam Okereke",
+    "Jordan Mackey",
+  ];
+  const juniors = ["Nico Alvarez", "Emmy Chen", "Rosa Delgado", "Theo Bannister"];
+
+  // Mega's circuit is ~2× a split track, so its laps are minutes rather than
+  // seconds — the formatter's two branches both get exercised.
+  const mega = track === "mega";
+  const lap = (i: number, offset: number) =>
+    mega
+      ? `1:0${Math.floor((2200 + offset + i * 180) / 1000)}.${String((2200 + offset + i * 180) % 1000).padStart(3, "0")}`
+      : `${(28.4 + offset / 1000 + i * 0.187).toFixed(3)}s`;
+
+  const column = (label: string, color: string, names: string[], offset: number) => ({
+    label,
+    color,
+    rows: names.map((name, i) => ({ position: i + 1, name, score: lap(i, offset) })),
+  });
+
+  const RED = "rgb(228,28,29)";
+  const BLUE = "rgb(0,74,173)";
+  const PURPLE = "rgb(134,82,255)";
+
+  const adult = [
+    column("Starter", RED, pool, 900),
+    column("Intermediate", BLUE, pool.slice(0, 7), 450),
+    column("Pro", PURPLE, pool.slice(0, 8), 0),
+  ];
+  // Red's catalog has ONE generic junior group; the others split by tier.
+  const junior =
+    track === "red"
+      ? [column("Junior", RED, juniors, 1400)]
+      : [
+          column("Junior Starter", RED, juniors, 1600),
+          column("Junior Pro", PURPLE, juniors.slice(0, 3), 1200),
+        ];
+
+  const panels = prunePanels(
+    (["today", "week", "month", "year", "alltime"] as const).flatMap((range) => [
+      { range, cls: "adult" as const, columns: adult },
+      { range, cls: "junior" as const, columns: junior },
+    ]),
+  );
+  return { track, panels };
+}
+
 function demoResults(feed: TvFeed, mode: DemoMode, nowMs: number): ResultsBoardView {
   const configured = feed.screen?.config?.resultsBoard?.track;
   const track: TrackKey =

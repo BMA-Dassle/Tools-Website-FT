@@ -41,6 +41,7 @@ import { readPitLanes } from "../pit/lane.server";
 import { readFastPitRosters } from "../pit/fast-roster.server";
 import { buildWelcomeBoard } from "./welcome";
 import { resolveResultsBoard } from "./results-board.server";
+import { resolveTopTimes } from "./top-times.server";
 import {
   briefingEnabled,
   cameraReturnBarEnabled,
@@ -110,6 +111,7 @@ export async function buildTvFeed(
     checkinProgress: null,
     checkinReturning: null,
     raceResults: null,
+    topTimes: null,
     raceGuide: null,
     bowlingTonight: null,
     pausedProductIds: safePaused(),
@@ -184,16 +186,29 @@ export async function buildTvFeed(
     resultsBoardEnabled() &&
     configuredResultsTrack !== null &&
     config.playlist.some((p) => p.scene === "race-results");
-  // ON A MEGA DAY THE SCORES WALL FOLLOWS THE COMBINED CIRCUIT, server-side,
-  // no admin knob: a blue-configured wall would otherwise idle all night — its
-  // resource has no sessions when the barrier is out. The await is paid only
-  // by screens that actually show a results board, and megaModeActive() is
-  // false on every normal day (the mega carry key does not exist then), so
-  // the configured track flows through untouched.
-  const resultsTrack =
+  // THE LAST-RACE BOARD RESOLVES MEGA ITSELF, from the data, so its configured
+  // track is passed through untouched. It considers its own track AND Mega and
+  // shows whichever race ended most recently — see rankFinished. That is
+  // strictly better than force-swapping the track here, which blanked the wall
+  // whenever the flag ran ahead of the business day (observed 2026-08-18 00:30:
+  // flag true on a Tuesday, but the 8/17 business day was split-track, so a
+  // Mega-swapped board found nothing while Heat 60 Blue sat unshown).
+  //
+  // TOP-TIMES STILL USES THE FLAG, deliberately: a hall of fame is not about
+  // one race, so "which race ended last" cannot answer it. "Which circuit is
+  // the venue running" is the right question there, and megaModeActive() is
+  // exactly that.
+  const resultsTrack = configuredResultsTrack;
+  const topTimesTrack =
     wantsResults && configuredResultsTrack !== "mega" && (await megaModeActive().catch(() => false))
       ? ("mega" as const)
       : configuredResultsTrack;
+  // THE TWO ROLES ARE MUTUALLY EXCLUSIVE, so only one of the two resolvers ever
+  // runs for a given screen. `top-times` is the hall-of-fame face of the same
+  // scene — see ScreenConfig.resultsBoard.role — and it follows the Mega swap
+  // above for the same reason the last-race board does: on a Mega day nobody
+  // has raced this screen's own track since morning.
+  const wantsTopTimes = wantsResults && config.resultsBoard?.role === "top-times";
 
   const [
     raceCheckin,
@@ -205,6 +220,7 @@ export async function buildTvFeed(
     pitLanes,
     cameraReturning,
     raceResults,
+    topTimes,
     guideSection,
     bowlingTonight,
   ] = await Promise.all([
@@ -236,8 +252,17 @@ export async function buildTvFeed(
       : Promise.resolve(null),
     // Cached per venue+track inside the resolver, so two scores walls on the
     // same track cost one build — and cannot show two different answers.
-    wantsResults && resultsTrack
+    wantsResults && resultsTrack && !wantsTopTimes
       ? resolveResultsBoard(parsed.venue, resultsTrack, ymd).catch(() => null)
+      : Promise.resolve(null),
+    // Same deal, and cached harder: a hall of fame only moves when somebody
+    // beats a time. See CACHE_TTL_SECONDS in top-times.server.
+    wantsTopTimes && topTimesTrack
+      ? resolveTopTimes(
+          parsed.venue,
+          topTimesTrack,
+          config.resultsBoard?.ranges ?? ["month"],
+        ).catch(() => null)
       : Promise.resolve(null),
     guideTracks.length > 0
       ? buildGuideSection(guideTracks, ymd).catch(() => null)
@@ -278,6 +303,7 @@ export async function buildTvFeed(
         ? { fromSession: cameraReturning.heatNumber, groups: cameraReturning.racingAgain }
         : null,
     raceResults,
+    topTimes,
     raceGuide: guideSection,
     bowlingTonight,
     // `vip` (the bowling-leg takeover) lands with the next scene.

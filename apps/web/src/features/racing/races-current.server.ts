@@ -32,6 +32,7 @@ import {
 import { callIsSuppressed, type ClearedCall } from "~/features/signage/briefing/called-clear";
 import {
   MAX_DISPLAY_AGE_MS,
+  callIsStalerThanStored,
   preserveFirstCall,
   raceStillDisplayable,
 } from "~/features/racing/current-race-freshness";
@@ -160,6 +161,13 @@ export async function refreshRacesCurrent(timeoutMs: number): Promise<CurrentRac
     const merged: CurrentRaces = { blue: null, red: null, mega: null };
     for (const t of TRACKS) {
       if (pandora[t]) {
+        // OUT-OF-ORDER ANSWERS MUST NOT MOVE THE BOARD BACKWARDS. The warm loop
+        // now keeps several reads in flight so a hung one cannot own the minute,
+        // which means a slow answer can land after a faster, newer one.
+        if (callIsStalerThanStored(pandora[t] as CurrentRace, stored[t])) {
+          merged[t] = stored[t];
+          continue;
+        }
         const race = preserveFirstCall(pandora[t] as CurrentRace, stored[t]);
         if (callIsSuppressed(cleared[t], race)) {
           // Swallowed, and the stored copy goes with it — otherwise the

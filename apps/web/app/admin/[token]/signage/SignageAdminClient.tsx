@@ -35,6 +35,7 @@ import {
 } from "~/features/signage/startup-script";
 import { resolvePair } from "~/features/signage/pairing";
 import type { ScreenConfig, SignageScreen } from "~/features/signage/types";
+import type { TopTimesRange } from "~/features/signage/top-times";
 import BriefingAssetManager, { type BriefingAssetState } from "./BriefingAssetManager";
 
 /** The build THIS admin page was served from, for comparing against a screen. */
@@ -755,6 +756,23 @@ function ScreenRow({
                 Preview results (Mega)
               </button>
             )}
+            {canResults && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSimulate(
+                    "preview",
+                    { screenId: screen.screenId, mode: "top-times" },
+                    `Top-times preview pushed to ${screen.screenId}.`,
+                  )
+                }
+                style={btn}
+                disabled={busy}
+                title="The fastest-laps board, cycling today / this week / this month — works whatever role the screen is saved with"
+              >
+                Preview top times
+              </button>
+            )}
             {canVip && (
               <button
                 type="button"
@@ -895,6 +913,18 @@ interface Draft {
   showResults: boolean;
   /** "" = no track picked, which shows the board's setup notice. */
   resultsTrack: "" | "blue" | "red" | "mega";
+  /** What this scores wall reports: the race that just finished, or the
+   *  fastest-laps hall of fame. Same idea as megaRole / pitMegaRole. */
+  resultsRole: "last-race" | "top-times";
+  /** Windows the top-times board cycles through, one per 40s slot. Stored as
+   *  one boolean each rather than a multi-select so the form stays a form; at
+   *  least one is forced on at save (see draftToConfig). The five are exactly
+   *  what /leaderboards offers — see TopTimesRange. */
+  resultsRangeToday: boolean;
+  resultsRangeWeek: boolean;
+  resultsRangeMonth: boolean;
+  resultsRangeYear: boolean;
+  resultsRangeAlltime: boolean;
   /** Check-in guide wall — owns its wall too. */
   showGuide: boolean;
   /** Which tracks the ONE check-in screen covers. */
@@ -960,6 +990,15 @@ function newDraft(): Draft {
     showPitBoard: false,
     showResults: false,
     resultsTrack: "",
+    resultsRole: "last-race",
+    resultsRangeToday: false,
+    resultsRangeWeek: false,
+    // The month is the default because it is what /leaderboards opens on: a
+    // hall of fame reports the standing record, not the session that just
+    // came off the track.
+    resultsRangeMonth: true,
+    resultsRangeYear: false,
+    resultsRangeAlltime: false,
     showGuide: false,
     guideTracks: "both",
     guideArrow: "left",
@@ -1035,6 +1074,14 @@ function draftFromScreen(s: SignageScreen): Draft {
       c.resultsBoard?.track === "mega"
         ? c.resultsBoard.track
         : "",
+    resultsRole: c.resultsBoard?.role === "top-times" ? "top-times" : "last-race",
+    // A saved board with no `ranges` predates the field; it reads back as
+    // month-only, which is what resolveScreenConfig resolves it to.
+    resultsRangeToday: (c.resultsBoard?.ranges ?? []).includes("today"),
+    resultsRangeWeek: (c.resultsBoard?.ranges ?? []).includes("week"),
+    resultsRangeMonth: (c.resultsBoard?.ranges ?? ["month"]).includes("month"),
+    resultsRangeYear: (c.resultsBoard?.ranges ?? []).includes("year"),
+    resultsRangeAlltime: (c.resultsBoard?.ranges ?? []).includes("alltime"),
     vipEnabled: c.interrupts?.["vip-welcome"]?.enabled !== false,
     vipLeadMins: c.interrupts?.["vip-welcome"]?.leadMins ?? 10,
     celebrationEnabled: c.interrupts?.celebration?.enabled !== false,
@@ -1070,6 +1117,18 @@ function draftFromScreen(s: SignageScreen): Draft {
     // the form does not carry is a field the next save silently drops.
     overscanPct: typeof c.overscanPct === "number" ? c.overscanPct : 0,
   };
+}
+
+/** The ticked windows, in a fixed order — shortest first, the way
+ *  /leaderboards lists them. Never empty — see the note at the call site. */
+function resultRangesFromDraft(d: Draft): TopTimesRange[] {
+  const out: TopTimesRange[] = [];
+  if (d.resultsRangeToday) out.push("today");
+  if (d.resultsRangeWeek) out.push("week");
+  if (d.resultsRangeMonth) out.push("month");
+  if (d.resultsRangeYear) out.push("year");
+  if (d.resultsRangeAlltime) out.push("alltime");
+  return out.length > 0 ? out : ["month"];
 }
 
 /** Draft → the config blob the TV actually reads. */
@@ -1133,7 +1192,19 @@ function draftToConfig(d: Draft): ScreenConfig {
           },
         }
       : {}),
-    ...(d.showResults && d.resultsTrack ? { resultsBoard: { track: d.resultsTrack } } : {}),
+    ...(d.showResults && d.resultsTrack
+      ? {
+          resultsBoard: {
+            track: d.resultsTrack,
+            role: d.resultsRole,
+            // Windows only mean anything to the top-times role, and they are
+            // written in a fixed order so two boards ticked the same way rotate
+            // the same way. Everything unticked resolves to the month rather
+            // than to an empty rotation, which would render no panel at all.
+            ...(d.resultsRole === "top-times" ? { ranges: resultRangesFromDraft(d) } : {}),
+          },
+        }
+      : {}),
     ...(d.showGuide
       ? {
           raceGuide: {
@@ -1418,23 +1489,90 @@ function ScreenForm({
       )}
 
       {draft.showResults && (
-        <Field label="Which track's results does this screen show?">
-          <select
-            value={draft.resultsTrack}
-            onChange={(e) => set("resultsTrack", e.target.value as Draft["resultsTrack"])}
-            style={input}
-          >
-            <option value="">Choose a track…</option>
-            <option value="blue">Blue Track</option>
-            <option value="red">Red Track</option>
-            <option value="mega">Mega Track</option>
-          </select>
-          <p style={hint}>
-            Required. Until it is set the screen shows a setup notice rather than guessing a track.
-            Heat numbers repeat across tracks — Blue 59 and Red 59 are two different races — so this
-            is what decides which one the board is reporting.
-          </p>
-        </Field>
+        <fieldset style={fieldset}>
+          <legend style={legend}>Scores wall</legend>
+          <Field label="Which track's results does this screen show?">
+            <select
+              value={draft.resultsTrack}
+              onChange={(e) => set("resultsTrack", e.target.value as Draft["resultsTrack"])}
+              style={input}
+            >
+              <option value="">Choose a track…</option>
+              <option value="blue">Blue Track</option>
+              <option value="red">Red Track</option>
+              <option value="mega">Mega Track</option>
+            </select>
+            <p style={hint}>
+              Required. Until it is set the screen shows a setup notice rather than guessing a
+              track. Heat numbers repeat across tracks — Blue 59 and Red 59 are two different races
+              — so this is what decides which one the board is reporting. On a Mega day a Blue or
+              Red board follows the combined circuit on its own; there is nothing to change here.
+            </p>
+          </Field>
+
+          <Field label="What does this screen report?">
+            <select
+              value={draft.resultsRole}
+              onChange={(e) => set("resultsRole", e.target.value as Draft["resultsRole"])}
+              style={input}
+            >
+              <option value="last-race">Last race &mdash; the race that just finished</option>
+              <option value="top-times">Top times &mdash; fastest laps by tier</option>
+            </select>
+            <p style={hint}>
+              Two scores walls on one track show the same thing, which is exactly what a Mega day
+              makes of the Blue and Red pair. Set one to <strong>Last race</strong> and the other to{" "}
+              <strong>Top times</strong> and the pair covers both.
+            </p>
+          </Field>
+
+          {draft.resultsRole === "top-times" && (
+            <Field label="Which windows does it cycle through?">
+              <Check
+                checked={draft.resultsRangeToday}
+                onChange={(v) => set("resultsRangeToday", v)}
+                label="Today"
+                hint="Fastest laps set since 6am today."
+              />
+              <Check
+                checked={draft.resultsRangeWeek}
+                onChange={(v) => set("resultsRangeWeek", v)}
+                label="This week"
+                hint="A rolling seven days, not since Sunday — a Monday board would otherwise be nearly empty."
+              />
+              <Check
+                checked={draft.resultsRangeMonth}
+                onChange={(v) => set("resultsRangeMonth", v)}
+                label="This month"
+                hint="Since the 1st — the window the website's leaderboard opens on."
+              />
+              <Check
+                checked={draft.resultsRangeYear}
+                onChange={(v) => set("resultsRangeYear", v)}
+                label="This year"
+                hint="Since January 1st."
+              />
+              <Check
+                checked={draft.resultsRangeAlltime}
+                onChange={(v) => set("resultsRangeAlltime", v)}
+                label="All time"
+                hint="Every lap we hold a record for."
+              />
+              <p style={hint}>
+                One window per 40-second slot, in the order listed. Tick more than one and the board
+                rotates through them. Everything unticked is treated as This month. Adult and junior
+                get their own turn automatically, and only when somebody has actually raced that
+                class in the window — nothing to configure.
+              </p>
+              <p style={hint}>
+                These are the same windows, and the same records, as the leaderboard on the website
+                — a racer who checks their time at home sees the wall they walked past. Today and
+                This week are narrow enough to read as one session’s times rather than a hall of
+                fame, which is why neither is on by default.
+              </p>
+            </Field>
+          )}
+        </fieldset>
       )}
 
       {draft.showBriefing && (

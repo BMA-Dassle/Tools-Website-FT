@@ -743,7 +743,7 @@ function Idle({ accent }: { accent: string }) {
  * ever leaving. A racer walks up, scans, and finds themselves on a wall that
  * already lists their whole heat.
  */
-function CheckinFeed({
+export function CheckinFeed({
   accent,
   race,
   scans,
@@ -820,7 +820,16 @@ function CheckinFeed({
             {/* Live clock for the heat on track — the feed board is the busiest
                 wall on a Mega night and the first place people look for it. */}
             <LiveSessionChip track="mega" accent={accent} />
-            {checkedIn != null && total != null && total > 0 && (
+            {/* THE COUNT BELONGS TO THE SESSION, so it leaves with the session.
+                `raceCheckin` is built from `pandora:last-race:*`, which
+                deliberately OUTLIVES the heat so a session line does not blink
+                out between heats — so the tally survived its heat being sent to
+                a briefing room, and this wall sat on "2 of 2" for an hour with
+                nothing listed under it (owner 2026-08-17). `race` is nulled the
+                moment the send lands, so gate the number on the same signal
+                that governs the label beside it — plus `announce`, so the
+                handover minute keeps the count over the names it belongs to. */}
+            {(race || announce) && checkedIn != null && total != null && total > 0 && (
               <span
                 className="tv-display tv-num"
                 style={{
@@ -896,22 +905,11 @@ function CheckinFeed({
         )}
 
         {scans.length === 0 ? (
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            {/* Not while announcing — "scan to check in" under a "proceed to
-                the room" band is two contradictory instructions on one wall. */}
-            {!announce && (
-              <span className="tv-display" style={{ fontSize: 72, color: "rgba(245,236,238,0.5)" }}>
-                Scan to check in
-              </span>
-            )}
-          </div>
+          // Nobody listed yet. The wall stays empty rather than instructing
+          // (owner 2026-08-17: drop "Scan to check in") — racers are already
+          // told what to do at the desk and on their e-ticket, and between
+          // heats the caption was the only thing on an otherwise blank board.
+          <div style={{ flex: 1 }} />
         ) : (
           <div
             style={{

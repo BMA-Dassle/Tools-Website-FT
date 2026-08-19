@@ -306,33 +306,47 @@ describe("buildResultsView — ordering and layout", () => {
 describe("mergeCandidates", () => {
   it("fills gaps from later sources without overwriting earlier ones", () => {
     const merged = mergeCandidates([
-      [{ sessionId: "A", heatNumber: 59, heatName: null, endedAtMs: 100 }],
-      [{ sessionId: "A", heatNumber: 999, heatName: "59 - Blue Intermediate", endedAtMs: 200 }],
+      [{ sessionId: "A", heatNumber: 59, heatName: null, endedAtMs: 100, track: "blue" }],
+      [
+        {
+          sessionId: "A",
+          heatNumber: 999,
+          heatName: "59 - Blue Intermediate",
+          endedAtMs: 200,
+          track: "blue",
+        },
+      ],
     ]);
     expect(merged).toEqual([
-      { sessionId: "A", heatNumber: 59, heatName: "59 - Blue Intermediate", endedAtMs: 100 },
+      {
+        sessionId: "A",
+        heatNumber: 59,
+        heatName: "59 - Blue Intermediate",
+        endedAtMs: 100,
+        track: "blue",
+      },
     ]);
   });
 
   it("adds races a earlier source never saw", () => {
     const merged = mergeCandidates([
-      [{ sessionId: "A", heatNumber: 1, heatName: null, endedAtMs: 1 }],
-      [{ sessionId: "B", heatNumber: 2, heatName: null, endedAtMs: 2 }],
+      [{ sessionId: "A", heatNumber: 1, heatName: null, endedAtMs: 1, track: "blue" }],
+      [{ sessionId: "B", heatNumber: 2, heatName: null, endedAtMs: 2, track: "blue" }],
     ]);
     expect(merged.map((c) => c.sessionId).sort()).toEqual(["A", "B"]);
   });
 
   it("lets a later source supply an end the first one lacked", () => {
     const merged = mergeCandidates([
-      [{ sessionId: "A", heatNumber: 1, heatName: null, endedAtMs: null }],
-      [{ sessionId: "A", heatNumber: 1, heatName: null, endedAtMs: 500 }],
+      [{ sessionId: "A", heatNumber: 1, heatName: null, endedAtMs: null, track: "blue" }],
+      [{ sessionId: "A", heatNumber: 1, heatName: null, endedAtMs: 500, track: "blue" }],
     ]);
     expect(merged[0].endedAtMs).toBe(500);
   });
 
   it("drops rows with no session id rather than keying on empty string", () => {
     const merged = mergeCandidates([
-      [{ sessionId: "", heatNumber: 1, heatName: null, endedAtMs: 1 }],
+      [{ sessionId: "", heatNumber: 1, heatName: null, endedAtMs: 1, track: "blue" }],
     ]);
     expect(merged).toHaveLength(0);
   });
@@ -342,17 +356,17 @@ describe("rankFinished", () => {
   it("orders by when the race ENDED, newest first — never by heat number", () => {
     // Heat 76 is a staff-inserted session: the day-max number, run early.
     const ranked = rankFinished([
-      { sessionId: "A", heatNumber: 51, heatName: null, endedAtMs: 300 },
-      { sessionId: "B", heatNumber: 76, heatName: null, endedAtMs: 100 },
-      { sessionId: "C", heatNumber: 52, heatName: null, endedAtMs: 200 },
+      { sessionId: "A", heatNumber: 51, heatName: null, endedAtMs: 300, track: "blue" },
+      { sessionId: "B", heatNumber: 76, heatName: null, endedAtMs: 100, track: "blue" },
+      { sessionId: "C", heatNumber: 52, heatName: null, endedAtMs: 200, track: "blue" },
     ]);
     expect(ranked.map((c) => c.sessionId)).toEqual(["A", "C", "B"]);
   });
 
   it("drops races that have not finished", () => {
     const ranked = rankFinished([
-      { sessionId: "running", heatNumber: 60, heatName: null, endedAtMs: null },
-      { sessionId: "done", heatNumber: 59, heatName: null, endedAtMs: 5 },
+      { sessionId: "running", heatNumber: 60, heatName: null, endedAtMs: null, track: "blue" },
+      { sessionId: "done", heatNumber: 59, heatName: null, endedAtMs: 5, track: "blue" },
     ]);
     expect(ranked.map((c) => c.sessionId)).toEqual(["done"]);
   });

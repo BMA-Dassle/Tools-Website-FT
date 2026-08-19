@@ -470,6 +470,38 @@ describe("resolveLane — one predicate, two source slots", () => {
     expect(back.pitIn?.raceType).toBe("Blue Starter");
   });
 
+  /**
+   * THE ROOM TRAVELS WITH THE GROUP TOO (owner 2026-08-17: "for mega keep a
+   * pill next to the race on what room they will be returning to").
+   *
+   * The stored lane has carried the room through the promotion all along — it
+   * was only the wire projection that dropped it, so the room vanished off
+   * every screen for the fourteen minutes a heat is out and came back at
+   * `pitIn`. On a Mega night that is exactly the window in which staff decide
+   * which room to clear.
+   */
+  it("carries the briefing room from the staged slot onto the track", async () => {
+    putLane({ karts: group("s1", 44), racing: null, pitted: null });
+    putLiveHeat(44, "running");
+
+    const out = await readPitLane("blue");
+    expect(out.racing?.sessionId).toBe("s1");
+    expect(out.racing?.room).toBe("blue");
+  });
+
+  it("leaves the room null on track for a group placed by hand with no room", async () => {
+    putLane({
+      holding: null,
+      racing: { sessionId: "s62", heatNumber: 62, raceType: "Blue Starter", room: null },
+      pitted: null,
+    });
+
+    const lane = await readPitLane("blue");
+
+    expect(lane.racing?.sessionId).toBe("s62");
+    expect(lane.racing?.room).toBeNull();
+  });
+
   it("resolves a lane written before racing carried a type", async () => {
     // Mid-flow when this shipped: the stored slot has no raceType at all, and
     // a null type must be the answer rather than a crash or a stale guess.

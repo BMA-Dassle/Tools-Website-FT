@@ -3,6 +3,7 @@ import { PANDORA_DEFAULT_LOCATION_ID, PANDORA_LOCATION_MAP } from "@/lib/pandora
 import { logWaiverSignAttempt, type WaiverSignOutcome } from "@/lib/waiver-sign-log";
 import { storeWaiverSignature, settleWaiverSignature } from "@/lib/waiver-signature-store";
 import { signLicenceGrant } from "~/features/racing/wallet/licence-grant";
+import { resolveWaiverTemplate, waiverTemplateCacheLabel } from "~/features/waiver/template-cache";
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
 const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
@@ -38,44 +39,37 @@ export async function GET(req: NextRequest) {
   if (!age) {
     return NextResponse.json({ error: "age required" }, { status: 400 });
   }
+  // The band (adult vs minor) is now computed here rather than by Pandora, so a
+  // non-numeric age must be refused instead of silently reading as an adult.
+  const ageNumber = Number(age);
+  if (!Number.isFinite(ageNumber)) {
+    return NextResponse.json({ error: "age must be a number" }, { status: 400 });
+  }
 
   try {
-    const res = await fetch(
-      `${PANDORA_URL}/bmi/waiver/search?locationID=${locationID}&age=${age}`,
-      {
-        headers: { Authorization: `Bearer ${API_KEY}` },
-        cache: "no-store",
-      },
-    );
+    // Cached per (location, adult|minor) — the two templates BMI actually has —
+    // fresh for an hour, retained 30 days for when Pandora is unreachable.
+    // Field names already match our PandoraWaiverTemplate type; `duration` is in
+    // YEARS (BMI semantics; all locations return 1).
+    const resolved = await resolveWaiverTemplate({ locationID, age: ageNumber });
 
-    if (!res.ok) {
-      const text = await res.text();
-      console.error(`[pandora-waiver] search failed ${res.status}: ${text.substring(0, 200)}`);
-      return NextResponse.json({ error: "Waiver template not found" }, { status: res.status });
+    if (!resolved.ok) {
+      console.error(`[pandora-waiver] search failed (${resolved.reason}): ${resolved.detail}`);
+      return NextResponse.json(
+        {
+          error:
+            resolved.reason === "no-contentid"
+              ? "No waiver template found"
+              : "Waiver template not found",
+        },
+        { status: resolved.status },
+      );
     }
 
-    const raw = await res.json();
-
-    // Pandora wraps: { success: true, data: { id, contentID, name, duration, body } }
-    const template = raw?.data ?? raw;
-
-    if (!template || !template.contentID) {
-      console.error(`[pandora-waiver] unexpected shape:`, JSON.stringify(raw).substring(0, 300));
-      return NextResponse.json({ error: "No waiver template found" }, { status: 404 });
-    }
-
-    // Pass through — Pandora field names match our PandoraWaiverTemplate type.
-    // `duration` is in YEARS (BMI semantics; all locations return 1).
-    const normalized = {
-      id: String(template.id || ""),
-      contentID: String(template.contentID),
-      name: template.name || "",
-      duration: template.duration ?? 1,
-      body: template.body || "",
-    };
-
+    const normalized = resolved.template;
     console.log(
-      `[pandora-waiver] template "${normalized.name}" contentID=${normalized.contentID} bodyLen=${normalized.body.length}`,
+      `[pandora-waiver] template "${normalized.name}" contentID=${normalized.contentID} ` +
+        `bodyLen=${normalized.body.length} [${waiverTemplateCacheLabel(resolved)}]`,
     );
     return NextResponse.json(normalized);
   } catch (err) {

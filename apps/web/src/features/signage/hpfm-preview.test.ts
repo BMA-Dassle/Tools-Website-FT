@@ -46,6 +46,7 @@ function feedAt(now: number): TvFeed {
     checkinProgress: null,
     checkinReturning: null,
     raceResults: null,
+    topTimes: null,
     raceGuide: null,
     bowlingTonight: null,
     pausedProductIds: [],

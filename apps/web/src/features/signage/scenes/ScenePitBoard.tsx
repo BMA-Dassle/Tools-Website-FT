@@ -1305,8 +1305,6 @@ function SessionTracker({
   const laneRows = (["Holding", "In karts", "On track", "Pit in"] as const).map((l) =>
     byLabel.get(l),
   );
-  const pitInRoom = lane.pitIn?.room ?? null;
-
   const stageBand = (args: {
     key: string;
     label: string;
@@ -1315,7 +1313,13 @@ function SessionTracker({
     type?: string;
     detail?: string;
     tone: StageRow["tone"];
-    chip?: { text: string; color: string } | null;
+    /** THE ROOM THIS RACE COMES BACK TO, pilled beside the session itself
+     *  (owner 2026-08-17: "for mega keep a pill next to the race on what room
+     *  they will be returning to"). Beside the session and not out at the
+     *  right-hand edge, because it is part of naming the group — a Mega night
+     *  runs two rooms into one lane, and the room is the half of "Session 25"
+     *  that says whose it is. Null on any stage that cannot know it. */
+    room?: "red" | "blue" | null;
   }) => (
     <div
       key={args.key}
@@ -1370,6 +1374,23 @@ function SessionTracker({
           {args.type}
         </span>
       )}
+      {args.room && (
+        <span
+          className="tv-display"
+          style={{
+            fontSize: 28,
+            whiteSpace: "nowrap",
+            color: "#fff",
+            padding: "5px 18px",
+            borderRadius: 9,
+            border: `3px solid ${TRACK_ACCENTS[args.room]}`,
+            background: withAlpha(TRACK_ACCENTS[args.room], 0.2),
+            boxShadow: `0 0 28px ${withAlpha(TRACK_ACCENTS[args.room], 0.5)}`,
+          }}
+        >
+          {`→ ${args.room.toUpperCase()} ROOM`}
+        </span>
+      )}
       <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 22 }}>
         {args.detail && (
           <span
@@ -1381,23 +1402,6 @@ function SessionTracker({
             }}
           >
             {args.detail}
-          </span>
-        )}
-        {args.chip && (
-          <span
-            className="tv-display"
-            style={{
-              fontSize: 28,
-              whiteSpace: "nowrap",
-              color: "#fff",
-              padding: "5px 18px",
-              borderRadius: 9,
-              border: `3px solid ${args.chip.color}`,
-              background: withAlpha(args.chip.color, 0.2),
-              boxShadow: `0 0 28px ${withAlpha(args.chip.color, 0.5)}`,
-            }}
-          >
-            {args.chip.text}
           </span>
         )}
       </span>
@@ -1494,10 +1498,10 @@ function SessionTracker({
               type: row.type,
               detail: row.detail,
               tone: row.tone,
-              chip:
-                row.label === "Pit in" && row.heatNumber != null && pitInRoom
-                  ? { text: `→ ${pitInRoom.toUpperCase()} ROOM`, color: TRACK_ACCENTS[pitInRoom] }
-                  : null,
+              // Only ever beside a session this row actually names — a slot
+              // holding a group with no heat number reads "—", and a room
+              // pill floating next to a dash would be about nobody.
+              room: row.heatNumber != null ? row.room : null,
             }),
         )}
       </div>
