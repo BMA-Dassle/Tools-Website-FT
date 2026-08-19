@@ -15,6 +15,28 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.24.0 — BOGO RACES IS NOW A WEEKLY WEDNESDAY PROMO, not a two-day flash sale
+ *         (owner 2026-08-19). Both halves of the offer — the returning-racer
+ *         credit pack and the new-racer package — swapped their fixed
+ *         2026-08-12 → EOD 8/13 purchase window for a recurring day-of-week
+ *         rule that keys off the RACE DATE: a guest booking Tuesday for a
+ *         Wednesday race gets the deal, and a Wednesday walk-up booking
+ *         Thursday does not. Race-date keying is what makes "every Wednesday"
+ *         mean what it says on a booking site; it also rides seams that already
+ *         existed (`packSkusForRaceDate` filters packs by race day, and the
+ *         reducer already re-validated pack picks when the date moves), so a
+ *         date change now adds and removes the deal in both registries
+ *         together. Packages got the same treatment via a new registry field
+ *         (`raceDays`), plus the matching invalidation the reducer never had —
+ *         previously ANY package survived a date change, so a bundle picked for
+ *         one schedule kept its price on a day it isn't sold. The Mon–Thu
+ *         deposit kind the free credit lands on is unchanged: the banked race
+ *         stays good on any Mon–Thu visit, which the copy now says outright in
+ *         EN + ES rather than implying the deal runs all week. Ribbons that
+ *         named the two August dates now name the day ("★ BOGO — EVERY
+ *         WEDNESDAY" / "★ BOGO — TODOS LOS MIÉRCOLES"), so they cannot go stale
+ *         week to week. Standalone attract-screen behaviour is untouched — BOGO
+ *         still never reaches the screen with no tier filter (1.22.x).
  * 1.23.0 — TWO NEW ACKNOWLEDGMENT SCREENS ON THE KIOSK, both EN + ES.
  *         (1) JUNIOR STARTER IS THE SLOW RACE (owner 2026-08-16). A parent
  *         books Junior Starter for a kid who already races karts, then finds
@@ -996,7 +1018,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.23.0";
+export const KIOSK_VERSION = "1.24.0";
 
 let bootVersion: string | null = null;
 let captured = false;

@@ -81,8 +81,8 @@ const STANDING_PACK_SLUGS: readonly string[] = [
 ];
 
 /**
- * The standing catalog plus any live limited-time SKUs, at `now` — IN-BOOKING
- * surfaces only (`packSkusForRaceDate`).
+ * The standing catalog plus any live limited-time SKUs, for a race on
+ * `raceDate` — IN-BOOKING surfaces only (`packSkusForRaceDate`).
  *
  * A limited-time SKU is deliberately NOT in the standalone walk-up catalog
  * (`kioskPackSkus`). The two BOGO SKUs are tier-restricted (adult $20.99 /
@@ -96,15 +96,21 @@ const STANDING_PACK_SLUGS: readonly string[] = [
  * the sale is sold.
  *
  * ONE list still feeds the in-booking sell surfaces AND `resolveKioskPacks`'s
- * fail-closed slug check, so the sale window is enforced on the SERVER by
+ * fail-closed slug check, so the promo's day rule is enforced on the SERVER by
  * construction: a cached page or a hand-rolled POST that still names a BOGO slug
- * after the deadline — or on the standalone rail at all — gets "isn't available"
- * from the resolver rather than a discounted charge. That is also why the window
- * is not merely a UI condition: the session carries slug pointers only, and the
- * server re-derives the price.
+ * for a non-Wednesday race — or on the standalone rail at all — gets "isn't
+ * available" from the resolver rather than a discounted charge. That is also why
+ * the day rule is not merely a UI condition: the session carries slug pointers
+ * only, and the server re-derives the price.
+ *
+ * `raceDate` is what the BOGO promo keys off (it runs on Wednesday RACES, not
+ * Wednesday purchases — see `bogoSaleActive`). Null falls back to the ET wall
+ * clock at `now`, matching the day rule directly below.
  */
-function packSlugsAt(now: Date): readonly string[] {
-  return bogoSaleActive(now) ? [...STANDING_PACK_SLUGS, ...BOGO_SALE_SLUGS] : STANDING_PACK_SLUGS;
+function packSlugsAt(raceDate: string | null | undefined, now: Date): readonly string[] {
+  return bogoSaleActive(raceDate, now)
+    ? [...STANDING_PACK_SLUGS, ...BOGO_SALE_SLUGS]
+    : STANDING_PACK_SLUGS;
 }
 
 /** Catalog order for a sell surface: smallest pack first, weekday before
@@ -148,13 +154,17 @@ export function kioskPackSkus(now: Date = new Date()): RacePack[] {
  * and a weekday credit can't (owner day rule; `dayBucket` is the same Fri–Sun
  * split the credit-redeem rail uses). Null (no date picked yet) falls back to
  * the wall clock.
+ *
+ * The race date also decides whether a limited-time SKU is live at all — BOGO
+ * runs on Wednesday RACES (`bogoSaleActive`), so both halves of this function
+ * read the same date and a date change can only add or remove SKUs together.
  */
 export function packSkusForRaceDate(
   raceDate: string | null | undefined,
   now: Date = new Date(),
 ): RacePack[] {
   const weekend = raceDate ? dayBucket(raceDate) === "weekend" : isWeekendForPacks(now);
-  return skusFor(packSlugsAt(now), weekend);
+  return skusFor(packSlugsAt(raceDate, now), weekend);
 }
 
 /** A pack purchase pointer as carried by the session/UI — slug + assignee only;
