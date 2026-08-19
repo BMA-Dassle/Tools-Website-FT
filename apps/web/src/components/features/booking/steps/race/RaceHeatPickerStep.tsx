@@ -46,7 +46,7 @@ import { PackageHeatPicker } from "./PackageHeatPicker";
 import { useEagerHeatHold } from "./useEagerHeatHold";
 import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track-visuals";
 import KartingCheckInBanner from "./KartingCheckInBanner";
-import { KartingCheckInProvider, useKartingCheckIn } from "./karting-check-in-context";
+import { useKartingCheckIn, withKartingCheckIn } from "./karting-check-in-context";
 import { useT } from "~/features/kiosk/i18n";
 import { raceByAtMs } from "~/features/racing/on-time-display";
 
@@ -216,11 +216,7 @@ function entriesForPick(
   }));
 }
 
-function makeHeatPickerComponent(
-  category: Category,
-  /** Kiosk only — see ./karting-check-in-context. */
-  kartingCheckIn = false,
-): StepDef<RaceItem>["Component"] {
+function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Component"] {
   const Component: StepDef<RaceItem>["Component"] = ({
     item,
     session,
@@ -1157,17 +1153,10 @@ function makeHeatPickerComponent(
       </div>
     );
   };
-  if (!kartingCheckIn) return Component;
-
-  // The provider has to sit OUTSIDE the component that reads the context, so the
-  // kiosk variant is a thin wrapper rather than a flag inside the body.
-  const KioskComponent: StepDef<RaceItem>["Component"] = (props) => (
-    <KartingCheckInProvider>
-      <Component {...props} />
-    </KartingCheckInProvider>
-  );
-  KioskComponent.displayName = `KioskHeatPicker(${category})`;
-  return KioskComponent;
+  // One component for web and kiosk. The provider has to sit OUTSIDE whatever
+  // reads the context, so the kiosk variants wrap this from the step level —
+  // see withKartingCheckIn in ./karting-check-in-context.
+  return Component;
 }
 
 function hasCategory(session: { party: PartyMember[] }, category: Category): boolean {
@@ -1264,17 +1253,10 @@ export const RaceHeatPickerStepJunior: StepDef<RaceItem> = {
 /**
  * KIOSK VARIANTS — same step, plus the karting-check-in treatment.
  *
- * Identical ids so the kiosk registry can swap them in with `replaceStep` and
- * every breadcrumb, URL hash and canAdvance gate keeps working. The ONLY
- * difference is that the karting context is mounted; see
- * ./karting-check-in-context for why this is kiosk-only.
+ * Same id, same gates; the ONLY difference is that the karting context is
+ * mounted around them. See ./karting-check-in-context for why this is
+ * kiosk-only and why the wrapper lives there rather than here.
  */
-export const RaceHeatPickerStepAdultKiosk: StepDef<RaceItem> = {
-  ...RaceHeatPickerStepAdult,
-  Component: makeHeatPickerComponent("adult", true),
-};
+export const RaceHeatPickerStepAdultKiosk = withKartingCheckIn(RaceHeatPickerStepAdult);
 
-export const RaceHeatPickerStepJuniorKiosk: StepDef<RaceItem> = {
-  ...RaceHeatPickerStepJunior,
-  Component: makeHeatPickerComponent("junior", true),
-};
+export const RaceHeatPickerStepJuniorKiosk = withKartingCheckIn(RaceHeatPickerStepJunior);

@@ -31,6 +31,7 @@
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
+import type { BookingItem, StepDef } from "~/features/booking";
 import type { OnTimeSnapshot } from "~/features/racing/on-time";
 
 export interface KartingCheckInCtx {
@@ -49,7 +50,7 @@ export function useKartingCheckIn(): KartingCheckInCtx {
   return useContext(KartingCheckInContext);
 }
 
-/** Mounted by the kiosk variant only. One poll for the whole grid. */
+/** Mounted by the kiosk step variants only. One poll for the whole step. */
 export function KartingCheckInProvider({ children }: { children: ReactNode }) {
   const status = useTrackStatus();
   const value = useMemo<KartingCheckInCtx>(
@@ -57,4 +58,27 @@ export function KartingCheckInProvider({ children }: { children: ReactNode }) {
     [status?.onTime],
   );
   return <KartingCheckInContext.Provider value={value}>{children}</KartingCheckInContext.Provider>;
+}
+
+/**
+ * Turn a step into its kiosk variant: same id, same gates, provider mounted.
+ *
+ * The wrapper lives HERE rather than inside any one step because the answer to
+ * "which steps show a guest a race slot time" is a list that grows — the single
+ * race grid, the package grid, and the combo's start-time grid all do, and the
+ * first version of this hid inside the first of the three. Adding the fourth
+ * should be one line in the kiosk registry, not a refactor.
+ *
+ * The id is preserved deliberately: `replaceStep` swaps by id, so every
+ * breadcrumb, URL hash and canAdvance gate keeps working untouched.
+ */
+export function withKartingCheckIn<I extends BookingItem>(step: StepDef<I>): StepDef<I> {
+  const Inner = step.Component;
+  const Wrapped: StepDef<I>["Component"] = (props) => (
+    <KartingCheckInProvider>
+      <Inner {...props} />
+    </KartingCheckInProvider>
+  );
+  Wrapped.displayName = `KioskKartingCheckIn(${step.id})`;
+  return { ...step, Component: Wrapped };
 }
