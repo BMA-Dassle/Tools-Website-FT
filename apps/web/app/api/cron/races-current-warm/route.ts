@@ -1,27 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { verifyCron } from "@/lib/cron-auth";
+import { venueCalledFastPathEnabled } from "~/features/racing/venue-called.server";
 import { refreshRacesCurrent, type TrackKey } from "~/features/racing/races-current.server";
 import { warmSessionRoster } from "~/features/racing/session-roster.server";
 
 /**
- * THE SESSION-STATUS WARM LOOP — what makes "called" state ~realtime
- * (owner 2026-08-14: "we need as close to realtime for session status as
- * possible. 1 second is the minimums").
+ * THE SESSION-STATUS WARM LOOP — now the NET under the venue WebSocket, not the
+ * source of the called heat.
  *
- * Vercel crons can't fire faster than once a minute, so this one fires every
- * minute and LOOPS for ~52 seconds, refreshing the Redis carry about once a
- * second. Every board reads that carry (cacheOnly), so the estate sees a
- * called heat within roughly: Pandora latency + 1s loop step + the board's
- * own 1-2s poll — a few seconds end to end, down from the old ~40-90s ladder.
+ * Owner 2026-08-14 asked for "as close to realtime for session status as possible,
+ * 1 second is the minimums", and this loop delivered it the only way available at
+ * the time: Vercel crons cannot fire faster than once a minute, so it fires every
+ * minute and loops for ~52 seconds. Every board reads the Redis carry
+ * (`cacheOnly`), so the estate saw a called heat within a few seconds instead of
+ * the old ~40-90s ladder.
  *
- * One loop at a time: an NX claim (50s TTL) makes an overlapping invocation
- * exit immediately rather than double the Pandora rate. A failed refresh
- * counts and continues — Pandora is believed fixed (2026-08-14), and if it
- * regresses the boards ride the carry, merely staler.
+ * As of 2026-08-19 the venue's own broadcast writes that carry too
+ * (`venue-called.server.ts`), and it is both cheaper and usually earlier — so the
+ * step relaxes to 30s while the bridge is alive, and snaps back to 1s the moment
+ * it is not. The realtime promise is kept by a push instead of a poll; see
+ * `warmLoopStepMs` below for the whole rule and the measurements behind it.
  *
- * The every-minute checkin-alerts cron still does its own default-mode read
- * for alerting; this loop exists purely to keep the display carry hot.
+ * One loop at a time: an NX claim (50s TTL) makes an overlapping invocation exit
+ * immediately rather than double the Pandora rate. A failed refresh counts and
+ * continues.
+ *
+ * The every-minute checkin-alerts cron still does its own default-mode read for
+ * alerting; this loop exists purely to keep the display carry hot.
  */
 
 export const runtime = "nodejs";
@@ -29,7 +35,54 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const LOOP_BUDGET_MS = 52_000;
-const STEP_MS = 1_000;
+
+/**
+ * THE STEP IS NOW A DECISION, NOT A CONSTANT (2026-08-19).
+ *
+ * This loop existed to learn one thing — which heat is called — by asking Pandora
+ * about once a second, all day: ~2,200 calls an hour, ~53,000 a day, over half of
+ * everything we send that vendor. The venue's own WebSocket pushes the same fact,
+ * and as of this change `venue-called.server.ts` writes it into the carry through
+ * the shared seam. Measured over 91 heats: the venue's frame reaches us a median
+ * 4.8s BEFORE our poll recorded the call, and on the degraded evening of 8/18 our
+ * record of Mega 60 was thirteen minutes late while the venue had it on time.
+ *
+ * So the poll stops being the source and becomes the NET, at 30s: it still catches
+ * a call that produced no venue event, still reconciles anything the wire got
+ * wrong, and still owns the between-heats carry. ~2,200/hr → ~120/hr.
+ *
+ * EXCEPT WHEN THE BRIDGE IS DEAD, which is not hypothetical: on 8/17 15:07-15:19
+ * the ingest buffer holds zero frames of any kind and four called heats went
+ * unseen by the wire. A half-open socket looks exactly like a quiet venue from in
+ * here, so silence is not evidence of calm — if the bridge's heartbeat is stale
+ * this loop goes straight back to 1s stepping and carries the estate alone.
+ */
+const STEP_FAST_MS = 1_000;
+const STEP_RELAXED_MS = 30_000;
+/** Beyond this, the bridge is not feeding us and the poll takes over. The venue
+ *  sends BcTime every ~30s even on a dead-quiet night, so 2 min is ~4 missed
+ *  heartbeats — long enough not to flap, short enough to cover one heat. */
+const BRIDGE_STALE_MS = 120_000;
+
+/**
+ * How fast should this minute's loop step? PURE, so the decision is testable
+ * without a clock or a socket.
+ *
+ * Fast (1s) when the fast path is switched off, when the bridge has not been
+ * heard from inside `BRIDGE_STALE_MS`, or when there is no heartbeat at all —
+ * every one of those means nothing else is writing the carry.
+ */
+export function warmLoopStepMs(args: {
+  fastPathEnabled: boolean;
+  bridgeLastEventMs: number | null;
+  nowMs: number;
+}): number {
+  if (!args.fastPathEnabled) return STEP_FAST_MS;
+  if (args.bridgeLastEventMs == null) return STEP_FAST_MS;
+  const age = args.nowMs - args.bridgeLastEventMs;
+  if (!Number.isFinite(age) || age > BRIDGE_STALE_MS) return STEP_FAST_MS;
+  return STEP_RELAXED_MS;
+}
 /**
  * PER-ATTEMPT CEILING — now generous, because an attempt no longer blocks the
  * next one.
@@ -79,6 +132,17 @@ export async function GET(req: NextRequest) {
   }
 
   const startedAt = Date.now();
+  /** Decided ONCE per invocation, not per tick: a bridge that dies mid-minute is
+   *  covered by the next minute's loop, and re-reading the heartbeat every second
+   *  would put a Redis round trip back into the hot path we are here to remove. */
+  const bridgeStamp = await redis.get("kart:bridge:last-event").catch(() => null);
+  const bridgeLastEventMs = bridgeStamp ? Date.parse(bridgeStamp) : null;
+  const fastPathEnabled = await venueCalledFastPathEnabled();
+  const stepMs = warmLoopStepMs({
+    fastPathEnabled,
+    bridgeLastEventMs: Number.isFinite(bridgeLastEventMs as number) ? bridgeLastEventMs : null,
+    nowMs: startedAt,
+  });
   let refreshed = 0;
   let failed = 0;
   let rostersWarmed = 0;
@@ -138,7 +202,7 @@ export async function GET(req: NextRequest) {
       } else {
         starved++;
       }
-      await sleep(STEP_MS);
+      await sleep(stepMs);
     }
   } finally {
     // Release early so the next minute's invocation never waits out the TTL.
@@ -147,6 +211,11 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
+    // Which cadence this minute ran at, and why — the first thing to look at if
+    // the estate ever feels slow again, or if Pandora traffic does not drop.
+    stepMs,
+    bridgeLastEvent: bridgeStamp,
+    fastPath: fastPathEnabled,
     refreshed,
     failed,
     rostersWarmed,

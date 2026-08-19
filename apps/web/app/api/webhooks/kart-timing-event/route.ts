@@ -4,6 +4,7 @@ import redis from "@/lib/redis";
 import { handleVenueMessage } from "~/features/signage/briefing/race-finish.server";
 import { updateRaceClocks } from "~/features/racing/race-clock.server";
 import { handleTrackEvents } from "~/features/racing/track-events.server";
+import { observeVenueCalls } from "~/features/racing/venue-called.server";
 
 /**
  * Kart timing broadcast webhook — receives messages forwarded by
@@ -168,6 +169,19 @@ export async function POST(req: NextRequest) {
    * smear. Never throws — see track-events.server.ts.
    */
   after(() => handleTrackEvents(message));
+
+  /**
+   * THE CALLED-HEAT SHADOW — writes `venue:called:*`, which nothing reads.
+   *
+   * Fourth and separate because it is not a feature: it is the evidence pass for
+   * moving session status off `races-current-warm`'s once-a-second Pandora poll
+   * (~53,000 calls/day). It records what the venue said and when, so a whole race
+   * day can be diffed against the carry before any writer is promoted. Takes the
+   * bridge's arrival stamp for the same reason the clock does — the latency
+   * question is "how much sooner would WE have known", not "when did the venue
+   * say it". See venue-called.server.ts.
+   */
+  after(() => observeVenueCalls(message, anchorMs));
 
   console.log(`[kart-webhook] queued type=${messageType}`);
   return NextResponse.json({ ok: true, kind: "queued", messageType });
