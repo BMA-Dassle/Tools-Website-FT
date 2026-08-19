@@ -35,10 +35,14 @@ import {
 } from "../components/WallPanel";
 
 /**
- * One backdrop per panel, so the wall is not five copies of one photograph.
- * Held per POSITION rather than per slide: the picture is the panel's identity and
- * changing it every 20 seconds under a changing headline reads as churn, while a
- * stable ground lets the words be the thing that moves.
+ * The FALLBACK backdrop per panel, for a slide whose panels carry words rather than
+ * things — the statement and the price. Held per POSITION so the ground stays put
+ * while the words change, because a picture that cuts every 20 seconds under a
+ * changing headline reads as churn.
+ *
+ * A slide whose panels ARE things overrides this per panel: each of the five parts
+ * of the VIP night gets its own picture (owner 2026-08-18), which is what
+ * `CardPanel.photo` is for.
  *
  * Deliberately avoids TV_PHOTOS.vipLanes — it has words burned into the frame.
  */
@@ -61,7 +65,12 @@ export function SceneVipShowcase({ nowMs, config }: SceneProps) {
   const price = vipWallPrice(nowMs);
   const panel = vipSlidePanel(slide, position, price);
   const rail = identityRail(position, price);
-  const photo = PANEL_PHOTO[position % PANEL_PHOTO.length];
+  // The panel's own picture when its subject has one, else the panel's standing
+  // ground. Reading it off the content rather than the position is what lets one
+  // slide be five things and another be five words.
+  const photo =
+    (panel?.layout === "card" ? panel.photo : undefined) ??
+    PANEL_PHOTO[position % PANEL_PHOTO.length];
   const delayMs = position * STAGGER_MS;
   // WHICH mark this end carries comes from config, falling back to derived-from-
   // the-ends. It has to: which brand goes on which end depends on which way the

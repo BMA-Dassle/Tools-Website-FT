@@ -11,9 +11,14 @@
  * between.
  *
  * The arrow band is the KioskCallout the ad rotation already uses — reused rather
- * than forked, because a fork is how the original stops receiving the next fix.
- * Here it carries NO text: the panel's headline is the instruction, so the band's
- * only job is to point down at the glass.
+ * than forked, because a fork is how the original stops receiving the next fix. It
+ * carries "…on the kiosk below" (owner 2026-08-18): the headline is the WHAT and
+ * the band is the WHERE, and without the band a guest reading "Buy a lane" is not
+ * actually told that the machine in front of them is how.
+ *
+ * Note "THE kiosk below", not "any kiosk below" — the ad rotation says *any*
+ * because it sells the whole bank, while this board's entire point is that the verb
+ * belongs to the one machine directly underneath this panel.
  */
 import type { SceneProps } from "../director/types";
 import { choreo } from "../wall";
@@ -71,8 +76,7 @@ export function SceneKioskHowto({ config }: SceneProps) {
           delayMs={position * STAGGER_MS}
         />
       )}
-      {/* No text: the verb above IS the instruction. See KioskCallout's note. */}
-      <KioskCallout accent={accent} />
+      <KioskCallout accent={accent} text={panel?.band ?? "Start at the kiosk below"} />
     </div>
   );
 }

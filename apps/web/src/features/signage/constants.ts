@@ -29,6 +29,14 @@ export interface VenueInfo {
   brand: "fasttrax" | "headpinz";
   /** BMI / Office location id — the key for daily-events + resource lookups. */
   bmiLocationId: number;
+  /**
+   * SQUARE location id. The third of the four parallel "where" ids this repo
+   * carries (see the namespace trap at the top of this file), and the one the
+   * BOWLING tables are keyed by: `bowling_experience_offers.center_code` holds a
+   * Square location id, NOT a center slug. Bridged here rather than re-derived at
+   * the call site, which is what this map exists for.
+   */
+  squareLocationId: string;
 }
 
 /**
@@ -43,6 +51,7 @@ export const VENUE_INFO: Record<SignageVenue, VenueInfo> = {
     center: "fort-myers",
     brand: "fasttrax",
     bmiLocationId: 467486,
+    squareLocationId: "LAB52GY480CJF",
   },
   HPFM: {
     venue: "HPFM",
@@ -50,6 +59,7 @@ export const VENUE_INFO: Record<SignageVenue, VenueInfo> = {
     center: "fort-myers",
     brand: "headpinz",
     bmiLocationId: 332160,
+    squareLocationId: "TXBSQN0FEKQ11",
   },
   HPN: {
     venue: "HPN",
@@ -57,6 +67,7 @@ export const VENUE_INFO: Record<SignageVenue, VenueInfo> = {
     center: "naples",
     brand: "headpinz",
     bmiLocationId: 332145,
+    squareLocationId: "PPTR5G2N0QXF7",
   },
 };
 

@@ -122,30 +122,6 @@ export function isWallCentre(position: number, count: number): boolean {
 }
 
 /**
- * Split `items` into contiguous runs across the wall and return THIS panel's run.
- *
- * CONTIGUOUS, not round-robin, and that is a content decision rather than an
- * arithmetic one: the list is authored in an order that means something, and
- * neighbours in it belong together. On the menu board the two headline
- * attractions open the wall and All Access sits at the far end beside the
- * HeadPinz mark — round-robin would scatter all four of those pairings.
- *
- * The remainder spreads along the wall from the left rather than hanging off the
- * last panel: nine items over five panels is 2+2+2+2+1, so exactly one panel is
- * short and it is the far end, where a gap reads as the list simply finishing.
- */
-export function chunkAcrossWall<T>(items: readonly T[], position: number, count: number): T[] {
-  const n = Math.max(1, Math.floor(safe(count, 1)));
-  const p = clamp(Math.floor(safe(position, 0)), 0, n - 1);
-  const base = Math.floor(items.length / n);
-  const extra = items.length % n;
-  // Panels before `extra` take one more, so the longer runs are at the left.
-  const start = p * base + Math.min(p, extra);
-  const size = base + (p < extra ? 1 : 0);
-  return items.slice(start, start + size);
-}
-
-/**
  * The item for THIS panel from a list authored one-per-panel, or null.
  *
  * Returns null rather than wrapping when the wall is wider than the list: a

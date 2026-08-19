@@ -3,8 +3,8 @@ import {
   dollars,
   howtoPanel,
   identityRail,
-  menuTiles,
-  menuTilesFor,
+  menuPanels,
+  menuPanelAt,
   vipSlideIndex,
   vipSlidePanel,
   vipWallPrice,
@@ -242,18 +242,44 @@ describe("the VIP showcase", () => {
     }
   });
 
-  it("the three legs are the pack's own three legs, in order", () => {
+  it("the night names the five things a guest GETS, as a list not a timetable", () => {
     if (!COMBO) return;
-    const legs = [1, 2, 3].map((p) => {
+    const words = [0, 1, 2, 3, 4].map((p) => {
       const panel = vipSlidePanel(1, p, price)!;
       return panel.layout === "card" ? panel.word.replace(/\n/g, " ").toLowerCase() : "";
     });
-    expect(legs[0]).toContain("starter");
-    expect(legs[1]).toContain("bowling");
-    expect(legs[2]).toContain("intermediate");
-    // …and they are the components the combo actually books, in the same order.
+    // The two races sit TOGETHER (owner 2026-08-18). Ordering by sequence would put
+    // the bowling between them and make the wall read as an itinerary.
+    expect(words[0]).toContain("starter");
+    expect(words[1]).toContain("intermediate");
+    expect(words[2]).toContain("bowling");
+    expect(words[3]).toContain("gel");
+    expect(words[4]).toContain("game");
+
+    // The three legs are still the pack's own three, whatever order they are SHOWN
+    // in — that is what keeps the list honest as the pack changes.
     const kinds = COMBO.components.map((c) => `${c.kind}:${"tier" in c ? c.tier : ""}`);
     expect(kinds).toEqual(["race:starter", "bowling:", "race:intermediate"]);
+  });
+
+  it("every panel of the night carries its OWN picture, and no two repeat", () => {
+    // "all with respective picture" (owner 2026-08-18) — a shared ground would put
+    // the same bowling photo behind the gel blasters.
+    const photos = [0, 1, 2, 3, 4].map((p) => {
+      const panel = vipSlidePanel(1, p, price)!;
+      return panel.layout === "card" ? panel.photo : undefined;
+    });
+    expect(photos.every(Boolean)).toBe(true);
+    expect(new Set(photos).size).toBe(5);
+  });
+
+  it("the voucher panels keep the terms that make them TRUE", () => {
+    // The pass is laser tag OR gel blaster, so a panel headlined "Gel blasters"
+    // has to say so, or the wall has promised the wrong one of the two.
+    const gel = vipSlidePanel(1, 3, price)!;
+    expect(gel.layout === "card" && gel.line.toLowerCase()).toContain("laser tag");
+    const gz = vipSlidePanel(1, 4, price)!;
+    expect(gz.layout === "card" && gz.line).toContain("$10");
   });
 
   it("THE COPY PIN: every VIP wall label is something the live pack still claims", () => {
@@ -294,67 +320,189 @@ describe("the VIP showcase", () => {
   });
 });
 
-describe("the menu board", () => {
+describe("the menu board — one subject per panel", () => {
   const now = Date.parse("2026-08-17T18:00:00-04:00");
 
-  it("is ten tiles, so five panels get two each with none left over", () => {
-    expect(menuTiles(now)).toHaveLength(10);
-    const dealt = [0, 1, 2, 3, 4].map((p) => menuTilesFor(now, p, 5));
-    expect(dealt.map((t) => t.length)).toEqual([2, 2, 2, 2, 2]);
+  /** A catalog answer shaped like the feed's, for the bowling panel. */
+  const BOWLING = {
+    regular: { label: "Regular", priceLabel: "$35", unit: "per lane", durationLabel: "1.5 hours" },
+    vip: { label: "VIP", priceLabel: "$55", unit: "per lane", durationLabel: "1.5 hours" },
+  };
+
+  it("is exactly five panels — one per TV", () => {
+    expect(menuPanels(now, BOWLING)).toHaveLength(5);
+    for (const p of [0, 1, 2, 3, 4]) expect(menuPanelAt(now, p, BOWLING)).not.toBeNull();
   });
 
-  it("every tile appears exactly once across the wall", () => {
-    const ids = [0, 1, 2, 3, 4].flatMap((p) => menuTilesFor(now, p, 5).map((t) => t.productId));
-    expect(new Set(ids).size).toBe(ids.length);
-    expect(ids.sort()).toEqual(
-      menuTiles(now)
-        .map((t) => t.productId)
-        .sort(),
-    );
+  it("puts one SUBJECT on each panel, in wall order", () => {
+    const heads = menuPanels(now, BOWLING).map((p) => p.headline);
+    expect(heads[0]).toBe("Bowling");
+    expect(heads[1]).toBe("Gel Blasters");
+    expect(heads[2]).toBe("Game Zone");
+    expect(heads[3]).toBe("At FastTrax");
+    expect(heads[4]).toBe(COMBO?.name ?? "VIP Experience");
   });
 
-  it("EVERY TILE KEYS ON A REAL PRODUCT ID, or its pause gate silently never fires", () => {
-    // A tile keyed on a name the maintenance registry does not know looks gated and
-    // is not — worse than no gate at all, because nobody checks it again.
+  it("no two panels share a subject or a picture", () => {
+    const panels = menuPanels(now, BOWLING);
+    expect(new Set(panels.map((p) => p.headline)).size).toBe(5);
+    expect(new Set(panels.map((p) => p.photo)).size).toBe(5);
+  });
+
+  it("every headline lands WHOLE on its panel — no word crosses a gap", () => {
+    for (const p of menuPanels(now, BOWLING)) {
+      expect(p.headline.includes("\n")).toBe(false);
+      expect(p.headline.trim().endsWith("-")).toBe(false);
+    }
+  });
+
+  it("a sixth panel gets NOTHING rather than a repeat of Bowling", () => {
+    // Two panels headed "Bowling" would read as two bowling centres.
+    expect(menuPanelAt(now, 5, BOWLING)).toBeNull();
+  });
+
+  it("Kids Bowl Free and Birthdays are OFF the board (owner 2026-08-18)", () => {
+    const ids = menuPanels(now, BOWLING).flatMap((p) => p.rows.map((r) => r.productId));
+    expect(ids).not.toContain("kbf");
+    expect(ids).not.toContain("birthday-party");
+  });
+
+  it("EVERY ROW KEYS ON A REAL PRODUCT ID, or its pause gate silently never fires", () => {
+    // A row keyed on a name the maintenance registry does not know looks gated and
+    // is not — worse than no gate, because nobody checks it again.
     const known = new Set(allProductIds());
-    // Birthdays is deliberately unclassified: an enquiry at the desk is not a
-    // vendor booking and stays sellable through any outage.
-    const exempt = new Set(["birthday-party"]);
-    for (const tile of menuTiles(now)) {
-      if (exempt.has(tile.productId)) continue;
-      expect(known, `tile "${tile.name}" keys on unknown product "${tile.productId}"`).toContain(
-        tile.productId,
-      );
+    for (const panel of menuPanels(now, BOWLING)) {
+      for (const row of panel.rows) {
+        if (!row.productId) continue;
+        expect(known, `"${panel.headline} / ${row.name}" keys on "${row.productId}"`).toContain(
+          row.productId,
+        );
+      }
     }
   });
 
-  it("BOWLING SHOWS AVAILABILITY, NEVER A PRICE — lane pricing is QAMF-dynamic", () => {
-    const bowling = menuTiles(now).find((t) => t.productId === "bowling")!;
-    expect(bowling.price).toBeUndefined();
-    expect(bowling.word).toBeTruthy();
-  });
-
-  it("Game Zone shows no price either — a card is loaded with whatever they choose", () => {
-    const gz = menuTiles(now).find((t) => t.productId === "game-zone")!;
-    expect(gz.price).toBeUndefined();
-  });
-
-  it("every tile has either a price or a word — never a blank where money goes", () => {
-    for (const tile of menuTiles(now)) {
-      expect(Boolean(tile.price || tile.word), `tile "${tile.name}"`).toBe(true);
+  it("every row has either a price or a word — never a blank where money goes", () => {
+    for (const panel of menuPanels(now, BOWLING)) {
+      for (const row of panel.rows) {
+        expect(Boolean(row.price || row.word), `${panel.headline} / ${row.name}`).toBe(true);
+      }
     }
   });
 
-  it("no tile quotes $0", () => {
-    for (const tile of menuTiles(now)) expect(tile.price).not.toBe("$0");
+  it("no row quotes $0", () => {
+    for (const panel of menuPanels(now, BOWLING)) {
+      for (const row of panel.rows) expect(row.price).not.toBe("$0");
+    }
+  });
+});
+
+describe("the bowling panel — the one attraction with no static price", () => {
+  const now = Date.parse("2026-08-17T18:00:00-04:00");
+  const BOWLING = {
+    regular: { label: "Regular", priceLabel: "$35", unit: "per lane", durationLabel: "1.5 hours" },
+    vip: { label: "VIP", priceLabel: "$55", unit: "per lane", durationLabel: "1.5 hours" },
+  };
+
+  it("shows tonight's REGULAR and VIP offers, from the catalog, priced", () => {
+    const panel = menuPanelAt(now, 0, BOWLING)!;
+    expect(panel.rows).toHaveLength(2);
+    expect(panel.rows[0]).toMatchObject({ name: "Regular", price: "$35" });
+    expect(panel.rows[1]).toMatchObject({ name: "VIP", price: "$55" });
   });
 
-  it("the All Access tile quotes tonight's real tier", () => {
+  it("says WHICH UNIT the price is in — per lane is not per person", () => {
+    // An hourly lane holds six bowlers. A bare "$35" is wrong by a factor of six
+    // depending on which it is, which is why the unit rides with the price.
+    const panel = menuPanelAt(now, 0, BOWLING)!;
+    expect(panel.rows[0].note).toContain("per lane");
+    expect(panel.rows[0].note).toContain("1.5 hours");
+  });
+
+  it("with NO catalog answer it sells availability — never an invented lane price", () => {
+    // The house pricing rule: a displayed price must be the price the kiosk will
+    // charge. Bowling is QAMF-dynamic and the static catalogue carries `price: 0`,
+    // so a made-up number here is the exact failure that rule exists to prevent.
+    const panel = menuPanelAt(now, 0, null)!;
+    expect(panel.rows).toHaveLength(1);
+    expect(panel.rows[0].price).toBeUndefined();
+    expect(panel.rows[0].word).toBeTruthy();
+    expect(panel.rows[0].tracksAvailability).toBe(true);
+  });
+
+  it("a catalog row with no priced item shows no price rather than a zero", () => {
+    const panel = menuPanelAt(now, 0, {
+      regular: { label: "Regular", priceLabel: null, unit: "per lane", durationLabel: null },
+      vip: null,
+    })!;
+    expect(panel.rows[0].price).toBeUndefined();
+    expect(panel.rows[0].word).toBe("Ask at the desk");
+  });
+
+  it("still pauses with bowling — the lane system going dark takes the panel quiet", () => {
+    const panel = menuPanelAt(now, 0, BOWLING)!;
+    for (const row of panel.rows) expect(row.productId).toBe("bowling");
+  });
+});
+
+describe("the gel blaster, Game Zone and FastTrax panels", () => {
+  const now = Date.parse("2026-08-17T18:00:00-04:00");
+
+  it("gel blasters and laser tag SHARE a panel, both priced, both tracked", () => {
+    // One trip, one desk, one briefing — so one panel, over the gel photograph
+    // (owner 2026-08-18).
+    const panel = menuPanelAt(now, 1, null)!;
+    expect(panel.rows.map((r) => r.productId)).toEqual(["gel-blaster", "laser-tag"]);
+    for (const row of panel.rows) {
+      expect(row.price, row.name).toBeTruthy();
+      expect(row.tracksAvailability).toBe(true);
+    }
+  });
+
+  it("Game Zone is alone, and quotes no price — a card is loaded with any amount", () => {
+    const panel = menuPanelAt(now, 2, null)!;
+    expect(panel.rows).toHaveLength(1);
+    expect(panel.rows[0].productId).toBe("game-zone");
+    expect(panel.rows[0].price).toBeUndefined();
+    // Independent of every booking vendor, so it never tracks booking availability.
+    expect(panel.rows[0].tracksAvailability).toBeUndefined();
+  });
+
+  it("the FastTrax panel carries Racing and Duckpin — the other building", () => {
+    const panel = menuPanelAt(now, 3, null)!;
+    expect(panel.rows.map((r) => r.productId)).toEqual(["race", "duck-pin"]);
+  });
+
+  it("RACING does not claim a next-available it can never have", () => {
+    // `firstOpen.race` is declared in ExperienceFirstOpen and nothing ever writes
+    // it (owner 2026-07-25 — a per-tier heat line was too busy for a tile), which
+    // is verified against the live cache. A row that claimed to track it would
+    // print "Ask at the desk" over a track that is open all evening.
+    const racing = menuPanelAt(now, 3, null)!.rows.find((r) => r.productId === "race")!;
+    expect(racing.tracksAvailability).toBeUndefined();
+    expect(racing.price).toBeTruthy();
+  });
+
+  it("Duckpin DOES track availability — it has a real key in the cache", () => {
+    const duck = menuPanelAt(now, 3, null)!.rows.find((r) => r.productId === "duck-pin")!;
+    expect(duck.tracksAvailability).toBe(true);
+  });
+});
+
+describe("the VIP panel", () => {
+  const now = Date.parse("2026-08-15T18:00:00-04:00"); // a weekend
+
+  it("is named for the product and badged All Access", () => {
+    const panel = menuPanelAt(now, 4, null)!;
+    expect(panel.headline).toBe(COMBO?.name ?? "VIP Experience");
+    expect(panel.subhead).toBe("All Access");
+  });
+
+  it("quotes tonight's real tier and names the other days", () => {
     if (!COMBO) return;
-    const tile = menuTiles(Date.parse("2026-08-15T18:00:00-04:00")).find(
-      (t) => t.productId === "race-bowl",
-    )!;
-    expect(tile.price).toBe(dollars(COMBO.price.weekend));
+    const panel = menuPanelAt(now, 4, null)!;
+    expect(panel.rows[0].name).toContain(dollars(COMBO.price.weekend));
+    expect(panel.rows[0].note).toContain(dollars(COMBO.price.weekday));
+    expect(panel.rows[0].note).toContain(String(COMBO.minHeadcount ?? 2));
   });
 });
 
@@ -377,6 +525,31 @@ describe("the kiosk how-to", () => {
   it("no two panels give the same instruction", () => {
     const verbs = [0, 1, 2, 3, 4].map((p) => howtoPanel(p)!.verb);
     expect(new Set(verbs).size).toBe(5);
+  });
+
+  it('EVERY panel says "on the kiosk below" — the verb alone does not point', () => {
+    // Owner 2026-08-18: an arrow-only band was tried and the words were asked for
+    // back. A guest reading a verb eight feet up is not thereby told that the box
+    // in front of them is how.
+    for (const p of [0, 1, 2, 3, 4]) {
+      expect(howtoPanel(p)!.band, `panel ${p}`).toContain("kiosk below");
+    }
+  });
+
+  it('says "THE kiosk below", never "any" — this board names one machine', () => {
+    // The ad rotation says "any kiosk below" because it sells the whole bank. This
+    // board's entire point is that the verb belongs to the machine under THIS panel.
+    for (const p of [0, 1, 2, 3, 4]) {
+      expect(howtoPanel(p)!.band.toLowerCase()).not.toContain("any kiosk");
+    }
+  });
+
+  it("the band's verb agrees with the headline — check in is not a purchase", () => {
+    expect(howtoPanel(0)!.band).toBe("Check in on the kiosk below");
+    expect(howtoPanel(1)!.band).toBe("Buy it on the kiosk below");
+    expect(howtoPanel(2)!.band).toBe("Book it on the kiosk below");
+    expect(howtoPanel(3)!.band).toBe("Load it on the kiosk below");
+    expect(howtoPanel(4)!.band).toBe("Buy it on the kiosk below");
   });
 });
 

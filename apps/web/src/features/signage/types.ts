@@ -375,6 +375,25 @@ export interface ScreenConfig {
   overscanPct?: number;
 }
 
+/**
+ * One bowling offer as a wall reads it.
+ *
+ * `unit` matters as much as the price: an hourly lane is priced PER LANE (up to 6
+ * bowlers) and an open-play package PER PERSON, so a bare "$35" on a wall is two
+ * very different offers depending on which it is. Derived from the experience's
+ * own kind (`isPerLaneExperience`), never guessed.
+ */
+export interface BowlingWallOffer {
+  /** Guest-facing name, day range stripped — the wall only shows today's. */
+  label: string;
+  /** e.g. "$35". Absent when the catalog row carries no priced primary item. */
+  priceLabel: string | null;
+  /** "per lane" | "per person" */
+  unit: string;
+  /** e.g. "1.5 hours", when the offer has a fixed length. */
+  durationLabel: string | null;
+}
+
 /** A provisioned screen — one row of `signage_screens`. */
 export interface SignageScreen {
   screenId: string;
@@ -759,6 +778,24 @@ export interface TvFeed {
        *  Mega day both rooms serve the one circuit. */
       briefedRoom: "red" | "blue" | null;
     }>;
+  } | null;
+  /**
+   * TONIGHT'S BOWLING, from the experience catalog — the regular offer and the VIP
+   * one, with the prices the kiosk will charge.
+   *
+   * Its own feed section rather than a price in the scene, because bowling is the
+   * one attraction with NO static price: lanes are dynamic through QAMF and
+   * `ATTRACTIONS.bowling` carries `price: 0` on purpose. The real numbers live in
+   * Neon (`bowling_experiences` + `bowling_experience_offers`), which is a server
+   * read, so the only honest way to get them onto a wall is through the feed.
+   *
+   * Null for every screen that does not run the menu board, and null when the
+   * catalog read fails — the panel then sells availability instead of inventing a
+   * lane price, which is the failure mode the house pricing rule exists to stop.
+   */
+  bowlingTonight: {
+    regular: BowlingWallOffer | null;
+    vip: BowlingWallOffer | null;
   } | null;
   /** Product ids currently off-sale — never advertise a paused product. */
   pausedProductIds: string[];

@@ -17,16 +17,13 @@ import { withAlpha } from "../color";
 const ARROW_COUNT = 3;
 
 /**
- * `text` is OPTIONAL. Omit it for the ARROW-ONLY band the front-desk wall's
- * how-to panels use: there, the panel's own headline IS the instruction ("Buy a
- * lane"), and repeating "book it at any kiosk below" underneath would be the same
- * sentence twice on one screen. The band still points, which is its actual job.
- *
- * Extended here rather than forked into a second band component on purpose — a
- * fork is how the original stops receiving the next fix (see
- * tasks/lessons.md § an extracted component misses later fixes).
+ * `text` is REQUIRED. An arrow-only band was tried on the front-desk wall's how-to
+ * panels, on the theory that the panel's own headline ("Buy a lane") already said
+ * it — and the owner asked for the words back (2026-08-18). A guest reading a verb
+ * eight feet up is not thereby told that the box at waist height in front of them
+ * is how, and the arrows alone do not say it.
  */
-export function KioskCallout({ accent, text }: { accent: string; text?: string }) {
+export function KioskCallout({ accent, text }: { accent: string; text: string }) {
   return (
     <div
       style={{
@@ -49,20 +46,18 @@ export function KioskCallout({ accent, text }: { accent: string; text?: string }
 
       <Beacon accent={accent} />
 
-      {text && (
-        <div
-          className="tv-display"
-          style={{
-            fontSize: 48,
-            letterSpacing: "0.04em",
-            color: "#fff",
-            textShadow: `0 0 24px ${withAlpha(accent, 0.55)}`,
-            zIndex: 1,
-          }}
-        >
-          {text}
-        </div>
-      )}
+      <div
+        className="tv-display"
+        style={{
+          fontSize: 48,
+          letterSpacing: "0.04em",
+          color: "#fff",
+          textShadow: `0 0 24px ${withAlpha(accent, 0.55)}`,
+          zIndex: 1,
+        }}
+      >
+        {text}
+      </div>
 
       <Beacon accent={accent} />
 

@@ -3,176 +3,212 @@
 /**
  * THE MENU BOARD — what is open, what it costs, and when the next one is.
  *
- * Ten attraction tiles across the five panels, two each, so the wall is the venue's
- * menu and no two panels repeat. Split into CONTIGUOUS runs (`chunkAcrossWall`), so
- * the pairings the list was written with survive: the two headline attractions open
- * the wall and All Access lands at the far end, beside the HeadPinz mark.
+ * ONE SUBJECT PER PANEL (owner 2026-08-18). The board used to be two tiles on every
+ * panel, which made the wall a list that happened to be split five ways; now each
+ * panel is about one thing — Bowling, Gel Blasters & Laser Tag, Game Zone, At
+ * FastTrax, the VIP Experience — with the subject as the headline and its offers
+ * underneath. A guest reading any single panel gets a complete answer instead of a
+ * fragment of a menu, which matters on a wall where a player can be down.
  *
  * THE TIMES COME FROM THE CACHE THE KIOSKS SELL FROM. `feed.nextAvailable` is read
  * out of `kiosk:avail:v4:{center}` — the same three-minute entry behind
- * /api/kiosk/availability — never recomputed here. That is what guarantees this
- * wall and the machine two feet below it cannot disagree about whether there is a
- * lane at 7:30. A screen must also have asked for it (`showNextAvailable`), and
- * when the cache is cold there are simply no times: an advert promising a slot the
- * kiosk will then refuse is worse than one with no time on it.
+ * /api/kiosk/availability — never recomputed here. That is what guarantees this wall
+ * and the machine two feet below it cannot disagree about whether there is a lane at
+ * half nine. The screen must also have asked for it (`showNextAvailable`).
+ *
+ * THE BOWLING PRICES COME FROM THE FEED, not from this file. Bowling is the only
+ * attraction here with no static price — lanes are dynamic through QAMF and
+ * `ATTRACTIONS.bowling` carries `price: 0` on purpose — so tonight's regular and VIP
+ * offers are read server-side out of the experience catalog (`feed.bowlingTonight`).
+ * With that section null the panel sells availability instead of inventing a lane
+ * price, which is the one thing it may never do.
  *
  * A PAUSED PRODUCT SHOWS NO PRICE AND NO TIME. Same `pausedProductIds` gate
  * SceneAdRotation honours, keyed on the SAME product ids the maintenance registry
- * uses — the tile goes quiet and says when it is back, rather than quoting a price
- * for something Guest Services will have to explain.
- *
- * BOWLING SHOWS AVAILABILITY, NOT A PRICE. Lane pricing is dynamic through QAMF and
- * the static catalogue carries `price: 0`; inventing a lane price is exactly the
- * displayed-vs-charged mismatch the house pricing rule exists to prevent.
+ * uses — the row goes quiet and says where to ask, rather than quoting a price Guest
+ * Services will then have to explain.
  */
 import type { SceneProps } from "../director/types";
 import { choreo } from "../wall";
-import { menuTilesFor, WALL_ACCENT, type MenuTile } from "../wall-content";
-import { TV_PHOTOS } from "../assets";
+import { menuPanelAt, WALL_ACCENT, type MenuRow } from "../wall-content";
 import { WallGround } from "../components/WallPanel";
 import { withAlpha } from "../color";
 
-/** A quiet ground per panel — the tiles are the content, so the photograph is
- *  atmosphere and stays well back. */
-const PANEL_PHOTO = [
-  TV_PHOTOS.bowl,
-  TV_PHOTOS.laser,
-  TV_PHOTOS.raceAction,
-  TV_PHOTOS.duck,
-  TV_PHOTOS.arcade,
-];
-
 export function SceneOpenNow({ feed, nowMs, config }: SceneProps) {
-  const { position, count } = choreo(config);
-  const tiles = menuTilesFor(nowMs, position, count);
+  const { position } = choreo(config);
+  const panel = menuPanelAt(nowMs, position, feed?.bowlingTonight ?? null);
   const paused = new Set(feed?.pausedProductIds ?? []);
   const times = config.showNextAvailable ? (feed?.nextAvailable ?? null) : null;
-  // Whether the availability cache answered AT ALL this poll. It matters because
-  // the feed drops a product the cache marked unavailable, so "no entry" only
-  // means "nothing left today" when we know the cache was warm — see the Tile.
+  // Whether the availability cache answered AT ALL this poll. It matters because the
+  // feed drops a product the cache marked unavailable, so "no entry" only means
+  // "nothing left today" when we know the cache was warm — see rowStatus.
   const cacheWarm = times !== null;
-  const photo = PANEL_PHOTO[position % PANEL_PHOTO.length];
+
+  // A wall wider than the board leaves its extra panels on the ground alone. This
+  // scene is authored for the five-panel front-desk wall, and a sixth panel
+  // repeating "Bowling" would read as two bowling centres.
+  if (!panel) {
+    return (
+      <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
+        <WallGround accent={WALL_ACCENT.cyan} deepScrim />
+      </div>
+    );
+  }
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
-      <WallGround photo={photo} accent={WALL_ACCENT.cyan} deepScrim />
+      <WallGround photo={panel.photo} accent={panel.accent} deepScrim />
+
       <div
         style={{
           position: "absolute",
           inset: 0,
           display: "flex",
           flexDirection: "column",
-          justifyContent: "center",
-          gap: 27,
-          padding: "58px 65px",
+          justifyContent: "flex-end",
+          gap: 26,
+          padding: "77px 78px 88px",
         }}
       >
-        {tiles.map((tile) => (
-          <Tile
-            key={tile.productId}
-            tile={tile}
-            paused={paused.has(tile.productId)}
-            time={times?.[tile.productId] ?? null}
-            cacheWarm={cacheWarm}
-          />
-        ))}
+        {/* THE SUBJECT, whole on this panel. The rows beneath it are its offers, so
+            the headline is what makes the panel legible on its own. */}
+        <div>
+          <div
+            className="tv-display"
+            style={{
+              fontSize: 78,
+              lineHeight: 0.94,
+              color: "#fff",
+              textShadow: `0 0 8px rgba(255,255,255,0.82), 0 0 56px ${panel.accent}`,
+            }}
+          >
+            {panel.headline}
+          </div>
+          {panel.subhead && (
+            <div
+              className="tv-display"
+              style={{
+                fontSize: 32,
+                letterSpacing: "0.2em",
+                color: panel.accent,
+                marginTop: 14,
+              }}
+            >
+              {panel.subhead}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          {panel.rows.map((row) => (
+            <Row
+              key={row.name}
+              row={row}
+              accent={panel.accent}
+              paused={!!row.productId && paused.has(row.productId)}
+              time={(row.productId && times?.[row.productId]) || null}
+              cacheWarm={cacheWarm}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
-function Tile({
-  tile,
+function Row({
+  row,
+  accent,
   paused,
   time,
   cacheWarm,
 }: {
-  tile: MenuTile;
+  row: MenuRow;
+  accent: string;
   paused: boolean;
   /** The availability line for this product, already formatted by the feed
-   *  ("3 left · 7:30 PM"). Null when the cache had nothing for it. */
+   *  ("3 left · 9:30 PM"). Null when the cache had nothing for it. */
   time: string | null;
   /** The availability cache answered this poll (for some product, at least). */
   cacheWarm: boolean;
 }) {
-  // A paused tile keeps its NAME and loses everything transactional. It stays on
-  // the wall rather than being dropped: a guest who came for laser tag needs to
-  // learn it is down, and a tile that vanishes teaches them nothing.
-  const accent = paused ? WALL_ACCENT.quiet : tile.accent;
-  const figure = paused ? "Back soon" : (tile.price ?? tile.word);
-
-  // NEVER SAY "OPEN" WHEN WE DO NOT KNOW. The feed omits a product the cache has
-  // marked unavailable, so for a tile that tracks availability, a warm cache with
-  // no entry means there is nothing bookable left today — and printing "Open"
-  // there sends a guest to a kiosk that will refuse them. A COLD cache is
-  // different: we have no signal either way, and the building is plainly open
-  // (the wall is lit), so the floor stays "Open" with no time attached, which is
-  // the same posture the ad slides already take.
-  const status = paused
-    ? "See Guest Services"
-    : time
-      ? time
-      : tile.tracksAvailability && cacheWarm
-        ? "Ask at the desk"
-        : "Open";
+  // A paused row keeps its NAME and loses everything transactional. It stays on the
+  // wall rather than being dropped: a guest who came for laser tag needs to learn it
+  // is down, and a row that vanishes teaches them nothing.
+  const ink = paused ? WALL_ACCENT.quiet : accent;
+  const figure = paused ? "Back soon" : (row.price ?? row.word);
 
   return (
     <div
       style={{
-        borderLeft: `8px solid ${accent}`,
+        borderLeft: `8px solid ${ink}`,
         background: "rgba(3,8,24,0.76)",
         borderRadius: "0 17px 17px 0",
-        padding: "27px 31px",
+        padding: "24px 30px",
         opacity: paused ? 0.4 : 1,
+        display: "flex",
+        alignItems: "baseline",
+        justifyContent: "space-between",
+        gap: 22,
       }}
     >
-      <div className="tv-display" style={{ fontSize: 55, color: "#fff", lineHeight: 1 }}>
-        {tile.name}
+      <div>
+        <div className="tv-display" style={{ fontSize: 46, color: "#fff", lineHeight: 1 }}>
+          {row.name}
+        </div>
+        {!paused && row.note && (
+          <div style={{ fontSize: 26, color: "rgba(245,236,238,0.6)", marginTop: 10 }}>
+            {row.note}
+          </div>
+        )}
       </div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          gap: 17,
-          marginTop: 16,
-        }}
-      >
-        <span
-          className="tv-display"
-          style={{
-            // A word where a price would be ("Lanes open", "Load a card") is set
-            // smaller: it is a sentence doing a number's job, and at 50px it would
-            // outweigh the real prices either side of it on the wall.
-            fontSize: tile.price && !paused ? 50 : 37,
-            color: accent,
-            fontVariantNumeric: "tabular-nums",
-            lineHeight: 1,
-            textShadow: paused ? undefined : `0 0 24px ${withAlpha(accent, 0.45)}`,
-          }}
-        >
-          {figure}
-        </span>
-        <span
-          style={{
-            fontSize: 27,
-            color: "rgba(245,236,238,0.6)",
-            textAlign: "right",
-            lineHeight: 1.26,
-          }}
-        >
-          <b
+
+      <div style={{ textAlign: "right", flexShrink: 0 }}>
+        {figure && (
+          <div
+            className="tv-display"
             style={{
-              display: "block",
-              fontWeight: 600,
-              color: paused ? "rgba(245,236,238,0.32)" : WALL_ACCENT.gel,
+              // A word where a price would be ("Any amount", "Open now") is set
+              // smaller: it is a sentence doing a number's job, and at full size it
+              // would outweigh the real prices either side of it on the wall.
+              fontSize: row.price && !paused ? 52 : 34,
+              color: ink,
+              fontVariantNumeric: "tabular-nums",
+              lineHeight: 1,
+              textShadow: paused ? undefined : `0 0 24px ${withAlpha(ink, 0.45)}`,
             }}
           >
-            {status}
-          </b>
-          {!paused && tile.note}
-        </span>
+            {figure}
+          </div>
+        )}
+        <div
+          style={{
+            fontSize: 26,
+            fontWeight: 600,
+            marginTop: 10,
+            color: paused ? "rgba(245,236,238,0.32)" : WALL_ACCENT.gel,
+          }}
+        >
+          {rowStatus(row, paused, time, cacheWarm)}
+        </div>
       </div>
     </div>
   );
+}
+
+/**
+ * NEVER SAY "OPEN" WHEN WE DO NOT KNOW.
+ *
+ * The feed omits a product the availability cache has marked unavailable, so for a
+ * row that tracks availability a WARM cache with no entry means there is nothing
+ * bookable left today — and printing "Open" there sends a guest to a kiosk that will
+ * refuse them. A COLD cache is different: we have no signal either way, and the
+ * building is plainly open (the wall is lit), so the floor stays "Open" with no time
+ * attached, which is the same posture the ad slides already take.
+ */
+function rowStatus(row: MenuRow, paused: boolean, time: string | null, cacheWarm: boolean): string {
+  if (paused) return "See Guest Services";
+  if (time) return time;
+  if (row.tracksAvailability && cacheWarm) return "Ask at the desk";
+  return "Open";
 }

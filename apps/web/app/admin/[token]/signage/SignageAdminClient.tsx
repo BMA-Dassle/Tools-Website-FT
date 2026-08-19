@@ -404,7 +404,15 @@ function ScreenRow({
   // publicOrigin: this URL gets copied into TV player configs. Copied from
   // the auth-walled admin proxy domain, location.origin would brick the
   // board (a wall player has no Vercel Auth session).
-  const url = `${publicOrigin(typeof window !== "undefined" ? window.location.origin : "")}/tv?screen=${encodeURIComponent(screen.screenId)}`;
+  //
+  // THE SCREEN ID IS NOT PERCENT-ENCODED, deliberately, and this is the same trap
+  // the download route documents at length. A colon is legal in a query value, and
+  // the encoded form is actively harmful: inside a .bat `%3` is a parameter
+  // substitution, so `HPFM%3A2` expands to `HPFMA2` and the player asks for a screen
+  // that does not exist (owner 2026-08-11 — the boards showed the unprovisioned
+  // ads-only fallback all evening because of it). This URL is COPIED BY STAFF into
+  // player configs and pasted into scripts, so it has to be the literal form.
+  const url = `${publicOrigin(typeof window !== "undefined" ? window.location.origin : "")}/tv?screen=${screen.screenId}`;
   const scenes = (screen.config.playlist ?? []).map((p) => p.scene);
 
   return (
@@ -481,6 +489,17 @@ function ScreenRow({
         >
           {url}
         </code>
+        {/* Which MACHINE this board hangs off. A wall is set up per player PC, not
+            per screen, so the card has to say which one it belongs to — otherwise
+            the only way to know is to remember the pairing group. */}
+        {pairedWith && (
+          <p style={{ ...hint, marginTop: 6 }}>
+            Shares a player PC with{" "}
+            <b>{pairedWith.leftId === screen.screenId ? pairedWith.rightId : pairedWith.leftId}</b>{" "}
+            — this board is on the <b>{pairedWith.leftId === screen.screenId ? "LEFT" : "RIGHT"}</b>{" "}
+            monitor. Use the 2-monitor script for that machine.
+          </p>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -491,8 +510,17 @@ function ScreenRow({
           href={`/api/admin/signage?token=${encodeURIComponent(token)}&script=${encodeURIComponent(screen.screenId)}`}
           style={{ ...btn, textDecoration: "none", display: "inline-block" }}
           download={startupScriptFileName(screen.screenId)}
+          // Named for what it actually drives. On a screen that shares a player PC
+          // this is the WRONG file — taking it to that machine leaves one monitor on
+          // a desktop — so the label says "this TV only" rather than leaving the
+          // person setting up a wall to infer it from the pairing group.
+          title={
+            pairedWith
+              ? `Drives THIS MONITOR ONLY. This screen shares a player PC with ${pairedWith.leftId === screen.screenId ? pairedWith.rightId : pairedWith.leftId} — use the 2-monitor script for that machine, and this one only to run this board on a PC of its own.`
+              : "One player PC driving this one screen."
+          }
         >
-          Download startup script
+          {pairedWith ? "Single-screen script (this TV only)" : "Download startup script"}
         </a>
         {/* Only offered where it can actually work. A two-monitor launcher needs
             a PAIRING GROUP to know which screen belongs on which side, so the

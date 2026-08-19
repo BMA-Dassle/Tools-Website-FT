@@ -4,7 +4,6 @@ import {
   wallSpan,
   wallCentre,
   isWallCentre,
-  chunkAcrossWall,
   atWallPosition,
   wallBrand,
   SOLO,
@@ -214,53 +213,6 @@ describe("wallCentre / isWallCentre", () => {
 
   it("a solo screen is its own centre, so a name still lands on it", () => {
     expect(isWallCentre(0, 1)).toBe(true);
-  });
-});
-
-describe("chunkAcrossWall — the menu board", () => {
-  const TILES = "abcdefghij".split("");
-
-  it("ten tiles across five panels is two each, as CONTIGUOUS pairs", () => {
-    // Contiguous, not round-robin: the list is authored in an order that means
-    // something, and neighbours in it belong on the same panel.
-    expect([0, 1, 2, 3, 4].map((p) => chunkAcrossWall(TILES, p, 5))).toEqual([
-      ["a", "b"],
-      ["c", "d"],
-      ["e", "f"],
-      ["g", "h"],
-      ["i", "j"],
-    ]);
-  });
-
-  it("every tile lands exactly once — nothing is dropped or shown twice", () => {
-    const all = [0, 1, 2, 3, 4].flatMap((p) => chunkAcrossWall(TILES, p, 5));
-    expect(all.sort()).toEqual([...TILES].sort());
-  });
-
-  it("the wall reads left to right as ONE list, in the order it was written", () => {
-    expect([0, 1, 2, 3, 4].flatMap((p) => chunkAcrossWall(TILES, p, 5))).toEqual(TILES);
-  });
-
-  it("a remainder is one short panel at the FAR END, where it reads as finishing", () => {
-    const nine = TILES.slice(0, 9);
-    expect([0, 1, 2, 3, 4].map((p) => chunkAcrossWall(nine, p, 5).length)).toEqual([2, 2, 2, 2, 1]);
-    // …and still no tile is lost.
-    expect([0, 1, 2, 3, 4].flatMap((p) => chunkAcrossWall(nine, p, 5))).toEqual(nine);
-  });
-
-  it("a list shorter than the wall leaves the trailing panels empty, not repeated", () => {
-    const three = TILES.slice(0, 3);
-    expect([0, 1, 2, 3, 4].map((p) => chunkAcrossWall(three, p, 5))).toEqual([
-      ["a"],
-      ["b"],
-      ["c"],
-      [],
-      [],
-    ]);
-  });
-
-  it("a solo screen shows the whole list", () => {
-    expect(chunkAcrossWall(TILES, 0, 1)).toEqual(TILES);
   });
 });
 

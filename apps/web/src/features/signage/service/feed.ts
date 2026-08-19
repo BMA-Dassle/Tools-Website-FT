@@ -111,6 +111,7 @@ export async function buildTvFeed(
     checkinReturning: null,
     raceResults: null,
     raceGuide: null,
+    bowlingTonight: null,
     pausedProductIds: safePaused(),
     nextAvailable: null,
     reloadAt: null,
@@ -164,6 +165,10 @@ export async function buildTvFeed(
   const wantsCameraReturning = briefingEnabled() && parsed.venue === "FT" && cameraRoom !== null;
   // The pit board: its track's staged roster and the lane state.
   const wantsPit = track != null && config.playlist.some((p) => p.scene === "pit-board");
+  // The menu board is the only surface that needs the bowling catalog, and it only
+  // exists at the bowling venues — FastTrax has no lanes, so a FastTrax screen
+  // asking would be one Neon round trip per poll for a section it cannot use.
+  const wantsBowling = parsed.venue !== "FT" && config.playlist.some((p) => p.scene === "open-now");
   // The scores wall: the last race on ITS OWN configured track. Not `track`
   // above — that one comes from `scope.resourceIds`, which a results board
   // deliberately does not set (see ScreenConfig.resultsBoard).
@@ -201,6 +206,7 @@ export async function buildTvFeed(
     cameraReturning,
     raceResults,
     guideSection,
+    bowlingTonight,
   ] = await Promise.all([
     track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
     wantsWelcome
@@ -236,6 +242,7 @@ export async function buildTvFeed(
     guideTracks.length > 0
       ? buildGuideSection(guideTracks, ymd).catch(() => null)
       : Promise.resolve(null),
+    wantsBowling ? buildBowlingTonight(parsed.venue, now).catch(() => null) : Promise.resolve(null),
   ]);
 
   // Has the heat on the track board already been sent to a briefing room? One
@@ -272,6 +279,7 @@ export async function buildTvFeed(
         : null,
     raceResults,
     raceGuide: guideSection,
+    bowlingTonight,
     // `vip` (the bowling-leg takeover) lands with the next scene.
     vip: null,
     // Null events mean we could not ask — the welcome entry then self-skips
@@ -279,6 +287,107 @@ export async function buildTvFeed(
     degraded: wantsWelcome && events === null,
   };
 }
+
+/** Day of week (0=Sun) AT THE VENUE. A UTC-clocked server has already rolled over
+ *  to tomorrow by 8pm ET, which would put Friday's bowling offers on a Thursday
+ *  night wall. Same Intl + America/New_York posture as etHourNow. */
+const ET_WEEKDAY: Record<string, number> = {
+  Sunday: 0,
+  Monday: 1,
+  Tuesday: 2,
+  Wednesday: 3,
+  Thursday: 4,
+  Friday: 5,
+  Saturday: 6,
+};
+
+function venueDayOfWeek(nowMs: number): number {
+  try {
+    const name = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "long",
+    }).format(new Date(nowMs));
+    const dow = ET_WEEKDAY[name];
+    if (dow !== undefined) return dow;
+  } catch {
+    /* fall through */
+  }
+  return new Date(nowMs).getDay();
+}
+
+/** Cents to a wall price. Whole dollars drop the dead ".00". */
+function bowlingPriceLabel(cents: number | undefined): string | null {
+  if (typeof cents !== "number" || !(cents > 0)) return null;
+  return cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
+}
+
+/**
+ * TONIGHT'S BOWLING — the regular offer and the VIP one, priced.
+ *
+ * Bowling is the only attraction on this wall with no static price: lanes are
+ * dynamic through QAMF and `ATTRACTIONS.bowling` carries `price: 0` deliberately.
+ * The real numbers live in the experience catalog in Neon, which is a server read
+ * — so this is what makes a priced bowling panel possible at all instead of the
+ * wall inventing a lane price.
+ *
+ * THREE THINGS THIS DELIBERATELY DOES NOT DO:
+ *
+ *  - It does not pick by SLUG. Which offer leads is `sort_order` in the catalog, so
+ *    reordering there moves the wall with it. Naming `regular-mon-thur` here would
+ *    leave the wall quoting a row somebody had since retired.
+ *  - It does not ignore `days_of_week`. Fun 4 All is Mon–Thu, Pizza Bowl is Sunday,
+ *    Midnight Madness is Fri/Sat. A wall quoting Sunday's package on a Tuesday is
+ *    quoting a price the kiosk will refuse.
+ *  - It does not compute a lane count or a total. It reports the catalog's own
+ *    per-unit price and says WHICH unit — hourly lanes are priced per lane (up to
+ *    six bowlers) and open-play packages per person, and conflating those is how
+ *    "$35" ends up wrong by a factor of six.
+ *
+ * `center_code` on the offers table is a SQUARE LOCATION ID, not a center slug, so
+ * it is bridged through VENUE_INFO rather than re-derived here.
+ */
+async function buildBowlingTonight(
+  venue: SignageVenue,
+  nowMs: number,
+): Promise<TvFeed["bowlingTonight"]> {
+  const { getBowlingExperiences } = await import("@/lib/bowling-db");
+  const { isPerLaneExperience } = await import("~/features/booking/service/bowling-offer");
+
+  const all = await getBowlingExperiences(VENUE_INFO[venue].squareLocationId);
+  if (all.length === 0) return null;
+
+  const today = venueDayOfWeek(nowMs);
+  const tonight = all
+    // An empty list means "every day" (the legacy default the catalog documents).
+    .filter((e) => e.daysOfWeek.length === 0 || e.daysOfWeek.includes(today))
+    // Kids Bowl Free has its own wizard and its own product, and is not the
+    // bowling a walk-up guest is being sold. It also came off this wall on
+    // 2026-08-18.
+    .filter((e) => !e.slug.startsWith("kbf-"))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+
+  const toOffer = (e: (typeof tonight)[number]) => {
+    const primary = (e.items ?? []).find((i) => i.sortOrder === 0) ?? (e.items ?? [])[0];
+    const mins = e.qamfOfferDurationMinutes;
+    return {
+      // The wall only ever shows TODAY's offer, so the day range in the catalog
+      // label is noise on a screen read from thirty feet ("Regular Mon–Thur" is
+      // just "Regular" once the wall has already filtered to tonight).
+      label: e.label.replace(DAY_SUFFIX, "").trim() || e.label,
+      priceLabel: bowlingPriceLabel(primary?.priceCents),
+      unit: isPerLaneExperience(e) ? "per lane" : "per person",
+      durationLabel: mins ? `${mins / 60} hours` : null,
+    };
+  };
+
+  const regular = tonight.find((e) => !e.isVip);
+  const vip = tonight.find((e) => e.isVip);
+  if (!regular && !vip) return null;
+  return { regular: regular ? toOffer(regular) : null, vip: vip ? toOffer(vip) : null };
+}
+
+/** A trailing day range on a catalog label — "Regular Mon–Thur", "VIP Fri–Sun". */
+const DAY_SUFFIX = /\s+(Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat|Sun)[\u2013\u2014-].*$/i;
 
 /**
  * What a briefing room's TV needs from the slow feed: the films, the poster, and
