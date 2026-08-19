@@ -7,6 +7,7 @@ import { venueDedupeKey, VENUE_DEDUPE_TTL_SECONDS } from "~/features/racing/venu
 import { handleTrackEvents } from "~/features/racing/track-events.server";
 import { observeVenueCalls } from "~/features/racing/venue-called.server";
 import { markRosterTouched } from "~/features/racing/roster-dirty.server";
+import { markSeatDepartures } from "~/features/racing/roster-seats.server";
 
 /**
  * Kart timing broadcast webhook — receives messages forwarded by
@@ -233,6 +234,18 @@ export async function POST(req: NextRequest) {
    * cannot have). Never throws.
    */
   after(() => markRosterTouched(message));
+
+  /**
+   * THE SOLD-SEAT DEPARTURE WITNESS — a second, independent account of a racer
+   * leaving a heat, for `eticket-removals`.
+   *
+   * Sixth and separate because it answers a different question from the touch
+   * mark above: not "did anything happen here" but "did a PAID seat go away".
+   * That is what lets a retraction skip its six-minute grace, which exists only
+   * because one Pandora diff is not proof. Never throws; see
+   * roster-seats.server.ts.
+   */
+  after(() => markSeatDepartures(message));
 
   console.log(`[kart-webhook] queued type=${messageType}`);
   return NextResponse.json({ ok: true, kind: "queued", messageType });

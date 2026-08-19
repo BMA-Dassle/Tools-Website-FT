@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { verifyCron } from "@/lib/cron-auth";
+import { readDepartureCounts } from "~/features/racing/roster-seats.server";
 import { inEticketQuietHours } from "~/features/eticket/quiet-hours";
 import { logCronRun } from "@/lib/sms-log";
 import {
@@ -154,6 +155,7 @@ export async function GET(req: NextRequest) {
   }
 
   let candidates = 0;
+  let corroborated = 0;
   let sent = 0;
   let skipped = 0;
   let errors = 0;
@@ -165,6 +167,24 @@ export async function GET(req: NextRequest) {
     const ymd = etYmd();
     const sessionIds = await notifiedSessionIds(ymd);
     const schedule = await fetchTodaySessions(ymd);
+
+    /**
+     * THE VENUE'S OWN ACCOUNT OF A SOLD SEAT LEAVING — the second witness.
+     *
+     * The six-minute grace below exists because ONE Pandora diff is not proof: a
+     * partial payload or an upstream hiccup looks exactly like a removal, and an
+     * unsendable "your ticket is dead" text is the worst thing this rail can do.
+     * When the venue broadcast independently saw a Product-bearing seat leave
+     * that heat, we are no longer relying on one witness and the grace has
+     * nothing left to protect against (owner 2026-08-19: "ignore racers with no
+     * products on WS on the removal but make the others instant removal").
+     *
+     * A seat with no Product is not corroboration and never enters this map —
+     * those departures keep the full grace. So does every session the wire said
+     * nothing about, and every session at all if Redis or the bridge is down.
+     * Absence here is absence of evidence, never evidence of absence.
+     */
+    const departures = await readDepartureCounts(sessionIds);
 
     // Pass 1 — read rosters for every eligible session BEFORE judging anyone.
     // `activeElsewhere` is the strongest move guard and it only works if the
@@ -236,6 +256,11 @@ export async function GET(req: NextRequest) {
         // cleared above, so a later removal gets a fresh window.
         const firstSeenMs = await markSeenRemoved(sessionId, personId, nowMs);
 
+        // Corroborated by the venue: Pandora says this person is at state 5 AND
+        // the wire saw a sold seat leave this heat. Two independent witnesses is
+        // what the grace was standing in for, so it does not apply.
+        const wireSawDeparture = (departures.get(sessionId) ?? 0) > 0;
+        if (wireSawDeparture) corroborated++;
         const verdict = removalVerdict(sessionId, personId, {
           active,
           allStates,
@@ -244,6 +269,7 @@ export async function GET(req: NextRequest) {
           refSessionId,
           firstSeenMs,
           nowMs,
+          ...(wireSawDeparture ? { graceMs: 0 } : {}),
         });
 
         if (!verdict.act) {
@@ -335,6 +361,10 @@ export async function GET(req: NextRequest) {
       sessionsTracked: sessionIds.length,
       sessionsSwept: rosters.size,
       candidates,
+      /** Judgements the venue's wire independently corroborated, so the grace
+       *  did not apply. Watch this on the first race night: it should be most
+       *  of the real retractions, and zero means the wire half is not working. */
+      corroborated,
       sent,
       skipped,
       errors,
