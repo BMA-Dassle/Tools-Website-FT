@@ -95,15 +95,25 @@ export function resolveLanePhase(input: LanePhaseInput): LanePhaseResult {
   if (laneNumbers.length > 0 && bookedAtMs > 0) {
     const minsUntilBooked = (bookedAtMs - nowMs) / 60_000;
     if (minsUntilBooked <= SELF_SERVICE_WINDOW_MINS) {
-      const assigned = physicalLanes.filter((pl) => laneNumbers.includes(pl.LaneNumber));
-      // EVERY assigned lane must be ACCOUNTED FOR as well as Closed. The version this
-      // was extracted from only checked that the lanes it FOUND were all Closed, so a
-      // `listLanes` response missing one of them opened the gate on partial information
-      // — "lane 12 is free, and I never looked at 13". A lane we cannot see is a lane we
-      // cannot promise, so unknown counts as not ready.
-      const allAccountedFor = assigned.length === laneNumbers.length;
-      const allClosed = allAccountedFor && assigned.every((pl) => pl.Status === "Closed");
-      if (allClosed) {
+      // EVERY LANE ON THE RESERVATION IS CHECKED INDIVIDUALLY, and each must be present
+      // and physically `Closed` — not `Open` (somebody else is on it, or it is mid-game),
+      // not `Error` (staff need to look at it), not `None` (unconfigured), and not absent
+      // from the response at all.
+      //
+      // Driven from the RESERVATION's lanes rather than from what the response happened to
+      // contain, which is the whole point. Two earlier shapes of this check were wrong in
+      // ways that both opened the gate on incomplete information:
+      //
+      //   · `assigned.every(Closed)` over a filtered list — a response missing lane 13
+      //     silently passed, because every lane it FOUND was fine.
+      //   · comparing counts — a duplicated lane 12 made the arithmetic agree while 13
+      //     went unexamined.
+      //
+      // A lane we have not positively seen as Closed is a lane we cannot promise.
+      const byNumber = new Map<number, Lane["Status"]>();
+      for (const pl of physicalLanes) byNumber.set(pl.LaneNumber, pl.Status);
+      const everyLaneFree = laneNumbers.every((n) => byNumber.get(n) === "Closed");
+      if (everyLaneFree) {
         return {
           phase: "ready",
           laneNumbers,

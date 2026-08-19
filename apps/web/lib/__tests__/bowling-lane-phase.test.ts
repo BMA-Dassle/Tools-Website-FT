@@ -163,6 +163,54 @@ describe("resolveLanePhase — the self-service gate", () => {
     expect(r.canSelfCheckIn).toBe(false);
   });
 
+  it("shuts when a DUPLICATE lane makes the counts agree but leaves one unexamined", () => {
+    // The reason this check is a per-lane lookup and not arithmetic. Two entries for lane
+    // 12 and none for 13: a count comparison would have said "two assigned, two found,
+    // both Closed" and opened the gate on a lane nobody looked at.
+    const r = resolveLanePhase({
+      lanes: confirmed,
+      physicalLanes: [pl(12, "Closed"), pl(12, "Closed")],
+      bookedAtMs: at(5),
+      nowMs: NOW,
+    });
+    expect(r.canSelfCheckIn).toBe(false);
+  });
+
+  it("checks EVERY lane on the reservation, not just the first or the last", () => {
+    // Three lanes, and each one in turn is the bad one. All three must shut the gate.
+    const three = [bl(12, "Confirmed"), bl(13, "Confirmed"), bl(14, "Confirmed")];
+    for (const badLane of [12, 13, 14]) {
+      const r = resolveLanePhase({
+        lanes: three,
+        physicalLanes: [12, 13, 14].map((n) => pl(n, n === badLane ? "Open" : "Closed")),
+        bookedAtMs: at(5),
+        nowMs: NOW,
+      });
+      expect(r.canSelfCheckIn, `lane ${badLane} was Open`).toBe(false);
+    }
+    // …and all three Closed opens it.
+    expect(
+      resolveLanePhase({
+        lanes: three,
+        physicalLanes: [12, 13, 14].map((n) => pl(n, "Closed")),
+        bookedAtMs: at(5),
+        nowMs: NOW,
+      }).canSelfCheckIn,
+    ).toBe(true);
+  });
+
+  it("a lane OPEN for somebody else is the case that must never slip through", () => {
+    // The failure with a guest attached to it: two parties sent to one lane.
+    const r = resolveLanePhase({
+      lanes: confirmed,
+      physicalLanes: [pl(12, "Closed"), pl(13, "Open")],
+      bookedAtMs: at(5),
+      nowMs: NOW,
+    });
+    expect(r.canSelfCheckIn).toBe(false);
+    expect(r.phase).toBe("not_ready");
+  });
+
   it("shuts with no booked time to measure the window against", () => {
     const r = resolveLanePhase({
       lanes: confirmed,
