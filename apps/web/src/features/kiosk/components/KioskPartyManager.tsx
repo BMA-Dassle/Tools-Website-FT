@@ -64,6 +64,7 @@ import {
   prewarmLicenseLookup,
 } from "../license/lookup-client";
 import { matchGateKey, matchGateVerdict } from "../license/match-gate";
+import { mintForSigningVerdict } from "../license/mint-for-signing";
 import type { LicenseMatch } from "../license/types";
 import { LicenseMatchPicker } from "./LicenseMatchPicker";
 
@@ -522,7 +523,16 @@ export function KioskPartyManager({
       if (!sid) {
         const gPhone = guardian.phone?.trim() ?? "";
         const gEmail = guardian.email?.trim() ?? "";
-        if (!gPhone && !gEmail) {
+        // No dedup identity, or no birthdate to mint a READABLE record with —
+        // a null-DOB person answers Pandora 500 forever, so creating one here
+        // would hand the minor a guardian nobody can read. Sign for themselves
+        // instead; the BMI-level guardian link was already set at onboard.
+        const verdict = mintForSigningVerdict({
+          dobIso: guardian.dobIso,
+          email: gEmail,
+          phone: gPhone,
+        });
+        if (verdict.kind !== "mint") {
           selfSign();
           return;
         }
@@ -531,7 +541,7 @@ export function KioskPartyManager({
           lastName: guardian.lastName ?? "",
           email: gEmail,
           phone: gPhone,
-          birthdate: guardian.dobIso,
+          birthdate: verdict.birthdate,
           location: brandLocation,
         });
         onUpdateMember(guardian.id, { pandoraPersonId: personId });
@@ -657,14 +667,20 @@ export function KioskPartyManager({
         // account lookup carries a 17-digit Office id and often NO birthdate, and
         // Pandora answers that with a bare 400 "Validation Exception" — which is
         // exactly what a guest saw on 2026-07-30 when tapping an existing adult.
-        if ((gPhoneTrim || gEmailTrim) && g.dobIso) {
+        const verdict = mintForSigningVerdict({
+          fallbackId: g.bmiPersonId,
+          dobIso: g.dobIso,
+          email: gEmailTrim,
+          phone: gPhoneTrim,
+        });
+        if (verdict.kind === "mint") {
           try {
             const { personId } = await pandoraCreatePerson({
               firstName: formatPersonName(g.firstName),
               lastName: formatPersonName(g.lastName ?? ""),
               email: gEmailTrim,
               phone: gPhoneTrim,
-              birthdate: g.dobIso,
+              birthdate: verdict.birthdate,
               location: brandLocation,
             });
             patchPerson(g.id, { pandoraPersonId: personId });
@@ -672,10 +688,12 @@ export function KioskPartyManager({
           } catch {
             // fall through to the Office id rather than dead-ending
           }
+        } else if (verdict.kind === "use") {
+          // Last resort: sign with the Office id rather than dead-ending — the
+          // waiver rails accept a 17-digit id, and it beats minting a record
+          // nobody can read.
+          sid = verdict.personId;
         }
-        // Last resort: sign with the Office id. pandoraCheckWaiver accepts 17-digit
-        // ids, and this is the same fallback the account-lookup path already takes.
-        if (!sid && g.bmiPersonId) sid = g.bmiPersonId;
         if (!sid) {
           throw new Error(
             GUEST_SAFE_ERROR +
@@ -860,22 +878,46 @@ export function KioskPartyManager({
       // birthdate, so the age gate above can't fire and this path used to default
       // the template age to 35 — that is how a 17-year-old signed an ADULT waiver.
       let refreshedIso: string | null = bdIso ?? null;
-      if (dedupPhone || dedupEmail) {
+      /**
+       * A LOOKED-UP ADULT OFTEN HAS NO birthDate, and this rail used to mint
+       * anyway to resolve a short id. That record answers Pandora 500 forever,
+       * and their waiver then lands on it — live 2026-08-19, Amy Marhevka
+       * (three FM records in seven minutes, waiver on the unreadable one).
+       * With no DOB we sign with the id the lookup already gave us instead.
+       */
+      const verdict = mintForSigningVerdict({
+        fallbackId: person.personId,
+        dobIso: bdIso,
+        email: dedupEmail,
+        phone: dedupPhone,
+      });
+      if (verdict.kind === "mint") {
         const { personId } = await pandoraCreatePerson({
           firstName: formatPersonName(first || person.fullName),
           lastName: formatPersonName(rest.join(" ")) || "",
           email: dedupEmail,
           phone: dedupPhone,
-          birthdate: bdIso,
+          birthdate: verdict.birthdate,
           location: brandLocation,
         });
         sid = personId;
-        const status = await pandoraCheckWaiver(personId, brandLocation);
-        ownValid = status.valid;
-        if (!refreshedIso && status.birthdate) refreshedIso = String(status.birthdate).slice(0, 10);
-      } else if (!refreshedIso) {
-        const probe = await pandoraCheckWaiver(person.personId, brandLocation).catch(() => null);
-        if (probe?.birthdate) refreshedIso = String(probe.birthdate).slice(0, 10);
+        // A record minted seconds ago holds no waiver of its own, whatever the
+        // looked-up record claimed — trust our flag only for the id we are
+        // about to SIGN with (the kiosk-99 rule, see beginMinorWaiver).
+        ownValid = false;
+      } else if (verdict.kind === "use") {
+        sid = verdict.personId;
+      }
+      if (sid) {
+        const status = await pandoraCheckWaiver(sid, brandLocation).catch(() => null);
+        if (status) {
+          // Upgrade only — a lagging local read must never revoke a signature
+          // we already hold.
+          ownValid = ownValid || status.valid;
+          if (!refreshedIso && status.birthdate) {
+            refreshedIso = String(status.birthdate).slice(0, 10);
+          }
+        }
       }
       const refreshedAge = ageFromIso(refreshedIso);
       if (refreshedAge !== null && refreshedAge < 18) {
