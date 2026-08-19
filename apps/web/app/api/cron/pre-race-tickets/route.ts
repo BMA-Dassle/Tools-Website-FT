@@ -28,6 +28,8 @@ import { verifyCron } from "@/lib/cron-auth";
 import { inEticketQuietHours } from "~/features/eticket/quiet-hours";
 import { warmRacerCodes } from "~/features/kiosk/license/code-cache";
 import { recordNotified, forgetNotified } from "~/features/racing/eticket/removal-sweep";
+import { planRosterRead } from "~/features/racing/roster-dirty";
+import { readRosterMarks, bankRosterRead } from "~/features/racing/roster-dirty.server";
 import { updateLicencePasses } from "~/features/racing/wallet/licence-pass";
 import { formatHeat } from "~/features/racing/wallet/licence-meta";
 import { NO_NEXT_RACE } from "~/features/racing/wallet/licence-clear";
@@ -746,23 +748,85 @@ export async function GET(req: NextRequest) {
     // nothing to configure.
     const candidates: Candidate[] = [];
     const walletCandidates: Candidate[] = [];
+
+    /**
+     * THE WHOLE DAY, BUT ONLY THE HEATS THAT MOVED.
+     *
+     * This used to read every roster inside a two-hour window, every two
+     * minutes, and get back exactly what it got back last time. On a race night
+     * that is ~30 rosters a tick, ~12,600 Pandora reads a day, and the
+     * overwhelming majority of them tell us nothing.
+     *
+     * The venue's own broadcast already says which sessions something happened
+     * on, and it says it about a MEDIAN OF ZERO sessions per two-minute tick
+     * (mean 0.58). So the window opens to the whole day — no heat is invisible
+     * any more, however far out it is booked — and the reads collapse onto the
+     * handful the wire flagged, plus a per-session net so a dropped frame costs
+     * minutes rather than forever. See roster-dirty.ts for the rule and the
+     * measurements.
+     *
+     * THE NOTIFICATION WINDOWS BELOW ARE UNCHANGED. `inTicketWindow` still
+     * gates the e-ticket SMS/email at [now-5min, now+2h] — reading a roster
+     * earlier must never mean TEXTING earlier, and nobody wants "your race is
+     * coming up" eight hours out. What widens is what we KNOW, not what we send.
+     */
+    const bridgeStamp = await redis.get("kart:bridge:last-event").catch(() => null);
+    const bridgeLastEventMsRaw = bridgeStamp ? Date.parse(bridgeStamp) : NaN;
+    const bridgeLastEventMs = Number.isFinite(bridgeLastEventMsRaw) ? bridgeLastEventMsRaw : null;
+
+    let rostersRead = 0;
+    let rostersSkipped = 0;
+    const readReasons: Record<string, number> = {};
+
     for (const resourceName of resources) {
       const trackDisplay = resourceToTrackDisplay(resourceName);
       const sessions = await fetchSessions(resourceName);
       const relevant = sessions.filter((s) => {
         const ms = new Date(s.scheduledStart).getTime();
-        if (isNaN(ms) || ms > windowEnd) return false;
-        // Inside the notification window, or running late and not yet gone off.
+        if (isNaN(ms)) return false;
+        // Inside the notification window, or simply not gone off yet — however
+        // far ahead that is. The `ms > windowEnd` cut-off is gone on purpose.
         return ms >= windowStart || !(s.actualStart || s.actualEnd);
       });
+
+      // One Redis round trip for the whole track's marks, not two per session.
+      const marks = await readRosterMarks(relevant.map((s) => String(s.sessionId)));
+
       for (const session of relevant) {
+        const ms = new Date(session.scheduledStart).getTime();
+        const sid = String(session.sessionId);
+        const mark = marks.get(sid) ?? {
+          dirtyCounter: null,
+          readCounter: null,
+          lastReadMs: null,
+        };
+        const plan = planRosterRead({
+          nowMs: Date.now(),
+          scheduledStartMs: Number.isFinite(ms) ? ms : null,
+          ticketWindowEndMs: windowEnd,
+          dirtyCounter: mark.dirtyCounter,
+          readCounter: mark.readCounter,
+          lastReadMs: mark.lastReadMs,
+          bridgeLastEventMs,
+        });
+        readReasons[plan.reason] = (readReasons[plan.reason] || 0) + 1;
+        if (!plan.read) {
+          rostersSkipped++;
+          continue;
+        }
+
         let participants: Participant[] = [];
         try {
           participants = await fetchParticipants(session.sessionId);
         } catch {
+          // No bank on failure: an unread roster must stay dirty so the next
+          // tick tries again, rather than looking freshly read.
           continue;
         }
-        const ms = new Date(session.scheduledStart).getTime();
+        rostersRead++;
+        // Bank the counter observed BEFORE the read — see bankRosterRead.
+        await bankRosterRead(sid, mark.dirtyCounter, Date.now());
+
         const inTicketWindow = ms >= windowStart;
         for (const p of participants) {
           const c: Candidate = { session, trackDisplay, participant: p };
@@ -773,6 +837,9 @@ export async function GET(req: NextRequest) {
         }
       }
     }
+    console.log(
+      `[pre-race] rosters read=${rostersRead} skipped=${rostersSkipped} reasons=${JSON.stringify(readReasons)}`,
+    );
 
     // PRE-WARM the racer login-code map for everyone with an upcoming heat.
     //

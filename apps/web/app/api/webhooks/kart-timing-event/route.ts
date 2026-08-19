@@ -6,6 +6,7 @@ import { updateRaceClocks } from "~/features/racing/race-clock.server";
 import { venueDedupeKey, VENUE_DEDUPE_TTL_SECONDS } from "~/features/racing/venue-dedupe";
 import { handleTrackEvents } from "~/features/racing/track-events.server";
 import { observeVenueCalls } from "~/features/racing/venue-called.server";
+import { markRosterTouched } from "~/features/racing/roster-dirty.server";
 
 /**
  * Kart timing broadcast webhook — receives messages forwarded by
@@ -217,6 +218,21 @@ export async function POST(req: NextRequest) {
    * say it". See venue-called.server.ts.
    */
   after(() => observeVenueCalls(message, anchorMs));
+
+  /**
+   * THE ROSTER TOUCH MARK — one INCR per session the venue just mentioned.
+   *
+   * Fifth and separate because it is not about this message at all: it is a
+   * note for `pre-race-tickets`, which today re-reads every roster in its
+   * window every two minutes and gets back what it got last time. The venue
+   * mentions a median of ZERO sessions per two-minute tick, so this mark is how
+   * that cron learns which of the day's ~60 heats are worth a Pandora call.
+   *
+   * Takes no anchor: the mark is a counter, not a time (see
+   * roster-dirty.server.ts for why a timestamp would need an atomic max we
+   * cannot have). Never throws.
+   */
+  after(() => markRosterTouched(message));
 
   console.log(`[kart-webhook] queued type=${messageType}`);
   return NextResponse.json({ ok: true, kind: "queued", messageType });
