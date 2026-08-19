@@ -1,13 +1,17 @@
 # Open Tasks
 
-## Old Time Lanes screens (2026-08-19) — BUILT + SEEDED, not on glass, no PR
+## Old Time Lanes screens (2026-08-19) — ON MAIN + SEEDED, not on glass
 
 Owner ask: two screens at HeadPinz Fort Myers labelled **Old Time Left** / **Old Time Right**,
 showing **only the PinBoyz logo on black** for now, **each on its own computer** — plus:
 *"only use shell method for all screens."*
 
-Worktree `.claude/worktrees/old-time-lanes-screens`, branch `worktree-old-time-lanes-screens`,
-based on `origin/main` 8c6158d07.
+**ON MAIN as `55ae3f525`** (commit `4d0f21ddb`, pushed 2026-08-19 from worktree
+`.claude/worktrees/old-time-lanes-screens`). origin/main moved TWICE mid-push — 8c6158d07 →
+cfe9c683d → c40d1c4dc, both `feat(signage)`/`fix(bowling)` lane-ready work — so this carries two
+merges. `types.ts` was touched by both sides and auto-resolved cleanly; gates re-run on the final
+merged tree: tsc clean, **1000 tests**, `next build` exit 0, a11y 0, and the screen re-smoked in
+real Edge after the merge (identical DOM).
 
 - [x] **`venue-logo` scene** (`SceneVenueLogo.tsx`) — one mark, true black `#000`, nothing else.
       Reads no feed, no scope, no vendor: the one scene nothing upstream can blank. Wired into
@@ -32,11 +36,15 @@ based on `origin/main` 8c6158d07.
       `Old Time Right · HPFM:8 · v0.8.0`.
 - [x] Gates: `tsc` clean · **973 signage tests** (22 new) · `next build` exit 0 · a11y gate zero
       violations · zero new lint warnings.
-- [ ] **NO PR, and merging is a prerequisite for the TVs** — preview URLs are SSO-walled, so a
-      player must use `https://headpinz.com/tv?screen=HPFM:7`. Until this is on main, prod serves
-      those two keys **house ads** (`isSceneImplemented` makes the scheduler refuse a scene the
-      deploy lacks) — that is also the degradation to expect from any rollback.
+- [x] **ON MAIN** — so `https://headpinz.com/tv?screen=HPFM:7` / `:8` are live once Vercel
+      finishes deploying. (Preview URLs are SSO-walled and cannot drive a player; the custom
+      domain is the only option.) A ROLLBACK past this point puts both keys back on **house ads**,
+      not a blank screen — `isSceneImplemented` makes the scheduler refuse a scene the deploy
+      lacks.
+- [ ] **Confirm the Vercel deploy went green**, then open both URLs on the custom domain.
 - [ ] **Not on glass.** Nothing has been hung or pointed at these URLs yet.
+- [ ] Clean up: `git worktree remove .claude/worktrees/old-time-lanes-screens` and delete the
+      local branch `worktree-old-time-lanes-screens`.
 - [ ] Owner call: the platform's **bottom-right identity stamp** (`Old Time Left · HPFM:7 ·
       v0.8.0`) is on all 19 screens and is still there. "Only a logo" may mean it should go on
       these two — one line in `TvShell` if so.
