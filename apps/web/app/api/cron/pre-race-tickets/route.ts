@@ -765,10 +765,18 @@ export async function GET(req: NextRequest) {
      * minutes rather than forever. See roster-dirty.ts for the rule and the
      * measurements.
      *
-     * THE NOTIFICATION WINDOWS BELOW ARE UNCHANGED. `inTicketWindow` still
-     * gates the e-ticket SMS/email at [now-5min, now+2h] — reading a roster
-     * earlier must never mean TEXTING earlier, and nobody wants "your race is
-     * coming up" eight hours out. What widens is what we KNOW, not what we send.
+     * THE E-TICKET GOES OUT FOR ANY HEAT OF THE DAY, and it costs nothing extra
+     * to do so (owner 2026-08-19: "can absolutely send anything from the day but
+     * it shouldn't require anything, only go off what we know"). There is no
+     * longer a separate two-hour notification gate: every racer on a roster we
+     * ALREADY READ becomes a candidate, and the per-(session, person) dedup key
+     * still means exactly one send each. So the send window is the day, while the
+     * read budget stays whatever the wire justified — widening what we tell
+     * people adds no Pandora calls at all, because it asks no new questions.
+     *
+     * `windowEnd` survives only as the NEAR HORIZON for the read net: heats
+     * inside two hours are worth re-checking sooner than heats eight hours out.
+     * It no longer gates a single message.
      */
     const bridgeStamp = await redis.get("kart:bridge:last-event").catch(() => null);
     const bridgeLastEventMsRaw = bridgeStamp ? Date.parse(bridgeStamp) : NaN;
@@ -803,7 +811,7 @@ export async function GET(req: NextRequest) {
         const plan = planRosterRead({
           nowMs: Date.now(),
           scheduledStartMs: Number.isFinite(ms) ? ms : null,
-          ticketWindowEndMs: windowEnd,
+          nearHorizonMs: windowEnd,
           dirtyCounter: mark.dirtyCounter,
           readCounter: mark.readCounter,
           lastReadMs: mark.lastReadMs,
@@ -827,13 +835,16 @@ export async function GET(req: NextRequest) {
         // Bank the counter observed BEFORE the read — see bankRosterRead.
         await bankRosterRead(sid, mark.dirtyCounter, Date.now());
 
-        const inTicketWindow = ms >= windowStart;
         for (const p of participants) {
           const c: Candidate = { session, trackDisplay, participant: p };
           // A heat that has already gone off is nobody's NEXT race — the
           // clear-down owns it from that point.
           if (!(session.actualStart || session.actualEnd)) walletCandidates.push(c);
-          if (inTicketWindow) candidates.push(c);
+          // Every racer on a roster we read, whatever time their heat is. The
+          // `relevant` filter above has already excluded heats that ran more
+          // than the grace ago, which is the only thing an e-ticket must not be
+          // sent for; the dedup key does the rest.
+          candidates.push(c);
         }
       }
     }

@@ -94,8 +94,8 @@ describe("rosterTouchedSessionIds", () => {
 const NOW = 1_760_000_000_000;
 const base: RosterReadInput = {
   nowMs: NOW,
-  scheduledStartMs: NOW + 30 * 60_000, // half an hour out → inside the ticket window
-  ticketWindowEndMs: NOW + 2 * 60 * 60_000,
+  scheduledStartMs: NOW + 30 * 60_000, // half an hour out → inside the near horizon
+  nearHorizonMs: NOW + 2 * 60 * 60_000,
   dirtyCounter: 4,
   readCounter: 4,
   lastReadMs: NOW - 60_000,
@@ -119,7 +119,7 @@ describe("planRosterRead", () => {
     });
   });
 
-  it("reads the ticket window every tick when the bridge heartbeat is stale", () => {
+  it("reads the near horizon every tick when the bridge heartbeat is stale", () => {
     // The 8/17 15:07-15:19 failure: zero frames of any kind, four heats missed.
     const dead = { ...base, bridgeLastEventMs: NOW - BRIDGE_STALE_MS - 1 };
     expect(planRosterRead(dead)).toEqual({ read: true, reason: "bridge-stale" });
@@ -133,7 +133,7 @@ describe("planRosterRead", () => {
     });
   });
 
-  it("STOPS looking beyond the ticket window when the bridge is stale", () => {
+  it("STOPS looking beyond the near horizon when the bridge is stale", () => {
     // The all-day scope is a WS feature. Keeping it while the WS is down means
     // reading every heat of the day on every tick — simulated against the real
     // wire that was 8,098 reads/day against the old 2,516, three times worse
@@ -180,7 +180,7 @@ describe("planRosterRead", () => {
     });
   });
 
-  it("bounds how stale a quiet heat inside the ticket window can get", () => {
+  it("bounds how stale a quiet heat inside the near horizon can get", () => {
     // THE HAZARD: a skipped read contributes no candidates, so a racer added
     // during a dropped frame gets no e-ticket until the net fires. The net is
     // what turns "never" into "at most NET_NEAR_MS late".
@@ -190,7 +190,7 @@ describe("planRosterRead", () => {
     expect(planRosterRead(due)).toEqual({ read: true, reason: "net-due" });
   });
 
-  it("lets a heat beyond the ticket window go longer between reads", () => {
+  it("lets a heat beyond the near horizon go longer between reads", () => {
     const far = { ...base, scheduledStartMs: NOW + 5 * 60 * 60_000 };
     expect(planRosterRead({ ...far, lastReadMs: NOW - NET_NEAR_MS }).read).toBe(false);
     expect(planRosterRead({ ...far, lastReadMs: NOW - NET_FAR_MS })).toEqual({
@@ -204,13 +204,13 @@ describe("planRosterRead", () => {
     expect(planRosterRead(unknown)).toEqual({ read: true, reason: "net-due" });
   });
 
-  it("re-reads a far heat as soon as it enters the ticket window", () => {
-    // This is why the far net can be hours long: crossing into the window
-    // re-tiers the heat to NET_NEAR_MS, whose clock is already long expired,
-    // so the first tick inside the window reads it regardless.
+  it("re-reads a far heat as soon as it crosses the near horizon", () => {
+    // This is why the far net can be hours long: crossing the horizon re-tiers
+    // the heat to NET_NEAR_MS, whose clock is already long expired, so the
+    // first tick inside it reads the heat regardless.
     const crossed = {
       ...base,
-      scheduledStartMs: base.ticketWindowEndMs - 60_000, // just inside now
+      scheduledStartMs: base.nearHorizonMs - 60_000, // just inside the horizon
       lastReadMs: NOW - 3 * 60 * 60_000, // last read hours ago, while far
     };
     expect(planRosterRead(crossed)).toEqual({ read: true, reason: "net-due" });

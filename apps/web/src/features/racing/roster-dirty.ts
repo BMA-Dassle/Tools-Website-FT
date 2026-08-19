@@ -82,9 +82,9 @@ export const BRIDGE_STALE_MS = 120_000;
  * The net, per session — how long we will go without reading a roster even if
  * the wire says nothing at all.
  *
- * Two tiers, because the cost of being late is not uniform. A heat inside the
- * e-ticket window has racers about to be texted, so a frame the bridge dropped
- * there delays a real notification; further out, nothing is waiting on it.
+ * Two tiers, because the cost of being late is not uniform. A heat about to run
+ * has a roster that is about to matter on a wall and at a desk, so a frame the
+ * bridge dropped there is felt within minutes; further out, it is not.
  * Neither number is a freshness guarantee — the wire is what makes this fast,
  * and the net is only there so a dropped frame costs minutes rather than
  * forever.
@@ -92,9 +92,9 @@ export const BRIDGE_STALE_MS = 120_000;
 export const NET_NEAR_MS = 10 * 60_000;
 /**
  * The far net is deliberately LONG, because it is almost redundant: a heat
- * beyond the e-ticket window only has to be right by the time it ENTERS that
- * window, and entering it re-tiers the heat to `NET_NEAR_MS`, whose clock is
- * already hours expired. So the first tick inside the window reads it anyway.
+ * beyond the near horizon only has to be right by the time it CROSSES it, and
+ * crossing re-tiers the heat to `NET_NEAR_MS`, whose clock is already hours
+ * expired. So the first tick inside the horizon reads it anyway.
  * This is only a backstop against a heat that somehow sits far out all day.
  *
  * It was 30 minutes and that was measurably wrong: simulated against the real
@@ -107,9 +107,9 @@ export interface RosterReadInput {
   /** Scheduled start, ms. Null when unparseable — treated as near, never skipped
    *  on a guess. */
   scheduledStartMs: number | null;
-  /** End of the e-ticket notification window (now + 2h today). A heat inside it
-   *  gets the tighter net. */
-  ticketWindowEndMs: number;
+  /** The near horizon: now + 2h. Heats scheduled inside it get the tighter net.
+   *  Purely a read-budget boundary — since 2026-08-19 it gates no message. */
+  nearHorizonMs: number;
   /** The wire's touch counter for this session right now; null = key absent. */
   dirtyCounter: number | null;
   /** The counter we had already read past, from our own last read; null = we
@@ -136,8 +136,8 @@ export type RosterReadReason =
  * The order of these checks is the safety argument:
  *
  *  1. Bridge stale → fall all the way back to what this cron did BEFORE the
- *     wire existed: read the e-ticket window every tick, and do not look
- *     beyond it. Both halves matter. Reading the window is obvious — silence
+ *     wire existed: read the near horizon every tick, and do not look
+ *     beyond it. Both halves matter. Reading the near horizon is obvious — silence
  *     from a dead pipe is not evidence of a quiet venue, and that is the
  *     failure that actually happened (8/17 15:07-15:19, zero frames, four
  *     heats missed). NOT reading beyond it is the half that is easy to get
@@ -156,7 +156,7 @@ export function planRosterRead(i: RosterReadInput): { read: boolean; reason: Ros
   const near =
     i.scheduledStartMs === null || !Number.isFinite(i.scheduledStartMs)
       ? true // unknown start — treat as near rather than skip on a guess
-      : i.scheduledStartMs <= i.ticketWindowEndMs;
+      : i.scheduledStartMs <= i.nearHorizonMs;
 
   const beat = i.bridgeLastEventMs;
   const bridgeAlive = beat !== null && Number.isFinite(beat) && i.nowMs - beat <= BRIDGE_STALE_MS;
