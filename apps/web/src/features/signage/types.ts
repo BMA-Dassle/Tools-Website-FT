@@ -825,8 +825,16 @@ export interface TvFeed {
    * lane price, which is the failure mode the house pricing rule exists to stop.
    */
   bowlingTonight: {
-    regular: BowlingWallOffer | null;
-    vip: BowlingWallOffer | null;
+    /**
+     * TONIGHT'S SPECIAL — the package, in its regular and VIP forms. Fun 4 All
+     * Mon–Thu, Midnight Madness Fri/Sat, Pizza Bowl Sunday. This is what the wall
+     * leads with: the hourly lane rate is the everyday baseline, not the offer
+     * (owner 2026-08-18, "Bowling is missing the special. Fun 4 All tonight").
+     */
+    special: { regular: BowlingWallOffer | null; vip: BowlingWallOffer | null } | null;
+    /** The plain hourly lane rate, so a guest who just wants a lane still has a
+     *  price. Null on a night with no hourly offer. */
+    hourly: { regular: BowlingWallOffer | null; vip: BowlingWallOffer | null } | null;
   } | null;
   /** Product ids currently off-sale — never advertise a paused product. */
   pausedProductIds: string[];

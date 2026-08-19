@@ -60,7 +60,7 @@ const PANEL_PHOTO = [
 const STAGGER_MS = 130;
 
 export function SceneVipShowcase({ nowMs, config }: SceneProps) {
-  const { position, count } = choreo(config);
+  const { position, count, gapPct } = choreo(config);
   const slide = vipSlideIndex(nowMs);
   const price = vipWallPrice(nowMs);
   const panel = vipSlidePanel(slide, position, price);
@@ -86,7 +86,13 @@ export function SceneVipShowcase({ nowMs, config }: SceneProps) {
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
-      <WallGround photo={photo} accent={panel?.accent ?? "#d4af37"} gold deepScrim />
+      <WallGround
+        photo={photo}
+        accent={panel?.accent ?? "#d4af37"}
+        gold
+        deepScrim
+        wall={{ position, count, gapPct }}
+      />
 
       {panel?.layout === "poster" && (
         <WallPoster

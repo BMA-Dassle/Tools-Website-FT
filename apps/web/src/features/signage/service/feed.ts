@@ -356,11 +356,18 @@ function bowlingPriceLabel(cents: number | undefined): string | null {
  * — so this is what makes a priced bowling panel possible at all instead of the
  * wall inventing a lane price.
  *
+ * THE SPECIAL IS THE `open` KIND, NOT THE LOWEST SORT ORDER. That was the first
+ * version's mistake: `sort_order` puts the everyday hourly lane rate (20-23) ahead of
+ * the packages (30+), so a Tuesday showed "Regular $45 per lane" and Fun 4 All never
+ * appeared at all (owner 2026-08-18). `kind` is the field that separates them —
+ * `hourly` is the baseline lane, `open` is the package — so the wall leads with the
+ * package and carries the lane rate underneath it. Within each kind the lowest
+ * `sort_order` still wins, so reordering the catalog moves the wall with it.
+ *
  * THREE THINGS THIS DELIBERATELY DOES NOT DO:
  *
- *  - It does not pick by SLUG. Which offer leads is `sort_order` in the catalog, so
- *    reordering there moves the wall with it. Naming `regular-mon-thur` here would
- *    leave the wall quoting a row somebody had since retired.
+ *  - It does not pick by SLUG. Naming `fun-4-all` here would leave the wall quoting
+ *    a row somebody had since retired; it asks for "tonight's package" instead.
  *  - It does not ignore `days_of_week`. Fun 4 All is Mon–Thu, Pizza Bowl is Sunday,
  *    Midnight Madness is Fri/Sat. A wall quoting Sunday's package on a Tuesday is
  *    quoting a price the kiosk will refuse.
@@ -406,10 +413,19 @@ async function buildBowlingTonight(
     };
   };
 
-  const regular = tonight.find((e) => !e.isVip);
-  const vip = tonight.find((e) => e.isVip);
-  if (!regular && !vip) return null;
-  return { regular: regular ? toOffer(regular) : null, vip: vip ? toOffer(vip) : null };
+  /** The regular + VIP pair of one kind, or null when that kind is not on tonight. */
+  const pairOfKind = (kind: "open" | "hourly") => {
+    const of = tonight.filter((e) => e.kind === kind);
+    const regular = of.find((e) => !e.isVip);
+    const vip = of.find((e) => e.isVip);
+    if (!regular && !vip) return null;
+    return { regular: regular ? toOffer(regular) : null, vip: vip ? toOffer(vip) : null };
+  };
+
+  const special = pairOfKind("open");
+  const hourly = pairOfKind("hourly");
+  if (!special && !hourly) return null;
+  return { special, hourly };
 }
 
 /** A trailing day range on a catalog label — "Regular Mon–Thur", "VIP Fri–Sun". */

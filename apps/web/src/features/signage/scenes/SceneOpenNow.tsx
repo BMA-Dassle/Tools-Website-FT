@@ -35,7 +35,7 @@ import { WallGround } from "../components/WallPanel";
 import { withAlpha } from "../color";
 
 export function SceneOpenNow({ feed, nowMs, config }: SceneProps) {
-  const { position } = choreo(config);
+  const { position, count, gapPct } = choreo(config);
   const panel = menuPanelAt(nowMs, position, feed?.bowlingTonight ?? null);
   const paused = new Set(feed?.pausedProductIds ?? []);
   const times = config.showNextAvailable ? (feed?.nextAvailable ?? null) : null;
@@ -50,14 +50,19 @@ export function SceneOpenNow({ feed, nowMs, config }: SceneProps) {
   if (!panel) {
     return (
       <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
-        <WallGround accent={WALL_ACCENT.cyan} deepScrim />
+        <WallGround accent={WALL_ACCENT.cyan} deepScrim wall={{ position, count, gapPct }} />
       </div>
     );
   }
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
-      <WallGround photo={panel.photo} accent={panel.accent} deepScrim />
+      <WallGround
+        photo={panel.photo}
+        accent={panel.accent}
+        deepScrim
+        wall={{ position, count, gapPct }}
+      />
 
       <div
         style={{

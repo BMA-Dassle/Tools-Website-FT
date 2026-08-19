@@ -28,8 +28,46 @@
  */
 import { withAlpha } from "../color";
 import { TvBrandLogo } from "./TvBrandLogo";
+import { wallSpan } from "../wall";
 import type { RailCell } from "../wall-content";
 import { WALL_ACCENT } from "../wall-content";
+
+/**
+ * `tv-sweep`'s own cycle, from TV_MOTION_PERIODS_MS. Restated here because the
+ * per-panel phase offset below is a FRACTION of it — importing the table into a
+ * component to read one number would drag the whole motion registry in, and the
+ * motion test already pins the table to the stylesheet.
+ */
+const SWEEP_PERIOD_MS = 7500;
+
+/**
+ * WHICH END THE LIGHT ENTERS FROM.
+ *
+ * `tv-sweep` animates background-position from 140% to -60%, so within one panel the
+ * bright band travels RIGHT TO LEFT. For the wall to read as one pass rather than
+ * five simultaneous glints, each panel is offset by where it stands on the virtual
+ * canvas — gaps included, which is what `wallSpan` is for.
+ *
+ * Flip this if the wave runs the wrong way on the glass. It is a fact about how the
+ * wall is hung and how the eye reads it, not something derivable here, and it is one
+ * constant precisely so it takes one look and one character to correct.
+ */
+const SWEEP_LEADS_FROM_RIGHT = true;
+
+/**
+ * The phase shift that puts THIS panel at its place in a wall-long light pass.
+ *
+ * Returns 0 for a screen that is not on a wall, so every existing board keeps the
+ * synchronised-glint behaviour it has today. `syncGlowPhase` adds this to the shared
+ * clock before seeking, so a larger shift means further through the cycle — i.e.
+ * that panel leads.
+ */
+function sweepPhaseMs(wall: { position: number; count: number; gapPct: number } | null): number {
+  if (!wall || wall.count <= 1) return 0;
+  const { start } = wallSpan(wall.position, wall.count, wall.gapPct);
+  const fraction = SWEEP_LEADS_FROM_RIGHT ? start : 1 - start;
+  return Math.round(fraction * SWEEP_PERIOD_MS);
+}
 
 /* ── the ground ───────────────────────────────────────────────────────── */
 
@@ -39,6 +77,7 @@ export function WallGround({
   gold = false,
   deepScrim = false,
   kenburns = false,
+  wall = null,
 }: {
   photo?: string;
   accent: string;
@@ -47,6 +86,12 @@ export function WallGround({
   /** The stronger scrim, for a panel carrying 165px type over a busy photo. */
   deepScrim?: boolean;
   kenburns?: boolean;
+  /**
+   * Where this panel stands, so the light pass travels ALONG the wall instead of
+   * every panel glinting at once. Null (or absent) on a screen that is not part of
+   * a wall, which keeps every existing board exactly as it is.
+   */
+  wall?: { position: number; count: number; gapPct: number } | null;
 }) {
   return (
     <>
@@ -100,10 +145,18 @@ export function WallGround({
           <GoldHairline edge="bottom" />
         </>
       )}
-      {/* One light pass across the panel, phase-locked to the shared clock by
-          syncGlowPhase — which is what makes the pass travel ALONG the wall
-          instead of five panels each glinting on their own schedule. */}
-      <div aria-hidden className="tv-sweep" style={{ position: "absolute", inset: 0 }} />
+      {/* ONE LIGHT PASS ALONG THE WHOLE WALL.
+          Phase-locked to the shared clock by syncGlowPhase, and offset per panel by
+          where that panel stands on the virtual canvas — WITHOUT the offset all five
+          glint at the same instant, which is synchronised but is not a wave. This is
+          the same `data-glow-phase-ms` mechanism the kiosk bank uses to hand its
+          attract car from screen to screen. */}
+      <div
+        aria-hidden
+        className="tv-sweep"
+        data-glow-phase-ms={sweepPhaseMs(wall)}
+        style={{ position: "absolute", inset: 0 }}
+      />
     </>
   );
 }

@@ -47,7 +47,7 @@ const STAGGER_MS = 130;
 // of its motion (the arrow wave, the light pass) is phase-locked in CSS by
 // syncGlowPhase rather than re-rendered on the director's tick.
 export function SceneKioskHowto({ config }: SceneProps) {
-  const { position } = choreo(config);
+  const { position, count, gapPct } = choreo(config);
   const panel = howtoPanel(position);
   const photo = PANEL_PHOTO[position % PANEL_PHOTO.length];
 
@@ -63,7 +63,7 @@ export function SceneKioskHowto({ config }: SceneProps) {
           meant to read as ONE line running the length of the wall; on a single
           panel they are a stub, and gold that appears outside the moments that
           earn it stops meaning All Access. The verb's accent carries it instead. */}
-      <WallGround photo={photo} accent={accent} deepScrim />
+      <WallGround photo={photo} accent={accent} deepScrim wall={{ position, count, gapPct }} />
       {panel && (
         <WallCard
           // Keyed by position so a config change that moves this panel along the

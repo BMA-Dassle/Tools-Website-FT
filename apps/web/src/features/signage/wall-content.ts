@@ -31,6 +31,7 @@ import type { TvFeed } from "./types";
 
 /** Tonight's bowling as the feed reports it. */
 type BowlingTonight = NonNullable<TvFeed["bowlingTonight"]>;
+type BowlingWallOffer = NonNullable<NonNullable<BowlingTonight["special"]>["regular"]>;
 
 /* ── palette ──────────────────────────────────────────────────────────── */
 
@@ -499,28 +500,46 @@ export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuP
   const A = WALL_ACCENT;
   const price = vipWallPrice(nowMs);
 
-  // BOWLING — tonight's regular and VIP offers, from the experience catalog. The
-  // catalog is where Fun 4 All, Midnight Madness, Pizza Bowl and the hourly rates
-  // live, filtered to today, so this panel is whatever is actually on tonight.
+  // BOWLING — TONIGHT'S SPECIAL FIRST, then the plain lane rate.
+  //
+  // The special is the package the catalog has on for today: Fun 4 All Mon–Thu,
+  // Midnight Madness Fri/Sat, Pizza Bowl Sunday. It leads because it is the OFFER
+  // — the hourly lane rate is the everyday baseline and reads as a price list, not
+  // as a reason to walk over (owner 2026-08-18, "Bowling is missing the special.
+  // Fun 4 All tonight").
+  //
+  // The lane rate still appears underneath, because a guest who just wants a lane
+  // needs a number too — and it is marked as such so the two are not confused: one
+  // is per person for a fixed 90 minutes, the other per lane by the hour.
   const bowlingRows: MenuRow[] = [];
-  for (const [label, offer] of [
-    ["Regular", bowling?.regular ?? null],
-    ["VIP", bowling?.vip ?? null],
-  ] as const) {
-    if (!offer) continue;
-    bowlingRows.push({
-      name: offer.label || label,
-      productId: "bowling",
-      tracksAvailability: true,
-      // A catalog row with no priced primary item shows no price rather than a
-      // zero — the same rule the static catalogue's `price: 0` forces.
-      price: offer.priceLabel ?? undefined,
-      word: offer.priceLabel ? undefined : "Ask at the desk",
-      note: [offer.durationLabel, offer.unit].filter(Boolean).join(" · "),
-    });
+  const bowlingRow = (offer: BowlingWallOffer | null, fallbackName: string): MenuRow | null =>
+    offer
+      ? {
+          name: offer.label || fallbackName,
+          productId: "bowling",
+          tracksAvailability: true,
+          // A catalog row with no priced primary item shows no price rather than a
+          // zero — the same rule the static catalogue's `price: 0` forces.
+          price: offer.priceLabel ?? undefined,
+          word: offer.priceLabel ? undefined : "Ask at the desk",
+          note: [offer.durationLabel, offer.unit].filter(Boolean).join(" · "),
+        }
+      : null;
+
+  for (const row of [
+    bowlingRow(bowling?.special?.regular ?? null, "Tonight's special"),
+    bowlingRow(bowling?.special?.vip ?? null, "VIP"),
+  ]) {
+    if (row) bowlingRows.push(row);
   }
+  // The lane rate: one row, regular only. Both hourly tiers would make four rows on
+  // one panel and bury the special the panel is led by.
+  const lane = bowlingRow(bowling?.hourly?.regular ?? null, "Hourly lane");
+  if (lane) bowlingRows.push({ ...lane, name: `${lane.name} lane by the hour` });
+
   if (bowlingRows.length === 0) {
-    // No catalog answer. Sell the lanes on availability — never on a made-up price.
+    // No catalog answer at all. Sell the lanes on availability — never on a made-up
+    // price, which is the one thing this panel may not do.
     bowlingRows.push({
       name: "Lanes",
       productId: "bowling",
@@ -533,6 +552,8 @@ export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuP
   return [
     {
       headline: "Bowling",
+      // Names the offer, so the panel says WHAT is on and not just "bowling".
+      subhead: bowling?.special ? "Tonight's special" : undefined,
       photo: TV_PHOTOS.bowl,
       accent: A.bowl,
       rows: bowlingRows,

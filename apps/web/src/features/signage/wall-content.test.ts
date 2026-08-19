@@ -323,10 +323,27 @@ describe("the VIP showcase", () => {
 describe("the menu board — one subject per panel", () => {
   const now = Date.parse("2026-08-17T18:00:00-04:00");
 
-  /** A catalog answer shaped like the feed's, for the bowling panel. */
+  // Tonight's PACKAGE plus the plain hourly lane rate — a real Tuesday, where Fun 4
+  // All is the special and the Mon–Thu hourly rate is the baseline underneath it.
   const BOWLING = {
-    regular: { label: "Regular", priceLabel: "$35", unit: "per lane", durationLabel: "1.5 hours" },
-    vip: { label: "VIP", priceLabel: "$55", unit: "per lane", durationLabel: "1.5 hours" },
+    special: {
+      regular: {
+        label: "Fun 4 All",
+        priceLabel: "$15.99",
+        unit: "per person",
+        durationLabel: "1.5 hours",
+      },
+      vip: {
+        label: "Fun 4 All VIP",
+        priceLabel: "$17.99",
+        unit: "per person",
+        durationLabel: "1.5 hours",
+      },
+    },
+    hourly: {
+      regular: { label: "Regular", priceLabel: "$45", unit: "per lane", durationLabel: null },
+      vip: { label: "VIP", priceLabel: "$67.50", unit: "per lane", durationLabel: null },
+    },
   };
 
   it("is exactly five panels — one per TV", () => {
@@ -398,24 +415,64 @@ describe("the menu board — one subject per panel", () => {
 
 describe("the bowling panel — the one attraction with no static price", () => {
   const now = Date.parse("2026-08-17T18:00:00-04:00");
+  // Tonight's PACKAGE plus the plain hourly lane rate — a real Tuesday, where Fun 4
+  // All is the special and the Mon–Thu hourly rate is the baseline underneath it.
   const BOWLING = {
-    regular: { label: "Regular", priceLabel: "$35", unit: "per lane", durationLabel: "1.5 hours" },
-    vip: { label: "VIP", priceLabel: "$55", unit: "per lane", durationLabel: "1.5 hours" },
+    special: {
+      regular: {
+        label: "Fun 4 All",
+        priceLabel: "$15.99",
+        unit: "per person",
+        durationLabel: "1.5 hours",
+      },
+      vip: {
+        label: "Fun 4 All VIP",
+        priceLabel: "$17.99",
+        unit: "per person",
+        durationLabel: "1.5 hours",
+      },
+    },
+    hourly: {
+      regular: { label: "Regular", priceLabel: "$45", unit: "per lane", durationLabel: null },
+      vip: { label: "VIP", priceLabel: "$67.50", unit: "per lane", durationLabel: null },
+    },
   };
 
-  it("shows tonight's REGULAR and VIP offers, from the catalog, priced", () => {
+  it("LEADS WITH TONIGHT'S SPECIAL, not the everyday lane rate", () => {
+    // The first version sorted by `sort_order`, which puts the hourly rate (20-23)
+    // ahead of the packages (30+) — so a Tuesday showed "Regular $45 per lane" and
+    // Fun 4 All never appeared at all (owner 2026-08-18).
     const panel = menuPanelAt(now, 0, BOWLING)!;
-    expect(panel.rows).toHaveLength(2);
-    expect(panel.rows[0]).toMatchObject({ name: "Regular", price: "$35" });
-    expect(panel.rows[1]).toMatchObject({ name: "VIP", price: "$55" });
+    expect(panel.subhead).toBe("Tonight's special");
+    expect(panel.rows[0]).toMatchObject({ name: "Fun 4 All", price: "$15.99" });
+    expect(panel.rows[1]).toMatchObject({ name: "Fun 4 All VIP", price: "$17.99" });
   });
 
-  it("says WHICH UNIT the price is in — per lane is not per person", () => {
-    // An hourly lane holds six bowlers. A bare "$35" is wrong by a factor of six
+  it("still carries the plain lane rate underneath, marked as such", () => {
+    // A guest who just wants a lane needs a number too — but it must not be
+    // confusable with the package: one is per person for 90 minutes, the other per
+    // lane by the hour.
+    const panel = menuPanelAt(now, 0, BOWLING)!;
+    expect(panel.rows).toHaveLength(3);
+    expect(panel.rows[2].name.toLowerCase()).toContain("by the hour");
+    expect(panel.rows[2].price).toBe("$45");
+    expect(panel.rows[2].note).toContain("per lane");
+  });
+
+  it("says WHICH UNIT every price is in — per lane is not per person", () => {
+    // An hourly lane holds six bowlers. A bare "$45" is wrong by a factor of six
     // depending on which it is, which is why the unit rides with the price.
     const panel = menuPanelAt(now, 0, BOWLING)!;
-    expect(panel.rows[0].note).toContain("per lane");
+    expect(panel.rows[0].note).toContain("per person");
     expect(panel.rows[0].note).toContain("1.5 hours");
+    expect(panel.rows[2].note).toContain("per lane");
+  });
+
+  it("falls back to the LANE RATE on a night with no package", () => {
+    const panel = menuPanelAt(now, 0, { special: null, hourly: BOWLING.hourly })!;
+    expect(panel.subhead).toBeUndefined();
+    expect(panel.rows).toHaveLength(1);
+    expect(panel.rows[0].price).toBe("$45");
   });
 
   it("with NO catalog answer it sells availability — never an invented lane price", () => {
@@ -431,8 +488,11 @@ describe("the bowling panel — the one attraction with no static price", () => 
 
   it("a catalog row with no priced item shows no price rather than a zero", () => {
     const panel = menuPanelAt(now, 0, {
-      regular: { label: "Regular", priceLabel: null, unit: "per lane", durationLabel: null },
-      vip: null,
+      special: {
+        regular: { label: "Fun 4 All", priceLabel: null, unit: "per person", durationLabel: null },
+        vip: null,
+      },
+      hourly: null,
     })!;
     expect(panel.rows[0].price).toBeUndefined();
     expect(panel.rows[0].word).toBe("Ask at the desk");
