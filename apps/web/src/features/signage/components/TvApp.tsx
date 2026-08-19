@@ -26,6 +26,7 @@ import {
 } from "../constants";
 import { resolveScreenConfig } from "../defaults";
 import { useTvFeed } from "../useTvFeed";
+import { useGatedReload } from "../useGatedReload";
 import { applyDemo, effectiveDemoMode, parseDemoMode, type DemoMode } from "../demo";
 import { WallIdentify } from "./WallIdentify";
 import { briefingTimelineAt } from "../briefing/phase";
@@ -227,15 +228,28 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
   // AFTER this tab booted — otherwise a day-old stamp would reload every screen
   // forever. bootedAt is captured on mount, so a reloaded tab has a fresh one.
   const reloadAt = rawFeed?.reloadAt ?? null;
+  const [staffReloadWanted, setStaffReloadWanted] = useState(false);
   useEffect(() => {
     // bootedAtRef is 0 until the mount effect runs; guard so we never reload
     // on the very first paint before it is stamped.
     if (!reloadAt || !bootedAtRef.current || reloadAt <= bootedAtRef.current) return;
-    // HELD, not dropped: briefingActive is a dependency, so the moment the room
-    // goes idle this effect re-runs and the reload happens then.
-    if (holdReloads) return;
-    window.location.reload();
-  }, [reloadAt, holdReloads]);
+    setStaffReloadWanted(true);
+  }, [reloadAt]);
+
+  /**
+   * HELD, not dropped, and now held for TWO reasons.
+   *
+   * `holdReloads` is the old one: a room is briefing or a heat is checking in, so
+   * the moment that clears the press lands. Latching the request rather than
+   * re-deriving it from the feed keeps that true even if the stamp rolls off the
+   * feed while the room is busy — the same shape TvShell's `updatePending` uses.
+   *
+   * The gate is the new one. A reload with the origin unreachable parks Edge on
+   * its own error page and the screen never comes back on its own — see
+   * reload-gate.ts. A staff press arrives on a feed that may already be minutes
+   * stale, so "the feed reached us" is not evidence the network is up now.
+   */
+  const reloadHeldForNetwork = useGatedReload(staffReloadWanted && !holdReloads);
 
   // Pushed-preview-or-URL resolution lives in demo.ts (effectiveDemoMode) so
   // the live probe exercises the app's real wiring, not a re-implementation.
@@ -386,7 +400,13 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
               `checkin     ${rawFeed?.raceCheckin?.sessionId ?? "(none)"}${
                 checkinActive ? " — checking in" : ""
               }`,
-              `reloads     ${holdReloads ? "HELD (guests on screen)" : "allowed"}`,
+              `reloads     ${
+                reloadHeldForNetwork
+                  ? "HELD — waiting for the network"
+                  : holdReloads
+                    ? "HELD (guests on screen)"
+                    : "allowed"
+              }`,
               // What this PANEL actually applied, in the browser actually
               // running — so a fitting change can be confirmed at the wall
               // rather than inferred from what the admin form was saved with.

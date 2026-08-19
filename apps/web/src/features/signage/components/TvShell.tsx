@@ -23,6 +23,7 @@ import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { captureKioskBootVersion, kioskUpdateAvailable } from "~/features/kiosk/version";
 import { SIGNAGE_VERSION, TV_UPDATE_CHECK_MS } from "../constants";
 import { etHourNow, shouldRecycle } from "../recycle";
+import { useGatedReload } from "../useGatedReload";
 
 export function TvShell({
   screenLabel,
@@ -116,13 +117,18 @@ export function TvShell({
     if (shouldRecycle(Date.now() - bootedAtRef.current, etHourNow())) setUpdatePending(true);
   }, TV_UPDATE_CHECK_MS);
 
-  useEffect(() => {
-    if (!updatePending) return;
-    if (!safeToReload) return;
-    // Identity lives in the canonical URL, so the reload re-provisions from
-    // Neon and comes back on the same screen config.
-    window.location.reload();
-  }, [updatePending, safeToReload]);
+  // Identity lives in the canonical URL, so the reload re-provisions from Neon
+  // and comes back on the same screen config.
+  //
+  // AND NEVER INTO AN OUTAGE. This navigation is the one thing on a TV that a
+  // network loss cannot be ridden out through: it parks Edge on its own error
+  // page, which no timer of ours can come back from and which the launcher's
+  // relaunch loop never sees, because Edge did not exit. That matters most for
+  // the max-uptime recycle above, which is clock-driven and would happily fire
+  // at 3am into a dead network — on every screen of a wall at once, since they
+  // share an uptime. The latch stays set and the gate retries, so the reload
+  // lands the moment the network does.
+  const heldForNetwork = useGatedReload(updatePending && safeToReload);
 
   return (
     <>
@@ -143,7 +149,11 @@ export function TvShell({
         }}
       >
         {screenLabel} · v{SIGNAGE_VERSION}
-        {updatePending ? " · update pending" : ""}
+        {updatePending
+          ? heldForNetwork
+            ? " · reload held · no network"
+            : " · update pending"
+          : ""}
       </div>
     </>
   );

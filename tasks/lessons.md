@@ -1,5 +1,52 @@
 # Lessons Learned
 
+## An unattended screen must never NAVIGATE during an outage — the browser's own error page is a dead end nothing of ours can reach (2026-08-19)
+
+**What happened:** the HeadPinz Fort Myers front-desk TVs "didn't recover nicely from network
+loss, they crashed." They did not crash from the outage. They navigated during it.
+
+1. **Riding out an outage and surviving a navigation are different problems, and we had only
+   solved the first.** The feed poll keeps its last good answer, the clock keeps its last offset,
+   `tv_feed_cache:` paints real content on a cold boot — an enormous amount of care, all of it
+   aimed at "keep rendering with no network". None of it helps for the one millisecond the page
+   asks the browser for a new document. `window.location.reload()` with the origin unreachable
+   lands Edge on **its own error page**, and that page is outside our world entirely: no script
+   of ours runs on it, so nothing retries; and the launcher's relaunch loop never fires either,
+   because **Edge did not exit** — it is alive and healthy, displaying a failure. Restoring the
+   network changes nothing at all. That is what "didn't recover" means.
+2. **Audit reloads by WHAT TRIGGERS THEM, not by whether the code looks careful.** Three things
+   reloaded a TV, and the review question that matters is "can this fire while the network is
+   down?" The self-update reads the network to latch, so it looked safe — but it can sit latched
+   for hours behind a briefing hold and navigate later. **The nightly memory recycle needs no
+   network at all**: pure clock, 02:00–06:00. And screens provisioned or power-cycled together
+   share an uptime, so they reach that window inside the same 5-minute check — one outage
+   overlapping those four hours takes **a whole wall simultaneously**. A clock-driven action on
+   an unattended fleet is a synchronised action.
+3. **A "wait for the network" that is not inside the retry loop protects only the first attempt.**
+   The launcher's wait sat above `:launch`, so `goto launch` skipped it. The relaunch after a
+   crash — the single case the wait exists for — went straight onto an error page. Whenever a
+   guard and a loop live in the same file, check which side of the label the guard is on.
+4. **Prove the SERVICE, not the internet.** The wait pinged `1.1.1.1`. That says the uplink is up;
+   it says nothing about whether DNS resolves us or the app is answering, and a player that can
+   ping the world but not reach the site is exactly a player that parks on an error page. Probe an
+   endpoint of ours that touches no database and no vendor (`/api/kiosk/version`).
+5. **Prevention is not recovery — something has to be able to reach a screen that is ALREADY
+   dead.** No amount of "do not navigate into an outage" helps a panel that is already on the
+   error page. That needs an actor outside the page: a second minimised process watching our
+   address and killing Edge on the **down→up transition**, so the relaunch loop takes over. On
+   the up transition only — killing it *during* the outage would replace a board that was riding
+   it out with a waiting console.
+6. **There was no error boundary anywhere in the app.** Same dead end by a different road: an
+   exception escaping a scene handed a guest-facing wall to Next's white "Application error" with
+   nothing left running to recover it. An unattended surface needs a boundary that reloads itself
+   — with a circuit breaker, or a deterministic crash turns 19 screens into a reload loop against
+   our own origin.
+
+Fixed on `fix/tv-outage-recovery`: `reload-gate.ts` + `useGatedReload` (every TV reload now
+proves the origin answers first, and a drift-pin test fails any bare `location.reload()` under
+`features/signage/**` or `app/tv/**`), the launcher's wait moved inside the relaunch loop and
+pointed at our own origin, a `netwatch` recovery watchdog, and `app/tv/error.tsx`.
+
 ## A new scene type shows ADS on every already-running screen until it reloads (2026-08-19)
 
 **What happened:** the `venue-logo` scene landed on main and both new Old Time Lanes screens

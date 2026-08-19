@@ -1,5 +1,87 @@
 # Open Tasks
 
+## TVs did not recover from a network loss (2026-08-19) — branch `fix/tv-outage-recovery`
+
+Owner: *"HeadPinz Fort Myers front desk TVs didn't recover nicely from network loss, they
+crashed."*
+
+**ROOT CAUSE — the failure is not the outage, it is the NAVIGATION.** Everything on a TV is
+built to ride a network loss out: the feed poll keeps its last good answer, the clock keeps its
+last offset, `tv_feed_cache:` paints real content on a cold boot. Exactly one thing is not
+survivable, and it takes the panel out permanently:
+
+> `window.location.reload()` with the origin unreachable lands Edge on **its own error page**.
+> No script of ours runs there, so nothing retries. The launcher's relaunch loop never fires
+> either, because **Edge did not exit** — it is alive, showing "can't reach this page". Restoring
+> the network changes nothing. Since the shell method replaced explorer.exe there is no desktop
+> to fix it from: it is Ctrl+Shift+Esc and Task Manager, at the venue.
+
+Three things reload a TV and **all three were bare navigations**. The dangerous one needs no
+network at all to fire: **the nightly recycle** (`recycle.ts`) is purely clock-driven, 02:00–06:00
+venue time, and screens provisioned or power-cycled together share an uptime — so they reach the
+window inside the same 5-minute check. **An outage overlapping those four hours takes a whole wall
+at once**, which is the shape of the report. The other two are the self-update (latches on the
+network, then can sit latched for hours behind a briefing hold) and the staff "reload screens"
+press (arrives on a feed that may already be minutes stale).
+
+**And the launcher had the mirror-image bug.** `WAIT_FOR_NETWORK` sat **above** `:launch`, so
+`goto launch` jumped straight over it — the relaunch after a crash, which is precisely the one
+that happens during an outage, went directly onto an error page. It also probed `1.1.1.1`, which
+proves the internet is up and says nothing about whether DNS resolves us or Vercel is answering.
+
+- [x] **`reload-gate.ts`** (framework-free, tested) — `originReachable()` probes
+      `/api/kiosk/version` (no DB, no vendor, already `no-store`, already polled by every TV);
+      `startGatedReload()` holds a wanted reload, retries every 30s, and calls `reload` **at most
+      once, only with the origin confirmed up**. A probe that throws counts as unreachable — the
+      one outcome to prevent is a navigation taken on a bad assumption.
+- [x] **`useGatedReload.ts`** — the five-line React half. `armed` is a latch, so disarming (a
+      briefing starts) cancels and re-arming resumes: the existing "held, not dropped" behaviour.
+- [x] **All three reload paths wired** — TvShell (self-update **and** the nightly recycle) and
+      TvApp (staff press, now latched the same way `updatePending` is).
+- [x] **Drift pin** — a test walks `features/signage/**` + `app/tv/**` and fails on any
+      `location.reload(` that is not handed to `startGatedReload`. Verified it names the file.
+- [x] **Launcher: the network wait moved INSIDE the relaunch loop** (`call :waitnet` at the top
+      of `:launch`), both shapes. In the dual script `:launch` is shared by the main path and the
+      second board's `watch` re-entry, so one call covers both boards.
+- [x] **Launcher: probes OUR origin** via `curl.exe`, falling back to the old ping when curl is
+      absent or the URL will not parse. `TV_PROBE` is set **before** the re-entry dispatch,
+      because both re-entered processes read it.
+- [x] **Launcher: a network watchdog that recovers an ALREADY-DEAD board** — one extra minimised
+      process, spawned once, checking every 60s. On the **down→up transition** (two consecutive
+      failures, then a success) it `taskkill`s Edge; the main loop's `start /wait` returns,
+      `:waitnet` confirms the network, and the board relaunches. Never kills *during* the outage:
+      a screen that rode it out is showing its last good board, and recycling it would replace
+      that with the launcher's waiting console.
+- [x] **`app/tv/error.tsx`** — there was **no error boundary anywhere in this app**, so a scene
+      exception handed the wall to Next's white "Application error" until someone drove out. Now:
+      venue ground + the house loader (reads as "starting", not "broken"), then a gated reload
+      after 8s, with a localStorage circuit breaker (3 crashes / 10 min) so a deterministic crash
+      cannot put 19 screens into a reload loop against our own origin.
+- [x] Gates: tsc clean · **1005 signage tests**, 5732 web tests · eslint 0 errors, zero **new**
+      warnings (the `useRef(Date.now())` purity warning in TvShell is pre-existing on origin/main,
+      confirmed by linting main's copy) · `next build` + a11y gate exit 0.
+
+**OPEN**
+
+- **No PR yet, and the launcher half needs an ops step.** The app fix reaches all 19 screens on
+  the next self-update. The launcher fix does **not** — each player needs its `.bat` re-downloaded
+  from the admin page and dropped into `C:\TV\`. Until then those screens keep the old behaviour:
+  they will no longer navigate themselves into an outage, but a board already parked on an error
+  page still needs a human.
+- **Not smoked on glass.** The honest test is: pull the uplink at a player, watch it hold its last
+  good board; leave it down past a probe or two; plug it back in and confirm the board recycles
+  itself inside ~60s without anyone touching the PC.
+- **Two sibling branches are still unmerged and cover adjacent halves of the same subject.** They
+  are deliberately NOT folded in here (one PR, one purpose), but neither should be forgotten:
+  - `worktree-tv-poll-wedge` (`b95beb9ec`) — a stalled `fetch` has no deadline, so the no-overlap
+    poll loop can stop **forever**; and every hide→show flap forks the loop. That is the *other*
+    way a wall goes quiet during bad wifi.
+  - `fix/tv-poll-when-window-hidden` (`64cf1d918`) — Edge reports a fullscreen player as hidden
+    when Windows thinks it is occluded, which stops every poll on the page.
+- Not attempted: a service worker serving the cached app shell, which is the only thing that would
+  also survive a **cold boot** during an outage (the launcher's `:waitnet` covers that case by
+  holding the console instead, which is uglier but honest).
+
 ## Old Time Lanes screens (2026-08-19) — ON MAIN + SEEDED, not on glass
 
 Owner ask: two screens at HeadPinz Fort Myers labelled **Old Time Left** / **Old Time Right**,
