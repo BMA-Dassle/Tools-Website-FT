@@ -38,9 +38,11 @@ import {
   applyLocalFloor,
   parseStoredRoster,
   resolveRosterCount,
-  rosterIsFresh,
+  rosterIsFreshForWire,
   type RosterCount,
 } from "~/features/racing/roster-count";
+import { BRIDGE_STALE_MS } from "~/features/racing/roster-dirty";
+import { readRosterMarks, bankRosterRead } from "~/features/racing/roster-dirty.server";
 
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
@@ -1394,13 +1396,44 @@ async function refreshRosterFromPandora(
 
 async function rosterFor(s: SessionStat): Promise<RosterCount> {
   const now = Date.now();
-  const [lastKnown, credited] = await Promise.all([
+  const sid = String(s.sessionId);
+  const [lastKnown, credited, marks, bridgeStamp] = await Promise.all([
     loadRosterCount(s.locationId, s.sessionId),
     localCheckInCount(s.locationId, s.sessionId),
+    readRosterMarks("checkin", [sid]),
+    redis.get("kart:bridge:last-event").catch(() => null),
   ]);
-  if (rosterIsFresh(lastKnown, now)) {
+
+  /**
+   * ASK THE WIRE BEFORE ASKING PANDORA.
+   *
+   * The ten-second window below is a guess about how long we are willing to be
+   * wrong for, and every tick past it buys a Pandora read whether or not
+   * anything moved. The venue's broadcast already knows, and mostly the answer
+   * is "nothing" — so while it is alive and silent about this heat, the stored
+   * count is not stale, it is current.
+   *
+   * Falls back to the plain ten seconds whenever the marks cannot decide (no
+   * heartbeat, no mark, Redis unreachable), so this is safe before anything
+   * starts writing them. See rosterIsFreshForWire.
+   */
+  const beat = bridgeStamp ? Date.parse(bridgeStamp) : NaN;
+  const bridgeAlive = Number.isFinite(beat) && now - beat <= BRIDGE_STALE_MS;
+  const mark = marks.get(sid) ?? { dirtyCounter: null, readCounter: null, lastReadMs: null };
+  if (
+    rosterIsFreshForWire({
+      entry: lastKnown,
+      nowMs: now,
+      dirtyCounter: mark.dirtyCounter,
+      readCounter: mark.readCounter,
+      bridgeAlive,
+    })
+  ) {
     return applyLocalFloor({ ...lastKnown!, stale: false }, credited);
   }
+  // Bank BEFORE the read, so a racer added while it is in flight is not
+  // swallowed — see bankRosterRead.
+  void bankRosterRead("checkin", sid, mark.dirtyCounter, now);
 
   // THE MOMENT A HEAT IS CALLED, THE COUNT HAS TO BE THERE (owner 2026-08-18:
   // "we need that data soon as we call").

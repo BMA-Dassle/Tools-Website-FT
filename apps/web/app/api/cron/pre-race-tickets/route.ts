@@ -798,7 +798,10 @@ export async function GET(req: NextRequest) {
       });
 
       // One Redis round trip for the whole track's marks, not two per session.
-      const marks = await readRosterMarks(relevant.map((s) => String(s.sessionId)));
+      const marks = await readRosterMarks(
+        "pre-race",
+        relevant.map((s) => String(s.sessionId)),
+      );
 
       for (const session of relevant) {
         const ms = new Date(session.scheduledStart).getTime();
@@ -833,7 +836,7 @@ export async function GET(req: NextRequest) {
         }
         rostersRead++;
         // Bank the counter observed BEFORE the read — see bankRosterRead.
-        await bankRosterRead(sid, mark.dirtyCounter, Date.now());
+        await bankRosterRead("pre-race", sid, mark.dirtyCounter, Date.now());
 
         for (const p of participants) {
           const c: Candidate = { session, trackDisplay, participant: p };

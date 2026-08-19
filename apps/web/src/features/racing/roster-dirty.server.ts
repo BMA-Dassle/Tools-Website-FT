@@ -37,7 +37,19 @@ const DIRTY_TTL_SECONDS = 60 * 60 * 24;
 const READ_TTL_SECONDS = 60 * 60 * 24;
 
 export const dirtyKey = (sessionId: string) => `venue:roster:dirty:${sessionId}`;
-export const readKey = (sessionId: string) => `venue:roster:read:${sessionId}`;
+
+/**
+ * The bookmark is PER CONSUMER, not global.
+ *
+ * Two readers want the same marks at different cadences — `pre-race-tickets`
+ * every two minutes over the whole day, the check-in strip every few seconds
+ * over the three called heats — and a shared bookmark would let whichever ran
+ * first tell the other that nothing had happened. One counter, many readers,
+ * each with its own place in it.
+ */
+export type RosterMarkConsumer = "pre-race" | "checkin";
+export const readKey = (consumer: RosterMarkConsumer, sessionId: string) =>
+  `venue:roster:read:${consumer}:${sessionId}`;
 
 /**
  * Mark every session this message mentions. NEVER THROWS — it runs inside the
@@ -76,14 +88,17 @@ export interface RosterMarks {
  * sequential Redis GETs would put more latency into this cron than the Pandora
  * reads it exists to remove.
  */
-export async function readRosterMarks(sessionIds: string[]): Promise<Map<string, RosterMarks>> {
+export async function readRosterMarks(
+  consumer: RosterMarkConsumer,
+  sessionIds: string[],
+): Promise<Map<string, RosterMarks>> {
   const out = new Map<string, RosterMarks>();
   for (const id of sessionIds) {
     out.set(id, { dirtyCounter: null, readCounter: null, lastReadMs: null });
   }
   if (sessionIds.length === 0) return out;
   try {
-    const keys = sessionIds.flatMap((id) => [dirtyKey(id), readKey(id)]);
+    const keys = sessionIds.flatMap((id) => [dirtyKey(id), readKey(consumer, id)]);
     const values = await redis.mget(...keys);
     sessionIds.forEach((id, idx) => {
       const dirtyRaw = values[idx * 2];
@@ -130,12 +145,18 @@ export async function readRosterMarks(sessionIds: string[]): Promise<Map<string,
  * is the right way round.
  */
 export async function bankRosterRead(
+  consumer: RosterMarkConsumer,
   sessionId: string,
   counterAtStart: number | null,
   atMs: number,
 ): Promise<void> {
   try {
-    await redis.set(readKey(sessionId), `${counterAtStart ?? 0}:${atMs}`, "EX", READ_TTL_SECONDS);
+    await redis.set(
+      readKey(consumer, sessionId),
+      `${counterAtStart ?? 0}:${atMs}`,
+      "EX",
+      READ_TTL_SECONDS,
+    );
   } catch (err) {
     console.warn("[roster-dirty] bank failed:", err);
   }
