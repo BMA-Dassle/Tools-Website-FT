@@ -1,5 +1,56 @@
 # Lessons Learned
 
+## A new scene type shows ADS on every already-running screen until it reloads (2026-08-19)
+
+**What happened:** the `venue-logo` scene landed on main and both new Old Time Lanes screens
+(`HPFM:7`/`HPFM:8`) were reported showing house ads instead of the PinBoyz logo. Production was
+correct — a fresh load of `headpinz.com/tv?screen=HPFM:7` painted the logo, no console errors,
+asset serving under the new deploy id. The players were running the JavaScript bundle they had
+loaded BEFORE the deploy, and that bundle's `IMPLEMENTED` set has no `venue-logo`, so its
+scheduler refused the scene and fell through to the ad rotation.
+
+1. **This is the designed degradation, and it is invisible.** `isSceneImplemented` exists so a
+   playlist naming a scene the deploy lacks shows house ads instead of a blank wall (the
+   billboard-crown incident). The trap is that the SAME guard fires when the deploy is fine and
+   only the CLIENT is stale — and the symptom is identical: ads, with nothing on the screen
+   saying why. Expect it on every future signage deploy that introduces a scene type.
+2. **Diagnose the deployed URL before the code.** One headless-Edge screenshot of the real
+   production URL separated "the feature is broken" from "this tab is old" in a single step.
+   Checking that the asset 200s on prod ruled out deploy lag before any code was re-read. See
+   [[feedback_curl_does_not_prove_the_browser]] — the scene is client-rendered, so SSR HTML
+   contains no scene markup and `curl` cannot answer this question at all.
+3. **It self-heals in ~5 minutes; the Reload button just skips the wait.** `TvShell` polls
+   `kioskUpdateAvailable()` every `TV_UPDATE_CHECK_MS` and reloads once `safeToReload`. Verify
+   that flag rather than assuming it: `holdReloads` only applies to `race-checkin` and `briefing`
+   scenes, so a logo screen is always safe to reload — but a screen whose scene DOES hold would
+   have sat on ads until the room went idle.
+4. **"Reload <center> screens" is wider than it reads.** FastTrax and HeadPinz Fort Myers share
+   the center slug `fort-myers`, so that one button reloads all 19 screens at both venues, not
+   the two you are looking at. Harmless, but say so before pressing it in service hours.
+
+## One install method for every signage player: the launcher IS the Windows shell (2026-08-19)
+
+**Owner rule:** *"I only want to use shell method for all screens."* The Run-key route
+(`HKCU\...\CurrentVersion\Run`) is OUT of the setup steps entirely; the launcher replaces
+`explorer.exe` as the `Shell` value under `HKLM\...\Winlogon`. Both launchers — single-screen and
+two-monitor — now share one `shellMethodSteps()` in `startup-script.ts`, for the same reason
+`EDGE_COMMON_FLAGS` is one list: they were separate once and immediately disagreed.
+
+1. **Two documented ways to start a player meant two ways to be half-configured.** The Run-key
+   one left a full desktop running behind the board, which only revealed itself when Edge
+   crashed — taskbar and Start menu on the wall, in front of guests.
+2. **Teach the escape hatch BEFORE the step that removes the desktop.** `Ctrl+Shift+Esc` is
+   handled by Windows, not by the shell, so Task Manager still opens on a machine whose shell is
+   a batch file — File → Run new task gets you `explorer.exe` or `regedit`. That is the only way
+   back, and a test asserts it appears in the steps ahead of the `Winlogon` step.
+3. **Autologon is part of the method, not a nicety.** With the shell set but no automatic
+   sign-in, a reboot leaves the wall on the lock screen and the launcher never starts — which
+   looks exactly like a broken script. `netplwiz`, or
+   `HKLM\...\PasswordLess\Device\DevicePasswordLessBuildVersion = 0` if the tick-box is missing.
+4. **A change to how something is INSTALLED needs the same sweep as a code change.** Grepping
+   for `CurrentVersion\Run` / `LobbyTV` / `SignagePair` across the repo was what proved no stale
+   copy of the old instructions survived in a doc, a route comment, or an SOP.
+
 ## A vendor's guard can be correct and still useless — it read the copy that goes stale (2026-08-16)
 
 Fast WSync's UPLOAD rail wedged for the whole center: `T_PARTICIPANT` 58922217
