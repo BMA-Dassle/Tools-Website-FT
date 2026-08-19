@@ -57,7 +57,16 @@ proves the internet is up and says nothing about whether DNS resolves us or Verc
       venue ground + the house loader (reads as "starting", not "broken"), then a gated reload
       after 8s, with a localStorage circuit breaker (3 crashes / 10 min) so a deterministic crash
       cannot put 19 screens into a reload loop against our own origin.
-- [x] Gates: tsc clean · **1005 signage tests**, 5732 web tests · eslint 0 errors, zero **new**
+- [x] **`?debug=1` stops erasing itself** (found smoking the preview in real Edge — the pane has
+      never worked on a board). TvApp reads `debug` off the live `window.location.search` on every
+      render, and the boot effect replaceStates to the canonical URL, which dropped it: the pane
+      painted for one render and vanished. `canonicalTvPath` in constants.ts now carries it, so it
+      also survives a self-update reload. `demo` deliberately does not ride along.
+- [x] **Smoked on the preview over CDP** (real Edge, share-bypass cookie): HPFM:2 and HPFM:4 both
+      render their real boards; `Network.emulateNetworkConditions offline` for 20s and the wall
+      keeps animating and advancing scenes; `/api/kiosk/version` throws while offline (so the gate
+      holds) and answers with the deployed SHA the moment it is back. Zero app console errors.
+- [x] Gates: tsc clean · **1012 signage tests**, 5734 web tests · eslint 0 errors, zero **new**
       warnings (the `useRef(Date.now())` purity warning in TvShell is pre-existing on origin/main,
       confirmed by linting main's copy) · `next build` + a11y gate exit 0.
 

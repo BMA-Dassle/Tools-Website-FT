@@ -32,31 +32,10 @@ import { useEffect } from "react";
 import { BrandedLoader } from "~/features/kiosk/components/BrandedLoader";
 import { parseScreenKey } from "~/features/signage/constants";
 import { originReachable, startGatedReload } from "~/features/signage/reload-gate";
+import { browserCrashStore, noteCrashAndShouldRecover } from "~/features/signage/crash-breaker";
 
 /** Long enough that a guest reads the loader as a boot, short enough to be a blink. */
 const RECOVER_AFTER_MS = 8_000;
-const BREAKER_WINDOW_MS = 10 * 60_000;
-const BREAKER_MAX_CRASHES = 3;
-const BREAKER_KEY = "tv_crash_times";
-
-/**
- * Crash timestamps inside the window, this one included. localStorage rather
- * than memory because the whole point is to count across the reloads.
- */
-function recordCrash(now: number): number {
-  try {
-    const raw = localStorage.getItem(BREAKER_KEY);
-    const times: number[] = raw ? (JSON.parse(raw) as number[]) : [];
-    const recent = times.filter((t) => typeof t === "number" && now - t < BREAKER_WINDOW_MS);
-    recent.push(now);
-    localStorage.setItem(BREAKER_KEY, JSON.stringify(recent.slice(-BREAKER_MAX_CRASHES * 2)));
-    return recent.length;
-  } catch {
-    // Private mode or a corrupt entry. One recovery attempt is still far better
-    // than parking on the error page, so fail towards reloading.
-    return 1;
-  }
-}
 
 export default function TvError({ error }: { error: Error & { digest?: string } }) {
   // Read during render, the same way TvApp reads its `?debug` flag. The screen
@@ -73,7 +52,7 @@ export default function TvError({ error }: { error: Error & { digest?: string } 
     // only place this exception is ever observable.
     console.error("[tv] scene crashed", error?.digest ?? "", error);
 
-    if (recordCrash(Date.now()) > BREAKER_MAX_CRASHES) return;
+    if (!noteCrashAndShouldRecover(Date.now(), browserCrashStore())) return;
 
     let handle: { cancel(): void } | null = null;
     const timer = setTimeout(() => {
