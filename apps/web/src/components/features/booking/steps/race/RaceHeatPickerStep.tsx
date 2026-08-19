@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PartyMember, RaceHeatAssignment, RaceItem, StepDef } from "~/features/booking";
 import {
@@ -46,9 +46,8 @@ import { PackageHeatPicker } from "./PackageHeatPicker";
 import { useEagerHeatHold } from "./useEagerHeatHold";
 import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track-visuals";
 import KartingCheckInBanner from "./KartingCheckInBanner";
-import { useTrackStatus } from "@/hooks/useTrackStatus";
+import { KartingCheckInProvider, useKartingCheckIn } from "./karting-check-in-context";
 import { useT } from "~/features/kiosk/i18n";
-import type { OnTimeSnapshot } from "~/features/racing/on-time";
 import { raceByAtMs } from "~/features/racing/on-time-display";
 
 /**
@@ -217,48 +216,9 @@ function entriesForPick(
   }));
 }
 
-/**
- * KIOSK-ONLY karting-check-in treatment, shared down to the cards.
- *
- * Owner 2026-08-17: "do only kiosk for now because web would get confusing on
- * when they check in upstairs or karting. Label check in here as Karting Check
- * In."
- *
- * That is the right call and the reason is structural: at heat-pick time we do
- * not yet know whether the party will be Express Lane. A standard web guest must
- * be at GUEST SERVICES on the 2nd floor half an hour earlier, so stamping
- * "Karting Check In" on a web card would send them to the wrong floor. On a kiosk
- * the guest is already standing in the building, at the karting end of it, and
- * the karting desk is the only check-in the screen can mean.
- *
- * WHY A CONTEXT RATHER THAN A PROP THREADED DOWN: the estimate needs the live
- * on-time snapshot, and a hook per card would mount twenty pollers on a
- * twenty-heat grid. The kiosk variant calls `useTrackStatus` ONCE and publishes
- * it here; the web variant never mounts the provider, so the web booking flow
- * gains no polling at all and its cards read the inert default.
- */
-interface KartingCheckInCtx {
-  enabled: boolean;
-  onTime: OnTimeSnapshot | null;
-}
-const KartingCheckInContext = createContext<KartingCheckInCtx>({
-  enabled: false,
-  onTime: null,
-});
-
-/** Mounted by the kiosk variant only. One poll for the whole grid. */
-function KartingCheckInProvider({ children }: { children: React.ReactNode }) {
-  const status = useTrackStatus();
-  const value = useMemo<KartingCheckInCtx>(
-    () => ({ enabled: true, onTime: status?.onTime ?? null }),
-    [status?.onTime],
-  );
-  return <KartingCheckInContext.Provider value={value}>{children}</KartingCheckInContext.Provider>;
-}
-
 function makeHeatPickerComponent(
   category: Category,
-  /** Kiosk only — see KartingCheckInContext above. */
+  /** Kiosk only — see ./karting-check-in-context. */
   kartingCheckIn = false,
 ): StepDef<RaceItem>["Component"] {
   const Component: StepDef<RaceItem>["Component"] = ({
@@ -347,7 +307,7 @@ function makeHeatPickerComponent(
     const t = useT();
     // Inert on web — the provider is only mounted by the kiosk variant, so the
     // web booking flow gains no polling and its cards render exactly as before.
-    const { enabled: kartingEnabled, onTime: kartingOnTime } = useContext(KartingCheckInContext);
+    const { enabled: kartingEnabled, onTime: kartingOnTime } = useKartingCheckIn();
     const racers = racersOfCategory(session.party, category);
     const partySize = racers.length;
     const productId = productIdForCategory(item, category);
@@ -826,7 +786,7 @@ function makeHeatPickerComponent(
         {/* KIOSK ONLY — the strip above the grid was empty, and this is the first
             place a guest ever sees one of these times. Owner 2026-08-17: "in all
             that empty space at the top I think we need to utilize it better."
-            Not on web: see the note on KartingCheckInContext. */}
+            Not on web: see the note in ./karting-check-in-context. */}
         {kartingEnabled && (
           <KartingCheckInBanner tracks={gridTracks.map((tr) => tr.toLowerCase())} />
         )}
@@ -1101,7 +1061,7 @@ function makeHeatPickerComponent(
                        actually drops a median 16 min after the slot. Removing a
                        wrong line is not the same change as the kiosk's karting
                        labelling, which stays off web on purpose (Express Lane is
-                       unknown at pick time — see KartingCheckInContext). Web has
+                       unknown at pick time — see ./karting-check-in-context). Web has
                        no honest second time to offer yet, so it offers none. */
                     <div className="mb-2" />
                   )}
@@ -1307,7 +1267,7 @@ export const RaceHeatPickerStepJunior: StepDef<RaceItem> = {
  * Identical ids so the kiosk registry can swap them in with `replaceStep` and
  * every breadcrumb, URL hash and canAdvance gate keeps working. The ONLY
  * difference is that the karting context is mounted; see
- * KartingCheckInContext for why this is kiosk-only.
+ * ./karting-check-in-context for why this is kiosk-only.
  */
 export const RaceHeatPickerStepAdultKiosk: StepDef<RaceItem> = {
   ...RaceHeatPickerStepAdult,
