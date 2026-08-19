@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { TV_POLL_MS, TV_PULSE_MS } from "./constants";
+import { briefedFromRoomsByHeat, briefedFromRoomsBySession } from "./briefing/room-briefed";
 import type { TvFeed, TvPulse } from "./types";
 
 const CACHE_PREFIX = "tv_feed_cache:";
@@ -132,6 +133,7 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
     if (!pulse) return feed;
     // The pulse is newer by construction; never let a slow full-feed response
     // land afterwards and undo a scan that has already appeared.
+    const rooms = pulse.briefingRooms ?? feed.briefingRooms;
     return {
       ...feed,
       now: Math.max(feed.now, pulse.now),
@@ -142,7 +144,23 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
       // the 15s full poll — a group is standing in the room. Merged the same way
       // the scan rail is: pulse wins, and a dropped beat keeps the last known
       // state rather than clearing a room mid-video.
-      briefingRooms: pulse.briefingRooms ?? feed.briefingRooms,
+      briefingRooms: rooms,
+      /**
+       * AND THE SEND CLEARS THE CHECK-IN WALLS ON THE SAME BEAT.
+       *
+       * `briefedAtMs` is the only thing that hands a heat over — it clears the
+       * board and fires the "proceed to the RED room" announcement — and it is
+       * folded into these two rows server-side on the 15s full feed, beside
+       * work that touches Neon and BMI. So the room lit up in two seconds and
+       * the check-in wall beside it went on showing the heat for up to fifteen
+       * more. The rooms above already say which session each is holding, which
+       * is the same fact arriving thirteen seconds earlier. The server's own
+       * marker always wins where it exists; see briefing/room-briefed.
+       */
+      raceCheckin: briefedFromRoomsBySession(feed.raceCheckin, rooms),
+      raceGuide: feed.raceGuide
+        ? { ...feed.raceGuide, tracks: briefedFromRoomsByHeat(feed.raceGuide.tracks, rooms) }
+        : feed.raceGuide,
       // The pit lanes ride the same fast lane for the same reason: "send to
       // holding" and "race returned" are presses with a group standing at the
       // seats, and the rail they flip must move in seconds.
