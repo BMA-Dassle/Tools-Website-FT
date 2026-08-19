@@ -1356,6 +1356,32 @@ export async function getNoShowBowlingReservations(): Promise<BowlingReservation
  * EXCLUDES combos (charging a combo no-show's shared gift card stays manual).
  */
 /**
+ * The booking sources whose guests can actually self check in.
+ *
+ * `web` and `kiosk` are OUR OWN surfaces: a person chose a time, paid, and has not yet
+ * been met by anybody. The other two are not guests waiting to be served —
+ *
+ *   `conqueror`  the front-desk POS. This is where leagues, school groups and LANE
+ *                CLOSURES live: at HeadPinz FM it holds 5,883 rows of which 1,851 have
+ *                a blank guest name, 33 are literally named some casing of "closed",
+ *                and many are forward-dated into 2027. It is also where a staff member
+ *                books a guest who is standing in front of them — already served, so
+ *                nothing to prompt.
+ *   `admin`      the staff KBF admin tool.
+ *
+ * FILTERED ON THE SOURCE, NOT ON THE NAME. Name-matching was the obvious idea and it
+ * does not work: "closed" appears as closed/Closed/CLOSED, 1,851 rows have no name to
+ * match against at all, and the next convention staff invent slips straight through.
+ * `booking_source` is structural — every row has one, with no nulls anywhere in the
+ * table — so it cannot be defeated by how somebody types.
+ *
+ * The CHECKED-IN half deliberately does NOT filter this way: a self check-in is itself
+ * proof of a real guest (that column is 100% web+kiosk in the data already), and if a
+ * desk-booked party ever does use a kiosk they still need to be told their lane.
+ */
+const SELF_CHECKIN_SOURCES = ["web", "kiosk"] as const;
+
+/**
  * Reservations that could check themselves in RIGHT NOW — due about now, and nobody
  * has checked them in yet.
  *
@@ -1388,6 +1414,11 @@ export async function getSelfCheckinEligible(
       AND checkin_method IS NULL
       AND status IN ('confirmed', 'arrived')
       AND product_kind IN ('open', 'kbf')
+      AND booking_source = ANY(${[...SELF_CHECKIN_SOURCES]})
+      -- A row with no name cannot render on the wall anyway (the feed reduces to a
+      -- first name and drops the blanks), but excluding it here keeps the LIMIT
+      -- spending its slots on rows that will actually appear.
+      AND TRIM(COALESCE(guest_name, '')) <> ''
       AND booked_at BETWEEN NOW() - INTERVAL '90 minutes' AND NOW() + INTERVAL '45 minutes'
     ORDER BY booked_at ASC
     LIMIT ${limit}
