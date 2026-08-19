@@ -148,9 +148,10 @@ export async function raceCheckinInfo(
   // sends as a TIMESTAMP STRING, so this board reported 0 of N for every heat
   // it ever showed. And the roster cache stops being warmed once a heat has
   // been alerted on — while staff are still scanning — so a number taken from
-  // it freezes mid-group. sessionCheckinCounts reads live and memoises, so the
-  // track board and the briefing-room camera boards cannot disagree about the
-  // same heat.
+  // it freezes mid-group. sessionCheckinCounts reads live, memoises, and floors
+  // the answer with the desk's own scan ledger, so the track board and the
+  // briefing-room camera boards cannot disagree about the same heat — and none
+  // of them waits on Pandora to be told about a scan we performed ourselves.
   //
   // The cached roster is still read, in parallel, for the VIP names: those need
   // personIds and first names, which the count does not.

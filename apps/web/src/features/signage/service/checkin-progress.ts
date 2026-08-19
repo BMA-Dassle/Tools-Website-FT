@@ -21,6 +21,8 @@ import "server-only";
  */
 import redis from "@/lib/redis";
 import { parseWithRawIds } from "@ft/db";
+import { applyLocalFloor } from "~/features/racing/roster-count";
+import { scanCount } from "~/features/racing/scan-ledger.server";
 import { sessionBriefed } from "../briefing/state.server";
 import {
   checkingInTracks,
@@ -156,13 +158,35 @@ export async function sessionRoster(
  * one cache, and one answer.
  *
  * Null when the roster could not be read at all; the caller shows no count.
+ *
+ * FLOORED BY WHAT WE OURSELVES SCANNED, which is the only part of this number
+ * that does not have to wait for anything. Every green scan at the desk is our
+ * own write, recorded in Redis before the scanner is even answered — while the
+ * walls were reaching this number through a live Pandora read, behind a 12s
+ * memo, behind a 15s TV poll, with a cron-warmed roster up to a minute old as
+ * the fallback. On a slow Pandora night a racer could be through the desk a
+ * minute and a half before a wall said so. The desk board has floored its count
+ * this way since 2026-08-18; the walls are a second pipeline and were left
+ * behind. Same ledger, same `applyLocalFloor`, so the two boards in one
+ * building cannot disagree about a group that is standing between them.
+ *
+ * It can only RAISE the count, never lower it, and never past the grid total —
+ * an unreadable ledger counts zero, which leaves the upstream's answer exactly
+ * as it was. Pandora is still what tells us about everything we could not have
+ * seen: racers added, removed, or checked in somewhere other than our scanner.
  */
 export async function sessionCheckinCounts(
   sessionId: string,
   nowMs: number,
 ): Promise<Counts | null> {
-  const roster = await sessionRoster(sessionId, nowMs);
-  return roster ? countCheckedIn(roster) : null;
+  const [roster, scanned] = await Promise.all([
+    sessionRoster(sessionId, nowMs),
+    scanCount(FASTTRAX_LOCATION_ID, sessionId),
+  ]);
+  if (!roster) return null;
+  const counts = countCheckedIn(roster);
+  const floored = applyLocalFloor({ ...counts, atMs: nowMs, stale: false }, scanned);
+  return { checkedIn: floored.checkedIn ?? counts.checkedIn, total: floored.total ?? counts.total };
 }
 
 /* ── what the wait-time metrics need, captured at the send ──────────────── */
