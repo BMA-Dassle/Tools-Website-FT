@@ -19,7 +19,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useKioskClock } from "../clock";
 import {
   parseScreenKey,
-  screenKey,
+  canonicalTvPath,
   VENUE_INFO,
   type SignageVenue,
   TEST_SCREEN_NUMBER,
@@ -133,8 +133,11 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
         } catch {
           /* non-fatal */
         }
-        // Canonical URL, so a self-update hard reload returns to this screen.
-        const canonical = `/tv?screen=${encodeURIComponent(screenKey(parsed.venue, parsed.screenNumber))}`;
+        // Canonical URL, so a self-update hard reload returns to this screen —
+        // still in debug if that is how it was opened. See canonicalTvPath.
+        const canonical = canonicalTvPath(parsed.venue, parsed.screenNumber, {
+          debug: params.has("debug"),
+        });
         if (window.location.pathname + window.location.search !== canonical) {
           window.history.replaceState(null, "", canonical);
         }

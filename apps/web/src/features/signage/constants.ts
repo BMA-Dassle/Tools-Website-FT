@@ -77,6 +77,31 @@ export function screenKey(venue: SignageVenue, screenNumber: number): string {
 }
 
 /**
+ * THE URL A BOARD REWRITES ITSELF TO AT BOOT, and comes back to on a reload.
+ *
+ * Canonical so a self-update hard reload returns to the same screen whatever
+ * the player was originally pointed at — a stray query param, a trailing slash,
+ * a percent-encoded id.
+ *
+ * `debug` RIDES ALONG, and that is the whole reason this is a function. TvApp
+ * reads the flag from the live `window.location.search` on every render, so
+ * canonicalising it away turned `?debug=1` into a pane that painted once and
+ * then silently vanished — useless at a wall, which is the only place it is ever
+ * wanted. Carrying it also means a self-update reload comes back still in debug.
+ *
+ * `demo` deliberately does NOT ride along: a pushed preview is meant to expire,
+ * and TvApp captures it into state before the rewrite anyway.
+ */
+export function canonicalTvPath(
+  venue: SignageVenue,
+  screenNumber: number,
+  opts: { debug?: boolean } = {},
+): string {
+  const base = `/tv?screen=${encodeURIComponent(screenKey(venue, screenNumber))}`;
+  return opts.debug ? `${base}&debug=1` : base;
+}
+
+/**
  * Parse a screen key back to its parts. Returns null for anything malformed —
  * an unparseable key must degrade to the ads-only default, never throw on a
  * screen that has been running unattended for weeks.
