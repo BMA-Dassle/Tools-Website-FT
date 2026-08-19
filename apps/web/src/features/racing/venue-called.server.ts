@@ -88,12 +88,49 @@ const META_KEY = (sessionId: string) => `venue:session-meta:${sessionId}`;
 const META_TTL_SECONDS = 60 * 60 * 24;
 
 /**
- * KILL SWITCH, default ON (house rule: a flag exists to turn a live feature OFF,
- * never to gate one in). `false` reverts the estate to Pandora-only, which is
- * exactly what it does today — the loop keeps running either way.
+ * THE KILL SWITCH — two of them, and the Redis one is the one that matters.
+ *
+ * Default ON (house rule: a flag exists to turn a live feature OFF, never to gate
+ * one in). Off means the venue stops writing the carry AND the poll goes back to
+ * 1s stepping — i.e. exactly the behaviour that shipped before this change.
+ *
+ * WHY REDIS AND NOT JUST THE ENV VAR: a Vercel environment variable does not take
+ * effect until a redeploy, so `VENUE_CALLED_FAST_PATH=false` is a next-deploy
+ * switch, not an on-the-night one. This key flips in one command with no deploy,
+ * which is what "turn it off, the boards look wrong" actually needs at 7pm on a
+ * Saturday. `scripts/venue-called-switch.mts` is the interface.
+ *
+ * The env var stays as a belt-and-braces backstop for the case where Redis itself
+ * is the thing misbehaving.
+ *
+ * FAILS OPEN — an unreadable switch leaves the fast path ON. If Redis cannot be
+ * read the carry cannot be read either, so the boards are already riding on
+ * nothing; turning the wire off as well would only remove the one source still
+ * arriving.
  */
-export function venueCalledFastPathEnabled(): boolean {
-  return process.env.VENUE_CALLED_FAST_PATH !== "false";
+const DISABLED_KEY = "venue:called:disabled";
+/** Re-reading per webhook message would put a Redis round trip on the hot path;
+ *  a few seconds of memo is plenty for an ops toggle. */
+const SWITCH_MEMO_MS = 5_000;
+let switchMemo: { enabled: boolean; readAt: number } | null = null;
+
+export async function venueCalledFastPathEnabled(): Promise<boolean> {
+  if (process.env.VENUE_CALLED_FAST_PATH === "false") return false;
+  if (switchMemo && Date.now() - switchMemo.readAt < SWITCH_MEMO_MS) return switchMemo.enabled;
+  try {
+    const raw = await redis.get(DISABLED_KEY);
+    const enabled = raw === null || raw === "0" || raw === "false";
+    switchMemo = { enabled, readAt: Date.now() };
+    return enabled;
+  } catch (err) {
+    console.warn("[venue-called] switch read failed, staying ON:", err);
+    return true;
+  }
+}
+
+/** Test seam — the memo would otherwise leak between cases. */
+export function __resetSwitchMemo(): void {
+  switchMemo = null;
 }
 
 export interface VenueSessionMeta {
@@ -319,7 +356,7 @@ export async function observeVenueCalls(message: unknown, seenAtMs: number): Pro
       // Only the FIRST firing writes: later ones are the venue re-announcing a
       // heat still on the grid, and `preserveFirstCall` would pin them anyway —
       // skipping saves a pointless read-modify-write on every re-announcement.
-      if (!venueCalledFastPathEnabled() || isSameHeat) continue;
+      if (isSameHeat || !(await venueCalledFastPathEnabled())) continue;
       // A heat that has already run is not "called". Without this, a late
       // re-announcement could resurrect a finished heat onto the board.
       if (prior?.sessionId === call.sessionId && prior.phase === "finished") continue;

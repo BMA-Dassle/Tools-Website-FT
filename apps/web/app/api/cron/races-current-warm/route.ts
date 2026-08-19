@@ -137,8 +137,9 @@ export async function GET(req: NextRequest) {
    *  would put a Redis round trip back into the hot path we are here to remove. */
   const bridgeStamp = await redis.get("kart:bridge:last-event").catch(() => null);
   const bridgeLastEventMs = bridgeStamp ? Date.parse(bridgeStamp) : null;
+  const fastPathEnabled = await venueCalledFastPathEnabled();
   const stepMs = warmLoopStepMs({
-    fastPathEnabled: venueCalledFastPathEnabled(),
+    fastPathEnabled,
     bridgeLastEventMs: Number.isFinite(bridgeLastEventMs as number) ? bridgeLastEventMs : null,
     nowMs: startedAt,
   });
@@ -214,7 +215,7 @@ export async function GET(req: NextRequest) {
     // the estate ever feels slow again, or if Pandora traffic does not drop.
     stepMs,
     bridgeLastEvent: bridgeStamp,
-    fastPath: venueCalledFastPathEnabled(),
+    fastPath: fastPathEnabled,
     refreshed,
     failed,
     rostersWarmed,

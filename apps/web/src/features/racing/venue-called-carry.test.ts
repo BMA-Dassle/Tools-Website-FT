@@ -44,7 +44,8 @@ vi.mock("~/features/signage/briefing/called-override.server", () => ({
   forgetClearedCall: vi.fn(async () => void 0),
 }));
 
-const { observeVenueCalls } = await import("./venue-called.server");
+const { observeVenueCalls, venueCalledFastPathEnabled, __resetSwitchMemo } =
+  await import("./venue-called.server");
 const CARRY_KEY = "pandora:last-race:fasttrax:mega";
 
 const ADVICE_MEGA_68 = {
@@ -77,6 +78,7 @@ beforeEach(() => {
   list.clear();
   clearedCall.value = null;
   delete process.env.VENUE_CALLED_FAST_PATH;
+  __resetSwitchMemo();
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -190,6 +192,45 @@ describe("the venue writes the carry", () => {
 
     expect(carry()).toBeNull();
     expect(JSON.parse(store.get("pandora:last-race:fasttrax:blue")!).trackName).toBe("Blue");
+  });
+});
+
+describe("the off switch", () => {
+  it("is ON when no key is set", async () => {
+    expect(await venueCalledFastPathEnabled()).toBe(true);
+  });
+
+  it("goes OFF from Redis alone — no deploy, which is the whole point", async () => {
+    store.set("venue:called:disabled", new Date().toISOString());
+    expect(await venueCalledFastPathEnabled()).toBe(false);
+  });
+
+  it("stops writing the carry the moment it is off", async () => {
+    await observeVenueCalls(ADVICE_MEGA_68, SEEN - 60_000);
+    store.set("venue:called:disabled", new Date().toISOString());
+    __resetSwitchMemo();
+
+    await observeVenueCalls(CALL_MEGA_68, SEEN);
+
+    expect(carry()).toBeNull();
+    // Still recording, so the diff script keeps working while the wire is muted.
+    expect(store.get("venue:called:mega")).toBeTruthy();
+  });
+
+  it("the env var is a backstop that beats the Redis key", async () => {
+    process.env.VENUE_CALLED_FAST_PATH = "false";
+    store.delete("venue:called:disabled");
+    expect(await venueCalledFastPathEnabled()).toBe(false);
+  });
+
+  it("treats a parked 0/false value as ON, so the key can be left in place", async () => {
+    store.set("venue:called:disabled", "false");
+    expect(await venueCalledFastPathEnabled()).toBe(true);
+  });
+
+  it("FAILS OPEN — an unreadable switch leaves the wire on", async () => {
+    redisMock.get.mockRejectedValueOnce(new Error("redis down"));
+    expect(await venueCalledFastPathEnabled()).toBe(true);
   });
 });
 

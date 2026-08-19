@@ -1,5 +1,30 @@
 # Called heat from the venue WebSocket — get session status off Pandora polling
 
+## ⛔ IF THIS GOES WRONG — TURN IT OFF
+
+```
+cd apps/web && npx tsx scripts/venue-called-switch.mts off
+```
+
+One command, **no deploy, effective within ~5 seconds**. It does both halves at once:
+the venue stops writing the carry, and `races-current-warm` returns to stepping once a
+second — i.e. exactly the behaviour that shipped before 2026-08-19. `... on` puts it back,
+`... status` prints the switch plus what each rail currently holds per track.
+
+**Symptoms that should make you reach for it:** a heat on the wrong track's board; a heat
+showing as called that staff did not call; a called heat whose clock restarts mid-wait; a
+heat reappearing after the desk cleared it; boards disagreeing with the dayplanner.
+
+**Symptoms that are NOT this change:** boards blank or stale everywhere (that is Redis or
+the bridge), a heat late to appear by ~30s with `stepMs: 30000` and a dead bridge heartbeat
+(the gate should have caught it — check `kart:bridge:last-event`), or Pandora 5xx.
+
+Backstop if Redis itself is the problem: `VENUE_CALLED_FAST_PATH=false` in Vercel —
+**needs a redeploy**, which is precisely why the Redis key exists.
+
+Full revert if the switch is not enough: `git revert 9c7892681` (phase 1) — the observer
+commits below it are inert on their own and can stay.
+
 **Why:** `/api/cron/races-current-warm` fires once a minute and LOOPS for 52s, asking
 Pandora `/bmi/races/current` about once a second — **~2,200 calls/hour, ~53,000 a day**,
 more than half of everything we send that vendor. It exists to learn one fact: which heat
@@ -78,10 +103,14 @@ Ran against the 8/16-8/19 buffer joined to `briefing_events.called_at` (95 calle
       moment it is not** (`kart:bridge:last-event` older than 2 min, unparseable, or absent),
       and 1s whenever the kill switch is off. Decided once per invocation, not per tick.
       The response reports `stepMs`, `bridgeLastEvent` and `fastPath` for diagnosis.
-- [x] Kill switch `VENUE_CALLED_FAST_PATH=false` → Pandora-only at 1s, i.e. exactly today's
-      behaviour. Default ON (house rule).
-- [x] 35 tests: 19 on the wire + observer, 10 on the carry writer (including the desk Clear
-      being honoured and tracks not bleeding), 6 on the step decision.
+- [x] **Two kill switches, and the Redis one is the real one**: `venue:called:disabled`
+      flips in one command with no deploy, effective in ~5s, and turns off BOTH halves (the
+      venue stops writing, the poll returns to 1s). `VENUE_CALLED_FAST_PATH=false` remains as
+      a build-time backstop for the case where Redis is the thing misbehaving — it needs a
+      redeploy, which is exactly why the key exists. See the runbook at the top.
+- [x] 41 tests: 19 on the wire + observer, 16 on the carry writer and the off switch
+      (including the desk Clear being honoured, tracks not bleeding, and the switch failing
+      OPEN), 6 on the step decision.
 
 ### Owed before this can be trusted
 
