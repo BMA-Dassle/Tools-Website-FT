@@ -10,6 +10,7 @@ import {
   type CameraPreviewMode,
 } from "~/features/signage/nx/camera-preview";
 import { useBuildUpdate } from "~/hooks/useBuildUpdate";
+import { applyOwnScanCredit, type OwnScanCredit } from "~/features/racing/roster-count";
 import {
   ADMIN_SANS,
   ADMIN_MONO,
@@ -161,6 +162,17 @@ interface CheckinResponse {
     heatNumber: number | null;
     scheduledStart: string | null;
   } | null;
+  /**
+   * HOW MANY PEOPLE WE HAVE NOW SCANNED INTO THAT SESSION, including the racer
+   * this response is about. Present only when a check-in actually happened.
+   *
+   * The strip's own poll is on a 15-second clock, so until this existed the
+   * board learned about its own scan from the same slow path it uses for
+   * everyone else's — the count sat still for up to fifteen seconds with the
+   * racer standing in front of it. This is a floor, not a replacement: see
+   * where it is applied in handleScan.
+   */
+  ownScans?: OwnScanCredit | null;
 }
 
 const VIP_GOLD = "#d4af37";
@@ -545,6 +557,23 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
 
   // --------------- Scan Handling ---------------
 
+  /**
+   * THE COUNT MOVES ON THE SCAN THAT CAUSED IT, not on the next 15s tick.
+   *
+   * The desk already knows this: the check-in POST wrote the racer into our own
+   * ledger before it answered, and hands the ledger's size back as `ownScans`.
+   * Waiting for the poller to rediscover our own write was the whole of the
+   * delay staff were watching.
+   *
+   * A FLOOR, NOT A REPLACEMENT, and the SAME floor the server applies — one
+   * `applyLocalFloor` behind both, so the strip and the endpoint feeding it can
+   * never drift. Rules and reasoning live with it in roster-count.ts.
+   */
+  const creditOwnScan = useCallback((own: CheckinResponse["ownScans"]) => {
+    if (!own) return;
+    setActiveSessions((prev) => applyOwnScanCredit(prev, own));
+  }, []);
+
   async function handleScan(raw: string) {
     // See scanBusyRef — this MUST NOT be read off `scanState`.
     if (scanBusyRef.current) return;
@@ -568,7 +597,9 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
         setLastError(json.detail || json.error || `HTTP ${res.status}`);
         setScanState("result");
       } else {
-        setLastResult(json as CheckinResponse);
+        const result = json as CheckinResponse;
+        setLastResult(result);
+        creditOwnScan(result.ownScans);
         setScanState("result");
       }
     } catch (e) {

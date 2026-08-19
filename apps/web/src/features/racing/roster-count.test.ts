@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyLocalFloor,
+  applyOwnScanCredit,
   parseStoredRoster,
   resolveRosterCount,
   rosterIsFresh,
@@ -259,5 +260,94 @@ describe("rosterIsFreshForWire", () => {
         bridgeAlive: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("applyOwnScanCredit — the board crediting its own scan", () => {
+  const FT = "LAB52GY480CJF";
+  const HP = "TXBSQN0FEKQ11";
+  const row = (over: Partial<Parameters<typeof applyOwnScanCredit>[0][number]> = {}) => ({
+    sessionId: 58996064,
+    locationId: FT,
+    checkedIn: 4 as number | null,
+    total: 6 as number | null,
+    stale: false,
+    ...over,
+  });
+
+  it("raises the scanned row's count without waiting for a poll", () => {
+    const out = applyOwnScanCredit([row()], { locationId: FT, sessionId: 58996064, count: 5 });
+    expect(out[0].checkedIn).toBe(5);
+    expect(out[0].total).toBe(6);
+  });
+
+  it("matches a session id given as a string against a numeric row", () => {
+    const out = applyOwnScanCredit([row()], { locationId: FT, sessionId: "58996064", count: 5 });
+    expect(out[0].checkedIn).toBe(5);
+  });
+
+  it("never lowers a count Pandora already had higher", () => {
+    // Two more racers checked in at another station, or directly in BMI.
+    const out = applyOwnScanCredit([row({ checkedIn: 6 })], {
+      locationId: FT,
+      sessionId: 58996064,
+      count: 3,
+    });
+    expect(out[0].checkedIn).toBe(6);
+  });
+
+  it("never exceeds the grid total", () => {
+    const out = applyOwnScanCredit([row({ checkedIn: 2, total: 4 })], {
+      locationId: FT,
+      sessionId: 58996064,
+      count: 9,
+    });
+    expect(out[0].checkedIn).toBe(4);
+  });
+
+  it("leaves a row whose roster could not be read as unknown", () => {
+    // "3 of —" is not a number to put in front of a marshal.
+    const out = applyOwnScanCredit([row({ checkedIn: null, total: null })], {
+      locationId: FT,
+      sessionId: 58996064,
+      count: 3,
+    });
+    expect(out[0].checkedIn).toBeNull();
+    expect(out[0].total).toBeNull();
+  });
+
+  it("leaves every other heat alone", () => {
+    const rows = [row(), row({ sessionId: 58996065, checkedIn: 1 })];
+    const out = applyOwnScanCredit(rows, { locationId: FT, sessionId: 58996064, count: 5 });
+    expect(out[1].checkedIn).toBe(1);
+    expect(out[1]).toBe(rows[1]);
+  });
+
+  it("does not credit an identical session id on another BMI server", () => {
+    // FT/HP-FM and Naples mint session ids independently and they collide.
+    const rows = [row({ locationId: HP })];
+    const out = applyOwnScanCredit(rows, { locationId: FT, sessionId: 58996064, count: 5 });
+    expect(out[0].checkedIn).toBe(4);
+    expect(out[0]).toBe(rows[0]);
+  });
+
+  it("fails OPEN on a row served before locationId existed", () => {
+    const out = applyOwnScanCredit([row({ locationId: undefined })], {
+      locationId: FT,
+      sessionId: 58996064,
+      count: 5,
+    });
+    expect(out[0].checkedIn).toBe(5);
+  });
+
+  it("returns rows by identity when nothing moved, so the strip does not re-render", () => {
+    const rows = [row()];
+    const out = applyOwnScanCredit(rows, { locationId: FT, sessionId: 58996064, count: 4 });
+    expect(out[0]).toBe(rows[0]);
+  });
+
+  it("is a no-op on an empty ledger rather than a zero floor", () => {
+    const rows = [row()];
+    expect(applyOwnScanCredit(rows, { locationId: FT, sessionId: 58996064, count: 0 })).toBe(rows);
   });
 });

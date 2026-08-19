@@ -39,8 +39,10 @@ import {
   parseStoredRoster,
   resolveRosterCount,
   rosterIsFreshForWire,
+  type OwnScanCredit,
   type RosterCount,
 } from "~/features/racing/roster-count";
+import { creditScan, scanCount } from "~/features/racing/scan-ledger.server";
 import { BRIDGE_STALE_MS } from "~/features/racing/roster-dirty";
 import { readRosterMarks, bankRosterRead } from "~/features/racing/roster-dirty.server";
 
@@ -476,9 +478,12 @@ async function handleArenaScan(
   const checkinResult = await checkInViaPandora(personId, sessionId, locationId);
   // OUR OWN WRITE, IN OUR OWN LEDGER — before the response, so the very next
   // board poll counts this racer whether or not Pandora has caught up.
-  if (checkinResult.success) await creditLocalCheckIn(locationId, sessionId, personId);
+  if (checkinResult.success) await creditScan(locationId, sessionId, personId);
   return NextResponse.json({
     success: checkinResult.success,
+    ownScans: checkinResult.success
+      ? { locationId, sessionId, count: await scanCount(locationId, sessionId) }
+      : null,
     guest: {
       firstName: checkinResult.guest?.firstName || guest?.firstName || "",
       lastName: checkinResult.guest?.lastName || guest?.lastName || "",
@@ -1074,8 +1079,21 @@ export async function POST(req: NextRequest) {
     // OUR OWN WRITE, IN OUR OWN LEDGER. The desk does not need Pandora to tell
     // it that a racer it just scanned is checked in — see applyLocalFloor. This
     // is what stops the count sliding backwards between polls.
+    //
+    // AND WE HAND THE LEDGER STRAIGHT BACK, so the board that asked for this
+    // check-in can show it without waiting for its own next poll. It used to
+    // learn about its own scan from a 15s `setInterval` — a racer stood at a
+    // desk showing "4 of 6" for up to fifteen seconds after they had scanned,
+    // for no reason other than that nothing asked again. One SCARD, no Pandora
+    // call: this is a number we already had.
+    let ownScans: OwnScanCredit | null = null;
     if (checkinResult.success) {
-      await creditLocalCheckIn(FASTTRAX_LOCATION_ID, sessionId, personId);
+      await creditScan(FASTTRAX_LOCATION_ID, sessionId, personId);
+      ownScans = {
+        locationId: FASTTRAX_LOCATION_ID,
+        sessionId,
+        count: await scanCount(FASTTRAX_LOCATION_ID, sessionId),
+      };
     }
     const checkinGuest = checkinResult.guest;
 
@@ -1127,6 +1145,7 @@ export async function POST(req: NextRequest) {
       vip,
       birthday,
       backToBack,
+      ownScans,
     });
   }
 
@@ -1235,43 +1254,7 @@ const ROSTER_KEY = (locationId: string, sessionId: string | number) =>
  *  same heat's earlier count to fall back on. Expiry is the backstop; the
  *  freshness rules live in roster-count.ts. */
 const ROSTER_KEY_TTL_SEC = 45 * 60;
-/**
- * THE PEOPLE THIS DESK HAS SCANNED INTO A SESSION — our own ledger of our own
- * writes, and the floor under whatever Pandora reports (see applyLocalFloor).
- *
- * A SET, not a counter, so a racer who scans twice — or whose badge is read
- * twice by a scanner that fires on both edges — is counted once. `sadd`
- * returning 0 is the duplicate telling us about itself.
- */
-const ROSTER_SEEN_KEY = (locationId: string, sessionId: string | number) =>
-  `checkin:roster-seen:${locationId}:${sessionId}`;
 let sessionStatsInFlight: Promise<SessionStat[]> | null = null;
-
-/** Record that WE checked this person into this session. Never throws — a
- *  ledger write must not be able to fail a check-in that already happened. */
-async function creditLocalCheckIn(
-  locationId: string,
-  sessionId: string | number,
-  personId: string,
-): Promise<void> {
-  if (!sessionId || !personId) return;
-  try {
-    const key = ROSTER_SEEN_KEY(locationId, sessionId);
-    await redis.sadd(key, personId);
-    await redis.expire(key, ROSTER_KEY_TTL_SEC);
-  } catch {
-    /* the count degrades to Pandora's own answer, which is where it started */
-  }
-}
-
-/** How many people this desk has scanned into this session. */
-async function localCheckInCount(locationId: string, sessionId: string | number): Promise<number> {
-  try {
-    return (await redis.scard(ROSTER_SEEN_KEY(locationId, sessionId))) ?? 0;
-  } catch {
-    return 0;
-  }
-}
 
 /** The last count we stored for this exact session, or null. */
 async function loadRosterCount(
@@ -1399,7 +1382,7 @@ async function rosterFor(s: SessionStat): Promise<RosterCount> {
   const sid = String(s.sessionId);
   const [lastKnown, credited, marks, bridgeStamp] = await Promise.all([
     loadRosterCount(s.locationId, s.sessionId),
-    localCheckInCount(s.locationId, s.sessionId),
+    scanCount(s.locationId, s.sessionId),
     readRosterMarks("checkin", [sid]),
     redis.get("kart:bridge:last-event").catch(() => null),
   ]);

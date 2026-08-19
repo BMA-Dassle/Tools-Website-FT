@@ -195,6 +195,58 @@ export function applyLocalFloor(count: RosterCount, locallyCredited: number): Ro
   return { ...count, checkedIn: Math.min(count.total, locallyCredited) };
 }
 
+/** What we ourselves scanned into one session, as the check-in POST reports it
+ *  back to the board that asked for the check-in. */
+export interface OwnScanCredit {
+  locationId: string;
+  sessionId: string | number;
+  /** Size of our scan ledger for that session, including the racer just done. */
+  count: number;
+}
+
+/** The shape of a strip row this floor can be applied to. Structural on
+ *  purpose — the board's own row type carries a good deal more than this. */
+export interface FlooredRow {
+  sessionId: string | number;
+  locationId?: string;
+  checkedIn: number | null;
+  total: number | null;
+  stale?: boolean;
+}
+
+/**
+ * THE BOARD CREDITS ITS OWN SCAN IMMEDIATELY, instead of waiting to rediscover
+ * it on the next poll.
+ *
+ * The desk polls its strip every 15 seconds, which is fine for learning what
+ * OTHER stations and BMI have been doing and absurd for learning what this
+ * station did a moment ago: a group scanning through went four, four, four,
+ * four, six. The check-in response now carries our ledger back, and this puts
+ * it straight onto the row it belongs to.
+ *
+ * MATCHED ON BOTH IDS. FT/HP-FM and Naples are separate BMI servers and can
+ * mint numerically identical session ids, so a session id alone is not a row
+ * identity. A row carrying no locationId — one served by an instance from
+ * before this shipped — matches on session alone rather than being skipped:
+ * failing open costs a rare over-credit on a collision, failing closed costs
+ * the whole feature for as long as a stale row is in play.
+ *
+ * Rows are returned by identity when nothing changed, so React does not
+ * re-render a strip that did not move.
+ */
+export function applyOwnScanCredit<T extends FlooredRow>(rows: T[], own: OwnScanCredit): T[] {
+  if (!own.count) return rows;
+  return rows.map((row) => {
+    if (String(row.sessionId) !== String(own.sessionId)) return row;
+    if (row.locationId && row.locationId !== own.locationId) return row;
+    const floored = applyLocalFloor(
+      { checkedIn: row.checkedIn, total: row.total, atMs: null, stale: !!row.stale },
+      own.count,
+    );
+    return floored.checkedIn === row.checkedIn ? row : { ...row, checkedIn: floored.checkedIn };
+  });
+}
+
 /** Parse a stored entry defensively — a malformed or half-written value is
  *  treated as nothing known, never as a zero count. */
 export function parseStoredRoster(raw: string | null): RosterCount | null {
