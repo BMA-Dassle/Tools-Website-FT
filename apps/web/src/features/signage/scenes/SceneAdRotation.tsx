@@ -18,6 +18,8 @@ import { withAlpha } from "../color";
 import { NeonWord } from "../components/NeonWord";
 import { KioskCallout } from "../components/KioskCallout";
 import { AD_ROTATE_MS } from "~/features/kiosk/attract/rotation";
+import { choreo } from "../wall";
+import { wallGoldSlide } from "../wall-content";
 import type { SceneProps } from "../director/types";
 
 /** TV-safe margins — 5% side, 5% top/bottom of a 1920×1080 frame. */
@@ -45,7 +47,21 @@ export function SceneAdRotation({ feed, nowMs, venue, config }: SceneProps) {
         : matched
       : tvAdSlides(venue, feed?.pausedProductIds ?? []);
 
-  const slide = slides[Math.floor(nowMs / AD_ROTATE_MS) % slides.length];
+  // ON A WALL, EVERY PANEL SHOWS A DIFFERENT SLIDE. Picking purely off the clock
+  // is right for one TV and a hall of mirrors across five, so the wall offsets by
+  // panel position. `choreo()` reports position 0 of 1 for every screen that is
+  // not on a wall, which makes the offset zero — so HPFM:1 and every existing
+  // board are unchanged to the frame.
+  const { position, count } = choreo(config);
+  // …and the Fort Myers catalog is FOUR slides, so a five-panel wall offsetting by
+  // position would land the same slide on both ends ((t+4) % 4 === t % 4). The
+  // All Access slide is the fifth — which is also the design's one gold panel in
+  // five, gold being an event rather than a theme. Appended only when there are
+  // fewer slides than panels, and only when the pack is actually on sale.
+  const gold = count > slides.length ? wallGoldSlide(nowMs) : null;
+  const wallSlides = gold ? [...slides, gold] : slides;
+
+  const slide = wallSlides[(Math.floor(nowMs / AD_ROTATE_MS) + position) % wallSlides.length];
 
   // The availability map is keyed by product key; a slide can name more than
   // one, so take the first that has a time.

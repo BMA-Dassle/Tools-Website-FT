@@ -49,6 +49,27 @@ import type { ResultsBoardView } from "./results-board";
  *                     rooms: what to know before you race, over track
  *                     photography — then a very large arrow in the track's
  *                     colour the moment that heat is sent to a room
+ *
+ *  THE FRONT-DESK WALL (HeadPinz Fort Myers, five panels over a second kiosk
+ *  bank). All three read `wall.position` through `choreo()` and render THEIR
+ *  SLICE of one composition — five panels of the same card would be a hall of
+ *  mirrors. All three are also DATA-OPTIONAL: they must never be given
+ *  `requiresData`, because a dropped entry changes `totalSlots` on one panel and
+ *  tears the wall (see ScreenWall and the plan's tear invariant).
+ *
+ *  - `vip-showcase`   the VIP Experience across five panels, four sub-slides:
+ *                     the statement, the night's three legs, what's included,
+ *                     the price. A gold identity rail names the product and its
+ *                     price on every panel of every slide, so a guest walking up
+ *                     mid-slide always knows what they are looking at
+ *  - `open-now`       the venue's menu board: ten attraction tiles dealt across
+ *                     the five panels, with live "next available" from the same
+ *                     cache the kiosks read. A paused product shows no price and
+ *                     no time
+ *  - `kiosk-howto`    one verb per panel, each over the machine it names —
+ *                     CHECK IN · BUY A LANE · BOOK A RACE · LOAD A CARD · BUY
+ *                     THE VIP NIGHT — with the arrow band pointing down at it
+ *
  *  - `sleep`          venue closed — panel/power saver
  */
 export type SceneType =
@@ -63,6 +84,9 @@ export type SceneType =
   | "pit-board"
   | "race-results"
   | "race-guide"
+  | "vip-showcase"
+  | "open-now"
+  | "kiosk-howto"
   | "sleep";
 
 /** Scenes a screen rotates through on its base loop (interrupts are separate). */
@@ -75,6 +99,9 @@ export const ROTATION_SCENE_TYPES = [
   "pit-board",
   "race-results",
   "race-guide",
+  "vip-showcase",
+  "open-now",
+  "kiosk-howto",
 ] as const satisfies readonly SceneType[];
 
 /** Scenes that PREEMPT the rotation when their trigger fires. */
@@ -172,12 +199,60 @@ export interface ScreenPairing {
   count: number;
 }
 
+/**
+ * A VIDEO WALL — several screens hung close enough to read as one picture.
+ *
+ * The other half of `ScreenPairing`, and deliberately NOT the same field, because
+ * `pairing` is already doing two jobs that collide once a group grows past two:
+ *
+ *   1. `resolvePair()` returns null unless a group has EXACTLY 2 screens, and
+ *      that is what builds the two-monitor launcher (`buildDualStartupScript`).
+ *   2. `SceneBirthdayTakeover` and `track.ts megaSplit` read `position`/`count`
+ *      as the CHOREOGRAPHY primitive.
+ *
+ * The HeadPinz Fort Myers front-desk wall is five panels driven by three player
+ * PCs (2 + 1 + 2). Folding a 5-wide choreography group into `pairing` would take
+ * the dual launchers away from two of those machines. So the machine pairs stay
+ * in `pairing` and the wall lives here — `choreo()` in ./wall.ts is the one
+ * resolver every scene asks, so no scene has to know which field it got.
+ *
+ * THE GAP IS THE DESIGN CONSTRAINT. The karting boards sit ~4 feet apart, where
+ * nothing readable may cross the gap; these sit ~6 INCHES apart, where the gap
+ * reads as word-spacing. So the law for a wall is "a word never crosses a gap, a
+ * sentence may" — see tasks/front-desk-wall-plan.md.
+ */
+export interface ScreenWall {
+  /** Which wall. Every panel of one wall carries the same id. */
+  wallId: string;
+  /** 0 = leftmost as you FACE the wall. */
+  position: number;
+  /** How many panels the wall has. */
+  count: number;
+  /**
+   * Gap between panels as a percent of ONE panel's picture width. ~6in on a
+   * ~48in picture is ~12. Drives the virtual canvas any wall-wide gradient
+   * paints into, so a light pass travels at one speed across glass and gap
+   * alike. Clamped 0-100 at read time; defaults to 12.
+   */
+  gapPct?: number;
+  /**
+   * A brand mark this panel may carry. "two locations" is FastTrax FM + HeadPinz
+   * FM (owner 2026-08-17), and the two marks live on the two ENDS of the wall so
+   * the statement it makes has a bookend either side. Inner panels carry "none".
+   * Absent = derived (first panel fasttrax, last headpinz, inner none).
+   */
+  brand?: "fasttrax" | "headpinz" | "none";
+}
+
 /** The per-screen config blob (JSONB in Neon). Every field optional. */
 export interface ScreenConfig {
   playlist?: PlaylistEntry[];
   interrupts?: ScreenInterrupts;
   scope?: ScreenScope;
   pairing?: ScreenPairing;
+  /** This screen is one panel of a video wall — see ScreenWall. Absent on every
+   *  screen hung on its own, which is all of them but the front-desk five. */
+  wall?: ScreenWall;
   /** Which ad slide set to run. Defaults to the venue's own. */
   adSet?: string;
   /** Put "Next available" times on the ad slides. Off unless asked for — an

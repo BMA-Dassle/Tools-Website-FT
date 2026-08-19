@@ -26,6 +26,9 @@ import { SceneCameraMonitor } from "./SceneCameraMonitor";
 import { ScenePitBoard } from "./ScenePitBoard";
 import { SceneRaceResults } from "./SceneRaceResults";
 import { SceneRaceGuide } from "./SceneRaceGuide";
+import { SceneVipShowcase } from "./SceneVipShowcase";
+import { SceneOpenNow } from "./SceneOpenNow";
+import { SceneKioskHowto } from "./SceneKioskHowto";
 import { raceGuideEnabled } from "../flags";
 
 /**
@@ -59,6 +62,15 @@ export function SceneSlot(props: SceneProps) {
       // flipping it falls all the way through to house ads (the default below)
       // instead of leaving a screen on a setup notice.
       return raceGuideEnabled() ? <SceneRaceGuide {...props} /> : <SceneAdRotation {...props} />;
+    // THE FRONT-DESK WALL. All three read their panel position through choreo()
+    // and render one fifth of a composition. None of them may ever be given
+    // `requiresData` — see the tear invariant in defaults.ts FRONT_DESK_CONFIG.
+    case "vip-showcase":
+      return <SceneVipShowcase {...props} />;
+    case "open-now":
+      return <SceneOpenNow {...props} />;
+    case "kiosk-howto":
+      return <SceneKioskHowto {...props} />;
     case "event-welcome":
       return <SceneEventWelcome {...props} />;
     case "vip-welcome":
@@ -106,6 +118,9 @@ const IMPLEMENTED: ReadonlySet<SceneType> = new Set<SceneType>([
   "event-welcome",
   "vip-welcome",
   "celebration",
+  "vip-showcase",
+  "open-now",
+  "kiosk-howto",
 ]);
 
 export function isSceneImplemented(scene: SceneType): boolean {
@@ -159,6 +174,19 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
       // copy and the qualifying numbers are constants — and the takeover is the
       // reason the screen exists. Rotating it away to ads would mean the arrow
       // is not up at the one moment it matters.
+      return true;
+    case "vip-showcase":
+    case "kiosk-howto":
+      // Always true, and it MUST be. These are copy and live prices, not a feed
+      // selector — but more importantly, a data-gated entry that closes changes
+      // `totalSlots` on ONE panel, and scene selection is `slot % totalSlots`. Five
+      // players poll on independent 15s phases, so they can briefly disagree about
+      // emptiness and the wall visibly tears. Nothing on a wall may be gated.
+      return true;
+    case "open-now":
+      // Always true for the same reason. The menu board degrades WITHIN itself
+      // when the availability cache is cold — tiles keep their names and prices
+      // and simply carry no times — rather than dropping out of the rotation.
       return true;
     case "race-results":
       // Always true: the last race's result HOLDS until the next one lands, so

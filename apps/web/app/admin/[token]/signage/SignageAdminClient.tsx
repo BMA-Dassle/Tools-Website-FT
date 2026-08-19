@@ -887,6 +887,17 @@ interface Draft {
   pairGroupId: string;
   pairPosition: number;
   pairCount: number;
+  /** The front-desk wall's four-scene loop. Ticked alone, like the briefing and
+   *  camera boards — a wall panel owns its screen. */
+  showFrontDesk: boolean;
+  /** "" = this screen is not part of a video wall. */
+  wallId: string;
+  wallPosition: number;
+  wallCount: number;
+  /** Gap between panels as a percent of ONE panel's picture width. */
+  wallGapPct: number;
+  /** "" = derive from the ends (first fasttrax, last headpinz, inner none). */
+  wallBrand: "" | "fasttrax" | "headpinz" | "none";
   /** Percent inset per edge for a panel that crops its own picture. 0 = off. */
   overscanPct: number;
 }
@@ -938,6 +949,16 @@ function newDraft(): Draft {
     pairGroupId: "",
     pairPosition: 0,
     pairCount: 2,
+    showFrontDesk: false,
+    wallId: "",
+    wallPosition: 0,
+    // Five is the only wall that exists, so it is the sensible default the moment
+    // somebody types a wall id — but it stays editable, because the next wall
+    // will not be five.
+    wallCount: 5,
+    // ~6 inches on a ~48in picture (owner 2026-08-17).
+    wallGapPct: 12,
+    wallBrand: "",
     // A new screen assumes a panel that behaves. Nothing is inset until somebody
     // stands in front of a TV that is cropping and says so.
     overscanPct: 0,
@@ -1000,6 +1021,22 @@ function draftFromScreen(s: SignageScreen): Draft {
     pairGroupId: c.pairing?.groupId ?? "",
     pairPosition: c.pairing?.position ?? 0,
     pairCount: c.pairing?.count ?? 2,
+    showFrontDesk:
+      scenes.has("vip-showcase") || scenes.has("open-now") || scenes.has("kiosk-howto"),
+    // READ BACK, AND THIS IS THE SHARPEST CASE OF WHY. draftToConfig rebuilds the
+    // whole blob, so a field the form does not carry is dropped by the next
+    // unrelated save — and dropping `wall` from ONE panel of five does not merely
+    // lose a setting: that panel falls back to position 0 of 1, stops rendering its
+    // own slice, and the wall reads as broken while the other four are fine.
+    wallId: c.wall?.wallId ?? "",
+    wallPosition: c.wall?.position ?? 0,
+    wallCount: c.wall?.count ?? 5,
+    wallGapPct: typeof c.wall?.gapPct === "number" ? c.wall.gapPct : 12,
+    wallBrand:
+      c.wall?.brand === "fasttrax" || c.wall?.brand === "headpinz" || c.wall?.brand === "none"
+        ? c.wall.brand
+        : "",
+
     // Read back so that editing anything else on a corrected screen does not
     // un-correct it — draftToConfig below rebuilds the whole blob, so a field
     // the form does not carry is a field the next save silently drops.
@@ -1030,6 +1067,18 @@ function draftToConfig(d: Draft): ScreenConfig {
     // an advert rotating across the arrow that tells a group which room to
     // walk into would not just be noise, it would send them the wrong way.
     playlist.push({ scene: "race-guide", slots: 1 });
+  } else if (d.showFrontDesk) {
+    // A WALL PANEL OWNS ITS SCREEN, and this branch is the tear invariant in code.
+    // All five panels must carry a BYTE-IDENTICAL playlist, because scene selection
+    // is `slot % totalSlots` — two panels disagreeing about their slot total wrap at
+    // different moments and the wall visibly tears. Writing the literal here rather
+    // than composing it from tick-boxes is what makes that true by construction: the
+    // form cannot produce a four-slot variant on one panel. Nothing carries
+    // `requiresData` for the same reason (see defaults.ts FRONT_DESK_CONFIG).
+    playlist.push({ scene: "vip-showcase", slots: 4 });
+    playlist.push({ scene: "open-now", slots: 2 });
+    playlist.push({ scene: "kiosk-howto", slots: 1 });
+    playlist.push({ scene: "ads", slots: 1 });
   } else if (d.showResults) {
     // A SCORES WALL OWNS ITS WALL: a racer reading their own lap time off it
     // has thirty seconds on the walk past, and rotating an advert across that
@@ -1084,6 +1133,23 @@ function draftToConfig(d: Draft): ScreenConfig {
     ...(d.pairGroupId
       ? { pairing: { groupId: d.pairGroupId, position: d.pairPosition, count: d.pairCount } }
       : {}),
+    // Written only when the screen has a wall id: `wallId` is what groups the
+    // panels, and a wall block without one resolves to "not on a wall" anyway.
+    // Kept SEPARATE from `pairing` above, which is the whole architectural point —
+    // two of these five panels also share a player PC, and folding a 5-wide group
+    // into `pairing` would delete their two-monitor launcher (resolvePair needs
+    // exactly 2).
+    ...(d.wallId
+      ? {
+          wall: {
+            wallId: d.wallId,
+            position: d.wallPosition,
+            count: d.wallCount,
+            gapPct: d.wallGapPct,
+            ...(d.wallBrand ? { brand: d.wallBrand } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -1118,6 +1184,14 @@ function ScreenForm({
       showPitBoard: scenes.has("pit-board"),
       showResults: scenes.has("race-results"),
       showGuide: scenes.has("race-guide"),
+      showFrontDesk:
+        scenes.has("vip-showcase") || scenes.has("open-now") || scenes.has("kiosk-howto"),
+      // Picking the front-desk role fills in the wall defaults so the only thing
+      // left to set is WHICH panel this is. All five must share the wall id, which
+      // is why it is seeded rather than left blank for five separate typings.
+      wallId: scenes.has("vip-showcase") ? draft.wallId || "hpfm-front-desk" : draft.wallId,
+      wallCount: scenes.has("vip-showcase") ? 5 : draft.wallCount,
+      wallGapPct: scenes.has("vip-showcase") ? 12 : draft.wallGapPct,
       // Picking the briefing role at FastTrax defaults the venue too — the rooms
       // only exist there, and a briefing screen saved as HeadPinz would get no
       // briefing data at all (the pulse skips the lookup off-venue). Same for a
@@ -1129,7 +1203,12 @@ function ScreenForm({
         scenes.has("race-results") ||
         scenes.has("race-guide")
           ? "FT"
-          : draft.venue,
+          : // The front-desk wall is a HeadPinz Fort Myers fixture — it hangs over
+            // that building's second kiosk bank, and a panel saved as FastTrax would
+            // read the wrong venue's ad catalog and brand.
+            scenes.has("vip-showcase")
+            ? "HPFM"
+            : draft.venue,
       vipEnabled: preset.config.interrupts?.["vip-welcome"]?.enabled !== false,
       celebrationEnabled: preset.config.interrupts?.celebration?.enabled !== false,
       crownEnabled: preset.config.interrupts?.["billboard-crown"]?.enabled === true,
@@ -1262,6 +1341,12 @@ function ScreenForm({
           onChange={(v) => set("showResults", v)}
           label="Race results board"
           hint="The race that just came back in — final standings with best laps, and who levelled up a class. For a wall at the kart return. Pick the track below. Takes the whole screen; nothing else shows and nothing interrupts it."
+        />
+        <Check
+          checked={draft.showFrontDesk}
+          onChange={(v) => set("showFrontDesk", v)}
+          label="Front desk wall panel"
+          hint="One panel of the five-TV wall over the second kiosk bank. All five run the SAME loop — the VIP Experience, the menu board of what's open, then one instruction per kiosk — and each renders its own slice. Takes the whole screen; set the wall position below."
         />
       </fieldset>
 
@@ -1477,10 +1562,10 @@ function ScreenForm({
             <option value="tracker">Session tracker (every stage, checking in to pit in)</option>
           </select>
           <p style={hint}>
-            On Mega days both pit signs read the one combined lane, so the pair would show the
-            same seats. Set one to the session tracker and the pair splits the job: one sign
-            seats the group, the other shows every session&rsquo;s place in the pipeline —
-            called, briefing rooms, holding, karts, on track, pit in.
+            On Mega days both pit signs read the one combined lane, so the pair would show the same
+            seats. Set one to the session tracker and the pair splits the job: one sign seats the
+            group, the other shows every session&rsquo;s place in the pipeline — called, briefing
+            rooms, holding, karts, on track, pit in.
           </p>
         </Field>
       )}
@@ -1530,6 +1615,83 @@ function ScreenForm({
           percent costs a little picture, so stop at the first value that works.
         </p>
       </Field>
+
+      <fieldset style={fieldset}>
+        <legend style={legend}>Video wall (optional)</legend>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <input
+            type="text"
+            value={draft.wallId}
+            placeholder="Wall name, e.g. hpfm-front-desk"
+            onChange={(e) => set("wallId", e.target.value)}
+            style={{ ...input, flex: "1 1 200px" }}
+            aria-label="Wall name"
+          />
+          <input
+            type="number"
+            min={0}
+            value={draft.wallPosition}
+            onChange={(e) => set("wallPosition", Number(e.target.value))}
+            style={{ ...input, width: 110 }}
+            aria-label="Position on the wall (0 = far left)"
+          />
+          <input
+            type="number"
+            min={1}
+            value={draft.wallCount}
+            onChange={(e) => set("wallCount", Number(e.target.value))}
+            style={{ ...input, width: 110 }}
+            aria-label="Panels on the wall"
+          />
+        </div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+          <label style={{ ...hint, display: "flex", alignItems: "center", gap: 8 }}>
+            Gap between panels
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={draft.wallGapPct}
+              onChange={(e) => set("wallGapPct", Number(e.target.value))}
+              style={{ ...input, width: 90 }}
+              aria-label="Gap between panels, percent of one panel's width"
+            />
+            % of one panel
+          </label>
+          <select
+            value={draft.wallBrand}
+            onChange={(e) => set("wallBrand", e.target.value as Draft["wallBrand"])}
+            style={{ ...input, width: 220 }}
+            aria-label="Brand mark on this panel"
+          >
+            <option value="">Brand mark: from its place on the wall</option>
+            <option value="fasttrax">FastTrax</option>
+            <option value="headpinz">HeadPinz</option>
+            <option value="none">No mark</option>
+          </select>
+        </div>
+        <p style={hint}>
+          Several screens hung close enough to read as ONE picture. Give every panel the same wall
+          name and its own position — <b>0 is the far left as you face the wall</b> — and each one
+          renders its own slice of every scene instead of all five showing the same card.
+        </p>
+        <p style={hint}>
+          <b>All panels of a wall must show the same things.</b> Which scene is up is worked out
+          from the clock as <i>slot ÷ number of slots</i>, so a panel with a different set of
+          tick-boxes wraps at a different moment and the wall visibly tears. Tick{" "}
+          <b>Front desk wall panel</b> on all five and change nothing else.
+        </p>
+        <p style={hint}>
+          The gap is what a wall-long light pass has to travel across — measure it, don&apos;t
+          guess. ~6 inches on a ~48 inch picture is about 12%. It is a percentage of{" "}
+          <b>one panel&apos;s width</b>, not of the whole wall.
+        </p>
+        <p style={hint}>
+          This is separate from pairing below, and both can be set at once: pairing is which two
+          screens share one player PC (it must be exactly two, or the two-monitor launcher
+          disappears), while the wall is how many perform together.
+        </p>
+      </fieldset>
 
       <fieldset style={fieldset}>
         <legend style={legend}>Pair with another screen (optional)</legend>

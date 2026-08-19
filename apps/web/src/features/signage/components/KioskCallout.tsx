@@ -16,7 +16,17 @@ import { withAlpha } from "../color";
 
 const ARROW_COUNT = 3;
 
-export function KioskCallout({ accent, text }: { accent: string; text: string }) {
+/**
+ * `text` is OPTIONAL. Omit it for the ARROW-ONLY band the front-desk wall's
+ * how-to panels use: there, the panel's own headline IS the instruction ("Buy a
+ * lane"), and repeating "book it at any kiosk below" underneath would be the same
+ * sentence twice on one screen. The band still points, which is its actual job.
+ *
+ * Extended here rather than forked into a second band component on purpose — a
+ * fork is how the original stops receiving the next fix (see
+ * tasks/lessons.md § an extracted component misses later fixes).
+ */
+export function KioskCallout({ accent, text }: { accent: string; text?: string }) {
   return (
     <div
       style={{
@@ -39,18 +49,20 @@ export function KioskCallout({ accent, text }: { accent: string; text: string })
 
       <Beacon accent={accent} />
 
-      <div
-        className="tv-display"
-        style={{
-          fontSize: 48,
-          letterSpacing: "0.04em",
-          color: "#fff",
-          textShadow: `0 0 24px ${withAlpha(accent, 0.55)}`,
-          zIndex: 1,
-        }}
-      >
-        {text}
-      </div>
+      {text && (
+        <div
+          className="tv-display"
+          style={{
+            fontSize: 48,
+            letterSpacing: "0.04em",
+            color: "#fff",
+            textShadow: `0 0 24px ${withAlpha(accent, 0.55)}`,
+            zIndex: 1,
+          }}
+        >
+          {text}
+        </div>
+      )}
 
       <Beacon accent={accent} />
 

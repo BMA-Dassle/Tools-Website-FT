@@ -196,5 +196,13 @@ export const TV_UPDATE_CHECK_MS = 5 * 60_000;
  *         max-uptime recycle on the wall TVs, admin tablets self-update on
  *         uptime. Built to survive weeks of uptime instead of leaking through
  *         them.
+ * 0.7.0 — VIDEO WALLS. `ScreenConfig.wall` + choreo(): several screens hung
+ *         close enough to read as one picture, choreographed by panel position
+ *         while `pairing` keeps its exactly-two meaning so the dual-monitor
+ *         launchers survive. Three scenes for the HeadPinz Fort Myers front-desk
+ *         five — vip-showcase, open-now, kiosk-howto — plus a per-panel offset on
+ *         the ad rotation so five panels never mirror each other, and a
+ *         position-aware celebration that lands a guest's name whole on the
+ *         centre panel. Every existing board carries no `wall` and is unchanged.
  */
-export const SIGNAGE_VERSION = "0.6.0";
+export const SIGNAGE_VERSION = "0.7.0";

@@ -206,19 +206,107 @@ Works because `pairing` stays exactly-2. `git`-clean because `wall` carries the 
 
 ## Build order
 
-- [ ] 1. `types.ts` — add `ScreenWall`, `ScreenConfig.wall`
-- [ ] 2. `defaults.ts` — resolve + clamp `wall`; add the `front-desk` role preset
-- [ ] 3. `wall.ts` + `wall.test.ts` — `choreo`, `wallSpan`, `wallCentre` (pure)
-- [ ] 4. `SceneVipShowcase.tsx` — 4 slides × 5 positions
-- [ ] 5. `SceneOpenNow.tsx` — tiles, paused gate, real price sources
-- [ ] 6. `SceneKioskHowto.tsx` — 5 verbs + callout band
-- [ ] 7. `SceneAdRotation.tsx` — position offset (3 lines)
-- [ ] 8. `SceneCelebration.tsx` — position-aware composition
-- [ ] 9. `registry.tsx` — wire 3 scenes into `SceneSlot`, `IMPLEMENTED`, `sceneHasData`
-- [ ] 10. `constants.ts` — bump `SIGNAGE_VERSION` to `0.6.0` with a changelog line
-- [ ] 11. `SignageAdminClient.tsx` — Wall fieldset (id, position, count, gap %, brand)
-- [ ] 12. `scripts/signage-provision-front-desk.mts` — seed + assert
+- [x] 1. `types.ts` — `ScreenWall`, `ScreenConfig.wall`, three new `SceneType`s
+- [x] 2. `defaults.ts` — resolve + clamp `wall`; the `front-desk` role preset
+- [x] 3. `wall.ts` + `wall.test.ts` — `choreo`, `wallSpan`, `wallCentre`, `isWallCentre`,
+       `chunkAcrossWall`, `atWallPosition`, `wallBrand` (pure, 32 tests)
+- [x] 3b. `wall-content.ts` + `wall-content.test.ts` — NOT in the original plan. Added
+       because the price rule and the copy-staleness rule are only testable if the words
+       and the numbers live outside the JSX. 47 tests, including the copy pin.
+- [x] 4. `SceneVipShowcase.tsx` — 4 slides x 5 positions + the identity rail
+- [x] 5. `SceneOpenNow.tsx` — tiles, paused gate, real price sources
+- [x] 6. `SceneKioskHowto.tsx` — 5 verbs + callout band
+- [x] 7. `SceneAdRotation.tsx` — position offset, **plus a fifth slide** (see below)
+- [x] 8. `SceneCelebration.tsx` — position-aware composition
+- [x] 9. `registry.tsx` — 3 scenes into `SceneSlot`, `IMPLEMENTED`, `sceneHasData`
+- [x] 10. `constants.ts` — `SIGNAGE_VERSION` `0.7.0` (0.6.0 was already the endurance
+       release, so the plan's number was taken)
+- [x] 11. `SignageAdminClient.tsx` — Wall fieldset + the `front-desk` tick-box. **This step
+       turned out to be load-bearing, not polish — see below.**
+- [x] 12. `scripts/signage-provision-front-desk.mts` — seeded 2026-08-18, all 8 asserts pass
 - [ ] 13. Smoke: five browser windows at `/tv?screen=HPFM:2..6` on one laptop, BEFORE hanging
+
+## What the build changed about the plan
+
+Four things the plan did not know, found while building. Each is a change to the plan
+rather than a deviation from it.
+
+### The admin form would have WIPED the wall (step 11 is load-bearing)
+
+`draftToConfig` in `SignageAdminClient.tsx` **rebuilds the entire config blob** — a field the
+form does not carry is a field the next unrelated save silently drops. The file already
+documents this for `overscanPct` and `resultsTrack`. For this wall it is much worse than
+losing a setting: editing ONE panel through the admin page would have
+
+1. dropped its `wall` block, so that panel falls back to position 0 of 1 and stops rendering
+   its own slice, and
+2. replaced its playlist with `[{ads, 1}]`, because the form could not express
+   `vip-showcase` / `open-now` / `kiosk-howto` — which changes `totalSlots` on that panel
+   alone and **tears the wall**.
+
+So the form now carries `wall` (read back and written) and has a `front-desk` tick-box that
+writes the four-scene playlist as a literal. Writing it as a literal rather than composing it
+from tick-boxes is what makes the tear invariant true by construction: the form cannot
+produce a variant playlist on one panel.
+
+### The ad rotation needed a FIFTH slide, not just an offset
+
+The plan scoped step 7 to "3 lines". The offset alone is not enough. The Fort Myers kiosk
+catalog has **four** slides (racing, bowling, gel, Game Zone), so on a five-panel wall panel
+4's `(t + 4) % 4` is panel 0's `t % 4` — **the two ends would show the same slide**, which is
+the hall of mirrors the offset exists to prevent.
+
+The fifth slide is All Access, appended only when a wall is wider than its catalog. That is
+also exactly the design's resting wall: five distinct panels with **one** in gold. It carries
+`productKeys: ["race-bowl"]` so it pauses with the combo, and it is null when no VIP pack is
+on sale — at which point the wall accepts two matching ends, a far smaller wrong than
+advertising a price for something that is not for sale.
+
+### The wall does NOT sleep at close (open decision 3, answered)
+
+Traced, not assumed. `TvApp.tsx` carries **`const asleep = false;`** — a hardcoded literal,
+with a comment saying sleep "lands with the welcome-board PR". The `sleep` scene exists and
+nothing anywhere sets `asleep`: **no screen on the estate sleeps today**, and these five will
+run all night like the other twelve. Wiring venue hours would touch all thirteen boards and
+is deliberately not in this PR.
+
+### "Ask at the desk" beats a confident "Open"
+
+The feed hands the wall only the availability TIMES, and `buildNextAvailable` deliberately
+omits a product the cache has marked unavailable. So "no time" is ambiguous between a cold
+cache, nothing-left-today, and a product with no slots at all. Menu tiles therefore carry
+`tracksAvailability`, and a tile that tracks it with a WARM cache and no entry says "Ask at
+the desk" rather than "Open" — printing "Open" there sends a guest to a kiosk that will
+refuse them.
+
+## Open decisions — where they landed
+
+1. **Which brand mark on which end** — built as mocked (FastTrax left, HeadPinz right) and
+   seeded that way, but it is `wall.brand` per screen and swappable from the admin form's Wall
+   fieldset without a deploy. `wallBrand()` derives the ends when config is silent and honours
+   an explicit "No mark". **Owner confirmation still wanted** once the room is faced.
+2. **Spanish** — built ENGLISH throughout, matching all twelve existing boards; no signage
+   scene is bilingual today and the kiosk hard rule scopes to the kiosk i18n catalogue. The
+   plan's recommendation (an alternating price slide) is NOT built. Still an owner call.
+3. **Sleep at close** — answered above: nothing sleeps, and this PR does not change that.
+
+## Not built, and why
+
+**The billboard "show"** — the design's first section, the staggered word reveal at t+2.4s and
+the gold finale at t+9.0s. That is the CROWN scene, which is declared in `SceneType` but
+absent from the registry's `IMPLEMENTED` set, so the scheduler refuses to select it and it
+never renders. `billboardCrown.enabled: true` on these five is still correct and still
+load-bearing — its other job is telling `SceneAdRotation` to run the kiosks' own catalog — and
+when the crown scene does land, these five should crown. In the meantime the showcase gets a
+per-panel staggered `tv-rise` entrance, which is the same left-to-right handoff at slide
+scale.
+
+**The at-rest panel's kiosk stack.** The design draws the resting slide in the kiosk's
+centred-stack language (a gradient "Let's race." headline over a ken-burns clip).
+`SceneAdRotation` is the existing left-scrim / right-photo layout and is shared by HPFM:1 and
+every other board, so re-laying it out was out of scope here — which is exactly why the plan
+scoped step 7 to the offset. The wall's resting slide is therefore today's house-ad layout:
+five distinct slides, one gold. Worth a follow-up if the owner wants the kiosk stack there.
 
 ## Verification
 

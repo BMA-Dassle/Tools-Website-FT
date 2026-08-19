@@ -16,7 +16,7 @@
  */
 import { clampOverscanPct, VENUE_INFO, type SignageVenue } from "./constants";
 import { clampHoldMs } from "./race-guide";
-import type { PlaylistEntry, ScreenConfig, SceneType } from "./types";
+import type { PlaylistEntry, ScreenConfig, SceneType, ScreenWall } from "./types";
 
 export type ScreenRole =
   | "kiosk-bank"
@@ -26,6 +26,7 @@ export type ScreenRole =
   | "pit-board"
   | "results-board"
   | "check-in-guide"
+  | "front-desk"
   | "ads-only";
 
 export interface RolePreset {
@@ -178,6 +179,61 @@ const RACE_GUIDE_CONFIG: ScreenConfig = {
   },
 };
 
+/**
+ * ONE PANEL OF THE FRONT-DESK WALL at HeadPinz Fort Myers — five TVs over a
+ * second bank of kiosks, driven as one object off the shared clock.
+ *
+ * THE TEAR INVARIANT, and why this preset is the whole answer to it. Scene
+ * selection is `slot % totalSlots`, so two panels that disagree about their slot
+ * total wrap at different moments and the wall visibly tears. All five therefore
+ * carry a BYTE-IDENTICAL playlist — which is exactly what a shared preset object
+ * gives you, and what the seed script re-asserts against the database afterwards
+ * rather than trusting that a later hand-edit kept it true.
+ *
+ * That is also why NOTHING here carries `requiresData`. A data-gated entry is
+ * dropped from the rotation when its selector comes back empty, which changes
+ * `totalSlots` — and five players poll on independent 15s phases, so they can
+ * briefly disagree about whether it is empty. That is a torn wall for up to
+ * fifteen seconds. The same reason `event-welcome` is deliberately absent: HPFM:1
+ * already carries the party board, and it is the one scene here that would want
+ * gating.
+ *
+ * 8 slots = 5m20s: the VIP showcase gets four (two full passes of its four
+ * 20-second sub-slides), the menu board two, the kiosk how-to one, house ads one.
+ *
+ * `billboard-crown: true` is LOAD-BEARING AND MISLEADING, so read this before
+ * "tidying" it. The crown scene is declared in SceneType but is NOT in the
+ * registry's IMPLEMENTED set, so the scheduler refuses to select it and it never
+ * renders. The flag's OTHER job is telling SceneAdRotation to run the kiosks' own
+ * catalog on the kiosks' own cadence — it means "I am standing over a bank of
+ * kiosks", which is true of all five of these. Both meanings are wanted here.
+ *
+ * `celebration` is ON: the guest is at the bank directly below, and reacting to
+ * them is the point of hanging a screen there. `vip-welcome` is off — it is not
+ * in the precedence chain anyway, and the VIP *product* already has a four-slide
+ * showcase on this wall.
+ *
+ * `wall` itself is NOT in the preset. It is per screen by definition (each panel
+ * has its own position) and the seed script writes it around this config.
+ */
+const FRONT_DESK_CONFIG: ScreenConfig = {
+  playlist: [
+    { scene: "vip-showcase", slots: 4 },
+    { scene: "open-now", slots: 2 },
+    { scene: "kiosk-howto", slots: 1 },
+    { scene: "ads", slots: 1 },
+  ],
+  interrupts: {
+    "vip-welcome": { enabled: false },
+    celebration: { enabled: true, maxAgeSecs: 90, showMs: 8_000 },
+    "billboard-crown": { enabled: true, joinEvery: 1 },
+  },
+  // The menu board's whole job is "what is open and when" — it is the one scene
+  // on the estate that must have the times, and it reads the same cache the
+  // kiosks below sell from, so the wall and the machine cannot disagree.
+  showNextAvailable: true,
+};
+
 /** The safe fallback: house ads and nothing else. Needs no data at all, which
  *  is exactly why it is what an unprovisioned or degraded screen falls back to. */
 const ADS_ONLY_CONFIG: ScreenConfig = {
@@ -247,6 +303,14 @@ export const ROLE_PRESETS: RolePreset[] = [
     config: CAMERA_MONITOR_CONFIG,
   },
   {
+    role: "front-desk",
+    label: "Front desk wall panel (one of five)",
+    description:
+      "One panel of the five-TV wall over the second kiosk bank. All five run the SAME loop off the shared clock and each renders its own slice: the VIP Experience across the wall, the menu board of what's open, then one instruction per kiosk. Set the wall position after choosing this — and give all five the same wall id, or the wall tears.",
+    venues: ["HPFM"],
+    config: FRONT_DESK_CONFIG,
+  },
+  {
     role: "ads-only",
     label: "Advertising only",
     description: "House advertising on a loop. No guest data on screen.",
@@ -276,6 +340,19 @@ export interface ResolvedScreenConfig {
   billboardCrown: { enabled: boolean; joinEvery: number };
   scope: { resourceIds: string[]; gfCenterCodes: string[] };
   pairing: { groupId: string; position: number; count: number } | null;
+  /** Null for every screen not hung as part of a video wall — which is all of
+   *  them but the front-desk five. Ask `wallBrand()` rather than reading `brand`
+   *  directly: it is the thing that derives the ends when config is silent. */
+  wall: {
+    wallId: string;
+    position: number;
+    count: number;
+    gapPct: number;
+    /** "none" SILENCES this end; null means "not configured, derive it from the
+     *  panel's place on the wall". Collapsing the two would make the admin
+     *  form's "No mark" option do nothing on an end panel. */
+    brand: "fasttrax" | "headpinz" | "none" | null;
+  } | null;
   adSet: string | null;
   showNextAvailable: boolean;
   checkinWindowMins: number;
@@ -340,6 +417,7 @@ export function resolveScreenConfig(
   const cel = c.interrupts?.celebration ?? {};
   const crown = c.interrupts?.["billboard-crown"] ?? {};
   const pairing = c.pairing;
+  const wall = c.wall;
 
   return {
     playlist: sanitizePlaylist(c.playlist),
@@ -380,6 +458,13 @@ export function resolveScreenConfig(
             count: Math.max(1, numOr(pairing.count, 1)),
           }
         : null,
+    // A WALL IS ONLY A WALL IF IT IS NAMED. `wallId` is what groups the panels,
+    // so a nameless one resolves to "not on a wall" — adopting it would make a
+    // lone screen render one fifth of a composition and look broken. Everything
+    // else is clamped rather than rejected (the CONFIG_VERSION contract): every
+    // one of these values is a hand-typed admin field, and a screen that has run
+    // unattended for weeks must not go dark over a fat-fingered count.
+    wall: wall && typeof wall.wallId === "string" && wall.wallId ? resolveWall(wall) : null,
     adSet: typeof c.adSet === "string" && c.adSet ? c.adSet : null,
     showNextAvailable: c.showNextAvailable === true,
     // 8 minutes from the call (owner 2026-08-11).
@@ -450,6 +535,26 @@ export function resolveScreenConfig(
     // safe reading: an unnecessary inset only wastes glass, whereas an unclamped
     // one can leave a wall dark.
     overscanPct: clampOverscanPct(c.overscanPct),
+  };
+}
+
+/**
+ * A stored wall, clamped. Position into [0, count-1] and count to at least 1, so
+ * position 9 of a 5-panel wall renders panel 0's slice rather than nothing at
+ * all; gap into [0,100] defaulting to 12 (~6 inches on a ~48in picture, owner
+ * 2026-08-17). An unrecognised brand is DERIVED from the ends by `wallBrand`
+ * rather than trusted, for the same reason `briefingRoom` only accepts its two
+ * literals: a typo must not put a FastTrax mark in the middle of the wall.
+ */
+function resolveWall(w: ScreenWall): NonNullable<ResolvedScreenConfig["wall"]> {
+  const count = Math.max(1, Math.floor(numOr(w.count, 1)));
+  const position = Math.min(count - 1, Math.max(0, Math.floor(numOr(w.position, 0))));
+  return {
+    wallId: w.wallId,
+    position,
+    count,
+    gapPct: Math.min(100, Math.max(0, numOr(w.gapPct, 12))),
+    brand: w.brand === "fasttrax" || w.brand === "headpinz" || w.brand === "none" ? w.brand : null,
   };
 }
 
