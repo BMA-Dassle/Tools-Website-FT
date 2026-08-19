@@ -748,8 +748,32 @@ describe("the front-desk role preset", () => {
   });
 
   it("has no separate kiosk how-to slot — the instruction is chrome now", () => {
-    const scenes = (preset.config.playlist ?? []).map((e) => e.scene);
+    const scenes = (preset.config.playlist ?? []).map((e) => String(e.scene));
     expect(scenes).not.toContain("kiosk-howto");
+  });
+
+  it("carries NO house-ads slot — this wall prices what is on sale", () => {
+    // Ads are a FALLBACK now (a quiet wing, an unbuilt scene), never a scheduled turn:
+    // a generic advert beside a real price is the weaker of the two.
+    expect((preset.config.playlist ?? []).map((e) => e.scene)).not.toContain("ads");
+  });
+
+  it("THE SECOND COPY: the admin form writes exactly the preset's playlist", () => {
+    // This is the drift that actually happened. The preset moved to nine slots with
+    // spans while the admin form still wrote four scenes including a since-deleted
+    // `kiosk-howto` — so saving ANY front-desk screen from the form would have written a
+    // playlist with no spans, rendering the three-panel menu board across all five and
+    // leaving TV 4 and TV 5 blank.
+    //
+    // The fix is that the form now READS the preset instead of restating it, so the
+    // second copy no longer exists and cannot drift. This test does not prove that —
+    // it pins the preset's own shape, so changing the wall's rhythm has to be
+    // deliberate rather than incidental. If anyone reintroduces a literal in the form,
+    // that is what to catch in review; the code has no second source any more.
+    const fromPreset = (preset.config.playlist ?? []).map(
+      (e) => `${e.scene}:${e.slots ?? 1}:${e.span ?? "wall"}:${e.requiresData === true}`,
+    );
+    expect(fromPreset).toEqual(["open-now:7:middle:false", "vip-showcase:2:wall:false"]);
   });
 
   it("THE TEAR INVARIANT: nothing on this playlist is data-gated", () => {

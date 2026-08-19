@@ -1184,8 +1184,7 @@ function draftFromScreen(s: SignageScreen): Draft {
     pairGroupId: c.pairing?.groupId ?? "",
     pairPosition: c.pairing?.position ?? 0,
     pairCount: c.pairing?.count ?? 2,
-    showFrontDesk:
-      scenes.has("vip-showcase") || scenes.has("open-now") || scenes.has("kiosk-howto"),
+    showFrontDesk: scenes.has("vip-showcase") || scenes.has("open-now"),
     // READ BACK, AND THIS IS THE SHARPEST CASE OF WHY. draftToConfig rebuilds the
     // whole blob, so a field the form does not carry is dropped by the next
     // unrelated save — and dropping `wall` from ONE panel of five does not merely
@@ -1251,16 +1250,23 @@ function draftToConfig(d: Draft): ScreenConfig {
     playlist.push({ scene: "race-guide", slots: 1 });
   } else if (d.showFrontDesk) {
     // A WALL PANEL OWNS ITS SCREEN, and this branch is the tear invariant in code.
-    // All five panels must carry a BYTE-IDENTICAL playlist, because scene selection
-    // is `slot % totalSlots` — two panels disagreeing about their slot total wrap at
+    // All five panels must carry a BYTE-IDENTICAL playlist, because scene selection is
+    // `slot % totalSlots` — two panels disagreeing about their slot total wrap at
     // different moments and the wall visibly tears. Writing the literal here rather
     // than composing it from tick-boxes is what makes that true by construction: the
-    // form cannot produce a four-slot variant on one panel. Nothing carries
+    // form cannot produce a variant playlist on one panel. Nothing carries
     // `requiresData` for the same reason (see defaults.ts FRONT_DESK_CONFIG).
-    playlist.push({ scene: "vip-showcase", slots: 4 });
-    playlist.push({ scene: "open-now", slots: 2 });
-    playlist.push({ scene: "kiosk-howto", slots: 1 });
-    playlist.push({ scene: "ads", slots: 1 });
+    //
+    // IT MUST STAY IN STEP WITH THE PRESET. This literal is the second copy of the
+    // front-desk playlist, and it has already drifted once: the preset moved to nine
+    // slots with spans while this still wrote four scenes including a since-deleted
+    // `kiosk-howto` — so saving ANY front-desk screen from this form would have written
+    // a playlist with no spans, which renders the three-panel menu board across all
+    // five and leaves TV 4 and TV 5 blank. `rolePreset("front-desk")` is the source of
+    // truth; read from it rather than restating it.
+    for (const entry of rolePreset("front-desk").config.playlist ?? []) {
+      playlist.push(entry);
+    }
   } else if (d.showResults) {
     // A SCORES WALL OWNS ITS WALL: a racer reading their own lap time off it
     // has thirty seconds on the walk past, and rotating an advert across that
@@ -1379,8 +1385,7 @@ function ScreenForm({
       showPitBoard: scenes.has("pit-board"),
       showResults: scenes.has("race-results"),
       showGuide: scenes.has("race-guide"),
-      showFrontDesk:
-        scenes.has("vip-showcase") || scenes.has("open-now") || scenes.has("kiosk-howto"),
+      showFrontDesk: scenes.has("vip-showcase") || scenes.has("open-now"),
       // Picking the front-desk role fills in the wall defaults so the only thing
       // left to set is WHICH panel this is. All five must share the wall id, which
       // is why it is seeded rather than left blank for five separate typings.

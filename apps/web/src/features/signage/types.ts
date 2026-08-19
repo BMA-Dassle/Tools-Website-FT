@@ -63,13 +63,19 @@ import type { TopTimesView } from "./top-times";
  *                     the price. A gold identity rail names the product and its
  *                     price on every panel of every slide, so a guest walking up
  *                     mid-slide always knows what they are looking at
- *  - `open-now`       the venue's menu board: ten attraction tiles dealt across
- *                     the five panels, with live "next available" from the same
- *                     cache the kiosks read. A paused product shows no price and
- *                     no time
- *  - `kiosk-howto`    one verb per panel, each over the machine it names —
- *                     CHECK IN · BUY A LANE · BOOK A RACE · LOAD A CARD · BUY
- *                     THE VIP NIGHT — with the arrow band pointing down at it
+ *  - `open-now`       the venue's menu board across the MIDDLE THREE panels: one
+ *                     subject per panel, dealt from six subject slots in two sets
+ *                     that cut together every 40s. Live "next available" from the
+ *                     same cache the kiosks read; a paused product shows no price
+ *                     and no time
+ *  - `bowling-checkin` the wall's LEFT WING: two columns — who can check themselves
+ *                     in right now, and who has, with their lane. Selected because
+ *                     that panel sits outside the running scene's span, never
+ *                     because it has data (see ScreenWall.outsideScene)
+ *
+ *  (`kiosk-howto` was here and is gone: "buy it on the kiosk below" became permanent
+ *  chrome under every pricing panel, which said both things at once and cost no
+ *  airtime, so the scene had nothing left to do.)
  *
  *  - `sleep`          venue closed — panel/power saver
  */
@@ -87,7 +93,6 @@ export type SceneType =
   | "race-guide"
   | "vip-showcase"
   | "open-now"
-  | "kiosk-howto"
   | "bowling-checkin"
   | "sleep";
 
@@ -103,7 +108,6 @@ export const ROTATION_SCENE_TYPES = [
   "race-guide",
   "vip-showcase",
   "open-now",
-  "kiosk-howto",
 ] as const satisfies readonly SceneType[];
 
 /** Scenes that PREEMPT the rotation when their trigger fires. */

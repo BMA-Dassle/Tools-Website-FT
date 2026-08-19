@@ -211,7 +211,7 @@ export const TV_UPDATE_CHECK_MS = 5 * 60_000;
  *         close enough to read as one picture, choreographed by panel position
  *         while `pairing` keeps its exactly-two meaning so the dual-monitor
  *         launchers survive. Three scenes for the HeadPinz Fort Myers front-desk
- *         five — vip-showcase, open-now, kiosk-howto — plus a per-panel offset on
+ *         five — vip-showcase, open-now, bowling-checkin — plus a per-panel offset on
  *         the ad rotation so five panels never mirror each other, and a
  *         position-aware celebration that lands a guest's name whole on the
  *         centre panel. Every existing board carries no `wall` and is unchanged.

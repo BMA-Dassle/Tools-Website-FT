@@ -392,7 +392,10 @@ describe("the wings — what a panel outside the span actually renders", () => {
   });
 
   it("an UNBUILT wing scene falls to ads, like every other unbuilt scene", () => {
-    expect(sceneAt(0, 3, "kiosk-howto")).toBe("ads");
+    // `billboard-crown` IS a SceneType and is deliberately NOT in IMPLEMENTED, which
+    // makes it the honest test of "declared but unbuilt" — the exact state that painted
+    // house ads over HPFM:1 for a third of every cycle in August 2026.
+    expect(sceneAt(0, 3, "billboard-crown")).toBe("ads");
     expect(sceneAt(0, 3, "not-a-scene")).toBe("ads");
   });
 
