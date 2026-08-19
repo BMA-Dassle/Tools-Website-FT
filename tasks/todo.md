@@ -62,11 +62,24 @@ proves the internet is up and says nothing about whether DNS resolves us or Verc
       render, and the boot effect replaceStates to the canonical URL, which dropped it: the pane
       painted for one render and vanished. `canonicalTvPath` in constants.ts now carries it, so it
       also survives a self-update reload. `demo` deliberately does not ride along.
-- [x] **Smoked on the preview over CDP** (real Edge, share-bypass cookie): HPFM:2 and HPFM:4 both
-      render their real boards; `Network.emulateNetworkConditions offline` for 20s and the wall
-      keeps animating and advancing scenes; `/api/kiosk/version` throws while offline (so the gate
-      holds) and answers with the deployed SHA the moment it is back. Zero app console errors.
-- [x] Gates: tsc clean · **1012 signage tests**, 5734 web tests · eslint 0 errors, zero **new**
+- [x] **Smoked on the preview over CDP** (real Edge, share-bypass cookie, build `914f9981`):
+      HPFM:2 and HPFM:4 both render their real boards; the debug pane now paints AND PERSISTS,
+      reading `feed ok` / `SCENE vip-showcase` / `reloads allowed`; 20s of
+      `Network.emulateNetworkConditions offline` and the wall keeps animating and advancing
+      scenes with the pane still up; `/api/kiosk/version` throws while offline — which is exactly
+      the input the gate refuses to navigate on — and answers with the deployed SHA the moment it
+      is back. Zero app console errors (the only ones are the 3cx LiveChat widget's CORS failures,
+      pre-existing and unrelated — worth asking separately why a chat widget loads on /tv at all).
+      **NOT staged:** the `reloads HELD — waiting for the network` string needs a reload to be
+      WANTED while offline, which needs an admin token to press "Reload screens". The policy
+      itself is covered by the 12 unit tests.
+- [x] **Crash breaker extracted and tested** (`crash-breaker.ts`, 10 tests). The boundary's reload
+      is the easy half; the counter deciding when to STOP is the half that can hurt. Writing the
+      tests corrected two things: the window SLIDES (clears on the most recent crash, not the
+      first — my first test asserted the wrong one and failed), and a FUTURE timestamp is now
+      ignored, because player PCs carry the wrong clock and one correction could otherwise latch a
+      screen out of recovering for a whole window.
+- [x] Gates: tsc clean · **1022 signage tests**, 5749 web tests · eslint 0 errors, zero **new**
       warnings (the `useRef(Date.now())` purity warning in TvShell is pre-existing on origin/main,
       confirmed by linting main's copy) · `next build` + a11y gate exit 0.
 
