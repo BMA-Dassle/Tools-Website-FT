@@ -110,17 +110,56 @@ describe("startup script", () => {
 describe("instructions", () => {
   const steps = startupInstructions("FT:1");
 
-  it("names the folder, the file and both registry routes", () => {
+  it("names the folder and the file", () => {
     const all = steps.join(" ");
     expect(all).toContain("C:\\TV\\");
     expect(all).toContain("tv-ft-1.bat");
-    expect(all).toContain("CurrentVersion\\Run");
-    expect(all).toContain("Winlogon");
   });
 
-  it("warns that replacing the shell removes the desktop", () => {
-    // Someone will try this on their own laptop otherwise.
-    expect(steps.join(" ")).toMatch(/no Start menu|Safe Mode/);
+  it("installs the launcher as the WINDOWS SHELL", () => {
+    const all = steps.join(" ");
+    expect(all).toContain("Winlogon");
+    expect(all).toContain("Shell");
+    expect(all).toContain("explorer.exe");
+    // The full path, not just the filename — the registry value is a path.
+    expect(all).toContain("C:\\TV\\tv-ft-1.bat");
+  });
+
+  it("offers the shell method and NOTHING ELSE", () => {
+    // ONE METHOD FOR EVERY SCREEN (owner 2026-08-19). The Run-key route used to
+    // be step 5 here with the shell as an afterthought, and this asserts the
+    // reversal held: two documented ways to start a player meant two ways for one
+    // to be half-configured, and the Run-key one left a desktop behind the board
+    // that only showed itself when Edge crashed.
+    const all = steps.join(" ");
+    expect(all).not.toContain("CurrentVersion\\Run");
+    expect(all).not.toMatch(/run at sign-in|Run key/i);
+  });
+
+  it("teaches the way back out BEFORE taking the desktop away", () => {
+    // Task Manager is the escape hatch and it is load-bearing: Ctrl+Shift+Esc is
+    // handled by Windows, not the shell, so it still opens on a machine whose
+    // shell is a batch file. Someone has to know that before they set the value.
+    const all = steps.join(" ");
+    expect(all).toContain("Ctrl+Shift+Esc");
+    expect(all).toMatch(/no Start menu|no desktop|Safe Mode/);
+    // And the escape hatch is taught before the change that needs it.
+    const escapeAt = steps.findIndex((s) => s.includes("Ctrl+Shift+Esc"));
+    const shellAt = steps.findIndex((s) => s.includes("Winlogon"));
+    expect(escapeAt).toBeGreaterThanOrEqual(0);
+    expect(escapeAt).toBeLessThan(shellAt);
+  });
+
+  it("makes the player sign itself in", () => {
+    // Without autologon a reboot leaves the wall on the lock screen and the shell
+    // never starts at all — which looks exactly like a broken script.
+    expect(steps.join(" ")).toContain("netplwiz");
+  });
+
+  it("says to test by double-clicking while a desktop still exists", () => {
+    const all = steps.join(" ");
+    expect(all).toMatch(/Double-click/i);
+    expect(all).toMatch(/STILL WORKS|still works/);
   });
 });
 
@@ -217,5 +256,28 @@ describe("two-monitor startup script", () => {
     expect(steps[0]).toContain("BrowserSignin");
     expect(steps.join(" ")).toContain("Extend");
     expect(steps.join(" ")).toContain("SWAP_SIDES");
+  });
+
+  it("installs the pair the SAME one way a single screen is installed", () => {
+    // The two launchers disagreed about three flags once (see EDGE_COMMON_FLAGS)
+    // and the fix was one list. The install method is the same kind of thing: one
+    // set of steps, shared, so a fix to one cannot skip the other.
+    const steps = dualStartupInstructions("FT:7", "FT:8");
+    const all = steps.join(" ");
+    expect(all).toContain("Winlogon");
+    expect(all).toContain("C:\\TV\\tv-pair-ft-7-ft-8.bat");
+    expect(all).toContain("Ctrl+Shift+Esc");
+    expect(all).toContain("netplwiz");
+    expect(all).not.toContain("CurrentVersion\\Run");
+  });
+
+  it("orders the monitor check BEFORE the shell change", () => {
+    // Getting the sides wrong is fixable from a desktop and awkward without one,
+    // so SWAP_SIDES has to be settled while explorer is still the shell.
+    const steps = dualStartupInstructions("FT:7", "FT:8");
+    const swapAt = steps.findIndex((s) => s.includes("SWAP_SIDES"));
+    const shellAt = steps.findIndex((s) => s.includes("Winlogon"));
+    expect(swapAt).toBeGreaterThanOrEqual(0);
+    expect(swapAt).toBeLessThan(shellAt);
   });
 });

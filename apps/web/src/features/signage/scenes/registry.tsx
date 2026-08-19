@@ -29,6 +29,7 @@ import { SceneRaceGuide } from "./SceneRaceGuide";
 import { SceneVipShowcase } from "./SceneVipShowcase";
 import { SceneOpenNow } from "./SceneOpenNow";
 import { SceneBowlingCheckin } from "./SceneBowlingCheckin";
+import { SceneVenueLogo } from "./SceneVenueLogo";
 import { raceGuideEnabled } from "../flags";
 
 /**
@@ -71,6 +72,10 @@ export function SceneSlot(props: SceneProps) {
       return <SceneOpenNow {...props} />;
     case "bowling-checkin":
       return <SceneBowlingCheckin {...props} />;
+    // A HOLDING CARD, not part of any wall. Reads nothing but its own config, so
+    // it is the one scene that cannot be blanked by a feed or a vendor.
+    case "venue-logo":
+      return <SceneVenueLogo {...props} />;
     case "event-welcome":
       return <SceneEventWelcome {...props} />;
     case "vip-welcome":
@@ -121,6 +126,7 @@ const IMPLEMENTED: ReadonlySet<SceneType> = new Set<SceneType>([
   "vip-showcase",
   "open-now",
   "bowling-checkin",
+  "venue-logo",
 ]);
 
 export function isSceneImplemented(scene: SceneType): boolean {
@@ -139,6 +145,13 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
   switch (scene) {
     case "ads":
     case "sleep":
+      return true;
+    case "venue-logo":
+      // Always true, and more absolutely than anything else here: the mark is a
+      // committed asset, so no feed, vendor or clock can make this scene empty.
+      // Rotating a logo screen away to house ads would also defeat the point of
+      // it — it is holding a screen for content that does not exist yet, and
+      // advertising something on the other side of the building is not that.
       return true;
     case "event-welcome":
       // VIP parties are welcome-board content — the gold slide alternates with

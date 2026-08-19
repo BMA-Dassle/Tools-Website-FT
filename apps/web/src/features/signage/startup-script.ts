@@ -24,6 +24,12 @@
  *     loop. Explicitly disabled.
  *   - NO CRASH BUBBLE. After a power cut Edge otherwise opens asking to restore
  *     pages, and the wall shows a dialog until someone clicks it.
+ *
+ * HOW IT IS STARTED IS NOT A CHOICE. Both shapes are installed the same way — as
+ * the Windows SHELL, in place of explorer.exe (owner 2026-08-19, "I only want to
+ * use shell method for all screens"). The Run-key alternative is gone from the
+ * instructions on purpose; see shellMethodSteps for what the method is and why
+ * one method beats two.
  */
 
 export interface StartupScriptArgs {
@@ -131,8 +137,11 @@ export function buildStartupScript({ screenId, name, url }: StartupScriptArgs): 
     `REM  FastTrax / HeadPinz lobby TV`,
     `REM  Screen : ${screenId}  (${label})`,
     `REM`,
-    `REM  Put this file in  C:\\TV\\  and set it to run at sign-in (or as`,
-    `REM  the Windows shell). See the admin page for the exact steps.`,
+    `REM  Put this file in  C:\\TV\\  and set it as the WINDOWS SHELL -- the`,
+    `REM  Shell value under HKLM\\...\\Winlogon, in place of explorer.exe. That`,
+    `REM  is the one method every screen on the estate uses; do not start it`,
+    `REM  from a Run key instead. Full steps, including the way back out with`,
+    `REM  Ctrl+Shift+Esc, are on the signage admin page.`,
     `REM ============================================================`,
     ``,
     `title Lobby TV - ${screenId}`,
@@ -198,8 +207,10 @@ export function buildDualStartupScript({
     `REM     ${left.screenId} (${left.name || left.screenId})  ->  LEFT  monitor`,
     `REM     ${right.screenId} (${right.name || right.screenId})  ->  RIGHT monitor`,
     `REM`,
-    `REM  Put this file in  C:\\TV\\  and run it at sign-in. Setup steps are at`,
-    `REM  the bottom of this file, and on the signage admin page.`,
+    `REM  Put this file in  C:\\TV\\  and set it as the WINDOWS SHELL -- the Shell`,
+    `REM  value under HKLM\\...\\Winlogon, in place of explorer.exe. Same method as`,
+    `REM  every other screen. Setup steps are at the bottom of this file, and on`,
+    `REM  the signage admin page.`,
     `REM`,
     `REM  Which screen goes on which monitor comes from the two screens' PAIRING`,
     `REM  GROUP on the admin page (position 0 is the left monitor). Change the`,
@@ -385,16 +396,50 @@ export function buildDualStartupScript({
  * Setup instructions, kept beside the generator so the script and the steps
  * can never drift apart.
  */
+/**
+ * THE SHELL METHOD — the one way we start a signage player (owner 2026-08-19,
+ * "I only want to use shell method for all screens").
+ *
+ * The launcher REPLACES explorer.exe as the Windows shell, rather than being
+ * started by a Run key alongside a normal desktop. One method for every screen
+ * on the estate, single-screen and two-monitor alike, because:
+ *
+ *   - THERE IS NO DESKTOP TO LEAK. No taskbar creeping up the bottom of the
+ *     wall, no notification balloons over a guest-facing board, no Start menu
+ *     for a passer-by to open.
+ *   - THE BOARD IS THE SESSION. With no explorer to come back to, a killed Edge
+ *     has nowhere to fall back TO except the launcher's own relaunch loop.
+ *   - IT IS ONE SET OF STEPS TO TEACH. Two methods meant two ways for a player
+ *     to be half-configured, and the Run-key one silently produced a desktop
+ *     behind the board that only showed itself when Edge crashed.
+ *
+ * The trade is real and stated in the steps: no Start menu, and undoing it needs
+ * Task Manager. Task Manager is the escape hatch and it is load-bearing —
+ * Ctrl+Shift+Esc is handled by Windows itself, not by the shell, so it still
+ * opens on a machine whose shell is a batch file. Anyone touching one of these
+ * players needs to know that before they set the value, not after.
+ *
+ * Shared by both launchers so the steps cannot drift apart, and parameterised by
+ * the file path only — everything else about the method is identical.
+ */
+function shellMethodSteps(fullPath: string): string[] {
+  return [
+    `LEARN THE WAY OUT FIRST: Ctrl+Shift+Esc opens Task Manager even with no desktop — Windows handles that key, not the shell. From there, More details → File → Run new task gets you  explorer.exe  (a temporary desktop) or  regedit . That is how you undo everything below, so do not set the shell until you have opened Task Manager on this PC once and seen it work.`,
+    `Set the launcher AS THE WINDOWS SHELL. Win+R → regedit → HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon → double-click  Shell  and change  explorer.exe  to  ${fullPath}  — this needs an administrator, and it applies to every user who signs in on this PC, so only do it on a machine used for nothing but this screen.`,
+    `Make the PC sign itself in, or a reboot leaves the wall on the lock screen with the launcher never started. Win+R → netplwiz → untick "Users must enter a user name and password", then enter the password twice. If that tick-box is missing, set  HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\PasswordLess\\Device → DevicePasswordLessBuildVersion  to  0  and reopen netplwiz.`,
+    `Reboot, and watch the whole way up. The screen should go from the Windows logo straight to the board with no desktop in between. That reboot IS the test — a shell that only works when you double-click it is not configured.`,
+    `TO UNDO IT: Ctrl+Shift+Esc → File → Run new task → regedit → set that same  Shell  value back to  explorer.exe , then reboot. If the shell is broken badly enough that Task Manager will not open, boot Safe Mode (hold Shift while choosing Restart) — explorer runs there regardless of the value.`,
+  ];
+}
+
 export function startupInstructions(screenId: string): string[] {
   const file = startupScriptFileName(screenId);
   return [
     `Download the script from the LIVE site, not from a preview link — the URL baked into it is whichever address you downloaded it from, and a TV pointed at a preview goes dark as soon as that preview is replaced.`,
-    `Create the folder C:\\TV\\ on the player PC.`,
-    `Save ${file} into C:\\TV\\.`,
-    `Double-click it once to check the screen comes up. Press Alt+F4 to close, then Alt+Tab out of the loop window and close it too.`,
-    `To start it automatically at sign-in: press Win+R, run  regedit , go to HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run , right-click → New → String Value, name it  LobbyTV , and set its data to  C:\\TV\\${file}`,
-    `For a locked-down player with no desktop at all, set the shell instead: HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon , edit the  Shell  value from  explorer.exe  to  C:\\TV\\${file} . Do this only on a machine used for nothing else — there is no Start menu afterwards, and you will need another sign-in or Safe Mode to undo it.`,
-    `Also worth setting on the player: Settings → System → Power → screen and sleep both set to Never.`,
+    `Create the folder C:\\TV\\ on the player PC and save ${file} into it.`,
+    `Double-click it once, WHILE THE DESKTOP STILL WORKS, and check the screen comes up. Press Alt+F4 to close Edge, then close the loop window too. Do not skip this — the next step removes the desktop you would fix a broken script from.`,
+    `Settings → System → Power: set screen and sleep BOTH to Never.`,
+    ...shellMethodSteps(`C:\\TV\\${file}`),
     `BRIEFING ROOM SCREENS ONLY: turn the Windows volume up and unmute it, and check the TV's own volume. The briefing video plays with sound — the launcher already allows that, but a muted player is silent with no clue why.`,
   ];
 }
@@ -412,9 +457,10 @@ export function dualStartupInstructions(leftScreenId: string, rightScreenId: str
     `2. Set display scaling to 100% on BOTH monitors (Settings → System → Display → Scale). Scaling shifts the window coordinates and a board can land half off the screen.`,
     `3. Download this script from the LIVE site, not a preview link — the URLs baked into it are whichever address you downloaded it from.`,
     `4. Create C:\\TV\\ and save ${file} into it.`,
-    `5. Double-click it once. ${leftScreenId} should fill the left monitor and ${rightScreenId} the right. If they are swapped, set SWAP_SIDES=1 near the top of the file and rerun — Windows decides which monitor is "first", and the cable order does not.`,
+    `5. Double-click it once, WHILE THE DESKTOP STILL WORKS. ${leftScreenId} should fill the left monitor and ${rightScreenId} the right. If they are swapped, set SWAP_SIDES=1 near the top of the file and rerun — Windows decides which monitor is "first", and the cable order does not. Get this right before step 7, which takes the desktop away.`,
     `6. Settings → System → Power: screen and sleep both set to Never.`,
-    `7. Start it at sign-in: Win+R → regedit → HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run → New → String Value, name it  SignagePair , data  C:\\TV\\${file}`,
-    `To close everything: click a board, press Alt+F4, then close BOTH console windows — the visible one and the minimised one on the taskbar. Otherwise the watchdogs bring the boards straight back.`,
+    `7. Now set it as the shell — the same method every screen on the estate uses. The steps are below, and the path is  C:\\TV\\${file}`,
+    ...shellMethodSteps(`C:\\TV\\${file}`).map((s, i) => `7.${i + 1} ${s}`),
+    `To close everything while you are still testing: click a board, press Alt+F4, then close BOTH console windows — the visible one and the minimised one on the taskbar. Otherwise the watchdogs bring the boards straight back. Once the shell is set there is no taskbar, so use Ctrl+Shift+Esc and end the cmd.exe tasks instead.`,
   ];
 }

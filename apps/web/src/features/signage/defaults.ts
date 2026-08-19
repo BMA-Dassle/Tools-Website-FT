@@ -15,6 +15,7 @@
  * field to mismatch on.
  */
 import { clampOverscanPct, VENUE_INFO, type SignageVenue } from "./constants";
+import { resolveLogoMark, type LogoMark } from "./logo";
 import { clampHoldMs } from "./race-guide";
 import type { TopTimesRange } from "./top-times";
 import type { PlaylistEntry, ScreenConfig, SceneType, SceneSpan, ScreenWall } from "./types";
@@ -28,6 +29,7 @@ export type ScreenRole =
   | "results-board"
   | "check-in-guide"
   | "front-desk"
+  | "logo-only"
   | "ads-only";
 
 export interface RolePreset {
@@ -248,6 +250,32 @@ const FRONT_DESK_CONFIG: ScreenConfig = {
   showNextAvailable: true,
 };
 
+/**
+ * A BRAND MARK ON BLACK, and nothing else.
+ *
+ * The role for a screen that is up before its content is — the Old Time Lanes
+ * pair at HeadPinz Fort Myers (owner 2026-08-19, "the only thing they will show
+ * is a logo for now"). Distinct from `ads-only`, which is the DEGRADED fallback:
+ * this is a deliberate choice, and a screen over new lanes advertising gel
+ * blasters on the far side of the building would be worse than a sign that
+ * simply says where you are.
+ *
+ * A LOGO SCREEN OWNS ITS WALL. Every interrupt is off, and the celebration one
+ * most pointedly: confetti for a booking made at a kiosk somewhere else, thrown
+ * across a holding card, is noise with no story behind it. It also carries no
+ * `requiresData` anywhere — the mark is a committed asset, so there is nothing
+ * for a gate to be about.
+ */
+const LOGO_ONLY_CONFIG: ScreenConfig = {
+  playlist: [{ scene: "venue-logo", slots: 1 }],
+  interrupts: {
+    "vip-welcome": { enabled: false },
+    celebration: { enabled: false },
+    "billboard-crown": { enabled: false },
+  },
+  venueLogo: { mark: "pinboyz" },
+};
+
 /** The safe fallback: house ads and nothing else. Needs no data at all, which
  *  is exactly why it is what an unprovisioned or degraded screen falls back to. */
 const ADS_ONLY_CONFIG: ScreenConfig = {
@@ -323,6 +351,14 @@ export const ROLE_PRESETS: RolePreset[] = [
       "One panel of the five-TV wall over the second kiosk bank. All five run the SAME loop off the shared clock and each renders its own slice: the VIP Experience across the wall, the menu board of what's open, then one instruction per kiosk. Set the wall position after choosing this — and give all five the same wall id, or the wall tears.",
     venues: ["HPFM"],
     config: FRONT_DESK_CONFIG,
+  },
+  {
+    role: "logo-only",
+    label: "Logo on black (holding card)",
+    description:
+      "One brand mark, centred on black, and nothing else. For a screen that is hung before the content that will fill it. Needs no data, no track and no camera, so it cannot go stale or blank — pick which mark after choosing this.",
+    venues: ["FT", "HPFM", "HPN"],
+    config: LOGO_ONLY_CONFIG,
   },
   {
     role: "ads-only",
@@ -407,6 +443,17 @@ export interface ResolvedScreenConfig {
     arrow: "left" | "right";
     holdMs: number;
   } | null;
+  /**
+   * Which mark a `venue-logo` screen wears.
+   *
+   * NEVER NULL, unlike briefingRoom / cameraMonitor / resultsBoard above — and
+   * the difference is the point. Those resolve to null so the board can show a
+   * setup notice, because there is no safe guess at which track or camera a
+   * screen means. A logo has a safe guess: the default mark. So this scene has no
+   * "not configured yet" state to design, and a screen whose entire content is
+   * one image can never come up blank.
+   */
+  venueLogo: { mark: LogoMark };
   /** Percent inset per edge for a panel that crops its own input. 0 on every
    *  screen that has not been told otherwise, so the default path is the
    *  unchanged full-bleed fit. */
@@ -575,6 +622,12 @@ export function resolveScreenConfig(
           holdMs: clampHoldMs(c.raceGuide.holdMs),
         }
       : null,
+    // Resolved for EVERY screen, not just logo ones — it costs a string compare
+    // and it means the scene never branches on "is this configured". An absent,
+    // misspelt or newer-deploy mark becomes the default rather than nothing,
+    // which on a screen whose only content is one image is the difference
+    // between the wrong brand and a black panel.
+    venueLogo: { mark: resolveLogoMark(c.venueLogo?.mark) },
     // Clamped through the same helper the stage uses, so "what inset is legal"
     // has exactly one definition. 0 for an absent, negative, non-numeric or
     // absurd value — every one of which means "this panel is fine", which is the

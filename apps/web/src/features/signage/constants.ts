@@ -215,5 +215,11 @@ export const TV_UPDATE_CHECK_MS = 5 * 60_000;
  *         the ad rotation so five panels never mirror each other, and a
  *         position-aware celebration that lands a guest's name whole on the
  *         centre panel. Every existing board carries no `wall` and is unchanged.
+ * 0.8.0 — HOLDING CARDS. The `venue-logo` scene: one brand mark on black and
+ *         nothing else, for a screen hung before the content that will fill it
+ *         (the Old Time Lanes pair at HeadPinz Fort Myers). Reads no feed, so it
+ *         is the one scene nothing upstream can blank. Also: every player is now
+ *         installed ONE way — the launcher as the Windows shell — and the
+ *         Run-key alternative is out of the setup steps entirely.
  */
-export const SIGNAGE_VERSION = "0.7.0";
+export const SIGNAGE_VERSION = "0.8.0";

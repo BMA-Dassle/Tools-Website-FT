@@ -77,6 +77,12 @@ import type { TopTimesView } from "./top-times";
  *  chrome under every pricing panel, which said both things at once and cost no
  *  airtime, so the scene had nothing left to do.)
  *
+ *  - `venue-logo`     one brand mark, centred on black, and nothing else. The
+ *                     scene a screen runs before it has a job: it needs no feed,
+ *                     no scope and no vendor, so it cannot be wrong. Which mark
+ *                     comes from `venueLogo.mark` — a logo screen is not tied to
+ *                     its venue's brand (the Old Time Lanes pair stands inside
+ *                     HeadPinz Fort Myers and wears the PinBoyz mark)
  *  - `sleep`          venue closed — panel/power saver
  */
 export type SceneType =
@@ -94,6 +100,7 @@ export type SceneType =
   | "vip-showcase"
   | "open-now"
   | "bowling-checkin"
+  | "venue-logo"
   | "sleep";
 
 /** Scenes a screen rotates through on its base loop (interrupts are separate). */
@@ -411,6 +418,19 @@ export interface ScreenConfig {
     arrow?: "left" | "right";
     holdMs?: number;
   };
+  /**
+   * WHICH BRAND MARK a `venue-logo` screen wears.
+   *
+   * Deliberately NOT derived from the screen's venue. The Old Time Lanes pair
+   * stands inside HeadPinz Fort Myers and wears the PinBoyz mark, so a screen's
+   * building tells you nothing about the mark over it — and there are seven
+   * other HPFM screens that must not inherit this one.
+   *
+   * An absent, misspelt or newer-deploy mark resolves to the default rather than
+   * rendering nothing (`resolveLogoMark`): a screen whose only content is one
+   * image must not go black over a typo in a text field.
+   */
+  venueLogo?: { mark?: string };
   /**
    * HOW MUCH OF THIS PANEL'S EDGE IS CROPPED — the one thing about a TV that the
    * TV cannot work out for itself.

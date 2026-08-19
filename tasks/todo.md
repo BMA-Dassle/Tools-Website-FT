@@ -1,5 +1,67 @@
 # Open Tasks
 
+## Old Time Lanes screens (2026-08-19) — BUILT + SEEDED, not on glass, no PR
+
+Owner ask: two screens at HeadPinz Fort Myers labelled **Old Time Left** / **Old Time Right**,
+showing **only the PinBoyz logo on black** for now, **each on its own computer** — plus:
+*"only use shell method for all screens."*
+
+Worktree `.claude/worktrees/old-time-lanes-screens`, branch `worktree-old-time-lanes-screens`,
+based on `origin/main` 8c6158d07.
+
+- [x] **`venue-logo` scene** (`SceneVenueLogo.tsx`) — one mark, true black `#000`, nothing else.
+      Reads no feed, no scope, no vendor: the one scene nothing upstream can blank. Wired into
+      `registry.tsx` (switch + `IMPLEMENTED` + `sceneHasData`).
+- [x] **`logo-only` role preset** — logo alone, every interrupt OFF, no `requiresData`.
+      Distinct from `ads-only`, which stays the *degraded* fallback.
+- [x] **`logo.ts` mark registry** — asset table + `resolveLogoMark`. Only marks we hold artwork
+      for are listed; anything unrecognised resolves to the default rather than to a blank screen.
+- [x] **Asset** `apps/web/public/promo/pinboyz-logo.webp` — 576×636, webp q92 with alpha, 74KB
+      (from 478KB PNG). Served **`unoptimized`**: it is already at source resolution, and
+      `images.qualities` is Next 16's default `[75]`, so the optimizer would re-encode a q92
+      file down to 75 — a second lossy pass landing on hard black lettering over flat white.
+- [x] **Admin form wired end-to-end** — `showVenueLogo` + `venueLogoMark` in `Draft`,
+      `newDraft`, `applyRole`, `draftToConfig`, **and `draftFromScreen`** (that last one matters:
+      `draftToConfig` REBUILDS the blob, so a field the form does not read back is dropped by
+      the next unrelated save).
+- [x] **SEEDED** — `signage-provision-old-time-lanes.mts --apply` ran; `HPFM:7` "Old Time Left"
+      and `HPFM:8` "Old Time Right". All 12 verify asserts pass. Registry 17 rows → 19.
+- [x] **Smoked in real Edge** over CDP against the live rows: exactly one `<img>` at
+      `/promo/pinboyz-logo.webp`, natural 576×636 shown at 597×659 (≈1.04× — near native), black
+      ground, zero console errors, identity stamps read `Old Time Left · HPFM:7 · v0.8.0` and
+      `Old Time Right · HPFM:8 · v0.8.0`.
+- [x] Gates: `tsc` clean · **973 signage tests** (22 new) · `next build` exit 0 · a11y gate zero
+      violations · zero new lint warnings.
+- [ ] **NO PR, and merging is a prerequisite for the TVs** — preview URLs are SSO-walled, so a
+      player must use `https://headpinz.com/tv?screen=HPFM:7`. Until this is on main, prod serves
+      those two keys **house ads** (`isSceneImplemented` makes the scheduler refuse a scene the
+      deploy lacks) — that is also the degradation to expect from any rollback.
+- [ ] **Not on glass.** Nothing has been hung or pointed at these URLs yet.
+- [ ] Owner call: the platform's **bottom-right identity stamp** (`Old Time Left · HPFM:7 ·
+      v0.8.0`) is on all 19 screens and is still there. "Only a logo" may mean it should go on
+      these two — one line in `TvShell` if so.
+
+### Deliberately NOT paired
+
+`pairing` does exactly two things here: it builds the **two-monitor launcher** (`resolvePair`)
+and drives content composed across two boards. **Each of these screens is on its own computer**,
+so the dual launcher is the wrong file for both — grouping them would put that wrong button on
+the admin page and label each as sharing a PC it does not share. Left/right live in the NAMES,
+and the provisioning script **asserts neither is paired**. When something genuinely spans the
+two, the mechanism is `ScreenConfig.wall` (built for exactly that, and it implies no shared
+player) — a one-line change to the script's `PLAN`.
+
+### Shell method is now the ONLY method
+
+Owner: *"I only want to use shell method for all screens."* The Run-key route is **gone** from
+the setup steps; both launchers (single and dual) now share one `shellMethodSteps()` list, and
+the steps teach **Ctrl+Shift+Esc** (Task Manager is handled by Windows, not the shell, so it
+still opens on a machine whose shell is a batch file) **before** the step that removes the
+desktop. Also added, because they were missing and the shell method makes them load-bearing:
+**autologon via netplwiz** (without it a reboot leaves the wall on the lock screen and the shell
+never starts) and an explicit **undo** step. Tests assert the Run key is absent, that the escape
+hatch is taught before the shell change, and that the dual steps order `SWAP_SIDES` first.
+
 ## Called heat from the venue WebSocket (2026-08-19) — shadow BUILT, needs one race day
 
 Full tracker: **[tasks/venue-called-fast-path.md](venue-called-fast-path.md)**

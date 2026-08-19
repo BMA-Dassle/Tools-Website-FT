@@ -34,6 +34,13 @@ import {
   dualStartupInstructions,
 } from "~/features/signage/startup-script";
 import { resolvePair } from "~/features/signage/pairing";
+import {
+  LOGO_MARKS,
+  LOGO_MARK_KEYS,
+  DEFAULT_LOGO_MARK,
+  resolveLogoMark,
+  type LogoMark,
+} from "~/features/signage/logo";
 import type { ScreenConfig, SignageScreen } from "~/features/signage/types";
 import type { TopTimesRange } from "~/features/signage/top-times";
 import BriefingAssetManager, { type BriefingAssetState } from "./BriefingAssetManager";
@@ -969,6 +976,15 @@ function SetupSteps({
           ? "The script waits for the network, reads the monitor layout, opens each board fullscreen on its own monitor with its own Edge profile, and relaunches either one automatically if Edge is closed or crashes."
           : "The script waits for the network, opens Edge in true kiosk mode with its own profile, and relaunches automatically if Edge is ever closed or crashes."}
       </p>
+      {/* Said once, plainly, above the steps' own detail. Every player on the
+          estate is installed the same way (owner 2026-08-19) — the Run-key
+          alternative used to sit in these steps as a second option and is gone. */}
+      <p style={{ margin: "10px 0 0", fontSize: 12, color: PORTAL_DARK.muted }}>
+        <b>Every screen is installed the same way:</b> the launcher replaces{" "}
+        <code>explorer.exe</code> as the Windows shell, so the player has no desktop, no taskbar and
+        no Start menu &mdash; just the board. <b>Ctrl+Shift+Esc still opens Task Manager</b>, which
+        is how you get a desktop back or undo it.
+      </p>
     </div>
   );
 }
@@ -1032,6 +1048,11 @@ interface Draft {
   /** The front-desk wall's four-scene loop. Ticked alone, like the briefing and
    *  camera boards — a wall panel owns its screen. */
   showFrontDesk: boolean;
+  /** A holding card: one brand mark on black. Ticked alone, same as the others —
+   *  the whole point is that nothing else is on the screen. */
+  showVenueLogo: boolean;
+  /** Which mark that card wears. Never "" — a logo screen always has a mark. */
+  venueLogoMark: LogoMark;
   /** "" = this screen is not part of a video wall. */
   wallId: string;
   wallPosition: number;
@@ -1104,6 +1125,8 @@ function newDraft(): Draft {
     pairPosition: 0,
     pairCount: 2,
     showFrontDesk: false,
+    showVenueLogo: false,
+    venueLogoMark: DEFAULT_LOGO_MARK,
     wallId: "",
     wallPosition: 0,
     // Five is the only wall that exists, so it is the sensible default the moment
@@ -1185,6 +1208,12 @@ function draftFromScreen(s: SignageScreen): Draft {
     pairPosition: c.pairing?.position ?? 0,
     pairCount: c.pairing?.count ?? 2,
     showFrontDesk: scenes.has("vip-showcase") || scenes.has("open-now"),
+    showVenueLogo: scenes.has("venue-logo"),
+    // Read back for the same reason as every field here — draftToConfig REBUILDS
+    // the blob — and resolved rather than trusted, so a hand-edited mark that
+    // this deploy has no artwork for shows the picker its real fallback instead
+    // of an empty select that saves as nothing.
+    venueLogoMark: resolveLogoMark(c.venueLogo?.mark),
     // READ BACK, AND THIS IS THE SHARPEST CASE OF WHY. draftToConfig rebuilds the
     // whole blob, so a field the form does not carry is dropped by the next
     // unrelated save — and dropping `wall` from ONE panel of five does not merely
@@ -1267,6 +1296,12 @@ function draftToConfig(d: Draft): ScreenConfig {
     for (const entry of rolePreset("front-desk").config.playlist ?? []) {
       playlist.push(entry);
     }
+  } else if (d.showVenueLogo) {
+    // A HOLDING CARD OWNS ITS WALL, and this is the least arguable case of it:
+    // the entire purpose is that ONE mark is on screen and nothing else. An advert
+    // rotating in beside it would turn a deliberate "this is where you are" into a
+    // screen that could not decide what it was for.
+    playlist.push({ scene: "venue-logo", slots: 1 });
   } else if (d.showResults) {
     // A SCORES WALL OWNS ITS WALL: a racer reading their own lap time off it
     // has thirty seconds on the walk past, and rotating an advert across that
@@ -1314,6 +1349,11 @@ function draftToConfig(d: Draft): ScreenConfig {
           },
         }
       : {}),
+    // Written only for a logo screen, so every other screen's blob stays exactly
+    // as wide as it was. Harmless if it did leak — resolveScreenConfig gives every
+    // screen a resolved mark and only the venue-logo scene ever reads it — but a
+    // pit board carrying a logo field would be a lie about what configures it.
+    ...(d.showVenueLogo ? { venueLogo: { mark: d.venueLogoMark } } : {}),
     interrupts: {
       "vip-welcome": { enabled: d.vipEnabled, leadMins: d.vipLeadMins },
       celebration: { enabled: d.celebrationEnabled },
@@ -1386,6 +1426,12 @@ function ScreenForm({
       showResults: scenes.has("race-results"),
       showGuide: scenes.has("race-guide"),
       showFrontDesk: scenes.has("vip-showcase") || scenes.has("open-now"),
+      showVenueLogo: scenes.has("venue-logo"),
+      // The preset names a mark, so picking the role leaves nothing mandatory to
+      // fill in — a logo screen saved straight after choosing it is complete.
+      venueLogoMark: scenes.has("venue-logo")
+        ? resolveLogoMark(preset.config.venueLogo?.mark)
+        : draft.venueLogoMark,
       // Picking the front-desk role fills in the wall defaults so the only thing
       // left to set is WHICH panel this is. All five must share the wall id, which
       // is why it is seeded rather than left blank for five separate typings.
@@ -1548,7 +1594,38 @@ function ScreenForm({
           label="Front desk wall panel"
           hint="One panel of the five-TV wall over the second kiosk bank. All five run the SAME loop — the VIP Experience, the menu board of what's open, then one instruction per kiosk — and each renders its own slice. Takes the whole screen; set the wall position below."
         />
+        <Check
+          checked={draft.showVenueLogo}
+          onChange={(v) => set("showVenueLogo", v)}
+          label="Logo on black"
+          hint="A holding card: one brand mark, centred on black, and nothing else. For a screen hung before the content that will fill it. Needs no data, so it cannot go stale or blank. Takes the whole screen; pick the mark below."
+        />
       </fieldset>
+
+      {draft.showVenueLogo && (
+        <fieldset style={fieldset}>
+          <legend style={legend}>Logo on black</legend>
+          <Field label="Which mark?">
+            <select
+              value={draft.venueLogoMark}
+              onChange={(e) => set("venueLogoMark", e.target.value as LogoMark)}
+              style={input}
+            >
+              {LOGO_MARK_KEYS.map((mark) => (
+                <option key={mark} value={mark}>
+                  {LOGO_MARKS[mark].label}
+                </option>
+              ))}
+            </select>
+            <p style={hint}>
+              Only marks we hold artwork for are listed &mdash; an option that rendered nothing
+              would be worse than no option. To add one, drop the file into{" "}
+              <code>apps/web/public/promo/</code> and add a row to{" "}
+              <code>features/signage/logo.ts</code>.
+            </p>
+          </Field>
+        </fieldset>
+      )}
 
       {draft.showGuide && (
         <fieldset style={fieldset}>
