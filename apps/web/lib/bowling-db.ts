@@ -1382,6 +1382,44 @@ export async function getNoShowBowlingReservations(): Promise<BowlingReservation
 const SELF_CHECKIN_SOURCES = ["web", "kiosk"] as const;
 
 /**
+ * Reservations the lane-ready cron should ASK QAMF about: due within the window, not yet
+ * checked in, and bookable through a surface a guest can check in from.
+ *
+ * Deliberately narrow, because each one costs a vendor call. Outside trading hours it
+ * returns nothing and the cron makes no QAMF requests at all, which is why an
+ * every-minute job is affordable here.
+ *
+ * `withinMins` should be the self-service window plus a little slack — a reservation that
+ * has only just crossed into the window still wants its first poll promptly, and a guest
+ * running late still wants the board to keep listing them.
+ */
+export async function getBowlingReservationsToPollForLane(
+  centerCode: string,
+  withinMins = 35,
+  lateGraceMins = 90,
+): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE center_code = ${centerCode}
+      AND checkin_method IS NULL
+      AND status IN ('confirmed', 'arrived')
+      AND product_kind IN ('open', 'kbf')
+      AND booking_source = ANY(${[...SELF_CHECKIN_SOURCES]})
+      AND TRIM(COALESCE(guest_name, '')) <> ''
+      AND qamf_reservation_id IS NOT NULL
+      AND qamf_reservation_id <> ''
+      AND booked_at BETWEEN NOW() - (${lateGraceMins} * INTERVAL '1 minute')
+                        AND NOW() + (${withinMins} * INTERVAL '1 minute')
+    ORDER BY booked_at ASC
+    LIMIT 40
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
  * Reservations that could check themselves in RIGHT NOW — due about now, and nobody
  * has checked them in yet.
  *

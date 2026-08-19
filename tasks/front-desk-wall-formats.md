@@ -112,6 +112,54 @@ the weaker of the two, so `ads` is now only a FALLBACK, never a scheduled turn.
 
 ## TV 1 — the check-in story, in two columns
 
+**The left column only lists guests whose LANE IS AVAILABLE** (owner 2026-08-19). Self
+check-in only completes when QAMF reports the lane ready, so a guest listed without one
+walks to a kiosk and is refused — and the board that sent them is the last thing they
+trust afterwards. The column is a FILTER, not a badge on a longer list.
+
+### Why a cron, and why a separate one
+
+Deciding readiness takes two QAMF reads (`getReservation` for the booked lanes,
+`listLanes` for the physical ones). A vendor read may never sit on a screen's render
+path — five panels at a 15-second poll would hammer QAMF and put its latency in front of
+guests. So `/api/cron/bowling-lane-ready` runs **every minute**, writes a Redis set, and
+the feed reads that.
+
+It is deliberately NOT folded into `bowling-lane-poll`, which runs on the same cadence:
+that job calls `processLaneOpen`, which fires the kitchen and charges gift cards. The new
+one is read-only and writes nothing but a Redis key, so a mistake in it cannot touch
+money. Sharing a route to save two API calls would have traded that isolation away.
+
+Cost is near zero when closed — the Neon query returns nothing outside trading hours, so
+the job makes no QAMF calls at all on an empty result.
+
+### The readiness rule lives in ONE place
+
+`lib/bowling-lane-phase.ts` `resolveLanePhase()`, called by both the cron and the guest's
+own check-in route. Two copies of that state machine is exactly how the wall ends up
+inviting somebody the route then refuses.
+
+A lane is self-checkable when **any booked lane reads `Ready`** (staff set it in
+Conqueror), **or** lanes are assigned, the slot is within **30 minutes**, and every
+assigned *physical* lane reads `Closed` — hardware off, nobody on it. The 30 minutes was
+already the route's own rule before the wall existed; the owner independently landed on
+the same number.
+
+**Extracting it found a bug.** The original only checked that the lanes it FOUND were all
+Closed, so a `listLanes` response missing one of them opened the gate on partial
+information — "lane 12 is free, and I never looked at 13". It now requires every assigned
+lane to be accounted for as well as Closed. A lane we cannot see is a lane we cannot
+promise.
+
+### Names
+
+`displayNameFromFull` — the estate's shared guest-facing redaction, so the wall reads
+"Gabby W." exactly as the kiosk does. Not a local first-name helper: that file's own doc
+says the rule stays shared and total, never a special case in one caller, and it carries
+two prior leak incidents behind it.
+
+## TV 1 — the two columns
+
 Owner numbering, and the off-by-one worth stating: **TV 1-5 are `HPFM:2`-`HPFM:6`**, so
 TV 4 is `HPFM:5`. TV 1 and TV 5 are the WINGS; TV 2, 3 and 4 carry the pricing.
 
