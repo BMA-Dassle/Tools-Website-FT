@@ -88,6 +88,7 @@ export type SceneType =
   | "vip-showcase"
   | "open-now"
   | "kiosk-howto"
+  | "bowling-checkin"
   | "sleep";
 
 /** Scenes a screen rotates through on its base loop (interrupts are separate). */
@@ -121,10 +122,36 @@ export const INTERRUPT_SCENE_TYPES = [
  * two screens with the same playlist frame-synced with no messaging between
  * them. A scene that wants ~80s asks for 2 slots.
  */
+/**
+ * How much of a WALL one playlist entry occupies.
+ *
+ *   `wall`    every panel — the default, and what every screen off a wall does.
+ *   `middle`  positions 1..count-2, i.e. the middle three of five. The panels either
+ *             side fall out of the composition and render their own `outsideScene`.
+ *
+ * ON THE ENTRY, NOT ON THE SCREEN, and that is what keeps the tear invariant intact
+ * for free: the playlist stays byte-identical on all five panels, the span is part of
+ * that identical playlist, and each panel works out from its OWN position whether it
+ * is inside. Nothing is negotiated between screens.
+ *
+ * A SPAN NEVER CHANGES AT RUNTIME. It is tempting to widen a 3-wide scene back to 5
+ * when the wings have nothing to say — and that tears the wall, for the same reason
+ * `requiresData` is banned here: five players poll on independent 15s phases, so for
+ * up to fifteen seconds one panel can believe the composition is 3-wide while another
+ * believes it is 5-wide, and both then render the leftmost slice. A wing with nothing
+ * to show runs the ADS scene instead, which is not a spanning composition at all (each
+ * panel picks its own slide off the shared clock), so there is no position to disagree
+ * about. See tasks/front-desk-wall-formats.md.
+ */
+export type SceneSpan = "wall" | "middle";
+
 export interface PlaylistEntry {
   scene: SceneType;
   /** Length in 40s slots. Defaults to 1. */
   slots?: number;
+  /** How much of a wall this entry occupies. Defaults to the whole wall, which is
+   *  also what every screen that is not on a wall does. */
+  span?: SceneSpan;
   /**
    * Skip this entry when its data selector comes back empty — an event-welcome
    * board with no events today must never render as a blank panel; the rotation
@@ -243,6 +270,19 @@ export interface ScreenWall {
    * Absent = derived (first panel fasttrax, last headpinz, inner none).
    */
   brand?: "fasttrax" | "headpinz" | "none";
+  /**
+   * WHAT THIS PANEL SHOWS WHEN THE RUNNING SCENE DOES NOT REACH IT.
+   *
+   * A fact about this panel's job, which is why it lives on the screen rather than on
+   * the playlist: the wall's left wing is the self-check-in board and its right wing
+   * is today's events, and that is true of those two panels whatever is playing in the
+   * middle. Absent on the middle panels, which are never outside a span.
+   *
+   * Falls back to house ads, which is the right answer for a wing whose own board has
+   * nothing to say — see the note on SceneSpan for why it must not instead widen the
+   * middle scene.
+   */
+  outsideScene?: SceneType;
 }
 
 /** The per-screen config blob (JSONB in Neon). Every field optional. */

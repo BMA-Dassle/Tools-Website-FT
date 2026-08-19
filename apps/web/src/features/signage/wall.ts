@@ -29,12 +29,36 @@
 
 /** What every scene actually wants: where am I, and how many of us are there? */
 export interface Choreo {
-  /** 0 = leftmost as you face the wall. */
+  /**
+   * 0 = leftmost panel OF THIS SCENE. For a scene spanning the middle three of five,
+   * the panel physically third from the left reports position 1 — a scene never has to
+   * know it is sitting on a wider wall than it uses.
+   */
   position: number;
-  /** How many screens perform together. 1 = this screen is on its own. */
+  /** How many screens perform THIS SCENE together. 1 = this screen is on its own. */
   count: number;
   /** Gap between panels as a percent of ONE panel's picture width. */
   gapPct: number;
+  /**
+   * Is this panel part of the scene at all? False only for a panel outside a narrower
+   * span — the director substitutes that panel's own `outsideScene`, so a scene should
+   * never actually be rendered with `inSpan: false`. Exposed so the substitution can
+   * be asserted rather than assumed.
+   */
+  inSpan: boolean;
+}
+
+/**
+ * The panels a span covers, as an inclusive `[first, last]` of PHYSICAL positions.
+ *
+ * `middle` drops one panel from each end, so five becomes 1..3. A wall too narrow to
+ * have a middle — one or two panels — keeps every panel, because dropping the ends of
+ * a two-panel wall would leave nothing to render.
+ */
+export function spanRange(span: "wall" | "middle", count: number): { first: number; last: number } {
+  const n = Math.max(1, Math.floor(safe(count, 1)));
+  if (span === "middle" && n >= 3) return { first: 1, last: n - 2 };
+  return { first: 0, last: n - 1 };
 }
 
 /** The shape `choreo` reads — a structural subset of ResolvedScreenConfig, so
@@ -46,7 +70,7 @@ export interface ChoreographedConfig {
 
 /** A lone screen. `count: 1` is what makes every position-aware scene degrade
  *  to "render the whole composition myself" without a special case. */
-export const SOLO: Choreo = { position: 0, count: 1, gapPct: 0 };
+export const SOLO: Choreo = { position: 0, count: 1, gapPct: 0, inSpan: true };
 
 /**
  * Where this screen stands in whatever group it performs with.
@@ -63,11 +87,23 @@ export const SOLO: Choreo = { position: 0, count: 1, gapPct: 0 };
  * spanning layout the 4-foot rule forbids. Nothing reads `gapPct` unless it is
  * painting across a wall, and only a wall has one.
  */
-export function choreo(config: ChoreographedConfig): Choreo {
+export function choreo(config: ChoreographedConfig, span: "wall" | "middle" = "wall"): Choreo {
   const w = config.wall;
-  if (w) return { position: w.position, count: w.count, gapPct: w.gapPct };
+  if (w) {
+    const { first, last } = spanRange(span, w.count);
+    const inSpan = w.position >= first && w.position <= last;
+    return {
+      // SPAN-RELATIVE. A scene spanning the middle three is a three-panel scene as far
+      // as it is concerned, so it composes over 0..2 and needs no idea that two more
+      // panels exist either side of it.
+      position: inSpan ? w.position - first : 0,
+      count: last - first + 1,
+      gapPct: w.gapPct,
+      inSpan,
+    };
+  }
   const p = config.pairing;
-  if (p) return { position: p.position, count: p.count, gapPct: 0 };
+  if (p) return { position: p.position, count: p.count, gapPct: 0, inSpan: true };
   return SOLO;
 }
 

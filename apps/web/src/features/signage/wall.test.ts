@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   choreo,
   wallSpan,
+  spanRange,
   wallCentre,
   isWallCentre,
   atWallPosition,
@@ -47,7 +48,7 @@ describe("choreo — which field wins", () => {
       wall: { ...FRONT_DESK, position: 1 },
       pairing: { groupId: "hpfm-fd-a", position: 1, count: 2 },
     });
-    expect(tv2).toEqual({ position: 1, count: 5, gapPct: 12 });
+    expect(tv2).toEqual({ position: 1, count: 5, gapPct: 12, inSpan: true });
   });
 
   it("every panel of the wall agrees on the count, whatever its pairing says", () => {
@@ -81,7 +82,7 @@ describe("choreo — resolveScreenConfig is the real caller", () => {
       "FT",
     );
     expect(blue.wall).toBeNull();
-    expect(choreo(blue)).toEqual({ position: 0, count: 2, gapPct: 0 });
+    expect(choreo(blue)).toEqual({ position: 0, count: 2, gapPct: 0, inSpan: true });
     expect(choreo(blue).position).toBe(blue.pairing!.position);
     expect(choreo(blue).count).toBe(blue.pairing!.count);
   });
@@ -97,8 +98,9 @@ describe("choreo — resolveScreenConfig is the real caller", () => {
       count: 5,
       gapPct: 12,
       brand: null,
+      outsideScene: null,
     });
-    expect(choreo(c)).toEqual({ position: 3, count: 5, gapPct: 12 });
+    expect(choreo(c)).toEqual({ position: 3, count: 5, gapPct: 12, inSpan: true });
   });
 
   it("gapPct defaults to 12 — ~6 inches on a ~48in picture (owner 2026-08-17)", () => {
@@ -125,7 +127,14 @@ describe("choreo — resolveScreenConfig is the real caller", () => {
       { wall: { wallId: "w", position: 99, count: 0, gapPct: 5000 } },
       "HPFM",
     );
-    expect(c.wall).toEqual({ wallId: "w", position: 0, count: 1, gapPct: 100, brand: null });
+    expect(c.wall).toEqual({
+      wallId: "w",
+      position: 0,
+      count: 1,
+      gapPct: 100,
+      brand: null,
+      outsideScene: null,
+    });
   });
 
   it("a wall with no id is not a wall", () => {
@@ -144,6 +153,53 @@ describe("choreo — resolveScreenConfig is the real caller", () => {
     );
     expect(c.wall?.brand).toBeNull();
     expect(wallBrand(0, 5, c.wall?.brand ?? undefined)).toBe("fasttrax");
+  });
+});
+
+describe("spans — the wall stays five panels, scenes use some of them", () => {
+  const FD = { wallId: "hpfm-front-desk", count: 5, gapPct: 12 };
+  const at = (position: number, span: "wall" | "middle") =>
+    choreo({ wall: { ...FD, position }, pairing: null }, span);
+
+  it("a wall-span scene reaches every panel, positions 0..4", () => {
+    expect([0, 1, 2, 3, 4].map((p) => at(p, "wall"))).toEqual([
+      { position: 0, count: 5, gapPct: 12, inSpan: true },
+      { position: 1, count: 5, gapPct: 12, inSpan: true },
+      { position: 2, count: 5, gapPct: 12, inSpan: true },
+      { position: 3, count: 5, gapPct: 12, inSpan: true },
+      { position: 4, count: 5, gapPct: 12, inSpan: true },
+    ]);
+  });
+
+  it("a MIDDLE-span scene is a THREE-panel scene, and says so", () => {
+    // The point of a span-relative position: a 3-wide scene composes over 0..2 and
+    // never has to know two more panels exist either side of it.
+    expect(at(1, "middle")).toMatchObject({ position: 0, count: 3, inSpan: true });
+    expect(at(2, "middle")).toMatchObject({ position: 1, count: 3, inSpan: true });
+    expect(at(3, "middle")).toMatchObject({ position: 2, count: 3, inSpan: true });
+  });
+
+  it("the WINGS are outside a middle span", () => {
+    expect(at(0, "middle").inSpan).toBe(false);
+    expect(at(4, "middle").inSpan).toBe(false);
+  });
+
+  it("spanRange drops one panel from each end, and never empties a narrow wall", () => {
+    expect(spanRange("middle", 5)).toEqual({ first: 1, last: 3 });
+    expect(spanRange("wall", 5)).toEqual({ first: 0, last: 4 });
+    // Two panels have no middle to speak of; dropping both ends would leave nothing.
+    expect(spanRange("middle", 2)).toEqual({ first: 0, last: 1 });
+    expect(spanRange("middle", 1)).toEqual({ first: 0, last: 0 });
+    // Three panels: the middle IS the centre one.
+    expect(spanRange("middle", 3)).toEqual({ first: 1, last: 1 });
+  });
+
+  it("a screen off a wall ignores spans entirely", () => {
+    // Otherwise a `middle` entry would blank every single-screen board in the estate.
+    expect(choreo({ wall: null, pairing: null }, "middle")).toEqual(SOLO);
+    expect(
+      choreo({ wall: null, pairing: { groupId: "ft", position: 1, count: 2 } }, "middle"),
+    ).toMatchObject({ position: 1, count: 2, inSpan: true });
   });
 });
 

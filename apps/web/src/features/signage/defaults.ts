@@ -17,7 +17,7 @@
 import { clampOverscanPct, VENUE_INFO, type SignageVenue } from "./constants";
 import { clampHoldMs } from "./race-guide";
 import type { TopTimesRange } from "./top-times";
-import type { PlaylistEntry, ScreenConfig, SceneType, ScreenWall } from "./types";
+import type { PlaylistEntry, ScreenConfig, SceneType, SceneSpan, ScreenWall } from "./types";
 
 export type ScreenRole =
   | "kiosk-bank"
@@ -218,11 +218,15 @@ const RACE_GUIDE_CONFIG: ScreenConfig = {
  * has its own position) and the seed script writes it around this config.
  */
 const FRONT_DESK_CONFIG: ScreenConfig = {
+  // SPANS (owner 2026-08-18). The VIP showcase is the hero and takes the whole wall;
+  // everything else runs across the MIDDLE THREE, leaving TV1 as the self-check-in
+  // board and TV5 as today's events. A span is part of this byte-identical playlist,
+  // so every panel agrees on it without being told — see SceneSpan.
   playlist: [
-    { scene: "vip-showcase", slots: 4 },
-    { scene: "open-now", slots: 2 },
-    { scene: "kiosk-howto", slots: 1 },
-    { scene: "ads", slots: 1 },
+    { scene: "vip-showcase", slots: 4, span: "wall" },
+    { scene: "open-now", slots: 2, span: "middle" },
+    { scene: "kiosk-howto", slots: 1, span: "middle" },
+    { scene: "ads", slots: 1, span: "middle" },
   ],
   interrupts: {
     "vip-welcome": { enabled: false },
@@ -353,6 +357,10 @@ export interface ResolvedScreenConfig {
      *  panel's place on the wall". Collapsing the two would make the admin
      *  form's "No mark" option do nothing on an end panel. */
     brand: "fasttrax" | "headpinz" | "none" | null;
+    /** What this panel shows when the running scene does not reach it. Null on the
+     *  middle panels, which are never outside a span — the director then falls back to
+     *  house ads, which is also what a wing with nothing to say shows. */
+    outsideScene: SceneType | null;
   } | null;
   adSet: string | null;
   showNextAvailable: boolean;
@@ -406,9 +414,16 @@ function sanitizePlaylist(entries: PlaylistEntry[] | undefined): Required<Playli
       scene: e.scene as SceneType,
       slots: Number.isInteger(e.slots) && (e.slots as number) > 0 ? (e.slots as number) : 1,
       requiresData: e.requiresData === true,
+      // Only the one narrower literal switches. Anything else — a typo, a value from a
+      // newer deploy — is the WHOLE WALL, which is both the historical behaviour and
+      // the safe reading: a scene rendering wider than intended still fills the glass,
+      // whereas a wrongly-narrowed one would blank two panels.
+      span: (e.span === "middle" ? "middle" : "wall") as SceneSpan,
     }));
   // A screen with an empty playlist still has to show SOMETHING.
-  return cleaned.length > 0 ? cleaned : [{ scene: "ads", slots: 1, requiresData: false }];
+  return cleaned.length > 0
+    ? cleaned
+    : [{ scene: "ads", slots: 1, requiresData: false, span: "wall" as SceneSpan }];
 }
 
 /**
@@ -577,6 +592,10 @@ function resolveWall(w: ScreenWall): NonNullable<ResolvedScreenConfig["wall"]> {
     count,
     gapPct: Math.min(100, Math.max(0, numOr(w.gapPct, 12))),
     brand: w.brand === "fasttrax" || w.brand === "headpinz" || w.brand === "none" ? w.brand : null,
+    // Trusted as a bare string for the same reason the playlist's scene names are: an
+    // unbuilt or unknown name is refused by the scheduler (isSceneImplemented) and
+    // falls through to ads, so there is nothing here that a typo can break.
+    outsideScene: typeof w.outsideScene === "string" && w.outsideScene ? w.outsideScene : null,
   };
 }
 
