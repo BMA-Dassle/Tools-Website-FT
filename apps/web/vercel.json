@@ -117,6 +117,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/bowling-lane-ready",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/vip-move-alerts",
       "schedule": "* * * * *"
     },

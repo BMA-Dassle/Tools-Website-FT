@@ -904,16 +904,31 @@ export interface TvFeed {
    */
   bowlingCheckins: {
     /**
-     * Due about now and NOT yet checked in — the half that tells a guest walking
-     * in that they are expected and can go straight to a kiosk rather than queue
-     * at the desk. Carries their booked TIME rather than a lane, because they do
-     * not have one yet.
+     * Guests whose LANE IS AVAILABLE, so self check-in will actually succeed right now
+     * (owner 2026-08-19) — not everyone who is merely due.
+     *
+     * Self check-in only completes when QAMF reports the lane ready, so a board listing
+     * everybody due would send guests to a kiosk that refuses them. Readiness is decided
+     * by the `bowling-lane-ready` cron once a minute and cached in Redis, because working
+     * it out takes two vendor reads and a vendor read may never sit on a screen's render
+     * path.
      */
-    eligible: { firstName: string; timeLabel: string }[];
+    available: {
+      /** Redacted the way every guest-facing surface does it: "Gabby W." */
+      name: string;
+      /** Their booked time, so a guest can pick their own line out of several. */
+      timeLabel: string;
+      /**
+       * "12" or "12, 13" — shown BEFORE check-in, because "Lane 12, go ahead" is a better
+       * invitation than "you can check in". Empty when the booked lane was marked Ready
+       * without numbers being visible yet.
+       */
+      lanes: string;
+    }[];
     /** Checked themselves in, with the lane they were given. */
     checkedIn: {
-      /** First name only. */
-      firstName: string;
+      /** Redacted the way every guest-facing surface does it: "Gabby W." */
+      name: string;
       /** "12" or "12, 13" — whatever lanes they were given. */
       lanes: string;
       /** True once the lane-ready notification has gone out, i.e. the lane is

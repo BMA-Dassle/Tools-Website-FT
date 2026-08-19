@@ -20,6 +20,7 @@ import redis from "@/lib/redis";
 import { pausedProductIds } from "~/features/maintenance";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
+import { displayNameFromFull } from "@/lib/display-name";
 import { loadSignageScreen } from "../data/signage-screens-db";
 import { parseScreenKey, VENUE_INFO, type SignageVenue } from "../constants";
 import {
@@ -334,60 +335,65 @@ export async function buildTvFeed(
  */
 async function buildBowlingCheckins(venue: SignageVenue): Promise<TvFeed["bowlingCheckins"]> {
   const { getSelfCheckedInWithLanes, getSelfCheckinEligible } = await import("@/lib/bowling-db");
+  const { laneReadyKey, parseLaneReadySet } = await import("../lane-ready");
   const center = VENUE_INFO[venue].squareLocationId;
 
-  // One round trip each, in parallel: the two halves are independent queries over the
-  // same table and neither blocks the other.
-  const [done, waiting] = await Promise.all([
+  // Three independent reads, in parallel. The readiness set comes from Redis — written by
+  // the `bowling-lane-ready` cron once a minute — because deciding it needs two QAMF
+  // calls, and a vendor read may never sit on a screen's render path.
+  const [done, due, readyRaw] = await Promise.all([
     getSelfCheckedInWithLanes(center),
     getSelfCheckinEligible(center),
+    redis.smembers(laneReadyKey(center)).catch(() => [] as string[]),
   ]);
+  const ready = parseLaneReadySet(readyRaw);
 
   const checkedIn: NonNullable<TvFeed["bowlingCheckins"]>["checkedIn"] = [];
   for (const r of done) {
-    const firstName = firstNameOf(r.guestName);
-    if (!firstName) continue;
-    const lanes = (r.dayofOrderLane ?? "")
-      .split(",")
-      .map((l) => l.trim())
-      .filter(Boolean)
-      .join(", ");
+    const name = displayNameFromFull(r.guestName ?? "");
+    if (!name) continue;
+    const lanes = laneList(r.dayofOrderLane);
     if (!lanes) continue;
-    checkedIn.push({ firstName, lanes, laneReady: !!r.laneReadySentAt });
+    checkedIn.push({ name, lanes, laneReady: !!r.laneReadySentAt });
   }
 
-  const eligible: NonNullable<TvFeed["bowlingCheckins"]>["eligible"] = [];
-  for (const r of waiting) {
-    const firstName = firstNameOf(r.guestName);
-    if (!firstName) continue;
-    // Their booked time, so a guest can pick their own line out of several — and in ET
-    // wall-clock, which is the TIME RULE this file already documents for the
-    // availability cache: `new Date(naive)` parses as the SERVER's zone and shifts an
-    // 8:00 PM slot to 4:00 PM on Vercel.
+  // ONLY THE ONES WHOSE LANE IS AVAILABLE. A guest who is due but whose lane is not ready
+  // cannot complete self check-in, so listing them would send them to a kiosk that turns
+  // them away — and the board that sent them is the last thing they trust afterwards.
+  //
+  // An EMPTY readiness set therefore empties this column, which is deliberate: it means
+  // either nobody is ready or the cron has not run, and both of those are "do not invite
+  // anybody". The column has designed copy for it.
+  const available: NonNullable<TvFeed["bowlingCheckins"]>["available"] = [];
+  for (const r of due) {
+    const entry = ready.get(r.id);
+    if (!entry) continue;
+    const name = displayNameFromFull(r.guestName ?? "");
+    if (!name) continue;
+    // Their booked time in ET wall-clock — the TIME RULE this file documents for the
+    // availability cache: `new Date(naive)` parses as the SERVER's zone, which on Vercel
+    // shifts an 8:00 PM slot to 4:00 PM.
     const timeLabel = fmtTime12(toEtWallClock(r.bookedAt)) ?? "";
     if (!timeLabel) continue;
-    eligible.push({ firstName, timeLabel });
+    // The cron's lane numbers win: they are what QAMF said at readiness time, whereas
+    // `dayof_order_lane` is only written once the lane actually opens.
+    available.push({ name, timeLabel, lanes: entry.lanes || laneList(r.dayofOrderLane) });
   }
 
-  // Null only when there is nothing to say on EITHER side. The scene has a designed
-  // state for one-empty-one-full, so a half-populated board is content, not a fault.
-  if (checkedIn.length === 0 && eligible.length === 0) return null;
-  return { eligible, checkedIn };
+  // Null only when there is nothing to say on EITHER side. The scene has designed copy for
+  // one-empty-one-full, so a half-populated board is content rather than a fault.
+  if (checkedIn.length === 0 && available.length === 0) return null;
+  return { available, checkedIn };
 }
 
-/**
- * FIRST TOKEN ONLY, title-cased.
- *
- * `guestName` is whatever was typed at booking, so it arrives as "Marcus", "Marcus Webb"
- * or "marcus webb". First names only is the estate's PII posture for anything printed on
- * a wall, and the re-casing is because a lobby board a foot tall should not shout
- * somebody's typo back at them.
- */
-function firstNameOf(name: string | undefined): string | null {
-  const raw = (name ?? "").trim();
-  const first = raw.split(/\s+/)[0] ?? "";
-  if (!first) return null;
-  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+/** "12,13" or " 12 , 13 " -> "12, 13"; empty for nothing usable. QAMF and our own writer
+ *  disagree about spacing, so neither is trusted. */
+function laneList(raw: string | undefined): string {
+  return (raw ?? "")
+    .split(",")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join(", ");
 }
 
 /** Day of week (0=Sun) AT THE VENUE. A UTC-clocked server has already rolled over

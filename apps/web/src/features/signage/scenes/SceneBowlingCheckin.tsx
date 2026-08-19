@@ -3,14 +3,20 @@
 /**
  * THE CHECK-IN STORY, IN TWO COLUMNS — the front-desk wall's left panel.
  *
- * Left: who can check themselves in right now. Right: who has, and which lane.
+ * Left: whose LANE IS AVAILABLE, so they can check in this minute. Right: who already
+ * has, and which lane they got.
  *
- * Both halves, because either alone only speaks to half the lobby. The "checked in"
- * list answers the question a guest has AFTER they have worked out what to do; the
- * "check in now" list is what tells someone walking through the door that they are
- * expected and can go straight to a kiosk instead of queueing at the desk. Read
- * left to right it is the whole journey, which is why it earns a panel of its own
- * rather than a turn in the rotation (owner 2026-08-19).
+ * Both halves, because either alone only speaks to half the lobby. The "checked in" list
+ * answers what a guest asks AFTER they have worked out what to do; the "lane available"
+ * list tells someone walking through the door that their lane is waiting and they can go
+ * straight to a kiosk instead of queueing at the desk. Read left to right it is the whole
+ * journey, which is what earns this a panel of its own rather than a turn in the rotation.
+ *
+ * THE LEFT COLUMN IS A FILTER, NOT A LIST OF EVERYONE DUE. Self check-in only completes
+ * when QAMF reports the lane ready, so a guest listed without a ready lane walks to a
+ * kiosk and is refused — and the board that sent them is the last thing they will trust
+ * afterwards (owner 2026-08-19). Readiness is decided once a minute by the
+ * `bowling-lane-ready` cron and cached; this scene never asks a vendor anything.
  *
  * A guest who checked in at a kiosk was never told a lane number by a person, so the
  * right column is the only place they learn it — and it answers what they ask next,
@@ -34,11 +40,16 @@ import { withAlpha } from "../color";
  *  server asks for eight of each; this is the visual ceiling. */
 const MAX_ROWS = 5;
 
+/** "12" -> "Lane 12", "12, 13" -> "Lanes 12, 13". One spelling for both columns. */
+function laneWords(lanes: string): string {
+  return lanes.includes(",") ? `Lanes ${lanes}` : `Lane ${lanes}`;
+}
+
 const READY = WALL_ACCENT.cyan;
 const WAITING = WALL_ACCENT.arcade;
 
 export function SceneBowlingCheckin({ feed }: SceneProps) {
-  const eligible = (feed?.bowlingCheckins?.eligible ?? []).slice(0, MAX_ROWS);
+  const available = (feed?.bowlingCheckins?.available ?? []).slice(0, MAX_ROWS);
   const checkedIn = (feed?.bowlingCheckins?.checkedIn ?? []).slice(0, MAX_ROWS);
 
   return (
@@ -81,19 +92,25 @@ export function SceneBowlingCheckin({ feed }: SceneProps) {
           }}
         >
           <Column
-            // NAMES THE TWO CHANNELS rather than saying "now" (owner 2026-08-19). It is
-            // also the accurate heading for this list specifically: the query keeps only
-            // `web` and `kiosk` bookings, so everyone on it either has the confirmation
-            // link on their phone or booked at the machine they are standing next to.
-            // A guest booked at the desk was already served and is filtered out.
-            heading="Check in by phone or kiosk"
+            // EVERY NAME HERE CAN ACTUALLY CHECK IN. Not "everyone due": self check-in
+            // only completes when QAMF reports the lane ready, so listing a guest whose
+            // lane is not ready sends them to a kiosk that turns them away — and the
+            // board that sent them is the last thing they trust afterwards (owner
+            // 2026-08-19). The column is a filter, not a badge.
+            heading="Lane available"
             accent={WAITING}
-            empty="Nobody waiting to check in."
-            rows={eligible.map((g) => ({
-              key: `${g.firstName}-${g.timeLabel}`,
-              name: g.firstName,
-              value: g.timeLabel,
-              status: null,
+            // Not an error, and the normal state for most of an evening. It says what to
+            // do rather than what is missing.
+            empty="No lanes ready to check in just yet."
+            footer={available.length > 0 ? "Check in on your phone or at any kiosk below." : null}
+            rows={available.map((g) => ({
+              key: `${g.name}-${g.timeLabel}`,
+              name: g.name,
+              // The LANE is the invitation — "Lane 12, go ahead" beats "you may check in".
+              // The booked time sits underneath so a guest can pick their own line out of
+              // several with the same lane free.
+              value: g.lanes ? laneWords(g.lanes) : "Ready",
+              status: g.timeLabel,
             }))}
           />
 
@@ -105,9 +122,9 @@ export function SceneBowlingCheckin({ feed }: SceneProps) {
             empty="No lanes assigned yet."
             footer={checkedIn.length > 0 ? "Your shoes are being brought out to you." : null}
             rows={checkedIn.map((g) => ({
-              key: `${g.firstName}-${g.lanes}`,
-              name: g.firstName,
-              value: g.lanes.includes(",") ? `Lanes ${g.lanes}` : `Lane ${g.lanes}`,
+              key: `${g.name}-${g.lanes}`,
+              name: g.name,
+              value: laneWords(g.lanes),
               // A lane physically READY reads differently from one merely assigned:
               // the first means walk over now, the second means nearly. The pit boards
               // draw the same distinction for the same reason.
@@ -116,12 +133,11 @@ export function SceneBowlingCheckin({ feed }: SceneProps) {
           />
         </div>
 
-        {/* The instruction sits under BOTH columns, because it is the answer to the
-            left one and the reassurance for the right. Both channels named: a guest who
-            booked online has the check-in link in their confirmation, and the kiosks are
-            directly below this panel. */}
+        {/* Under BOTH columns, and true of both: the left column's guests are about to
+            check in, the right column's have. Shoes are the thing self check-in cannot
+            hand over, so it is the one promise worth making standing. */}
         <div style={{ fontSize: 30, color: "rgba(245,236,238,0.72)", lineHeight: 1.3 }}>
-          Check in on your phone, or at any kiosk below — we&rsquo;ll bring your shoes out to you.
+          We&rsquo;ll bring your shoes out to you.
         </div>
       </div>
     </div>
