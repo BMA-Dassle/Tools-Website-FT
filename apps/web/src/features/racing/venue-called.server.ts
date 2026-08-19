@@ -23,17 +23,41 @@ import "server-only";
  * wrong puts a wrong heat, or a cleared heat, on every screen in the building.
  * The v2 cutover rule in CLAUDE.md says deploy alongside, prove, then switch.
  *
- * WHAT WE ALREADY KNOW, MEASURED (2026-08-19, 92 called heats):
- *   - median 5.2s earlier than what we recorded from Pandora, min 0.3s
- *   - four heats minutes earlier (789s, 378s, 143s, 71s) — the degradation windows
- *   - one heat 11s LATER, so the poll is not strictly redundant
- *   - `ResourceId` gives the track outright: 11208654 blue, 11208660 red, -1 mega
+ * ── WHAT THE HISTORY ALREADY PROVED (2026-08-19, 95 called heats, 8/16-8/19) ──
+ *   - `ResourceId` gives the track outright and never lied: 11208654 blue,
+ *     11208660 red, -1 mega — 0 wrong, 0 unresolvable.
+ *   - Coverage 91/95. All four misses fell in ONE window (8/17 15:07-15:19) in
+ *     which the buffer holds **zero frames of any kind** — our bridge was dead,
+ *     not the venue silent. That is the case the Pandora poll must survive, and
+ *     the reason it stays.
+ *   - Lead over what we recorded: median 4.8s, p25 2.7s, p75 7.7s. 4 of 91 landed
+ *     LATER than the poll.
  *
- * WHAT THE SHADOW DAY HAS TO ANSWER, none of which the buffer can:
- *   1. does a call event arrive for EVERY heat Pandora reports called?
- *   2. does it fire again on a RE-CALL (the case preserveFirstCall exists for)?
- *   3. is the track ever unresolvable in practice?
- *   4. how does it behave around a desk Clear?
+ * ── IT FIRES MORE THAN ONCE PER HEAT, AND THE FIRST ONE IS THE CALL ──
+ * 35 of 94 heats (8/16-8/18) got two or more DISTINCT firings, so this has to be
+ * handled rather than hoped away. The pattern is consistent across all of them:
+ *
+ *   FIRST firing  → 2-10s BEFORE we recorded the call (5s, 9s, 1s, 6s, 2s, 4s, 8s…)
+ *   LATER firings → AFTER the call, while the heat still has not started
+ *                   (-129s, -240s, -149s, -325s…) — the venue re-announcing a heat
+ *                   that is due and still sitting on the grid.
+ *
+ * FIRST-FIRING-WINS is therefore the correct rule, and the re-announcements are
+ * harmless under it (they neither advance nor reset the held heat).
+ *
+ * WHICH ALSO MEANS THE TAIL CASES ARE OUR RECORD BEING LATE, NOT THE VENUE BEING
+ * EARLY. Mega 60's first firing was 21:30:01; we recorded 21:43:11 — and then
+ * recorded heat 61 TWENTY SECONDS later, on a track whose heats run ten minutes
+ * apart. That is the carry catching up in one go during the evening Pandora was
+ * degraded, not a desk calling two heats 20s apart. The venue's timeline fits the
+ * 10-minute cadence; ours does not.
+ *
+ * That is the case worth building for: when Pandora is sick, an event-TRIGGERED
+ * Pandora read is just as sick, while state derived from this wire stays right.
+ *
+ * Note that 1,714 of 1,716 venue records arrive TWICE (~0.1s apart), so a naive
+ * count reads 67 "re-calls" where only 35 heats truly re-fired. Firings are deduped
+ * on (session, venue stamp) below for that reason.
  *
  * Never throws. It runs inside the kart webhook's `after()`, on the same hot path
  * as the race clock and the incident log; an exotic message must cost nothing and
@@ -68,8 +92,14 @@ export interface VenueCalledState {
   heatNumber: number | null;
   sessionName: string;
   phase: VenueCalledPhase;
-  /** The venue's own stamp for the call, ms. */
+  /** The venue's stamp for the FIRST "due" firing. Not necessarily the call —
+   *  see the header. */
   calledAtMs: number | null;
+  /** The most recent firing, which on multi-fire heats is the one that actually
+   *  lined up with the desk's call. */
+  latestFiringMs: number | null;
+  /** How many DISTINCT firings this heat got (duplicate deliveries excluded). */
+  firings: number;
   /** When the frame reached US — the honest number for a latency comparison,
    *  since it includes the bridge hop and the webhook POST. */
   seenAtMs: number;
@@ -131,23 +161,32 @@ export async function observeVenueCalls(message: unknown, seenAtMs: number): Pro
         continue;
       }
       const prior = await readState(call.track);
-      // A RE-CALL of the heat we already hold keeps its first stamp, mirroring
-      // preserveFirstCall so the shadow can be compared to the carry at all.
       const isSameHeat = prior?.sessionId === call.sessionId;
+      // DUPLICATE DELIVERY, NOT A RE-FIRE: the same venue record reaches us twice
+      // (1,714 of 1,716 in the buffer). Dropping an identical (session, stamp)
+      // keeps the firing count honest, which is the number the whole question
+      // turns on.
+      if (isSameHeat && prior.calledAtMs === call.atMs && prior.firings >= 1) continue;
       const state: VenueCalledState = {
         sessionId: call.sessionId,
         track: call.track,
         heatNumber: call.heatNumber,
         sessionName: call.sessionName,
         phase: "called",
+        // FIRST FIRING WINS — established in the header: the first is the call, the
+        // later ones are the venue re-announcing a heat that is due and still on the
+        // grid. Also mirrors preserveFirstCall, so a re-announcement cannot reset a
+        // waiting clock.
         calledAtMs: isSameHeat ? (prior?.calledAtMs ?? call.atMs) : call.atMs,
+        latestFiringMs: call.atMs,
+        firings: isSameHeat ? prior.firings + 1 : 1,
         seenAtMs: isSameHeat ? prior.seenAtMs : seenAtMs,
       };
       await writeState(state);
       await appendLog({ ...state, event: "call" });
       console.log(
-        `[venue-called] CALL ${call.track} heat ${call.heatNumber ?? "?"} session ${call.sessionId}` +
-          `${isSameHeat ? " (re-call, first stamp kept)" : ""}`,
+        `[venue-called] DUE ${call.track} heat ${call.heatNumber ?? "?"} session ${call.sessionId}` +
+          `${isSameHeat ? ` (firing #${state.firings})` : ""}`,
       );
     }
 

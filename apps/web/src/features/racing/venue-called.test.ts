@@ -170,6 +170,33 @@ describe("observeVenueCalls — the shadow", () => {
     expect(calls).toHaveLength(2); // both logged, so the diff can count re-calls
   });
 
+  it("does not count a DUPLICATE delivery as a second firing", async () => {
+    // 1,714 of 1,716 venue records reach us twice, ~0.1s apart. The firing count
+    // is the number the whole "is this the desk's call" question turns on, so an
+    // identical (session, stamp) must not inflate it.
+    await observeVenueCalls(CALL_MEGA_68, SEEN);
+    await observeVenueCalls(CALL_MEGA_68, SEEN + 120);
+
+    expect((await readVenueCalledAll()).mega?.firings).toBe(1);
+    expect((await readVenueCalledLog()).filter((e) => e.event === "call")).toHaveLength(1);
+  });
+
+  it("counts DISTINCT firings and keeps the FIRST as the call", async () => {
+    // Mega 60, 2026-08-18: fired at 21:30:01, again 21:35:14, again 21:43:10. The
+    // first is the call — our own record of 21:43:11 was the carry catching up
+    // during a degraded evening, proved by heat 61 being recorded 20s after 60 on a
+    // track whose heats run ten minutes apart. The later firings are the venue
+    // re-announcing a heat still sitting on the grid, and must not move the stamp.
+    await observeVenueCalls({ ...CALL_MEGA_68, Date: "2026-08-18T21:30:01.000" }, SEEN);
+    await observeVenueCalls({ ...CALL_MEGA_68, Date: "2026-08-18T21:35:14.000" }, SEEN + 313_000);
+    await observeVenueCalls({ ...CALL_MEGA_68, Date: "2026-08-18T21:43:10.000" }, SEEN + 789_000);
+
+    const mega = (await readVenueCalledAll()).mega;
+    expect(mega?.firings).toBe(3);
+    expect(mega?.calledAtMs).toBe(Date.parse("2026-08-18T21:30:01.000-04:00"));
+    expect(mega?.latestFiringMs).toBe(Date.parse("2026-08-18T21:43:10.000-04:00"));
+  });
+
   it("replaces the held heat when a DIFFERENT heat is called on that track", async () => {
     await observeVenueCalls(CALL_MEGA_68, SEEN);
     const next = {
