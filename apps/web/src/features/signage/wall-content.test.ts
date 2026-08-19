@@ -15,6 +15,7 @@ import {
 import { SLOT_MS } from "./director/schedule";
 import { activeVipCombo } from "~/features/combos/combo-specials";
 import { allProductIds } from "~/features/maintenance";
+import { TOKEN_PACKAGES } from "~/features/game-cards";
 import { rolePreset } from "./defaults";
 
 /**
@@ -130,7 +131,9 @@ describe("no VIP pack on sale is a DARK state, never a placeholder price", () =>
     const priceCell = identityRail(3, null)!;
     expect(priceCell.isPrice).toBeUndefined();
     expect(priceCell.text).toBe("Ask at the desk");
-    expect(identityRail(0, null)!.text).toBe("All Access");
+    // Still NAMES the product with the badge under it, even with no price to quote.
+    expect(identityRail(0, null)!.text).toBe(COMBO?.name ?? "VIP Experience");
+    expect(identityRail(0, null)!.small).toBe("All Access");
   });
 });
 
@@ -145,14 +148,40 @@ describe("the identity rail — no slide is an orphan", () => {
     // The two tokens that matter each sit entirely on one panel, so the wall still
     // identifies itself and its price with a player down. That is the whole reason
     // the rail is cells rather than one spanning string.
-    expect(identityRail(0, price)).toMatchObject({ text: "All Access", isName: true });
+    // THE PRODUCT NAME, with the badge beneath it — never the badge alone (owner
+    // 2026-08-19). A guest who reads only "All Access" cannot ask for it at the desk.
+    expect(identityRail(0, price)).toMatchObject({
+      text: COMBO?.name ?? "VIP Experience",
+      small: "All Access",
+      isName: true,
+    });
     expect(identityRail(3, price)).toMatchObject({ isPrice: true, quiet: "per person" });
     expect(identityRail(3, price)!.text).toContain("$");
   });
 
   it("names the pack the registry names, so a rebrand carries through", () => {
     if (!COMBO) return;
-    expect(identityRail(1, price)!.text).toBe(COMBO.name);
+    expect(identityRail(0, price)!.text).toBe(COMBO.name);
+  });
+
+  it("the second cell stopped repeating the name, and carries the pack's duration", () => {
+    // It used to be the product name, which would now be said twice on one wall.
+    expect(identityRail(1, price)!.text).not.toBe(COMBO?.name ?? "VIP Experience");
+    expect(identityRail(1, price)!.text.toLowerCase()).toContain("hours");
+  });
+
+  it("NOWHERE says All Access without naming the product above it", () => {
+    // The badge is the wall's word for the thing, not the thing's name.
+    for (const slide of [0, 1, 2, 3]) {
+      for (const p of [0, 1, 2, 3, 4]) {
+        const cell = identityRail(p, price, slide);
+        if (!cell) continue;
+        if (cell.text === "All Access") throw new Error(`slide ${slide} panel ${p} is badge-only`);
+        if (cell.small === "All Access") {
+          expect(cell.text).toBe(COMBO?.name ?? "VIP Experience");
+        }
+      }
+    }
   });
 
   it("a sixth panel gets NO rail rather than a repeat of All Access", () => {
@@ -592,12 +621,46 @@ describe("the other subject panels", () => {
     }
   });
 
-  it("Game Zone is alone, and quotes no price — a card is loaded with any amount", () => {
+  it("Game Zone leads with the two card tiers that carry a BONUS", () => {
+    // It used to say "Any amount", which is true and sells nothing — a pricing panel
+    // with no number is the one a guest scans past (owner 2026-08-19). The bonus is the
+    // offer, so only the tiers that have one appear.
     const panel = menuPanelAt(setA, 2, null)!;
-    expect(panel.rows).toHaveLength(1);
-    expect(panel.rows[0].productId).toBe("game-zone");
-    expect(panel.rows[0].price).toBeUndefined();
-    expect(panel.rows[0].tracksAvailability).toBeUndefined();
+    expect(panel.rows).toHaveLength(2);
+    for (const row of panel.rows) {
+      expect(row.productId).toBe("game-zone");
+      // Game Zone runs on Intercard, independent of every booking vendor, so it has no
+      // bookable slot to track.
+      expect(row.tracksAvailability).toBeUndefined();
+      expect(row.name).toMatch(/^\$\d+ card$/);
+      expect(row.word).toContain("tokens");
+      expect(row.note).toContain("bonus");
+    }
+  });
+
+  it("the Game Zone tiers read cheapest-first and quote the TOTAL, not the price", () => {
+    // A guest choosing a tier compares how many tokens land on the card, so that is the
+    // headline number; the price is the row's name.
+    const rows = menuPanelAt(setA, 2, null)!.rows;
+    const cents = rows.map((r) => Number(r.name.replace(/[^0-9]/g, "")));
+    expect(cents[0]).toBeLessThan(cents[1]);
+    // …and the total exceeds the face tokens, which is what the bonus means.
+    const totals = rows.map((r) => Number((r.word ?? "").replace(/[^0-9]/g, "")));
+    expect(totals[0]).toBeGreaterThan(cents[0] * 10);
+    expect(totals[1]).toBeGreaterThan(cents[1] * 10);
+  });
+
+  it("the Game Zone prices come from the table the KIOSK charges from", () => {
+    const rows = menuPanelAt(setA, 2, null)!.rows;
+    const bonusTiers = TOKEN_PACKAGES.filter((t) => t.bonusTokens > 0);
+    expect(bonusTiers.length).toBeGreaterThanOrEqual(2);
+    for (const row of rows) {
+      const price = Number(row.name.replace(/[^0-9]/g, "")) * 100;
+      const pkg = bonusTiers.find((t) => t.priceCents === price);
+      expect(pkg, `no package priced ${row.name}`).toBeTruthy();
+      expect(row.word).toContain((pkg!.tokens + pkg!.bonusTokens).toLocaleString("en-US"));
+      expect(row.note).toContain(String(pkg!.bonusTokens));
+    }
   });
 
   it("the FastTrax panel carries Racing and Duckpin — the other building", () => {

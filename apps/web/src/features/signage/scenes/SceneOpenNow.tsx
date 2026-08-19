@@ -177,7 +177,16 @@ function Row({
         )}
       </div>
 
-      <div style={{ textAlign: "right", flexShrink: 0 }}>
+      <div
+        style={{
+          textAlign: "right",
+          flexShrink: 0,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-end",
+          gap: 12,
+        }}
+      >
         {figure && (
           <div
             className="tv-display"
@@ -195,16 +204,56 @@ function Row({
             {figure}
           </div>
         )}
-        <div
-          style={{
-            fontSize: 26,
-            fontWeight: 600,
-            marginTop: 10,
-            color: paused ? "rgba(245,236,238,0.32)" : WALL_ACCENT.gel,
-          }}
-        >
-          {rowStatus(row, paused, time, cacheWarm)}
-        </div>
+        {/* NEXT AVAILABLE, GIVEN ITS OWN LINE. The board has room now that a panel
+            carries one subject, and the time is the thing that turns a price into a
+            decision — "$12" is an advert, "$12, next at 9:15" is a plan (owner
+            2026-08-19). Labelled rather than left as a bare time, because an unlabelled
+            clock on a price could be read as a closing time. */}
+        {!paused && time ? (
+          <div
+            style={{
+              alignSelf: "flex-end",
+              borderLeft: `5px solid ${ink}`,
+              background: "rgba(255,255,255,0.07)",
+              borderRadius: "0 8px 8px 0",
+              padding: "10px 16px",
+              textAlign: "left",
+            }}
+          >
+            <div
+              className="tv-display"
+              style={{
+                fontSize: 19,
+                letterSpacing: "0.2em",
+                color: "rgba(245,236,238,0.55)",
+              }}
+            >
+              Next available
+            </div>
+            <div
+              className="tv-display"
+              style={{
+                fontSize: 34,
+                color: WALL_ACCENT.gel,
+                lineHeight: 1,
+                marginTop: 6,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {time}
+            </div>
+          </div>
+        ) : (
+          <div
+            style={{
+              fontSize: 26,
+              fontWeight: 600,
+              color: paused ? "rgba(245,236,238,0.32)" : WALL_ACCENT.gel,
+            }}
+          >
+            {rowStatus(row, paused, time, cacheWarm)}
+          </div>
+        )}
       </div>
     </div>
   );

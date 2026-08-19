@@ -25,6 +25,7 @@
 import { activeVipCombo } from "~/features/combos/combo-specials";
 import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import { ATTRACTIONS } from "@/lib/attractions-data";
+import { TOKEN_PACKAGES } from "~/features/game-cards";
 import { TV_PHOTOS } from "./assets";
 import { atWallPosition } from "./wall";
 import { SLOT_MS } from "./director/schedule";
@@ -156,6 +157,24 @@ export function vipWallPrice(nowMs: number): VipWallPrice | null {
   };
 }
 
+/**
+ * The pack's own duration, trimmed for a wall.
+ *
+ * `durationLabel` reads "≈ 3–4 Hour Experience" in the registry, which is right on a
+ * booking page and too long for a 29px rail cell. Read from the pack rather than typed
+ * so a re-timed itinerary carries through.
+ */
+function comboDurationLabel(): string {
+  const raw = activeVipCombo()?.durationLabel ?? "";
+  const trimmed = raw
+    .replace(/^[≈~]\s*/, "")
+    .replace(/\s*experience\s*$/i, "")
+    // "≈ 3–4 Hour Experience" trims to "3–4 Hour", which reads as a typo on a wall.
+    .replace(/\bhours?\b/i, "hours")
+    .trim();
+  return trimmed || "3–4 hours";
+}
+
 /** Cents → a wall-sized price. Whole dollars drop the ".00": at 165px a trailing
  *  zero-zero is two characters of nothing, and every combo tier is whole anyway. */
 export function dollars(cents: number): string {
@@ -167,6 +186,16 @@ export function dollars(cents: number): string {
 
 export interface RailCell {
   text: string;
+  /**
+   * A smaller line UNDER `text`.
+   *
+   * THE PRODUCT IS ALWAYS NAMED FIRST, WITH THE BADGE UNDER IT (owner 2026-08-19).
+   * "All Access" is the wall's badge for the thing, not the thing's name — a guest who
+   * reads only the badge cannot ask for it at the desk or find it on a kiosk. So
+   * wherever the badge appears it sits beneath "VIP Experience" rather than standing in
+   * for it.
+   */
+  small?: string;
   /** Render this cell as the product NAME — bigger, in hero gold. */
   isName?: boolean;
   /** Render as the price: gold figure, quiet "per person". */
@@ -210,11 +239,16 @@ export function identityRail(
   // usual read-across sentence competes with them — five inclusions over five
   // fragments of a different sentence is two things to read at once. Naming the
   // product on all five instead makes the whole wall answer "included in WHAT".
-  if (slide === 2) return { text: name, isName: true };
+  if (slide === 2) return { text: name, small: "All Access", isName: true };
 
   const cells: RailCell[] = [
-    { text: "All Access", isName: true },
-    { text: combo?.name ?? "VIP Experience" },
+    // THE NAME, BADGED. This cell is the one that has to land whole on a single panel
+    // so the wall still identifies itself with a player down — which is exactly why it
+    // must be the name a guest can act on, with the badge beneath it.
+    { text: name, small: "All Access", isName: true },
+    // …which frees this cell, since it used to be the product name and would now say
+    // it twice. The duration is the next most useful thing about the night.
+    { text: comboDurationLabel() },
     { text: "FastTrax HeadPinz", glyph: "+" },
     price
       ? { text: price.fromLabel, isPrice: true, quiet: "per person" }
@@ -444,7 +478,13 @@ export function vipSlidePanel(
       const tonight = price.todayTier === "weekend" ? "Friday to Sunday" : "Monday to Thursday";
       const other = price.todayTier === "weekend" ? "Monday to Thursday" : "Friday to Sunday";
       const panels: PosterPanel[] = [
-        { layout: "poster", word: "All\nAccess", accent: A.vip },
+        // The product, named, badged — never the badge alone.
+        {
+          layout: "poster",
+          word: activeVipCombo()?.name ?? "VIP Experience",
+          rule: "All Access",
+          accent: A.vip,
+        },
         { layout: "poster", word: price.todayLabel, accent: A.vip, rule: `Tonight · ${tonight}` },
         { layout: "poster", word: price.otherLabel, accent: A.vipSoft, rule: other },
         {
@@ -659,20 +699,16 @@ export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuP
       {
         // ON ITS OWN — a game card is not a booking, it is the thing a guest does on
         // the way past, and pairing it with a timed attraction made it read as one.
+        //
+        // AND IT IS PRICED. This panel used to say "Any amount", which is true and
+        // sells nothing — a pricing board with no number on it is the one panel a guest
+        // scans past (owner 2026-08-19, "I see pricing on the 2nd and 3rd TV, why not
+        // the 4th?"). The token packages have real prices AND real bonuses, and the
+        // bonus is the offer, so the panel leads with the two tiers that carry one.
         headline: "Game Zone",
         photo: TV_PHOTOS.arcade,
         accent: A.arcade,
-        rows: [
-          {
-            name: "Load a card",
-            // Independent of every booking vendor (Intercard), which is why Game Zone
-            // stayed open through the whole 2026-08-03 outage.
-            productId: "game-zone",
-            // No price: a card is loaded with whatever the guest chooses.
-            word: "Any amount",
-            note: "Top up without the line",
-          },
-        ],
+        rows: bonusTokenRows(),
         band: "Load it on the kiosk below",
       },
     ];
@@ -732,6 +768,50 @@ export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuP
     },
     bowlingPanel(bowling, "vip"),
   ];
+}
+
+/**
+ * The two Game Zone card tiers that carry a BONUS, richest first.
+ *
+ * The bonus is the offer — every tier below $30 is simply tokens for money, which is
+ * not something a wall can sell. So the panel shows what a guest GETS rather than what
+ * the package is called: "$50 card" against "600 tokens", with the bonus named
+ * underneath, because 600-for-500 is the reason to pick that tier over two $25s.
+ *
+ * Read from `TOKEN_PACKAGES`, which is the table the kiosk charges from, so a repricing
+ * or a change to the bonus ladder moves the wall with it. Falls back to the plain
+ * "load a card" row if the ladder ever loses its bonus tiers — better to say something
+ * true and unexciting than to invent a bonus.
+ */
+function bonusTokenRows(): MenuRow[] {
+  const withBonus = TOKEN_PACKAGES.filter((t) => t.bonusTokens > 0)
+    .slice()
+    .sort((a, b) => b.priceCents - a.priceCents)
+    .slice(0, 2)
+    // Cheapest of the two first, so the eye reads up to the better value.
+    .reverse();
+
+  if (withBonus.length === 0) {
+    return [
+      {
+        name: "Load a card",
+        // Independent of every booking vendor (Intercard), which is why Game Zone
+        // stayed open through the whole 2026-08-03 outage.
+        productId: "game-zone",
+        word: "Any amount",
+        note: "Top up without the line",
+      },
+    ];
+  }
+
+  return withBonus.map((t) => ({
+    name: `${dollars(t.priceCents)} card`,
+    productId: "game-zone",
+    // The TOTAL is the headline number, not the price — a guest is choosing between
+    // tiers, and what they compare is how many tokens land on the card.
+    word: `${(t.tokens + t.bonusTokens).toLocaleString("en-US")} tokens`,
+    note: `${t.bonusTokens} bonus tokens free`,
+  }));
 }
 
 /**
@@ -848,8 +928,10 @@ export function wallGoldSlide(nowMs: number): {
   if (!price) return null;
   return {
     key: "wall-all-access",
-    word: "All Access",
-    line: `Two locations, one price. ${price.fromLabel} per person.`,
+    // NeonWord renders one line, so the badge rides in the supporting copy here rather
+    // than under the headline — same rule, expressed in the shape this scene has.
+    word: activeVipCombo()?.name ?? "VIP Experience",
+    line: `All Access — two locations, one price. ${price.fromLabel} per person.`,
     accent: WALL_ACCENT.vip,
     // The combo's own hero photograph. Deliberately NOT KIOSK_PHOTOS.vipLanes —
     // that file is a video still with "NO MATTER WHO YOU ARE" burned into it (see

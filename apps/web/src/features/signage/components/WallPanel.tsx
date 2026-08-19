@@ -408,15 +408,31 @@ export function WallIdentityRail({ cell }: { cell: RailCell }) {
         whiteSpace: "nowrap",
       }}
     >
-      <span
-        className="tv-display"
-        style={{
-          fontSize: cell.isName ? 37 : 29,
-          letterSpacing: cell.isName ? "0.14em" : "0.2em",
-          color: cell.isName || cell.isPrice ? g : "rgba(245,236,238,0.74)",
-        }}
-      >
-        {cell.text}
+      {/* The name sits ABOVE its badge, so a guest reads the thing they can ask for
+          first and the wall's word for it second. */}
+      <span style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+        <span
+          className="tv-display"
+          style={{
+            fontSize: cell.isName ? 37 : 29,
+            letterSpacing: cell.isName ? "0.14em" : "0.2em",
+            color: cell.isName || cell.isPrice ? g : "rgba(245,236,238,0.74)",
+          }}
+        >
+          {cell.text}
+        </span>
+        {cell.small && (
+          <span
+            className="tv-display"
+            style={{
+              fontSize: 20,
+              letterSpacing: "0.24em",
+              color: "rgba(245,236,238,0.62)",
+            }}
+          >
+            {cell.small}
+          </span>
+        )}
       </span>
       {cell.glyph && (
         <span className="tv-display" style={{ fontSize: 29, color: g }}>

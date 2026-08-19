@@ -25,6 +25,7 @@
 import type { SceneProps } from "../director/types";
 import { choreo, wallBrand } from "../wall";
 import { identityRail, vipSlideIndex, vipSlidePanel, vipWallPrice } from "../wall-content";
+import { activeVipCombo } from "~/features/combos/combo-specials";
 import { TV_PHOTOS } from "../assets";
 import {
   RAIL_H,
@@ -78,6 +79,7 @@ export function SceneVipShowcase({ nowMs, config }: SceneProps) {
   // deploy (plan, open decision 1). Null on an inner panel and on an end whose
   // mark was explicitly silenced.
   const mark = wallBrand(position, count, config.wall?.brand);
+  const vipName = activeVipCombo()?.name;
 
   // Keyed by slide so React remounts on every cut and the staggered entrance
   // replays — a sub-slide change is a new frame to the eye, but not to the
@@ -103,9 +105,13 @@ export function SceneVipShowcase({ nowMs, config }: SceneProps) {
           // "No mark" in the admin form — falls back to naming the product, rather
           // than rendering an empty stack. A blank panel at the end of a wall reads
           // as a dead player, which is the one thing a wall must never fake.
-          word={panel.bigBrand && !mark ? "All\nAccess" : panel.word}
+          //
+          // The PRODUCT NAME with the badge under it, never the badge alone (owner
+          // 2026-08-19): "All Access" is the wall's word for the thing, and a guest who
+          // reads only that cannot ask for it at the desk or find it on a kiosk.
+          word={panel.bigBrand && !mark ? (vipName ?? "VIP Experience") : panel.word}
           accent={panel.accent}
-          rule={panel.rule}
+          rule={panel.bigBrand && !mark ? "All Access" : panel.rule}
           railed
           delayMs={delayMs}
         />
