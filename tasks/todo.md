@@ -1,5 +1,21 @@
 # Open Tasks
 
+## Called heat from the venue WebSocket (2026-08-19) — shadow BUILT, needs one race day
+
+Full tracker: **[tasks/venue-called-fast-path.md](venue-called-fast-path.md)**
+
+Getting session status off `races-current-warm`'s once-a-second Pandora poll (**~53,000
+calls/day**, over half of everything we send that vendor). Phase 0 is an observer that
+writes only `venue:called:*` and is read by nothing.
+
+- [x] `extractSessionCalls`, `venue-called.server.ts`, fourth `after()` in the kart webhook,
+      `scripts/venue-called-diff.mts`, 17 tests on verbatim frames.
+- [ ] **Run `venue-called-diff.mts` after a real race day** — coverage, wrong-track, lead,
+      re-calls. Measured historically at a median 4.8s lead (and 789s on one degraded heat),
+      but the live day is the gate.
+- [ ] Then phase 1: share the merge seam, WS writes the carry, loop 1s → 30s behind a
+      bridge-health gate and a kill switch.
+
 ## Mega session tracker — the return-room pill (2026-08-18) — ON MAIN, NOT smoked
 
 Owner ask: "for mega keep a pill next to the race on what room they will be returning to."
@@ -47,6 +63,7 @@ KioskBowlingDetailsStep.tsx, qamf-centers.ts, kiosk config.ts/flags.ts, bowling-
 (reservation type, contact/group/short-code lookups), i18n catalog mechanics.
 
 **Key facts driving the design:**
+
 - A bowling-only guest is INVISIBLE to kiosk check-in today, three ways: their `/s/{code}`
   scan resolves no billId (stored URL is `?code=` only), phone lookup drops rows without
   `bmi_bill_id` (server.ts matchByContact), and browse is racing-only by design. Standalone
@@ -60,6 +77,7 @@ KioskBowlingDetailsStep.tsx, qamf-centers.ts, kiosk config.ts/flags.ts, bowling-
   open (server 409); "Bowler N" placeholders display as empty; bumpers = pure preference.
 
 **Plan:**
+
 - [x] `checkin/res-key.ts` (pure, tested): `bowl:{neonId}` handle helpers + HP-center
       bowling-row predicate (HPFM `TXBSQN0FEKQ11` / HPN `PPTR5G2N0QXF7`; FT duckpin
       excluded — this IS the "never at FT" gate)
@@ -328,7 +346,7 @@ concern.
       camera-scan-log:{businessDay} zset. 17-agent adversarial review confirmed 6 defects
       in the first cut (midnight business-day math, systemNumber vs cameraNumber keys,
       stale scan-log after redo, dedupe-before-dispatch, SCARD-null-as-zero, radio noise)
-      — all fixed, 15 units green. Kills: VIDEO_LIVENESS_ALERTS / _RADIO
+      — all fixed, 15 units green. Kills: VIDEO_LIVENESS_ALERTS / \_RADIO
 - [ ] SEPARATE + time-boxed: manual reassign of the 8/9 recoverable videos before VT3
       expiry ~8/22 (codes in memory `project_vip_0809_video_cascade`)
 
@@ -465,8 +483,8 @@ the event. See lessons.md § "A derived flag written only at INSERT rots" (third
 instance) and § "Refunding a deposit while its gift card stays funded pays twice".
 
 - [x] **`syncQuoteCenter`** (group-quote-dispatch) re-derives `center_code /
-      center_name / square_location_id / brand / base_url / gan_prefix /
-      hermes_center` on every "Send Contract" pass, gated on
+    center_name / square_location_id / brand / base_url / gan_prefix /
+    hermes_center` on every "Send Contract" pass, gated on
       `center_code`/`square_location_id` so ~170 legacy `gan_prefix` rows don't churn.
       Audit-logs `center_moved`, writes a BMI private note, folds the move into the
       post-sign `changes[]` set (a venue change can move zero money, which the
@@ -491,7 +509,7 @@ instance) and § "Refunding a deposit while its gift card stays funded pays twic
       collects at FastTrax pricing and the difference has to be settled as a reprice delta.
 - [ ] **Unverified external behavior:** a cross-location gift-card `LOAD` (FT-minted card,
       HPFM-located quote) is expected to work — Square gift cards are seller-wide, and
-      cross-location *redemption* is already proven in `group-dayof-pay` — but no card in
+      cross-location _redemption_ is already proven in `group-dayof-pay` — but no card in
       our own history has activities at two locations, so it is inference, not evidence.
       If the T-72h load errors, `sumGiftCardLoadsForPayment` makes the retry idempotent;
       the failure is loud (`balance_last_error`), not silent.
@@ -584,9 +602,10 @@ a `writereview?placeid=` URL, so a future `{ url }` fallback fails the build rat
 silently costing guests an extra tap.
 
 Follow-ups (out of scope, not started):
+
 - `emails/race-results.html:548` sends FastTrax racers to HeadPinz Fort Myers' place id.
 - `pickBrand()` in `api/surveys/[token]/reward/route.ts` + `send-sms/route.ts` does
-  `centerCode in CENTER_META ? "HeadPinz" : "FastTrax"`, but `CENTER_META` *contains*
+  `centerCode in CENTER_META ? "HeadPinz" : "FastTrax"`, but `CENTER_META` _contains_
   FastTrax — so racing reward SMS is branded "HeadPinz".
 
 ## Video match hardening — branch `feat/video-match-hardening` (2026-08-02)
@@ -658,6 +677,7 @@ uncommitted ReturningRacerLookup work were left alone).
 - [ ] **Owner: live smoke on a real HeadPinz kiosk bank** (billboard sync across screens, ball
       crossing, welcome rotation, tap-through during the takeover) — then PR review + merge
 - [ ] Later PR: FastTrax full-screen drive-by + bank relay wave (picked; not started)
+
 ## Post-day-of refund flow — BUILT + MERGED 2026-07-28, FLAGS OFF
 
 **Plan + flag-flip runbook: [tasks/future/post-dayof-refund-plan.md](future/post-dayof-refund-plan.md).**
@@ -674,7 +694,6 @@ status + a day-of payment), opening the edit modal with `intent="refund"`.
 (default ON via `editFlagEnabled()`), so there is nothing to set. Deploy and smoke one real
 refund from the portal. Delete any `RESERVATION_EDIT_V2*=true` rows left in Vercel — they
 are dead config now, not the thing turning the feature on.
-
 
 Owner requirement (2026-07-27): **the Payments tab and History tab in ManageReservationModal
 must reflect EVERYTHING we do to a reservation** — edits, partial/full refunds, store credit,
@@ -1099,9 +1118,9 @@ categories + tier starter category junior (Blue only — juniors don't run Red/M
 - [x] Verified live: occupied heats ARE tier-exclusive (16:12 occupied-Int absent from Starter
       list); room-counting is drop-off-safe by construction either way.
 - ⚠️ DISCOVERED: Blue ran a 12-MIN cadence on 2026-07-02 (17:00/17:12/17:24…), not the 15-min
-      the opening-heats-express-only-15min windows + jr-b2b gap-16 comment assume. Reserve rule
-      is cadence-independent (counts real slots); the OPENING-WINDOW rule for Blue would cover
-      3 heats (13:00/13:12/13:24) on 12-min days, not 2 — confirm intent with owner.
+  the opening-heats-express-only-15min windows + jr-b2b gap-16 comment assume. Reserve rule
+  is cadence-independent (counts real slots); the OPENING-WINDOW rule for Blue would cover
+  3 heats (13:00/13:12/13:24) on 12-min days, not 2 — confirm intent with owner.
 - [ ] Commit on a fresh branch off main (changes currently uncommitted in the working tree;
       current checkout is feat/account-dashboard-login — unrelated)
 
@@ -1119,18 +1138,20 @@ categories + tier starter category junior (Blue only — juniors don't run Red/M
 any time before check-in; if the change increases the total, charge the difference.
 
 **Locked decisions (from owner 2026-06-21):**
+
 - Scope = **everything**: food add-ons, player count, lanes, time.
 - Difference charged by **re-entering a card on the edit page** (Square Web Payments; no card-on-file assumption).
 - **Add-only — no reductions/refunds.** An edit may never lower the paid total; staff handle reductions manually.
 
 **Grounding (verified):**
+
 - Edit surface = the existing confirmation page reached via `headpinz.com/s/{shortCode}` (short-url → confirmation).
   Reservation lookup already exists: `GET /api/bowling/v2/reservations/by-code`.
 - Repricing must reuse the quote path (`/api/square/bowling-orders/quote` + reserve pricing) to honor the
   **displayed-vs-charged hard-fail guard** (project rule) — recompute exactly, never trust client totals.
 - Food-line attach to the day-of order already exists (shipped c00286ac) — Phase 1 reuses it.
 - **QAMF has NO time/lane reschedule API in our client** (`patchReservation` = Title/Notes/Status only; we only
-  *sync* BookedAt FROM Conqueror). Changing time/lanes ⇒ **cancel (`deleteReservation`) + `createReservation`**
+  _sync_ BookedAt FROM Conqueror). Changing time/lanes ⇒ **cancel (`deleteReservation`) + `createReservation`**
   anew → re-check availability, re-link deposit/day-of order, risk slot loss. This is the hard part.
 
 **Editability guard (all phases):** allow only while `status ∈ {confirmed, confirm_pending}`,
@@ -1139,6 +1160,7 @@ Optimistic guard against the lane-open cron racing the edit.
 
 **NARROWED v1 (active, owner 2026-06-21): edit the PIZZA TOPPINGS + SODA flavor of a Pizza Bowl only.**
 No player/lane/time changes; no adding pizzas/sides. Guests re-pick toppings/drinks before check-in.
+
 - [ ] Edit surface on the confirmation page (`headpinz.com/s/{shortCode}`): load current pizza/soda
       selections per lane, reuse `BowlingFoodStep` UI to re-pick toppings + drink.
 - [ ] Edit endpoint: guard (pre-check-in, future, status ok) → recompute rawItems (pizza/soda lines w/ new
@@ -1158,6 +1180,7 @@ idempotency key bound to (reservationId, new_total), apply to the day-of order; 
 displayed diff ≠ charged diff. Record an edit-audit row (what changed, diff, payment id, timestamp).
 
 **Open questions for owner:**
+
 - Phase 3: acceptable that a time/lane change briefly cancels + rebooks in QAMF (tiny window where the old
   slot is released)? Or restrict time/lane edits to "request" (staff-confirmed) rather than self-service?
 - Any cap on how close to start time edits are allowed (e.g. block within 1h of the slot)?
@@ -1178,6 +1201,7 @@ Naples 7/23 (HeadPinz only — NO FastTrax, so RSVP-only). Both 4–7 PM; racing
 Open RSVP. Decisions: one page w/ location chooser · RSVP + race booking · open access.
 
 ### Done
+
 - [x] Assets on Vercel Blob (`events/xmas-in-july/`): bowling hero loop (1080/720 + poster), 7 gallery
       photos (WebP+JPEG, family pic dropped → 6 used). Upload script `scripts/upload-xmas-assets.mjs`.
 - [x] Racing video = reused FastTrax homepage hero (`images/hero/hero-video.mp4` + `hero-racing.webp`).
@@ -1191,6 +1215,7 @@ Open RSVP. Decisions: one page w/ location chooser · RSVP + race booking · ope
 - [x] tsc clean · build clean · a11y gate 0 violations · SSR renders all sections + chooser.
 
 ### TODO
+
 - [ ] **GF photos** — owner sending 2–3 group-function photos; optimize + upload + slot into gallery.
 - [ ] Buffet menu (TBD on flyer) — copy update when known.
 - [ ] Live smoke on a deploy: FM path (choose FM → email → name+DOB → waiver → book race heat) +
@@ -1232,10 +1257,9 @@ gel blaster · full HeadPinz identity (HP sender `+12393022155`, headpinz.com li
 - [ ] POST-LAUNCH WATCH (first week): admin board arena rows, `cron:log` `arena-pre` +
       `arena-checkin`, `unclassifiedSessions` in cron responses, undelivered rate on the HP DID,
       racing `bySource.eTicket` canary.
-- ⚠️ BEFORE NAPLES: `ticket:bySession:{sid}:{pid}` + `alert:arena-pre/arena-checkin:{sid}:{pid}`
-      + `race:called:{sid}` keys are NOT location-scoped — fine at FM (FT+HP FM share one BMI
-      server / sessionId namespace), but Naples is a separate BMI server → add a location
-      segment to these keys first.
+- ⚠️ BEFORE NAPLES: `ticket:bySession:{sid}:{pid}` + `alert:arena-pre/arena-checkin:{sid}:{pid}` + `race:called:{sid}` keys are NOT location-scoped — fine at FM (FT+HP FM share one BMI
+  server / sessionId namespace), but Naples is a separate BMI server → add a location
+  segment to these keys first.
 
 ## HPN Arena E-Tickets (Naples) + e-ticket overnight clear (IN PROGRESS — 2026-08-16)
 
@@ -1251,6 +1275,7 @@ Quota-queued SMS survive up to 7 days and WOULD send at 3am when the 1h cooldown
 (`sms-retry-sweep` runs `* * * * *`, no hour gate anywhere in the e-ticket send rail).
 
 ### PR A — `feat/hpn-arena-etickets` (BUILT 2026-08-16, commit 7132f0f6)
+
 - [x] Location-scope BMI-id-keyed Redis keys, legacy-default (`lib/bmi-key-scope.ts`): FM/FT
       (shared BMI server) key shapes stay byte-identical (no migration); non-FM locations
       (Naples) gain a `{locationId}` segment. Keys: `ticket:bySession`, `ticket:byParticipant`,
@@ -1268,6 +1293,7 @@ Quota-queued SMS survive up to 7 days and WOULD send at 3am when the 1h cooldown
 - [x] Unit tests: key scoping (FM legacy / Naples scoped), center config (centers.test.ts).
 
 ### PR B — `feat/eticket-overnight-clear` (stacked on A)
+
 - [x] `src/features/eticket/quiet-hours.ts`: quiet window default 02:00–08:00 ET (owner call
       2026-08-16 — HPFM/HPN run past midnight some nights; alternate is
       `ETICKET_QUIET_START_ET=4`; env-tunable numbers, not opt-in flags). Gates the 5 e-ticket crons
@@ -1312,6 +1338,7 @@ DEFERS redemption (credits spent in the existing v2 race flow), NO expiration (v
 single Square SKU + name override, grant via `addDeposit(+N)` on Square capture.
 
 ### Phase A — Entry-point cutover for race/attraction/bowling/KBF (conflict-free w/ other workflow)
+
 - [ ] Middleware: exclude `/v2` paths from the HeadPinz `/hp` + `/book/bowling*` + `/book/kids-bowl-free*`
       rewrites (FIXES latent bug: `headpinz.com/book/bowling/v2` → `/hp/book/bowling/v2` 404). Point
       HeadPinz `/book` (exact) → `/book/v2` instead of `/hp/book`.
@@ -1326,11 +1353,13 @@ single Square SKU + name override, grant via `addDeposit(+N)` on Square capture.
 - [ ] **MERGE GATE:** bowling/KBF v2 must pass the QAMF+Square smoke test before this branch hits prod.
 
 ### Phase B — Race-pack v2 port (DONE — STANDALONE, 2026-06-07)
+
 **Approach:** standalone `/book/race-pack/v2` (user: "whichever easiest/most efficient"). Deliberately
 NOT the in-cart `CreditPackItem` from the design doc — that threads through `unified-reserve.ts` +
 `types.ts`, which the other workflow is mid-refactor on. Standalone matches what v1 actually does
 (race-packs is its own flow) and reuses v1's PROVEN, server-atomic Square + `addDeposit` money rail.
 Touches ZERO files the other workflow is editing.
+
 - [x] `src/features/booking/data/packs.ts` — 6 SKUs verified 1:1 vs v1 (price, depositKind, raceCount, shared Square SKU).
 - [x] `src/components/features/booking/RacePackFlow.tsx` — pick pack → identify racer (returning lookup /
       new) → review + clickwrap → `PaymentForm` (lineItem + `postPaymentAction:addDeposit`).
@@ -1338,20 +1367,23 @@ Touches ZERO files the other workflow is editing.
 - [x] Confirmation reuses v1 `/book/race-packs/confirmation` (already renders the viaDeposit "Credits
       Loaded" + "Credits Pending" states) — left on v1, NOT redirected.
 - N/A `CreditPackItem` union / `credit-pack` service / `unified-reserve.ts` wiring / step registry —
-      unused by the standalone approach (charge goes through `/api/square/pay`, never unified-reserve).
+  unused by the standalone approach (charge goes through `/api/square/pay`, never unified-reserve).
 - N/A Landing tile on `/book/v2` — the v1 `/book` hub never listed packs either (parity-correct).
 - ⚠️ Simplification vs v1: per-mode OTP omitted (loading credits is non-extractive — the buyer pays to
-      ADD value, so there's no account-takeover surface to gate). Revisit if abuse ever appears.
+  ADD value, so there's no account-takeover surface to gate). Revisit if abuse ever appears.
 - FOLLOW-UP (optional): in-cart `CreditPackItem` integration once the other workflow's unified-reserve
-      refactor lands, if mixing a pack into a multi-activity session is ever wanted.
+  refactor lands, if mixing a pack into a multi-activity session is ever wanted.
 
 ### Phase C — Race-pack cutover (DONE — 2026-06-07)
+
 - [x] Redirect `/book/race-packs` → `/book/race-pack/v2` (middleware `bookingV2Target`, exact match so
       `/book/race-packs/confirmation` stays on v1). Pricing "View Packages" CTA covered by the redirect.
 - [ ] Retire/delete the v1 `/book/race-packs` page in a later PR after ops sign-off.
 
 ### Phase D — HeadPinz center-aware v2 landing (DONE — 2026-06-07)
+
 Convert HPFM/HPN booking to v2 with center-scoped offering order on `/book/v2`.
+
 - [x] `landingOfferingsFor(brand, center)` in `activities-catalog.ts` — Naples scopes to ONLY
       Naples-available offerings (drops FT-only race/duckpin/shuffly); Fort Myers/unknown shows all;
       within scope the VISITOR'S brand propagates first (FastTrax-first on FT, HP-first on HP;
@@ -1363,15 +1395,17 @@ Convert HPFM/HPN booking to v2 with center-scoped offering order on `/book/v2`.
 - [x] `PromoLanding` tile links carry `?location` so the picked activity seeds the right center.
 - Entry: Naples hero CTA (`/hp/book?location=naples`) → Phase-A redirect → `/book/v2?location=naples` → scopes. ✓
 - ⚠️ Minor pre-existing gaps (not blocking): HP nav "Book Now" goes bowling-direct (not the grid) and
-      one `/naples` laser-tag link lacks `?location` → defaults to FM center. Polish later if wanted.
+  one `/naples` laser-tag link lacks `?location` → defaults to FM center. Polish later if wanted.
 
 ## Group-Function: re-price after paid-in-full (IMPLEMENTED — 2026-06-06)
+
 - **Plan + impl log:** [group-function-paid-in-full-reprice.md](group-function-paid-in-full-reprice.md)
-- **Problem:** A BMI edit on a *paid-in-full* event recomputed balance as `total − deposit_due`, ignoring the balance already collected → re-sign re-charged it → **overcharge**. No path to charge just the delta. Also: paid Square balance links were never reconciled.
+- **Problem:** A BMI edit on a _paid-in-full_ event recomputed balance as `total − deposit_due`, ignoring the balance already collected → re-sign re-charged it → **overcharge**. No path to charge just the delta. Also: paid Square balance links were never reconciled.
 - **Scope (Eric):** Only paid-in-full events. Resign required regardless. Increase → charge difference + load gift cards (card on file, or capture a card on re-sign). Decrease → flag staff, no auto-refund. Deposit-phase flows untouched.
 - **Status:** PR-1 + PR-2 implemented on branch `feat/gf-balance-link-reconcile`; typecheck/lint/prettier clean. **Not committed; not live-smoke-tested.** Verify §6 before go-live.
 
 ## PR-B5: Bowling + KBF into Unified BookingFlow (IN PROGRESS — 2026-06-02)
+
 - **Branch:** `feat/booking-b2-race` · merged with main 2026-06-02
 - **What shipped (all build-verified):**
   - D1: Type extensions — BowlingItem/KbfItem with 30+ fields, LoyaltyState on BookingSession, 5 new reducer actions
@@ -1396,12 +1430,14 @@ Convert HPFM/HPN booking to v2 with center-scoped offering order on `/book/v2`.
   - Full Square Loyalty API reward creation in BMI reserve route (currently applies discount only; bowling route has full implementation)
 
 ## v2 Checkout: Server-side atomic BMI payment/confirm
+
 - **Priority:** Medium (v2 checkout milestone)
 - **Context:** v1 confirms BMI payment client-side on the confirmation page after Square charges. PR #13 (2026-06-02) added retry + error UI as an immediate fix, but the architecture still has a gap if the browser closes between Square charge and confirmation page load.
 - **v2 fix:** Add `confirmBmi` postPaymentAction to `/api/square/pay` so Square charge + BMI confirm happen atomically server-side. Extract shared `lib/bmi-client.ts` for BMI auth + `confirmPayment()`. Wire into v2 checkout service.
 - **See:** [restructure-plan.md § v2 checkout: server-side atomic BMI payment/confirm](restructure-plan.md)
 
 ## SEO: HeadPinz metadata on shared /book routes
+
 - **Priority:** High
 - **Issue:** `headpinz.com/book/*` pages show FastTrax title/description in Google results because `/book` routes use the root layout metadata (FastTrax-branded), not the `/hp` layout
 - **Root cause:** Middleware line 69 excludes `/book` from the `/hp` rewrite, so shared booking pages inherit the root `app/layout.tsx` metadata
@@ -1424,6 +1460,7 @@ Dropped per owner: party assignments, PandaDoc (replaced by native ContractSecti
 `scripts/migrate-daily-event-metadata.mjs` once at cutover (PORTAL_DATABASE_URL + DATABASE_URL).
 
 **Remaining before staff cutover:**
+
 - [ ] Owner live pass: page vs portal side-by-side (same date/location), detail modal, print
       outputs, food-out manual save on a REAL event (verifies the BMI private-note sync write —
       left untested on purpose; sync no-op path + Neon cycle verified with a synthetic id).
@@ -1467,10 +1504,10 @@ walk to the other track. Staying on one track drops the walk, so same-track pair
       later" (the old line is wrong for same-track now).
 - [x] No server-side change needed — `assertHeatBookable` enforces tier + restriction rules, NOT
       the package gap. The gap is a picker-side rule in both flows.
-- [x] Gates: tsc clean, eslint 0 errors (4 pre-existing warnings), a11y-gate green, 1386 booking
-      + kiosk tests pass, `packageGapMinutesFor` unit-tested in `conflict.test.ts`.
+- [x] Gates: tsc clean, eslint 0 errors (4 pre-existing warnings), a11y-gate green, 1386 booking + kiosk tests pass, `packageGapMinutesFor` unit-tested in `conflict.test.ts`.
 
 **Not done — needs a live pass:**
+
 - [ ] Web `/book/race`: UQ weekday adult, pick a Red Starter → Red Intermediate 30–59 min later
       is now pickable; the same-time Blue Intermediate still reads "Available 60 min after…".
 - [ ] Kiosk: same check on the shared picker, plus the Spanish banner (switch locale on the
@@ -1593,20 +1630,19 @@ on this path; the fix is barriers + patience, not new writers):
       side and WSync delivers both rows down together — the race disappears entirely.
 - [x] PR1: stop manufacturing duplicates — PUSHED 2026-08-12 branch fix/kiosk-bmi-sync-sweep (53f3121d), waiver-join rail folded in per owner —
       (a) treat `person_not_on_project` as RETRYABLE (vendor-documented), never fold into
-          `schedule_status='failed'` (kiosk/checkin/server.ts:1671);
+      `schedule_status='failed'` (kiosk/checkin/server.ts:1671);
       (b) fix count-only responses skipping straggler re-POSTs (schedule-racers.ts:158);
       (c) wire the never-built async sweep off listPendingScheduleRows — retries spanning
-          minutes, using the documented local-visibility probe
-          (Pandora GET /bmi/reservation/{loc}/{id}: 200=synced down, 404=not yet) as the gate;
+      minutes, using the documented local-visibility probe
+      (Pandora GET /bmi/reservation/{loc}/{id}: 200=synced down, 404=not yet) as the gate;
       (d) barrier A on the other direction: after kiosk person mint, gate the cloud attach on
-          Office-side person visibility (same sweep, opposite probe);
+      Office-side person visibility (same sweep, opposite probe);
       (e) staff memo only after N minutes of REAL failure, with reason distinguishing
-          "waiting on sync" from "vendor refused" — the current instant
-          "AUTO CHECK-IN INCOMPLETE" memo is what sends staff to hand-seat (= the duplicate).
+      "waiting on sync" from "vendor refused" — the current instant
+      "AUTO CHECK-IN INCOMPLETE" memo is what sends staff to hand-seat (= the duplicate).
 - [ ] PR2 (separate, same rule): remove cross-rail write FALLBACKS elsewhere
       (setProjectState Pandora↔Office, appendProjectPrivateNote's 3-store escalation) — each
       entity gets one rail; a fallback that writes the other side is a split-brain generator.
-
 
 ## Auto-move to holding when the room empties + Nx briefing bookmarks (2026-08-14) — BUILT, unpushed, NOT smoked on a live briefing
 
@@ -1623,11 +1659,11 @@ the film's end. The room's occupancy is otherwise only ever closed by `replaced`
 Nx records motion on both briefing cameras at 3-80s granularity (`analytics` periods
 are 0 — no object detection, so no people COUNTING, only activity).
 
-| quiet window | fires | median after film end | beat the next group in |
-| ---- | ---- | ---- | ---- |
-| 90s | 45/75 | 2:39 | 44/45 |
-| 45s | 56/75 | 1:46 | 55/56 |
-| **30s (shipped)** | **62/75** | **1:29** | **61/62** |
+| quiet window      | fires     | median after film end | beat the next group in |
+| ----------------- | --------- | --------------------- | ---------------------- |
+| 90s               | 45/75     | 2:39                  | 44/45                  |
+| 45s               | 56/75     | 1:46                  | 55/56                  |
+| **30s (shipped)** | **62/75** | **1:29**              | **61/62**              |
 
 Fire delay scales with roster size — 1-2 racers median +0:30, 10+ median +2:04 — i.e.
 gear-up time, which is exactly what a clock cannot model. 15 of the 16 firings at the
@@ -1697,7 +1733,7 @@ no footage behind it reads as "not captured" during a review, which is worse tha
 | paused / resumed | SMS-Timing socket `S` field, 1/min cron | ±60s, sub-minute pauses missed |
 
 Pause is on no wire at all — it exists only as socket state, so it is polled. The marker's
-range leads in 2 min so the footage behind it contains the *cause*, and the description
+range leads in 2 min so the footage behind it contains the _cause_, and the description
 says the moment is approximate. Worth having: a kart pause is nearly always an incident.
 
 - [x] `nx/track-cameras.ts` — pure name matcher, 10 tests. **The double space is real**:
