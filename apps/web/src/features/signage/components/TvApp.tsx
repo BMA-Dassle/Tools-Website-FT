@@ -71,6 +71,14 @@ const IDENTITY_KEY = "tv_screen_id";
 const FEED_GRACE_MS = 12_000;
 const BUILD_SHA = (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || "dev").slice(0, 8);
 
+/** "4s ago" / "6m ago" / "never" — for the ?debug=1 poll-health line, where the
+ *  only question being asked is whether the number is small. */
+function fmtAge(stampMs: number | null, nowMs: number): string {
+  if (stampMs === null) return "never";
+  const secs = Math.max(0, Math.round((nowMs - stampMs) / 1000));
+  return secs < 90 ? `${secs}s ago` : `${Math.round(secs / 60)}m ago`;
+}
+
 export function TvApp({ initialScreenId = null }: { initialScreenId?: string | null } = {}) {
   const [screenId, setScreenId] = useState<string | null>(null);
   /**
@@ -167,7 +175,7 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
     };
   }, []);
 
-  const rawFeed = useTvFeed(screenId);
+  const { feed: rawFeed, health } = useTvFeed(screenId);
 
   const parsed = parseScreenKey(screenId);
   const isTest = parsed?.screenNumber === TEST_SCREEN_NUMBER;
@@ -313,6 +321,24 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
     typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debug");
 
   /**
+   * The overlay needs a clock OF ITS OWN, and that is the whole point.
+   *
+   * Every other re-render of this component is caused by a poll landing — so if
+   * the ages below rode those, a wedged lane would freeze its own age display at
+   * whatever it last said and read as healthy. The one number that has to keep
+   * moving when nothing else does cannot be driven by the thing that stopped.
+   *
+   * Only ticks with ?debug=1 on the URL: a wall in front of guests gets no extra
+   * render per second for a panel it is not showing.
+   */
+  const [debugNowMs, setDebugNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!debug) return;
+    const iv = setInterval(() => setDebugNowMs(Date.now()), 1_000);
+    return () => clearInterval(iv);
+  }, [debug]);
+
+  /**
    * A RELOADING BOARD SHOWS THE SPIN, NEVER ADS (owner 2026-08-14: "sometimes we
    * get some weird reloading on the pit assign screen that goes to ads. If any
    * reload is needed we should use the fasttrax spin reload. never go to ads").
@@ -409,6 +435,15 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
               `screen      ${screenId ?? "(none)"}`,
               `build       ${BUILD_SHA}`,
               `feed        ${rawFeed ? "ok" : "NULL — no feed yet"}`,
+              // HOW OLD, not just whether. The last good feed is the floor, so
+              // a wedged poll and a quiet night look identical on the glass —
+              // this is the line that tells them apart without a laptop. Full
+              // should read under 15s and the pulse under 2s; anything else is
+              // a stalled lane.
+              `polled      full ${fmtAge(health.lastFullOkMs, debugNowMs)} · pulse ${fmtAge(
+                health.lastPulseOkMs,
+                debugNowMs,
+              )}`,
               `demoMode    ${rawFeed?.demoMode ?? "(none)"} -> ${effectiveDemo}`,
               `events      ${feed?.events?.length ?? "null"}`,
               `vip         ${feed?.vip?.length ?? "null"}`,

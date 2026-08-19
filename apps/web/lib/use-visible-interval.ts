@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { startVisibleLoop } from "./visible-loop";
 
 /**
  * DOES THIS DOCUMENT TELL THE TRUTH ABOUT BEING HIDDEN?
@@ -64,8 +65,12 @@ export function pageIsHidden(): boolean {
  * mid-cycle, the in-flight fetches abort cleanly. Callers should
  * forward `signal` to their `fetch(url, { signal })` calls.
  *
- * SIGNAGE OPTS OUT — see setDocumentNeverHidden below. A wall panel that the
+ * SIGNAGE OPTS OUT — see setDocumentNeverHidden above. A wall panel that the
  * browser calls hidden is still hanging on a wall being read.
+ *
+ * The loop itself lives in ./visible-loop, framework-free and tested there.
+ * This hook is the React wiring: the document's visibility, and a ref so the
+ * latest callback runs without restarting the loop.
  *
  * Usage:
  *   useVisibleInterval(async (signal) => {
@@ -74,74 +79,71 @@ export function pageIsHidden(): boolean {
  *     // ... process
  *   }, 20_000, !longPast);
  */
+
+/**
+ * THE FLOOR UNDER THE PER-CYCLE WATCHDOG, and the reason there is one at all.
+ *
+ * "Schedule the next tick only after this one settles" is what stops cycles
+ * piling up — and on its own it is also a way for the loop to STOP FOREVER. A
+ * `fetch` has no timeout of its own: a stalled connection (a wall panel behind
+ * flaky wifi, a NAT that silently drops the flow) leaves the promise pending
+ * indefinitely, the await never returns, and nothing ever schedules tick N+1.
+ * The page then shows whatever the last good poll said until somebody walks over
+ * and reloads it — which is what happened to the FT results wall on 2026-08-17
+ * ("kept freezing, I had to refresh several times").
+ *
+ * Generous on purpose: this is a stall-breaker, not a latency budget. A slow
+ * response is still worth having; only a cycle that will never finish is worth
+ * abandoning.
+ */
+const CYCLE_TIMEOUT_FLOOR_MS = 20_000;
+
 export function useVisibleInterval(
   callback: (signal: AbortSignal) => void | Promise<void>,
   delayMs: number,
   enabled: boolean = true,
+  /** Cycle deadline. Defaults to twice the cadence, never under
+   *  {@link CYCLE_TIMEOUT_FLOOR_MS}. Pass a tighter value on a fast lane where
+   *  a stale beat is worse than a missed one. */
+  timeoutMs?: number,
 ): void {
   const latest = useRef(callback);
   latest.current = callback;
+
+  const cycleTimeoutMs = timeoutMs ?? Math.max(delayMs * 2, CYCLE_TIMEOUT_FLOOR_MS);
 
   useEffect(() => {
     if (!enabled) return;
     if (typeof document === "undefined") return; // SSR safety
 
-    let cancelled = false;
-    let timerId: ReturnType<typeof setTimeout> | null = null;
-    let activeController: AbortController | null = null;
+    const loop = startVisibleLoop({
+      // Through the ref, so a re-render with a new closure does not tear the
+      // loop down and restart the cadence.
+      run: (signal) => latest.current(signal),
+      delayMs,
+      timeoutMs: cycleTimeoutMs,
+      // THROUGH pageIsHidden, NEVER document.hidden directly — a wall panel
+      // reports itself hidden the moment Windows occludes it, and starting the
+      // loop paused there is how a screen came up dead in front of guests.
+      hiddenAtStart: pageIsHidden(),
+    });
 
-    function clearTimer() {
-      if (timerId) {
-        clearTimeout(timerId);
-        timerId = null;
-      }
-    }
-    function abortActive() {
-      if (activeController) {
-        activeController.abort();
-        activeController = null;
-      }
-    }
-
-    async function tick() {
-      if (cancelled) return;
-      if (pageIsHidden()) return; // belt-and-suspenders; visibility handler also stops the timer
-      abortActive();
-      const ctrl = new AbortController();
-      activeController = ctrl;
-      try {
-        await latest.current(ctrl.signal);
-      } catch {
-        /* swallow — caller's problem */
-      }
-      activeController = null;
-      if (cancelled || pageIsHidden()) return;
-      // Schedule next tick AFTER the current cycle settled — no overlap.
-      timerId = setTimeout(tick, delayMs);
+    // A DOCUMENT THAT NEVER REPORTS ITSELF HIDDEN HAS NOTHING TO LISTEN FOR.
+    //
+    // Worth being explicit about, because the two faults this file has carried
+    // meet here. The loop now supersedes a cycle in flight rather than running
+    // beside it, so a visibility flap can no longer FORK it — but on a TV the
+    // flap is noise in the first place, and the cheapest correct thing is not to
+    // subscribe. On every other page the listener is exactly right and stays.
+    if (documentNeverHidden) {
+      return () => loop.stop();
     }
 
-    function onVisibility() {
-      if (pageIsHidden()) {
-        clearTimer();
-        abortActive();
-      } else {
-        // Run immediately on return — user just refocused, give them
-        // fresh data without waiting for the next cadence tick.
-        clearTimer();
-        tick();
-      }
-    }
-
-    if (!pageIsHidden()) tick();
-    // A document that never reports itself hidden has nothing to listen for,
-    // and the handler would restart the cadence on every occlusion flip.
-    const watchVisibility = !documentNeverHidden;
-    if (watchVisibility) document.addEventListener("visibilitychange", onVisibility);
+    const onVisibility = () => loop.setHidden(pageIsHidden());
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
-      cancelled = true;
-      if (watchVisibility) document.removeEventListener("visibilitychange", onVisibility);
-      clearTimer();
-      abortActive();
+      document.removeEventListener("visibilitychange", onVisibility);
+      loop.stop();
     };
-  }, [delayMs, enabled]);
+  }, [delayMs, enabled, cycleTimeoutMs]);
 }
