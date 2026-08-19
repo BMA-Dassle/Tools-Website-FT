@@ -170,6 +170,31 @@ describe("the identity rail — no slide is an orphan", () => {
     expect(identityRail(1, price)!.text.toLowerCase()).toContain("hours");
   });
 
+  it("THE TWO BRANDS ARE MARKS, never words on the glass", () => {
+    // The wall shipped saying "FastTrax HeadPinz" as text, which reads as one
+    // invented company rather than two venues on one pass (owner 2026-08-19).
+    // The cell must therefore carry `brands` for the renderer to draw logos.
+    const pair = identityRail(2, price)!;
+    expect(pair.brands).toEqual(["fasttrax", "headpinz"]);
+    // …and `text` stays as the accessible name for the lockup, joined so it cannot
+    // be mistaken for a single name if it is ever read aloud.
+    expect(pair.text).toBe("FastTrax + HeadPinz");
+  });
+
+  it("no rail cell anywhere spells a brand pair as bare words", () => {
+    // The regression guard: any cell naming both brands must render them as marks.
+    for (const slide of [undefined, 0, 1, 2, 3]) {
+      for (const p of [0, 1, 2, 3, 4]) {
+        const cell = identityRail(p, price, slide);
+        if (!cell) continue;
+        const namesBoth = /fasttrax/i.test(cell.text) && /headpinz/i.test(cell.text);
+        if (namesBoth) {
+          expect(cell.brands, `slide ${slide} panel ${p} spells both brands`).toBeTruthy();
+        }
+      }
+    }
+  });
+
   it("NOWHERE says All Access without naming the product above it", () => {
     // The badge is the wall's word for the thing, not the thing's name.
     for (const slide of [0, 1, 2, 3]) {
