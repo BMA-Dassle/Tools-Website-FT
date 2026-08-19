@@ -81,7 +81,12 @@ export function SceneBowlingCheckin({ feed }: SceneProps) {
           }}
         >
           <Column
-            heading="Check in now"
+            // NAMES THE TWO CHANNELS rather than saying "now" (owner 2026-08-19). It is
+            // also the accurate heading for this list specifically: the query keeps only
+            // `web` and `kiosk` bookings, so everyone on it either has the confirmation
+            // link on their phone or booked at the machine they are standing next to.
+            // A guest booked at the desk was already served and is filtered out.
+            heading="Check in by phone or kiosk"
             accent={WAITING}
             empty="Nobody waiting to check in."
             rows={eligible.map((g) => ({
@@ -112,9 +117,11 @@ export function SceneBowlingCheckin({ feed }: SceneProps) {
         </div>
 
         {/* The instruction sits under BOTH columns, because it is the answer to the
-            left one and the reassurance for the right. */}
+            left one and the reassurance for the right. Both channels named: a guest who
+            booked online has the check-in link in their confirmation, and the kiosks are
+            directly below this panel. */}
         <div style={{ fontSize: 30, color: "rgba(245,236,238,0.72)", lineHeight: 1.3 }}>
-          Check in at any kiosk below — we&rsquo;ll bring your shoes out to you.
+          Check in on your phone, or at any kiosk below — we&rsquo;ll bring your shoes out to you.
         </div>
       </div>
     </div>
