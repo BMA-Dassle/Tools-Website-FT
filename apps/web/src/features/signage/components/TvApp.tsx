@@ -26,6 +26,7 @@ import {
 } from "../constants";
 import { resolveScreenConfig } from "../defaults";
 import { useTvFeed } from "../useTvFeed";
+import { FeedHealthProvider } from "../feed-health";
 import { useGatedReload } from "../useGatedReload";
 import { applyDemo, effectiveDemoMode, parseDemoMode, type DemoMode } from "../demo";
 import { WallIdentify } from "./WallIdentify";
@@ -390,15 +391,24 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
         // explicitly — see briefingActive above.
         safeToReload={!decision?.isInterrupt && !holdReloads}
       >
-        <SceneDirector
-          feed={feed}
-          offset={offset}
-          venue={venue}
-          config={config}
-          asleep={asleep}
-          demo={effectiveDemo}
-          onDecision={setDecision}
-        />
+        {/* THE POLL STAMPS, DOWN TO THE FOOTER OF THE SCORES WALL. They are
+            read here because this is where the feed is polled, and the board
+            that shows them is four layers down — reaching it by prop would mean
+            widening SceneProps (the contract sixteen scenes implement) plus a
+            pass-through on SceneDirector, Footer and Shell. Scoped to the
+            director because scenes are the only consumers: the ?debug=1 overlay
+            below already holds `health` directly. See feed-health.tsx. */}
+        <FeedHealthProvider value={health}>
+          <SceneDirector
+            feed={feed}
+            offset={offset}
+            venue={venue}
+            config={config}
+            asleep={asleep}
+            demo={effectiveDemo}
+            onDecision={setDecision}
+          />
+        </FeedHealthProvider>
         {/* THE SETUP + SYNC TEST. An overlay rather than a scene: it has to be
             readable whatever the wall happens to be showing, and it must not
             disturb the rotation underneath — so the panels are still in step the
