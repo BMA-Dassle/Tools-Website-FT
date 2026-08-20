@@ -41,7 +41,8 @@ export type ScanOutcome =
   | "already-in" // re-scan of the same racer into the same heat
   | "not-checking-in" // real racer, heat not called (the yellow card)
   | "not-found" // nobody matched
-  | "failed"; // upstream write or lookup failed
+  | "failed" // upstream write or lookup failed
+  | "unreadable"; // the payload never parsed — a 400, not a scan we understood
 
 export interface ScanHistoryEntry {
   atMs: number;
@@ -60,6 +61,18 @@ export interface ScanHistoryEntry {
   dryRun?: boolean;
   /** A headsock was flagged as due on this scan. */
   headsock?: boolean;
+  /**
+   * WHY IT DIDN'T WORK. Only set on `failed` / `unreadable` / `not-found`.
+   *
+   * Without this a failure reads as the word "failed" and nothing else, which
+   * is the least useful thing a diagnostic can say at 8pm with a queue at the
+   * desk. Carries the upstream's own message (a Pandora status line, or the
+   * parse rejection), truncated — never a stack trace, never guest PII beyond
+   * what the first-name field already holds.
+   */
+  detail?: string | null;
+  /** HTTP status, when it was not 200. Absent on a normal scan. */
+  status?: number;
 }
 
 const KEY = "checkin:scan-history";
@@ -119,7 +132,17 @@ export interface ScanHistoryStats {
 
 export function summariseScans(entries: ScanHistoryEntry[]): ScanHistoryStats {
   const real = entries.filter((e) => !e.dryRun);
+  /**
+   * TIMINGS EXCLUDE `unreadable`, COUNTS DO NOT.
+   *
+   * A payload that never parsed is rejected in ~80ms without touching an
+   * upstream. Letting those into the percentiles would pull the median toward
+   * "the desk is fast" precisely when a scanner is emitting garbage and every
+   * other scan is timing out — the reading would improve as the night got
+   * worse. They still appear in `byOutcome`, which is where they matter.
+   */
   const times = real
+    .filter((e) => e.outcome !== "unreadable")
     .map((e) => e.totalMs)
     .filter((n) => typeof n === "number" && n >= 0)
     .sort((a, b) => a - b);

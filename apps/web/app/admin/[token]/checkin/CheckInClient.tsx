@@ -242,6 +242,7 @@ function scanOutcomeColor(outcome: string): string {
     case "not-checking-in":
       return AMBER;
     case "failed":
+    case "unreadable":
       return RED;
     default:
       return "#94a3b8";
@@ -444,6 +445,14 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
    * background poll would add traffic to the exact path being investigated.
    */
   const [showScanHistory, setShowScanHistory] = useState(false);
+  /**
+   * Gear look-ups are hidden by default. They are diagnostics someone ran on
+   * purpose, and a handful of them buries the real scans this panel exists to
+   * show — twenty in a minute is an easy afternoon's testing. The count is
+   * still stated and one press brings them back, because silently dropping
+   * rows would make the panel lie about what happened.
+   */
+  const [showLookups, setShowLookups] = useState(false);
   const [scanHistory, setScanHistory] = useState<ScanHistoryEntry[] | null>(null);
   const [scanStats, setScanStats] = useState<ScanHistoryStats | null>(null);
   const [scanHistoryLoading, setScanHistoryLoading] = useState(false);
@@ -465,6 +474,10 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
       setScanHistoryLoading(false);
     }
   }, [token]);
+
+  /** Real scans by default; look-ups only when asked for. */
+  const visibleScans = (scanHistory ?? []).filter((e) => showLookups || !e.dryRun);
+  const hiddenLookupCount = showLookups ? 0 : (scanHistory ?? []).filter((e) => e.dryRun).length;
 
   // Live session status via the admin endpoint (which calls Pandora directly
   // for checkedIn counts). Covers called races AND HP Arena sessions in their
@@ -2164,6 +2177,22 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 Scan history
               </h2>
               <div className="flex items-center gap-2">
+                {/* Only offered when there is something hidden to reveal. */}
+                {(showLookups || hiddenLookupCount > 0) && (
+                  <button
+                    type="button"
+                    aria-pressed={showLookups}
+                    onClick={() => setShowLookups(!showLookups)}
+                    className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5"
+                    style={{
+                      borderColor: showLookups ? PORTAL_BLUE : PORTAL_DARK.border,
+                      color: showLookups ? PORTAL_BLUE_SOFT : PORTAL_DARK.muted,
+                      borderRadius: 8,
+                    }}
+                  >
+                    {showLookups ? "Hide look-ups" : `Show ${hiddenLookupCount} look-ups`}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => void loadScanHistory()}
@@ -2224,10 +2253,13 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               <p className="text-sm" style={{ color: PORTAL_DARK.muted }}>
                 Loading…
               </p>
-            ) : scanHistory.length === 0 ? (
+            ) : visibleScans.length === 0 ? (
               <p className="text-sm" style={{ color: PORTAL_DARK.muted }}>
-                No scans recorded yet. The buffer fills as badges are scanned, and clears after two
-                weeks of quiet.
+                {hiddenLookupCount > 0
+                  ? `No real scans yet — only ${hiddenLookupCount} gear look-up${
+                      hiddenLookupCount === 1 ? "" : "s"
+                    }, which wrote nothing.`
+                  : "No scans recorded yet. The buffer fills as badges are scanned, and clears after two weeks of quiet."}
               </p>
             ) : (
               <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
@@ -2250,7 +2282,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                     </tr>
                   </thead>
                   <tbody>
-                    {scanHistory.map((e, i) => (
+                    {visibleScans.map((e, i) => (
                       <tr
                         key={`${e.atMs}-${i}`}
                         style={{
@@ -2282,11 +2314,29 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                             padding: "6px 8px",
                             color: scanOutcomeColor(e.outcome),
                             fontWeight: 700,
-                            whiteSpace: "nowrap",
                           }}
                         >
-                          {e.outcome}
-                          {e.headsock && <span style={{ color: AMBER }}> · headsock</span>}
+                          <span style={{ whiteSpace: "nowrap" }}>
+                            {e.outcome}
+                            {e.headsock && <span style={{ color: AMBER }}> · headsock</span>}
+                          </span>
+                          {/* WHY it failed, on its own line. The word "failed"
+                              alone is the least useful thing this panel could
+                              say at 8pm with a queue at the desk. */}
+                          {e.detail && (
+                            <span
+                              style={{
+                                display: "block",
+                                color: PORTAL_DARK.muted,
+                                fontWeight: 400,
+                                fontSize: 11,
+                                maxWidth: 260,
+                                whiteSpace: "normal",
+                              }}
+                            >
+                              {e.detail}
+                            </span>
+                          )}
                         </td>
                         <td
                           style={{
@@ -2320,8 +2370,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               </div>
             )}
             <p className="text-xs mt-3" style={{ color: PORTAL_DARK.muted }}>
-              Newest first, last 120 scans. Hover a duration to see where the time went. Greyed rows
-              are gear look-ups, which wrote nothing and are excluded from the averages.
+              Newest first, last 120 scans. Hover a duration to see where the time went. Gear
+              look-ups are hidden by default and never counted in the averages — they wrote nothing.
             </p>
           </div>
         </div>
