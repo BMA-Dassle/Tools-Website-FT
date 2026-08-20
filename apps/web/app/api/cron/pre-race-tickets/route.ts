@@ -34,6 +34,7 @@ import { updateLicencePasses } from "~/features/racing/wallet/licence-pass";
 import { formatHeat } from "~/features/racing/wallet/licence-meta";
 import { NO_NEXT_RACE } from "~/features/racing/wallet/licence-clear";
 import { KARTING_CHECKIN_EMAIL_NOTE, KARTING_CHECKIN_SMS_NOTE } from "@/lib/karting-checkin-copy";
+import { a2pSender } from "~/features/sms/sender";
 
 /**
  * Flow A — Pre-race e-ticket cron.
@@ -51,7 +52,7 @@ import { KARTING_CHECKIN_EMAIL_NOTE, KARTING_CHECKIN_SMS_NOTE } from "@/lib/kart
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
-const VOX_FROM = "+12394819666"; // FastTrax SMS sender
+const VOX_FROM = a2pSender();
 /** Office clientKey — the login-code pre-warm reads tags from this BMI. */
 const CLIENT_KEY = process.env.BMI_CLIENT_KEY || "headpinzftmyers";
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";

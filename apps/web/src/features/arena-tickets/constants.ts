@@ -1,3 +1,5 @@
+import { a2pSender } from "~/features/sms/sender";
+
 /**
  * HP Arena e-tickets — feature constants.
  *
@@ -33,12 +35,12 @@ export const ARENA_RESOURCES = ["HP Arena"] as const;
  *  in production use by bowling lane-ready / guest-survey / booking
  *  confirmations. Env override supports a future dedicated arena DID
  *  without a code change. */
-export const VOX_FROM_HEADPINZ_FM = process.env.VOX_FROM_HEADPINZ_FM || "+12393022155";
+export const VOX_FROM_HEADPINZ_FM = a2pSender();
 
 /** HeadPinz Naples SMS sender — the DID already texting Naples guests
  *  for bowling/booking confirmations and lane-ready. Same env-override
  *  pattern as FM. */
-export const VOX_FROM_HEADPINZ_NAPLES = process.env.VOX_FROM_HEADPINZ_NAPLES || "+12394553755";
+export const VOX_FROM_HEADPINZ_NAPLES = a2pSender();
 
 /** Base URL for arena ticket links (SMS short-link targets). The /t,
  *  /g, /s routes serve on headpinz.com via the shared-route middleware

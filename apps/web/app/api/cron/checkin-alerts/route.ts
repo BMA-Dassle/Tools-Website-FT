@@ -26,6 +26,7 @@ import { verifyCron } from "@/lib/cron-auth";
 import { inEticketQuietHours } from "~/features/eticket/quiet-hours";
 import { vipComboPersonLegsOnDate, type VipComboPersonLeg } from "@/lib/bowling-db";
 import { appendBookingMemoLine } from "~/features/reservations-admin/bmi-notes";
+import { a2pSender } from "~/features/sms/sender";
 
 /**
  * Flow B — "Now checking in" alert cron.
@@ -44,7 +45,7 @@ import { appendBookingMemoLine } from "~/features/reservations-admin/bmi-notes";
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
-const VOX_FROM = "+12394819666";
+const VOX_FROM = a2pSender();
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const SENDGRID_FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
