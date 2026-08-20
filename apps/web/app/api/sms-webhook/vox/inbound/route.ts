@@ -198,25 +198,36 @@ export async function POST(req: NextRequest) {
  *  saves the Messaging Application, and — with `?stats=1` — the captured
  *  sweep, so payload shapes can be read without Vercel log access.
  *
- *  Reading ALWAYS requires a configured, matching token — including in
- *  bring-up mode. The asymmetry is deliberate: POST stays lenient with no
- *  token so a portal misconfiguration cannot silently lose captures, but
- *  what it captures is guest message bodies and mobile numbers. An
- *  unset env var must never turn that into a public endpoint. */
+ *  Reading ALWAYS requires a matching secret — including in bring-up
+ *  mode. The asymmetry against POST is deliberate: POST stays lenient
+ *  with no token so a portal misconfiguration cannot silently lose
+ *  captures, but what it captures is guest message bodies and mobile
+ *  numbers. An unset env var must never turn that into a public endpoint.
+ *
+ *  Accepts `CRON_SECRET` as well as `VOX_MO_TOKEN`, so reading needs no
+ *  new secret — CRON_SECRET already guards this app's privileged
+ *  endpoints. They are NOT interchangeable in the other direction:
+ *  whatever we hand Voxtelesys sits in their portal config, their logs,
+ *  and our request logs, so the portal URL must never carry CRON_SECRET.
+ *  A dedicated VOX_MO_TOKEN keeps that blast radius at "someone reads
+ *  the capture buffer" instead of "someone runs our crons." */
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   if (url.searchParams.get("stats") !== "1") {
     return NextResponse.json({ ok: true, hint: "POST Voxtelesys MO callbacks here" });
   }
 
-  const expected = process.env.VOX_MO_TOKEN || "";
-  if (expected === "") {
+  const accepted = [process.env.CRON_SECRET, process.env.VOX_MO_TOKEN].filter(
+    (s): s is string => typeof s === "string" && s !== "",
+  );
+  if (accepted.length === 0) {
     return NextResponse.json({
       ok: false,
-      error: "stats unavailable: set VOX_MO_TOKEN, then read with ?stats=1&k=<token>",
+      error: "stats unavailable: no CRON_SECRET or VOX_MO_TOKEN configured",
     });
   }
-  if (url.searchParams.get("k") !== expected) {
+  const supplied = url.searchParams.get("k") || "";
+  if (!accepted.includes(supplied)) {
     return NextResponse.json({ ok: false, error: "unauthorized" });
   }
 
@@ -231,7 +242,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       mode: "listen-only",
-      tokenConfigured: expected !== "",
+      // Whether the POST path is secured. False means the endpoint is
+      // accepting unauthenticated inbound — fine during bring-up, but it
+      // should not stay that way unnoticed.
+      postTokenConfigured: (process.env.VOX_MO_TOKEN || "") !== "",
       hitsToday: hits ? parseInt(hits, 10) : 0,
       rejectedToday: rejected ? parseInt(rejected, 10) : 0,
       lastHit: lastHit || null,
