@@ -27,6 +27,7 @@ import {
 import { resolveScreenConfig } from "../defaults";
 import { useTvFeed } from "../useTvFeed";
 import { FeedHealthProvider } from "../feed-health";
+import { usePanelFill } from "../usePanelFill";
 import { useGatedReload } from "../useGatedReload";
 import { applyDemo, effectiveDemoMode, parseDemoMode, type DemoMode } from "../demo";
 import { WallIdentify } from "./WallIdentify";
@@ -177,6 +178,10 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
   }, []);
 
   const { feed: rawFeed, health } = useTvFeed(screenId);
+
+  // Measured HERE, once, so the stamp on the glass and the flag on the wire can
+  // never disagree about the same panel. See usePanelFill.
+  const windowed = usePanelFill();
 
   const parsed = parseScreenKey(screenId);
   const isTest = parsed?.screenNumber === TEST_SCREEN_NUMBER;
@@ -394,6 +399,7 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
         // see the block comment in feed-heal.ts on why that would deadlock.
         screenId={screenId}
         health={health}
+        windowed={windowed}
       >
         {/* THE POLL STAMPS, DOWN TO THE FOOTER OF THE SCORES WALL. They are
             read here because this is where the feed is polled, and the board

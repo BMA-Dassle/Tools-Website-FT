@@ -412,7 +412,7 @@ function ScreenRow({
    *  one, which is what hides the wall-wide test. */
   wallMates: string[];
   token: string;
-  heartbeat: { at: string; build: string | null } | null;
+  heartbeat: { at: string; build: string | null; windowed?: boolean } | null;
   /** Clock read once per load by the parent — never Date.now() during render. */
   nowMs: number;
   onEdit: () => void;
@@ -514,6 +514,17 @@ function ScreenRow({
           // "fixed" by the next person who wonders why this wall is letterboxed.
           <p style={{ color: PORTAL_DARK.muted, fontSize: 13, margin: "4px 0 0" }}>
             Picture pulled in {resolved.overscanPct}% per edge (this panel overscans)
+          </p>
+        )}
+        {heartbeat?.windowed && (
+          // NOT an error colour and not an alarm: the picture on this board is
+          // correct, TvStage scales the canvas to whatever viewport it gets. What
+          // is wrong is that Edge's chrome is showing on a guest-facing wall and
+          // the panel is not being filled. Actionable, hence the instruction.
+          <p style={{ margin: "8px 0 0", fontSize: 13, color: "#f0b341", fontWeight: 600 }}>
+            ⚠ This screen is not filling its panel — Edge is windowed, so the address bar is on the
+            wall. Click the board and press F11, or restart the player so the launcher re-applies
+            its fullscreen flag.
           </p>
         )}
         {heartbeat?.build && heartbeat.build !== CURRENT_BUILD && (

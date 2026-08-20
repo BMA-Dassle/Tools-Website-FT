@@ -36,12 +36,15 @@ export function TvShell({
   screenId,
   /** Poll-health stamps, for the self-heal below. See feed-heal.ts. */
   health,
+  /** True when the viewport is not filling its monitor — see usePanelFill. */
+  windowed,
   children,
 }: {
   screenLabel: string;
   safeToReload: boolean;
   screenId: string | null;
   health: TvFeedHealth;
+  windowed: boolean;
   children: React.ReactNode;
 }) {
   const [updatePending, setUpdatePending] = useState(false);
@@ -76,19 +79,44 @@ export function TvShell({
   }, []);
 
   /* ── fullscreen ──────────────────────────────────────────────────────
-     A mini PC launched with `chrome --kiosk` is already full-screen and this
-     never fires. It exists for the other case: staff opening the URL in a
-     normal window to check a screen, where one click makes it fill the panel.
-     Browsers only allow the request from a user gesture. */
+     A mini PC launched with `--kiosk` or `--start-fullscreen` already fills its
+     panel and none of this fires. It is for the other case: a board opened by
+     hand, or one KNOCKED OUT of fullscreen with Esc or F11.
+
+     THE BUG THIS USED TO HAVE: the listener was one-shot. It removed itself on
+     the first pointerdown whether or not the request was granted — and browsers
+     reject the request outright unless the gesture is trusted — so a board that
+     lost fullscreen could never get back in no matter how many times somebody
+     tapped it. The one input a wall panel ever receives was spent on the first
+     click of its life, hours or weeks earlier.
+
+     It now stays armed and retries on any gesture while the board is not filling
+     its panel, and re-arms on fullscreenchange so leaving fullscreen puts it
+     back in play immediately.
+
+     WHY THERE IS NO TIMER HERE, AND WHY THAT IS NOT LAZINESS: requestFullscreen
+     is refused without a trusted user gesture, by every engine, deliberately. A
+     page cannot put itself full-screen on a schedule — so an unattended board
+     that fell out cannot be recovered from JS at all, and pretending otherwise
+     with a retry loop would just bury a rejected promise every few seconds. The
+     honest options for that board are the two below it: say so where staff and
+     the admin page can both see it, and fix it at the launcher. */
   useEffect(() => {
-    const onFirstPointer = () => {
-      if (!document.fullscreenElement) {
-        void document.documentElement.requestFullscreen?.().catch(() => {});
-      }
-      window.removeEventListener("pointerdown", onFirstPointer);
+    const tryFill = () => {
+      if (document.fullscreenElement) return;
+      void document.documentElement.requestFullscreen?.().catch(() => {
+        /* refused — untrusted gesture, or a policy that forbids it. The next
+           gesture gets another go, which is the whole point of not unbinding. */
+      });
     };
-    window.addEventListener("pointerdown", onFirstPointer);
-    return () => window.removeEventListener("pointerdown", onFirstPointer);
+    // Keydown as well as pointerdown: the boards have no mouse, and a staff
+    // member at a player is holding a keyboard.
+    window.addEventListener("pointerdown", tryFill);
+    window.addEventListener("keydown", tryFill);
+    return () => {
+      window.removeEventListener("pointerdown", tryFill);
+      window.removeEventListener("keydown", tryFill);
+    };
   }, []);
 
   /* ── no right-click menu on a public wall ───────────────────────────── */
@@ -240,6 +268,11 @@ export function TvShell({
               ? " · reload held · no network"
               : " · update pending"
             : ""}
+        {/* Last, and only when true: a windowed board is a cosmetic fault, so it
+            must never push a feed problem off the end of this line. It says
+            "windowed" rather than anything alarming because the picture itself is
+            correct — TvStage scales the canvas to whatever viewport it is given. */}
+        {windowed ? " · windowed · press F11" : ""}
       </div>
     </>
   );

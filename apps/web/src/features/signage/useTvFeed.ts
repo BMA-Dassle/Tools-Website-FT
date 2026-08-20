@@ -16,9 +16,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { TV_POLL_MS, TV_PULSE_MS } from "./constants";
+import { isPanelWindowed } from "./usePanelFill";
 import type { TvFeed, TvPulse } from "./types";
 
 const CACHE_PREFIX = "tv_feed_cache:";
+
+/**
+ * `&win=1` when this board is not filling its monitor, and NOTHING when it is.
+ *
+ * Read at fetch time rather than taken as a hook argument, deliberately: this
+ * loop is the one three separate freeze fixes went into, and a new entry in its
+ * dependency array is a new way to tear it down and restart it. Absent by
+ * default so the common case adds not one byte to the request.
+ */
+function panelParam(): string {
+  return isPanelWindowed() ? "&win=1" : "";
+}
 
 /**
  * The build this tab is running, so the admin page can tell a stale board from
@@ -90,7 +103,7 @@ export function useTvFeed(screenId: string | null): {
       if (!screenId) return;
       try {
         const res = await fetch(
-          `/api/tv/feed?screen=${encodeURIComponent(screenId)}&build=${BUILD_SHA}`,
+          `/api/tv/feed?screen=${encodeURIComponent(screenId)}&build=${BUILD_SHA}${panelParam()}`,
           {
             cache: "no-store",
             signal,
@@ -144,7 +157,7 @@ export function useTvFeed(screenId: string | null): {
       if (!screenId) return;
       try {
         const res = await fetch(
-          `/api/tv/feed?pulse=1&screen=${encodeURIComponent(screenId)}&build=${BUILD_SHA}`,
+          `/api/tv/feed?pulse=1&screen=${encodeURIComponent(screenId)}&build=${BUILD_SHA}${panelParam()}`,
           {
             cache: "no-store",
             signal,
