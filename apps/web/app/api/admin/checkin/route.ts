@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { parseCheckinQr } from "@/lib/qr-checkin";
-import { parseMemberQr } from "~/features/kiosk/qr-scanner/member-qr";
+import { parseMemberQr, parseMemberCode } from "~/features/kiosk/qr-scanner/member-qr";
 import { lookupMemberMatches, lookupMemberMatchesAt } from "~/features/kiosk/license/lookup.server";
 import { getRacerPass } from "~/features/racing/data/racer-wallet-db";
 import { recordSignageEvent } from "~/features/signage/events.server";
@@ -695,7 +695,7 @@ async function resolveActiveSessionByParticipant(
 function classifyScanKind(raw: string): ScanKind {
   const trimmed = (raw || "").trim();
   if (!trimmed) return "unparsed";
-  if (parseMemberQr(trimmed)) return "licence";
+  if (parseMemberQr(trimmed) || parseMemberCode(trimmed)) return "licence";
   const parsed = parseCheckinQr(trimmed);
   if (parsed) {
     if (parsed.locationId) return "arena";
@@ -845,7 +845,11 @@ async function runCheckinScan(req: NextRequest): Promise<NextResponse> {
   // completely unchanged — same BMI check-in write, same headsock rules.
   let licenceCode: string | null = null;
   if (body.raw) {
-    const qr = parseMemberQr(body.raw.trim());
+    // A typed bare code counts too — staff read it off the pass when a
+    // licence will not scan. Wrapped forms first; the bare form can never
+    // collide with them (it has no scheme, host or colon).
+    const trimmedRaw = body.raw.trim();
+    const qr = parseMemberQr(trimmedRaw) ?? parseMemberCode(trimmedRaw);
     if (qr) {
       licenceCode = qr.code;
       // NAMESPACE ROUTING. A Naples-issued app QR (clientKey

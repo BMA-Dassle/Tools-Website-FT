@@ -1700,7 +1700,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 onKeyDown={(e) => {
                   if (e.key === "Enter") runManualLookup();
                 }}
-                placeholder="Licence link, FT:… QR, or participant ID"
+                placeholder="Licence code or link, FT:… QR, or participant ID"
                 aria-label="Licence, QR or participant ID to look up"
                 className="flex-1 px-3 py-2 text-sm placeholder-white/30 focus:outline-none focus:border-blue-400"
                 style={{
