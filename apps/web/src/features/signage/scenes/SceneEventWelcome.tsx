@@ -23,6 +23,7 @@ import { TV_PHOTOS } from "../assets";
 import { TvBrandLogo } from "../components/TvBrandLogo";
 import { isBowlingStep, vipCandidatesAt } from "../director/schedule";
 import { VipShowcase } from "./SceneVipWelcome";
+import { SceneEventCheckin } from "./SceneEventCheckin";
 import type { WelcomeEntry } from "../types";
 import type { SceneProps } from "../director/types";
 
@@ -75,7 +76,8 @@ function localBuilding(building: string | null): string | null {
   return building.replace(/\s+(Fort Myers|Naples)\s*$/i, "");
 }
 
-export function SceneEventWelcome({ feed, nowMs, venue, config }: SceneProps) {
+export function SceneEventWelcome(props: SceneProps) {
+  const { feed, nowMs, venue, config } = props;
   const all = feed?.events ?? [];
 
   // VIP parties inside their greeting window join the rotation as gold pages.
@@ -89,7 +91,21 @@ export function SceneEventWelcome({ feed, nowMs, venue, config }: SceneProps) {
   const interleaved = vipParties.length > 0;
 
   if (welcomePages === 0) {
-    if (!interleaved) return null;
+    // NOTHING ON TODAY: the check-in signpost, never null.
+    //
+    // This branch used to return null, and that was a live dead-panel path rather
+    // than a theoretical one. The scheduler asks `sceneHasData`, which counts a VIP
+    // the moment the feed carries one; this scene asks `vipCandidatesAt`, which
+    // counts one only inside its greeting WINDOW. A VIP booked for later today
+    // satisfies the first and not the second, so the wing was selected and then
+    // rendered nothing — TV5 black on the strength of a disagreement between two
+    // functions that were never meant to match.
+    //
+    // Rendering the idle board instead makes the disagreement harmless: whichever
+    // way the two answers fall, this scene always paints something. The same board
+    // the wing understudy would have chosen, so the panel looks identical either
+    // way (see WING_IDLE in schedule.ts).
+    if (!interleaved) return <SceneEventCheckin {...props} />;
     return <VipShowcase parties={vipParties} />;
   }
 

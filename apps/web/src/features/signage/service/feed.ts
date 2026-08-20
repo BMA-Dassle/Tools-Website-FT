@@ -29,7 +29,7 @@ import {
   reloadRequestedAt,
   demoRequestedFor,
 } from "../events.server";
-import { resolveScreenConfig } from "../defaults";
+import { resolveScreenConfig, screenShowsScene } from "../defaults";
 import { trackFromResourceIds } from "../track";
 import { raceCheckinInfo } from "./race-checkin";
 import { megaModeActive } from "./mega-mode.server";
@@ -148,7 +148,13 @@ export async function buildTvFeed(
   // Only build what this screen actually shows. A track screen has no use for
   // the party board, and a lobby TV has no track — computing both for every
   // screen would double the work for nothing.
-  const wantsWelcome = config.playlist.some((p) => p.scene === "event-welcome");
+  //
+  // THE PLAYLIST IS NOT THE WHOLE ANSWER for a wall. TV5 of the front-desk five runs
+  // the events board as its WING (`wall.outsideScene`), and the five share one
+  // byte-identical playlist that names no wing scene at all — so asking the playlist
+  // alone left that panel asking for parties it was never sent, and falling to house
+  // ads every night of the year. `screenShowsScene` covers both routes.
+  const wantsWelcome = screenShowsScene(config, "event-welcome");
   const wantsBriefing =
     briefingEnabled() &&
     config.briefingRoom !== null &&
@@ -173,10 +179,8 @@ export async function buildTvFeed(
   // exists at the bowling venues — FastTrax has no lanes, so a FastTrax screen
   // asking would be one Neon round trip per poll for a section it cannot use.
   const wantsBowling = parsed.venue !== "FT" && config.playlist.some((p) => p.scene === "open-now");
-  // The self-check-in board is a WING scene, so it is named by `wall.outsideScene`
-  // rather than by the playlist — the playlist is identical on all five panels and
-  // only the wings run this.
-  const wantsCheckins = parsed.venue !== "FT" && config.wall?.outsideScene === "bowling-checkin";
+  // The other WING scene, named the same way — see the note on `wantsWelcome`.
+  const wantsCheckins = parsed.venue !== "FT" && screenShowsScene(config, "bowling-checkin");
   // The scores wall: the last race on ITS OWN configured track. Not `track`
   // above — that one comes from `scope.resourceIds`, which a results board
   // deliberately does not set (see ScreenConfig.resultsBoard).

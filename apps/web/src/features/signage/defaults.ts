@@ -638,6 +638,23 @@ export function resolveScreenConfig(
 }
 
 /**
+ * Does this screen show `scene` AT ALL — as a rotation entry, or as its wing's own
+ * board?
+ *
+ * The feed builder only assembles the sections a screen can actually use, and asking
+ * the playlist alone is how a WING gets starved: the front-desk five carry one
+ * byte-identical playlist (the tear invariant), so a wing's own board is named by
+ * `wall.outsideScene` and appears in no playlist anywhere. `bowling-checkin` was
+ * special-cased for exactly that; `event-welcome` was not, so TV5's events board
+ * asked for parties it was never sent and fell to house ads every night.
+ *
+ * One predicate for both, so the next wing scene cannot repeat it.
+ */
+export function screenShowsScene(config: ResolvedScreenConfig, scene: SceneType): boolean {
+  return config.playlist.some((p) => p.scene === scene) || config.wall?.outsideScene === scene;
+}
+
+/**
  * A stored wall, clamped. Position into [0, count-1] and count to at least 1, so
  * position 9 of a 5-panel wall renders panel 0's slice rather than nothing at
  * all; gap into [0,100] defaulting to 12 (~6 inches on a ~48in picture, owner

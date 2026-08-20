@@ -9,7 +9,7 @@ import {
   wallBrand,
   SOLO,
 } from "./wall";
-import { resolveScreenConfig } from "./defaults";
+import { resolveScreenConfig, screenShowsScene } from "./defaults";
 import { resolveActiveScene, SLOT_MS } from "./director/schedule";
 import { isSceneImplemented } from "./scenes/registry";
 import type { SceneType } from "./types";
@@ -381,13 +381,35 @@ describe("the wings — what a panel outside the span actually renders", () => {
     expect(sceneAt(4, 3)).toBe("ads");
   });
 
-  it("a wing whose board has NO DATA falls to ads — the dead-panel guard", () => {
-    // SceneEventWelcome renders NOTHING with no events and no VIPs. Safe for a
-    // rotation entry (requiresData keeps it unselected) but a wing is substituted
-    // directly, so without this check TV5 went black on a quiet night.
-    expect(sceneAt(4, 3, "event-welcome", (sc) => sc !== "event-welcome")).toBe("ads");
-    // The check-in board always has data — it owns a designed empty state — so it
-    // stays up whether or not anyone has checked in.
+  it("the events wing with NOTHING ON TODAY shows the check-in signpost, not ads", () => {
+    // SceneEventWelcome has nothing to draw with no events and no VIPs, and a wing is
+    // substituted directly rather than gated out of the rotation — so without an
+    // answer here TV5 went black on a quiet night, and with ads as the answer it sold
+    // bowling from the panel a guest walks to for check-in (owner 2026-08-20).
+    expect(sceneAt(4, 3, "event-welcome", (sc) => sc !== "event-welcome")).toBe("event-checkin");
+    // And it is the WING that changes, not the wall: the middle three are untouched
+    // by the events board having nothing, because they are inside the running span.
+    for (const position of [1, 2, 3]) {
+      expect(sceneAt(position, 3, undefined, (sc) => sc !== "event-welcome")).toBe("open-now");
+    }
+  });
+
+  it("a wing whose board has NO DATA and NO understudy falls to ads", () => {
+    // The floor is still house ads. `bowling-checkin` owns its own empty state so it
+    // never actually reaches here, which is exactly why it is the honest probe for
+    // "no understudy declared" — WING_IDLE lists only `event-welcome`.
+    expect(sceneAt(0, 3, "bowling-checkin", (sc) => sc !== "bowling-checkin")).toBe("ads");
+  });
+
+  it("the events wing shows its OWN board whenever it has something", () => {
+    // The understudy is the empty state, not a replacement: a night with parties on
+    // still puts the parties on the glass.
+    expect(sceneAt(4, 3, "event-welcome")).toBe("event-welcome");
+  });
+
+  it("the check-in wing keeps its board with nobody checked in", () => {
+    // It owns a designed empty state, so it stays up whether or not anyone has
+    // checked in — and therefore needs no understudy.
     expect(sceneAt(0, 3, "bowling-checkin")).toBe("bowling-checkin");
   });
 
@@ -414,5 +436,44 @@ describe("the wings — what a panel outside the span actually renders", () => {
         isImplemented: isSceneImplemented,
       }).scene,
     ).toBe("open-now");
+  });
+});
+
+describe("does this screen show this scene at all — the feed's question", () => {
+  /** A front-desk panel: the shared playlist, plus whichever wing board this one runs. */
+  const panel = (position: number, outsideScene?: string) =>
+    resolveScreenConfig(
+      {
+        playlist: [
+          { scene: "open-now", slots: 7, span: "middle" },
+          { scene: "vip-showcase", slots: 2, span: "wall" },
+        ],
+        wall: { ...FRONT_DESK, position, ...(outsideScene ? { outsideScene } : {}) },
+      } as never,
+      "HPFM",
+    );
+
+  it("counts a WING'S OWN BOARD, which appears in no playlist anywhere", () => {
+    // The bug this closes: the feed builder asked the playlist alone, and the five
+    // panels share one byte-identical playlist that names no wing scene — so TV5's
+    // events board was never sent any parties and fell to house ads every night.
+    expect(screenShowsScene(panel(4, "event-welcome"), "event-welcome")).toBe(true);
+    expect(screenShowsScene(panel(0, "bowling-checkin"), "bowling-checkin")).toBe(true);
+  });
+
+  it("counts a rotation entry, for every screen that is not on a wall", () => {
+    const hpfm1 = resolveScreenConfig(
+      { playlist: [{ scene: "event-welcome", slots: 2, requiresData: true }] } as never,
+      "HPFM",
+    );
+    expect(screenShowsScene(hpfm1, "event-welcome")).toBe(true);
+    expect(screenShowsScene(hpfm1, "bowling-checkin")).toBe(false);
+  });
+
+  it("says no to a scene this screen does not run either way", () => {
+    // A middle panel has no wing board, so it must not be sent the wings' sections —
+    // that is the whole point of asking.
+    expect(screenShowsScene(panel(2), "event-welcome")).toBe(false);
+    expect(screenShowsScene(panel(4, "event-welcome"), "bowling-checkin")).toBe(false);
   });
 });

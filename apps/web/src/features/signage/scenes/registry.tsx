@@ -20,6 +20,7 @@ import { SceneRaceCheckin } from "./SceneRaceCheckin";
 import { SceneCelebration } from "./SceneCelebration";
 import { SceneBirthdayTakeover } from "./SceneBirthdayTakeover";
 import { SceneEventWelcome } from "./SceneEventWelcome";
+import { SceneEventCheckin } from "./SceneEventCheckin";
 import { SceneVipWelcome } from "./SceneVipWelcome";
 import { SceneBriefing } from "./SceneBriefing";
 import { SceneCameraMonitor } from "./SceneCameraMonitor";
@@ -78,6 +79,10 @@ export function SceneSlot(props: SceneProps) {
       return <SceneVenueLogo {...props} />;
     case "event-welcome":
       return <SceneEventWelcome {...props} />;
+    // The events wing at rest. Reached through the wing understudy in
+    // schedule.ts, never from a playlist — see SceneEventCheckin.
+    case "event-checkin":
+      return <SceneEventCheckin {...props} />;
     case "vip-welcome":
       return <SceneVipWelcome {...props} />;
     case "celebration":
@@ -121,6 +126,7 @@ const IMPLEMENTED: ReadonlySet<SceneType> = new Set<SceneType>([
   "race-results",
   "race-guide",
   "event-welcome",
+  "event-checkin",
   "vip-welcome",
   "celebration",
   "vip-showcase",
@@ -156,7 +162,19 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
     case "event-welcome":
       // VIP parties are welcome-board content — the gold slide alternates with
       // the party pages — so either kind of data earns the segment its slot.
+      //
+      // Deliberately still GATED, even though TV5 runs this board as a wing. A
+      // wing with no data falls to its understudy (`event-checkin`), which is a
+      // per-wall decision; ungating it here would instead hand HPFM:1 three of
+      // its five slots on every quiet night and push the ad rotation off a screen
+      // whose whole job is selling the kiosks below.
       return (feed?.events?.length ?? 0) > 0 || (feed?.vip?.length ?? 0) > 0;
+    case "event-checkin":
+      // Always true, and it MUST be: this IS the empty state. It is the events
+      // wing's understudy, so a gate here would fall through to house ads and
+      // put the wall back where it started — the panel reads nothing but its own
+      // copy, so nothing can make it empty.
+      return true;
     case "vip-welcome":
       return (feed?.vip?.length ?? 0) > 0;
     case "race-checkin":

@@ -26,6 +26,10 @@ import type { TopTimesView } from "./top-times";
  *
  *  - `ads`            house advertising for what's purchasable at the kiosks
  *  - `event-welcome`  today's birthday parties + contracted group functions
+ *  - `event-checkin`  the events board's IDLE state: a check-in signpost for the
+ *                     guest who booked online, pointing at the kiosks below.
+ *                     Never a rotation entry — it is the UNDERSTUDY the events
+ *                     wing falls to on a night with nothing booked
  *  - `vip-welcome`    VIP party takeover ahead of their bowling leg
  *  - `celebration`    a booking/check-in just completed on a kiosk below
  *  - `billboard-crown` the TV joining the kiosk bank's billboard as its crown
@@ -88,6 +92,7 @@ import type { TopTimesView } from "./top-times";
 export type SceneType =
   | "ads"
   | "event-welcome"
+  | "event-checkin"
   | "vip-welcome"
   | "celebration"
   | "billboard-crown"

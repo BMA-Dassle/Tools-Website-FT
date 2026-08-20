@@ -449,12 +449,32 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
   // changes board when the middle changes scene, which keeps the wall cutting together
   // even though the panels are showing different things.
   //
-  // Falls back to ads for a wing with no board of its own, and for an `outsideScene`
-  // this deploy cannot render — the same refusal every other scene gets, so an unbuilt
-  // name can never paint as something else.
+  // Falls back to the wing board's own understudy where it has one, then to ads for a
+  // wing with no board at all and for an `outsideScene` this deploy cannot render — the
+  // same refusal every other scene gets, so an unbuilt name can never paint as
+  // something else.
   const scene = substituteOutsideSpan(segment, config, implemented, input.hasData);
   return { scene, startedAtMs, durationMs, isInterrupt: false };
 }
+
+/**
+ * The board a wing shows when its OWN board has nothing to say.
+ *
+ * A MAP HERE RATHER THAN A FIELD ON `ScreenWall`, deliberately. Which idle board
+ * belongs to which wing board is a fact about the two SCENES, not a choice an
+ * operator makes per panel — and putting it in config would mean another field for
+ * the admin form's `draftToConfig` to rebuild and silently drop (the bug that would
+ * have wiped `wall` itself), plus a registry reseed to land a code-only change.
+ *
+ * `bowling-checkin` is absent on purpose: it owns its empty state inside the scene,
+ * because "nobody's lane is ready yet" is a sentence that board can say in place of
+ * its own rows. `event-welcome` cannot do the same — it is ALSO a `requiresData`
+ * rotation entry on HPFM:1, so claiming data on a quiet night would take that
+ * screen over as well. See SceneEventCheckin.
+ */
+const WING_IDLE: Partial<Record<SceneType, SceneType>> = {
+  "event-welcome": "event-checkin",
+};
 
 /**
  * The scene THIS panel actually shows for `segment`.
@@ -485,5 +505,13 @@ function substituteOutsideSpan(
   // panel 0 of that set and duplicate its neighbour. Ads is the one scene that is
   // complete on any single panel, which is also why it is the floor everywhere else.
   if (own && implemented(own) && hasData(own)) return own;
+
+  // THE WING'S OWN IDLE BOARD, before house ads. A wing is the one panel whose
+  // subject is fixed by where it hangs, so "nothing today" is a state that board can
+  // be designed for — and a designed idle beats an advert, which says nothing about
+  // the thing the panel is actually for. Ads remain the floor beneath it.
+  const idle = own ? WING_IDLE[own] : undefined;
+  if (idle && implemented(idle) && hasData(idle)) return idle;
+
   return "ads";
 }
