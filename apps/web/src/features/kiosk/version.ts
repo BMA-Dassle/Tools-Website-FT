@@ -15,6 +15,24 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.24.1 — CHECK-IN SHOWED EVERY BOWLING RESERVATION FOUR HOURS LATE (owner
+ *         2026-08-19). A 9:00 PM lane read "1:00 AM" on the find-your-
+ *         reservation list, and the whole HeadPinz board was shifted the same
+ *         four hours — which also sorted the evening rows past midnight, to the
+ *         bottom of a list ordered by the wrong times. The list picks a row's
+ *         time from its heats and falls back to `bookedAt` for a leg that has
+ *         none; the fallback handed that stamp back verbatim, but Neon
+ *         serializes `booked_at` as a UTC instant while `timeKey`/`fmtTime12`
+ *         both read the string as a naive ET wall-clock and simply drop the
+ *         `Z`. So the board printed the UTC hour. The bug was latent until
+ *         1.23.x-era bowling check-in (owner 2026-08-16) put heat-less rows on
+ *         a list that had been racing-only — a race always has a heat, so the
+ *         fallback never reached a screen before. `browseRowTime` now converts
+ *         through `toEtWallClock`, the same helper the itinerary and the front-
+ *         desk TV already use for this exact column (the TV was right all
+ *         along, which is why the two boards disagreed), and it normalizes
+ *         before sorting so a group whose legs disagree about zone orders on
+ *         the clock instead of on the suffix.
  * 1.24.0 — BOGO RACES IS NOW A WEEKLY WEDNESDAY PROMO, not a two-day flash sale
  *         (owner 2026-08-19). Both halves of the offer — the returning-racer
  *         credit pack and the new-racer package — swapped their fixed
@@ -1018,7 +1036,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.24.0";
+export const KIOSK_VERSION = "1.24.1";
 
 let bootVersion: string | null = null;
 let captured = false;
