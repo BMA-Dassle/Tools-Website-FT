@@ -2,7 +2,15 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { RELOAD_RETRY_MS, originReachable, startGatedReload } from "./reload-gate";
+import {
+  OFF_ORIGIN_PROBE_HOSTS,
+  RELOAD_RETRY_MS,
+  RELOAD_WEDGE_AFTER_MS,
+  networkReachableOffOrigin,
+  offOriginProbeUrl,
+  originReachable,
+  startGatedReload,
+} from "./reload-gate";
 
 /**
  * The rule this file exists to hold: A WALL PANEL NEVER NAVIGATES INTO AN
@@ -165,6 +173,256 @@ describe("originReachable", () => {
     vi.stubGlobal("fetch", fetchSpy);
     vi.stubGlobal("navigator", { onLine: false });
     await expect(originReachable()).resolves.toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+/* ── the wedge escape ──────────────────────────────────────────────────────
+ *
+ * The fault these hold the line on: FT:10 sat silent for eighteen minutes with
+ * its self-heal armed and held, and the reload a human then typed worked FIRST
+ * TIME — so the network had been fine and only the page's own connection was
+ * dead. Every test below is named for the half of that it protects: break the
+ * hold when the network is provably up, and never otherwise.
+ */
+
+describe("the wedge escape", () => {
+  /** Small numbers so the rule is legible; the shipped ones are checked below. */
+  const RETRY = 1_000;
+  const WEDGE = 5_000;
+
+  it("reloads a HELD board once a second hostname proves the network is up", async () => {
+    // The FT:10 case. Our origin never answers, so the strict gate would hold
+    // for ever and wait for a human — but the network is fine, this page's
+    // connection is simply dead, and a fresh document gets a fresh connection.
+    const reload = vi.fn();
+    startGatedReload({
+      probe: async () => false,
+      offOriginProbe: async () => true,
+      reload,
+      retryMs: RETRY,
+      wedgeAfterMs: WEDGE,
+    });
+    await flush();
+    expect(reload).not.toHaveBeenCalled();
+
+    await advance(WEDGE);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("STILL NEVER NAVIGATES INTO A REAL OUTAGE — both probes failing means hold", async () => {
+    // The guarantee the whole module exists for, unchanged. When the network is
+    // genuinely gone the off-origin host is gone with it, so there is no proof,
+    // so there is no escape.
+    const reload = vi.fn();
+    startGatedReload({
+      probe: async () => false,
+      offOriginProbe: async () => false,
+      reload,
+      retryMs: RETRY,
+      wedgeAfterMs: WEDGE,
+    });
+    await flush();
+    await advance(RETRY * 3_600);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("waits out the threshold rather than reloading on a passing hiccup", async () => {
+    // A blip that clears in a minute should end with the poll simply resuming.
+    // Spending a navigation on it puts a blink on a wall for nothing.
+    const reload = vi.fn();
+    const offOriginProbe = vi.fn(async () => true);
+    startGatedReload({
+      probe: async () => false,
+      offOriginProbe,
+      reload,
+      retryMs: RETRY,
+      wedgeAfterMs: WEDGE,
+    });
+    await flush();
+
+    await advance(WEDGE - RETRY);
+    expect(offOriginProbe).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("is OPT-IN — a gate given no off-origin probe holds exactly as it always did", async () => {
+    // The deploy and nightly-recycle reloads keep the absolute rule. Only the
+    // rate-limited self-heal path is handed the escape.
+    const reload = vi.fn();
+    startGatedReload({ probe: async () => false, reload, retryMs: RETRY, wedgeAfterMs: WEDGE });
+    await flush();
+    await advance(RETRY * 1_000);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("treats an off-origin probe that throws as no proof at all", async () => {
+    // Same discipline as the main probe: an exception must fail towards waiting,
+    // never towards a navigation taken on a bad assumption.
+    const reload = vi.fn();
+    startGatedReload({
+      probe: async () => false,
+      offOriginProbe: async () => {
+        throw new TypeError("Failed to fetch");
+      },
+      reload,
+      retryMs: RETRY,
+      wedgeAfterMs: WEDGE,
+    });
+    await flush();
+    await advance(RETRY * 100);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("prefers the origin coming back, and never reloads twice", async () => {
+    // If our own origin answers first that is the ordinary recovery and it wins;
+    // the escape must not then fire a second navigation behind it.
+    let up = false;
+    const reload = vi.fn();
+    startGatedReload({
+      probe: async () => up,
+      offOriginProbe: async () => true,
+      reload,
+      retryMs: RETRY,
+      wedgeAfterMs: WEDGE,
+    });
+    await flush();
+    up = true;
+    await advance(RETRY);
+    expect(reload).toHaveBeenCalledTimes(1);
+
+    await advance(WEDGE * 10);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops saying it is blocked when the escape lets it go", async () => {
+    // `?debug=1` and the shell's corner stamp both read this. A board that is
+    // mid-reload must not still be claiming it is held back by the network.
+    const onBlocked = vi.fn();
+    startGatedReload({
+      probe: async () => false,
+      offOriginProbe: async () => true,
+      reload: () => {},
+      onBlocked,
+      retryMs: RETRY,
+      wedgeAfterMs: WEDGE,
+    });
+    await flush();
+    expect(onBlocked).toHaveBeenLastCalledWith(true);
+
+    await advance(WEDGE);
+    expect(onBlocked).toHaveBeenLastCalledWith(false);
+  });
+
+  it("cancel() disarms the escape too", async () => {
+    const reload = vi.fn();
+    const handle = startGatedReload({
+      probe: async () => false,
+      offOriginProbe: async () => true,
+      reload,
+      retryMs: RETRY,
+      wedgeAfterMs: WEDGE,
+    });
+    await flush();
+    handle.cancel();
+
+    await advance(WEDGE * 5);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("the SHIPPED numbers give a wedged board about eight minutes, not for ever", async () => {
+    // 5 min for the self-heal to arm (feed-heal.ts) plus 3 min of holding here.
+    // Pinned because the value of this change is entirely in how long a guest
+    // stares at a dead board.
+    expect(RELOAD_WEDGE_AFTER_MS).toBe(180_000);
+
+    const reload = vi.fn();
+    startGatedReload({ probe: async () => false, offOriginProbe: async () => true, reload });
+    await flush();
+
+    await advance(RELOAD_WEDGE_AFTER_MS - RELOAD_RETRY_MS);
+    expect(reload).not.toHaveBeenCalled();
+    await advance(RELOAD_RETRY_MS);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("offOriginProbeUrl", () => {
+  it("never hands back the host the page is already on — that is the whole point", () => {
+    // Re-asking the current origin would ride the wedged connection and report
+    // "network down" for a wedge, which is the confusion this exists to end.
+    for (const host of OFF_ORIGIN_PROBE_HOSTS) {
+      expect(offOriginProbeUrl(host)).not.toContain(`https://${host}/`);
+    }
+    expect(offOriginProbeUrl("fasttraxent.com")).toBe("https://headpinz.com/api/kiosk/version");
+    expect(offOriginProbeUrl("headpinz.com")).toBe("https://fasttraxent.com/api/kiosk/version");
+  });
+
+  it("matches the host case-insensitively, because a URL's host is", () => {
+    expect(offOriginProbeUrl("FastTraxEnt.com")).toBe("https://headpinz.com/api/kiosk/version");
+  });
+
+  it("gives a preview or venue host the first alternative", () => {
+    // A *.vercel.app board is on neither name, so either proves a live network.
+    expect(offOriginProbeUrl("tools-website-ft.vercel.app")).toBe(
+      "https://fasttraxent.com/api/kiosk/version",
+    );
+  });
+
+  it("REFUSES on localhost — a dev page must never reach for production", () => {
+    expect(offOriginProbeUrl("localhost")).toBeNull();
+    expect(offOriginProbeUrl("127.0.0.1")).toBeNull();
+  });
+});
+
+describe("networkReachableOffOrigin", () => {
+  beforeEach(() => vi.stubGlobal("location", { hostname: "fasttraxent.com" }));
+
+  it("counts a RESOLVED fetch as proof, because a no-cors answer is opaque", async () => {
+    // The trap: an opaque response reports ok === false however healthy it is.
+    // Reading .ok here would make this always answer "network down" and quietly
+    // restore the exact deadlock the escape removes.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, type: "opaque", status: 0 }) as unknown as Response),
+    );
+    await expect(networkReachableOffOrigin()).resolves.toBe(true);
+  });
+
+  it("asks the OTHER hostname, opaquely and uncached", async () => {
+    const fetchSpy = vi.fn(async () => ({}) as Response);
+    vi.stubGlobal("fetch", fetchSpy);
+    await networkReachableOffOrigin();
+
+    const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://headpinz.com/api/kiosk/version");
+    expect(init.mode).toBe("no-cors");
+    expect(init.cache).toBe("no-store");
+  });
+
+  it("is false when the fetch rejects — that is a network that is not there", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+    await expect(networkReachableOffOrigin()).resolves.toBe(false);
+  });
+
+  it("short-circuits on a definite offline without spending a round trip", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    vi.stubGlobal("navigator", { onLine: false });
+    await expect(networkReachableOffOrigin()).resolves.toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("is false on localhost rather than probing production from a dev machine", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    vi.stubGlobal("location", { hostname: "localhost" });
+    await expect(networkReachableOffOrigin()).resolves.toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

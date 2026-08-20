@@ -18,9 +18,17 @@
  * went unnoticed for a day.
  */
 import { useEffect, useState } from "react";
-import { originReachable, startGatedReload } from "./reload-gate";
+import { networkReachableOffOrigin, originReachable, startGatedReload } from "./reload-gate";
 
-export function useGatedReload(armed: boolean): boolean {
+/**
+ * `escapeWedge` lets this gate break a HELD reload when a second hostname proves
+ * the network is fine and only this page's connection is dead — read the
+ * wedge-escape note in reload-gate.ts before turning it on anywhere new. It is
+ * off by default because it is the one path that navigates without our own
+ * origin having answered, so it belongs only to callers whose reload is already
+ * rate-limited.
+ */
+export function useGatedReload(armed: boolean, escapeWedge = false): boolean {
   const [blocked, setBlocked] = useState(false);
 
   useEffect(() => {
@@ -31,9 +39,10 @@ export function useGatedReload(armed: boolean): boolean {
       // Called from the gate's own callback, never synchronously in this effect
       // body — a setState there cascades renders on a page that runs for weeks.
       onBlocked: setBlocked,
+      ...(escapeWedge ? { offOriginProbe: () => networkReachableOffOrigin() } : {}),
     });
     return () => handle.cancel();
-  }, [armed]);
+  }, [armed, escapeWedge]);
 
   // DERIVED, not reset. Clearing the flag when the caller disarms would mean a
   // setState in the effect body; anding with `armed` says the same thing with no

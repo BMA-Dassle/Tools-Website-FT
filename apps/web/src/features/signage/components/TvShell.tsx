@@ -234,7 +234,13 @@ export function TvShell({
     return () => clearInterval(iv);
   }, [screenId, shellMountedAtMs]);
 
-  const heldForHeal = useGatedReload(healArmed);
+  /* THE ONE GATE ALLOWED TO BREAK ITS OWN HOLD. A board this far gone is not
+     waiting on a deploy, it is unreachable — and the reason is either the
+     network (hold) or this page's own wedged connection (reload, and the manual
+     reload that fixed FT:10 on 2026-08-20 is the proof). The escape asks a
+     second hostname to tell those apart, and the attempt cap above is what makes
+     it safe to hand that power to this path and no other. */
+  const heldForHeal = useGatedReload(healArmed, true);
 
   return (
     <>

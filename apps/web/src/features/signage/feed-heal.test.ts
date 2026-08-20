@@ -158,9 +158,24 @@ describe("the self-heal gate is wired the one way that cannot deadlock", () => {
      * is waiting for can never arrive.
      */
     const src = readFileSync(TV_SHELL, "utf8");
-    expect(src).toContain("useGatedReload(healArmed)");
+    // `healArmed` alone as the first argument — a second argument is allowed
+    // (it selects the wedge escape, see reload-gate.ts), a conjunction is not.
+    expect(src).toMatch(/useGatedReload\(\s*healArmed\s*[,)]/);
     expect(src).not.toMatch(/healArmed\s*&&\s*safeToReload/);
     expect(src).not.toMatch(/safeToReload\s*&&\s*healArmed/);
+  });
+
+  it("hands the wedge escape to THIS gate and to no other", () => {
+    /**
+     * The escape can navigate without our own origin having answered, so it is
+     * safe only where the attempts are capped — which is this path, and only
+     * this path (3 per rolling hour, per screen). The deploy and nightly-recycle
+     * reloads above have no cap, so they keep the absolute rule: never navigate
+     * until our origin answers.
+     */
+    const src = readFileSync(TV_SHELL, "utf8");
+    expect(src).toMatch(/useGatedReload\(\s*healArmed\s*,\s*true\s*\)/);
+    expect(src).toMatch(/useGatedReload\(updatePending && safeToReload\)/);
   });
 
   it("is actually reading the shell it claims to be", () => {
