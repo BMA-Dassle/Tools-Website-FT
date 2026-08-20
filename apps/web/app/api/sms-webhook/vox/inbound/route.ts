@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
+import { parseMoPayload } from "~/features/sms/mo-payload";
+import { classifyInbound } from "~/features/sms/inbound-keywords";
 
 /**
  * Voxtelesys INBOUND (MO — Mobile Originated) webhook receiver.
@@ -198,6 +200,17 @@ export async function POST(req: NextRequest) {
   const contentType = req.headers.get("content-type") || "";
   const decoded = decodeBody(raw, contentType);
 
+  // ── DRY RUN ────────────────────────────────────────────────────────
+  // Parse and classify, record the verdict, act on NOTHING. This is the
+  // plan's step 4: prove the keyword set against real traffic before a
+  // single consent row moves. `parsed.ok === false` is a finding, not an
+  // error — a rejected recipient means the portal is pointed somewhere
+  // unexpected, which is exactly what we want to see written down.
+  const parsed = parseMoPayload(decoded, allowedDids());
+  const verdict = parsed.ok
+    ? { parsed: true as const, ...classifyInbound(parsed.payload.body) }
+    : { parsed: false as const, reason: parsed.reason };
+
   // The capture itself. Raw body is the load-bearing field — `decoded`
   // is a convenience and may be null.
   try {
@@ -206,26 +219,48 @@ export async function POST(req: NextRequest) {
       contentType,
       raw: raw.slice(0, MAX_BODY),
       decoded,
+      verdict,
       ...captureHeaders(req),
     });
     const tx = redis.multi();
     tx.lpush(RING_KEY, record);
     tx.ltrim(RING_KEY, 0, RING_SIZE - 1);
     tx.expire(RING_KEY, RING_TTL);
+    // Tally what the classifier WOULD have done, so a sweep can be read
+    // at a glance without scrolling every payload.
+    const bucket = verdict.parsed ? verdict.action : "unparsed";
+    tx.hincrby(`sms-webhook:vox:mo:verdicts:${day}`, bucket, 1);
+    tx.expire(`sms-webhook:vox:mo:verdicts:${day}`, RING_TTL);
     await tx.exec();
   } catch (err) {
     console.warn("[sms-webhook/vox/mo] stash failed:", err);
   }
 
   // Log a one-liner too, so Vercel logs show the sweep even if Redis is
-  // unavailable. No PII beyond what Vox just sent us.
+  // unavailable. Message BODIES are deliberately not logged here — they
+  // are guest content, and Vercel logs are not the place for them.
   console.log(
     `[sms-webhook/vox/mo] inbound ct=${contentType || "none"} bytes=${raw.length} ` +
-      `decoded=${decoded ? "yes" : "no"}`,
+      `parsed=${verdict.parsed ? "yes" : `no (${verdict.reason})`} ` +
+      `wouldDo=${verdict.parsed ? verdict.action : "nothing"}`,
   );
 
   // LISTEN-ONLY: no consent write, no auto-reply. Deliberate.
   return NextResponse.json({ ok: true, captured: true, mode: "listen-only" });
+}
+
+/** DIDs this endpoint accepts inbound for.
+ *
+ *  `SMS_A2P_DID` overrides, comma-separated, so re-pointing the number
+ *  does not need a deploy. Default is the DID currently attached to the
+ *  FastTraxEnt.com Messaging Application. */
+function allowedDids(): string[] {
+  const env = process.env.SMS_A2P_DID || "";
+  const fromEnv = env
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return fromEnv.length > 0 ? fromEnv : ["+12394412867"];
 }
 
 /** GET serves two purposes: a 200 for Vox's endpoint validation when it
@@ -267,11 +302,12 @@ export async function GET(req: NextRequest) {
 
   const day = todayEt();
   try {
-    const [hits, rejected, lastHit, recent] = await Promise.all([
+    const [hits, rejected, lastHit, recent, verdicts] = await Promise.all([
       redis.get(`sms-webhook:vox:mo:hits:${day}`),
       redis.get(`sms-webhook:vox:mo:rejected:${day}`),
       redis.get("sms-webhook:vox:mo:lastHit"),
       redis.lrange(RING_KEY, 0, RING_SIZE - 1),
+      redis.hgetall(`sms-webhook:vox:mo:verdicts:${day}`),
     ]);
     return NextResponse.json({
       ok: true,
@@ -283,6 +319,10 @@ export async function GET(req: NextRequest) {
       hitsToday: hits ? parseInt(hits, 10) : 0,
       rejectedToday: rejected ? parseInt(rejected, 10) : 0,
       lastHit: lastHit || null,
+      allowedDids: allowedDids(),
+      /** What the classifier WOULD have done today, per action. Nothing
+       *  was acted on — this route is still listen-only. */
+      wouldHaveDone: verdicts || {},
       captured: recent.map(safeJson),
     });
   } catch (err) {
