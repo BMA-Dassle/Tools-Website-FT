@@ -24,15 +24,24 @@ import { captureKioskBootVersion, kioskUpdateAvailable } from "~/features/kiosk/
 import { SIGNAGE_VERSION, TV_UPDATE_CHECK_MS } from "../constants";
 import { etHourNow, shouldRecycle } from "../recycle";
 import { useGatedReload } from "../useGatedReload";
+import { feedLiveness } from "../liveness";
+import { FEED_HEAL_CHECK_MS, readAttempts, recordAttempt, shouldHeal } from "../feed-heal";
+import type { TvFeedHealth } from "../useTvFeed";
 
 export function TvShell({
   screenLabel,
   /** False while an interrupt is on screen — the reload waits for a calm beat. */
   safeToReload,
+  /** Which screen this is, for the per-screen self-heal attempt log. */
+  screenId,
+  /** Poll-health stamps, for the self-heal below. See feed-heal.ts. */
+  health,
   children,
 }: {
   screenLabel: string;
   safeToReload: boolean;
+  screenId: string | null;
+  health: TvFeedHealth;
   children: React.ReactNode;
 }) {
   const [updatePending, setUpdatePending] = useState(false);
@@ -132,6 +141,73 @@ export function TvShell({
   // lands the moment the network does.
   const heldForNetwork = useGatedReload(updatePending && safeToReload);
 
+  /* ── self-heal: a board nobody is hearing from reloads itself ─────────
+     Read feed-heal.ts before changing any of this. The three rules that are not
+     obvious: it is NOT gated on safeToReload (a wedged feed pins the scene
+     decision, so waiting for a calm beat is a deadlock), it is DERIVED rather
+     than latched (so a feed that comes back on its own disarms the gate instead
+     of spending a blink on the wall), and it is capped in localStorage (so a
+     board whose feed stays broken while the origin answers cannot reload every
+     five minutes forever). */
+  const [shellMountedAtMs] = useState(() => Date.now());
+  const [healArmed, setHealArmed] = useState(false);
+
+  /* THE WHOLE DECISION LIVES IN THE INTERVAL CALLBACK, not in an effect body.
+     Partly because react-hooks/set-state-in-effect is right — a setState in an
+     effect body cascades renders on a page that runs for weeks — and partly
+     because it means the shell re-renders only when the ARMED FLAG FLIPS, rather
+     than every 15s forever just to re-ask a question whose answer is almost
+     always no. The clock and the latest health reach the callback through refs,
+     which is exactly what refs are for: read outside render, written in an
+     effect. */
+  const healthRef = useRef(health);
+  useEffect(() => {
+    healthRef.current = health;
+  }, [health]);
+  const armedRef = useRef(false);
+
+  useEffect(() => {
+    if (!screenId || typeof window === "undefined") return;
+    const evaluate = () => {
+      const nowMs = Date.now();
+      const live = feedLiveness({
+        ...healthRef.current,
+        nowMs,
+        mountedAtMs: shellMountedAtMs,
+      });
+      if (live.state !== "stale") {
+        // RECOVERED. Disarmed on the STATE, not on the policy — once an attempt
+        // is recorded the policy itself may say "no" because the cap is now
+        // reached, and reading that as recovery would drop a gate that should
+        // still be waiting for the network.
+        if (armedRef.current) {
+          armedRef.current = false;
+          setHealArmed(false);
+        }
+        return;
+      }
+      if (armedRef.current) return;
+      if (
+        !shouldHeal({
+          ageMs: live.ageMs,
+          attempts: readAttempts(window.localStorage, screenId),
+          nowMs,
+        })
+      ) {
+        return;
+      }
+      // Recorded BEFORE arming: the navigation destroys this page, so anything
+      // written after it is never written. See recordAttempt.
+      recordAttempt(window.localStorage, screenId, nowMs);
+      armedRef.current = true;
+      setHealArmed(true);
+    };
+    const iv = setInterval(evaluate, FEED_HEAL_CHECK_MS);
+    return () => clearInterval(iv);
+  }, [screenId, shellMountedAtMs]);
+
+  const heldForHeal = useGatedReload(healArmed);
+
   return (
     <>
       {children}
@@ -151,11 +227,19 @@ export function TvShell({
         }}
       >
         {screenLabel} · v{SIGNAGE_VERSION}
-        {updatePending
-          ? heldForNetwork
-            ? " · reload held · no network"
-            : " · update pending"
-          : ""}
+        {/* THE SELF-HEAL SAYS SO FIRST. It is the more urgent of the two and the
+            one somebody may be standing in front of asking "is it doing
+            anything?" — the scores wall's own footer has already gone amber by
+            this point, and this line says what the board is doing about it. */}
+        {healArmed
+          ? heldForHeal
+            ? " · no feed · reload held · no network"
+            : " · no feed · reloading"
+          : updatePending
+            ? heldForNetwork
+              ? " · reload held · no network"
+              : " · update pending"
+            : ""}
       </div>
     </>
   );

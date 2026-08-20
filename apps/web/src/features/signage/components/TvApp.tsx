@@ -390,6 +390,10 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
         // new build. A briefing is rotation content, so it needs naming here
         // explicitly — see briefingActive above.
         safeToReload={!decision?.isInterrupt && !holdReloads}
+        // For the self-heal, which deliberately does NOT ride safeToReload —
+        // see the block comment in feed-heal.ts on why that would deadlock.
+        screenId={screenId}
+        health={health}
       >
         {/* THE POLL STAMPS, DOWN TO THE FOOTER OF THE SCORES WALL. They are
             read here because this is where the feed is polled, and the board
