@@ -371,12 +371,18 @@ function buildSingleSmsBody(
   member: GroupTicketMember,
   shortUrl: string,
 ): string {
+  // No check-in-vs-race-time note on a SINGLE heat (owner 2026-08-20).
+  // Measured on 238 real single-heat sends: dropping it takes them from
+  // 477 segments to 243. One heat, one time, read at a glance -- there is
+  // nothing here to mistake for a race time. The note STAYS on the
+  // multi-heat bodies below, which is where guests actually conflate
+  // check-in with racing, and the linked page carries it either way
+  // (KARTING_CHECKIN_SUBLINE).
   return [
     `FastTrax e-ticket`,
     `Session ${sessionName} - check-in ${formatTimeET(member.scheduledStart)}`,
     racerLabel(member),
     shortUrl,
-    KARTING_CHECKIN_SMS_NOTE,
   ].join("\n");
 }
 
@@ -419,12 +425,10 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
  */
 function buildGuardianSingleSmsBody(member: GroupTicketMember, shortUrl: string): string {
   const heatLabel = `${member.track} Heat ${member.heatNumber} check-in ${formatTimeET(member.scheduledStart)}`;
-  return [
-    "FastTrax e-ticket for your racer",
-    `${member.firstName} - ${heatLabel}`,
-    shortUrl,
-    KARTING_CHECKIN_SMS_NOTE,
-  ].join("\n");
+  // Single heat, so no note -- same reasoning as buildSingleSmsBody.
+  return ["FastTrax e-ticket for your racer", `${member.firstName} - ${heatLabel}`, shortUrl].join(
+    "\n",
+  );
 }
 
 /**
