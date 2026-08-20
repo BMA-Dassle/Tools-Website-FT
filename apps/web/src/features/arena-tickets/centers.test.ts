@@ -72,11 +72,27 @@ describe("arena centers", () => {
     const naples = arenaCenterForLocation(HP_NAPLES_LOCATION_ID)!;
     expect(fm.address).toContain("Fort Myers");
     expect(naples.address).toContain("Naples");
-    expect(fm.smsFrom).not.toBe(naples.smsFrom);
+    // Contact details that a GUEST reads stay per-location. The phone
+    // numbers guests call are unaffected by the A2P sender consolidation.
+    expect(fm.phoneTel).not.toBe(naples.phoneTel);
     // Both centers ride the same probed dayplanner resource name.
     for (const c of ARENA_CENTERS) {
       expect(c.resources).toContain("HP Arena");
     }
+  });
+
+  it("sends BOTH centers from the one A2P number", () => {
+    // Inverted deliberately. This used to assert the two centers had
+    // DIFFERENT senders, which was the right drift guard when three DIDs
+    // carried automated traffic. They are now one number on purpose:
+    // guests reply STOP to a single sender whose inbound webhook we own,
+    // and the templates already lead with the brand so a shared DID stays
+    // unambiguous. A per-center sender reappearing here would silently
+    // reintroduce replies landing on a number nothing listens to.
+    const fm = arenaCenterForLocation(HP_FM_LOCATION_ID)!;
+    const naples = arenaCenterForLocation(HP_NAPLES_LOCATION_ID)!;
+    expect(fm.smsFrom).toBe(naples.smsFrom);
+    expect(fm.smsFrom).toBe("+12394412867");
   });
 
   it("falls back to FM meta for legacy/unknown ticket locationIds", () => {

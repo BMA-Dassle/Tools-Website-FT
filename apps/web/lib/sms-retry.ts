@@ -8,6 +8,7 @@ import { twilioSend, isTwilioQuotaError } from "@/lib/twilio-send";
 import { decideSend, type SendCategory } from "~/features/sms/suppression-policy";
 import { lookupSuppression } from "~/features/sms/suppression-db";
 import { withOptOutFooter } from "~/features/sms/footer";
+import { a2pSender } from "~/features/sms/sender";
 
 /**
  * SMS retry queue — failed sends get re-attempted on subsequent cron ticks
@@ -274,7 +275,9 @@ export interface VoxSendOpts {
   skipFooter?: boolean;
 }
 
-const VOX_FROM = "+12394819666";
+/** All automated traffic now leaves from the single A2P DID.
+ *  See ~/features/sms/sender for why, and for what must NOT move. */
+const VOX_FROM = a2pSender();
 
 /** Public-facing webhook URL Vox calls when a message changes
  *  delivery state. Built from env so non-prod deployments can point

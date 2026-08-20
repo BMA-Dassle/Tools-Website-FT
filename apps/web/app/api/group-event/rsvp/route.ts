@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { getGroupEvent } from "@/lib/group-events";
 import type { GroupEvent } from "@/lib/group-events";
+import { a2pSender } from "~/features/sms/sender";
 
 /** HeadPinz sender DID for the RSVP confirmation SMS. */
-const HEADPINZ_DID = "+12393022155";
+const HEADPINZ_DID = a2pSender();
 
 const TTL = 60 * 60 * 24 * 30; // 30 days
 

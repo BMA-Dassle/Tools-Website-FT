@@ -247,7 +247,6 @@ const CENTERS = [
     name: "HeadPinz Fort Myers",
     address: "14513 Global Pkwy, Fort Myers",
     phone: "(239) 302-2155",
-    smsFrom: "+12393022155",
   },
   {
     id: "3148",
@@ -258,7 +257,6 @@ const CENTERS = [
     name: "HeadPinz Naples",
     address: "8525 Radio Ln, Naples",
     phone: "(239) 455-3755",
-    smsFrom: "+12394553755",
   },
 ];
 
@@ -2398,7 +2396,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       const res = await fetch("/api/sms-verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: digits, from: center.smsFrom }),
+        body: JSON.stringify({ phone: digits, brand: "headpinz" }),
       });
       const data = await res.json();
       if (data.sent) {
@@ -2412,7 +2410,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
       setVerifyError("Failed to send code");
       setVerifyStep("idle");
     }
-  }, [guestPhone, phoneDigits, center.smsFrom]);
+  }, [guestPhone, phoneDigits]);
 
   /** Verify the 6-digit code against server */
   const verifyCodeSubmit = useCallback(

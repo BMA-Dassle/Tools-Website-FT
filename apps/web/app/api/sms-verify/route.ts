@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { randomInt } from "crypto";
+import { a2pSender } from "~/features/sms/sender";
 
 // ── Voxtelesys config ─────────────────────────────────────────────────────
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
-const VOX_FROM = process.env.VOX_FROM_NUMBER || "+12394819666";
+const VOX_FROM = a2pSender();
 
 // ── SendGrid config (for email OTP) ─────────────────────────────────────────
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
@@ -91,7 +92,7 @@ async function sendEmailOtp(to: string, code: string): Promise<boolean> {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { phone, email, from } = body;
+    const { phone, email, from, brand } = body;
 
     if (!phone && !email)
       return NextResponse.json({ error: "Phone or email required" }, { status: 400 });
@@ -111,10 +112,17 @@ export async function POST(req: NextRequest) {
         "EX",
         CODE_TTL,
       );
-      const smsBody = from
+      // BRANDING ONLY. `brand` is the explicit field; `from` is a
+      // legacy DID-shaped hint some callers still send. Neither
+      // selects the sender -- that is always a2pSender().
+      const isHeadPinz = brand ? brand === "headpinz" : Boolean(from);
+      const smsBody = isHeadPinz
         ? `Your HeadPinz verification code is: ${code}`
         : `Your FastTrax verification code is: ${code}`;
-      const sent = await sendSms(normalized, smsBody, from || undefined);
+      // `from` is a legacy brand hint from the caller, NOT a sender.
+      // The DID always comes from a2pSender() -- a client must not
+      // get to pick which of our numbers we send from.
+      const sent = await sendSms(normalized, smsBody);
       if (!sent) return NextResponse.json({ error: "Failed to send SMS" }, { status: 500 });
       console.log(
         `[sms-verify] SMS code sent to ${normalized.slice(0, 3)}***${normalized.slice(-4)}`,

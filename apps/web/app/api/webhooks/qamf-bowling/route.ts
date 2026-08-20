@@ -20,6 +20,7 @@ import { completeReservationOrder } from "@/lib/bowling-order-complete";
 import { shortenUrl } from "@/lib/short-url";
 import { FASTTRAX_QAMF_CENTER_ID, FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
 import { enqueueBowlingSurvey } from "~/features/guest-survey";
+import { a2pSender } from "~/features/sms/sender";
 
 /**
  * Map a bowling_reservations row to the enqueueBowlingSurvey input shape.
@@ -275,11 +276,11 @@ async function handleCancellation(
 }
 
 const WALKIN_SMS_FROM: Record<string, string> = {
-  TXBSQN0FEKQ11: "+12393022155",
-  PPTR5G2N0QXF7: "+12394553755",
+  TXBSQN0FEKQ11: a2pSender(),
+  PPTR5G2N0QXF7: a2pSender(),
   // TODO(owner): replace with the FastTrax check-in SMS line. Interim: reuse the
   // FM building number so duckpin walk-in SMS has a valid (same-building) sender.
-  [FASTTRAX_CENTER_CODE]: "+12393022155",
+  [FASTTRAX_CENTER_CODE]: a2pSender(),
 };
 
 /**

@@ -20,6 +20,7 @@ import { groupVoucherItems, voucherGroupLabel } from "~/features/game-cards/vouc
 import { qrAttachment, voucherRedeemUrl } from "~/features/game-cards/service/voucher-mail";
 import { walletBadgesEmailHtml } from "~/features/game-cards/wallet/badges";
 import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
+import { a2pSender } from "~/features/sms/sender";
 
 // Re-export so any existing importer of this route's signature verifier keeps
 // working after the helpers moved to lib/booking-confirmation-link.
@@ -32,9 +33,12 @@ const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
 const FROM_NAME = process.env.SENDGRID_FROM_NAME || "FastTrax Entertainment";
 
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
-const VOX_FROM_FASTTRAX = "+12394819666";
-const VOX_FROM_HEADPINZ = "+12393022155";
-const VOX_FROM_NAPLES = "+12394553755";
+// One A2P sender for every brand. Each template already opens with
+// the brand name, which is also what TCR wants in HELP/opt-out
+// replies, so a shared DID stays unambiguous to the guest.
+const VOX_FROM_FASTTRAX = a2pSender();
+const VOX_FROM_HEADPINZ = a2pSender();
+const VOX_FROM_NAPLES = a2pSender();
 
 // ── Email templates (loaded once, cached per name) ──────────────────────────
 

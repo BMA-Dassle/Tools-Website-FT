@@ -3,13 +3,14 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { Redis } from "ioredis";
 import { randomUUID } from "crypto";
+import { a2pSender } from "~/features/sms/sender";
 
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
 const FROM_NAME = "FastTrax Entertainment";
 const REDIS_URL = process.env.REDIS_URL || process.env.KV_URL || "";
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
-const VOX_FROM_FASTTRAX = "+12394819666";
+const VOX_FROM_FASTTRAX = a2pSender();
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 
 // Level config
