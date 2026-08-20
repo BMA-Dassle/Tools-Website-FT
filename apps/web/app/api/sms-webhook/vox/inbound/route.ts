@@ -198,8 +198,11 @@ export async function POST(req: NextRequest) {
  *  saves the Messaging Application, and — with `?stats=1` — the captured
  *  sweep, so payload shapes can be read without Vercel log access.
  *
- *  `?stats=1` is gated by the same `?k=` token when one is configured:
- *  inbound bodies are guest messages, not public data. */
+ *  Reading ALWAYS requires a configured, matching token — including in
+ *  bring-up mode. The asymmetry is deliberate: POST stays lenient with no
+ *  token so a portal misconfiguration cannot silently lose captures, but
+ *  what it captures is guest message bodies and mobile numbers. An
+ *  unset env var must never turn that into a public endpoint. */
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   if (url.searchParams.get("stats") !== "1") {
@@ -207,7 +210,13 @@ export async function GET(req: NextRequest) {
   }
 
   const expected = process.env.VOX_MO_TOKEN || "";
-  if (expected !== "" && url.searchParams.get("k") !== expected) {
+  if (expected === "") {
+    return NextResponse.json({
+      ok: false,
+      error: "stats unavailable: set VOX_MO_TOKEN, then read with ?stats=1&k=<token>",
+    });
+  }
+  if (url.searchParams.get("k") !== expected) {
     return NextResponse.json({ ok: false, error: "unauthorized" });
   }
 
