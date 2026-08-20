@@ -263,6 +263,15 @@ export interface VoxSendOpts {
    * still a signal, just a less useful one.
    */
   auditSource?: string;
+  /**
+   * Suppress the opt-out footer for this send.
+   *
+   * For the inbound replies, which carry their own tailored instructions:
+   * appending "Reply STOP to opt out" to a message that already says
+   * "You're opted out" is nonsense, and `64.1200(a)(12)` makes the
+   * confirmation's wording something to keep exact rather than append to.
+   */
+  skipFooter?: boolean;
 }
 
 const VOX_FROM = "+12394819666";
@@ -418,9 +427,11 @@ export async function voxSend(
   // shape that footered only the Vox call would have produced a failover
   // message with no opt-out language, which is the exact case a carrier
   // audit would find.
-  const footered = withOptOutFooter(body, opts?.category ?? "transactional");
-  body = footered.body;
-  if (footered.crossedBoundary) {
+  const footered = opts?.skipFooter
+    ? null
+    : withOptOutFooter(body, opts?.category ?? "transactional");
+  if (footered) body = footered.body;
+  if (footered?.crossedBoundary) {
     // THE AUDIT. Static extraction of ~40 inline template literals would
     // be guesswork; real traffic tells us exactly which bodies the footer
     // pushed into a second segment, and those are the ones to shorten.
