@@ -460,6 +460,20 @@ describe("the VIP greeting rules are the kiosk welcome TV's", () => {
       resolved("front-desk").vip.floorMins,
     );
   });
+
+  it("shows a party for the same stretch of the evening as kiosk-bank", () => {
+    // The other half of "same as the kiosk welcome tv": these two numbers decide how
+    // long a party is on the glass either side of its first leg, and therefore how
+    // much of the night the wing spends on the check-in signpost instead. They agree
+    // today only because front-desk omits them and the resolve defaults happen to be
+    // kiosk-bank's explicit 75/30 — an accident worth pinning, not relying on.
+    const fd = resolved("front-desk");
+    const kb = resolved("kiosk-bank");
+    expect([fd.welcomeLeadMins, fd.welcomeTrailMins]).toEqual([
+      kb.welcomeLeadMins,
+      kb.welcomeTrailMins,
+    ]);
+  });
 });
 
 describe("does this screen show this scene at all — the feed's question", () => {
