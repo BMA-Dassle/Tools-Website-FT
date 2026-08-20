@@ -1,5 +1,45 @@
 # Lessons Learned
 
+## A latent fallback goes live the moment a filter widens — and the test that guarded it was asserting the bug (2026-08-19)
+
+**What happened:** every bowling reservation on the kiosk check-in list read four hours late — a
+9:40 PM lane advertised as 1:40 AM. 23 of 80 live HPFM reservations were wrong, and all 23 were
+bowling. The racing rows on the same list were all correct, and the front-desk TV, reading the
+SAME column out of the SAME table, was correct too.
+
+1. **A `Date` that becomes a string picks a zone, and `toISOString()` picks the wrong one.**
+   `bowling-db` maps `bookedAt: (row.booked_at as Date).toISOString()`, so the value is always a
+   UTC instant (`2026-08-19T01:00:00.000Z`). Everything downstream in the kiosk treats a time
+   string as a NAIVE ET wall-clock and strips the zone suffix — that is the documented house
+   convention. Hand those two facts to each other and the board prints the UTC hour. A `: string`
+   type says nothing about which clock the digits are on; same shape as the BMI id-precision trap.
+2. **The fallback had never been on a screen, so nobody had ever looked at it.** `browseRowTime`
+   reads the heat and falls back to `bookedAt` for a leg with none. While the list was
+   racing-only, the fallback was unreachable in practice — a race always has a heat. Bowling
+   check-in widened the filter to admit heat-less rows, and a code path with no live exposure
+   became the code path for a whole venue on the same deploy. **When you widen a filter, list what
+   the old filter was shielding.** The widening PR touched the grouping, the key, and the
+   inclusion rule; the one thing it did not revisit was the branch it had just made reachable.
+3. **Two surfaces reading one column and disagreeing is the cheapest possible bug report.** The
+   TV wrapped the same field in `toEtWallClock` and was right. Whenever a value renders in two
+   places, a mismatch localizes the fault to the renderer without any need to reason about the
+   data — and it is worth checking the sibling surface FIRST, because it also tells you which of
+   the two is wrong.
+4. **The unit test asserted the defect verbatim.** `expect(out).toEqual({ iso:
+   "2026-08-07T18:00:00.000Z", source: "booked" })` — the raw `Z` string, pinned as correct. It
+   was written when the fallback served only rows that never rendered, so "what the function
+   returns" was the only available spec and it got frozen as the expectation. A test that restates
+   the implementation cannot fail with it. **Assert what the GUEST sees** (`fmtTime12(out.iso)` is
+   `"9:00 PM"`), not the intermediate the function happens to produce.
+5. **Normalize before you sort, not after.** The fallback sorted raw strings, so a group with one
+   naive-ET leg and one UTC-stamped leg ordered on the zone suffix rather than on the clock. The
+   4h display error also pushed every evening row past midnight, which re-sorted the whole list —
+   one unconverted value corrupted the ordering as well as the labels.
+
+Fixed on `worktree-kiosk-checkin-tz`: `browseRowTime` converts through `toEtWallClock`; probe
+`apps/web/scripts/checkin-browse-time-check.mts` prints the old label beside the new one per
+reservation, which is where the 23-of-80 measurement came from.
+
 ## An unattended screen must never NAVIGATE during an outage — the browser's own error page is a dead end nothing of ours can reach (2026-08-19)
 
 **What happened:** the HeadPinz Fort Myers front-desk TVs "didn't recover nicely from network
