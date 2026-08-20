@@ -357,6 +357,16 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.noDispenser.title": "Este kiosco no entrega tarjetas nuevas",
   "codeEntry.noDispenser.body":
     "Aquí puedes canjear parte de tu vale — recoge tu tarjeta en el kiosco principal o en Servicios al Huésped.",
+  "codeEntry.groupon.err.unknown": "No encontramos ese vale de Groupon — revisa el código",
+  "codeEntry.groupon.err.alreadyRedeemed":
+    "Ese Groupon ya se usó. En Servicios al Huésped pueden revisarlo.",
+  "codeEntry.groupon.err.unavailable":
+    "Groupon no responde en este momento — inténtalo de nuevo en un momento",
+  "codeEntry.groupon.err.unmapped":
+    "Todavía no tenemos configurada esa oferta de Groupon — pasa a Servicios al Huésped",
+  "codeEntry.groupon.err.used": "Ya se usó todo lo de ese Groupon",
+  "codeEntry.groupon.seeStaff":
+    "Vale de Groupon aceptado — pasa a Servicios al Huésped para recogerlo",
   "codeEntry.voucherGz.leaveWarn":
     "{n, plural, one {Tu tarjeta de juego aún no se imprime} other {Tus # tarjetas de juego aún no se imprimen}}. No se imprimirán solas después — el botón rosa en la pantalla de inicio te trae de vuelta aquí.",
   "codeEntry.voucherGz.leaveAnyway": "Salir de todos modos",

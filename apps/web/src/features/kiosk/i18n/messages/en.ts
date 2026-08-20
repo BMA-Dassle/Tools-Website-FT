@@ -418,6 +418,22 @@ export const en = {
   "codeEntry.noDispenser.title": "This kiosk doesn’t dispense new cards",
   "codeEntry.noDispenser.body":
     "You can still redeem part of your voucher here — pick up your card at the front kiosk or Guest Services.",
+  // Groupon. Each refusal says WHICH thing went wrong, because they send the
+  // guest to different places: a dead code is a Groupon problem, an
+  // already-used one is a receipt question, and an outage is "try again".
+  // "Groupon" is a brand noun and stays English in both catalogs.
+  "codeEntry.groupon.err.unknown": "We couldn’t find that Groupon voucher — check the code",
+  "codeEntry.groupon.err.alreadyRedeemed":
+    "That Groupon has already been used. Guest Services can look it up.",
+  "codeEntry.groupon.err.unavailable": "Groupon isn’t answering right now — try again in a moment",
+  // Deliberately not "invalid": the voucher is real, we just have no mapping
+  // for the deal, and telling the guest it's invalid would be a lie.
+  "codeEntry.groupon.err.unmapped":
+    "We don’t have that Groupon deal set up yet — please see Guest Services",
+  "codeEntry.groupon.err.used": "Everything on that Groupon has been used",
+  // Recognised and live, but the kiosk cannot hand any of it over yet.
+  "codeEntry.groupon.seeStaff":
+    "Groupon voucher accepted — please see Guest Services to collect it",
   // Back with unprinted cards. Cards are NEVER printed later automatically —
   // the pink home-screen tile is the way back.
   "codeEntry.voucherGz.leaveWarn":

@@ -35,8 +35,15 @@ import {
   type VoucherRedeemRefusal,
 } from "./voucher-card";
 import type { VoucherIssuer } from "../data/voucher-claims-db";
+import { GROUPON_LONG_CODE_RE, looksLikeGrouponCode } from "~/features/groupon/codes";
+import { findGrouponUnit } from "~/features/groupon/data/groupon-units-db";
+import { validateGrouponForKiosk } from "~/features/groupon/service/kiosk-validate.server";
+import {
+  claimGrouponGameZone,
+  type GrouponClaimRefusal,
+} from "~/features/groupon/service/claim.server";
 
-export type AnyVoucherRefusal = VoucherRedeemRefusal | NativeVoucherRefusal;
+export type AnyVoucherRefusal = VoucherRedeemRefusal | NativeVoucherRefusal | GrouponClaimRefusal;
 
 /** The BMI game-card comp rail ships dark (owner 2026-07-29: "leave BMI vouchers
  *  for game cards for another day"). ONE gate shared by the claim, the basket
@@ -63,7 +70,40 @@ export type RedeemClaim =
 export function voucherIssuerFor(code: string): VoucherIssuer | null {
   if (isNativeVoucherCode(code)) return "native";
   if (BMI_VOUCHER_RE.test(code.trim().toUpperCase())) return "bmi";
+  // Groupon's UNAMBIGUOUS long form only. Its 8-character short form is
+  // deliberately NOT matched here: `SUMMER26` is also 8 alphanumerics, and
+  // `89895632` is also a bare game-card barcode, so shape cannot decide it and
+  // this function is a shape-only authority. Use `resolveVoucherIssuer` for the
+  // short form — it settles the ambiguity with a ledger lookup instead.
+  if (GROUPON_LONG_CODE_RE.test(code.trim().toUpperCase())) return "groupon";
   return null;
+}
+
+/**
+ * Which system owns this code, resolving the ambiguous cases with DATA.
+ *
+ * Groupon's 8-character short code cannot be told from an 8-character promo, or
+ * — when all digits — from a game-card barcode, by shape alone. But by the time
+ * anything is claimed we have already validated the voucher and written a
+ * `groupon_units` row, so the existence of that row IS the answer. A promo code
+ * has no row and falls through to whatever it was before.
+ *
+ * Fails OPEN to "not Groupon": if the ledger read throws, a promo code must
+ * still behave like a promo rather than becoming a broken Groupon claim.
+ */
+export async function resolveVoucherIssuer(code: string): Promise<VoucherIssuer | null> {
+  const byShape = voucherIssuerFor(code);
+  if (byShape) return byShape;
+  if (!looksLikeGrouponCode(code)) return null;
+  try {
+    return (await findGrouponUnit(code)) ? "groupon" : null;
+  } catch (err) {
+    console.error(
+      "[voucher-router] groupon ledger read failed, treating as non-groupon:",
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
 }
 
 /**
@@ -84,8 +124,14 @@ export async function validateAnyVoucher(
 ): Promise<{ ok: boolean; reason?: string; label?: string; items?: unknown[] }> {
   const { code, locationCode, center } =
     typeof input === "string" ? { code: input, locationCode: undefined, center: undefined } : input;
-  const issuer = voucherIssuerFor(code);
+  const issuer = await resolveVoucherIssuer(code);
   if (issuer === "native") return validateNativeVoucher(code);
+  if (issuer === "groupon") {
+    const res = await validateGrouponForKiosk(code);
+    return res.ok
+      ? { ok: true, label: res.label, items: res.items }
+      : { ok: false, reason: res.reason };
+  }
   if (issuer === "bmi") {
     if (!gzVoucherBmiRailLive()) return { ok: false, reason: "unsupported" };
     if (locationCode === undefined) return { ok: true, label: "Game Zone card comp" };
@@ -104,8 +150,27 @@ export async function claimAnyVoucher(input: {
   kioskId?: string | null;
   source: "kiosk" | "web";
 }): Promise<RedeemClaim> {
-  const issuer = voucherIssuerFor(input.code);
+  const issuer = await resolveVoucherIssuer(input.code);
   if (!issuer) return { ok: false, issuer: null, reason: "bad_format" };
+
+  if (issuer === "groupon") {
+    const res = await claimGrouponGameZone({
+      code: input.code,
+      locationCode: input.locationCode,
+      kioskId: input.kioskId,
+      accountNumber: input.accountNumber,
+      source: input.source,
+    });
+    if (!res.ok) return { ok: false, issuer: "groupon", reason: res.reason };
+    return {
+      ok: true,
+      issuer: "groupon",
+      txnId: res.txnId,
+      groupId: res.groupId,
+      grant: res.grant,
+      label: res.label,
+    };
+  }
 
   if (issuer === "native") {
     const res = await claimNativeVoucher({

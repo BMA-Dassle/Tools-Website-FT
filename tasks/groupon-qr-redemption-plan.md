@@ -158,3 +158,237 @@ The GET response carries **no deal identifier** (`attributes: null`), so
 settled against a REAL deal code before the deal→items map can be trusted —
 these test units are all value 100 / price 1 placeholders and tell us nothing
 about the production shape.
+
+---
+
+## 2026-08-20 — production read proven, redeem path repaired
+
+Owner supplied production credentials and a real purchased voucher
+(`89895632` / `VS-GCMV-VNXS-4YN4-2V4X`). A GET-only probe against the
+`headpinz` config returned **HTTP 200 on the first attempt**, unit
+`23cc45c6-…`, `status: available`, value $65.00, price paid $30.60.
+**No PATCH has ever been sent to production.**
+
+### Newly proven (not inferred)
+
+| Fact | Evidence |
+| --- | --- |
+| The shipped signer is correct against PROD | `headpinz` GET 200, first try, no retry |
+| The signing KEY is per-env; the CLIENT ID is shared | same key on `headpinz-preprod` → 401 `INVALID_REQUEST_SIGNATURE`, **not** `'client_id' is invalid` |
+| `attributes` is null in PRODUCTION too | the deal-key gap does not close via the API, in either env |
+| `value`/`price` are REAL in prod | staging's 100/1 were placeholders; 6500/3060 here |
+| An 8-digit Groupon code collides with the game-card rule | `89895632` matches `CARD_DIGITS_RE` (`^\d{8,}$`) |
+
+**Trap now documented:** `GROUPON_API_KEY` and `GROUPON_CONFIG_NAME` are a
+matched pair. Mixing them fails as `INVALID_REQUEST_SIGNATURE`, which is
+indistinguishable from a base-string bug — expect someone to hunt a signing bug
+that does not exist. The env shape holds only one key, so setting prod also
+stops preprod probes working.
+
+### Bug found and fixed: the redeem path had never run
+
+`redeemAfterDelivery` RECONSTRUCTED the unit from ledger columns instead of
+re-fetching it. The PATCH only works by echoing the whole unit back, and the
+ledger has no `price` column — so it sent `price: 0` against the real 3060.
+Groupon answers a mutated echo with `UNIT_NOT_FOUND` / `MALFORMED_REQUEST`,
+both of which that function treats as **terminal**, so one bad echo would have
+permanently stranded a row the cron then never retries. Staging never caught it
+because the staging proof was a hand-run GET-then-PATCH script; this function
+had never executed once.
+
+Now: re-fetch, echo the fetched unit, and only `UNIT_NOT_FOUND` **on the
+re-fetch** is terminal. A unit already `redeemed` upstream discharges the debt
+without sending anything; an unrecognised status refuses instead of guessing.
+
+### Landed on the worktree
+
+- `groupon/codes.ts` — code shapes extracted to a PURE module so the kiosk
+  classifier (a client module) can match them without importing
+  `resolve.server.ts` and dragging the signing key toward the browser bundle.
+  `resolve.server.ts` re-exports them, so existing importers are unaffected.
+- Classifier: new `groupon` kind for the unambiguous `VS-` long form (which used
+  to land in the promo fallback), plus an additive `grouponCandidate` HINT.
+  **No existing input changes `kind`** — `89895632` stays `game-card`,
+  `WNDXH4DJ` stays `promo` — because an 8-character code is genuinely ambiguous
+  and `classify.ts` may not do I/O. The call site resolves by lookup, primary
+  path first, Groupon as fallback. Both steps are non-destructive.
+- `deals.ts`: `valueAmounts` sentinel. Not a price and never used to derive what
+  the guest gets — `items` alone does that. It exists so a SECOND deal fails
+  loud (`unmapped` → grants nothing) instead of silently collecting this deal's
+  five items. `[6500, 100]` = prod observed + the preprod placeholder.
+- `service/redeem-sweep.server.ts` + `/api/cron/groupon-redeem-sweep`
+  (every 10 min): drives `pending` rows to `sent`. Owns no redeem logic —
+  every row goes through `redeemAfterDelivery`, the single writer. Rows past 12
+  attempts are excluded from the worklist so they cannot starve it, and counted
+  as `stalled` so the cron says so out loud.
+
+Verified: `tsc --noEmit` clean, eslint clean, full suite 371 files / 5379 tests
+green.
+
+### Still open
+
+- **Kiosk wiring (item 3) — NOT BUILT.** The Groupon fallback branch at the
+  code-entry call site, and the panel that shows the five items and what is
+  left. Needs EN+ES for every guest-facing string.
+- **The redeem has still never run against production.** Owner confirmed
+  `89895632` is ours to burn; it should be burned THROUGH the wired kiosk on a
+  Game One machine, since that is the only way the delivery-then-PATCH ordering
+  and the per-item claim CAS get exercised at all.
+- **What the scanner physically emits is still unknown.** The printed barcode
+  shows no EAN guard-bar descenders and digits set to the SIDE, which reads as
+  Code 128/39 and contradicts the 2026-07-30 `ean-13` capture. Settle it by
+  scanning with the real kiosk scanner and logging the raw string — also catches
+  any scanner prefix/suffix.
+- Ask Groupon whether `attributes` can be populated, or a per-deal config name
+  issued. Until then `valueAmounts` is the only discriminator we have.
+
+---
+
+## 2026-08-20 (later) — voucher BURNED in production; kiosk validate path wired
+
+### The production redeem is proven
+
+`89895632` was redeemed for real, owner-authorised, **through the app's own
+`redeemUnit`** (driven via vitest — see the runner note below). HTTP 200 first
+attempt; re-fetch confirmed `status:"redeemed"`,
+`redeemedAt:"2026-08-20T20:03:41Z"`. The whole-unit-echo contract now holds in
+production, not just staging. Notes:
+
+- The PATCH **response echoes the updated unit**, so it is usable as
+  confirmation — but the RE-FETCH is what we assert on.
+- `redeemedAt` is millisecond-precision on the PATCH response and
+  second-precision on the following GET. Never compare them for equality.
+- `attributes` is **still null after redemption**. It is not a deal identifier
+  on this funnel; stop waiting for it.
+- **Runner note:** this package is CJS-by-default, so a `.mts` script importing
+  a `.ts` module gets "does not provide an export named …", and Node 24's native
+  type-stripping wins even over `node --import tsx`. **Vitest is the only runner
+  here that resolves app modules** — shape a one-shot probe as a `*.spec.ts`,
+  run it, delete it.
+
+### Landed since
+
+- **`vouchers/validated-items.ts`** — the item-presentation mapper
+  (`ValidatedItem`, `cartCoverageName`, `toValidatedItem`) extracted out of
+  `native-voucher.ts` so Groupon maps through the SAME code. `coverageName` is
+  matched by the booking's `voucherTarget()`; a second issuer spelling
+  "Lasertag" where this one says "Laser Tag" would validate, show the guest a
+  laser tag line, and then cover nothing at checkout. Pure extraction —
+  all 215 game-cards tests unchanged and green.
+- **`groupon/service/kiosk-validate.server.ts`** — Groupon → `ValidatedItem[]`,
+  so the existing receipt, spent-leg strike-through, cart-coverage grouping and
+  its EN+ES copy are reused instead of a second panel being built. `itemIndex`
+  is preserved verbatim (it is the claim identity in `voucher_claims`) and that
+  is pinned by a test.
+- **`POST /api/kiosk/groupon/validate`** — non-destructive. Shape-gated before
+  any network call, because the fallback fires mostly on codes that are not
+  Groupon at all.
+- **Kiosk fallback wiring.** Primary path runs first, unchanged; Groupon is
+  tried only if it REFUSED. The refusal signal is read off `logReject` (which
+  every rejection funnels through) rather than threading a return value through
+  ~270 lines of branches. Three rejections that were silently bypassing
+  `logReject` now go through it — they were also missing from the logs.
+- **Scan tones** (`kiosk/sound.ts`, owner-supplied audio). A scan has no
+  keypress and no cursor, so without a tone a guest cannot tell a dead code from
+  a beam that missed. Autoplay-blocked playback is swallowed;
+  `unlockKioskSounds()` primes the elements off a gesture. One scan never plays
+  an error tone followed by a success tone — the reject tone is held while a
+  Groupon fallback is still pending.
+- EN+ES copy for every Groupon refusal, kept distinct on purpose: `unmapped`
+  means the voucher is REAL and we are not ready, and `unavailable` means try
+  again rather than go and queue at Guest Services.
+
+### THE REMAINING GAP — the claim/dispense rail
+
+`claimAnyVoucher` has **no `groupon` branch**, and `voucherIssuerFor` never
+returns `"groupon"` — the type was widened in anticipation, the rail was not
+built. So the kiosk can now VALIDATE a Groupon voucher and show what is on it,
+but it cannot hand any of it over.
+
+`tryGroupon` therefore deliberately does NOT route legs to `onGzCardsAdd` /
+`onNativeCartItems`: those lead to the native claim, which would look the code
+up in the `vouchers` table where no Groupon row exists — showing a guest a card
+on the receipt and then failing to dispense it. That is exactly the
+promise-then-strand failure the BMI comp path already taught us. Until the rail
+exists, an accepted Groupon says so and points at staff.
+
+To finish, `claimAnyVoucher` needs a `groupon` branch that: resolves the unit
+from `groupon_units`, picks an unspent leg, claims it in `voucher_claims` via
+the existing CAS with `issuer: "groupon"`, grants the tokens — and **only then**
+calls `redeemAfterDelivery`. That last ordering is the doctrine and the reason
+the sweep cron exists.
+
+Also still open: one scanner capture on real hardware to settle the symbology
+(printed barcode reads as Code 128/39, contradicting the 2026-07-30 `ean-13`
+note) and to catch any scanner prefix/suffix.
+
+---
+
+## 2026-08-20 (final) — the claim rail is built; kiosk hands the legs over
+
+The "see Guest Services" dead end is gone. A Groupon now behaves like any
+multi-leg voucher on the kiosk: the card dispenses, the laser tag entries cover
+booking lines, and a return visit shows the spent legs struck through.
+
+### Claim (the $25 card)
+
+`groupon/service/claim.server.ts` → `claimGrouponGameZone`. Mirrors the native
+rail's ordering exactly: **claim first, then the ledger row, release the claim if
+the ledger insert fails.** A claim without a ledger row is a leg the guest can
+never spend; a ledger row without a claim is a card we might hand out twice.
+Reuses `voucher_claims` — the same one-statement CAS the native rail uses — so
+two kiosks scanning one Groupon cannot both take the card. Spend is NOT tracked
+in `groupon_units`: that would be a second writer for the same fact.
+
+### Partial claim (the four laser tag entries)
+
+NOT a new rail. `claimNativeCartVouchers` is now **issuer-aware**, because
+everything that makes cart coverage correct already lives there — pre-claim
+validation, equivalent-leg substitution, idempotency on the reserve's `baseKey`,
+release on rollback, the spent stamp, the stale sweep. Only two things differ per
+issuer and both are switched: which table proves the voucher is real
+(`groupon_units` vs `vouchers`), and whether there is a wallet pass to mirror
+(Groupon has none).
+
+**One safety hole found and closed:** `sweepStaleCartClaims` decides whether to
+release a stale claim using `hasChargedRedeemEvent`, which reads the NATIVE
+registry. A Groupon code has no row there, so that check is always false and the
+sweep would have released a leg a captured booking had already spent — letting
+the guest spend it twice. Groupon claims are now never released by the sweep;
+they are logged for a human instead. A stuck leg is recoverable, a double-spent
+one is not.
+
+### Issuer routing — shape decides only the unambiguous case
+
+The existing router tests caught a real regression: `voucherIssuerFor("SUMMER26")`
+started returning `"groupon"`, because an 8-character promo is shaped exactly
+like a Groupon short code. Shape genuinely cannot decide it.
+
+So `voucherIssuerFor` stays shape-only and matches **only** the unambiguous
+`VS-XXXX-…` long form, and a new async `resolveVoucherIssuer` settles the short
+form with a **ledger lookup** — by claim time we have already validated the
+voucher and written a `groupon_units` row, so that row's existence IS the
+answer. A promo has no row and behaves exactly as before. It fails OPEN to
+"not Groupon" if the read throws.
+
+### The delivery → PATCH hook
+
+Wired into `load-card` at the point `loaded === true` — a card has left the
+stacker carrying tokens. That is the first moment value has genuinely moved, and
+the only moment we tell Groupon. Soft-fail: a failed PATCH leaves the row
+`pending` for the sweep cron, because throwing here would fail a load that
+already succeeded and leave the guest holding a credited card the kiosk called
+an error.
+
+Verified: `tsc` clean, eslint 0 errors (the only 2 warnings are pre-existing, in
+`account-hooks.ts`), full suite **373 files / 5395 tests** green.
+
+### Still open
+
+- One scanner capture on real hardware, to settle the symbology (the printed
+  barcode reads as Code 128/39, contradicting the 2026-07-30 `ean-13` note) and
+  to catch any scanner prefix/suffix.
+- `GROUPON_CLIENT_ID` / `GROUPON_API_KEY` / `GROUPON_CONFIG_NAME=headpinz` into
+  Vercel. One key slot, so setting prod stops preprod probes working.
+- **No unspent production code remains** — `89895632` was burned proving the
+  rail. Get more staging/prod codes from Groupon before the on-glass smoke.

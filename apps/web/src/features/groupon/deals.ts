@@ -29,6 +29,17 @@ export interface GrouponDeal {
   /** Staff-facing only. NEVER used to derive value. */
   description: string;
   items: VoucherItem[];
+  /**
+   * Face values (`unit.value.amount`, minor units) OBSERVED on units of this
+   * deal. A SENTINEL, not a price: nothing here is charged, displayed, or used
+   * to compute what the guest gets — `items` alone decides that. Its only job
+   * is to notice that a unit is not the deal we think it is.
+   *
+   * Written down from live responses, never inferred:
+   *   6500 — production, unit 23cc45c6 (2026-08-20).
+   *    100 — the `headpinz-preprod` placeholder every staging unit carries.
+   */
+  valueAmounts: number[];
 }
 
 /**
@@ -49,29 +60,40 @@ export const GROUPON_DEALS: Record<GrouponDealKey, GrouponDeal> = {
       { kind: "attraction", slug: "laser-tag", qty: 1 },
       { kind: "attraction", slug: "laser-tag", qty: 1 },
     ],
+    valueAmounts: [6500, 100],
   },
 };
 
 /**
  * Which deal is this unit?
  *
- * KNOWN GAP: the GET response carries NO deal identifier — `attributes` is null
- * on every unit we have seen, and `value`/`price` on the staging units are
- * placeholder 100/1. So there is currently nothing on the wire to key on.
+ * KNOWN GAP, now confirmed in BOTH environments: the GET carries NO deal
+ * identifier. `attributes` is null on every unit we have seen, staging AND
+ * production (checked 2026-08-20 against a real purchased voucher). So there is
+ * nothing authoritative on the wire to key on, and there may never be.
  *
- * While exactly one Groupon deal is live, the honest implementation is an
- * explicit default rather than a fake inference: we return the single
- * configured deal and say so. The moment a SECOND deal ships, this must key on
- * something real (populated `attributes`, or a per-deal config name) — and
- * until then `null` from here means "grant nothing", not "guess".
+ * With one deal configured the honest answer is still an explicit default, not
+ * a fake inference. What changed is that we no longer accept that default
+ * BLINDLY: production units carry a real `value` (staging's was a placeholder),
+ * so a unit whose face value is not one we have ever recorded for this deal is
+ * refused rather than granted. That converts the failure mode from "silently
+ * hands a second deal's guest the wrong five items" into "refuses, loudly, and
+ * someone adds the deal" — recoverable instead of a money loss in either
+ * direction.
+ *
+ * `null` from here always means GRANT NOTHING. It never means guess.
  */
-// The unit is the input this WILL key on once Groupon gives us a deal
-// identifier; keeping it in the signature now means adding that logic later
-// never touches a call site.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function resolveDealKey(unit: GrouponUnit): GrouponDealKey | null {
   const keys = Object.keys(GROUPON_DEALS) as GrouponDealKey[];
-  return keys.length === 1 ? keys[0] : null;
+  if (keys.length !== 1) return null;
+
+  const only = GROUPON_DEALS[keys[0]];
+  const amount = unit.value?.amount;
+  // No value on the wire at all — fall back to the single-deal default rather
+  // than refusing a voucher over a field Groupon simply did not send.
+  if (typeof amount !== "number") return only.key;
+
+  return only.valueAmounts.includes(amount) ? only.key : null;
 }
 
 export function itemsForDeal(key: GrouponDealKey | null): VoucherItem[] | null {

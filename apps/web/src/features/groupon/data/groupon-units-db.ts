@@ -189,15 +189,37 @@ export async function markGrouponRedeemFailure(
 }
 
 /** The retry cron's worklist: value handed over, Groupon not yet told. */
-export async function listPendingRedeems(limit = 50): Promise<GrouponUnitRow[]> {
+export async function listPendingRedeems(limit = 50, maxAttempts = 12): Promise<GrouponUnitRow[]> {
   if (!isDbConfigured()) return [];
   await ensureSchema();
   const q = sql();
   const rows = (await q`
     SELECT * FROM groupon_units
      WHERE redeem_state = 'pending'
+       AND redeem_attempts < ${maxAttempts}
      ORDER BY fetched_at ASC
      LIMIT ${limit}
   `) as Record<string, unknown>[];
   return rows.map(decode);
+}
+
+/**
+ * Rows that have burned through `maxAttempts` and are still `pending`.
+ *
+ * These are NOT dropped from the ledger and NOT flipped to `failed`: the debt
+ * to Groupon is real and only a human can decide what to do about it. They are
+ * excluded from the sweep's worklist so one poisoned row cannot occupy the
+ * LIMIT every minute and starve fresh ones, and counted here so the cron can
+ * say out loud that they exist instead of going quiet.
+ */
+export async function countStalledRedeems(maxAttempts = 12): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    SELECT COUNT(*)::int AS n FROM groupon_units
+     WHERE redeem_state = 'pending'
+       AND redeem_attempts >= ${maxAttempts}
+  `) as Record<string, unknown>[];
+  return Number(rows[0]?.n ?? 0);
 }

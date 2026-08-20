@@ -33,6 +33,7 @@ export type KioskCodeKind =
   | "promo" // discount/coupon code candidate → /api/booking/v2/promo
   | "game-card" // Intercard account / shortlink → Game Zone screens
   | "gift-card" // Square gift card → pay with it at the reader
+  | "groupon" // Groupon `VS-XXXX-…` long form → Groupon redemption
   | "unknown"; // URL or payload we can't map to anything above
 
 export interface ClassifiedCode {
@@ -43,6 +44,22 @@ export interface ClassifiedCode {
   value: string;
   /** The raw input, trimmed — kept for logging/diagnostics. */
   raw: string;
+  /**
+   * This code COULD be a Groupon redemption code, on shape alone.
+   *
+   * Shape cannot decide it. Groupon's short code is 8 alphanumerics, which
+   * collides two ways: `89895632` (a real production Groupon code) is all
+   * digits and so matches the bare game-card barcode rule, and `WNDXH4DJ` is
+   * indistinguishable from an 8-character promo code.
+   *
+   * So this is a HINT, never a verdict, and it deliberately does not change
+   * `kind` for any input that already had one — an 8-digit run stays
+   * `game-card`, an 8-character word stays `promo`. The call site tries the
+   * primary path first and only falls back to Groupon when that refuses.
+   * Both the ledger read and Groupon's GET are non-destructive, so a wrong
+   * guess costs a round-trip and never a burned voucher.
+   */
+  grouponCandidate?: boolean;
 }
 
 /** BMI voucher number shape - single source in the shared booking layer. */
@@ -50,10 +67,10 @@ export { BMI_VOUCHER_RE } from "~/features/booking/service/voucher-redeem";
 import { BMI_VOUCHER_RE } from "~/features/booking/service/voucher-redeem";
 /** OUR voucher shape (`HPW` + 8) — the universal internal-issuer marker, so a
  *  scan is routed locally with no round-trip. Single source in game-cards. */
-import {
-  NATIVE_VOUCHER_RE,
-  normalizeVoucherCode,
-} from "~/features/game-cards/vouchers/codes";
+import { NATIVE_VOUCHER_RE, normalizeVoucherCode } from "~/features/game-cards/vouchers/codes";
+/** Groupon code shapes. Pure module — deliberately NOT the `.server` resolver,
+ *  which carries the signing key. */
+import { GROUPON_CODE_RE, GROUPON_LONG_CODE_RE } from "~/features/groupon/codes";
 
 /** Intercard card-number QR shortlink host (see game-cards/resolve-scan). */
 const ICARD_HOST_RE = /^https?:\/\/(?:www\.)?icardinc\.net\//i;
@@ -108,11 +125,35 @@ export function classifyKioskCode(input: string): ClassifiedCode {
 
   if (BMI_VOUCHER_RE.test(compact)) return { kind: "bmi-voucher", value: compact, raw };
 
+  // Groupon's printed long form. The ONE Groupon shape nothing else can be:
+  // without this it lands in the promo fallback, where it means nothing.
+  if (GROUPON_LONG_CODE_RE.test(compact)) {
+    return { kind: "groupon", value: compact, raw, grouponCandidate: true };
+  }
+
+  // A HINT carried alongside whatever kind the code already had — never a kind
+  // of its own, because an 8-character code is genuinely ambiguous and this
+  // function may not do I/O. See `grouponCandidate` on ClassifiedCode.
+  const grouponCandidate = GROUPON_CODE_RE.test(compact);
+
   if (CARD_DIGITS_RE.test(compact)) {
     // Bare long digit run = the game-card barcode; strip the zero padding but
     // KEEP it a string (Intercard accounts exceed float-safe ranges upstream).
-    return { kind: "game-card", value: compact.replace(/^0+(?=\d)/, ""), raw };
+    // An 8-digit run reaches here too and STAYS a game-card: Groupon's
+    // `89895632` is shaped identically to an unpadded Intercard account, so the
+    // hint rides along and the call site resolves it by lookup.
+    return {
+      kind: "game-card",
+      value: compact.replace(/^0+(?=\d)/, ""),
+      raw,
+      ...(grouponCandidate && { grouponCandidate: true }),
+    };
   }
 
-  return { kind: "promo", value: compact, raw };
+  return {
+    kind: "promo",
+    value: compact,
+    raw,
+    ...(grouponCandidate && { grouponCandidate: true }),
+  };
 }

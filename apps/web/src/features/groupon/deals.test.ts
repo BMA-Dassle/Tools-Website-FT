@@ -53,4 +53,34 @@ describe("resolveDealKey", () => {
     expect(itemsForDeal("arcade25-laser4")).toHaveLength(5);
     expect(itemsForDeal(null)).toBeNull();
   });
+
+  // The real production unit, fetched 2026-08-20. Staging's 100/1 was a
+  // placeholder, so prod is the first time `value` carried anything real.
+  it("accepts the real production face value", () => {
+    expect(resolveDealKey({ ...unit, value: { amount: 6500, currencyCode: "USD" } })).toBe(
+      "arcade25-laser4",
+    );
+  });
+
+  // The whole point of the sentinel. `attributes` is null in BOTH environments,
+  // so face value is the only thing distinguishing one deal from another — and
+  // a second deal must fail LOUD, never quietly collect this deal's five items.
+  it("REFUSES a unit whose face value we have never recorded", () => {
+    expect(resolveDealKey({ ...unit, value: { amount: 4000, currencyCode: "USD" } })).toBeNull();
+  });
+
+  it("still resolves when Groupon sends no value at all", () => {
+    // Refusing a voucher over a field the vendor simply omitted would be worse
+    // than the default it replaces.
+    const noValue = { ...unit, value: undefined } as unknown as GrouponUnit;
+    expect(resolveDealKey(noValue)).toBe("arcade25-laser4");
+  });
+
+  it("keeps the sentinel out of the granting path entirely", () => {
+    // items must never be derived from value — same doctrine as never parsing
+    // the marketing title.
+    const deal = GROUPON_DEALS["arcade25-laser4"];
+    expect(deal.valueAmounts).toContain(6500);
+    expect(itemsForDeal(deal.key)).toEqual(deal.items);
+  });
 });

@@ -51,20 +51,17 @@ export type GrouponResolution =
     }
   | { ok: false; refusal: GrouponRefusal; detail?: string };
 
-/** Groupon's short code: 8 alphanumerics, e.g. `WNDXH4DJ`. */
-export const GROUPON_CODE_RE = /^[A-Z0-9]{8}$/;
-/** The printed/emailed form: `VS-XXXX-XXXX-XXXX-XXXX`. Unambiguous. */
-export const GROUPON_LONG_CODE_RE = /^VS(?:-[A-Z0-9]{4}){4}$/;
-
-export function normalizeGrouponCode(raw: string): string {
-  return raw.trim().toUpperCase().replace(/\s+/g, "");
-}
-
-/** Could this string be a Groupon code at all? Cheap pre-filter, not authority. */
-export function looksLikeGrouponCode(raw: string): boolean {
-  const c = normalizeGrouponCode(raw);
-  return GROUPON_CODE_RE.test(c) || GROUPON_LONG_CODE_RE.test(c);
-}
+// Shapes moved to ../codes so the kiosk classifier (a CLIENT module) can match
+// them without importing this file and dragging the signing key toward the
+// browser bundle. Re-exported so existing importers are unaffected.
+export {
+  GROUPON_CODE_RE,
+  GROUPON_LONG_CODE_RE,
+  normalizeGrouponCode,
+  looksLikeGrouponCode,
+} from "../codes";
+// A re-export creates no local binding, and this module calls it below.
+import { normalizeGrouponCode } from "../codes";
 
 async function viewOf(row: GrouponUnitRow, firstScan: boolean): Promise<GrouponResolution> {
   const spent = await spentItemIndexes(row.redemptionCode);
@@ -149,22 +146,58 @@ export async function resolveGrouponCode(rawCode: string): Promise<GrouponResolu
  *
  * Idempotent by state: a row already `sent` returns immediately, and Groupon
  * independently refuses a second redeem with INVALID_STATE_TRANSITION.
+ *
+ * RE-FETCH, NEVER RECONSTRUCT. The PATCH only works by echoing back the unit
+ * exactly as the GET returned it (see client.server.ts). Building one from
+ * ledger columns cannot do that: this table stores `value` but not `price`, so
+ * a reconstructed unit sends a price Groupon never quoted — a real prod unit
+ * carries price 3060 against our fabricated 0. Groupon answers a mutated echo
+ * with UNIT_NOT_FOUND / MALFORMED_REQUEST, which the failure path below treats
+ * as TERMINAL, so one bad echo would permanently strand a row the cron will
+ * never pick up again. The extra GET also gives the double-redeem no-op for
+ * free: a unit already `redeemed` upstream discharges the obligation without
+ * sending anything.
  */
 export async function redeemAfterDelivery(code: string): Promise<{ redeemed: boolean }> {
   const row = await findGrouponUnit(normalizeGrouponCode(code));
   if (!row) return { redeemed: false };
   if (row.redeemState === "sent") return { redeemed: true };
 
-  const unit: GrouponUnit = {
-    id: row.unitId,
-    status: "available",
-    grouponCode: row.grouponCode,
-    redemptionCode: row.redemptionCode,
-    redeemedAt: null,
-    value: { amount: row.valueAmount ?? 0, currencyCode: row.currencyCode ?? "USD" },
-    price: { amount: 0, currencyCode: row.currencyCode ?? "USD" },
-    attributes: null,
-  };
+  let fetched;
+  try {
+    fetched = await fetchUnit(row.redemptionCode);
+  } catch (e) {
+    await markGrouponRedeemFailure(row.redemptionCode, `refetch: ${String(e)}`, false);
+    return { redeemed: false };
+  }
+
+  const unit: GrouponUnit | null = fetched.data?.[0] ?? null;
+  if (!unit) {
+    // Only Groupon positively denying the unit exists is terminal. Anything
+    // else — a flake, a 5xx, an empty envelope — stays pending for the cron,
+    // because we have already handed the guest something.
+    await markGrouponRedeemFailure(
+      row.redemptionCode,
+      `refetch: ${fetched.raw.slice(0, 400)}`,
+      fetched.errorCodes.includes("UNIT_NOT_FOUND"),
+    );
+    return { redeemed: false };
+  }
+
+  // Already spent upstream — the obligation is discharged, so record it and
+  // send nothing. Covers a crash between PATCH and ledger write.
+  if (unit.status === "redeemed") {
+    await markGrouponRedeemed(row.redemptionCode);
+    return { redeemed: true };
+  }
+
+  // Neither `available` nor `redeemed` (refunded, expired, whatever Groupon
+  // adds next). We do not know what a PATCH means against it, so we do not
+  // guess — a human looks at it.
+  if (unit.status !== "available") {
+    await markGrouponRedeemFailure(row.redemptionCode, `refetch status: ${unit.status}`, true);
+    return { redeemed: false };
+  }
 
   let res;
   try {
