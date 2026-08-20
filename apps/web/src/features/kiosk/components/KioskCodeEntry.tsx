@@ -895,6 +895,29 @@ export function KioskCodeEntry({
     void routeWithGrouponFallback(c);
   };
 
+  /**
+   * Shown on BOTH entry screens when this kiosk has no dispenser (owner
+   * 2026-08-18). Deliberately up front rather than on the receipt: a guest with
+   * a multi-item voucher (the Groupon deal is one card + four laser tag
+   * entries) needs to know before they start that the card can't come out here
+   * — and, just as importantly, that redeeming the rest here is still fine.
+   *
+   * Informational, not an error: it uses the amber/among-friends treatment and
+   * never blocks the input. `canDispenseCards` is
+   * `gameZoneCapability(config) === "full"`, so this also covers a kiosk whose
+   * CRT is merely toggled off, not just one that never had hardware.
+   */
+  const noDispenserNotice = canDispenseCards ? null : (
+    <div className="mt-[20px] rounded-[18px] border border-[rgba(255,176,32,0.45)] bg-[rgba(255,176,32,0.08)] px-[28px] py-[18px] text-left">
+      <div className="text-[28px] font-semibold text-[#ffb020]">
+        {t("codeEntry.noDispenser.title")}
+      </div>
+      <div className="mt-[6px] text-[24px] leading-[1.35] text-white/70">
+        {t("codeEntry.noDispenser.body")}
+      </div>
+    </div>
+  );
+
   // ── Result panels ──
   if (panel) {
     // Native voucher RECEIPT — its own render (the generic panel can't do a
@@ -939,9 +962,14 @@ export function KioskCodeEntry({
         ...groupGzCards(gzCards),
         ...(kioskVoucherGzEnabled() && onGzCardAddOne ? ghostGzGroups(unspentByCode, gzCards) : []),
       ];
+      // Ghost rows are INFORMATIONAL first and steppable second. They used to
+      // be suppressed entirely unless this kiosk could add them to a booking,
+      // which meant a Game Zone-only kiosk silently hid four of a Groupon's
+      // five legs. Always list what the guest holds; the stepper is what is
+      // conditional (see the cart row below).
       const cartGroups = [
         ...groupCartLegs(cartLabels),
-        ...(voucherRedeem && onNativeCartItemAdd ? ghostCartGroups(unspentByCode, cartLabels) : []),
+        ...(voucherRedeem ? ghostCartGroups(unspentByCode, cartLabels) : []),
       ];
       const usedGroups = groupUsedLegs(spentByCode);
       const ensureUnspent = async (code: string): Promise<NativeValidateItem[]> =>
@@ -1116,6 +1144,13 @@ export function KioskCodeEntry({
           {/* What they've scanned. With the add-another panel COLLAPSED the
               list takes the freed space; expanding the panel re-caps the list
               so the input lands in the top half (OSK never covers it). */}
+          {/* A card row promises a card. On a kiosk that cannot dispense one,
+              that promise has to be broken LOUDLY and before the row is read —
+              a grey sub-line under a pink heading was not enough (owner
+              2026-08-20: "no clear messaging here and acts like its going to
+              give it"). Only when there IS a card row: on a cart-only receipt
+              the notice would be noise. */}
+          {gzGroups.length > 0 ? noDispenserNotice : null}
           <div
             className={`kiosk-scroll mt-[28px] space-y-[26px] overflow-y-auto text-left ${
               addOpen ? "max-h-[560px]" : "min-h-0 flex-1"
@@ -1163,24 +1198,31 @@ export function KioskCodeEntry({
                               })}
                             </span>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => stepGzDown(g)}
-                            disabled={g.qty === 0}
-                            aria-label={t("codeEntry.voucherGz.removeOne")}
-                            className={stepBtn}
-                          >
-                            −
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void stepGzUp(g)}
-                            disabled={atMax}
-                            aria-label={t("codeEntry.voucherGz.addOne")}
-                            className={stepBtn}
-                          >
-                            ＋
-                          </button>
+                          {/* Steppers only where a card can actually come out.
+                              Choosing a quantity of something this machine will
+                              not hand you is theatre. */}
+                          {canDispenseCards && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => stepGzDown(g)}
+                                disabled={g.qty === 0}
+                                aria-label={t("codeEntry.voucherGz.removeOne")}
+                                className={stepBtn}
+                              >
+                                −
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void stepGzUp(g)}
+                                disabled={atMax}
+                                aria-label={t("codeEntry.voucherGz.addOne")}
+                                className={stepBtn}
+                              >
+                                ＋
+                              </button>
+                            </>
+                          )}
                         </span>
                       </li>
                     );
@@ -1223,7 +1265,12 @@ export function KioskCodeEntry({
                               : t("codeEntry.voucherGz.comesOff")}
                           </span>
                         )}
-                        {g.native && !g.error ? (
+                        {g.native && !g.error && g.qty === 0 && !onNativeCartItemAdd && (
+                          <span className="text-[22px] text-white/50">
+                            {t("codeEntry.voucherGz.rowNotHere")}
+                          </span>
+                        )}
+                        {g.native && !g.error && onNativeCartItemAdd ? (
                           <>
                             <button
                               type="button"
@@ -1247,7 +1294,7 @@ export function KioskCodeEntry({
                               ＋
                             </button>
                           </>
-                        ) : (
+                        ) : g.native && !g.error ? null : (
                           <button
                             type="button"
                             onClick={() => removeCartVoucher(g.code, g.itemIndexes[0] ?? null)}
@@ -1605,29 +1652,6 @@ export function KioskCodeEntry({
       aria-live="polite"
     >
       {checking ? <span className="text-white/55">{t("codeEntry.checking")}</span> : (error ?? "")}
-    </div>
-  );
-
-  /**
-   * Shown on BOTH entry screens when this kiosk has no dispenser (owner
-   * 2026-08-18). Deliberately up front rather than on the receipt: a guest with
-   * a multi-item voucher (the Groupon deal is one card + four laser tag
-   * entries) needs to know before they start that the card can't come out here
-   * — and, just as importantly, that redeeming the rest here is still fine.
-   *
-   * Informational, not an error: it uses the amber/among-friends treatment and
-   * never blocks the input. `canDispenseCards` is
-   * `gameZoneCapability(config) === "full"`, so this also covers a kiosk whose
-   * CRT is merely toggled off, not just one that never had hardware.
-   */
-  const noDispenserNotice = canDispenseCards ? null : (
-    <div className="mt-[20px] rounded-[18px] border border-[rgba(255,176,32,0.45)] bg-[rgba(255,176,32,0.08)] px-[28px] py-[18px] text-left">
-      <div className="text-[28px] font-semibold text-[#ffb020]">
-        {t("codeEntry.noDispenser.title")}
-      </div>
-      <div className="mt-[6px] text-[24px] leading-[1.35] text-white/70">
-        {t("codeEntry.noDispenser.body")}
-      </div>
     </div>
   );
 

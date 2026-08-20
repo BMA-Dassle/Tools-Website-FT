@@ -359,6 +359,10 @@ export const en = {
   "codeEntry.voucherGz.onOrder": "{n} on your order",
   "codeEntry.voucherGz.comesOff": "comes off at checkout",
   "codeEntry.voucherGz.rowUsed": "already used",
+  // A leg this kiosk cannot put on an order (no booking session here). It is
+  // still the guest's, so the row must say what to do with it rather than sit
+  // there looking broken — or worse, be hidden entirely.
+  "codeEntry.voucherGz.rowNotHere": "book any time — stays good",
   // Errored voucher row — the receipt is the ONLY surface that shows these.
   "codeEntry.voucherGz.rowNeedsHelp": "needs help — see Guest Services",
   // The "add another" panel — scan and type share one box on the receipt.

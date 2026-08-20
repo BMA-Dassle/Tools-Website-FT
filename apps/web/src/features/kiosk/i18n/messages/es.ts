@@ -321,6 +321,7 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherGz.onOrder": "{n} en tu orden",
   "codeEntry.voucherGz.comesOff": "se descuenta al pagar",
   "codeEntry.voucherGz.rowUsed": "ya utilizado",
+  "codeEntry.voucherGz.rowNotHere": "resérvalo cuando quieras — sigue válido",
   "codeEntry.voucherGz.rowNeedsHelp": "necesita ayuda — ve a Servicio al Cliente",
   "codeEntry.voucherGz.scanNext": "Agrega otro vale o cupón",
   "codeEntry.voucherGz.scanNextSub": "Escanéalo bajo la pantalla — o escribe el código:",
