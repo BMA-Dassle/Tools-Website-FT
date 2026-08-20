@@ -117,3 +117,82 @@ describe("our own vouchers (HPW…)", () => {
     expect(classifyKioskCode("D3X5Q4Z8M5C3Z4D3H6S3T4G3").kind).toBe("bmi-voucher");
   });
 });
+
+// `89895632` and `VS-GCMV-VNXS-4YN4-2V4X` are a REAL production Groupon unit
+// (fetched 2026-08-20, $65 value, still unredeemed at the time of writing).
+// Groupon's short code is 8 alphanumerics, which overlaps two shapes this
+// screen already accepts — so the rule here is that the hint may be added but
+// no existing input may change `kind`.
+describe("classifyKioskCode — Groupon", () => {
+  it("keeps a real 8-DIGIT Groupon code a game-card, and flags it", () => {
+    // The collision that makes shape-based routing impossible: this is
+    // indistinguishable from an unpadded Intercard account. Kind must NOT move,
+    // or every game card scanned today changes meaning.
+    expect(classifyKioskCode("89895632")).toMatchObject({
+      kind: "game-card",
+      value: "89895632",
+      grouponCandidate: true,
+    });
+  });
+
+  // The code that actually broke on glass (2026-08-20). It classified as
+  // `game-card`, and the game-card branch does not REFUSE an 8-digit run — it
+  // showed "That's a Game Zone card" — so a Groupon fallback keyed on refusal
+  // never fired. `grouponCandidate` on a `game-card` is therefore the signal
+  // that the call site MUST resolve Groupon first, not last.
+  it("flags a real production Groupon code that lands on the game-card rail", () => {
+    expect(classifyKioskCode("34431265")).toMatchObject({
+      kind: "game-card",
+      value: "34431265",
+      grouponCandidate: true,
+    });
+  });
+
+  it("routes the printed VS- long form straight to Groupon", () => {
+    expect(classifyKioskCode("VS-GCMV-VNXS-4YN4-2V4X")).toMatchObject({
+      kind: "groupon",
+      value: "VS-GCMV-VNXS-4YN4-2V4X",
+      grouponCandidate: true,
+    });
+  });
+
+  it("normalizes a lowercase / space-padded VS- form (typed on the OSK)", () => {
+    expect(classifyKioskCode("  vs-gcmv-vnxs-4yn4-2v4x ")).toMatchObject({
+      kind: "groupon",
+      value: "VS-GCMV-VNXS-4YN4-2V4X",
+    });
+  });
+
+  it("keeps an 8-char alphanumeric Groupon code a promo, and flags it", () => {
+    // The staging code. Promo priority is deliberate: an existing 8-character
+    // promo must keep working, so Groupon is only ever the fallback.
+    expect(classifyKioskCode("WNDXH4DJ")).toMatchObject({
+      kind: "promo",
+      grouponCandidate: true,
+    });
+  });
+
+  it("flags a real promo code too — the overlap is accepted, not resolved here", () => {
+    // SUMMER26 is 8 alphanumerics, so it is a Groupon candidate on shape alone.
+    // Harmless: the promo validator answers first and the fallback never runs.
+    expect(classifyKioskCode("SUMMER26")).toMatchObject({
+      kind: "promo",
+      grouponCandidate: true,
+    });
+  });
+
+  it("does NOT flag a padded 16-digit game-card barcode", () => {
+    const c = classifyKioskCode("0000000001038091");
+    expect(c.kind).toBe("game-card");
+    expect(c.value).toBe("1038091");
+    expect(c.grouponCandidate).toBeFalsy();
+  });
+
+  it("does NOT flag shapes that are already unambiguous", () => {
+    expect(classifyKioskCode("HPWRKEMG926").grouponCandidate).toBeFalsy();
+    expect(classifyKioskCode("D3X5Q4Z8M5C3Z4D3H6S3T4G3").grouponCandidate).toBeFalsy();
+    expect(
+      classifyKioskCode("https://icardinc.net/063PFZHQEAKEQ0A6M5").grouponCandidate,
+    ).toBeFalsy();
+  });
+});

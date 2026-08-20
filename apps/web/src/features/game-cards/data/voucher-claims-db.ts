@@ -55,10 +55,14 @@ export type VoucherClaimStatus = "claimed" | "released" | "spent";
  *             it is, and BMI never records the redemption (no consume endpoint).
  *   native  — minted by us (`HPW…`, see vouchers/codes.ts); the `vouchers` table
  *             is the registry and no external call is involved at all.
- * Both share THIS table because single-use is the same problem either way, and
- * one atomic CAS per code is the only way to get it right.
+ *   groupon — a Groupon voucher (`groupon_units` is our registry). Groupon is
+ *             told ONCE, all-or-nothing, and thereafter reports the code
+ *             `redeemed` forever — so it cannot answer "which items are left".
+ *             That is precisely why per-item single use has to live here.
+ * All three share THIS table because single-use is the same problem either way,
+ * and one atomic CAS per code is the only way to get it right.
  */
-export type VoucherIssuer = "bmi" | "native";
+export type VoucherIssuer = "bmi" | "native" | "groupon";
 
 export interface VoucherClaimRow {
   id: number;

@@ -40,7 +40,14 @@ POST /umapi/v2/merchant_vouchers/vouchers/{uuid}/redemption?locale=en_US
 returned `{"vouchers":[]}` for the same code — the `merchant_vouchers` GET is
 the one that works. Don't use search.
 
-## 2. BLOCKER: the captured auth is not usable server-to-server
+## 2. ~~BLOCKER: the captured auth is not usable server-to-server~~ — RETIRED 2026-08-18
+
+> **RETIRED.** Approach **A** landed: Groupon issued real partner credentials and
+> the POS redemption rail is PROVEN end-to-end in staging (two vouchers redeemed
+> 2026-08-18). The console API described below is no longer the path — see
+> [groupon-qr-redemption-plan.md](groupon-qr-redemption-plan.md) and memory
+> `reference_groupon_partner_offer_api` for the real contract. Everything after
+> this banner is kept only as the historical record of the console capture.
 
 ```
 POST /umapi/v2/merchant_oauth/mobile/recaptcha/access_token

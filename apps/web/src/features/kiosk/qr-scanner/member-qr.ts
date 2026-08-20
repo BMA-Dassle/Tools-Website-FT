@@ -63,6 +63,37 @@ const KEY_RE = /^[a-z0-9_-]{3,40}$/i;
 const AUTH_RE =
   /^https?:\/\/smstim\.in\/(\d{1,10})\/authenticate\/?\?(?:[^#]*&)?login_code=([^&#\s]+)/i;
 
+/**
+ * A BARE CODE, TYPED RATHER THAN SCANNED.
+ *
+ * Staff read the login code off the pass itself when a licence will not scan —
+ * a scuffed screen, a dead phone, a reader that has lost the port — and typing
+ * `ksp98sahye7nw` into the check-in desk's manual entry hit "Could not parse
+ * barcode data", because both shapes above require the smstim.in wrapper the
+ * scanner supplies and a human does not (2026-08-20, a racer on Red 31).
+ *
+ * ONE GUARD, AND IT IS NOT OPTIONAL: an all-digit string is REFUSED. `CODE_RE`
+ * happily accepts `49976218`, but bare digits already mean something else at
+ * the check-in desk — a paper QR carrying a participant id — and quietly
+ * re-routing those to an Office person search would break the paper path for
+ * the sake of the typed one. Requiring at least one letter keeps the two
+ * unambiguous, and every real login code has letters in it.
+ *
+ * Otherwise deliberately the SAME `CODE_RE` as the wrapped forms, not a looser
+ * one: the code becomes an Office search token, and alphanumeric-only is what
+ * stops a `LastName M/D/YYYY` token turning this into a person-search oracle —
+ * as well as excluding the slashes and spaces that make the upstream 500 under
+ * undici. Callers must still be authenticated; this is not a relaxation of who
+ * may ask, only of how they may spell it.
+ */
+export function parseMemberCode(payload: string): MemberQr | null {
+  const raw = (payload || "").trim();
+  if (!raw) return null;
+  if (/^\d+$/.test(raw)) return null; // paper-QR participant id — not ours
+  if (!CODE_RE.test(raw)) return null;
+  return { clientKey: "", code: raw };
+}
+
 /** Parse one scan payload; null = not an SMS-Timing member QR. */
 export function parseMemberQr(payload: string): MemberQr | null {
   const raw = payload.trim();
