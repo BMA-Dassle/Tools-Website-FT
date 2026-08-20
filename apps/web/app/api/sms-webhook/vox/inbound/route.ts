@@ -77,15 +77,49 @@ function todayEt(): string {
   }).format(new Date());
 }
 
-/** Header names always present, plus values for everything that is not
- *  a credential. Lets us discover a Vox signature header empirically. */
-function captureHeaders(req: NextRequest): Record<string, string> {
-  const out: Record<string, string> = {};
+/** Headers whose VALUES are safe to keep. Everything else contributes its
+ *  name only.
+ *
+ *  This is an allowlist, not a denylist, because a denylist already failed
+ *  here: the first real capture arrived through Vercel's proxy carrying
+ *  `x-vercel-oidc-token` (a signed production-scoped identity JWT),
+ *  `x-vercel-proxy-signature`, and an `x-vercel-sc-headers` blob with its
+ *  own bearer token inside. Redacting `authorization` and `cookie` caught
+ *  none of them. An allowlist cannot leak the next credential header
+ *  nobody thought of. */
+const HEADER_VALUE_ALLOWLIST = new Set([
+  "content-type",
+  "content-length",
+  "user-agent",
+  "accept",
+  "accept-encoding",
+  "date",
+]);
+
+/** Values for the allowlisted headers, names for everything else.
+ *
+ *  Names alone still answer the question this capture exists to answer --
+ *  whether Voxtelesys signs MO callbacks -- since a signature header
+ *  would show up in `otherHeaderNames` and we could then allowlist it
+ *  deliberately. (First capture: it does not. The only signature-shaped
+ *  headers came from Vercel's own proxy, and `user-agent` is
+ *  `VoxtelesysProxy/1.0`.) */
+function captureHeaders(req: NextRequest): {
+  values: Record<string, string>;
+  otherHeaderNames: string[];
+} {
+  const values: Record<string, string> = {};
+  const otherHeaderNames: string[] = [];
   req.headers.forEach((value, key) => {
     const k = key.toLowerCase();
-    out[k] = k === "authorization" || k === "cookie" ? "[redacted]" : value;
+    if (HEADER_VALUE_ALLOWLIST.has(k)) {
+      values[k] = value;
+    } else {
+      otherHeaderNames.push(k);
+    }
   });
-  return out;
+  otherHeaderNames.sort();
+  return { values, otherHeaderNames };
 }
 
 /** Best-effort decode for logging only. Tries JSON, then form-encoding.
@@ -172,7 +206,7 @@ export async function POST(req: NextRequest) {
       contentType,
       raw: raw.slice(0, MAX_BODY),
       decoded,
-      headers: captureHeaders(req),
+      ...captureHeaders(req),
     });
     const tx = redis.multi();
     tx.lpush(RING_KEY, record);
