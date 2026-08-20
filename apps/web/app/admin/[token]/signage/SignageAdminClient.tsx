@@ -25,6 +25,7 @@ import {
   ROLE_PRESETS,
   rolePreset,
   resolveScreenConfig,
+  screenShowsScene,
   type ScreenRole,
 } from "~/features/signage/defaults";
 import {
@@ -438,7 +439,11 @@ function ScreenRow({
   // broken feature (owner 2026-08-11).
   const resolved = resolveScreenConfig(screen.config, screen.venue as SignageVenue);
   const canRaceCheckin = resolved.playlist.some((p) => p.scene === "race-checkin");
-  const canWelcome = resolved.playlist.some((p) => p.scene === "event-welcome");
+  // NOT the playlist alone: the front-desk wall's TV5 runs the welcome board as its
+  // WING (`wall.outsideScene`), and the five share one playlist that names no wing
+  // scene — so the welcome and VIP previews were missing on the one panel that shows
+  // that board most of the evening.
+  const canWelcome = screenShowsScene(resolved, "event-welcome");
 
   // VIP is welcome-board content now (not an interrupt), so previewing it only
   // makes sense where the welcome board runs — and only if VIP pages are on.

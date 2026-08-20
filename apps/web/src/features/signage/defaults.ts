@@ -212,9 +212,23 @@ const RACE_GUIDE_CONFIG: ScreenConfig = {
  * kiosks", which is true of all five of these. Both meanings are wanted here.
  *
  * `celebration` is ON: the guest is at the bank directly below, and reacting to
- * them is the point of hanging a screen there. `vip-welcome` is off — it is not
- * in the precedence chain anyway, and the VIP *product* already has a four-slide
- * showcase on this wall.
+ * them is the point of hanging a screen there.
+ *
+ * `vip-welcome` IS ON, and it does not mean what its name suggests. The scene is
+ * NOT in the interrupt precedence chain — nothing in `resolveActiveScene` reads it
+ * — so enabling it preempts nothing. Its one live effect is that `config.vip` is
+ * what `vipCandidatesAt` consults, and that is the gate on the GOLD GREETING PAGES
+ * the welcome board interleaves between its party pages. TV5 runs that board as its
+ * wing, so with this off a VIP party inside its greeting window was silently
+ * dropped there while the kiosk-bank TV greeted it.
+ *
+ * The values therefore MATCH KIOSK_BANK_CONFIG exactly, and a test pins them to it:
+ * "VIP should be same as the kiosk welcome tv at headpinz" (owner 2026-08-20). Two
+ * screens greeting the same party by different rules is the kind of difference
+ * nobody can see until a party is standing in front of one of them.
+ *
+ * This is the GREETING, which is a specific party by name; the VIP *product* has a
+ * four-slide showcase on this wall, which is an advert. Both belong.
  *
  * `wall` itself is NOT in the preset. It is per screen by definition (each panel
  * has its own position) and the seed script writes it around this config.
@@ -240,7 +254,9 @@ const FRONT_DESK_CONFIG: ScreenConfig = {
     { scene: "vip-showcase", slots: 2, span: "wall" },
   ],
   interrupts: {
-    "vip-welcome": { enabled: false },
+    // Byte-for-byte KIOSK_BANK_CONFIG's — see the note above, and vipPinned in
+    // wall.test.ts, which fails if the two ever drift.
+    "vip-welcome": { enabled: true, leadMins: 10, floorMins: 3, minShowMs: 45_000 },
     celebration: { enabled: true, maxAgeSecs: 90, showMs: 8_000 },
     "billboard-crown": { enabled: true, joinEvery: 1 },
   },

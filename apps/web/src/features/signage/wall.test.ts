@@ -9,7 +9,7 @@ import {
   wallBrand,
   SOLO,
 } from "./wall";
-import { resolveScreenConfig, screenShowsScene } from "./defaults";
+import { resolveScreenConfig, rolePreset, screenShowsScene } from "./defaults";
 import { resolveActiveScene, SLOT_MS } from "./director/schedule";
 import { isSceneImplemented } from "./scenes/registry";
 import type { SceneType } from "./types";
@@ -436,6 +436,29 @@ describe("the wings — what a panel outside the span actually renders", () => {
         isImplemented: isSceneImplemented,
       }).scene,
     ).toBe("open-now");
+  });
+});
+
+describe("the VIP greeting rules are the kiosk welcome TV's", () => {
+  /** A role's resolved config, as a screen hung with that preset would run it. */
+  const resolved = (role: "kiosk-bank" | "front-desk") =>
+    resolveScreenConfig(rolePreset(role).config as never, "HPFM");
+
+  it("front-desk greets a VIP party by exactly the same rules as kiosk-bank", () => {
+    // "VIP should be same as the kiosk welcome tv at headpinz" (owner 2026-08-20).
+    // `config.vip` is what `vipCandidatesAt` consults, so these four numbers decide
+    // whether a party inside its window gets a gold page on the wall's events wing —
+    // and TWO SCREENS GREETING THE SAME PARTY BY DIFFERENT RULES is invisible until a
+    // party is standing in front of one of them.
+    expect(resolved("front-desk").vip).toEqual(resolved("kiosk-bank").vip);
+  });
+
+  it("and it is genuinely on, not merely equal to an off pair", () => {
+    // Guards the lazy way to make the assertion above pass.
+    expect(resolved("front-desk").vip.enabled).toBe(true);
+    expect(resolved("front-desk").vip.leadMins).toBeGreaterThan(
+      resolved("front-desk").vip.floorMins,
+    );
   });
 });
 
