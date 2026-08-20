@@ -7,6 +7,7 @@ import { isQuotaError, isQuotaExhausted, markQuotaExhausted } from "@/lib/sms-qu
 import { twilioSend, isTwilioQuotaError } from "@/lib/twilio-send";
 import { decideSend, type SendCategory } from "~/features/sms/suppression-policy";
 import { lookupSuppression } from "~/features/sms/suppression-db";
+import { withOptOutFooter } from "~/features/sms/footer";
 
 /**
  * SMS retry queue — failed sends get re-attempted on subsequent cron ticks
@@ -254,6 +255,14 @@ export interface VoxSendOpts {
    * that one message. Not for general use: prefer `category`.
    */
   bypassSuppression?: boolean;
+  /**
+   * Label for the oversize-footer audit counter, e.g. "pre-race-cron" or
+   * "bowling-confirmation". Only used when appending the footer pushes a
+   * body into a second segment — it is how we learn WHICH template to
+   * shorten. Optional: absent lands the count under "unknown", which is
+   * still a signal, just a less useful one.
+   */
+  auditSource?: string;
 }
 
 const VOX_FROM = "+12394819666";
@@ -397,6 +406,37 @@ export async function voxSend(
     // An unparseable recipient falls through to the existing send path,
     // which already rejects it. Suppression is keyed by E.164, so there
     // is nothing to look up and nothing to decide.
+  }
+
+  // ── Opt-out footer ─────────────────────────────────────────────────
+  // Centralized for the same reason as the gate above: exactly ONE of 25
+  // sending files carries a footer today, and per-template edits would be
+  // 40 changes that miss the 41st sender.
+  //
+  // `body` is reassigned so every downstream path — Vox, the Twilio
+  // failover, the fromOverride retry — sends the SAME text. An earlier
+  // shape that footered only the Vox call would have produced a failover
+  // message with no opt-out language, which is the exact case a carrier
+  // audit would find.
+  const footered = withOptOutFooter(body, opts?.category ?? "transactional");
+  body = footered.body;
+  if (footered.crossedBoundary) {
+    // THE AUDIT. Static extraction of ~40 inline template literals would
+    // be guesswork; real traffic tells us exactly which bodies the footer
+    // pushed into a second segment, and those are the ones to shorten.
+    // Segments are money and, on an unvetted TCR brand, daily throughput.
+    console.warn(
+      `[voxSend] footer pushed body to ${footered.segments} segments ` +
+        `(${footered.chars} chars, ${footered.encoding}) — template needs shortening`,
+    );
+    try {
+      const day = new Date().toISOString().slice(0, 10);
+      const key = `sms:footer:oversize:${day}`;
+      await redis.hincrby(key, opts?.auditSource || "unknown", 1);
+      await redis.expire(key, 60 * 60 * 24 * 30);
+    } catch {
+      /* audit counter is best-effort — never block a send on it */
+    }
   }
 
   // Short-circuit during cooldown — saves a doomed Vox call. Try
