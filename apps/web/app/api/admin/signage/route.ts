@@ -56,8 +56,8 @@ function authed(req: NextRequest): boolean {
  *  offline for 15+ minutes, which is what the admin dot reports. */
 async function lastSeen(
   screenIds: string[],
-): Promise<Record<string, { at: string; build: string | null } | null>> {
-  const out: Record<string, { at: string; build: string | null } | null> = {};
+): Promise<Record<string, { at: string; build: string | null; windowed: boolean } | null>> {
+  const out: Record<string, { at: string; build: string | null; windowed: boolean } | null> = {};
   if (screenIds.length === 0) return out;
   try {
     const values = await redis.mget(...screenIds.map((id) => `signage:seen:${id}`));
@@ -68,11 +68,20 @@ async function lastSeen(
         return;
       }
       try {
-        const parsed = JSON.parse(raw) as { at?: string; build?: string | null };
-        out[id] = parsed.at ? { at: parsed.at, build: parsed.build ?? null } : null;
+        const parsed = JSON.parse(raw) as {
+          at?: string;
+          build?: string | null;
+          windowed?: boolean;
+        };
+        // ABSENT MEANS FILLING ITS PANEL. The board only sends the flag when it
+        // is windowed, so every stamp written before that shipped reads as
+        // healthy rather than unknown — which is what it was.
+        out[id] = parsed.at
+          ? { at: parsed.at, build: parsed.build ?? null, windowed: parsed.windowed === true }
+          : null;
       } catch {
         // Older heartbeats were a bare ISO string.
-        out[id] = { at: raw, build: null };
+        out[id] = { at: raw, build: null, windowed: false };
       }
     });
   } catch {

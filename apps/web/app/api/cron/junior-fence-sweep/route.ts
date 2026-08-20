@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyCron } from "@/lib/cron-auth";
 import { runJuniorFenceSweep } from "~/features/racing/junior-fence.server";
+import { etHourMinute, shouldSweepNow } from "~/features/racing/junior-fence-cadence";
 
 /**
  * GET /api/cron/junior-fence-sweep — every minute (vercel.json).
@@ -34,6 +35,25 @@ export async function GET(req: NextRequest) {
   try {
     const dryRun = req.nextUrl.searchParams.get("dryRun") === "1";
     const date = req.nextUrl.searchParams.get("date") ?? undefined;
+
+    /**
+     * SKIP THE MINUTES NOBODY CAN BUY IN.
+     *
+     * This is scheduled every minute and each run costs Pandora three live
+     * calls — ~4,320/day, the largest single thing we asked that vendor for.
+     * Measured from the venue wire's booking events, 02:00-08:59 ET carried
+     * EIGHT of 2,664 across two and a half days: the venue is shut, no heat is
+     * inside the planner's 15-minute lead, and nothing can be sold out from
+     * under a junior race. Through that window it drops to one run in ten.
+     *
+     * Never applies to a MANUAL call — an explicit ?date= or ?dryRun=1 is
+     * somebody at a keyboard, and they should not have to wait for the clock.
+     */
+    const manual = dryRun || !!date;
+    if (!manual && !shouldSweepNow(etHourMinute(Date.now()))) {
+      return NextResponse.json({ ok: true, skipped: "quiet-hours" });
+    }
+
     const result = await runJuniorFenceSweep({ dryRun, date });
 
     // Most minutes are "nothing to do" — logging those would bury the days this

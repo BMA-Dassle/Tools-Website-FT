@@ -61,7 +61,11 @@ import type { TvFeed, TvPulse } from "../types";
  *  be a pointless write storm. */
 const SEEN_TTL_SECONDS = 900;
 
-async function stampSeen(screenId: string, buildSha?: string | null): Promise<void> {
+async function stampSeen(
+  screenId: string,
+  buildSha?: string | null,
+  windowed?: boolean,
+): Promise<void> {
   try {
     // Record WHICH BUILD the screen is running, not just that it is alive.
     //
@@ -69,7 +73,15 @@ async function stampSeen(screenId: string, buildSha?: string | null): Promise<vo
     // code?", and there was no way to answer it without walking to the player.
     // A heartbeat that says "alive" and nothing else is what let a stale board
     // look like a broken feature more than once.
-    const payload = JSON.stringify({ at: new Date().toISOString(), build: buildSha ?? null });
+    // `windowed` only when TRUE. An absent key means "filling its panel", which
+    // is 17 of 19 screens on an ordinary night — recording the healthy case on
+    // every one of ~43,000 daily heartbeats would be pure noise, and it keeps
+    // every stamp written before this shipped readable as the healthy default.
+    const payload = JSON.stringify({
+      at: new Date().toISOString(),
+      build: buildSha ?? null,
+      ...(windowed ? { windowed: true } : {}),
+    });
     await redis.set(`signage:seen:${screenId}`, payload, "EX", SEEN_TTL_SECONDS);
   } catch {
     /* a heartbeat is diagnostics, never a reason to fail a feed */
@@ -88,6 +100,9 @@ async function stampSeen(screenId: string, buildSha?: string | null): Promise<vo
 export async function buildTvFeed(
   screenIdRaw: string | null,
   buildSha?: string | null,
+  /** The board reports it is not filling its monitor. Diagnostics only — it
+   *  changes nothing about what is built, only what the heartbeat records. */
+  windowed?: boolean,
 ): Promise<TvFeed> {
   const now = Date.now();
   const parsed = parseScreenKey(screenIdRaw);
@@ -128,7 +143,7 @@ export async function buildTvFeed(
   const screen = await loadSignageScreen(screenIdRaw).catch(() => null);
   if (!screen) return base;
 
-  void stampSeen(screen.screenId, buildSha);
+  void stampSeen(screen.screenId, buildSha, windowed);
 
   const center = VENUE_INFO[parsed.venue]?.center ?? screen.center;
 
@@ -691,6 +706,8 @@ function safePaused(): string[] {
 export async function buildTvPulse(
   screenIdRaw: string | null,
   buildSha?: string | null,
+  /** See buildTvFeed — diagnostics only. */
+  windowed?: boolean,
 ): Promise<TvPulse> {
   const now = Date.now();
   const parsed = parseScreenKey(screenIdRaw);
@@ -710,7 +727,7 @@ export async function buildTvPulse(
 
   const center = VENUE_INFO[parsed.venue]?.center ?? "fort-myers";
   // The pulse is the frequent one, so the build stamp rides it.
-  void stampSeen(screenIdRaw, buildSha);
+  void stampSeen(screenIdRaw, buildSha, windowed);
   // Briefing rooms exist at FastTrax only. Asking for them at HeadPinz would be
   // two wasted Redis reads on every pulse of every lobby screen.
   const wantsBriefing = briefingEnabled() && parsed.venue === "FT";

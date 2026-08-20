@@ -8,17 +8,27 @@ describe("SMS_OPT_OUT_FOOTER", () => {
     expect(/[^\x00-\x7F]/.test(SMS_OPT_OUT_FOOTER)).toBe(false);
   });
 
-  it("names both required keywords", () => {
-    // STOP for the opt-out expectation, HELP for TCR reject 30890.
+  it("carries the opt-out keyword", () => {
     expect(SMS_OPT_OUT_FOOTER).toMatch(/STOP/);
-    expect(SMS_OPT_OUT_FOOTER).toMatch(/HELP/);
   });
 
-  it("leaves room for a real message in one segment", () => {
-    // If the footer alone ate most of a segment this whole approach
-    // would be untenable, so pin the budget it leaves behind.
-    expect(SMS_OPT_OUT_FOOTER.length).toBeLessThan(45);
-    expect(160 - SMS_OPT_OUT_FOOTER.length).toBeGreaterThan(115);
+  it("does NOT advertise HELP", () => {
+    // Owner 2026-08-20, on measured cost: the "HELP for help" form was 38
+    // chars and put one real day of traffic at 2,072 segments -- over the
+    // 2,000/day T-Mobile ceiling for an unvetted brand. Dropping it costs
+    // 15 chars and lands at 1,822. HELP still WORKS as an inbound keyword
+    // and its reply carries brand + contact per TCR 30890; the
+    // requirement is that it works, not that every message advertises it.
+    expect(SMS_OPT_OUT_FOOTER).not.toMatch(/HELP/i);
+  });
+
+  it("stays inside the budget that keeps video-match at one segment", () => {
+    // video-match's longest real body is 137 chars. 137 + 23 = 160, the
+    // exact GSM-7 single-segment limit, across 228 sends/day. A footer
+    // any longer doubles that template's segment count, so this is a
+    // hard ceiling, not a style preference.
+    expect(SMS_OPT_OUT_FOOTER.length).toBeLessThanOrEqual(23);
+    expect(137 + SMS_OPT_OUT_FOOTER.length).toBeLessThanOrEqual(160);
   });
 });
 

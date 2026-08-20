@@ -94,12 +94,45 @@ async function sessionsFor(date: string, track: FenceTrack): Promise<BmiSessionR
  * "Adult Only"), and the planner recognises an existing fence BY that name.
  * A stale literal would make every fence look unrecognised and get re-added.
  */
+/**
+ * Cached, because this sweep runs EVERY MINUTE and this call reads one string.
+ *
+ * The name is renamed occasionally — three times on 2026-08-16 — which is why
+ * it is read from BMI rather than hardcoded. But three times a YEAR is not
+ * three times a MINUTE, and asking Pandora 1,440 times a day for a value that
+ * changes a handful of times ever was the single most wasteful call we made
+ * (measured 2026-08-19: this sweep was ~4,320 Pandora calls/day, a third of
+ * them this one line).
+ *
+ * Five minutes is the whole exposure: a rename mid-window means at most one
+ * sweep does not recognise an existing fence by its new name. That costs a
+ * duplicate write attempt, not a wrong fence — and the pre-write re-read still
+ * guards the slot itself.
+ */
+const LIMIT_CACHE_KEY = `junior-fence:limit:${PANDORA_RACE_LOCATION_ID}`;
+const LIMIT_CACHE_TTL_SECONDS = 5 * 60;
+
 async function resolveLimit(): Promise<{ id: number; name: string } | null> {
+  try {
+    const cached = await redis.get(LIMIT_CACHE_KEY);
+    if (cached) {
+      const v = JSON.parse(cached) as { id: number; name: string };
+      if (v && typeof v.name === "string") return v;
+    }
+  } catch {
+    /* an unreadable cache is not a reason to skip the read */
+  }
   const res = await pandora(`/bmi/product-limits/${PANDORA_RACE_LOCATION_ID}`);
   if (!res.ok) return null;
   const body = (await res.json()) as { data?: { id: number; name: string }[] };
   // "Lock Race" closes a heat outright; ours is the adult-only one.
-  return body.data?.find((l) => !/lock\s*race/i.test(l.name)) ?? null;
+  const limit = body.data?.find((l) => !/lock\s*race/i.test(l.name)) ?? null;
+  if (limit) {
+    redis
+      .set(LIMIT_CACHE_KEY, JSON.stringify(limit), "EX", LIMIT_CACHE_TTL_SECONDS)
+      .catch(() => void 0);
+  }
+  return limit;
 }
 
 export interface FenceWrite {

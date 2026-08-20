@@ -26,7 +26,6 @@ import { verifyCron } from "@/lib/cron-auth";
 import { inEticketQuietHours } from "~/features/eticket/quiet-hours";
 import { vipComboPersonLegsOnDate, type VipComboPersonLeg } from "@/lib/bowling-db";
 import { appendBookingMemoLine } from "~/features/reservations-admin/bmi-notes";
-import { a2pSender } from "~/features/sms/sender";
 
 /**
  * Flow B — "Now checking in" alert cron.
@@ -45,7 +44,10 @@ import { a2pSender } from "~/features/sms/sender";
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
-const VOX_FROM = a2pSender();
+// No local sender constant: this cron calls voxSend() with no
+// fromOverride, so the DID comes from a2pSender() there. The dead
+// `VOX_FROM` that used to sit here read like it controlled the sender
+// and did not.
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const SENDGRID_FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
@@ -566,13 +568,14 @@ function buildSingleSmsBody(
   // URL embedded into the action line — keeping it on its own line
   // (the old shape) made some carriers / iOS render it as a separate
   // bubble or strip the link preview. Inline reads as one message.
+  // Heat only. The time is redundant on a message whose entire point is
+  // "your heat is being called RIGHT NOW", and the racer names are on the
+  // linked page (owner 2026-08-20).
   return [
     `FastTrax: NOW CHECKING IN`,
-    `${race.raceType} Heat ${race.heatNumber} | ${timeET(race.scheduledStart)}`,
-    racerLabel(member),
+    `${race.raceType} Heat ${race.heatNumber}`,
     vip ? VIP_WHERE_SMS : KARTING_WHERE_SMS,
     shortUrl,
-    `Have this open for check-in`,
   ].join("\n");
 }
 
@@ -589,14 +592,10 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string, vip =
   const lines: string[] = [`FastTrax: NOW CHECKING IN`];
   for (const group of bySession.values()) {
     const first = group[0];
-    lines.push(
-      `${first.heatNumber} - ${first.track} ${first.raceType} | ${timeET(first.scheduledStart)}`,
-    );
-    for (const m of group) lines.push(`- ${racerLabel(m)}`);
+    lines.push(`${first.heatNumber} - ${first.track} ${first.raceType}`);
   }
   lines.push(vip ? VIP_WHERE_SMS : KARTING_WHERE_SMS);
   lines.push(shortUrl);
-  lines.push(`Have this open for check-in`);
   return lines.join("\n");
 }
 
@@ -616,8 +615,7 @@ function buildGuardianSingleSmsBody(
       ? `Your racer's heat is up - meet us in the VIP Room in the infield (1st Floor):`
       : `Your racer's heat is up - head to Karting (1st Floor) now:`,
     shortUrl,
-    `Have this open for check-in`,
-    `${racerLabel(member)} | ${member.track} Heat ${member.heatNumber} | ${timeET(member.scheduledStart)}`,
+    `${member.track} Heat ${member.heatNumber}`,
   ].join("\n");
 }
 
@@ -640,11 +638,13 @@ function buildGuardianGroupSmsBody(
       ? `Your racers are up - meet us in the VIP Room in the infield (1st Floor):`
       : `Your racers are up - head to Karting (1st Floor) now:`,
     shortUrl,
-    `Have this open for check-in`,
   ];
+  const heats: string[] = [];
   for (const m of sorted) {
-    lines.push(`${racerLabel(m)} | ${m.track} Heat ${m.heatNumber} | ${timeET(m.scheduledStart)}`);
+    const h = `${m.track} Heat ${m.heatNumber}`;
+    if (!heats.includes(h)) heats.push(h);
   }
+  lines.push(heats.join(", "));
   return lines.join("\n");
 }
 
