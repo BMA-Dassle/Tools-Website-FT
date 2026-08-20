@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { parseMoPayload } from "~/features/sms/mo-payload";
 import { classifyInbound } from "~/features/sms/inbound-keywords";
+import { handleInbound } from "~/features/sms/inbound-service";
+import { recordConsentEvent } from "~/features/sms/suppression-db";
+import { enqueueForReview, readReviewQueue } from "~/features/sms/review-queue";
+import { voxSend } from "@/lib/sms-retry";
 
 /**
  * Voxtelesys INBOUND (MO — Mobile Originated) webhook receiver.
@@ -200,12 +204,9 @@ export async function POST(req: NextRequest) {
   const contentType = req.headers.get("content-type") || "";
   const decoded = decodeBody(raw, contentType);
 
-  // ── DRY RUN ────────────────────────────────────────────────────────
-  // Parse and classify, record the verdict, act on NOTHING. This is the
-  // plan's step 4: prove the keyword set against real traffic before a
-  // single consent row moves. `parsed.ok === false` is a finding, not an
-  // error — a rejected recipient means the portal is pointed somewhere
-  // unexpected, which is exactly what we want to see written down.
+  // Parse and classify. `parsed.ok === false` is a finding, not an error
+  // — a rejected recipient means the portal is pointed somewhere
+  // unexpected, which is exactly what we want written down.
   const parsed = parseMoPayload(decoded, allowedDids());
   const verdict = parsed.ok
     ? { parsed: true as const, ...classifyInbound(parsed.payload.body) }
@@ -236,17 +237,74 @@ export async function POST(req: NextRequest) {
     console.warn("[sms-webhook/vox/mo] stash failed:", err);
   }
 
+  // ── Act ────────────────────────────────────────────────────────────
+  // The capture above always happens; acting is what this adds. Effects
+  // are injected so `inbound-service` stays unit-testable against a live
+  // carrier's rules rather than only observable in production.
+  let outcome = "not_parsed";
+  if (parsed.ok && handlerEnabled()) {
+    try {
+      const result = await handleInbound(parsed.payload, {
+        recordConsent: recordConsentEvent,
+        sendReply: async (phoneE164, replyBody) => {
+          const res = await voxSend(phoneE164, replyBody, {
+            // By definition we are texting a number we may have just
+            // suppressed. That one message is what (a)(12) permits.
+            bypassSuppression: true,
+            // The replies carry their own tailored instructions; the
+            // generic footer would be nonsense on "You're opted out".
+            skipFooter: true,
+            // Reply FROM the DID the guest texted, or the conversation
+            // arrives from a stranger.
+            fromOverride: allowedDids()[0],
+            auditSource: "sms-inbound-reply",
+          });
+          return { ok: res.ok };
+        },
+        enqueueReview: enqueueForReview,
+      });
+      outcome = result.outcome;
+      console.log(
+        `[sms-webhook/vox/mo] ${result.outcome} replied=${result.replied} — ${result.detail}`,
+      );
+      try {
+        const key = `sms-webhook:vox:mo:outcomes:${day}`;
+        await redis.hincrby(key, result.outcome, 1);
+        await redis.expire(key, RING_TTL);
+      } catch {
+        /* counter is best-effort */
+      }
+    } catch (err) {
+      // Swallow rather than 500. A non-2xx makes Vox retry, and a retry
+      // on a handler that already wrote the ledger risks a second
+      // confirmation — the exact thing (a)(12) forbids. The message is
+      // already captured in the ring buffer, so nothing is lost.
+      console.error("[sms-webhook/vox/mo] handler threw:", err);
+      outcome = "handler_error";
+    }
+  } else if (parsed.ok) {
+    outcome = "handler_disabled";
+  }
+
   // Log a one-liner too, so Vercel logs show the sweep even if Redis is
   // unavailable. Message BODIES are deliberately not logged here — they
   // are guest content, and Vercel logs are not the place for them.
   console.log(
     `[sms-webhook/vox/mo] inbound ct=${contentType || "none"} bytes=${raw.length} ` +
-      `parsed=${verdict.parsed ? "yes" : `no (${verdict.reason})`} ` +
-      `wouldDo=${verdict.parsed ? verdict.action : "nothing"}`,
+      `parsed=${verdict.parsed ? "yes" : `no (${verdict.reason})`} outcome=${outcome}`,
   );
 
-  // LISTEN-ONLY: no consent write, no auto-reply. Deliberate.
-  return NextResponse.json({ ok: true, captured: true, mode: "listen-only" });
+  return NextResponse.json({ ok: true, captured: true, outcome });
+}
+
+/**
+ * Kill switch, per the house rule: flags exist only to turn a shipped
+ * feature OFF, never to gate it on. Defaults ON — set
+ * `SMS_INBOUND_HANDLER=false` to fall back to capture-only if the handler
+ * ever starts doing something unexpected to guest consent state.
+ */
+function handlerEnabled(): boolean {
+  return process.env.SMS_INBOUND_HANDLER !== "false";
 }
 
 /** DIDs this endpoint accepts inbound for.
@@ -302,12 +360,14 @@ export async function GET(req: NextRequest) {
 
   const day = todayEt();
   try {
-    const [hits, rejected, lastHit, recent, verdicts] = await Promise.all([
+    const [hits, rejected, lastHit, recent, verdicts, outcomes, review] = await Promise.all([
       redis.get(`sms-webhook:vox:mo:hits:${day}`),
       redis.get(`sms-webhook:vox:mo:rejected:${day}`),
       redis.get("sms-webhook:vox:mo:lastHit"),
       redis.lrange(RING_KEY, 0, RING_SIZE - 1),
       redis.hgetall(`sms-webhook:vox:mo:verdicts:${day}`),
+      redis.hgetall(`sms-webhook:vox:mo:outcomes:${day}`),
+      readReviewQueue(20),
     ]);
     return NextResponse.json({
       ok: true,
@@ -320,9 +380,20 @@ export async function GET(req: NextRequest) {
       rejectedToday: rejected ? parseInt(rejected, 10) : 0,
       lastHit: lastHit || null,
       allowedDids: allowedDids(),
-      /** What the classifier WOULD have done today, per action. Nothing
-       *  was acted on — this route is still listen-only. */
-      wouldHaveDone: verdicts || {},
+      handlerEnabled: handlerEnabled(),
+      /** How the classifier read today's traffic, per action. */
+      classified: verdicts || {},
+      /** What actually happened, per outcome. */
+      outcomes: outcomes || {},
+      /** The human-review backlog. `oldestHighAt` is the one to watch:
+       *  a high-priority revocation signal sitting unactioned is the
+       *  15-day Fla. Stat. 501.059(10)(c) clock running. */
+      reviewQueue: {
+        depth: review.depth,
+        highPriority: review.highPriority,
+        oldestHighAt: review.oldestHighAt,
+        items: review.items,
+      },
       captured: recent.map(safeJson),
     });
   } catch (err) {
