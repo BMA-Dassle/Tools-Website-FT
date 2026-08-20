@@ -76,6 +76,19 @@ export interface GrouponResponse<T> {
  * verdicts about this request — retrying them burns time and, on a redeem,
  * hammers a voucher that already has an answer.
  */
+/**
+ * Groupon has definitively told us this voucher is not ours to act on.
+ *
+ * TWO codes mean this, one per environment: staging says `UNIT_NOT_FOUND`,
+ * production says `FORBIDDEN` (verified 2026-08-20 — an unknown code, garbage,
+ * and a non-Groupon barcode all returned FORBIDDEN while a known code returned
+ * 200 on the same credentials). Anything that checks for only one of them
+ * mistakes a nonexistent voucher for an outage.
+ */
+export function isNotOurVoucher(codes: GrouponErrorCode[]): boolean {
+  return codes.includes("UNIT_NOT_FOUND") || codes.includes("FORBIDDEN");
+}
+
 export function isRetryable(status: number, codes: GrouponErrorCode[]): boolean {
   if (status >= 500) return true;
   if (status === 429) return true;

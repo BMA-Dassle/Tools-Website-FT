@@ -56,6 +56,10 @@ vi.mock("../client.server", () => ({
     return redeemUnit(...a);
   },
   isGrouponConfigured: () => true,
+  // REAL implementation, not a stub: which error codes count as "not our
+  // voucher" is the logic these tests exist to pin.
+  isNotOurVoucher: (codes: string[]) =>
+    codes.includes("UNIT_NOT_FOUND") || codes.includes("FORBIDDEN"),
 }));
 
 vi.mock("../data/groupon-units-db", () => ({
@@ -145,6 +149,26 @@ describe("redeemAfterDelivery — re-fetch, never reconstruct", () => {
       "89895632",
       expect.stringContaining("refetch:"),
       false, // NOT terminal
+    );
+  });
+
+  it("treats production's FORBIDDEN on the re-fetch as terminal too", async () => {
+    // Prod says FORBIDDEN where staging says UNIT_NOT_FOUND. Without this the
+    // row retries 12 times and then stalls as a stuck `pending` debt.
+    fetchUnit.mockResolvedValue({
+      status: 400,
+      ok: false,
+      data: null,
+      errorCodes: ["FORBIDDEN"],
+      raw: '{"errors":[{"code":"FORBIDDEN"}]}',
+    });
+
+    await redeemAfterDelivery("89895632");
+
+    expect(markGrouponRedeemFailure).toHaveBeenCalledWith(
+      "89895632",
+      expect.stringContaining("refetch:"),
+      true,
     );
   });
 

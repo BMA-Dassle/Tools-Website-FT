@@ -31,7 +31,14 @@ export interface GrouponUnit {
 /**
  * Error codes observed live plus the documented set.
  *  - INVALID_REQUEST_SIGNATURE — signature wrong; client id was ACCEPTED.
- *  - UNIT_NOT_FOUND            — the identifier did not resolve.
+ *  - UNIT_NOT_FOUND            — the identifier did not resolve (STAGING).
+ *  - FORBIDDEN                 — the identifier did not resolve (PRODUCTION).
+ *      Verified 2026-08-20: prod answers an unknown code with `400 FORBIDDEN`,
+ *      NOT `UNIT_NOT_FOUND`. Confirmed against deliberate garbage (`99999999`,
+ *      `34431268`) and a real non-Groupon barcode (`3443126`), while a known
+ *      code returned 200 on the same credentials in the same minute — so it is
+ *      a per-code verdict, not an auth failure. Treat it exactly as
+ *      UNIT_NOT_FOUND: definitive, never retried.
  *  - INVALID_STATE_TRANSITION  — already redeemed. The double-redeem backstop.
  *  - MALFORMED_REQUEST         — body failed Groupon's own validation.
  *  - UNKNOWN_ERROR             — TRANSIENT. The only code worth retrying.
@@ -39,6 +46,7 @@ export interface GrouponUnit {
 export type GrouponErrorCode =
   | "INVALID_REQUEST_SIGNATURE"
   | "UNIT_NOT_FOUND"
+  | "FORBIDDEN"
   | "INVALID_STATE_TRANSITION"
   | "MALFORMED_REQUEST"
   | "UNKNOWN_ERROR"

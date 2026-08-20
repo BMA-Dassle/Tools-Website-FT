@@ -25,7 +25,7 @@ import {
   markGrouponRedeemFailure,
   type GrouponUnitRow,
 } from "../data/groupon-units-db";
-import { fetchUnit, redeemUnit, isGrouponConfigured } from "../client.server";
+import { fetchUnit, redeemUnit, isGrouponConfigured, isNotOurVoucher } from "../client.server";
 import { itemsForDeal, resolveDealKey } from "../deals";
 import { spentItemIndexes } from "~/features/game-cards/data/voucher-claims-db";
 import type { VoucherItem } from "~/features/game-cards/data/vouchers-db";
@@ -102,7 +102,7 @@ export async function resolveGrouponCode(rawCode: string): Promise<GrouponResolu
   if (!unit) {
     // A transient flake must never read as "no such voucher"; the client
     // already retried UNKNOWN_ERROR, so anything non-OK left here is unavailable.
-    if (!res.ok && !res.errorCodes.includes("UNIT_NOT_FOUND")) {
+    if (!res.ok && !isNotOurVoucher(res.errorCodes)) {
       return { ok: false, refusal: "unavailable", detail: res.raw.slice(0, 200) };
     }
     return { ok: false, refusal: "unknown" };
@@ -179,7 +179,9 @@ export async function redeemAfterDelivery(code: string): Promise<{ redeemed: boo
     await markGrouponRedeemFailure(
       row.redemptionCode,
       `refetch: ${fetched.raw.slice(0, 400)}`,
-      fetched.errorCodes.includes("UNIT_NOT_FOUND"),
+      // Terminal. If we cannot FETCH the unit we can never echo it, so we can
+      // never redeem it — park it for a human instead of hammering the sweep.
+      isNotOurVoucher(fetched.errorCodes),
     );
     return { redeemed: false };
   }
@@ -219,8 +221,7 @@ export async function redeemAfterDelivery(code: string): Promise<{ redeemed: boo
     return { redeemed: true };
   }
 
-  const terminal =
-    res.errorCodes.includes("UNIT_NOT_FOUND") || res.errorCodes.includes("MALFORMED_REQUEST");
+  const terminal = isNotOurVoucher(res.errorCodes) || res.errorCodes.includes("MALFORMED_REQUEST");
   await markGrouponRedeemFailure(row.redemptionCode, res.raw.slice(0, 500), terminal);
   return { redeemed: false };
 }
