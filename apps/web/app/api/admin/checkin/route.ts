@@ -749,9 +749,16 @@ export async function POST(req: NextRequest) {
 
   const res = await runCheckinScan(req);
 
-  // Only completed scans are worth a row; a 401 or a malformed body is not a
-  // scan, it is a client bug, and logging those would bury the real traffic.
-  if (res.status === 200) {
+  /**
+   * EVERY ATTEMPT, NOT JUST THE ONES THAT WORKED.
+   *
+   * A 401 is skipped — that is a caller without the token, not a badge at the
+   * desk. Everything else is recorded, INCLUDING the 400s, because "could not
+   * parse barcode data" is exactly the failure a desk reports as "scanning is
+   * broken" and the first draft of this logged nothing at all for it. A history
+   * that only holds successes cannot answer the question it exists for.
+   */
+  if (res.status !== 401) {
     try {
       const payload = (await res.clone().json()) as {
         success?: boolean;
@@ -761,11 +768,26 @@ export async function POST(req: NextRequest) {
         session?: { track?: string | null; heatNumber?: number | null };
         headsock?: { detected?: boolean };
         diag?: { ms?: Record<string, number> };
+        checkinError?: string | null;
+        detail?: string;
+        error?: string;
       };
+
+      const ok = res.status === 200;
+      const outcome: ScanOutcome = ok ? classifyScanOutcome(payload) : "unreadable";
+
+      // The upstream's own words, in preference order, truncated. A failed
+      // check-in whose reason is missing is barely more useful than no row.
+      const why =
+        payload.checkinError ||
+        payload.detail ||
+        payload.error ||
+        (outcome === "failed" ? "check-in refused, no reason given" : null);
+
       await recordScan({
         atMs: startedAtMs,
         kind: classifyScanKind(raw),
-        outcome: classifyScanOutcome(payload),
+        outcome,
         totalMs: Date.now() - startedAtMs,
         ms: payload.diag?.ms,
         track: payload.session?.track ?? null,
@@ -773,6 +795,13 @@ export async function POST(req: NextRequest) {
         firstName: payload.guest?.firstName ?? null,
         headsock: payload.headsock?.detected === true,
         dryRun,
+        detail:
+          outcome === "checked-in" || outcome === "already-in"
+            ? null
+            : why
+              ? String(why).slice(0, 200)
+              : null,
+        ...(ok ? {} : { status: res.status }),
       });
     } catch {
       /* never let the diagnostic affect the scan it is describing */

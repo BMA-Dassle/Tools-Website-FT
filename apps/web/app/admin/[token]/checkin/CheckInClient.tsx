@@ -242,6 +242,7 @@ function scanOutcomeColor(outcome: string): string {
     case "not-checking-in":
       return AMBER;
     case "failed":
+    case "unreadable":
       return RED;
     default:
       return "#94a3b8";
@@ -2313,11 +2314,29 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                             padding: "6px 8px",
                             color: scanOutcomeColor(e.outcome),
                             fontWeight: 700,
-                            whiteSpace: "nowrap",
                           }}
                         >
-                          {e.outcome}
-                          {e.headsock && <span style={{ color: AMBER }}> · headsock</span>}
+                          <span style={{ whiteSpace: "nowrap" }}>
+                            {e.outcome}
+                            {e.headsock && <span style={{ color: AMBER }}> · headsock</span>}
+                          </span>
+                          {/* WHY it failed, on its own line. The word "failed"
+                              alone is the least useful thing this panel could
+                              say at 8pm with a queue at the desk. */}
+                          {e.detail && (
+                            <span
+                              style={{
+                                display: "block",
+                                color: PORTAL_DARK.muted,
+                                fontWeight: 400,
+                                fontSize: 11,
+                                maxWidth: 260,
+                                whiteSpace: "normal",
+                              }}
+                            >
+                              {e.detail}
+                            </span>
+                          )}
                         </td>
                         <td
                           style={{

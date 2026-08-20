@@ -76,6 +76,26 @@ describe("summariseScans", () => {
     expect(s.byKind).toEqual({ eticket: 1, licence: 2, paper: 1 });
   });
 
+  it("keeps `unreadable` out of the timings but counts it", () => {
+    // A payload that never parsed is rejected in ~80ms without touching an
+    // upstream. If those counted, the median would IMPROVE as a broken scanner
+    // sprayed garbage — the reading would get better as the night got worse.
+    const s = summariseScans([
+      entry({ totalMs: 1800 }),
+      entry({ totalMs: 1900 }),
+      entry({ totalMs: 84, outcome: "unreadable", detail: "Could not parse barcode data" }),
+      entry({ totalMs: 80, outcome: "unreadable" }),
+      entry({ totalMs: 78, outcome: "unreadable" }),
+    ]);
+    expect(s.medianMs).toBe(1800);
+    expect(s.slowestMs).toBe(1900);
+    // Still visible as what they are.
+    expect(s.byOutcome["unreadable"]).toBe(3);
+    expect(s.byOutcome["checked-in"]).toBe(2);
+    // `n` is every real attempt, unreadable included — the desk made 5 tries.
+    expect(s.n).toBe(5);
+  });
+
   it("ignores a row with no usable duration without dropping its counts", () => {
     const s = summariseScans([
       entry({ totalMs: 400 }),
