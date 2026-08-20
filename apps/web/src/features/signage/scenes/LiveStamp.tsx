@@ -52,9 +52,17 @@ export function LiveStamp() {
     return () => clearInterval(iv);
   }, []);
 
+  // WHEN THIS BOARD STARTED ASKING — what turns "cold-booted during an outage,
+  // showing an hours-old cached picture" from a silent state into a stated one.
+  //
+  // Lazy state with no setter, NOT a ref: the value is read during render, and
+  // react-hooks/refs rightly refuses that for a ref. Initialised once and never
+  // written, so it is the mount instant for the life of the component.
+  const [mountedAtMs] = useState(() => Date.now());
+
   // The sentence itself is decided in liveness.ts so a test can pin it without
   // a renderer; this component only chooses how it is painted.
-  const line = livenessLine(feedLiveness({ ...health, nowMs }));
+  const line = livenessLine(feedLiveness({ ...health, nowMs, mountedAtMs }));
   if (!line) return null;
 
   // Healthy: the colour is INHERITED from the footer's right slot, which is

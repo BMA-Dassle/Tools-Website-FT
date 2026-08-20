@@ -29,6 +29,23 @@
  * So the caller feeds in a raw `Date.now()` and the stamps from TvFeedHealth,
  * which are raw `Date.now()` by the same reasoning (see useTvFeed).
  *
+ * ── IT SPEAKS ABOUT THE LINK, NEVER ABOUT THE DATA. READ THIS BEFORE REWORDING.
+ *
+ * All this knows is when a response last came back. It knows NOTHING about
+ * whether the standings on screen are current, and the two come apart routinely:
+ * the poll lane can be perfectly healthy while `resolveResultsBoard` hands back a
+ * cached miss, or Pandora is down, or a capture never matched its heat — and the
+ * wall then shows a race from forty minutes ago. A footer reading "Updated
+ * 10:54:07 PM" over that picture is a LIE, and it is the exact lie this board has
+ * been telling by omission all along: it makes stale standings look one second
+ * old. The first draft of this file said "Updated" and would have shipped it.
+ *
+ * So the words are "Checked" and "No signal" — claims about the CONVERSATION,
+ * which is all that is measured here. How old the RACE is was already on this
+ * footer before any of this existed, at the other end: "Results final · 8
+ * racers · 10:49 PM". Left half says how old the race is, right half says
+ * whether we are still listening. Neither overstates its half.
+ *
  * PURE — no clock read, no React, no I/O. The component is LiveStamp.tsx.
  */
 import { toEtWallClock } from "~/features/kiosk/checkin/itinerary";
@@ -65,9 +82,24 @@ export function feedLiveness(args: {
   lastPulseOkMs: number | null;
   /** Raw `Date.now()` — NOT the offset-corrected shared clock. See above. */
   nowMs: number;
+  /**
+   * Raw `Date.now()` when this board started asking, if known.
+   *
+   * THE COLD-BOOT-DURING-AN-OUTAGE CASE, which is a silence the stamp would
+   * otherwise keep. `useTvFeed` hydrates the last good feed from localStorage,
+   * so a player that reboots while the network is down paints a real, complete,
+   * possibly HOURS-OLD picture — with both success stamps still null. Reporting
+   * that as "warming" and rendering nothing tells the wall's most misleading
+   * state to say nothing at all.
+   *
+   * With a mount time, "never heard anything, and I have been trying for longer
+   * than the window" is reported as stale, aged from the mount. Without one the
+   * old behaviour stands, so a caller that cannot supply it is not punished.
+   */
+  mountedAtMs?: number;
   staleAfterMs?: number;
 }): Liveness {
-  const { lastFullOkMs, lastPulseOkMs, nowMs } = args;
+  const { lastFullOkMs, lastPulseOkMs, nowMs, mountedAtMs } = args;
   const staleAfterMs = args.staleAfterMs ?? LIVENESS_STALE_MS;
 
   // EITHER LANE COUNTS. The pulse is the frequent one, but a full feed landing
@@ -81,7 +113,15 @@ export function feedLiveness(args: {
         ? lastFullOkMs
         : Math.max(lastFullOkMs, lastPulseOkMs);
 
-  if (lastOkMs === null) return { state: "warming", lastOkMs: null, ageMs: null };
+  if (lastOkMs === null) {
+    // Nothing has ever landed. That is an ordinary booting board for the first
+    // few seconds — and a board showing an hours-old cached picture after that.
+    const tryingForMs = mountedAtMs === undefined ? null : Math.max(0, nowMs - mountedAtMs);
+    if (tryingForMs !== null && tryingForMs > staleAfterMs) {
+      return { state: "stale", lastOkMs: null, ageMs: tryingForMs };
+    }
+    return { state: "warming", lastOkMs: null, ageMs: null };
+  }
 
   // Clamped at zero: a device clock that steps BACKWARD (an NTP correction on a
   // player PC, which is a documented condition here) would otherwise produce a
@@ -121,18 +161,29 @@ export function staleAgeLabel(ageMs: number): string {
  * branded loader is already telling that story and a wall has no error state.
  */
 export function livenessLine(live: Liveness): { text: string; stale: boolean } | null {
-  if (live.state === "warming" || live.lastOkMs === null) return null;
+  if (live.state === "warming") return null;
+
+  if (live.state === "stale") {
+    const age = staleAgeLabel(live.ageMs ?? 0);
+    // NEVER HEARD ANYTHING AT ALL — the cold boot during an outage. There is no
+    // "since" time to name, and saying so plainly is the point: this is the
+    // board most likely to be showing something hours old.
+    if (live.lastOkMs === null) return { text: `No signal since startup · ${age}`, stale: true };
+    const clock = fmtClockWithSeconds(live.lastOkMs);
+    if (!clock) return { text: `No signal · ${age}`, stale: true };
+    // NAMES THE LAST TIME IT HEARD ANYTHING, not just how long ago. The
+    // absolute time is the half staff can match against a phone, and it is what
+    // gets read out when somebody calls this in.
+    return { text: `No signal since ${clock} · ${age}`, stale: true };
+  }
+
+  if (live.lastOkMs === null) return null;
   const clock = fmtClockWithSeconds(live.lastOkMs);
   if (!clock) return null;
-  if (live.state === "stale") {
-    // NAMES THE LAST TIME IT HEARD ANYTHING, not just how long ago. The
-    // absolute time is what staff can match against a phone, and it is what
-    // gets read out when somebody calls this in.
-    return { text: `No update since ${clock} · ${staleAgeLabel(live.ageMs ?? 0)}`, stale: true };
-  }
-  // "Updated" so it can never be read as the finish time already printed at the
-  // other end of this same footer.
-  return { text: `Updated ${clock}`, stale: false };
+  // "CHECKED", NOT "UPDATED" — see the note at the top of this file. We asked
+  // the server at this time; nothing here claims the standings changed then, and
+  // the word that did claim it made stale results look one second old.
+  return { text: `Checked ${clock}`, stale: false };
 }
 
 /**

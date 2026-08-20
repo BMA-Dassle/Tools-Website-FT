@@ -139,18 +139,24 @@ describe("livenessLine — the words actually on the wall", () => {
     expect(line(null)).toBeNull();
   });
 
-  it("reads as a wall clock while the feed is landing", () => {
-    // "Updated", not "Live" — this board's footer already prints the race's
-    // finish time at the other end, and a bare second time would be ambiguous.
-    expect(line(0)).toEqual({ text: "Updated 10:54:07 PM", stale: false });
-    expect(line(2_000)).toEqual({ text: "Updated 10:54:05 PM", stale: false });
+  it("claims only that we CHECKED, never that the results changed", () => {
+    // THE LIE THIS WORDING EXISTS TO AVOID. The poll lane is routinely healthy
+    // while the standings on screen are 40 minutes old — a cached miss from
+    // resolveResultsBoard, a Pandora outage, a capture that never matched its
+    // heat. "Updated 10:54:07 PM" over that picture makes stale results look one
+    // second old, which is the very confusion this board has been causing. How old the RACE
+    // is lives at the other end of this footer ("Results final · 8 racers ·
+    // 10:49 PM"); this half speaks only about the conversation.
+    expect(line(0)).toEqual({ text: "Checked 10:54:07 PM", stale: false });
+    expect(line(2_000)).toEqual({ text: "Checked 10:54:05 PM", stale: false });
+    expect(line(0)?.text).not.toContain("Updated");
   });
 
   it("names the last time it heard anything once it goes quiet", () => {
     // 11 minutes of silence, on the night the owner reported the Red wall
     // frozen. The absolute time is the half staff can check against a phone.
     expect(line(11 * 60_000)).toEqual({
-      text: "No update since 10:43:07 PM · 11 min",
+      text: "No signal since 10:43:07 PM · 11 min",
       stale: true,
     });
   });
@@ -159,7 +165,7 @@ describe("livenessLine — the words actually on the wall", () => {
     // The overnight case: a board that wedged at close and sat there. It must
     // not roll over to a bare minute count or print a negative hour.
     expect(line(5 * 3_600_000 + 7 * 60_000)).toEqual({
-      text: "No update since 5:47:07 PM · 5 hr 7 min",
+      text: "No signal since 5:47:07 PM · 5 hr 7 min",
       stale: true,
     });
   });
@@ -168,6 +174,39 @@ describe("livenessLine — the words actually on the wall", () => {
     expect(line(20_000)?.stale).toBe(false);
     expect(line(LIVENESS_STALE_MS)?.stale).toBe(false);
     expect(line(LIVENESS_STALE_MS + 1)?.stale).toBe(true);
+  });
+
+  it("owns up when it has NEVER heard anything but has been trying a while", () => {
+    // THE COLD BOOT DURING AN OUTAGE, and the silence this used to keep. Both
+    // stamps null, yet the wall is painting a real, complete, possibly
+    // hours-old picture out of the localStorage cache. Rendering nothing here
+    // let the board's most misleading state be its quietest one.
+    const nowMs = Date.parse("2026-08-20T02:54:07Z");
+    const booting = livenessLine(
+      feedLiveness({
+        lastFullOkMs: null,
+        lastPulseOkMs: null,
+        nowMs,
+        mountedAtMs: nowMs - 6 * 60_000,
+      }),
+    );
+    expect(booting).toEqual({ text: "No signal since startup · 6 min", stale: true });
+  });
+
+  it("still says nothing during the first seconds of an ordinary boot", () => {
+    // A board that has been up two seconds must not accuse itself — the branded
+    // loader is already telling that story, and a wall has no error state.
+    const nowMs = Date.parse("2026-08-20T02:54:07Z");
+    expect(
+      livenessLine(
+        feedLiveness({
+          lastFullOkMs: null,
+          lastPulseOkMs: null,
+          nowMs,
+          mountedAtMs: nowMs - 2_000,
+        }),
+      ),
+    ).toBeNull();
   });
 });
 
