@@ -24,6 +24,7 @@ import {
 } from "@/lib/checkin-race-flags";
 import { ARENA_RESOURCES, HP_NAPLES_LOCATION_ID } from "~/features/arena-tickets/constants";
 import { activeArenaCenters, type ArenaCenter } from "~/features/arena-tickets/centers";
+import { calledArenaSessions } from "~/features/arena-tickets/sessions-current.server";
 import { activityDisplay, classifyArenaSession } from "~/features/arena-tickets/types";
 import { loadAllFromRedis, refreshRacesCurrent } from "~/features/racing/races-current.server";
 import type { Participant as RosterParticipant } from "@/lib/participant-contact";
@@ -1521,21 +1522,15 @@ async function buildSessionStats(): Promise<SessionStat[]> {
   const arenaRows = await Promise.all(
     activeArenaCenters().map(async (center): Promise<SessionStat[]> => {
       try {
-        const res = await fetch(`${PANDORA_BASE}/v2/bmi/sessions/current/${center.locationId}`, {
-          headers: pandoraHeaders(),
-          cache: "no-store",
-          signal: AbortSignal.timeout(4000),
+        // Shared cache + last-known-good. `allowStale` because THIS IS A BOARD:
+        // measured 2026-08-19, sessions/current timed out once in five, and the
+        // old code returned [] on that — silently emptying every arena row on
+        // the strip. A called session from thirty seconds ago beats a blank
+        // panel. The alert cron deliberately does NOT pass this flag.
+        const { sessions: called } = await calledArenaSessions(center, {
+          timeoutMs: 4000,
+          allowStale: true,
         });
-        if (!res.ok) return [];
-        const json = await res.json();
-        const called = Array.isArray(json?.data)
-          ? (json.data as {
-              sessionId?: string;
-              type?: string;
-              heatNumber?: number;
-              scheduledStart?: string | null;
-            }[])
-          : [];
         const rows: SessionStat[] = [];
         for (const s of called) {
           const sid = String(s.sessionId ?? "");
