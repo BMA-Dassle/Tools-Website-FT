@@ -6,7 +6,14 @@ import "server-only";
  *
  * Two keys per session:
  *   venue:roster:seats:{sid}     "<recordVersion>|<driverId,driverId,...>"
- *   venue:roster:departed:{sid}  a counter, INCR'd when a sold seat vanishes
+ *   venue:roster:departed:{sid}  a counter, INCR'd ONCE PER FRAME in which any
+ *                                sold seat vanished — EVENTS, NOT PEOPLE. Three
+ *                                racers leaving in one frame bumps it by one
+ *                                (observed live 2026-08-19: session 59039437
+ *                                read `departed=1` against two Pandora
+ *                                scratches). Nothing should read it as a head
+ *                                count; it answers "did a sold seat leave", and
+ *                                Pandora answers who.
  *
  * THE SEAT SET IS A READ-MODIFY-WRITE, which everything else in this feature
  * deliberately avoids. It is safe here only because it is VERSION GUARDED: a

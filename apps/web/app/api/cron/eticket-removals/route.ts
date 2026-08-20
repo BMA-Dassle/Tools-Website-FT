@@ -349,6 +349,12 @@ export async function GET(req: NextRequest) {
         ? "vercel-cron"
         : req.headers.get("user-agent") || "unknown",
       candidates,
+      /** THE METRIC THAT SAYS WHETHER THE WIRE HALF IS EARNING ITS KEEP.
+       *  It was in the HTTP response only, which meant a retraction that
+       *  skipped the grace was indistinguishable afterwards from one that
+       *  waited it out — so the first race night could not answer the one
+       *  question worth asking (2026-08-19). Persisted here so it can. */
+      corroborated,
       sent,
       skipped,
       errors,

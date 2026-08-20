@@ -26,7 +26,7 @@ SAME column out of the SAME table, was correct too.
    data — and it is worth checking the sibling surface FIRST, because it also tells you which of
    the two is wrong.
 4. **The unit test asserted the defect verbatim.** `expect(out).toEqual({ iso:
-   "2026-08-07T18:00:00.000Z", source: "booked" })` — the raw `Z` string, pinned as correct. It
+"2026-08-07T18:00:00.000Z", source: "booked" })` — the raw `Z` string, pinned as correct. It
    was written when the fallback served only rows that never rendered, so "what the function
    returns" was the only available spec and it got frozen as the expectation. A test that restates
    the implementation cannot fail with it. **Assert what the GUEST sees** (`fmtTime12(out.iso)` is
@@ -74,7 +74,7 @@ loss, they crashed." They did not crash from the outage. They navigated during i
    dead.** No amount of "do not navigate into an outage" helps a panel that is already on the
    error page. That needs an actor outside the page: a second minimised process watching our
    address and killing Edge on the **down→up transition**, so the relaunch loop takes over. On
-   the up transition only — killing it *during* the outage would replace a board that was riding
+   the up transition only — killing it _during_ the outage would replace a board that was riding
    it out with a waiting console.
 6. **There was no error boundary anywhere in the app.** Same dead end by a different road: an
    exception escaping a scene handed a guest-facing wall to Next's white "Application error" with
@@ -117,7 +117,7 @@ scheduler refused the scene and fell through to the ad rotation.
 
 ## One install method for every signage player: the launcher IS the Windows shell (2026-08-19)
 
-**Owner rule:** *"I only want to use shell method for all screens."* The Run-key route
+**Owner rule:** _"I only want to use shell method for all screens."_ The Run-key route
 (`HKCU\...\CurrentVersion\Run`) is OUT of the setup steps entirely; the launcher replaces
 `explorer.exe` as the `Shell` value under `HKLM\...\Winlogon`. Both launchers — single-screen and
 two-monitor — now share one `shellMethodSteps()` in `startup-script.ts`, for the same reason
@@ -218,7 +218,7 @@ reach it — the gap between "back late" and "not back" was an order of magnitud
 
 **The second half, and it is the worse one:** `camera-return-peek.mts` printed "THE
 STRIP IS CLEAR — Cameras all in" while the wall showed seven. Its header claims it
-cannot drift because it *imports the shipped decider* — and it does. But it feeds that
+cannot drift because it _imports the shipped decider_ — and it does. But it feeds that
 decider Redis-only facts and skips the mandatory Pandora backstop the server applies,
 so on any night the bridge is flaky the ops tool contradicts the board it exists to
 explain. **Importing the same function is not the same as reproducing the same
@@ -4277,6 +4277,7 @@ generalised the lesson from "check these two fields" to "this function's default
 a trap; pass everything explicitly".
 
 **The rules:**
+
 1. **The location you PROVE against must be the location you WRITE to.** If a barrier
    and its write take a centre separately, they can disagree, and the barrier passing
    makes the failure look like a vendor problem rather than our own.
@@ -4343,7 +4344,7 @@ that one surface.
 **Root cause, two independent holes that lined up:**
 
 1. `resolveStandalone` built the resolver's party with `{ id, firstName, lastName,
-   bmiPersonId }` and nothing else. `category` and `isNewRacer` are OPTIONAL on that
+bmiPersonId }` and nothing else. `category` and `isNewRacer` are OPTIONAL on that
    party type, so the omission compiled — and `category ?? "adult"` then read EVERY
    racer as an adult (junior SKU refused for everyone, adult SKU accepted for
    juniors) while `isNewRacer` read falsy (a first-timer passed a returning-only
@@ -4438,7 +4439,10 @@ them with:
 ```ts
 // The server emits empty data frames as keep-alives between real
 // messages (~1/sec). They're not actionable — drop them.
-if (raw.length === 0) { debug("empty keep-alive frame"); return; }
+if (raw.length === 0) {
+  debug("empty keep-alive frame");
+  return;
+}
 ```
 
 That `~1/sec` was never a keep-alive. It was `RaceStatsResendInterval:
@@ -4633,11 +4637,11 @@ Two mechanisms, one blind spot:
    `group-function-pricing.ts`, but rows already written stayed wrong.
 2. **The repair had no trigger.** `app/api/cron/group-quote-tax-backfill/route.ts` exists
    precisely to recompute those rows — and was never added to `vercel.json`. It had never
-   run. (Same shape as the existing lesson: *a mechanism with no TRIGGER is worse than
-   none* — nobody re-greps for a route that isn't scheduled.)
+   run. (Same shape as the existing lesson: _a mechanism with no TRIGGER is worse than
+   none_ — nobody re-greps for a route that isn't scheduled.)
 
 **Why nothing caught it for three months:** Square's tax report showed **$0.00 tax on every
-group event** because of the slot bug. So an event that billed no tax looked *identical* to
+group event** because of the slot bug. So an event that billed no tax looked _identical_ to
 a healthy one. The one report that should have exposed the under-billing was blinded by the
 unrelated mis-recording. Two independent defects in the same column is what made both
 survive.
@@ -4785,3 +4789,53 @@ of bad minutes writes nothing — and the carry is what every board reads.
    Pandora directly and writes the carry; it never invents a heat. It is what recovered heat 35
    while the loop was still broken. A frozen board needs a one-command answer at 5pm on a
    Friday, not a deploy.
+
+---
+
+## An observer's own lookback can manufacture the alarm (2026-08-19)
+
+Watching the venue-wire participant work through a full race night, **three of the four alarms
+raised came from the monitoring scripts, not the system**. Every one looked like a real defect
+until it was chased down. That ratio is the lesson: a watcher that cries wolf trains you to
+ignore it, which is worse than no watcher.
+
+**The three false alarms, and what each one actually was:**
+
+1. **"Bookmarks STALLED"** — sessions behind the wire counter with an old last-read. They were
+   heats that had **already run**, which `pre-race-tickets` correctly drops from `relevant`, so
+   the bookmark stays behind until its TTL. Fixed the checker to look up run-state... and then
+   it fired again five hours later, because it decides "did this heat run" from the last 8,000
+   queue entries and those frames had **aged out of its own lookback window**. The observer's
+   horizon, not the system, produced the alarm both times.
+2. **"An SMS failed"** — a row with `ok=false`. But `status=null` means Voxtelesys was never
+   called: it is a CONSENT/CONTACT audit row ("SMS not opted in", "no contact on file"). A real
+   delivery failure has a **non-null status**. Counting the audit rows as failures made a
+   perfect night look broken.
+3. **"No e-ticket went out beyond 2h, so the widened window is inert"** — measured from
+   `sms:log`, which **does not contain emails**. A large share of guests here are SMS-opted-out
+   and email-opted-in; the racer in question had been notified 3h17m ahead by email. "Were they
+   told" is answered by the dedup key `alert:pre-race:{sessionId}:{personId}` (keyed on
+   personId, NOT participantId), never by the SMS log.
+
+**The rules:**
+
+1. **State the observer's window as part of any negative finding.** "No frames for this session"
+   means nothing until you say how far back you looked. Both stall alarms were a lookback
+   shorter than the night.
+2. **A derived flag needs its own ground truth, not a heuristic.** Deciding "this heat ran" from
+   a rolling buffer is guessing. Ask the source of truth (`actualStart`/`actualEnd`) or carry the
+   fact forward; do not re-derive it from a window that moves.
+3. **Know which rows in a log are ATTEMPTS and which are AUDIT.** `ok=false` with no upstream
+   status is a decision not to send, not a failure to send. They are opposite signals wearing
+   the same field.
+4. **One channel is not the rail.** Before concluding "we never told them", enumerate every
+   channel — here SMS and email — and check the channel-independent record instead.
+5. **Distinguish EVENT counters from ENTITY counters, in the name or the doc.**
+   `venue:roster:departed` increments once per FRAME in which any seat vanished; three racers
+   leaving together bump it by one. An earlier "2-for-2 match" was read as significant and was
+   pure coincidence.
+6. **Persist the metric that judges the feature, not just the one that debugs it.** The
+   corroboration count lived only in the cron's HTTP response, so a retraction that skipped its
+   grace was indistinguishable afterwards from one that waited — the single question the first
+   race night existed to answer could not be answered. Put it in the durable run log in the
+   same commit as the feature.
