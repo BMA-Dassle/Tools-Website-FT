@@ -465,7 +465,12 @@ export async function POST(req: NextRequest) {
       // points at the email, which carries the full codes block below. Only
       // claim "in your confirmation email" when an email address exists to
       // receive one (kiosk contacts always have one, but never misdirect).
-      const smsBody = `FastTrax: you're booked!${when ? ` ${when} ·` : ""} ${who}. Your e-ticket with check-in details will text you shortly — nothing to print.${codes.length > 0 && email ? " Your POV video codes are in your confirmation email." : ""} See you at the track!`;
+      // ASCII ONLY. The prior form carried a middot and an em dash, and a
+      // SINGLE non-ASCII character forces UCS-2: 70 chars per segment instead
+      // of 160. That made a 214-char confirmation FOUR billed segments, on 60
+      // of 88 sends in one measured day. Same information, GSM-7 safe, and the
+      // sign-off dropped (owner 2026-08-20) since it bought nothing.
+      const smsBody = `FastTrax: you're booked!${when ? ` ${when} -` : ""} ${who}. Your e-ticket with check-in details will text you shortly - nothing to print.${codes.length > 0 && email ? " POV video codes are in your confirmation email." : ""}`;
       // POV camera codes — kiosk counterpart of the web template's
       // ^SoldVouchersList()$ block (this branch's email is inline HTML, so the
       // placeholder never runs here). Renders only when codes were claimed.

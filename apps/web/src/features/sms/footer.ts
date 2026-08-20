@@ -30,11 +30,25 @@ import type { SendCategory } from "./suppression-policy";
  * Canonical footer. Leading space so it appends cleanly to a body that
  * ends in punctuation.
  *
- * Deliberately names both keywords. "Reply STOP to opt out" alone
- * satisfies the opt-out expectation but not TCR 30890's HELP requirement,
- * and adding HELP later would mean re-measuring every template again.
+ * ── Why HELP is not advertised here (owner, 2026-08-20) ─────────────
+ *
+ * The earlier form was " Reply STOP to opt out, HELP for help." — 38
+ * characters. Measured against one real day of traffic (1,091 messages)
+ * that footer cost 2,072 segments, which is OVER the 2,000/day T-Mobile
+ * ceiling for an unvetted brand, on a Wednesday. Dropping HELP costs 15
+ * characters and takes it to 1,822.
+ *
+ * Nearly all of that saving is one template: video-match lands at 137
+ * characters, so a 23-char footer fits inside one segment and a 38-char
+ * one does not — 228 sends going from one segment to two, for fifteen
+ * characters of text.
+ *
+ * The compliance requirement is that HELP WORKS, not that every message
+ * advertises it: TCR reject 30890 is about what the HELP reply must
+ * contain (brand plus contact), and `inbound-replies.ts` answers it.
+ * Guests texting HELP still get a branded reply with a phone number.
  */
-export const SMS_OPT_OUT_FOOTER = " Reply STOP to opt out, HELP for help.";
+export const SMS_OPT_OUT_FOOTER = " Reply STOP to opt out.";
 
 /** GSM-7 single segment. Above this, a message is split. */
 const GSM7_SINGLE = 160;

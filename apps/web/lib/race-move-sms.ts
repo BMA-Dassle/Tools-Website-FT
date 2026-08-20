@@ -54,15 +54,15 @@ export function buildSingleMoveSmsBody(
   member: GroupTicketMember,
   from: ParticipantTicketRef,
   shortUrl: string,
-  cta: string,
 ): string {
+  // No trailing CTA and no blank line (owner 2026-08-20): "Have open for
+  // check-in" restated the link for 23 chars, and this rail was already
+  // paying for multi-segment sends.
   return [
     `FastTrax: race time change for ${racerName(member)}`,
     `Was ${heatLabelShort(from)}`,
     `Now ${heatLabelShort(member)}`,
-    ``,
     shortUrl,
-    cta,
   ].join("\n");
 }
 
@@ -74,7 +74,6 @@ export function buildSingleMoveSmsBody(
 export function buildGroupMoveSmsBody(
   entries: { member: GroupTicketMember; movedFrom?: ParticipantTicketRef | null }[],
   shortUrl: string,
-  cta: string,
   opts: { guardian?: boolean } = {},
 ): string {
   const sorted = [...entries].sort(
@@ -93,8 +92,6 @@ export function buildGroupMoveSmsBody(
       lines.push(`- ${racerName(e.member)}: ${heatLabelShort(e.member)}`);
     }
   }
-  lines.push(``);
   lines.push(shortUrl);
-  lines.push(cta);
   return lines.join("\n");
 }

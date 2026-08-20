@@ -34,7 +34,6 @@ import { updateLicencePasses } from "~/features/racing/wallet/licence-pass";
 import { formatHeat } from "~/features/racing/wallet/licence-meta";
 import { NO_NEXT_RACE } from "~/features/racing/wallet/licence-clear";
 import { KARTING_CHECKIN_EMAIL_NOTE, KARTING_CHECKIN_SMS_NOTE } from "@/lib/karting-checkin-copy";
-import { a2pSender } from "~/features/sms/sender";
 
 /**
  * Flow A — Pre-race e-ticket cron.
@@ -52,7 +51,10 @@ import { a2pSender } from "~/features/sms/sender";
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
-const VOX_FROM = a2pSender();
+// No local sender constant: this cron calls voxSend() with no
+// fromOverride, so the DID comes from a2pSender() there. The dead
+// `VOX_FROM` that used to sit here read like it controlled the sender
+// and did not.
 /** Office clientKey — the login-code pre-warm reads tags from this BMI. */
 const CLIENT_KEY = process.env.BMI_CLIENT_KEY || "headpinzftmyers";
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
@@ -357,7 +359,8 @@ function formatTimeET(iso: string): string {
 // ASCII-only — the prior "↑" arrow forced UCS-2 encoding (67 chars
 // per segment instead of 153), turning every pre-race-cron SMS into
 // 2-3 billed segments. Same intent, GSM-7 safe.
-const SHORT_CTA = `Have open for check-in`;
+// SHORT_CTA ("Have open for check-in") removed 2026-08-20 (owner): it
+// restated what the link already does, for 23 characters on every send.
 
 function racerLabel(m: { firstName: string; lastName: string }): string {
   return `${m.firstName} ${m.lastName}`.trim() || m.firstName || "Racer";
@@ -372,10 +375,8 @@ function buildSingleSmsBody(
     `FastTrax e-ticket`,
     `Session ${sessionName} - check-in ${formatTimeET(member.scheduledStart)}`,
     racerLabel(member),
-    ``,
     shortUrl,
     KARTING_CHECKIN_SMS_NOTE,
-    SHORT_CTA,
   ].join("\n");
 }
 
@@ -389,24 +390,24 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
     if (!bySession.has(k)) bySession.set(k, []);
     bySession.get(k)!.push(m);
   }
-  const lines: string[] = [`FastTrax e-tickets`];
-  const sessionBlocks: string[][] = [];
+  // Names ONCE, then bare session lines (owner 2026-08-20). The old
+  // shape repeated the racer under every session, which cost 22 chars
+  // per heat -- 66 on a three-heat booking, for a name the guest
+  // already knows. Distinct + ordered so a two-racer booking still
+  // shows both, and the per-heat roster is on the linked page.
+  const names: string[] = [];
+  for (const m of sorted) {
+    const label = racerLabel(m);
+    if (!names.includes(label)) names.push(label);
+  }
+  const lines: string[] = [`FastTrax e-tickets`, names.join(", ")];
   for (const group of bySession.values()) {
     const first = group[0];
     const heatName = `${first.heatNumber} - ${first.track} ${first.raceType}`;
-    const block = [`Session ${heatName} - check-in ${formatTimeET(first.scheduledStart)}`];
-    for (const m of group) block.push(`- ${racerLabel(m)}`);
-    sessionBlocks.push(block);
+    lines.push(`Session ${heatName} - check-in ${formatTimeET(first.scheduledStart)}`);
   }
-  // Blank line separating each session block
-  for (let i = 0; i < sessionBlocks.length; i++) {
-    if (i > 0) lines.push(``);
-    lines.push(...sessionBlocks[i]);
-  }
-  lines.push(``);
   lines.push(shortUrl);
   lines.push(KARTING_CHECKIN_SMS_NOTE);
-  lines.push(SHORT_CTA);
   return lines.join("\n");
 }
 
@@ -420,12 +421,9 @@ function buildGuardianSingleSmsBody(member: GroupTicketMember, shortUrl: string)
   const heatLabel = `${member.track} Heat ${member.heatNumber} check-in ${formatTimeET(member.scheduledStart)}`;
   return [
     "FastTrax e-ticket for your racer",
-    "",
-    `- ${member.firstName} - ${heatLabel}`,
-    "",
+    `${member.firstName} - ${heatLabel}`,
     shortUrl,
     KARTING_CHECKIN_SMS_NOTE,
-    SHORT_CTA,
   ].join("\n");
 }
 
@@ -439,15 +437,13 @@ function buildGuardianGroupSmsBody(members: GroupTicketMember[], shortUrl: strin
   const sorted = [...members].sort(
     (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
   );
-  const lines = ["FastTrax e-tickets for your racers", ""];
+  const lines = ["FastTrax e-tickets for your racers"];
   for (const m of sorted) {
     const heatLabel = `${m.track} Heat ${m.heatNumber} check-in ${formatTimeET(m.scheduledStart)}`;
-    lines.push(`- ${m.firstName} - ${heatLabel}`);
+    lines.push(`${m.firstName} - ${heatLabel}`);
   }
-  lines.push("");
   lines.push(shortUrl);
   lines.push(KARTING_CHECKIN_SMS_NOTE);
-  lines.push(SHORT_CTA);
   return lines.join("\n");
 }
 
@@ -1088,7 +1084,7 @@ export async function GET(req: NextRequest) {
             });
           }
           const body = c.moveFrom
-            ? buildSingleMoveSmsBody(member, c.moveFrom, url, SHORT_CTA)
+            ? buildSingleMoveSmsBody(member, c.moveFrom, url)
             : isGuardianFlavored
               ? buildGuardianSingleSmsBody(member, url)
               : buildSingleSmsBody(c.session.name, member, url);
@@ -1178,7 +1174,7 @@ export async function GET(req: NextRequest) {
           });
         }
         const body = anyMoved
-          ? buildGroupMoveSmsBody(entries, url, SHORT_CTA, { guardian: isGuardianFlavored })
+          ? buildGroupMoveSmsBody(entries, url, { guardian: isGuardianFlavored })
           : isGuardianFlavored
             ? buildGuardianGroupSmsBody(members, url)
             : buildGroupSmsBody(members, url);
