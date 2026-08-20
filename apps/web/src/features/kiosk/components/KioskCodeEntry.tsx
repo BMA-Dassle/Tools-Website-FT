@@ -293,23 +293,6 @@ export function KioskCodeEntry({
   );
   const inputRef = useRef<HTMLInputElement>(null);
   const checkingRef = useRef(false);
-  /**
-   * Groupon's 8-character code is indistinguishable from an 8-character promo,
-   * and its all-digit form (`89895632` is a real production code) from a
-   * game-card barcode. The classifier therefore only HINTS
-   * (`grouponCandidate`), the primary path runs unchanged, and Groupon is tried
-   * only if that path refused — so nothing scanned today changes meaning.
-   *
-   * These two refs carry that handshake:
-   *   rejectedRef — did the primary path refuse? Every rejection funnels
-   *     through `logReject`, so watching it beats threading a return value
-   *     through ~270 lines of branches.
-   *   grouponPendingRef — a Groupon attempt is still to come, so `logReject`
-   *     must stay SILENT. Otherwise the guest hears an error tone followed by
-   *     a success tone for one scan.
-   */
-  const rejectedRef = useRef(false);
-  const grouponPendingRef = useRef(false);
   /** Mirror of `panel` for the async router — routeClassified must see the
    *  CURRENT panel (is the receipt up?) without re-creating on every change. */
   const panelRef = useRef<Panel | null>(panel);
@@ -434,12 +417,9 @@ export function KioskCodeEntry({
   const logReject = (kind: string, code: string, reason: string) => {
     console.warn(`[kiosk] code rejected (${kind}): ${code} — ${reason}`);
     clarityTag("kiosk_code_reject", `${kind}:${reason}`.slice(0, 60));
-    rejectedRef.current = true;
     // Audible reject. A scan has no keypress and no cursor, so without a tone a
     // guest cannot tell a dead code from a beam that missed — and scans again.
-    // Held back while a Groupon fallback is still to come: one scan must never
-    // produce an error tone and then a success tone.
-    if (!grouponPendingRef.current) playScanSound("error");
+    playScanSound("error");
   };
 
   /**
@@ -454,7 +434,7 @@ export function KioskCodeEntry({
    * copy — and Groupon itself is only told once a card physically lands.
    */
   const tryGroupon = useCallback(
-    async (code: string): Promise<boolean> => {
+    async (code: string): Promise<"claimed" | "not-groupon" | "unavailable"> => {
       try {
         const res = await fetch("/api/kiosk/groupon/validate", {
           method: "POST",
@@ -469,12 +449,17 @@ export function KioskCodeEntry({
         } = await res.json().catch(() => ({}));
 
         if (data.ok !== true) {
-          // `bad_format` means "not a Groupon at all" — the fallback's normal
-          // answer for a promo code. Let the caller keep its own error.
-          if (data.reason === "bad_format") return false;
-          logReject("groupon", code, data.reason ?? `http-${res.status}`);
-          setError(t(GROUPON_ERR_KEY[data.reason ?? ""] ?? "codeEntry.err.generic"));
-          return true;
+          const reason = data.reason ?? `http-${res.status}`;
+          // NOT a Groupon, or we cannot tell. Stay SILENT and let the primary
+          // path own the outcome — a Groupon outage must never stop a promo
+          // code or a game card from working.
+          if (reason === "bad_format" || reason === "unknown") return "not-groupon";
+          if (reason === "unavailable") return "unavailable";
+          // `used` / `already_redeemed` / `unmapped` all mean it IS a Groupon
+          // voucher. Claim the scan and tell the guest which of those it is.
+          logReject("groupon", code, reason);
+          setError(t(GROUPON_ERR_KEY[reason] ?? "codeEntry.err.generic"));
+          return "claimed";
         }
 
         // Struck-through "used" rows, so a return visit EXPLAINS where the
@@ -509,17 +494,16 @@ export function KioskCodeEntry({
           setPanel({ kind: "voucher-gamecard" });
           setValue("");
           setAddOpen(false);
-          return true;
+          return "claimed";
         }
         // Real, live voucher with nothing this kiosk can honour right now (cart
         // legs only, redemption off). Say so rather than show an empty receipt.
         logReject("groupon", code, "nothing-honourable-here");
         setError(t("codeEntry.groupon.seeStaff"));
-        return true;
+        return "claimed";
       } catch {
-        logReject("groupon", code, "network");
-        setError(t("codeEntry.groupon.err.unavailable"));
-        return true;
+        // Silent: the primary path decides. See the refusal note above.
+        return "unavailable";
       }
     },
     [onGzCardsAdd, onNativeCartItems, t, voucherRedeem],
@@ -811,28 +795,44 @@ export function KioskCodeEntry({
    * only a code that rail REJECTS is offered to Groupon. `rejectedRef` reads
    * that outcome off `logReject`, which every refusal already funnels through.
    */
+  /**
+   * Resolve an ambiguous code by asking GROUPON FIRST, then falling through.
+   *
+   * This used to run the primary path first and treat Groupon as a fallback for
+   * whatever it refused — which silently swallowed every Groupon code. The
+   * game-card branch does not REFUSE an 8-digit run: CARD_DIGITS_RE accepts 8+
+   * digits, so a real Groupon code like 34431265 matched it and the branch
+   * showed a confident "That's a Game Zone card" panel. Nothing rejected, so the
+   * fallback never fired. A fallback keyed on refusal cannot sit behind a path
+   * that never refuses.
+   *
+   * So ambiguous codes ask Groupon first, and only a DEFINITIVE answer claims
+   * the scan:
+   *   claimed      — it IS a Groupon voucher (live, spent, or unmapped). Stop.
+   *   not-groupon  — Groupon has never heard of it. Fall through, silently.
+   *   unavailable  — we could not tell. Fall through, silently: a Groupon
+   *                  outage must never stop a promo code or a game card from
+   *                  working, and this is the failure mode that would.
+   *
+   * Cost is one round-trip on 8-character promos and 8-digit card numbers. A
+   * repeat scan of a known Groupon skips the network entirely — the resolver
+   * reads our own ledger first.
+   */
   const routeWithGrouponFallback = useCallback(
     async (c: ReturnType<typeof classifyKioskCode>) => {
-      if (c.kind === "groupon" || !c.grouponCandidate) {
-        await routeClassified(c.kind, c.value);
+      // The unambiguous VS- form is Groupon or nothing, so an outage here is
+      // reported rather than handed to a promo validator that cannot help.
+      if (c.kind === "groupon") {
+        if ((await tryGroupon(c.value)) !== "claimed") {
+          logReject("groupon", c.value, "unavailable");
+          setError(t("codeEntry.groupon.err.unavailable"));
+        }
         return;
       }
-      rejectedRef.current = false;
-      // Suppress the reject tone: the fallback may yet accept, and one scan
-      // must not produce an error tone followed by a success tone.
-      grouponPendingRef.current = true;
-      try {
-        await routeClassified(c.kind, c.value);
-      } finally {
-        grouponPendingRef.current = false;
-      }
-      if (!rejectedRef.current) return;
-      // The primary path refused. If Groupon does not claim the code either,
-      // restore the tone the reject would have played.
-      const handled = await tryGroupon(c.value);
-      if (!handled) playScanSound("error");
+      if (c.grouponCandidate && (await tryGroupon(c.value)) === "claimed") return;
+      await routeClassified(c.kind, c.value);
     },
-    [routeClassified, tryGroupon],
+    [routeClassified, t, tryGroupon],
   );
 
   const handleRaw = useCallback(

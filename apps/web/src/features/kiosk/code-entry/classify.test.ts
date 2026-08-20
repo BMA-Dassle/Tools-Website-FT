@@ -135,6 +135,19 @@ describe("classifyKioskCode — Groupon", () => {
     });
   });
 
+  // The code that actually broke on glass (2026-08-20). It classified as
+  // `game-card`, and the game-card branch does not REFUSE an 8-digit run — it
+  // showed "That's a Game Zone card" — so a Groupon fallback keyed on refusal
+  // never fired. `grouponCandidate` on a `game-card` is therefore the signal
+  // that the call site MUST resolve Groupon first, not last.
+  it("flags a real production Groupon code that lands on the game-card rail", () => {
+    expect(classifyKioskCode("34431265")).toMatchObject({
+      kind: "game-card",
+      value: "34431265",
+      grouponCandidate: true,
+    });
+  });
+
   it("routes the printed VS- long form straight to Groupon", () => {
     expect(classifyKioskCode("VS-GCMV-VNXS-4YN4-2V4X")).toMatchObject({
       kind: "groupon",
