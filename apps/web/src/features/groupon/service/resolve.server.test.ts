@@ -44,7 +44,9 @@ const markGrouponRedeemed = vi.fn(async () => {
 const markGrouponRedeemFailure = vi.fn(async () => {
   order.push("markFailure");
 });
-const findGrouponUnit = vi.fn(async () => ROW);
+// Explicit type: "never seen this code" is `null`, which the happy-path
+// implementation's inferred return type would make untypeable.
+const findGrouponUnit = vi.fn<(code: string) => Promise<GrouponUnitRow | null>>(async () => ROW);
 
 vi.mock("../client.server", () => ({
   fetchUnit: (...a: unknown[]) => {
@@ -63,8 +65,11 @@ vi.mock("../client.server", () => ({
 }));
 
 vi.mock("../data/groupon-units-db", () => ({
-  findGrouponUnit: (...a: unknown[]) => findGrouponUnit(...(a as [])),
-  upsertGrouponUnit: vi.fn(async () => ROW),
+  findGrouponUnit: (code: string) => findGrouponUnit(code),
+  upsertGrouponUnit: vi.fn(async () => {
+    order.push("persist");
+    return ROW;
+  }),
   markGrouponRedeemed: (...a: unknown[]) => markGrouponRedeemed(...(a as [])),
   markGrouponRedeemFailure: (...a: unknown[]) => markGrouponRedeemFailure(...(a as [])),
 }));
@@ -73,9 +78,14 @@ vi.mock("~/features/game-cards/data/voucher-claims-db", () => ({
   spentItemIndexes: vi.fn(async () => new Set<number>()),
 }));
 
-async function redeemAfterDelivery(code: string) {
+async function redeemGrouponUnit(code: string) {
   const m = await import("./resolve.server");
-  return m.redeemAfterDelivery(code);
+  return m.redeemGrouponUnit(code);
+}
+
+async function resolveGrouponCode(code: string) {
+  const m = await import("./resolve.server");
+  return m.resolveGrouponCode(code);
 }
 
 beforeEach(() => {
@@ -85,19 +95,19 @@ beforeEach(() => {
 });
 
 /**
- * The bug these cover: `redeemAfterDelivery` used to BUILD a unit out of ledger
+ * The bug these cover: `redeemGrouponUnit` used to BUILD a unit out of ledger
  * columns instead of re-fetching it. Groupon's PATCH only works when the whole
  * unit from the GET is echoed back, and the ledger has no `price` column — so
  * the fabricated unit sent price 0 against the real 3060. Groupon answers a
  * mutated echo with UNIT_NOT_FOUND / MALFORMED_REQUEST, which the failure path
  * marks TERMINAL, permanently stranding a row the cron would never retry.
  */
-describe("redeemAfterDelivery — re-fetch, never reconstruct", () => {
+describe("redeemGrouponUnit — re-fetch, never reconstruct", () => {
   it("GETs before it PATCHes", async () => {
     fetchUnit.mockResolvedValue(ok([PROD_UNIT]));
     redeemUnit.mockResolvedValue(ok([PROD_UNIT]));
 
-    await redeemAfterDelivery("89895632");
+    await redeemGrouponUnit("89895632");
 
     expect(order).toEqual(["fetch", "redeem", "markRedeemed"]);
   });
@@ -106,7 +116,7 @@ describe("redeemAfterDelivery — re-fetch, never reconstruct", () => {
     fetchUnit.mockResolvedValue(ok([PROD_UNIT]));
     redeemUnit.mockResolvedValue(ok([PROD_UNIT]));
 
-    await redeemAfterDelivery("89895632");
+    await redeemGrouponUnit("89895632");
 
     // The regression assertion. A reconstructed unit sends price 0 here.
     expect(redeemUnit).toHaveBeenCalledWith(PROD_UNIT);
@@ -117,7 +127,7 @@ describe("redeemAfterDelivery — re-fetch, never reconstruct", () => {
     // Covers a crash between a successful PATCH and our ledger write.
     fetchUnit.mockResolvedValue(ok([{ ...PROD_UNIT, status: "redeemed" }]));
 
-    const res = await redeemAfterDelivery("89895632");
+    const res = await redeemGrouponUnit("89895632");
 
     expect(res).toEqual({ redeemed: true });
     expect(redeemUnit).not.toHaveBeenCalled();
@@ -127,12 +137,13 @@ describe("redeemAfterDelivery — re-fetch, never reconstruct", () => {
   it("does no network at all for a row already sent", async () => {
     findGrouponUnit.mockResolvedValue({ ...ROW, redeemState: "sent" });
 
-    expect(await redeemAfterDelivery("89895632")).toEqual({ redeemed: true });
+    expect(await redeemGrouponUnit("89895632")).toEqual({ redeemed: true });
     expect(order).toEqual([]);
   });
 
   it("keeps a re-fetch FLAKE pending so the cron retries it", async () => {
-    // Value is already in the guest's hands; a 500 must never be terminal.
+    // The voucher is already converted into our tables and honoured, so a 500
+    // is a bookkeeping debt for the sweep — never a terminal verdict.
     fetchUnit.mockResolvedValue({
       status: 500,
       ok: false,
@@ -141,7 +152,7 @@ describe("redeemAfterDelivery — re-fetch, never reconstruct", () => {
       raw: "upstream boom",
     });
 
-    const res = await redeemAfterDelivery("89895632");
+    const res = await redeemGrouponUnit("89895632");
 
     expect(res).toEqual({ redeemed: false });
     expect(redeemUnit).not.toHaveBeenCalled();
@@ -163,7 +174,7 @@ describe("redeemAfterDelivery — re-fetch, never reconstruct", () => {
       raw: '{"errors":[{"code":"FORBIDDEN"}]}',
     });
 
-    await redeemAfterDelivery("89895632");
+    await redeemGrouponUnit("89895632");
 
     expect(markGrouponRedeemFailure).toHaveBeenCalledWith(
       "89895632",
@@ -181,7 +192,7 @@ describe("redeemAfterDelivery — re-fetch, never reconstruct", () => {
       raw: '{"errors":[{"code":"UNIT_NOT_FOUND"}]}',
     });
 
-    await redeemAfterDelivery("89895632");
+    await redeemGrouponUnit("89895632");
 
     expect(markGrouponRedeemFailure).toHaveBeenCalledWith(
       "89895632",
@@ -195,7 +206,7 @@ describe("redeemAfterDelivery — re-fetch, never reconstruct", () => {
     // redeem means against it, so a human looks instead of us guessing.
     fetchUnit.mockResolvedValue(ok([{ ...PROD_UNIT, status: "refunded" }]));
 
-    const res = await redeemAfterDelivery("89895632");
+    const res = await redeemGrouponUnit("89895632");
 
     expect(res).toEqual({ redeemed: false });
     expect(redeemUnit).not.toHaveBeenCalled();
@@ -216,7 +227,65 @@ describe("redeemAfterDelivery — re-fetch, never reconstruct", () => {
       raw: "{}",
     });
 
-    expect(await redeemAfterDelivery("89895632")).toEqual({ redeemed: true });
+    expect(await redeemGrouponUnit("89895632")).toEqual({ redeemed: true });
     expect(markGrouponRedeemed).toHaveBeenCalled();
+  });
+});
+
+/**
+ * REDEEM AT SCAN (owner 2026-08-20, not negotiable). The voucher is converted
+ * into our tables and reported to Groupon in one go, so from the first scan
+ * onward the guest's legs are ours to honour and Groupon's opinion stops
+ * mattering. These tests pin the two halves of that.
+ */
+describe("resolveGrouponCode — redeem at scan", () => {
+  it("PERSISTS before it redeems, on a first scan", async () => {
+    // Order is the whole point: the row IS the entitlement. Telling Groupon
+    // `redeemed` before writing it risks a voucher Groupon calls spent and we
+    // have never heard of.
+    findGrouponUnit.mockResolvedValue(null);
+    fetchUnit.mockResolvedValue(ok([PROD_UNIT]));
+    redeemUnit.mockResolvedValue(ok([PROD_UNIT]));
+
+    const res = await resolveGrouponCode("89895632");
+
+    expect(res.ok).toBe(true);
+    // ONE fetch, not two: the scan path passes both the row it just wrote and
+    // the unit it just fetched straight into the redeem, so the guest standing
+    // at the kiosk waits for GET + PATCH rather than GET + GET + PATCH.
+    expect(order).toEqual(["fetch", "persist", "redeem", "markRedeemed"]);
+  });
+
+  it("does NOT redeem again when the code is rescanned on another kiosk", async () => {
+    // "If they scan again on another kiosk it's redeemed with groupon but we
+    // still have it available to them" — answered entirely from the ledger,
+    // with no network call of any kind.
+    findGrouponUnit.mockResolvedValue({ ...ROW, redeemState: "sent" });
+
+    const res = await resolveGrouponCode("89895632");
+
+    expect(res.ok).toBe(true);
+    expect(order).toEqual([]);
+    expect(fetchUnit).not.toHaveBeenCalled();
+    expect(redeemUnit).not.toHaveBeenCalled();
+  });
+
+  it("still grants the legs when the redeem PATCH fails", async () => {
+    // A failed PATCH is OUR bookkeeping problem, never a reason to show the
+    // guest less than they are owed.
+    findGrouponUnit.mockResolvedValue(null);
+    fetchUnit.mockResolvedValue(ok([PROD_UNIT]));
+    redeemUnit.mockResolvedValue({
+      status: 500,
+      ok: false,
+      data: null,
+      errorCodes: [],
+      raw: "boom",
+    });
+
+    const res = await resolveGrouponCode("89895632");
+
+    expect(res.ok).toBe(true);
+    expect(markGrouponRedeemFailure).toHaveBeenCalled();
   });
 });

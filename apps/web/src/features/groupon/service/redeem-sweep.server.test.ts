@@ -18,7 +18,7 @@ const row = (code: string, attempts = 0): GrouponUnitRow => ({
 
 const listPendingRedeems = vi.fn(async () => [] as GrouponUnitRow[]);
 const countStalledRedeems = vi.fn(async () => 0);
-const redeemAfterDelivery = vi.fn<(code: string) => Promise<{ redeemed: boolean }>>(async () => ({
+const redeemGrouponUnit = vi.fn<(code: string) => Promise<{ redeemed: boolean }>>(async () => ({
   redeemed: true,
 }));
 let configured = true;
@@ -33,7 +33,7 @@ vi.mock("../client.server", () => ({
 }));
 
 vi.mock("./resolve.server", () => ({
-  redeemAfterDelivery: (code: string) => redeemAfterDelivery(code),
+  redeemGrouponUnit: (code: string) => redeemGrouponUnit(code),
 }));
 
 async function sweep(opts?: { dryRun?: boolean; limit?: number }) {
@@ -46,7 +46,7 @@ beforeEach(() => {
   configured = true;
   listPendingRedeems.mockResolvedValue([]);
   countStalledRedeems.mockResolvedValue(0);
-  redeemAfterDelivery.mockResolvedValue({ redeemed: true });
+  redeemGrouponUnit.mockResolvedValue({ redeemed: true });
 });
 
 /**
@@ -61,7 +61,7 @@ describe("runGrouponRedeemSweep", () => {
 
     const res = await sweep();
 
-    expect(redeemAfterDelivery).not.toHaveBeenCalled();
+    expect(redeemGrouponUnit).not.toHaveBeenCalled();
     expect(listPendingRedeems).not.toHaveBeenCalled();
     expect(res.notes.join(" ")).toContain("not configured");
   });
@@ -70,7 +70,7 @@ describe("runGrouponRedeemSweep", () => {
     const res = await sweep();
 
     expect(res).toMatchObject({ ok: true, examined: 0, redeemed: [], stillPending: [] });
-    expect(redeemAfterDelivery).not.toHaveBeenCalled();
+    expect(redeemGrouponUnit).not.toHaveBeenCalled();
   });
 
   it("drives every pending row through the single writer", async () => {
@@ -78,14 +78,14 @@ describe("runGrouponRedeemSweep", () => {
 
     const res = await sweep();
 
-    expect(redeemAfterDelivery).toHaveBeenCalledTimes(2);
+    expect(redeemGrouponUnit).toHaveBeenCalledTimes(2);
     expect(res.redeemed).toEqual(["AAAA1111", "BBBB2222"]);
     expect(res.stillPending).toEqual([]);
   });
 
   it("leaves a row that did not land pending for the next run", async () => {
     listPendingRedeems.mockResolvedValue([row("AAAA1111"), row("BBBB2222")]);
-    redeemAfterDelivery.mockImplementation(async (code: string) => ({
+    redeemGrouponUnit.mockImplementation(async (code: string) => ({
       redeemed: code === "AAAA1111",
     }));
 
@@ -97,14 +97,14 @@ describe("runGrouponRedeemSweep", () => {
 
   it("does not abandon the rest of the debt when one row throws", async () => {
     listPendingRedeems.mockResolvedValue([row("AAAA1111"), row("BBBB2222"), row("CCCC3333")]);
-    redeemAfterDelivery.mockImplementation(async (code: string) => {
+    redeemGrouponUnit.mockImplementation(async (code: string) => {
       if (code === "BBBB2222") throw new Error("neon timeout");
       return { redeemed: true };
     });
 
     const res = await sweep();
 
-    expect(redeemAfterDelivery).toHaveBeenCalledTimes(3);
+    expect(redeemGrouponUnit).toHaveBeenCalledTimes(3);
     expect(res.redeemed).toEqual(["AAAA1111", "CCCC3333"]);
     expect(res.stillPending).toEqual(["BBBB2222"]);
     expect(res.ok).toBe(false);
@@ -126,7 +126,7 @@ describe("runGrouponRedeemSweep", () => {
 
     const res = await sweep({ dryRun: true });
 
-    expect(redeemAfterDelivery).not.toHaveBeenCalled();
+    expect(redeemGrouponUnit).not.toHaveBeenCalled();
     expect(res.stillPending).toEqual(["AAAA1111"]);
   });
 

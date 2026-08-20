@@ -9,11 +9,14 @@
  * second panel would duplicate every one of those behaviours and then drift from
  * them; emitting the same `ValidatedItem[]` reuses them for free.
  *
- * NON-DESTRUCTIVE. Like the native validate this only reads: it never claims an
- * item and never redeems at Groupon. `resolveGrouponCode` is local-ledger-first,
- * so a returning guest is answered from our own table with no network call, and
- * the Groupon PATCH stays where it belongs — after an item is actually
- * delivered, driven by `redeemAfterDelivery`.
+ * NEVER CLAIMS A LEG. This only reads what the guest may take; the destructive
+ * per-leg claim happens later, at dispense or at booking charge.
+ *
+ * It CAN redeem at Groupon, though, on a first scan — `resolveGrouponCode`
+ * converts the voucher into our tables and reports it to Groupon immediately
+ * (owner 2026-08-20). That is invisible here and irrelevant to the guest: from
+ * the first scan onward the legs are ours to honour, and a rescan on any kiosk
+ * is answered from the ledger with whatever is left.
  */
 
 import { voucherItemLabel } from "~/features/game-cards/data/vouchers-db";

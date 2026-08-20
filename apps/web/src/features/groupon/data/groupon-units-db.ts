@@ -33,12 +33,19 @@ import type { VoucherItem } from "~/features/game-cards/data/vouchers-db";
 
 /**
  * Where the external redeem obligation stands.
- *   pending — we owe Groupon a redeem PATCH (value may already be handed over).
+ *   pending — we intend to redeem and Groupon has not acknowledged yet. Set the
+ *             moment the row is written, because we redeem AT SCAN.
  *   sent    — Groupon acknowledged. Terminal, happy.
  *   failed  — a TERMINAL refusal (not a transient flake). Needs a human.
  *
- * `pending` is the one that matters operationally: a row stuck there is real
- * money we handed a guest and never reported to Groupon.
+ * REDEEM AT SCAN (owner 2026-08-20, not negotiable): the PATCH fires as soon as
+ * a code is scanned, not after a leg is delivered. What makes that safe is this
+ * table — once the row exists the guest's five legs are ours to honour forever,
+ * so Groupon saying `redeemed` costs them nothing. A rescan on another kiosk is
+ * answered from here, with whatever is left still available.
+ *
+ * `pending` therefore means "the PATCH has not landed yet", and the sweep cron
+ * exists only to finish one that failed — not to discover a debt.
  */
 export type GrouponRedeemState = "pending" | "sent" | "failed";
 
@@ -142,11 +149,12 @@ export async function upsertGrouponUnit(args: {
   const q = sql();
   const rows = (await q`
     INSERT INTO groupon_units
-      (redemption_code, unit_id, groupon_code, deal_key, items, value_amount, currency_code)
+      (redemption_code, unit_id, groupon_code, deal_key, items, value_amount, currency_code,
+       redeem_state)
     VALUES
       (${args.redemptionCode}, ${args.unitId}, ${args.grouponCode}, ${args.dealKey},
        ${JSON.stringify(args.items)}::jsonb, ${args.valueAmount ?? null},
-       ${args.currencyCode ?? null})
+       ${args.currencyCode ?? null}, 'pending')
     ON CONFLICT (redemption_code) DO UPDATE SET
       unit_id = EXCLUDED.unit_id,
       groupon_code = EXCLUDED.groupon_code,
@@ -188,7 +196,7 @@ export async function markGrouponRedeemFailure(
   `;
 }
 
-/** The retry cron's worklist: value handed over, Groupon not yet told. */
+/** The retry cron's worklist: scanned, and the PATCH has not landed yet. */
 export async function listPendingRedeems(limit = 50, maxAttempts = 12): Promise<GrouponUnitRow[]> {
   if (!isDbConfigured()) return [];
   await ensureSchema();

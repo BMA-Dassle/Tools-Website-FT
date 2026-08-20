@@ -1,25 +1,27 @@
 /**
  * Drive the Groupon redeem debt forward. SERVER ONLY.
  *
- * WHY THIS EXISTS. We deliberately hand the guest their first item BEFORE
- * telling Groupon the voucher is used, because the alternative — redeem first,
- * dispense second — eats a guest's voucher when the stacker jams. The cost of
- * that choice is a window where value has moved and Groupon has not been told.
- * A `pending` row IS that debt, and this sweep is the only thing that closes
- * it. Without it the safe ordering would quietly become an unpaid obligation.
+ * WHY THIS EXISTS. The redeem PATCH fires at SCAN, inline (owner 2026-08-20),
+ * so in the normal case there is nothing here to do. This sweep is the retry
+ * net for the abnormal case: Groupon flaked, the request timed out, or the
+ * process died between writing the ledger row and getting an acknowledgement.
+ * A `pending` row is a voucher we have already converted into our own tables
+ * and honoured, but never told Groupon about — a bookkeeping debt, not a guest
+ * problem. Nothing here can affect what a guest is owed.
  *
  * It owns no redemption logic of its own: every row goes through
- * `redeemAfterDelivery`, which stays the single writer for a unit's redeem
+ * `redeemGrouponUnit`, which stays the single writer for a unit's redeem
  * state. Duplicating the PATCH here would create a second writer for the same
  * fact and the two would drift the first time one of them failed halfway.
  *
  * Idempotent and cheap on a quiet minute: no pending rows means one indexed
  * SELECT and zero network calls.
+ *
  */
 
 import { countStalledRedeems, listPendingRedeems } from "../data/groupon-units-db";
 import { isGrouponConfigured } from "../client.server";
-import { redeemAfterDelivery } from "./resolve.server";
+import { redeemGrouponUnit } from "./resolve.server";
 
 /** Attempts before a row is parked for a human. Matches the DB-layer default. */
 const MAX_ATTEMPTS = 12;
@@ -76,7 +78,7 @@ export async function runGrouponRedeemSweep(
   // buys nothing and makes a rate-limit storm possible.
   for (const row of rows) {
     try {
-      const res = await redeemAfterDelivery(row.redemptionCode);
+      const res = await redeemGrouponUnit(row.redemptionCode);
       if (res.redeemed) out.redeemed.push(row.redemptionCode);
       else out.stillPending.push(row.redemptionCode);
     } catch (err) {

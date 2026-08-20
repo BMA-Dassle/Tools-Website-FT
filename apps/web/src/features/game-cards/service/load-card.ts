@@ -27,7 +27,6 @@ import type { CardBalance, TxnKind } from "../types";
 import { clearAccount, verifyAccount } from "../data/intercard";
 import { getTxn, markLoadState, setTxnAccount } from "../data/transactions-log";
 import { getLiveClaimForTxn } from "../data/voucher-claims-db";
-import { redeemAfterDelivery } from "~/features/groupon/service/resolve.server";
 import { applyCreditPlan, creditPlanForRow, planIsEmpty } from "./credit-plan";
 
 export interface LoadCardResult {
@@ -90,10 +89,8 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
   // HERE rather than trusting the row: the claim is what makes the voucher
   // single-use, and the row alone can exist without one (claim raced, or a
   // release already handed the code back). No live claim → credit nothing.
-  let compedClaim: Awaited<ReturnType<typeof getLiveClaimForTxn>> = null;
   if (isComped) {
     const claim = await getLiveClaimForTxn(row.txnId);
-    compedClaim = claim;
     if (!claim) {
       throw new GameCardHttpError(
         409,
@@ -197,32 +194,6 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
     loaded ? undefined : "load not confirmed",
     loaded ? (input.preLoaded ? "kiosk_bridge" : "soap") : undefined,
   );
-
-  // THE GROUPON DELIVERY POINT. Value has now genuinely moved: a card left the
-  // stacker and carries tokens. Only here do we tell Groupon the voucher is
-  // used — redeeming any earlier would eat a guest's $65 voucher when the
-  // stacker jams, and Groupon has no un-redeem.
-  //
-  // Soft-fail on purpose. A failed PATCH leaves the ledger row `pending` and the
-  // sweep cron drives it forward, so the worst case is that WE owe Groupon a
-  // notification. Throwing here would fail a load that already succeeded and
-  // leave the guest holding a credited card the kiosk called an error.
-  if (loaded && compedClaim?.issuer === "groupon") {
-    try {
-      const { redeemed } = await redeemAfterDelivery(compedClaim.code);
-      if (!redeemed) {
-        console.warn(
-          `[groupon] card delivered but redeem not acknowledged — left pending for the sweep ` +
-            `code=${compedClaim.code} txn=${row.txnId}`,
-        );
-      }
-    } catch (err) {
-      console.error(
-        `[groupon] redeem-after-delivery threw (row stays pending) code=${compedClaim.code}:`,
-        err instanceof Error ? err.message : err,
-      );
-    }
-  }
 
   let balance: CardBalance | undefined;
   if (loaded) {

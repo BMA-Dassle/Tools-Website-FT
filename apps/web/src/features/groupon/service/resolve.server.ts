@@ -82,8 +82,8 @@ async function viewOf(row: GrouponUnitRow, firstScan: boolean): Promise<GrouponR
 
 /**
  * Resolve a Groupon code. NON-DESTRUCTIVE — this never redeems. Redemption is
- * deliberately a separate, later call (see `redeemAfterDelivery`) so we cannot
- * burn a guest's voucher before they have actually been given anything.
+ * deliberately a separate call (see `redeemGrouponUnit`) so the read path stays
+ * non-destructive and a rescan never re-redeems.
  */
 export async function resolveGrouponCode(rawCode: string): Promise<GrouponResolution> {
   const code = normalizeGrouponCode(rawCode);
@@ -118,8 +118,11 @@ export async function resolveGrouponCode(rawCode: string): Promise<GrouponResolu
   // Recognised but unmapped grants NOTHING. Never guess a deal's contents.
   if (!items || items.length === 0) return { ok: false, refusal: "unmapped" };
 
-  // 3. PERSIST BEFORE ANY VALUE MOVES. From here on the guest's entitlement
-  //    survives a Groupon outage, a crash, or a failed redeem.
+  // 3. PERSIST FIRST — and this ordering is not cosmetic. The row IS the
+  //    entitlement: the instant we tell Groupon `redeemed`, their copy stops
+  //    being the truth and this table is the only record of the guest's five
+  //    legs. Redeeming before writing would risk a voucher that Groupon calls
+  //    spent and we have never heard of.
   const row = await upsertGrouponUnit({
     redemptionCode: unit.redemptionCode || code,
     unitId: unit.id,
@@ -130,45 +133,77 @@ export async function resolveGrouponCode(rawCode: string): Promise<GrouponResolu
     currencyCode: unit.value?.currencyCode ?? null,
   });
 
+  // 4. REDEEM NOW, at scan (owner 2026-08-20). Non-fatal by construction: the
+  //    guest's legs are already ours to honour, so a failed PATCH leaves the row
+  //    `pending` for the sweep and changes nothing the guest can see. This is
+  //    also why a rescan on another kiosk is harmless — step 1 answers it from
+  //    the ledger and never asks Groupon again.
+  // The result is deliberately not branched on: `items` is what the guest can
+  // take and the row already holds it. A failed PATCH is our bookkeeping problem
+  // (the sweep's), never a reason to show them less.
+  await redeemGrouponRow(row, unit);
   return viewOf(row, true);
 }
 
 /**
- * Tell Groupon the voucher is used. Call this ONLY after the first item has
- * genuinely been delivered (a card left the stacker, or a cart claim was
- * captured).
+ * Tell Groupon the voucher is used. DESTRUCTIVE and irreversible.
  *
- * Ordering is a deliberate safety choice: redeeming at scan would eat a guest's
- * Groupon when the dispenser jams thirty seconds later. Redeeming after
- * delivery means the worst case is that WE owe Groupon a notification, which
- * the ledger records and the cron drives forward — a bookkeeping problem, not a
- * guest losing money.
+ * Called AT SCAN, straight after the ledger row is written (owner 2026-08-20:
+ * "I want to redeem with groupon soon as its scanned... then it converts to our
+ * tables"). The earlier design deferred this until a leg was delivered, to avoid
+ * burning a voucher when a dispenser jammed — but that protection is redundant
+ * here: the ledger row already owes the guest all five legs regardless of what
+ * Groupon thinks, and a rescan is answered locally. Deferring only bought a
+ * window in which our books and Groupon's disagreed.
  *
- * Idempotent by state: a row already `sent` returns immediately, and Groupon
- * independently refuses a second redeem with INVALID_STATE_TRANSITION.
+ * Idempotent three ways over: a row already `sent` returns immediately, the
+ * re-fetch below sees `redeemed` and short-circuits, and Groupon independently
+ * refuses a second PATCH with INVALID_STATE_TRANSITION.
  *
- * RE-FETCH, NEVER RECONSTRUCT. The PATCH only works by echoing back the unit
- * exactly as the GET returned it (see client.server.ts). Building one from
- * ledger columns cannot do that: this table stores `value` but not `price`, so
- * a reconstructed unit sends a price Groupon never quoted — a real prod unit
+ * RE-FETCH, NEVER RECONSTRUCT. The PATCH only works by echoing the unit exactly
+ * as the GET returned it (see client.server.ts). Building one from ledger
+ * columns cannot do that: this table stores `value` but not `price`, so a
+ * reconstructed unit sends a price Groupon never quoted — a real prod unit
  * carries price 3060 against our fabricated 0. Groupon answers a mutated echo
- * with UNIT_NOT_FOUND / MALFORMED_REQUEST, which the failure path below treats
- * as TERMINAL, so one bad echo would permanently strand a row the cron will
- * never pick up again. The extra GET also gives the double-redeem no-op for
- * free: a unit already `redeemed` upstream discharges the obligation without
- * sending anything.
+ * with UNIT_NOT_FOUND / MALFORMED_REQUEST, which the failure path treats as
+ * TERMINAL, so one bad echo would permanently strand a row.
+ *
  */
-export async function redeemAfterDelivery(code: string): Promise<{ redeemed: boolean }> {
+export async function redeemGrouponUnit(code: string): Promise<{ redeemed: boolean }> {
   const row = await findGrouponUnit(normalizeGrouponCode(code));
   if (!row) return { redeemed: false };
+  return redeemGrouponRow(row);
+}
+
+/**
+ * The redeem itself, against a row the caller already holds.
+ *
+ * Separate from the lookup because the scan path has just written this row: a
+ * second read would be wasted, and worse, it would make the redeem depend on
+ * read-after-write visibility for a row created microseconds earlier.
+ */
+export async function redeemGrouponRow(
+  row: GrouponUnitRow,
+  /**
+   * The unit as a GET just returned it, when the caller already has one. This is
+   * NOT the reconstruction the doc above forbids — it is the genuine echo, taken
+   * from a fetch moments earlier — and it saves the guest standing at the kiosk
+   * a whole round-trip on the scan path. The cron has no unit and re-fetches.
+   */
+  known?: GrouponUnit,
+): Promise<{ redeemed: boolean }> {
   if (row.redeemState === "sent") return { redeemed: true };
 
   let fetched;
-  try {
-    fetched = await fetchUnit(row.redemptionCode);
-  } catch (e) {
-    await markGrouponRedeemFailure(row.redemptionCode, `refetch: ${String(e)}`, false);
-    return { redeemed: false };
+  if (known) {
+    fetched = { data: [known], errorCodes: [] as string[], raw: "" };
+  } else {
+    try {
+      fetched = await fetchUnit(row.redemptionCode);
+    } catch (e) {
+      await markGrouponRedeemFailure(row.redemptionCode, `refetch: ${String(e)}`, false);
+      return { redeemed: false };
+    }
   }
 
   const unit: GrouponUnit | null = fetched.data?.[0] ?? null;
