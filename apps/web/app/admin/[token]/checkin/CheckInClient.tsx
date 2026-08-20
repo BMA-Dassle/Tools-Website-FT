@@ -232,6 +232,40 @@ function fmtScanMs(ms: number | null | undefined): string {
   return `${(ms / 1000).toFixed(ms < 10000 ? 2 : 1)}s`;
 }
 
+/**
+ * WHAT THE DESK CALLS IT, versus what the log stores.
+ *
+ * The stored kinds distinguish a 3-part e-ticket QR from a 4-part one, because
+ * only the 4-part carries a participantId and only it exercises the
+ * re-resolve-the-racer's-heat path — a real difference, to whoever is reading
+ * the timings. It is NOT a difference to a staff member: both are e-tickets,
+ * and the raw label `eticket-move` reads as "this racer moved heats", which is
+ * not what it means at all. So the shape lives in the tooltip and the column
+ * says the one thing that is true of both.
+ */
+function scanKindLabel(kind: string): { label: string; title: string } {
+  switch (kind) {
+    case "eticket":
+      return { label: "e-ticket", title: "3-part QR (person + heat)" };
+    case "eticket-move":
+      return {
+        label: "e-ticket",
+        title:
+          "4-part QR — also carries a participant id, so it still finds the racer if their heat changed",
+      };
+    case "licence":
+      return { label: "licence", title: "Wallet racing licence or member app QR" };
+    case "paper":
+      return { label: "paper QR", title: "Bare participant id" };
+    case "arena":
+      return { label: "arena", title: "HP Arena ticket" };
+    case "unparsed":
+      return { label: "unknown", title: "Nothing we recognise — see the reason" };
+    default:
+      return { label: kind, title: kind };
+  }
+}
+
 /** Same colour language as the flash card: green in, amber not yet, red broke. */
 function scanOutcomeColor(outcome: string): string {
   switch (outcome) {
@@ -2241,9 +2275,18 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                     <strong style={{ color: PORTAL_DARK.fg, fontWeight: 700 }}>{value}</strong>
                   </span>
                 ))}
-                {Object.entries(scanStats.byKind).map(([k, n]) => (
-                  <span key={k} style={{ color: PORTAL_DARK.muted }}>
-                    {k} <strong style={{ color: PORTAL_DARK.fg }}>{n}</strong>
+                {/* Merged by display label, so the two e-ticket shapes read as
+                    one count here rather than as two things a desk has to
+                    reconcile. The split is still in the row tooltips. */}
+                {Object.entries(
+                  Object.entries(scanStats.byKind).reduce<Record<string, number>>((acc, [k, n]) => {
+                    const { label } = scanKindLabel(k);
+                    acc[label] = (acc[label] ?? 0) + n;
+                    return acc;
+                  }, {}),
+                ).map(([label, n]) => (
+                  <span key={label} style={{ color: PORTAL_DARK.muted }}>
+                    {label} <strong style={{ color: PORTAL_DARK.fg }}>{n}</strong>
                   </span>
                 ))}
               </div>
@@ -2306,7 +2349,9 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                           })}
                         </td>
                         <td style={{ padding: "6px 8px", color: PORTAL_DARK.fg }}>
-                          {e.kind}
+                          <span title={scanKindLabel(e.kind).title} style={{ cursor: "help" }}>
+                            {scanKindLabel(e.kind).label}
+                          </span>
                           {e.dryRun && <span style={{ color: PORTAL_DARK.muted }}> · look up</span>}
                         </td>
                         <td
