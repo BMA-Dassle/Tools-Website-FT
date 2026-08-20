@@ -5,6 +5,10 @@ import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { modalBackdropProps } from "@/lib/a11y";
 import RaceControlPanels from "./RaceControlPanels";
 import { useBriefingControl, type TimingFeedStatus } from "./useBriefingControl";
+import { useScanSound } from "./useScanSound";
+// TYPE-ONLY: scan-history.ts imports the redis client, so a value import here
+// would drag a server module into the client bundle. `import type` is erased.
+import type { ScanHistoryEntry, ScanHistoryStats } from "~/features/checkin/scan-history";
 import {
   parseCameraPreviewMode,
   type CameraPreviewMode,
@@ -139,6 +143,12 @@ interface CheckinResponse {
     scheduledStart: string | null;
   };
   currentlyCheckingIn: boolean;
+  /**
+   * This racer was already scanned into this heat, so nothing was written and
+   * no headsock was deducted. Still a green card — they ARE checked in — but
+   * the desk must be told not to hand them a second headsock.
+   */
+  alreadyCheckedIn?: boolean;
   headsock: { detected: boolean; deducted: boolean; balance: number };
   nextRace?: {
     track: string | null;
@@ -161,6 +171,81 @@ interface CheckinResponse {
     heatNumber: number | null;
     scheduledStart: string | null;
   } | null;
+  /**
+   * WHERE THE TIME WENT. Present on every scan; the gear's manual lookup is the
+   * only thing that displays it. This is how a slow desk gets diagnosed from a
+   * station instead of from a laptop with the production secrets on it.
+   */
+  diag?: {
+    dryRun?: boolean;
+    ms?: Record<string, number>;
+  };
+}
+
+/**
+ * One line a staff member can read, or repeat down the phone. Deliberately
+ * plain text rather than a component — it goes in the gear next to the input,
+ * and the full payload is one click away in the Debug JSON panel.
+ */
+function summariseDryRun(json: unknown, ok: boolean, wallMs: number): string {
+  const r = (json ?? {}) as CheckinResponse & { detail?: string; error?: string };
+  if (!ok) return `HTTP error — ${r.detail || r.error || "unknown"} · ${wallMs}ms`;
+
+  const who = r.guest ? `${r.guest.firstName} ${r.guest.lastName}`.trim() : "nobody matched";
+  const heat = r.session?.track
+    ? `${r.session.track}${r.session.raceType ? ` ${r.session.raceType}` : ""}${
+        r.session.heatNumber ? ` heat ${r.session.heatNumber}` : ""
+      }`
+    : "no heat";
+
+  const verdict = r.currentlyCheckingIn
+    ? "WOULD CHECK IN"
+    : r.nextRaceText
+      ? `not yet — ${r.nextRaceText}`
+      : "not checking in";
+
+  const bits = [verdict, who, heat];
+  if (r.headsock?.detected) bits.push(`headsock (balance ${r.headsock.balance})`);
+  if (r.birthday) bits.push("birthday");
+  if (r.vip) bits.push("VIP");
+
+  const ms = r.diag?.ms;
+  if (ms) {
+    const parts = Object.entries(ms)
+      .filter(([, v]) => typeof v === "number" && v >= 1)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k} ${v}ms`);
+    if (parts.length) bits.push(parts.join(", "));
+  }
+  bits.push(`${wallMs}ms round trip`);
+  return bits.join(" · ");
+}
+
+/**
+ * Scan durations span three orders of magnitude — a warm cache hit is single
+ * digits, a sick upstream is nine seconds — so the unit changes with the size
+ * rather than printing "9200ms" and making a reader count digits.
+ */
+function fmtScanMs(ms: number | null | undefined): string {
+  if (ms == null || !Number.isFinite(ms)) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(ms < 10000 ? 2 : 1)}s`;
+}
+
+/** Same colour language as the flash card: green in, amber not yet, red broke. */
+function scanOutcomeColor(outcome: string): string {
+  switch (outcome) {
+    case "checked-in":
+      return GREEN;
+    case "already-in":
+      return PORTAL_BLUE_SOFT;
+    case "not-checking-in":
+      return AMBER;
+    case "failed":
+      return RED;
+    default:
+      return "#94a3b8";
+  }
 }
 
 const VIP_GOLD = "#d4af37";
@@ -234,6 +319,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
    * RaceControlPanels.)
    */
   const briefing = useBriefingControl(token, boardMode);
+  const sound = useScanSound();
   /**
    * Is the camera sweep armed? Read off the board poll, so this desk shows a
    * change made at the other one. Defaults ON before the first poll lands —
@@ -334,12 +420,51 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
   const [debugJson, setDebugJson] = useState<string>("");
   const [showDebug, setShowDebug] = useState(false);
 
+  /**
+   * MANUAL ENTRY, IN THE GEAR. The same box accepts every shape a scan can
+   * arrive in — a wallet licence URL, an FT:/HP: QR, or a bare participant ID —
+   * because the endpoint already branches on all three. So one field exercises
+   * every flow without a badge, at any station, without the ?test=1 URL nobody
+   * can be expected to remember.
+   */
+  const [manualInput, setManualInput] = useState("");
+  const [manualBusy, setManualBusy] = useState(false);
+  const [manualLine, setManualLine] = useState<string>("");
+
   // Self-test
   const [selfTestResult, setSelfTestResult] = useState<{
     tests: { name: string; pass: boolean; ms: number; detail?: string }[];
     allPassed: boolean;
   } | null>(null);
   const [showSelfTest, setShowSelfTest] = useState(false);
+
+  /**
+   * SCAN HISTORY. Loaded on open rather than polled — it is a diagnostic
+   * someone reaches for when the desk feels slow, not a live board, and a
+   * background poll would add traffic to the exact path being investigated.
+   */
+  const [showScanHistory, setShowScanHistory] = useState(false);
+  const [scanHistory, setScanHistory] = useState<ScanHistoryEntry[] | null>(null);
+  const [scanStats, setScanStats] = useState<ScanHistoryStats | null>(null);
+  const [scanHistoryLoading, setScanHistoryLoading] = useState(false);
+
+  const loadScanHistory = useCallback(async () => {
+    setScanHistoryLoading(true);
+    try {
+      const res = await fetch(
+        `/api/admin/checkin?token=${encodeURIComponent(token)}&action=scan-history&limit=120`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) return;
+      const json = await res.json();
+      setScanHistory(Array.isArray(json?.entries) ? json.entries : []);
+      setScanStats(json?.stats ?? null);
+    } catch {
+      /* leave whatever was already shown */
+    } finally {
+      setScanHistoryLoading(false);
+    }
+  }, [token]);
 
   // Live session status via the admin endpoint (which calls Pandora directly
   // for checkedIn counts). Covers called races AND HP Arena sessions in their
@@ -567,13 +692,23 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
       if (!res.ok) {
         setLastError(json.detail || json.error || `HTTP ${res.status}`);
         setScanState("result");
+        sound.play("negative");
       } else {
         setLastResult(json as CheckinResponse);
         setScanState("result");
+        /**
+         * TONE FOLLOWS COLOUR. This is the same three-way split `getFlashColor`
+         * renders: only a currently-checking-in scan is a check-in, so a yellow
+         * "not checking in yet" gets the negative tone even though the request
+         * succeeded. The desk must never hear success for a racer who was not
+         * written in.
+         */
+        sound.play((json as CheckinResponse).currentlyCheckingIn ? "success" : "negative");
       }
     } catch (e) {
       setLastError(e instanceof Error ? e.message : "Network error");
       setScanState("result");
+      sound.play("negative");
     } finally {
       // Released the moment this scan has ANSWERED, not when its flash clears:
       // the desk must be able to scan the next racer straight away. `finally`
@@ -596,6 +731,47 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
     if (!testInput.trim()) return;
     handleScan(testInput.trim());
     setTestInput("");
+  }
+
+  /**
+   * DRY RUN — resolve the racer and report, writing NOTHING.
+   *
+   * Deliberately does not go through `handleScan`: it must not flash the
+   * screen, must not play a verdict tone, and must not touch `scanBusyRef`,
+   * because a staff member poking at the gear mid-shift cannot be allowed to
+   * block the reader for a real racer standing at the desk.
+   *
+   * The server half is what guarantees "writes nothing" — see `dryRun` in the
+   * route. This end only asks for it.
+   */
+  async function runManualLookup() {
+    const raw = manualInput.trim();
+    if (!raw || manualBusy) return;
+    setManualBusy(true);
+    setManualLine("");
+    const startedAt = Date.now();
+    try {
+      const res = await fetch(`/api/admin/checkin?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ raw, dryRun: true }),
+        cache: "no-store",
+      });
+      const json = await res.json();
+      setDebugJson(JSON.stringify({ request: { raw, dryRun: true }, response: json }, null, 2));
+      setManualLine(summariseDryRun(json, res.ok, Date.now() - startedAt));
+    } catch (e) {
+      setManualLine(`Failed — ${e instanceof Error ? e.message : "network error"}`);
+    } finally {
+      setManualBusy(false);
+    }
+  }
+
+  /** Run the real thing, side effects and all — same path as a badge. */
+  function runManualCheckIn() {
+    const raw = manualInput.trim();
+    if (!raw) return;
+    handleScan(raw);
   }
 
   // Preview flash (no API call)
@@ -773,6 +949,34 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             </p>
             <p className="text-black/80 text-lg sm:text-xl font-bold mt-2 uppercase">
               Hand guest a headsock
+            </p>
+          </div>
+        )}
+
+        {/*
+          ALREADY IN — a re-scan of the same racer into the same heat.
+          Still green, because the racer really is checked in and telling staff
+          otherwise would send them chasing a problem that does not exist. What
+          this has to prevent is the SECOND headsock: the deduction did not run,
+          so the amber "Headsock Due" banner above is correctly absent, and this
+          says why in case anyone was expecting it.
+        */}
+        {lastResult?.alreadyCheckedIn && !lastError && (
+          <div
+            className="absolute top-0 left-0 right-0 py-4 px-6 text-center"
+            style={{ backgroundColor: "#0f172a", borderBottom: `4px solid ${PORTAL_BLUE}` }}
+          >
+            <p
+              className="font-black uppercase tracking-wider leading-none"
+              style={{ fontSize: "clamp(26px, 5vw, 44px)", color: "#ffffff" }}
+            >
+              Already checked in
+            </p>
+            <p
+              className="text-base sm:text-lg font-bold mt-2 uppercase"
+              style={{ color: "#cbd5e1" }}
+            >
+              Nothing to do — do not hand another headsock
             </p>
           </div>
         )}
@@ -1044,6 +1248,51 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
         fontFamily: ADMIN_SANS,
       }}
     >
+      {/*
+        LOOKING UP — the whole screen, immediately, for as long as it takes.
+
+        A scan used to show a 32px spinner tucked under "Waiting for scan...",
+        and in board mode that panel is not rendered at all, so the busiest
+        station in the building had NO indication a scan was in flight. Staff
+        re-scanned racers who were already being looked up.
+
+        It is an OVERLAY, not an early return, on purpose: returning different
+        JSX here would unmount the briefing panels and the camera tiles on every
+        single scan, and they would remount and refetch when it cleared. The
+        board underneath keeps running; this just covers it.
+
+        No delay threshold (owner: show it on every scan). It clears the instant
+        the result lands, so on a fast scan it reads as a blink and on a slow one
+        it is the thing that stops a second scan being fired at the same racer.
+      */}
+      {scanState === "processing" && (
+        <div
+          className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-8 px-6"
+          style={{ backgroundColor: "#1b1f26f2", backdropFilter: "blur(2px)" }}
+          role="status"
+          aria-live="polite"
+        >
+          <div
+            className="rounded-full animate-spin"
+            style={{
+              width: 84,
+              height: 84,
+              border: `6px solid ${PORTAL_DARK.border}`,
+              borderTopColor: PORTAL_BLUE,
+            }}
+          />
+          <p
+            className="font-bold uppercase tracking-widest text-center"
+            style={{ fontSize: "clamp(28px, 5vw, 48px)", color: PORTAL_DARK.fg }}
+          >
+            Finding racer
+          </p>
+          <p className="text-center" style={{ fontSize: 18, color: PORTAL_DARK.muted }}>
+            Hold the badge — do not scan again
+          </p>
+        </div>
+      )}
+
       {/* Header — THIN IN BOARD MODE. Every millimetre here is taken from the
           bottom of a room column, and this band is read once a shift while the
           columns are read all night (owner 2026-08-14: "just little more to get
@@ -1200,6 +1449,17 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               </button>
             </>
           )}
+          <button
+            type="button"
+            onClick={() => {
+              setShowScanHistory(true);
+              void loadScanHistory();
+            }}
+            className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5"
+            style={{ borderColor: PORTAL_DARK.border, color: PORTAL_DARK.muted, borderRadius: 8 }}
+          >
+            Scan history
+          </button>
           <button
             type="button"
             onClick={runSelfTest}
@@ -1363,6 +1623,142 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
           <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
             Disconnect and reconnect after changing baud rate.
           </p>
+
+          {/*
+            SCAN SOUND — this PC's own setting, like the baud rate above and
+            unlike the two server switches below. Flipping it on plays the
+            success tone immediately, because a silent toggle gives a staff
+            member no way to tell whether the speakers are muted, the volume is
+            down, or the setting simply did not take.
+          */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+              Scan sound
+            </p>
+            <div className="flex gap-2 items-center" style={{ flexWrap: "wrap" }}>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={sound.enabled}
+                onClick={() => sound.setEnabled(!sound.enabled)}
+                className="px-3 py-1.5 text-xs border hover:bg-white/5"
+                style={{
+                  borderRadius: 8,
+                  borderColor: sound.enabled ? GREEN : PORTAL_DARK.inputBorder,
+                  backgroundColor: sound.enabled ? `${GREEN}22` : "transparent",
+                  color: sound.enabled ? GREEN : PORTAL_DARK.muted,
+                }}
+              >
+                {sound.enabled ? "On" : "Off"}
+              </button>
+              <button
+                type="button"
+                onClick={() => sound.preview("success")}
+                className="px-3 py-1.5 text-xs border hover:bg-white/5"
+                style={{
+                  borderRadius: 8,
+                  borderColor: PORTAL_DARK.inputBorder,
+                  color: PORTAL_DARK.muted,
+                }}
+              >
+                Hear checked in
+              </button>
+              <button
+                type="button"
+                onClick={() => sound.preview("negative")}
+                className="px-3 py-1.5 text-xs border hover:bg-white/5"
+                style={{
+                  borderRadius: 8,
+                  borderColor: PORTAL_DARK.inputBorder,
+                  color: PORTAL_DARK.muted,
+                }}
+              >
+                Hear not checked in
+              </button>
+            </div>
+            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+              A tone on every scan: one for checked in, another for anything else — including a
+              racer whose heat has not been called. This station only.
+            </p>
+          </div>
+
+          {/*
+            MANUAL ENTRY — every scan shape, no badge, no ?test=1 URL.
+            "Look up" writes NOTHING: no check-in, no headsock deduction, no
+            lobby-TV event. That distinction is enforced on the server, not here,
+            and it is the whole reason this is safe to hand to a desk mid-shift.
+          */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+              Manual entry
+            </p>
+            <div className="flex gap-2 mb-2" style={{ flexWrap: "wrap" }}>
+              <input
+                type="text"
+                value={manualInput}
+                onChange={(e) => setManualInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") runManualLookup();
+                }}
+                placeholder="Licence link, FT:… QR, or participant ID"
+                aria-label="Licence, QR or participant ID to look up"
+                className="flex-1 px-3 py-2 text-sm placeholder-white/30 focus:outline-none focus:border-blue-400"
+                style={{
+                  minWidth: 240,
+                  backgroundColor: PORTAL_DARK.inputBg,
+                  border: `1px solid ${PORTAL_DARK.inputBorder}`,
+                  color: PORTAL_DARK.fg,
+                  borderRadius: 8,
+                  fontFamily: ADMIN_MONO,
+                }}
+              />
+              <button
+                type="button"
+                onClick={runManualLookup}
+                disabled={manualBusy || !manualInput.trim()}
+                className="px-4 py-2 font-bold text-sm"
+                style={{
+                  backgroundColor: PORTAL_BLUE,
+                  color: "#ffffff",
+                  borderRadius: 8,
+                  opacity: manualBusy || !manualInput.trim() ? 0.5 : 1,
+                }}
+              >
+                {manualBusy ? "Looking up…" : "Look up"}
+              </button>
+              <button
+                type="button"
+                onClick={runManualCheckIn}
+                disabled={!manualInput.trim()}
+                className="px-4 py-2 font-bold text-sm border"
+                style={{
+                  borderColor: AMBER,
+                  color: AMBER,
+                  backgroundColor: "transparent",
+                  borderRadius: 8,
+                  opacity: manualInput.trim() ? 1 : 0.5,
+                }}
+              >
+                Check in for real
+              </button>
+            </div>
+            {manualLine && (
+              <p
+                className="text-xs mt-1"
+                style={{
+                  color: PORTAL_DARK.fg,
+                  fontFamily: ADMIN_MONO,
+                  wordBreak: "break-word",
+                }}
+              >
+                {manualLine}
+              </p>
+            )}
+            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+              Look up reports what would happen and writes nothing. Check in for real is identical
+              to scanning the badge.
+            </p>
+          </div>
 
           {/*
             AUTO-MOVE TO HOLDING — the camera sweep's kill switch (owner
@@ -1575,14 +1971,9 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             >
               Waiting for scan...
             </p>
-            {scanState === "processing" && (
-              <div className="mt-6">
-                <div
-                  className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mx-auto"
-                  style={{ borderColor: PORTAL_BLUE, borderTopColor: "transparent" }}
-                />
-              </div>
-            )}
+            {/* The in-flight spinner that used to sit here is gone — the
+                full-screen "Finding racer" overlay covers this panel now, and
+                it also covers board mode, where this panel is never rendered. */}
           </div>
         )}
       </div>
@@ -1747,6 +2138,195 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
       )}
 
       {/* Self-test modal */}
+      {/*
+        SCAN HISTORY — what the desk actually experienced, per scan.
+        Reads the ring buffer every POST writes. The header aggregates come from
+        the server (summariseScans) rather than being recomputed here, so the
+        summary and the rows can never tell different stories.
+      */}
+      {showScanHistory && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-start justify-center px-4 py-8 overflow-y-auto"
+          {...modalBackdropProps(() => setShowScanHistory(false))}
+        >
+          <div
+            className="p-6 w-full"
+            style={{
+              maxWidth: 880,
+              backgroundColor: PORTAL_DARK.card,
+              border: `1px solid ${PORTAL_DARK.border}`,
+              borderRadius: 8,
+              fontFamily: ADMIN_SANS,
+            }}
+          >
+            <div className="flex items-center justify-between mb-4" style={{ gap: 12 }}>
+              <h2 className="font-bold text-lg" style={{ color: PORTAL_DARK.fg }}>
+                Scan history
+              </h2>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void loadScanHistory()}
+                  className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5"
+                  style={{
+                    borderColor: PORTAL_DARK.border,
+                    color: PORTAL_DARK.muted,
+                    borderRadius: 8,
+                  }}
+                >
+                  {scanHistoryLoading ? "Loading…" : "Refresh"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowScanHistory(false)}
+                  className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5"
+                  style={{
+                    borderColor: PORTAL_DARK.border,
+                    color: PORTAL_DARK.muted,
+                    borderRadius: 8,
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            {/* Aggregates. Median before mean on purpose — one 9s upstream
+                timeout in a hundred fast scans drags a mean somewhere no real
+                scan ever was. */}
+            {scanStats && (
+              <div
+                className="flex mb-4"
+                style={{ flexWrap: "wrap", gap: 16, fontFamily: ADMIN_MONO, fontSize: 12 }}
+              >
+                {(
+                  [
+                    ["scans", String(scanStats.n)],
+                    ["median", fmtScanMs(scanStats.medianMs)],
+                    ["p95", fmtScanMs(scanStats.p95Ms)],
+                    ["slowest", fmtScanMs(scanStats.slowestMs)],
+                  ] as const
+                ).map(([label, value]) => (
+                  <span key={label} style={{ color: PORTAL_DARK.muted }}>
+                    {label}{" "}
+                    <strong style={{ color: PORTAL_DARK.fg, fontWeight: 700 }}>{value}</strong>
+                  </span>
+                ))}
+                {Object.entries(scanStats.byKind).map(([k, n]) => (
+                  <span key={k} style={{ color: PORTAL_DARK.muted }}>
+                    {k} <strong style={{ color: PORTAL_DARK.fg }}>{n}</strong>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {scanHistory === null ? (
+              <p className="text-sm" style={{ color: PORTAL_DARK.muted }}>
+                Loading…
+              </p>
+            ) : scanHistory.length === 0 ? (
+              <p className="text-sm" style={{ color: PORTAL_DARK.muted }}>
+                No scans recorded yet. The buffer fills as badges are scanned, and clears after two
+                weeks of quiet.
+              </p>
+            ) : (
+              <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
+                <table
+                  style={{ width: "100%", borderCollapse: "collapse", fontFamily: ADMIN_MONO }}
+                >
+                  <thead>
+                    <tr style={{ color: PORTAL_DARK.muted, fontSize: 11, textAlign: "left" }}>
+                      <th style={{ padding: "6px 8px", fontWeight: 500 }}>Time</th>
+                      <th style={{ padding: "6px 8px", fontWeight: 500 }}>Scanned</th>
+                      <th style={{ padding: "6px 8px", fontWeight: 500 }}>Result</th>
+                      <th
+                        style={{ padding: "6px 8px", fontWeight: 500, textAlign: "right" }}
+                        title="Total server time for this scan"
+                      >
+                        Took
+                      </th>
+                      <th style={{ padding: "6px 8px", fontWeight: 500 }}>Heat</th>
+                      <th style={{ padding: "6px 8px", fontWeight: 500 }}>Who</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scanHistory.map((e, i) => (
+                      <tr
+                        key={`${e.atMs}-${i}`}
+                        style={{
+                          borderTop: `1px solid ${PORTAL_DARK.border}`,
+                          fontSize: 12,
+                          opacity: e.dryRun ? 0.55 : 1,
+                        }}
+                      >
+                        <td
+                          style={{
+                            padding: "6px 8px",
+                            color: PORTAL_DARK.muted,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {new Date(e.atMs).toLocaleTimeString("en-US", {
+                            hour: "numeric",
+                            minute: "2-digit",
+                            second: "2-digit",
+                            timeZone: "America/New_York",
+                          })}
+                        </td>
+                        <td style={{ padding: "6px 8px", color: PORTAL_DARK.fg }}>
+                          {e.kind}
+                          {e.dryRun && <span style={{ color: PORTAL_DARK.muted }}> · look up</span>}
+                        </td>
+                        <td
+                          style={{
+                            padding: "6px 8px",
+                            color: scanOutcomeColor(e.outcome),
+                            fontWeight: 700,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {e.outcome}
+                          {e.headsock && <span style={{ color: AMBER }}> · headsock</span>}
+                        </td>
+                        <td
+                          style={{
+                            padding: "6px 8px",
+                            textAlign: "right",
+                            whiteSpace: "nowrap",
+                            fontVariantNumeric: "tabular-nums",
+                            color: e.totalMs >= 3000 ? RED : e.totalMs >= 1200 ? AMBER : GREEN,
+                          }}
+                          title={
+                            e.ms
+                              ? Object.entries(e.ms)
+                                  .filter(([k]) => k !== "total")
+                                  .map(([k, v]) => `${k} ${v}ms`)
+                                  .join(", ")
+                              : undefined
+                          }
+                        >
+                          {fmtScanMs(e.totalMs)}
+                        </td>
+                        <td style={{ padding: "6px 8px", color: PORTAL_DARK.muted }}>
+                          {e.track ? `${e.track}${e.heatNumber ? ` #${e.heatNumber}` : ""}` : "—"}
+                        </td>
+                        <td style={{ padding: "6px 8px", color: PORTAL_DARK.muted }}>
+                          {e.firstName || "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="text-xs mt-3" style={{ color: PORTAL_DARK.muted }}>
+              Newest first, last 120 scans. Hover a duration to see where the time went. Greyed rows
+              are gear look-ups, which wrote nothing and are excluded from the averages.
+            </p>
+          </div>
+        </div>
+      )}
+
       {showSelfTest && selfTestResult && (
         <div
           className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center px-6"
