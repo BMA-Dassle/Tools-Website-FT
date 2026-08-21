@@ -49,13 +49,24 @@
 /**
  * How long a board goes unheard before it tries reloading itself.
  *
- * Five minutes, well past the 90s the stamp goes amber at. The two thresholds do
- * different jobs and should not be the same number: amber is "a human looking at
- * this should know", and it wants to be early. A reload is disruptive, so it
- * wants to be sure — five minutes is ~150 consecutive missed pulses, which no
- * venue wifi hiccup and no single slow upstream can produce.
+ * THE SAME 90s THE STAMP GOES AMBER AT — deliberately one threshold, where there
+ * used to be two. The first version held these apart on the reasoning that
+ * "amber wants to be early, a reload wants to be sure", and set this to five
+ * minutes. That reasoning priced a reload as expensive, and it no longer is:
+ * arming does not navigate, it only asks. The gate still refuses to move until
+ * the origin answers or a second hostname proves the network is up, the attempts
+ * are still capped per hour, and an arm that never navigated is now refunded
+ * (see dropLastAttempt). What is left to be "sure" about is nothing the extra
+ * three and a half minutes was buying.
+ *
+ * What it was costing is measurable. FT:9 on 2026-08-20 sat dead for 8.3 minutes
+ * on the very first outage after the gate fix, and the whole of the first five
+ * was this constant. 90s is ~45 consecutive missed pulses on a 2s lane: no venue
+ * wifi hiccup and no single slow upstream reaches it, and by then the wall has
+ * already told the room it is stale. The board should start fixing itself at the
+ * moment it admits it is broken, not four minutes later.
  */
-export const FEED_HEAL_AFTER_MS = 5 * 60_000;
+export const FEED_HEAL_AFTER_MS = 90_000;
 
 /** Attempts allowed inside FEED_HEAL_WINDOW_MS before the board gives up. */
 export const FEED_HEAL_MAX_ATTEMPTS = 3;
@@ -141,10 +152,9 @@ export function readAttempts(store: Pick<Storage, "getItem">, screenId: string):
  * Record an attempt and return the pruned log.
  *
  * WRITTEN WHEN THE GATE IS ARMED, NOT WHEN IT NAVIGATES — the navigation
- * destroys this page, so anything written after it is never written. The cost is
- * that a board which recovers on its own while the gate was waiting has still
- * spent an attempt. That is the right way round: it errs toward FEWER reloads,
- * and on this canvas an unnecessary reload is the expensive mistake.
+ * destroys this page, so anything written after it is never written. The cost
+ * used to be that a board which recovered on its own while the gate was waiting
+ * had still spent an attempt; `dropLastAttempt` below hands that one back.
  */
 export function recordAttempt(
   store: Pick<Storage, "getItem" | "setItem">,
@@ -160,4 +170,37 @@ export function recordAttempt(
        counted. Better an uncounted heal than a board that cannot recover. */
   }
   return next;
+}
+
+/**
+ * Hand back the newest attempt, because it was never spent.
+ *
+ * WHY THE CAP NEEDED THIS BEFORE IT COULD BE ARMED EARLIER. The cap exists to
+ * stop a board RELOADING every few minutes in front of guests. It does not exist
+ * to ration wanting to. But the attempt is written at arm time, so a feed that
+ * came back while the gate was still probing — no navigation, no blink, nothing
+ * a guest could see — burned one of three all the same.
+ *
+ * At a five-minute threshold that was rare enough to ignore. At 90s it is the
+ * common case: this venue drops screens for a minute at a time all evening (five
+ * separate screens on 2026-08-20), and three such blips would have left the board
+ * unable to heal the one real wedge that followed. The safety valve would have
+ * been spent entirely on things it was never meant to catch.
+ *
+ * Only ever called on RECOVERY, and that is what makes it sound: if the gate had
+ * navigated, this page would not be here to call it.
+ */
+export function dropLastAttempt(
+  store: Pick<Storage, "getItem" | "setItem">,
+  screenId: string,
+): number[] {
+  const kept = readAttempts(store, screenId).sort((a, b) => a - b);
+  kept.pop();
+  try {
+    store.setItem(healLogKey(screenId), JSON.stringify(kept));
+  } catch {
+    /* unwritable storage — the refund is lost, which only makes the cap
+       stricter. Never a reason to throw on a wall. */
+  }
+  return kept;
 }

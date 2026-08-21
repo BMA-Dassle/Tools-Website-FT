@@ -330,11 +330,12 @@ describe("the wedge escape", () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
-  it("the SHIPPED numbers give a wedged board about eight minutes, not for ever", async () => {
-    // 5 min for the self-heal to arm (feed-heal.ts) plus 3 min of holding here.
-    // Pinned because the value of this change is entirely in how long a guest
-    // stares at a dead board.
-    expect(RELOAD_WEDGE_AFTER_MS).toBe(180_000);
+  it("the SHIPPED numbers give a wedged board about three minutes, not eight", async () => {
+    // 90s for the self-heal to arm (feed-heal.ts) plus 90s of holding here —
+    // four failed probes, at 0/30/60/90s. Pinned because the value of the whole
+    // mechanism is exactly how long a guest stares at a dead board, and FT:9
+    // spent 8.3 minutes of 2026-08-20 proving what the old numbers cost.
+    expect(RELOAD_WEDGE_AFTER_MS).toBe(90_000);
 
     const reload = vi.fn();
     startGatedReload({ probe: async () => false, offOriginProbe: async () => true, reload });

@@ -182,13 +182,21 @@ export async function networkReachableOffOrigin(
 /**
  * How long the gate holds before it will entertain the wedge explanation.
  *
- * Three minutes of consecutive failures on top of the five the self-heal already
- * waited — so a wedged board recovers itself around the eight-minute mark
- * instead of never. Not shorter, because an ordinary outage that ends inside a
- * couple of minutes should end with the poll simply resuming, no navigation
- * spent. Not longer, because past this point a human is already walking over.
+ * 90s — four consecutive failed probes at 0, 30, 60 and 90 seconds, on top of
+ * the 90s the self-heal waited before arming. A wedged board therefore recovers
+ * itself around the three-minute mark; it was eight when this shipped, and
+ * FT:9's first outage after the fix spent every one of those eight.
+ *
+ * WHAT KEEPS THIS SAFE IS THE DISCRIMINATOR, NOT THE DELAY, which is why it can
+ * come down so far. The escape never fires on a timer alone — it fires when
+ * another hostname of ours ANSWERS while our own origin does not, and during a
+ * real outage that second host is unreachable too, at three minutes exactly as
+ * it was at eight. The wait is only here to rule out the narrow case where our
+ * origin blips for a few seconds while the network stays up: four failed probes
+ * is well past any blip, and the cost of being wrong is one blink on a wall that
+ * has already been telling the room it is stale for a minute and a half.
  */
-export const RELOAD_WEDGE_AFTER_MS = 3 * 60_000;
+export const RELOAD_WEDGE_AFTER_MS = 90_000;
 
 export interface GatedReloadHandle {
   cancel(): void;

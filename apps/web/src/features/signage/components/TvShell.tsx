@@ -25,7 +25,13 @@ import { SIGNAGE_VERSION, TV_UPDATE_CHECK_MS } from "../constants";
 import { etHourNow, shouldRecycle } from "../recycle";
 import { useGatedReload } from "../useGatedReload";
 import { feedLiveness } from "../liveness";
-import { FEED_HEAL_CHECK_MS, readAttempts, recordAttempt, shouldHeal } from "../feed-heal";
+import {
+  FEED_HEAL_CHECK_MS,
+  dropLastAttempt,
+  readAttempts,
+  recordAttempt,
+  shouldHeal,
+} from "../feed-heal";
 import type { TvFeedHealth } from "../useTvFeed";
 
 export function TvShell({
@@ -211,6 +217,13 @@ export function TvShell({
         if (armedRef.current) {
           armedRef.current = false;
           setHealArmed(false);
+          // AND HAND THE ATTEMPT BACK. It was recorded when we armed, but the
+          // gate never navigated — reaching this line is the proof, since a
+          // navigation would have taken the page with it. The cap is there to
+          // stop a board reloading in front of guests, not to ration wanting
+          // to, and at a 90s threshold an evening of one-minute blips would
+          // otherwise spend it before the first real wedge. See dropLastAttempt.
+          dropLastAttempt(window.localStorage, screenId);
         }
         return;
       }

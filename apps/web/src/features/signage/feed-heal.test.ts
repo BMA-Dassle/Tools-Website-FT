@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  dropLastAttempt,
   healLogKey,
   pruneAttempts,
   readAttempts,
@@ -12,6 +13,7 @@ import {
   FEED_HEAL_MAX_ATTEMPTS,
   FEED_HEAL_WINDOW_MS,
 } from "./feed-heal";
+import { LIVENESS_STALE_MS } from "./liveness";
 
 const NOW = 1_800_000_000_000;
 
@@ -32,12 +34,21 @@ describe("shouldHeal", () => {
     expect(shouldHeal({ ageMs: 2_000, attempts: [], nowMs: NOW })).toBe(false);
   });
 
-  it("does not fire merely because the stamp went amber", () => {
-    // The stamp goes amber at 90s so a human knows early; a reload is
-    // disruptive and waits for certainty. Two different jobs, two thresholds.
-    expect(shouldHeal({ ageMs: 90_001, attempts: [], nowMs: NOW })).toBe(false);
+  it("arms the moment the wall admits it is stale, and not a tick before", () => {
+    // ONE THRESHOLD NOW, not two. These were held apart while a reload was
+    // priced as expensive; it is not — arming only asks, and the gate still
+    // refuses to navigate without proof. So the board starts fixing itself at
+    // the moment it starts telling the room it is broken.
+    expect(FEED_HEAL_AFTER_MS).toBe(LIVENESS_STALE_MS);
     expect(shouldHeal({ ageMs: FEED_HEAL_AFTER_MS, attempts: [], nowMs: NOW })).toBe(false);
     expect(shouldHeal({ ageMs: FEED_HEAL_AFTER_MS + 1, attempts: [], nowMs: NOW })).toBe(true);
+  });
+
+  it("still ignores anything short of that — a dropped beat is not a reload", () => {
+    // The pulse lane is 2s with an 8s deadline, so 90s is ~45 consecutive
+    // misses. A hiccup must never reach this.
+    expect(shouldHeal({ ageMs: 20_000, attempts: [], nowMs: NOW })).toBe(false);
+    expect(shouldHeal({ ageMs: 89_000, attempts: [], nowMs: NOW })).toBe(false);
   });
 
   it("stops after the cap, so a board whose feed stays broken cannot thrash", () => {
@@ -139,6 +150,61 @@ describe("the attempt log", () => {
   });
 });
 
+describe("dropLastAttempt — an arm that never navigated costs nothing", () => {
+  /**
+   * WHY THIS HAD TO EXIST BEFORE THE THRESHOLD COULD COME DOWN TO 90s. The cap
+   * stops a board RELOADING in front of guests; it was never meant to ration
+   * wanting to. But the attempt is written at arm time, so a feed that came back
+   * while the gate was still probing burned one of three for a blink nobody saw.
+   * At five minutes that was rare. At 90s, on a venue that drops screens for a
+   * minute at a time all evening, it would have spent the whole budget on blips
+   * and left nothing for the wedge that mattered.
+   */
+  it("hands back only the newest attempt, leaving real ones counted", () => {
+    const s = store({ [healLogKey("FT:10")]: JSON.stringify([NOW - 600_000, NOW]) });
+    expect(dropLastAttempt(s, "FT:10")).toEqual([NOW - 600_000]);
+    expect(readAttempts(s, "FT:10")).toEqual([NOW - 600_000]);
+  });
+
+  it("drops the NEWEST whatever order the log was written in", () => {
+    // Never trust the stored order — a refund that removed the oldest would
+    // quietly extend the rolling window instead of shortening the count.
+    const s = store({ [healLogKey("FT:10")]: JSON.stringify([NOW, NOW - 600_000]) });
+    expect(dropLastAttempt(s, "FT:10")).toEqual([NOW - 600_000]);
+  });
+
+  it("restores a capped board to being able to heal again", () => {
+    // The point, end to end: three blips must not disarm the safety valve.
+    const attempts = Array.from(
+      { length: FEED_HEAL_MAX_ATTEMPTS },
+      (_, i) => NOW - (i + 1) * 1_000,
+    );
+    const s = store({ [healLogKey("FT:10")]: JSON.stringify(attempts) });
+    expect(shouldHeal({ ageMs: 120_000, attempts: readAttempts(s, "FT:10"), nowMs: NOW })).toBe(
+      false,
+    );
+    dropLastAttempt(s, "FT:10");
+    expect(shouldHeal({ ageMs: 120_000, attempts: readAttempts(s, "FT:10"), nowMs: NOW })).toBe(
+      true,
+    );
+  });
+
+  it("is harmless on an empty or unreadable log", () => {
+    expect(dropLastAttempt(store(), "FT:10")).toEqual([]);
+    expect(dropLastAttempt(store({ [healLogKey("FT:10")]: "{not json" }), "FT:10")).toEqual([]);
+  });
+
+  it("never throws when storage refuses the write", () => {
+    const s = {
+      getItem: () => JSON.stringify([NOW]),
+      setItem: () => {
+        throw new Error("QuotaExceeded");
+      },
+    };
+    expect(() => dropLastAttempt(s, "FT:10")).not.toThrow();
+  });
+});
+
 /** Resolved from this file, never the cwd — a pin that scans the wrong tree is a
  *  pin that passes where it was not asked. Same discipline as reload-gate.test. */
 const TV_SHELL = join(dirname(fileURLToPath(import.meta.url)), "components", "TvShell.tsx");
@@ -163,6 +229,24 @@ describe("the self-heal gate is wired the one way that cannot deadlock", () => {
     expect(src).toMatch(/useGatedReload\(\s*healArmed\s*[,)]/);
     expect(src).not.toMatch(/healArmed\s*&&\s*safeToReload/);
     expect(src).not.toMatch(/safeToReload\s*&&\s*healArmed/);
+  });
+
+  it("refunds the attempt on recovery, and ONLY on recovery", () => {
+    /**
+     * The refund is sound precisely because of where it sits: in the branch
+     * that runs when the feed came back. If the gate had navigated, this page
+     * would not be alive to run it. Calling it anywhere else — on a timer, or
+     * beside recordAttempt — would uncap the board silently.
+     */
+    const src = readFileSync(TV_SHELL, "utf8");
+    expect(src).toContain("dropLastAttempt(window.localStorage, screenId)");
+    const calls = src.match(/dropLastAttempt\(/g) ?? [];
+    expect(calls, "one refund site only").toHaveLength(1);
+    // It must live above the `return` that ends the recovered branch, i.e.
+    // before the code that decides whether to arm.
+    expect(src.indexOf("dropLastAttempt(window.localStorage")).toBeLessThan(
+      src.indexOf("recordAttempt(window.localStorage"),
+    );
   });
 
   it("hands the wedge escape to THIS gate and to no other", () => {
