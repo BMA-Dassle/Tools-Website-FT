@@ -14,7 +14,7 @@ export interface GrouponUnit {
   status: string;
   /** Printed/emailed form: `VS-XXXX-XXXX-XXXX-XXXX`. Unambiguous to classify. */
   grouponCode: string;
-  /** Short form the guest presents: 8 alphanumerics, e.g. `WNDXH4DJ`. */
+  /** Short form the guest presents: 7 or 8 alphanumerics, e.g. `WNDXH4DJ`. */
   redemptionCode: string;
   /** ISO timestamp once redeemed, else null. */
   redeemedAt: string | null;

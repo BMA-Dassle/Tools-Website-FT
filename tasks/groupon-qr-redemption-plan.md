@@ -392,3 +392,47 @@ Verified: `tsc` clean, eslint 0 errors (the only 2 warnings are pre-existing, in
   Vercel. One key slot, so setting prod stops preprod probes working.
 - **No unspent production code remains** — `89895632` was burned proving the
   rail. Get more staging/prod codes from Groupon before the on-glass smoke.
+
+---
+
+## 2026-08-22 — the short code can also be 7 characters
+
+Owner report: "Groupons can also be 7 numbers instead of 8." The pre-filter
+`GROUPON_CODE_RE` was `^[A-Z0-9]{8}$`, so a 7-long code was refused at the
+shape gate in `/api/kiosk/groupon/validate` and never reached Groupon — the
+guest saw a plain "invalid code".
+
+**Change:** one regex, `^[A-Z0-9]{7,8}$`. Every consumer reads the shape
+through `looksLikeGrouponCode` / `GROUPON_CODE_RE`, so the kiosk classifier,
+the API shape gate, `resolveVoucherIssuer` and the cart-voucher `issuerOf` all
+picked it up with no edit. Nothing downstream branches on code length.
+
+**Why the 7 case is strictly easier than the 8.** The 8 is the hard one: an
+8-digit run matches the bare game-card rule `^\d{8,}$`, which is what made
+`34431265` show "That's a Game Zone card" on glass and never fall back
+(2026-08-20). Seven digits does **not** match that rule, so it lands on the
+promo catch-all carrying `grouponCandidate`, and `routeWithGrouponFallback`
+already resolves Groupon-first for any candidate.
+
+**What it costs.** A 7-character promo code now spends one speculative Groupon
+round-trip before the promo validator answers — the same trade already accepted
+for 8-character promos. The asymmetry justifies it: a wrong guess costs a
+round-trip, a missed Groupon turns a paying guest away at the kiosk.
+
+**What it does NOT touch.** The window is held shut at 6 and 9, pinned by tests.
+Six would swallow W-numbers and the 6–16-char reservation short-code space and
+put a Groupon call in front of all of them. A padded game-card barcode is still
+unflagged: the hint is computed on the COMPACT string (`0000000001038091`, 16
+digits), never on the zero-stripped value (`1038091`, 7) — `classify.test.ts`
+now says so explicitly, because that test became load-bearing with this change.
+
+Coverage: new `src/features/groupon/codes.test.ts` (both length edges, the long
+form, normalization, the shapes the API gate must keep out) plus three
+classifier cases. `tsc` clean, eslint clean, full web suite green apart from 3
+pre-existing `race-pack-kiosk.test.ts` failures unrelated to Groupon.
+
+**Unverified, and it needs a real code:** that Groupon's API accepts a 7-long
+value as a `redemptionCodes` query param. Every code we have ever fetched was 8.
+The shape gate is no longer the blocker; if a 7-long code still fails it will
+now fail *at Groupon*, with a real error code in the logs instead of a silent
+`bad_format`. Worth capturing one 7-long code on glass to close this out.

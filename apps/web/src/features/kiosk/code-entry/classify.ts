@@ -47,15 +47,15 @@ export interface ClassifiedCode {
   /**
    * This code COULD be a Groupon redemption code, on shape alone.
    *
-   * Shape cannot decide it. Groupon's short code is 8 alphanumerics, which
-   * collides two ways: `89895632` (a real production Groupon code) is all
-   * digits and so matches the bare game-card barcode rule, and `WNDXH4DJ` is
-   * indistinguishable from an 8-character promo code.
+   * Shape cannot decide it. Groupon's short code is 7 OR 8 alphanumerics
+   * (`GROUPON_CODE_RE`), which collides two ways: `89895632` (a real production
+   * Groupon code) is all digits and so matches the bare game-card barcode rule,
+   * and `WNDXH4DJ` is indistinguishable from a same-length promo code.
    *
    * So this is a HINT, never a verdict, and it deliberately does not change
    * `kind` for any input that already had one — an 8-digit run stays
-   * `game-card`, an 8-character word stays `promo`. The call site tries the
-   * primary path first and only falls back to Groupon when that refuses.
+   * `game-card`, a 7- or 8-character word stays `promo`. The call site tries
+   * the primary path first and only falls back to Groupon when that refuses.
    * Both the ledger read and Groupon's GET are non-destructive, so a wrong
    * guess costs a round-trip and never a burned voucher.
    */
@@ -132,7 +132,7 @@ export function classifyKioskCode(input: string): ClassifiedCode {
   }
 
   // A HINT carried alongside whatever kind the code already had — never a kind
-  // of its own, because an 8-character code is genuinely ambiguous and this
+  // of its own, because a 7-/8-character code is genuinely ambiguous and this
   // function may not do I/O. See `grouponCandidate` on ClassifiedCode.
   const grouponCandidate = GROUPON_CODE_RE.test(compact);
 
@@ -141,7 +141,9 @@ export function classifyKioskCode(input: string): ClassifiedCode {
     // KEEP it a string (Intercard accounts exceed float-safe ranges upstream).
     // An 8-digit run reaches here too and STAYS a game-card: Groupon's
     // `89895632` is shaped identically to an unpadded Intercard account, so the
-    // hint rides along and the call site resolves it by lookup.
+    // hint rides along and the call site resolves it by lookup. A 7-digit
+    // Groupon never reaches this branch at all — `\d{8,}` does not match it, so
+    // it falls to the promo catch-all below carrying the same hint.
     return {
       kind: "game-card",
       value: compact.replace(/^0+(?=\d)/, ""),
