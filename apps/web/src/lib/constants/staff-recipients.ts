@@ -23,7 +23,9 @@ export const CORP_STAFF_RECIPIENTS = [
 /** Each center's own crew (owner list 2026-07-06) — corp is appended by
  *  staffRecipientsForCenter, so edit only the local names here. */
 export const CENTER_STAFF_RECIPIENTS: Record<HeadPinzCenterKey, string[]> = {
-  "fort-myers": ["bruce@headpinz.com", "abigail@headpinz.com", "tyler@headpinz.com"],
+  // tyler@ removed 2026-08-22 — VIP notification moved to Teams; he takes no
+  // booking alerts by email on any center.
+  "fort-myers": ["bruce@headpinz.com", "abigail@headpinz.com"],
   naples: ["donald@headpinz.com", "donna@headpinz.com", "carter@headpinz.com"],
 };
 
