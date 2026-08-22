@@ -4839,3 +4839,47 @@ ignore it, which is worse than no watcher.
    grace was indistinguishable afterwards from one that waited — the single question the first
    race night existed to answer could not be answered. Put it in the durable run log in the
    same commit as the feature.
+
+## A person on a BCC belongs at the call site, never in the transport helper (2026-08-22)
+
+Tyler reported getting **an email for every race booked**. He was not on any race alert list —
+`staff-recipients.ts` has him on Fort Myers' crew, which only World Cup VIP bookings read. The
+address was one line, in the wrong place:
+
+```ts
+// apps/web/app/api/notifications/booking-confirmation/route.ts — sendEmail()
+bcc: [{ email: "vendorcases@dassle.us" }, { email: "tyler@headpinz.com" }],
+```
+
+The comment above it said "so he sees VIP confirmations as they go out". The intent was right;
+the LOCATION was wrong. `sendEmail` is this route's shared transport, used by both rails — the
+kiosk walk-up rail and the web booking rail — for FastTrax racing AND HeadPinz bowling. A BCC in
+there is a BCC on **every confirmation the highest-volume mailer we own sends**: hundreds a week,
+of which a handful are VIP.
+
+**Why it survived three weeks:** nothing failed. No error, no bounce, no guest impact, no log
+line. A misrouted BCC is invisible from inside the system — the only symptom is a staff inbox,
+and the only detector is the human filling it up.
+
+**The rules:**
+
+1. **A named individual never goes in a send helper.** Helpers know HOW to send, not WHY. If a
+   recipient is conditional — a VIP watcher, a center's crew, an escalation — the condition lives
+   where the booking type is known, and the helper takes the list as a parameter. `AUDIT_BCC`
+   (a shared, auditable mailbox) is the only thing that belongs unconditionally in the transport.
+2. **"Copy me on X" is scoped work, not a one-line add.** Before adding an address, ask what
+   else flows through the function you are editing. Here: two rails, two brands, every product.
+   If you cannot name the full set of mail that line will touch, you are not ready to add it.
+3. **Reuse the gate that already exists.** The route already branched on
+   `isVipComboBooking(comboSpecialId)` for the "Confirmation - VIP" BMI state. Deriving the BCC
+   from the same predicate means a booking treated as VIP for state is exactly the one that
+   copies the VIP watcher — two behaviours that can never drift apart.
+4. **Guard it with a source scan, because a unit test cannot see this.** The send is "correct"
+   with or without the extra address. `bcc-scope.test.ts` asserts the invariant against the file:
+   no address literal inside `sendEmail`'s personalization, the watcher named exactly once and
+   used exactly once behind its gate, and every call site passing the list explicitly. It fails
+   on the original line — verified by re-introducing it.
+5. **Volume decides the blast radius, so check it first.** A stray BCC on the group-function
+   mailer is a handful of emails a week and nobody notices. The same mistake on booking
+   confirmation is a mailbox nobody can use. Rank the mailers you touch by send volume before
+   deciding how careful to be.

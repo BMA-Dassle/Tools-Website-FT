@@ -32,6 +32,19 @@ const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
 const FROM_NAME = process.env.SENDGRID_FROM_NAME || "FastTrax Entertainment";
 
+/** Standing audit copy on EVERY confirmation — a shared mailbox, not a person. */
+const AUDIT_BCC = "vendorcases@dassle.us";
+
+/**
+ * VIP-combo watcher (owner 2026-08-03: "so he sees VIP confirmations as they
+ * go out"). SCOPED TO VIP BOOKINGS ONLY — it used to sit unconditionally in
+ * sendEmail's personalization, which put a copy of every confirmation this
+ * route sends (every race, every bowling lane, every kiosk walk-up) in his
+ * inbox instead of the handful of VIP ones he asked for. A person on a BCC
+ * belongs at the call site that knows WHY, never in the transport helper.
+ */
+const VIP_WATCH_BCC = "tyler@headpinz.com";
+
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
 // One A2P sender for every brand. Each template already opens with
 // the brand name, which is also what TCR wants in HELP/opt-out
@@ -70,6 +83,9 @@ async function sendEmail(
   /** Inline (cid:) attachments — the voucher QR. Gmail/Outlook strip data-URI
    *  images, so a cid attachment is the only <img> form that renders there. */
   attachments?: Array<{ content: string; filename: string; type: string; contentId: string }>,
+  /** Per-booking watchers, on top of the standing audit copy. Callers decide —
+   *  this helper has no idea what kind of booking it is sending for. */
+  extraBcc: string[] = [],
 ): Promise<boolean> {
   if (!SENDGRID_API_KEY) {
     console.error("[booking-confirmation] No SENDGRID_API_KEY");
@@ -85,9 +101,7 @@ async function sendEmail(
       personalizations: [
         {
           to: [{ email: to }],
-          // vendorcases is the standing audit copy; tyler@ added 2026-08-03 per
-          // owner so he sees VIP confirmations as they go out.
-          bcc: [{ email: "vendorcases@dassle.us" }, { email: "tyler@headpinz.com" }],
+          bcc: [...new Set([AUDIT_BCC, ...extraBcc])].map((email) => ({ email })),
         },
       ],
       from: { email: FROM_EMAIL, name: fromName || FROM_NAME },
@@ -238,6 +252,12 @@ export async function POST(req: NextRequest) {
       comboReorder,
       kioskMode,
     } = body;
+
+    // Who, besides the audit mailbox, is copied on THIS booking's confirmation.
+    // Same predicate that decides the "Confirmation - VIP" BMI state below, so
+    // a booking treated as VIP there is exactly the one that copies the VIP
+    // watcher here. A plain race or lane booking copies nobody.
+    const extraBcc = isVipComboBooking(comboSpecialId) ? [VIP_WATCH_BCC] : [];
     const codes: string[] = Array.isArray(povCodes) ? povCodes : [];
     // Legacy Rookie Pack boolean from older callers. Kept only to resolve a
     // package id (below) and to tag the sales log — it no longer implies any
@@ -577,7 +597,7 @@ export async function POST(req: NextRequest) {
 </body></html>`;
 
       results.email = email
-        ? await sendEmail(email, subject, emailHtml, "FastTrax", kioskAttachments)
+        ? await sendEmail(email, subject, emailHtml, "FastTrax", kioskAttachments, extraBcc)
         : false;
       if (smsOptIn && phone) {
         results.sms = await sendSms(normalizePhone(phone), smsBody, VOX_FROM_FASTTRAX);
@@ -991,6 +1011,7 @@ export async function POST(req: NextRequest) {
         html,
         isHeadPinzBrand ? "HeadPinz Entertainment" : undefined,
         emailAttachments,
+        extraBcc,
       );
     } catch (err) {
       console.error("[booking-confirmation] email failed:", err);
