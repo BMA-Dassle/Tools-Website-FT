@@ -221,4 +221,8 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     "bowling-shoes",
     KioskBowlingDetailsStep as StepDef,
   ),
+  // Race Sims — real kiosk step list lands with the kiosk surface commit
+  // (product → track → people). Empty is safe meanwhile: no tile, no ?goto,
+  // no code path creates a racesim item yet.
+  racesim: [],
 };

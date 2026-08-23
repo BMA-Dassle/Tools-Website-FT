@@ -34,6 +34,7 @@ import {
   offerableAddonsForParty,
 } from "~/features/booking/service/addon-charge";
 import { getComboSpecial } from "~/features/combos/combo-specials";
+import { getRaceSimProduct, getRaceSimTrack } from "~/features/race-sims/products";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { racerNeedsLicense } from "~/features/booking/service/license";
 import { useT } from "~/features/kiosk/i18n";
@@ -1361,6 +1362,13 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
     }
     return base;
   }
+  if (item.kind === "racesim") {
+    // PLACEHOLDER pricing (race-sims/products.ts) — display estimate only.
+    // The reserve rail is fail-closed until real money ids exist, so this
+    // figure can never drift from a real charge (there isn't one yet).
+    const product = getRaceSimProduct(item.productSlug);
+    return product ? product.price * Math.max(1, item.racerCount) : 0;
+  }
   // bowling / kbf — combo bowling is charged inside the flat combo line.
   if (session.comboSpecialId && item.kind === "bowling") return 0;
   return (
@@ -1398,6 +1406,8 @@ export function allItemsReady(session: BookingSession): boolean {
         // and 400'd QAMF *after* $234.21 was captured, taking a paid race
         // booking down with it.
         return isBookableBowlingLeg(item);
+      case "racesim":
+        return !!item.productSlug && !!item.trackKey && item.racerCount > 0;
     }
   });
 }
@@ -1417,6 +1427,8 @@ function otherItemTitle(item: SessionItem): string {
   if (item.kind === "bowling" && item.isDuckpin) {
     return findOffering("duck-pin")?.displayName ?? "Duck Pin";
   }
+  // Race Sims has no catalog offering (kiosk-owned tile) — findOffering misses.
+  if (item.kind === "racesim") return "Race Sims";
   return findOffering(item.kind)?.displayName ?? item.kind;
 }
 
@@ -1501,6 +1513,14 @@ function otherItemSummary(item: SessionItem): string {
         fmtCartTime(item.hour, item.minute),
         `${item.bowlers.length} bowler${item.bowlers.length === 1 ? "" : "s"}`,
         item.paidAdults > 0 ? `${item.paidAdults} adult${item.paidAdults === 1 ? "" : "s"}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    case "racesim":
+      return [
+        fmtCartDate(item.date),
+        getRaceSimTrack(item.trackKey)?.name ?? null,
+        `${item.racerCount} racer${item.racerCount === 1 ? "" : "s"}`,
       ]
         .filter(Boolean)
         .join(" · ");

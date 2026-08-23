@@ -315,4 +315,9 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     v3Only(BowlingTimeStep as StepDef),
     BowlingShoesStep as StepDef,
   ],
+  // Race Sims (racing simulators, FastTrax FM) are KIOSK-ONLY: the web has no
+  // entry path (no catalog offering, no route), so the web list is empty —
+  // plannedStepsFor degrades to [] — and KIOSK_STEP_REGISTRY carries the real
+  // step list. Placeholder phase 2026-08: see features/race-sims/products.ts.
+  racesim: [],
 };

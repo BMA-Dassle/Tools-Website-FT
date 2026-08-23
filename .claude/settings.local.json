@@ -285,7 +285,9 @@
       "PowerShell(npx vitest run src/features/signage/pit/lane.server.test.ts src/features/signage/pit/pit-board.test.ts 2>$null)",
       "PowerShell(npx tsc --noEmit -p apps/web 2>$null)",
       "PowerShell(npx vitest run src/features/signage/pit 2>$null)",
-      "PowerShell(git add \"apps/web/app/admin/[token]/pit/PitClient.tsx\" apps/web/app/api/admin/pit/route.ts apps/web/src/features/signage/pit/audio.server.ts)"
+      "PowerShell(git add \"apps/web/app/admin/[token]/pit/PitClient.tsx\" apps/web/app/api/admin/pit/route.ts apps/web/src/features/signage/pit/audio.server.ts)",
+      "PowerShell(git -C c:\\\\git\\\\Tools-Website-FT checkout -b feat/kiosk-race-sims)",
+      "PowerShell(cd c:\\\\git\\\\Tools-Website-FT\\\\apps\\\\web; npx tsc --noEmit 2>&1 | Select-Object -First 20; \"tsc exit: $LASTEXITCODE\")"
     ],
     "additionalDirectories": [
       "\\tmp"

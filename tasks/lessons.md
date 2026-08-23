@@ -4839,3 +4839,21 @@ ignore it, which is worse than no watcher.
    grace was indistinguishable afterwards from one that waited — the single question the first
    race night existed to answer could not be answered. Put it in the durable run log in the
    same commit as the feature.
+
+---
+
+## Retired features: disable, don't delete (2026-08-23)
+
+**What happened:** Replacing the kiosk KBF tile with Race Sims, the first commit deleted small
+KBF touchpoints (the `?goto=kbf` seed, the `TIME_ONLY_SLUGS` entry). Owner corrected mid-task:
+"Don't delete the KBF code just disable it for now."
+
+**The rule:** When a feature is being retired or replaced on ONE surface, the default is a
+single, obvious, reversible off switch (a filter/guard at the entry point, dead code commented
+with a dated note) — not deletion, even of "dead" lines. Deletion is its own later PR once the
+owner declares the feature gone for good. This is the same philosophy as the v2 cutover safety
+pattern: deploy the replacement, let it prove out, THEN delete.
+
+**How to apply:** One filter/guard = the whole disable, commented as such at the site. Leave
+every downstream branch, i18n key, asset, and registry entry untouched. If a line must stop
+executing, comment it out with the re-enable instructions next to the off switch.

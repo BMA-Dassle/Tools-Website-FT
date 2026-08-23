@@ -33,6 +33,7 @@ export type {
   PartyMember,
   RaceHeatAssignment,
   RaceItem,
+  RaceSimItem,
   SelectedRewardTier,
   SessionItem,
 } from "./state/types";

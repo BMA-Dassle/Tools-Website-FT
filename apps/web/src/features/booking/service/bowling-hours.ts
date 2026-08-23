@@ -90,8 +90,9 @@ export function otherActivitiesOnDate(
         timeLabel: wallClockLabel(it.slot),
         hour: wallClockHour(it.slot),
       });
-    } else {
-      // bowling | kbf — ET hour lives on item.hour directly
+    } else if (it.kind === "bowling" || it.kind === "kbf") {
+      // bowling | kbf — ET hour lives on item.hour directly. racesim falls
+      // through: sims carry no scheduled time (placeholder phase — walk-up).
       if (it.date !== date || it.hour == null) continue;
       out.push({
         key: it.id,

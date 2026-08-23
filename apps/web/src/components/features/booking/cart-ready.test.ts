@@ -87,6 +87,30 @@ describe("allItemsReady — unchanged for the other kinds", () => {
   });
 });
 
+describe("allItemsReady — racesim (placeholder phase)", () => {
+  const sim = (patch: Partial<import("~/features/booking").RaceSimItem> = {}) => ({
+    ...(newItem("racesim") as import("~/features/booking").RaceSimItem),
+    ...patch,
+  });
+
+  it("blocks a fresh draft, and each half-configured state", () => {
+    expect(allItemsReady(session([sim()]))).toBe(false);
+    expect(allItemsReady(session([sim({ productSlug: "sim-single" })]))).toBe(false);
+    expect(allItemsReady(session([sim({ trackKey: "a" })]))).toBe(false);
+    expect(
+      allItemsReady(session([sim({ productSlug: "sim-single", trackKey: "a", racerCount: 0 })])),
+    ).toBe(false);
+  });
+
+  it("ready with product + track + racers, and surfaces as firstUnready otherwise", () => {
+    expect(
+      allItemsReady(session([sim({ productSlug: "sim-single", trackKey: "a", racerCount: 2 })])),
+    ).toBe(true);
+    const cart = session([bookedRace(), sim({ id: "rs1" })]);
+    expect(firstUnreadyItem(cart)?.id).toBe("rs1");
+  });
+});
+
 describe("firstUnreadyItem", () => {
   it("returns null when everything is ready", () => {
     expect(

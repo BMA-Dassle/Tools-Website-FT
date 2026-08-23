@@ -54,6 +54,7 @@ export function getService(activity: Activity): BookingService {
   if (activity === "race") return raceService;
   if (activity === "attraction") return attractionService;
   if (activity === "bowling" || activity === "kbf") return bowlingService;
+  if (activity === "racesim") return racesimService;
 
   const notYet = (op: string) => (): Promise<never> => {
     throw new Error(`booking.${activity}.${op}() not implemented (PR-B1 scaffold)`);
@@ -90,6 +91,27 @@ const attractionService: BookingService = {
       return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
     }
     await bookAttractionOnAdvance(session, item, dispatch);
+    return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
+  },
+  confirm: async () => ({ ok: true as const }),
+  cancel: async () => ({ ok: true as const }),
+};
+
+// ── Race Sims service (placeholder phase 2026-08) ──────────────────────
+
+/**
+ * Race sims book NO vendor during the placeholder phase — the vendor rail is
+ * undecided (see features/race-sims/products.ts header). These no-ops keep a
+ * mixed racesim+race cart from dying in runCheckout's hold loop, while
+ * unified-reserve guard 2e fail-closes anything that would actually charge.
+ * When the real rail is chosen, hold/confirm/cancel get real bodies here.
+ */
+const racesimService: BookingService = {
+  quote: () => {
+    throw new Error("racesim.quote() not needed — checkout uses bill overview");
+  },
+  hold: async (input) => {
+    const { session } = input as { session: BookingSession };
     return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
   },
   confirm: async () => ({ ok: true as const }),
