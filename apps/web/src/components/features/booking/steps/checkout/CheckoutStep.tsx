@@ -31,6 +31,7 @@ import {
 import { applyPromoToAmount } from "~/features/booking/service/promo-pricing";
 import { calculateTax } from "~/features/booking/service/race-pricing";
 import { activeComboSpecial } from "~/features/combos/combo-pricing";
+import { getRaceSimProduct, getRaceSimTrack } from "~/features/race-sims/products";
 import {
   fetchServerQuote,
   overviewFromServerQuote,
@@ -517,6 +518,24 @@ export function CheckoutStep({
             });
           }
         }
+      }
+
+      // Race Sims (placeholder phase 2026-08): priced from the same in-code
+      // catalog the server quote/charge builder reads (race-sims/products.ts),
+      // so this client fallback can't drift from the server quote. No vendor
+      // booking behind it — reserve guard 2e fail-closes any charge until real
+      // ids are armed, so during staff testing Pay ends at a 409.
+      for (const item of session.items) {
+        if (item.kind !== "racesim") continue;
+        const product = getRaceSimProduct(item.productSlug);
+        if (!product) continue;
+        const qty = Math.max(1, item.racerCount);
+        const track = getRaceSimTrack(item.trackKey);
+        reviewLines.push({
+          name: `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""}`,
+          quantity: qty,
+          amount: (Math.round(product.price * 100) * qty) / 100,
+        });
       }
 
       // Attractions are NOT added from the cart here: they book onto the SAME
