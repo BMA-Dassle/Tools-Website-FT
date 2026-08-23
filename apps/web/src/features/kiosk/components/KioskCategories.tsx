@@ -45,7 +45,7 @@ type CategoryKey = "exp" | "attr";
 /** The countable noun a tile's availability count reads as, keyed per SLUG →
  *  the plural message key that renders it. Only BMI-vendored attractions (which
  *  return a per-slot count) are here — shuffly reads as tables. Everything on
- *  QAMF (bowling, KBF, and duckpin post-migration) has no lane count and shows a
+ *  QAMF (bowling, and duckpin post-migration) has no lane count and shows a
  *  time-only line instead (see TIME_ONLY_SLUGS). */
 const AVAILABILITY_NOUN: Record<string, "table" | "player"> = {
   shuffly: "table",
@@ -58,7 +58,7 @@ const AVAILABILITY_NOUN: Record<string, "table" | "player"> = {
 /** Slugs whose vendor (QAMF/Conqueror) returns bookable times but no lane count
  *  — the tile shows "Next lane · TIME" instead of "N lanes · TIME". Duckpin is
  *  here because it migrated off BMI to QAMF (FastTrax center 11542). */
-const TIME_ONLY_SLUGS = new Set(["bowling", "kbf", "duck-pin"]);
+const TIME_ONLY_SLUGS = new Set(["bowling", "duck-pin"]);
 
 /** Experiences shelf line: "Next available · 6:15 PM · 5 slots" for the VIP
  *  combo / Ultimate Qualifier (earliest feasible start + seats). Null = no
@@ -71,7 +71,7 @@ function experienceLine(t: Translate, firstOpen?: FirstOpen): string | null {
 }
 
 /** The tile availability line: "3 tables · 9:30 PM" when the vendor gives a
- *  count, "Next lane · 12:00 PM" for bowling/KBF (time only), or null when we
+ *  count, "Next lane · 12:00 PM" for bowling (time only), or null when we
  *  have no signal (vendor blip → the tile just omits the line). Localized via
  *  ICU plural. */
 function availabilityLine(t: Translate, slug: string, firstOpen?: FirstOpen): string | null {
@@ -169,7 +169,10 @@ export function KioskCategories({
   const { config } = useKioskConfig();
   const t = useT();
   const gameZone = gameZoneCapability(config); // "full" | "reload" | "none"
-  const offerings = landingOfferingsFor(brand, center);
+  // KBF is retired from the kiosk (2026-08-23 — Race Sims takes its slot); the
+  // catalog entry stays because web /book/v2 and kiosk CHECK-IN still serve
+  // KBF bookings. Kiosk booking is the only door that closes.
+  const offerings = landingOfferingsFor(brand, center).filter((o) => o.kind !== "kbf");
   const combos = enabledCombos().filter((c) => c.center === center);
   // The Ultimate Qualifier is a premium FastTrax racing PACKAGE (not a combo);
   // surface it in Experiences wherever racing is offered.

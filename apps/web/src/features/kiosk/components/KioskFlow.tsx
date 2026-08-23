@@ -235,7 +235,6 @@ function seedForGoto(
 ): { kind: SessionItem["kind"]; slug?: string; duckpin?: boolean } | "vip" | null {
   if (goto === "race") return { kind: "race" };
   if (goto === "bowl" || goto === "bowling") return { kind: "bowling" };
-  if (goto === "kbf") return { kind: "kbf" };
   if (goto === "vip") return "vip";
   // FastTrax duckpin on QAMF: a bowling item (center 11542), not a BMI
   // attraction, when the flag is active. Flag-off keeps the attraction path.
