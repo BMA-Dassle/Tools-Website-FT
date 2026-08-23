@@ -7,6 +7,7 @@ import {
   CrossCategoryHeatCollisionError,
 } from "~/features/booking/service/unified-reserve";
 import { CreditRedemptionError } from "~/features/booking/service/race-credit-redeem";
+import { RaceSimNotConfiguredError } from "~/features/race-sims/products";
 import { WorldCupReservationError } from "~/features/world-cup";
 import type { BookingSession } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
@@ -67,6 +68,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
     if (err instanceof WorldCupReservationError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
+    if (err instanceof RaceSimNotConfiguredError) {
+      // 409 — Race Sims placeholder phase (guard 2e): refused before the day-of
+      // order exists, so the reader is never armed. Expected on staff tests.
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
     if (err instanceof CreditRedemptionError) {

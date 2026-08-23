@@ -15,6 +15,7 @@ import {
 } from "~/features/booking/service/deposit";
 import { CreditRedemptionError } from "~/features/booking/service/race-credit-redeem";
 import { MidnightMadnessWindowError } from "~/features/booking/service/bowling-offer";
+import { RaceSimNotConfiguredError } from "~/features/race-sims/products";
 import { WorldCupReservationError } from "~/features/world-cup";
 import type { BookingSession } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
@@ -108,6 +109,12 @@ export async function POST(req: NextRequest) {
     if (err instanceof MidnightMadnessWindowError) {
       // 409 — a Midnight Madness leg starts outside Fri/Sat 11:45 PM+ ET.
       // Raised before any Square or QAMF write; nothing charged.
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
+    if (err instanceof RaceSimNotConfiguredError) {
+      // 409 — Race Sims placeholder phase: no real product ids exist yet, so
+      // guard 2e refuses BEFORE any Square write; nothing charged. Expected
+      // outcome of every staff test checkout until the ids are armed.
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
     if (err instanceof RewardFailedError) {

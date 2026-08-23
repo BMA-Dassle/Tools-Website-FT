@@ -34,6 +34,12 @@ import { addonPurchaseIntents } from "./addon-charge";
 import { upsertAddonPurchases } from "../data/addon-purchases-db";
 import { grantAddonCredits } from "./addon-grant.server";
 import { SQUARE_RACE_PACK_CATALOG_ID } from "../data/packs";
+import {
+  getRaceSimProduct,
+  getRaceSimTrack,
+  raceSimProductConfigured,
+  RaceSimNotConfiguredError,
+} from "~/features/race-sims/products";
 import { centerCodeFor } from "~/config/intercard-centers";
 import { formatPersonName } from "~/lib/helpers/name-format";
 import { after } from "next/server";
@@ -695,6 +701,34 @@ export function buildCombinedLineItems(session: BookingSession): {
       unitCents,
       ...(factor !== 1 ? { originalUnitCents: fullUnitCents } : {}),
     });
+  }
+
+  // Race Sims (placeholder phase 2026-08): priced for the quote/review screens
+  // from the in-code catalog (race-sims/products.ts), collected in FULL (no
+  // vendor rail holds anything). The Square line carries catalogObjectId only
+  // once a real id exists; until then reserve guard 2e (unifiedReserveInner)
+  // throws BEFORE any Square write, so these lines can only reach the quote.
+  for (const item of session.items) {
+    if (item.kind !== "racesim") continue;
+    const product = getRaceSimProduct(item.productSlug);
+    if (!product) continue; // unready draft — allItemsReady blocks it upstream
+    const qty = Math.max(1, item.racerCount);
+    const unitCents = Math.round(product.price * 100);
+    const track = getRaceSimTrack(item.trackKey);
+    const name = `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""}`;
+    totalPriceCents += unitCents * qty;
+    totalDepositCents += unitCents * qty;
+    sqLineItems.push({
+      name,
+      quantity: String(qty),
+      ...(product.squareCatalogObjectId
+        ? {
+            catalogObjectId: product.squareCatalogObjectId,
+            basePriceMoney: { amount: unitCents, currency: "USD" },
+          }
+        : { basePriceMoney: { amount: unitCents, currency: "USD" } }),
+    });
+    pricedLines.push({ name, quantity: qty, unitCents });
   }
 
   // Pack lines LAST (after every booked-thing line) — one revenue line per
@@ -1716,6 +1750,24 @@ async function unifiedReserveInner(
       // null bookedAt is unparseable → rejects (fail-closed; guards money).
       const mmWindowError = midnightMadnessWindowError(item.bookedAt ?? "");
       if (mmWindowError) throw new MidnightMadnessWindowError(mmWindowError);
+    }
+  }
+
+  // ── 2e. Race Sims: fail-closed until real product ids exist ───────
+  // PLACEHOLDER PHASE (2026-08): the kiosk sells Race Sims behind a staff PIN
+  // gate with placeholder prices, and NO product has a Square/vendor id yet
+  // (race-sims/products.ts is the single seam). Throws → 409 in reserve-all
+  // BEFORE any Square write, on BOTH rails (unifiedReserve card charge AND
+  // prepareUnifiedDeposit terminal prepare) — nothing armed, nothing charged.
+  // BEFORE ARMING REAL IDS: (1) wire the vendor booking rail (see products.ts
+  // header — a Square id alone charges with no reservation), and (2) fix
+  // resolveLocationId attribution for mixed racesim+HeadPinz carts, which
+  // would book the whole order at the HeadPinz location today.
+  for (const item of session.items) {
+    if (item.kind !== "racesim") continue;
+    const product = getRaceSimProduct(item.productSlug);
+    if (!product || !raceSimProductConfigured(product)) {
+      throw new RaceSimNotConfiguredError(item.productSlug);
     }
   }
 
