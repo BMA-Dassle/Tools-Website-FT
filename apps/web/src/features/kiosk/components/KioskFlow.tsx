@@ -235,6 +235,10 @@ function seedForGoto(
 ): { kind: SessionItem["kind"]; slug?: string; duckpin?: boolean } | "vip" | null {
   if (goto === "race") return { kind: "race" };
   if (goto === "bowl" || goto === "bowling") return { kind: "bowling" };
+  // KBF kiosk booking is DISABLED, not deleted (2026-08-23 — tile filtered out
+  // in KioskCategories; owner: keep the KBF code). Restore this seed alongside
+  // that filter to re-enable:
+  // if (goto === "kbf") return { kind: "kbf" };
   if (goto === "vip") return "vip";
   // FastTrax duckpin on QAMF: a bowling item (center 11542), not a BMI
   // attraction, when the flag is active. Flag-off keeps the attraction path.
