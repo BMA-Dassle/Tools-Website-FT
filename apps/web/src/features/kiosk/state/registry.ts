@@ -19,9 +19,15 @@ import { KioskBowlingTimeStep } from "../steps/KioskBowlingTimeStep";
 import { KioskBowlingTierStep } from "../steps/KioskBowlingTierStep";
 import { KioskBowlingOfferStep } from "../steps/KioskBowlingOfferStep";
 import { KioskBowlingPeopleStep } from "../steps/KioskBowlingPeopleStep";
-import { KioskRacePeopleStep, KioskAttractionPeopleStep } from "../steps/KioskPeopleStep";
+import {
+  KioskRacePeopleStep,
+  KioskAttractionPeopleStep,
+  KioskRaceSimPeopleStep,
+} from "../steps/KioskPeopleStep";
+import { KioskRaceSimProductStep } from "../steps/KioskRaceSimProductStep";
+import { KioskRaceSimTrackStep } from "../steps/KioskRaceSimTrackStep";
 
-export const KIOSK_SCHEMA_VERSION = 12; // v12: RaceItem.rookiePack removed (POV step is a pure video upsell)
+export const KIOSK_SCHEMA_VERSION = 13; // v13: racesim item kind (Race Sims placeholder flow)
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
 
 /** Match the web registry's World Cup gating for bowling time steps. */
@@ -221,8 +227,15 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     "bowling-shoes",
     KioskBowlingDetailsStep as StepDef,
   ),
-  // Race Sims — real kiosk step list lands with the kiosk surface commit
-  // (product → track → people). Empty is safe meanwhile: no tile, no ?goto,
-  // no code path creates a racesim item yet.
-  racesim: [],
+  // Race Sims (FastTrax FM, PLACEHOLDER PHASE 2026-08): kiosk-only flow —
+  // the web registry's racesim list is deliberately empty. Walk-up like
+  // everything else on the kiosk (no date step; KioskFlow stamps today).
+  // Product (1 Race / packs) → track (A/B/C) → the same people list the other
+  // activities use. Checkout is fail-closed server-side until real product
+  // ids exist (features/race-sims/products.ts).
+  racesim: [
+    KioskRaceSimProductStep as StepDef,
+    KioskRaceSimTrackStep as StepDef,
+    KioskRaceSimPeopleStep as StepDef,
+  ],
 };

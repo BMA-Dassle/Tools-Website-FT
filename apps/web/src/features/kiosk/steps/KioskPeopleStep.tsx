@@ -26,8 +26,14 @@
  *     (owner 2026-07-18: the parent may just be paying for the kids) — with a
  *     "Join the fun" escape hatch onto the roster.
  */
-import { useEffect, useRef, useState } from "react";
-import type { AttractionItem, PartyMember, RaceItem, StepDef } from "~/features/booking";
+import { useEffect, useRef, useState, type ComponentType } from "react";
+import type {
+  AttractionItem,
+  PartyMember,
+  RaceItem,
+  RaceSimItem,
+  StepDef,
+} from "~/features/booking";
 import { newPartyMember } from "~/features/booking";
 import { tierFromMemberships } from "~/features/booking/service/race-products";
 import { getComboSpecial, comboMinHeadcount } from "~/features/combos/combo-specials";
@@ -2690,6 +2696,68 @@ export const KioskAttractionPeopleStep: StepDef<AttractionItem> = {
   isVisible: (item) => WAIVER_SLUGS.has(item.slug ?? ""),
   canAdvance: (item, session) => {
     if (!WAIVER_SLUGS.has(item.slug ?? "")) return true;
+    const ids = item.participants ?? session.party.map((m) => m.id);
+    return peopleReady(session.party, ids);
+  },
+};
+
+/**
+ * Race Sims (placeholder phase 2026-08): the SAME people list, attraction
+ * style — toggle who's riding the sims, everyone set up + waivered. The shared
+ * component patches attraction fields ({participants, qty}), so this wrapper
+ * remaps them onto RaceSimItem (participants + assignedTo + racerCount) —
+ * cart readiness reads racerCount and the removePartyMember cascade scrubs
+ * assignedTo, so both must track the toggle.
+ */
+const RaceSimPeopleComponent: StepDef<RaceSimItem>["Component"] = (props) => {
+  const { item, session, onChange } = props;
+  // First render with a party but no explicit selection: default EVERYONE in
+  // (the component displays exactly that), so racerCount/assignedTo match what
+  // the guest sees even if they never touch a toggle.
+  useEffect(() => {
+    if (!item.participants && session.party.length > 0) {
+      const ids = session.party.map((m) => m.id);
+      onChange({ participants: ids, assignedTo: ids, racerCount: ids.length });
+    }
+  }, [item.participants, session.party, onChange]);
+
+  const mapped = (patch: Partial<AttractionItem>) => {
+    const out: Partial<RaceSimItem> = {};
+    if (patch.participants) {
+      out.participants = patch.participants;
+      out.assignedTo = patch.participants;
+    }
+    if (patch.qty != null) out.racerCount = Math.max(1, patch.qty);
+    if (Object.keys(out).length > 0) onChange(out);
+  };
+  const Base = PeopleStepComponent as unknown as ComponentType<{
+    item: RaceSimItem;
+    session: typeof session;
+    onChange: (patch: Partial<AttractionItem>) => void;
+    dispatch: typeof props.dispatch;
+    setBusy?: (busy: boolean) => void;
+    requestAdvance?: () => void;
+  }>;
+  return (
+    <Base
+      item={item}
+      session={session}
+      onChange={mapped}
+      dispatch={props.dispatch}
+      setBusy={props.setBusy}
+      requestAdvance={props.requestAdvance}
+    />
+  );
+};
+
+export const KioskRaceSimPeopleStep: StepDef<RaceSimItem> = {
+  // Reuses the attraction people id — inherits NATIVE_STEP_IDS canvas sizing
+  // in KioskFlow; step ids only need to be unique within one kind's list.
+  id: "kiosk-who",
+  title: "Who's racing?",
+  Component: RaceSimPeopleComponent,
+  isVisible: () => true,
+  canAdvance: (item, session) => {
     const ids = item.participants ?? session.party.map((m) => m.id);
     return peopleReady(session.party, ids);
   },

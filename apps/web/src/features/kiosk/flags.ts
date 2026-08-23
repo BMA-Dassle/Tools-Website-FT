@@ -86,6 +86,19 @@ export function kioskRaceInfoEnabled(): boolean {
 }
 
 /**
+ * Race Sims tile on the FastTrax FM kiosk — kill switch, defaults ON. The tile
+ * carries its own staff gate during the placeholder phase (guests see a locked
+ * "Coming Soon" card; the kiosk admin PIN opens the flow), so this switch is
+ * NOT the exposure gate — it exists only to pull the tile entirely in an
+ * emergency. Set the literal "false" in Vercel + redeploy to hide it
+ * (NEXT_PUBLIC_* values are build-baked). Read at call time (never module
+ * scope) so tests can stub process.env.
+ */
+export function kioskRaceSimEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS !== "false";
+}
+
+/**
  * BMI writes for kiosk CHECK-IN (registerProjectPerson attach, racer schedule,
  * "Confirmation Kiosk" state stamp, staff memo, interactive lane-open) — kill
  * switch, defaults ON (owner 2026-07-25, after the live smoke: register → attach
