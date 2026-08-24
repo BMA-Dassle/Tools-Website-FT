@@ -37,7 +37,9 @@ import { loadExperiencesForCenter, matchExperienceForRow } from "./experience-re
 import {
   assertEditable,
   editFlagEnabled,
+  isPreDecreaseOnlyPlan,
   isRefundOnlyPlan,
+  PRE_DECREASE_FLAG,
   refundFlagForPhase,
   selectPhase,
   type SquareOrderState,
@@ -1736,6 +1738,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
   );
   const phaseFlag = movesPaidOrderMoney ? refundFlagForPhase(phase) : null;
   const refundOnly = isRefundOnlyPlan({ diffCents, steps });
+  const preDecreaseOnly = isPreDecreaseOnlyPlan({ phase, diffCents, steps });
   let executionBlocked: { code: EditGuardCode; message: string } | null = null;
   if (phaseFlag && !editFlagEnabled(phaseFlag)) {
     executionBlocked = {
@@ -1745,7 +1748,17 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
           ? `Refunding a closed visit has been switched off (${phaseFlag}=false). The preview above is accurate — ask Eric to switch it back on.`
           : `Refunding after check-in has been switched off (${phaseFlag}=false). The preview above is accurate — ask Eric to switch it back on.`,
     };
-  } else if (!refundOnly && !editFlagEnabled("RESERVATION_EDIT_V2")) {
+  } else if (preDecreaseOnly && !editFlagEnabled(PRE_DECREASE_FLAG)) {
+    // Checked BEFORE the master switch: this shape rides its own kill switch,
+    // so ops can stop it while the master is on, and it keeps running when the
+    // master is off. Either way the reason staff see names the right var.
+    executionBlocked = {
+      code: "edit_not_enabled",
+      message:
+        `Reducing a booking before check-in has been switched off (${PRE_DECREASE_FLAG}=false). ` +
+        "The preview above is accurate.",
+    };
+  } else if (!refundOnly && !preDecreaseOnly && !editFlagEnabled("RESERVATION_EDIT_V2")) {
     // A pure refund rides its phase switch; anything that also charges, syncs
     // QAMF/BMI, or rebuilds an order needs the master one.
     executionBlocked = {

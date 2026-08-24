@@ -704,6 +704,60 @@ describe("executeEditCascade — day-of refund leg (post-day-of flow)", () => {
     });
   });
 
+  describe("PRE-decrease kill switch (RESERVATION_EDIT_V2_PRE_DECREASE)", () => {
+    // A pre-payment reduction: value back to the guest, the deposit card
+    // decremented, the STILL-UNTENDERED day-of order's lines corrected, and an
+    // advisory Conqueror roster push. Money-symmetric with a refund, so it
+    // rides its own switch.
+    const PRE_DECREASE_STEPS: EditStep[] = [
+      { kind: "audit_start", fatal: true },
+      { kind: "refund_tender", fatal: true, amountCents: 1703 },
+      { kind: "adjust_gift_card_down", fatal: true, target: "GC1", amountCents: 1703 },
+      { kind: "update_dayof_order", fatal: true, target: "O1", amountCents: -1703 },
+      { kind: "neon_commit", fatal: true },
+      { kind: "qamf_set_players", fatal: false, target: "Q1" },
+      { kind: "notify", fatal: false },
+    ];
+    const shrink = () =>
+      mkPlan(PRE_DECREASE_STEPS, {
+        diffCents: -1703,
+        guestOwedCents: 1703,
+        gcDecrementCents: 1703,
+        settlement: "card_refund",
+        spec: { playerCount: 2 },
+      });
+
+    afterEach(() => {
+      delete process.env.RESERVATION_EDIT_V2_PRE_DECREASE;
+      delete process.env.RESERVATION_EDIT_V2;
+    });
+
+    it("is enforced in the EXECUTOR, not just at the route", async () => {
+      // The master switch is only checked in route.ts, so a direct call to the
+      // executor bypasses it. A NEW capability must not inherit that gap.
+      process.env.RESERVATION_EDIT_V2_PRE_DECREASE = "false";
+      const code = await guardCode(() => executeEditCascade(baseReq(shrink())));
+      expect(code).toBe("edit_not_enabled");
+      expect(vi.mocked(startEditEvent)).not.toHaveBeenCalled();
+    });
+
+    it("its own switch wins even while the MASTER is on", async () => {
+      process.env.RESERVATION_EDIT_V2_PRE_DECREASE = "false";
+      delete process.env.RESERVATION_EDIT_V2; // master ON (unset = on)
+      const code = await guardCode(() => executeEditCascade(baseReq(shrink())));
+      expect(code).toBe("edit_not_enabled");
+    });
+
+    it("does NOT gate a pre INCREASE — that stays the master's business", async () => {
+      // Killing the decrease switch must not accidentally stop charges.
+      process.env.RESERVATION_EDIT_V2_PRE_DECREASE = "false";
+      const code = await guardCode(() =>
+        executeEditCascade(baseReq(mkPlan(PRE_INCREASE_STEPS))),
+      ).catch(() => "no-guard-error");
+      expect(code).not.toBe("edit_not_enabled");
+    });
+  });
+
   it("refuses a day-of reason that reuses the deposit journal key", async () => {
     // Owner rule: "Refund: Reservation Deposit" is the portal's journal key
     // for the CASH leg. Reusing it here double-counts one economic event.

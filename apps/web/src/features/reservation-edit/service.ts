@@ -45,7 +45,12 @@ import {
 } from "~/features/cancellation/square-actions";
 import { resolveCenter } from "~/features/cancellation/centers";
 
-import { editFlagEnabled as flag, refundFlagForPhase } from "./guards";
+import {
+  editFlagEnabled as flag,
+  isPreDecreaseOnlyPlan,
+  PRE_DECREASE_FLAG,
+  refundFlagForPhase,
+} from "./guards";
 import type { EditPlan, EditPlanLeg, PlanLine } from "./plan";
 import {
   adjustGiftCardDown,
@@ -189,6 +194,16 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
       throw new EditGuardError(
         "bmi_line_unavailable",
         "BMI-touching edits have been switched off (RESERVATION_EDIT_V2_RACE=false)",
+      );
+    }
+    // Pre-payment REDUCTION rides its own kill switch. Enforced HERE and not
+    // only at the route because this is the point where money actually moves:
+    // the route is the master switch's only enforcement point today, and a new
+    // capability must not inherit that single-point gap.
+    if (isPreDecreaseOnlyPlan(plan) && !flag(PRE_DECREASE_FLAG)) {
+      throw new EditGuardError(
+        "edit_not_enabled",
+        `reducing a booking before check-in has been switched off (${PRE_DECREASE_FLAG}=false)`,
       );
     }
     // A1 was OVERTURNED on 2026-07-27 by an owner-authorized live probe: the

@@ -4,6 +4,7 @@ import { EditGuardError } from "./types";
 import {
   assertEditable,
   editFlagEnabled,
+  isPreDecreaseOnlyPlan,
   isRefundOnlyPlan,
   refundFlagForPhase,
   selectPhase,
@@ -209,6 +210,135 @@ describe("isRefundOnlyPlan", () => {
     // what may run without the master flag.
     expect(
       isRefundOnlyPlan(plan(-2767, ...REFUND, "some_new_step_nobody_reviewed" as EditStepKind)),
+    ).toBe(false);
+  });
+});
+
+describe("isPreDecreaseOnlyPlan", () => {
+  type S = { kind: EditStepKind; fatal?: boolean };
+  const f = (kind: EditStepKind): S => ({ kind, fatal: true });
+  const nf = (kind: EditStepKind): S => ({ kind, fatal: false });
+  const pre = (diffCents: number, ...steps: S[]) => ({
+    phase: "pre" as const,
+    diffCents,
+    steps,
+  });
+
+  /** Exactly what plan.ts emits for a pre-payment headcount reduction. */
+  const SHRINK: S[] = [
+    f("audit_start"),
+    f("refund_tender"),
+    f("adjust_gift_card_down"),
+    f("update_dayof_order"),
+    f("neon_commit"),
+    nf("qamf_set_players"),
+    nf("qamf_memo"),
+    nf("notify"),
+  ];
+
+  it("accepts the pre-payment reduction the pre branch actually builds", () => {
+    expect(isPreDecreaseOnlyPlan(pre(-1703, ...SHRINK))).toBe(true);
+  });
+
+  it("accepts a reduction settled to store credit instead of the card", () => {
+    expect(
+      isPreDecreaseOnlyPlan(
+        pre(
+          -1703,
+          f("audit_start"),
+          f("issue_store_credit"),
+          f("adjust_gift_card_down"),
+          f("update_dayof_order"),
+          f("neon_commit"),
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts a reduction with no day-of order yet (nothing to correct)", () => {
+    expect(
+      isPreDecreaseOnlyPlan(
+        pre(
+          -500,
+          f("audit_start"),
+          f("refund_tender"),
+          f("adjust_gift_card_down"),
+          f("neon_commit"),
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("refuses any phase but pre — after lane-open the tender exists", () => {
+    // The whole safety argument is that a `pre` order has NO finalized tenders,
+    // so update_dayof_order is legal. That stops being true in mid/post.
+    for (const phase of ["mid", "post_complete"] as const) {
+      expect(isPreDecreaseOnlyPlan({ phase, diffCents: -1703, steps: SHRINK })).toBe(false);
+    }
+  });
+
+  it("requires money to come back — an increase belongs to the master switch", () => {
+    expect(isPreDecreaseOnlyPlan(pre(0, ...SHRINK))).toBe(false);
+    expect(isPreDecreaseOnlyPlan(pre(1500, ...SHRINK))).toBe(false);
+  });
+
+  it("refuses anything that charges, rebooks, or touches BMI", () => {
+    for (const extra of [
+      f("charge_topup"),
+      f("load_gift_card"),
+      f("charge_dayof_order"),
+      f("await_payment_link"),
+      f("qamf_rebook"),
+      f("bmi_add_heats"),
+      f("bmi_attractions"),
+      f("refund_dayof_payment"),
+      f("refund_dayof_order"),
+      f("rebuild_dayof_order"),
+      f("pay_dayof_order"),
+      f("complete_dayof_order"),
+    ]) {
+      expect(isPreDecreaseOnlyPlan(pre(-1703, ...SHRINK, extra))).toBe(false);
+    }
+  });
+
+  it("refuses a race-heat removal even though the pre branch emits it non-fatally", () => {
+    // BMI heats are capacity + entitlement, not an advisory roster. Being
+    // non-fatal does not make them advisory.
+    expect(isPreDecreaseOnlyPlan(pre(-1703, ...SHRINK, nf("bmi_remove_lines")))).toBe(false);
+  });
+
+  it("gates a step on its BLAST RADIUS, not just its name", () => {
+    // qamf_set_players is permitted only while it cannot fail the cascade.
+    expect(isPreDecreaseOnlyPlan(pre(-1703, f("audit_start"), nf("qamf_set_players")))).toBe(true);
+    expect(isPreDecreaseOnlyPlan(pre(-1703, f("audit_start"), f("qamf_set_players")))).toBe(false);
+  });
+
+  it("treats a MISSING fatal flag as fatal — softer list is never the default", () => {
+    // An unmarked step must not slip through the advisory allowlist.
+    expect(isPreDecreaseOnlyPlan(pre(-1703, f("audit_start"), { kind: "notify" }))).toBe(false);
+  });
+
+  it("is an ALLOWLIST — an unknown future step kind is refused on both lists", () => {
+    const unknown = "some_new_step_nobody_reviewed" as EditStepKind;
+    expect(isPreDecreaseOnlyPlan(pre(-1703, ...SHRINK, f(unknown)))).toBe(false);
+    expect(isPreDecreaseOnlyPlan(pre(-1703, ...SHRINK, nf(unknown)))).toBe(false);
+  });
+
+  it("does NOT overlap isRefundOnlyPlan — the two gates stay disjoint", () => {
+    // A pre reduction must never ride the refund flags, and a paid-order
+    // refund must never ride the pre flag.
+    expect(isRefundOnlyPlan({ diffCents: -1703, steps: SHRINK })).toBe(false);
+    expect(
+      isPreDecreaseOnlyPlan(
+        pre(
+          -2767,
+          f("audit_start"),
+          f("refund_dayof_payment"),
+          f("refund_tender"),
+          f("reconcile_gift_card"),
+          f("neon_commit"),
+        ),
+      ),
     ).toBe(false);
   });
 });
