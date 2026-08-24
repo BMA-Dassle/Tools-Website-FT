@@ -30,6 +30,7 @@
  * board never goes black or lies — stale frames grey out and say "Reconnecting",
  * and a board with no camera shows a calm setup notice.
  */
+import { useMemo } from "react";
 import { IconVideoOff, IconAlertTriangleFilled, IconPointFilled } from "@tabler/icons-react";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import type { OnTimeSnapshot } from "~/features/racing/on-time";
@@ -53,7 +54,10 @@ import {
   type CheckinProgressSession,
 } from "../checkin-progress";
 import { briefingTimelineAt } from "../briefing/phase";
-import type { BriefingRoomState } from "../briefing/types";
+import { buildStageRail, type StageRow } from "../briefing/stage-rail";
+import { sendWindow } from "../briefing/pull-to-room";
+import { liveHeatNumber } from "../briefing/room-return";
+import { resolveFilmTier, tierForRaceType, type BriefingRoomState } from "../briefing/types";
 import type { SceneProps } from "../director/types";
 import type { TvFeed } from "../types";
 
@@ -102,6 +106,47 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
   );
 
   // A camera board with no camera chosen cannot know what to show. Say so calmly.
+  /**
+   * THE RAIL THIS BOARD NOW SHOWS — the same builder the pit signs and the
+   * briefing rooms run (owner 2026-08-24), so three surfaces cannot describe
+   * one night differently. Above BOTH early returns — hooks run in the same order every render.
+   */
+  const railRows = useMemo(() => {
+    const railTrack = track ?? "mega";
+    const called = status?.currentRaces?.[railTrack] ?? null;
+    const vids = feed?.briefing?.videos ?? null;
+    const filmTier = resolveFilmTier(
+      tierForRaceType(called?.raceType ?? null),
+      (t) => !!vids?.[t]?.url,
+    );
+    const count = feed?.raceCheckin;
+    return buildStageRail({
+      called,
+      // On a Mega night the one circuit is fed by both rooms.
+      rooms: (railTrack === "mega" ? (["red", "blue"] as const) : ([railTrack] as const)).map(
+        (r) => feed?.briefingRooms?.[r as "red" | "blue"] ?? null,
+      ),
+      lane: feed?.pitLanes?.[railTrack] ?? null,
+      nowMs: feed?.now ?? nowMs,
+      liveHeatNumber: sessionClock ? liveHeatNumber(sessionClock.heatName) : null,
+      liveCounting: sessionClock?.counting === true,
+      liveRemainingMs: sessionClock?.remainingMs ?? null,
+      formatClock: fmtRailClock,
+      checkedIn:
+        count && count.checkedIn != null && count.total != null
+          ? { checkedIn: count.checkedIn, total: count.total }
+          : null,
+      brief: sendWindow({
+        remainingMs: sessionClock?.remainingMs ?? null,
+        onTrack: !!sessionClock || !!feed?.pitLanes?.[railTrack]?.racing,
+        onTrackHeatNumber: sessionClock ? liveHeatNumber(sessionClock.heatName) : null,
+        filmMs: vids?.[filmTier]?.durationMs ?? null,
+        pitPost: null,
+        attribution: "this-room",
+      }),
+    });
+  }, [track, status?.currentRaces, feed, nowMs, sessionClock]);
+
   if (!cam?.deviceId) return <Unconfigured />;
 
   const label = cam.label || "Live camera";
@@ -117,6 +162,7 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
   );
 
   // No track ⇒ a plain full-bleed camera (a lobby cam). The clocks only make
+
   // sense for a board tied to a track.
   if (!track) {
     return (
@@ -138,19 +184,30 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
       }}
     >
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        {/* Camera, left. Contained (not cropped) so the whole fisheye reads. */}
-        <div style={{ position: "relative", width: "50%", background: "#000" }}>{camera}</div>
-        {/* The on-track session clock, HUGE, on the track's colour — with the
-            desk's check-in progress underneath it. */}
-        <ClockPane
-          clock={sessionClock}
+        {/*
+          Camera, left. Contained (not cropped) so the whole fisheye reads —
+          and NARROWER THAN HALF (owner 2026-08-24: "taking up a bit more of
+          the camera side"). The camera answers one question, is anybody in
+          that room, and it answers it fine at 42%; the rail beside it is six
+          rows of text read from across a corridor, so the width goes where
+          the reading is.
+        */}
+        <div style={{ position: "relative", width: "42%", background: "#000" }}>{camera}</div>
+        {/*
+          WHERE EVERY SESSION IS, replacing the flat field of accent colour
+          that used to carry one clock (owner 2026-08-24). The clock survives
+          in the corner — it was the one number on that panel worth a glance —
+          and is now also a row, so the two cannot disagree. Everything else
+          the panel showed was already a row here, and the four stages it never
+          showed come for free.
+        */}
+        <RailPane
           accent={accent}
-          checkin={roomCheckinProgress(feed?.checkinProgress ?? [], track)}
+          trackLabel={TRACK_LABELS[track]}
+          clock={sessionClock}
+          rows={railRows}
           returning={feed?.checkinReturning ?? null}
           nowMs={nowMs}
-          // The SAME window the track boards count down for guests, so the
-          // rail cannot escalate on a deadline the wall opposite disagrees with.
-          windowMins={config.checkinWindowMins}
         />
       </div>
       {/* The status bar gives ground back when a returning panel is up — it is
@@ -331,6 +388,202 @@ function BriefingStrip({
  * this clock mean… no races running… it's 5am"). A clock only appears when it is
  * counting something real.
  */
+/** M:SS for the rail, the same shape the pit sign's tracker uses. */
+function fmtRailClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+const RAIL_TONE: Record<StageRow["tone"], string> = {
+  none: "rgba(245,236,238,0.62)",
+  good: "#46d68c",
+  warn: "#f0b341",
+  alert: "#ff4d4d",
+};
+
+/**
+ * WHERE EVERY SESSION IS — this board's right-hand half (owner 2026-08-24:
+ * "I'd like to see a mock up of replacing the blue and red boxes with the where
+ * sessions are board", then "option one").
+ *
+ * WHAT IT REPLACED, and why. The old pane was a flat field of the track's
+ * colour carrying one enormous clock and, when there was one, a white
+ * checking-in card. It answered "how long has the race got" beautifully and
+ * nothing else: a staff member who walked over to ask whether a group was in
+ * the room, in the seats, or still owed a post got no answer, and between heats
+ * the brightest half of the wall said "No session · Standby".
+ *
+ * THE CLOCK SURVIVES, in the corner and smaller. It is the one number worth a
+ * glance from a distance — and it is now ALSO the On-track row, both read off
+ * `sessionClock`, so the corner and the row cannot disagree.
+ *
+ * IDENTITY WITHOUT THE FLOOD. Blue is still obviously blue: the accent moves to
+ * the left edge, the eyebrow and the live clock. A field of pure colour was
+ * spending half the wall on something a 6px edge carries.
+ *
+ * THE RETURNING LINE STAYS a line, not a card — it is the one fact the rail's
+ * Pit-in row cannot express on its own (how long the group has been waiting on
+ * their post), and it only appears while somebody is actually waiting.
+ */
+function RailPane({
+  accent,
+  trackLabel,
+  clock,
+  rows,
+  returning,
+  nowMs,
+}: {
+  accent: string;
+  trackLabel: string;
+  clock: LiveSessionClock | null;
+  rows: StageRow[];
+  returning: TvFeed["checkinReturning"];
+  nowMs: number;
+}) {
+  const paused = clock?.state === "paused";
+  return (
+    <div
+      style={{
+        flex: 1,
+        minWidth: 0,
+        background: "#0a0e14",
+        borderLeft: `6px solid ${accent}`,
+        padding: "26px 30px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 18,
+        justifyContent: "center",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "baseline", gap: 18, flexWrap: "wrap" }}>
+        <span
+          className="tv-eyebrow"
+          style={{ fontSize: 26, letterSpacing: "0.14em", color: accent }}
+        >
+          {trackLabel}
+        </span>
+        {clock && (
+          <span style={{ marginLeft: "auto", textAlign: "right" }}>
+            <span
+              className="tv-display"
+              style={{
+                display: "block",
+                fontSize: 62,
+                lineHeight: 0.95,
+                color: paused ? "#f0b341" : "#fff",
+              }}
+            >
+              {formatRemaining(clock.remainingMs)}
+            </span>
+            <span
+              className="tv-eyebrow"
+              style={{ fontSize: 18, letterSpacing: "0.12em", color: "rgba(245,236,238,0.55)" }}
+            >
+              {paused ? "Paused" : "On track"}
+            </span>
+          </span>
+        )}
+      </div>
+
+      <div style={{ display: "grid", gap: 13 }}>
+        {rows.map((r) => {
+          const empty = r.value === "—";
+          return (
+            <div
+              key={r.label}
+              style={{ display: "flex", alignItems: "baseline", gap: 20, flexWrap: "wrap" }}
+            >
+              <span
+                className="tv-eyebrow"
+                style={{
+                  flex: "0 0 168px",
+                  fontSize: 22,
+                  letterSpacing: "0.08em",
+                  color: "rgba(245,236,238,0.45)",
+                }}
+              >
+                {r.label}
+              </span>
+              <span
+                className="tv-display"
+                style={{
+                  fontSize: 34,
+                  lineHeight: 1,
+                  color: empty ? "rgba(245,236,238,0.28)" : "#fff",
+                }}
+              >
+                {r.value}
+              </span>
+              {r.type && (
+                <span
+                  className="tv-eyebrow"
+                  style={{ fontSize: 20, color: "rgba(245,236,238,0.55)" }}
+                >
+                  {r.type}
+                </span>
+              )}
+              {r.detail && (
+                <span
+                  className="tv-eyebrow"
+                  style={{ fontSize: 22, color: RAIL_TONE[r.tone], letterSpacing: "0.05em" }}
+                >
+                  {r.detail}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {returning && <ReturningLine returning={returning} />}
+    </div>
+  );
+}
+
+/**
+ * RACERS GOING STRAIGHT BACK OUT — the one fact on the old pane that the rail
+ * cannot express, because it is not about a stage at all: these people have
+ * just raced and are booked into a LATER heat, so they skip check-in and go to
+ * holding. Kept as a line rather than the old white card; the rail above it is
+ * the board's subject now.
+ */
+function ReturningLine({ returning }: { returning: NonNullable<TvFeed["checkinReturning"]> }) {
+  if (returning.groups.length === 0) return null;
+  const total = returning.groups.reduce((n, g) => n + g.names.length, 0);
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "baseline",
+        gap: 16,
+        flexWrap: "wrap",
+        borderTop: "1px solid rgba(245,236,238,0.14)",
+        paddingTop: 14,
+      }}
+    >
+      <span className="tv-eyebrow" style={{ fontSize: 22, color: "#f0b341" }}>
+        Racing again
+      </span>
+      {returning.fromSession != null && (
+        <span className="tv-display" style={{ fontSize: 30, color: "#fff" }}>
+          Session {returning.fromSession}
+        </span>
+      )}
+      <span className="tv-eyebrow" style={{ fontSize: 22, color: "rgba(245,236,238,0.7)" }}>
+        {returning.groups
+          .map((g) => {
+            const key = trackFromName(g.track);
+            return `→ ${g.session ?? "—"} ${key ? TRACK_SHORT[key] : g.track}`;
+          })
+          .join("   ")}
+      </span>
+      <span className="tv-eyebrow" style={{ fontSize: 22, color: "#f0b341" }}>
+        {total} straight to holding
+      </span>
+    </div>
+  );
+}
+
 function ClockPane({
   clock,
   accent,
@@ -795,13 +1048,13 @@ function StatusBar({
     : d.insufficientData
       ? "Not enough of tonight measured yet"
       : worst !== null
-      ? `Heat ${worst.heatNumber ?? "?"} called ${Math.round(worst.delayMin)} min late` +
-        (d.lateCalls.length > 1 ? ` · ${d.lateCalls.length} late this hour` : "")
-      : // Carry the sample size: a median over one heat must not read with the
-        // same confidence as one over three.
-        `Median ${d.callDelayMin !== null && d.callDelayMin >= 0 ? "+" : ""}${
-          d.callDelayMin ?? "—"
-        } min over ${d.callDelayN} heat${d.callDelayN === 1 ? "" : "s"}`;
+        ? `Heat ${worst.heatNumber ?? "?"} called ${Math.round(worst.delayMin)} min late` +
+          (d.lateCalls.length > 1 ? ` · ${d.lateCalls.length} late this hour` : "")
+        : // Carry the sample size: a median over one heat must not read with the
+          // same confidence as one over three.
+          `Median ${d.callDelayMin !== null && d.callDelayMin >= 0 ? "+" : ""}${
+            d.callDelayMin ?? "—"
+          } min over ${d.callDelayN} heat${d.callDelayN === 1 ? "" : "s"}`;
 
   return (
     <div

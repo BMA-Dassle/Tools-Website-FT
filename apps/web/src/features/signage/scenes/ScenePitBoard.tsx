@@ -37,7 +37,8 @@ import { useRaceClockForRace } from "~/features/racing/use-race-clocks";
 import { liveHeatNumber } from "../briefing/room-return";
 import { buildStageRail, type StageRow } from "../briefing/stage-rail";
 import { briefingTimelineAt } from "../briefing/phase";
-import type { BriefingRoomState } from "../briefing/types";
+import { resolveFilmTier, tierForRaceType, type BriefingRoomState } from "../briefing/types";
+import { sendWindow } from "../briefing/pull-to-room";
 import {
   TRACK_ACCENTS,
   TRACK_LABELS,
@@ -325,6 +326,29 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
    * here: without them every row renders exactly the words this wall has always
    * shown, so nothing a guest sees moved.
    */
+  /**
+   * WHEN THE CALLED GROUP SHOULD BE BRIEFED — one engine, three surfaces. The
+   * film is the one the called session will ACTUALLY get (the Pro→Intermediate
+   * fallback), because that is what decides whether it fits.
+   *
+   * `attribution: "this-room"` — this wall speaks for its own track's rail, and
+   * the Mega room-suppression the desk board needs is a question about which of
+   * two ROOMS a returning group walks into, which a pit sign does not ask.
+   */
+  const idleBrief = useMemo(() => {
+    const calledType = status?.currentRaces?.[track]?.raceType ?? null;
+    const vids = feed?.briefing?.videos ?? null;
+    const filmTier = resolveFilmTier(tierForRaceType(calledType), (t) => !!vids?.[t]?.url);
+    return sendWindow({
+      remainingMs: liveClock?.remainingMs ?? null,
+      onTrack: !!liveClock || !!lane?.racing,
+      onTrackHeatNumber: liveClock ? liveHeatNumber(liveClock.heatName) : null,
+      filmMs: vids?.[filmTier]?.durationMs ?? null,
+      pitPost: null,
+      attribution: "this-room",
+    });
+  }, [status?.currentRaces, track, feed?.briefing?.videos, liveClock, lane?.racing]);
+
   const idleStages = useMemo(
     () =>
       buildStageRail({
@@ -339,6 +363,23 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
         nowMs: feed?.now ?? nowMs,
         liveHeatNumber: liveClock ? liveHeatNumber(liveClock.heatName) : null,
         liveCounting: liveClock?.counting === true,
+        /**
+         * THE EXTRAS ARE PASSED NOW (owner 2026-08-24: "these screens both pit
+         * and briefing should be showing how many racers are checked in, and
+         * pulling race to briefing time frames — the important numbers").
+         *
+         * They were deliberately withheld when this builder was lifted out on
+         * 8/16 so that adopting it changed nothing a guest could see. The
+         * numbers were always the point of the rail; the wall just never had
+         * them.
+         */
+        liveRemainingMs: liveClock?.remainingMs ?? null,
+        formatClock: fmtTrackerClock,
+        checkedIn:
+          feed?.raceCheckin?.checkedIn != null && feed?.raceCheckin?.total != null
+            ? { checkedIn: feed.raceCheckin.checkedIn, total: feed.raceCheckin.total }
+            : null,
+        brief: idleBrief,
       }),
     [feed?.briefingRooms, feed?.now, nowMs, status?.currentRaces, track, lane, liveClock],
   );

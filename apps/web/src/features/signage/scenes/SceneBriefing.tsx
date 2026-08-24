@@ -35,10 +35,12 @@ import {
   normaliseGreetingTiming,
 } from "../briefing/return-greeting";
 import { buildStageRail, type StageRow } from "../briefing/stage-rail";
+import { sendWindow } from "../briefing/pull-to-room";
 import { roomBlockedAlertAt } from "../briefing/room-blocked";
 import { incomingForRoom, normaliseCameraReturn } from "../briefing/camera-return";
-import { tierForRaceType, type BriefingRoom } from "../briefing/types";
-import { LiveSessionChip } from "../live-session";
+import { resolveFilmTier, tierForRaceType, type BriefingRoom } from "../briefing/types";
+import { LiveSessionChip, useLiveSessionClock } from "../live-session";
+import { liveHeatNumber } from "../briefing/room-return";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { useBriefingAssets } from "../briefing/useBriefingAssets";
 import { demoBriefingRooms } from "../demo";
@@ -147,28 +149,63 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
    * ABOVE THE EARLY RETURN, like the clock below it: hooks run in the same
    * order every render or they run wrong.
    */
-  const idleStages = useMemo(
-    () =>
-      buildStageRail({
-        called: trackStatus?.currentRaces?.[liveTrack ?? "mega"] ?? null,
-        rooms: (megaEnabled ? (["red", "blue"] as const) : ([room ?? "red"] as const)).map(
-          (r) => roomsNow?.[r as "red" | "blue"] ?? null,
-        ),
-        lane: feed?.pitLanes?.[liveTrack ?? "mega"] ?? null,
-        // The feed's own stamp when it has one — never Date.now() in render.
-        nowMs: feed?.now ?? nowMs,
+  const railClock = useLiveSessionClock(liveTrack);
+  const idleStages = useMemo(() => {
+    const railTrack = liveTrack ?? "mega";
+    const called = trackStatus?.currentRaces?.[railTrack] ?? null;
+    const vids = feed?.briefing?.videos ?? null;
+    const filmTier = resolveFilmTier(
+      tierForRaceType(called?.raceType ?? null),
+      (t) => !!vids?.[t]?.url,
+    );
+    const count = feed?.raceCheckin;
+    return buildStageRail({
+      called,
+      rooms: (megaEnabled ? (["red", "blue"] as const) : ([room ?? "red"] as const)).map(
+        (r) => roomsNow?.[r as "red" | "blue"] ?? null,
+      ),
+      lane: feed?.pitLanes?.[railTrack] ?? null,
+      // The feed's own stamp when it has one — never Date.now() in render.
+      nowMs: feed?.now ?? nowMs,
+      liveHeatNumber: railClock ? liveHeatNumber(railClock.heatName) : null,
+      liveCounting: railClock?.counting === true,
+      /**
+       * THE NUMBERS THE OWNER ASKED FOR (2026-08-24: "these screens both pit and
+       * briefing should be showing how many racers are checked in, and pulling
+       * race to briefing time frames"). The count only counts when it is THIS
+       * track's heat; the feed carries one track's check-in at a time.
+       */
+      liveRemainingMs: railClock?.remainingMs ?? null,
+      formatClock: formatRailClock,
+      checkedIn:
+        count && count.checkedIn != null && count.total != null
+          ? { checkedIn: count.checkedIn, total: count.total }
+          : null,
+      brief: sendWindow({
+        remainingMs: railClock?.remainingMs ?? null,
+        onTrack: !!railClock || !!feed?.pitLanes?.[railTrack]?.racing,
+        onTrackHeatNumber: railClock ? liveHeatNumber(railClock.heatName) : null,
+        filmMs: vids?.[filmTier]?.durationMs ?? null,
+        pitPost: null,
+        // This room speaks for its own track's flow; the Mega room-suppression
+        // the desk needs answers a different question (which of two rooms a
+        // returning group walks into), which this rail does not ask.
+        attribution: "this-room",
       }),
-    [
-      feed?.pitLanes,
-      feed?.now,
-      nowMs,
-      trackStatus?.currentRaces,
-      liveTrack,
-      megaEnabled,
-      room,
-      roomsNow,
-    ],
-  );
+    });
+  }, [
+    feed?.pitLanes,
+    feed?.now,
+    feed?.briefing?.videos,
+    feed?.raceCheckin,
+    nowMs,
+    trackStatus?.currentRaces,
+    liveTrack,
+    megaEnabled,
+    room,
+    roomsNow,
+    railClock,
+  ]);
 
   if (!room) return <Unconfigured />;
 
@@ -683,6 +720,12 @@ function BriefingVideo({
 }
 
 /* ── the boards ───────────────────────────────────────────────────────── */
+
+/** M:SS for the rail, the same shape the pit sign's tracker uses. */
+function formatRailClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
 
 /**
  * THE IDLE BOARD — where every session is, for a room with nobody in it.
@@ -1328,20 +1371,48 @@ function useWelcomeBackAudio(info: WelcomeBackInfo, roomEmpty: boolean): Greetin
    */
   const playsRef = useRef<{ anchor: number; count: number } | null>(null);
 
+  /**
+   * WHEN THIS RETURN'S GREETING SPEAKS, LATCHED (owner 2026-08-24: "it seems
+   * like the motion will interrupt an already playing announcement and it
+   * shouldn't").
+   *
+   * The audio effect below used to depend on `arrivedAtMs` directly, so the
+   * arrival stamp landing — which normally happens a poll or two AFTER the
+   * fixed timer has already started the clip — tore the element down mid-word
+   * and started the schedule again. The room heard the greeting restart.
+   *
+   * So the start moment is state, not a derived value: a fresh arrival may pull
+   * it EARLIER, which is the whole point of motion mode, but only while the
+   * clip has not spoken yet. Once it has, nothing moves it, and the audio
+   * effect's dependencies stop changing.
+   */
+  const [greetStart, setGreetStart] = useState<{ anchor: number; atMs: number } | null>(null);
   useEffect(() => {
-    if (!audioUrl || !roomEmpty || proSilent || postPlayedAtMs == null) return;
-    if (greetingWindowClosed(postPlayedAtMs, Date.now())) return;
-    // Null = KEEP WAITING: motion mode, camera healthy, nobody in the room
-    // yet — a greeting to an empty room is the bug this replaces. The next
-    // poll that stamps an arrival changes a dependency and re-runs this
-    // effect; the window check above bounds the wait.
-    const startAtMs = greetingStartMs({
+    if (postPlayedAtMs == null) {
+      setGreetStart(null);
+      return;
+    }
+    const computed = greetingStartMs({
       byMotion: greetingByMotion,
       postPlayedAtMs,
       arrivedAtMs,
       motionHealthy,
       fallbackMs: timing.fallbackMs,
     });
+    if (computed == null) return;
+    setGreetStart((cur) => {
+      if (cur?.anchor !== postPlayedAtMs) return { anchor: postPlayedAtMs, atMs: computed };
+      // Same return. Earlier is allowed until it has spoken; after that the
+      // schedule is fixed for the rest of the window.
+      if (playsRef.current?.count) return cur;
+      return computed < cur.atMs ? { anchor: postPlayedAtMs, atMs: computed } : cur;
+    });
+  }, [postPlayedAtMs, arrivedAtMs, motionHealthy, greetingByMotion, timing.fallbackMs]);
+
+  useEffect(() => {
+    if (!audioUrl || !roomEmpty || proSilent || postPlayedAtMs == null) return;
+    if (greetingWindowClosed(postPlayedAtMs, Date.now())) return;
+    const startAtMs = greetStart?.anchor === postPlayedAtMs ? greetStart.atMs : null;
     if (startAtMs == null) return;
 
     if (playsRef.current?.anchor !== postPlayedAtMs) {
@@ -1384,17 +1455,10 @@ function useWelcomeBackAudio(info: WelcomeBackInfo, roomEmpty: boolean): Greetin
       releaseAudio(el);
       setAudible((c) => (c === "greeting" ? null : c));
     };
-  }, [
-    audioUrl,
-    roomEmpty,
-    proSilent,
-    postPlayedAtMs,
-    arrivedAtMs,
-    motionHealthy,
-    greetingByMotion,
-    timing.fallbackMs,
-    timing.maxPlays,
-  ]);
+    // DELIBERATELY NOT `arrivedAtMs` / `motionHealthy` — they are folded into
+    // the latched start above, and depending on them here is exactly what let a
+    // motion stamp interrupt a playing clip.
+  }, [audioUrl, roomEmpty, proSilent, postPlayedAtMs, greetStart, timing.maxPlays]);
 
   /**
    * THE LINGER NAG — "another group is waiting" — exactly once per return
@@ -1413,6 +1477,19 @@ function useWelcomeBackAudio(info: WelcomeBackInfo, roomEmpty: boolean): Greetin
     if (!lingerAudioUrl || !roomEmpty || lingerAtMs == null) return;
     if (Date.now() - lingerAtMs > LINGER_FRESH_MS) return;
     if (lingerPlayedRef.current === lingerAtMs) return;
+    /**
+     * NEVER OVER A CLIP ALREADY SOUNDING (owner 2026-08-24: "the motion will
+     * interrupt an already playing announcement and it shouldn't").
+     *
+     * The linger nag is itself motion-triggered — the room still moving after
+     * the group walked in — and its stamp regularly lands while the greeting is
+     * still speaking, so two clips talked over each other in a small room. It
+     * WAITS instead: returning without claiming `lingerPlayedRef` leaves the
+     * nag owed, and `audible` is a dependency, so the moment the greeting falls
+     * silent this effect runs again and speaks. The freshness check above is
+     * what stops it waiting forever.
+     */
+    if (audible !== null) return;
     lingerPlayedRef.current = lingerAtMs;
     let stopped = false;
     const el = new Audio(lingerAudioUrl);
@@ -1431,7 +1508,7 @@ function useWelcomeBackAudio(info: WelcomeBackInfo, roomEmpty: boolean): Greetin
       releaseAudio(el);
       setAudible((c) => (c === "reminder" ? null : c));
     };
-  }, [lingerAudioUrl, roomEmpty, lingerAtMs]);
+  }, [lingerAudioUrl, roomEmpty, lingerAtMs, audible]);
 
   return {
     playing: audible != null,

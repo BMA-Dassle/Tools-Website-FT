@@ -38,6 +38,7 @@
  * nothing a guest can see.
  */
 import { briefingTimelineAt } from "./phase";
+import type { SendWindow } from "./pull-to-room";
 import type { BriefingRoomState } from "./types";
 import type { PitLaneFeed } from "../pit/pit-board";
 
@@ -68,7 +69,9 @@ export interface StageRow {
   heatNumber: number | null;
   /**
    * Tone for the detail, decided here so two surfaces cannot colour the same
-   * fact differently. `alert` is only ever a post-race announcement still owed.
+   * fact differently. `alert` means a deadline has been passed rather than
+   * approached: a post-race announcement still owed, or a briefing that can no
+   * longer finish before the race in front ends.
    */
   tone: "none" | "good" | "warn" | "alert";
   /**
@@ -113,6 +116,16 @@ export interface StageRailInput {
   formatClock?: (ms: number) => string;
   /** The desk's count for the called heat, when the caller polls it. */
   checkedIn?: { checkedIn: number; total: number } | null;
+  /**
+   * WHEN THE CALLED GROUP SHOULD BE BRIEFED — the `sendWindow()` verdict the
+   * check-in board's Send button and the room tablets' pull band already wear
+   * (owner 2026-08-24: "make sure we honor what check in board and briefing
+   * tablets honor"). Passed in rather than computed here so there is exactly
+   * one engine behind all three surfaces and no second opinion to drift.
+   *
+   * Omit it and the Called row reads as it always has.
+   */
+  brief?: SendWindow | null;
 }
 
 function sessionLabel(heatNumber: number | null | undefined): string {
@@ -186,16 +199,59 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
   // A total of zero is a roster we could not read, NOT an empty heat — it must
   // never be allowed to read as "everybody is here".
   const allIn = !!count && count.total > 0 && count.checkedIn >= count.total;
+  /**
+   * THE BRIEFING COUNTDOWN, in the words the wall may honestly use.
+   *
+   * IT NEVER SAYS "NOW" ONCE THE FILM HAS STOPPED FITTING (owner 2026-08-24:
+   * "definitely don't say send now if there is not enough time"). The grace
+   * minute is DEFINED as the film no longer fitting, so it reads "no time" and
+   * counts the grace down — the same fact the board's red pulsing button is
+   * showing the staff member. Only `open` earns "brief now".
+   *
+   * "Brief", not "send" (owner: "send in is confusing… maybe Brief in?"): send
+   * is what a staff member does to a group, brief is what happens to the group,
+   * and these screens are read by both.
+   */
+  const briefPhrase = ((): { text: string; tone: StageRow["tone"] } | null => {
+    const w = input.brief;
+    if (!w || calledHeat == null) return null;
+    switch (w.kind) {
+      case "early":
+        return fmt ? { text: `brief in ${fmt(w.opensInMs)}`, tone: "warn" } : null;
+      case "open":
+        return { text: "brief now", tone: "good" };
+      case "grace":
+        return fmt
+          ? { text: `no time · ${fmt(w.graceLeftMs)} grace`, tone: "alert" }
+          : { text: "no time", tone: "alert" };
+      case "blocked":
+        return { text: "after the post", tone: "alert" };
+      case "quiet":
+        return null;
+    }
+  })();
+
+  const countText =
+    calledHeat != null && count && count.total > 0
+      ? `${count.checkedIn} of ${count.total} checked in`
+      : null;
   rows.push({
     label: "Called",
     value: sessionLabel(calledHeat),
     type: calledHeat != null ? (called?.raceType ?? undefined) : undefined,
-    detail:
-      calledHeat != null && count && count.total > 0
-        ? `${count.checkedIn} of ${count.total} checked in`
-        : undefined,
+    detail: [countText, briefPhrase?.text].filter(Boolean).join(" · ") || undefined,
     heatNumber: calledHeat,
-    tone: calledHeat != null && count && count.total > 0 ? (allIn ? "good" : "warn") : "none",
+    // THE HARDER FACT WINS THE COLOUR. A complete grid is good news, but a
+    // briefing that can no longer fit outranks it — green beside "no time"
+    // would be the screen contradicting itself.
+    tone:
+      briefPhrase && briefPhrase.tone === "alert"
+        ? "alert"
+        : countText
+          ? allIn
+            ? (briefPhrase?.tone ?? "good")
+            : "warn"
+          : (briefPhrase?.tone ?? "none"),
   });
 
   /**
