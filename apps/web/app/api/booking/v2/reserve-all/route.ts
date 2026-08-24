@@ -15,7 +15,7 @@ import {
 } from "~/features/booking/service/deposit";
 import { CreditRedemptionError } from "~/features/booking/service/race-credit-redeem";
 import { MidnightMadnessWindowError } from "~/features/booking/service/bowling-offer";
-import { RaceSimNotConfiguredError } from "~/features/race-sims/products";
+import { RaceSimNotConfiguredError, RaceSimMixedCartError } from "~/features/race-sims/products";
 import { WorldCupReservationError } from "~/features/world-cup";
 import type { BookingSession } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
@@ -111,10 +111,11 @@ export async function POST(req: NextRequest) {
       // Raised before any Square or QAMF write; nothing charged.
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
-    if (err instanceof RaceSimNotConfiguredError) {
-      // 409 — Race Sims placeholder phase: no real product ids exist yet, so
-      // guard 2e refuses BEFORE any Square write; nothing charged. Expected
-      // outcome of every staff test checkout until the ids are armed.
+    if (err instanceof RaceSimNotConfiguredError || err instanceof RaceSimMixedCartError) {
+      // 409 — Race Sims guard 2e refused BEFORE any Square write; nothing
+      // charged. NOT_CONFIGURED = keys not armed yet (expected during staff
+      // testing); MIXED_CART = sims + HeadPinz items on one order (revenue
+      // attribution — pay the sims separately until order-splitting lands).
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
     if (err instanceof RewardFailedError) {

@@ -20,7 +20,12 @@
  * steps own the rest of the item.
  */
 import type { StepDef, RaceSimItem } from "~/features/booking";
-import { RACE_SIM_PRODUCTS, type RaceSimProduct } from "~/features/race-sims/products";
+import {
+  RACE_SIM_PRODUCTS,
+  raceSimPriceFor,
+  type RaceSimProduct,
+} from "~/features/race-sims/products";
+import { todayYmd } from "../service/first-available";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
 
@@ -44,6 +49,10 @@ const KioskRaceSimProductStepComponent: StepDef<RaceSimItem>["Component"] = ({
   const t = useT();
   const single = RACE_SIM_PRODUCTS.find((p) => p.kind === "single");
   const isSelected = item.productSlug != null;
+  // Kiosk = walk-up: every price shown is TODAY's rate ($14 Mon–Thu / $16
+  // Fri–Sun — raceSimPriceFor owns the split; the charge reads the same
+  // helper off item.date, so displayed == charged).
+  const today = todayYmd();
 
   // Mirror of RaceProductStep's column button factory (`col(on)`), at canvas
   // px. k-tap owns the transition (its unlayered rule out-cascades Tailwind's
@@ -58,10 +67,35 @@ const KioskRaceSimProductStepComponent: StepDef<RaceSimItem>["Component"] = ({
     const on = item.productSlug === product.slug;
     const nameKey = PRODUCT_NAME_KEYS[product.slug];
     const name = nameKey ? t(nameKey) : product.name;
+    const price = raceSimPriceFor(product, today);
+    // Not-yet-sellable (pack keys unminted): karting's LockedTierRung
+    // treatment scaled to a column — dimmed, no price quote ("quoting money
+    // for something unbuyable invites a 'why can't I pick it' tap"), no tap.
+    if (!product.bookable) {
+      return (
+        <div
+          key={product.slug}
+          aria-disabled
+          className="rounded-[16px] border border-dashed border-white/15 bg-white/[0.02] p-[24px] text-left opacity-45"
+        >
+          <div className="text-[20px] font-extrabold uppercase tracking-[0.14em] text-white/40">
+            {name}
+          </div>
+          <div className="mt-[8px] text-[24px] font-bold text-white/70">
+            {t("racesim.tile.comingSoon")}
+          </div>
+          <div className="mt-[6px] text-[20px] leading-snug text-white/45">
+            {t("racesim.product.pack.sub")}
+          </div>
+        </div>
+      );
+    }
     // Save chip = what N singles would cost minus the pack price, whole
-    // dollars — same math as karting's `saveDollars`.
-    const saveDollars = single ? Math.round(single.price * product.raceCount - product.price) : 0;
-    const perRace = product.price / Math.max(1, product.raceCount);
+    // dollars — same math as karting's `saveDollars`, at today's rate.
+    const saveDollars = single
+      ? Math.round(raceSimPriceFor(single, today) * product.raceCount - price)
+      : 0;
+    const perRace = price / Math.max(1, product.raceCount);
     return (
       <button
         key={product.slug}
@@ -78,7 +112,7 @@ const KioskRaceSimProductStepComponent: StepDef<RaceSimItem>["Component"] = ({
           )}
         </div>
         <div className="mt-[8px] text-[34px] font-extrabold tabular-nums text-white">
-          ${product.price.toFixed(2)}{" "}
+          ${price.toFixed(2)}{" "}
           <span className="text-[22px] font-medium text-white/40">
             / {t("racesim.product.perRacer")}
           </span>

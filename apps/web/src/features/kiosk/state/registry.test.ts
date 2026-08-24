@@ -15,11 +15,14 @@ describe("racesim step registries", () => {
     expect(STEP_REGISTRY.racesim).toEqual([]);
   });
 
-  it("kiosk registry runs product → track → people", () => {
+  it("kiosk registry runs product → track → people → time", () => {
+    // People BEFORE time: party size feeds the freeSpots gate (capacity 4)
+    // and the main contact must exist before the first BMI line books.
     expect(KIOSK_STEP_REGISTRY.racesim.map((s) => s.id)).toEqual([
       "racesim-product",
       "racesim-track",
       "kiosk-who",
+      "racesim-slot",
     ]);
   });
 

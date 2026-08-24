@@ -26,8 +26,9 @@ import {
 } from "../steps/KioskPeopleStep";
 import { KioskRaceSimProductStep } from "../steps/KioskRaceSimProductStep";
 import { KioskRaceSimTrackStep } from "../steps/KioskRaceSimTrackStep";
+import { KioskRaceSimSlotStep } from "../steps/KioskRaceSimSlotStep";
 
-export const KIOSK_SCHEMA_VERSION = 13; // v13: racesim item kind (Race Sims placeholder flow)
+export const KIOSK_SCHEMA_VERSION = 14; // v14: RaceSimItem slot/slotProposal/bmiLineId (real booking rail)
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
 
 /** Match the web registry's World Cup gating for bowling time steps. */
@@ -227,15 +228,19 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     "bowling-shoes",
     KioskBowlingDetailsStep as StepDef,
   ),
-  // Race Sims (FastTrax FM, PLACEHOLDER PHASE 2026-08): kiosk-only flow —
-  // the web registry's racesim list is deliberately empty. Walk-up like
-  // everything else on the kiosk (no date step; KioskFlow stamps today).
-  // Product (1 Race / packs) → track (A/B/C) → the same people list the other
-  // activities use. Checkout is fail-closed server-side until real product
-  // ids exist (features/race-sims/products.ts).
+  // Race Sims (FastTrax FM): kiosk-only flow — the web registry's racesim
+  // list is deliberately empty. Walk-up like everything else on the kiosk
+  // (no date step; the slot step stamps today). Product (1 Race / packs) →
+  // track (A/B/C) → the same people list the other activities use → time
+  // (eager $0-key hold, gel/laser semantics). People BEFORE time so the
+  // party size is known when freeSpots gates the session (capacity 4), and
+  // so the main contact exists before the first BMI line books
+  // (contact-up-front rule). Checkout fail-closed until the BMI keys are
+  // armed (features/race-sims/products.ts).
   racesim: [
     KioskRaceSimProductStep as StepDef,
     KioskRaceSimTrackStep as StepDef,
     KioskRaceSimPeopleStep as StepDef,
+    KioskRaceSimSlotStep as StepDef,
   ],
 };

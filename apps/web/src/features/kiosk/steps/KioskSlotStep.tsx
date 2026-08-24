@@ -84,6 +84,8 @@ const KioskSlotStepComponent: StepDef<AttractionItem>["Component"] = (props) => 
             for (const h of other.heats) if (h.heatId) otherTimes.push(slotStartMs(h.heatId));
           } else if (other.kind === "attraction" && other.slot) {
             otherTimes.push(slotStartMs(other.slot));
+          } else if (other.kind === "racesim" && other.slot) {
+            otherTimes.push(slotStartMs(other.slot));
           } else if ((other.kind === "bowling" || other.kind === "kbf") && other.bookedAt) {
             otherTimes.push(slotStartMs(other.bookedAt));
           }

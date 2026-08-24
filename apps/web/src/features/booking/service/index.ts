@@ -97,21 +97,35 @@ const attractionService: BookingService = {
   cancel: async () => ({ ok: true as const }),
 };
 
-// ── Race Sims service (placeholder phase 2026-08) ──────────────────────
+// ── Race Sims service ───────────────────────────────────────────────────
+
+import { bookRaceSimOnAdvance } from "~/features/race-sims/service";
+import type { RaceSimItem } from "../state/types";
 
 /**
- * Race sims book NO vendor during the placeholder phase — the vendor rail is
- * undecided (see features/race-sims/products.ts header). These no-ops keep a
- * mixed racesim+race cart from dying in runCheckout's hold loop, while
- * unified-reserve guard 2e fail-closes anything that would actually charge.
- * When the real rail is chosen, hold/confirm/cancel get real bodies here.
+ * Race sims book a $0 track-key line onto the shared BMI bill (gel/laser
+ * semantics: the kiosk slot step eager-holds on pick; this hold is the
+ * checkout-time backstop). No slot picked yet → nothing to book, and reserve
+ * guard 2e fail-closes any charge until the keys are armed. Confirm/cancel
+ * ride the bill-level rails (confirmBmiPayment / abandonBooking).
  */
 const racesimService: BookingService = {
   quote: () => {
     throw new Error("racesim.quote() not needed — checkout uses bill overview");
   },
   hold: async (input) => {
-    const { session } = input as { session: BookingSession };
+    const { session, item, dispatch } = input as {
+      session: BookingSession;
+      item: RaceSimItem;
+      dispatch: Dispatch<Action>;
+    };
+    if (item.bmiLineId) {
+      return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
+    }
+    if (!item.slotProposal) {
+      return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
+    }
+    await bookRaceSimOnAdvance(session, item, dispatch);
     return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
   },
   confirm: async () => ({ ok: true as const }),

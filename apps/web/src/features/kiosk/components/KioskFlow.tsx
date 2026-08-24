@@ -208,6 +208,7 @@ const NATIVE_STEP_IDS = new Set([
   // Race Sims (kiosk-native, canvas px).
   "racesim-product",
   "racesim-track",
+  "racesim-slot",
 ]);
 
 /**

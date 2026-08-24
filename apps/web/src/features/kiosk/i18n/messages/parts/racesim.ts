@@ -30,6 +30,8 @@ export const racesimEn = {
   "racesim.product.sim-3-pack": "3-Race Pack",
   "racesim.product.sim-5-pack": "5-Race Pack",
   "racesim.product.single.sub": "One race on the track of your choice.",
+  /** Deferred-pack column note (packs shown but not sellable yet). */
+  "racesim.product.pack.sub": "More races, better price — mix tracks.",
   "racesim.product.perRacer": "per racer",
   /** {price} pre-formatted ("$13.33"), {count} = races in the pack. */
   "racesim.product.perRace": "{price}/race · {count} races",
@@ -65,6 +67,7 @@ export const racesimEs: Record<keyof typeof racesimEn, string> = {
   "racesim.product.sim-3-pack": "Paquete de 3 carreras",
   "racesim.product.sim-5-pack": "Paquete de 5 carreras",
   "racesim.product.single.sub": "Una carrera en la pista que elijas.",
+  "racesim.product.pack.sub": "Más carreras, mejor precio — combina pistas.",
   "racesim.product.perRacer": "por piloto",
   "racesim.product.perRace": "{price}/carrera · {count} carreras",
   "racesim.product.save": "Ahorra {amount}",

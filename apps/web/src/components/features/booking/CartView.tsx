@@ -34,7 +34,7 @@ import {
   offerableAddonsForParty,
 } from "~/features/booking/service/addon-charge";
 import { getComboSpecial } from "~/features/combos/combo-specials";
-import { getRaceSimProduct, getRaceSimTrack } from "~/features/race-sims/products";
+import { getRaceSimProduct, getRaceSimTrack, raceSimPriceFor } from "~/features/race-sims/products";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { racerNeedsLicense } from "~/features/booking/service/license";
 import { useT } from "~/features/kiosk/i18n";
@@ -1363,11 +1363,10 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
     return base;
   }
   if (item.kind === "racesim") {
-    // PLACEHOLDER pricing (race-sims/products.ts) — display estimate only.
-    // The reserve rail is fail-closed until real money ids exist, so this
-    // figure can never drift from a real charge (there isn't one yet).
+    // Same catalog + day-of-week helper the charge builder reads
+    // (race-sims/products.ts), so the estimate can't drift from the charge.
     const product = getRaceSimProduct(item.productSlug);
-    return product ? product.price * Math.max(1, item.racerCount) : 0;
+    return product ? raceSimPriceFor(product, item.date) * Math.max(1, item.racerCount) : 0;
   }
   // bowling / kbf — combo bowling is charged inside the flat combo line.
   if (session.comboSpecialId && item.kind === "bowling") return 0;
@@ -1407,7 +1406,9 @@ export function allItemsReady(session: BookingSession): boolean {
         // booking down with it.
         return isBookableBowlingLeg(item);
       case "racesim":
-        return !!item.productSlug && !!item.trackKey && item.racerCount > 0;
+        // Slot required (attraction parity): a sim leg with no session time
+        // must never reach the pay screen (the 2026-07-28 phantom-leg class).
+        return !!item.productSlug && !!item.trackKey && !!item.slot && item.racerCount > 0;
     }
   });
 }
@@ -1519,6 +1520,7 @@ function otherItemSummary(item: SessionItem): string {
     case "racesim":
       return [
         fmtCartDate(item.date),
+        fmtCartIsoTime(item.slot),
         getRaceSimTrack(item.trackKey)?.name ?? null,
         `${item.racerCount} racer${item.racerCount === 1 ? "" : "s"}`,
       ]

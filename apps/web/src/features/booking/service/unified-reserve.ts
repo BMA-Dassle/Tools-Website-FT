@@ -37,8 +37,11 @@ import { SQUARE_RACE_PACK_CATALOG_ID } from "../data/packs";
 import {
   getRaceSimProduct,
   getRaceSimTrack,
-  raceSimProductConfigured,
+  raceSimPriceFor,
+  raceSimItemConfigured,
   RaceSimNotConfiguredError,
+  RaceSimMixedCartError,
+  RACE_SIM_SQUARE_CATALOG_ID,
 } from "~/features/race-sims/products";
 import { centerCodeFor } from "~/config/intercard-centers";
 import { formatPersonName } from "~/lib/helpers/name-format";
@@ -147,6 +150,7 @@ import type {
   RaceItem,
   RaceHeatAssignment,
   AttractionItem,
+  RaceSimItem,
 } from "../state/types";
 import { raceWarningAckIds } from "../state/types";
 import type { ContactInfo } from "../types";
@@ -703,17 +707,19 @@ export function buildCombinedLineItems(session: BookingSession): {
     });
   }
 
-  // Race Sims (placeholder phase 2026-08): priced for the quote/review screens
-  // from the in-code catalog (race-sims/products.ts), collected in FULL (no
-  // vendor rail holds anything). The Square line carries catalogObjectId only
-  // once a real id exists; until then reserve guard 2e (unifiedReserveInner)
-  // throws BEFORE any Square write, so these lines can only reach the quote.
+  // Race Sims: priced from the in-code catalog (race-sims/products.ts —
+  // day-of-week pricing keyed on item.date), collected in FULL (the BMI line
+  // is a $0 track key; Square owns the money). ONE shared Square catalog id
+  // for every sim line (owner 2026-08-23) with the price as a per-line
+  // override + the track riding the line name — the race-pack pattern.
+  // Guard 2e (unifiedReserveInner) still refuses BEFORE any Square write
+  // until the BMI keys are armed, so an un-armed line can only reach the quote.
   for (const item of session.items) {
     if (item.kind !== "racesim") continue;
     const product = getRaceSimProduct(item.productSlug);
     if (!product) continue; // unready draft — allItemsReady blocks it upstream
     const qty = Math.max(1, item.racerCount);
-    const unitCents = Math.round(product.price * 100);
+    const unitCents = Math.round(raceSimPriceFor(product, item.date) * 100);
     const track = getRaceSimTrack(item.trackKey);
     const name = `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""}`;
     totalPriceCents += unitCents * qty;
@@ -721,9 +727,9 @@ export function buildCombinedLineItems(session: BookingSession): {
     sqLineItems.push({
       name,
       quantity: String(qty),
-      ...(product.squareCatalogObjectId
+      ...(RACE_SIM_SQUARE_CATALOG_ID
         ? {
-            catalogObjectId: product.squareCatalogObjectId,
+            catalogObjectId: RACE_SIM_SQUARE_CATALOG_ID,
             basePriceMoney: { amount: unitCents, currency: "USD" },
           }
         : { basePriceMoney: { amount: unitCents, currency: "USD" } }),
@@ -1547,7 +1553,8 @@ async function unifiedReserveInner(
   })();
   const raceItems = session.items.filter((i): i is RaceItem => i.kind === "race");
   const attractionItems = session.items.filter((i): i is AttractionItem => i.kind === "attraction");
-  const hasBmi = raceItems.length > 0 || attractionItems.length > 0;
+  const racesimItems = session.items.filter((i): i is RaceSimItem => i.kind === "racesim");
+  const hasBmi = raceItems.length > 0 || attractionItems.length > 0 || racesimItems.length > 0;
 
   // ── Durable audit row (our own log, not Vercel's) ─────────────────
   // Opened BEFORE any money moves so a failure anywhere below is queryable by
@@ -1568,6 +1575,7 @@ async function unifiedReserveInner(
         : {}),
       ...(i.kind === "race" ? { heatCount: i.heats.length } : {}),
       ...(i.kind === "attraction" ? { slug: i.slug } : {}),
+      ...(i.kind === "racesim" ? { slug: i.productSlug, trackKey: i.trackKey, slot: i.slot } : {}),
     })),
     comboSpecialId: session.comboSpecialId ?? null,
   };
@@ -1753,21 +1761,33 @@ async function unifiedReserveInner(
     }
   }
 
-  // ── 2e. Race Sims: fail-closed until real product ids exist ───────
-  // PLACEHOLDER PHASE (2026-08): the kiosk sells Race Sims behind a staff PIN
-  // gate with placeholder prices, and NO product has a Square/vendor id yet
-  // (race-sims/products.ts is the single seam). Throws → 409 in reserve-all
-  // BEFORE any Square write, on BOTH rails (unifiedReserve card charge AND
-  // prepareUnifiedDeposit terminal prepare) — nothing armed, nothing charged.
-  // BEFORE ARMING REAL IDS: (1) wire the vendor booking rail (see products.ts
-  // header — a Square id alone charges with no reservation), and (2) fix
-  // resolveLocationId attribution for mixed racesim+HeadPinz carts, which
-  // would book the whole order at the HeadPinz location today.
-  for (const item of session.items) {
-    if (item.kind !== "racesim") continue;
-    const product = getRaceSimProduct(item.productSlug);
-    if (!product || !raceSimProductConfigured(product)) {
-      throw new RaceSimNotConfiguredError(item.productSlug);
+  // ── 2e. Race Sims: fail-closed until fully armed ───────────────────
+  // A sim item may charge only when its product is bookable AND the shared
+  // Square id AND its track's $0 BMI key + page are ALL set
+  // (raceSimItemConfigured — race-sims/products.ts is the single seam; a
+  // Square id alone would charge with no reservation). Throws → 409 in the
+  // reserve routes BEFORE any Square write, on BOTH rails (unifiedReserve
+  // card charge AND prepareUnifiedDeposit terminal prepare).
+  //
+  // MIXED-ENTITY refusal: the day-of order books at ONE Square location, and
+  // a cart mixing FastTrax sims with HeadPinz items (bowling/KBF/gel/laser/
+  // shuffly) would land the sim revenue in the HeadPinz account. Refuse
+  // (409 RACESIM_MIXED_CART, staff-readable) until the combo-split-orders
+  // treatment covers sims. Races + duckpin are FastTrax — those mix fine.
+  if (racesimItems.length > 0) {
+    for (const item of racesimItems) {
+      if (!raceSimItemConfigured(item)) {
+        throw new RaceSimNotConfiguredError(item.productSlug);
+      }
+    }
+    const hasHeadpinzItem = session.items.some(
+      (i) =>
+        (isBowlingLike(i) && !(i.kind === "bowling" && (i as BowlingItem).isDuckpin)) ||
+        (i.kind === "attraction" &&
+          !FASTTRAX_ATTRACTION_SLUGS.has((i as AttractionItem).slug ?? "")),
+    );
+    if (hasHeadpinzItem) {
+      throw new RaceSimMixedCartError();
     }
   }
 
@@ -2985,6 +3005,10 @@ async function unifiedReserveInner(
           attractionBmiCents + Math.round(calculateTax(attractionBmiCents / 100) * 100))
         : 0;
     const centerCode = session.center ?? "fort-myers";
+    // Race-sim-only bookings anchor as "attraction" (attraction-shaped on the
+    // BMI side: one slot line on a resource); bookingMetadata.racesims below
+    // carries the sim detail. A first-class "racesim" ReservationProductKind
+    // is guest-launch scope (it ripples into check-in/cancellation/edit).
     const bookingKind: ReservationProductKind = raceItems.length > 0 ? "race" : "attraction";
 
     // Build the BMI reservation lines + metadata up front so we can anchor the
@@ -3007,6 +3031,15 @@ async function unifiedReserveInner(
         quantity: a.qty,
         unitPriceCents: Math.round(a.price * 100),
       })),
+      ...racesimItems.map((r) => {
+        const product = getRaceSimProduct(r.productSlug);
+        const track = getRaceSimTrack(r.trackKey);
+        return {
+          label: `Race Sims — ${product?.name ?? "Race"}${track ? ` · ${track.name}` : ""}`,
+          quantity: Math.max(1, r.racerCount),
+          unitPriceCents: product ? Math.round(raceSimPriceFor(product, r.date) * 100) : 0,
+        };
+      }),
     ];
 
     const bookingMetadata: Record<string, unknown> = {};
@@ -3043,6 +3076,32 @@ async function unifiedReserveInner(
           ...(a.participants && a.participants.length > 0
             ? {
                 participants: a.participants
+                  .map((id) => session.party.find((m) => m.id === id))
+                  .filter((m): m is NonNullable<typeof m> => Boolean(m))
+                  .map((m) => ({
+                    name: `${m.firstName} ${m.lastName ?? ""}`.trim(),
+                    bmiPersonId: m.bmiPersonId ?? null,
+                    waiverValid: m.waiverValid ?? false,
+                  })),
+              }
+            : {}),
+        }));
+    }
+    // Race sims — same persist-at-capture treatment as attractions: slot
+    // start (for day-of tooling), track, racer count, and the who's-riding
+    // roster, all on the reservation record itself.
+    if (racesimItems.length > 0) {
+      bookingMetadata.racesims = racesimItems
+        .filter((r) => r.slot)
+        .map((r) => ({
+          slug: r.productSlug,
+          trackKey: r.trackKey,
+          track: getRaceSimTrack(r.trackKey)?.name ?? null,
+          slot: r.slot,
+          racerCount: Math.max(1, r.racerCount),
+          ...(r.participants && r.participants.length > 0
+            ? {
+                participants: r.participants
                   .map((id) => session.party.find((m) => m.id === id))
                   .filter((m): m is NonNullable<typeof m> => Boolean(m))
                   .map((m) => ({

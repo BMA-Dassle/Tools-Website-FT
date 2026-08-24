@@ -542,7 +542,9 @@ export async function releaseItemBmiLines(
       session,
       item.heats.map((h) => h.bmiLineId),
     );
-  } else if (item.kind === "attraction") {
+  } else if (item.kind === "attraction" || item.kind === "racesim") {
+    // Race sims hold a $0 track-key line exactly like an attraction slot —
+    // same eager hold, same release.
     await removeBmiBillLines(session, [item.bmiLineId]);
   }
   // Bowling/KBF are QAMF-vendored (not on the BMI bill) — nothing to release here.

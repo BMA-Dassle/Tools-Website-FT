@@ -657,6 +657,14 @@ export interface RaceSimItem extends BookingItemBase {
   trackKey: "a" | "b" | "c" | null;
   /** Racers on this product; the people step keeps it = assignedTo.length. */
   racerCount: number;
+  /** ISO start of the chosen sim session (attraction parity — the kiosk slot
+   *  step writes it; all three track keys share the same sessions). */
+  slot: string | null;
+  /** The chosen slot's BMI proposal — needed for booking. JSON-safe. */
+  slotProposal: BmiProposal | null;
+  /** BMI bill line id — set after the $0 track-key line books (eager hold on
+   *  slot pick, gel/laser semantics). releaseItemBmiLines keys off it. */
+  bmiLineId: string | null;
   /**
    * KIOSK-ONLY (optional — web never writes it): session.party member ids
    * participating in THIS sim line, AttractionItem.participants parity so
@@ -967,6 +975,9 @@ export function newItem(activity: Activity): SessionItem {
         productSlug: null,
         trackKey: null,
         racerCount: 1,
+        slot: null,
+        slotProposal: null,
+        bmiLineId: null,
         assignedTo: [],
       };
     case "kbf":

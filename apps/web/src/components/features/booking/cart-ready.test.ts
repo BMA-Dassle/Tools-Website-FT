@@ -97,14 +97,37 @@ describe("allItemsReady — racesim (placeholder phase)", () => {
     expect(allItemsReady(session([sim()]))).toBe(false);
     expect(allItemsReady(session([sim({ productSlug: "sim-single" })]))).toBe(false);
     expect(allItemsReady(session([sim({ trackKey: "a" })]))).toBe(false);
+    // No slot = no session time — the phantom-leg class the bowling gate
+    // exists for; a sim leg must never reach the pay screen without one.
     expect(
-      allItemsReady(session([sim({ productSlug: "sim-single", trackKey: "a", racerCount: 0 })])),
+      allItemsReady(session([sim({ productSlug: "sim-single", trackKey: "a", racerCount: 2 })])),
+    ).toBe(false);
+    expect(
+      allItemsReady(
+        session([
+          sim({
+            productSlug: "sim-single",
+            trackKey: "a",
+            slot: "2026-08-24T15:00:00",
+            racerCount: 0,
+          }),
+        ]),
+      ),
     ).toBe(false);
   });
 
-  it("ready with product + track + racers, and surfaces as firstUnready otherwise", () => {
+  it("ready with product + track + slot + racers, and surfaces as firstUnready otherwise", () => {
     expect(
-      allItemsReady(session([sim({ productSlug: "sim-single", trackKey: "a", racerCount: 2 })])),
+      allItemsReady(
+        session([
+          sim({
+            productSlug: "sim-single",
+            trackKey: "a",
+            slot: "2026-08-24T15:00:00",
+            racerCount: 2,
+          }),
+        ]),
+      ),
     ).toBe(true);
     const cart = session([bookedRace(), sim({ id: "rs1" })]);
     expect(firstUnreadyItem(cart)?.id).toBe("rs1");
