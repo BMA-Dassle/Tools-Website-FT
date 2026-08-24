@@ -24,6 +24,14 @@ export const miscEn = {
   "licence.kiosk.show": "Show my code",
   "licence.kiosk.hide": "Hide",
   // --- Sign-in boxes (KioskSignInBoxes) ---
+  // Companywide block list (booking_blocks). Shown when a guest on the list
+  // tries to sign in as a returning racer or take a booking to payment. It says
+  // NOTHING about disputes or chargebacks — the reason is a manager
+  // conversation, never a shared kiosk screen a queue can read over.
+  "blocked.title": "Account Disabled",
+  "blocked.body":
+    "Please contact our call center at {phone} to continue. A manager at the front desk can also help.",
+  "blocked.cta": "Get help at the front desk",
   "signin.sheet.qrAlt": "QR code — scan to sign in on your phone",
   "signin.sheet.title": "Scan with your phone camera",
   "signin.sheet.sub": "Adults 18+ · waiver signed on the phone · kids are added here at the kiosk",
@@ -212,6 +220,10 @@ export const miscEs: Record<keyof typeof miscEn, string> = {
   "licence.kiosk.show": "Mostrar mi código",
   "licence.kiosk.hide": "Ocultar",
   // --- Sign-in boxes (KioskSignInBoxes) ---
+  "blocked.title": "Cuenta desactivada",
+  "blocked.body":
+    "Comunícate con nuestro centro de atención al {phone} para continuar. Un gerente en la recepción también puede ayudarte.",
+  "blocked.cta": "Pide ayuda en la recepción",
   "signin.sheet.qrAlt": "Código QR — escanéalo para iniciar sesión en tu teléfono",
   "signin.sheet.title": "Escanea con la cámara de tu teléfono",
   "signin.sheet.sub":

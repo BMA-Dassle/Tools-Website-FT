@@ -3,6 +3,7 @@ import https from "https";
 import { randomUUID } from "crypto";
 import redis from "@/lib/redis";
 import { checkinOtpBypassAllowed } from "~/features/kiosk/checkin/server";
+import { blockResponseBody, blockStaffSummary, checkBookingBlock } from "~/features/booking-blocks";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -317,6 +318,25 @@ export async function GET(req: NextRequest) {
           { error: "Verification required", verificationRequired: true },
           { status: 403 },
         );
+      }
+
+      // ── Companywide block list ────────────────────────────────────────
+      // This is the "return racer" path on both web and kiosk. Checked AFTER the
+      // login-code gate so a blocked response can never be used to probe which
+      // person ids exist, and BEFORE the verified session is granted so a
+      // blocked guest cannot carry an authorised session onward into checkout.
+      // Matched on the person id AND on the contact details Office holds, so a
+      // banned party is caught even from a person record we have not seen before.
+      const personAddr = (person?.addresses ?? [])[0] ?? {};
+      const personBlock = await checkBookingBlock({
+        bmiPersonId: id,
+        email: personAddr.email ?? null,
+        phone: personAddr.mobile ?? personAddr.phone ?? null,
+        center: CLIENT_KEY,
+      });
+      if (personBlock.blocked) {
+        console.warn(`[bmi-office] blocked return-racer lookup: ${blockStaffSummary(personBlock)}`);
+        return NextResponse.json(blockResponseBody("en"), { status: 403 });
       }
 
       // Success → deposits for this person + follow-up lookups may proceed.

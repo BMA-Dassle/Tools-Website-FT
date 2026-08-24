@@ -4,6 +4,7 @@ import { createDepositAndCharge, DepositPaymentError } from "~/features/booking/
 import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
 import { bmiBillIsLive } from "~/features/booking/service/bmi-confirm";
 import { reserveBaseKey } from "~/features/booking/service/reserve-idempotency";
+import { blockResponseBody, blockStaffSummary, checkBookingBlock } from "~/features/booking-blocks";
 import {
   lookupCatalogId,
   lookupCatalogIdByName,
@@ -247,6 +248,23 @@ export async function POST(req: NextRequest) {
     const clientKey = body.bmiClientKey || "headpinzftmyers";
     if (!ALLOWED_CLIENTS.has(clientKey)) {
       return NextResponse.json({ error: "Invalid BMI client key" }, { status: 400 });
+    }
+
+    // ── Companywide block list ──────────────────────────────────────────
+    // This route is the credit / $0-race path and does NOT go through
+    // unifiedReserve, so it needs its own gate. Placed before any mint for the
+    // same reason: a blocked party must never leave an orphan behind.
+    // Racer person ids on this route live on cartItems[].heats and are not
+    // resolved yet here, so this gate matches on the booking contact. The
+    // per-person gate is the BMI note plus /api/bmi-office's own check.
+    const blocked = await checkBookingBlock({
+      email: body.contact.email,
+      phone: body.contact.phone,
+      center: clientKey,
+    });
+    if (blocked.blocked) {
+      console.warn(`[reserve] blocked booking: ${blockStaffSummary(blocked)}`);
+      return NextResponse.json(blockResponseBody("en"), { status: 403 });
     }
 
     // ── Route-entry idempotency guard (keyed per BMI bill) ──────────────

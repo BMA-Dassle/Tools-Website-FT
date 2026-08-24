@@ -38,6 +38,12 @@ import { centerCodeFor } from "~/config/intercard-centers";
 import { formatPersonName } from "~/lib/helpers/name-format";
 import { after } from "next/server";
 import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
+import {
+  BLOCK_ERROR_CODE,
+  BLOCK_GUEST_MESSAGE_EN,
+  blockStaffSummary,
+  checkBookingBlock,
+} from "~/features/booking-blocks";
 import { confirmBmiPayment, getBmiBillStatus } from "./bmi-confirm";
 import { reserveBaseKey } from "./reserve-idempotency";
 import { describeDroppedLeg, partitionBookableLegs } from "./bookable";
@@ -1096,6 +1102,21 @@ export class ReserveInProgressError extends Error {
 }
 
 /**
+ * Thrown when the contact on a booking is on the companywide block list
+ * (`booking_blocks`). Carries the GUEST-facing copy in `message` — deliberately
+ * silent about disputes — and the staff detail in `staffDetail` for logs only.
+ */
+export class BookingBlockedError extends Error {
+  code = BLOCK_ERROR_CODE;
+  constructor(
+    public readonly staffDetail: string,
+    public readonly kinds: string[],
+  ) {
+    super(BLOCK_GUEST_MESSAGE_EN);
+  }
+}
+
+/**
  * Thrown when a race bill auto-cancelled in BMI before the customer paid (BMI
  * strips the products off a Pending-Online hold past the center's timeout). We
  * detect it BEFORE charging, so the card is never touched — the customer is
@@ -1158,6 +1179,36 @@ export function existingBookingConflictMessage(conflict: {
  */
 export async function unifiedReserve(input: UnifiedReserveInput): Promise<UnifiedReserveResult> {
   const { session } = input;
+
+  // 0) Companywide block list — FIRST, before the idempotency cache, the lock,
+  //    the seed, and every mint. A blocked party must never reach a step that
+  //    creates a Square order, a gift card, or a BMI hold, because unwinding
+  //    those is exactly the orphan class we keep paying for.
+  // Racer person ids live on each race item's heats, so a CLEAN contact booking
+  // a BANNED racer is caught too — otherwise one party could keep booking
+  // another's visits.
+  const racerPersonIds = [
+    ...new Set(
+      session.items
+        .flatMap((it) => ("heats" in it && Array.isArray(it.heats) ? it.heats : []))
+        .map((h) => (h as { bmiPersonId?: string | null }).bmiPersonId)
+        .filter((v): v is string => typeof v === "string" && v.length > 0),
+    ),
+  ];
+  const blockDecision = await checkBookingBlock({
+    email: input.contact?.email,
+    phone: input.contact?.phone,
+    squareCustomerId: input.squareCustomerId,
+    bmiPersonIds: racerPersonIds,
+    center: session.center ?? null,
+  });
+  if (blockDecision.blocked) {
+    throw new BookingBlockedError(
+      blockStaffSummary(blockDecision) ?? "blocked",
+      blockDecision.kinds,
+    );
+  }
+
   const bowlingItems = session.items.filter(isBowlingLike);
   // Stable per-session anchor for the seed + lock. bmiBillId for BMI sessions;
   // the Square session order or QAMF hold id otherwise.

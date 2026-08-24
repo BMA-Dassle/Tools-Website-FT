@@ -4,9 +4,11 @@ import {
   RewardFailedError,
   ReserveInProgressError,
   BillExpiredError,
+  BookingBlockedError,
   ExistingBookingConflictError,
   CrossCategoryHeatCollisionError,
 } from "~/features/booking/service/unified-reserve";
+import { BLOCK_CALL_CENTER } from "~/features/booking-blocks";
 import {
   DepositPaymentError,
   TerminalPaymentUnverifiedError,
@@ -82,6 +84,15 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(result);
   } catch (err) {
+    if (err instanceof BookingBlockedError) {
+      // 403 — companywide block list. `err.message` is the guest-facing copy and
+      // says nothing about disputes; the staff detail goes to logs only.
+      console.warn(`[reserve-all] blocked booking: ${err.staffDetail}`);
+      return NextResponse.json(
+        { error: err.message, code: err.code, phone: BLOCK_CALL_CENTER },
+        { status: 403 },
+      );
+    }
     if (err instanceof ReserveInProgressError) {
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
