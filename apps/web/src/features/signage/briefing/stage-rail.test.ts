@@ -172,7 +172,7 @@ describe("buildStageRail", () => {
         },
       }),
     });
-    expect(rowFor(rows, "Holding").detail).toBe("in the seats · 1:48");
+    expect(rowFor(rows, "Holding").detail).toBe("in holding · 1:48");
     expect(rowFor(rows, "Pit in")).toMatchObject({
       detail: "karts in — post-race owed · 1:20",
       tone: "alert",
@@ -192,7 +192,7 @@ describe("buildStageRail", () => {
         },
       }),
     });
-    expect(rowFor(rows, "Holding").detail).toBe("in the seats");
+    expect(rowFor(rows, "Holding").detail).toBe("in holding");
   });
 
   it("falls back to the timing feed for the on-track heat but never for its level", () => {
@@ -277,7 +277,7 @@ describe("buildStageRail", () => {
         },
       }),
     });
-    expect(rowFor(rows, "Holding").detail).toBe("in the seats");
+    expect(rowFor(rows, "Holding").detail).toBe("in holding");
     expect(rowFor(rows, "In karts").detail).toBe("seated — waiting on the green");
   });
 

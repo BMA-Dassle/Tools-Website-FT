@@ -323,10 +323,13 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
     label: "Holding",
     value: sessionLabel(holding?.heatNumber),
     type: holding?.raceType ?? undefined,
+    // "In holding", not "in the seats" (owner 2026-08-24). The row is already
+    // labelled HOLDING, and the seats are only where holding happens to put
+    // them — a group standing at the fence is in holding too.
     detail: holding
       ? heldMs != null && heldMs >= 0 && fmt
-        ? `in the seats · ${fmt(heldMs)}`
-        : "in the seats"
+        ? `in holding · ${fmt(heldMs)}`
+        : "in holding"
       : undefined,
     heatNumber: holding?.heatNumber ?? null,
     tone: "none",

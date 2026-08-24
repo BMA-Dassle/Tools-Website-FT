@@ -358,7 +358,7 @@ function BriefingStrip({
         left: 0,
         right: 0,
         bottom: 0,
-        padding: "18px 26px",
+        padding: "10px 16px",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
@@ -368,7 +368,7 @@ function BriefingStrip({
         // Every size below is now relative to the screen, and the row may take
         // a second line rather than overflow.
         flexWrap: "wrap",
-        gap: "8px 20px",
+        gap: "4px 12px",
         minWidth: 0,
         overflow: "hidden",
         background: "linear-gradient(to top, rgba(0,0,0,0.9), rgba(0,0,0,0))",
@@ -378,7 +378,7 @@ function BriefingStrip({
       <span
         className="tv-display"
         style={{
-          fontSize: "clamp(22px, 2.4vw, 46px)",
+          fontSize: "clamp(13px, 1.15vw, 23px)",
           fontWeight: 700,
           color: "#fff",
           textShadow: "0 2px 20px #000",
@@ -392,7 +392,7 @@ function BriefingStrip({
       <div style={{ display: "inline-flex", alignItems: "baseline", gap: 16 }}>
         <span
           className="tv-eyebrow"
-          style={{ fontSize: "clamp(15px, 1.6vw, 30px)", color: withAlpha(accent, 0.95) }}
+          style={{ fontSize: "clamp(10px, 0.85vw, 17px)", color: withAlpha(accent, 0.95) }}
         >
           {statusText}
         </span>
@@ -400,7 +400,7 @@ function BriefingStrip({
           <span
             className="tv-display tv-num"
             style={{
-              fontSize: "clamp(30px, 4vw, 78px)",
+              fontSize: "clamp(16px, 1.6vw, 32px)",
               fontWeight: 800,
               color: "#fff",
               textShadow: "0 2px 20px #000",
