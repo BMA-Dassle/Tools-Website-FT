@@ -137,10 +137,14 @@ export const PULL_LATE_MS = 5 * 60_000;
  *   closing  the window's last seconds; the board gets loud, the button stays
  *   blocked  the film no longer fits in the race left — the send is REFUSED
  *
- * The block lifts on its own at the chequer: with the track already waiting,
- * holding the group back buys nothing, so an ended race is `quiet`, not
- * `blocked`. Nothing here reads the pit lane or holds the room for returners
- * — the owner explicitly scoped that out.
+ * THE BLOCK LIFTS AT THE POST, NOT THE FLAG (owner 2026-08-23: "unlocked at
+ * post race… if it even exists"). The finishing group's post-race announcement
+ * plays into this exact room, and it cannot start over a film (postRaceGate,
+ * pit/audio.server.ts) — so the send stays refused through the chequer until
+ * the post has finished. "If it even exists" is the fallback: a post that has
+ * not fired within POST_WAIT_MAX_MS of the finish is not coming, and the block
+ * lifts on its own rather than outwait a dead cue. No pit fact beyond the post
+ * is read — the owner scoped out holding the room for the kit handback.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** Helmets on and out the door — the room time that follows the film. */
@@ -155,13 +159,34 @@ export const SEND_OPEN_SLACK_MS = 2.5 * 60_000;
 /** The window's last stretch above (film + exit) — the board turns loud here,
  *  because past it the send is refused, not warned. */
 export const SEND_CLOSING_SPAN_MS = 45_000;
+/** How long after the finish a still-unplayed post counts as NOT COMING. The
+ *  cue normally fires within a minute or two of the flag; a block that waits
+ *  longer than this is waiting on a dead speaker, not an announcement. */
+export const POST_WAIT_MAX_MS = 4 * 60_000;
 
 export type SendWindow =
   | { kind: "quiet" }
   | { kind: "early"; standMs: number; opensInMs: number }
   | { kind: "open"; remainingMs: number; closesInMs: number }
   | { kind: "closing"; remainingMs: number; closesInMs: number }
-  | { kind: "blocked"; heatNumber: number | null; remainingMs: number };
+  | {
+      kind: "blocked";
+      /** film: no time before the flag. post-owed: flag fallen, announcement
+       *  still to play into this room. post-playing: it is playing right now. */
+      why: "film" | "post-owed" | "post-playing";
+      heatNumber: number | null;
+      /** Time left on the race in front (why: "film"), else null. */
+      remainingMs: number | null;
+      /** Time until the playing post ends (why: "post-playing"), else null. */
+      postEndsInMs: number | null;
+    };
+
+/** The finishing group's post-race announcement, as the caller's lane feed
+ *  sees it. Null when nothing is owed — no group in the pit, or its post has
+ *  already finished playing. */
+export type PitPost =
+  | { phase: "owed"; heatNumber: number | null; sinceFinishMs: number | null }
+  | { phase: "playing"; heatNumber: number | null; endsInMs: number };
 
 /**
  * `attribution` is the Mega-night question — both columns read the same track
@@ -185,19 +210,57 @@ export function sendWindow(args: {
   onTrackHeatNumber: number | null;
   /** The film THIS heat will actually get. Null ⇒ assume the starter film. */
   filmMs: number | null;
+  /** The post-race announcement owed to (or playing into) this room. */
+  pitPost: PitPost | null;
   attribution: "this-room" | "unknown" | "other-room";
 }): SendWindow {
+  const gate = (blocked: SendWindow & { kind: "blocked" }): SendWindow => {
+    if (args.attribution === "this-room") return blocked;
+    if (args.attribution === "other-room") return { kind: "quiet" };
+    return { kind: "closing", remainingMs: blocked.remainingMs ?? 0, closesInMs: 0 };
+  };
+
+  // THE POST OWNS THE ROOM FIRST. It outranks the clock ladder because it can
+  // outlive the flag — and even overlap the next race going green.
+  if (args.pitPost) {
+    if (args.pitPost.phase === "playing")
+      return gate({
+        kind: "blocked",
+        why: "post-playing",
+        heatNumber: args.pitPost.heatNumber,
+        remainingMs: null,
+        postEndsInMs: args.pitPost.endsInMs,
+      });
+    // "If it even exists": an owed post that has not fired within the wait cap
+    // is not coming, and must stop blocking on its own.
+    const dead =
+      args.pitPost.sinceFinishMs != null && args.pitPost.sinceFinishMs > POST_WAIT_MAX_MS;
+    if (!dead)
+      return gate({
+        kind: "blocked",
+        why: "post-owed",
+        heatNumber: args.pitPost.heatNumber,
+        remainingMs: null,
+        postEndsInMs: null,
+      });
+  }
+
   // A clock at or past zero is a race that is OVER, however long the feed
-  // lingers on it — the track is waiting, holding the group buys nothing, and
-  // the block must lift here or a stalled countdown wedges the room.
+  // lingers on it — with no post owed the track is simply waiting, holding the
+  // group buys nothing, and the block must lift or a stalled countdown wedges
+  // the room.
   if (args.remainingMs == null || args.remainingMs <= 0 || !args.onTrack) return { kind: "quiet" };
   const needMs = (args.filmMs ?? DEFAULT_FILM_MS) + ROOM_EXIT_MS;
   const r = args.remainingMs;
 
   if (r < needMs) {
-    if (args.attribution === "other-room") return { kind: "quiet" };
-    if (args.attribution === "unknown") return { kind: "closing", remainingMs: r, closesInMs: 0 };
-    return { kind: "blocked", heatNumber: args.onTrackHeatNumber, remainingMs: r };
+    return gate({
+      kind: "blocked",
+      why: "film",
+      heatNumber: args.onTrackHeatNumber,
+      remainingMs: r,
+      postEndsInMs: null,
+    });
   }
   if (r < needMs + SEND_CLOSING_SPAN_MS) {
     if (args.attribution === "other-room") return { kind: "quiet" };

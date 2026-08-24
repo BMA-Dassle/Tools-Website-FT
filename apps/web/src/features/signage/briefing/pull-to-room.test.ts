@@ -143,6 +143,7 @@ const RUNNING = {
   onTrack: true,
   onTrackHeatNumber: 48,
   filmMs: STARTER_FILM,
+  pitPost: null,
   attribution: "this-room" as const,
 };
 
@@ -182,7 +183,13 @@ describe("sendWindow", () => {
 
   it("blocks the moment the film no longer fits", () => {
     const w = sendWindow({ ...RUNNING, remainingMs: NEED - 1 });
-    expect(w).toEqual({ kind: "blocked", heatNumber: 48, remainingMs: NEED - 1 });
+    expect(w).toEqual({
+      kind: "blocked",
+      why: "film",
+      heatNumber: 48,
+      remainingMs: NEED - 1,
+      postEndsInMs: null,
+    });
   });
 
   it("sizes the window to the film this heat will actually get", () => {
@@ -195,10 +202,75 @@ describe("sendWindow", () => {
   it("assumes the starter film when none is uploaded", () => {
     expect(sendWindow({ ...RUNNING, filmMs: null, remainingMs: 4 * M })).toEqual({
       kind: "blocked",
+      why: "film",
       heatNumber: 48,
       remainingMs: 4 * M,
+      postEndsInMs: null,
     });
     expect(DEFAULT_FILM_MS + ROOM_EXIT_MS).toBe(5 * M); // the owner's own number
+  });
+
+  it("stays blocked through the chequer while the post-race call is owed", () => {
+    const w = sendWindow({
+      ...RUNNING,
+      remainingMs: null,
+      onTrack: false,
+      pitPost: { phase: "owed", heatNumber: 48, sinceFinishMs: 1 * M },
+    });
+    expect(w).toEqual({
+      kind: "blocked",
+      why: "post-owed",
+      heatNumber: 48,
+      remainingMs: null,
+      postEndsInMs: null,
+    });
+  });
+
+  it("counts down a playing post, and outranks the next race's fresh clock", () => {
+    const w = sendWindow({
+      ...RUNNING,
+      remainingMs: 9 * M, // next race already green
+      pitPost: { phase: "playing", heatNumber: 48, endsInMs: 20_000 },
+    });
+    expect(w).toEqual({
+      kind: "blocked",
+      why: "post-playing",
+      heatNumber: 48,
+      remainingMs: null,
+      postEndsInMs: 20_000,
+    });
+  });
+
+  it("stops waiting on a post that is not coming — the dead-cue cap", () => {
+    const w = sendWindow({
+      ...RUNNING,
+      remainingMs: null,
+      onTrack: false,
+      pitPost: { phase: "owed", heatNumber: 48, sinceFinishMs: 5 * M },
+    });
+    expect(w.kind).toBe("quiet");
+  });
+
+  it("keeps the post block off the other Mega room, and soft on an unknown one", () => {
+    const post = { phase: "owed" as const, heatNumber: 48, sinceFinishMs: 1 * M };
+    expect(
+      sendWindow({
+        ...RUNNING,
+        remainingMs: null,
+        onTrack: false,
+        pitPost: post,
+        attribution: "other-room",
+      }).kind,
+    ).toBe("quiet");
+    expect(
+      sendWindow({
+        ...RUNNING,
+        remainingMs: null,
+        onTrack: false,
+        pitPost: post,
+        attribution: "unknown",
+      }).kind,
+    ).toBe("closing");
   });
 
   it("downgrades the block to a loud warning when the returning room is unknown", () => {

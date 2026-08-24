@@ -94,7 +94,11 @@ import {
   type BriefingRoom,
   type BriefingRoomState,
 } from "~/features/signage/briefing/types";
-import { sendWindow, type SendWindow } from "~/features/signage/briefing/pull-to-room";
+import {
+  sendWindow,
+  type PitPost,
+  type SendWindow,
+} from "~/features/signage/briefing/pull-to-room";
 import { laneReturnRoom, suggestMegaRoom } from "~/features/signage/briefing/room-suggest";
 import { trackDisplay, verdictLabel } from "~/features/racing/on-time-display";
 import { liveHeatNumber } from "~/features/signage/briefing/room-return";
@@ -332,10 +336,28 @@ const STYLES = `
   0%, 100% { border-color: ${withAlpha(GREEN, 0.45)}; background-color: ${withAlpha(GREEN, 0.05)}; }
   50%      { border-color: ${GREEN};                  background-color: ${withAlpha(GREEN, 0.2)}; }
 }
+/* THE SEND BUTTON SHOUTS when the grid is complete and the window is open
+   (owner 2026-08-23: "this needs to be more aggressive!"). Everything on the
+   box says go — all here, window counting down — and a politely green button
+   was still the quietest thing on it. The ring pulse is the board's loudest
+   cue reserved for its one moment: press this, now. Amber variant for the
+   window's last seconds. */
+.rc-send-pulse { animation: rc-send-pulse 1.1s ease-in-out infinite; }
+@keyframes rc-send-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 ${withAlpha(GREEN, 0)}; }
+  50%      { box-shadow: 0 0 0 7px ${withAlpha(GREEN, 0.45)}; }
+}
+.rc-send-pulse-amber { animation: rc-send-pulse-amber 0.8s ease-in-out infinite; }
+@keyframes rc-send-pulse-amber {
+  0%, 100% { box-shadow: 0 0 0 0 ${withAlpha(AMBER, 0)}; }
+  50%      { box-shadow: 0 0 0 7px ${withAlpha(AMBER, 0.55)}; }
+}
 /* A staff alert must not be motion-only anyway: reduced motion keeps the colour
    and drops the pulse, so the box still reads as overdue. */
 @media (prefers-reduced-motion: reduce) {
   .rc-flash-warn, .rc-flash-late, .rc-flash-ready { animation: none; }
+  .rc-send-pulse { animation: none; box-shadow: 0 0 0 4px ${withAlpha(GREEN, 0.4)}; }
+  .rc-send-pulse-amber { animation: none; box-shadow: 0 0 0 4px ${withAlpha(AMBER, 0.5)}; }
   .rc-flash-warn { border-color: ${AMBER}; background-color: ${withAlpha(AMBER, 0.18)}; }
   .rc-flash-late { border-color: ${DANGER}; background-color: ${withAlpha(DANGER, 0.22)}; }
   .rc-flash-ready { border-color: ${GREEN}; background-color: ${withAlpha(GREEN, 0.16)}; }
@@ -1460,11 +1482,33 @@ function RoomColumn({
    * disables the send outright; the block lifts by itself at the chequer,
    * because once the track is waiting the hold buys nothing.
    */
+  /**
+   * THE POST-RACE ANNOUNCEMENT OWED TO THIS ROOM, from the lane's pit slot.
+   * The send stays blocked through the chequer until it has PLAYED (owner
+   * 2026-08-23: "unlocked at post race… if it even exists" — the existence
+   * fallback lives in sendWindow's POST_WAIT_MAX_MS). Resolves to null the
+   * moment the clip ends, which is what unlocks the button.
+   */
+  const pitPost: PitPost | null = (() => {
+    const p = lane?.pitIn;
+    if (!p) return null;
+    if (p.postRaceAtMs != null) {
+      const endsInMs = p.postRaceAtMs + (p.postRaceDurationS ?? 30) * 1000 - nowMs;
+      return endsInMs > 0 ? { phase: "playing", heatNumber: p.heatNumber, endsInMs } : null;
+    }
+    return {
+      phase: "owed",
+      heatNumber: p.heatNumber,
+      sinceFinishMs: Math.max(0, nowMs - (p.finishedAtMs ?? p.atMs)),
+    };
+  })();
+
   const sendWin: SendWindow = sendWindow({
     remainingMs: liveClock?.remainingMs ?? null,
     onTrack: !!liveClock || !!lane?.racing,
     onTrackHeatNumber: liveHeatNow,
     filmMs: sendFilmMs,
+    pitPost,
     attribution:
       track !== "mega"
         ? "this-room"
@@ -1779,6 +1823,52 @@ function RoomColumn({
                     }
                   />
                 ))}
+              {/* THE SEND WINDOW AS A NUMBER, NOT A SENTENCE (owner 2026-08-23:
+                  "clean it up, focus on important numbers"). This replaced a
+                  full-width prose banner that restated what the button below
+                  already says. One stat: the seconds that matter, coloured by
+                  what they mean — grey counting down to the window, green
+                  while it is open, amber over its last seconds, red once the
+                  film no longer fits (the value is then the time to the flag,
+                  which is when sending unlocks). */}
+              {sendWin.kind !== "quiet" && (
+                <Stat
+                  label={sendWin.kind === "blocked" ? "Send locked" : "Send window"}
+                  value={
+                    sendWin.kind === "early"
+                      ? formatClock(Math.max(0, sendWin.opensInMs))
+                      : sendWin.kind === "blocked"
+                        ? sendWin.why === "film"
+                          ? formatClock(Math.max(0, sendWin.remainingMs ?? 0))
+                          : sendWin.why === "post-playing"
+                            ? formatClock(Math.max(0, sendWin.postEndsInMs ?? 0))
+                            : "—"
+                        : formatClock(Math.max(0, sendWin.closesInMs))
+                  }
+                  unit={
+                    sendWin.kind === "early"
+                      ? "until it opens"
+                      : sendWin.kind === "open"
+                        ? "send now"
+                        : sendWin.kind === "closing"
+                          ? "closing — send now"
+                          : sendWin.why === "film"
+                            ? `film won't fit — post first`
+                            : sendWin.why === "post-playing"
+                              ? "post playing — then send"
+                              : "waiting on the post-race call"
+                  }
+                  tone={
+                    sendWin.kind === "open"
+                      ? GREEN
+                      : sendWin.kind === "closing"
+                        ? AMBER
+                        : sendWin.kind === "blocked"
+                          ? DANGER
+                          : undefined
+                  }
+                />
+              )}
               {/* TRACK DELAY MOVED TO THE IDENTITY ROW as an ON TIME / n BEHIND
                   chip — it is a fact about the track, not about this heat, and
                   down here it only existed while a heat happened to be waiting.
@@ -1819,77 +1909,10 @@ function RoomColumn({
                 </div>
               )}
 
-            {/* THE SEND WINDOW — same rule as the room tablets (pull-to-room.ts),
-                so the two boards cannot disagree about whether a send fits.
-                Green while the window is open, amber over its last seconds, red
-                once the film no longer fits — and red here really is a refusal:
-                the button below goes dead with it. The block lifts at the
-                chequered flag on its own. */}
-            {(sendWin.kind === "open" ||
-              sendWin.kind === "closing" ||
-              sendWin.kind === "blocked") && (
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "flex-start",
-                  padding: "7px 10px",
-                  borderRadius: 8,
-                  background: withAlpha(
-                    sendWin.kind === "open" ? GREEN : sendWin.kind === "closing" ? AMBER : DANGER,
-                    0.12,
-                  ),
-                  border: `1px solid ${withAlpha(
-                    sendWin.kind === "open" ? GREEN : sendWin.kind === "closing" ? AMBER : DANGER,
-                    0.55,
-                  )}`,
-                }}
-                role="status"
-              >
-                {sendWin.kind !== "open" && (
-                  <IconAlertTriangleFilled
-                    size={14}
-                    style={{
-                      flexShrink: 0,
-                      color: sendWin.kind === "closing" ? AMBER : DANGER,
-                      marginTop: 2,
-                    }}
-                    aria-hidden
-                  />
-                )}
-                <span style={{ fontSize: 12, lineHeight: 1.4 }}>
-                  {sendWin.kind === "open" ? (
-                    <>
-                      <b style={{ color: GREEN }}>
-                        Send window open — {formatClock(sendWin.closesInMs)} left.
-                      </b>{" "}
-                      {sendFilmMs
-                        ? `The ${tier} film (${formatClock(sendFilmMs)}) ends as the track clears.`
-                        : "The film ends as the track clears."}
-                    </>
-                  ) : sendWin.kind === "closing" ? (
-                    <>
-                      <b style={{ color: AMBER }}>
-                        Send NOW — the window shuts in {formatClock(sendWin.closesInMs)}.
-                      </b>{" "}
-                      {`${liveHeatNow != null ? `Session ${liveHeatNow}` : "The race"} ends in ${formatRemaining(sendWin.remainingMs)}; after that the ${tier} film no longer fits.`}
-                    </>
-                  ) : (
-                    <>
-                      <b style={{ color: DANGER }}>
-                        No time —{" "}
-                        {sendWin.heatNumber != null ? `Session ${sendWin.heatNumber}` : "the race"}{" "}
-                        ends in {formatRemaining(sendWin.remainingMs)}.
-                      </b>{" "}
-                      {sendFilmMs
-                        ? `The ${tier} film runs ${formatClock(sendFilmMs)} and no longer fits — sending unlocks at the chequered flag.`
-                        : "The film no longer fits — sending unlocks at the chequered flag."}
-                    </>
-                  )}
-                </span>
-              </div>
-            )}
-
+            {/* The send window's prose banner lived here for one deploy and was
+                cut the same night (owner 2026-08-23: "too busy — focus on
+                important numbers"). Its verdict now lives twice, compactly: the
+                Send-window STAT in the row above, and the button below. */}
             <div
               style={{
                 display: "flex",
@@ -1985,7 +2008,22 @@ function RoomColumn({
                           ? "#04220f"
                           : undefined
                     }
-                    size="md"
+                    // THE BOARD'S LOUDEST MOMENT (owner 2026-08-23: "more
+                    // aggressive!"): grid complete + window open = there is
+                    // exactly one right press on this screen, so the button
+                    // grows and pulses. Amber pulse over the window's last
+                    // seconds. Never while occupied — Replace is a decision,
+                    // not a reflex.
+                    size={!occupied && gridComplete && sendWin.kind === "open" ? "lg" : "md"}
+                    className={
+                      occupied || !gridComplete
+                        ? undefined
+                        : sendWin.kind === "open"
+                          ? "rc-send-pulse"
+                          : sendWin.kind === "closing"
+                            ? "rc-send-pulse-amber"
+                            : undefined
+                    }
                     pendingKey={`send:${room}`}
                     pending={pending}
                     disabled={
@@ -2009,9 +2047,9 @@ function RoomColumn({
                     {occupied
                       ? "Replace"
                       : sendWin.kind === "blocked"
-                        ? "No time — wait for the flag"
-                        : sendWin.kind === "closing"
-                          ? `Send to ${cap(room)} NOW →`
+                        ? "Locked — sends after the post"
+                        : sendWin.kind === "closing" || (gridComplete && sendWin.kind === "open")
+                          ? `SEND TO ${cap(room).toUpperCase()} NOW →`
                           : `Send to ${cap(room)} →`}
                   </ActionButton>
                 </span>
@@ -2040,31 +2078,48 @@ function RoomColumn({
               style={{ flexShrink: 0, color: AMBER, marginTop: 2 }}
               aria-hidden
             />
+            {/* THE WINDOW AS A COUNTDOWN (owner 2026-08-23: "a countdown to
+                call time, then another if the space is closing"). While the
+                window is open the bold line counts it down live; once it is
+                gone the count flips to how far past it the call is. The board
+                already ticks every second, so the number moves. */}
             <span style={{ fontSize: 12, lineHeight: 1.4 }}>
               <b style={{ color: AMBER }}>
-                {nextCall.heatNumber != null
-                  ? `Session ${nextCall.heatNumber}`
-                  : "The next session"}
-                {nextCall.state === "overdue"
-                  ? ` is ${nextCall.overdueMin} min overdue to be called.`
-                  : " has not been called."}
+                {nextCall.state === "overdue" ? (
+                  <>
+                    {nextCall.heatNumber != null
+                      ? `Session ${nextCall.heatNumber}`
+                      : "The next session"}
+                    {` is ${nextCall.overdueMin} min overdue to be called.`}
+                  </>
+                ) : (
+                  <>
+                    {nextCall.heatNumber != null
+                      ? `Call Session ${nextCall.heatNumber} — `
+                      : "Call the next session — "}
+                    window closes in{" "}
+                    <span className="rc-num">
+                      {formatClock(Math.max(0, callWindowEndsMs - nowMs))}
+                    </span>
+                    .
+                  </>
+                )}
               </b>{" "}
               {`${nextCall.booked} booked · check-in ${clockMinuteMs(nextCall.slotMs)}`}
               {nextCall.state === "overdue" ? "" : ` · call by ${clockMinuteMs(callWindowEndsMs)}`}
             </span>
           </div>
         ) : nextCall ? (
-          /* NOBODY CALLED, AND NONE DUE YET — say which heat is next and when
-             to call it, quietly. The desk asked for the box to answer "when do
-             I call what" before the clock starts nagging (owner 2026-08-23). */
+          /* NOBODY CALLED, AND NONE DUE YET — say which heat is next and count
+             down to its call time, quietly. The desk asked for the box to
+             answer "when do I call what" before the clock starts nagging
+             (owner 2026-08-23). */
           <div style={{ fontSize: 12, color: PORTAL_DARK.muted, lineHeight: 1.5 }} role="status">
             <b style={{ color: INK, fontWeight: 650 }}>
-              Next: call Session {nextCall.heatNumber ?? "?"} at {clockMinuteMs(nextCall.callAtMs)}
+              Next: call Session {nextCall.heatNumber ?? "?"} in{" "}
+              <span className="rc-num">{formatClock(Math.max(0, nextCall.callAtMs - nowMs))}</span>
             </b>
-            {nextCall.callAtMs > nowMs
-              ? ` (in ${Math.max(1, Math.round((nextCall.callAtMs - nowMs) / 60_000))} min)`
-              : ""}
-            {` · ${nextCall.booked} booked · check-in ${clockMinuteMs(nextCall.slotMs)}`}
+            {` · at ${clockMinuteMs(nextCall.callAtMs)} · ${nextCall.booked} booked · check-in ${clockMinuteMs(nextCall.slotMs)}`}
           </div>
         ) : (
           /* Nothing called, or the called heat has already gone to a room —
@@ -4289,6 +4344,7 @@ function ActionButton({
   pendingLabel,
   title,
   holdSeconds,
+  className,
 }: {
   children: React.ReactNode;
   onClick: () => void;
@@ -4301,6 +4357,8 @@ function ActionButton({
   disabled?: boolean;
   pendingLabel: string;
   title?: string;
+  /** Extra classes on the button itself — the send-now pulse rides here. */
+  className?: string;
   /**
    * Seconds until this button may be pressed — it disables itself and counts down
    * ON ITS OWN FACE ("Start video in 6s") rather than going quietly dead. 0 or
@@ -4316,7 +4374,7 @@ function ActionButton({
   return (
     <button
       type="button"
-      className={held ? "rcb rcb-hold" : "rcb"}
+      className={[held ? "rcb rcb-hold" : "rcb", className].filter(Boolean).join(" ")}
       onClick={onClick}
       title={title}
       aria-busy={isPending}

@@ -67,6 +67,7 @@ import {
   pullIsLate,
   pullVerdict,
   sendWindow,
+  type PitPost,
   type PullRefusal,
 } from "~/features/signage/briefing/pull-to-room";
 import { laneReturnRoom } from "~/features/signage/briefing/room-suggest";
@@ -1287,11 +1288,29 @@ export default function BriefingRoomClient({
    * tablet's own clock, so the two surfaces cannot disagree about a refusal
    * (owner 2026-08-23: no more pulling a group in when there is no time).
    */
+  /** The post-race announcement owed to (or playing into) this room — the send
+   *  stays refused until it has played, with sendWindow's own dead-cue cap
+   *  ("if it even exists", owner 2026-08-23). Same arithmetic as the desk. */
+  const pullPitPost: PitPost | null = (() => {
+    const p = incomingLane?.pitIn;
+    if (!p) return null;
+    if (p.postRaceAtMs != null) {
+      const endsInMs = p.postRaceAtMs + (p.postRaceDurationS ?? 30) * 1000 - nowMs;
+      return endsInMs > 0 ? { phase: "playing", heatNumber: p.heatNumber, endsInMs } : null;
+    }
+    return {
+      phase: "owed",
+      heatNumber: p.heatNumber,
+      sinceFinishMs: Math.max(0, nowMs - (p.finishedAtMs ?? p.atMs)),
+    };
+  })();
+
   const pullWindow = sendWindow({
     remainingMs: raceClock?.liveRemainingMs ?? null,
     onTrack: trackHeatNumber != null || !!incomingLane?.racing,
     onTrackHeatNumber: trackHeatNumber,
     filmMs: incomingFilmMs,
+    pitPost: pullPitPost,
     attribution:
       incomingTrack !== "mega"
         ? "this-room"
@@ -1347,8 +1366,8 @@ export default function BriefingRoomClient({
         return `Already in the ${incomingSentTo} room.`;
       case "no-time":
         return raceLeftMs != null && raceLeftMs > 0
-          ? `${trackHeatNumber != null ? `Session ${trackHeatNumber}` : "The race"} ends in ${clock(raceLeftMs)} — the ${incomingTier} film${incomingFilmMs ? ` (${clock(incomingFilmMs)})` : ""} no longer fits. The pull unlocks at the flag.`
-          : "No time for the film before the flag — the pull unlocks when the race ends.";
+          ? `${trackHeatNumber != null ? `Session ${trackHeatNumber}` : "The race"} ends in ${clock(raceLeftMs)} — the ${incomingTier} film${incomingFilmMs ? ` (${clock(incomingFilmMs)})` : ""} no longer fits. The pull unlocks after the post-race call.`
+          : "Their post-race call plays in here first — the pull unlocks when it has.";
       case "disabled":
         return "Briefing rooms are switched off.";
       case "no-heat":
