@@ -46,53 +46,71 @@ const WARN = "#f0b341";
 
 interface Scale {
   pad: string;
-  gap: number;
-  rowGap: number;
-  label: number;
-  labelCol: number;
-  value: number;
-  type: number;
-  detail: number;
-  track: number;
-  clock: number;
-  clockCap: number;
-  b2bHead: number;
-  b2bName: number;
+  gap: string;
+  rowGap: string;
+  label: string;
+  labelCol: string;
+  value: string;
+  type: string;
+  detail: string;
+  track: string;
+  chip: string;
+  clock: string;
+  clockCap: string;
+  b2bHead: string;
+  b2bName: string;
   edge: number;
 }
 
-/** ONE scale per density, so a size cannot be nudged on one screen alone. */
+/**
+ * ONE SCALE PER DENSITY, so a size cannot be nudged on one screen alone.
+ *
+ * ⚠️ EVERY SIZE IS VIEWPORT-RELATIVE, AND THAT IS NOT A STYLE CHOICE. These are
+ * 1080p wall televisions; a windowed preview on a laptop is the exception, not
+ * the target. The first cut of this table used fixed pixels lifted from a
+ * windowed screenshot and the camera boards rendered at their floor — unreadable
+ * across a room (owner 2026-08-24: "everything got extreme small on the camera
+ * TVs, I warned about this!").
+ *
+ * COMPACT IS NOT SMALL TYPE. It is FEWER WORDS — no "Session", short levels,
+ * short details — at type only a step below the wall boards. The camera rail is
+ * 58% of its screen where a wall rail is all of one, so the step is the width
+ * it lost, nothing more. The `min` in each clamp is a floor for a shrunken
+ * preview window, never the size a TV should land on.
+ */
 const SCALE: Record<RailDensity, Scale> = {
   wall: {
-    pad: "26px 34px",
-    gap: 18,
-    rowGap: 10,
-    label: 27,
-    labelCol: 210,
-    value: 44,
-    type: 24,
-    detail: 26,
-    track: 34,
-    clock: 76,
-    clockCap: 20,
-    b2bHead: 24,
-    b2bName: 30,
+    pad: "2.4vh 2.2vw",
+    gap: "1.8vh",
+    rowGap: "1vh",
+    label: "clamp(18px, 1.9vw, 38px)",
+    labelCol: "11vw",
+    value: "clamp(28px, 3.1vw, 62px)",
+    type: "clamp(16px, 1.7vw, 34px)",
+    detail: "clamp(17px, 1.85vw, 37px)",
+    track: "clamp(22px, 2.4vw, 48px)",
+    chip: "clamp(16px, 1.7vw, 34px)",
+    clock: "clamp(44px, 6vw, 120px)",
+    clockCap: "clamp(14px, 1.5vw, 30px)",
+    b2bHead: "clamp(16px, 1.7vw, 34px)",
+    b2bName: "clamp(20px, 2.2vw, 44px)",
     edge: 7,
   },
   compact: {
-    pad: "16px 20px",
-    gap: 11,
-    rowGap: 7,
-    label: 15,
-    labelCol: 92,
-    value: 25,
-    type: 14,
-    detail: 15,
-    track: 19,
-    clock: 40,
-    clockCap: 12,
-    b2bHead: 14,
-    b2bName: 18,
+    pad: "2.6vh 2vw",
+    gap: "2vh",
+    rowGap: "0.9vh",
+    label: "clamp(15px, 1.55vw, 31px)",
+    labelCol: "9.5vw",
+    value: "clamp(22px, 2.5vw, 50px)",
+    type: "clamp(13px, 1.4vw, 28px)",
+    detail: "clamp(14px, 1.55vw, 31px)",
+    track: "clamp(18px, 2vw, 40px)",
+    chip: "clamp(13px, 1.4vw, 28px)",
+    clock: "clamp(38px, 5.2vw, 104px)",
+    clockCap: "clamp(13px, 1.3vw, 26px)",
+    b2bHead: "clamp(13px, 1.4vw, 28px)",
+    b2bName: "clamp(17px, 1.8vw, 36px)",
     edge: 5,
   },
 };
@@ -182,7 +200,7 @@ export function StageRailView({
             <span
               className="tv-eyebrow"
               style={{
-                fontSize: Math.round(s.track * 0.72),
+                fontSize: s.chip,
                 letterSpacing: "0.1em",
                 padding: compact ? "2px 8px" : "3px 12px",
                 borderRadius: 999,
@@ -198,7 +216,7 @@ export function StageRailView({
             <span
               className="tv-eyebrow"
               style={{
-                fontSize: Math.round(s.track * 0.72),
+                fontSize: s.chip,
                 letterSpacing: "0.1em",
                 color: "rgba(245,236,238,0.5)",
                 marginLeft: clock ? undefined : "auto",
@@ -266,7 +284,7 @@ export function StageRailView({
               <span
                 className="tv-eyebrow"
                 style={{
-                  flex: `0 0 ${s.labelCol}px`,
+                  flex: `0 0 ${s.labelCol}`,
                   fontSize: s.label,
                   letterSpacing: "0.08em",
                   color: "rgba(245,236,238,0.45)",

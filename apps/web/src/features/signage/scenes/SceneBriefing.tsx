@@ -372,15 +372,17 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
               label: verdictLabel(railPunctual),
               late: railPunctual.lateByMin !== null,
             }}
-            clock={
-              railClockNow
-                ? {
-                    text: formatRemaining(railClockNow.remainingMs),
-                    caption: railClockNow.state === "paused" ? "Paused" : "On track",
-                    paused: railClockNow.state === "paused",
-                  }
-                : null
-            }
+            /**
+             * NO CLOCK IN THIS HEADER, deliberately (owner 2026-08-24: "briefing
+             * TV logo is over the time on track").
+             *
+             * This screen already shows the on-track clock in the camera-return
+             * strip along the bottom, where the owner moved it on 2026-08-12
+             * ("that way its out of the way") — and the top-right corner it
+             * would sit in belongs to the brand mark. Putting it back would be
+             * two clocks on one wall, one of them under a logo.
+             */
+            clock={null}
             timeOfDay={venueTimeOfDay(nowMs)}
             calledCheckinAt={calledCheckinAt}
             returning={feed?.checkinReturning ?? null}
