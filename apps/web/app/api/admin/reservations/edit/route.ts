@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildEditPlan } from "~/features/reservation-edit/plan";
-import { editFlagEnabled, isRefundOnlyPlan } from "~/features/reservation-edit/guards";
+import {
+  editFlagEnabled,
+  isPreDecreaseOnlyPlan,
+  isRefundOnlyPlan,
+  PRE_DECREASE_FLAG,
+} from "~/features/reservation-edit/guards";
 import { EditGuardError, type EditSettlement, type EditSpec } from "~/features/reservation-edit";
 
 // Live Square reads (order snapshots + orders/calculate per leg) can stack up
@@ -105,13 +110,30 @@ export async function POST(req: NextRequest) {
     // day-of order is exempt: it rides its own phase switch
     // (RESERVATION_EDIT_V2_MID_DECREASE / _POST, enforced in the service), so
     // killing editing never strands a guest's refund.
-    if (!editFlagEnabled("RESERVATION_EDIT_V2") && !isRefundOnlyPlan(plan)) {
+    // A pre-payment REDUCTION is money-symmetric with a refund (value back to
+    // the guest, an untendered order's lines corrected, nothing charged), so it
+    // rides its own kill switch too. Checked first so its own switch wins in
+    // BOTH directions: off here even when the master is on, on here even when
+    // the master is off.
+    const preDecrease = isPreDecreaseOnlyPlan(plan);
+    if (preDecrease && !editFlagEnabled(PRE_DECREASE_FLAG)) {
+      return NextResponse.json(
+        {
+          error: "not_enabled",
+          detail:
+            "Reducing a booking before check-in has been switched off in this " +
+            `environment (${PRE_DECREASE_FLAG}=false).`,
+        },
+        { status: 501 },
+      );
+    }
+    if (!editFlagEnabled("RESERVATION_EDIT_V2") && !isRefundOnlyPlan(plan) && !preDecrease) {
       return NextResponse.json(
         {
           error: "not_enabled",
           detail:
             "Reservation editing has been switched off in this environment " +
-            "(RESERVATION_EDIT_V2=false) — only refunds are running.",
+            "(RESERVATION_EDIT_V2=false) — only refunds and pre-check-in reductions are running.",
         },
         { status: 501 },
       );

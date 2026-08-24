@@ -155,6 +155,86 @@ export const isRefundOnlyPlan = (plan: {
   // ...and nothing else happens.
   plan.steps.every((s) => REFUND_ONLY_STEPS.has(s.kind));
 
+/**
+ * Kill switch for the PRE-phase DECREASE path — a reduction taken BEFORE the
+ * lane opens, while the day-of order is still OPEN with zero tenders and the
+ * internal gift card has not paid it yet.
+ *
+ * Its own switch (not the master) because this shape is money-symmetric with a
+ * refund: value goes back to the guest, the untendered order's lines are
+ * corrected to match, and nothing charges. Ops needs to be able to stop it
+ * without also stopping increases, lane moves, or race edits — and, in the
+ * other direction, to stop it even while the master is on.
+ */
+export const PRE_DECREASE_FLAG = "RESERVATION_EDIT_V2_PRE_DECREASE";
+
+/**
+ * FATAL steps a PRE-phase decrease may contain. Allowlist, denied by default.
+ *
+ * `update_dayof_order` is the one step here that no refund plan may carry, and
+ * it is safe in `pre` for the reason it is forbidden later: Square only refuses
+ * line edits on an order with FINALIZED TENDERS ("LineItems cannot be modified
+ * for finalized tenders"). A `pre` order has none by definition of selectPhase,
+ * so its lines are still writable — which is why the pre branch corrects them
+ * instead of attaching a return order.
+ */
+const PRE_DECREASE_FATAL_STEPS: ReadonlySet<EditStepKind> = new Set<EditStepKind>([
+  "audit_start",
+  "refund_tender",
+  "issue_store_credit",
+  "adjust_gift_card_down",
+  "update_dayof_order",
+  "neon_commit",
+]);
+
+/**
+ * NON-FATAL steps that may ride along. These cannot move money and cannot fail
+ * the cascade; they only push the new headcount at Conqueror, where the desk
+ * sets it at check-in anyway. Kept as a SEPARATE allowlist so a step's
+ * permission is tied to its blast radius, not merely to its name.
+ *
+ * `bmi_remove_lines` is deliberately EXCLUDED even though the pre branch emits
+ * it non-fatally: BMI heats are capacity and entitlement, not an advisory
+ * roster, so a race-heat change stays under the master switch.
+ */
+const PRE_DECREASE_ADVISORY_STEPS: ReadonlySet<EditStepKind> = new Set<EditStepKind>([
+  "notify",
+  "qamf_set_players",
+  "qamf_memo",
+]);
+
+/**
+ * True when this plan is nothing but a pre-payment REDUCTION: money back to the
+ * guest (card or store credit), the deposit gift card decremented to match, the
+ * still-untendered day-of order's lines corrected, and at most an advisory
+ * Conqueror roster push.
+ *
+ * Deliberately a second predicate rather than a widening of isRefundOnlyPlan.
+ * That one is load-bearing for 51 production refunds and its own test asserts
+ * this exact shape is NOT refund-only ("requires the money to come off a PAID
+ * day-of order"), which stays true. Two narrow gates beat one loose gate.
+ *
+ * Evaluated per step by BLAST RADIUS: a step is advisory only when it is
+ * explicitly `fatal: false`. An absent `fatal` is treated as fatal, so a step
+ * shape we have not seen can never sneak in through the softer list.
+ */
+export const isPreDecreaseOnlyPlan = (plan: {
+  phase: EditPhase;
+  diffCents: number;
+  steps: ReadonlyArray<{ kind: EditStepKind; fatal?: boolean }>;
+}): boolean =>
+  // Only before lane-open — after that the tender exists and lines freeze.
+  plan.phase === "pre" &&
+  // Money strictly comes back. An increase charges, and charging is the
+  // master switch's business.
+  plan.diffCents < 0 &&
+  // ...and every step is permitted for what it can actually break.
+  plan.steps.every((s) =>
+    s.fatal === false
+      ? PRE_DECREASE_ADVISORY_STEPS.has(s.kind)
+      : PRE_DECREASE_FATAL_STEPS.has(s.kind),
+  );
+
 /** Reservation kinds the engine edits. */
 export type EditableKind = "kbf" | "open" | "race" | "attraction";
 
