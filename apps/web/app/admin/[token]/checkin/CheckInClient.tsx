@@ -492,7 +492,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
 
   /** The board's deadline alarm — one speaker for both columns, switched from
    *  the gear below and reported into by every RoomColumn. */
-  const alarm = useDeskAlarm();
+  const alarm = useDeskAlarm(token);
 
   /**
    * The window the SERVER is currently applying, for the gear to show as
@@ -1871,6 +1871,66 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               Sounds three times over the last 30 seconds when a session is about to be called late,
               or when a called group&apos;s briefing window is closing. This station only.
             </p>
+
+            {/*
+              THE SAME TWO ALERTS, ON A PHONE. The sound above needs somebody
+              within earshot of this PC; a manager walking the pits is not, and
+              these are the two deadlines worth interrupting a walk for. Any
+              board left open does the triggering, so a registered phone buzzes
+              whether or not it is the device looking at the board.
+            */}
+            <div className="mt-3 pt-3 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+              <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+                Alert this device
+              </p>
+              {briefing.board?.push?.configured ? (
+                <>
+                  <div className="flex gap-2 items-center" style={{ flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      disabled={alarm.pushBusy}
+                      onClick={() => {
+                        const key = briefing.board?.push?.publicKey;
+                        if (!key) return;
+                        if (alarm.pushRegistered) void alarm.unregisterPush();
+                        else void alarm.registerPush(key);
+                      }}
+                      className="px-3 py-1.5 text-xs border hover:bg-white/5"
+                      style={{
+                        borderRadius: 8,
+                        borderColor: alarm.pushRegistered ? GREEN : PORTAL_DARK.inputBorder,
+                        backgroundColor: alarm.pushRegistered ? `${GREEN}22` : "transparent",
+                        color: alarm.pushRegistered ? GREEN : PORTAL_DARK.muted,
+                        opacity: alarm.pushBusy ? 0.5 : 1,
+                      }}
+                    >
+                      {alarm.pushBusy
+                        ? "Working…"
+                        : alarm.pushRegistered
+                          ? "This device is alerted"
+                          : "Alert this device"}
+                    </button>
+                    <span className="text-xs" style={{ color: PORTAL_DARK.muted }}>
+                      {briefing.board.push.devices === 1
+                        ? "1 device registered"
+                        : `${briefing.board.push.devices ?? 0} devices registered`}
+                    </span>
+                  </div>
+                  <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+                    Sends a notification to this phone or PC even when the board is not on screen.
+                    Open this page on a phone and press it there to add that phone.
+                  </p>
+                </>
+              ) : (
+                /* Honest about the blocker rather than offering a button that
+                   cannot work: with no VAPID keys there is no identity to push
+                   under. */
+                <p className="text-xs" style={{ color: AMBER }}>
+                  Not set up — VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not set on this
+                  deployment. The sound above still works.
+                </p>
+              )}
+            </div>
           </div>
 
           {/*

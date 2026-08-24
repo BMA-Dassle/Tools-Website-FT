@@ -353,12 +353,20 @@ const STYLES = `
   0%, 100% { box-shadow: 0 0 0 0 ${withAlpha(AMBER, 0)}; }
   50%      { box-shadow: 0 0 0 7px ${withAlpha(AMBER, 0.55)}; }
 }
+/* THE GRACE MINUTE. Faster and red: the desk is out of time and the press is
+   still theirs to make, which is the most urgent live button on the board. */
+.rc-send-pulse-red { animation: rc-send-pulse-red 0.7s ease-in-out infinite; }
+@keyframes rc-send-pulse-red {
+  0%, 100% { box-shadow: 0 0 0 0 ${withAlpha(DANGER, 0)}; }
+  50%      { box-shadow: 0 0 0 8px ${withAlpha(DANGER, 0.6)}; }
+}
 /* A staff alert must not be motion-only anyway: reduced motion keeps the colour
    and drops the pulse, so the box still reads as overdue. */
 @media (prefers-reduced-motion: reduce) {
   .rc-flash-warn, .rc-flash-late, .rc-flash-ready { animation: none; }
   .rc-send-pulse { animation: none; box-shadow: 0 0 0 4px ${withAlpha(GREEN, 0.4)}; }
   .rc-send-pulse-amber { animation: none; box-shadow: 0 0 0 4px ${withAlpha(AMBER, 0.5)}; }
+  .rc-send-pulse-red { animation: none; box-shadow: 0 0 0 5px ${withAlpha(DANGER, 0.6)}; }
   .rc-flash-warn { border-color: ${AMBER}; background-color: ${withAlpha(AMBER, 0.18)}; }
   .rc-flash-late { border-color: ${DANGER}; background-color: ${withAlpha(DANGER, 0.22)}; }
   .rc-flash-ready { border-color: ${GREEN}; background-color: ${withAlpha(GREEN, 0.16)}; }
@@ -1653,7 +1661,9 @@ function RoomColumn({
     called:
       race && !sentTo ? { sessionId: String(race.sessionId), heatNumber: race.heatNumber } : null,
     calledForMs: checkingInMs,
-    windowClosesInMs: sendWin.kind === "closing" ? sendWin.closesInMs : null,
+    // The alarm rides the GRACE countdown — the minute in which the desk is
+    // out of time but can still act is exactly the minute worth shouting in.
+    windowClosesInMs: sendWin.kind === "grace" ? sendWin.graceLeftMs : null,
   });
   // The send deadline outranks the call one: a group already standing at the
   // desk is the more expensive of the two to lose.
@@ -1822,14 +1832,14 @@ function RoomColumn({
            is here" is old news beside "you are about to lose the send". */
         alert={
           race && !sentTo
-            ? sendWin.kind === "closing"
+            ? sendWin.kind === "grace"
               ? "late"
               : calledAlert
             : callDue
               ? "warn"
               : undefined
         }
-        ready={gridComplete && sendWin.kind !== "closing"}
+        ready={gridComplete && sendWin.kind !== "grace"}
         // THE LEAPFROG HINT, top-right where the eye lands before the button
         // (owner 2026-08-17: "bigger/more obvious… the top right corner is
         // empty"). Solid Mega violet so it reads as the Mega rotation
@@ -1945,27 +1955,35 @@ function RoomColumn({
                   which is when sending unlocks). */}
               {sendWin.kind !== "quiet" && (
                 <Stat
-                  label={sendWin.kind === "blocked" ? "Send locked" : "Send window"}
+                  label={
+                    sendWin.kind === "blocked"
+                      ? "Send locked"
+                      : sendWin.kind === "grace"
+                        ? "Grace left"
+                        : "Send window"
+                  }
                   value={
                     sendWin.kind === "early"
                       ? formatClock(Math.max(0, sendWin.opensInMs))
-                      : sendWin.kind === "blocked"
-                        ? sendWin.why === "film"
-                          ? formatClock(Math.max(0, sendWin.remainingMs ?? 0))
-                          : sendWin.why === "post-playing"
-                            ? formatClock(Math.max(0, sendWin.postEndsInMs ?? 0))
-                            : "—"
-                        : formatClock(Math.max(0, sendWin.closesInMs))
+                      : sendWin.kind === "grace"
+                        ? formatClock(Math.max(0, sendWin.graceLeftMs))
+                        : sendWin.kind === "blocked"
+                          ? sendWin.why === "film"
+                            ? formatClock(Math.max(0, sendWin.remainingMs ?? 0))
+                            : sendWin.why === "post-playing"
+                              ? formatClock(Math.max(0, sendWin.postEndsInMs ?? 0))
+                              : "—"
+                          : formatClock(Math.max(0, sendWin.closesInMs))
                   }
                   unit={
                     sendWin.kind === "early"
                       ? "until it opens"
                       : sendWin.kind === "open"
                         ? "send now"
-                        : sendWin.kind === "closing"
-                          ? "closing — send now"
+                        : sendWin.kind === "grace"
+                          ? `out of time by ${formatClock(sendWin.overBy)} — send now`
                           : sendWin.why === "film"
-                            ? `film won't fit — post first`
+                            ? "grace gone — post first"
                             : sendWin.why === "post-playing"
                               ? "post playing — then send"
                               : "waiting on the post-race call"
@@ -1973,7 +1991,7 @@ function RoomColumn({
                   tone={
                     sendWin.kind === "open"
                       ? GREEN
-                      : sendWin.kind === "closing" || sendWin.kind === "blocked"
+                      : sendWin.kind === "grace" || sendWin.kind === "blocked"
                         ? DANGER
                         : undefined
                   }
@@ -2095,43 +2113,46 @@ function RoomColumn({
                   {/* The leapfrog hint lives on the panel header now — big,
                       top-right, above this button (owner 2026-08-17). */}
                   <ActionButton
-                    // The button wears the window's colour: green while it is
-                    // open, amber over its last seconds, and DEAD once the film
-                    // no longer fits — no "anyway" any more (owner 2026-08-23).
-                    // An occupied room keeps its amber Replace flow untouched.
+                    // The button wears the window's state: green while the film
+                    // lands cleanly, RED AND STILL LIVE through the grace
+                    // minute (owner 2026-08-23 — the desk may spend it), and
+                    // dead only once the grace is gone. An occupied room keeps
+                    // its amber Replace flow untouched.
                     tone={
                       occupied
                         ? AMBER
-                        : sendWin.kind === "blocked"
+                        : sendWin.kind === "blocked" || sendWin.kind === "grace"
                           ? DANGER
-                          : sendWin.kind === "closing"
-                            ? AMBER
-                            : sendWin.kind === "open"
-                              ? GREEN
-                              : color
+                          : sendWin.kind === "open"
+                            ? GREEN
+                            : color
                     }
                     outline={occupied || (sendWin.kind === "blocked" && !occupied)}
                     textColor={
-                      !occupied && sendWin.kind === "closing"
-                        ? "#1c1204"
+                      !occupied && sendWin.kind === "grace"
+                        ? "#26060a"
                         : !occupied && sendWin.kind === "open"
                           ? "#04220f"
                           : undefined
                     }
                     // THE BOARD'S LOUDEST MOMENT (owner 2026-08-23: "more
-                    // aggressive!"): grid complete + window open = there is
-                    // exactly one right press on this screen, so the button
-                    // grows and pulses. Amber pulse over the window's last
-                    // seconds. Never while occupied — Replace is a decision,
-                    // not a reflex.
-                    size={!occupied && gridComplete && sendWin.kind === "open" ? "lg" : "md"}
+                    // aggressive!"): the grace minute and a complete grid on an
+                    // open window are both a single right press, so the button
+                    // grows and pulses — red in the grace, green while open.
+                    // Never while occupied: Replace is a decision, not a reflex.
+                    size={
+                      !occupied &&
+                      (sendWin.kind === "grace" || (gridComplete && sendWin.kind === "open"))
+                        ? "lg"
+                        : "md"
+                    }
                     className={
-                      occupied || !gridComplete
+                      occupied
                         ? undefined
-                        : sendWin.kind === "open"
-                          ? "rc-send-pulse"
-                          : sendWin.kind === "closing"
-                            ? "rc-send-pulse-amber"
+                        : sendWin.kind === "grace"
+                          ? "rc-send-pulse-red"
+                          : gridComplete && sendWin.kind === "open"
+                            ? "rc-send-pulse"
                             : undefined
                     }
                     pendingKey={`send:${room}`}
@@ -2158,9 +2179,11 @@ function RoomColumn({
                       ? "Replace"
                       : sendWin.kind === "blocked"
                         ? "Locked — sends after the post"
-                        : sendWin.kind === "closing" || (gridComplete && sendWin.kind === "open")
-                          ? `SEND TO ${cap(room).toUpperCase()} NOW →`
-                          : `Send to ${cap(room)} →`}
+                        : sendWin.kind === "grace"
+                          ? `SEND ANYWAY — ${formatClock(Math.max(0, sendWin.graceLeftMs))} →`
+                          : gridComplete && sendWin.kind === "open"
+                            ? `SEND TO ${cap(room).toUpperCase()} NOW →`
+                            : `Send to ${cap(room)} →`}
                   </ActionButton>
                 </span>
               )}

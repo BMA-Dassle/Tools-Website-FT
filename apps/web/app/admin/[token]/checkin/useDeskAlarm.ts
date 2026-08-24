@@ -47,6 +47,23 @@ export interface DeskAlarm {
   /** Browser notification permission, so the gear can offer to ask for it. */
   notifyPermission: NotificationPermission | "unsupported";
   requestNotify: () => void;
+  /** Is THIS device registered for push alerts (a phone, or this PC)? */
+  pushRegistered: boolean;
+  pushBusy: boolean;
+  /** Register or drop this device. Needs the server's VAPID public key. */
+  registerPush: (publicKey: string) => Promise<void>;
+  unregisterPush: () => Promise<void>;
+}
+
+/** Turns the base64url VAPID key into the byte view the subscribe call wants.
+ *  Typed as ArrayBuffer-backed explicitly: the DOM signature rejects a
+ *  possibly-shared buffer, which is what a bare Uint8Array widens to. */
+function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const raw = atob((base64 + padding).replace(/-/g, "+").replace(/_/g, "/"));
+  const out = new Uint8Array(new ArrayBuffer(raw.length));
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
 }
 
 function readStored(): boolean {
@@ -59,7 +76,12 @@ function readStored(): boolean {
   }
 }
 
-export function useDeskAlarm(): DeskAlarm {
+/**
+ * `token` is the admin token already in the page's URL — the push endpoints sit
+ * behind the same gate as every other board action, and a hook that cannot
+ * authenticate would silently no-op.
+ */
+export function useDeskAlarm(token: string): DeskAlarm {
   // Lazy initialisers, the same shape the baud rate uses: read the station's
   // own settings once, on the client, with no state-set inside an effect.
   const [enabled, setEnabledState] = useState<boolean>(() =>
@@ -126,6 +148,91 @@ export function useDeskAlarm(): DeskAlarm {
     }
   }, []);
 
+  /* ── push: this device, and the fan-out to every other one ───────────── */
+
+  const [pushRegistered, setPushRegistered] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+
+  /** Ask the browser whether this device already holds a subscription, so the
+   *  gear opens showing the truth rather than "off" on a registered phone. */
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        if (!("serviceWorker" in navigator)) return;
+        const reg = await navigator.serviceWorker.getRegistration("/sw-push.js");
+        const sub = await reg?.pushManager.getSubscription();
+        if (!cancelled) setPushRegistered(!!sub);
+      } catch {
+        // No service-worker support, or a browser that refuses the query.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const postAction = useCallback(
+    async (payload: Record<string, unknown>) => {
+      await fetch(`/api/admin/briefing?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    },
+    [token],
+  );
+
+  const registerPush = useCallback(
+    async (publicKey: string) => {
+      setPushBusy(true);
+      try {
+        if (!("serviceWorker" in navigator) || typeof Notification === "undefined") return;
+        // Permission first: subscribing without it throws on some browsers and
+        // silently yields a useless subscription on others.
+        const perm = await Notification.requestPermission();
+        setNotifyPermission(perm);
+        if (perm !== "granted") return;
+        const reg = await navigator.serviceWorker.register("/sw-push.js");
+        await navigator.serviceWorker.ready;
+        const sub =
+          (await reg.pushManager.getSubscription()) ??
+          (await reg.pushManager.subscribe({
+            // Required true by every browser that implements this — a
+            // non-visible push is not allowed on the web.
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(publicKey),
+          }));
+        await postAction({ action: "push-subscribe", subscription: sub.toJSON() });
+        setPushRegistered(true);
+      } catch {
+        setPushRegistered(false);
+      } finally {
+        setPushBusy(false);
+      }
+    },
+    [postAction],
+  );
+
+  const unregisterPush = useCallback(async () => {
+    setPushBusy(true);
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration("/sw-push.js");
+      const sub = await reg?.pushManager.getSubscription();
+      if (sub) {
+        // Tell the server BEFORE dropping the local subscription: once the
+        // endpoint is gone from this device we can no longer name it.
+        await postAction({ action: "push-unsubscribe", endpoint: sub.endpoint });
+        await sub.unsubscribe().catch(() => {});
+      }
+      setPushRegistered(false);
+    } catch {
+      // Leave the flag alone — the next open re-reads the real state.
+    } finally {
+      setPushBusy(false);
+    }
+  }, [postAction]);
+
   const fire = useCallback(
     (cue: AlarmCue | null) => {
       if (!cue || !enabledRef.current) return;
@@ -146,9 +253,32 @@ export function useDeskAlarm(): DeskAlarm {
       } catch {
         // Notification constructors throw in a few embedded webviews.
       }
+      /**
+       * AND OUT TO EVERY REGISTERED DEVICE. Fired even when this station is not
+       * itself subscribed — the board is the TRIGGER for the estate, not a
+       * participant in it, which is what lets a manager's phone buzz while the
+       * desk PC is the only thing with the board open. The server claims each
+       * (kind, session, slot) so two open boards cannot double a buzz, and it
+       * no-ops entirely when the VAPID keys are unset.
+       *
+       * Deliberately not awaited and never surfaced: a failed fan-out must not
+       * delay or break the local sound, which is the primary alarm.
+       */
+      void postAction({ action: "push-fire", cue }).catch(() => {});
     },
-    [play],
+    [play, postAction],
   );
 
-  return { enabled, setEnabled, fire, preview, notifyPermission, requestNotify };
+  return {
+    enabled,
+    setEnabled,
+    fire,
+    preview,
+    notifyPermission,
+    requestNotify,
+    pushRegistered,
+    pushBusy,
+    registerPush,
+    unregisterPush,
+  };
 }

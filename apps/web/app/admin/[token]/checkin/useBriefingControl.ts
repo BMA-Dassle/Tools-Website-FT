@@ -66,6 +66,9 @@ export interface BoardStatus {
   /** Minutes a racer has to check in, per track, as configured on the TRACK
    *  BOARDS — the deadline the Called box turns amber and then red against. */
   checkinWindowMins: Record<string, number>;
+  /** Deadline push alerts: whether this deployment has VAPID keys, the public
+   *  one to register a device with, and how many are registered. */
+  push?: { configured: boolean; publicKey: string | null; devices: number };
   assignments: Assignment[];
   /** Which sessions are still considered sent, keyed by sessionId — the
    *  REVERSIBLE fact behind the Called box, so Undo puts a heat back. Optional

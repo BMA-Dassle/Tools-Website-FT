@@ -134,8 +134,9 @@ export const PULL_LATE_MS = 5 * 60_000;
  *   early    sent now, the group just stands at the grid (median 6:40 over
  *            8/18–8/22 — the single biggest waste the data found)
  *   open     film lands as the track clears — the ideal
- *   closing  the window's last seconds; the board gets loud, the button stays
- *   blocked  the film no longer fits in the race left — the send is REFUSED
+ *   grace    past the deadline, one minute of it: red, counting down, and the
+ *            send is still the desk's to make
+ *   blocked  the grace is gone too — the send is REFUSED
  *
  * THE BLOCK LIFTS AT THE POST, NOT THE FLAG (owner 2026-08-23: "unlocked at
  * post race… if it even exists"). The finishing group's post-race announcement
@@ -156,10 +157,20 @@ export const DEFAULT_FILM_MS = 4.5 * 60_000;
  *  top of this band a send releases the group onto a track that is about to
  *  clear; above it they stand. 2:30 ≈ the measured ideal 2:00 hold + walk. */
 export const SEND_OPEN_SLACK_MS = 2.5 * 60_000;
-/** The window's last stretch above (film + exit) — the ONE-MINUTE GRACE
- *  (owner 2026-08-23): the Called box blinks red and the countdown runs,
- *  because past it the send is refused, not warned. */
-export const SEND_CLOSING_SPAN_MS = 60_000;
+/**
+ * THE ONE-MINUTE GRACE, and it sits AFTER the deadline, not before (owner
+ * 2026-08-23: "give them a 1 minute grace period where check in blinks red as
+ * they're out of time to send to briefing" — and, on seeing a hard lock at 4:52
+ * against a 5:00 need, "it did not give me grace period").
+ *
+ * So the moment the film stops fitting is NOT the lock. It is the start of a
+ * minute in which the desk may still send — the board turns red and counts the
+ * grace down, because staff standing with the group in front of them are better
+ * placed than this rule to judge a film that overruns by twenty seconds. Only
+ * when the grace is gone does the button die: past that the film cannot land
+ * before the flag by any reading, and the group's own post-race call is next.
+ */
+export const SEND_GRACE_MS = 60_000;
 /** How long after the finish a still-unplayed post counts as NOT COMING. The
  *  cue normally fires within a minute or two of the flag; a block that waits
  *  longer than this is waiting on a dead speaker, not an announcement. */
@@ -169,10 +180,14 @@ export type SendWindow =
   | { kind: "quiet" }
   | { kind: "early"; standMs: number; opensInMs: number }
   | { kind: "open"; remainingMs: number; closesInMs: number }
-  | { kind: "closing"; remainingMs: number; closesInMs: number }
+  /**
+   * PAST THE DEADLINE, INSIDE THE GRACE. The film no longer fits cleanly, the
+   * board is red, and the send is STILL THE DESK'S TO MAKE for `graceLeftMs`.
+   */
+  | { kind: "grace"; remainingMs: number; graceLeftMs: number; overBy: number }
   | {
       kind: "blocked";
-      /** film: no time before the flag. post-owed: flag fallen, announcement
+      /** film: the grace is gone too. post-owed: flag fallen, announcement
        *  still to play into this room. post-playing: it is playing right now. */
       why: "film" | "post-owed" | "post-playing";
       heatNumber: number | null;
@@ -195,11 +210,11 @@ export type PitPost =
  * on track will walk back to (owner 2026-08-18):
  *
  *   this-room   every state may fire, including the hard block
- *   unknown     the block downgrades to `closing`: warn both sides, freeze
+ *   unknown     the block downgrades to `grace`: warn both sides, freeze
  *               neither, because a hand-placed group carries no room and a
  *               refusal that cannot attribute itself may be refusing the send
  *               that is actually fine
- *   other-room  `closing`/`blocked` go quiet; `early`/`open` still speak —
+ *   other-room  `grace`/`blocked` go quiet; `early`/`open` still speak —
  *               that side is exactly where the next group SHOULD go
  */
 export function sendWindow(args: {
@@ -218,7 +233,12 @@ export function sendWindow(args: {
   const gate = (blocked: SendWindow & { kind: "blocked" }): SendWindow => {
     if (args.attribution === "this-room") return blocked;
     if (args.attribution === "other-room") return { kind: "quiet" };
-    return { kind: "closing", remainingMs: blocked.remainingMs ?? 0, closesInMs: 0 };
+    return {
+      kind: "grace",
+      remainingMs: blocked.remainingMs ?? 0,
+      graceLeftMs: 0,
+      overBy: 0,
+    };
   };
 
   // THE POST OWNS THE ROOM FIRST. It outranks the clock ladder because it can
@@ -254,7 +274,8 @@ export function sendWindow(args: {
   const needMs = (args.filmMs ?? DEFAULT_FILM_MS) + ROOM_EXIT_MS;
   const r = args.remainingMs;
 
-  if (r < needMs) {
+  // PAST THE DEADLINE BY MORE THAN THE GRACE — now it is a refusal.
+  if (r < needMs - SEND_GRACE_MS) {
     return gate({
       kind: "blocked",
       why: "film",
@@ -263,9 +284,17 @@ export function sendWindow(args: {
       postEndsInMs: null,
     });
   }
-  if (r < needMs + SEND_CLOSING_SPAN_MS) {
+  // INSIDE THE GRACE. Red, counting down, still sendable. Suppressed on the
+  // other Mega room for the same reason every other warning is: the returning
+  // group is not walking back into that one.
+  if (r < needMs) {
     if (args.attribution === "other-room") return { kind: "quiet" };
-    return { kind: "closing", remainingMs: r, closesInMs: r - needMs };
+    return {
+      kind: "grace",
+      remainingMs: r,
+      graceLeftMs: r - (needMs - SEND_GRACE_MS),
+      overBy: needMs - r,
+    };
   }
   if (r > needMs + SEND_OPEN_SLACK_MS)
     return { kind: "early", standMs: r - needMs, opensInMs: r - needMs - SEND_OPEN_SLACK_MS };

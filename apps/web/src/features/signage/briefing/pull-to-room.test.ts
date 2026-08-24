@@ -3,7 +3,7 @@ import {
   DEFAULT_FILM_MS,
   PULL_LATE_MS,
   ROOM_EXIT_MS,
-  SEND_CLOSING_SPAN_MS,
+  SEND_GRACE_MS,
   SEND_OPEN_SLACK_MS,
   pullIsLate,
   pullVerdict,
@@ -173,41 +173,52 @@ describe("sendWindow", () => {
   it("opens when the film would land as the track clears", () => {
     expect(sendWindow({ ...RUNNING, remainingMs: 7 * M }).kind).toBe("open");
     expect(sendWindow({ ...RUNNING, remainingMs: NEED + SEND_OPEN_SLACK_MS }).kind).toBe("open");
-    expect(sendWindow({ ...RUNNING, remainingMs: NEED + SEND_CLOSING_SPAN_MS }).kind).toBe("open");
+    expect(sendWindow({ ...RUNNING, remainingMs: NEED }).kind).toBe("open");
   });
 
-  it("turns loud over the window's last seconds, with the countdown", () => {
-    const w = sendWindow({ ...RUNNING, remainingMs: NEED + 30_000 });
-    expect(w).toEqual({ kind: "closing", remainingMs: NEED + 30_000, closesInMs: 30_000 });
-  });
-
-  it("blocks the moment the film no longer fits", () => {
-    const w = sendWindow({ ...RUNNING, remainingMs: NEED - 1 });
+  /** THE OWNER'S OWN CASE (2026-08-23): a 4:30 starter film needs 5:00 and the
+   *  race had 4:52 left. That must be GRACE — red, counting down, sendable —
+   *  not the hard lock the first cut gave it. */
+  it("grants a grace minute the moment the film stops fitting, and keeps the send live", () => {
+    const w = sendWindow({ ...RUNNING, remainingMs: 4 * M + 52_000 });
     expect(w).toEqual({
+      kind: "grace",
+      remainingMs: 4 * M + 52_000,
+      graceLeftMs: 52_000,
+      overBy: 8_000,
+    });
+  });
+
+  it("holds the grace to exactly one minute, then locks", () => {
+    expect(sendWindow({ ...RUNNING, remainingMs: NEED - 1 }).kind).toBe("grace");
+    expect(sendWindow({ ...RUNNING, remainingMs: NEED - SEND_GRACE_MS }).kind).toBe("grace");
+    expect(sendWindow({ ...RUNNING, remainingMs: NEED - SEND_GRACE_MS - 1 })).toEqual({
       kind: "blocked",
       why: "film",
       heatNumber: 48,
-      remainingMs: NEED - 1,
+      remainingMs: NEED - SEND_GRACE_MS - 1,
       postEndsInMs: null,
     });
   });
 
   it("sizes the window to the film this heat will actually get", () => {
-    const proFilm = 46_000;
-    // 2:30 left fits a pro film with room to spare — open, not blocked.
+    const proFilm = 46_000; // need = 1:16
     expect(sendWindow({ ...RUNNING, filmMs: proFilm, remainingMs: 2.5 * M }).kind).toBe("open");
-    expect(sendWindow({ ...RUNNING, filmMs: proFilm, remainingMs: 70_000 }).kind).toBe("blocked");
+    expect(sendWindow({ ...RUNNING, filmMs: proFilm, remainingMs: 70_000 }).kind).toBe("grace");
+    expect(sendWindow({ ...RUNNING, filmMs: proFilm, remainingMs: 10_000 }).kind).toBe("blocked");
   });
 
   it("assumes the starter film when none is uploaded", () => {
-    expect(sendWindow({ ...RUNNING, filmMs: null, remainingMs: 4 * M })).toEqual({
-      kind: "blocked",
-      why: "film",
-      heatNumber: 48,
-      remainingMs: 4 * M,
-      postEndsInMs: null,
-    });
     expect(DEFAULT_FILM_MS + ROOM_EXIT_MS).toBe(5 * M); // the owner's own number
+    // 4:30 left ⇒ 30s into the grace on an assumed 5:00 need.
+    expect(sendWindow({ ...RUNNING, filmMs: null, remainingMs: 4.5 * M })).toEqual({
+      kind: "grace",
+      remainingMs: 4.5 * M,
+      graceLeftMs: 30_000,
+      overBy: 30_000,
+    });
+    // Past the grace, the assumed film locks it just the same.
+    expect(sendWindow({ ...RUNNING, filmMs: null, remainingMs: 3.5 * M }).kind).toBe("blocked");
   });
 
   it("stays blocked through the chequer while the post-race call is owed", () => {
@@ -270,24 +281,27 @@ describe("sendWindow", () => {
         pitPost: post,
         attribution: "unknown",
       }).kind,
-    ).toBe("closing");
+    ).toBe("grace");
   });
 
   it("downgrades the block to a loud warning when the returning room is unknown", () => {
-    expect(sendWindow({ ...RUNNING, remainingMs: 4 * M, attribution: "unknown" })).toEqual({
-      kind: "closing",
-      remainingMs: 4 * M,
-      closesInMs: 0,
+    expect(sendWindow({ ...RUNNING, remainingMs: 2 * M, attribution: "unknown" })).toEqual({
+      kind: "grace",
+      remainingMs: 2 * M,
+      graceLeftMs: 0,
+      overBy: 0,
     });
   });
 
   it("keeps warnings off the other Mega room but still offers it the open window", () => {
-    expect(sendWindow({ ...RUNNING, remainingMs: 4 * M, attribution: "other-room" }).kind).toBe(
+    // In the grace, and past it — both silent on the room the returners are not
+    // walking into.
+    expect(sendWindow({ ...RUNNING, remainingMs: 4.6 * M, attribution: "other-room" }).kind).toBe(
       "quiet",
     );
-    expect(
-      sendWindow({ ...RUNNING, remainingMs: NEED + 10_000, attribution: "other-room" }).kind,
-    ).toBe("quiet");
+    expect(sendWindow({ ...RUNNING, remainingMs: 2 * M, attribution: "other-room" }).kind).toBe(
+      "quiet",
+    );
     expect(sendWindow({ ...RUNNING, remainingMs: 7 * M, attribution: "other-room" }).kind).toBe(
       "open",
     );
@@ -296,10 +310,10 @@ describe("sendWindow", () => {
   it("keeps the band boundaries an exact ladder — no gaps, no overlaps", () => {
     for (let r = 5_000; r <= 10 * M; r += 5_000) {
       expect(sendWindow({ ...RUNNING, remainingMs: r }).kind).toBe(
-        r < NEED
+        r < NEED - SEND_GRACE_MS
           ? "blocked"
-          : r < NEED + SEND_CLOSING_SPAN_MS
-            ? "closing"
+          : r < NEED
+            ? "grace"
             : r > NEED + SEND_OPEN_SLACK_MS
               ? "early"
               : "open",
