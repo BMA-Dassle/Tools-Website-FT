@@ -613,7 +613,13 @@ async function buildBriefingSection(
             track: welcomeBack.track,
             endedAtMs: welcomeBack.endedAtMs,
             postPlayedAtMs: welcomeBack.postPlayedAtMs,
+            arrivedAtMs: welcomeBack.arrivedAtMs,
+            lingerAtMs: welcomeBack.lingerAtMs,
+            motionHealthy: welcomeBack.motionHealthy,
+            greetingByMotion: welcomeBack.greetingByMotion,
+            greetingTiming: welcomeBack.greetingTiming,
             audioUrl: assets["welcome-back-audio"]?.url ?? null,
+            lingerAudioUrl: assets["welcome-back-linger-audio"]?.url ?? null,
             results: welcomeBack.results,
             racingAgain: welcomeBack.racingAgain,
           }

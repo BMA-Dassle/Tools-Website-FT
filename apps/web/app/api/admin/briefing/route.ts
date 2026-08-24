@@ -19,6 +19,25 @@ import {
 } from "~/features/signage/briefing/called-override.server";
 import { readBriefingRoom } from "~/features/signage/briefing/state.server";
 import { setAutoHoldingEnabled } from "~/features/signage/briefing/auto-holding.server";
+import {
+  CHECKIN_WINDOW_MAX_MINS,
+  CHECKIN_WINDOW_MIN_MINS,
+  setCheckinWindowOverride,
+} from "~/features/signage/briefing/checkin-window.server";
+import {
+  setGreetingByMotionEnabled,
+  setGreetingTiming,
+} from "~/features/signage/briefing/greeting-setting.server";
+import { setSendOverrideAllowed } from "~/features/signage/briefing/send-override-setting.server";
+import {
+  addPushSubscription,
+  countPushSubscriptions,
+  firePushForCue,
+  pushConfig,
+  removePushSubscription,
+} from "~/features/signage/briefing/push.server";
+import type { AlarmCue } from "~/features/signage/briefing/desk-alarm";
+import type { GreetingTiming } from "~/features/signage/briefing/return-greeting";
 import { setRaceBookmarksEnabled } from "~/features/signage/briefing/race-bookmarks-setting.server";
 import {
   setCameraPreviewMode,
@@ -56,8 +75,16 @@ function authed(req: NextRequest): boolean {
 export async function GET(req: NextRequest) {
   if (!authed(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const status = await briefingBoardStatus();
+  // The push identity travels with the board: the gear needs the public key to
+  // register a device, and `configured: false` is what lets it say "not set up"
+  // instead of failing a subscribe. The PRIVATE key never leaves the server.
+  const push = pushConfig();
   return NextResponse.json(
-    { ...status, enabled: briefingEnabled() },
+    {
+      ...status,
+      enabled: briefingEnabled(),
+      push: { ...push, devices: await countPushSubscriptions() },
+    },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
@@ -138,6 +165,11 @@ export async function POST(req: NextRequest) {
     durationMs?: number;
     enabled?: boolean;
     mode?: string;
+    // The greeting's three numbers. Typed loosely because they arrive over the
+    // wire — every one is validated against its choice list before it lands.
+    fallbackMs?: number | string;
+    maxPlays?: number | string;
+    lingerAfterMs?: number | string;
   };
   try {
     body = await req.json();
@@ -206,6 +238,138 @@ export async function POST(req: NextRequest) {
     }
     await setAutoHoldingEnabled(body.enabled);
     return NextResponse.json({ ok: true, enabled: body.enabled });
+  }
+
+  /**
+   * HOW LONG A CALLED RACER HAS TO REACH THE DESK — the one number on that
+   * sheet (owner 2026-08-23). Null clears the override and hands the window
+   * back to the signage screen configs. Out-of-range is REJECTED rather than
+   * clamped: it can only come from our own gear, so a bad value is a bug worth
+   * seeing rather than a number to quietly reinterpret.
+   */
+  if (action === "checkin-window") {
+    const mins = (body as { minutes?: unknown }).minutes ?? null;
+    if (mins !== null && typeof mins !== "number") {
+      return NextResponse.json({ error: "minutes must be a number or null" }, { status: 400 });
+    }
+    if (
+      typeof mins === "number" &&
+      (!Number.isFinite(mins) || mins < CHECKIN_WINDOW_MIN_MINS || mins > CHECKIN_WINDOW_MAX_MINS)
+    ) {
+      return NextResponse.json(
+        {
+          error: `minutes must be between ${CHECKIN_WINDOW_MIN_MINS} and ${CHECKIN_WINDOW_MAX_MINS}`,
+        },
+        { status: 400 },
+      );
+    }
+    await setCheckinWindowOverride(mins);
+    return NextResponse.json({ ok: true, minutes: mins });
+  }
+
+  /* ── deadline push alerts ───────────────────────────────────────────── */
+
+  /**
+   * REGISTER THIS DEVICE for the two deadline alerts (owner 2026-08-23). Keyed
+   * by endpoint in push.server.ts, so re-registering the same phone replaces
+   * its record rather than doubling every buzz.
+   */
+  if (action === "push-subscribe") {
+    const sub = (body as { subscription?: unknown }).subscription;
+    if (
+      !sub ||
+      typeof sub !== "object" ||
+      typeof (sub as { endpoint?: unknown }).endpoint !== "string"
+    ) {
+      return NextResponse.json(
+        { error: "subscription with an endpoint required" },
+        { status: 400 },
+      );
+    }
+    await addPushSubscription(sub as Parameters<typeof addPushSubscription>[0]);
+    return NextResponse.json({ ok: true, devices: await countPushSubscriptions() });
+  }
+
+  if (action === "push-unsubscribe") {
+    const endpoint = (body as { endpoint?: unknown }).endpoint;
+    if (typeof endpoint !== "string" || !endpoint) {
+      return NextResponse.json({ error: "endpoint required" }, { status: 400 });
+    }
+    await removePushSubscription(endpoint);
+    return NextResponse.json({ ok: true, devices: await countPushSubscriptions() });
+  }
+
+  /**
+   * FIRE ONE SLOT OF AN ALERT. The board computes the cue — it holds the live
+   * race clock and the send window — and this fans it out, at most once per
+   * (kind, session, slot) across every open board. See push.server.ts for why
+   * the trigger is the board and not a cron: Vercel's cron floor is a minute
+   * and the pattern is three sends ten seconds apart.
+   *
+   * Shape-checked strictly. A cue is machine-generated by our own board, so a
+   * malformed one is a bug to surface rather than a payload to interpret.
+   */
+  if (action === "push-fire") {
+    const cue = (body as { cue?: unknown }).cue as AlarmCue | undefined;
+    const validKind = cue?.kind === "call" || cue?.kind === "send";
+    const validSlot = cue?.slot === 1 || cue?.slot === 2 || cue?.slot === 3;
+    if (!cue || !validKind || !validSlot || typeof cue.sessionId !== "string") {
+      return NextResponse.json({ error: "cue{kind,slot,sessionId} required" }, { status: 400 });
+    }
+    const result = await firePushForCue({
+      kind: cue.kind,
+      slot: cue.slot,
+      sessionId: cue.sessionId,
+      heatNumber: typeof cue.heatNumber === "number" ? cue.heatNumber : null,
+    });
+    return NextResponse.json({ ok: true, ...result });
+  }
+
+  /**
+   * MAY STAFF OVERRIDE A NO-TIME SEND (owner 2026-08-24). ON = the button lives
+   * and asks a full confirm first; OFF = the 8/23 hard lock. Same sheet and
+   * same shape as auto-holding; server-side because the room tablets run the
+   * identical rule and must not disagree with the desk.
+   */
+  if (action === "send-override") {
+    if (typeof body.enabled !== "boolean") {
+      return NextResponse.json({ error: "enabled must be true or false" }, { status: 400 });
+    }
+    await setSendOverrideAllowed(body.enabled);
+    return NextResponse.json({ ok: true, allowed: body.enabled });
+  }
+
+  /** The welcome-back greeting's mode — camera-timed (ON) or the fixed
+   *  post+45s timer (OFF). Same sheet, same shape as auto-holding above. */
+  if (action === "greeting-by-motion") {
+    if (typeof body.enabled !== "boolean") {
+      return NextResponse.json({ error: "enabled must be true or false" }, { status: 400 });
+    }
+    await setGreetingByMotionEnabled(body.enabled);
+    return NextResponse.json({ ok: true, enabled: body.enabled });
+  }
+
+  /**
+   * The greeting's three numbers (owner 2026-08-23). A PARTIAL patch: the sheet
+   * sends only the field that was pressed, and setGreetingTiming merges over
+   * what stands. Every value is validated against the choice list inside
+   * (normaliseGreetingTiming), so nothing here needs to trust the body — but a
+   * body with no recognised field at all is a bug worth a 400 rather than a
+   * silent no-op that looks like a working press.
+   */
+  if (action === "greeting-timing") {
+    const patch: Partial<GreetingTiming> = {};
+    if (body.fallbackMs !== undefined) patch.fallbackMs = Number(body.fallbackMs);
+    if (body.maxPlays !== undefined) patch.maxPlays = Number(body.maxPlays);
+    if (body.lingerAfterMs !== undefined) patch.lingerAfterMs = Number(body.lingerAfterMs);
+    if (Object.keys(patch).length === 0) {
+      return NextResponse.json(
+        { error: "send at least one of fallbackMs, maxPlays, lingerAfterMs" },
+        { status: 400 },
+      );
+    }
+    const timing = await setGreetingTiming(patch);
+    return NextResponse.json({ ok: true, timing });
   }
 
   /** Race-event camera bookmarks — the other switch on the same sheet. */

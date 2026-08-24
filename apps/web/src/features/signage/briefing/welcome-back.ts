@@ -22,6 +22,8 @@
  * helmet phase all outrank it (owner: "AS LONG AS A VIDEO IS NOT PLAYING").
  */
 
+import { GREETING_WINDOW_MS } from "./return-greeting";
+
 /**
  * Is the welcome-back window open for a session that actually ended at
  * `actualEndMs`? Null/unparseable means the session has not ended — the timing
@@ -37,4 +39,68 @@
  */
 export function welcomeBackWindowOpen(actualEndMs: number | null): boolean {
   return actualEndMs != null && Number.isFinite(actualEndMs);
+}
+
+/**
+ * ...AND WHEN IT IS FINALLY DONE (owner 2026-08-23/24, watching a red room hold
+ * an exit sign for 30+ minutes with nobody in it: "is the screen ever going to
+ * clear?" — "after the leave room finally finishes I'd like to go to the
+ * session overview that pit goes to when it has nothing").
+ *
+ * THIS REVERSES THE 2026-08-11 "no time ceiling" DECISION, deliberately and in
+ * one place. That call was right for the flow as it then was — a room went
+ * straight from one group to the next, so the next briefing always retired the
+ * greeting soon enough. It stopped being right once rooms began idling between
+ * groups: the retiring condition was another group's arrival, and on a quiet
+ * stretch that never came.
+ *
+ * TWO WAYS TO BE FINISHED, and the first is the real one:
+ *
+ *   1. THE POST HAS PLAYED AND THE GREETING HAS HAD ITS FULL SAY. The
+ *      post-race announcement is what calls the group back in, and the clip may
+ *      play or repeat for `GREETING_WINDOW_MS` after that press. Retiring
+ *      before that window shuts would cut the greeting off — or, when the clip
+ *      is waiting on its fallback delay, silence it entirely.
+ *
+ *   2. NOTHING EVER CAME. A post that never fires must not pin the screen up
+ *      for the night — and one fired 25 minutes after the flag on 8/23, so this
+ *      is not hypothetical. `HARD_CAP_AFTER_END_MS` from the race's own end is
+ *      the backstop, measured from the one stamp that always exists.
+ *
+ * ⚠️ THE FLOOR IS THE WHOLE CORRECTNESS STORY (owner 2026-08-24: "it actually
+ * cleared the welcome-back screen before even playing the first message, that
+ * can't happen"). The first cut retired at post + `lingerAfterMs`, and the
+ * default linger is TWO MINUTES — exactly the length of the greeting window. So
+ * the screen died at the same instant the clip's last chance did, and a group
+ * whose greeting was still waiting on the fallback timer got a cleared screen
+ * and silence. The window is therefore a FLOOR the linger can only extend, not
+ * shorten: whatever staff set the linger to, the greeting keeps its full window.
+ *
+ * Not a guess at where the group is: every bound is a stamp we hold. And still
+ * nothing here retires a greeting EARLY — a group walking in at +9 minutes is
+ * greeted, because the post is what starts the clock, not the flag.
+ */
+export const HARD_CAP_AFTER_END_MS = 20 * 60_000;
+
+export function welcomeBackExpired(input: {
+  /** The race's own end — the one stamp that always exists. */
+  actualEndMs: number | null;
+  /** When the post-race announcement played, if it has. */
+  postPlayedAtMs: number | null;
+  /** The greeting's linger span, a staff setting. */
+  lingerAfterMs: number;
+  nowMs: number;
+}): boolean {
+  const { actualEndMs, postPlayedAtMs, lingerAfterMs, nowMs } = input;
+  if (postPlayedAtMs != null && Number.isFinite(postPlayedAtMs)) {
+    // The greeting's own window is the floor; a longer staff linger extends it.
+    const holdMs = Math.max(GREETING_WINDOW_MS, lingerAfterMs);
+    return nowMs - postPlayedAtMs >= holdMs;
+  }
+  if (actualEndMs != null && Number.isFinite(actualEndMs)) {
+    return nowMs - actualEndMs >= HARD_CAP_AFTER_END_MS;
+  }
+  // No stamps at all is not "expired" — it is "we cannot tell", and the open
+  // check above is the one that decides whether to show anything.
+  return false;
 }

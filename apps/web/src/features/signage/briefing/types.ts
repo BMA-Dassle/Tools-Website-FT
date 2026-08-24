@@ -93,7 +93,11 @@ export type BriefingAssetKey =
   | "briefing-helmet-poster"
   /** The welcome-back jingle the room TV loops while the returning group's
    *  board is up (owner 2026-08-15). Audio, not video. */
-  | "welcome-back-audio";
+  | "welcome-back-audio"
+  /** Played ONCE when a returned group is still moving in the room three
+   *  minutes after they walked in — "another group is waiting" (owner
+   *  2026-08-23). Optional: no upload, no nag. Audio, not video. */
+  | "welcome-back-linger-audio";
 
 export const BRIEFING_ASSET_KEYS: readonly BriefingAssetKey[] = [
   "briefing-video:starter",
@@ -101,6 +105,7 @@ export const BRIEFING_ASSET_KEYS: readonly BriefingAssetKey[] = [
   "briefing-video:pro",
   "briefing-helmet-poster",
   "welcome-back-audio",
+  "welcome-back-linger-audio",
 ] as const;
 
 export function isBriefingAssetKey(raw: unknown): raw is BriefingAssetKey {

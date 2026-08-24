@@ -561,8 +561,10 @@ export function resolveScreenConfig(
     wall: wall && typeof wall.wallId === "string" && wall.wallId ? resolveWall(wall) : null,
     adSet: typeof c.adSet === "string" && c.adSet ? c.adSet : null,
     showNextAvailable: c.showNextAvailable === true,
-    // 8 minutes from the call (owner 2026-08-11).
-    checkinWindowMins: Math.max(1, numOr(c.checkinWindowMins, 8)),
+    // 7 minutes from the call (owner 2026-08-23, down from the 8 set
+    // 2026-08-11). The desk can override it live from the check-in board's
+    // gear — see checkin-window.server.ts, which wins over every screen.
+    checkinWindowMins: Math.max(1, numOr(c.checkinWindowMins, 7)),
     showCheckinCountdown: c.showCheckinCountdown !== false,
     megaRole: c.megaRole === "checkin" ? "checkin" : "session",
     // Same posture as megaRole: only the non-default literal switches, so an

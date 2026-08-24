@@ -59,10 +59,17 @@ import {
 
 /** The desk's working policy: call the heat this many minutes BEFORE its slot.
  *
- *  INFERRED FROM BEHAVIOUR, not from a written rule — 85 of 99 calls on
- *  2026-08-16 landed in the −6/−4 buckets. If the desk's actual instruction is a
- *  different number this constant is the one place to change it, and every
- *  figure below moves with it. */
+ *  CONFIRMED BY THE OWNER 2026-08-17 — "we like to call about 5 minutes before a
+ *  session check in time and allow up to two minutes after" — which settles what
+ *  was previously only inferred from behaviour (85 of 99 calls on 2026-08-16 in
+ *  the −6/−4 buckets). Re-measured over six nights (8/12–8/17, 376 heats): the
+ *  best single offset is slot −6 at a 4% late rate, and slot −5 sits inside the
+ *  band any late tolerance from 2% to 20% produces, so five is right.
+ *
+ *  The tolerance lives in session-call.ts as CALL_TOLERANCE_MIN, and that module
+ *  explains why five-before-the-slot is a CONSEQUENCE of the pipeline rather than
+ *  the underlying rule. This constant is still the one place to change the lead,
+ *  and every figure below moves with it. */
 export const CALL_LEAD_MIN = 5;
 
 /** A call is LATE when it goes out after the time we told the guest to be here —
@@ -113,7 +120,10 @@ export interface OnTimeHeat {
   sessionId: string;
   track: string | null;
   heatNumber: number | null;
-  /** The venue's own ScheduledStart. Null for anything before 2026-08-17. */
+  /** The printed slot. Originally the venue broadcast's own ScheduledStart, so it
+   *  was null before 2026-08-17; 8/12–8/17 has since been backfilled from
+   *  Pandora's sessions list, which was verified identical to the venue's value
+   *  to the minute. Still null for anything the backfill did not reach. */
   scheduledStartMs: number | null;
   /** The green flag. Null until the heat actually goes. */
   actualStartMs: number | null;
@@ -200,10 +210,14 @@ export interface OnTimeSnapshot {
   /**
    * Heats that carried a slot, out of all heats today.
    *
-   * SHOWN, NOT SWALLOWED. Every race before 2026-08-17 has a null slot and can
-   * never be backfilled, so a day straddling the deploy has partial coverage. A
-   * surface reporting "on time" off two heats out of ninety would be lying by
-   * omission.
+   * SHOWN, NOT SWALLOWED. A day can still have partial coverage — races before
+   * 2026-08-17 had no slot until they were backfilled from Pandora, and the
+   * backfill only ran over 8/12–8/17 — and a surface reporting "on time" off two
+   * heats out of ninety would be lying by omission.
+   *
+   * ("can never be backfilled" stood here until 2026-08-17. It was wrong:
+   * Pandora's /bmi/sessions carries scheduledStart for any past day, so the
+   * Redis queue's one-day horizon was never the binding constraint.)
    */
   slotCoverage: { withSlot: number; total: number };
 }

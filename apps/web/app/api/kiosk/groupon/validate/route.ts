@@ -15,11 +15,11 @@ export const runtime = "nodejs";
  * delivered (see `redeemAfterDelivery`), so a jammed dispenser can never eat a
  * guest's voucher. Safe to call on every scan, including a speculative one.
  *
- * SPECULATIVE IS THE NORMAL CASE. Groupon's short code is 8 alphanumerics,
- * indistinguishable from an 8-character promo code and — when all digits, as
- * the real production code `89895632` is — from a game-card barcode. So the
- * kiosk tries its primary path first and calls this only as a FALLBACK. Most
- * calls here are expected to answer "unknown", cheaply.
+ * SPECULATIVE IS THE NORMAL CASE. Groupon's short code is 7 OR 8
+ * alphanumerics, indistinguishable from a same-length promo code and — when
+ * all digits, as the real production code `89895632` is — from a game-card
+ * barcode. So the kiosk tries its primary path first and calls this only as a
+ * FALLBACK. Most calls here are expected to answer "unknown", cheaply.
  *
  * Security posture: kiosk-route posture, same as the other endpoints in this
  * folder — no device auth. Nothing here returns PII; the response describes

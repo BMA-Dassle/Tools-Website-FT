@@ -4840,6 +4840,55 @@ ignore it, which is worse than no watcher.
    race night existed to answer could not be answered. Put it in the durable run log in the
    same commit as the feature.
 
+## A guest's confirmation copies ONE shared mailbox — never a person (2026-08-22)
+
+Tyler reported getting **an email for every race booked**. He was not on any race alert list.
+The address was one line, in the wrong place:
+
+```ts
+// apps/web/app/api/notifications/booking-confirmation/route.ts — sendEmail()
+bcc: [{ email: "vendorcases@dassle.us" }, { email: "tyler@headpinz.com" }],
+```
+
+The comment above it said "so he sees VIP confirmations as they go out". `sendEmail` is this
+route's shared transport, used by both rails — kiosk walk-up and web booking — for FastTrax
+racing AND HeadPinz bowling. A BCC in there is a BCC on **every confirmation the
+highest-volume mailer we own sends**: hundreds a week, of which a handful were VIP.
+
+**Why it survived three weeks:** nothing failed. No error, no bounce, no guest impact, no log
+line. A misrouted BCC is invisible from inside the system — the only symptom is a staff inbox,
+and the only detector is the human filling it up.
+
+**The first fix was the wrong shape.** The obvious repair is to gate the address on
+`isVipComboBooking()` so only VIP bookings copy him. That is a smaller blast radius, not a
+correct design — it still answers "staff wants visibility" with a carbon of the guest's mail.
+The owner's answer was simpler: VIP notification had already moved to Teams, so the right
+recipient count was **zero**. Shipped state is `bcc: [{ email: AUDIT_BCC }]` — one shared,
+auditable mailbox, no parameter, no gate, no branch.
+
+**The rules:**
+
+1. **A named individual never rides along on guest mail.** Staff visibility is its own feature
+   with its own recipients — `world-cup/notify.server.ts` and `combos/combo-notify.ts` are the
+   pattern: a purpose-built alert, addressed to staff, saying what staff need. A BCC on the
+   guest's confirmation is not that; it is the guest's email in somebody else's inbox.
+2. **"Copy me on X" is scoped work, not a one-line add.** Before adding an address, ask what
+   else flows through the function you are editing. Here: two rails, two brands, every product.
+   If you cannot name the full set of mail that line will touch, you are not ready to add it.
+3. **Ask what the request is FOR before narrowing it.** "He only wanted VIP" was true and led
+   to the wrong fix. The actual state of the world — VIP moved to Teams — deleted the
+   requirement instead of shrinking it. A gate you do not need is still a branch to maintain,
+   a test to write, and a place for the next person to add a second name.
+4. **Guard it with a source scan, because a unit test cannot see this.** The send is "correct"
+   with or without the extra address. `bcc-scope.test.ts` asserts against the file: no address
+   literal in the personalization, exactly one recipient constant, no non-role mailbox anywhere
+   in the route. Verified it fails both ways a name comes back — inline in the BCC, and as a
+   second "gated" constant.
+5. **Volume decides the blast radius, so check it first.** A stray BCC on the group-function
+   mailer is a handful of emails a week and nobody notices. The same mistake on booking
+   confirmation is a mailbox nobody can use. Rank the mailers you touch by send volume before
+   deciding how careful to be.
+
 ---
 
 ## Retired features: disable, don't delete (2026-08-23)

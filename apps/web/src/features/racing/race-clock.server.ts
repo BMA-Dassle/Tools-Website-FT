@@ -36,7 +36,8 @@ function parseState(raw: string | null): RaceClockState | null {
 /**
  * Fold one broadcast message into the clocks it touches.
  *
- * Applied per race in a fixed order — duration change, stop, start, finish —
+ * Applied per race in a fixed order — duration change, stop, green, start,
+ * finish —
  * so a snapshot carrying more than one record for the same race lands
  * deterministically, with the terminal state winning.
  *

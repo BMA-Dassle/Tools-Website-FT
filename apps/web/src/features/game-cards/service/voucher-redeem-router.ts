@@ -70,7 +70,7 @@ export type RedeemClaim =
 export function voucherIssuerFor(code: string): VoucherIssuer | null {
   if (isNativeVoucherCode(code)) return "native";
   if (BMI_VOUCHER_RE.test(code.trim().toUpperCase())) return "bmi";
-  // Groupon's UNAMBIGUOUS long form only. Its 8-character short form is
+  // Groupon's UNAMBIGUOUS long form only. Its 7-/8-character short form is
   // deliberately NOT matched here: `SUMMER26` is also 8 alphanumerics, and
   // `89895632` is also a bare game-card barcode, so shape cannot decide it and
   // this function is a shape-only authority. Use `resolveVoucherIssuer` for the
@@ -82,8 +82,8 @@ export function voucherIssuerFor(code: string): VoucherIssuer | null {
 /**
  * Which system owns this code, resolving the ambiguous cases with DATA.
  *
- * Groupon's 8-character short code cannot be told from an 8-character promo, or
- * — when all digits — from a game-card barcode, by shape alone. But by the time
+ * Groupon's 7-/8-character short code cannot be told from a same-length promo,
+ * or — when all digits — from a game-card barcode, by shape alone. But by the time
  * anything is claimed we have already validated the voucher and written a
  * `groupon_units` row, so the existence of that row IS the answer. A promo code
  * has no row and falls through to whatever it was before.

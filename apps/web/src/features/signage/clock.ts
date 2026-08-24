@@ -60,6 +60,11 @@ export const TV_MOTION_PERIODS_MS: Record<string, number> = {
    *  flash — an instruction being walked towards, not an alarm — but on the
    *  same beat as everything else so the wall does not fight the room. */
   "tv-arrow-nudge": 1400,
+  /** The welcome-back exit run — four chevrons flaring in turn toward the
+   *  white door. One registered name: the travel comes from per-element
+   *  animation-DELAYS, which survive a currentTime seek (active time =
+   *  currentTime − delay), so the wave stays staggered AND clock-locked. */
+  "tv-exit-chev": 1400,
   "tv-bday-glow": 1400,
   "tv-chev": 2800,
   "tv-breathe": 2800,

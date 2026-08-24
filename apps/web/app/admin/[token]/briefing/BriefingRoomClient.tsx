@@ -49,7 +49,14 @@
  * from startHoldRemainingMs — the same pure functions the TV and the desk run, so
  * all three surfaces agree about what this room is doing.
  */
-import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import {
   IconAlertTriangleFilled,
   IconArrowRight,
@@ -66,8 +73,11 @@ import { briefingReadyForHolding, briefingTimelineAt } from "~/features/signage/
 import {
   pullIsLate,
   pullVerdict,
+  sendWindow,
+  type PitPost,
   type PullRefusal,
 } from "~/features/signage/briefing/pull-to-room";
+import { laneReturnRoom } from "~/features/signage/briefing/room-suggest";
 import {
   buildStageRail,
   heatIsPastTheDesk,
@@ -1034,6 +1044,23 @@ export default function BriefingRoomClient({
     [startCb, room],
   );
 
+  /** When this tablet first saw the race clock at 0:00 — the zero-gap post
+   *  block. Up here, above the room picker's early return (hooks are
+   *  unconditional), fed by the clock that also lives up here. State +
+   *  effect rather than a render-time ref (react-hooks/refs). */
+  const zeroKey =
+    raceClock?.liveRemainingMs != null && raceClock.liveRemainingMs <= 0
+      ? (liveHeatNumber(raceClock.heatName) ?? -1)
+      : null;
+  const [zeroSeen, setZeroSeen] = useState<{ key: number; atMs: number } | null>(null);
+  useEffect(() => {
+    if (zeroKey == null) {
+      setZeroSeen(null);
+      return;
+    }
+    setZeroSeen((cur) => (cur?.key === zeroKey ? cur : { key: zeroKey, atMs: Date.now() }));
+  }, [zeroKey]);
+
   /* ── the room picker, for a tablet nobody has set up yet ──────────── */
 
   if (!room) {
@@ -1280,6 +1307,57 @@ export default function BriefingRoomClient({
     ? `The ${incomingTier} film runs ${clock(incomingFilmMs)} — pull now and the track waits on this room.`
     : "Pull now and the film will still be running when the seats are wanted.";
 
+  /**
+   * DOES THE FILM STILL FIT — the desk board's send window, run on this
+   * tablet's own clock, so the two surfaces cannot disagree about a refusal
+   * (owner 2026-08-23: no more pulling a group in when there is no time).
+   */
+  /** THE ZERO GAP, same as the desk board: a clock at 0:00 with an empty pit
+   *  slot means the post is seconds away and the lane just has not written it
+   *  yet — synthesized as an owed post below, timed from this tablet's first
+   *  sight of the zero, bounded by the engine's dead-cue cap. */
+  /** The post-race announcement owed to (or playing into) this room — the send
+   *  stays refused until it has played, with sendWindow's own dead-cue cap
+   *  ("if it even exists", owner 2026-08-23). Same arithmetic as the desk;
+   *  the zero-gap `zeroSeen` state lives above the room picker's early return. */
+  const pullPitPost: PitPost | null = (() => {
+    const p = incomingLane?.pitIn;
+    if (!p) {
+      return zeroSeen
+        ? {
+            phase: "owed",
+            heatNumber: trackHeatNumber,
+            sinceFinishMs: Math.max(0, nowMs - zeroSeen.atMs),
+          }
+        : null;
+    }
+    if (p.postRaceAtMs != null) {
+      const endsInMs = p.postRaceAtMs + (p.postRaceDurationS ?? 30) * 1000 - nowMs;
+      return endsInMs > 0 ? { phase: "playing", heatNumber: p.heatNumber, endsInMs } : null;
+    }
+    return {
+      phase: "owed",
+      heatNumber: p.heatNumber,
+      sinceFinishMs: Math.max(0, nowMs - (p.finishedAtMs ?? p.atMs)),
+    };
+  })();
+
+  const pullWindow = sendWindow({
+    remainingMs: raceClock?.liveRemainingMs ?? null,
+    onTrack: trackHeatNumber != null || !!incomingLane?.racing,
+    onTrackHeatNumber: trackHeatNumber,
+    filmMs: incomingFilmMs,
+    pitPost: pullPitPost,
+    attribution:
+      incomingTrack !== "mega"
+        ? "this-room"
+        : laneReturnRoom(incomingLane) === room
+          ? "this-room"
+          : laneReturnRoom(incomingLane) == null
+            ? "unknown"
+            : "other-room",
+  });
+
   /** THE ONE RULE, and its sentences. Pure, shared, tested — pull-to-room.ts. */
   const pull = pullVerdict({
     enabled: board?.enabled,
@@ -1291,11 +1369,46 @@ export default function BriefingRoomClient({
     roomOccupied: !!state,
     checkedIn: incomingCount,
     late: pullLate,
+    noTime: pullWindow.kind === "blocked",
+    // The gear's toggle, default ALLOW. Undefined on an older deploy reads as
+    // allowed, matching the server — and this tablet must give the same answer
+    // as the desk board, which is why the setting is server-side.
+    overrideAllowed: board?.sendOverride?.allowed !== false,
   });
 
   const sendCb = control.send;
   const onPull = () => {
     if (!incomingRace) return;
+    /**
+     * THE SAME BIG WARNING THE DESK SHOWS (owner 2026-08-24). The pull runs the
+     * identical send, so it owes the identical question — and the person
+     * holding this tablet is standing in the room the track will wait on.
+     */
+    if (pull.ok && pull.noTime) {
+      const film = incomingFilmMs
+        ? `The ${incomingTier} film runs ${clock(incomingFilmMs)} and will NOT finish in time.`
+        : "The briefing film will NOT finish in time.";
+      const why =
+        raceLeftMs != null && raceLeftMs > 0
+          ? `${trackHeatNumber != null ? `Session ${trackHeatNumber}` : "The race"} ends in ${clock(raceLeftMs)}.`
+          : "Their post-race call has not played in here yet.";
+      if (
+        !window.confirm(
+          `NO TIME LEFT FOR THIS BRIEFING
+
+${why}
+${film}
+
+` +
+            `Pull Session ${incomingRace.heatNumber ?? "?"} in anyway?
+
+` +
+            `The track will wait on this room, and a returning group's post-race call cannot play over a film.`,
+        )
+      ) {
+        return;
+      }
+    }
     sendCb({
       room,
       // The track the HEAT belongs to, which on a Mega night is the shared
@@ -1322,6 +1435,12 @@ export default function BriefingRoomClient({
           : "This room still has a group in it — send them to holding first.";
       case "already-sent":
         return `Already in the ${incomingSentTo} room.`;
+      // Only reachable with the gear's override switched OFF — otherwise a
+      // no-time pull is allowed and the confirm above is what asks.
+      case "no-time":
+        return raceLeftMs != null && raceLeftMs > 0
+          ? `${trackHeatNumber != null ? `Session ${trackHeatNumber}` : "The race"} ends in ${clock(raceLeftMs)} — the ${incomingTier} film${incomingFilmMs ? ` (${clock(incomingFilmMs)})` : ""} no longer fits. The pull unlocks after the post-race call.`
+          : "Their post-race call plays in here first — the pull unlocks when it has.";
       case "disabled":
         return "Briefing rooms are switched off.";
       case "no-heat":

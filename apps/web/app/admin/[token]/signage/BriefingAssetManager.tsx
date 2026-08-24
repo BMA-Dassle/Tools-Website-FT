@@ -60,7 +60,14 @@ const ROWS: AssetRow[] = [
   {
     key: "welcome-back-audio",
     label: "Welcome back audio",
-    hint: "A short clip the room TV plays on repeat (about every 10 seconds, for up to 2 minutes) while the welcome-back board greets a returning group. MP3 or WAV.",
+    hint: "The greeting the room TV plays when a returning group walks back in (up to 3 plays, ~10 seconds apart, within 2 minutes of the post-race call). Starter and Intermediate sessions only — Pro returns are silent. MP3 or WAV.",
+    accept: "audio/mpeg,audio/wav,audio/mp4,.mp3,.wav,.m4a",
+    kind: "audio",
+  },
+  {
+    key: "welcome-back-linger-audio",
+    label: "Still-in-the-room reminder audio",
+    hint: "Optional. Played ONCE if the room camera still sees the group moving about 3 minutes after they walked back in — e.g. “another group is waiting, please head out the white door.” Without an upload, nothing plays. MP3 or WAV.",
     accept: "audio/mpeg,audio/wav,audio/mp4,.mp3,.wav,.m4a",
     kind: "audio",
   },
@@ -74,6 +81,9 @@ export interface BriefingAssetState {
   };
   helmetPosterUrl: string | null;
   welcomeBackAudioUrl: string | null;
+  /** Optional so a page rendered against an older deploy's status simply
+   *  shows the slot as empty rather than crashing on a missing field. */
+  welcomeBackLingerAudioUrl?: string | null;
 }
 
 export default function BriefingAssetManager({
@@ -100,6 +110,7 @@ export default function BriefingAssetManager({
       // and there is not").
       if (key === "briefing-video:pro") return assets.videos.pro?.url ?? null;
       if (key === "welcome-back-audio") return assets.welcomeBackAudioUrl;
+      if (key === "welcome-back-linger-audio") return assets.welcomeBackLingerAudioUrl ?? null;
       return assets.helmetPosterUrl;
     },
     [assets],

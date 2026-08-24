@@ -120,9 +120,10 @@ describe("our own vouchers (HPW…)", () => {
 
 // `89895632` and `VS-GCMV-VNXS-4YN4-2V4X` are a REAL production Groupon unit
 // (fetched 2026-08-20, $65 value, still unredeemed at the time of writing).
-// Groupon's short code is 8 alphanumerics, which overlaps two shapes this
-// screen already accepts — so the rule here is that the hint may be added but
-// no existing input may change `kind`.
+// Groupon's short code is 7 OR 8 alphanumerics (the 7-long form reported by the
+// owner 2026-08-22), which overlaps two shapes this screen already accepts — so
+// the rule here is that the hint may be added but no existing input may change
+// `kind`.
 describe("classifyKioskCode — Groupon", () => {
   it("keeps a real 8-DIGIT Groupon code a game-card, and flags it", () => {
     // The collision that makes shape-based routing impossible: this is
@@ -181,7 +182,36 @@ describe("classifyKioskCode — Groupon", () => {
     });
   });
 
+  // 2026-08-22: Groupon also issues a 7-long code. It is strictly EASIER than
+  // the 8 — `CARD_DIGITS_RE` is `^\d{8,}$`, so a 7-digit run never reaches the
+  // game-card branch and lands on the promo catch-all carrying the hint. That
+  // is the branch `routeWithGrouponFallback` already resolves Groupon-first.
+  it("flags a 7-DIGIT Groupon code and leaves it a promo, not a game-card", () => {
+    expect(classifyKioskCode("3443126")).toMatchObject({
+      kind: "promo",
+      value: "3443126",
+      grouponCandidate: true,
+    });
+  });
+
+  it("flags a 7-char alphanumeric Groupon code, still a promo", () => {
+    expect(classifyKioskCode("WNDXH4D")).toMatchObject({
+      kind: "promo",
+      grouponCandidate: true,
+    });
+  });
+
+  it("does NOT flag a 6-character code — the window stops at 7", () => {
+    // W-numbers and short reservation tokens live here; widening past 7 would
+    // spend a Groupon round-trip on every one of them.
+    expect(classifyKioskCode("343126").grouponCandidate).toBeFalsy();
+  });
+
   it("does NOT flag a padded 16-digit game-card barcode", () => {
+    // Load-bearing for the 7-char widening: this account number IS 7 digits
+    // once the padding is stripped. The hint is computed on the COMPACT string
+    // (16 digits) and never on the stripped value, so a real game card cannot
+    // acquire a Groupon round-trip by being short.
     const c = classifyKioskCode("0000000001038091");
     expect(c.kind).toBe("game-card");
     expect(c.value).toBe("1038091");

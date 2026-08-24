@@ -22,6 +22,8 @@ import { useTrackStatus } from "@/hooks/useTrackStatus";
 import TrackTimingLine from "../components/TrackTimingLine";
 import { withAlpha } from "../color";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
+import { CALL_LEAD_MIN } from "~/features/racing/on-time";
+import type { NextCheckIn } from "~/features/racing/session-call";
 import { LiveSessionChip } from "../live-session";
 import {
   TRACK_ACCENTS,
@@ -421,7 +423,16 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
             total={railSuppressed ? null : (feed?.raceCheckin?.total ?? null)}
           />
         ) : (
-          <Idle accent={accent} />
+          <Idle
+            accent={accent}
+            // GATED, not merely available: the wall may name a time only when no
+            // guest can still book into an empty slot in front of it. See
+            // features/racing/session-call.ts. Null ⇒ the wall says exactly what
+            // it said before this existed.
+            nextCall={
+              status?.nextCheckIn?.[track]?.wallSafe ? (status.nextCheckIn[track] ?? null) : null
+            }
+          />
         )}
 
         {/* A scan should be felt, not just listed. The newest one flashes the
@@ -701,7 +712,18 @@ function ProceedToBriefing({
   );
 }
 
-function Idle({ accent }: { accent: string }) {
+/** A booked slot, as the wall clock a guest reads off their ticket. VENUE time,
+ *  never the screen's own zone — a signage player with a wrong clock would
+ *  otherwise print a deadline nobody has. */
+function formatSlotTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/New_York",
+  });
+}
+
+function Idle({ accent, nextCall }: { accent: string; nextCall: NextCheckIn | null }) {
   return (
     <div
       style={{
@@ -717,9 +739,47 @@ function Idle({ accent }: { accent: string }) {
         <br />
         checking in
       </div>
-      <p style={{ fontSize: 44, color: "rgba(245,236,238,0.6)", margin: 0 }}>
-        The time on your e-ticket is your check-in cut-off — be checked in by then.
-      </p>
+      {nextCall ? (
+        /**
+         * THE NEXT DEADLINE, WITH A TIME ON IT.
+         *
+         * "Be checked in by", never "checks in at": the slot is the moment a
+         * racer must ALREADY be through the desk, and "checks in at 7:45" is read
+         * as "turn up at 7:45" by anyone who has not been here before — the exact
+         * misread this whole screen exists to prevent (see the file header).
+         *
+         * The call line is a reassurance, deliberately quieter than the deadline
+         * above it, so it can never be mistaken for permission to wait for the
+         * call instead of checking in.
+         */
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            flexWrap: "wrap",
+            gap: "10px 21px",
+            alignSelf: "flex-start",
+            padding: "20px 31px",
+            borderRadius: 21,
+            border: `3px solid ${withAlpha(accent, 0.42)}`,
+            background: withAlpha(accent, 0.11),
+          }}
+        >
+          <span style={{ fontSize: 34, color: "rgba(245,236,238,0.72)" }}>
+            Next session — be checked in by
+          </span>
+          <span className="tv-display tv-num" style={{ fontSize: 65, color: "#fff" }}>
+            {formatSlotTime(nextCall.slotMs)}
+          </span>
+          <span style={{ fontSize: 30, color: "rgba(245,236,238,0.6)" }}>
+            We&rsquo;ll call you about {CALL_LEAD_MIN} minutes before.
+          </span>
+        </div>
+      ) : (
+        <p style={{ fontSize: 44, color: "rgba(245,236,238,0.6)", margin: 0 }}>
+          The time on your e-ticket is your check-in cut-off — be checked in by then.
+        </p>
+      )}
       <div
         aria-hidden
         style={{

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { megaModeWithoutFlag } from "~/features/signage/service/mega-mode.server";
 import { getOnTime, type OnTimeSnapshot } from "~/features/racing/on-time.server";
+import { getNextCheckIns, type NextCheckInByTrack } from "~/features/racing/session-call.server";
 
 /**
  * Cached proxy for the BMA track-status service that drives the
@@ -113,6 +114,15 @@ interface CachedEntry {
   data: unknown;
 }
 
+/**
+ * The blocks WE compute, as opposed to the ones the upstream sends. Carried
+ * together so every serve path merges both without eight more signatures.
+ */
+interface OwnBlocks {
+  onTime: OnTimeSnapshot | null;
+  nextCheckIn: NextCheckInByTrack | null;
+}
+
 async function readCache(): Promise<CachedEntry | null> {
   try {
     const raw = await redis.get(CACHE_KEY);
@@ -174,30 +184,52 @@ async function releaseLock(token: string): Promise<void> {
  * still to keep `megaTrackEnabled` and the delay rows flowing; our own metric is
  * a passenger on it. A Neon blip must cost the block, not the response.
  */
-async function readOwnOnTime(): Promise<OnTimeSnapshot | null> {
-  if (process.env.ONTIME_OWN_SOURCE === "false") return null;
+async function readOwnOnTime(): Promise<OwnBlocks> {
+  if (process.env.ONTIME_OWN_SOURCE === "false") return { onTime: null, nextCheckIn: null };
+  let onTime: OnTimeSnapshot | null = null;
   try {
-    return await getOnTime();
+    onTime = await getOnTime();
   } catch (err) {
     console.error("[track-status] own on-time read failed", err);
-    return null;
   }
+  // The call window rides on the same request because every surface that wants
+  // one already polls this route — see session-call.server.ts. It depends on the
+  // snapshot for each track's live offset, so it is read after, not alongside.
+  let nextCheckIn: NextCheckInByTrack | null = null;
+  try {
+    nextCheckIn = await getNextCheckIns(onTime);
+  } catch (err) {
+    console.error("[track-status] next check-in read failed", err);
+  }
+  return { onTime, nextCheckIn };
 }
 
-/** Merge our block into whatever the upstream (or the fallback) produced. */
-function withOnTime(data: unknown, onTime: OnTimeSnapshot | null): unknown {
-  if (!onTime || typeof data !== "object" || data === null) return data;
-  return { ...(data as Record<string, unknown>), onTime };
+/**
+ * Merge our blocks into whatever the upstream (or the fallback) produced.
+ *
+ * Each is independently omitted when absent, so a surface can never tell a
+ * missing block from an empty one by accident: no `onTime` means we could not
+ * compute it, and no `nextCheckIn` means the same. Both read as "fall back to the
+ * printed schedule", which is what every consumer already does.
+ */
+function withOnTime(data: unknown, own: OwnBlocks): unknown {
+  if (typeof data !== "object" || data === null) return data;
+  const out = { ...(data as Record<string, unknown>) };
+  if (own.onTime) out.onTime = own.onTime;
+  if (own.nextCheckIn && Object.keys(own.nextCheckIn).length > 0) {
+    out.nextCheckIn = own.nextCheckIn;
+  }
+  return out;
 }
 
 /** Serve a cached reading, tagging how we arrived at it. */
 function serveCached(
   entry: CachedEntry,
   cacheState: string,
-  onTime: OnTimeSnapshot | null,
+  own: OwnBlocks,
   extra?: Record<string, string>,
 ): NextResponse {
-  return NextResponse.json(withOnTime(entry.data, onTime), {
+  return NextResponse.json(withOnTime(entry.data, own), {
     headers: {
       "X-Cache": cacheState,
       "X-Cache-Age-Ms": String(Date.now() - entry.fetchedAt),
@@ -226,16 +258,12 @@ function servable(entry: CachedEntry | null): entry is CachedEntry {
  * renders an empty delay list; `degraded: true` marks the payload for
  * anyone debugging why the widget has no rows.
  */
-async function serveSynthetic(
-  cacheState: string,
-  onTime: OnTimeSnapshot | null,
-  extra?: Record<string, string>,
-) {
+async function serveSynthetic(cacheState: string, own: OwnBlocks, extra?: Record<string, string>) {
   const megaTrackEnabled = await megaModeWithoutFlag().catch(() => false);
   return NextResponse.json(
     // `onTime` survives a dark upstream on purpose: it is computed from OUR
     // archives, so an outage over there is exactly when it is most useful.
-    withOnTime({ megaTrackEnabled, tracks: [], degraded: true }, onTime),
+    withOnTime({ megaTrackEnabled, tracks: [], degraded: true }, own),
     {
       headers: { "X-Cache": cacheState, "Cache-Control": "no-store", ...(extra ?? {}) },
     },

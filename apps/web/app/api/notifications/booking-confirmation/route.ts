@@ -32,6 +32,19 @@ const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
 const FROM_NAME = process.env.SENDGRID_FROM_NAME || "FastTrax Entertainment";
 
+/**
+ * The ONLY standing copy on a confirmation: a shared, auditable mailbox.
+ *
+ * No individual belongs here. tyler@ sat on this BCC from 2026-08-03 to watch
+ * VIP combo confirmations, but this helper is the transport for BOTH rails
+ * (kiosk walk-up, web booking) across BOTH brands, so it copied him on every
+ * confirmation the highest-volume mailer we own sends — hundreds a week.
+ * Removed 2026-08-22: VIP notification moved to Teams, and staff who need to
+ * watch a booking type get a purpose-built alert (see world-cup/notify.server
+ * or combos/combo-notify), never a copy of the guest's own email.
+ */
+const AUDIT_BCC = "vendorcases@dassle.us";
+
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
 // One A2P sender for every brand. Each template already opens with
 // the brand name, which is also what TCR wants in HELP/opt-out
@@ -85,9 +98,7 @@ async function sendEmail(
       personalizations: [
         {
           to: [{ email: to }],
-          // vendorcases is the standing audit copy; tyler@ added 2026-08-03 per
-          // owner so he sees VIP confirmations as they go out.
-          bcc: [{ email: "vendorcases@dassle.us" }, { email: "tyler@headpinz.com" }],
+          bcc: [{ email: AUDIT_BCC }],
         },
       ],
       from: { email: FROM_EMAIL, name: fromName || FROM_NAME },

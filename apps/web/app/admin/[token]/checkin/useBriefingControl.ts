@@ -66,6 +66,9 @@ export interface BoardStatus {
   /** Minutes a racer has to check in, per track, as configured on the TRACK
    *  BOARDS — the deadline the Called box turns amber and then red against. */
   checkinWindowMins: Record<string, number>;
+  /** Deadline push alerts: whether this deployment has VAPID keys, the public
+   *  one to register a device with, and how many are registered. */
+  push?: { configured: boolean; publicKey: string | null; devices: number };
   assignments: Assignment[];
   /** Which sessions are still considered sent, keyed by sessionId — the
    *  REVERSIBLE fact behind the Called box, so Undo puts a heat back. Optional
@@ -88,6 +91,17 @@ export interface BoardStatus {
    * that older server would actually be doing.
    */
   autoHolding?: { enabled: boolean };
+  /** Does the welcome-back greeting start on the room camera's say-so (ON)
+   *  or the fixed post+45s timer (OFF)? Optional for the same older-deploy
+   *  reason — `undefined` reads as ON, matching the server default. */
+  greetingByMotion?: { enabled: boolean };
+  /** May staff override a send with no time left for the film? Optional for the
+   *  same older-deploy reason — `undefined` reads as ALLOWED, matching the
+   *  server default (owner 2026-08-24: "default to allow the override"). */
+  sendOverride?: { allowed: boolean };
+  /** The greeting's three staff-set numbers. Optional for the same
+   *  older-deploy reason — the sheet falls back to the house defaults. */
+  greetingTiming?: { fallbackMs: number; maxPlays: number; lingerAfterMs: number };
   /** Is race-event camera bookmarking armed? Optional for the same
    *  older-deploy reason as the fields above it. */
   raceBookmarks?: { enabled: boolean };
@@ -204,6 +218,36 @@ export interface BriefingControl {
    * It takes effect on the next sweep, within a minute.
    */
   setAutoHolding: (enabled: boolean) => void;
+  /**
+   * How long a called racer has to reach the desk. Null hands the window back
+   * to the signage screen configs (owner 2026-08-23 — the gear setting).
+   */
+  setCheckinWindow: (minutes: number | null) => void;
+  /**
+   * The welcome-back greeting's mode: ON = the room TV starts the clip when
+   * the room camera first sees the group walk in (measured 15-30s after the
+   * first person enters); OFF = a plain 45s timer after the post press, no
+   * camera involved. Same sheet as auto-holding because the owner asked for
+   * it "where we have the other motion option" (2026-08-23).
+   */
+  setGreetingByMotion: (enabled: boolean) => void;
+  /**
+   * May staff override a send that has no time left for the film? ON (the
+   * default) keeps the button alive behind a full-screen confirm; OFF restores
+   * the hard lock. Same sheet as the greeting mode and auto-holding.
+   */
+  setSendOverride: (allowed: boolean) => void;
+  /**
+   * Change one of the greeting's three numbers — the no-camera delay, the
+   * repeat cap, or how long a room may keep moving before the reminder
+   * (owner 2026-08-23: "add these settings to the check in board gear
+   * settings"). One field per press; the server merges and validates.
+   */
+  setGreetingTiming: (patch: {
+    fallbackMs?: number;
+    maxPlays?: number;
+    lingerAfterMs?: number;
+  }) => void;
   /**
    * ARM OR DISARM race-event bookmarks on the track cameras — session start,
    * pause, resume and end, written to every camera on that track.
@@ -463,6 +507,60 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  const setCheckinWindow = useCallback<BriefingControl["setCheckinWindow"]>(
+    (minutes) => {
+      void post(
+        { action: "checkin-window", minutes },
+        minutes == null
+          ? "Check-in window follows the track screens again"
+          : `Check-in window is ${minutes} minutes from the call — every board and TV`,
+        "checkin-window",
+      );
+    },
+    [post],
+  );
+
+  const setSendOverride = useCallback<BriefingControl["setSendOverride"]>(
+    (allowed) => {
+      void post(
+        { action: "send-override", enabled: allowed },
+        allowed
+          ? "Staff may send with no time left — the board asks first"
+          : "Sends with no time left are BLOCKED — the button will not press",
+        "send-override",
+      );
+    },
+    [post],
+  );
+
+  const setGreetingByMotion = useCallback<BriefingControl["setGreetingByMotion"]>(
+    (enabled) => {
+      void post(
+        { action: "greeting-by-motion", enabled },
+        enabled
+          ? "Welcome-back greeting follows the room camera — it plays once the group actually walks in"
+          : "Welcome-back greeting is on a 45-second timer after the post call — the camera is not consulted",
+        "greeting-by-motion",
+      );
+    },
+    [post],
+  );
+
+  const setGreetingTiming = useCallback<BriefingControl["setGreetingTiming"]>(
+    (patch) => {
+      // Says what it now IS, not what was pressed — the sheet's own buttons
+      // already show the press, and the note is what staff read back.
+      const what =
+        patch.fallbackMs != null
+          ? `Greeting delay without a camera answer: ${Math.round(patch.fallbackMs / 1000)} seconds`
+          : patch.maxPlays != null
+            ? `Greeting plays up to ${patch.maxPlays} time${patch.maxPlays === 1 ? "" : "s"} per return`
+            : `Still-in-the-room reminder after ${Math.round(((patch.lingerAfterMs ?? 0) / 60000) * 10) / 10} min`;
+      void post({ action: "greeting-timing", ...patch }, what, "greeting-timing");
+    },
+    [post],
+  );
+
   const setRaceBookmarks = useCallback<BriefingControl["setRaceBookmarks"]>(
     (enabled) => {
       void post(
@@ -626,6 +724,10 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     sendToHolding,
     markPitted,
     setAutoHolding,
+    setCheckinWindow,
+    setGreetingByMotion,
+    setSendOverride,
+    setGreetingTiming,
     setRaceBookmarks,
     setCameraPreview,
     overrideSlot,

@@ -38,6 +38,10 @@ import { foldBriefingLog, type BriefingRecord } from "./briefing-log";
 import { captureRoomPhoto } from "./room-photo.server";
 import { bookmarkBriefingStartAfter } from "./bookmarks.server";
 import { autoHoldingEnabled } from "./auto-holding.server";
+import { checkinWindowOverride } from "./checkin-window.server";
+import { greetingByMotionEnabled, greetingTiming } from "./greeting-setting.server";
+import { sendOverrideAllowed } from "./send-override-setting.server";
+import { GREETING_TIMING_DEFAULTS, type GreetingTiming } from "./return-greeting";
 import { raceBookmarksEnabled } from "./race-bookmarks-setting.server";
 import { cameraPreviewMode, type CameraPreviewMode } from "./camera-preview-setting.server";
 import { readTimingFeedStatus, type TimingFeedStatus } from "~/features/racing/timing-feed.server";
@@ -506,6 +510,9 @@ export interface BriefingBoardStatus {
   helmetPosterUrl: string | null;
   /** The welcome-back jingle the room TVs loop — null until uploaded. */
   welcomeBackAudioUrl: string | null;
+  /** The once-only "another group is waiting" clip — null until uploaded,
+   *  and a lingering room is simply not narrated. */
+  welcomeBackLingerAudioUrl: string | null;
   /**
    * THE PIT LANE, PER TRACK — who is in holding, who is out racing, and whether
    * the lane is still held (owner 2026-08-13).
@@ -531,6 +538,19 @@ export interface BriefingBoardStatus {
    * already reading Redis.
    */
   autoHolding: { enabled: boolean };
+  /**
+   * Does the welcome-back greeting start on the room camera's say-so (ON,
+   * default) or on the fixed post+45s timer (OFF)? Drives the settings-sheet
+   * toggle under auto-holding. See greeting-setting.server.ts.
+   */
+  greetingByMotion: { enabled: boolean };
+  /** May staff override a send with no time left for the film? Default true —
+   *  see send-override-setting.server.ts. False restores the hard lock. */
+  sendOverride: { allowed: boolean };
+  /** The three staff-settable greeting numbers — the delay when there is no
+   *  camera answer, how many times the clip repeats, and how long a room may
+   *  keep moving before the reminder is due. */
+  greetingTiming: GreetingTiming;
   /**
    * Is race-event camera bookmarking armed? Drives the second settings toggle.
    *
@@ -631,6 +651,17 @@ const CHECKIN_WINDOW_TTL_MS = 60_000;
 let checkinWindowCache: { at: number; windows: CheckinWindows } | null = null;
 
 async function resolveCheckinWindows(now: number): Promise<CheckinWindows> {
+  /**
+   * THE DESK'S OVERRIDE WINS, AND IS NOT CACHED (owner 2026-08-23: the window
+   * is a gear setting on the check-in board). It sits outside the 60s cache
+   * deliberately — a staff member who has just changed the window watches the
+   * board to see it take, and a minute of "did that work?" is exactly the
+   * doubt the gear exists to remove. One Redis GET per poll against a board
+   * that already makes several.
+   */
+  const override = await checkinWindowOverride();
+  if (override != null) return { blue: override, red: override, mega: override };
+
   if (checkinWindowCache && now - checkinWindowCache.at < CHECKIN_WINDOW_TTL_MS) {
     return checkinWindowCache.windows;
   }
@@ -686,6 +717,9 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     events,
     lanes,
     autoHolding,
+    greetingByMotion,
+    sendOverride,
+    greetingTimingNow,
     raceBookmarks,
     cameraPreview,
     timing,
@@ -701,6 +735,11 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     // Defaults ON if Redis cannot answer — same direction as the sweep itself,
     // so the toggle never shows OFF for a switch that is actually armed.
     autoHoldingEnabled().catch(() => true),
+    greetingByMotionEnabled().catch(() => true),
+    sendOverrideAllowed().catch(() => true),
+    // Already normalised inside, and defaulted on a failed read — the sheet
+    // must never show staff a value the wall is not using.
+    greetingTiming().catch(() => GREETING_TIMING_DEFAULTS),
     raceBookmarksEnabled().catch(() => true),
     // Swallows to the same default the getter uses, for the same reason as the
     // two above: a Redis blip must not show staff a setting they did not choose.
@@ -754,8 +793,12 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     },
     helmetPosterUrl: assets["briefing-helmet-poster"]?.url ?? null,
     welcomeBackAudioUrl: assets["welcome-back-audio"]?.url ?? null,
+    welcomeBackLingerAudioUrl: assets["welcome-back-linger-audio"]?.url ?? null,
     lanes,
     autoHolding: { enabled: autoHolding },
+    greetingByMotion: { enabled: greetingByMotion },
+    sendOverride: { allowed: sendOverride },
+    greetingTiming: greetingTimingNow,
     raceBookmarks: { enabled: raceBookmarks },
     cameraPreview: { mode: cameraPreview },
     timing,

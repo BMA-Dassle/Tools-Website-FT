@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { modalBackdropProps } from "@/lib/a11y";
-import RaceControlPanels from "./RaceControlPanels";
+import RaceControlPanels, { waitTimesBehind } from "./RaceControlPanels";
+import { useDeskAlarm } from "./useDeskAlarm";
 import { useBriefingControl, type TimingFeedStatus } from "./useBriefingControl";
 import { useScanSound } from "./useScanSound";
 // TYPE-ONLY: scan-history.ts imports the redis client, so a value import here
@@ -13,6 +14,8 @@ import {
   parseCameraPreviewMode,
   type CameraPreviewMode,
 } from "~/features/signage/nx/camera-preview";
+// Pure constants — no server import behind them, so a value import is safe.
+import { GREETING_TIMING_DEFAULTS } from "~/features/signage/briefing/return-greeting";
 import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import {
   ADMIN_SANS,
@@ -32,6 +35,61 @@ const withAlphaAmber = (a: number) => `rgba(240,179,65,${a})`;
 const GREEN = "#4ade80";
 /** The board's red, same value RaceControlPanels uses for DANGER. */
 const RED = "#ff4d4f";
+
+/**
+ * One labelled row of segmented choices in the settings sheet — used by the
+ * greeting's three numbers (owner 2026-08-23).
+ *
+ * The whole point of buttons over a number field is that an invalid value is
+ * unreachable, so the options a caller passes ARE the allowed set. Each press
+ * saves immediately, like every other switch on this sheet: a Save button
+ * would be one more thing to forget at 9pm.
+ */
+function GreetingChoiceRow({
+  label,
+  value,
+  options,
+  disabled,
+  onPick,
+}: {
+  label: string;
+  value: number;
+  options: Array<{ value: number; label: string }>;
+  disabled: boolean;
+  onPick: (value: number) => void;
+}) {
+  return (
+    <div>
+      <p className="block text-xs mb-1.5" style={{ color: PORTAL_DARK.muted }}>
+        {label}
+      </p>
+      <div className="flex gap-1.5 flex-wrap">
+        {options.map((o) => {
+          const on = o.value === value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              aria-pressed={on}
+              disabled={disabled}
+              onClick={() => !on && onPick(o.value)}
+              className="px-2.5 py-1 text-xs border hover:bg-white/5"
+              style={{
+                borderRadius: 8,
+                borderColor: on ? GREEN : PORTAL_DARK.inputBorder,
+                backgroundColor: on ? `${GREEN}22` : "transparent",
+                color: on ? GREEN : PORTAL_DARK.muted,
+                opacity: disabled ? 0.5 : 1,
+              }}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 /**
  * THE TIMING FEED, on the desk.
@@ -362,6 +420,14 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
    * claims OFF for a switch that is actually running.
    */
   const autoHoldingOn = briefing.board?.autoHolding?.enabled !== false;
+  const greetingByMotionOn = briefing.board?.greetingByMotion?.enabled !== false;
+  /** May staff push a send through with no time for the film? Default ALLOW —
+   *  `undefined` from an older deploy reads the same way the server does. */
+  const sendOverrideOn = briefing.board?.sendOverride?.allowed !== false;
+  // Server-normalised when present; the house defaults when talking to an
+  // older deploy — the same posture as the switch above it.
+  const greetingTiming = briefing.board?.greetingTiming ?? GREETING_TIMING_DEFAULTS;
+  const fallbackSeconds = Math.round(greetingTiming.fallbackMs / 1000);
   /** Race-event camera bookmarks — the second server-wide switch on the sheet. */
   const raceBookmarksOn = briefing.board?.raceBookmarks?.enabled !== false;
   /** Live video or stills on the room tiles — the third, and a choice rather
@@ -426,6 +492,24 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
     return saved ? Number(saved) : 9600;
   });
   const [showSettings, setShowSettings] = useState(false);
+
+  /** The board's deadline alarm — one speaker for both columns, switched from
+   *  the gear below and reported into by every RoomColumn. */
+  const alarm = useDeskAlarm(token);
+
+  /**
+   * The window the SERVER is currently applying, for the gear to show as
+   * selected. Read off the board rather than kept in local state, so the sheet
+   * reflects what every other surface is using — including a change another
+   * station made. Tracks can differ in theory (each screen carries its own);
+   * the shortest is the one the desk is held to, so that is the one shown.
+   */
+  const checkinWindowNow = (() => {
+    const all = Object.values(briefing.board?.checkinWindowMins ?? {}).filter(
+      (n): n is number => typeof n === "number" && n > 0,
+    );
+    return all.length ? Math.min(...all) : null;
+  })();
 
   /**
    * TAKE THE NEW BUILD, BUT ONLY IN A GAP.
@@ -1464,13 +1548,29 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               <button
                 type="button"
                 onClick={() => briefing.setOpenPanel("waits")}
-                className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5"
+                className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5 inline-flex items-center gap-1.5"
                 style={{
                   borderColor: PORTAL_DARK.border,
                   color: PORTAL_DARK.muted,
                   borderRadius: 8,
                 }}
+                title={
+                  waitTimesBehind(briefing.waitTimes)
+                    ? "The last hour is running meaningfully behind today — open for the numbers"
+                    : undefined
+                }
               >
+                {/* THE VERDICT ON THE BUTTON — the matrix already computes
+                    "meaningfully slower than today"; since the metrics moved
+                    behind this button the answer only existed once opened.
+                    Amber, never red, per the board's own colour rule. */}
+                {waitTimesBehind(briefing.waitTimes) && (
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ background: AMBER }}
+                    aria-label="Running behind today"
+                  />
+                )}
                 Wait times
               </button>
               <button
@@ -1730,6 +1830,165 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
           </div>
 
           {/*
+            DEADLINE ALARM — this PC's speaker, like the scan sound above. Two
+            moments cost a race if they pass with heads down (owner 2026-08-23),
+            so both get a sound: a call about to go late, and a briefing window
+            about to shut on a group who have been waiting. Three plays, ten
+            seconds apart, then silence — a sound that nags forever is a sound
+            that gets muted, and then neither alarm works again.
+          */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+              Deadline alarm
+            </p>
+            <div className="flex gap-2 items-center" style={{ flexWrap: "wrap" }}>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={alarm.enabled}
+                onClick={() => alarm.setEnabled(!alarm.enabled)}
+                className="px-3 py-1.5 text-xs border hover:bg-white/5"
+                style={{
+                  borderRadius: 8,
+                  borderColor: alarm.enabled ? GREEN : PORTAL_DARK.inputBorder,
+                  backgroundColor: alarm.enabled ? `${GREEN}22` : "transparent",
+                  color: alarm.enabled ? GREEN : PORTAL_DARK.muted,
+                }}
+              >
+                {alarm.enabled ? "On" : "Off"}
+              </button>
+              <button
+                type="button"
+                onClick={alarm.preview}
+                className="px-3 py-1.5 text-xs border hover:bg-white/5"
+                style={{
+                  borderRadius: 8,
+                  borderColor: PORTAL_DARK.inputBorder,
+                  color: PORTAL_DARK.muted,
+                }}
+              >
+                Hear it
+              </button>
+            </div>
+            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+              Sounds three times over the last 30 seconds when a session is about to be called late,
+              or when a called group&apos;s briefing window is closing. This station only.
+            </p>
+
+            {/*
+              THE SAME TWO ALERTS, ON A PHONE. The sound above needs somebody
+              within earshot of this PC; a manager walking the pits is not, and
+              these are the two deadlines worth interrupting a walk for. Any
+              board left open does the triggering, so a registered phone buzzes
+              whether or not it is the device looking at the board.
+            */}
+            <div className="mt-3 pt-3 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+              <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+                Alert this device
+              </p>
+              {briefing.board?.push?.configured ? (
+                <>
+                  <div className="flex gap-2 items-center" style={{ flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      disabled={alarm.pushBusy}
+                      onClick={() => {
+                        const key = briefing.board?.push?.publicKey;
+                        if (!key) return;
+                        if (alarm.pushRegistered) void alarm.unregisterPush();
+                        else void alarm.registerPush(key);
+                      }}
+                      className="px-3 py-1.5 text-xs border hover:bg-white/5"
+                      style={{
+                        borderRadius: 8,
+                        borderColor: alarm.pushRegistered ? GREEN : PORTAL_DARK.inputBorder,
+                        backgroundColor: alarm.pushRegistered ? `${GREEN}22` : "transparent",
+                        color: alarm.pushRegistered ? GREEN : PORTAL_DARK.muted,
+                        opacity: alarm.pushBusy ? 0.5 : 1,
+                      }}
+                    >
+                      {alarm.pushBusy
+                        ? "Working…"
+                        : alarm.pushRegistered
+                          ? "This device is alerted"
+                          : "Alert this device"}
+                    </button>
+                    <span className="text-xs" style={{ color: PORTAL_DARK.muted }}>
+                      {briefing.board.push.devices === 1
+                        ? "1 device registered"
+                        : `${briefing.board.push.devices ?? 0} devices registered`}
+                    </span>
+                  </div>
+                  <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+                    Sends a notification to this phone or PC even when the board is not on screen.
+                    Open this page on a phone and press it there to add that phone.
+                  </p>
+                </>
+              ) : (
+                /* Honest about the blocker rather than offering a button that
+                   cannot work: with no VAPID keys there is no identity to push
+                   under. */
+                <p className="text-xs" style={{ color: AMBER }}>
+                  Not set up — VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not set on this
+                  deployment. The sound above still works.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/*
+            THE CHECK-IN WINDOW — how long a called racer has to reach the desk
+            (owner 2026-08-23: "make this a setting in the gear of the check in
+            board"). A SERVER setting, unlike the two above: the track TVs count
+            the same guest down against this number, and a desk on 7 while the
+            wall says 8 puts the guest's clock and the staff's out of step.
+            "Track screens" hands it back to the signage configs.
+          */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+              Check-in window
+            </p>
+            <div className="flex gap-2 items-center" style={{ flexWrap: "wrap" }}>
+              {[5, 6, 7, 8, 10].map((mins) => {
+                const on = checkinWindowNow === mins;
+                return (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => briefing.setCheckinWindow(mins)}
+                    className="px-3 py-1.5 text-xs border hover:bg-white/5"
+                    style={{
+                      borderRadius: 8,
+                      borderColor: on ? PORTAL_BLUE : PORTAL_DARK.inputBorder,
+                      backgroundColor: on ? `${PORTAL_BLUE}33` : "transparent",
+                      color: on ? PORTAL_BLUE_SOFT : PORTAL_DARK.muted,
+                    }}
+                  >
+                    {mins} min
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => briefing.setCheckinWindow(null)}
+                className="px-3 py-1.5 text-xs border hover:bg-white/5"
+                style={{
+                  borderRadius: 8,
+                  borderColor: PORTAL_DARK.inputBorder,
+                  color: PORTAL_DARK.muted,
+                }}
+              >
+                Track screens
+              </button>
+            </div>
+            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+              {checkinWindowNow
+                ? `Racers have ${checkinWindowNow} minutes from the call to reach the desk. Every board and TV follows this within one poll.`
+                : "Waiting for the board to report the current window."}
+            </p>
+          </div>
+
+          {/*
             MANUAL ENTRY — every scan shape, no badge, no ?test=1 URL.
             "Look up" writes NOTHING: no check-in, no headsock deduction, no
             lobby-TV event. That distinction is enforced on the server, not here,
@@ -1847,6 +2106,146 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 : "Groups only move to holding when staff press Send to holding."}{" "}
               This setting applies to every check-in station, not just this one.
             </p>
+          </div>
+
+          {/*
+            WELCOME-BACK GREETING BY MOTION — the same camera, a different job
+            (owner 2026-08-23: "I'd like this option in the settings of check
+            in board where we have the other motion option"). ON, the room TV
+            starts the greeting when the camera first sees the returning group
+            walk in; OFF, it is a plain 45-second timer after the post call.
+            Its own switch rather than a mode of auto-holding for the same
+            reason bookmarks are: they share a camera and nothing else — that
+            one moves groups, this one only times a sound.
+          */}
+          {/*
+            SENDING WITH NO TIME LEFT — allowed with a warning, or blocked
+            outright (owner 2026-08-24: "instead of complete lock on send to
+            briefing, allow it but prompt a big warning message… actually make
+            this a toggle in settings (gear). Default to allow the override").
+
+            ON is the default and the kinder setting: staff keep the press and
+            the board asks a full question first. OFF is the 8/23 hard lock, for
+            a venue that would rather the rule decided. Either way the desk and
+            the room tablets read this one value, so they cannot disagree.
+          */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+              Allow sending with no time for the film
+            </p>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={sendOverrideOn}
+              disabled={!briefing.board}
+              onClick={() => briefing.setSendOverride(!sendOverrideOn)}
+              className="px-3 py-1.5 text-xs border hover:bg-white/5"
+              style={{
+                borderRadius: 8,
+                borderColor: sendOverrideOn ? GREEN : PORTAL_DARK.inputBorder,
+                backgroundColor: sendOverrideOn ? `${GREEN}22` : "transparent",
+                color: sendOverrideOn ? GREEN : PORTAL_DARK.muted,
+                opacity: briefing.board ? 1 : 0.5,
+              }}
+            >
+              {sendOverrideOn ? "Allowed" : "Blocked"}
+            </button>
+            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+              {sendOverrideOn
+                ? "Once the film can no longer finish before the race in front ends, Send still works but asks first, naming the race, its clock and the film that will not fit. The room tablets ask the same question."
+                : "Once the film can no longer finish before the race in front ends, Send goes dead until the returning group's post-race call has played. The room tablets refuse the pull too."}{" "}
+              Applies to every check-in station and both room tablets, not just this one.
+            </p>
+          </div>
+
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+              Welcome-back greeting by motion
+            </p>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={greetingByMotionOn}
+              disabled={!briefing.board}
+              onClick={() => briefing.setGreetingByMotion(!greetingByMotionOn)}
+              className="px-3 py-1.5 text-xs border hover:bg-white/5"
+              style={{
+                borderRadius: 8,
+                borderColor: greetingByMotionOn ? GREEN : PORTAL_DARK.inputBorder,
+                backgroundColor: greetingByMotionOn ? `${GREEN}22` : "transparent",
+                color: greetingByMotionOn ? GREEN : PORTAL_DARK.muted,
+                opacity: briefing.board ? 1 : 0.5,
+              }}
+            >
+              {greetingByMotionOn ? "On" : "Off"}
+            </button>
+            {/* The copy quotes the CONFIGURED delay, not a literal — the number
+                below is settable, and a sentence that kept saying "45" would be
+                wrong the moment somebody changed it. */}
+            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+              {greetingByMotionOn
+                ? `The room TV plays the welcome-back message once its camera sees the group actually walk in — typically 15–30 seconds after the first person enters. If the camera can't answer, it falls back to the ${fallbackSeconds}-second timer.`
+                : `The room TV plays the welcome-back message ${fallbackSeconds} seconds after the post-race call, whether anyone is in the room or not.`}{" "}
+              Pro sessions never get the message either way. This setting applies to every check-in
+              station, not just this one.
+            </p>
+
+            {/*
+              THE GREETING'S THREE NUMBERS (owner 2026-08-23: "add these
+              settings to the check in board gear settings"). Nested under the
+              switch rather than given their own sections, because they only
+              describe that one thing — and the delay stays meaningful with the
+              switch off, which is exactly what it becomes.
+
+              SEGMENTED CHOICES, not typed numbers, for the same reason the baud
+              rate above is buttons: there is no validation to get wrong and no
+              way to leave a half-typed value on a room full of guests. The list
+              here matches the one the server accepts (the choice arrays in
+              briefing/return-greeting.ts), so the two cannot drift.
+            */}
+            <div className="mt-3 grid gap-3">
+              <GreetingChoiceRow
+                label="Greeting delay when the camera can't answer"
+                value={greetingTiming.fallbackMs}
+                options={[
+                  { value: 30_000, label: "30s" },
+                  { value: 45_000, label: "45s" },
+                  { value: 60_000, label: "60s" },
+                  { value: 90_000, label: "90s" },
+                ]}
+                disabled={!briefing.board}
+                onPick={(fallbackMs) => briefing.setGreetingTiming({ fallbackMs })}
+              />
+              <GreetingChoiceRow
+                label="Times the greeting repeats"
+                value={greetingTiming.maxPlays}
+                options={[
+                  { value: 1, label: "Once" },
+                  { value: 2, label: "2×" },
+                  { value: 3, label: "3×" },
+                  { value: 4, label: "4×" },
+                ]}
+                disabled={!briefing.board}
+                onPick={(maxPlays) => briefing.setGreetingTiming({ maxPlays })}
+              />
+              <GreetingChoiceRow
+                label="Still-in-the-room reminder after"
+                value={greetingTiming.lingerAfterMs}
+                options={[
+                  { value: 60_000, label: "1 min" },
+                  { value: 120_000, label: "2 min" },
+                  { value: 180_000, label: "3 min" },
+                  { value: 300_000, label: "5 min" },
+                ]}
+                disabled={!briefing.board}
+                onPick={(lingerAfterMs) => briefing.setGreetingTiming({ lingerAfterMs })}
+              />
+              <p className="text-xs" style={{ color: PORTAL_DARK.muted }}>
+                The reminder needs its own clip uploaded on the Lobby TVs page, and only plays while
+                the greeting is following the camera. However these are set, the greeting always
+                stops 2 minutes after the post-race call.
+              </p>
+            </div>
           </div>
 
           {/*
@@ -2039,7 +2438,19 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
 
       {/* Race control — briefing rooms. Below the scanner because checking a
           racer in comes first; the send follows once the heat is in. */}
-      {boardMode && <RaceControlPanels control={briefing} checkinCounts={activeSessions} />}
+      {boardMode && (
+        <RaceControlPanels
+          control={briefing}
+          checkinCounts={activeSessions}
+          // The same fact the amber strip above announces — the Called boxes
+          // repeat it beside the count it starves. Only where a scanner could
+          // exist at all: a browser with no serial support is not an outage.
+          scannerOffline={
+            serialSupported && connectionState !== "ready" && connectionState !== "connecting"
+          }
+          onAlarmCue={alarm.fire}
+        />
+      )}
 
       {/* Test mode panel */}
       {testMode && (
