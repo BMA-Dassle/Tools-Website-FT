@@ -35,7 +35,7 @@ import { fetchTrackSessions } from "~/features/reservations-admin/race-live-stat
 import type { TrackKey } from "~/features/reservations-admin/race-live-state";
 import { nextLevelTarget } from "~/features/racing/qualify";
 import { listBriefingAssignments } from "./assignments-db";
-import { welcomeBackWindowOpen } from "./welcome-back";
+import { welcomeBackExpired, welcomeBackWindowOpen } from "./welcome-back";
 import { announceReturnOnce } from "./return-announce.server";
 import { loadOrCaptureResults } from "./race-results.server";
 import { readRaceFinishedMarker } from "./race-finish.server";
@@ -278,6 +278,26 @@ export async function resolveWelcomeBack(
           (): ReturnArrival => ({ arrivedAtMs: null, lingerAtMs: null, motionHealthy: false }),
         )
       : { arrivedAtMs: null, lingerAtMs: null, motionHealthy: true };
+
+  /**
+   * IS THIS GREETING FINISHED? The last gate, and the only one that can retire
+   * a greeting on its own (owner 2026-08-24). It sits here rather than beside
+   * the open check because it needs the post stamp and the staff linger span,
+   * both of which are read above — and it is cheap: no new upstream call.
+   *
+   * Returning null hands the room's screen back to its idle state, which is now
+   * the where-is-everyone rail rather than an exit sign for an empty room.
+   */
+  if (
+    welcomeBackExpired({
+      actualEndMs: actualEndMs as number,
+      postPlayedAtMs: postStamp?.atMs ?? null,
+      lingerAfterMs: timing.lingerAfterMs,
+      nowMs: Date.now(),
+    })
+  ) {
+    return null;
+  }
 
   const target = nextLevelTarget(track, subject.raceType);
   const split = recorded ? splitByTarget(recorded.drivers, target?.ms ?? null) : null;

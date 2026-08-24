@@ -4,8 +4,10 @@ import {
   CALL_WINDOW_MIN,
   GUEST_BOOKING_LEAD_MIN,
   PIPELINE_LEAD_MIN,
+  PRO_CALL_DELAY_MIN,
   callAtMs,
   callStateAt,
+  isProCall,
   nextCheckIn,
   type CallGridSlot,
 } from "./session-call";
@@ -225,5 +227,65 @@ describe("the ugly case — Saturday 2026-08-16's opening heat", () => {
     const next = nextCheckIn(slots, slotAt(10), 32);
     expect(next?.state).toBe("due");
     expect(next?.overdueMin).toBe(0);
+  });
+});
+
+/**
+ * THE PRO DELAY. Pro grids skip the 4:30 briefing film, so they are ready in
+ * holding ~8 minutes sooner and stand there longest — but the pro chain's tail
+ * reaches 32 minutes, and a 4-minute delay replayed against 8/20 turned 1 late
+ * group into 6. Two minutes is what the tail allows.
+ */
+describe("callAtMs — the Pro delay", () => {
+  it("calls a Pro grid exactly two minutes later than the house lead", () => {
+    expect(callAtMs(SLOT, null, "Pro")).toBe(at(-CALL_LEAD_MIN + PRO_CALL_DELAY_MIN));
+  });
+
+  it("moves the flag-anchored form by the same two minutes", () => {
+    const house = callAtMs(SLOT, 25, null);
+    expect(callAtMs(SLOT, 25, "Pro") - house).toBe(PRO_CALL_DELAY_MIN * MIN);
+  });
+
+  it("leaves every tier that watches a film on the house lead", () => {
+    for (const t of ["Starter", "Junior Starter", "Intermediate", "Intermediate (2)", null]) {
+      expect(callAtMs(SLOT, null, t)).toBe(at(-CALL_LEAD_MIN));
+    }
+  });
+
+  it("treats a Junior Pro grid as a film-watching tier, not a Pro one", () => {
+    // A junior grid gets the junior briefing whatever else the name says.
+    expect(callAtMs(SLOT, null, "Junior Pro")).toBe(at(-CALL_LEAD_MIN));
+  });
+
+  it("still never advises calling before the guests are due", () => {
+    // The delay may only ever push a call LATER, so the clamp still holds.
+    expect(callAtMs(SLOT, 0, "Pro")).toBeGreaterThanOrEqual(at(-CALL_LEAD_MIN));
+  });
+
+  it("reads the tier off the name the way the film resolver does", () => {
+    expect(isProCall("Pro")).toBe(true);
+    expect(isProCall("pro")).toBe(true);
+    expect(isProCall("Red Pro 41")).toBe(true);
+    expect(isProCall("Junior Pro")).toBe(false);
+    expect(isProCall("Starter")).toBe(false);
+    expect(isProCall(null)).toBe(false);
+    expect(isProCall(undefined)).toBe(false);
+  });
+});
+
+describe("nextCheckIn — carries the tier into the call time", () => {
+  it("delays the Pro session it names", () => {
+    const slots: CallGridSlot[] = [
+      { sessionId: "9001", heatNumber: 61, slotMs: at(10), booked: 6, type: "Pro" },
+    ];
+    const got = nextCheckIn(slots, at(0), null);
+    expect(got?.callAtMs).toBe(at(10 - CALL_LEAD_MIN + PRO_CALL_DELAY_MIN));
+  });
+
+  it("leaves a Starter session on the house lead", () => {
+    const slots: CallGridSlot[] = [
+      { sessionId: "9002", heatNumber: 62, slotMs: at(10), booked: 6, type: "Starter" },
+    ];
+    expect(nextCheckIn(slots, at(0), null)?.callAtMs).toBe(at(10 - CALL_LEAD_MIN));
   });
 });

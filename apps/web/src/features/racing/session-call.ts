@@ -115,6 +115,8 @@ export interface CallGridSlot {
   booked: number | null;
   /** Set once the session has been called in BMI. We only ever read this. */
   calledAtMs?: number | null;
+  /** The level Pandora sold, for the Pro call delay. Absent ⇒ house lead. */
+  type?: string | null;
 }
 
 /** The answer both surfaces render. */
@@ -132,6 +134,12 @@ export interface NextCheckIn {
   /** Whole minutes past the end of the window. 0 unless `state` is "overdue". */
   overdueMin: number;
   /**
+   * Is this a Pro grid, and therefore called `PRO_CALL_DELAY_MIN` later than
+   * the rest? Carried so a surface can SAY so — a call time two minutes off the
+   * house rule with no explanation reads as a bug to the desk.
+   */
+  proDelayed: boolean;
+  /**
    * May a GUEST WALL name `slotMs`? False when an empty slot ahead of this one is
    * still bookable, so a later-booked group could take this session's place.
    * The staff warning does not consult this — the desk wants to know regardless.
@@ -140,16 +148,62 @@ export interface NextCheckIn {
 }
 
 /**
+ * HOW MUCH LATER A PRO SESSION IS CALLED (owner 2026-08-23: "the call time can
+ * be reduced for pro right?").
+ *
+ * It can, and the reason is the one leg pro groups skip: there is no 4:30
+ * briefing film between their check-in and the grid. Measured call → standing in
+ * holding, over 8/18–8/22:
+ *
+ *     starter        p50 12:30   p80 16:20
+ *     intermediate   p50 10:52   p80 13:56
+ *     pro            p50  6:18   p80  8:05
+ *
+ * Pro is ready roughly EIGHT minutes sooner and pays for it by standing in the
+ * pit seats longest of any tier (p50 ~8 min — the worst hold on the board).
+ *
+ * ⚠️ BUT THE FULL EIGHT MINUTES IS NOT SAFE, and the simulation is why. Replayed
+ * against Thursday 8/20, delaying pro calls by 4 minutes saved 62 pit-seat
+ * minutes and took LATE groups from 1 to 6 — because the pro chain has a fat
+ * tail (p50 6:18, max 31:59: a pro group occasionally takes half an hour to
+ * reach the desk). At 2 minutes the same replay held lateness flat. So this is
+ * two minutes, not eight: the median says more, the tail says no.
+ *
+ * Junior Starter, Intermediate and anything unrecognised keep the house lead —
+ * they all watch a film.
+ */
+export const PRO_CALL_DELAY_MIN = 2;
+
+/** Does this session skip the briefing film? Name-based, the same reading
+ *  `tierForRaceType` uses, so the call rule and the film cannot disagree about
+ *  what a session is. "Pro" only — never Junior Pro, which is still a film. */
+export function isProCall(type: string | null | undefined): boolean {
+  const name = (type || "").toLowerCase();
+  if (!name.includes("pro")) return false;
+  // A junior grid gets the junior briefing whatever else its name says.
+  return !name.includes("junior");
+}
+
+/**
  * When to call a session.
  *
  * `offsetMin` is how many minutes behind its slot this track's flags are
  * currently dropping (null when we have no live picture). See the header for why
  * the result is clamped.
+ *
+ * `type` is the level Pandora sold, used only to give a Pro grid its later call
+ * (see `PRO_CALL_DELAY_MIN`). Absent ⇒ the house lead, which is the safe
+ * direction: an unknown tier is called as if it had a film to watch.
  */
-export function callAtMs(slotMs: number, offsetMin: number | null): number {
-  const floor = slotMs - CALL_LEAD_MIN * 60_000;
+export function callAtMs(slotMs: number, offsetMin: number | null, type?: string | null): number {
+  const delayMs = isProCall(type) ? PRO_CALL_DELAY_MIN * 60_000 : 0;
+  const floor = slotMs - CALL_LEAD_MIN * 60_000 + delayMs;
   if (offsetMin == null || !Number.isFinite(offsetMin)) return floor;
-  const fromFlag = slotMs + (offsetMin - PIPELINE_LEAD_MIN) * 60_000;
+  // The pipeline lead is the OTHER place the missing film shows up: a pro group
+  // needs less warning before its own green flag, so the same delay applies to
+  // the flag-anchored form too. Both terms move together, which keeps the clamp
+  // below meaningful instead of cancelling the delay out.
+  const fromFlag = slotMs + (offsetMin - PIPELINE_LEAD_MIN) * 60_000 + delayMs;
   // Never earlier than the desk's flat rule — there would be nobody to call.
   return Math.max(floor, fromFlag);
 }
@@ -190,7 +244,7 @@ export function nextCheckIn(
   );
   if (!candidate) return null;
 
-  const callAt = callAtMs(candidate.slotMs, offsetMin);
+  const callAt = callAtMs(candidate.slotMs, offsetMin, candidate.type);
   const state = callStateAt(callAt, nowMs);
   const overdueMs = nowMs - (callAt + CALL_WINDOW_MIN * 60_000);
   const overdueMin = state === "overdue" ? Math.max(1, Math.floor(overdueMs / 60_000)) : 0;
@@ -203,6 +257,7 @@ export function nextCheckIn(
     callAtMs: callAt,
     state,
     overdueMin,
+    proDelayed: isProCall(candidate.type),
     wallSafe: isWallSafe(ordered, candidate, nowMs),
   };
 }

@@ -113,7 +113,15 @@ async function readTrackSlots(
   const lists = await Promise.all(ymds.map((ymd) => fetchTrackSessions(track, ymd)));
   const bySession = new Map<
     string,
-    { slotMs: number; heatNumber: number; actualStart: number | null }
+    {
+      slotMs: number;
+      heatNumber: number;
+      actualStart: number | null;
+      /** The level sold, for the Pro call delay. Null on a payload cached
+       *  before this field was read back — the call rule treats that as "has a
+       *  film", which is the safe direction. */
+      type: string | null;
+    }
   >();
   for (const list of lists) {
     for (const s of list ?? []) {
@@ -124,6 +132,7 @@ async function readTrackSlots(
         slotMs,
         heatNumber: s.heatNumber,
         actualStart: Number.isFinite(actual) ? actual : null,
+        type: s.type ?? null,
       });
     }
   }
@@ -158,6 +167,7 @@ async function readTrackSlots(
       slotMs: v.slotMs,
       booked: countFrom(counts[i] ?? null),
       calledAtMs: calledByWatermark ? watermarkCalledAtMs : v.actualStart,
+      type: v.type,
     };
   });
 }

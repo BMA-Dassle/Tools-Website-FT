@@ -42,6 +42,14 @@ export interface TrackSession {
   sessionId: string;
   scheduledStart: string;
   heatNumber: number;
+  /**
+   * The level Pandora sold — "Starter", "Junior Starter", "Intermediate",
+   * "Pro", "Intermediate (2)". OPTIONAL because payloads cached before this
+   * field was read back lack it, and because the call rule that uses it must
+   * degrade to the house lead rather than guess a tier (see
+   * `session-call.ts` → `callAtMs`).
+   */
+  type?: string | null;
   /** Stamped when the timing system actually starts/ends the session.
    *  Explicit null until then. Older cached proxy payloads may lack the
    *  fields entirely — treat absent as null. */

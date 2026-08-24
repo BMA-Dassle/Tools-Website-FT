@@ -21,7 +21,7 @@
  * helmet sizing, because the next group walks in and starts looking for their
  * size before anybody presses anything.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { withAlpha } from "../color";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
@@ -34,6 +34,7 @@ import {
   greetingWindowClosed,
   normaliseGreetingTiming,
 } from "../briefing/return-greeting";
+import { buildStageRail, type StageRow } from "../briefing/stage-rail";
 import { roomBlockedAlertAt } from "../briefing/room-blocked";
 import { incomingForRoom, normaliseCameraReturn } from "../briefing/camera-return";
 import { tierForRaceType, type BriefingRoom } from "../briefing/types";
@@ -138,6 +139,37 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
   // of the two states is addressed to it. Say so, quietly, rather than adopting
   // a room at random — this is a setup mistake and a staff member needs to see
   // it, but guests may be in the room, so it stays calm.
+  /**
+   * WHERE EVERY SESSION IS — the idle board, built by the shared rail so this
+   * room's wall agrees with the pit signs to the word. Mega serves both rooms
+   * off one circuit, so on a Mega night both rooms' states feed the rail.
+   *
+   * ABOVE THE EARLY RETURN, like the clock below it: hooks run in the same
+   * order every render or they run wrong.
+   */
+  const idleStages = useMemo(
+    () =>
+      buildStageRail({
+        called: trackStatus?.currentRaces?.[liveTrack ?? "mega"] ?? null,
+        rooms: (megaEnabled ? (["red", "blue"] as const) : ([room ?? "red"] as const)).map(
+          (r) => roomsNow?.[r as "red" | "blue"] ?? null,
+        ),
+        lane: feed?.pitLanes?.[liveTrack ?? "mega"] ?? null,
+        // The feed's own stamp when it has one — never Date.now() in render.
+        nowMs: feed?.now ?? nowMs,
+      }),
+    [
+      feed?.pitLanes,
+      feed?.now,
+      nowMs,
+      trackStatus?.currentRaces,
+      liveTrack,
+      megaEnabled,
+      room,
+      roomsNow,
+    ],
+  );
+
   if (!room) return <Unconfigured />;
 
   const accent = ROOM_ACCENT[room];
@@ -258,6 +290,20 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
             // bringing it back for real is flipping this one expression.
             variant={demo === "briefing-return-quals" ? "qualifiers" : "exit"}
           />
+        ) : timeline.phase === "idle" ? (
+          /**
+           * AN EMPTY ROOM SHOWS WHERE EVERYONE IS (owner 2026-08-24: "after the
+           * leave room finally finishes I'd like to go to the session overview
+           * that pit goes to when it has nothing").
+           *
+           * The greeting used to hold this slot until another group arrived,
+           * which on a quiet stretch meant an exit sign facing an empty room
+           * for half an hour (see welcomeBackExpired). What replaces it is the
+           * pit signs' own idle answer, from the SAME builder they use
+           * (briefing/stage-rail.ts) — so the wall outside the room and the
+           * wall inside it cannot describe one night differently.
+           */
+          <IdleStageRail accent={accent} rows={idleStages} />
         ) : (
           <Board
             accent={accent}
@@ -637,6 +683,85 @@ function BriefingVideo({
 }
 
 /* ── the boards ───────────────────────────────────────────────────────── */
+
+/**
+ * THE IDLE BOARD — where every session is, for a room with nobody in it.
+ *
+ * Same rows, same wording and same order as the pit signs' idle wall, because
+ * both come out of buildStageRail. Typography is this scene's, not that one's:
+ * a briefing room is read from a few feet away by people who have just walked
+ * in, so the rows sit larger and the heading names the room rather than
+ * apologising for having nothing to seat.
+ */
+function IdleStageRail({ accent, rows }: { accent: string; rows: StageRow[] }) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: `${PAD_Y}px ${PAD_X}px`,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        gap: "min(34px, 4vh)",
+      }}
+    >
+      <div
+        className="tv-display"
+        style={{ fontSize: "min(78px, 9vh)", color: "#fff", lineHeight: 0.95 }}
+      >
+        Where every session is
+      </div>
+      <div style={{ display: "grid", gap: "min(18px, 2.2vh)" }}>
+        {rows.map((st) => {
+          const empty = st.value === "—";
+          return (
+            <div
+              key={st.label}
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: "min(32px, 3vw)",
+                flexWrap: "wrap",
+              }}
+            >
+              <span
+                className="tv-display"
+                style={{
+                  minWidth: 300,
+                  fontSize: "min(38px, 4.2vh)",
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: withAlpha("#f5ecee", 0.5),
+                }}
+              >
+                {st.label}
+              </span>
+              <span
+                className="tv-display"
+                style={{
+                  fontSize: "min(46px, 5vh)",
+                  color: empty ? withAlpha("#f5ecee", 0.32) : "#fff",
+                }}
+              >
+                {st.value}
+              </span>
+              {st.type && (
+                <span style={{ fontSize: "min(32px, 3.4vh)", color: withAlpha("#f5ecee", 0.62) }}>
+                  {st.type}
+                </span>
+              )}
+              {st.detail && (
+                <span style={{ fontSize: "min(32px, 3.4vh)", color: accent, fontWeight: 700 }}>
+                  {st.detail}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function Board({
   accent,
@@ -1552,12 +1677,22 @@ function ExitDoor() {
             "radial-gradient(50% 50% at 50% 55%, rgba(245,240,230,0.28), transparent 70%)",
         }}
       />
+      {/* SIZED IN VIEWPORT HEIGHT, not pixels. The exit hero shares a flex band
+          with the checklist, and that band shrinks whenever the boards below it
+          grow — the racing-again panel is the one that does it. At 140x245 fixed
+          the art outgrew the band, and a centred overflow rides BOTH ways: the
+          Exit wordmark climbed into "Welcome back!" and "Through the white door"
+          was clipped off the bottom (owner 2026-08-23). Height leads and the
+          aspect ratio follows, so the door keeps its shape at any wall size. */}
       <svg
-        width="140"
-        height="245"
         viewBox="0 0 160 280"
         aria-hidden="true"
-        style={{ position: "relative" }}
+        style={{
+          position: "relative",
+          height: "min(245px, 26vh)",
+          width: "auto",
+          display: "block",
+        }}
       >
         <rect
           x="10"
@@ -1656,25 +1791,39 @@ function WelcomeBackExit({
       />
     </div>
   );
+  /**
+   * THE HERO MUST FIT THE BAND IT IS GIVEN. Every measurement here is capped
+   * against viewport height for the reason in ExitDoor: the band this sits in
+   * shrinks when the racing-again panel appears, and fixed pixels made the
+   * wordmark collide with the headline while the caption fell off the bottom.
+   * `minHeight: 0` is what lets a flex child actually shrink; the gap scales
+   * too, or three tight elements read as one blob on a short wall.
+   */
   const exitHero = (
     <div
       style={{
         flex: "1 1 auto",
         minWidth: 0,
+        minHeight: 0,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: 20,
+        gap: "min(20px, 2vh)",
       }}
     >
       <div
         className="tv-display"
-        style={{ fontSize: 128, color: "#fff", textShadow: `0 0 70px ${withAlpha(accent, 0.6)}` }}
+        style={{
+          fontSize: "min(128px, 13vh)",
+          lineHeight: 1,
+          color: "#fff",
+          textShadow: `0 0 70px ${withAlpha(accent, 0.6)}`,
+        }}
       >
         Exit
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 30 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "min(30px, 3vw)", minHeight: 0 }}>
         {/* The door sits on the side it physically is; the chevrons run at it. */}
         {side === "left" && <ExitDoor />}
         <ChevronRun side={side} />
@@ -1682,7 +1831,12 @@ function WelcomeBackExit({
       </div>
       <div
         className="tv-eyebrow"
-        style={{ fontSize: 30, color: "rgba(245,236,238,0.85)", letterSpacing: "0.24em" }}
+        style={{
+          fontSize: "min(30px, 3.2vh)",
+          color: "rgba(245,236,238,0.85)",
+          letterSpacing: "0.24em",
+          whiteSpace: "nowrap",
+        }}
       >
         {side === "left" ? "← Through the white door" : "Through the white door →"}
       </div>

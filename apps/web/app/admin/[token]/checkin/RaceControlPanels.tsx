@@ -2256,6 +2256,9 @@ function RoomColumn({
               <span className="rc-num">{formatClock(Math.max(0, nextCall.callAtMs - nowMs))}</span>
             </b>
             {` · at ${clockMinuteMs(nextCall.callAtMs)} · ${nextCall.booked} booked · check-in ${clockMinuteMs(nextCall.slotMs)}`}
+            {/* SAY WHY IT IS LATER. A Pro call two minutes off the house rule
+                with no explanation reads as a bug from across the desk. */}
+            {nextCall.proDelayed ? " · Pro, no film — called 2 min later" : ""}
           </div>
         ) : (
           /* Nothing called, or the called heat has already gone to a room —
