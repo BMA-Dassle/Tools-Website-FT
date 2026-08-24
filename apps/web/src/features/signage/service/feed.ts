@@ -617,6 +617,7 @@ async function buildBriefingSection(
             lingerAtMs: welcomeBack.lingerAtMs,
             motionHealthy: welcomeBack.motionHealthy,
             greetingByMotion: welcomeBack.greetingByMotion,
+            greetingTiming: welcomeBack.greetingTiming,
             audioUrl: assets["welcome-back-audio"]?.url ?? null,
             lingerAudioUrl: assets["welcome-back-linger-audio"]?.url ?? null,
             results: welcomeBack.results,

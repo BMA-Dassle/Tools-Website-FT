@@ -23,6 +23,7 @@ import { buildResultsView, type ResultsBoardView } from "./results-board";
 import { prunePanels, type TopTimesView } from "./top-times";
 import type { TrackKey } from "./track";
 import type { BriefingRoomState } from "./briefing/types";
+import { GREETING_TIMING_DEFAULTS } from "./briefing/return-greeting";
 import type { TvFeed, VipEntry, WelcomeEntry } from "./types";
 
 export type DemoMode =
@@ -625,6 +626,10 @@ function demoBriefingSection(feed: TvFeed, mode: DemoMode): TvFeed["briefing"] {
             lingerAtMs: null,
             motionHealthy: true,
             greetingByMotion: true,
+            // House defaults, not the venue's current setting: a preview is for
+            // reviewing the board, and reading the live setting would make one
+            // screen's preview differ from another's for no visible reason.
+            greetingTiming: GREETING_TIMING_DEFAULTS,
             audioUrl: real?.welcomeBack?.audioUrl ?? null,
             lingerAudioUrl: real?.welcomeBack?.lingerAudioUrl ?? null,
             // Fabricated split so the preview lays out the name board — laps

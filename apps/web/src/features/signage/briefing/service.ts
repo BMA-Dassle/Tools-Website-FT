@@ -38,7 +38,8 @@ import { foldBriefingLog, type BriefingRecord } from "./briefing-log";
 import { captureRoomPhoto } from "./room-photo.server";
 import { bookmarkBriefingStartAfter } from "./bookmarks.server";
 import { autoHoldingEnabled } from "./auto-holding.server";
-import { greetingByMotionEnabled } from "./greeting-setting.server";
+import { greetingByMotionEnabled, greetingTiming } from "./greeting-setting.server";
+import { GREETING_TIMING_DEFAULTS, type GreetingTiming } from "./return-greeting";
 import { raceBookmarksEnabled } from "./race-bookmarks-setting.server";
 import { cameraPreviewMode, type CameraPreviewMode } from "./camera-preview-setting.server";
 import { readTimingFeedStatus, type TimingFeedStatus } from "~/features/racing/timing-feed.server";
@@ -541,6 +542,10 @@ export interface BriefingBoardStatus {
    * toggle under auto-holding. See greeting-setting.server.ts.
    */
   greetingByMotion: { enabled: boolean };
+  /** The three staff-settable greeting numbers — the delay when there is no
+   *  camera answer, how many times the clip repeats, and how long a room may
+   *  keep moving before the reminder is due. */
+  greetingTiming: GreetingTiming;
   /**
    * Is race-event camera bookmarking armed? Drives the second settings toggle.
    *
@@ -697,6 +702,7 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     lanes,
     autoHolding,
     greetingByMotion,
+    greetingTimingNow,
     raceBookmarks,
     cameraPreview,
     timing,
@@ -713,6 +719,9 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     // so the toggle never shows OFF for a switch that is actually armed.
     autoHoldingEnabled().catch(() => true),
     greetingByMotionEnabled().catch(() => true),
+    // Already normalised inside, and defaulted on a failed read — the sheet
+    // must never show staff a value the wall is not using.
+    greetingTiming().catch(() => GREETING_TIMING_DEFAULTS),
     raceBookmarksEnabled().catch(() => true),
     // Swallows to the same default the getter uses, for the same reason as the
     // two above: a Redis blip must not show staff a setting they did not choose.
@@ -770,6 +779,7 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     lanes,
     autoHolding: { enabled: autoHolding },
     greetingByMotion: { enabled: greetingByMotion },
+    greetingTiming: greetingTimingNow,
     raceBookmarks: { enabled: raceBookmarks },
     cameraPreview: { mode: cameraPreview },
     timing,

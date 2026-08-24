@@ -13,6 +13,8 @@ import {
   parseCameraPreviewMode,
   type CameraPreviewMode,
 } from "~/features/signage/nx/camera-preview";
+// Pure constants — no server import behind them, so a value import is safe.
+import { GREETING_TIMING_DEFAULTS } from "~/features/signage/briefing/return-greeting";
 import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import {
   ADMIN_SANS,
@@ -32,6 +34,61 @@ const withAlphaAmber = (a: number) => `rgba(240,179,65,${a})`;
 const GREEN = "#4ade80";
 /** The board's red, same value RaceControlPanels uses for DANGER. */
 const RED = "#ff4d4f";
+
+/**
+ * One labelled row of segmented choices in the settings sheet — used by the
+ * greeting's three numbers (owner 2026-08-23).
+ *
+ * The whole point of buttons over a number field is that an invalid value is
+ * unreachable, so the options a caller passes ARE the allowed set. Each press
+ * saves immediately, like every other switch on this sheet: a Save button
+ * would be one more thing to forget at 9pm.
+ */
+function GreetingChoiceRow({
+  label,
+  value,
+  options,
+  disabled,
+  onPick,
+}: {
+  label: string;
+  value: number;
+  options: Array<{ value: number; label: string }>;
+  disabled: boolean;
+  onPick: (value: number) => void;
+}) {
+  return (
+    <div>
+      <p className="block text-xs mb-1.5" style={{ color: PORTAL_DARK.muted }}>
+        {label}
+      </p>
+      <div className="flex gap-1.5 flex-wrap">
+        {options.map((o) => {
+          const on = o.value === value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              aria-pressed={on}
+              disabled={disabled}
+              onClick={() => !on && onPick(o.value)}
+              className="px-2.5 py-1 text-xs border hover:bg-white/5"
+              style={{
+                borderRadius: 8,
+                borderColor: on ? GREEN : PORTAL_DARK.inputBorder,
+                backgroundColor: on ? `${GREEN}22` : "transparent",
+                color: on ? GREEN : PORTAL_DARK.muted,
+                opacity: disabled ? 0.5 : 1,
+              }}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 /**
  * THE TIMING FEED, on the desk.
@@ -363,6 +420,10 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
    */
   const autoHoldingOn = briefing.board?.autoHolding?.enabled !== false;
   const greetingByMotionOn = briefing.board?.greetingByMotion?.enabled !== false;
+  // Server-normalised when present; the house defaults when talking to an
+  // older deploy — the same posture as the switch above it.
+  const greetingTiming = briefing.board?.greetingTiming ?? GREETING_TIMING_DEFAULTS;
+  const fallbackSeconds = Math.round(greetingTiming.fallbackMs / 1000);
   /** Race-event camera bookmarks — the second server-wide switch on the sheet. */
   const raceBookmarksOn = briefing.board?.raceBookmarks?.enabled !== false;
   /** Live video or stills on the room tiles — the third, and a choice rather
@@ -1881,13 +1942,73 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             >
               {greetingByMotionOn ? "On" : "Off"}
             </button>
+            {/* The copy quotes the CONFIGURED delay, not a literal — the number
+                below is settable, and a sentence that kept saying "45" would be
+                wrong the moment somebody changed it. */}
             <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
               {greetingByMotionOn
-                ? "The room TV plays the welcome-back message once its camera sees the group actually walk in — typically 15–30 seconds after the first person enters. If the camera can't answer, it falls back to the 45-second timer."
-                : "The room TV plays the welcome-back message 45 seconds after the post-race call, whether anyone is in the room or not."}{" "}
+                ? `The room TV plays the welcome-back message once its camera sees the group actually walk in — typically 15–30 seconds after the first person enters. If the camera can't answer, it falls back to the ${fallbackSeconds}-second timer.`
+                : `The room TV plays the welcome-back message ${fallbackSeconds} seconds after the post-race call, whether anyone is in the room or not.`}{" "}
               Pro sessions never get the message either way. This setting applies to every check-in
               station, not just this one.
             </p>
+
+            {/*
+              THE GREETING'S THREE NUMBERS (owner 2026-08-23: "add these
+              settings to the check in board gear settings"). Nested under the
+              switch rather than given their own sections, because they only
+              describe that one thing — and the delay stays meaningful with the
+              switch off, which is exactly what it becomes.
+
+              SEGMENTED CHOICES, not typed numbers, for the same reason the baud
+              rate above is buttons: there is no validation to get wrong and no
+              way to leave a half-typed value on a room full of guests. The list
+              here matches the one the server accepts (the choice arrays in
+              briefing/return-greeting.ts), so the two cannot drift.
+            */}
+            <div className="mt-3 grid gap-3">
+              <GreetingChoiceRow
+                label="Greeting delay when the camera can't answer"
+                value={greetingTiming.fallbackMs}
+                options={[
+                  { value: 30_000, label: "30s" },
+                  { value: 45_000, label: "45s" },
+                  { value: 60_000, label: "60s" },
+                  { value: 90_000, label: "90s" },
+                ]}
+                disabled={!briefing.board}
+                onPick={(fallbackMs) => briefing.setGreetingTiming({ fallbackMs })}
+              />
+              <GreetingChoiceRow
+                label="Times the greeting repeats"
+                value={greetingTiming.maxPlays}
+                options={[
+                  { value: 1, label: "Once" },
+                  { value: 2, label: "2×" },
+                  { value: 3, label: "3×" },
+                  { value: 4, label: "4×" },
+                ]}
+                disabled={!briefing.board}
+                onPick={(maxPlays) => briefing.setGreetingTiming({ maxPlays })}
+              />
+              <GreetingChoiceRow
+                label="Still-in-the-room reminder after"
+                value={greetingTiming.lingerAfterMs}
+                options={[
+                  { value: 60_000, label: "1 min" },
+                  { value: 120_000, label: "2 min" },
+                  { value: 180_000, label: "3 min" },
+                  { value: 300_000, label: "5 min" },
+                ]}
+                disabled={!briefing.board}
+                onPick={(lingerAfterMs) => briefing.setGreetingTiming({ lingerAfterMs })}
+              />
+              <p className="text-xs" style={{ color: PORTAL_DARK.muted }}>
+                The reminder needs its own clip uploaded on the Lobby TVs page, and only plays while
+                the greeting is following the camera. However these are set, the greeting always
+                stops 2 minutes after the post-race call.
+              </p>
+            </div>
           </div>
 
           {/*

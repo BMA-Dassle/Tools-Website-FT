@@ -92,6 +92,9 @@ export interface BoardStatus {
    *  or the fixed post+45s timer (OFF)? Optional for the same older-deploy
    *  reason — `undefined` reads as ON, matching the server default. */
   greetingByMotion?: { enabled: boolean };
+  /** The greeting's three staff-set numbers. Optional for the same
+   *  older-deploy reason — the sheet falls back to the house defaults. */
+  greetingTiming?: { fallbackMs: number; maxPlays: number; lingerAfterMs: number };
   /** Is race-event camera bookmarking armed? Optional for the same
    *  older-deploy reason as the fields above it. */
   raceBookmarks?: { enabled: boolean };
@@ -216,6 +219,17 @@ export interface BriefingControl {
    * it "where we have the other motion option" (2026-08-23).
    */
   setGreetingByMotion: (enabled: boolean) => void;
+  /**
+   * Change one of the greeting's three numbers — the no-camera delay, the
+   * repeat cap, or how long a room may keep moving before the reminder
+   * (owner 2026-08-23: "add these settings to the check in board gear
+   * settings"). One field per press; the server merges and validates.
+   */
+  setGreetingTiming: (patch: {
+    fallbackMs?: number;
+    maxPlays?: number;
+    lingerAfterMs?: number;
+  }) => void;
   /**
    * ARM OR DISARM race-event bookmarks on the track cameras — session start,
    * pause, resume and end, written to every camera on that track.
@@ -488,6 +502,21 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  const setGreetingTiming = useCallback<BriefingControl["setGreetingTiming"]>(
+    (patch) => {
+      // Says what it now IS, not what was pressed — the sheet's own buttons
+      // already show the press, and the note is what staff read back.
+      const what =
+        patch.fallbackMs != null
+          ? `Greeting delay without a camera answer: ${Math.round(patch.fallbackMs / 1000)} seconds`
+          : patch.maxPlays != null
+            ? `Greeting plays up to ${patch.maxPlays} time${patch.maxPlays === 1 ? "" : "s"} per return`
+            : `Still-in-the-room reminder after ${Math.round(((patch.lingerAfterMs ?? 0) / 60000) * 10) / 10} min`;
+      void post({ action: "greeting-timing", ...patch }, what, "greeting-timing");
+    },
+    [post],
+  );
+
   const setRaceBookmarks = useCallback<BriefingControl["setRaceBookmarks"]>(
     (enabled) => {
       void post(
@@ -652,6 +681,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     markPitted,
     setAutoHolding,
     setGreetingByMotion,
+    setGreetingTiming,
     setRaceBookmarks,
     setCameraPreview,
     overrideSlot,
