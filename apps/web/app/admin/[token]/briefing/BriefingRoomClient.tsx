@@ -77,6 +77,7 @@ import {
   type PitPost,
   type PullRefusal,
 } from "~/features/signage/briefing/pull-to-room";
+import { briefVerdict } from "~/features/signage/briefing/brief-verdict";
 import { laneReturnRoom } from "~/features/signage/briefing/room-suggest";
 import {
   buildStageRail,
@@ -1358,6 +1359,25 @@ export default function BriefingRoomClient({
             : "other-room",
   });
 
+  /**
+   * THE SHARED VERDICT — the same call the desk board and every TV make, so
+   * this tablet cannot advise a pull the wall outside calls premature (owner
+   * 2026-08-24).
+   */
+  const brief = briefVerdict({
+    called: !!incomingRace,
+    window: pullWindow,
+    checkedIn: incomingCount,
+    // The incoming heat's own call stamp and this track's window — the same
+    // two numbers the check-in band on this tablet already counts down from.
+    calledForMs: (() => {
+      const at = incomingRace?.calledAt ? Date.parse(incomingRace.calledAt) : NaN;
+      return Number.isFinite(at) ? nowMs - at : null;
+    })(),
+    checkinWindowMins: board?.checkinWindowMins?.[incomingTrack] ?? 0,
+    formatClock: clock,
+  });
+
   /** THE ONE RULE, and its sentences. Pure, shared, tested — pull-to-room.ts. */
   const pull = pullVerdict({
     enabled: board?.enabled,
@@ -1673,8 +1693,15 @@ ${film}
                         color: pull.ok ? GREEN : PORTAL_DARK.muted,
                       }}
                     >
+                      {/* THE SHARED SENTENCE when the pull is on offer, so this
+                          band and the wall outside describe one heat the same
+                          way — including PULL TO BRIEFING NOW, which is the
+                          case this tablet most needs to hear about. A refusal
+                          keeps its own words: those name a thing to fix. */}
                       {pull.ok
-                        ? "everyone is through the desk"
+                        ? brief.kind !== "quiet"
+                          ? brief.phrase
+                          : "everyone is through the desk"
                         : (pullRefusal(pull.reason) ?? "waiting on the desk")}
                     </span>
                   </div>

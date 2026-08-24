@@ -99,8 +99,25 @@ export function sendAlarmCue(args: {
   calledForMs: number | null;
   /** `closesInMs` from the send window, or null when it is not closing. */
   windowClosesInMs: number | null;
+  /**
+   * The verdict has flipped to PULL TO BRIEFING NOW — the group's check-in
+   * window has run out with racers still missing (brief-verdict.ts, owner
+   * 2026-08-24). Sounds on its own, without the send window closing, because it
+   * is a deadline in its own right; the 7-minute bar below does not apply, as
+   * the check-in window IS the wait it was there to guarantee.
+   */
+  pullNow?: boolean;
 }): AlarmCue | null {
-  if (!args.called || args.windowClosesInMs == null) return null;
+  if (!args.called) return null;
+  if (args.pullNow) {
+    return {
+      kind: "send",
+      slot: 1,
+      sessionId: args.called.sessionId,
+      heatNumber: args.called.heatNumber,
+    };
+  }
+  if (args.windowClosesInMs == null) return null;
   if (args.calledForMs == null || args.calledForMs < SEND_ALARM_MIN_CALLED_MS) return null;
   const slot = slotFor(args.windowClosesInMs);
   return slot == null

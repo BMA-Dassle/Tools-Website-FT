@@ -99,6 +99,7 @@ import {
   type PitPost,
   type SendWindow,
 } from "~/features/signage/briefing/pull-to-room";
+import { briefVerdict } from "~/features/signage/briefing/brief-verdict";
 import { callAlarmCue, sendAlarmCue, type AlarmCue } from "~/features/signage/briefing/desk-alarm";
 import { laneReturnRoom, suggestMegaRoom } from "~/features/signage/briefing/room-suggest";
 import { trackDisplay, verdictLabel } from "~/features/racing/on-time-display";
@@ -1665,6 +1666,24 @@ function RoomColumn({
           }
         : null,
   });
+  /**
+   * THE ONE VERDICT (brief-verdict.ts). The desk, the room tablets and every TV
+   * now answer "should this group be briefed" from this single call, so the
+   * wall a racer reads cannot advise a press the button in front of staff would
+   * refuse (owner 2026-08-24).
+   */
+  const brief = briefVerdict({
+    called: !!race && !sentTo,
+    window: sendWin,
+    checkedIn:
+      checkedIn && checkedIn.checkedIn != null && checkedIn.total != null
+        ? { checkedIn: checkedIn.checkedIn, total: checkedIn.total }
+        : null,
+    calledForMs: checkingInMs,
+    checkinWindowMins,
+    formatClock,
+  });
+
   const sendCue = sendAlarmCue({
     called:
       race && !sentTo ? { sessionId: String(race.sessionId), heatNumber: race.heatNumber } : null,
@@ -1672,6 +1691,14 @@ function RoomColumn({
     // The alarm rides the GRACE countdown — the minute in which the desk is
     // out of time but can still act is exactly the minute worth shouting in.
     windowClosesInMs: sendWin.kind === "grace" ? sendWin.graceLeftMs : null,
+    /**
+     * ...AND THE PULL-NOW FLIP, which is the other moment worth a noise: the
+     * group's check-in window has run out with racers still missing, so the
+     * choice is brief them now or hold the track for people who are not coming.
+     * It reaches phones too, through the same fan-out (owner 2026-08-24: "this
+     * should be built into our push notifications").
+     */
+    pullNow: brief.kind === "pull-now",
   });
   // The send deadline outranks the call one: a group already standing at the
   // desk is the more expensive of the two to lose.
@@ -1985,20 +2012,18 @@ function RoomColumn({
                               : "—"
                           : formatClock(Math.max(0, sendWin.closesInMs))
                   }
+                  /* THE SHARED PHRASE, so this unit line and the wall outside
+                     say the same thing about the same heat. Only the two states
+                     the verdict does not model — a post playing or still owed —
+                     keep their own words. */
                   unit={
-                    sendWin.kind === "early"
-                      ? "until it opens"
-                      : sendWin.kind === "open"
-                        ? "send now"
-                        : sendWin.kind === "grace"
-                          ? `out of time by ${formatClock(sendWin.overBy)} — send now`
-                          : sendWin.why === "film"
-                            ? sendOverrideAllowed
-                              ? "grace gone — asks first"
-                              : "grace gone — post first"
-                            : sendWin.why === "post-playing"
-                              ? "post playing — then send"
-                              : "waiting on the post-race call"
+                    sendWin.kind === "blocked" && sendWin.why !== "film"
+                      ? sendWin.why === "post-playing"
+                        ? "post playing — then send"
+                        : "waiting on the post-race call"
+                      : brief.kind !== "quiet"
+                        ? brief.phrase
+                        : "until it opens"
                   }
                   tone={
                     sendWin.kind === "open"

@@ -148,6 +148,9 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
       formatClock: fmtRailClock,
       checkedIn: progress ? { checkedIn: progress.checkedIn, total: progress.total } : null,
       calledForMs: progress?.calledAtMs != null ? nowMs - progress.calledAtMs : null,
+      // The venue's check-in window, so a short grid becomes PULL TO BRIEFING
+      // NOW at its deadline rather than sitting on 'waiting' for ever.
+      checkinWindowMins: config.checkinWindowMins,
       brief: sendWindow({
         remainingMs: sessionClock?.remainingMs ?? null,
         onTrack: !!sessionClock || !!feed?.pitLanes?.[railTrack]?.racing,

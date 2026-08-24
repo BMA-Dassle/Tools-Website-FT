@@ -38,6 +38,7 @@
  * nothing a guest can see.
  */
 import { briefingTimelineAt } from "./phase";
+import { briefVerdict } from "./brief-verdict";
 import type { SendWindow } from "./pull-to-room";
 import type { BriefingRoomState } from "./types";
 import type { PitLaneFeed } from "../pit/pit-board";
@@ -126,6 +127,9 @@ export interface StageRailInput {
    * with no clock rather than a made-up one.
    */
   calledForMs?: number | null;
+  /** The venue's check-in window, so the verdict knows when a short grid stops
+   *  being a wait and becomes PULL TO BRIEFING NOW. 0 = no deadline. */
+  checkinWindowMins?: number;
   /**
    * WHEN THE CALLED GROUP SHOULD BE BRIEFED — the `sendWindow()` verdict the
    * check-in board's Send button and the room tablets' pull band already wear
@@ -210,40 +214,26 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
   // never be allowed to read as "everybody is here".
   const allIn = !!count && count.total > 0 && count.checkedIn >= count.total;
   /**
-   * THE BRIEFING COUNTDOWN, in the words the wall may honestly use.
+   * THE BRIEFING VERDICT — decided in brief-verdict.ts, not here.
    *
-   * IT NEVER SAYS "NOW" ONCE THE FILM HAS STOPPED FITTING (owner 2026-08-24:
-   * "definitely don't say send now if there is not enough time"). The grace
-   * minute is DEFINED as the film no longer fitting, so it reads "no time" and
-   * counts the grace down — the same fact the board's red pulsing button is
-   * showing the staff member. Only `open` earns "brief now".
-   *
-   * "Brief", not "send" (owner: "send in is confusing… maybe Brief in?"): send
-   * is what a staff member does to a group, brief is what happens to the group,
-   * and these screens are read by both.
+   * This block used to read the send window alone, which is how a wall came to
+   * print BRIEF NOW over a half-checked-in grid (owner 2026-08-24). The roster,
+   * the check-in deadline and the film all belong to one decision; the rail's
+   * job is to render it.
    */
-  const briefPhrase = ((): { text: string; tone: StageRow["tone"] } | null => {
-    const w = input.brief;
-    if (!w || calledHeat == null) return null;
-    switch (w.kind) {
-      case "early":
-        return fmt ? { text: `brief in ${fmt(w.opensInMs)}`, tone: "warn" } : null;
-      case "open":
-        return { text: "brief now", tone: "good" };
-      case "grace":
-        // "No time to brief", not a bare "no time" (owner 2026-08-24): on a
-        // wall the short form reads as a fact about the RACE — no time left on
-        // track — which is the opposite of what it means. It is the briefing
-        // that no longer fits.
-        return fmt
-          ? { text: `no time to brief · ${fmt(w.graceLeftMs)} grace`, tone: "alert" }
-          : { text: "no time to brief", tone: "alert" };
-      case "blocked":
-        return { text: "no time to brief · after the post", tone: "alert" };
-      case "quiet":
-        return null;
-    }
-  })();
+  const brief =
+    input.brief === undefined
+      ? null
+      : briefVerdict({
+          called: calledHeat != null,
+          window: input.brief,
+          checkedIn: count ?? null,
+          calledForMs: input.calledForMs ?? null,
+          checkinWindowMins: input.checkinWindowMins ?? 0,
+          formatClock: fmt,
+        });
+  const briefPhrase =
+    brief && brief.kind !== "quiet" ? { text: brief.phrase, tone: brief.tone } : null;
 
   const countText =
     calledHeat != null && count && count.total > 0

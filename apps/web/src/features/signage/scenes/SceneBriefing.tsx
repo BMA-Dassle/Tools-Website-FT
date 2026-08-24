@@ -187,6 +187,9 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
       formatClock: formatRailClock,
       checkedIn: progress ? { checkedIn: progress.checkedIn, total: progress.total } : null,
       calledForMs: progress?.calledAtMs != null ? nowMs - progress.calledAtMs : null,
+      // The venue's check-in window, so a short grid becomes PULL TO BRIEFING
+      // NOW at its deadline rather than sitting on 'waiting' for ever.
+      checkinWindowMins: config.checkinWindowMins,
       brief: sendWindow({
         remainingMs: railClock?.remainingMs ?? null,
         onTrack: !!railClock || !!feed?.pitLanes?.[railTrack]?.racing,

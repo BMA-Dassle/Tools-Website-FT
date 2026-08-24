@@ -388,8 +388,10 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
         checkedIn: idleProgress
           ? { checkedIn: idleProgress.checkedIn, total: idleProgress.total }
           : null,
-        calledForMs:
-          idleProgress?.calledAtMs != null ? (feed?.now ?? nowMs) - idleProgress.calledAtMs : null,
+        calledForMs: idleProgress?.calledAtMs != null ? nowMs - idleProgress.calledAtMs : null,
+        // The venue's check-in window, so a short grid becomes PULL TO BRIEFING
+        // NOW at its deadline rather than sitting on "waiting" for ever.
+        checkinWindowMins: config.checkinWindowMins,
         brief: idleBrief,
       }),
     [feed?.briefingRooms, feed?.now, nowMs, status?.currentRaces, track, lane, liveClock],
