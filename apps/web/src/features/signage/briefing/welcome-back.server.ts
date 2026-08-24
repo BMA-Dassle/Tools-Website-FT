@@ -42,6 +42,8 @@ import { readRaceFinishedMarker } from "./race-finish.server";
 import { splitByTarget } from "./results-frame";
 import { racingAgainAfter } from "../pit/back-to-back.server";
 import { readCueStamp } from "../pit/audio-stamps.server";
+import { greetingByMotionEnabled } from "./greeting-setting.server";
+import { resolveReturnArrival, type ReturnArrival } from "./return-arrival.server";
 import type { JoiningGroup } from "../pit/back-to-back";
 import type { BriefingRoom } from "./types";
 
@@ -63,6 +65,19 @@ export interface WelcomeBackInfo {
    *  has. The post is what CALLS the group back into the room, so the room
    *  TV's greeting audio must not sound before it (owner 2026-08-15). */
   postPlayedAtMs: number | null;
+  /** First motion the room camera saw AFTER the post press — the group
+   *  actually walking in, server-stamped (return-arrival.server.ts). Null
+   *  until it happens, and always null with greeting-by-motion switched off. */
+  arrivedAtMs: number | null;
+  /** The room still moving 3 minutes after they walked in — the one-shot cue
+   *  for the "another group is waiting" clip. Null = never lingered. */
+  lingerAtMs: number | null;
+  /** False when the NVR could not answer this poll — the TV's cue to fall back
+   *  to the fixed post+45s timer rather than wait for a camera that is down. */
+  motionHealthy: boolean;
+  /** The settings-sheet mode: greet on the camera's say-so (default) or on the
+   *  fixed timer. Carried per poll so a flip mid-window takes effect. */
+  greetingByMotion: boolean;
   /** Null when capture never landed — the board renders name-less, as before. */
   results: WelcomeBackResults | null;
   /**
@@ -239,6 +254,18 @@ export async function resolveWelcomeBack(
   // stamp is session-keyed so it can only be about this group's own return.
   const postStamp = await readCueStamp("post", subject.sessionId).catch(() => null);
 
+  // The greeting's mode, and — in motion mode, once the post has called them —
+  // the camera's answer to "have they walked in yet". Fails soft in both
+  // directions: an unreadable switch reads as its default (motion), and an
+  // unreadable camera is reported as such so the TV uses the fixed timer.
+  const greetingByMotion = await greetingByMotionEnabled().catch(() => true);
+  const arrival =
+    greetingByMotion && postStamp
+      ? await resolveReturnArrival(room, subject.sessionId, postStamp.atMs, Date.now()).catch(
+          (): ReturnArrival => ({ arrivedAtMs: null, lingerAtMs: null, motionHealthy: false }),
+        )
+      : { arrivedAtMs: null, lingerAtMs: null, motionHealthy: true };
+
   const target = nextLevelTarget(track, subject.raceType);
   const split = recorded ? splitByTarget(recorded.drivers, target?.ms ?? null) : null;
 
@@ -248,6 +275,10 @@ export async function resolveWelcomeBack(
     track,
     endedAtMs: actualEndMs as number,
     postPlayedAtMs: postStamp?.atMs ?? null,
+    arrivedAtMs: arrival.arrivedAtMs,
+    lingerAtMs: arrival.lingerAtMs,
+    motionHealthy: arrival.motionHealthy,
+    greetingByMotion,
     racingAgain,
     results: split
       ? {

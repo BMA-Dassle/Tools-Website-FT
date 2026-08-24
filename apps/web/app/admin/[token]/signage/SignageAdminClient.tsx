@@ -114,6 +114,7 @@ export default function SignageAdminClient({ token }: { token: string }) {
         videos: json.videos,
         helmetPosterUrl: json.helmetPosterUrl,
         welcomeBackAudioUrl: json.welcomeBackAudioUrl ?? null,
+        welcomeBackLingerAudioUrl: json.welcomeBackLingerAudioUrl ?? null,
       });
     } catch {
       /* the section simply shows "not uploaded" */
@@ -730,9 +731,26 @@ function ScreenRow({
                 }
                 style={btn}
                 disabled={busy}
-                title="Skip straight to the welcome-back board — no need to sit through the film"
+                title="Skip straight to the welcome-back exit board — no need to sit through the film"
               >
                 Preview welcome back
+              </button>
+            )}
+            {canBriefing && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSimulate(
+                    "preview",
+                    { screenId: screen.screenId, mode: "briefing-return-quals" },
+                    `Retired qualifiers board pushed to ${screen.screenId}.`,
+                  )
+                }
+                style={btn}
+                disabled={busy}
+                title="The RETIRED who-qualified layout, kept for review — the wall shows the exit board"
+              >
+                Preview old qualifiers board
               </button>
             )}
             {/* One button per mood the scores wall can be in. They are separate
