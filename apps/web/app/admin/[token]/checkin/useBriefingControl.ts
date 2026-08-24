@@ -88,6 +88,10 @@ export interface BoardStatus {
    * that older server would actually be doing.
    */
   autoHolding?: { enabled: boolean };
+  /** Does the welcome-back greeting start on the room camera's say-so (ON)
+   *  or the fixed post+45s timer (OFF)? Optional for the same older-deploy
+   *  reason — `undefined` reads as ON, matching the server default. */
+  greetingByMotion?: { enabled: boolean };
   /** Is race-event camera bookmarking armed? Optional for the same
    *  older-deploy reason as the fields above it. */
   raceBookmarks?: { enabled: boolean };
@@ -204,6 +208,14 @@ export interface BriefingControl {
    * It takes effect on the next sweep, within a minute.
    */
   setAutoHolding: (enabled: boolean) => void;
+  /**
+   * The welcome-back greeting's mode: ON = the room TV starts the clip when
+   * the room camera first sees the group walk in (measured 15-30s after the
+   * first person enters); OFF = a plain 45s timer after the post press, no
+   * camera involved. Same sheet as auto-holding because the owner asked for
+   * it "where we have the other motion option" (2026-08-23).
+   */
+  setGreetingByMotion: (enabled: boolean) => void;
   /**
    * ARM OR DISARM race-event bookmarks on the track cameras — session start,
    * pause, resume and end, written to every camera on that track.
@@ -463,6 +475,19 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  const setGreetingByMotion = useCallback<BriefingControl["setGreetingByMotion"]>(
+    (enabled) => {
+      void post(
+        { action: "greeting-by-motion", enabled },
+        enabled
+          ? "Welcome-back greeting follows the room camera — it plays once the group actually walks in"
+          : "Welcome-back greeting is on a 45-second timer after the post call — the camera is not consulted",
+        "greeting-by-motion",
+      );
+    },
+    [post],
+  );
+
   const setRaceBookmarks = useCallback<BriefingControl["setRaceBookmarks"]>(
     (enabled) => {
       void post(
@@ -626,6 +651,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     sendToHolding,
     markPitted,
     setAutoHolding,
+    setGreetingByMotion,
     setRaceBookmarks,
     setCameraPreview,
     overrideSlot,

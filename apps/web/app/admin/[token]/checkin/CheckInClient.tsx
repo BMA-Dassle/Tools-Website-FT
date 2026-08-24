@@ -362,6 +362,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
    * claims OFF for a switch that is actually running.
    */
   const autoHoldingOn = briefing.board?.autoHolding?.enabled !== false;
+  const greetingByMotionOn = briefing.board?.greetingByMotion?.enabled !== false;
   /** Race-event camera bookmarks — the second server-wide switch on the sheet. */
   const raceBookmarksOn = briefing.board?.raceBookmarks?.enabled !== false;
   /** Live video or stills on the room tiles — the third, and a choice rather
@@ -1846,6 +1847,46 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 ? "When a room goes quiet on camera after the briefing, its group moves to holding on its own. Staff can still press Send to holding at any time."
                 : "Groups only move to holding when staff press Send to holding."}{" "}
               This setting applies to every check-in station, not just this one.
+            </p>
+          </div>
+
+          {/*
+            WELCOME-BACK GREETING BY MOTION — the same camera, a different job
+            (owner 2026-08-23: "I'd like this option in the settings of check
+            in board where we have the other motion option"). ON, the room TV
+            starts the greeting when the camera first sees the returning group
+            walk in; OFF, it is a plain 45-second timer after the post call.
+            Its own switch rather than a mode of auto-holding for the same
+            reason bookmarks are: they share a camera and nothing else — that
+            one moves groups, this one only times a sound.
+          */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+              Welcome-back greeting by motion
+            </p>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={greetingByMotionOn}
+              disabled={!briefing.board}
+              onClick={() => briefing.setGreetingByMotion(!greetingByMotionOn)}
+              className="px-3 py-1.5 text-xs border hover:bg-white/5"
+              style={{
+                borderRadius: 8,
+                borderColor: greetingByMotionOn ? GREEN : PORTAL_DARK.inputBorder,
+                backgroundColor: greetingByMotionOn ? `${GREEN}22` : "transparent",
+                color: greetingByMotionOn ? GREEN : PORTAL_DARK.muted,
+                opacity: briefing.board ? 1 : 0.5,
+              }}
+            >
+              {greetingByMotionOn ? "On" : "Off"}
+            </button>
+            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+              {greetingByMotionOn
+                ? "The room TV plays the welcome-back message once its camera sees the group actually walk in — typically 15–30 seconds after the first person enters. If the camera can't answer, it falls back to the 45-second timer."
+                : "The room TV plays the welcome-back message 45 seconds after the post-race call, whether anyone is in the room or not."}{" "}
+              Pro sessions never get the message either way. This setting applies to every check-in
+              station, not just this one.
             </p>
           </div>
 

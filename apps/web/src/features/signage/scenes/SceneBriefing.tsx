@@ -27,6 +27,13 @@ import { withAlpha } from "../color";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { TRACK_ACCENTS, TRACK_LABELS, type TrackKey } from "../track";
 import { briefingTimelineAt, helmetBoardComplete } from "../briefing/phase";
+import {
+  GREETING_GAP_MS,
+  GREETING_MAX_PLAYS,
+  LINGER_FRESH_MS,
+  greetingStartMs,
+  greetingWindowClosed,
+} from "../briefing/return-greeting";
 import { roomBlockedAlertAt } from "../briefing/room-blocked";
 import { incomingForRoom, normaliseCameraReturn } from "../briefing/camera-return";
 import { tierForRaceType, type BriefingRoom } from "../briefing/types";
@@ -65,6 +72,18 @@ const ROOM_ACCENT: Record<BriefingRoom, string> = {
 
 const ROOM_LABEL: Record<BriefingRoom, string> = { red: "Red Briefing", blue: "Blue Briefing" };
 
+/**
+ * Which way the WHITE EXIT DOOR is from inside each room (owner 2026-08-23:
+ * "have them exit out white door. Blue room that is to the right. Red that is
+ * to the left"). Hardcoded beside the accent map on purpose — the doors are
+ * architecture, not configuration, and if one ever moves this is a one-line
+ * change next to the room's other identity facts.
+ */
+const EXIT_DOOR_SIDE: Record<BriefingRoom, "left" | "right"> = {
+  blue: "right",
+  red: "left",
+};
+
 export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
   const room = config.briefingRoom;
 
@@ -78,7 +97,8 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
 
   // Room state is read BEFORE the assets hook, because whether a film is playing
   // right now decides whether we may use the link to download one.
-  const previewRooms = demo === "briefing" || demo === "briefing-return";
+  const previewRooms =
+    demo === "briefing" || demo === "briefing-return" || demo === "briefing-return-quals";
   const roomsNow = previewRooms ? demoBriefingRooms(nowMs, feed, demo) : feed?.briefingRooms;
   const stateNow = room ? (roomsNow?.[room] ?? null) : null;
   // Downloads hold during "waiting" too: the group is walking over, Start is
@@ -231,6 +251,12 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
             // path shows this board while the previous group is STILL in the
             // room, and the greeting must not sound over their fitting.
             roomEmpty={timeline.phase === "idle"}
+            // The exit board is THE board (owner 2026-08-23: "goal is to get
+            // them out of the room as quickly as possible"). The old
+            // who-qualified layout is PRESERVED behind its own preview mode —
+            // "save the qualifiers page case we ever want it back" — and
+            // bringing it back for real is flipping this one expression.
+            variant={demo === "briefing-return-quals" ? "qualifiers" : "exit"}
           />
         ) : (
           <Board
@@ -1050,79 +1076,164 @@ function QualifyTarget({
 /**
  * WELCOME BACK — the group has raced and is walking in to return kit.
  *
- * Everything on it is something they need in the next two minutes: where the
- * helmets and cameras go, and — when the end-of-race capture landed — WHO
- * LEVELLED UP AND WHO DIDN'T, with the time to beat (owner 2026-08-11,
- * superseding the earlier "park who qualified"). Names verbatim from the
- * timing system. No capture → the name-less board, exactly as before. No
- * timers either way: it holds until the next briefing occupies the room.
+ * SINCE 2026-08-23 THIS IS AN EXIT BOARD (owner: "goal is to get them out of
+ * the room as quickly as possible" — the room cameras show the median group
+ * spends 1:27 in here, and on busy nights most returns blend straight into
+ * the next send). The hero is the way OUT: a chevron run into the white door
+ * on the side it actually is, a four-line kit checklist, and the racing-again
+ * band for anyone who must stay. The who-qualified name board this replaced
+ * is PRESERVED below (WelcomeBackQualifiers) behind its own preview mode —
+ * "save the qualifiers page case we ever want it back".
  */
-/** How long after each play of the welcome-back jingle before it repeats
- *  ("every 10s", owner 2026-08-15 — measured from the clip's end, matching how
- *  the owner specs gaps on the pit's stay-seated loop). */
-const WELCOME_AUDIO_GAP_MS = 10_000;
-/** The greeting stops nagging after this (owner: "max of 2 minutes"), counted
- *  from the POST PRESS — see the anchor note on the hook. */
-const WELCOME_AUDIO_MAX_MS = 2 * 60_000;
+/** What the welcome-back feed section carries — see types.ts for field notes. */
+interface WelcomeBackInfo {
+  heatNumber: number | null;
+  raceType: string | null;
+  track: "blue" | "red" | "mega";
+  endedAtMs: number;
+  postPlayedAtMs: number | null;
+  arrivedAtMs: number | null;
+  lingerAtMs: number | null;
+  motionHealthy: boolean;
+  greetingByMotion: boolean;
+  audioUrl: string | null;
+  lingerAudioUrl: string | null;
+  results: {
+    levelledUp: Array<{ name: string; bestMs: number }>;
+    keepPushing: Array<{ name: string; bestMs: number | null }>;
+  } | null;
+  racingAgain: Array<{ session: number | null; track: string; names: string[] }>;
+}
+
+/** Tear an Audio element all the way down. removeAttribute alone leaves the
+ *  fetched resource selected; a srcless load() is what makes Edge let go. */
+function releaseAudio(el: HTMLAudioElement): void {
+  el.onended = null;
+  el.pause();
+  el.removeAttribute("src");
+  el.load();
+}
 
 /**
- * Loop the welcome-back jingle while the board is up — AND THE ROOM IS EMPTY,
- * AND THIS RACE'S POST HAS PLAYED.
+ * The greeting, re-timed (owner 2026-08-23). WHEN it speaks is pure arithmetic
+ * in briefing/return-greeting.ts — the room camera's server-stamped arrival,
+ * or post + 45s, per the settings-sheet "greeting by motion" switch — this
+ * hook only schedules what those numbers say.
  *
- * THE ROOM GATE (owner 2026-08-15: "audio cannot play at all unless briefing
- * is empty/coming back… welcome back appeared but people were still doing
- * helmet sizes"). The board legitimately shows while the PREVIOUS group still
- * occupies the room — the helmet board ages off the SCREEN after ~30s, but
- * the occupancy holds until the send-to-holding press — and greeting audio
- * over a group mid-helmet-fitting was wrong.
+ * THE ROOM GATE STANDS (owner 2026-08-15: "audio cannot play at all unless
+ * briefing is empty/coming back"): the board legitimately shows while the
+ * PREVIOUS group still occupies the room, and no clip may talk over a helmet
+ * fitting. So does the POST anchor (owner 2026-08-15): every timing input is
+ * a server stamp, so a remounted or rebooted TV agrees on the schedule and a
+ * spent greeting can never return.
  *
- * THE ANCHOR IS THE POST STAMP, and nothing client-side (owner 2026-08-15:
- * "it's playing the second the briefing video ends"). The window used to open
- * at the first moment this mount found the gates clear — so when the next
- * group's film replaced the board and the room then emptied again, the
- * remount re-armed a FRESH two minutes and re-greeted a race that had walked
- * in ten minutes earlier. The post press is the true start of the greeting:
- * its gate already requires an empty room, its stamp is session-keyed and
- * server-side, so every TV — remounted, rebooted, or both — agrees the window
- * is postPlayedAtMs + 2 minutes and a spent greeting can never return.
+ * PRO GRIDS ARE SILENT (owner 2026-08-23: "No message is needed for pro
+ * racers") — the board still shows, the sound never arms. tierForRaceType
+ * counts Junior Pro as pro, which is the intent: they know the drill.
  *
- * Plays on arming, then again WELCOME_AUDIO_GAP_MS after each play ends, until
- * the window closes. The next briefing taking the room unmounts the board,
- * and the cleanup below stops the sound mid-note. Every play failure is
- * swallowed: a TV whose browser refuses autoplay shows the board silently.
+ * Repeats: GREETING_GAP_MS after each play's END, at most GREETING_MAX_PLAYS
+ * plays, never past the post + 2-minute window — three bounds, first to land
+ * wins (owner 2026-08-23: "have a timeout on number of repeats"). The next
+ * briefing taking the room unmounts the board and the cleanup stops the sound
+ * mid-note. Every play failure is swallowed: a TV whose browser refuses
+ * autoplay shows the board silently.
  */
-function useWelcomeBackAudio(
-  url: string | null,
-  postPlayedAtMs: number | null,
-  roomEmpty: boolean,
-): void {
+function useWelcomeBackAudio(info: WelcomeBackInfo, roomEmpty: boolean): void {
+  const {
+    audioUrl,
+    lingerAudioUrl,
+    postPlayedAtMs,
+    arrivedAtMs,
+    lingerAtMs,
+    motionHealthy,
+    greetingByMotion,
+    raceType,
+  } = info;
+  const proSilent = tierForRaceType(raceType) === "pro";
+
+  /**
+   * THE PLAY CAP OUTLIVES THE EFFECT. The effect below legitimately restarts
+   * mid-window — the arrival stamp landing, the room-empty gate flapping, a
+   * camera recovering after the 45s fallback already spoke — and a counter
+   * inside it would reset each time, letting one return be greeted six times.
+   * The count therefore lives up here, keyed on the post stamp (one return =
+   * one post press) so the NEXT return starts its own tally.
+   */
+  const playsRef = useRef<{ anchor: number; count: number } | null>(null);
+
   useEffect(() => {
-    if (!url || !roomEmpty || postPlayedAtMs == null) return;
-    const windowClosed = () => Date.now() - postPlayedAtMs > WELCOME_AUDIO_MAX_MS;
-    if (windowClosed()) return;
-    const el = new Audio(url);
+    if (!audioUrl || !roomEmpty || proSilent || postPlayedAtMs == null) return;
+    if (greetingWindowClosed(postPlayedAtMs, Date.now())) return;
+    // Null = KEEP WAITING: motion mode, camera healthy, nobody in the room
+    // yet — a greeting to an empty room is the bug this replaces. The next
+    // poll that stamps an arrival changes a dependency and re-runs this
+    // effect; the window check above bounds the wait.
+    const startAtMs = greetingStartMs({
+      byMotion: greetingByMotion,
+      postPlayedAtMs,
+      arrivedAtMs,
+      motionHealthy,
+    });
+    if (startAtMs == null) return;
+
+    if (playsRef.current?.anchor !== postPlayedAtMs) {
+      playsRef.current = { anchor: postPlayedAtMs, count: 0 };
+    }
+    const tally = playsRef.current;
+    const el = new Audio(audioUrl);
     let timer: number | null = null;
     let stopped = false;
     const playOnce = () => {
-      if (stopped || windowClosed()) return;
+      if (stopped || tally.count >= GREETING_MAX_PLAYS) return;
+      if (greetingWindowClosed(postPlayedAtMs, Date.now())) return;
+      tally.count++;
       void el.play().catch(() => {});
     };
     el.onended = () => {
       if (stopped) return;
-      timer = window.setTimeout(playOnce, WELCOME_AUDIO_GAP_MS);
+      timer = window.setTimeout(playOnce, GREETING_GAP_MS);
     };
-    playOnce();
+    // The arrival stamp normally reaches the TV a poll after the fact, so the
+    // start moment is usually already behind us — play now. A future start
+    // (the fixed timer, mostly) waits out the difference.
+    timer = window.setTimeout(playOnce, Math.max(0, startAtMs - Date.now()));
     return () => {
       stopped = true;
       if (timer != null) window.clearTimeout(timer);
-      el.onended = null;
-      el.pause();
-      el.removeAttribute("src");
-      // removeAttribute alone leaves the fetched resource selected; a srcless
-      // load() is what makes Edge actually let go of it.
-      el.load();
+      releaseAudio(el);
     };
-  }, [url, postPlayedAtMs, roomEmpty]);
+  }, [
+    audioUrl,
+    roomEmpty,
+    proSilent,
+    postPlayedAtMs,
+    arrivedAtMs,
+    motionHealthy,
+    greetingByMotion,
+  ]);
+
+  /**
+   * THE LINGER NAG — "another group is waiting" — exactly once per return
+   * (owner 2026-08-23). The server stamps `lingerAtMs` when the room camera
+   * still sees movement LINGER_AFTER_MS after the group walked in; this plays
+   * the clip once while that stamp is fresh. A stale stamp (a TV rebooting
+   * minutes later) is history, not an instruction — LINGER_FRESH_MS guards
+   * the replay, and the ref guards re-renders inside one mount. NOT
+   * pro-gated: an over-staying Pro grid needs the nudge exactly as much —
+   * what Pro skips is the greeting. No clip uploaded → lingering is simply
+   * not narrated. Motion mode only by construction: the stamp requires an
+   * arrival stamp, which the fixed-timer mode never writes.
+   */
+  const lingerPlayedRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!lingerAudioUrl || !roomEmpty || lingerAtMs == null) return;
+    if (Date.now() - lingerAtMs > LINGER_FRESH_MS) return;
+    if (lingerPlayedRef.current === lingerAtMs) return;
+    lingerPlayedRef.current = lingerAtMs;
+    const el = new Audio(lingerAudioUrl);
+    void el.play().catch(() => {});
+    return () => releaseAudio(el);
+  }, [lingerAudioUrl, roomEmpty, lingerAtMs]);
 }
 
 function WelcomeBack({
@@ -1130,31 +1241,429 @@ function WelcomeBack({
   room,
   info,
   roomEmpty,
+  variant,
 }: {
   accent: string;
   room: BriefingRoom;
-  info: {
-    heatNumber: number | null;
-    raceType: string | null;
-    track: "blue" | "red" | "mega";
-    endedAtMs: number;
-    postPlayedAtMs: number | null;
-    audioUrl: string | null;
-    results: {
-      levelledUp: Array<{ name: string; bestMs: number }>;
-      keepPushing: Array<{ name: string; bestMs: number | null }>;
-    } | null;
-    racingAgain: Array<{ session: number | null; track: string; names: string[] }>;
-  };
+  info: WelcomeBackInfo;
   /** The room's timeline reads idle — nobody is briefing or helmet-fitting in
    *  it. Gates the greeting AUDIO only; the board itself shows regardless. */
   roomEmpty: boolean;
+  /** `exit` is the live board; `qualifiers` is the preserved 2026-08-11 layout,
+   *  reachable only through the `briefing-return-quals` preview. */
+  variant: "exit" | "qualifiers";
 }) {
-  // BOTH gates, together (owner 2026-08-15): the room must be empty AND this
-  // race's post must have been pressed — the post is what calls the group
-  // back in, so a greeting before it would welcome people still in the pit.
-  // The post stamp is also the window's anchor — see the hook.
-  useWelcomeBackAudio(info.audioUrl, info.postPlayedAtMs, roomEmpty);
+  // The audio lives on the WRAPPER, not a variant, so previewing the old
+  // layout exercises the same sound path the wall uses.
+  useWelcomeBackAudio(info, roomEmpty);
+  return variant === "qualifiers" ? (
+    <WelcomeBackQualifiers accent={accent} room={room} info={info} />
+  ) : (
+    <WelcomeBackExit accent={accent} room={room} info={info} />
+  );
+}
+
+/* ── the exit board (live) ────────────────────────────────────────────── */
+
+/** One line of the kit checklist — icon chip and instruction, sized to be read
+ *  mid-walk from across the room. */
+function ChecklistRow({
+  accent,
+  icon,
+  text,
+  sub,
+  color,
+}: {
+  accent: string;
+  icon: React.ReactNode;
+  text: string;
+  sub?: string;
+  /** Overrides the row colour — the headsock line reads as good news. */
+  color?: string;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+      <span
+        style={{
+          flexShrink: 0,
+          width: 78,
+          height: 78,
+          borderRadius: 18,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "rgba(0, 4, 24, 0.6)",
+          border: `3px solid ${withAlpha(color ?? accent, 0.6)}`,
+          color: color ?? "#fff",
+        }}
+      >
+        {icon}
+      </span>
+      <span
+        style={{
+          fontSize: 40,
+          fontWeight: 600,
+          lineHeight: 1.15,
+          minWidth: 0,
+          color: color ?? "rgba(245,236,238,0.9)",
+        }}
+      >
+        {text}
+        {sub && (
+          <span style={{ display: "block", fontSize: 26, color: "rgba(245,236,238,0.55)" }}>
+            {sub}
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/* Kit glyphs — hand-sized shapes, stroke-drawn so they read at 78px from
+   across a room. currentColor throughout, so the row's colour choice is the
+   only decision. */
+const GLYPH_HELMET = (
+  <svg width="52" height="48" viewBox="0 0 64 60" aria-hidden="true">
+    <path
+      d="M6 34 C6 15 20 4 32 4 C44 4 58 15 58 34 L58 46 C58 52 54 56 48 56 L16 56 C10 56 6 52 6 46 Z"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="4.5"
+      strokeLinejoin="round"
+    />
+    <path d="M26 26 L58 26 L58 38 L34 38 C29 38 26 34 26 30 Z" fill="currentColor" opacity="0.85" />
+  </svg>
+);
+const GLYPH_HEADSOCK = (
+  <svg width="48" height="48" viewBox="0 0 64 60" aria-hidden="true">
+    <path
+      d="M32 4 C17 4 10 16 10 28 L10 44 C10 51 15 56 22 56 L42 56 C49 56 54 51 54 44 L54 28 C54 16 47 4 32 4 Z"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="4.5"
+      strokeLinejoin="round"
+    />
+    <ellipse cx="32" cy="30" rx="11" ry="14" fill="currentColor" opacity="0.85" />
+  </svg>
+);
+const GLYPH_CAMERA = (
+  <svg width="52" height="52" viewBox="0 0 64 64" aria-hidden="true">
+    <rect
+      x="6"
+      y="14"
+      width="52"
+      height="36"
+      rx="8"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="4.5"
+    />
+    <circle cx="40" cy="32" r="10" fill="none" stroke="currentColor" strokeWidth="4.5" />
+    <circle cx="40" cy="32" r="3.5" fill="currentColor" />
+    <rect x="13" y="22" width="12" height="6" rx="3" fill="currentColor" />
+  </svg>
+);
+const GLYPH_LOCKER = (
+  <svg width="50" height="50" viewBox="0 0 64 62" aria-hidden="true">
+    <rect
+      x="14"
+      y="4"
+      width="36"
+      height="54"
+      rx="4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="4.5"
+    />
+    <line x1="22" y1="14" x2="42" y2="14" stroke="currentColor" strokeWidth="4" />
+    <line x1="22" y1="23" x2="42" y2="23" stroke="currentColor" strokeWidth="4" />
+    <rect x="38" y="32" width="5" height="12" rx="2.5" fill="currentColor" />
+  </svg>
+);
+
+/** The white door itself, with a breathing light spill — what the chevron run
+ *  points at. Drawn light-on-dark so "white door" is literal on the wall. */
+function ExitDoor() {
+  return (
+    <div style={{ position: "relative", display: "flex", flexShrink: 0 }}>
+      <span
+        aria-hidden
+        className="tv-breathe"
+        style={{
+          position: "absolute",
+          inset: "-28px -38px",
+          borderRadius: "50%",
+          background:
+            "radial-gradient(50% 50% at 50% 55%, rgba(245,240,230,0.28), transparent 70%)",
+        }}
+      />
+      <svg
+        width="140"
+        height="245"
+        viewBox="0 0 160 280"
+        aria-hidden="true"
+        style={{ position: "relative" }}
+      >
+        <rect
+          x="10"
+          y="6"
+          width="140"
+          height="268"
+          rx="6"
+          fill="none"
+          stroke="rgba(245,236,238,0.5)"
+          strokeWidth="7"
+        />
+        <rect x="24" y="18" width="112" height="256" rx="4" fill="#f3f0ea" />
+        <rect
+          x="38"
+          y="36"
+          width="84"
+          height="92"
+          rx="4"
+          fill="none"
+          stroke="#c9c3b4"
+          strokeWidth="4"
+        />
+        <rect
+          x="38"
+          y="148"
+          width="84"
+          height="104"
+          rx="4"
+          fill="none"
+          stroke="#c9c3b4"
+          strokeWidth="4"
+        />
+        <circle cx="118" cy="140" r="8" fill="#8a8578" />
+      </svg>
+    </div>
+  );
+}
+
+/** Four chevrons whose pulse travels toward the door — motion in the direction
+ *  the feet should go. The wave classes live in tv.css (tv-exit-chev). */
+function ChevronRun({ side }: { side: "left" | "right" }) {
+  const chev = (delay: 0 | 1 | 2 | 3) => (
+    <span
+      key={delay}
+      className={`tv-exit-chev${delay ? ` tv-exit-chev-d${delay}` : ""}`}
+      style={{ display: "flex", transform: side === "left" ? "scaleX(-1)" : undefined }}
+    >
+      <svg width="58" height="106" viewBox="0 0 68 124" aria-hidden="true">
+        <path
+          d="M4 4 L64 62 L4 120"
+          fill="none"
+          stroke="#fff"
+          strokeWidth="26"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </span>
+  );
+  // The wave always runs TOWARD the door: DOM order 0→3 pointing right, 3→0
+  // mirrored — mirroring the glyphs without reversing the delays would run
+  // the pulse AWAY from the door it points at.
+  const order: Array<0 | 1 | 2 | 3> = side === "right" ? [0, 1, 2, 3] : [3, 2, 1, 0];
+  return <div style={{ display: "flex", alignItems: "center", gap: 18 }}>{order.map(chev)}</div>;
+}
+
+function WelcomeBackExit({
+  accent,
+  room,
+  info,
+}: {
+  accent: string;
+  room: BriefingRoom;
+  info: WelcomeBackInfo;
+}) {
+  const side = EXIT_DOOR_SIDE[room];
+  const checklist = (
+    <div style={{ display: "grid", gap: 24, flex: "0 0 620px", minWidth: 0 }}>
+      <ChecklistRow accent={accent} icon={GLYPH_HELMET} text="Helmet back on the shelves" />
+      {/* Good news reads green — the one line that is theirs to keep (owner
+          2026-08-23: "headsock is yours to keep"). */}
+      <ChecklistRow
+        accent={accent}
+        icon={GLYPH_HEADSOCK}
+        text="Headsock is yours to keep!"
+        sub="Bring it back next visit"
+        color="#46d68c"
+      />
+      <ChecklistRow accent={accent} icon={GLYPH_CAMERA} text="Cameras back to the attendant" />
+      <ChecklistRow
+        accent={accent}
+        icon={GLYPH_LOCKER}
+        text="Grab your belongings from the lockers"
+      />
+    </div>
+  );
+  const exitHero = (
+    <div
+      style={{
+        flex: "1 1 auto",
+        minWidth: 0,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 20,
+      }}
+    >
+      <div
+        className="tv-display"
+        style={{ fontSize: 128, color: "#fff", textShadow: `0 0 70px ${withAlpha(accent, 0.6)}` }}
+      >
+        Exit
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 30 }}>
+        {/* The door sits on the side it physically is; the chevrons run at it. */}
+        {side === "left" && <ExitDoor />}
+        <ChevronRun side={side} />
+        {side === "right" && <ExitDoor />}
+      </div>
+      <div
+        className="tv-eyebrow"
+        style={{ fontSize: 30, color: "rgba(245,236,238,0.85)", letterSpacing: "0.24em" }}
+      >
+        {side === "left" ? "← Through the white door" : "Through the white door →"}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 16,
+          background: accent,
+          boxShadow: `0 0 60px ${accent}`,
+        }}
+      />
+      <div
+        aria-hidden
+        className="tv-breathe"
+        style={{
+          position: "absolute",
+          inset: 0,
+          // The wash leans toward the exit — the same cue as everything else
+          // on the board.
+          background: `radial-gradient(75% 65% at ${side === "right" ? "42%" : "58%"} 40%, ${withAlpha(accent, 0.38)}, transparent 74%)`,
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          inset: `${PAD_Y}px ${PAD_X}px`,
+          display: "flex",
+          flexDirection: "column",
+          gap: 22,
+        }}
+      >
+        <span className="tv-eyebrow" style={{ color: accent, fontSize: 38, flexShrink: 0 }}>
+          {ROOM_LABEL[room]}
+          {info.heatNumber != null ? ` · Session ${info.heatNumber}` : ""}
+        </span>
+        <div
+          className="tv-display tv-rise"
+          style={{ fontSize: 92, color: "#fff", lineHeight: 0.92, flexShrink: 0 }}
+        >
+          Welcome back!
+        </div>
+
+        {/* THE MIDDLE OWNS THE SLACK: checklist beside the exit hero, laid so
+            the door end of the ROW is the door end of the ROOM. Everything
+            above and below stays flexShrink: 0 for the reason every board on
+            this scene does — only this band can shrink gracefully. */}
+        <div
+          style={{
+            flex: "1 1 auto",
+            minHeight: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 56,
+            overflow: "hidden",
+          }}
+        >
+          {side === "right" ? (
+            <>
+              {checklist}
+              {exitHero}
+            </>
+          ) : (
+            <>
+              {exitHero}
+              {checklist}
+            </>
+          )}
+        </div>
+
+        <p
+          style={{
+            fontSize: 40,
+            color: "rgba(245,236,238,0.72)",
+            margin: 0,
+            fontWeight: 600,
+            flexShrink: 0,
+          }}
+        >
+          Please head out quickly — the next group is on its way in.
+        </p>
+
+        {/* Anyone due straight back out STAYS — the one exception on the whole
+            board, so it keeps its amber band (owner 2026-08-23: "still show
+            anyone that is in a heat coming up that should stay"). */}
+        {info.racingAgain.length > 0 && (
+          <div style={{ flexShrink: 0, display: "flex", alignItems: "stretch" }}>
+            <RacingAgainPanel groups={info.racingAgain} />
+          </div>
+        )}
+
+        {/* Blinking on purpose (owner 2026-08-11) — and it earns its place on
+            an exit board twice over: the scores it points at are OUTSIDE. */}
+        <p
+          className="tv-blink"
+          style={{
+            fontSize: 40,
+            fontWeight: 600,
+            color: "rgba(245,236,238,0.92)",
+            margin: 0,
+            flexShrink: 0,
+          }}
+        >
+          Race scores are posted outside the briefing room, near check-in and Red Track.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ── the qualifiers board (PRESERVED, preview-only) ───────────────────── */
+
+/**
+ * The 2026-08-11 welcome-back layout — who qualified, who didn't, the time to
+ * beat — retired from the wall on 2026-08-23 because groups stood reading it
+ * instead of leaving, and PRESERVED per the owner: "save the qualifiers page
+ * case we ever want it back." Reachable through the `briefing-return-quals`
+ * preview; putting it back on the wall is one variant flip in the scene.
+ * Everything below it (ResultsBoard, pillScale, NameColumn) exists for this
+ * board.
+ */
+function WelcomeBackQualifiers({
+  accent,
+  room,
+  info,
+}: {
+  accent: string;
+  room: BriefingRoom;
+  info: WelcomeBackInfo;
+}) {
   const target = nextLevelTarget(info.track, info.raceType);
   const results = info.results;
   // The name board only exists where qualification exists: no target (a Pro

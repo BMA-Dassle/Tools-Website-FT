@@ -38,6 +38,7 @@ import { foldBriefingLog, type BriefingRecord } from "./briefing-log";
 import { captureRoomPhoto } from "./room-photo.server";
 import { bookmarkBriefingStartAfter } from "./bookmarks.server";
 import { autoHoldingEnabled } from "./auto-holding.server";
+import { greetingByMotionEnabled } from "./greeting-setting.server";
 import { raceBookmarksEnabled } from "./race-bookmarks-setting.server";
 import { cameraPreviewMode, type CameraPreviewMode } from "./camera-preview-setting.server";
 import { readTimingFeedStatus, type TimingFeedStatus } from "~/features/racing/timing-feed.server";
@@ -506,6 +507,9 @@ export interface BriefingBoardStatus {
   helmetPosterUrl: string | null;
   /** The welcome-back jingle the room TVs loop — null until uploaded. */
   welcomeBackAudioUrl: string | null;
+  /** The once-only "another group is waiting" clip — null until uploaded,
+   *  and a lingering room is simply not narrated. */
+  welcomeBackLingerAudioUrl: string | null;
   /**
    * THE PIT LANE, PER TRACK — who is in holding, who is out racing, and whether
    * the lane is still held (owner 2026-08-13).
@@ -531,6 +535,12 @@ export interface BriefingBoardStatus {
    * already reading Redis.
    */
   autoHolding: { enabled: boolean };
+  /**
+   * Does the welcome-back greeting start on the room camera's say-so (ON,
+   * default) or on the fixed post+45s timer (OFF)? Drives the settings-sheet
+   * toggle under auto-holding. See greeting-setting.server.ts.
+   */
+  greetingByMotion: { enabled: boolean };
   /**
    * Is race-event camera bookmarking armed? Drives the second settings toggle.
    *
@@ -686,6 +696,7 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     events,
     lanes,
     autoHolding,
+    greetingByMotion,
     raceBookmarks,
     cameraPreview,
     timing,
@@ -701,6 +712,7 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     // Defaults ON if Redis cannot answer — same direction as the sweep itself,
     // so the toggle never shows OFF for a switch that is actually armed.
     autoHoldingEnabled().catch(() => true),
+    greetingByMotionEnabled().catch(() => true),
     raceBookmarksEnabled().catch(() => true),
     // Swallows to the same default the getter uses, for the same reason as the
     // two above: a Redis blip must not show staff a setting they did not choose.
@@ -754,8 +766,10 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     },
     helmetPosterUrl: assets["briefing-helmet-poster"]?.url ?? null,
     welcomeBackAudioUrl: assets["welcome-back-audio"]?.url ?? null,
+    welcomeBackLingerAudioUrl: assets["welcome-back-linger-audio"]?.url ?? null,
     lanes,
     autoHolding: { enabled: autoHolding },
+    greetingByMotion: { enabled: greetingByMotion },
     raceBookmarks: { enabled: raceBookmarks },
     cameraPreview: { mode: cameraPreview },
     timing,

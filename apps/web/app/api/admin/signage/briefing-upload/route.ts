@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
         if (!pathname.startsWith("briefing/")) throw new Error("bad pathname");
 
         const isVideo = key.startsWith("briefing-video:");
-        const isAudio = key === "welcome-back-audio";
+        const isAudio = key === "welcome-back-audio" || key === "welcome-back-linger-audio";
         return {
           allowedContentTypes: isVideo ? VIDEO_TYPES : isAudio ? AUDIO_TYPES : IMAGE_TYPES,
           maximumSizeInBytes: isVideo

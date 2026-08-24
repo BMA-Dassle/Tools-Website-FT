@@ -728,9 +728,26 @@ export interface TvFeed {
       /** When this race's post-race cue played, null until it has — the
        *  greeting audio waits for it (the post is what calls them back in). */
       postPlayedAtMs: number | null;
+      /** First motion the room camera saw after the post press — the group
+       *  actually walking in, server-stamped so every TV and a mid-window
+       *  reboot agree. Null until it happens (and always null with the
+       *  greeting-by-motion switch off). */
+      arrivedAtMs: number | null;
+      /** The room still moving 3 minutes after they walked in — the one-shot
+       *  cue for the "another group is waiting" clip. Null = never lingered. */
+      lingerAtMs: number | null;
+      /** False when the NVR could not answer this poll — the TV then falls
+       *  back to the fixed post+45s timer instead of waiting on a dead camera. */
+      motionHealthy: boolean;
+      /** The settings-sheet mode: greet on the camera's say-so (default) or
+       *  on the fixed timer. */
+      greetingByMotion: boolean;
       /** The welcome-back jingle (signage asset `welcome-back-audio`) — null
        *  until one is uploaded, and the board simply greets silently. */
       audioUrl: string | null;
+      /** The once-only linger nag (signage asset `welcome-back-linger-audio`)
+       *  — null until one is uploaded, and lingering is simply not narrated. */
+      lingerAudioUrl: string | null;
       results: {
         levelledUp: Array<{ name: string; bestMs: number }>;
         keepPushing: Array<{ name: string; bestMs: number | null }>;

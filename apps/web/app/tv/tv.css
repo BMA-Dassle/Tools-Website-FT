@@ -483,6 +483,39 @@
   animation: tv-chev 2.8s ease-in-out infinite;
 }
 
+/* ── the welcome-back exit run ────────────────────────────────────────────
+   Four chevrons whose brightness pulse travels toward the white door — the
+   direction the feet should go, on the estate's 1.4s beat (same clock as
+   .tv-blink and the wayfinding arrow, so nothing on a wall strobes out of
+   step). Each chevron rests dim and flares in turn; the .d1/.d2/.d3 delays
+   are what make the flare TRAVEL rather than blink in place. The scene
+   reverses the DOM order for a left-hand door, so the delays never change. */
+@keyframes tv-exit-chev {
+  0%,
+  55%,
+  100% {
+    opacity: 0.22;
+    filter: none;
+  }
+  22% {
+    opacity: 1;
+    filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.55));
+  }
+}
+.tv-exit-chev {
+  opacity: 0.22;
+  animation: tv-exit-chev 1.4s linear infinite;
+}
+.tv-exit-chev-d1 {
+  animation-delay: 0.16s;
+}
+.tv-exit-chev-d2 {
+  animation-delay: 0.32s;
+}
+.tv-exit-chev-d3 {
+  animation-delay: 0.48s;
+}
+
 /* ── scene transitions ────────────────────────────────────────────────── */
 /* Driven by a data-state attribute on .tv-frame so the director only has to
    flip an attribute — no JS animation loop anywhere. */

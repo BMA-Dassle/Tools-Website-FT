@@ -65,18 +65,34 @@ function toMs(v: unknown): number {
   return Number.isFinite(n) ? n : NaN;
 }
 
+/** One recorded motion span, normalised. A period the NVR is still writing
+ *  arrives with duration 0 — kept at the 1ms floor so "it exists" survives
+ *  every arithmetic downstream. */
+export interface MotionPeriod {
+  startMs: number;
+  durationMs: number;
+}
+
 /**
- * Was there recorded motion on this camera between `fromMs` and `nowMs`?
+ * The raw motion spans between `fromMs` and `nowMs`, or `"unknown"` when the
+ * NVR could not answer — with the exact same failure posture as motionBetween
+ * (see the header: an unreadable answer must never read as quiet).
  *
- * `deviceId` comes from BRIEFING_ROOM_CAMERAS server-side — never from a client
- * — for the same reason the frame proxy resolves its own device: this must not
- * become a way to ask the NVR about an arbitrary camera.
+ * Exists because the welcome-back greeting needs the ONSET of motion, not just
+ * whether any happened (return-arrival.server.ts): the first span starting
+ * after the post press is the group walking in. Probed live 2026-08-23: the
+ * index runs ~13-15s behind the wall clock, and a still-open span is served
+ * with duration 0 that grows on later reads.
+ *
+ * `deviceId` comes from BRIEFING_ROOM_CAMERAS server-side — never from a
+ * client — this must not become a way to ask the NVR about an arbitrary
+ * camera.
  */
-export async function motionBetween(
+export async function readMotionPeriods(
   deviceId: string,
   fromMs: number,
   nowMs: number,
-): Promise<MotionAnswer> {
+): Promise<MotionPeriod[] | "unknown"> {
   if (!nxConfigured() || !deviceId) return "unknown";
   if (!Number.isFinite(fromMs) || !Number.isFinite(nowMs) || nowMs <= fromMs) return "unknown";
 
@@ -110,14 +126,31 @@ export async function motionBetween(
   }
   if (!Array.isArray(periods)) return "unknown";
 
+  const spans: MotionPeriod[] = [];
   for (const p of periods) {
     const start = toMs(p.startTimeMs ?? p.startTime);
     if (!Number.isFinite(start)) continue;
     const dur = toMs(p.durationMs ?? p.duration);
     // A period with no readable duration is treated as an instant rather than
     // discarded: it is still evidence that something moved.
-    const end = start + (Number.isFinite(dur) && dur > 0 ? dur : 1);
-    if (start < nowMs && end > fromMs) return "motion";
+    spans.push({ startMs: start, durationMs: Number.isFinite(dur) && dur > 0 ? dur : 1 });
+  }
+  return spans;
+}
+
+/**
+ * Was there recorded motion on this camera between `fromMs` and `nowMs`?
+ * A thin verdict over readMotionPeriods — one read path, one failure posture.
+ */
+export async function motionBetween(
+  deviceId: string,
+  fromMs: number,
+  nowMs: number,
+): Promise<MotionAnswer> {
+  const spans = await readMotionPeriods(deviceId, fromMs, nowMs);
+  if (spans === "unknown") return "unknown";
+  for (const p of spans) {
+    if (p.startMs < nowMs && p.startMs + p.durationMs > fromMs) return "motion";
   }
   return "quiet";
 }

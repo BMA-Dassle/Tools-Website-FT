@@ -19,6 +19,7 @@ import {
 } from "~/features/signage/briefing/called-override.server";
 import { readBriefingRoom } from "~/features/signage/briefing/state.server";
 import { setAutoHoldingEnabled } from "~/features/signage/briefing/auto-holding.server";
+import { setGreetingByMotionEnabled } from "~/features/signage/briefing/greeting-setting.server";
 import { setRaceBookmarksEnabled } from "~/features/signage/briefing/race-bookmarks-setting.server";
 import {
   setCameraPreviewMode,
@@ -205,6 +206,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "enabled must be true or false" }, { status: 400 });
     }
     await setAutoHoldingEnabled(body.enabled);
+    return NextResponse.json({ ok: true, enabled: body.enabled });
+  }
+
+  /** The welcome-back greeting's mode — camera-timed (ON) or the fixed
+   *  post+45s timer (OFF). Same sheet, same shape as auto-holding above. */
+  if (action === "greeting-by-motion") {
+    if (typeof body.enabled !== "boolean") {
+      return NextResponse.json({ error: "enabled must be true or false" }, { status: 400 });
+    }
+    await setGreetingByMotionEnabled(body.enabled);
     return NextResponse.json({ ok: true, enabled: body.enabled });
   }
 
