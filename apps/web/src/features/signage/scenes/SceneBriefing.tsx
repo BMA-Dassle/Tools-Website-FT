@@ -34,13 +34,16 @@ import {
   greetingWindowClosed,
   normaliseGreetingTiming,
 } from "../briefing/return-greeting";
-import { buildStageRail, type StageRow } from "../briefing/stage-rail";
+import { buildStageRail } from "../briefing/stage-rail";
+import { StageRailView } from "../components/StageRailView";
+import { railClock, venueTimeOfDay } from "../components/rail-clock";
 import { roomCheckinProgress } from "../checkin-progress";
 import { sendWindow } from "../briefing/pull-to-room";
 import { roomBlockedAlertAt } from "../briefing/room-blocked";
 import { incomingForRoom, normaliseCameraReturn } from "../briefing/camera-return";
 import { resolveFilmTier, tierForRaceType, type BriefingRoom } from "../briefing/types";
-import { LiveSessionChip, useLiveSessionClock } from "../live-session";
+import { LiveSessionChip, formatRemaining, useLiveSessionClock } from "../live-session";
+import { trackDisplay, verdictLabel } from "~/features/racing/on-time-display";
 import { liveHeatNumber } from "../briefing/room-return";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { useBriefingAssets } from "../briefing/useBriefingAssets";
@@ -150,7 +153,10 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
    * ABOVE THE EARLY RETURN, like the clock below it: hooks run in the same
    * order every render or they run wrong.
    */
-  const railClock = useLiveSessionClock(liveTrack);
+  const railClockNow = useLiveSessionClock(liveTrack);
+  // The track's punctuality, for the rail's header chip (owner 2026-08-24:
+  // "we're missing the delay status on these screens").
+  const railPunctual = trackDisplay(trackStatus?.onTime ?? null, liveTrack ?? "mega", null);
   const idleStages = useMemo(() => {
     const railTrack = liveTrack ?? "mega";
     const called = trackStatus?.currentRaces?.[railTrack] ?? null;
@@ -175,25 +181,25 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
       // the film to whole minutes. The director's `nowMs` is `Date.now()` plus
       // the shared server offset, reticked every 250ms: same authority, live.
       nowMs,
-      liveHeatNumber: railClock ? liveHeatNumber(railClock.heatName) : null,
-      liveCounting: railClock?.counting === true,
+      liveHeatNumber: railClockNow ? liveHeatNumber(railClockNow.heatName) : null,
+      liveCounting: railClockNow?.counting === true,
       /**
        * THE NUMBERS THE OWNER ASKED FOR (2026-08-24: "these screens both pit and
        * briefing should be showing how many racers are checked in, and pulling
        * race to briefing time frames"). The count only counts when it is THIS
        * track's heat; the feed carries one track's check-in at a time.
        */
-      liveRemainingMs: railClock?.remainingMs ?? null,
-      formatClock: formatRailClock,
+      liveRemainingMs: railClockNow?.remainingMs ?? null,
+      formatClock: railClock,
       checkedIn: progress ? { checkedIn: progress.checkedIn, total: progress.total } : null,
       calledForMs: progress?.calledAtMs != null ? nowMs - progress.calledAtMs : null,
       // The venue's check-in window, so a short grid becomes PULL TO BRIEFING
       // NOW at its deadline rather than sitting on 'waiting' for ever.
       checkinWindowMins: config.checkinWindowMins,
       brief: sendWindow({
-        remainingMs: railClock?.remainingMs ?? null,
-        onTrack: !!railClock || !!feed?.pitLanes?.[railTrack]?.racing,
-        onTrackHeatNumber: railClock ? liveHeatNumber(railClock.heatName) : null,
+        remainingMs: railClockNow?.remainingMs ?? null,
+        onTrack: !!railClockNow || !!feed?.pitLanes?.[railTrack]?.racing,
+        onTrackHeatNumber: railClockNow ? liveHeatNumber(railClockNow.heatName) : null,
         filmMs: vids?.[filmTier]?.durationMs ?? null,
         pitPost: null,
         // This room speaks for its own track's flow; the Mega room-suppression
@@ -213,8 +219,16 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
     megaEnabled,
     room,
     roomsNow,
-    railClock,
+    railClockNow,
   ]);
+
+  const calledCheckinAt = (() => {
+    const t = liveTrack ?? "mega";
+    const nxt = trackStatus?.nextCheckIn?.[t];
+    const calledHeat = trackStatus?.currentRaces?.[t]?.heatNumber ?? null;
+    if (!nxt || calledHeat == null || nxt.heatNumber !== calledHeat) return null;
+    return venueTimeOfDay(nxt.slotMs);
+  })();
 
   if (!room) return <Unconfigured />;
 
@@ -349,7 +363,29 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
            * (briefing/stage-rail.ts) — so the wall outside the room and the
            * wall inside it cannot describe one night differently.
            */
-          <IdleStageRail accent={accent} rows={idleStages} />
+          <StageRailView
+            rows={idleStages}
+            density="wall"
+            accent={accent}
+            trackLabel={liveTrack ? TRACK_LABELS[liveTrack] : undefined}
+            punctual={{
+              label: verdictLabel(railPunctual),
+              late: railPunctual.lateByMin !== null,
+            }}
+            clock={
+              railClockNow
+                ? {
+                    text: formatRemaining(railClockNow.remainingMs),
+                    caption: railClockNow.state === "paused" ? "Paused" : "On track",
+                    paused: railClockNow.state === "paused",
+                  }
+                : null
+            }
+            timeOfDay={venueTimeOfDay(nowMs)}
+            calledCheckinAt={calledCheckinAt}
+            returning={feed?.checkinReturning ?? null}
+            style={{ position: "absolute", inset: 0 }}
+          />
         ) : (
           <Board
             accent={accent}
@@ -729,91 +765,6 @@ function BriefingVideo({
 }
 
 /* ── the boards ───────────────────────────────────────────────────────── */
-
-/** M:SS for the rail, the same shape the pit sign's tracker uses. */
-function formatRailClock(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
-}
-
-/**
- * THE IDLE BOARD — where every session is, for a room with nobody in it.
- *
- * Same rows, same wording and same order as the pit signs' idle wall, because
- * both come out of buildStageRail. Typography is this scene's, not that one's:
- * a briefing room is read from a few feet away by people who have just walked
- * in, so the rows sit larger and the heading names the room rather than
- * apologising for having nothing to seat.
- */
-function IdleStageRail({ accent, rows }: { accent: string; rows: StageRow[] }) {
-  return (
-    <div
-      style={{
-        position: "absolute",
-        inset: `${PAD_Y}px ${PAD_X}px`,
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        gap: "min(34px, 4vh)",
-      }}
-    >
-      <div
-        className="tv-display"
-        style={{ fontSize: "min(78px, 9vh)", color: "#fff", lineHeight: 0.95 }}
-      >
-        Where every session is
-      </div>
-      <div style={{ display: "grid", gap: "min(18px, 2.2vh)" }}>
-        {rows.map((st) => {
-          const empty = st.value === "—";
-          return (
-            <div
-              key={st.label}
-              style={{
-                display: "flex",
-                alignItems: "baseline",
-                gap: "min(32px, 3vw)",
-                flexWrap: "wrap",
-              }}
-            >
-              <span
-                className="tv-display"
-                style={{
-                  minWidth: 300,
-                  fontSize: "min(38px, 4.2vh)",
-                  letterSpacing: "0.06em",
-                  textTransform: "uppercase",
-                  color: withAlpha("#f5ecee", 0.5),
-                }}
-              >
-                {st.label}
-              </span>
-              <span
-                className="tv-display"
-                style={{
-                  fontSize: "min(46px, 5vh)",
-                  color: empty ? withAlpha("#f5ecee", 0.32) : "#fff",
-                }}
-              >
-                {st.value}
-              </span>
-              {st.type && (
-                <span style={{ fontSize: "min(32px, 3.4vh)", color: withAlpha("#f5ecee", 0.62) }}>
-                  {st.type}
-                </span>
-              )}
-              {st.detail && (
-                <span style={{ fontSize: "min(32px, 3.4vh)", color: accent, fontWeight: 700 }}>
-                  {st.detail}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 function Board({
   accent,

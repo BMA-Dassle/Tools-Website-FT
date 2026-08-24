@@ -36,6 +36,8 @@ import { LiveSessionChip, useLiveSessionClock } from "../live-session";
 import { useRaceClockForRace } from "~/features/racing/use-race-clocks";
 import { liveHeatNumber } from "../briefing/room-return";
 import { buildStageRail, type StageRow } from "../briefing/stage-rail";
+import { StageRailView } from "../components/StageRailView";
+import { venueTimeOfDay } from "../components/rail-clock";
 import { briefingTimelineAt } from "../briefing/phase";
 import { resolveFilmTier, tierForRaceType, type BriefingRoomState } from "../briefing/types";
 import { sendWindow } from "../briefing/pull-to-room";
@@ -43,10 +45,13 @@ import { roomCheckinProgress } from "../checkin-progress";
 import {
   TRACK_ACCENTS,
   TRACK_LABELS,
+  TRACK_SHORT,
   effectiveTrack,
+  trackFromName,
   trackFromResourceIds,
   type TrackKey,
 } from "../track";
+import { trackDisplay, verdictLabel } from "~/features/racing/on-time-display";
 import {
   EMPTY_PIT_LANE,
   mergePitRoster,
@@ -60,6 +65,7 @@ import {
 } from "../pit/pit-board";
 import { TvBrandLogo } from "../components/TvBrandLogo";
 import type { SceneProps } from "../director/types";
+import type { TvFeed } from "../types";
 
 const PAD_X = 96;
 /** Top inset. Was 54, then 30 — the band above the header was doing no work and
@@ -349,6 +355,17 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
       attribution: "this-room",
     });
   }, [status?.currentRaces, track, feed?.briefing?.videos, liveClock, lane?.racing]);
+
+  // The track's punctuality for the idle rail's header chip — the same verdict
+  // this board's own chrome shows (owner 2026-08-24).
+  const idlePunctual = trackDisplay(status?.onTime ?? null, track, null);
+
+  const calledCheckinAt = (() => {
+    const nxt = status?.nextCheckIn?.[track];
+    const calledHeat = status?.currentRaces?.[track]?.heatNumber ?? null;
+    if (!nxt || calledHeat == null || nxt.heatNumber !== calledHeat) return null;
+    return venueTimeOfDay(nxt.slotMs);
+  })();
 
   const idleProgress = roomCheckinProgress(feed?.checkinProgress ?? [], track);
 
@@ -711,7 +728,28 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
              with spin"). */
           <PitLoading accent={accent} heatNumber={showSession.heatNumber} />
         ) : (
-          <Idle accent={accent} hasSession={!!showSession} stages={idleStages} />
+          <Idle
+            accent={accent}
+            hasSession={!!showSession}
+            rows={idleStages}
+            trackLabel={TRACK_LABELS[track]}
+            punctual={{
+              label: verdictLabel(idlePunctual),
+              late: idlePunctual.lateByMin !== null,
+            }}
+            clock={
+              liveClock
+                ? {
+                    text: fmtTrackerClock(liveClock.remainingMs),
+                    caption: liveClock.state === "paused" ? "Paused" : "On track",
+                    paused: liveClock.state === "paused",
+                  }
+                : null
+            }
+            returning={feed?.checkinReturning ?? null}
+            timeOfDay={venueTimeOfDay(nowMs)}
+            calledCheckinAt={calledCheckinAt}
+          />
         )}
       </div>
 
@@ -943,7 +981,19 @@ function SpotCard({
                 background: "#ffffff",
               }}
             >
-              On track now
+              {/* NAMES THE TRACK (owner 2026-08-24: "it shows 'on track' but
+                  needs to say 'on red track' or 'on blue track'"). On a Mega
+                  night two circuits run at once, and the racer this pill is
+                  about may be out on the other one — "on track" then tells the
+                  attendant to look in the wrong direction. The target carries
+                  its own track, so it is named rather than assumed. */}
+              {r.backToBack.track === "blue"
+                ? "On blue track now"
+                : r.backToBack.track === "red"
+                  ? "On red track now"
+                  : r.backToBack.track === "mega"
+                    ? "On mega track now"
+                    : "On track now"}
             </span>
           )}
           {r.backToBack?.state === "again" && (
@@ -1153,125 +1203,59 @@ function PitLoading({ accent, heatNumber }: { accent: string; heatNumber: number
   );
 }
 
+/**
+ * NOTHING TO SEAT — the pit sign's idle wall, now the SHARED rail.
+ *
+ * This used to be a bespoke renderer with its own tone map and type scale, one
+ * of three for the same six rows; a colour added to the camera board never
+ * reached it (owner 2026-08-24: "they need to not drift"). It keeps its own
+ * headline — this screen has a job the others do not, and "nothing to seat" is
+ * the thing the group in front of it needs told — and hands everything below to
+ * StageRailView at wall density.
+ */
 function Idle({
   accent,
   hasSession,
-  stages,
+  rows,
+  trackLabel,
+  punctual,
+  clock,
+  returning,
+  timeOfDay,
+  calledCheckinAt,
 }: {
   accent: string;
   hasSession: boolean;
-  stages: Array<{ label: string; value: string; type?: string; detail?: string }>;
+  rows: StageRow[];
+  trackLabel: string;
+  punctual: { label: string; late: boolean };
+  clock: { text: string; caption: string; paused?: boolean } | null;
+  returning: TvFeed["checkinReturning"];
+  timeOfDay: string;
+  calledCheckinAt: string | null;
 }) {
+  if (hasSession) return <div style={{ flex: 1 }} />;
   return (
-    <div
-      style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        gap: 28,
-      }}
-    >
-      {!hasSession && (
-        <>
-          <div className="tv-display" style={{ fontSize: 72, color: "#fff", lineHeight: 0.95 }}>
-            Nothing to seat right now
-          </div>
-          {/* THE FLOW, IN ORDER. A guest reading this wants one thing — how far
-              away is my turn — and the order of the rows answers it without a
-              word of explanation. */}
-          <div style={{ display: "grid", gap: 14 }}>
-            {stages.map((st) => {
-              const empty = st.value === "—";
-              return (
-                <div
-                  key={st.label}
-                  style={{ display: "flex", alignItems: "baseline", gap: 28, flexWrap: "wrap" }}
-                >
-                  <span
-                    className="tv-display"
-                    style={{
-                      minWidth: 260,
-                      fontSize: 34,
-                      letterSpacing: "0.06em",
-                      textTransform: "uppercase",
-                      color: withAlpha("#f5ecee", 0.5),
-                    }}
-                  >
-                    {st.label}
-                  </span>
-                  {/* The number and its level are ONE fact, so they share a
-                      column with a fixed width: ragged rows made the reader
-                      hunt for the type, and the eye should be able to run
-                      straight down the levels the way it runs down the
-                      sessions. 380px holds "Session 100" + "Junior Starter"
-                      with room to spare; anything longer simply pushes the
-                      detail right rather than clipping. */}
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "baseline",
-                      gap: 20,
-                      minWidth: 380,
-                    }}
-                  >
-                    <span
-                      className="tv-display"
-                      style={{
-                        fontSize: 46,
-                        color: empty ? withAlpha("#f5ecee", 0.28) : "#fff",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {st.value}
-                    </span>
-                    {/* Dimmer than the session number and brighter than the
-                        label: the type qualifies the number, it is not a second
-                        headline and it is not a caption. */}
-                    {st.type && (
-                      <span
-                        className="tv-display"
-                        style={{
-                          fontSize: 32,
-                          color: withAlpha("#f5ecee", 0.72),
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {st.type}
-                      </span>
-                    )}
-                  </span>
-                  {st.detail && (
-                    <span
-                      className="tv-display"
-                      style={{ fontSize: 30, color: accent, whiteSpace: "nowrap" }}
-                    >
-                      {st.detail}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
-      <div
-        aria-hidden
-        style={{
-          width: 240,
-          height: 5,
-          borderRadius: 3,
-          background: `linear-gradient(90deg, ${accent}, ${withAlpha(accent, 0)})`,
-        }}
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 20, minHeight: 0 }}>
+      <div className="tv-display" style={{ fontSize: 72, color: "#fff", lineHeight: 0.95 }}>
+        Nothing to seat right now
+      </div>
+      <StageRailView
+        rows={rows}
+        density="wall"
+        accent={accent}
+        trackLabel={trackLabel}
+        punctual={punctual}
+        clock={clock}
+        returning={returning}
+        timeOfDay={timeOfDay}
+        calledCheckinAt={calledCheckinAt}
+        trackShort={(t) => TRACK_SHORT[trackFromName(t) ?? "mega"] ?? t}
+        style={{ background: "transparent", borderLeft: "none", padding: 0 }}
       />
     </div>
   );
 }
-
-/* ── the session tracker (Mega pit-sign role) ─────────────────────────── */
-
-/** mm:ss for the tracker's clocks — the rail's formatter, local because this
- *  scene has no other duration in this shape. */
 function fmtTrackerClock(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;

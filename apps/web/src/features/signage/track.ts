@@ -45,6 +45,19 @@ export const TRACK_LABELS: Record<TrackKey, string> = {
   mega: "Mega Track",
 };
 
+/**
+ * The same three tracks with "Track" dropped — for the places a name shares a
+ * line with a session number and the word is dead weight.
+ *
+ * MOVED HERE FROM SceneCameraMonitor 2026-08-24: a second surface needed it and
+ * the alternative was a copy, which is how the walls drifted in the first place.
+ */
+export const TRACK_SHORT: Record<TrackKey, string> = {
+  blue: "Blue",
+  red: "Red",
+  mega: "Mega",
+};
+
 const BY_RESOURCE: Record<string, TrackKey> = {
   "11208654": "blue",
   "11208660": "red",
@@ -69,8 +82,6 @@ export function trackFromName(name: string | null | undefined): TrackKey | null 
   const m = /\b(red|blue|mega)\b/i.exec(name);
   return m ? (m[1].toLowerCase() as TrackKey) : null;
 }
-
-
 
 /**
  * Which track's session this screen should show right now.

@@ -64,6 +64,16 @@ export interface StageRow {
   /** What it is DOING — distinct from what it IS. */
   detail?: string;
   /**
+   * The same fact for a screen with no room for it — the camera boards, whose
+   * rail is 58% of a small panel (owner 2026-08-24: "these camera TVs are just
+   * small"). Absent when the full form already fits.
+   *
+   * IT LIVES HERE, not in the renderer, so both densities take their words from
+   * the one module. A view that abbreviated by string-slicing what it was given
+   * would be a second author of the same sentence.
+   */
+  detailShort?: string;
+  /**
    * The heat number behind `value`, for callers that need to match rather than
    * print — the tablet highlights the row its button acts on. Null when empty.
    */
@@ -140,6 +150,25 @@ export interface StageRailInput {
    * Omit it and the Called row reads as it always has.
    */
   brief?: SendWindow | null;
+}
+
+/**
+ * A LEVEL, SHORT ENOUGH FOR A SMALL SCREEN. "Junior Intermediate" is 19
+ * characters beside a session number on a panel that is 58% of a camera board
+ * (owner 2026-08-24: "junior intermediate is just way too book for no reason").
+ *
+ * These are the forms staff already say out loud, and the mapping lives here
+ * with every other word this rail prints so the two densities cannot end up
+ * abbreviating differently. Anything unrecognised is returned untouched — a new
+ * level should read oddly rather than be silently mangled.
+ */
+export function shortLevel(raceType: string | null | undefined): string | undefined {
+  const t = (raceType ?? "").trim();
+  if (!t) return undefined;
+  return t
+    .replace(/\bJunior\b/gi, "Jr")
+    .replace(/\bIntermediate\b/gi, "Inter")
+    .replace(/\bBeginner\b/gi, "Begin");
 }
 
 function sessionLabel(heatNumber: number | null | undefined): string {
@@ -371,6 +400,13 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
       ? sinceFinishMs != null && sinceFinishMs >= 0 && fmt
         ? `karts in — post-race owed · ${fmt(sinceFinishMs)}`
         : "karts in — waiting on post-race"
+      : undefined,
+    // The row is labelled PIT IN; "karts in" says it a second time, and the
+    // number is the part a small screen needs.
+    detailShort: pitIn
+      ? sinceFinishMs != null && sinceFinishMs >= 0 && fmt
+        ? `post owed · ${fmt(sinceFinishMs)}`
+        : "post owed"
       : undefined,
     heatNumber: pitIn?.heatNumber ?? null,
     tone: pitIn ? "alert" : "none",
