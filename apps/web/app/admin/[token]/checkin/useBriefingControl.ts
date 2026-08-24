@@ -95,6 +95,10 @@ export interface BoardStatus {
    *  or the fixed post+45s timer (OFF)? Optional for the same older-deploy
    *  reason — `undefined` reads as ON, matching the server default. */
   greetingByMotion?: { enabled: boolean };
+  /** May staff override a send with no time left for the film? Optional for the
+   *  same older-deploy reason — `undefined` reads as ALLOWED, matching the
+   *  server default (owner 2026-08-24: "default to allow the override"). */
+  sendOverride?: { allowed: boolean };
   /** The greeting's three staff-set numbers. Optional for the same
    *  older-deploy reason — the sheet falls back to the house defaults. */
   greetingTiming?: { fallbackMs: number; maxPlays: number; lingerAfterMs: number };
@@ -227,6 +231,12 @@ export interface BriefingControl {
    * it "where we have the other motion option" (2026-08-23).
    */
   setGreetingByMotion: (enabled: boolean) => void;
+  /**
+   * May staff override a send that has no time left for the film? ON (the
+   * default) keeps the button alive behind a full-screen confirm; OFF restores
+   * the hard lock. Same sheet as the greeting mode and auto-holding.
+   */
+  setSendOverride: (allowed: boolean) => void;
   /**
    * Change one of the greeting's three numbers — the no-camera delay, the
    * repeat cap, or how long a room may keep moving before the reminder
@@ -510,6 +520,19 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  const setSendOverride = useCallback<BriefingControl["setSendOverride"]>(
+    (allowed) => {
+      void post(
+        { action: "send-override", enabled: allowed },
+        allowed
+          ? "Staff may send with no time left — the board asks first"
+          : "Sends with no time left are BLOCKED — the button will not press",
+        "send-override",
+      );
+    },
+    [post],
+  );
+
   const setGreetingByMotion = useCallback<BriefingControl["setGreetingByMotion"]>(
     (enabled) => {
       void post(
@@ -703,6 +726,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     setAutoHolding,
     setCheckinWindow,
     setGreetingByMotion,
+    setSendOverride,
     setGreetingTiming,
     setRaceBookmarks,
     setCameraPreview,

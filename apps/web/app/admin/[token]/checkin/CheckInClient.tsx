@@ -421,6 +421,9 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
    */
   const autoHoldingOn = briefing.board?.autoHolding?.enabled !== false;
   const greetingByMotionOn = briefing.board?.greetingByMotion?.enabled !== false;
+  /** May staff push a send through with no time for the film? Default ALLOW —
+   *  `undefined` from an older deploy reads the same way the server does. */
+  const sendOverrideOn = briefing.board?.sendOverride?.allowed !== false;
   // Server-normalised when present; the house defaults when talking to an
   // older deploy — the same posture as the switch above it.
   const greetingTiming = briefing.board?.greetingTiming ?? GREETING_TIMING_DEFAULTS;
@@ -2115,6 +2118,46 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             reason bookmarks are: they share a camera and nothing else — that
             one moves groups, this one only times a sound.
           */}
+          {/*
+            SENDING WITH NO TIME LEFT — allowed with a warning, or blocked
+            outright (owner 2026-08-24: "instead of complete lock on send to
+            briefing, allow it but prompt a big warning message… actually make
+            this a toggle in settings (gear). Default to allow the override").
+
+            ON is the default and the kinder setting: staff keep the press and
+            the board asks a full question first. OFF is the 8/23 hard lock, for
+            a venue that would rather the rule decided. Either way the desk and
+            the room tablets read this one value, so they cannot disagree.
+          */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+              Allow sending with no time for the film
+            </p>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={sendOverrideOn}
+              disabled={!briefing.board}
+              onClick={() => briefing.setSendOverride(!sendOverrideOn)}
+              className="px-3 py-1.5 text-xs border hover:bg-white/5"
+              style={{
+                borderRadius: 8,
+                borderColor: sendOverrideOn ? GREEN : PORTAL_DARK.inputBorder,
+                backgroundColor: sendOverrideOn ? `${GREEN}22` : "transparent",
+                color: sendOverrideOn ? GREEN : PORTAL_DARK.muted,
+                opacity: briefing.board ? 1 : 0.5,
+              }}
+            >
+              {sendOverrideOn ? "Allowed" : "Blocked"}
+            </button>
+            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+              {sendOverrideOn
+                ? "Once the film can no longer finish before the race in front ends, Send still works but asks first, naming the race, its clock and the film that will not fit. The room tablets ask the same question."
+                : "Once the film can no longer finish before the race in front ends, Send goes dead until the returning group's post-race call has played. The room tablets refuse the pull too."}{" "}
+              Applies to every check-in station and both room tablets, not just this one.
+            </p>
+          </div>
+
           <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
             <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
               Welcome-back greeting by motion

@@ -612,6 +612,10 @@ export default function RaceControlPanels({
               // The uploaded films, so the late-send warning can quote the length
               // of the one this heat will actually get rather than an average.
               videos={board?.videos ?? null}
+              // The gear's no-time override. Undefined on an older deploy reads
+              // as ALLOWED, which is both the server default and the safer
+              // direction: a stale tab must not silently harden a control.
+              sendOverrideAllowed={board?.sendOverride?.allowed !== false}
               // Once a session has gone to EITHER room it leaves the Called boxes
               // (owner 2026-08-11: "once a session is moved to the room it should
               // clear from these top boxes"). It is no longer waiting to be sent, so
@@ -1318,6 +1322,7 @@ function RoomColumn({
   status,
   proFilmMissing,
   videos,
+  sendOverrideAllowed,
   nowMs,
   checkinWindowMins,
   sentTo,
@@ -1363,6 +1368,9 @@ function RoomColumn({
   /** No Pro film uploaded — a Pro pick will play the Intermediate film. */
   proFilmMissing: boolean;
   videos: BoardStatus["videos"] | null;
+  /** May staff push a send through with no time left for the film? The gear
+   *  setting; false restores the hard lock (owner 2026-08-24). */
+  sendOverrideAllowed: boolean;
   nowMs: number;
   /** This track's check-in window, from the track board's own config. 0 = not
    *  known yet (or the countdown is off), which raises no alert. */
@@ -1957,7 +1965,9 @@ function RoomColumn({
                 <Stat
                   label={
                     sendWin.kind === "blocked"
-                      ? "Send locked"
+                      ? sendOverrideAllowed
+                        ? "No time"
+                        : "Send locked"
                       : sendWin.kind === "grace"
                         ? "Grace left"
                         : "Send window"
@@ -1983,7 +1993,9 @@ function RoomColumn({
                         : sendWin.kind === "grace"
                           ? `out of time by ${formatClock(sendWin.overBy)} — send now`
                           : sendWin.why === "film"
-                            ? "grace gone — post first"
+                            ? sendOverrideAllowed
+                              ? "grace gone — asks first"
+                              : "grace gone — post first"
                             : sendWin.why === "post-playing"
                               ? "post playing — then send"
                               : "waiting on the post-race call"
@@ -2157,11 +2169,52 @@ function RoomColumn({
                     }
                     pendingKey={`send:${room}`}
                     pending={pending}
+                    // DEAD ONLY WHEN STAFF ASKED FOR THAT (owner 2026-08-24:
+                    // "instead of complete lock… allow it but prompt a big
+                    // warning", "make this a toggle… default to allow"). With
+                    // the override on — the default — the press stays available
+                    // and the confirm below is what stands in its way.
                     disabled={
-                      !race.sessionId || locked || (sendWin.kind === "blocked" && !occupied)
+                      !race.sessionId ||
+                      locked ||
+                      (sendWin.kind === "blocked" && !occupied && !sendOverrideAllowed)
                     }
                     pendingLabel={occupied ? "Replacing…" : "Sending…"}
                     onClick={() => {
+                      /**
+                       * THE BIG WARNING (owner 2026-08-24). Asked BEFORE the
+                       * occupied-room question, because it is the bigger fact:
+                       * replacing a room is a scheduling choice, while sending
+                       * with no time left makes the track wait on this room.
+                       *
+                       * It spells out the race, its clock, the film that will
+                       * not fit and the consequence — a confirm that only says
+                       * "are you sure?" teaches staff to press OK without
+                       * reading, which would make the whole toggle pointless.
+                       */
+                      if (sendWin.kind === "blocked" && !occupied) {
+                        const clock = formatClock(Math.max(0, sendWin.remainingMs ?? 0));
+                        const why =
+                          sendWin.why === "film"
+                            ? sendWin.heatNumber != null
+                              ? `Session ${sendWin.heatNumber} ends in ${clock}.`
+                              : `The race ends in ${clock}.`
+                            : sendWin.why === "post-playing"
+                              ? `Their post-race call is playing in the ${room} room right now.`
+                              : "Their post-race call has not played yet.";
+                        const film = sendFilmMs
+                          ? `The ${tier} film runs ${formatClock(sendFilmMs)} and will NOT finish in time.`
+                          : "The briefing film will NOT finish in time.";
+                        if (
+                          !window.confirm(
+                            `NO TIME LEFT FOR THIS BRIEFING\n\n${why}\n${film}\n\n` +
+                              `Send Session ${race.heatNumber} to the ${cap(room)} room anyway?\n\n` +
+                              `The track will wait on this room, and a returning group's post-race call cannot play over a film.`,
+                          )
+                        ) {
+                          return;
+                        }
+                      }
                       if (
                         occupied &&
                         !window.confirm(
@@ -2178,7 +2231,9 @@ function RoomColumn({
                     {occupied
                       ? "Replace"
                       : sendWin.kind === "blocked"
-                        ? "Locked — sends after the post"
+                        ? sendOverrideAllowed
+                          ? `Send anyway — no time →`
+                          : "Locked — sends after the post"
                         : sendWin.kind === "grace"
                           ? `SEND ANYWAY — ${formatClock(Math.max(0, sendWin.graceLeftMs))} →`
                           : gridComplete && sendWin.kind === "open"

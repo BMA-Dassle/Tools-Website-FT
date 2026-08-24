@@ -26,7 +26,8 @@
  *   4  a group is still in this room      — send them to holding first
  *   5  the roster is short                — THE OWNER'S CONDITION
  *   6  the roster could not be read       — 0 of 0 is not "everybody is here"
- *   7  the film no longer fits            — see `sendWindow` (owner 2026-08-23)
+ *   7  the film no longer fits            — ONLY when the gear's override is
+ *                                          switched off; otherwise it warns
  *   8+ clear
  *
  * WHY 4 REFUSES RATHER THAN OFFERING "REPLACE". The desk may replace a room's
@@ -46,7 +47,15 @@ export type PullRefusal =
   | "no-roster"
   | "no-time";
 
-export type PullVerdict = { ok: true; late: boolean } | { ok: false; reason: PullRefusal };
+/**
+ * `noTime` rides on the ALLOWED verdict, not as a refusal (owner 2026-08-24:
+ * "instead of complete lock on send to briefing, allow it but prompt a big
+ * warning message"). The press is the desk's to make; what the surfaces owe is
+ * a warning nobody can walk past by accident.
+ */
+export type PullVerdict =
+  | { ok: true; late: boolean; noTime: boolean }
+  | { ok: false; reason: PullRefusal };
 
 export interface PullInput {
   /** The briefing kill switch. Undefined on an older board ⇒ treated as on. */
@@ -68,11 +77,23 @@ export interface PullInput {
    */
   late?: boolean;
   /**
+   * MAY staff override a no-time send? The gear setting, default TRUE (owner
+   * 2026-08-24: "make this a toggle in settings… default to allow the
+   * override"). False restores the 8/23 hard lock, which is why the refusal it
+   * produces still exists.
+   */
+  overrideAllowed?: boolean;
+  /**
    * The film no longer fits in the race left on track — `sendWindow(...)` came
-   * back `blocked` (owner 2026-08-23: "stop them from pushing a group to
-   * briefing if they don't have time"). A REFUSAL, unlike `late`: by the time
-   * the window is gone, sending buys nothing that waiting for the chequer does
-   * not, and the block lifts by itself the moment the race ends.
+   * back `blocked`.
+   *
+   * WAS A REFUSAL, NOW A WARNING (owner 2026-08-23 "stop them from pushing a
+   * group to briefing if they don't have time", revised 2026-08-24 "instead of
+   * complete lock… allow it but prompt a big warning"). A dead button is the
+   * wrong tool for a judgement the person at the desk can make and this rule
+   * cannot: a film overrunning by a few seconds against a group already
+   * standing there is theirs to weigh. So both surfaces still allow the press
+   * and put an unmissable confirm in front of it.
    */
   noTime?: boolean;
 }
@@ -90,12 +111,15 @@ export function pullVerdict(input: PullInput): PullVerdict {
   if (!count || count.total <= 0) return { ok: false, reason: "no-roster" };
   if (count.checkedIn < count.total) return { ok: false, reason: "not-all-checked-in" };
 
-  // LAST on purpose: a short roster is fixed by scanning, and staff can scan
-  // while they wait for the window to come back — so the roster sentence is
-  // the useful one until the grid is fully through the desk.
-  if (input.noTime) return { ok: false, reason: "no-time" };
-
-  return { ok: true, late: input.late === true };
+  // A no-time send is a WARNING when the override is allowed (the default) and
+  // a refusal when staff have switched the override off. Either way it is last:
+  // a short roster is fixed by scanning, which staff can do while they wait.
+  if (input.noTime && input.overrideAllowed === false) {
+    return { ok: false, reason: "no-time" };
+  }
+  // Reported alongside `late` so a caller cannot render one and forget the
+  // other; the confirm copy each surface shows is its own.
+  return { ok: true, late: input.late === true, noTime: input.noTime === true };
 }
 
 /**
@@ -136,12 +160,13 @@ export const PULL_LATE_MS = 5 * 60_000;
  *   open     film lands as the track clears — the ideal
  *   grace    past the deadline, one minute of it: red, counting down, and the
  *            send is still the desk's to make
- *   blocked  the grace is gone too — the send is REFUSED
+ *   blocked  the grace is gone too — the send WARNS HARD (a full-screen
+ *            confirm) rather than dying; see PullInput.noTime
  *
  * THE BLOCK LIFTS AT THE POST, NOT THE FLAG (owner 2026-08-23: "unlocked at
  * post race… if it even exists"). The finishing group's post-race announcement
  * plays into this exact room, and it cannot start over a film (postRaceGate,
- * pit/audio.server.ts) — so the send stays refused through the chequer until
+ * pit/audio.server.ts) — so the send stays WARNED through the chequer until
  * the post has finished. "If it even exists" is the fallback: a post that has
  * not fired within POST_WAIT_MAX_MS of the finish is not coming, and the block
  * lifts on its own rather than outwait a dead cue. No pit fact beyond the post

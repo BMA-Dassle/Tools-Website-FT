@@ -28,6 +28,7 @@ import {
   setGreetingByMotionEnabled,
   setGreetingTiming,
 } from "~/features/signage/briefing/greeting-setting.server";
+import { setSendOverrideAllowed } from "~/features/signage/briefing/send-override-setting.server";
 import {
   addPushSubscription,
   countPushSubscriptions,
@@ -322,6 +323,20 @@ export async function POST(req: NextRequest) {
       heatNumber: typeof cue.heatNumber === "number" ? cue.heatNumber : null,
     });
     return NextResponse.json({ ok: true, ...result });
+  }
+
+  /**
+   * MAY STAFF OVERRIDE A NO-TIME SEND (owner 2026-08-24). ON = the button lives
+   * and asks a full confirm first; OFF = the 8/23 hard lock. Same sheet and
+   * same shape as auto-holding; server-side because the room tablets run the
+   * identical rule and must not disagree with the desk.
+   */
+  if (action === "send-override") {
+    if (typeof body.enabled !== "boolean") {
+      return NextResponse.json({ error: "enabled must be true or false" }, { status: 400 });
+    }
+    await setSendOverrideAllowed(body.enabled);
+    return NextResponse.json({ ok: true, allowed: body.enabled });
   }
 
   /** The welcome-back greeting's mode — camera-timed (ON) or the fixed

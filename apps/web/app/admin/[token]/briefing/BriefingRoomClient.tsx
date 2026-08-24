@@ -1370,11 +1370,45 @@ export default function BriefingRoomClient({
     checkedIn: incomingCount,
     late: pullLate,
     noTime: pullWindow.kind === "blocked",
+    // The gear's toggle, default ALLOW. Undefined on an older deploy reads as
+    // allowed, matching the server — and this tablet must give the same answer
+    // as the desk board, which is why the setting is server-side.
+    overrideAllowed: board?.sendOverride?.allowed !== false,
   });
 
   const sendCb = control.send;
   const onPull = () => {
     if (!incomingRace) return;
+    /**
+     * THE SAME BIG WARNING THE DESK SHOWS (owner 2026-08-24). The pull runs the
+     * identical send, so it owes the identical question — and the person
+     * holding this tablet is standing in the room the track will wait on.
+     */
+    if (pull.ok && pull.noTime) {
+      const film = incomingFilmMs
+        ? `The ${incomingTier} film runs ${clock(incomingFilmMs)} and will NOT finish in time.`
+        : "The briefing film will NOT finish in time.";
+      const why =
+        raceLeftMs != null && raceLeftMs > 0
+          ? `${trackHeatNumber != null ? `Session ${trackHeatNumber}` : "The race"} ends in ${clock(raceLeftMs)}.`
+          : "Their post-race call has not played in here yet.";
+      if (
+        !window.confirm(
+          `NO TIME LEFT FOR THIS BRIEFING
+
+${why}
+${film}
+
+` +
+            `Pull Session ${incomingRace.heatNumber ?? "?"} in anyway?
+
+` +
+            `The track will wait on this room, and a returning group's post-race call cannot play over a film.`,
+        )
+      ) {
+        return;
+      }
+    }
     sendCb({
       room,
       // The track the HEAT belongs to, which on a Mega night is the shared
@@ -1401,6 +1435,8 @@ export default function BriefingRoomClient({
           : "This room still has a group in it — send them to holding first.";
       case "already-sent":
         return `Already in the ${incomingSentTo} room.`;
+      // Only reachable with the gear's override switched OFF — otherwise a
+      // no-time pull is allowed and the confirm above is what asks.
       case "no-time":
         return raceLeftMs != null && raceLeftMs > 0
           ? `${trackHeatNumber != null ? `Session ${trackHeatNumber}` : "The race"} ends in ${clock(raceLeftMs)} — the ${incomingTier} film${incomingFilmMs ? ` (${clock(incomingFilmMs)})` : ""} no longer fits. The pull unlocks after the post-race call.`

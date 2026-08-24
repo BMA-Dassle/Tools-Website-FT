@@ -40,6 +40,7 @@ import { bookmarkBriefingStartAfter } from "./bookmarks.server";
 import { autoHoldingEnabled } from "./auto-holding.server";
 import { checkinWindowOverride } from "./checkin-window.server";
 import { greetingByMotionEnabled, greetingTiming } from "./greeting-setting.server";
+import { sendOverrideAllowed } from "./send-override-setting.server";
 import { GREETING_TIMING_DEFAULTS, type GreetingTiming } from "./return-greeting";
 import { raceBookmarksEnabled } from "./race-bookmarks-setting.server";
 import { cameraPreviewMode, type CameraPreviewMode } from "./camera-preview-setting.server";
@@ -543,6 +544,9 @@ export interface BriefingBoardStatus {
    * toggle under auto-holding. See greeting-setting.server.ts.
    */
   greetingByMotion: { enabled: boolean };
+  /** May staff override a send with no time left for the film? Default true —
+   *  see send-override-setting.server.ts. False restores the hard lock. */
+  sendOverride: { allowed: boolean };
   /** The three staff-settable greeting numbers — the delay when there is no
    *  camera answer, how many times the clip repeats, and how long a room may
    *  keep moving before the reminder is due. */
@@ -714,6 +718,7 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     lanes,
     autoHolding,
     greetingByMotion,
+    sendOverride,
     greetingTimingNow,
     raceBookmarks,
     cameraPreview,
@@ -731,6 +736,7 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     // so the toggle never shows OFF for a switch that is actually armed.
     autoHoldingEnabled().catch(() => true),
     greetingByMotionEnabled().catch(() => true),
+    sendOverrideAllowed().catch(() => true),
     // Already normalised inside, and defaulted on a failed read — the sheet
     // must never show staff a value the wall is not using.
     greetingTiming().catch(() => GREETING_TIMING_DEFAULTS),
@@ -791,6 +797,7 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     lanes,
     autoHolding: { enabled: autoHolding },
     greetingByMotion: { enabled: greetingByMotion },
+    sendOverride: { allowed: sendOverride },
     greetingTiming: greetingTimingNow,
     raceBookmarks: { enabled: raceBookmarks },
     cameraPreview: { mode: cameraPreview },

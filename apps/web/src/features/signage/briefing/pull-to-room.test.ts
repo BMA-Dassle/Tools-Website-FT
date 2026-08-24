@@ -29,7 +29,7 @@ const CLEAR: PullInput = {
 
 describe("pullVerdict", () => {
   it("allows a complete heat into a free room", () => {
-    expect(pullVerdict(CLEAR)).toEqual({ ok: true, late: false });
+    expect(pullVerdict(CLEAR)).toEqual({ ok: true, late: false, noTime: false });
   });
 
   it("refuses while the roster is short", () => {
@@ -54,6 +54,7 @@ describe("pullVerdict", () => {
     expect(pullVerdict({ ...CLEAR, checkedIn: { checkedIn: 13, total: 12 } })).toEqual({
       ok: true,
       late: false,
+      noTime: false,
     });
   });
 
@@ -91,11 +92,15 @@ describe("pullVerdict", () => {
   });
 
   it("treats an older board with no kill-switch field as switched on", () => {
-    expect(pullVerdict({ ...CLEAR, enabled: undefined })).toEqual({ ok: true, late: false });
+    expect(pullVerdict({ ...CLEAR, enabled: undefined })).toEqual({
+      ok: true,
+      late: false,
+      noTime: false,
+    });
   });
 
   it("carries lateness through without ever refusing on it", () => {
-    expect(pullVerdict({ ...CLEAR, late: true })).toEqual({ ok: true, late: true });
+    expect(pullVerdict({ ...CLEAR, late: true })).toEqual({ ok: true, late: true, noTime: false });
   });
 });
 
@@ -322,14 +327,51 @@ describe("sendWindow", () => {
   });
 });
 
+/**
+ * NO TIME FOR THE FILM — a warning by default, a refusal only when staff have
+ * switched the gear's override off (owner 2026-08-24: "make this a toggle in
+ * settings… default to allow the override").
+ */
 describe("pullVerdict — no time for the film", () => {
-  it("refuses a complete heat when the film no longer fits", () => {
-    expect(pullVerdict({ ...CLEAR, noTime: true })).toEqual({ ok: false, reason: "no-time" });
+  it("ALLOWS the send by default, and reports the warning with it", () => {
+    expect(pullVerdict({ ...CLEAR, noTime: true })).toEqual({
+      ok: true,
+      late: false,
+      noTime: true,
+    });
+  });
+
+  it("allows it explicitly when the override is on", () => {
+    expect(pullVerdict({ ...CLEAR, noTime: true, overrideAllowed: true })).toEqual({
+      ok: true,
+      late: false,
+      noTime: true,
+    });
+  });
+
+  it("refuses only when the override has been switched off", () => {
+    expect(pullVerdict({ ...CLEAR, noTime: true, overrideAllowed: false })).toEqual({
+      ok: false,
+      reason: "no-time",
+    });
+  });
+
+  it("carries lateness and no-time together — a caller cannot render one and miss the other", () => {
+    expect(pullVerdict({ ...CLEAR, noTime: true, late: true })).toEqual({
+      ok: true,
+      late: true,
+      noTime: true,
+    });
   });
 
   it("lets the roster sentence win while both are true — scanning can happen during the wait", () => {
-    expect(pullVerdict({ ...CLEAR, checkedIn: { checkedIn: 9, total: 12 }, noTime: true })).toEqual(
-      { ok: false, reason: "not-all-checked-in" },
-    );
+    expect(
+      pullVerdict({
+        ...CLEAR,
+        checkedIn: { checkedIn: 9, total: 12 },
+        noTime: true,
+        overrideAllowed: false,
+      }),
+    ).toEqual({ ok: false, reason: "not-all-checked-in" });
   });
 });
