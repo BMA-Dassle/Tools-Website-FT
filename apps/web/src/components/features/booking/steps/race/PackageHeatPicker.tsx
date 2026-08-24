@@ -40,6 +40,9 @@ import { evaluateRaceRestrictions } from "~/features/booking/service/race-restri
 import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track-visuals";
 import { useCrossTierBlocks } from "./useCrossTierBlocks";
+import KartingCheckInBanner from "./KartingCheckInBanner";
+import { useKartingCheckIn } from "./karting-check-in-context";
+import { raceByAtMs } from "~/features/racing/on-time-display";
 
 interface Props {
   pkg: PackageDefinition;
@@ -105,6 +108,16 @@ function parseLocal(iso: string): Date {
 
 function formatTime(iso: string): string {
   return parseLocal(iso).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+/** Same clock format from epoch ms — the "racing by" estimate is arithmetic on a
+ *  slot, so it never has an ISO string to start from. */
+function formatMs(ms: number): string {
+  return new Date(ms).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
@@ -392,6 +405,10 @@ export function PackageHeatPicker({
   // banner region). Falls back to English with no LocaleProvider, so the web
   // v2 flow renders unchanged.
   const t = useT();
+  // Karting check-in treatment — the SAME context the single-race grid reads
+  // (see ./karting-check-in-context). Inert on web, where the provider is never
+  // mounted, so the web package grid renders exactly as it did before.
+  const { enabled: kartingEnabled, onTime: kartingOnTime } = useKartingCheckIn();
   // Availability is still fetched at FULL roster size (the query key omits
   // quantity, so a selection-sized fetch wouldn't refetch anyway); the
   // "enough spots" check below uses the live selected count.
@@ -461,6 +478,15 @@ export function PackageHeatPicker({
         })),
       ),
     [pkg.id],
+  );
+
+  // Lowercase track keys the grid spans, for the karting banner's status pills.
+  // Every component's tracks, not just the current step's: the guest is being
+  // asked to plan a whole pack, and the allowance the banner quotes has to hold
+  // for the LAST heat they pick as well as the first.
+  const gridTracks = useMemo(
+    () => [...new Set(fetchItems.map((fi) => fi.track.toLowerCase()))],
+    [fetchItems],
   );
 
   const queries = useQueries({
@@ -855,6 +881,13 @@ export function PackageHeatPicker({
         </p>
       </div>
 
+      {/* KIOSK ONLY — the same strip the single-race grid gets. A pack guest is
+          reading the identical times off the identical cards, so leaving it off
+          here taught the wrong model to exactly the guests who then have TWO
+          heats to plan around (owner 2026-08-19: on UQ and BOGO "I do not" see
+          the estimate). Not on web: see ./karting-check-in-context. */}
+      {kartingEnabled && <KartingCheckInBanner tracks={gridTracks} />}
+
       {/* WHO is being booked — the mixed-party banner + the member checklist.
           This step books ONE category's package; without the banner the only
           adult/junior signal was the tiny step title (owner 2026-07-19:
@@ -1097,9 +1130,34 @@ export function PackageHeatPicker({
                       </span>
                     )}
                   </div>
-                  <div className="mb-2 text-base font-bold text-white">
+                  {/* KIOSK: the big time is a KARTING check-in deadline and now
+                      says so — the same treatment the single-race grid got, and
+                      the same reason: unlabelled it reads as a race time, which
+                      is the defect lib/karting-checkin-copy.ts exists to
+                      prevent. Not on web (./karting-check-in-context). */}
+                  {kartingEnabled && (
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-white/45">
+                      {t("race.heat.kartingCheckIn")}
+                    </div>
+                  )}
+                  <div
+                    className={`text-base font-bold text-white ${kartingEnabled ? "mb-0.5" : "mb-2"}`}
+                  >
                     {formatTime(tp.block.start)}
                   </div>
+                  {/* The estimate is per-CARD, not per-grid: a pack spans two
+                      heats and the allowance is read off the track THIS card
+                      runs on, so the Intermediate leg answers "when am I
+                      actually free" with its own number. */}
+                  {kartingEnabled && (
+                    <div className="mb-2 text-xs text-white/40">
+                      {t("race.heat.racingBy", {
+                        time: formatMs(
+                          raceByAtMs(blockStart, kartingOnTime, tp.track.toLowerCase()),
+                        ),
+                      })}
+                    </div>
+                  )}
                   <div className="mb-1 text-xs font-medium text-white/60">{tp.block.name}</div>
                   <div className={`text-[13px] font-medium ${statusClass}`}>{statusLabel}</div>
                   {/* Capacity bar */}

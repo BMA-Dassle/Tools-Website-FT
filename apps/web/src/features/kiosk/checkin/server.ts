@@ -898,9 +898,7 @@ export async function listBrowseRows(
     // The key this reservation opens/verifies under: the group's bill when any
     // leg carries one; else the group's own HeadPinz bowling row (bowl:{id},
     // deterministic — lowest id). No bill and no HP bowling → unopenable; skip.
-    const hpBowlingLegs = legs
-      .filter((l) => isKioskBowlingRow(l))
-      .sort((a, b) => a.id - b.id);
+    const hpBowlingLegs = legs.filter((l) => isKioskBowlingRow(l)).sort((a, b) => a.id - b.id);
     const billKey =
       legs.find((l) => l.bmiBillId)?.bmiBillId ??
       (hpBowlingLegs.length > 0 ? makeBowlKey(hpBowlingLegs[0].id) : null);
@@ -1016,7 +1014,7 @@ export async function sendContactOtp(
     const res = await fetch(`${SITE}/api/sms-verify`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ phone, from: "+12393022155" }),
+      body: JSON.stringify({ phone, brand: "headpinz" }),
     });
     const data = (await res.json().catch(() => ({}))) as { sent?: boolean };
     sent = res.ok && data.sent === true;

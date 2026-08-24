@@ -15,9 +15,10 @@
  */
 import { useState } from "react";
 import { IconAlertTriangle } from "@tabler/icons-react";
-import { useTrackStatus, type CurrentRace } from "@/hooks/useTrackStatus";
+import { useTrackStatus, type CurrentRace, type TrackStatusResult } from "@/hooks/useTrackStatus";
 import { slotMsOf } from "@/components/home/TrackTimingChip";
-import { trackDisplay } from "~/features/racing/on-time-display";
+import { raceByAtMs, trackDisplay } from "~/features/racing/on-time-display";
+import type { OnTimeSnapshot } from "~/features/racing/on-time";
 import { useKioskConfig } from "../../KioskConfigContext";
 import {
   useRaceGridDisplay,
@@ -47,6 +48,15 @@ const TIER_LABEL: Record<DisplayHeat["tier"], string> = {
   pro: "Pro",
 };
 
+/** Wall-clock label from epoch ms — the racing-by estimate is arithmetic on a
+ *  slot, so it never has an ISO string to start from. Matches `timeLabel`. */
+function clockFromMs(ms: number): string {
+  return new Date(ms).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
 
 // TODO(i18n): module-scope helper (can't reach useT). Builds "{raceType} Heat
 // #{n} · {time}"; raceType is server data that stays English, so the "Heat #"
@@ -65,10 +75,14 @@ function checkinLabel(race: CurrentRace): string {
   return `${race.raceType} Heat #${race.heatNumber}${time ? ` · ${time}` : ""}`;
 }
 
-/** Live status band — kiosk-scaled port of components/home/TrackStatus. */
-function StatusBand() {
+/** Live status band — kiosk-scaled port of components/home/TrackStatus.
+ *
+ *  The poll is HOISTED to UpcomingRaces and handed down: the heat cards below
+ *  need the same on-time snapshot for their racing-by estimate, and two
+ *  `useTrackStatus()` calls on one screen is two independent 20s polls of the
+ *  same endpoint. Same reasoning as the booking grid's karting context. */
+function StatusBand({ result }: { result: TrackStatusResult | null }) {
   const t = useT();
-  const result = useTrackStatus();
   if (!result) return null;
   const { trackStatus, currentRaces } = result;
   const races = [currentRaces.mega, currentRaces.blue, currentRaces.red].filter(
@@ -139,8 +153,14 @@ function StatusBand() {
   );
 }
 
-/** One heat — the booking picker's card language at kiosk-canvas scale. */
-function HeatCard({ heat }: { heat: DisplayHeat }) {
+/** One heat — the booking picker's card language at kiosk-canvas scale.
+ *
+ *  Including what the time MEANS. This card was modelled on the booking grid
+ *  and inherited its bare time; the grid has since learned to say "Karting
+ *  Check In" over it and "Est. racing by" under it, and a browse board that
+ *  quotes the same slots has to say the same thing or it teaches the wrong
+ *  model to a guest who then books believing it. */
+function HeatCard({ heat, onTime }: { heat: DisplayHeat; onTime: OnTimeSnapshot | null }) {
   const t = useT();
   const greyed = heat.status !== "open" && heat.status !== "low";
   const pct = heat.capacity > 0 ? heat.freeSpots / heat.capacity : 0;
@@ -172,8 +192,16 @@ function HeatCard({ heat }: { heat: DisplayHeat }) {
         </span>
         <span className="text-[14px] font-medium text-white/50">{TIER_LABEL[heat.tier]}</span>
       </div>
+      <div className="text-[13px] font-bold uppercase tracking-wide text-white/45">
+        {t("race.heat.kartingCheckIn")}
+      </div>
       <div className="k-num whitespace-nowrap text-[24px] font-bold text-white">
         {heat.timeLabel}
+      </div>
+      <div className="mt-[2px] text-[15px] text-white/40">
+        {t("race.heat.racingBy", {
+          time: clockFromMs(raceByAtMs(heat.startMs, onTime, heat.track.toLowerCase())),
+        })}
       </div>
       <div className={`mt-[4px] text-[16px] font-medium ${spotsClass}`}>{spotsLabel}</div>
       <div className="mt-[10px] h-[5px] overflow-hidden rounded-full bg-white/10">
@@ -190,6 +218,9 @@ function HeatCard({ heat }: { heat: DisplayHeat }) {
 
 export function UpcomingRaces() {
   const t = useT();
+  // ONE poll for the whole screen — the status band and every heat card read
+  // the same snapshot (see the note on StatusBand).
+  const trackStatusResult = useTrackStatus();
   const { config } = useKioskConfig();
   const { heats, tracks, schedule, isLoading, isError } = useRaceGridDisplay(
     config?.center ?? "fort-myers",
@@ -210,7 +241,7 @@ export function UpcomingRaces() {
 
   return (
     <div className="flex flex-col gap-[28px] pb-[48px]">
-      <StatusBand />
+      <StatusBand result={trackStatusResult} />
 
       {/* Filters: track (only when today spans more than one) + Adult/Junior. */}
       <div className="flex gap-[16px]">
@@ -280,7 +311,7 @@ export function UpcomingRaces() {
         <>
           <div className="grid grid-cols-4 gap-[16px]">
             {visible.map((h) => (
-              <HeatCard key={h.key} heat={h} />
+              <HeatCard key={h.key} heat={h} onTime={trackStatusResult?.onTime ?? null} />
             ))}
           </div>
           <div className="text-center text-[22px] text-white/40">

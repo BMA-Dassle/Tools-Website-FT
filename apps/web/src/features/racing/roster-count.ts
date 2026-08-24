@@ -44,6 +44,65 @@ export interface RosterCount {
 export const ROSTER_FRESH_MS = 10_000;
 
 /**
+ * The same question, asked of the venue's own broadcast instead of a clock.
+ *
+ * `ROSTER_FRESH_MS` is a GUESS — ten seconds is how long we are willing to be
+ * wrong for, and every tick past it buys a Pandora read whether or not anything
+ * moved. Almost nothing moves: measured over 88,280 webhook invocations
+ * (2026-08-17→19), the venue mentions a median of ZERO sessions per two-minute
+ * tick. So while the wire is alive and silent about a session, its count is not
+ * ten seconds old — it is CURRENT, and re-reading it proves nothing.
+ *
+ * This stretches the no-read window to `ROSTER_WIRE_FRESH_MS`, and collapses it
+ * to zero the instant the wire says the session moved. Faster than today when
+ * something happens, far cheaper when nothing does.
+ *
+ * IT NEVER MAKES THE ANSWER STALER THAN A HUMAN CAN NOTICE, because the count a
+ * desk actually watches is floored by our own scan ledger (`applyLocalFloor`) —
+ * that is not upstream data and does not wait for any of this. What the wire
+ * gates is only the OTHER half: racers added, removed, or checked in directly
+ * in BMI rather than through our scanner.
+ */
+export const ROSTER_WIRE_FRESH_MS = 60_000;
+
+export interface WireFreshnessInput {
+  entry: RosterCount | null;
+  nowMs: number;
+  /** The venue's touch counter for this session; null = no mark at all. */
+  dirtyCounter: number | null;
+  /** The counter this consumer had already read past; null = never banked. */
+  readCounter: number | null;
+  /** Heartbeat age gate, decided by the caller. */
+  bridgeAlive: boolean;
+}
+
+/**
+ * May we serve the stored count without asking Pandora?
+ *
+ * Yes when it is inside the plain clock window (unchanged behaviour), OR when
+ * the wire is alive and has said nothing about this session since we banked it
+ * and the count is still inside the longer wire window.
+ *
+ * DEGRADES TO EXACTLY TODAY'S BEHAVIOUR when the marks are absent — no bridge,
+ * no webhook writer deployed, Redis unreachable, a session the venue has never
+ * mentioned. All of those land on `ROSTER_FRESH_MS` and the ten-second re-read,
+ * which is why this is safe to ship before anything starts writing the marks.
+ */
+export function rosterIsFreshForWire(i: WireFreshnessInput): boolean {
+  if (rosterIsFresh(i.entry, i.nowMs)) return true;
+  if (!i.bridgeAlive) return false;
+  // Never banked, or the counter moved (including a key that expired and
+  // restarted below us) — the wire is telling us something we have not read.
+  if (i.readCounter === null) return false;
+  if ((i.dirtyCounter ?? 0) !== i.readCounter) return false;
+  const e = i.entry;
+  if (!e || e.atMs === null || e.total === null) return false;
+  const age = i.nowMs - e.atMs;
+  if (age < 0) return false; // clock skew — re-read rather than trust it
+  return age < ROSTER_WIRE_FRESH_MS;
+}
+
+/**
  * How long a last-known count may stand in for a failed read.
  *
  * Generous on purpose: a called session lives ~20 minutes, and for that whole

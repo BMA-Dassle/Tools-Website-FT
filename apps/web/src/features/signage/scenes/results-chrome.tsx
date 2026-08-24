@@ -17,6 +17,7 @@
 import { TRACK_ACCENTS, TRACK_LABELS, type TrackKey } from "../track";
 import { withAlpha } from "../color";
 import { TvBrandLogo } from "../components/TvBrandLogo";
+import { LiveStamp } from "./LiveStamp";
 import type { SignageVenue } from "../constants";
 
 /* ── canvas geometry ──────────────────────────────────────────────────── */
@@ -145,8 +146,17 @@ export function Footer({ left, right }: { left: React.ReactNode; right: React.Re
           flex: "0 0 auto",
           display: "flex",
           alignItems: "center",
+          gap: 26,
         }}
       >
+        {/* THE LIVENESS STAMP GOES HERE, ONCE, rather than at the four call
+            sites — this footer is the only footer the scores wall has, and every
+            face of the board is built on it: both results layouts, the top-times
+            hall of fame, and every "nothing to show yet" card via Shell. An
+            idle card is the state that most needs it (a board with nothing on it
+            is indistinguishable from a dead one), which is exactly the surface a
+            per-call-site prop would have been forgotten on. */}
+        <LiveStamp />
         {right}
       </div>
     </div>

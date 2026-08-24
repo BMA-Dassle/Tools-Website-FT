@@ -282,7 +282,7 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
 
     const packages = useMemo(() => {
       const schedule = scheduleForDate(item.date as string);
-      return eligiblePackages({ racerType, schedule, category });
+      return eligiblePackages({ racerType, schedule, category, raceDate: item.date as string });
     }, [item.date, racerType]);
 
     // Package selection lives on item.packageIdAdult/Junior (one per category —

@@ -428,6 +428,7 @@ async function uqFirstOpenToday(dateYmd: string): Promise<FirstOpen | null> {
   const variants = eligiblePackages({
     racerType: "new",
     schedule: scheduleForDate(dateYmd),
+    raceDate: dateYmd,
   }).filter((p) => p.id.startsWith("ultimate-qualifier"));
   if (variants.length === 0) return null;
   const results = await Promise.all(variants.map((v) => packageFirstOpen(v, dateYmd)));

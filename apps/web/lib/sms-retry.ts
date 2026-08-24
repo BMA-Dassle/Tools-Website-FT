@@ -5,6 +5,10 @@ import { canonicalizePhone } from "@/lib/participant-contact";
 import { logSms } from "@/lib/sms-log";
 import { isQuotaError, isQuotaExhausted, markQuotaExhausted } from "@/lib/sms-quota";
 import { twilioSend, isTwilioQuotaError } from "@/lib/twilio-send";
+import { decideSend, type SendCategory } from "~/features/sms/suppression-policy";
+import { lookupSuppression } from "~/features/sms/suppression-db";
+import { withOptOutFooter } from "~/features/sms/footer";
+import { a2pSender } from "~/features/sms/sender";
 
 /**
  * SMS retry queue — failed sends get re-attempted on subsequent cron ticks
@@ -234,9 +238,46 @@ export interface VoxSendOpts {
   fromOverride?: string;
   /** Prefix prepended on fallback, e.g. "From Stephanie (direct: 239-214-8357): ". */
   fallbackPrefix?: string;
+  /**
+   * Why this message is being sent. Drives whether a revocation can be
+   * overridden — see `~/features/sms/suppression-policy`.
+   *
+   * Defaults to `"transactional"`, which HONORS opt-outs. That default is
+   * the point: ~40 send sites exist and 30-odd have no consent logic at
+   * all, so the safe behavior has to be the one you get by not thinking
+   * about it. Only `"otp"` and `"safety"` may reach a suppressed number.
+   */
+  category?: SendCategory;
+  /**
+   * Skip the suppression check entirely.
+   *
+   * Escape hatch for the opt-out CONFIRMATION itself, which by definition
+   * texts a number we just suppressed — `64.1200(a)(12)` permits exactly
+   * that one message. Not for general use: prefer `category`.
+   */
+  bypassSuppression?: boolean;
+  /**
+   * Label for the oversize-footer audit counter, e.g. "pre-race-cron" or
+   * "bowling-confirmation". Only used when appending the footer pushes a
+   * body into a second segment — it is how we learn WHICH template to
+   * shorten. Optional: absent lands the count under "unknown", which is
+   * still a signal, just a less useful one.
+   */
+  auditSource?: string;
+  /**
+   * Suppress the opt-out footer for this send.
+   *
+   * For the inbound replies, which carry their own tailored instructions:
+   * appending "Reply STOP to opt out" to a message that already says
+   * "You're opted out" is nonsense, and `64.1200(a)(12)` makes the
+   * confirmation's wording something to keep exact rather than append to.
+   */
+  skipFooter?: boolean;
 }
 
-const VOX_FROM = "+12394819666";
+/** All automated traffic now leaves from the single A2P DID.
+ *  See ~/features/sms/sender for why, and for what must NOT move. */
+const VOX_FROM = a2pSender();
 
 /** Public-facing webhook URL Vox calls when a message changes
  *  delivery state. Built from env so non-prod deployments can point
@@ -329,6 +370,12 @@ export interface VoxSendResult {
    *  provider's response didn't include one. */
   voxId?: string;
   twilioSid?: string;
+  /** True when the send was blocked by the suppression gate. Distinct
+   *  from a delivery failure: there is nothing to retry, and the retry
+   *  queue must NOT re-attempt it. */
+  suppressed?: boolean;
+  /** Which suppression rule applied, for the SMS log. */
+  suppressionOutcome?: string;
 }
 
 export async function voxSend(
@@ -336,6 +383,76 @@ export async function voxSend(
   body: string,
   opts?: VoxSendOpts,
 ): Promise<VoxSendResult> {
+  // ── Suppression gate ───────────────────────────────────────────────
+  // Deliberately the FIRST thing that happens, ahead of the quota
+  // cooldown and the Twilio failover. A revoked number must not be
+  // reached by any path, and the failover is a path.
+  //
+  // This single check is why it lives here rather than at the call sites:
+  // ~40 senders exist, 30-odd have no consent logic today, and per-site
+  // fixes would be 40 edits that still miss the next new sender.
+  if (!opts?.bypassSuppression) {
+    const category: SendCategory = opts?.category ?? "transactional";
+    const canonical = canonicalizePhone(toFormatted);
+    if (canonical) {
+      const state = await lookupSuppression(canonical);
+      const decision = decideSend(category, state);
+      if (decision.bypassUsed) {
+        // Every bypass is logged. An unlogged bypass cannot be told
+        // apart from simply ignoring the revocation.
+        console.warn(
+          `[voxSend] SUPPRESSION BYPASS (${category}) to ${canonical}: ${decision.reason}`,
+        );
+      }
+      if (!decision.allow) {
+        console.log(`[voxSend] blocked to ${canonical}: ${decision.reason}`);
+        return {
+          ok: false,
+          status: null,
+          error: `suppressed: ${decision.reason}`,
+          suppressed: true,
+          suppressionOutcome: decision.outcome,
+        };
+      }
+    }
+    // An unparseable recipient falls through to the existing send path,
+    // which already rejects it. Suppression is keyed by E.164, so there
+    // is nothing to look up and nothing to decide.
+  }
+
+  // ── Opt-out footer ─────────────────────────────────────────────────
+  // Centralized for the same reason as the gate above: exactly ONE of 25
+  // sending files carries a footer today, and per-template edits would be
+  // 40 changes that miss the 41st sender.
+  //
+  // `body` is reassigned so every downstream path — Vox, the Twilio
+  // failover, the fromOverride retry — sends the SAME text. An earlier
+  // shape that footered only the Vox call would have produced a failover
+  // message with no opt-out language, which is the exact case a carrier
+  // audit would find.
+  const footered = opts?.skipFooter
+    ? null
+    : withOptOutFooter(body, opts?.category ?? "transactional");
+  if (footered) body = footered.body;
+  if (footered?.crossedBoundary) {
+    // THE AUDIT. Static extraction of ~40 inline template literals would
+    // be guesswork; real traffic tells us exactly which bodies the footer
+    // pushed into a second segment, and those are the ones to shorten.
+    // Segments are money and, on an unvetted TCR brand, daily throughput.
+    console.warn(
+      `[voxSend] footer pushed body to ${footered.segments} segments ` +
+        `(${footered.chars} chars, ${footered.encoding}) — template needs shortening`,
+    );
+    try {
+      const day = new Date().toISOString().slice(0, 10);
+      const key = `sms:footer:oversize:${day}`;
+      await redis.hincrby(key, opts?.auditSource || "unknown", 1);
+      await redis.expire(key, 60 * 60 * 24 * 30);
+    } catch {
+      /* audit counter is best-effort — never block a send on it */
+    }
+  }
+
   // Short-circuit during cooldown — saves a doomed Vox call. Try
   // Twilio directly: if Vox is throttled but Twilio is fine, the
   // customer still gets the SMS in real time.
@@ -414,6 +531,10 @@ export async function drainRetries(cron: SmsRetryCron): Promise<{
   dead: number;
   quotaQueued: number;
   expired: number;
+  /** Dropped because the recipient revoked consent. Terminal, never
+   *  retried, and counted apart from `dead` so a suppression is not
+   *  mistaken for a delivery fault in the cron's own reporting. */
+  suppressed: number;
 }> {
   const DEDUP: Record<SmsRetryCron, { prefix: string; ttl: number }> = {
     "pre-race-cron": { prefix: "alert:pre-race", ttl: 60 * 60 * 24 },
@@ -429,7 +550,7 @@ export async function drainRetries(cron: SmsRetryCron): Promise<{
   const { inEticketQuietHours, maxQueueAgeMs, ETICKET_EXPIRED_ERROR } =
     await import("~/features/eticket/quiet-hours");
   if (inEticketQuietHours()) {
-    return { attempted: 0, ok: 0, requeued: 0, dead: 0, quotaQueued: 0, expired: 0 };
+    return { attempted: 0, ok: 0, requeued: 0, dead: 0, quotaQueued: 0, expired: 0, suppressed: 0 };
   }
 
   const { quotaEnqueue } = await import("@/lib/sms-quota");
@@ -438,7 +559,8 @@ export async function drainRetries(cron: SmsRetryCron): Promise<{
     requeued = 0,
     dead = 0,
     quotaQueued = 0,
-    expired = 0;
+    expired = 0,
+    suppressedCount = 0;
   for (const { raw, entry } of due) {
     const toFormatted = canonicalizePhone(entry.phone);
     if (!toFormatted) {
@@ -537,6 +659,26 @@ export async function drainRetries(cron: SmsRetryCron): Promise<{
         shortCode: entry.audit.shortCode,
       });
       quotaQueued++;
+    } else if (result.suppressed) {
+      // Terminal, not a failure. The guest revoked consent — retrying
+      // three times and then dead-lettering would burn attempts and
+      // leave an entry that reads like a delivery fault. Drop it and
+      // record why, so the e-ticket rail's own numbers stay honest.
+      await removeRetry(raw);
+      await logSms({
+        ts,
+        phone: toFormatted,
+        source: cron,
+        status: null,
+        ok: false,
+        error: `[suppressed] ${result.error}`,
+        body: entry.body,
+        sessionIds: entry.audit.sessionIds,
+        personIds: entry.audit.personIds,
+        memberCount: entry.audit.memberCount,
+        shortCode: entry.audit.shortCode,
+      });
+      suppressedCount++;
     } else {
       await logSms({
         ts,
@@ -556,7 +698,15 @@ export async function drainRetries(cron: SmsRetryCron): Promise<{
       else requeued++;
     }
   }
-  return { attempted: due.length, ok, requeued, dead, quotaQueued, expired };
+  return {
+    attempted: due.length,
+    ok,
+    requeued,
+    dead,
+    quotaQueued,
+    expired,
+    suppressed: suppressedCount,
+  };
 }
 
 /**

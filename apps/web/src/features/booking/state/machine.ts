@@ -17,6 +17,7 @@ import type { AppliedPromo } from "~/features/discount-codes";
 import type { AppliedVoucherState } from "./types";
 import { qamfCenterIdForCode, type CenterCode, type ContactInfo } from "../types";
 import { packSkusForRaceDate } from "../service/race-pack-kiosk";
+import { getPackage, packageFitsRaceDate } from "@/lib/packages";
 import { FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
 import {
   hasKbfItem,
@@ -194,6 +195,25 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
             const offered = new Set(packSkusForRaceDate(next.date).map((p) => p.slug));
             const kept = (next.creditPacks ?? []).filter((p) => offered.has(p.slug));
             next.creditPacks = kept.length > 0 ? kept : undefined;
+          }
+          // Same re-validation for a PACKAGE pick, against the bundle's own
+          // recurring day rule (`raceDays` — BOGO runs on Wednesday RACES). A
+          // bundle picked for a Wednesday and then moved to Thursday would
+          // otherwise keep its deal price on a day the deal doesn't run, and
+          // unlike the pack case nothing downstream refuses it: the charge path
+          // resolves packages by id via `getPackage`, which is deliberately NOT
+          // window-gated (expiring one there drops the heats from the Square
+          // lines while BMI still books them at $0 — see lib/packages.ts).
+          // Clearing the pointer sends the guest back through the picker, which
+          // is the only fail-safe direction available here.
+          //
+          // Bundles with no `raceDays` (every standing one) always fit, so this
+          // cannot disturb an Ultimate Qualifier or Rookie Pack pick.
+          if (next.kind === "race" && "date" in action.patch && next.date) {
+            for (const field of ["packageIdAdult", "packageIdJunior"] as const) {
+              const pkg = getPackage(next[field]);
+              if (pkg && !packageFitsRaceDate(pkg, next.date)) next[field] = null;
+            }
           }
           return next;
         }),

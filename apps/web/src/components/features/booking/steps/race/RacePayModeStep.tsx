@@ -68,7 +68,7 @@ import {
 import { useT, type Translate } from "~/features/kiosk/i18n";
 import { RaceWarningModal } from "./RaceWarningModal";
 import { racePackTeaserVisible } from "./RacePackTeaser";
-import { RacePackPicker, packFitsMember } from "./RacePackPicker";
+import { RacePackPicker, packFitsMember, promotedSaleSku } from "./RacePackPicker";
 import { IncludedList } from "./PackageCard";
 import {
   livePerRacerPrice,
@@ -102,6 +102,9 @@ function bundlesFor(
     racerType: racerTypeFor(session.party, category),
     schedule: scheduleForDate(item.date),
     category,
+    // Gates the recurring `raceDays` rule (BOGO Wednesdays) on the BOOKED day,
+    // the same date the day rule below filters the credit packs by.
+    raceDate: item.date,
   });
   // A live limited-time bundle outranks the standing house recommendation for
   // the hero slot; `recommended` still decides among everything else, so the
@@ -827,14 +830,11 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
             Disappears with the sale, because `skus` is already window-filtered. */}
         {packsOn &&
           (() => {
-            // Only SKUs someone in THIS party can actually buy. `skus` is
-            // day-filtered, not party-filtered, so an adults-only party was
-            // being quoted the junior sale price ($15.99) for a pack only a
-            // junior can hold — a price they would never be charged. Quoting
-            // low is worse than quoting high: it reads as a switch at checkout.
-            const sale = skus.filter((p) => p.badge && eligible.some((m) => packFitsMember(p, m)));
-            if (sale.length === 0 || packOpen) return null;
-            const lead = sale.reduce((a, b) => (b.price < a.price ? b : a));
+            // Only SKUs someone in THIS party can buy, and only ones belonging
+            // to THIS page's tier — see `promotedSaleSku` for why both filters
+            // are load-bearing on a row that auto-applies the pack.
+            const lead = promotedSaleSku(skus, eligible, category);
+            if (!lead || packOpen) return null;
             const fits = eligible.filter((m) => packFitsMember(lead, m));
             const held = picks.some((p) => p.slug === lead.slug);
             return (

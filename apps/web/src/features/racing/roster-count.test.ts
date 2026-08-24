@@ -4,9 +4,11 @@ import {
   parseStoredRoster,
   resolveRosterCount,
   rosterIsFresh,
+  rosterIsFreshForWire,
   rosterIsUsableWhenStale,
   ROSTER_FRESH_MS,
   ROSTER_MAX_STALE_MS,
+  ROSTER_WIRE_FRESH_MS,
   UNKNOWN_ROSTER,
   type RosterCount,
 } from "./roster-count";
@@ -144,5 +146,118 @@ describe("parseStoredRoster", () => {
     expect(
       parseStoredRoster(JSON.stringify({ checkedIn: null, total: null, atMs: NOW })),
     ).toBeNull();
+  });
+});
+
+describe("rosterIsFreshForWire", () => {
+  const W = 1_760_000_000_000;
+  const stored: RosterCount = { checkedIn: 6, total: 14, atMs: W - 30_000, stale: false };
+
+  it("serves a stored count the wire has said nothing about", () => {
+    // 30s old — past ROSTER_FRESH_MS, so today this bought a Pandora read.
+    expect(
+      rosterIsFreshForWire({
+        entry: stored,
+        nowMs: W,
+        dirtyCounter: 3,
+        readCounter: 3,
+        bridgeAlive: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("re-reads the instant the wire says the session moved", () => {
+    expect(
+      rosterIsFreshForWire({
+        entry: stored,
+        nowMs: W,
+        dirtyCounter: 4,
+        readCounter: 3,
+        bridgeAlive: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("falls back to the plain clock window when the bridge is dead", () => {
+    // Silence from a dead pipe is not evidence of a quiet venue.
+    expect(
+      rosterIsFreshForWire({
+        entry: stored,
+        nowMs: W,
+        dirtyCounter: 3,
+        readCounter: 3,
+        bridgeAlive: false,
+      }),
+    ).toBe(false);
+    // ...but a count inside the plain window is still served, exactly as before.
+    expect(
+      rosterIsFreshForWire({
+        entry: { ...stored, atMs: W - 1_000 },
+        nowMs: W,
+        dirtyCounter: null,
+        readCounter: null,
+        bridgeAlive: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("re-reads when this consumer has never banked a counter", () => {
+    expect(
+      rosterIsFreshForWire({
+        entry: stored,
+        nowMs: W,
+        dirtyCounter: 3,
+        readCounter: null,
+        bridgeAlive: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("treats an expired dirty key that restarted below us as movement", () => {
+    expect(
+      rosterIsFreshForWire({
+        entry: stored,
+        nowMs: W,
+        dirtyCounter: null,
+        readCounter: 3,
+        bridgeAlive: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("stops trusting the wire once the count is older than the wire window", () => {
+    expect(
+      rosterIsFreshForWire({
+        entry: { ...stored, atMs: W - ROSTER_WIRE_FRESH_MS },
+        nowMs: W,
+        dirtyCounter: 3,
+        readCounter: 3,
+        bridgeAlive: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("re-reads on a future stamp rather than trusting a skewed clock", () => {
+    expect(
+      rosterIsFreshForWire({
+        entry: { ...stored, atMs: W + 5_000 },
+        nowMs: W,
+        dirtyCounter: 3,
+        readCounter: 3,
+        bridgeAlive: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("never serves a count that was never read", () => {
+    expect(
+      rosterIsFreshForWire({
+        entry: null,
+        nowMs: W,
+        dirtyCounter: 3,
+        readCounter: 3,
+        bridgeAlive: true,
+      }),
+    ).toBe(false);
   });
 });

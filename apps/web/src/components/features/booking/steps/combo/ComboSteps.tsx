@@ -49,6 +49,9 @@ import {
 import { modalBackdropProps } from "@/lib/a11y";
 import { formatHourLabel } from "../bowling/availability-client";
 import { DISABLED_CARD, TRACK_BADGE, TRACK_CARD, TrackInfoBanner } from "../race/track-visuals";
+import { useKartingCheckIn } from "../race/karting-check-in-context";
+import { useT } from "~/features/kiosk/i18n";
+import { raceByAtMs } from "~/features/racing/on-time-display";
 
 /**
  * Combo-special wizard steps (Revision 2) — the combo's OWN guided flow.
@@ -96,6 +99,53 @@ function legIcon(leg: ComboLeg): string {
 
 function comboFor(session: BookingSession): ComboSpecial | null {
   return session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
+}
+
+/** Wall-clock label from epoch ms — the estimate is arithmetic on a slot, so it
+ *  never has an ISO string to start from. Matches `wallClockLabel`'s format. */
+function clockFromMs(ms: number): string {
+  return new Date(ms).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+/**
+ * "Est. racing by 7:37" for ONE race leg — kiosk only, and RACE legs only.
+ *
+ * A combo's times are the same BMI session slots the heat grids sell, so they
+ * are karting check-in deadlines with the same ~30-minute run-up before the
+ * flag drops. Left bare, a combo screen says the guest races at 7:12 and is
+ * planning the rest of their night around a race that has not started.
+ *
+ * RACE LEGS ONLY, and it matters: the reorder fallback ("races first · lane
+ * after") means a card can anchor on the BOWLING leg, and a karting estimate
+ * over a lane time would be worse than the bare time it replaced. Every caller
+ * gates on `payload.kind === "race"` / `leg.kind === "race"` before rendering.
+ *
+ * Inert on web — the provider is mounted by the kiosk step variants only (see
+ * ../race/karting-check-in-context), so the web combo flow renders unchanged.
+ */
+function RaceByLine({
+  startMs,
+  track,
+  className,
+}: {
+  startMs: number;
+  track: string | null;
+  className?: string;
+}) {
+  const t = useT();
+  const { enabled, onTime } = useKartingCheckIn();
+  if (!enabled) return null;
+  return (
+    <span className={className ?? "text-[11px] text-white/40"}>
+      {t("race.heat.racingBy", {
+        time: clockFromMs(raceByAtMs(startMs, onTime, (track ?? "").toLowerCase())),
+      })}
+    </span>
+  );
 }
 
 /** Does the itinerary run a higher-tier race AFTER a starter (the Ultimate
@@ -478,8 +528,16 @@ function ScheduleConfirmModal({
                           </span>
                         )}
                       </span>
-                      <span className="font-semibold text-white">
-                        {entry ? wallClockLabel(entry.startIso) : "—"}
+                      {/* Same reasoning as the itinerary list: this is the
+                          screen the guest confirms their whole visit on, so a
+                          race leg must not read as finished at its start. */}
+                      <span className="flex flex-col items-end leading-tight">
+                        <span className="font-semibold text-white">
+                          {entry ? wallClockLabel(entry.startIso) : "—"}
+                        </span>
+                        {leg.kind === "race" && entry && (
+                          <RaceByLine startMs={entry.startMs} track={track} />
+                        )}
                       </span>
                     </div>
                     {/* Junior mirror: juniors run their own heat right around
@@ -610,6 +668,10 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
   setBusy,
 }) => {
   const queryClient = useQueryClient();
+  const t = useT();
+  // Kiosk-only karting treatment on the anchor grid — the same context the
+  // heat grids read. Inert on web, where the provider is never mounted.
+  const { enabled: kartingEnabled } = useKartingCheckIn();
   const combo = comboFor(session);
   const date = item.date;
   const centerId = qamfCenterIdForCode(session.center) ?? 9172;
@@ -1060,6 +1122,9 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
                   !!selected && selected.start === c.anchor.startIso && selected.track === track;
                 const free =
                   c.anchor.payload.kind === "race" ? c.anchor.payload.candidate.freeSpots : 0;
+                // The reorder fallback can anchor the visit on the BOWLING leg;
+                // only a race anchor gets the karting label + estimate.
+                const isAnchorRace = c.anchor.payload.kind === "race";
                 const groupMatch = isFeasible
                   ? groupMatches.get(`${c.anchor.startIso}|${track ?? ""}`)
                   : undefined;
@@ -1084,6 +1149,17 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
                         : DISABLED_CARD
                     }`}
                   >
+                    {/* KIOSK: this grid is a heat grid wearing combo clothes —
+                        the time IS a karting check-in deadline, same as the
+                        single-race and package grids. Only when the anchor is a
+                        RACE: the reorder fallback can anchor on the lane, and
+                        "Karting Check In" over a bowling time is a wrong turn
+                        for the guest. Not on web (../race/karting-check-in-context). */}
+                    {kartingEnabled && isAnchorRace && (
+                      <div className="text-[9px] font-bold uppercase tracking-wide text-white/45">
+                        {t("race.heat.kartingCheckIn")}
+                      </div>
+                    )}
                     <div className="flex items-center justify-between gap-1">
                       <span className="text-sm font-bold text-white">
                         {wallClockLabel(c.anchor.startIso)}
@@ -1096,6 +1172,13 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
                         </span>
                       )}
                     </div>
+                    {isAnchorRace && (
+                      <RaceByLine
+                        startMs={c.anchor.startMs}
+                        track={track}
+                        className="mt-0.5 block text-[11px] text-white/40"
+                      />
+                    )}
                     <div className="mt-1 text-xs">
                       {isFeasible ? (
                         <span className="text-emerald-400">
@@ -1249,7 +1332,17 @@ function ItineraryList({
                   </span>
                 )}
               </span>
-              <span className="font-semibold text-white">{r.time}</span>
+              {/* The race legs' times are karting check-in deadlines. This list
+                  is the whole point of a combo — the guest reads it to plan
+                  their night — so a race leg that looks finished at its start
+                  time is exactly the wrong thing to hand them. Race legs only:
+                  the bowling row's time really is when the lane opens. */}
+              <span className="flex flex-col items-end leading-tight">
+                <span className="font-semibold text-white">{r.time}</span>
+                {r.leg.kind === "race" && r.iso && (
+                  <RaceByLine startMs={wallClockMs(r.iso)} track={r.track} />
+                )}
+              </span>
             </li>
           );
         })}

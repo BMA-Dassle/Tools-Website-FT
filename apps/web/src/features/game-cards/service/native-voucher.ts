@@ -18,6 +18,7 @@
 
 import { randomInt, randomUUID } from "crypto";
 import { generateVoucherCode, isNativeVoucherCode, normalizeVoucherCode } from "../vouchers/codes";
+import { toValidatedItem, type ValidatedItem } from "../vouchers/validated-items";
 import {
   gameZoneGrant,
   getVoucher,
@@ -44,7 +45,7 @@ import { VOUCHER_PACKAGE_PREFIX } from "../vouchers/grants";
  * that credits nothing. See the long note on that constant; a test pins them
  * together.
  */
-export const NATIVE_GRANT_DENOMINATIONS = [50, 100, 150, 200, 300, 500, 1000] as const;
+export const NATIVE_GRANT_DENOMINATIONS = [50, 100, 150, 200, 250, 300, 500, 1000] as const;
 
 export type NativeVoucherRefusal =
   | "bad_format"
@@ -126,22 +127,10 @@ export async function getVoucherStatus(code: string): Promise<VoucherStatus | nu
   };
 }
 
-/**
- * One UNSPENT item on a scanned voucher, told apart by where it's redeemed:
- *   gamezone → dispense a card / credit one (the Game Zone rail)
- *   cart     → covers a race heat or an attraction unit at booking checkout
- * `coverageName` is the string the booking's voucherTarget() keys off
- * ("Race" / "Laser Tag" / …) — see native-voucher cart rail.
- */
-export interface ValidatedItem {
-  index: number;
-  redeemVia: "gamezone" | "cart";
-  label: string;
-  coverageName?: string;
-  /** Game-zone items: total tokens (purchased + bonus) — drives the "$ in play"
-   *  value shown on the receipt. Omitted for cart items. */
-  tokens?: number;
-}
+// The item presentation mapper lives in `vouchers/validated-items` so the
+// Groupon issuer maps through the same code rather than a parallel copy —
+// `coverageName` has to spell things exactly as voucherTarget() expects.
+export type { ValidatedItem } from "../vouchers/validated-items";
 
 export type ValidateResult =
   | {
@@ -155,36 +144,6 @@ export type ValidateResult =
       spentItems: { index: number; label: string }[];
     }
   | { ok: false; reason: NativeVoucherRefusal };
-
-/** Booking coverage name for a cart item — must satisfy voucherTarget(). */
-function cartCoverageName(slugOrRace: string): string {
-  switch (slugOrRace) {
-    case "race":
-      return "Race";
-    case "laser-tag":
-      return "Laser Tag";
-    case "gel-blaster":
-      return "Gel Blaster";
-    case "shuffly":
-      return "Shuffly";
-    case "duck-pin":
-      return "Duckpin";
-    default:
-      return slugOrRace;
-  }
-}
-
-/** Coverage name for a whole item — a choice item joins its options with "or"
- *  so voucherTarget() sees every keyword ("Laser Tag or Gel Blaster" matches
- *  the combined laser+gel branch and covers whichever is in the cart). */
-function cartCoverageNameForItem(item: VoucherItem): string {
-  if (item.kind === "race") return cartCoverageName("race");
-  if (item.kind === "attraction") return cartCoverageName(item.slug);
-  if (item.kind === "attraction-choice") {
-    return item.slugs.map(cartCoverageName).join(" or ");
-  }
-  return "";
-}
 
 /**
  * Check a code WITHOUT claiming it — the scan step of the kiosk basket, where a
@@ -219,22 +178,7 @@ export async function validateNativeVoucher(code: string): Promise<ValidateResul
   // other in the cart.
   const items: ValidatedItem[] = status.items
     .filter((i) => !i.spent)
-    .map((i) => {
-      if (i.item.kind === "gamezone") {
-        return {
-          index: i.index,
-          redeemVia: "gamezone" as const,
-          label: i.label,
-          tokens: i.item.tokens + i.item.bonusTokens,
-        };
-      }
-      return {
-        index: i.index,
-        redeemVia: "cart" as const,
-        label: i.label,
-        coverageName: cartCoverageNameForItem(i.item),
-      };
-    });
+    .map((i) => toValidatedItem(i.item, i.index, i.label));
 
   if (items.length === 0) {
     // Nothing left to redeem: distinguish "all spent" from "never had anything

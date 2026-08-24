@@ -53,8 +53,16 @@ export const TV_PHOTOS = {
   race: tvImg(KIOSK_PHOTOS.race)!,
   redTrack: tvImg(KIOSK_PHOTOS.redTrack)!,
   raceAction: tvImg(KIOSK_PHOTOS.raceAction)!,
+  /** The combo's own hero photograph (a racing shot). What the front-desk wall's
+   *  All Access slide uses. */
+  vip: tvImg(KIOSK_PHOTOS.vip)!,
+  /** VIP bowling suites. AVOID ON A WALL: this file is a 6.8KB video still with
+   *  "NO MATTER WHO YOU ARE" burned into the frame, and burned-in words fight a
+   *  scene's own headline. See tasks/front-desk-wall-plan.md § Photography. */
   vipLanes: tvImg(KIOSK_PHOTOS.vipLanes)!,
   kbf: tvImg(KIOSK_PHOTOS.kbf)!,
+  /** Checkered flag — the "check in" panel's ground on the front-desk wall. */
+  flag: tvImg(KIOSK_PHOTOS.flag)!,
 } as const;
 
 /**

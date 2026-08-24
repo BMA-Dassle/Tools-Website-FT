@@ -37,6 +37,11 @@ export type DemoMode =
   | "results-mega"
   | "top-times"
   | "guide-arrow"
+  /** The wall's setup + sync test: which panel this is, which player and monitor it
+   *  hangs off, and the two numbers that decide whether the shine is in step. Not a
+   *  fabricated-data preview like the others — it decorates NOTHING and reads the
+   *  panel's own state, which is why it is safe to leave running while staff work. */
+  | "identify"
   | "off";
 
 export function parseDemoMode(raw: string | null): DemoMode {
@@ -51,7 +56,8 @@ export function parseDemoMode(raw: string | null): DemoMode {
     raw === "results-pro" ||
     raw === "results-mega" ||
     raw === "top-times" ||
-    raw === "guide-arrow"
+    raw === "guide-arrow" ||
+    raw === "identify"
   ) {
     return raw;
   }

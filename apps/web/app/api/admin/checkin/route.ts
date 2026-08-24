@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { parseCheckinQr } from "@/lib/qr-checkin";
-import { parseMemberQr } from "~/features/kiosk/qr-scanner/member-qr";
+import { parseMemberQr, parseMemberCode } from "~/features/kiosk/qr-scanner/member-qr";
 import { lookupMemberMatches, lookupMemberMatchesAt } from "~/features/kiosk/license/lookup.server";
 import { getRacerPass } from "~/features/racing/data/racer-wallet-db";
 import { recordSignageEvent } from "~/features/signage/events.server";
@@ -24,6 +24,7 @@ import {
 } from "@/lib/checkin-race-flags";
 import { ARENA_RESOURCES, HP_NAPLES_LOCATION_ID } from "~/features/arena-tickets/constants";
 import { activeArenaCenters, type ArenaCenter } from "~/features/arena-tickets/centers";
+import { calledArenaSessions } from "~/features/arena-tickets/sessions-current.server";
 import { activityDisplay, classifyArenaSession } from "~/features/arena-tickets/types";
 import { loadAllFromRedis, refreshRacesCurrent } from "~/features/racing/races-current.server";
 import type { Participant as RosterParticipant } from "@/lib/participant-contact";
@@ -38,9 +39,18 @@ import {
   applyLocalFloor,
   parseStoredRoster,
   resolveRosterCount,
-  rosterIsFresh,
+  rosterIsFreshForWire,
   type RosterCount,
 } from "~/features/racing/roster-count";
+import { BRIDGE_STALE_MS } from "~/features/racing/roster-dirty";
+import { readRosterMarks, bankRosterRead } from "~/features/racing/roster-dirty.server";
+import {
+  recordScan,
+  readScanHistory,
+  summariseScans,
+  type ScanKind,
+  type ScanOutcome,
+} from "~/features/checkin/scan-history";
 
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
@@ -424,6 +434,8 @@ async function handleArenaScan(
   personId: string,
   sessionId: string,
   participantId: string | null,
+  /** See `dryRun` in POST — resolve and report, write nothing. */
+  dryRun = false,
 ): Promise<NextResponse> {
   const noHeadsock = { detected: false, deducted: false, balance: 0 };
   const [session, guestLookup, calledIds] = await Promise.all([
@@ -471,10 +483,39 @@ async function handleArenaScan(
     });
   }
 
-  const checkinResult = await checkInViaPandora(personId, sessionId, locationId);
-  // OUR OWN WRITE, IN OUR OWN LEDGER — before the response, so the very next
-  // board poll counts this racer whether or not Pandora has caught up.
-  if (checkinResult.success) await creditLocalCheckIn(locationId, sessionId, personId);
+  // ONE SCAN PER GUEST PER SESSION — same rule as racing. No headsock here, so
+  // nothing is spent twice, but a re-scan should still tell the desk they are
+  // already in rather than silently writing again.
+  const firstScan = dryRun
+    ? !(await isLocallyCheckedIn(locationId, sessionId, personId))
+    : await claimLocalCheckIn(locationId, sessionId, personId);
+
+  if (!firstScan) {
+    return NextResponse.json({
+      success: true,
+      alreadyCheckedIn: true,
+      guest: {
+        firstName: guest?.firstName || "",
+        lastName: guest?.lastName || "",
+        pictureUrl: null,
+      },
+      session: sessionInfo,
+      currentlyCheckingIn: true,
+      headsock: noHeadsock,
+      arena: true,
+      detail: "Already checked in for this session",
+    });
+  }
+
+  const checkinResult = dryRun
+    ? ({ success: true } as CheckInResult)
+    : await checkInViaPandora(personId, sessionId, locationId);
+  // The claim above is the ledger write — so the very next board poll counts
+  // this guest whether or not Pandora has caught up. A FAILED write hands the
+  // claim back, or the desk could never retry.
+  if (!checkinResult.success && !dryRun) {
+    await releaseLocalCheckIn(locationId, sessionId, personId);
+  }
   return NextResponse.json({
     success: checkinResult.success,
     guest: {
@@ -645,17 +686,173 @@ async function resolveActiveSessionByParticipant(
 
 // --------------- POST: Check in a guest ---------------
 
+/**
+ * What was physically presented at the desk, from the payload alone. Mirrors
+ * the branching `runCheckinScan` does below rather than guessing — the licence
+ * shapes are smstim.in URLs, everything else is `FT:`/`HP:`-prefixed or bare
+ * digits, and a 4-part FT QR is the move-resilient one.
+ */
+function classifyScanKind(raw: string): ScanKind {
+  const trimmed = (raw || "").trim();
+  if (!trimmed) return "unparsed";
+  if (parseMemberQr(trimmed) || parseMemberCode(trimmed)) return "licence";
+  const parsed = parseCheckinQr(trimmed);
+  if (parsed) {
+    if (parsed.locationId) return "arena";
+    return parsed.participantId ? "eticket-move" : "eticket";
+  }
+  if (/^\d+$/.test(trimmed)) return "paper";
+  return "unparsed";
+}
+
+/** The desk's reading of what just happened, from the response we already built. */
+function classifyScanOutcome(payload: {
+  success?: boolean;
+  alreadyCheckedIn?: boolean;
+  currentlyCheckingIn?: boolean;
+  guest?: unknown;
+}): ScanOutcome {
+  if (payload.alreadyCheckedIn) return "already-in";
+  if (payload.currentlyCheckingIn) return payload.success ? "checked-in" : "failed";
+  if (!payload.guest) return "not-found";
+  return "not-checking-in";
+}
+
+/**
+ * THE SCAN, PLUS ITS OWN RECORD OF ITSELF.
+ *
+ * The history write lives out here rather than at the thirteen return points
+ * inside `runCheckinScan`, so every path — racing, arena, licence, paper, and
+ * anything added later — is recorded without anyone having to remember to do
+ * it. The outcome is read back off the response that was already built, which
+ * means the log and the desk can never disagree about what happened.
+ *
+ * AWAITED, NOT FIRE-AND-FORGET. A serverless handler is frozen the moment it
+ * responds, so a dangling `void` here would be killed mid-write and the history
+ * would be silently empty (the same defect that stopped the wallet pushes from
+ * ever running, 2026-08-05). It costs a few Redis commands on a path that
+ * already spends hundreds of milliseconds upstream.
+ */
 export async function POST(req: NextRequest) {
+  const startedAtMs = Date.now();
+
+  // Cloned so `runCheckinScan` still gets an unread body.
+  let raw = "";
+  let dryRun = false;
+  try {
+    const parsed = JSON.parse(await req.clone().text()) as { raw?: string; dryRun?: boolean };
+    raw = parsed.raw ?? "";
+    dryRun = parsed.dryRun === true;
+  } catch {
+    /* malformed body — the inner handler will reject it */
+  }
+
+  const res = await runCheckinScan(req);
+
+  /**
+   * EVERY ATTEMPT, NOT JUST THE ONES THAT WORKED.
+   *
+   * A 401 is skipped — that is a caller without the token, not a badge at the
+   * desk. Everything else is recorded, INCLUDING the 400s, because "could not
+   * parse barcode data" is exactly the failure a desk reports as "scanning is
+   * broken" and the first draft of this logged nothing at all for it. A history
+   * that only holds successes cannot answer the question it exists for.
+   */
+  if (res.status !== 401) {
+    try {
+      const payload = (await res.clone().json()) as {
+        success?: boolean;
+        alreadyCheckedIn?: boolean;
+        currentlyCheckingIn?: boolean;
+        guest?: { firstName?: string } | null;
+        session?: { track?: string | null; heatNumber?: number | null };
+        headsock?: { detected?: boolean };
+        diag?: { ms?: Record<string, number> };
+        checkinError?: string | null;
+        detail?: string;
+        error?: string;
+      };
+
+      const ok = res.status === 200;
+      const outcome: ScanOutcome = ok ? classifyScanOutcome(payload) : "unreadable";
+
+      // The upstream's own words, in preference order, truncated. A failed
+      // check-in whose reason is missing is barely more useful than no row.
+      const why =
+        payload.checkinError ||
+        payload.detail ||
+        payload.error ||
+        (outcome === "failed" ? "check-in refused, no reason given" : null);
+
+      await recordScan({
+        atMs: startedAtMs,
+        kind: classifyScanKind(raw),
+        outcome,
+        totalMs: Date.now() - startedAtMs,
+        ms: payload.diag?.ms,
+        track: payload.session?.track ?? null,
+        heatNumber: payload.session?.heatNumber ?? null,
+        firstName: payload.guest?.firstName ?? null,
+        headsock: payload.headsock?.detected === true,
+        dryRun,
+        detail:
+          outcome === "checked-in" || outcome === "already-in"
+            ? null
+            : why
+              ? String(why).slice(0, 200)
+              : null,
+        ...(ok ? {} : { status: res.status }),
+      });
+    } catch {
+      /* never let the diagnostic affect the scan it is describing */
+    }
+  }
+
+  return res;
+}
+
+async function runCheckinScan(req: NextRequest): Promise<NextResponse> {
   if (!auth(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  let body: { personId?: string; sessionId?: string; raw?: string };
+  let body: { personId?: string; sessionId?: string; raw?: string; dryRun?: boolean };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
+
+  /**
+   * DRY RUN — resolve and report, write NOTHING.
+   *
+   * Suppresses exactly the four things a scan changes in the world: the Pandora
+   * check-in, our own local check-in credit, the headsock deduction, and the
+   * lobby-TV events. Everything else runs untouched, so what comes back is what
+   * a real scan WOULD have said.
+   *
+   * Reads are deliberately still live, including the deposit read — the point is
+   * to report that a headsock is due, and knowing that requires asking. Only the
+   * WRITE is withheld.
+   *
+   * A physical scan can never set this: the scanner posts `{ raw }` and nothing
+   * else. It exists for the gear's "Look up" button, which is why it is safe to
+   * hand to a desk in the middle of a race night.
+   */
+  const dryRun = body.dryRun === true;
+
+  /** Where the time went. Attached to every response; only the gear shows it. */
+  const startedAtMs = Date.now();
+  const ms: Record<string, number> = {};
+  async function timed<T>(label: string, work: Promise<T>): Promise<T> {
+    const t0 = Date.now();
+    try {
+      return await work;
+    } finally {
+      ms[label] = Date.now() - t0;
+    }
+  }
+  const diag = () => ({ dryRun, ms: { ...ms, total: Date.now() - startedAtMs } });
 
   let personId = body.personId;
   let sessionId = body.sessionId;
@@ -677,7 +874,11 @@ export async function POST(req: NextRequest) {
   // completely unchanged — same BMI check-in write, same headsock rules.
   let licenceCode: string | null = null;
   if (body.raw) {
-    const qr = parseMemberQr(body.raw.trim());
+    // A typed bare code counts too — staff read it off the pass when a
+    // licence will not scan. Wrapped forms first; the bare form can never
+    // collide with them (it has no scheme, host or colon).
+    const trimmedRaw = body.raw.trim();
+    const qr = parseMemberQr(trimmedRaw) ?? parseMemberCode(trimmedRaw);
     if (qr) {
       licenceCode = qr.code;
       // NAMESPACE ROUTING. A Naples-issued app QR (clientKey
@@ -725,6 +926,7 @@ export async function POST(req: NextRequest) {
             arena.personId,
             arena.sessionId,
             arena.participantId,
+            dryRun,
           );
         }
         // Known Naples guest, nothing called right now — say when their
@@ -785,6 +987,7 @@ export async function POST(req: NextRequest) {
             arena.personId,
             arena.sessionId,
             arena.participantId,
+            dryRun,
           );
         }
         // Known racer, no heat OPEN yet. Not an error — but "No upcoming race
@@ -866,7 +1069,7 @@ export async function POST(req: NextRequest) {
   // called-signal/time-window gate, sessions/next for "come back at X").
   // See handleArenaScan.
   if (qrLocationId && personId && sessionId) {
-    return handleArenaScan(req, qrLocationId, personId, sessionId, qrParticipantId);
+    return handleArenaScan(req, qrLocationId, personId, sessionId, qrParticipantId, dryRun);
   }
 
   // Get races-current first (needed for both e-ticket QR and paper QR paths)
@@ -1038,42 +1241,94 @@ export async function POST(req: NextRequest) {
     balance: 0,
   };
   if (currentlyCheckingIn) {
+    /**
+     * ONE SCAN PER RACER PER HEAT — claimed before a single credit is spent.
+     *
+     * A dry run must only ASK (`isLocallyCheckedIn`), never claim: consuming
+     * the claim here would make the real scan that follows look like the
+     * duplicate, which is the exact opposite of what a test should do.
+     */
+    const firstScan = dryRun
+      ? !(await isLocallyCheckedIn(FASTTRAX_LOCATION_ID, sessionId, personId))
+      : await claimLocalCheckIn(FASTTRAX_LOCATION_ID, sessionId, personId);
+
+    if (!firstScan) {
+      // Already in. No Pandora write, no headsock deduction, no lobby-TV cue —
+      // the racer is checked in and has already been handed whatever they were
+      // owed. The desk needs to know that and nothing else.
+      const [vip, birthday, backToBack] = await timed(
+        "flags",
+        Promise.all([vipPromise, birthdayPromise, backToBackPromise]),
+      );
+      return NextResponse.json({
+        success: true,
+        alreadyCheckedIn: true,
+        guest: guest
+          ? { firstName: guest.firstName, lastName: guest.lastName, pictureUrl: null }
+          : null,
+        session: { track, raceType, heatNumber, scheduledStart },
+        currentlyCheckingIn,
+        headsock,
+        vip,
+        birthday,
+        backToBack,
+        detail: "Already checked in for this heat",
+        diag: diag(),
+      });
+    }
+
     if (HEADSOCK_DEPOSIT_KIND_ID) {
       try {
-        const deposits = await getDepositOverview(personId, FASTTRAX_LOCATION_ID);
+        const deposits = await timed("deposit", getDepositOverview(personId, FASTTRAX_LOCATION_ID));
         const hs = findHeadsockCredit(deposits);
         if (hs) {
           headsock.detected = true;
           headsock.balance = hs.balance;
-          addDeposit({
-            personId,
-            depositKindId: hs.depositKindId,
-            amount: -1,
-            locationId: FASTTRAX_LOCATION_ID,
-          }).catch((e) => {
-            enqueueDepositFailure({
-              source: "headsock-checkin",
-              sourceRef: `${personId}-${sessionId}`,
-              locationId: FASTTRAX_LOCATION_ID,
+          // The READ above still ran — a dry run must be able to report that a
+          // headsock is due. Only the deduction is withheld.
+          if (!dryRun) {
+            addDeposit({
               personId,
               depositKindId: hs.depositKindId,
               amount: -1,
-              initialError: e instanceof Error ? e.message : "Unknown",
-            }).catch(() => {});
-          });
+              locationId: FASTTRAX_LOCATION_ID,
+            }).catch((e) => {
+              enqueueDepositFailure({
+                source: "headsock-checkin",
+                sourceRef: `${personId}-${sessionId}`,
+                locationId: FASTTRAX_LOCATION_ID,
+                personId,
+                depositKindId: hs.depositKindId,
+                amount: -1,
+                initialError: e instanceof Error ? e.message : "Unknown",
+              }).catch(() => {});
+            });
+          }
         }
       } catch {
         // Deposit read failed — don't block check-in
       }
     }
 
-    // Await Pandora check-in — returns guest photo as base64
-    const checkinResult = await checkInViaPandora(personId, sessionId);
-    // OUR OWN WRITE, IN OUR OWN LEDGER. The desk does not need Pandora to tell
-    // it that a racer it just scanned is checked in — see applyLocalFloor. This
-    // is what stops the count sliding backwards between polls.
-    if (checkinResult.success) {
-      await creditLocalCheckIn(FASTTRAX_LOCATION_ID, sessionId, personId);
+    // Await Pandora check-in — returns guest photo as base64.
+    // A dry run reports the check-in it WOULD have made and writes nothing; the
+    // guest name then comes from the cached roster row below, not from the
+    // check-in response.
+    const checkinResult = dryRun
+      ? ({ success: true } as CheckInResult)
+      : await timed("checkin", checkInViaPandora(personId, sessionId));
+    /**
+     * OUR OWN WRITE, IN OUR OWN LEDGER — already done. The claim above added
+     * this racer to the very set `applyLocalFloor` counts, which is what stops
+     * the count sliding backwards between polls, so there is nothing to credit
+     * here any more.
+     *
+     * What IS needed is the reverse: a check-in that FAILED must give the claim
+     * back. Otherwise the failure looks identical to a success on the next scan
+     * and the desk can never retry the racer it just failed to check in.
+     */
+    if (!checkinResult.success && !dryRun) {
+      await releaseLocalCheckIn(FASTTRAX_LOCATION_ID, sessionId, personId);
     }
     const checkinGuest = checkinResult.guest;
 
@@ -1083,11 +1338,13 @@ export async function POST(req: NextRequest) {
       pictureUrl: checkinGuest?.pic ?? null,
     };
 
-    const [vip, birthday, backToBack] = await Promise.all([
-      vipPromise,
-      birthdayPromise,
-      backToBackPromise,
-    ]);
+    // Timed as one block: these three were started before the deposit read and
+    // the write, so this measures what the scan actually WAITED for them — the
+    // number that says whether the birthday lookup is still the critical path.
+    const [vip, birthday, backToBack] = await timed(
+      "flags",
+      Promise.all([vipPromise, birthdayPromise, backToBackPromise]),
+    );
 
     // Tell the lobby TVs. Scoped to the resource so a Blue Track scan lights
     // the Blue board only, and carrying the birthday flag that turns both
@@ -1096,7 +1353,7 @@ export async function POST(req: NextRequest) {
     // Fire-and-forget, and recordSignageEvent swallows everything it can throw:
     // a display cue must never be able to fail a check-in. Not awaited either —
     // the racer is standing at the desk waiting for this response.
-    if (checkinResult.success) {
+    if (checkinResult.success && !dryRun) {
       const trackKey = trackFromName(track);
       void recordSignageEvent({
         id: `scan-${personId}-${sessionId}-${Date.now()}`,
@@ -1125,6 +1382,7 @@ export async function POST(req: NextRequest) {
       vip,
       birthday,
       backToBack,
+      diag: diag(),
     });
   }
 
@@ -1144,7 +1402,7 @@ export async function POST(req: NextRequest) {
   //
   // Scoped to the track, unlike a birthday: this concerns one person at one
   // desk, not the building. Fire-and-forget, never throws.
-  {
+  if (!dryRun) {
     const trackKey = trackFromName(track);
     void recordSignageEvent({
       id: `wrong-${personId ?? "unknown"}-${Date.now()}`,
@@ -1170,8 +1428,9 @@ export async function POST(req: NextRequest) {
     currentlyCheckingIn,
     headsock,
     vip: await vipPromise,
-    birthday: await birthdayPromise,
+    birthday: await timed("flags", birthdayPromise),
     backToBack: null,
+    diag: diag(),
   });
 }
 
@@ -1245,22 +1504,79 @@ const ROSTER_SEEN_KEY = (locationId: string, sessionId: string | number) =>
   `checkin:roster-seen:${locationId}:${sessionId}`;
 let sessionStatsInFlight: Promise<SessionStat[]> | null = null;
 
-/** Record that WE checked this person into this session. Never throws — a
- *  ledger write must not be able to fail a check-in that already happened. */
-async function creditLocalCheckIn(
+/**
+ * CLAIM A RACER FOR A HEAT, ATOMICALLY, BEFORE ANYTHING IS SPENT.
+ *
+ * Returns true only for the FIRST scan of this person into this session. The
+ * set above already noted that "`sadd` returning 0 is the duplicate telling us
+ * about itself"; this is the thing that finally listens to it.
+ *
+ * WHY IT MATTERS, AND IT IS NOT COSMETIC. A second scan re-read the deposit
+ * balance and deducted a SECOND headsock credit — a scanner that fires on both
+ * edges of a badge, a racer who swipes again because nobody told them it
+ * worked, or two desks scanning the same person at once all spent real credit.
+ * `sadd` is atomic, so even the simultaneous case has exactly one winner.
+ *
+ * FAILS OPEN. If Redis is unreachable this reports "first scan" and the scan
+ * proceeds exactly as it did before. A rare double credit is recoverable and
+ * refundable; a check-in desk that stops working because a cache is down is
+ * not. The asymmetry is the whole decision.
+ */
+async function claimLocalCheckIn(
+  locationId: string,
+  sessionId: string | number,
+  personId: string,
+): Promise<boolean> {
+  if (!sessionId || !personId) return true;
+  try {
+    const key = ROSTER_SEEN_KEY(locationId, sessionId);
+    const added = await redis.sadd(key, personId);
+    await redis.expire(key, ROSTER_KEY_TTL_SEC);
+    return added === 1;
+  } catch {
+    return true;
+  }
+}
+
+/** Has this desk already scanned them in? Read-only — used by a dry run, which
+ *  must never consume the claim a real scan is about to need. */
+async function isLocallyCheckedIn(
+  locationId: string,
+  sessionId: string | number,
+  personId: string,
+): Promise<boolean> {
+  if (!sessionId || !personId) return false;
+  try {
+    return (await redis.sismember(ROSTER_SEEN_KEY(locationId, sessionId), personId)) === 1;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * GIVE THE CLAIM BACK. Called when the check-in we claimed for then FAILED.
+ * Without this a failed write would be indistinguishable from a completed one
+ * and the racer could never be re-scanned — the desk would be locked out of
+ * fixing it, which is worse than the duplicate we were preventing.
+ */
+async function releaseLocalCheckIn(
   locationId: string,
   sessionId: string | number,
   personId: string,
 ): Promise<void> {
   if (!sessionId || !personId) return;
   try {
-    const key = ROSTER_SEEN_KEY(locationId, sessionId);
-    await redis.sadd(key, personId);
-    await redis.expire(key, ROSTER_KEY_TTL_SEC);
+    await redis.srem(ROSTER_SEEN_KEY(locationId, sessionId), personId);
   } catch {
-    /* the count degrades to Pandora's own answer, which is where it started */
+    /* the racer stays claimed; staff can still use Override */
   }
 }
+
+/*
+ * `creditLocalCheckIn` used to live here. `claimLocalCheckIn` above does the
+ * same write and also reports whether the racer was already in the set, so the
+ * unconditional version had no remaining caller.
+ */
 
 /** How many people this desk has scanned into this session. */
 async function localCheckInCount(locationId: string, sessionId: string | number): Promise<number> {
@@ -1394,13 +1710,44 @@ async function refreshRosterFromPandora(
 
 async function rosterFor(s: SessionStat): Promise<RosterCount> {
   const now = Date.now();
-  const [lastKnown, credited] = await Promise.all([
+  const sid = String(s.sessionId);
+  const [lastKnown, credited, marks, bridgeStamp] = await Promise.all([
     loadRosterCount(s.locationId, s.sessionId),
     localCheckInCount(s.locationId, s.sessionId),
+    readRosterMarks("checkin", [sid]),
+    redis.get("kart:bridge:last-event").catch(() => null),
   ]);
-  if (rosterIsFresh(lastKnown, now)) {
+
+  /**
+   * ASK THE WIRE BEFORE ASKING PANDORA.
+   *
+   * The ten-second window below is a guess about how long we are willing to be
+   * wrong for, and every tick past it buys a Pandora read whether or not
+   * anything moved. The venue's broadcast already knows, and mostly the answer
+   * is "nothing" — so while it is alive and silent about this heat, the stored
+   * count is not stale, it is current.
+   *
+   * Falls back to the plain ten seconds whenever the marks cannot decide (no
+   * heartbeat, no mark, Redis unreachable), so this is safe before anything
+   * starts writing them. See rosterIsFreshForWire.
+   */
+  const beat = bridgeStamp ? Date.parse(bridgeStamp) : NaN;
+  const bridgeAlive = Number.isFinite(beat) && now - beat <= BRIDGE_STALE_MS;
+  const mark = marks.get(sid) ?? { dirtyCounter: null, readCounter: null, lastReadMs: null };
+  if (
+    rosterIsFreshForWire({
+      entry: lastKnown,
+      nowMs: now,
+      dirtyCounter: mark.dirtyCounter,
+      readCounter: mark.readCounter,
+      bridgeAlive,
+    })
+  ) {
     return applyLocalFloor({ ...lastKnown!, stale: false }, credited);
   }
+  // Bank BEFORE the read, so a racer added while it is in flight is not
+  // swallowed — see bankRosterRead.
+  void bankRosterRead("checkin", sid, mark.dirtyCounter, now);
 
   // THE MOMENT A HEAT IS CALLED, THE COUNT HAS TO BE THERE (owner 2026-08-18:
   // "we need that data soon as we call").
@@ -1488,21 +1835,15 @@ async function buildSessionStats(): Promise<SessionStat[]> {
   const arenaRows = await Promise.all(
     activeArenaCenters().map(async (center): Promise<SessionStat[]> => {
       try {
-        const res = await fetch(`${PANDORA_BASE}/v2/bmi/sessions/current/${center.locationId}`, {
-          headers: pandoraHeaders(),
-          cache: "no-store",
-          signal: AbortSignal.timeout(4000),
+        // Shared cache + last-known-good. `allowStale` because THIS IS A BOARD:
+        // measured 2026-08-19, sessions/current timed out once in five, and the
+        // old code returned [] on that — silently emptying every arena row on
+        // the strip. A called session from thirty seconds ago beats a blank
+        // panel. The alert cron deliberately does NOT pass this flag.
+        const { sessions: called } = await calledArenaSessions(center, {
+          timeoutMs: 4000,
+          allowStale: true,
         });
-        if (!res.ok) return [];
-        const json = await res.json();
-        const called = Array.isArray(json?.data)
-          ? (json.data as {
-              sessionId?: string;
-              type?: string;
-              heatNumber?: number;
-              scheduledStart?: string | null;
-            }[])
-          : [];
         const rows: SessionStat[] = [];
         for (const s of called) {
           const sid = String(s.sessionId ?? "");
@@ -1578,6 +1919,20 @@ export async function GET(req: NextRequest) {
     } catch {
       return NextResponse.json({ sessions: [] });
     }
+  }
+
+  /**
+   * SCAN HISTORY — the ring buffer every POST writes to, newest first, with the
+   * aggregates alongside so the panel header and its rows cannot disagree.
+   *
+   * Answers "the board is slow" from the board itself: which badge kinds are
+   * slow, how slow, and whether it is every scan or one heat. Read-only, and an
+   * empty list is a valid answer (a fresh deploy, or a wiped cache).
+   */
+  if (action === "scan-history") {
+    const limitParam = Number(req.nextUrl.searchParams.get("limit") ?? "100");
+    const entries = await readScanHistory(Number.isFinite(limitParam) ? limitParam : 100);
+    return NextResponse.json({ entries, stats: summariseScans(entries) });
   }
 
   const selftest = req.nextUrl.searchParams.get("selftest");

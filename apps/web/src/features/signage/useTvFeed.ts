@@ -16,9 +16,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { TV_POLL_MS, TV_PULSE_MS } from "./constants";
+import { isPanelWindowed } from "./usePanelFill";
 import type { TvFeed, TvPulse } from "./types";
 
 const CACHE_PREFIX = "tv_feed_cache:";
+
+/**
+ * `&win=1` when this board is not filling its monitor, and NOTHING when it is.
+ *
+ * Read at fetch time rather than taken as a hook argument, deliberately: this
+ * loop is the one three separate freeze fixes went into, and a new entry in its
+ * dependency array is a new way to tear it down and restart it. Absent by
+ * default so the common case adds not one byte to the request.
+ */
+function panelParam(): string {
+  return isPanelWindowed() ? "&win=1" : "";
+}
 
 /**
  * The build this tab is running, so the admin page can tell a stale board from
@@ -26,8 +39,32 @@ const CACHE_PREFIX = "tv_feed_cache:";
  */
 const BUILD_SHA = (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || "dev").slice(0, 8);
 
-export function useTvFeed(screenId: string | null): TvFeed | null {
+/**
+ * Is the polling actually alive?
+ *
+ * A wall has no error state and the last good feed is the floor, which is
+ * exactly what makes a dead poll INVISIBLE: a frozen board and a quiet night
+ * look identical from the front. These two stamps are what tell them apart, and
+ * `?debug=1` prints them at the wall.
+ *
+ * The CLIENT clock, not the server's `now`: the question is "when did this
+ * browser last hear back", and answering it with a stamp from inside the
+ * payload would be answering with the thing that stopped arriving.
+ */
+export interface TvFeedHealth {
+  /** `Date.now()` at the last successful FULL feed. Null until the first. */
+  lastFullOkMs: number | null;
+  /** `Date.now()` at the last successful pulse. Null until the first. */
+  lastPulseOkMs: number | null;
+}
+
+export function useTvFeed(screenId: string | null): {
+  feed: TvFeed | null;
+  health: TvFeedHealth;
+} {
   const [feed, setFeed] = useState<TvFeed | null>(null);
+  const [lastFullOkMs, setLastFullOkMs] = useState<number | null>(null);
+  const [lastPulseOkMs, setLastPulseOkMs] = useState<number | null>(null);
   const lastGood = useRef<TvFeed | null>(null);
   // What the mirror below last wrote (with the per-poll `now` stamp masked —
   // it changes every response, so comparing it would never match), so an
@@ -66,7 +103,7 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
       if (!screenId) return;
       try {
         const res = await fetch(
-          `/api/tv/feed?screen=${encodeURIComponent(screenId)}&build=${BUILD_SHA}`,
+          `/api/tv/feed?screen=${encodeURIComponent(screenId)}&build=${BUILD_SHA}${panelParam()}`,
           {
             cache: "no-store",
             signal,
@@ -77,6 +114,7 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
         if (signal.aborted) return;
         lastGood.current = next;
         setFeed(next);
+        setLastFullOkMs(Date.now());
         try {
           const comparable = JSON.stringify({ ...next, now: 0 });
           if (comparable !== lastWritten.current) {
@@ -95,7 +133,17 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
     [screenId],
   );
 
-  useVisibleInterval(poll, TV_POLL_MS, !!screenId);
+  /**
+   * A DEADLINE ON EVERY CYCLE, because a stalled fetch used to stop this loop
+   * for good — the board then sat on its last good feed until somebody walked
+   * over and reloaded the page (FT results wall, 2026-08-17). See the note in
+   * lib/visible-loop.
+   *
+   * 20s against a 15s cadence: the full feed touches Neon, Pandora and BMI and
+   * a slow answer is still worth having. Anything past 20s has missed its slot
+   * regardless, and the honest move is to start a fresh one.
+   */
+  useVisibleInterval(poll, TV_POLL_MS, !!screenId, 20_000);
 
   /* ── the fast lane ───────────────────────────────────────────────────
      Only the live half — scans, birthdays, wrong-race, reload, preview. It is
@@ -109,7 +157,7 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
       if (!screenId) return;
       try {
         const res = await fetch(
-          `/api/tv/feed?pulse=1&screen=${encodeURIComponent(screenId)}&build=${BUILD_SHA}`,
+          `/api/tv/feed?pulse=1&screen=${encodeURIComponent(screenId)}&build=${BUILD_SHA}${panelParam()}`,
           {
             cache: "no-store",
             signal,
@@ -117,7 +165,10 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
         );
         if (!res.ok) return;
         const next = (await res.json()) as TvPulse;
-        if (!signal.aborted) setPulse(next);
+        if (!signal.aborted) {
+          setPulse(next);
+          setLastPulseOkMs(Date.now());
+        }
       } catch {
         /* keep the last pulse — a dropped beat must not clear the rail */
       }
@@ -125,9 +176,13 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
     [screenId],
   );
 
-  useVisibleInterval(pollPulse, TV_PULSE_MS, !!screenId);
+  /** Tighter, because this lane exists to be fast: three Redis reads on a 2s
+   *  cadence. A beat still in flight after 8s is not going to be news. */
+  useVisibleInterval(pollPulse, TV_PULSE_MS, !!screenId, 8_000);
 
-  return useMemo(() => {
+  const health = useMemo(() => ({ lastFullOkMs, lastPulseOkMs }), [lastFullOkMs, lastPulseOkMs]);
+
+  const merged = useMemo(() => {
     if (!feed) return null;
     if (!pulse) return feed;
     // The pulse is newer by construction; never let a slow full-feed response
@@ -178,4 +233,6 @@ export function useTvFeed(screenId: string | null): TvFeed | null {
         : feed.briefing,
     };
   }, [feed, pulse]);
+
+  return useMemo(() => ({ feed: merged, health }), [merged, health]);
 }

@@ -33,12 +33,15 @@ import { useT } from "../i18n";
 
 const GOLD = "#FFD700";
 
-/** Venue SMS sender for the verify code (matches lib CENTER_META — the
- *  bowling lane-ready map keyed by Square location; kiosks key by
- *  center+brand). Web's LoyaltySection hardcodes the Fort Myers number. */
-function verifySmsFrom(center: "fort-myers" | "naples", brand: "fasttrax" | "headpinz"): string {
-  if (center === "naples") return "+12394553755"; // HeadPinz Naples
-  return brand === "headpinz" ? "+12393022155" : "+12394819666"; // HP FM / FastTrax
+/** Which brand the verify code should be worded for. Used to be a
+ *  per-center DID; the sender is now always the single A2P number, so
+ *  only the wording varies. Naples is a HeadPinz venue. */
+function verifyBrand(
+  center: "fort-myers" | "naples",
+  brand: "fasttrax" | "headpinz",
+): "fasttrax" | "headpinz" {
+  if (center === "naples") return "headpinz";
+  return brand;
 }
 
 /** 10-digit US phone from whatever formatting the contact carries. */
@@ -222,7 +225,7 @@ export function KioskRewardsSection({
       const res = await fetch("/api/sms-verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ phone: digits, from: verifySmsFrom(center, brand) }),
+        body: JSON.stringify({ phone: digits, brand: verifyBrand(center, brand) }),
       });
       if (res.ok) setVerifyStep("code");
       else {

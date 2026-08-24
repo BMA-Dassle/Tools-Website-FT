@@ -526,3 +526,85 @@ describe("updateItem — race date change re-validates pack picks", () => {
     expect((next.items[0] as RaceItem).creditPacks).toBeUndefined();
   });
 });
+
+/**
+ * A bundle with a recurring day rule (BOGO — Wednesday races only) must not
+ * survive a move to a day it isn't sold on, still priced at the deal. Nothing
+ * downstream refuses it: `raceItemChargeLines` resolves packages by id through
+ * `getPackage`, which is deliberately NOT day-gated because expiring one there
+ * drops the heats from the Square lines while BMI still books them at $0.
+ * Clearing the pointer is the only fail-safe direction available.
+ *
+ * 2026-08-19 and 2026-09-16 are Wednesdays; 2026-08-20 is a Thursday.
+ */
+describe("updateItem — race date change re-validates PACKAGE picks", () => {
+  function raceWithBogo(date: string): { s: BookingSession; id: string } {
+    let s = seedSession();
+    const item = { ...newItem("race"), date } as RaceItem;
+    s = { ...s, items: [item] };
+    s = reducer(s, {
+      type: "updateItem",
+      id: item.id,
+      patch: {
+        packageIdAdult: "bogo-weekday",
+        packageIdJunior: "bogo-weekday-junior",
+      } as Partial<RaceItem>,
+    });
+    return { s, id: item.id };
+  }
+
+  it("Wednesday → Thursday clears both BOGO picks", () => {
+    const { s, id } = raceWithBogo("2026-08-19");
+    const next = reducer(s, {
+      type: "updateItem",
+      id,
+      patch: { date: "2026-08-20" } as Partial<RaceItem>,
+    });
+    const race = next.items[0] as RaceItem;
+    expect(race.packageIdAdult).toBeNull();
+    expect(race.packageIdJunior).toBeNull();
+  });
+
+  it("Wednesday → another Wednesday keeps them", () => {
+    const { s, id } = raceWithBogo("2026-08-19");
+    const next = reducer(s, {
+      type: "updateItem",
+      id,
+      patch: { date: "2026-09-16" } as Partial<RaceItem>,
+    });
+    const race = next.items[0] as RaceItem;
+    expect(race.packageIdAdult).toBe("bogo-weekday");
+    expect(race.packageIdJunior).toBe("bogo-weekday-junior");
+  });
+
+  /** No `raceDays` on the standing bundles, so this cannot disturb them — the
+   *  reducer must not become a general package-eligibility gate. */
+  it("a standing bundle survives any date change", () => {
+    let s = seedSession();
+    const item = { ...newItem("race"), date: "2026-08-19" } as RaceItem;
+    s = { ...s, items: [item] };
+    s = reducer(s, {
+      type: "updateItem",
+      id: item.id,
+      patch: { packageIdAdult: "ultimate-qualifier-weekday" } as Partial<RaceItem>,
+    });
+    for (const date of ["2026-08-20", "2026-08-22"]) {
+      const next = reducer(s, {
+        type: "updateItem",
+        id: item.id,
+        patch: { date } as Partial<RaceItem>,
+      });
+      expect((next.items[0] as RaceItem).packageIdAdult).toBe("ultimate-qualifier-weekday");
+    }
+  });
+
+  it("a non-date patch never touches package picks", () => {
+    const { s, id } = raceWithBogo("2026-08-19");
+    const next = reducer(s, {
+      type: "updateItem",
+      id,
+      patch: { povQuantity: 1 } as Partial<RaceItem>,
+    });
+    expect((next.items[0] as RaceItem).packageIdAdult).toBe("bogo-weekday");
+  });
+});

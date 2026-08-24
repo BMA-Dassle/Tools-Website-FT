@@ -53,22 +53,13 @@ import {
   buildArenaCheckinSingleSmsBody,
 } from "./sms";
 import { buildArenaCheckinEmailHtml } from "./email";
+import { calledArenaSessions, type CalledArenaSession } from "./sessions-current.server";
 
 const API_BASE = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
-const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";
 const SHORT_TTL = 60 * 60 * 24 * 90;
 const DEDUP_TTL = 60 * 60 * 6;
 
 /** Shape from GET /v2/bmi/sessions/current/{locationID}. */
-interface CalledArenaSession {
-  sessionId: string;
-  resourceName: string;
-  /** Parsed from the session name — "Nexus Laser Tag" / "Nexus Gel Blaster". */
-  type: string;
-  heatNumber: number;
-  scheduledStart: string | null;
-  calledAt: string;
-}
 
 interface Candidate {
   session: CalledArenaSession;
@@ -88,23 +79,22 @@ export interface ArenaCheckinSummary {
   emailSends: number;
 }
 
+/**
+ * NO `allowStale` HERE, ON PURPOSE.
+ *
+ * This cron TEXTS GUESTS "you're checking in now". A last-known-good list could
+ * say that about a session which has already finished, and there is no
+ * unsending it. The check-in strip opts into stale because a board showing a
+ * slightly old called session beats a blank one; a SENDER must see the empty
+ * list and do nothing. Same split as everywhere else here: display degrades,
+ * irreversible actions do not.
+ *
+ * It still gets the shared serving cache, so a run landing a few seconds behind
+ * the strip costs Pandora nothing.
+ */
 async function fetchCalledSessions(center: ArenaCenter): Promise<CalledArenaSession[]> {
-  try {
-    const res = await fetch(`${PANDORA_BASE}/v2/bmi/sessions/current/${center.locationId}`, {
-      headers: {
-        Authorization: `Bearer ${process.env.SWAGGER_ADMIN_KEY || ""}`,
-        Accept: "application/json",
-      },
-      cache: "no-store",
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return [];
-    const json = await res.json();
-    return Array.isArray(json?.data) ? (json.data as CalledArenaSession[]) : [];
-  } catch (err) {
-    console.error("[arena-checkin] sessions/current fetch failed:", err);
-    return [];
-  }
+  const { sessions } = await calledArenaSessions(center, { timeoutMs: 10_000 });
+  return sessions;
 }
 
 async function fetchParticipants(center: ArenaCenter, sessionId: string): Promise<Participant[]> {

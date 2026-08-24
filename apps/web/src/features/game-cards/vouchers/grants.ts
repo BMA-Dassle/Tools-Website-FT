@@ -47,6 +47,11 @@
  * there is no `tok-150` on the sellable grid because $15 isn't a package we
  * offer à la carte. It is still a denomination we HONOUR, so it belongs here.
  *
+ * `250` is the same kind of exception, added 2026-08-18 for the Groupon deal
+ * "$25 Worth of Arcade Game Play and Four Laser Tag Entries" — the $25 lands
+ * whole on one card, which is 250 tokens at the same rate. Not sold à la carte
+ * either; honoured all the same.
+ *
  * This list and `NATIVE_GRANT_DENOMINATIONS` (service/native-voucher.ts) must
  * stay in sync, and the reason is worth spelling out: the mint validates
  * against that one, while the LOAD path re-derives the grant through this one
@@ -56,7 +61,7 @@
  * silent, and the guest walks away with an empty card. `grants.test.ts` pins
  * the two arrays together so that can't happen again.
  */
-export const COMP_TOKEN_DENOMINATIONS = [50, 100, 150, 200, 300, 500, 1000] as const;
+export const COMP_TOKEN_DENOMINATIONS = [50, 100, 150, 200, 250, 300, 500, 1000] as const;
 
 /** Synthetic package id prefix. Voucher grants are NOT in TOKEN_PACKAGES (that
  *  array is the sellable grid and a $0 tile must never render in it), so the

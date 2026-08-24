@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseMemberQr } from "./member-qr";
+import { parseMemberQr, parseMemberCode } from "./member-qr";
 
 const SAMPLE = 'https://smstim.in?["headpinzftmyers","3f59bc35-0548-46df-ba0c-f8cdedc6568d"]';
 
@@ -96,5 +96,37 @@ describe("parseMemberQr", () => {
     expect(parseMemberQr('https://smstim.in?["headpinzftmyers","<script>"]')).toBeNull();
     expect(parseMemberQr("https://smstim.in?not json at all")).toBeNull();
     expect(parseMemberQr("DCSDOE")).toBeNull();
+  });
+});
+
+describe("parseMemberCode — typed bare code", () => {
+  it("accepts the code a staff member reads off the pass", () => {
+    // The real one from the desk, 2026-08-20 — racer was on Red 31 and the
+    // typed code was refused outright.
+    expect(parseMemberCode("ksp98sahye7nw")).toEqual({ clientKey: "", code: "ksp98sahye7nw" });
+    expect(parseMemberCode("mgrm2g8o42wxc")?.code).toBe("mgrm2g8o42wxc");
+  });
+
+  it("tolerates surrounding whitespace, because this one is typed", () => {
+    expect(parseMemberCode("  ksp98sahye7nw \n")?.code).toBe("ksp98sahye7nw");
+  });
+
+  it("REFUSES bare digits — at this desk those are a paper QR participant id", () => {
+    // The collision worth having a test for: CODE_RE alone would accept both.
+    expect(parseMemberCode("49976218")).toBeNull();
+    expect(parseMemberCode("973273")).toBeNull();
+  });
+
+  it("refuses a person-search token, same rule as the wrapped forms", () => {
+    expect(parseMemberCode("Osborn 2/12/1991")).toBeNull();
+    expect(parseMemberCode("abc")).toBeNull();
+    expect(parseMemberCode("")).toBeNull();
+    expect(parseMemberCode("   ")).toBeNull();
+  });
+
+  it("leaves payloads that belong to another parser alone", () => {
+    expect(parseMemberCode("FT:63000000000021716:99887766")).toBeNull();
+    expect(parseMemberCode("HP:TXBSQN0FEKQ11:12345:67890")).toBeNull();
+    expect(parseMemberCode("https://smstim.in/908/authenticate/?login_code=abc123")).toBeNull();
   });
 });

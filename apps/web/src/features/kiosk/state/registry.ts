@@ -10,6 +10,7 @@ import {
   RaceHeatPickerStepAdultKiosk,
   RaceHeatPickerStepJuniorKiosk,
 } from "~/components/features/booking/steps/race/RaceHeatPickerStep";
+import { withKartingCheckIn } from "~/components/features/booking/steps/race/karting-check-in-context";
 import { classicOnly, hiddenForDuckpin } from "~/features/booking/state/steps";
 import { getPackage } from "@/lib/packages";
 import { KioskSlotStep } from "../steps/KioskSlotStep";
@@ -114,12 +115,19 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
       // pick time and the label would risk sending a standard guest to the wrong
       // floor (owner 2026-08-17). Same step ids, so breadcrumbs and canAdvance
       // are untouched — see RaceHeatPickerStep's kiosk variants.
+      //
+      // combo-start is on this list for the same reason: a combo special
+      // REPLACES the heat pickers with its own start-time grid, and that grid
+      // sells the identical BMI session slots. It shipped without the treatment
+      // and a VIP guest read a bare time as a race time (owner 2026-08-19).
       .map((s) =>
         s.id === "race-heat-adult"
           ? (RaceHeatPickerStepAdultKiosk as StepDef)
           : s.id === "race-heat-junior"
             ? (RaceHeatPickerStepJuniorKiosk as StepDef)
-            : s,
+            : s.id === "combo-start"
+              ? withKartingCheckIn(s)
+              : s,
       )
       .filter(
         (s) =>

@@ -29,6 +29,14 @@ export interface VenueInfo {
   brand: "fasttrax" | "headpinz";
   /** BMI / Office location id — the key for daily-events + resource lookups. */
   bmiLocationId: number;
+  /**
+   * SQUARE location id. The third of the four parallel "where" ids this repo
+   * carries (see the namespace trap at the top of this file), and the one the
+   * BOWLING tables are keyed by: `bowling_experience_offers.center_code` holds a
+   * Square location id, NOT a center slug. Bridged here rather than re-derived at
+   * the call site, which is what this map exists for.
+   */
+  squareLocationId: string;
 }
 
 /**
@@ -43,6 +51,7 @@ export const VENUE_INFO: Record<SignageVenue, VenueInfo> = {
     center: "fort-myers",
     brand: "fasttrax",
     bmiLocationId: 467486,
+    squareLocationId: "LAB52GY480CJF",
   },
   HPFM: {
     venue: "HPFM",
@@ -50,6 +59,7 @@ export const VENUE_INFO: Record<SignageVenue, VenueInfo> = {
     center: "fort-myers",
     brand: "headpinz",
     bmiLocationId: 332160,
+    squareLocationId: "TXBSQN0FEKQ11",
   },
   HPN: {
     venue: "HPN",
@@ -57,12 +67,38 @@ export const VENUE_INFO: Record<SignageVenue, VenueInfo> = {
     center: "naples",
     brand: "headpinz",
     bmiLocationId: 332145,
+    squareLocationId: "PPTR5G2N0QXF7",
   },
 };
 
 /** `HPFM:1` — the registry primary key and the `?screen=` launch param. */
 export function screenKey(venue: SignageVenue, screenNumber: number): string {
   return `${venue}:${screenNumber}`;
+}
+
+/**
+ * THE URL A BOARD REWRITES ITSELF TO AT BOOT, and comes back to on a reload.
+ *
+ * Canonical so a self-update hard reload returns to the same screen whatever
+ * the player was originally pointed at — a stray query param, a trailing slash,
+ * a percent-encoded id.
+ *
+ * `debug` RIDES ALONG, and that is the whole reason this is a function. TvApp
+ * reads the flag from the live `window.location.search` on every render, so
+ * canonicalising it away turned `?debug=1` into a pane that painted once and
+ * then silently vanished — useless at a wall, which is the only place it is ever
+ * wanted. Carrying it also means a self-update reload comes back still in debug.
+ *
+ * `demo` deliberately does NOT ride along: a pushed preview is meant to expire,
+ * and TvApp captures it into state before the rewrite anyway.
+ */
+export function canonicalTvPath(
+  venue: SignageVenue,
+  screenNumber: number,
+  opts: { debug?: boolean } = {},
+): string {
+  const base = `/tv?screen=${encodeURIComponent(screenKey(venue, screenNumber))}`;
+  return opts.debug ? `${base}&debug=1` : base;
 }
 
 /**
@@ -196,5 +232,19 @@ export const TV_UPDATE_CHECK_MS = 5 * 60_000;
  *         max-uptime recycle on the wall TVs, admin tablets self-update on
  *         uptime. Built to survive weeks of uptime instead of leaking through
  *         them.
+ * 0.7.0 — VIDEO WALLS. `ScreenConfig.wall` + choreo(): several screens hung
+ *         close enough to read as one picture, choreographed by panel position
+ *         while `pairing` keeps its exactly-two meaning so the dual-monitor
+ *         launchers survive. Three scenes for the HeadPinz Fort Myers front-desk
+ *         five — vip-showcase, open-now, bowling-checkin — plus a per-panel offset on
+ *         the ad rotation so five panels never mirror each other, and a
+ *         position-aware celebration that lands a guest's name whole on the
+ *         centre panel. Every existing board carries no `wall` and is unchanged.
+ * 0.8.0 — HOLDING CARDS. The `venue-logo` scene: one brand mark on black and
+ *         nothing else, for a screen hung before the content that will fill it
+ *         (the Old Time Lanes pair at HeadPinz Fort Myers). Reads no feed, so it
+ *         is the one scene nothing upstream can blank. Also: every player is now
+ *         installed ONE way — the launcher as the Windows shell — and the
+ *         Run-key alternative is out of the setup steps entirely.
  */
-export const SIGNAGE_VERSION = "0.6.0";
+export const SIGNAGE_VERSION = "0.8.0";

@@ -16,6 +16,13 @@ import { withAlpha } from "../color";
 
 const ARROW_COUNT = 3;
 
+/**
+ * `text` is REQUIRED. An arrow-only band was tried on the front-desk wall's how-to
+ * panels, on the theory that the panel's own headline ("Buy a lane") already said
+ * it — and the owner asked for the words back (2026-08-18). A guest reading a verb
+ * eight feet up is not thereby told that the box at waist height in front of them
+ * is how, and the arrows alone do not say it.
+ */
 export function KioskCallout({ accent, text }: { accent: string; text: string }) {
   return (
     <div

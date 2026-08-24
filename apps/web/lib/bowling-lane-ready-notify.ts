@@ -11,6 +11,7 @@
 import { type BowlingReservation, markLaneReadySent } from "@/lib/bowling-db";
 import { shortenUrl } from "@/lib/short-url";
 import { FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
+import { a2pSender } from "~/features/sms/sender";
 
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
@@ -22,13 +23,13 @@ const SITE_URL = "https://headpinz.com";
  * Exported so other features (guest survey, etc.) can reuse without duplicating.
  */
 export const CENTER_META: Record<string, { name: string; smsFrom: string }> = {
-  TXBSQN0FEKQ11: { name: "HeadPinz Fort Myers", smsFrom: "+12393022155" },
-  PPTR5G2N0QXF7: { name: "HeadPinz Naples", smsFrom: "+12394553755" },
+  TXBSQN0FEKQ11: { name: "HeadPinz Fort Myers", smsFrom: a2pSender() },
+  PPTR5G2N0QXF7: { name: "HeadPinz Naples", smsFrom: a2pSender() },
   // FastTrax racing — Square location id LAB52GY480CJF (see
   // race-credit-redeem.ts). smsFrom is the default VOX_FROM the race-video
   // text already sends from, so the +15-min racing survey arrives from the
   // same number the racer just received their video on.
-  LAB52GY480CJF: { name: "FastTrax", smsFrom: "+12394819666" },
+  LAB52GY480CJF: { name: "FastTrax", smsFrom: a2pSender() },
 };
 
 function normalizePhone(phone: string): string {

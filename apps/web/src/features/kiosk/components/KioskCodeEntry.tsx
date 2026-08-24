@@ -36,6 +36,7 @@ import { kioskDeviceKey } from "../config";
 import { useQrScanner } from "../qr-scanner/useQrScanner";
 import { useWedgeScan } from "../checkin/wedge-scan";
 import { classifyKioskCode, type KioskCodeKind } from "../code-entry/classify";
+import { playScanSound } from "../sound";
 import { receiptPlan } from "../code-entry/receipt-plan";
 import {
   ghostCartGroups,
@@ -96,6 +97,20 @@ const NATIVE_ERR_KEY: Record<string, MessageKey> = {
   used: "codeEntry.err.exhausted",
   not_redeemable: "codeEntry.err.generic",
   storage: "codeEntry.err.generic",
+};
+
+/**
+ * Groupon refusal reasons → guest copy. Each one sends the guest somewhere
+ * different, so they must not collapse into one "invalid code" line: `unmapped`
+ * means the voucher is REAL and we are the ones who are not ready, and
+ * `unavailable` means try again rather than go and queue at Guest Services.
+ */
+const GROUPON_ERR_KEY: Record<string, MessageKey> = {
+  unknown: "codeEntry.groupon.err.unknown",
+  already_redeemed: "codeEntry.groupon.err.alreadyRedeemed",
+  unavailable: "codeEntry.groupon.err.unavailable",
+  unmapped: "codeEntry.groupon.err.unmapped",
+  used: "codeEntry.groupon.err.used",
 };
 
 /** One unspent item from the native validate response. */
@@ -402,7 +417,97 @@ export function KioskCodeEntry({
   const logReject = (kind: string, code: string, reason: string) => {
     console.warn(`[kiosk] code rejected (${kind}): ${code} — ${reason}`);
     clarityTag("kiosk_code_reject", `${kind}:${reason}`.slice(0, 60));
+    // Audible reject. A scan has no keypress and no cursor, so without a tone a
+    // guest cannot tell a dead code from a beam that missed — and scans again.
+    playScanSound("error");
   };
+
+  /**
+   * The Groupon rail. NON-DESTRUCTIVE — validate only; nothing is claimed here.
+   *
+   * The legs go to the SAME callbacks the native rail uses, because the whole
+   * stack underneath is now issuer-aware: `voucherIssuerFor` returns "groupon",
+   * `claimAnyVoucher` claims the card leg through `claimGrouponGameZone`, and
+   * `claimNativeCartVouchers` claims the laser tag legs at charge time. So a
+   * Groupon behaves exactly like a multi-leg native voucher on this screen —
+   * same receipt, same struck-through spent legs on a return visit, same EN+ES
+   * copy — and Groupon itself is only told once a card physically lands.
+   */
+  const tryGroupon = useCallback(
+    async (code: string): Promise<"claimed" | "not-groupon" | "unavailable"> => {
+      try {
+        const res = await fetch("/api/kiosk/groupon/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+        });
+        const data: {
+          ok?: boolean;
+          reason?: string;
+          items?: NativeValidateItem[];
+          spentItems?: { index: number; label: string }[];
+        } = await res.json().catch(() => ({}));
+
+        if (data.ok !== true) {
+          const reason = data.reason ?? `http-${res.status}`;
+          // NOT a Groupon, or we cannot tell. Stay SILENT and let the primary
+          // path own the outcome — a Groupon outage must never stop a promo
+          // code or a game card from working.
+          if (reason === "bad_format" || reason === "unknown") return "not-groupon";
+          if (reason === "unavailable") return "unavailable";
+          // `used` / `already_redeemed` / `unmapped` all mean it IS a Groupon
+          // voucher. Claim the scan and tell the guest which of those it is.
+          logReject("groupon", code, reason);
+          setError(t(GROUPON_ERR_KEY[reason] ?? "codeEntry.err.generic"));
+          return "claimed";
+        }
+
+        // Struck-through "used" rows, so a return visit EXPLAINS where the
+        // card went instead of the leg silently missing.
+        setSpentByCode((prev) => ({ ...prev, [code]: data.spentItems ?? [] }));
+        const items = data.items ?? [];
+        setUnspentByCode((prev) => ({ ...prev, [code]: items }));
+        const cart = items.filter((i) => i.redeemVia === "cart" && i.coverageName);
+        const gz = items.filter((i) => i.redeemVia === "gamezone");
+
+        // CART legs (the laser tag entries) → the booking session, claimed at
+        // charge. Only mark applied when we ACTUALLY dispatched.
+        const didApplyCart = cart.length > 0 && voucherRedeem && !!onNativeCartItems;
+        if (didApplyCart) {
+          onNativeCartItems!(
+            code,
+            cart.map((i) => ({ itemIndex: i.index, coverageName: i.coverageName as string })),
+          );
+          clarityEvent("kiosk:voucher:groupon-cart");
+        }
+        processedNativeRef.current.add(code);
+        // GAME-ZONE leg → the parent's pending card list, which the receipt
+        // renders from, so it survives Back, a remount and further scans.
+        const newGzCards =
+          gz.length > 0 && kioskVoucherGzEnabled()
+            ? gz.map((i) => ({ code, tokens: i.tokens ?? 0 }))
+            : [];
+        if (newGzCards.length > 0) onGzCardsAdd?.(newGzCards);
+
+        if (newGzCards.length > 0 || didApplyCart) {
+          playScanSound("success");
+          setPanel({ kind: "voucher-gamecard" });
+          setValue("");
+          setAddOpen(false);
+          return "claimed";
+        }
+        // Real, live voucher with nothing this kiosk can honour right now (cart
+        // legs only, redemption off). Say so rather than show an empty receipt.
+        logReject("groupon", code, "nothing-honourable-here");
+        setError(t("codeEntry.groupon.seeStaff"));
+        return "claimed";
+      } catch {
+        // Silent: the primary path decides. See the refusal note above.
+        return "unavailable";
+      }
+    },
+    [onGzCardsAdd, onNativeCartItems, t, voucherRedeem],
+  );
 
   const routeClassified = useCallback(
     async (kind: KioskCodeKind, code: string) => {
@@ -412,8 +517,13 @@ export function KioskCodeEntry({
       setLeaveWarn(false);
       clarityEvent(`kiosk:code:${kind}`);
       console.log(`[kiosk] code scanned/typed (${kind}): ${code}`);
+      if (kind === "groupon") {
+        await tryGroupon(code);
+        return;
+      }
       if (kind === "bmi-voucher") {
         if (voucherRedeem && appliedVoucherCodes.includes(code)) {
+          logReject("bmi-voucher", code, "duplicate");
           setError(t("codeEntry.err.duplicate"));
           return;
         }
@@ -447,6 +557,7 @@ export function KioskCodeEntry({
             if (data.target === "gamecard" && kioskVoucherGzEnabled()) {
               clarityEvent("kiosk:voucher:gamecard");
               if (pendingGzCards.some((c) => c.code === code)) {
+                logReject("bmi-gamecard", code, "duplicate");
                 setError(t("codeEntry.err.duplicate"));
                 return;
               }
@@ -579,6 +690,7 @@ export function KioskCodeEntry({
               : [];
           if (newGzCards.length > 0) onGzCardsAdd?.(newGzCards);
           if (newGzCards.length > 0 || didApplyCart) {
+            playScanSound("success");
             setPanel({ kind: "voucher-gamecard" });
             setValue("");
             setAddOpen(false);
@@ -586,6 +698,7 @@ export function KioskCodeEntry({
             // Valid voucher, but nothing on it this kiosk can honour right now
             // (e.g. cart legs with redemption off) — say so, don't show an
             // empty receipt.
+            logReject("native-voucher", code, "nothing-honourable-here");
             setError(t(NATIVE_ERR_KEY.not_redeemable));
           }
         } catch {
@@ -669,8 +782,57 @@ export function KioskCodeEntry({
       onGzCardsAdd,
       pendingGzCards,
       t,
+      tryGroupon,
       voucherRedeem,
     ],
+  );
+
+  /**
+   * Run the primary path, then Groupon only if it refused.
+   *
+   * This order is the whole reason nothing scanned today changes meaning: an
+   * 8-character promo and an 8-digit game card keep their existing rail and
+   * only a code that rail REJECTS is offered to Groupon. `rejectedRef` reads
+   * that outcome off `logReject`, which every refusal already funnels through.
+   */
+  /**
+   * Resolve an ambiguous code by asking GROUPON FIRST, then falling through.
+   *
+   * This used to run the primary path first and treat Groupon as a fallback for
+   * whatever it refused — which silently swallowed every Groupon code. The
+   * game-card branch does not REFUSE an 8-digit run: CARD_DIGITS_RE accepts 8+
+   * digits, so a real Groupon code like 34431265 matched it and the branch
+   * showed a confident "That's a Game Zone card" panel. Nothing rejected, so the
+   * fallback never fired. A fallback keyed on refusal cannot sit behind a path
+   * that never refuses.
+   *
+   * So ambiguous codes ask Groupon first, and only a DEFINITIVE answer claims
+   * the scan:
+   *   claimed      — it IS a Groupon voucher (live, spent, or unmapped). Stop.
+   *   not-groupon  — Groupon has never heard of it. Fall through, silently.
+   *   unavailable  — we could not tell. Fall through, silently: a Groupon
+   *                  outage must never stop a promo code or a game card from
+   *                  working, and this is the failure mode that would.
+   *
+   * Cost is one round-trip on 8-character promos and 8-digit card numbers. A
+   * repeat scan of a known Groupon skips the network entirely — the resolver
+   * reads our own ledger first.
+   */
+  const routeWithGrouponFallback = useCallback(
+    async (c: ReturnType<typeof classifyKioskCode>) => {
+      // The unambiguous VS- form is Groupon or nothing, so an outage here is
+      // reported rather than handed to a promo validator that cannot help.
+      if (c.kind === "groupon") {
+        if ((await tryGroupon(c.value)) !== "claimed") {
+          logReject("groupon", c.value, "unavailable");
+          setError(t("codeEntry.groupon.err.unavailable"));
+        }
+        return;
+      }
+      if (c.grouponCandidate && (await tryGroupon(c.value)) === "claimed") return;
+      await routeClassified(c.kind, c.value);
+    },
+    [routeClassified, t, tryGroupon],
   );
 
   const handleRaw = useCallback(
@@ -685,9 +847,9 @@ export function KioskCodeEntry({
           ? c.value
           : "",
       );
-      void routeClassified(c.kind, c.value);
+      void routeWithGrouponFallback(c);
     },
-    [panel, routeClassified],
+    [panel, routeWithGrouponFallback],
   );
 
   /** Replay a scan that happened on an entry screen before we existed. Ref-
@@ -730,8 +892,31 @@ export function KioskCodeEntry({
     const trimmed = value.trim();
     if (!trimmed || checking) return;
     const c = classifyKioskCode(trimmed);
-    void routeClassified(c.kind, c.value);
+    void routeWithGrouponFallback(c);
   };
+
+  /**
+   * Shown on BOTH entry screens when this kiosk has no dispenser (owner
+   * 2026-08-18). Deliberately up front rather than on the receipt: a guest with
+   * a multi-item voucher (the Groupon deal is one card + four laser tag
+   * entries) needs to know before they start that the card can't come out here
+   * — and, just as importantly, that redeeming the rest here is still fine.
+   *
+   * Informational, not an error: it uses the amber/among-friends treatment and
+   * never blocks the input. `canDispenseCards` is
+   * `gameZoneCapability(config) === "full"`, so this also covers a kiosk whose
+   * CRT is merely toggled off, not just one that never had hardware.
+   */
+  const noDispenserNotice = canDispenseCards ? null : (
+    <div className="mt-[20px] rounded-[18px] border border-[rgba(255,176,32,0.45)] bg-[rgba(255,176,32,0.08)] px-[28px] py-[18px] text-left">
+      <div className="text-[28px] font-semibold text-[#ffb020]">
+        {t("codeEntry.noDispenser.title")}
+      </div>
+      <div className="mt-[6px] text-[24px] leading-[1.35] text-white/70">
+        {t("codeEntry.noDispenser.body")}
+      </div>
+    </div>
+  );
 
   // ── Result panels ──
   if (panel) {
@@ -777,9 +962,14 @@ export function KioskCodeEntry({
         ...groupGzCards(gzCards),
         ...(kioskVoucherGzEnabled() && onGzCardAddOne ? ghostGzGroups(unspentByCode, gzCards) : []),
       ];
+      // Ghost rows are INFORMATIONAL first and steppable second. They used to
+      // be suppressed entirely unless this kiosk could add them to a booking,
+      // which meant a Game Zone-only kiosk silently hid four of a Groupon's
+      // five legs. Always list what the guest holds; the stepper is what is
+      // conditional (see the cart row below).
       const cartGroups = [
         ...groupCartLegs(cartLabels),
-        ...(voucherRedeem && onNativeCartItemAdd ? ghostCartGroups(unspentByCode, cartLabels) : []),
+        ...(voucherRedeem ? ghostCartGroups(unspentByCode, cartLabels) : []),
       ];
       const usedGroups = groupUsedLegs(spentByCode);
       const ensureUnspent = async (code: string): Promise<NativeValidateItem[]> =>
@@ -954,6 +1144,13 @@ export function KioskCodeEntry({
           {/* What they've scanned. With the add-another panel COLLAPSED the
               list takes the freed space; expanding the panel re-caps the list
               so the input lands in the top half (OSK never covers it). */}
+          {/* A card row promises a card. On a kiosk that cannot dispense one,
+              that promise has to be broken LOUDLY and before the row is read —
+              a grey sub-line under a pink heading was not enough (owner
+              2026-08-20: "no clear messaging here and acts like its going to
+              give it"). Only when there IS a card row: on a cart-only receipt
+              the notice would be noise. */}
+          {gzGroups.length > 0 ? noDispenserNotice : null}
           <div
             className={`kiosk-scroll mt-[28px] space-y-[26px] overflow-y-auto text-left ${
               addOpen ? "max-h-[560px]" : "min-h-0 flex-1"
@@ -1001,24 +1198,31 @@ export function KioskCodeEntry({
                               })}
                             </span>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => stepGzDown(g)}
-                            disabled={g.qty === 0}
-                            aria-label={t("codeEntry.voucherGz.removeOne")}
-                            className={stepBtn}
-                          >
-                            −
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void stepGzUp(g)}
-                            disabled={atMax}
-                            aria-label={t("codeEntry.voucherGz.addOne")}
-                            className={stepBtn}
-                          >
-                            ＋
-                          </button>
+                          {/* Steppers only where a card can actually come out.
+                              Choosing a quantity of something this machine will
+                              not hand you is theatre. */}
+                          {canDispenseCards && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => stepGzDown(g)}
+                                disabled={g.qty === 0}
+                                aria-label={t("codeEntry.voucherGz.removeOne")}
+                                className={stepBtn}
+                              >
+                                −
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void stepGzUp(g)}
+                                disabled={atMax}
+                                aria-label={t("codeEntry.voucherGz.addOne")}
+                                className={stepBtn}
+                              >
+                                ＋
+                              </button>
+                            </>
+                          )}
                         </span>
                       </li>
                     );
@@ -1061,7 +1265,12 @@ export function KioskCodeEntry({
                               : t("codeEntry.voucherGz.comesOff")}
                           </span>
                         )}
-                        {g.native && !g.error ? (
+                        {g.native && !g.error && g.qty === 0 && !onNativeCartItemAdd && (
+                          <span className="text-[22px] text-white/50">
+                            {t("codeEntry.voucherGz.rowNotHere")}
+                          </span>
+                        )}
+                        {g.native && !g.error && onNativeCartItemAdd ? (
                           <>
                             <button
                               type="button"
@@ -1085,7 +1294,7 @@ export function KioskCodeEntry({
                               ＋
                             </button>
                           </>
-                        ) : (
+                        ) : g.native && !g.error ? null : (
                           <button
                             type="button"
                             onClick={() => removeCartVoucher(g.code, g.itemIndexes[0] ?? null)}
@@ -1454,6 +1663,7 @@ export function KioskCodeEntry({
         <p className="mt-[20px] max-w-[24ch] text-[30px] leading-[1.4] text-white/70">
           {t("codeEntry.scanHint.body")}
         </p>
+        {noDispenserNotice}
 
         {/* The scan target — dead center. The kiosk's scanner sits below the
             screen; the pulsing frame is the "present it here" affordance. */}
@@ -1492,6 +1702,7 @@ export function KioskCodeEntry({
     <div className="flex h-full flex-col px-[64px] pb-[40px] pt-[104px]">
       <div className="k-eyebrow">{t("codeEntry.eyebrow")}</div>
       <h1 className="k-display mt-[24px] text-[80px]">{t("codeEntry.title")}</h1>
+      {noDispenserNotice}
 
       <input
         ref={inputRef}

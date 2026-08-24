@@ -29,6 +29,26 @@ import {
   releaseVoucherClaim,
 } from "../data/voucher-claims-db";
 import { getVoucher, hasChargedRedeemEvent, logVoucherEvent } from "../data/vouchers-db";
+import { looksLikeGrouponCode } from "~/features/groupon/codes";
+import { findGrouponUnit } from "~/features/groupon/data/groupon-units-db";
+
+/**
+ * Which registry owns this code's cart legs.
+ *
+ * Groupon legs ride THIS rail rather than getting their own, because everything
+ * that makes cart coverage correct already lives here: the pre-claim validation,
+ * equivalent-leg substitution, idempotency on the reserve's baseKey, release on
+ * rollback, the spent stamp and the stale sweep. A parallel Groupon
+ * implementation would be a second writer for `voucher_claims` and would drift
+ * from this one the first time any of those behaviours changed.
+ *
+ * Only two things actually differ per issuer: which table proves the voucher is
+ * real, and whether there is a wallet pass to mirror. Both are switched below;
+ * the destructive claim is identical.
+ */
+function issuerOf(code: string): "native" | "groupon" {
+  return looksLikeGrouponCode(code) ? "groupon" : "native";
+}
 
 /** One native voucher line applied to the booking (from session.appliedVouchers). */
 export interface NativeCartVoucherRef {
@@ -82,6 +102,21 @@ export async function claimNativeCartVouchers(args: {
    */
   const distinctCodes = Array.from(new Set(args.vouchers.map((v) => v.code)));
   for (const code of distinctCodes) {
+    // GROUPON: proof of existence is our own `groupon_units` row, written at
+    // scan time from Groupon's GET. There is no expiry or void to check —
+    // Groupon owns the voucher's lifecycle and we only ever hold the remainder,
+    // so a row that exists IS the entitlement. Fails closed identically.
+    if (issuerOf(code) === "groupon") {
+      try {
+        if (!(await findGrouponUnit(code))) {
+          return { ok: false, conflictCode: code, reason: "unknown" };
+        }
+      } catch (err) {
+        console.error("[voucher-cart] groupon ledger read failed:", err);
+        return { ok: false, conflictCode: code, reason: "unknown" };
+      }
+      continue;
+    }
     let row: Awaited<ReturnType<typeof getVoucher>>;
     try {
       row = await getVoucher(code);
@@ -102,7 +137,7 @@ export async function claimNativeCartVouchers(args: {
     const res = await claimVoucher({
       code: v.code,
       itemIndex: v.itemIndex,
-      issuer: "native",
+      issuer: issuerOf(v.code),
       compName: v.name ?? null,
       packageId: `cart-${v.itemIndex}`, // not a game-card package; audit label only
       txnId,
@@ -151,7 +186,13 @@ export async function claimNativeCartVouchers(args: {
  * vouchers the guest never added to a wallet, which is most of them.
  */
 async function syncPassesFor(refs: NativeCartVoucherRef[]): Promise<void> {
-  for (const code of new Set(refs.map((r) => r.code))) await syncVoucherPass(code);
+  for (const code of new Set(refs.map((r) => r.code))) {
+    // Groupon vouchers have no row in OUR voucher registry and so no wallet
+    // pass to mirror. Skipping is not an optimisation: syncVoucherPass would
+    // read a voucher that does not exist.
+    if (issuerOf(code) === "groupon") continue;
+    await syncVoucherPass(code);
+  }
 }
 
 /** True when the live claim on (code,item) is one THIS reserve already made.
@@ -215,11 +256,17 @@ export async function markNativeCartVouchersCharged(args: {
           err instanceof Error ? err.message : err,
         ),
       );
-    await logVoucherEvent(v.code, "redeem", {
-      itemIndex: v.itemIndex,
-      surface: "booking",
-      charged: true,
-    }).catch(() => {});
+    // Event log lives in the native voucher registry. A Groupon code has no row
+    // there, so the spent-stamp above is the only evidence for that issuer —
+    // which is why the stale sweep must not release a groupon claim on the
+    // strength of a missing event (see sweepStaleCartClaims).
+    if (issuerOf(v.code) === "native") {
+      await logVoucherEvent(v.code, "redeem", {
+        itemIndex: v.itemIndex,
+        surface: "booking",
+        charged: true,
+      }).catch(() => {});
+    }
   }
   // Terminal for these legs. If this was the LAST redeemable leg, the sync flips
   // the coupon to REDEEMED so the pass stops looking live.
@@ -255,6 +302,20 @@ export async function sweepStaleCartClaims(args: {
   summary.candidates = stale.length;
   for (const row of stale) {
     try {
+      // GROUPON claims are never released here. The two-part protection this
+      // sweep relies on is status='spent' (primary) plus a charged event in the
+      // native registry (secondary, for a MISSED stamp) — and a Groupon code has
+      // no row in that registry, so `hasChargedRedeemEvent` is always false for
+      // one. Releasing on that would hand a leg back that a captured booking had
+      // already spent, i.e. let the guest spend it twice. A stuck leg is
+      // recoverable by hand; a double-spent one is not.
+      if (issuerOf(row.code) === "groupon") {
+        console.warn(
+          `[groupon] stale cart claim NOT released (no event-log evidence for this issuer) ` +
+            `code=${row.code} item=${row.itemIndex} txn=${row.txnId} — release by hand if the booking never captured`,
+        );
+        continue;
+      }
       if (await hasChargedRedeemEvent(row.code, row.itemIndex)) {
         // The charge captured but the spent-stamp was missed — finish the stamp.
         if (!args.dryRun) await markVoucherClaimSpent(row.code, row.txnId);

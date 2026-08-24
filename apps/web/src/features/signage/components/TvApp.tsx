@@ -19,14 +19,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useKioskClock } from "../clock";
 import {
   parseScreenKey,
-  screenKey,
+  canonicalTvPath,
   VENUE_INFO,
   type SignageVenue,
   TEST_SCREEN_NUMBER,
 } from "../constants";
 import { resolveScreenConfig } from "../defaults";
 import { useTvFeed } from "../useTvFeed";
+import { FeedHealthProvider } from "../feed-health";
+import { usePanelFill } from "../usePanelFill";
+import { useGatedReload } from "../useGatedReload";
 import { applyDemo, effectiveDemoMode, parseDemoMode, type DemoMode } from "../demo";
+import { WallIdentify } from "./WallIdentify";
 import { briefingTimelineAt } from "../briefing/phase";
 import type { SceneDecision } from "../director/schedule";
 import { SceneDirector } from "../director/SceneDirector";
@@ -37,6 +41,24 @@ import { TvShell } from "./TvShell";
 // a wall booting should look like the kiosks it hangs above rather than inventing
 // a second one.
 import { BrandedLoader } from "~/features/kiosk/components/BrandedLoader";
+import { setDocumentNeverHidden } from "@/lib/use-visible-interval";
+
+/**
+ * A WALL PANEL IS NEVER HIDDEN, WHATEVER THE BROWSER SAYS.
+ *
+ * Edge marks a fullscreen player window hidden the moment Windows thinks it is
+ * occluded or backgrounded, and every poll on this page runs through
+ * useVisibleInterval, which pauses on exactly that signal. The TV then sits in
+ * front of guests painting a feed from ten minutes ago — and stops writing the
+ * heartbeat, so admin calls it offline while staff are looking straight at it
+ * (owner 2026-08-19, the five HeadPinz front-desk screens).
+ *
+ * MODULE SCOPE, not an effect: React runs child effects before the parent's, so
+ * every poll in the tree would already have been scheduled the wrong way by the
+ * time a TvApp effect could set this. Importing this module is what makes it
+ * true, which is exactly when it needs to be true.
+ */
+setDocumentNeverHidden(true);
 
 const IDENTITY_KEY = "tv_screen_id";
 /**
@@ -50,6 +72,14 @@ const IDENTITY_KEY = "tv_screen_id";
  */
 const FEED_GRACE_MS = 12_000;
 const BUILD_SHA = (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || "dev").slice(0, 8);
+
+/** "4s ago" / "6m ago" / "never" — for the ?debug=1 poll-health line, where the
+ *  only question being asked is whether the number is small. */
+function fmtAge(stampMs: number | null, nowMs: number): string {
+  if (stampMs === null) return "never";
+  const secs = Math.max(0, Math.round((nowMs - stampMs) / 1000));
+  return secs < 90 ? `${secs}s ago` : `${Math.round(secs / 60)}m ago`;
+}
 
 export function TvApp({ initialScreenId = null }: { initialScreenId?: string | null } = {}) {
   const [screenId, setScreenId] = useState<string | null>(null);
@@ -131,8 +161,11 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
         } catch {
           /* non-fatal */
         }
-        // Canonical URL, so a self-update hard reload returns to this screen.
-        const canonical = `/tv?screen=${encodeURIComponent(screenKey(parsed.venue, parsed.screenNumber))}`;
+        // Canonical URL, so a self-update hard reload returns to this screen —
+        // still in debug if that is how it was opened. See canonicalTvPath.
+        const canonical = canonicalTvPath(parsed.venue, parsed.screenNumber, {
+          debug: params.has("debug"),
+        });
         if (window.location.pathname + window.location.search !== canonical) {
           window.history.replaceState(null, "", canonical);
         }
@@ -144,7 +177,11 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
     };
   }, []);
 
-  const rawFeed = useTvFeed(screenId);
+  const { feed: rawFeed, health } = useTvFeed(screenId);
+
+  // Measured HERE, once, so the stamp on the glass and the flag on the wire can
+  // never disagree about the same panel. See usePanelFill.
+  const windowed = usePanelFill();
 
   const parsed = parseScreenKey(screenId);
   const isTest = parsed?.screenNumber === TEST_SCREEN_NUMBER;
@@ -226,15 +263,28 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
   // AFTER this tab booted — otherwise a day-old stamp would reload every screen
   // forever. bootedAt is captured on mount, so a reloaded tab has a fresh one.
   const reloadAt = rawFeed?.reloadAt ?? null;
+  const [staffReloadWanted, setStaffReloadWanted] = useState(false);
   useEffect(() => {
     // bootedAtRef is 0 until the mount effect runs; guard so we never reload
     // on the very first paint before it is stamped.
     if (!reloadAt || !bootedAtRef.current || reloadAt <= bootedAtRef.current) return;
-    // HELD, not dropped: briefingActive is a dependency, so the moment the room
-    // goes idle this effect re-runs and the reload happens then.
-    if (holdReloads) return;
-    window.location.reload();
-  }, [reloadAt, holdReloads]);
+    setStaffReloadWanted(true);
+  }, [reloadAt]);
+
+  /**
+   * HELD, not dropped, and now held for TWO reasons.
+   *
+   * `holdReloads` is the old one: a room is briefing or a heat is checking in, so
+   * the moment that clears the press lands. Latching the request rather than
+   * re-deriving it from the feed keeps that true even if the stamp rolls off the
+   * feed while the room is busy — the same shape TvShell's `updatePending` uses.
+   *
+   * The gate is the new one. A reload with the origin unreachable parks Edge on
+   * its own error page and the screen never comes back on its own — see
+   * reload-gate.ts. A staff press arrives on a feed that may already be minutes
+   * stale, so "the feed reached us" is not evidence the network is up now.
+   */
+  const reloadHeldForNetwork = useGatedReload(staffReloadWanted && !holdReloads);
 
   // Pushed-preview-or-URL resolution lives in demo.ts (effectiveDemoMode) so
   // the live probe exercises the app's real wiring, not a re-implementation.
@@ -275,6 +325,24 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
   // server side; this is the one thing that can say what the CLIENT sees.
   const debug =
     typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debug");
+
+  /**
+   * The overlay needs a clock OF ITS OWN, and that is the whole point.
+   *
+   * Every other re-render of this component is caused by a poll landing — so if
+   * the ages below rode those, a wedged lane would freeze its own age display at
+   * whatever it last said and read as healthy. The one number that has to keep
+   * moving when nothing else does cannot be driven by the thing that stopped.
+   *
+   * Only ticks with ?debug=1 on the URL: a wall in front of guests gets no extra
+   * render per second for a panel it is not showing.
+   */
+  const [debugNowMs, setDebugNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!debug) return;
+    const iv = setInterval(() => setDebugNowMs(Date.now()), 1_000);
+    return () => clearInterval(iv);
+  }, [debug]);
 
   /**
    * A RELOADING BOARD SHOWS THE SPIN, NEVER ADS (owner 2026-08-14: "sometimes we
@@ -327,16 +395,44 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
         // new build. A briefing is rotation content, so it needs naming here
         // explicitly — see briefingActive above.
         safeToReload={!decision?.isInterrupt && !holdReloads}
+        // For the self-heal, which deliberately does NOT ride safeToReload —
+        // see the block comment in feed-heal.ts on why that would deadlock.
+        screenId={screenId}
+        health={health}
+        windowed={windowed}
       >
-        <SceneDirector
-          feed={feed}
-          offset={offset}
-          venue={venue}
-          config={config}
-          asleep={asleep}
-          demo={effectiveDemo}
-          onDecision={setDecision}
-        />
+        {/* THE POLL STAMPS, DOWN TO THE FOOTER OF THE SCORES WALL. They are
+            read here because this is where the feed is polled, and the board
+            that shows them is four layers down — reaching it by prop would mean
+            widening SceneProps (the contract sixteen scenes implement) plus a
+            pass-through on SceneDirector, Footer and Shell. Scoped to the
+            director because scenes are the only consumers: the ?debug=1 overlay
+            below already holds `health` directly. See feed-health.tsx. */}
+        <FeedHealthProvider value={health}>
+          <SceneDirector
+            feed={feed}
+            offset={offset}
+            venue={venue}
+            config={config}
+            asleep={asleep}
+            demo={effectiveDemo}
+            onDecision={setDecision}
+          />
+        </FeedHealthProvider>
+        {/* THE SETUP + SYNC TEST. An overlay rather than a scene: it has to be
+            readable whatever the wall happens to be showing, and it must not
+            disturb the rotation underneath — so the panels are still in step the
+            moment it clears. */}
+        {effectiveDemo === "identify" && (
+          <WallIdentify
+            screenId={screenId}
+            screenName={feed?.screen?.name || VENUE_INFO[venue]?.label || ""}
+            buildSha={BUILD_SHA}
+            offset={offset}
+            wall={config.wall}
+            pairing={config.pairing}
+          />
+        )}
         {debug && (
           <pre
             style={{
@@ -359,6 +455,15 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
               `screen      ${screenId ?? "(none)"}`,
               `build       ${BUILD_SHA}`,
               `feed        ${rawFeed ? "ok" : "NULL — no feed yet"}`,
+              // HOW OLD, not just whether. The last good feed is the floor, so
+              // a wedged poll and a quiet night look identical on the glass —
+              // this is the line that tells them apart without a laptop. Full
+              // should read under 15s and the pulse under 2s; anything else is
+              // a stalled lane.
+              `polled      full ${fmtAge(health.lastFullOkMs, debugNowMs)} · pulse ${fmtAge(
+                health.lastPulseOkMs,
+                debugNowMs,
+              )}`,
               `demoMode    ${rawFeed?.demoMode ?? "(none)"} -> ${effectiveDemo}`,
               `events      ${feed?.events?.length ?? "null"}`,
               `vip         ${feed?.vip?.length ?? "null"}`,
@@ -371,7 +476,13 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
               `checkin     ${rawFeed?.raceCheckin?.sessionId ?? "(none)"}${
                 checkinActive ? " — checking in" : ""
               }`,
-              `reloads     ${holdReloads ? "HELD (guests on screen)" : "allowed"}`,
+              `reloads     ${
+                reloadHeldForNetwork
+                  ? "HELD — waiting for the network"
+                  : holdReloads
+                    ? "HELD (guests on screen)"
+                    : "allowed"
+              }`,
               // What this PANEL actually applied, in the browser actually
               // running — so a fitting change can be confirmed at the wall
               // rather than inferred from what the admin form was saved with.

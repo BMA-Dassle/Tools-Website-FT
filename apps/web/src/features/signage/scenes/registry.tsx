@@ -20,12 +20,17 @@ import { SceneRaceCheckin } from "./SceneRaceCheckin";
 import { SceneCelebration } from "./SceneCelebration";
 import { SceneBirthdayTakeover } from "./SceneBirthdayTakeover";
 import { SceneEventWelcome } from "./SceneEventWelcome";
+import { SceneEventCheckin } from "./SceneEventCheckin";
 import { SceneVipWelcome } from "./SceneVipWelcome";
 import { SceneBriefing } from "./SceneBriefing";
 import { SceneCameraMonitor } from "./SceneCameraMonitor";
 import { ScenePitBoard } from "./ScenePitBoard";
 import { SceneRaceResults } from "./SceneRaceResults";
 import { SceneRaceGuide } from "./SceneRaceGuide";
+import { SceneVipShowcase } from "./SceneVipShowcase";
+import { SceneOpenNow } from "./SceneOpenNow";
+import { SceneBowlingCheckin } from "./SceneBowlingCheckin";
+import { SceneVenueLogo } from "./SceneVenueLogo";
 import { raceGuideEnabled } from "../flags";
 
 /**
@@ -59,8 +64,25 @@ export function SceneSlot(props: SceneProps) {
       // flipping it falls all the way through to house ads (the default below)
       // instead of leaving a screen on a setup notice.
       return raceGuideEnabled() ? <SceneRaceGuide {...props} /> : <SceneAdRotation {...props} />;
+    // THE FRONT-DESK WALL. All three read their panel position through choreo()
+    // and render one fifth of a composition. None of them may ever be given
+    // `requiresData` — see the tear invariant in defaults.ts FRONT_DESK_CONFIG.
+    case "vip-showcase":
+      return <SceneVipShowcase {...props} />;
+    case "open-now":
+      return <SceneOpenNow {...props} />;
+    case "bowling-checkin":
+      return <SceneBowlingCheckin {...props} />;
+    // A HOLDING CARD, not part of any wall. Reads nothing but its own config, so
+    // it is the one scene that cannot be blanked by a feed or a vendor.
+    case "venue-logo":
+      return <SceneVenueLogo {...props} />;
     case "event-welcome":
       return <SceneEventWelcome {...props} />;
+    // The events wing at rest. Reached through the wing understudy in
+    // schedule.ts, never from a playlist — see SceneEventCheckin.
+    case "event-checkin":
+      return <SceneEventCheckin {...props} />;
     case "vip-welcome":
       return <SceneVipWelcome {...props} />;
     case "celebration":
@@ -104,8 +126,13 @@ const IMPLEMENTED: ReadonlySet<SceneType> = new Set<SceneType>([
   "race-results",
   "race-guide",
   "event-welcome",
+  "event-checkin",
   "vip-welcome",
   "celebration",
+  "vip-showcase",
+  "open-now",
+  "bowling-checkin",
+  "venue-logo",
 ]);
 
 export function isSceneImplemented(scene: SceneType): boolean {
@@ -125,10 +152,29 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
     case "ads":
     case "sleep":
       return true;
+    case "venue-logo":
+      // Always true, and more absolutely than anything else here: the mark is a
+      // committed asset, so no feed, vendor or clock can make this scene empty.
+      // Rotating a logo screen away to house ads would also defeat the point of
+      // it — it is holding a screen for content that does not exist yet, and
+      // advertising something on the other side of the building is not that.
+      return true;
     case "event-welcome":
       // VIP parties are welcome-board content — the gold slide alternates with
       // the party pages — so either kind of data earns the segment its slot.
+      //
+      // Deliberately still GATED, even though TV5 runs this board as a wing. A
+      // wing with no data falls to its understudy (`event-checkin`), which is a
+      // per-wall decision; ungating it here would instead hand HPFM:1 three of
+      // its five slots on every quiet night and push the ad rotation off a screen
+      // whose whole job is selling the kiosks below.
       return (feed?.events?.length ?? 0) > 0 || (feed?.vip?.length ?? 0) > 0;
+    case "event-checkin":
+      // Always true, and it MUST be: this IS the empty state. It is the events
+      // wing's understudy, so a gate here would fall through to house ads and
+      // put the wall back where it started — the panel reads nothing but its own
+      // copy, so nothing can make it empty.
+      return true;
     case "vip-welcome":
       return (feed?.vip?.length ?? 0) > 0;
     case "race-checkin":
@@ -159,6 +205,25 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
       // copy and the qualifying numbers are constants — and the takeover is the
       // reason the screen exists. Rotating it away to ads would mean the arrow
       // is not up at the one moment it matters.
+      return true;
+    case "vip-showcase":
+      // Always true, and it MUST be. These are copy and live prices, not a feed
+      // selector — but more importantly, a data-gated entry that closes changes
+      // `totalSlots` on ONE panel, and scene selection is `slot % totalSlots`. Five
+      // players poll on independent 15s phases, so they can briefly disagree about
+      // emptiness and the wall visibly tears. Nothing on a wall may be gated.
+      return true;
+    case "open-now":
+      // Always true for the same reason. The menu board degrades WITHIN itself
+      // when the availability cache is cold — rows keep their names and prices and
+      // simply carry no times — rather than dropping out of the rotation.
+      return true;
+    case "bowling-checkin":
+      // Always true, and this one matters most. It is a WING scene: it is selected
+      // because a panel sits outside the running span, never because it has data. It
+      // has a designed empty state telling guests to check in at a kiosk, and a wing
+      // that fell out of the rotation would leave a dead panel at the end of the wall
+      // — or worse, invite the middle scene to widen and tear the wall (see SceneSpan).
       return true;
     case "race-results":
       // Always true: the last race's result HOLDS until the next one lands, so

@@ -23,15 +23,34 @@ import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { captureKioskBootVersion, kioskUpdateAvailable } from "~/features/kiosk/version";
 import { SIGNAGE_VERSION, TV_UPDATE_CHECK_MS } from "../constants";
 import { etHourNow, shouldRecycle } from "../recycle";
+import { useGatedReload } from "../useGatedReload";
+import { feedLiveness } from "../liveness";
+import {
+  FEED_HEAL_CHECK_MS,
+  dropLastAttempt,
+  readAttempts,
+  recordAttempt,
+  shouldHeal,
+} from "../feed-heal";
+import type { TvFeedHealth } from "../useTvFeed";
 
 export function TvShell({
   screenLabel,
   /** False while an interrupt is on screen — the reload waits for a calm beat. */
   safeToReload,
+  /** Which screen this is, for the per-screen self-heal attempt log. */
+  screenId,
+  /** Poll-health stamps, for the self-heal below. See feed-heal.ts. */
+  health,
+  /** True when the viewport is not filling its monitor — see usePanelFill. */
+  windowed,
   children,
 }: {
   screenLabel: string;
   safeToReload: boolean;
+  screenId: string | null;
+  health: TvFeedHealth;
+  windowed: boolean;
   children: React.ReactNode;
 }) {
   const [updatePending, setUpdatePending] = useState(false);
@@ -66,19 +85,44 @@ export function TvShell({
   }, []);
 
   /* ── fullscreen ──────────────────────────────────────────────────────
-     A mini PC launched with `chrome --kiosk` is already full-screen and this
-     never fires. It exists for the other case: staff opening the URL in a
-     normal window to check a screen, where one click makes it fill the panel.
-     Browsers only allow the request from a user gesture. */
+     A mini PC launched with `--kiosk` or `--start-fullscreen` already fills its
+     panel and none of this fires. It is for the other case: a board opened by
+     hand, or one KNOCKED OUT of fullscreen with Esc or F11.
+
+     THE BUG THIS USED TO HAVE: the listener was one-shot. It removed itself on
+     the first pointerdown whether or not the request was granted — and browsers
+     reject the request outright unless the gesture is trusted — so a board that
+     lost fullscreen could never get back in no matter how many times somebody
+     tapped it. The one input a wall panel ever receives was spent on the first
+     click of its life, hours or weeks earlier.
+
+     It now stays armed and retries on any gesture while the board is not filling
+     its panel, and re-arms on fullscreenchange so leaving fullscreen puts it
+     back in play immediately.
+
+     WHY THERE IS NO TIMER HERE, AND WHY THAT IS NOT LAZINESS: requestFullscreen
+     is refused without a trusted user gesture, by every engine, deliberately. A
+     page cannot put itself full-screen on a schedule — so an unattended board
+     that fell out cannot be recovered from JS at all, and pretending otherwise
+     with a retry loop would just bury a rejected promise every few seconds. The
+     honest options for that board are the two below it: say so where staff and
+     the admin page can both see it, and fix it at the launcher. */
   useEffect(() => {
-    const onFirstPointer = () => {
-      if (!document.fullscreenElement) {
-        void document.documentElement.requestFullscreen?.().catch(() => {});
-      }
-      window.removeEventListener("pointerdown", onFirstPointer);
+    const tryFill = () => {
+      if (document.fullscreenElement) return;
+      void document.documentElement.requestFullscreen?.().catch(() => {
+        /* refused — untrusted gesture, or a policy that forbids it. The next
+           gesture gets another go, which is the whole point of not unbinding. */
+      });
     };
-    window.addEventListener("pointerdown", onFirstPointer);
-    return () => window.removeEventListener("pointerdown", onFirstPointer);
+    // Keydown as well as pointerdown: the boards have no mouse, and a staff
+    // member at a player is holding a keyboard.
+    window.addEventListener("pointerdown", tryFill);
+    window.addEventListener("keydown", tryFill);
+    return () => {
+      window.removeEventListener("pointerdown", tryFill);
+      window.removeEventListener("keydown", tryFill);
+    };
   }, []);
 
   /* ── no right-click menu on a public wall ───────────────────────────── */
@@ -91,8 +135,10 @@ export function TvShell({
   /* ── self-update ─────────────────────────────────────────────────────
      Latch "a newer deploy is live" on a timer; act on it only when the screen
      is between scenes. useVisibleInterval gives us no-overlap + abort, which
-     matters far more here than its pause-on-hidden (a wall TV is never
-     hidden) — this page runs for weeks. */
+     matters far more here than its pause-on-hidden — this page runs for weeks.
+     The pause itself no longer applies: TvApp marks this document never-hidden,
+     because Edge calls an occluded wall panel hidden and a screen that stopped
+     checking for deploys is a screen that never takes one (2026-08-19). */
   useEffect(() => {
     void captureKioskBootVersion();
   }, []);
@@ -116,13 +162,98 @@ export function TvShell({
     if (shouldRecycle(Date.now() - bootedAtRef.current, etHourNow())) setUpdatePending(true);
   }, TV_UPDATE_CHECK_MS);
 
+  // Identity lives in the canonical URL, so the reload re-provisions from Neon
+  // and comes back on the same screen config.
+  //
+  // AND NEVER INTO AN OUTAGE. This navigation is the one thing on a TV that a
+  // network loss cannot be ridden out through: it parks Edge on its own error
+  // page, which no timer of ours can come back from and which the launcher's
+  // relaunch loop never sees, because Edge did not exit. That matters most for
+  // the max-uptime recycle above, which is clock-driven and would happily fire
+  // at 3am into a dead network — on every screen of a wall at once, since they
+  // share an uptime. The latch stays set and the gate retries, so the reload
+  // lands the moment the network does.
+  const heldForNetwork = useGatedReload(updatePending && safeToReload);
+
+  /* ── self-heal: a board nobody is hearing from reloads itself ─────────
+     Read feed-heal.ts before changing any of this. The three rules that are not
+     obvious: it is NOT gated on safeToReload (a wedged feed pins the scene
+     decision, so waiting for a calm beat is a deadlock), it is DERIVED rather
+     than latched (so a feed that comes back on its own disarms the gate instead
+     of spending a blink on the wall), and it is capped in localStorage (so a
+     board whose feed stays broken while the origin answers cannot reload every
+     five minutes forever). */
+  const [shellMountedAtMs] = useState(() => Date.now());
+  const [healArmed, setHealArmed] = useState(false);
+
+  /* THE WHOLE DECISION LIVES IN THE INTERVAL CALLBACK, not in an effect body.
+     Partly because react-hooks/set-state-in-effect is right — a setState in an
+     effect body cascades renders on a page that runs for weeks — and partly
+     because it means the shell re-renders only when the ARMED FLAG FLIPS, rather
+     than every 15s forever just to re-ask a question whose answer is almost
+     always no. The clock and the latest health reach the callback through refs,
+     which is exactly what refs are for: read outside render, written in an
+     effect. */
+  const healthRef = useRef(health);
   useEffect(() => {
-    if (!updatePending) return;
-    if (!safeToReload) return;
-    // Identity lives in the canonical URL, so the reload re-provisions from
-    // Neon and comes back on the same screen config.
-    window.location.reload();
-  }, [updatePending, safeToReload]);
+    healthRef.current = health;
+  }, [health]);
+  const armedRef = useRef(false);
+
+  useEffect(() => {
+    if (!screenId || typeof window === "undefined") return;
+    const evaluate = () => {
+      const nowMs = Date.now();
+      const live = feedLiveness({
+        ...healthRef.current,
+        nowMs,
+        mountedAtMs: shellMountedAtMs,
+      });
+      if (live.state !== "stale") {
+        // RECOVERED. Disarmed on the STATE, not on the policy — once an attempt
+        // is recorded the policy itself may say "no" because the cap is now
+        // reached, and reading that as recovery would drop a gate that should
+        // still be waiting for the network.
+        if (armedRef.current) {
+          armedRef.current = false;
+          setHealArmed(false);
+          // AND HAND THE ATTEMPT BACK. It was recorded when we armed, but the
+          // gate never navigated — reaching this line is the proof, since a
+          // navigation would have taken the page with it. The cap is there to
+          // stop a board reloading in front of guests, not to ration wanting
+          // to, and at a 90s threshold an evening of one-minute blips would
+          // otherwise spend it before the first real wedge. See dropLastAttempt.
+          dropLastAttempt(window.localStorage, screenId);
+        }
+        return;
+      }
+      if (armedRef.current) return;
+      if (
+        !shouldHeal({
+          ageMs: live.ageMs,
+          attempts: readAttempts(window.localStorage, screenId),
+          nowMs,
+        })
+      ) {
+        return;
+      }
+      // Recorded BEFORE arming: the navigation destroys this page, so anything
+      // written after it is never written. See recordAttempt.
+      recordAttempt(window.localStorage, screenId, nowMs);
+      armedRef.current = true;
+      setHealArmed(true);
+    };
+    const iv = setInterval(evaluate, FEED_HEAL_CHECK_MS);
+    return () => clearInterval(iv);
+  }, [screenId, shellMountedAtMs]);
+
+  /* THE ONE GATE ALLOWED TO BREAK ITS OWN HOLD. A board this far gone is not
+     waiting on a deploy, it is unreachable — and the reason is either the
+     network (hold) or this page's own wedged connection (reload, and the manual
+     reload that fixed FT:10 on 2026-08-20 is the proof). The escape asks a
+     second hostname to tell those apart, and the attempt cap above is what makes
+     it safe to hand that power to this path and no other. */
+  const heldForHeal = useGatedReload(healArmed, true);
 
   return (
     <>
@@ -143,7 +274,24 @@ export function TvShell({
         }}
       >
         {screenLabel} · v{SIGNAGE_VERSION}
-        {updatePending ? " · update pending" : ""}
+        {/* THE SELF-HEAL SAYS SO FIRST. It is the more urgent of the two and the
+            one somebody may be standing in front of asking "is it doing
+            anything?" — the scores wall's own footer has already gone amber by
+            this point, and this line says what the board is doing about it. */}
+        {healArmed
+          ? heldForHeal
+            ? " · no feed · reload held · no network"
+            : " · no feed · reloading"
+          : updatePending
+            ? heldForNetwork
+              ? " · reload held · no network"
+              : " · update pending"
+            : ""}
+        {/* Last, and only when true: a windowed board is a cosmetic fault, so it
+            must never push a feed problem off the end of this line. It says
+            "windowed" rather than anything alarming because the picture itself is
+            correct — TvStage scales the canvas to whatever viewport it is given. */}
+        {windowed ? " · windowed · press F11" : ""}
       </div>
     </>
   );

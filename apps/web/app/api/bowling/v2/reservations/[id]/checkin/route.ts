@@ -3,6 +3,7 @@ import { getBowlingReservation, updateBowlingCheckinMethod } from "@/lib/bowling
 import { getReservation, listLanes, setReservationStatus, setLaneStatus } from "@/lib/qamf-bowling";
 import { CENTER_CODE_TO_QAMF_ID, isFastTraxDuckpinCenter } from "@/lib/qamf-centers";
 import { processLaneOpen } from "@/lib/bowling-lane-open";
+import { resolveLanePhase, SELF_SERVICE_WINDOW_MINS } from "@/lib/bowling-lane-phase";
 
 /**
  * Check-in API for bowling reservations.
@@ -56,55 +57,46 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       .sort((a, b) => a - b);
     const laneLabel = buildLaneLabel(laneNumbers);
 
-    // Determine phase from booked-lane statuses.
-    // See docs/qamf-lane-lifecycle.md for the full state machine.
-    const statuses = lanes.map((l) => l.Status);
-    let phase: "not_ready" | "ready" | "running" | "completed";
-    if (statuses.some((s) => s === "Completed")) {
-      phase = "completed";
-    } else if (statuses.some((s) => s === "Running")) {
-      phase = "running";
-    } else if (statuses.some((s) => s === "Ready")) {
-      phase = "ready";
-    } else {
-      phase = "not_ready";
+    // THE PHASE RULE LIVES IN ONE PLACE — lib/bowling-lane-phase. The front-desk wall's
+    // every-minute cron asks the same function, because a wall that invites a guest to
+    // check in where this route would refuse them is worse than a wall that says nothing.
+    //
+    // The physical-lane read is only needed for the self-service gate, and only inside
+    // the window, so it is fetched lazily rather than on every poll of this endpoint.
+    const bookedAtMs = qamfRes.BookedAt ? new Date(qamfRes.BookedAt).getTime() : 0;
+    const minsUntilBooked = bookedAtMs ? (bookedAtMs - Date.now()) / 60_000 : Infinity;
+    const mightNeedGate =
+      laneNumbers.length > 0 &&
+      minsUntilBooked <= SELF_SERVICE_WINDOW_MINS &&
+      !lanes.some(
+        (l) => l.Status === "Ready" || l.Status === "Running" || l.Status === "Completed",
+      );
+
+    let physicalLanes: Awaited<ReturnType<typeof listLanes>> = [];
+    if (mightNeedGate) {
+      try {
+        physicalLanes = await listLanes(centerId);
+      } catch (err) {
+        console.warn(
+          `[checkin] neonId=${neonId} listLanes failed for self-service check:`,
+          err instanceof Error ? err.message : err,
+        );
+        // Left empty — the gate then cannot open, which is the safe direction.
+      }
     }
 
-    // Self-service gate: if the reservation is within 30 minutes and
-    // the physical lane is "Closed" (hardware off, ready to be started),
-    // let the guest open it themselves instead of waiting for staff to
-    // set the booked-lane to "Ready" in Conqueror.
-    if (phase === "not_ready" && laneNumbers.length > 0) {
-      const bookedAt = qamfRes.BookedAt ? new Date(qamfRes.BookedAt).getTime() : 0;
-      const now = Date.now();
-      const minsUntilBooked = (bookedAt - now) / 60_000;
-
-      if (bookedAt && minsUntilBooked <= 30) {
-        try {
-          const physicalLanes = await listLanes(centerId);
-          const assignedPhysical = physicalLanes.filter((pl) =>
-            laneNumbers.includes(pl.LaneNumber),
-          );
-          // All assigned lanes must be "Closed" (not Error, not Open for
-          // someone else). If any lane is Error or already Open, don't
-          // allow self-service — let staff handle it.
-          const allClosed =
-            assignedPhysical.length > 0 && assignedPhysical.every((pl) => pl.Status === "Closed");
-          if (allClosed) {
-            phase = "ready";
-            console.log(
-              `[checkin] neonId=${neonId} self-service gate: within ${Math.round(minsUntilBooked)}min,` +
-                ` lanes ${laneNumbers.join(",")} all Closed → phase=ready`,
-            );
-          }
-        } catch (err) {
-          console.warn(
-            `[checkin] neonId=${neonId} listLanes failed for self-service check:`,
-            err instanceof Error ? err.message : err,
-          );
-          // Fall through — keep phase as not_ready
-        }
-      }
+    const resolved = resolveLanePhase({
+      lanes,
+      physicalLanes,
+      bookedAtMs,
+      nowMs: Date.now(),
+    });
+    const phase = resolved.phase;
+    if (resolved.gate === "physical-lanes-closed") {
+      console.log(
+        `[checkin] neonId=${neonId} self-service gate: within ${Math.round(minsUntilBooked)}min,` +
+          ` lanes ${laneNumbers.join(",")} all Closed -> phase=ready`,
+      );
     }
 
     // Include lane GUIDs so POST can target them for status transitions

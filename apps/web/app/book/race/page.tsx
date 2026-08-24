@@ -942,6 +942,7 @@ export default function BookRacePage() {
         racerType,
         schedule: scheduleForDate(selectedDate),
         category: bookingCategory,
+        raceDate: selectedDate,
       }).find((p) => p.id.startsWith(warning.upsellPackagePrefix!)) ?? null
     );
   }
@@ -2274,6 +2275,7 @@ export default function BookRacePage() {
                           racerType,
                           schedule: scheduleForDate(selectedDate),
                           category: bookingCategory,
+                          raceDate: selectedDate,
                         }).filter((p) => p.id !== "rookie-pack")
                       : []
                   }

@@ -55,10 +55,10 @@ describe("camera monitor — wiring", () => {
   it("a camera board never rotates away to ads — it always has something to show", () => {
     expect(sceneHasData("camera", null)).toBe(true);
     const segments = buildRotation(
-      [{ scene: "camera", slots: 1, requiresData: false }],
+      [{ scene: "camera", slots: 1, requiresData: false, span: "wall" }],
       () => true,
       isSceneImplemented,
     );
-    expect(segments).toEqual([{ scene: "camera", startSlot: 0, slots: 1 }]);
+    expect(segments).toEqual([{ scene: "camera", startSlot: 0, slots: 1, span: "wall" }]);
   });
 });
