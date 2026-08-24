@@ -39,6 +39,7 @@ import { buildStageRail, type StageRow } from "../briefing/stage-rail";
 import { briefingTimelineAt } from "../briefing/phase";
 import { resolveFilmTier, tierForRaceType, type BriefingRoomState } from "../briefing/types";
 import { sendWindow } from "../briefing/pull-to-room";
+import { roomCheckinProgress } from "../checkin-progress";
 import {
   TRACK_ACCENTS,
   TRACK_LABELS,
@@ -349,6 +350,8 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
     });
   }, [status?.currentRaces, track, feed?.briefing?.videos, liveClock, lane?.racing]);
 
+  const idleProgress = roomCheckinProgress(feed?.checkinProgress ?? [], track);
+
   const idleStages = useMemo(
     () =>
       buildStageRail({
@@ -379,10 +382,14 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
          */
         liveRemainingMs: liveClock?.remainingMs ?? null,
         formatClock: fmtTrackerClock,
-        checkedIn:
-          feed?.raceCheckin?.checkedIn != null && feed?.raceCheckin?.total != null
-            ? { checkedIn: feed.raceCheckin.checkedIn, total: feed.raceCheckin.total }
-            : null,
+        // The desk's per-track progress record — it carries the count AND the
+        // call stamp, where `raceCheckin` is one loose heat with nothing tying
+        // it to this track's called session (fixed 2026-08-24).
+        checkedIn: idleProgress
+          ? { checkedIn: idleProgress.checkedIn, total: idleProgress.total }
+          : null,
+        calledForMs:
+          idleProgress?.calledAtMs != null ? (feed?.now ?? nowMs) - idleProgress.calledAtMs : null,
         brief: idleBrief,
       }),
     [feed?.briefingRooms, feed?.now, nowMs, status?.currentRaces, track, lane, liveClock],

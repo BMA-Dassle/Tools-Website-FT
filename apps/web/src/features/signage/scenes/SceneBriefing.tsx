@@ -35,6 +35,7 @@ import {
   normaliseGreetingTiming,
 } from "../briefing/return-greeting";
 import { buildStageRail, type StageRow } from "../briefing/stage-rail";
+import { roomCheckinProgress } from "../checkin-progress";
 import { sendWindow } from "../briefing/pull-to-room";
 import { roomBlockedAlertAt } from "../briefing/room-blocked";
 import { incomingForRoom, normaliseCameraReturn } from "../briefing/camera-return";
@@ -158,7 +159,9 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
       tierForRaceType(called?.raceType ?? null),
       (t) => !!vids?.[t]?.url,
     );
-    const count = feed?.raceCheckin;
+    // Same record the camera boards read — the desk's own per-track progress,
+    // which carries both the count and the call stamp.
+    const progress = roomCheckinProgress(feed?.checkinProgress ?? [], railTrack);
     return buildStageRail({
       called,
       rooms: (megaEnabled ? (["red", "blue"] as const) : ([room ?? "red"] as const)).map(
@@ -182,10 +185,8 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
        */
       liveRemainingMs: railClock?.remainingMs ?? null,
       formatClock: formatRailClock,
-      checkedIn:
-        count && count.checkedIn != null && count.total != null
-          ? { checkedIn: count.checkedIn, total: count.total }
-          : null,
+      checkedIn: progress ? { checkedIn: progress.checkedIn, total: progress.total } : null,
+      calledForMs: progress?.calledAtMs != null ? nowMs - progress.calledAtMs : null,
       brief: sendWindow({
         remainingMs: railClock?.remainingMs ?? null,
         onTrack: !!railClock || !!feed?.pitLanes?.[railTrack]?.racing,
@@ -202,7 +203,7 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
     feed?.pitLanes,
     feed?.now,
     feed?.briefing?.videos,
-    feed?.raceCheckin,
+    feed?.checkinProgress,
     nowMs,
     trackStatus?.currentRaces,
     liveTrack,

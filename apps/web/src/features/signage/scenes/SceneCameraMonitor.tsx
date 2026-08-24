@@ -119,7 +119,15 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
       tierForRaceType(called?.raceType ?? null),
       (t) => !!vids?.[t]?.url,
     );
-    const count = feed?.raceCheckin;
+    /**
+     * THE DESK'S OWN PROGRESS RECORD, not `raceCheckin` (fixed 2026-08-24: the
+     * count never appeared on the wall). `raceCheckin` is whichever single heat
+     * the feed happens to be carrying, with nothing tying it to THIS track's
+     * called session — so it was as likely to be absent as wrong. This is the
+     * same source the pane that used to live here read, picked for this track,
+     * and it carries the call stamp the waiting clock counts from.
+     */
+    const progress = roomCheckinProgress(feed?.checkinProgress ?? [], railTrack);
     return buildStageRail({
       called,
       // On a Mega night the one circuit is fed by both rooms.
@@ -138,10 +146,8 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
       liveCounting: sessionClock?.counting === true,
       liveRemainingMs: sessionClock?.remainingMs ?? null,
       formatClock: fmtRailClock,
-      checkedIn:
-        count && count.checkedIn != null && count.total != null
-          ? { checkedIn: count.checkedIn, total: count.total }
-          : null,
+      checkedIn: progress ? { checkedIn: progress.checkedIn, total: progress.total } : null,
+      calledForMs: progress?.calledAtMs != null ? nowMs - progress.calledAtMs : null,
       brief: sendWindow({
         remainingMs: sessionClock?.remainingMs ?? null,
         onTrack: !!sessionClock || !!feed?.pitLanes?.[railTrack]?.racing,

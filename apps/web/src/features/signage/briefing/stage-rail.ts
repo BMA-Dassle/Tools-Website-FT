@@ -117,6 +117,16 @@ export interface StageRailInput {
   /** The desk's count for the called heat, when the caller polls it. */
   checkedIn?: { checkedIn: number; total: number } | null;
   /**
+   * HOW LONG THE CALLED HEAT HAS BEEN CHECKING IN — now minus the call, the
+   * same anchor every other check-in clock in the estate counts from (owner
+   * 2026-08-24: "missing how many are checked in out of how many, how long they
+   * have been checking in for").
+   *
+   * Null when the call carried no usable stamp: the row then shows progress
+   * with no clock rather than a made-up one.
+   */
+  calledForMs?: number | null;
+  /**
    * WHEN THE CALLED GROUP SHOULD BE BRIEFED — the `sendWindow()` verdict the
    * check-in board's Send button and the room tablets' pull band already wear
    * (owner 2026-08-24: "make sure we honor what check in board and briefing
@@ -221,11 +231,15 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
       case "open":
         return { text: "brief now", tone: "good" };
       case "grace":
+        // "No time to brief", not a bare "no time" (owner 2026-08-24): on a
+        // wall the short form reads as a fact about the RACE — no time left on
+        // track — which is the opposite of what it means. It is the briefing
+        // that no longer fits.
         return fmt
-          ? { text: `no time · ${fmt(w.graceLeftMs)} grace`, tone: "alert" }
-          : { text: "no time", tone: "alert" };
+          ? { text: `no time to brief · ${fmt(w.graceLeftMs)} grace`, tone: "alert" }
+          : { text: "no time to brief", tone: "alert" };
       case "blocked":
-        return { text: "after the post", tone: "alert" };
+        return { text: "no time to brief · after the post", tone: "alert" };
       case "quiet":
         return null;
     }
@@ -235,11 +249,17 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
     calledHeat != null && count && count.total > 0
       ? `${count.checkedIn} of ${count.total} checked in`
       : null;
+  /** How long they have been at it. Only ever from a real stamp, and never a
+   *  negative one — a clock skew is not a group that checked in tomorrow. */
+  const waitedText =
+    calledHeat != null && input.calledForMs != null && input.calledForMs >= 0 && fmt
+      ? `${fmt(input.calledForMs)} checking in`
+      : null;
   rows.push({
     label: "Called",
     value: sessionLabel(calledHeat),
     type: calledHeat != null ? (called?.raceType ?? undefined) : undefined,
-    detail: [countText, briefPhrase?.text].filter(Boolean).join(" · ") || undefined,
+    detail: [countText, waitedText, briefPhrase?.text].filter(Boolean).join(" · ") || undefined,
     heatNumber: calledHeat,
     // THE HARDER FACT WINS THE COLOUR. A complete grid is good news, but a
     // briefing that can no longer fit outranks it — green beside "no time"
