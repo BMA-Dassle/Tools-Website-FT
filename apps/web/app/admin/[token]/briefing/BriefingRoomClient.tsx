@@ -66,8 +66,10 @@ import { briefingReadyForHolding, briefingTimelineAt } from "~/features/signage/
 import {
   pullIsLate,
   pullVerdict,
+  sendWindow,
   type PullRefusal,
 } from "~/features/signage/briefing/pull-to-room";
+import { laneReturnRoom } from "~/features/signage/briefing/room-suggest";
 import {
   buildStageRail,
   heatIsPastTheDesk,
@@ -1280,6 +1282,26 @@ export default function BriefingRoomClient({
     ? `The ${incomingTier} film runs ${clock(incomingFilmMs)} — pull now and the track waits on this room.`
     : "Pull now and the film will still be running when the seats are wanted.";
 
+  /**
+   * DOES THE FILM STILL FIT — the desk board's send window, run on this
+   * tablet's own clock, so the two surfaces cannot disagree about a refusal
+   * (owner 2026-08-23: no more pulling a group in when there is no time).
+   */
+  const pullWindow = sendWindow({
+    remainingMs: raceClock?.liveRemainingMs ?? null,
+    onTrack: trackHeatNumber != null || !!incomingLane?.racing,
+    onTrackHeatNumber: trackHeatNumber,
+    filmMs: incomingFilmMs,
+    attribution:
+      incomingTrack !== "mega"
+        ? "this-room"
+        : laneReturnRoom(incomingLane) === room
+          ? "this-room"
+          : laneReturnRoom(incomingLane) == null
+            ? "unknown"
+            : "other-room",
+  });
+
   /** THE ONE RULE, and its sentences. Pure, shared, tested — pull-to-room.ts. */
   const pull = pullVerdict({
     enabled: board?.enabled,
@@ -1291,6 +1313,7 @@ export default function BriefingRoomClient({
     roomOccupied: !!state,
     checkedIn: incomingCount,
     late: pullLate,
+    noTime: pullWindow.kind === "blocked",
   });
 
   const sendCb = control.send;
@@ -1322,6 +1345,10 @@ export default function BriefingRoomClient({
           : "This room still has a group in it — send them to holding first.";
       case "already-sent":
         return `Already in the ${incomingSentTo} room.`;
+      case "no-time":
+        return raceLeftMs != null && raceLeftMs > 0
+          ? `${trackHeatNumber != null ? `Session ${trackHeatNumber}` : "The race"} ends in ${clock(raceLeftMs)} — the ${incomingTier} film${incomingFilmMs ? ` (${clock(incomingFilmMs)})` : ""} no longer fits. The pull unlocks at the flag.`
+          : "No time for the film before the flag — the pull unlocks when the race ends.";
       case "disabled":
         return "Briefing rooms are switched off.";
       case "no-heat":

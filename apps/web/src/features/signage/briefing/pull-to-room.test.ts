@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { PULL_LATE_MS, pullIsLate, pullVerdict, type PullInput } from "./pull-to-room";
+import {
+  DEFAULT_FILM_MS,
+  PULL_LATE_MS,
+  ROOM_EXIT_MS,
+  SEND_CLOSING_SPAN_MS,
+  SEND_OPEN_SLACK_MS,
+  pullIsLate,
+  pullVerdict,
+  sendWindow,
+  type PullInput,
+} from "./pull-to-room";
 
 /**
  * The owner's condition is one line — "if and only if all racers are checked in"
@@ -116,5 +126,124 @@ describe("pullIsLate", () => {
 
   it("stays quiet when a race is out but its clock is unreadable", () => {
     expect(pullIsLate({ remainingMs: null, pitInOccupied: false, onTrack: true })).toBe(false);
+  });
+});
+
+/**
+ * The send window turns the late warning's two numbers — race left, film length
+ * — into a verdict. The edges that matter: the block firing exactly when the
+ * film stops fitting, and the block LIFTING at the chequer, because once the
+ * track is waiting the hold buys nothing.
+ */
+
+const M = 60_000;
+const STARTER_FILM = 4.5 * M; // need = 5:00 with the exit
+const NEED = STARTER_FILM + ROOM_EXIT_MS;
+const RUNNING = {
+  onTrack: true,
+  onTrackHeatNumber: 48,
+  filmMs: STARTER_FILM,
+  attribution: "this-room" as const,
+};
+
+describe("sendWindow", () => {
+  it("is quiet on an empty track — an ended race lifts the block by itself", () => {
+    expect(sendWindow({ ...RUNNING, remainingMs: null, onTrack: false }).kind).toBe("quiet");
+  });
+
+  it("is quiet when a race is out but its clock is unreadable", () => {
+    expect(sendWindow({ ...RUNNING, remainingMs: null }).kind).toBe("quiet");
+  });
+
+  it("lifts the block the moment the clock hits zero, however long the feed lingers", () => {
+    expect(sendWindow({ ...RUNNING, remainingMs: 0 }).kind).toBe("quiet");
+    expect(sendWindow({ ...RUNNING, remainingMs: -30_000 }).kind).toBe("quiet");
+  });
+
+  it("reads early with lots of race left, and says when the window opens", () => {
+    const w = sendWindow({ ...RUNNING, remainingMs: 9 * M });
+    expect(w).toEqual({
+      kind: "early",
+      standMs: 9 * M - NEED,
+      opensInMs: 9 * M - NEED - SEND_OPEN_SLACK_MS,
+    });
+  });
+
+  it("opens when the film would land as the track clears", () => {
+    expect(sendWindow({ ...RUNNING, remainingMs: 7 * M }).kind).toBe("open");
+    expect(sendWindow({ ...RUNNING, remainingMs: NEED + SEND_OPEN_SLACK_MS }).kind).toBe("open");
+    expect(sendWindow({ ...RUNNING, remainingMs: NEED + SEND_CLOSING_SPAN_MS }).kind).toBe("open");
+  });
+
+  it("turns loud over the window's last seconds, with the countdown", () => {
+    const w = sendWindow({ ...RUNNING, remainingMs: NEED + 30_000 });
+    expect(w).toEqual({ kind: "closing", remainingMs: NEED + 30_000, closesInMs: 30_000 });
+  });
+
+  it("blocks the moment the film no longer fits", () => {
+    const w = sendWindow({ ...RUNNING, remainingMs: NEED - 1 });
+    expect(w).toEqual({ kind: "blocked", heatNumber: 48, remainingMs: NEED - 1 });
+  });
+
+  it("sizes the window to the film this heat will actually get", () => {
+    const proFilm = 46_000;
+    // 2:30 left fits a pro film with room to spare — open, not blocked.
+    expect(sendWindow({ ...RUNNING, filmMs: proFilm, remainingMs: 2.5 * M }).kind).toBe("open");
+    expect(sendWindow({ ...RUNNING, filmMs: proFilm, remainingMs: 70_000 }).kind).toBe("blocked");
+  });
+
+  it("assumes the starter film when none is uploaded", () => {
+    expect(sendWindow({ ...RUNNING, filmMs: null, remainingMs: 4 * M })).toEqual({
+      kind: "blocked",
+      heatNumber: 48,
+      remainingMs: 4 * M,
+    });
+    expect(DEFAULT_FILM_MS + ROOM_EXIT_MS).toBe(5 * M); // the owner's own number
+  });
+
+  it("downgrades the block to a loud warning when the returning room is unknown", () => {
+    expect(sendWindow({ ...RUNNING, remainingMs: 4 * M, attribution: "unknown" })).toEqual({
+      kind: "closing",
+      remainingMs: 4 * M,
+      closesInMs: 0,
+    });
+  });
+
+  it("keeps warnings off the other Mega room but still offers it the open window", () => {
+    expect(sendWindow({ ...RUNNING, remainingMs: 4 * M, attribution: "other-room" }).kind).toBe(
+      "quiet",
+    );
+    expect(
+      sendWindow({ ...RUNNING, remainingMs: NEED + 10_000, attribution: "other-room" }).kind,
+    ).toBe("quiet");
+    expect(sendWindow({ ...RUNNING, remainingMs: 7 * M, attribution: "other-room" }).kind).toBe(
+      "open",
+    );
+  });
+
+  it("keeps the band boundaries an exact ladder — no gaps, no overlaps", () => {
+    for (let r = 5_000; r <= 10 * M; r += 5_000) {
+      expect(sendWindow({ ...RUNNING, remainingMs: r }).kind).toBe(
+        r < NEED
+          ? "blocked"
+          : r < NEED + SEND_CLOSING_SPAN_MS
+            ? "closing"
+            : r > NEED + SEND_OPEN_SLACK_MS
+              ? "early"
+              : "open",
+      );
+    }
+  });
+});
+
+describe("pullVerdict — no time for the film", () => {
+  it("refuses a complete heat when the film no longer fits", () => {
+    expect(pullVerdict({ ...CLEAR, noTime: true })).toEqual({ ok: false, reason: "no-time" });
+  });
+
+  it("lets the roster sentence win while both are true — scanning can happen during the wait", () => {
+    expect(pullVerdict({ ...CLEAR, checkedIn: { checkedIn: 9, total: 12 }, noTime: true })).toEqual(
+      { ok: false, reason: "not-all-checked-in" },
+    );
   });
 });
