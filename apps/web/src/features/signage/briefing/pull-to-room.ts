@@ -156,9 +156,10 @@ export const DEFAULT_FILM_MS = 4.5 * 60_000;
  *  top of this band a send releases the group onto a track that is about to
  *  clear; above it they stand. 2:30 ≈ the measured ideal 2:00 hold + walk. */
 export const SEND_OPEN_SLACK_MS = 2.5 * 60_000;
-/** The window's last stretch above (film + exit) — the board turns loud here,
+/** The window's last stretch above (film + exit) — the ONE-MINUTE GRACE
+ *  (owner 2026-08-23): the Called box blinks red and the countdown runs,
  *  because past it the send is refused, not warned. */
-export const SEND_CLOSING_SPAN_MS = 45_000;
+export const SEND_CLOSING_SPAN_MS = 60_000;
 /** How long after the finish a still-unplayed post counts as NOT COMING. The
  *  cue normally fires within a minute or two of the flag; a block that waits
  *  longer than this is waiting on a dead speaker, not an announcement. */

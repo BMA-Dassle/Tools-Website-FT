@@ -49,7 +49,14 @@
  * from startHoldRemainingMs — the same pure functions the TV and the desk run, so
  * all three surfaces agree about what this room is doing.
  */
-import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import {
   IconAlertTriangleFilled,
   IconArrowRight,
@@ -1037,6 +1044,23 @@ export default function BriefingRoomClient({
     [startCb, room],
   );
 
+  /** When this tablet first saw the race clock at 0:00 — the zero-gap post
+   *  block. Up here, above the room picker's early return (hooks are
+   *  unconditional), fed by the clock that also lives up here. State +
+   *  effect rather than a render-time ref (react-hooks/refs). */
+  const zeroKey =
+    raceClock?.liveRemainingMs != null && raceClock.liveRemainingMs <= 0
+      ? (liveHeatNumber(raceClock.heatName) ?? -1)
+      : null;
+  const [zeroSeen, setZeroSeen] = useState<{ key: number; atMs: number } | null>(null);
+  useEffect(() => {
+    if (zeroKey == null) {
+      setZeroSeen(null);
+      return;
+    }
+    setZeroSeen((cur) => (cur?.key === zeroKey ? cur : { key: zeroKey, atMs: Date.now() }));
+  }, [zeroKey]);
+
   /* ── the room picker, for a tablet nobody has set up yet ──────────── */
 
   if (!room) {
@@ -1288,12 +1312,25 @@ export default function BriefingRoomClient({
    * tablet's own clock, so the two surfaces cannot disagree about a refusal
    * (owner 2026-08-23: no more pulling a group in when there is no time).
    */
+  /** THE ZERO GAP, same as the desk board: a clock at 0:00 with an empty pit
+   *  slot means the post is seconds away and the lane just has not written it
+   *  yet — synthesized as an owed post below, timed from this tablet's first
+   *  sight of the zero, bounded by the engine's dead-cue cap. */
   /** The post-race announcement owed to (or playing into) this room — the send
    *  stays refused until it has played, with sendWindow's own dead-cue cap
-   *  ("if it even exists", owner 2026-08-23). Same arithmetic as the desk. */
+   *  ("if it even exists", owner 2026-08-23). Same arithmetic as the desk;
+   *  the zero-gap `zeroSeen` state lives above the room picker's early return. */
   const pullPitPost: PitPost | null = (() => {
     const p = incomingLane?.pitIn;
-    if (!p) return null;
+    if (!p) {
+      return zeroSeen
+        ? {
+            phase: "owed",
+            heatNumber: trackHeatNumber,
+            sinceFinishMs: Math.max(0, nowMs - zeroSeen.atMs),
+          }
+        : null;
+    }
     if (p.postRaceAtMs != null) {
       const endsInMs = p.postRaceAtMs + (p.postRaceDurationS ?? 30) * 1000 - nowMs;
       return endsInMs > 0 ? { phase: "playing", heatNumber: p.heatNumber, endsInMs } : null;

@@ -205,6 +205,11 @@ export interface BriefingControl {
    */
   setAutoHolding: (enabled: boolean) => void;
   /**
+   * How long a called racer has to reach the desk. Null hands the window back
+   * to the signage screen configs (owner 2026-08-23 — the gear setting).
+   */
+  setCheckinWindow: (minutes: number | null) => void;
+  /**
    * ARM OR DISARM race-event bookmarks on the track cameras — session start,
    * pause, resume and end, written to every camera on that track.
    *
@@ -463,6 +468,19 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  const setCheckinWindow = useCallback<BriefingControl["setCheckinWindow"]>(
+    (minutes) => {
+      void post(
+        { action: "checkin-window", minutes },
+        minutes == null
+          ? "Check-in window follows the track screens again"
+          : `Check-in window is ${minutes} minutes from the call — every board and TV`,
+        "checkin-window",
+      );
+    },
+    [post],
+  );
+
   const setRaceBookmarks = useCallback<BriefingControl["setRaceBookmarks"]>(
     (enabled) => {
       void post(
@@ -626,6 +644,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     sendToHolding,
     markPitted,
     setAutoHolding,
+    setCheckinWindow,
     setRaceBookmarks,
     setCameraPreview,
     overrideSlot,

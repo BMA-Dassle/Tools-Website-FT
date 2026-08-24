@@ -99,6 +99,7 @@ import {
   type PitPost,
   type SendWindow,
 } from "~/features/signage/briefing/pull-to-room";
+import { callAlarmCue, sendAlarmCue, type AlarmCue } from "~/features/signage/briefing/desk-alarm";
 import { laneReturnRoom, suggestMegaRoom } from "~/features/signage/briefing/room-suggest";
 import { trackDisplay, verdictLabel } from "~/features/racing/on-time-display";
 import { liveHeatNumber } from "~/features/signage/briefing/room-return";
@@ -364,6 +365,10 @@ const STYLES = `
 }
 `;
 
+/** A stable no-op for a board with no speaker — a fresh arrow in the prop would
+ *  re-run every column's alarm effect on every render. */
+const noopCue = () => {};
+
 /** A local 1-second clock, so every readout ticks between 5-second polls. */
 function useNowMs(intervalMs = 1_000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -394,8 +399,17 @@ export default function RaceControlPanels({
   control,
   checkinCounts = [],
   scannerOffline = false,
+  onAlarmCue,
 }: {
   control: BriefingControl;
+  /**
+   * THE BOARD'S ONE SPEAKER, owned by the page (it holds the gear that switches
+   * the alarm off). Every column reports its cue here every tick and the hook
+   * plays each (kind, session, slot) exactly once — so two tracks closing in the
+   * same second cannot talk over each other. Absent on a surface with no
+   * speaker, which simply makes the board silent.
+   */
+  onAlarmCue?: (cue: AlarmCue | null) => void;
   /**
    * HOW MANY OF THE HEAT ARE THROUGH THE DESK, moved down here from the top of
    * the board (owner 2026-08-12: "in board mode move the number checked in down
@@ -584,6 +598,7 @@ export default function RaceControlPanels({
               onTime={status?.onTime ?? null}
               // Read-only: which session BMI still owes a call for on this track.
               nextCall={status?.nextCheckIn?.[track] ?? null}
+              onAlarmCue={onAlarmCue ?? noopCue}
               status={board?.rooms.find((r) => r.room === room) ?? null}
               proFilmMissing={!board?.videos.pro}
               // The uploaded films, so the late-send warning can quote the length
@@ -1291,6 +1306,7 @@ function RoomColumn({
   race,
   onTime,
   nextCall,
+  onAlarmCue,
   status,
   proFilmMissing,
   videos,
@@ -1328,6 +1344,13 @@ function RoomColumn({
    * "you can't have a call button because that comes from BMI").
    */
   nextCall: NextCheckIn | null;
+  /**
+   * Report this column's alarm cue every tick. ONE speaker serves the whole
+   * board — both columns report here and the hook plays each (kind, session,
+   * slot) exactly once, so two tracks closing at the same second cannot talk
+   * over each other.
+   */
+  onAlarmCue: (cue: AlarmCue | null) => void;
   status: RoomStatus | null;
   /** No Pro film uploaded — a Pro pick will play the Intermediate film. */
   proFilmMissing: boolean;
@@ -1483,6 +1506,32 @@ function RoomColumn({
    * because once the track is waiting the hold buys nothing.
    */
   /**
+   * THE ZERO GAP (owner 2026-08-23, from the live board: "why is briefing
+   * available if the race just finished?"). Between the clock hitting 0:00 and
+   * the finished group landing in `pitIn`, the lane says nothing — but the
+   * post is seconds away, and a film started now would sit right under it. So
+   * a zero clock with an empty pit slot synthesizes an owed post below, timed
+   * from the moment THIS board first saw the zero; the engine's dead-cue cap
+   * still bounds it, so a timer wedged at 0:00 unblocks itself in 4 minutes.
+   * State + effect rather than a render-time ref (react-hooks/refs); the one
+   * tick of lag is nothing against a gap that lasts tens of seconds.
+   */
+  const clockZeroKey = liveClock && liveClock.remainingMs <= 0 ? (liveHeatNow ?? -1) : null;
+  const [zeroSeen, setZeroSeen] = useState<{ key: number; atMs: number } | null>(null);
+  useEffect(() => {
+    // Deferred by a frame rather than set synchronously in the effect body
+    // (react-hooks/set-state-in-effect). One frame against a gap that lasts
+    // tens of seconds is invisible.
+    const t = setTimeout(() => {
+      setZeroSeen((cur) => {
+        if (clockZeroKey == null) return null;
+        return cur?.key === clockZeroKey ? cur : { key: clockZeroKey, atMs: Date.now() };
+      });
+    }, 0);
+    return () => clearTimeout(t);
+  }, [clockZeroKey]);
+
+  /**
    * THE POST-RACE ANNOUNCEMENT OWED TO THIS ROOM, from the lane's pit slot.
    * The send stays blocked through the chequer until it has PLAYED (owner
    * 2026-08-23: "unlocked at post race… if it even exists" — the existence
@@ -1491,7 +1540,15 @@ function RoomColumn({
    */
   const pitPost: PitPost | null = (() => {
     const p = lane?.pitIn;
-    if (!p) return null;
+    if (!p) {
+      return zeroSeen
+        ? {
+            phase: "owed",
+            heatNumber: liveHeatNow,
+            sinceFinishMs: Math.max(0, nowMs - zeroSeen.atMs),
+          }
+        : null;
+    }
     if (p.postRaceAtMs != null) {
       const endsInMs = p.postRaceAtMs + (p.postRaceDurationS ?? 30) * 1000 - nowMs;
       return endsInMs > 0 ? { phase: "playing", heatNumber: p.heatNumber, endsInMs } : null;
@@ -1574,6 +1631,48 @@ function RoomColumn({
   /** The far edge of the owner's window: call time + 5 + 2. */
   const callWindowEndsMs =
     nextCall != null ? nextCall.callAtMs + CALL_WINDOW_MIN * 60_000 : Number.NaN;
+
+  /**
+   * THE TWO AUDIBLE DEADLINES (owner 2026-08-23). Reported every tick; the
+   * alarm hook plays each once per 10-second slot, three times per event. Both
+   * cues are derived from the SAME numbers the box is already showing, so the
+   * sound can never claim something the screen does not.
+   */
+  const callCue = callAlarmCue({
+    nowMs,
+    next:
+      nextCall != null && Number.isFinite(callWindowEndsMs)
+        ? {
+            sessionId: nextCall.sessionId,
+            heatNumber: nextCall.heatNumber,
+            callWindowEndsMs,
+          }
+        : null,
+  });
+  const sendCue = sendAlarmCue({
+    called:
+      race && !sentTo ? { sessionId: String(race.sessionId), heatNumber: race.heatNumber } : null,
+    calledForMs: checkingInMs,
+    windowClosesInMs: sendWin.kind === "closing" ? sendWin.closesInMs : null,
+  });
+  // The send deadline outranks the call one: a group already standing at the
+  // desk is the more expensive of the two to lose.
+  const cue = sendCue ?? callCue;
+  // Deps are the cue's own PRIMITIVES, so the effect runs three times an event
+  // rather than once a second — and no object identity or ref is involved.
+  const cueKind = cue?.kind ?? null;
+  const cueSlot = cue?.slot ?? null;
+  const cueSession = cue?.sessionId ?? null;
+  const cueHeat = cue?.heatNumber ?? null;
+  useEffect(() => {
+    if (cueKind == null || cueSlot == null || cueSession == null) return;
+    onAlarmCue({
+      kind: cueKind,
+      slot: cueSlot,
+      sessionId: cueSession,
+      heatNumber: cueHeat,
+    });
+  }, [cueKind, cueSlot, cueSession, cueHeat, onAlarmCue]);
 
   /** Time left in the check-in window; negative once it has passed. Null when no
    *  window is known, which is also when no alert can fire. */
@@ -1716,8 +1815,21 @@ function RoomColumn({
         // before. With the box EMPTY it is the call this track owes — amber only,
         // never red: red on this board means a missed deadline that costs a race,
         // and a late call costs minutes (same rule as the late-send notice).
-        alert={race && !sentTo ? calledAlert : callDue ? "warn" : undefined}
-        ready={gridComplete}
+        /* THE ONE-MINUTE GRACE (owner 2026-08-23: "1 minute grace period where
+           check in blinks red as they're out of time to send"). Over the send
+           window's last minute the whole box takes the red flash, and it
+           OUTRANKS the green ready-flash for exactly that minute — "everyone
+           is here" is old news beside "you are about to lose the send". */
+        alert={
+          race && !sentTo
+            ? sendWin.kind === "closing"
+              ? "late"
+              : calledAlert
+            : callDue
+              ? "warn"
+              : undefined
+        }
+        ready={gridComplete && sendWin.kind !== "closing"}
         // THE LEAPFROG HINT, top-right where the eye lands before the button
         // (owner 2026-08-17: "bigger/more obvious… the top right corner is
         // empty"). Solid Mega violet so it reads as the Mega rotation
@@ -1861,11 +1973,9 @@ function RoomColumn({
                   tone={
                     sendWin.kind === "open"
                       ? GREEN
-                      : sendWin.kind === "closing"
-                        ? AMBER
-                        : sendWin.kind === "blocked"
-                          ? DANGER
-                          : undefined
+                      : sendWin.kind === "closing" || sendWin.kind === "blocked"
+                        ? DANGER
+                        : undefined
                   }
                 />
               )}
@@ -2094,14 +2204,17 @@ function RoomColumn({
                   </>
                 ) : (
                   <>
+                    {/* "window closes" was ambiguous with the SEND window and
+                        read as a contradiction beside a race that had just gone
+                        green (owner 2026-08-23). The countdown now names what it
+                        is counting: time left to make the CALL. */}
                     {nextCall.heatNumber != null
                       ? `Call Session ${nextCall.heatNumber} — `
                       : "Call the next session — "}
-                    window closes in{" "}
                     <span className="rc-num">
                       {formatClock(Math.max(0, callWindowEndsMs - nowMs))}
-                    </span>
-                    .
+                    </span>{" "}
+                    left to call it on time.
                   </>
                 )}
               </b>{" "}

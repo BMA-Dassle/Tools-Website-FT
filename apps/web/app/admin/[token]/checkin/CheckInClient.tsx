@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { modalBackdropProps } from "@/lib/a11y";
 import RaceControlPanels, { waitTimesBehind } from "./RaceControlPanels";
+import { useDeskAlarm } from "./useDeskAlarm";
 import { useBriefingControl, type TimingFeedStatus } from "./useBriefingControl";
 import { useScanSound } from "./useScanSound";
 // TYPE-ONLY: scan-history.ts imports the redis client, so a value import here
@@ -426,6 +427,24 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
     return saved ? Number(saved) : 9600;
   });
   const [showSettings, setShowSettings] = useState(false);
+
+  /** The board's deadline alarm — one speaker for both columns, switched from
+   *  the gear below and reported into by every RoomColumn. */
+  const alarm = useDeskAlarm();
+
+  /**
+   * The window the SERVER is currently applying, for the gear to show as
+   * selected. Read off the board rather than kept in local state, so the sheet
+   * reflects what every other surface is using — including a change another
+   * station made. Tracks can differ in theory (each screen carries its own);
+   * the shortest is the one the desk is held to, so that is the one shown.
+   */
+  const checkinWindowNow = (() => {
+    const all = Object.values(briefing.board?.checkinWindowMins ?? {}).filter(
+      (n): n is number => typeof n === "number" && n > 0,
+    );
+    return all.length ? Math.min(...all) : null;
+  })();
 
   /**
    * TAKE THE NEW BUILD, BUT ONLY IN A GAP.
@@ -1746,6 +1765,105 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
           </div>
 
           {/*
+            DEADLINE ALARM — this PC's speaker, like the scan sound above. Two
+            moments cost a race if they pass with heads down (owner 2026-08-23),
+            so both get a sound: a call about to go late, and a briefing window
+            about to shut on a group who have been waiting. Three plays, ten
+            seconds apart, then silence — a sound that nags forever is a sound
+            that gets muted, and then neither alarm works again.
+          */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+              Deadline alarm
+            </p>
+            <div className="flex gap-2 items-center" style={{ flexWrap: "wrap" }}>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={alarm.enabled}
+                onClick={() => alarm.setEnabled(!alarm.enabled)}
+                className="px-3 py-1.5 text-xs border hover:bg-white/5"
+                style={{
+                  borderRadius: 8,
+                  borderColor: alarm.enabled ? GREEN : PORTAL_DARK.inputBorder,
+                  backgroundColor: alarm.enabled ? `${GREEN}22` : "transparent",
+                  color: alarm.enabled ? GREEN : PORTAL_DARK.muted,
+                }}
+              >
+                {alarm.enabled ? "On" : "Off"}
+              </button>
+              <button
+                type="button"
+                onClick={alarm.preview}
+                className="px-3 py-1.5 text-xs border hover:bg-white/5"
+                style={{
+                  borderRadius: 8,
+                  borderColor: PORTAL_DARK.inputBorder,
+                  color: PORTAL_DARK.muted,
+                }}
+              >
+                Hear it
+              </button>
+            </div>
+            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+              Sounds three times over the last 30 seconds when a session is about to be called late,
+              or when a called group&apos;s briefing window is closing. This station only.
+            </p>
+          </div>
+
+          {/*
+            THE CHECK-IN WINDOW — how long a called racer has to reach the desk
+            (owner 2026-08-23: "make this a setting in the gear of the check in
+            board"). A SERVER setting, unlike the two above: the track TVs count
+            the same guest down against this number, and a desk on 7 while the
+            wall says 8 puts the guest's clock and the staff's out of step.
+            "Track screens" hands it back to the signage configs.
+          */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+              Check-in window
+            </p>
+            <div className="flex gap-2 items-center" style={{ flexWrap: "wrap" }}>
+              {[5, 6, 7, 8, 10].map((mins) => {
+                const on = checkinWindowNow === mins;
+                return (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => briefing.setCheckinWindow(mins)}
+                    className="px-3 py-1.5 text-xs border hover:bg-white/5"
+                    style={{
+                      borderRadius: 8,
+                      borderColor: on ? PORTAL_BLUE : PORTAL_DARK.inputBorder,
+                      backgroundColor: on ? `${PORTAL_BLUE}33` : "transparent",
+                      color: on ? PORTAL_BLUE_SOFT : PORTAL_DARK.muted,
+                    }}
+                  >
+                    {mins} min
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => briefing.setCheckinWindow(null)}
+                className="px-3 py-1.5 text-xs border hover:bg-white/5"
+                style={{
+                  borderRadius: 8,
+                  borderColor: PORTAL_DARK.inputBorder,
+                  color: PORTAL_DARK.muted,
+                }}
+              >
+                Track screens
+              </button>
+            </div>
+            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+              {checkinWindowNow
+                ? `Racers have ${checkinWindowNow} minutes from the call to reach the desk. Every board and TV follows this within one poll.`
+                : "Waiting for the board to report the current window."}
+            </p>
+          </div>
+
+          {/*
             MANUAL ENTRY — every scan shape, no badge, no ?test=1 URL.
             "Look up" writes NOTHING: no check-in, no headsock deduction, no
             lobby-TV event. That distinction is enforced on the server, not here,
@@ -2065,6 +2183,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
           scannerOffline={
             serialSupported && connectionState !== "ready" && connectionState !== "connecting"
           }
+          onAlarmCue={alarm.fire}
         />
       )}
 

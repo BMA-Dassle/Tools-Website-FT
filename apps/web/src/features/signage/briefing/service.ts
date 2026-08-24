@@ -38,6 +38,7 @@ import { foldBriefingLog, type BriefingRecord } from "./briefing-log";
 import { captureRoomPhoto } from "./room-photo.server";
 import { bookmarkBriefingStartAfter } from "./bookmarks.server";
 import { autoHoldingEnabled } from "./auto-holding.server";
+import { checkinWindowOverride } from "./checkin-window.server";
 import { raceBookmarksEnabled } from "./race-bookmarks-setting.server";
 import { cameraPreviewMode, type CameraPreviewMode } from "./camera-preview-setting.server";
 import { readTimingFeedStatus, type TimingFeedStatus } from "~/features/racing/timing-feed.server";
@@ -631,6 +632,17 @@ const CHECKIN_WINDOW_TTL_MS = 60_000;
 let checkinWindowCache: { at: number; windows: CheckinWindows } | null = null;
 
 async function resolveCheckinWindows(now: number): Promise<CheckinWindows> {
+  /**
+   * THE DESK'S OVERRIDE WINS, AND IS NOT CACHED (owner 2026-08-23: the window
+   * is a gear setting on the check-in board). It sits outside the 60s cache
+   * deliberately — a staff member who has just changed the window watches the
+   * board to see it take, and a minute of "did that work?" is exactly the
+   * doubt the gear exists to remove. One Redis GET per poll against a board
+   * that already makes several.
+   */
+  const override = await checkinWindowOverride();
+  if (override != null) return { blue: override, red: override, mega: override };
+
   if (checkinWindowCache && now - checkinWindowCache.at < CHECKIN_WINDOW_TTL_MS) {
     return checkinWindowCache.windows;
   }

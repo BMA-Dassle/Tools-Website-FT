@@ -19,6 +19,11 @@ import {
 } from "~/features/signage/briefing/called-override.server";
 import { readBriefingRoom } from "~/features/signage/briefing/state.server";
 import { setAutoHoldingEnabled } from "~/features/signage/briefing/auto-holding.server";
+import {
+  CHECKIN_WINDOW_MAX_MINS,
+  CHECKIN_WINDOW_MIN_MINS,
+  setCheckinWindowOverride,
+} from "~/features/signage/briefing/checkin-window.server";
 import { setRaceBookmarksEnabled } from "~/features/signage/briefing/race-bookmarks-setting.server";
 import {
   setCameraPreviewMode,
@@ -206,6 +211,33 @@ export async function POST(req: NextRequest) {
     }
     await setAutoHoldingEnabled(body.enabled);
     return NextResponse.json({ ok: true, enabled: body.enabled });
+  }
+
+  /**
+   * HOW LONG A CALLED RACER HAS TO REACH THE DESK — the one number on that
+   * sheet (owner 2026-08-23). Null clears the override and hands the window
+   * back to the signage screen configs. Out-of-range is REJECTED rather than
+   * clamped: it can only come from our own gear, so a bad value is a bug worth
+   * seeing rather than a number to quietly reinterpret.
+   */
+  if (action === "checkin-window") {
+    const mins = (body as { minutes?: unknown }).minutes ?? null;
+    if (mins !== null && typeof mins !== "number") {
+      return NextResponse.json({ error: "minutes must be a number or null" }, { status: 400 });
+    }
+    if (
+      typeof mins === "number" &&
+      (!Number.isFinite(mins) || mins < CHECKIN_WINDOW_MIN_MINS || mins > CHECKIN_WINDOW_MAX_MINS)
+    ) {
+      return NextResponse.json(
+        {
+          error: `minutes must be between ${CHECKIN_WINDOW_MIN_MINS} and ${CHECKIN_WINDOW_MAX_MINS}`,
+        },
+        { status: 400 },
+      );
+    }
+    await setCheckinWindowOverride(mins);
+    return NextResponse.json({ ok: true, minutes: mins });
   }
 
   /** Race-event camera bookmarks — the other switch on the same sheet. */
