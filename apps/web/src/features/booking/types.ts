@@ -13,8 +13,12 @@
  *
  * Race-packs are NOT a booking activity — they are credit-pack purchases
  * built later (PR-B4) as a SessionItem variant alongside BookingItem.
+ *
+ * "racesim" = racing simulators (FastTrax FM, kiosk-only entry). PLACEHOLDER
+ * PHASE 2026-08: staff-gated on the kiosk, fail-closed at reserve until real
+ * product ids exist (features/race-sims/products.ts).
  */
-export type Activity = "race" | "attraction" | "bowling" | "kbf";
+export type Activity = "race" | "attraction" | "bowling" | "kbf" | "racesim";
 
 export type Brand = "fasttrax" | "headpinz";
 

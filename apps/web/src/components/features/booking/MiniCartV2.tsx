@@ -23,6 +23,8 @@ function readSnapshot(): SessionSnapshot | null {
   else if (first.kind === "race") slug = "race";
   else if (first.kind === "bowling") slug = "bowling";
   else if (first.kind === "kbf") slug = "kbf";
+  // racesim is kiosk-only (no /book/<slug>/v2 route) and can't reach WEB
+  // storage; if one ever does, the "race" fallback is the sane landing.
   else slug = "race";
 
   // cart=1 marks this as a cart RETURN, not a fresh activity entry — without it

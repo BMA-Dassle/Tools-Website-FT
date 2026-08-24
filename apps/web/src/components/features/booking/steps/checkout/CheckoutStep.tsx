@@ -31,6 +31,7 @@ import {
 import { applyPromoToAmount } from "~/features/booking/service/promo-pricing";
 import { calculateTax } from "~/features/booking/service/race-pricing";
 import { activeComboSpecial } from "~/features/combos/combo-pricing";
+import { getRaceSimProduct, getRaceSimTrack, raceSimPriceFor } from "~/features/race-sims/products";
 import {
   fetchServerQuote,
   overviewFromServerQuote,
@@ -429,7 +430,9 @@ export function CheckoutStep({
 
   // ── Contact phase ─────────────────────────────────────────────
 
-  const hasBmi = session.items.some((i) => i.kind === "race" || i.kind === "attraction");
+  const hasBmi = session.items.some(
+    (i) => i.kind === "race" || i.kind === "attraction" || i.kind === "racesim",
+  );
 
   async function handleContactSubmit() {
     if (!isValidContact) return;
@@ -517,6 +520,26 @@ export function CheckoutStep({
             });
           }
         }
+      }
+
+      // Race Sims: priced from the same in-code catalog the server
+      // quote/charge builder reads (race-sims/products.ts — day-of-week
+      // pricing keyed on item.date), so this client fallback can't drift
+      // from the server quote. Guard 2e fail-closes any charge until the
+      // BMI track keys are armed.
+      for (const item of session.items) {
+        if (item.kind !== "racesim") continue;
+        const product = getRaceSimProduct(item.productSlug);
+        if (!product) continue;
+        const qty = Math.max(1, item.racerCount);
+        const track = getRaceSimTrack(item.trackKey);
+        const unit = raceSimPriceFor(product, item.date);
+        reviewLines.push({
+          name: `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""}`,
+          quantity: qty,
+          amount: (Math.round(unit * 100) * qty) / 100,
+          time: item.slot ?? undefined,
+        });
       }
 
       // Attractions are NOT added from the cart here: they book onto the SAME

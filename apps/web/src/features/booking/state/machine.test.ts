@@ -167,6 +167,20 @@ describe("reducer — party roster", () => {
     expect(att?.kind === "attraction" && att.assignedTo).toEqual([bob.id]);
     expect(bowl?.kind === "bowling" && bowl.assignedTo).toEqual([bob.id]);
   });
+
+  it("removePartyMember filters racesim assignedTo[] too", () => {
+    const alex = makeMember();
+    const bob = makeMember({ firstName: "Bob" });
+    const sim = { ...newItem("racesim"), assignedTo: [alex.id, bob.id], racerCount: 2 };
+    const initial: BookingSession = {
+      ...seedSession(),
+      party: [alex, bob],
+      items: [sim],
+    };
+    const after = reducer(initial, { type: "removePartyMember", id: alex.id });
+    const item = after.items.find((i) => i.id === sim.id);
+    expect(item?.kind === "racesim" && item.assignedTo).toEqual([bob.id]);
+  });
 });
 
 describe("reducer — signer-only guardians (kiosk)", () => {

@@ -632,8 +632,53 @@ export interface KbfItem extends BookingItemBase, BowlingCommon {
   paidAdults: number;
 }
 
-/** Items that resolve to a vendor reservation at confirm time. */
-export type BookingItem = RaceItem | AttractionItem | BowlingItem | KbfItem;
+/**
+ * Racing simulators (FastTrax FM — kiosk-only entry, staff PIN gated during
+ * the 2026-08 placeholder phase). Products/tracks come from the placeholder
+ * catalog in features/race-sims/products.ts; the reserve rail is fail-closed
+ * until real money ids exist there.
+ *
+ * Deliberately LEAN — no lineItems, no vendor reservation ids, does NOT
+ * extend BowlingCommon — so every bowling-shaped code path that assumes
+ * `item.lineItems` breaks at COMPILE time instead of silently treating a sim
+ * as a bookable lane.
+ */
+export interface RaceSimItem extends BookingItemBase {
+  kind: "racesim";
+  /** YYYY-MM-DD — kiosk stamps today at creation (walk-up). */
+  date: string | null;
+  /** "single" (the 1 Race card) vs "pack" (multi-race bundle). */
+  productKind: "single" | "pack" | null;
+  /** RACE_SIM_PRODUCTS slug (race-sims/products.ts). null until picked. */
+  productSlug: string | null;
+  /** Chosen sim track — placeholder keys ("Track A/B/C") until the rotating
+   *  lineup is named. Kept as a bare literal union (not an import) so state
+   *  types stay dependency-free of the catalog module. */
+  trackKey: "a" | "b" | "c" | null;
+  /** Racers on this product; the people step keeps it = assignedTo.length. */
+  racerCount: number;
+  /** ISO start of the chosen sim session (attraction parity — the kiosk slot
+   *  step writes it; all three track keys share the same sessions). */
+  slot: string | null;
+  /** The chosen slot's BMI proposal — needed for booking. JSON-safe. */
+  slotProposal: BmiProposal | null;
+  /** BMI bill line id — set after the $0 track-key line books (eager hold on
+   *  slot pick, gel/laser semantics). releaseItemBmiLines keys off it. */
+  bmiLineId: string | null;
+  /**
+   * KIOSK-ONLY (optional — web never writes it): session.party member ids
+   * participating in THIS sim line, AttractionItem.participants parity so
+   * the kiosk people step drives it unchanged.
+   */
+  participants?: string[];
+  /** Party members on this sim line (removePartyMember cascade scrubs it). */
+  assignedTo: string[];
+}
+
+/** Items that resolve to a vendor reservation at confirm time. (RaceSimItem
+ *  is the placeholder-phase exception: it books no vendor until the real
+ *  rail is decided — see race-sims/products.ts header.) */
+export type BookingItem = RaceItem | AttractionItem | BowlingItem | KbfItem | RaceSimItem;
 
 /**
  * SessionItem is the cart's item union. In PR-B2 it's exactly
@@ -920,6 +965,20 @@ export function newItem(activity: Activity): SessionItem {
         isWorldCup: false,
         worldCupMatchId: null,
         isDuckpin: false,
+      };
+    case "racesim":
+      return {
+        id,
+        kind: "racesim",
+        date: null,
+        productKind: null,
+        productSlug: null,
+        trackKey: null,
+        racerCount: 1,
+        slot: null,
+        slotProposal: null,
+        bmiLineId: null,
+        assignedTo: [],
       };
     case "kbf":
       return {

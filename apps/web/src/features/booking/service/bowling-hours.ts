@@ -90,8 +90,17 @@ export function otherActivitiesOnDate(
         timeLabel: wallClockLabel(it.slot),
         hour: wallClockHour(it.slot),
       });
-    } else {
-      // bowling | kbf — ET hour lives on item.hour directly
+    } else if (it.kind === "racesim") {
+      if (it.date !== date || !it.slot) continue;
+      out.push({
+        key: it.id,
+        label: "Race Sims",
+        icon: "🏁",
+        timeLabel: wallClockLabel(it.slot),
+        hour: wallClockHour(it.slot),
+      });
+    } else if (it.kind === "bowling" || it.kind === "kbf") {
+      // bowling | kbf — ET hour lives on item.hour directly.
       if (it.date !== date || it.hour == null) continue;
       out.push({
         key: it.id,

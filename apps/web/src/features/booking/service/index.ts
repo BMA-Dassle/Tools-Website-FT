@@ -54,6 +54,7 @@ export function getService(activity: Activity): BookingService {
   if (activity === "race") return raceService;
   if (activity === "attraction") return attractionService;
   if (activity === "bowling" || activity === "kbf") return bowlingService;
+  if (activity === "racesim") return racesimService;
 
   const notYet = (op: string) => (): Promise<never> => {
     throw new Error(`booking.${activity}.${op}() not implemented (PR-B1 scaffold)`);
@@ -90,6 +91,41 @@ const attractionService: BookingService = {
       return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
     }
     await bookAttractionOnAdvance(session, item, dispatch);
+    return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
+  },
+  confirm: async () => ({ ok: true as const }),
+  cancel: async () => ({ ok: true as const }),
+};
+
+// ── Race Sims service ───────────────────────────────────────────────────
+
+import { bookRaceSimOnAdvance } from "~/features/race-sims/service";
+import type { RaceSimItem } from "../state/types";
+
+/**
+ * Race sims book a $0 track-key line onto the shared BMI bill (gel/laser
+ * semantics: the kiosk slot step eager-holds on pick; this hold is the
+ * checkout-time backstop). No slot picked yet → nothing to book, and reserve
+ * guard 2e fail-closes any charge until the keys are armed. Confirm/cancel
+ * ride the bill-level rails (confirmBmiPayment / abandonBooking).
+ */
+const racesimService: BookingService = {
+  quote: () => {
+    throw new Error("racesim.quote() not needed — checkout uses bill overview");
+  },
+  hold: async (input) => {
+    const { session, item, dispatch } = input as {
+      session: BookingSession;
+      item: RaceSimItem;
+      dispatch: Dispatch<Action>;
+    };
+    if (item.bmiLineId) {
+      return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
+    }
+    if (!item.slotProposal) {
+      return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
+    }
+    await bookRaceSimOnAdvance(session, item, dispatch);
     return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
   },
   confirm: async () => ({ ok: true as const }),

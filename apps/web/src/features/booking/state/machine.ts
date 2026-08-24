@@ -283,7 +283,7 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
             ),
           };
         }
-        if (item.kind === "attraction" || item.kind === "bowling") {
+        if (item.kind === "attraction" || item.kind === "bowling" || item.kind === "racesim") {
           if (!item.assignedTo.includes(dropId)) return item;
           return { ...item, assignedTo: item.assignedTo.filter((a) => a !== dropId) };
         }

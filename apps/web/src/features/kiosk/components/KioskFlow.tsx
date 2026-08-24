@@ -77,6 +77,7 @@ import {
   kioskGzCartEnabled,
   kioskPromoEnabled,
   kioskRaceInfoEnabled,
+  kioskRaceSimEnabled,
 } from "../flags";
 import { KioskCheckoutScreen } from "./KioskCheckoutScreen";
 import { abandonActiveSplit } from "./split/split-session-registry";
@@ -140,6 +141,7 @@ const KIOSK_BACKDROP_PHOTOS = [
   KIOSK_PHOTOS.shuf,
   KIOSK_PHOTOS.vip,
   KIOSK_PHOTOS.arcade,
+  KIOSK_PHOTOS.redTrack, // racesim backdrop
 ];
 
 /** Walk-up device: every dated item starts on today's OPERATING day (todayYmd
@@ -151,7 +153,8 @@ function stampToday(item: SessionItem): SessionItem {
     item.kind === "race" ||
     item.kind === "attraction" ||
     item.kind === "bowling" ||
-    item.kind === "kbf"
+    item.kind === "kbf" ||
+    item.kind === "racesim"
   ) {
     return { ...item, date: todayYmd() };
   }
@@ -173,6 +176,7 @@ function activityLabelFor(t: Translate, item: SessionItem): string {
   if (item.kind === "race") return t("flow.activity.racing");
   if (item.kind === "bowling") return t("flow.activity.bowling");
   if (item.kind === "kbf") return t("flow.activity.kbf");
+  if (item.kind === "racesim") return t("flow.activity.racesim");
   const slug = (item as AttractionItem).slug ?? "";
   const key = ATTRACTION_LABEL_KEYS[slug];
   return key ? t(key) : t("flow.activity.generic");
@@ -201,6 +205,10 @@ const NATIVE_STEP_IDS = new Set([
   "bowling-time",
   "kiosk-bowling-details",
   "kiosk-bowling-people",
+  // Race Sims (kiosk-native, canvas px).
+  "racesim-product",
+  "racesim-track",
+  "racesim-slot",
 ]);
 
 /**
@@ -235,7 +243,10 @@ function seedForGoto(
 ): { kind: SessionItem["kind"]; slug?: string; duckpin?: boolean } | "vip" | null {
   if (goto === "race") return { kind: "race" };
   if (goto === "bowl" || goto === "bowling") return { kind: "bowling" };
-  if (goto === "kbf") return { kind: "kbf" };
+  // KBF kiosk booking is DISABLED, not deleted (2026-08-23 — tile filtered out
+  // in KioskCategories; owner: keep the KBF code). Restore this seed alongside
+  // that filter to re-enable:
+  // if (goto === "kbf") return { kind: "kbf" };
   if (goto === "vip") return "vip";
   // FastTrax duckpin on QAMF: a bowling item (center 11542), not a BMI
   // attraction, when the flag is active. Flag-off keeps the attraction path.
@@ -261,6 +272,9 @@ const STEP_TITLE_KEYS: Record<string, MessageKey> = {
   // The attraction flow's two reused-web steps (no kiosk-native replacement).
   "Your Info": "stepTitle.yourInfo",
   Activity: "stepTitle.activity",
+  // Race Sims steps (parts/racesim.ts).
+  "Race Options": "stepTitle.raceOptions",
+  Track: "stepTitle.track",
 };
 
 /** Same trick for the "why Continue is blocked" hint the shell renders under a
@@ -284,6 +298,8 @@ const STEP_REASON_KEYS: Record<string, MessageKey> = {
   "Select a time slot": "stepReason.selectTimeSlot",
   "Select at least 1 bowler": "stepReason.selectBowler",
   "Select at least one bowler": "stepReason.selectBowlerKbf",
+  "Pick 1 Race or a Race Pack.": "stepReason.racesimProduct",
+  "Pick a track.": "stepReason.racesimTrack",
   "Tap a time to hold your lane": "stepReason.holdLane",
   "Verify your KBF pass first": "stepReason.verifyKbf",
   "Pick your match to hold a VIP lane": "stepReason.worldCupMatch",
@@ -524,6 +540,11 @@ export function KioskFlow({
   // Standalone race-pack purchase (attract "Race Packs" chip) — a LOCKED
   // pack-only flow; its party is local until "Race today" adopts it here.
   const [packsOpen, setPacksOpen] = useState(false);
+  // Race Sims staff unlock (PLACEHOLDER PHASE 2026-08): guests see the tile as
+  // a locked "Coming Soon" card; the kiosk-admin PIN flips this for the rest
+  // of THIS session only. Deliberately component state, NEVER storage — Start
+  // Over / idle reset unmounts KioskFlow, so it auto-relocks between guests.
+  const [raceSimUnlocked, setRaceSimUnlocked] = useState(false);
   // True while the Game Zone dispenser is mid-operation/holding — pauses the
   // idle watchdog so a guest isn't reset mid-dispense or during a fault hold.
   const [gzBusy, setGzBusy] = useState(false);
@@ -1005,6 +1026,20 @@ export function KioskFlow({
       (item as AttractionItem).slug = offering.attractionSlug;
     }
     dispatch({ type: "addItem", item });
+  };
+
+  /** Race Sims (staff-gated placeholder) — enter the racesim wizard. Reached
+   *  ONLY through the tile's PIN unlock, so no combo special-casing: staff
+   *  test on a clean session. Reactivates an existing draft like the other
+   *  activities so backing out and returning never duplicates the item. */
+  const pickRaceSim = () => {
+    clarityEvent("kiosk:racesim:open");
+    const existing = session.items.find((i) => i.kind === "racesim");
+    if (existing) {
+      dispatch({ type: "setActiveItem", id: existing.id });
+      return;
+    }
+    dispatch({ type: "addItem", item: stampToday(newItem("racesim")) });
   };
 
   // Experiences → a premium racing PACKAGE tile (Ultimate Qualifier): start a
@@ -2184,6 +2219,20 @@ export function KioskFlow({
             clarityEvent("kiosk:packs:open");
             setPacksOpen(true);
           }}
+          // Race Sims (PLACEHOLDER PHASE 2026-08, FastTrax FM only): the tile
+          // replaces KBF's kiosk slot. Caller-owns-gating like every other
+          // door — the callbacks only arrive on a FastTrax FM kiosk with the
+          // kill switch on; the tile itself renders locked ("Coming Soon")
+          // until the kiosk-admin PIN unlocks it for this session.
+          {...(config.brand === "fasttrax" &&
+          config.center === "fort-myers" &&
+          kioskRaceSimEnabled()
+            ? {
+                raceSimUnlocked,
+                onRaceSimUnlock: () => setRaceSimUnlocked(true),
+                onOpenRaceSim: pickRaceSim,
+              }
+            : {})}
           // "Not booking" side doors, moved off the attract screen (owner
           // 2026-07-28). Flag + venue gating lives HERE — a callback only arrives
           // when the door applies — so KioskCategories stays presentational and
@@ -2569,6 +2618,7 @@ export function KioskFlow({
     if (activeItem.kind === "race") return KIOSK_PHOTOS.race;
     if (activeItem.kind === "bowling") return KIOSK_PHOTOS.bowl;
     if (activeItem.kind === "kbf") return KIOSK_PHOTOS.kbf;
+    if (activeItem.kind === "racesim") return KIOSK_PHOTOS.redTrack;
     const slug = (activeItem as AttractionItem).slug ?? "";
     if (slug === "gel-blaster") return KIOSK_PHOTOS.gel;
     if (slug === "laser-tag") return KIOSK_PHOTOS.laser;

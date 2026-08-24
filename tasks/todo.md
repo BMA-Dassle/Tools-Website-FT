@@ -1,5 +1,33 @@
 # Open Tasks
 
+## Kiosk Race Sims placeholder (2026-08-23) — branch `feat/kiosk-race-sims`
+
+Owner: replace Kids Bowl Free on the kiosk with **Race Sims** (racing simulators, FastTrax FM).
+Staff-only for ~1 month: guests see a locked "Coming Soon" tile; the kiosk-admin PIN (5 taps on
+the tile → PIN sheet) opens the flow for that session. Full booking-session integration
+(`racesim` SessionItem kind) with placeholder info; checkout fail-closed until real product ids.
+
+- [x] KBF **disabled, not deleted** (owner correction): one shelf filter in KioskCategories is
+      the whole off switch; `?goto=kbf` seed commented; web /book + kiosk check-in untouched.
+- [x] Placeholder catalog `src/features/race-sims/products.ts` — 1 Race / 3-pack / 5-pack,
+      placeholder prices, Track a/b/c, `squareCatalogObjectId: null` = fail-closed seam.
+- [x] `racesim` kind through shared state (types, registries, CartView, getService, cascade),
+      KIOSK_SCHEMA_VERSION 13; web STEP_REGISTRY.racesim stays `[]` (kiosk-only).
+- [x] Server rail: quote prices from the catalog; guard 2e in `unifiedReserveInner` throws
+      `RACESIM_NOT_CONFIGURED` (409) before any Square write on BOTH card + terminal rails.
+- [x] Kiosk surface: RaceSimTile (KBF's slot, after the racing tile), PIN sheet
+      (`data/admin-pin.ts`), steps racesim-product → racesim-track → kiosk-who, i18n EN+ES
+      (`parts/racesim.ts`), `kioskRaceSimEnabled()` kill switch (default ON).
+- [x] Tests: catalog, pricing builder, cart readiness, cascade, registry pins. Full suite +
+      `next build` green.
+- [ ] Owner live smoke on a FastTrax FM kiosk (tile lock, 5-tap+PIN, flow to the 409 at pay,
+      idle relock; HP kiosks show no KBF and no Race Sims tile).
+- [ ] **Before arming real ids** (all recorded in products.ts header + guard 2e comment):
+      decide the vendor booking rail (Square id alone would charge with no reservation);
+      fix `resolveLocationId` attribution for mixed racesim+HeadPinz carts; owner prices.
+- [ ] Track rotation config (weekly/biweekly lineup) — static Track A/B/C labels for now.
+- [ ] Guest launch PR: drop the PIN gate + Coming Soon lock; real track names/photos.
+
 ## TVs did not recover from a network loss (2026-08-19) — branch `fix/tv-outage-recovery`
 
 Owner: *"HeadPinz Fort Myers front desk TVs didn't recover nicely from network loss, they
