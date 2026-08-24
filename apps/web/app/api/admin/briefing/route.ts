@@ -24,7 +24,11 @@ import {
   CHECKIN_WINDOW_MIN_MINS,
   setCheckinWindowOverride,
 } from "~/features/signage/briefing/checkin-window.server";
-import { setGreetingByMotionEnabled } from "~/features/signage/briefing/greeting-setting.server";
+import {
+  setGreetingByMotionEnabled,
+  setGreetingTiming,
+} from "~/features/signage/briefing/greeting-setting.server";
+import type { GreetingTiming } from "~/features/signage/briefing/return-greeting";
 import { setRaceBookmarksEnabled } from "~/features/signage/briefing/race-bookmarks-setting.server";
 import {
   setCameraPreviewMode,
@@ -144,6 +148,11 @@ export async function POST(req: NextRequest) {
     durationMs?: number;
     enabled?: boolean;
     mode?: string;
+    // The greeting's three numbers. Typed loosely because they arrive over the
+    // wire — every one is validated against its choice list before it lands.
+    fallbackMs?: number | string;
+    maxPlays?: number | string;
+    lingerAfterMs?: number | string;
   };
   try {
     body = await req.json();
@@ -249,6 +258,29 @@ export async function POST(req: NextRequest) {
     }
     await setGreetingByMotionEnabled(body.enabled);
     return NextResponse.json({ ok: true, enabled: body.enabled });
+  }
+
+  /**
+   * The greeting's three numbers (owner 2026-08-23). A PARTIAL patch: the sheet
+   * sends only the field that was pressed, and setGreetingTiming merges over
+   * what stands. Every value is validated against the choice list inside
+   * (normaliseGreetingTiming), so nothing here needs to trust the body — but a
+   * body with no recognised field at all is a bug worth a 400 rather than a
+   * silent no-op that looks like a working press.
+   */
+  if (action === "greeting-timing") {
+    const patch: Partial<GreetingTiming> = {};
+    if (body.fallbackMs !== undefined) patch.fallbackMs = Number(body.fallbackMs);
+    if (body.maxPlays !== undefined) patch.maxPlays = Number(body.maxPlays);
+    if (body.lingerAfterMs !== undefined) patch.lingerAfterMs = Number(body.lingerAfterMs);
+    if (Object.keys(patch).length === 0) {
+      return NextResponse.json(
+        { error: "send at least one of fallbackMs, maxPlays, lingerAfterMs" },
+        { status: 400 },
+      );
+    }
+    const timing = await setGreetingTiming(patch);
+    return NextResponse.json({ ok: true, timing });
   }
 
   /** Race-event camera bookmarks — the other switch on the same sheet. */

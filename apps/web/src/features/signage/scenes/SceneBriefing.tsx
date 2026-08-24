@@ -29,10 +29,10 @@ import { TRACK_ACCENTS, TRACK_LABELS, type TrackKey } from "../track";
 import { briefingTimelineAt, helmetBoardComplete } from "../briefing/phase";
 import {
   GREETING_GAP_MS,
-  GREETING_MAX_PLAYS,
   LINGER_FRESH_MS,
   greetingStartMs,
   greetingWindowClosed,
+  normaliseGreetingTiming,
 } from "../briefing/return-greeting";
 import { roomBlockedAlertAt } from "../briefing/room-blocked";
 import { incomingForRoom, normaliseCameraReturn } from "../briefing/camera-return";
@@ -1096,6 +1096,7 @@ interface WelcomeBackInfo {
   lingerAtMs: number | null;
   motionHealthy: boolean;
   greetingByMotion: boolean;
+  greetingTiming?: { fallbackMs: number; maxPlays: number; lingerAfterMs: number };
   audioUrl: string | null;
   lingerAudioUrl: string | null;
   results: {
@@ -1109,9 +1110,36 @@ interface WelcomeBackInfo {
  *  fetched resource selected; a srcless load() is what makes Edge let go. */
 function releaseAudio(el: HTMLAudioElement): void {
   el.onended = null;
+  el.onplaying = null;
+  el.onpause = null;
+  el.onerror = null;
   el.pause();
   el.removeAttribute("src");
   el.load();
+}
+
+/**
+ * WHAT IS ACTUALLY COMING OUT OF THE SPEAKER — the state behind the board's
+ * audio chip (owner 2026-08-23: "add an audio playing message somewhere on
+ * the board just so we can visually see it").
+ *
+ * DRIVEN BY THE ELEMENT'S OWN EVENTS, never by our schedule. The whole point
+ * of the chip is to answer "did the clip actually play" from across the room,
+ * and a chip driven by intent would light up on a TV whose browser had
+ * refused autoplay — which is precisely the failure it needs to expose. So
+ * `playing` comes from `playing`/`pause`/`ended`/`error` on the element.
+ */
+interface GreetingAudioState {
+  /** Sounding right now. */
+  playing: boolean;
+  /** Which clip — the greeting, or the still-in-the-room reminder. */
+  clip: "greeting" | "reminder" | null;
+  /** Greeting plays used in this return, and the cap they are counted against. */
+  plays: number;
+  maxPlays: number;
+  /** No greeting will sound at all for this group, and why. Staff standing in
+   *  a silent room should be able to tell "working as intended" from "broken". */
+  silentBecause: "pro" | "no-clip" | null;
 }
 
 /**
@@ -1131,14 +1159,17 @@ function releaseAudio(el: HTMLAudioElement): void {
  * racers") — the board still shows, the sound never arms. tierForRaceType
  * counts Junior Pro as pro, which is the intent: they know the drill.
  *
- * Repeats: GREETING_GAP_MS after each play's END, at most GREETING_MAX_PLAYS
- * plays, never past the post + 2-minute window — three bounds, first to land
- * wins (owner 2026-08-23: "have a timeout on number of repeats"). The next
- * briefing taking the room unmounts the board and the cleanup stops the sound
- * mid-note. Every play failure is swallowed: a TV whose browser refuses
- * autoplay shows the board silently.
+ * Repeats: GREETING_GAP_MS after each play's END, at most `maxPlays` plays,
+ * never past the post + 2-minute window — three bounds, first to land wins
+ * (owner 2026-08-23: "have a timeout on number of repeats"). The delay and the
+ * cap are staff settings; the window and the gap are not. The next briefing
+ * taking the room unmounts the board and the cleanup stops the sound mid-note.
+ * Every play failure is swallowed: a TV whose browser refuses autoplay shows
+ * the board silently — and the chip says so, because it follows the element.
+ *
+ * RETURNS what is audible, for the board's chip. See GreetingAudioState.
  */
-function useWelcomeBackAudio(info: WelcomeBackInfo, roomEmpty: boolean): void {
+function useWelcomeBackAudio(info: WelcomeBackInfo, roomEmpty: boolean): GreetingAudioState {
   const {
     audioUrl,
     lingerAudioUrl,
@@ -1150,6 +1181,17 @@ function useWelcomeBackAudio(info: WelcomeBackInfo, roomEmpty: boolean): void {
     raceType,
   } = info;
   const proSilent = tierForRaceType(raceType) === "pro";
+  // Defaulted field by field: this payload can come from an older build's
+  // localStorage, and a missing blob must read as house behaviour rather than
+  // as zero plays (the 2026-08-12 renamed-payload crash is the precedent).
+  const timing = normaliseGreetingTiming(info.greetingTiming);
+
+  /** Sounding now, and which clip. One piece of state so the two effects
+   *  cannot both claim the chip. */
+  const [audible, setAudible] = useState<"greeting" | "reminder" | null>(null);
+  /** Plays used, mirrored into state purely so the chip can count them — the
+   *  ref below stays the source of truth for the cap. */
+  const [playCount, setPlayCount] = useState(0);
 
   /**
    * THE PLAY CAP OUTLIVES THE EFFECT. The effect below legitimately restarts
@@ -1173,24 +1215,38 @@ function useWelcomeBackAudio(info: WelcomeBackInfo, roomEmpty: boolean): void {
       postPlayedAtMs,
       arrivedAtMs,
       motionHealthy,
+      fallbackMs: timing.fallbackMs,
     });
     if (startAtMs == null) return;
 
     if (playsRef.current?.anchor !== postPlayedAtMs) {
       playsRef.current = { anchor: postPlayedAtMs, count: 0 };
+      setPlayCount(0);
     }
     const tally = playsRef.current;
     const el = new Audio(audioUrl);
     let timer: number | null = null;
     let stopped = false;
     const playOnce = () => {
-      if (stopped || tally.count >= GREETING_MAX_PLAYS) return;
+      if (stopped || tally.count >= timing.maxPlays) return;
       if (greetingWindowClosed(postPlayedAtMs, Date.now())) return;
       tally.count++;
+      setPlayCount(tally.count);
       void el.play().catch(() => {});
     };
+    // The CHIP FOLLOWS THE ELEMENT, not the schedule — a refused autoplay must
+    // read as silence on the wall, because that is what the room hears.
+    el.onplaying = () => {
+      if (!stopped) setAudible("greeting");
+    };
+    const quiet = () => {
+      if (!stopped) setAudible((c) => (c === "greeting" ? null : c));
+    };
+    el.onpause = quiet;
+    el.onerror = quiet;
     el.onended = () => {
       if (stopped) return;
+      quiet();
       timer = window.setTimeout(playOnce, GREETING_GAP_MS);
     };
     // The arrival stamp normally reaches the TV a poll after the fact, so the
@@ -1201,6 +1257,7 @@ function useWelcomeBackAudio(info: WelcomeBackInfo, roomEmpty: boolean): void {
       stopped = true;
       if (timer != null) window.clearTimeout(timer);
       releaseAudio(el);
+      setAudible((c) => (c === "greeting" ? null : c));
     };
   }, [
     audioUrl,
@@ -1210,6 +1267,8 @@ function useWelcomeBackAudio(info: WelcomeBackInfo, roomEmpty: boolean): void {
     arrivedAtMs,
     motionHealthy,
     greetingByMotion,
+    timing.fallbackMs,
+    timing.maxPlays,
   ]);
 
   /**
@@ -1230,10 +1289,105 @@ function useWelcomeBackAudio(info: WelcomeBackInfo, roomEmpty: boolean): void {
     if (Date.now() - lingerAtMs > LINGER_FRESH_MS) return;
     if (lingerPlayedRef.current === lingerAtMs) return;
     lingerPlayedRef.current = lingerAtMs;
+    let stopped = false;
     const el = new Audio(lingerAudioUrl);
+    el.onplaying = () => {
+      if (!stopped) setAudible("reminder");
+    };
+    const quiet = () => {
+      if (!stopped) setAudible((c) => (c === "reminder" ? null : c));
+    };
+    el.onended = quiet;
+    el.onpause = quiet;
+    el.onerror = quiet;
     void el.play().catch(() => {});
-    return () => releaseAudio(el);
+    return () => {
+      stopped = true;
+      releaseAudio(el);
+      setAudible((c) => (c === "reminder" ? null : c));
+    };
   }, [lingerAudioUrl, roomEmpty, lingerAtMs]);
+
+  return {
+    playing: audible != null,
+    clip: audible,
+    plays: playCount,
+    maxPlays: timing.maxPlays,
+    // Named in priority order: a Pro grid is silent whether or not a clip is
+    // uploaded, so "pro" is the honest reason to show.
+    silentBecause: proSilent ? "pro" : audioUrl ? null : "no-clip",
+  };
+}
+
+/**
+ * THE AUDIO CHIP — what the speaker is doing, on the glass (owner 2026-08-23:
+ * "add an audio playing message somewhere on the board just so we can visually
+ * see it").
+ *
+ * Rides the eyebrow row, which is the one line on this board with room to
+ * spare, so it costs the exit hero nothing. Three states, and the quiet ones
+ * are deliberately dim: a staff member standing in a silent room needs to tell
+ * "working as intended" (Pro, or no clip uploaded) from "the TV refused to
+ * play it", and the chip is the only place that distinction exists. `tv-blink`
+ * on the live state so it catches an eye from the doorway.
+ */
+function AudioChip({ state }: { state: GreetingAudioState }) {
+  const live = state.playing;
+  const label = live
+    ? state.clip === "reminder"
+      ? "Reminder playing"
+      : `Greeting playing${state.maxPlays > 1 ? ` · ${state.plays} of ${state.maxPlays}` : ""}`
+    : state.silentBecause === "pro"
+      ? "Pro session · no greeting"
+      : state.silentBecause === "no-clip"
+        ? "No greeting clip uploaded"
+        : "Greeting ready";
+  const colour = live ? "#46d68c" : "rgba(245,236,238,0.45)";
+  return (
+    <span
+      className={live ? "tv-blink" : undefined}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 12,
+        flexShrink: 0,
+        padding: "6px 18px",
+        borderRadius: 999,
+        border: `2px solid ${withAlpha(colour, live ? 0.8 : 0.35)}`,
+        background: "rgba(0, 4, 24, 0.6)",
+        fontSize: 22,
+        fontWeight: 700,
+        letterSpacing: "0.1em",
+        textTransform: "uppercase",
+        color: colour,
+      }}
+    >
+      {/* A speaker, drawn rather than an emoji (house rule) — with sound waves
+          only while something is actually sounding. */}
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 9 H8 L13 4.5 V19.5 L8 15 H4 Z" fill="currentColor" />
+        {live && (
+          <>
+            <path
+              d="M16 8.5 C17.6 10 17.6 14 16 15.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+            <path
+              d="M19 6 C21.6 8.6 21.6 15.4 19 18"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </>
+        )}
+      </svg>
+      {label}
+    </span>
+  );
 }
 
 function WelcomeBack({
@@ -1254,12 +1408,13 @@ function WelcomeBack({
   variant: "exit" | "qualifiers";
 }) {
   // The audio lives on the WRAPPER, not a variant, so previewing the old
-  // layout exercises the same sound path the wall uses.
-  useWelcomeBackAudio(info, roomEmpty);
+  // layout exercises the same sound path the wall uses — and both boards can
+  // show the same chip.
+  const audio = useWelcomeBackAudio(info, roomEmpty);
   return variant === "qualifiers" ? (
-    <WelcomeBackQualifiers accent={accent} room={room} info={info} />
+    <WelcomeBackQualifiers accent={accent} room={room} info={info} audio={audio} />
   ) : (
-    <WelcomeBackExit accent={accent} room={room} info={info} />
+    <WelcomeBackExit accent={accent} room={room} info={info} audio={audio} />
   );
 }
 
@@ -1473,10 +1628,12 @@ function WelcomeBackExit({
   accent,
   room,
   info,
+  audio,
 }: {
   accent: string;
   room: BriefingRoom;
   info: WelcomeBackInfo;
+  audio: GreetingAudioState;
 }) {
   const side = EXIT_DOOR_SIDE[room];
   const checklist = (
@@ -1566,10 +1723,16 @@ function WelcomeBackExit({
           gap: 22,
         }}
       >
-        <span className="tv-eyebrow" style={{ color: accent, fontSize: 38, flexShrink: 0 }}>
-          {ROOM_LABEL[room]}
-          {info.heatNumber != null ? ` · Session ${info.heatNumber}` : ""}
-        </span>
+        {/* The eyebrow shares its row with the audio chip — the one line on
+            this board with room to spare, so the readout costs the exit hero
+            nothing and cannot collide with anything. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 26, flexShrink: 0, minWidth: 0 }}>
+          <span className="tv-eyebrow" style={{ color: accent, fontSize: 38 }}>
+            {ROOM_LABEL[room]}
+            {info.heatNumber != null ? ` · Session ${info.heatNumber}` : ""}
+          </span>
+          <AudioChip state={audio} />
+        </div>
         <div
           className="tv-display tv-rise"
           style={{ fontSize: 92, color: "#fff", lineHeight: 0.92, flexShrink: 0 }}
@@ -1659,10 +1822,12 @@ function WelcomeBackQualifiers({
   accent,
   room,
   info,
+  audio,
 }: {
   accent: string;
   room: BriefingRoom;
   info: WelcomeBackInfo;
+  audio: GreetingAudioState;
 }) {
   const target = nextLevelTarget(info.track, info.raceType);
   const results = info.results;
@@ -1711,10 +1876,13 @@ function WelcomeBackQualifiers({
           gap: hasNames ? 30 : 26,
         }}
       >
-        <span className="tv-eyebrow" style={{ color: accent, fontSize: 40, flexShrink: 0 }}>
-          {ROOM_LABEL[room]}
-          {info.heatNumber != null ? ` · Session ${info.heatNumber}` : ""}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 26, flexShrink: 0, minWidth: 0 }}>
+          <span className="tv-eyebrow" style={{ color: accent, fontSize: 40 }}>
+            {ROOM_LABEL[room]}
+            {info.heatNumber != null ? ` · Session ${info.heatNumber}` : ""}
+          </span>
+          <AudioChip state={audio} />
+        </div>
         <div
           className="tv-display tv-rise"
           style={{ fontSize: hasNames ? 130 : 170, color: "#fff", lineHeight: 0.92, flexShrink: 0 }}

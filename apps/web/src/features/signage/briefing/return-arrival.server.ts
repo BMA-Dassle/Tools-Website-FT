@@ -90,6 +90,9 @@ export async function resolveReturnArrival(
   sessionId: string,
   postPlayedAtMs: number,
   nowMs: number,
+  /** The staff-set span from the settings sheet. Defaulted rather than
+   *  required so a caller that has not read the setting still behaves. */
+  lingerAfterMs: number = LINGER_AFTER_MS,
 ): Promise<ReturnArrival> {
   let [arrivedAtMs, lingerAtMs] = await Promise.all([
     readStamp(arrivedKey(sessionId)),
@@ -135,14 +138,14 @@ export async function resolveReturnArrival(
   }
 
   // Arrived, not yet lingered: only worth a read once the span has elapsed.
-  if (nowMs - arrivedAtMs < LINGER_AFTER_MS) {
+  if (nowMs - arrivedAtMs < lingerAfterMs) {
     return { arrivedAtMs, lingerAtMs, motionHealthy: true };
   }
   const moving = await motionBetween(camera, nowMs - STILL_MOVING_WINDOW_MS, nowMs);
   // `unknown` deliberately does NOT mark the camera unhealthy here — the
   // greeting already ran off a real arrival stamp, and the only thing at stake
   // is an optional nag, which silence serves fine.
-  if (moving === "motion" && lingerDue({ arrivedAtMs, stillMoving: true, nowMs })) {
+  if (moving === "motion" && lingerDue({ arrivedAtMs, stillMoving: true, nowMs, lingerAfterMs })) {
     lingerAtMs = await stampOnce(lingerKey(sessionId), nowMs);
   }
   return { arrivedAtMs, lingerAtMs, motionHealthy: true };

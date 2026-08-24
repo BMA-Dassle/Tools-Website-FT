@@ -742,6 +742,15 @@ export interface TvFeed {
       /** The settings-sheet mode: greet on the camera's say-so (default) or
        *  on the fixed timer. */
       greetingByMotion: boolean;
+      /**
+       * The staff-set delay and repeat cap (check-in board settings sheet).
+       *
+       * OPTIONAL, and the scene defaults every field: this payload can arrive
+       * from localStorage written by an OLDER BUILD — the hazard that crashed
+       * every briefing TV on 2026-08-12 — so a missing blob must read as
+       * house behaviour, not as zero plays.
+       */
+      greetingTiming?: { fallbackMs: number; maxPlays: number; lingerAfterMs: number };
       /** The welcome-back jingle (signage asset `welcome-back-audio`) — null
        *  until one is uploaded, and the board simply greets silently. */
       audioUrl: string | null;

@@ -42,7 +42,8 @@ import { readRaceFinishedMarker } from "./race-finish.server";
 import { splitByTarget } from "./results-frame";
 import { racingAgainAfter } from "../pit/back-to-back.server";
 import { readCueStamp } from "../pit/audio-stamps.server";
-import { greetingByMotionEnabled } from "./greeting-setting.server";
+import { greetingByMotionEnabled, greetingTiming } from "./greeting-setting.server";
+import { GREETING_TIMING_DEFAULTS, type GreetingTiming } from "./return-greeting";
 import { resolveReturnArrival, type ReturnArrival } from "./return-arrival.server";
 import type { JoiningGroup } from "../pit/back-to-back";
 import type { BriefingRoom } from "./types";
@@ -78,6 +79,9 @@ export interface WelcomeBackInfo {
   /** The settings-sheet mode: greet on the camera's say-so (default) or on the
    *  fixed timer. Carried per poll so a flip mid-window takes effect. */
   greetingByMotion: boolean;
+  /** The staff-set delay and repeat cap, from the same sheet. Carried per poll
+   *  for the same reason as the mode. */
+  greetingTiming: GreetingTiming;
   /** Null when capture never landed — the board renders name-less, as before. */
   results: WelcomeBackResults | null;
   /**
@@ -258,10 +262,19 @@ export async function resolveWelcomeBack(
   // the camera's answer to "have they walked in yet". Fails soft in both
   // directions: an unreadable switch reads as its default (motion), and an
   // unreadable camera is reported as such so the TV uses the fixed timer.
-  const greetingByMotion = await greetingByMotionEnabled().catch(() => true);
+  const [greetingByMotion, timing] = await Promise.all([
+    greetingByMotionEnabled().catch(() => true),
+    greetingTiming().catch(() => GREETING_TIMING_DEFAULTS),
+  ]);
   const arrival =
     greetingByMotion && postStamp
-      ? await resolveReturnArrival(room, subject.sessionId, postStamp.atMs, Date.now()).catch(
+      ? await resolveReturnArrival(
+          room,
+          subject.sessionId,
+          postStamp.atMs,
+          Date.now(),
+          timing.lingerAfterMs,
+        ).catch(
           (): ReturnArrival => ({ arrivedAtMs: null, lingerAtMs: null, motionHealthy: false }),
         )
       : { arrivedAtMs: null, lingerAtMs: null, motionHealthy: true };
@@ -279,6 +292,7 @@ export async function resolveWelcomeBack(
     lingerAtMs: arrival.lingerAtMs,
     motionHealthy: arrival.motionHealthy,
     greetingByMotion,
+    greetingTiming: timing,
     racingAgain,
     results: split
       ? {
