@@ -275,7 +275,16 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
       type: state.raceType ?? undefined,
       detail:
         t.phase === "video" && t.nextInMs != null
-          ? `${Math.max(1, Math.ceil(t.nextInMs / 60_000))} min of film left`
+          ? // A REAL CLOCK, NOT A ROUNDED MINUTE (owner 2026-08-24: "instead of
+            // saying 3 minutes left of film, 4 minutes etc, why don't we show
+            // real timer there?"). "4 min left" sat unchanged for a minute at a
+            // time and read as stale on a wall where every other number moves —
+            // and it is the number a staff member is timing their walk against.
+            // A caller with no formatter keeps the old wording rather than
+            // printing raw milliseconds.
+            fmt
+            ? `${fmt(t.nextInMs)} of film left`
+            : `${Math.max(1, Math.ceil(t.nextInMs / 60_000))} min of film left`
           : t.phase === "helmet"
             ? "helmets — ready to send"
             : "waiting to start",

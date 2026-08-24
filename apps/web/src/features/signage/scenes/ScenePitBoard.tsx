@@ -358,9 +358,13 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
           (r) => feed?.briefingRooms?.[r as "red" | "blue"] ?? null,
         ),
         lane,
-        // The pulse's own stamp when it has one, else the scene's ticking clock
-        // — never Date.now() in render, which is impure and was flagged as such.
-        nowMs: feed?.now ?? nowMs,
+        // THE TICKING CLOCK, NOT THE FEED'S STAMP (owner 2026-08-24: "why don't we
+        // show real timer there?"). `feed.now` is the server clock as of the last
+        // 15-second poll, so every countdown built from it sat frozen and then
+        // jumped a quarter-minute — which is exactly why this rail used to round
+        // the film to whole minutes. The director's `nowMs` is `Date.now()` plus
+        // the shared server offset, reticked every 250ms: same authority, live.
+        nowMs,
         liveHeatNumber: liveClock ? liveHeatNumber(liveClock.heatName) : null,
         liveCounting: liveClock?.counting === true,
         /**

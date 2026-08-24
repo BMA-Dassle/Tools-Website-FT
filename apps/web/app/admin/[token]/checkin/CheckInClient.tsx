@@ -522,13 +522,6 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
    */
   const deskBusy =
     scanState !== "idle" || !!briefing.pending || !!briefing.expandedCamera || showSettings;
-  useEffect(() => {
-    // staleUptime: a tab past its max uptime recycles in the same quiet gap a
-    // new build would — the reload is also this station's memory amnesty.
-    if ((!buildUpdate.ready && !buildUpdate.staleUptime) || deskBusy) return;
-    const t = setTimeout(() => window.location.reload(), 60_000);
-    return () => clearTimeout(t);
-  }, [buildUpdate.ready, buildUpdate.staleUptime, deskBusy]);
 
   // Test mode — ?test=1 opt-in, read at mount like the baud-rate setting
   const [testMode] = useState<boolean>(() => {
@@ -699,6 +692,33 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
     setPortName("");
   }, []);
 
+  useEffect(() => {
+    // staleUptime: a tab past its max uptime recycles in the same quiet gap a
+    // new build would — the reload is also this station's memory amnesty.
+    if ((!buildUpdate.ready && !buildUpdate.staleUptime) || deskBusy) return;
+    const t = setTimeout(() => {
+      /**
+       * HAND THE PORT BACK BEFORE GOING (2026-08-24, a live incident: the desk
+       * beeped on every scan and registered none of them, and only a manual
+       * disconnect/reconnect cleared it).
+       *
+       * A page teardown does not reliably run React cleanup, so the serial port
+       * could still be held open by the outgoing context when the new one asks
+       * for it — and `port.open()` then throws "already open", which lands the
+       * station in `error` until a human presses the button. The scanner keeps
+       * beeping the whole time, because the hardware read is fine; it is the
+       * page that has gone deaf.
+       *
+       * That race was always possible and effectively never seen, because this
+       * reload only fires on a new build. Eight deploys in one night is what
+       * made it a nightly event. Closing first removes the race rather than
+       * hoping to win it; the reload happens either way.
+       */
+      void disconnect().finally(() => window.location.reload());
+    }, 60_000);
+    return () => clearTimeout(t);
+  }, [buildUpdate.ready, buildUpdate.staleUptime, deskBusy, disconnect]);
+
   const startReading = useCallback(
     async (port: SerialPort) => {
       if (!port.readable) return;
@@ -763,20 +783,38 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
     [baudRate, startReading],
   );
 
-  // Auto-connect on mount
+  /**
+   * AUTO-CONNECT ON MOUNT — and RETRY, because the one moment this runs is the
+   * one moment it is most likely to lose.
+   *
+   * It fires immediately after a reload, which is exactly when the outgoing
+   * page may still be holding the port for another fraction of a second. A
+   * single attempt therefore failed with "already open" and left the desk in
+   * `error` for the rest of the shift with nobody realising the scanner was
+   * deaf (2026-08-24 incident). Three tries over ~2s costs nothing and covers
+   * the handover; a port genuinely held by ANOTHER TAB still ends in the error
+   * that names it, because that one a human does have to fix.
+   */
   useEffect(() => {
     if (!("serial" in navigator)) return;
+    let cancelled = false;
     (async () => {
-      try {
-        const ports = await navigator.serial.getPorts();
-        if (ports.length > 0) {
+      for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
+        try {
+          const ports = await navigator.serial.getPorts();
+          // No previously authorised port: nothing to reopen, and no amount of
+          // retrying will conjure one — it needs the staff gesture.
+          if (ports.length === 0) return;
           await connectToPort(ports[0]);
+          if (portRef.current) return;
+        } catch {
+          // Fall through to the wait below and try again.
         }
-      } catch {
-        // no previously authorized ports
+        await new Promise((r) => setTimeout(r, 700));
       }
     })();
     return () => {
+      cancelled = true;
       disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

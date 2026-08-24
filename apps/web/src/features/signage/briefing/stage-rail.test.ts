@@ -118,9 +118,24 @@ describe("buildStageRail", () => {
     expect(rowFor(rows, "Briefing")).toMatchObject({ value: "Session 62", type: "Mega" });
   });
 
-  it("counts the film down in whole minutes, never below one", () => {
+  /**
+   * REVERSED 2026-08-24 (owner: "instead of saying 3 minutes left of film, 4
+   * minutes etc, why don't we show real timer there?"). A caller that hands in
+   * a formatter gets a live clock; one that does not keeps the old whole-minute
+   * wording, floor and all, so no surface starts printing raw milliseconds.
+   */
+  it("gives a caller with a formatter a real countdown", () => {
     const rows = buildStageRail({
       ...BASE,
+      rooms: [room({ triggeredAtMs: NOW - (5 * 60_000 - 10_000) })],
+    });
+    expect(rowFor(rows, "Briefing").detail).toBe("0:10 of film left");
+  });
+
+  it("keeps whole minutes, never below one, for a caller with no formatter", () => {
+    const rows = buildStageRail({
+      ...BASE,
+      formatClock: undefined,
       rooms: [room({ triggeredAtMs: NOW - (5 * 60_000 - 10_000) })],
     });
     expect(rowFor(rows, "Briefing").detail).toBe("1 min of film left");

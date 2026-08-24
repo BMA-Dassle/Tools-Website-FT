@@ -127,7 +127,13 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
         (r) => feed?.briefingRooms?.[r as "red" | "blue"] ?? null,
       ),
       lane: feed?.pitLanes?.[railTrack] ?? null,
-      nowMs: feed?.now ?? nowMs,
+      // THE TICKING CLOCK, NOT THE FEED'S STAMP (owner 2026-08-24: "why don't we
+      // show real timer there?"). `feed.now` is the server clock as of the last
+      // 15-second poll, so every countdown built from it sat frozen and then
+      // jumped a quarter-minute — which is exactly why this rail used to round
+      // the film to whole minutes. The director's `nowMs` is `Date.now()` plus
+      // the shared server offset, reticked every 250ms: same authority, live.
+      nowMs,
       liveHeatNumber: sessionClock ? liveHeatNumber(sessionClock.heatName) : null,
       liveCounting: sessionClock?.counting === true,
       liveRemainingMs: sessionClock?.remainingMs ?? null,
@@ -192,7 +198,9 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
           rows of text read from across a corridor, so the width goes where
           the reading is.
         */}
-        <div style={{ position: "relative", width: "42%", background: "#000" }}>{camera}</div>
+        <div style={{ position: "relative", width: "42%", background: "#000", overflow: "hidden" }}>
+          {camera}
+        </div>
         {/*
           WHERE EVERY SESSION IS, replacing the flat field of accent colour
           that used to carry one clock (owner 2026-08-24). The clock survives
@@ -344,30 +352,53 @@ function BriefingStrip({
         left: 0,
         right: 0,
         bottom: 0,
-        padding: "22px 32px",
+        padding: "18px 26px",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        gap: 24,
+        // WRAPS AND CLIPS RATHER THAN SPILLING. The camera pane went from half
+        // the wall to 42% (owner 2026-08-24) and this strip, sized for the old
+        // width, ran straight out of the picture and across the rail beside it.
+        // Every size below is now relative to the screen, and the row may take
+        // a second line rather than overflow.
+        flexWrap: "wrap",
+        gap: "8px 20px",
+        minWidth: 0,
+        overflow: "hidden",
         background: "linear-gradient(to top, rgba(0,0,0,0.9), rgba(0,0,0,0))",
         zIndex: 3,
       }}
     >
       <span
         className="tv-display"
-        style={{ fontSize: 52, fontWeight: 700, color: "#fff", textShadow: "0 2px 20px #000" }}
+        style={{
+          fontSize: "clamp(22px, 2.4vw, 46px)",
+          fontWeight: 700,
+          color: "#fff",
+          textShadow: "0 2px 20px #000",
+          minWidth: 0,
+          overflowWrap: "anywhere",
+        }}
       >
         {heat}
         <span style={{ color: "rgba(245,236,238,0.75)" }}>{type}</span>
       </span>
       <div style={{ display: "inline-flex", alignItems: "baseline", gap: 16 }}>
-        <span className="tv-eyebrow" style={{ fontSize: 34, color: withAlpha(accent, 0.95) }}>
+        <span
+          className="tv-eyebrow"
+          style={{ fontSize: "clamp(15px, 1.6vw, 30px)", color: withAlpha(accent, 0.95) }}
+        >
           {statusText}
         </span>
         {playingVideo && (
           <span
             className="tv-display tv-num"
-            style={{ fontSize: 92, fontWeight: 800, color: "#fff", textShadow: "0 2px 20px #000" }}
+            style={{
+              fontSize: "clamp(30px, 4vw, 78px)",
+              fontWeight: 800,
+              color: "#fff",
+              textShadow: "0 2px 20px #000",
+            }}
           >
             {formatRemaining(tl.nextInMs ?? 0)}
           </span>
@@ -448,17 +479,23 @@ function RailPane({
         minWidth: 0,
         background: "#0a0e14",
         borderLeft: `6px solid ${accent}`,
-        padding: "26px 30px",
+        // USES THE WHOLE HEIGHT (owner 2026-08-24: "the right side board not
+        // really utilising the height at all, text is small"). The first cut
+        // centred six rows in the middle of a tall pane and left thirds of it
+        // black at top and bottom. The rows now spread across the full column
+        // and every size is relative to the screen, so this reads from across
+        // a corridor on a 1080p wall and still fits a windowed preview.
+        padding: "2.6vh 2vw",
         display: "flex",
         flexDirection: "column",
-        gap: 18,
-        justifyContent: "center",
+        gap: "2vh",
+        justifyContent: "space-between",
       }}
     >
       <div style={{ display: "flex", alignItems: "baseline", gap: 18, flexWrap: "wrap" }}>
         <span
           className="tv-eyebrow"
-          style={{ fontSize: 26, letterSpacing: "0.14em", color: accent }}
+          style={{ fontSize: "clamp(18px, 2vw, 40px)", letterSpacing: "0.14em", color: accent }}
         >
           {trackLabel}
         </span>
@@ -468,7 +505,7 @@ function RailPane({
               className="tv-display"
               style={{
                 display: "block",
-                fontSize: 62,
+                fontSize: "clamp(38px, 5.2vw, 104px)",
                 lineHeight: 0.95,
                 color: paused ? "#f0b341" : "#fff",
               }}
@@ -477,7 +514,11 @@ function RailPane({
             </span>
             <span
               className="tv-eyebrow"
-              style={{ fontSize: 18, letterSpacing: "0.12em", color: "rgba(245,236,238,0.55)" }}
+              style={{
+                fontSize: "clamp(13px, 1.3vw, 26px)",
+                letterSpacing: "0.12em",
+                color: "rgba(245,236,238,0.55)",
+              }}
             >
               {paused ? "Paused" : "On track"}
             </span>
@@ -485,19 +526,33 @@ function RailPane({
         )}
       </div>
 
-      <div style={{ display: "grid", gap: 13 }}>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-evenly",
+        }}
+      >
         {rows.map((r) => {
           const empty = r.value === "—";
           return (
             <div
               key={r.label}
-              style={{ display: "flex", alignItems: "baseline", gap: 20, flexWrap: "wrap" }}
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: "0.8vw",
+                flexWrap: "wrap",
+                minWidth: 0,
+              }}
             >
               <span
                 className="tv-eyebrow"
                 style={{
-                  flex: "0 0 168px",
-                  fontSize: 22,
+                  flex: "0 0 9.5vw",
+                  fontSize: "clamp(15px, 1.55vw, 31px)",
                   letterSpacing: "0.08em",
                   color: "rgba(245,236,238,0.45)",
                 }}
@@ -507,7 +562,7 @@ function RailPane({
               <span
                 className="tv-display"
                 style={{
-                  fontSize: 34,
+                  fontSize: "clamp(22px, 2.5vw, 50px)",
                   lineHeight: 1,
                   color: empty ? "rgba(245,236,238,0.28)" : "#fff",
                 }}
@@ -517,7 +572,7 @@ function RailPane({
               {r.type && (
                 <span
                   className="tv-eyebrow"
-                  style={{ fontSize: 20, color: "rgba(245,236,238,0.55)" }}
+                  style={{ fontSize: "clamp(13px, 1.4vw, 28px)", color: "rgba(245,236,238,0.55)" }}
                 >
                   {r.type}
                 </span>
@@ -525,7 +580,11 @@ function RailPane({
               {r.detail && (
                 <span
                   className="tv-eyebrow"
-                  style={{ fontSize: 22, color: RAIL_TONE[r.tone], letterSpacing: "0.05em" }}
+                  style={{
+                    fontSize: "clamp(14px, 1.55vw, 31px)",
+                    color: RAIL_TONE[r.tone],
+                    letterSpacing: "0.05em",
+                  }}
                 >
                   {r.detail}
                 </span>
@@ -561,15 +620,21 @@ function ReturningLine({ returning }: { returning: NonNullable<TvFeed["checkinRe
         paddingTop: 14,
       }}
     >
-      <span className="tv-eyebrow" style={{ fontSize: 22, color: "#f0b341" }}>
+      <span
+        className="tv-eyebrow"
+        style={{ fontSize: "clamp(14px, 1.5vw, 30px)", color: "#f0b341" }}
+      >
         Racing again
       </span>
       {returning.fromSession != null && (
-        <span className="tv-display" style={{ fontSize: 30, color: "#fff" }}>
+        <span className="tv-display" style={{ fontSize: "clamp(18px, 2vw, 40px)", color: "#fff" }}>
           Session {returning.fromSession}
         </span>
       )}
-      <span className="tv-eyebrow" style={{ fontSize: 22, color: "rgba(245,236,238,0.7)" }}>
+      <span
+        className="tv-eyebrow"
+        style={{ fontSize: "clamp(14px, 1.5vw, 30px)", color: "rgba(245,236,238,0.7)" }}
+      >
         {returning.groups
           .map((g) => {
             const key = trackFromName(g.track);
@@ -577,7 +642,10 @@ function ReturningLine({ returning }: { returning: NonNullable<TvFeed["checkinRe
           })
           .join("   ")}
       </span>
-      <span className="tv-eyebrow" style={{ fontSize: 22, color: "#f0b341" }}>
+      <span
+        className="tv-eyebrow"
+        style={{ fontSize: "clamp(14px, 1.5vw, 30px)", color: "#f0b341" }}
+      >
         {total} straight to holding
       </span>
     </div>
