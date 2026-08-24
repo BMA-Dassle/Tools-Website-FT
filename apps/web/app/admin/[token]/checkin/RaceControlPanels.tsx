@@ -94,7 +94,7 @@ import {
   type BriefingRoom,
   type BriefingRoomState,
 } from "~/features/signage/briefing/types";
-import { pullIsLate } from "~/features/signage/briefing/pull-to-room";
+import { sendWindow, type SendWindow } from "~/features/signage/briefing/pull-to-room";
 import { laneReturnRoom, suggestMegaRoom } from "~/features/signage/briefing/room-suggest";
 import { trackDisplay, verdictLabel } from "~/features/racing/on-time-display";
 import { liveHeatNumber } from "~/features/signage/briefing/room-return";
@@ -236,6 +236,19 @@ const STYLES = `
   transition: filter 120ms ease, transform 60ms ease, background 120ms ease;
   display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   white-space: nowrap;
+  position: relative;
+}
+/* THE DESK IS A TOUCH MONITOR (see the picker note below) and the small buttons
+   — Undo, Restart — are ~27px tall against the 44px floor a finger needs. The
+   hit area grows to the floor invisibly; the drawn button does not change, and
+   a missed Undo stops landing on the live Start beside it (owner 2026-08-23).
+   Vertical only: the buttons are already wide enough, and a horizontal bleed
+   would overlap the neighbour in the same row. Disabled buttons swallow the
+   press either way, exactly like the visible pixels do. */
+.rcb::after {
+  content: ""; position: absolute; left: 0; right: 0;
+  top: 50%; transform: translateY(-50%);
+  height: max(100%, 44px);
 }
 .rcb:hover:not(:disabled) { filter: brightness(1.15); }
 .rcb:active:not(:disabled) { transform: translateY(1px); filter: brightness(0.93); }
@@ -358,6 +371,7 @@ export interface CheckinCount {
 export default function RaceControlPanels({
   control,
   checkinCounts = [],
+  scannerOffline = false,
 }: {
   control: BriefingControl;
   /**
@@ -368,6 +382,13 @@ export default function RaceControlPanels({
    * times. Empty on any surface that does not poll it, which simply hides it.
    */
   checkinCounts?: CheckinCount[];
+  /**
+   * THE STATION'S SCANNER IS DOWN — the top-strip warning already says so, but
+   * the Called box still reads "8 still to scan" as though the number could
+   * move. Threading the outage here lets the count name its own blocker:
+   * global alarm, local consequence.
+   */
+  scannerOffline?: boolean;
 }) {
   // 1s session-status cadence (owner 2026-08-14) — cacheOnly reads against
   // the warm-loop-fresh Redis carry, never live Pandora.
@@ -569,6 +590,7 @@ export default function RaceControlPanels({
                   (c) => !!race && String(c.sessionId) === String(race.sessionId),
                 ) ?? null
               }
+              scannerOffline={scannerOffline}
               // 0 until the first poll lands — checkinAlert reads that as "no
               // deadline known", so a board still connecting never flashes at a
               // window it is guessing at.
@@ -1032,6 +1054,31 @@ type TrackStats = Record<string, { n: number; medianMs: number | null }> | undef
 /** How far the last hour must drift from the day before the board says so. */
 const BEHIND_MS = 30_000;
 
+/**
+ * IS THE LAST HOUR MEANINGFULLY BEHIND TODAY, anywhere — the matrix's own
+ * BEHIND_MS verdict, summarised for the button that hides it. Since the
+ * metrics moved behind "Wait times" (owner 2026-08-13) the answer only existed
+ * once the modal was open; an amber dot on the button surfaces it without
+ * un-making that decision (owner 2026-08-23). Slower only: a fast hour is
+ * good news, and good news does not need a dot.
+ *
+ * Reads exactly the two metrics the matrix's lead row colours, so the dot can
+ * never claim something the opened panel does not show.
+ */
+export function waitTimesBehind(waitTimes: WaitTimesBoard | null): boolean {
+  if (!waitTimes?.lastHourByTrack) return false;
+  for (const [track, hour] of Object.entries(waitTimes.lastHourByTrack)) {
+    const today = waitTimes.byTrack?.[track];
+    if (!today) continue;
+    for (const metric of ["roomToRaceMs", "calledToRaceEndMs"] as const) {
+      const now = hour[metric]?.medianMs;
+      const base = today[metric]?.medianMs;
+      if (now != null && base != null && now - base >= BEHIND_MS) return true;
+    }
+  }
+  return false;
+}
+
 function TrackWaitMatrix({
   color,
   hour,
@@ -1229,6 +1276,7 @@ function RoomColumn({
   checkinWindowMins,
   sentTo,
   checkedIn,
+  scannerOffline,
   locked,
   pending,
   expandedCamera,
@@ -1271,6 +1319,9 @@ function RoomColumn({
   /** This heat's check-in progress, for the Called box. Null when the station
    *  has not reported one for this session. */
   checkedIn: CheckinCount | null;
+  /** The station's scanner is down — the count above cannot move, and its unit
+   *  line should say why instead of promising "still to scan". */
+  scannerOffline: boolean;
   locked: boolean;
   pending: string | null;
   /** Which camera the full-screen viewer has open, if any — a preview whose own
@@ -1377,11 +1428,11 @@ function RoomColumn({
    * A WARNING, NEVER A REFUSAL. With the group already at the desk, sending late
    * usually still beats not sending; what it must not do is happen unnoticed.
    */
-  const laneLate = pullIsLate({
-    remainingMs: liveClock?.remainingMs ?? null,
-    pitInOccupied: !!lane?.pitIn,
-    onTrack: !!liveClock || !!lane?.racing,
-  });
+  /** The film this heat will ACTUALLY get, and how long it runs — the number
+   *  the whole window is sized around. Resolved through the Pro→Intermediate
+   *  fallback so it measures the film the room will really play. Null when
+   *  none is uploaded (the window then assumes the starter film). */
+  const sendFilmMs = videos?.[resolveFilmTier(tier, (t) => !!videos?.[t]?.url)]?.durationMs ?? null;
   /**
    * ...AND IT BELONGS TO ONE ROOM (owner 2026-08-18: "the session ends in
    * warning should only show on the side where the returning race is going
@@ -1402,12 +1453,27 @@ function RoomColumn({
    * track, and the returning race is always this column's.
    */
   const returningRoom = laneReturnRoom(lane);
-  const sendLate =
-    laneLate && (track !== "mega" || returningRoom == null || returningRoom === room);
-  /** The film this heat will ACTUALLY get, and how long it runs — the second
-   *  number the warning needs. Resolved through the Pro→Intermediate fallback so
-   *  it quotes the film the room will really play. Null when none is uploaded. */
-  const sendFilmMs = videos?.[resolveFilmTier(tier, (t) => !!videos?.[t]?.url)]?.durationMs ?? null;
+  /**
+   * WHERE THE SEND SITS ON THE TRACK CLOCK — the late warning's two numbers
+   * (race left, film length) turned into a verdict (owner 2026-08-23: "stop
+   * them from pushing a group to briefing if they don't have time"). `blocked`
+   * disables the send outright; the block lifts by itself at the chequer,
+   * because once the track is waiting the hold buys nothing.
+   */
+  const sendWin: SendWindow = sendWindow({
+    remainingMs: liveClock?.remainingMs ?? null,
+    onTrack: !!liveClock || !!lane?.racing,
+    onTrackHeatNumber: liveHeatNow,
+    filmMs: sendFilmMs,
+    attribution:
+      track !== "mega"
+        ? "this-room"
+        : returningRoom === room
+          ? "this-room"
+          : returningRoom == null
+            ? "unknown"
+            : "other-room",
+  });
 
   /**
    * THE TWO DEADLINES THIS PANEL IS RESPONSIBLE FOR (owner 2026-08-12).
@@ -1544,9 +1610,14 @@ function RoomColumn({
          * night here. The camera monitor's sub-line is the one surface that still
          * admits it (see `feedStale`).
          */}
+        {/* ONE HOME, ALWAYS. This used to float right whenever the on-track
+            clock was absent (marginLeft: auto), so the pill sat beside the
+            track name on one column and at the far edge on the other — and
+            staff had to hunt for it as races started and stopped. It is a fact
+            about the track's identity, so it stays with the track's name; the
+            row's far end belongs to the clock, or to nothing (owner 2026-08-23). */}
         <span
           style={{
-            marginLeft: liveClock ? undefined : "auto",
             display: "inline-flex",
             alignItems: "center",
             gap: 6,
@@ -1677,12 +1748,22 @@ function RoomColumn({
                   <Stat
                     label="Checked in"
                     value={`${checkedIn.checkedIn}/${checkedIn.total}`}
+                    /* THE OUTAGE REACHES THE HEAT IT IS STARVING. With the
+                       scanner down, "8 still to scan" is a promise the count
+                       cannot keep — the top strip's alarm gets its local
+                       consequence here instead (owner 2026-08-23). "All here"
+                       still wins: a complete grid is complete however the
+                       scanner feels. */
                     unit={
-                      checkedIn.stale
-                        ? "last known"
-                        : checkedIn.total > 0 && checkedIn.checkedIn >= checkedIn.total
-                          ? "all here"
-                          : `${Math.max(0, checkedIn.total - checkedIn.checkedIn)} still to scan`
+                      checkedIn.total > 0 && checkedIn.checkedIn >= checkedIn.total
+                        ? checkedIn.stale
+                          ? "last known"
+                          : "all here"
+                        : scannerOffline
+                          ? `scanner offline — ${Math.max(0, checkedIn.total - checkedIn.checkedIn)} can't scan`
+                          : checkedIn.stale
+                            ? "last known"
+                            : `${Math.max(0, checkedIn.total - checkedIn.checkedIn)} still to scan`
                     }
                     /* A CARRIED-OVER COUNT NEVER TURNS THE BOX GREEN. Green is
                        the cue to send a grid; it has to mean "counted, just now",
@@ -1692,7 +1773,9 @@ function RoomColumn({
                       checkedIn.total > 0 &&
                       checkedIn.checkedIn >= checkedIn.total
                         ? GREEN
-                        : undefined
+                        : scannerOffline && checkedIn.total > 0
+                          ? AMBER
+                          : undefined
                     }
                   />
                 ))}
@@ -1702,12 +1785,49 @@ function RoomColumn({
                   See the chip above. */}
             </div>
 
-            {/* PULLING LATE — the same rule and the same five minutes the room
-                tablets run (pull-to-room.ts), so the two boards cannot disagree
-                about whether a group is being fetched too late. Amber, never
-                red: red on this board means a missed deadline that costs a race,
-                and a late send costs minutes. */}
-            {sendLate && (
+            {/* GRID COMPLETENESS AS A SHAPE — "4/12" asks for arithmetic from
+                across the desk; the same 6px bar the film earned makes it a
+                glance. Green like the all-here flash it visibly completes
+                (owner 2026-08-23). Hidden with no live count: a bar stuck at
+                a stale width is a lie with a shape. */}
+            {checkedIn &&
+              checkedIn.total != null &&
+              checkedIn.checkedIn != null &&
+              checkedIn.total > 0 &&
+              !checkedIn.stale && (
+                <div
+                  style={{
+                    height: 6,
+                    borderRadius: 999,
+                    background: "rgba(255,255,255,0.09)",
+                    overflow: "hidden",
+                  }}
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={checkedIn.total}
+                  aria-valuenow={Math.min(checkedIn.checkedIn, checkedIn.total)}
+                  aria-label="Racers through the desk"
+                >
+                  <div
+                    style={{
+                      width: `${Math.min(100, (checkedIn.checkedIn / checkedIn.total) * 100)}%`,
+                      height: "100%",
+                      background: GREEN,
+                      transition: "width 0.5s ease",
+                    }}
+                  />
+                </div>
+              )}
+
+            {/* THE SEND WINDOW — same rule as the room tablets (pull-to-room.ts),
+                so the two boards cannot disagree about whether a send fits.
+                Green while the window is open, amber over its last seconds, red
+                once the film no longer fits — and red here really is a refusal:
+                the button below goes dead with it. The block lifts at the
+                chequered flag on its own. */}
+            {(sendWin.kind === "open" ||
+              sendWin.kind === "closing" ||
+              sendWin.kind === "blocked") && (
               <div
                 style={{
                   display: "flex",
@@ -1715,25 +1835,57 @@ function RoomColumn({
                   alignItems: "flex-start",
                   padding: "7px 10px",
                   borderRadius: 8,
-                  background: withAlpha(AMBER, 0.12),
-                  border: `1px solid ${withAlpha(AMBER, 0.55)}`,
+                  background: withAlpha(
+                    sendWin.kind === "open" ? GREEN : sendWin.kind === "closing" ? AMBER : DANGER,
+                    0.12,
+                  ),
+                  border: `1px solid ${withAlpha(
+                    sendWin.kind === "open" ? GREEN : sendWin.kind === "closing" ? AMBER : DANGER,
+                    0.55,
+                  )}`,
                 }}
                 role="status"
               >
-                <IconAlertTriangleFilled
-                  size={14}
-                  style={{ flexShrink: 0, color: AMBER, marginTop: 2 }}
-                  aria-hidden
-                />
+                {sendWin.kind !== "open" && (
+                  <IconAlertTriangleFilled
+                    size={14}
+                    style={{
+                      flexShrink: 0,
+                      color: sendWin.kind === "closing" ? AMBER : DANGER,
+                      marginTop: 2,
+                    }}
+                    aria-hidden
+                  />
+                )}
                 <span style={{ fontSize: 12, lineHeight: 1.4 }}>
-                  <b style={{ color: AMBER }}>
-                    {liveClock && liveClock.remainingMs > 0
-                      ? `${liveHeatNow != null ? `Session ${liveHeatNow}` : "The race"} ends in ${formatRemaining(liveClock.remainingMs)}.`
-                      : "The track is waiting."}
-                  </b>{" "}
-                  {sendFilmMs
-                    ? `The ${tier} film runs ${formatClock(sendFilmMs)} — send now and the track waits on the room.`
-                    : "Send now and the film will still be running when the seats are wanted."}
+                  {sendWin.kind === "open" ? (
+                    <>
+                      <b style={{ color: GREEN }}>
+                        Send window open — {formatClock(sendWin.closesInMs)} left.
+                      </b>{" "}
+                      {sendFilmMs
+                        ? `The ${tier} film (${formatClock(sendFilmMs)}) ends as the track clears.`
+                        : "The film ends as the track clears."}
+                    </>
+                  ) : sendWin.kind === "closing" ? (
+                    <>
+                      <b style={{ color: AMBER }}>
+                        Send NOW — the window shuts in {formatClock(sendWin.closesInMs)}.
+                      </b>{" "}
+                      {`${liveHeatNow != null ? `Session ${liveHeatNow}` : "The race"} ends in ${formatRemaining(sendWin.remainingMs)}; after that the ${tier} film no longer fits.`}
+                    </>
+                  ) : (
+                    <>
+                      <b style={{ color: DANGER }}>
+                        No time —{" "}
+                        {sendWin.heatNumber != null ? `Session ${sendWin.heatNumber}` : "the race"}{" "}
+                        ends in {formatRemaining(sendWin.remainingMs)}.
+                      </b>{" "}
+                      {sendFilmMs
+                        ? `The ${tier} film runs ${formatClock(sendFilmMs)} and no longer fits — sending unlocks at the chequered flag.`
+                        : "The film no longer fits — sending unlocks at the chequered flag."}
+                    </>
+                  )}
                 </span>
               </div>
             )}
@@ -1810,16 +1962,35 @@ function RoomColumn({
                   {/* The leapfrog hint lives on the panel header now — big,
                       top-right, above this button (owner 2026-08-17). */}
                   <ActionButton
-                    // Late reads amber the same way an occupied room does — the
-                    // press is still yours to make, and the colour is the pause
-                    // before you make it.
-                    tone={occupied || sendLate ? AMBER : color}
-                    outline={occupied}
-                    textColor={sendLate && !occupied ? "#1c1204" : undefined}
+                    // The button wears the window's colour: green while it is
+                    // open, amber over its last seconds, and DEAD once the film
+                    // no longer fits — no "anyway" any more (owner 2026-08-23).
+                    // An occupied room keeps its amber Replace flow untouched.
+                    tone={
+                      occupied
+                        ? AMBER
+                        : sendWin.kind === "blocked"
+                          ? DANGER
+                          : sendWin.kind === "closing"
+                            ? AMBER
+                            : sendWin.kind === "open"
+                              ? GREEN
+                              : color
+                    }
+                    outline={occupied || (sendWin.kind === "blocked" && !occupied)}
+                    textColor={
+                      !occupied && sendWin.kind === "closing"
+                        ? "#1c1204"
+                        : !occupied && sendWin.kind === "open"
+                          ? "#04220f"
+                          : undefined
+                    }
                     size="md"
                     pendingKey={`send:${room}`}
                     pending={pending}
-                    disabled={!race.sessionId || locked}
+                    disabled={
+                      !race.sessionId || locked || (sendWin.kind === "blocked" && !occupied)
+                    }
                     pendingLabel={occupied ? "Replacing…" : "Sending…"}
                     onClick={() => {
                       if (
@@ -1837,9 +2008,11 @@ function RoomColumn({
                   >
                     {occupied
                       ? "Replace"
-                      : sendLate
-                        ? `Send to ${cap(room)} anyway →`
-                        : `Send to ${cap(room)} →`}
+                      : sendWin.kind === "blocked"
+                        ? "No time — wait for the flag"
+                        : sendWin.kind === "closing"
+                          ? `Send to ${cap(room)} NOW →`
+                          : `Send to ${cap(room)} →`}
                   </ActionButton>
                 </span>
               )}
@@ -1879,6 +2052,19 @@ function RoomColumn({
               {`${nextCall.booked} booked · check-in ${clockMinuteMs(nextCall.slotMs)}`}
               {nextCall.state === "overdue" ? "" : ` · call by ${clockMinuteMs(callWindowEndsMs)}`}
             </span>
+          </div>
+        ) : nextCall ? (
+          /* NOBODY CALLED, AND NONE DUE YET — say which heat is next and when
+             to call it, quietly. The desk asked for the box to answer "when do
+             I call what" before the clock starts nagging (owner 2026-08-23). */
+          <div style={{ fontSize: 12, color: PORTAL_DARK.muted, lineHeight: 1.5 }} role="status">
+            <b style={{ color: INK, fontWeight: 650 }}>
+              Next: call Session {nextCall.heatNumber ?? "?"} at {clockMinuteMs(nextCall.callAtMs)}
+            </b>
+            {nextCall.callAtMs > nowMs
+              ? ` (in ${Math.max(1, Math.round((nextCall.callAtMs - nowMs) / 60_000))} min)`
+              : ""}
+            {` · ${nextCall.booked} booked · check-in ${clockMinuteMs(nextCall.slotMs)}`}
           </div>
         ) : (
           /* Nothing called, or the called heat has already gone to a room —
@@ -2518,10 +2704,12 @@ function OutOfRoomPanel({
                     <div
                       style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}
                     >
-                      <span
-                        className="rc-num"
-                        style={{ fontSize: 20, fontWeight: 800, color: INK }}
-                      >
+                      {/* TRACK COLOUR ON THE SESSION NUMBER, here and on every
+                          rail row below: heat numbers are per-track, so two
+                          "Session 52"s can be on screen at once. Identity colour
+                          on identity data — the same rule the briefing log uses
+                          for room names (owner 2026-08-23). */}
+                      <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color }}>
                         {holding.heatNumber != null
                           ? `Session ${holding.heatNumber}`
                           : "In the seats"}
@@ -2567,10 +2755,7 @@ function OutOfRoomPanel({
                     <div
                       style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}
                     >
-                      <span
-                        className="rc-num"
-                        style={{ fontSize: 20, fontWeight: 800, color: INK }}
-                      >
+                      <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color }}>
                         {karts.heatNumber != null ? `Session ${karts.heatNumber}` : "In the karts"}
                       </span>
                       {karts.raceType && (
@@ -2587,7 +2772,10 @@ function OutOfRoomPanel({
               }
               clock={
                 karts ? (
-                  <Stat label="In the karts" value={formatClock(kartsMs)} tone={GREEN} />
+                  /* Not "In the karts" a third time — the stage label and the
+                     badge both already say it. The clock names what the wait is
+                     FOR, the way Holding's trio does (owner 2026-08-23). */
+                  <Stat label="Waiting on green" value={formatClock(kartsMs)} tone={GREEN} />
                 ) : undefined
               }
             />
@@ -2602,10 +2790,7 @@ function OutOfRoomPanel({
                     <div
                       style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}
                     >
-                      <span
-                        className="rc-num"
-                        style={{ fontSize: 20, fontWeight: 800, color: INK }}
-                      >
+                      <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color }}>
                         Session {outHeat}
                       </span>
                       <RoomPill room={pillRoom(outGroup)} />
@@ -2641,10 +2826,7 @@ function OutOfRoomPanel({
                     <div
                       style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}
                     >
-                      <span
-                        className="rc-num"
-                        style={{ fontSize: 20, fontWeight: 800, color: INK }}
-                      >
+                      <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color }}>
                         {pitIn.heatNumber != null ? `Session ${pitIn.heatNumber}` : "In the pit"}
                       </span>
                       {pitIn.raceType && (

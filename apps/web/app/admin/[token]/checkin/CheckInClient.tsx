@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { modalBackdropProps } from "@/lib/a11y";
-import RaceControlPanels from "./RaceControlPanels";
+import RaceControlPanels, { waitTimesBehind } from "./RaceControlPanels";
 import { useBriefingControl, type TimingFeedStatus } from "./useBriefingControl";
 import { useScanSound } from "./useScanSound";
 // TYPE-ONLY: scan-history.ts imports the redis client, so a value import here
@@ -1464,13 +1464,29 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               <button
                 type="button"
                 onClick={() => briefing.setOpenPanel("waits")}
-                className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5"
+                className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5 inline-flex items-center gap-1.5"
                 style={{
                   borderColor: PORTAL_DARK.border,
                   color: PORTAL_DARK.muted,
                   borderRadius: 8,
                 }}
+                title={
+                  waitTimesBehind(briefing.waitTimes)
+                    ? "The last hour is running meaningfully behind today — open for the numbers"
+                    : undefined
+                }
               >
+                {/* THE VERDICT ON THE BUTTON — the matrix already computes
+                    "meaningfully slower than today"; since the metrics moved
+                    behind this button the answer only existed once opened.
+                    Amber, never red, per the board's own colour rule. */}
+                {waitTimesBehind(briefing.waitTimes) && (
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ background: AMBER }}
+                    aria-label="Running behind today"
+                  />
+                )}
                 Wait times
               </button>
               <button
@@ -2039,7 +2055,18 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
 
       {/* Race control — briefing rooms. Below the scanner because checking a
           racer in comes first; the send follows once the heat is in. */}
-      {boardMode && <RaceControlPanels control={briefing} checkinCounts={activeSessions} />}
+      {boardMode && (
+        <RaceControlPanels
+          control={briefing}
+          checkinCounts={activeSessions}
+          // The same fact the amber strip above announces — the Called boxes
+          // repeat it beside the count it starves. Only where a scanner could
+          // exist at all: a browser with no serial support is not an outage.
+          scannerOffline={
+            serialSupported && connectionState !== "ready" && connectionState !== "connecting"
+          }
+        />
+      )}
 
       {/* Test mode panel */}
       {testMode && (
