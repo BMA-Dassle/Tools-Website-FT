@@ -190,6 +190,23 @@ export function addDays(ymd: string, n: number): string {
   return ymdFromDate(d);
 }
 
+/**
+ * How far ahead QAMF (Conqueror) sells lanes on the web — the "Book for later"
+ * advance limit configured on the HeadPinz web offers at BOTH centers. Ops
+ * raised it 30 → 45 days on 2026-08-24 (owner: "all should allow 45 days
+ * out"); probed the same day, day 45 returns lanes and day 46 returns none.
+ * Every calendar that offers a lane (bowling steps, the VIP combo's date step)
+ * caps on this ONE constant, so a future change is a one-line edit — a
+ * calendar that offers a later date than QAMF sells sends the guest into a
+ * start-time grid where every slot "won't fit" (2026-08-24 VIP report).
+ */
+export const BOWLING_WEB_HORIZON_DAYS = 45;
+
+/** Last date a lane can be booked online, inclusive (today + horizon, ET). */
+export function bowlingHorizonMaxDate(today: string = todayYmd()): string {
+  return addDays(today, BOWLING_WEB_HORIZON_DAYS);
+}
+
 function parseHourToken(token: string): number {
   const match = token.trim().match(/^(\d+)(AM|PM)$/i);
   if (!match) return 11;

@@ -14,10 +14,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
 import {
-  addDays,
+  bowlingHorizonMaxDate,
   effectiveToday,
   otherActivitiesOnDate,
-  todayYmd,
   CENTERS,
 } from "~/features/booking/service/bowling-hours";
 import { releaseBowlingHold } from "~/features/booking/service/bowling-offer";
@@ -39,7 +38,7 @@ const BowlingDateStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   const center = CENTERS[centerId] ?? CENTERS[9172];
 
   const earliest = effectiveToday();
-  const maxDate = addDays(todayYmd(), 30);
+  const maxDate = bowlingHorizonMaxDate();
 
   // Is there a date on another cart item we can inherit?
   const cartDate = session.items.reduce<string | null>((found, other) => {

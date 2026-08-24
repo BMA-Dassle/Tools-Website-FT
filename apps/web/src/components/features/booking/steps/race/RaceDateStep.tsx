@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { PartyMember, RaceItem, StepDef } from "~/features/booking";
 import { isQualifiedForTier } from "~/features/booking/service/race-products";
+import {
+  BOWLING_WEB_HORIZON_DAYS,
+  bowlingHorizonMaxDate,
+} from "~/features/booking/service/bowling-hours";
+import { comboBowlingComponent, getComboSpecial } from "~/features/combos/combo-specials";
 import { getGroupEventForDate, getPublicReopenTimeForDate } from "@/lib/group-events";
 
 /**
@@ -108,6 +113,14 @@ const RaceDateStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, 
 
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
+  // A combo with a lane leg can only book as far out as QAMF sells lanes.
+  // BMI sells races further ahead, so without this cap the calendar paints a
+  // date green that the Start Time step then fails on every slot ("Won't fit"
+  // — 2026-08-24 VIP report for 9/26, 33 days out against a 30-day lane limit).
+  const laneHorizonMax = useMemo(() => {
+    const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
+    return combo && comboBowlingComponent(combo) ? bowlingHorizonMaxDate() : null;
+  }, [session.comboSpecialId]);
   const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
   const [megaDates, setMegaDates] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -267,7 +280,8 @@ const RaceDateStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, 
               const day = i + 1;
               const iso = toISO(viewYear, viewMonth, day);
               const isPast = iso < todayStr;
-              const isAvailable = availableDates.has(iso);
+              const beyondLaneHorizon = laneHorizonMax != null && iso > laneHorizonMax;
+              const isAvailable = availableDates.has(iso) && !beyondLaneHorizon;
               const isMega = megaDates.has(iso);
               const isSelected = item.date === iso;
               const isToday = iso === todayStr;
@@ -282,7 +296,13 @@ const RaceDateStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, 
                   type="button"
                   onClick={() => isAvailable && !isPast && !groupEvent && onChange({ date: iso })}
                   disabled={!isAvailable || isPast || !!groupEvent}
-                  title={groupEvent ? `Private Event: ${groupEvent.companyName}` : undefined}
+                  title={
+                    groupEvent
+                      ? `Private Event: ${groupEvent.companyName}`
+                      : beyondLaneHorizon
+                        ? `Lanes open ${BOWLING_WEB_HORIZON_DAYS} days ahead`
+                        : undefined
+                  }
                   className={
                     "aspect-square rounded-lg text-sm font-medium transition-all duration-150 " +
                     (groupEvent
@@ -324,6 +344,13 @@ const RaceDateStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, 
             <span>Unavailable</span>
           </div>
         </div>
+
+        {laneHorizonMax != null && (
+          <p className="mt-3 text-center text-[13px] text-white/40">
+            Your VIP lane can be booked up to {BOWLING_WEB_HORIZON_DAYS} days ahead — dates after
+            that open as the calendar moves.
+          </p>
+        )}
 
         {megaDates.size > 0 && (
           <div className="mt-3 rounded-xl border border-[#A855F7]/20 bg-[#A855F7]/5 p-3 text-center">
