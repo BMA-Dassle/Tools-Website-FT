@@ -2,19 +2,25 @@
 
 /**
  * Kiosk Race Sims — "How many races?" (1 Race vs the Race Packs). PLACEHOLDER
- * PHASE 2026-08: cards render straight from the in-code catalog
+ * PHASE 2026-08: everything renders straight from the in-code catalog
  * (features/race-sims/products.ts — placeholder prices, no Square/vendor ids;
- * checkout is fail-closed server-side until the ids are armed). Structure
- * follows KioskBowlingTierStep's glass photo cards, minus its fetch: the
- * catalog is static, so there is nothing to load.
+ * checkout is fail-closed server-side until the ids are armed).
+ *
+ * LAYOUT MIRRORS THE KARTING PRODUCT PAGE (owner 2026-08-23: "mirror normal
+ * karting with its layout") — RaceProductStep's Option-C tier card, scaled to
+ * kiosk canvas px: centered intro header, a tier-rung section header (accent
+ * label · hairline · muted meta), then ONE flat card (no photos, colored left
+ * accent) whose price COLUMNS are the buttons — tiny uppercase label + amber
+ * "Save $X" on packs, extrabold white price with the per-racer suffix, muted
+ * per-race math underneath. Selection is the house cyan (#00E2E5) with the
+ * floating "Selected" pill, exactly like karting; the racesim coral (#ff6b6b)
+ * stays the UNSELECTED left-accent color, like a tier accent.
  *
  * Writes ONLY item.productSlug + item.productKind — the track and people
  * steps own the rest of the item.
  */
 import type { StepDef, RaceSimItem } from "~/features/booking";
 import { RACE_SIM_PRODUCTS, type RaceSimProduct } from "~/features/race-sims/products";
-import { KIOSK_PHOTOS } from "../assets";
-import { useResilientImages } from "../hooks/useResilientImage";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
 
@@ -26,72 +32,124 @@ const PRODUCT_NAME_KEYS: Record<string, MessageKey> = {
   "sim-5-pack": "racesim.product.sim-5-pack",
 };
 
-/** Card art per product — reuses existing racing photography until sims get
- *  their own shots (placeholder phase). */
-const PRODUCT_PHOTOS: Record<string, string> = {
-  "sim-single": KIOSK_PHOTOS.raceCar,
-  "sim-3-pack": KIOSK_PHOTOS.race,
-  "sim-5-pack": KIOSK_PHOTOS.raceAction,
-};
-
+/** Racesim's tier-accent color (the karting ladder uses one per tier). */
 const ACCENT = "#ff6b6b";
+/** House selection cyan — same as karting's selected cards/columns. */
+const SELECTED = "#00E2E5";
 
 const KioskRaceSimProductStepComponent: StepDef<RaceSimItem>["Component"] = ({
   item,
   onChange,
 }) => {
   const t = useT();
-  const resolvePhoto = useResilientImages(Object.values(PRODUCT_PHOTOS));
+  const single = RACE_SIM_PRODUCTS.find((p) => p.kind === "single");
+  const isSelected = item.productSlug != null;
 
-  const card = (product: RaceSimProduct) => {
-    const selected = item.productSlug === product.slug;
+  // Mirror of RaceProductStep's column button factory (`col(on)`), at canvas
+  // px. k-tap owns the transition (its unlayered rule out-cascades Tailwind's
+  // transition utilities — see the KioskFlow k-glass note), and hover states
+  // are dropped on the touch kiosk.
+  const col = (on: boolean) =>
+    `k-tap rounded-[16px] border p-[24px] text-left ${
+      on ? "border-[#00E2E5]/70 bg-[#00E2E5]/5" : "border-white/10 bg-white/[0.03]"
+    }`;
+
+  const column = (product: RaceSimProduct) => {
+    const on = item.productSlug === product.slug;
     const nameKey = PRODUCT_NAME_KEYS[product.slug];
     const name = nameKey ? t(nameKey) : product.name;
-    const sub =
-      product.kind === "single" ? t("racesim.product.single.sub") : t("racesim.product.pack.sub");
+    // Save chip = what N singles would cost minus the pack price, whole
+    // dollars — same math as karting's `saveDollars`.
+    const saveDollars = single ? Math.round(single.price * product.raceCount - product.price) : 0;
+    const perRace = product.price / Math.max(1, product.raceCount);
     return (
       <button
         key={product.slug}
         type="button"
         onClick={() => onChange({ productSlug: product.slug, productKind: product.kind })}
-        aria-label={name}
-        className="k-ph k-tap relative flex h-[400px] flex-col justify-end overflow-hidden rounded-[28px] border-2 text-left"
-        style={
-          {
-            ["--k-img"]: `url(${resolvePhoto(PRODUCT_PHOTOS[product.slug] ?? KIOSK_PHOTOS.race)})`,
-            borderColor: selected ? ACCENT : "rgba(255,255,255,0.12)",
-            boxShadow: selected ? "0 0 44px rgba(255,107,107,0.25)" : "none",
-          } as React.CSSProperties
-        }
+        className={col(on)}
       >
-        {selected && (
-          <div
-            className="absolute right-[24px] top-[24px] z-[2] grid h-[56px] w-[56px] place-items-center rounded-full text-[32px] font-bold text-[#2b0404]"
-            style={{ background: ACCENT }}
-          >
-            ✓
-          </div>
-        )}
-        <div className="relative z-[1] min-w-0 p-[32px]">
-          <div className="k-display break-words text-[48px] leading-none">{name}</div>
-          <div className="mt-[10px] break-words text-[26px] leading-snug text-white/65">{sub}</div>
-          <div className="mt-[14px] text-[30px] font-extrabold tabular-nums">
-            ${product.price.toFixed(2)}
-            <span className="text-[22px] font-semibold text-white/55">
-              {" "}
-              {t("racesim.product.perRacer")}
+        <div className="text-[20px] font-extrabold uppercase tracking-[0.14em] text-white/40">
+          {name}
+          {product.kind === "pack" && saveDollars >= 1 && (
+            <span className="ml-[10px] text-amber-400">
+              {t("racesim.product.save", { amount: `$${saveDollars}` })}
             </span>
-          </div>
+          )}
         </div>
-        <div className="relative z-[1] h-[8px] w-full shrink-0" style={{ background: ACCENT }} />
+        <div className="mt-[8px] text-[34px] font-extrabold tabular-nums text-white">
+          ${product.price.toFixed(2)}{" "}
+          <span className="text-[22px] font-medium text-white/40">
+            / {t("racesim.product.perRacer")}
+          </span>
+        </div>
+        <div className="mt-[6px] text-[20px] leading-snug text-white/50">
+          {product.kind === "single"
+            ? t("racesim.product.single.sub")
+            : t("racesim.product.perRace", {
+                price: `$${perRace.toFixed(2)}`,
+                count: product.raceCount,
+              })}
+        </div>
       </button>
     );
   };
 
   return (
-    <div className="space-y-[24px]">
-      <p className="text-[26px] text-white/55">{t("racesim.product.intro")}</p>
-      <div className="grid grid-cols-2 gap-[24px]">{RACE_SIM_PRODUCTS.map((p) => card(p))}</div>
+    <div className="space-y-[36px]">
+      {/* Intro header — karting's centered display heading + muted helper. */}
+      <div className="space-y-[10px] text-center">
+        <h3 className="k-display text-[40px] text-white">{t("racesim.product.intro")}</h3>
+        <p className="mx-auto max-w-[720px] text-[24px] text-white/45">
+          {t("racesim.product.introHelp")}
+        </p>
+      </div>
+
+      <div>
+        {/* Tier-rung section header — accent label · hairline · muted meta. */}
+        <div className="mb-[14px] flex items-center gap-[16px]">
+          <span
+            className="text-[22px] font-bold uppercase tracking-[0.16em]"
+            style={{ color: ACCENT }}
+          >
+            {t("racesim.tile.name")}
+          </span>
+          <div className="h-px flex-1 bg-white/10" />
+          <span className="whitespace-nowrap text-[22px] text-white/35">
+            {t("racesim.product.sectionMeta")}
+          </span>
+        </div>
+
+        {/* The tier card — flat, no photo, colored left accent; the price
+            columns inside are the tap targets (karting Option C). */}
+        <div
+          className={`relative w-full rounded-[24px] border-2 p-[32px] transition-all duration-200 ${
+            isSelected ? "border-[#00E2E5] bg-[#00E2E5]/5" : "border-white/10 bg-white/5"
+          }`}
+          style={{ borderLeftWidth: 6, borderLeftColor: isSelected ? SELECTED : ACCENT }}
+        >
+          {isSelected && (
+            <span className="absolute -top-[16px] right-[28px] rounded-full bg-[#00E2E5] px-[18px] py-[6px] text-[17px] font-extrabold uppercase tracking-[0.12em] text-[#000418]">
+              {t("racesim.product.selected")}
+            </span>
+          )}
+          <div className="text-[30px] font-bold text-white">{t("racesim.tile.name")}</div>
+          <p className="mt-[6px] text-[24px] leading-relaxed text-white/50">
+            {t("racesim.tile.blurb")}
+          </p>
+          {/* Track line — karting's colored-dot "Runs on …" row. */}
+          <div className="mt-[14px] flex items-center gap-[12px] text-[22px] text-white/35">
+            <span
+              className="inline-block h-[16px] w-[16px] shrink-0 rounded-full"
+              style={{ backgroundColor: ACCENT }}
+            />
+            <span>{t("racesim.product.trackLine")}</span>
+          </div>
+          <div className="mt-[24px] grid grid-cols-3 gap-[16px]">
+            {RACE_SIM_PRODUCTS.map((p) => column(p))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
