@@ -1355,6 +1355,154 @@ export async function getNoShowBowlingReservations(): Promise<BowlingReservation
  * No-shows (never lane-opened) are handled by bowling-no-show-close — which still
  * EXCLUDES combos (charging a combo no-show's shared gift card stays manual).
  */
+/**
+ * The booking sources whose guests can actually self check in.
+ *
+ * `web` and `kiosk` are OUR OWN surfaces: a person chose a time, paid, and has not yet
+ * been met by anybody. The other two are not guests waiting to be served —
+ *
+ *   `conqueror`  the front-desk POS. This is where leagues, school groups and LANE
+ *                CLOSURES live: at HeadPinz FM it holds 5,883 rows of which 1,851 have
+ *                a blank guest name, 33 are literally named some casing of "closed",
+ *                and many are forward-dated into 2027. It is also where a staff member
+ *                books a guest who is standing in front of them — already served, so
+ *                nothing to prompt.
+ *   `admin`      the staff KBF admin tool.
+ *
+ * FILTERED ON THE SOURCE, NOT ON THE NAME. Name-matching was the obvious idea and it
+ * does not work: "closed" appears as closed/Closed/CLOSED, 1,851 rows have no name to
+ * match against at all, and the next convention staff invent slips straight through.
+ * `booking_source` is structural — every row has one, with no nulls anywhere in the
+ * table — so it cannot be defeated by how somebody types.
+ *
+ * The CHECKED-IN half deliberately does NOT filter this way: a self check-in is itself
+ * proof of a real guest (that column is 100% web+kiosk in the data already), and if a
+ * desk-booked party ever does use a kiosk they still need to be told their lane.
+ */
+const SELF_CHECKIN_SOURCES = ["web", "kiosk"] as const;
+
+/**
+ * Reservations the lane-ready cron should ASK QAMF about: due within the window, not yet
+ * checked in, and bookable through a surface a guest can check in from.
+ *
+ * Deliberately narrow, because each one costs a vendor call. Outside trading hours it
+ * returns nothing and the cron makes no QAMF requests at all, which is why an
+ * every-minute job is affordable here.
+ *
+ * `withinMins` should be the self-service window plus a little slack — a reservation that
+ * has only just crossed into the window still wants its first poll promptly, and a guest
+ * running late still wants the board to keep listing them.
+ */
+export async function getBowlingReservationsToPollForLane(
+  centerCode: string,
+  withinMins = 35,
+  lateGraceMins = 90,
+): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE center_code = ${centerCode}
+      AND checkin_method IS NULL
+      AND status IN ('confirmed', 'arrived')
+      AND product_kind IN ('open', 'kbf')
+      AND booking_source = ANY(${[...SELF_CHECKIN_SOURCES]})
+      AND TRIM(COALESCE(guest_name, '')) <> ''
+      AND qamf_reservation_id IS NOT NULL
+      AND qamf_reservation_id <> ''
+      AND booked_at BETWEEN NOW() - (${lateGraceMins} * INTERVAL '1 minute')
+                        AND NOW() + (${withinMins} * INTERVAL '1 minute')
+    ORDER BY booked_at ASC
+    LIMIT 40
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
+ * Reservations that could check themselves in RIGHT NOW — due about now, and nobody
+ * has checked them in yet.
+ *
+ * The other half of the front-desk wall's left panel. On its own the "checked in" list
+ * only ever speaks to people who have already worked out what to do; this is the half
+ * that tells a guest walking through the door that they are expected and can go
+ * straight to a kiosk instead of queueing at the desk.
+ *
+ * `checkin_method IS NULL` is the whole definition of "not yet": it is set by both the
+ * kiosk and the desk, so a party the desk has already handled drops off this list
+ * without needing a second flag.
+ *
+ * THE WINDOW IS DELIBERATELY WIDER BEFORE THAN AFTER. Guests arrive early far more
+ * often than a reservation is genuinely still checkable an hour late, and the
+ * pre-arrival notice already goes out ~30 minutes ahead — so someone who got that text
+ * and walked straight over should see themselves listed. An hour and a half afterwards
+ * covers a late party without carrying no-shows all evening; `closePastReservationStatuses`
+ * eventually flips those to no_show anyway.
+ */
+export async function getSelfCheckinEligible(
+  centerCode: string,
+  limit = 8,
+): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE center_code = ${centerCode}
+      AND checkin_method IS NULL
+      AND status IN ('confirmed', 'arrived')
+      AND product_kind IN ('open', 'kbf')
+      AND booking_source = ANY(${[...SELF_CHECKIN_SOURCES]})
+      -- A row with no name cannot render on the wall anyway (the feed reduces to a
+      -- first name and drops the blanks), but excluding it here keeps the LIMIT
+      -- spending its slots on rows that will actually appear.
+      AND TRIM(COALESCE(guest_name, '')) <> ''
+      AND booked_at BETWEEN NOW() - INTERVAL '90 minutes' AND NOW() + INTERVAL '45 minutes'
+    ORDER BY booked_at ASC
+    LIMIT ${limit}
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
+ * Everyone who SELF-checked in today and has a lane, newest first.
+ *
+ * Drives the front-desk wall's left panel: a guest who checked themselves in at a
+ * kiosk was never told a lane number by a person, so the wall is the only place
+ * they learn it. `checkin_method = 'self'` is the whole point — a DESK check-in
+ * already had a human say it out loud, and listing those would pad the board with
+ * people who do not need it.
+ *
+ * `dayof_order_lane` is only populated when lanes actually OPENED, which is exactly
+ * the moment there is something true to display. Rows without it are excluded rather
+ * than shown as pending: "checked in, lane coming" is a promise the board cannot
+ * keep, and an empty lane column reads as a fault.
+ *
+ * Scoped to the last six hours rather than to a calendar day — the centre trades
+ * past midnight on weekend nights, and a business-day boundary would blank the board
+ * at the busiest moment (see the e-ticket quiet-hours lesson).
+ */
+export async function getSelfCheckedInWithLanes(
+  centerCode: string,
+  limit = 8,
+): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM bowling_reservations
+    WHERE center_code = ${centerCode}
+      AND checkin_method = 'self'
+      AND dayof_order_lane IS NOT NULL
+      AND dayof_order_lane <> ''
+      AND status NOT IN ('cancelled', 'no_show')
+      AND booked_at > NOW() - INTERVAL '6 hours'
+    ORDER BY booked_at DESC
+    LIMIT ${limit}
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
 export async function getCheckedInOrdersToComplete(): Promise<BowlingReservation[]> {
   if (!isDbConfigured()) return [];
   await ensureBowlingSchema();

@@ -28,6 +28,8 @@ import { verifyCron } from "@/lib/cron-auth";
 import { inEticketQuietHours } from "~/features/eticket/quiet-hours";
 import { warmRacerCodes } from "~/features/kiosk/license/code-cache";
 import { recordNotified, forgetNotified } from "~/features/racing/eticket/removal-sweep";
+import { planRosterRead } from "~/features/racing/roster-dirty";
+import { readRosterMarks, bankRosterRead } from "~/features/racing/roster-dirty.server";
 import { updateLicencePasses } from "~/features/racing/wallet/licence-pass";
 import { formatHeat } from "~/features/racing/wallet/licence-meta";
 import { NO_NEXT_RACE } from "~/features/racing/wallet/licence-clear";
@@ -49,7 +51,10 @@ import { KARTING_CHECKIN_EMAIL_NOTE, KARTING_CHECKIN_SMS_NOTE } from "@/lib/kart
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
-const VOX_FROM = "+12394819666"; // FastTrax SMS sender
+// No local sender constant: this cron calls voxSend() with no
+// fromOverride, so the DID comes from a2pSender() there. The dead
+// `VOX_FROM` that used to sit here read like it controlled the sender
+// and did not.
 /** Office clientKey — the login-code pre-warm reads tags from this BMI. */
 const CLIENT_KEY = process.env.BMI_CLIENT_KEY || "headpinzftmyers";
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
@@ -354,7 +359,8 @@ function formatTimeET(iso: string): string {
 // ASCII-only — the prior "↑" arrow forced UCS-2 encoding (67 chars
 // per segment instead of 153), turning every pre-race-cron SMS into
 // 2-3 billed segments. Same intent, GSM-7 safe.
-const SHORT_CTA = `Have open for check-in`;
+// SHORT_CTA ("Have open for check-in") removed 2026-08-20 (owner): it
+// restated what the link already does, for 23 characters on every send.
 
 function racerLabel(m: { firstName: string; lastName: string }): string {
   return `${m.firstName} ${m.lastName}`.trim() || m.firstName || "Racer";
@@ -365,14 +371,18 @@ function buildSingleSmsBody(
   member: GroupTicketMember,
   shortUrl: string,
 ): string {
+  // No check-in-vs-race-time note on a SINGLE heat (owner 2026-08-20).
+  // Measured on 238 real single-heat sends: dropping it takes them from
+  // 477 segments to 243. One heat, one time, read at a glance -- there is
+  // nothing here to mistake for a race time. The note STAYS on the
+  // multi-heat bodies below, which is where guests actually conflate
+  // check-in with racing, and the linked page carries it either way
+  // (KARTING_CHECKIN_SUBLINE).
   return [
     `FastTrax e-ticket`,
     `Session ${sessionName} - check-in ${formatTimeET(member.scheduledStart)}`,
     racerLabel(member),
-    ``,
     shortUrl,
-    KARTING_CHECKIN_SMS_NOTE,
-    SHORT_CTA,
   ].join("\n");
 }
 
@@ -386,24 +396,24 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
     if (!bySession.has(k)) bySession.set(k, []);
     bySession.get(k)!.push(m);
   }
-  const lines: string[] = [`FastTrax e-tickets`];
-  const sessionBlocks: string[][] = [];
+  // Names ONCE, then bare session lines (owner 2026-08-20). The old
+  // shape repeated the racer under every session, which cost 22 chars
+  // per heat -- 66 on a three-heat booking, for a name the guest
+  // already knows. Distinct + ordered so a two-racer booking still
+  // shows both, and the per-heat roster is on the linked page.
+  const names: string[] = [];
+  for (const m of sorted) {
+    const label = racerLabel(m);
+    if (!names.includes(label)) names.push(label);
+  }
+  const lines: string[] = [`FastTrax e-tickets`, names.join(", ")];
   for (const group of bySession.values()) {
     const first = group[0];
     const heatName = `${first.heatNumber} - ${first.track} ${first.raceType}`;
-    const block = [`Session ${heatName} - check-in ${formatTimeET(first.scheduledStart)}`];
-    for (const m of group) block.push(`- ${racerLabel(m)}`);
-    sessionBlocks.push(block);
+    lines.push(`Session ${heatName} - check-in ${formatTimeET(first.scheduledStart)}`);
   }
-  // Blank line separating each session block
-  for (let i = 0; i < sessionBlocks.length; i++) {
-    if (i > 0) lines.push(``);
-    lines.push(...sessionBlocks[i]);
-  }
-  lines.push(``);
   lines.push(shortUrl);
   lines.push(KARTING_CHECKIN_SMS_NOTE);
-  lines.push(SHORT_CTA);
   return lines.join("\n");
 }
 
@@ -415,15 +425,10 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
  */
 function buildGuardianSingleSmsBody(member: GroupTicketMember, shortUrl: string): string {
   const heatLabel = `${member.track} Heat ${member.heatNumber} check-in ${formatTimeET(member.scheduledStart)}`;
-  return [
-    "FastTrax e-ticket for your racer",
-    "",
-    `- ${member.firstName} - ${heatLabel}`,
-    "",
-    shortUrl,
-    KARTING_CHECKIN_SMS_NOTE,
-    SHORT_CTA,
-  ].join("\n");
+  // Single heat, so no note -- same reasoning as buildSingleSmsBody.
+  return ["FastTrax e-ticket for your racer", `${member.firstName} - ${heatLabel}`, shortUrl].join(
+    "\n",
+  );
 }
 
 /**
@@ -436,15 +441,13 @@ function buildGuardianGroupSmsBody(members: GroupTicketMember[], shortUrl: strin
   const sorted = [...members].sort(
     (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
   );
-  const lines = ["FastTrax e-tickets for your racers", ""];
+  const lines = ["FastTrax e-tickets for your racers"];
   for (const m of sorted) {
     const heatLabel = `${m.track} Heat ${m.heatNumber} check-in ${formatTimeET(m.scheduledStart)}`;
-    lines.push(`- ${m.firstName} - ${heatLabel}`);
+    lines.push(`${m.firstName} - ${heatLabel}`);
   }
-  lines.push("");
   lines.push(shortUrl);
   lines.push(KARTING_CHECKIN_SMS_NOTE);
-  lines.push(SHORT_CTA);
   return lines.join("\n");
 }
 
@@ -746,33 +749,112 @@ export async function GET(req: NextRequest) {
     // nothing to configure.
     const candidates: Candidate[] = [];
     const walletCandidates: Candidate[] = [];
+
+    /**
+     * THE WHOLE DAY, BUT ONLY THE HEATS THAT MOVED.
+     *
+     * This used to read every roster inside a two-hour window, every two
+     * minutes, and get back exactly what it got back last time. On a race night
+     * that is ~30 rosters a tick, ~12,600 Pandora reads a day, and the
+     * overwhelming majority of them tell us nothing.
+     *
+     * The venue's own broadcast already says which sessions something happened
+     * on, and it says it about a MEDIAN OF ZERO sessions per two-minute tick
+     * (mean 0.58). So the window opens to the whole day — no heat is invisible
+     * any more, however far out it is booked — and the reads collapse onto the
+     * handful the wire flagged, plus a per-session net so a dropped frame costs
+     * minutes rather than forever. See roster-dirty.ts for the rule and the
+     * measurements.
+     *
+     * THE E-TICKET GOES OUT FOR ANY HEAT OF THE DAY, and it costs nothing extra
+     * to do so (owner 2026-08-19: "can absolutely send anything from the day but
+     * it shouldn't require anything, only go off what we know"). There is no
+     * longer a separate two-hour notification gate: every racer on a roster we
+     * ALREADY READ becomes a candidate, and the per-(session, person) dedup key
+     * still means exactly one send each. So the send window is the day, while the
+     * read budget stays whatever the wire justified — widening what we tell
+     * people adds no Pandora calls at all, because it asks no new questions.
+     *
+     * `windowEnd` survives only as the NEAR HORIZON for the read net: heats
+     * inside two hours are worth re-checking sooner than heats eight hours out.
+     * It no longer gates a single message.
+     */
+    const bridgeStamp = await redis.get("kart:bridge:last-event").catch(() => null);
+    const bridgeLastEventMsRaw = bridgeStamp ? Date.parse(bridgeStamp) : NaN;
+    const bridgeLastEventMs = Number.isFinite(bridgeLastEventMsRaw) ? bridgeLastEventMsRaw : null;
+
+    let rostersRead = 0;
+    let rostersSkipped = 0;
+    const readReasons: Record<string, number> = {};
+
     for (const resourceName of resources) {
       const trackDisplay = resourceToTrackDisplay(resourceName);
       const sessions = await fetchSessions(resourceName);
       const relevant = sessions.filter((s) => {
         const ms = new Date(s.scheduledStart).getTime();
-        if (isNaN(ms) || ms > windowEnd) return false;
-        // Inside the notification window, or running late and not yet gone off.
+        if (isNaN(ms)) return false;
+        // Inside the notification window, or simply not gone off yet — however
+        // far ahead that is. The `ms > windowEnd` cut-off is gone on purpose.
         return ms >= windowStart || !(s.actualStart || s.actualEnd);
       });
+
+      // One Redis round trip for the whole track's marks, not two per session.
+      const marks = await readRosterMarks(
+        "pre-race",
+        relevant.map((s) => String(s.sessionId)),
+      );
+
       for (const session of relevant) {
+        const ms = new Date(session.scheduledStart).getTime();
+        const sid = String(session.sessionId);
+        const mark = marks.get(sid) ?? {
+          dirtyCounter: null,
+          readCounter: null,
+          lastReadMs: null,
+        };
+        const plan = planRosterRead({
+          nowMs: Date.now(),
+          scheduledStartMs: Number.isFinite(ms) ? ms : null,
+          nearHorizonMs: windowEnd,
+          dirtyCounter: mark.dirtyCounter,
+          readCounter: mark.readCounter,
+          lastReadMs: mark.lastReadMs,
+          bridgeLastEventMs,
+        });
+        readReasons[plan.reason] = (readReasons[plan.reason] || 0) + 1;
+        if (!plan.read) {
+          rostersSkipped++;
+          continue;
+        }
+
         let participants: Participant[] = [];
         try {
           participants = await fetchParticipants(session.sessionId);
         } catch {
+          // No bank on failure: an unread roster must stay dirty so the next
+          // tick tries again, rather than looking freshly read.
           continue;
         }
-        const ms = new Date(session.scheduledStart).getTime();
-        const inTicketWindow = ms >= windowStart;
+        rostersRead++;
+        // Bank the counter observed BEFORE the read — see bankRosterRead.
+        await bankRosterRead("pre-race", sid, mark.dirtyCounter, Date.now());
+
         for (const p of participants) {
           const c: Candidate = { session, trackDisplay, participant: p };
           // A heat that has already gone off is nobody's NEXT race — the
           // clear-down owns it from that point.
           if (!(session.actualStart || session.actualEnd)) walletCandidates.push(c);
-          if (inTicketWindow) candidates.push(c);
+          // Every racer on a roster we read, whatever time their heat is. The
+          // `relevant` filter above has already excluded heats that ran more
+          // than the grace ago, which is the only thing an e-ticket must not be
+          // sent for; the dedup key does the rest.
+          candidates.push(c);
         }
       }
     }
+    console.log(
+      `[pre-race] rosters read=${rostersRead} skipped=${rostersSkipped} reasons=${JSON.stringify(readReasons)}`,
+    );
 
     // PRE-WARM the racer login-code map for everyone with an upcoming heat.
     //
@@ -1006,7 +1088,7 @@ export async function GET(req: NextRequest) {
             });
           }
           const body = c.moveFrom
-            ? buildSingleMoveSmsBody(member, c.moveFrom, url, SHORT_CTA)
+            ? buildSingleMoveSmsBody(member, c.moveFrom, url)
             : isGuardianFlavored
               ? buildGuardianSingleSmsBody(member, url)
               : buildSingleSmsBody(c.session.name, member, url);
@@ -1096,7 +1178,7 @@ export async function GET(req: NextRequest) {
           });
         }
         const body = anyMoved
-          ? buildGroupMoveSmsBody(entries, url, SHORT_CTA, { guardian: isGuardianFlavored })
+          ? buildGroupMoveSmsBody(entries, url, { guardian: isGuardianFlavored })
           : isGuardianFlavored
             ? buildGuardianGroupSmsBody(members, url)
             : buildGroupSmsBody(members, url);

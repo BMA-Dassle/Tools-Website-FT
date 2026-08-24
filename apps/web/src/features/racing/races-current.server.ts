@@ -32,6 +32,7 @@ import {
 import { callIsSuppressed, type ClearedCall } from "~/features/signage/briefing/called-clear";
 import {
   MAX_DISPLAY_AGE_MS,
+  callIsStalerThanStored,
   preserveFirstCall,
   raceStillDisplayable,
 } from "~/features/racing/current-race-freshness";
@@ -122,6 +123,76 @@ export async function loadAllFromRedis(): Promise<CurrentRaces> {
 }
 
 /**
+ * THE ONE SEAM EVERY WRITE OF THE CARRY GOES THROUGH.
+ *
+ * Extracted from `refreshRacesCurrent`'s per-track body when the venue
+ * WebSocket became a second writer (2026-08-19). Everything subtle about the
+ * carry lives in here, and it lives in ONE place on purpose:
+ *
+ *   - `callIsStalerThanStored` — an older call for a DIFFERENT session, arriving
+ *     late, must not move the board backwards.
+ *   - `preserveFirstCall` — a re-announced heat keeps its first `calledAt`, so no
+ *     countdown restarts mid-heat.
+ *   - the desk's Clear tombstone — swallows the call AND drops the carried copy,
+ *     and is spent by an unsuppressed sighting so a stale suppression cannot eat
+ *     a later re-call.
+ *
+ * A second writer that re-implemented any of that is how a cleared heat returns
+ * to every wall in the building. Callers pass what they saw; this decides what
+ * the carry becomes.
+ *
+ * `incoming` null means "this source has nothing for this track right now",
+ * which is different from "no heat is called" — the stored copy still carries
+ * the session between heats, age-gated by `loadRace`.
+ */
+export function applyCalledRace(
+  track: TrackKey,
+  incoming: CurrentRace | null | undefined,
+  stored: CurrentRace | null,
+  cleared: ClearedCall | null,
+): CurrentRace | null {
+  if (incoming) {
+    if (callIsStalerThanStored(incoming, stored)) return stored;
+    const race = preserveFirstCall(incoming, stored);
+    if (callIsSuppressed(cleared, race)) {
+      void forgetStored(track);
+      return null;
+    }
+    if (cleared) void forgetClearedCall(track);
+    // Fire and forget — don't block the caller on the Redis write.
+    saveRace(track, race);
+    return race;
+  }
+  if (stored && callIsSuppressed(cleared, stored)) {
+    // The source has gone quiet but our carry still holds the cleared heat.
+    void forgetStored(track);
+    return null;
+  }
+  // Pandora expires its own entry ~20 min after the call — the stored copy
+  // carries the session between heats, age-gated.
+  return stored;
+}
+
+/**
+ * Write ONE track's called heat into the carry, from a source that is not the
+ * Pandora poll — today the venue WebSocket. Reads the same stored copy and
+ * tombstone the poll reads, and returns what the carry now holds.
+ *
+ * Deliberately per-track: the venue tells us about one session at a time, and a
+ * writer that had to supply all three would have to invent the other two.
+ */
+export async function recordCalledRace(
+  track: TrackKey,
+  race: CurrentRace,
+): Promise<CurrentRace | null> {
+  const [stored, cleared] = await Promise.all([
+    loadRace(track),
+    readClearedCall(track).catch(() => null),
+  ]);
+  return applyCalledRace(track, race, stored, cleared);
+}
+
+/**
  * One live Pandora read, merged and saved: the moved body of the route's
  * live path. Throws on an upstream failure (timeout included) — the route
  * turns that into its Redis fallback, the warm loop counts it and goes
@@ -159,30 +230,7 @@ export async function refreshRacesCurrent(timeoutMs: number): Promise<CurrentRac
 
     const merged: CurrentRaces = { blue: null, red: null, mega: null };
     for (const t of TRACKS) {
-      if (pandora[t]) {
-        const race = preserveFirstCall(pandora[t] as CurrentRace, stored[t]);
-        if (callIsSuppressed(cleared[t], race)) {
-          // Swallowed, and the stored copy goes with it — otherwise the
-          // carry would serve the same heat back when Pandora ages out.
-          merged[t] = null;
-          void forgetStored(t);
-          continue;
-        }
-        merged[t] = race;
-        // An unsuppressed sighting spends the tombstone, so a stale
-        // suppression cannot swallow a later re-call.
-        if (cleared[t]) void forgetClearedCall(t);
-        // Fire and forget — don't block the caller on the Redis write.
-        saveRace(t, race);
-      } else if (stored[t] && callIsSuppressed(cleared[t], stored[t] as CurrentRace)) {
-        // Pandora has gone quiet but our carry still holds the cleared heat.
-        merged[t] = null;
-        void forgetStored(t);
-      } else {
-        // Pandora expires its own entry ~20 min after the call — the stored
-        // copy carries the session between heats, age-gated.
-        merged[t] = stored[t];
-      }
+      merged[t] = applyCalledRace(t, pandora[t], stored[t], cleared[t]);
     }
     return merged;
   } catch (err) {

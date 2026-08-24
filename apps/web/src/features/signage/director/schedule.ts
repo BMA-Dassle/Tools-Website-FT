@@ -17,6 +17,7 @@
  * exact boundary instead of arriving halfway through a word.
  */
 import { BILLBOARD_CYCLE_MS } from "~/features/kiosk/attract/billboard";
+import { spanRange } from "../wall";
 import { TRACK_RESOURCE_IDS } from "../track";
 import type { ResolvedScreenConfig } from "../defaults";
 import type { SceneType, SignageEvent, VipEntry } from "../types";
@@ -92,6 +93,9 @@ export interface RotationSegment {
   /** Slot index within the cycle where this segment starts. */
   startSlot: number;
   slots: number;
+  /** How much of a wall this segment covers. Carried through so the decision can
+   *  substitute a wing's own scene without re-reading the playlist. */
+  span: "wall" | "middle";
 }
 
 /**
@@ -115,11 +119,16 @@ export function buildRotation(
     // as something else and look like the screen ignoring its config.
     if (!isImplemented(entry.scene)) continue;
     if (entry.requiresData && !hasData(entry.scene)) continue;
-    segments.push({ scene: entry.scene, startSlot, slots: entry.slots });
+    segments.push({
+      scene: entry.scene,
+      startSlot,
+      slots: entry.slots,
+      span: entry.span,
+    });
     startSlot += entry.slots;
   }
   if (segments.length === 0) {
-    return [{ scene: "ads", startSlot: 0, slots: 1 }];
+    return [{ scene: "ads", startSlot: 0, slots: 1, span: "wall" }];
   }
   return segments;
 }
@@ -426,5 +435,83 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
 
   const segments = buildRotation(config.playlist, input.hasData, implemented);
   const { segment, startedAtMs, durationMs } = rotationAt(nowMs, segments);
-  return { scene: segment.scene, startedAtMs, durationMs, isInterrupt: false };
+
+  // A PANEL OUTSIDE THE RUNNING SCENE'S SPAN SHOWS ITS OWN BOARD.
+  //
+  // The wall is always five panels; what varies is how many of them a scene occupies
+  // (owner 2026-08-18). When the middle three are running the menu board, the wings
+  // are not part of that composition, so each renders whatever it is FOR — the
+  // self-check-in list on the left, today's events on the right.
+  //
+  // Substituted HERE rather than in the scene registry so the whole decision — which
+  // scene, when it started, how long it runs — stays in one pure function that a test
+  // can drive. `startedAtMs`/`durationMs` are deliberately the SEGMENT's: a wing
+  // changes board when the middle changes scene, which keeps the wall cutting together
+  // even though the panels are showing different things.
+  //
+  // Falls back to the wing board's own understudy where it has one, then to ads for a
+  // wing with no board at all and for an `outsideScene` this deploy cannot render — the
+  // same refusal every other scene gets, so an unbuilt name can never paint as
+  // something else.
+  const scene = substituteOutsideSpan(segment, config, implemented, input.hasData);
+  return { scene, startedAtMs, durationMs, isInterrupt: false };
+}
+
+/**
+ * The board a wing shows when its OWN board has nothing to say.
+ *
+ * A MAP HERE RATHER THAN A FIELD ON `ScreenWall`, deliberately. Which idle board
+ * belongs to which wing board is a fact about the two SCENES, not a choice an
+ * operator makes per panel — and putting it in config would mean another field for
+ * the admin form's `draftToConfig` to rebuild and silently drop (the bug that would
+ * have wiped `wall` itself), plus a registry reseed to land a code-only change.
+ *
+ * `bowling-checkin` is absent on purpose: it owns its empty state inside the scene,
+ * because "nobody's lane is ready yet" is a sentence that board can say in place of
+ * its own rows. `event-welcome` cannot do the same — it is ALSO a `requiresData`
+ * rotation entry on HPFM:1, so claiming data on a quiet night would take that
+ * screen over as well. See SceneEventCheckin.
+ */
+const WING_IDLE: Partial<Record<SceneType, SceneType>> = {
+  "event-welcome": "event-checkin",
+};
+
+/**
+ * The scene THIS panel actually shows for `segment`.
+ *
+ * Identity for every screen that is not on a wall, and for every panel inside the
+ * running span — which is all of them whenever the segment spans the whole wall.
+ */
+function substituteOutsideSpan(
+  segment: RotationSegment,
+  config: ResolvedScreenConfig,
+  implemented: (scene: SceneType) => boolean,
+  hasData: (scene: SceneType) => boolean,
+): SceneType {
+  const wall = config.wall;
+  if (!wall || segment.span === "wall") return segment.scene;
+  const { first, last } = spanRange(segment.span, wall.count);
+  if (wall.position >= first && wall.position <= last) return segment.scene;
+
+  const own = wall.outsideScene;
+  // A WING'S OWN BOARD ONLY SHOWS WHEN IT HAS SOMETHING, and that check is what stops
+  // a dead panel at the end of the wall: SceneEventWelcome renders NOTHING with no
+  // events and no VIPs — which is safe for an ordinary rotation entry, because
+  // `requiresData` keeps it from being selected, but a wing is substituted here
+  // directly and would have gone black on a quiet night.
+  //
+  // The fallback is house ads rather than the menu board, and it has to be: the menu
+  // board is a THREE-PANEL composition, so a single wing rendering it would paint
+  // panel 0 of that set and duplicate its neighbour. Ads is the one scene that is
+  // complete on any single panel, which is also why it is the floor everywhere else.
+  if (own && implemented(own) && hasData(own)) return own;
+
+  // THE WING'S OWN IDLE BOARD, before house ads. A wing is the one panel whose
+  // subject is fixed by where it hangs, so "nothing today" is a state that board can
+  // be designed for — and a designed idle beats an advert, which says nothing about
+  // the thing the panel is actually for. Ads remain the floor beneath it.
+  const idle = own ? WING_IDLE[own] : undefined;
+  if (idle && implemented(idle) && hasData(idle)) return idle;
+
+  return "ads";
 }

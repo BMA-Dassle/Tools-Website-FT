@@ -40,8 +40,10 @@ import {
   extractRaceFinishes,
   extractRaceStarts,
   extractRaceStops,
+  extractSessionLifecycle,
   type VenueRaceFinish,
   type VenueDurationChange,
+  type VenueSessionLifecycle,
 } from "./venue-broadcast";
 
 export type RaceClockPhase = "armed" | "running" | "paused" | "finished";
@@ -59,8 +61,9 @@ export interface RaceClockState {
    */
   actualStartMs: number | null;
   /**
-   * THE CLOCK ANCHOR: when the race actually went green (phase two), stamped
-   * from message arrival. Null while merely armed.
+   * THE CLOCK ANCHOR: when the race actually went green. Taken from the venue's
+   * own `SessionStartedNotification` stamp where we have it, else from the
+   * arrival of the phase-two `RaceStart`. Null while merely armed.
    */
   clockStartMs: number | null;
   /** True when clockStartMs is a FALLBACK guess (we joined mid-race and never
@@ -284,7 +287,20 @@ export function applyRaceStart(
   }
 
   // ARMED -> this is the green flag. THE anchor.
+  //
+  // ...UNLESS THE RECORD NO LONGER SAYS `Started`. Heat 47 on 2026-08-18: the
+  // venue never sent the phase-two green-flag bump at all, and the NEXT
+  // `RaceStart` for that race to carry a new RecordVersion arrived at the
+  // CHEQUERED FLAG, seven minutes later, reading `State: "Finished"`. Every
+  // guard above passed — new version, still armed — so it anchored there, and
+  // heat 47's boards showed a frozen 7:00 for the whole race and then began
+  // counting down as the karts rolled in. The state is right there on the wire;
+  // read it. A start that is not `Started` updates identity and duration and
+  // nothing else — the `RaceFinish` behind it will end the race properly.
   if (clock.clockStartMs === null && clock.actualStartMs !== null) {
+    if (rec.state !== "Started") {
+      return { ...next, actualStartMs, durationMs, lastStartRecordVersion, updatedAtMs: atMs };
+    }
     return {
       ...next,
       phase: "running",
@@ -306,7 +322,8 @@ export function applyRaceStart(
    * wrong but visibly wrong in the right direction, and only until this race
    * ends.
    */
-  const joinedMidRace = actualStartMs !== null && atMs - actualStartMs > MID_RACE_JOIN_MS;
+  const joinedMidRace =
+    rec.state === "Started" && actualStartMs !== null && atMs - actualStartMs > MID_RACE_JOIN_MS;
   return {
     ...next,
     phase: joinedMidRace ? "running" : "armed",
@@ -315,6 +332,86 @@ export function applyRaceStart(
     lastStartRecordVersion,
     clockStartMs: joinedMidRace ? actualStartMs : null,
     anchorEstimated: joinedMidRace,
+    updatedAtMs: atMs,
+  };
+}
+
+/**
+ * How far a venue-stamped green flag may sit outside the window we can vouch
+ * for before we distrust the stamp and fall back to arrival time. Generous
+ * enough to absorb the pipe's delivery lag (p95 5.7s, max 10s measured
+ * 2026-08-16), tight enough that a replayed notification cannot drag an anchor
+ * into the future.
+ */
+const GREEN_STAMP_SLACK_MS = 60_000;
+
+/**
+ * `SessionStartedNotification` arrived — THE GREEN FLAG, stamped by the venue.
+ *
+ * WHY THIS EXISTS ALONGSIDE THE TWO-PHASE `RaceStart`. The phase-two start bump
+ * is a POSITIONAL signal: "the second RaceStart". It is normally reliable, and
+ * lands within a few seconds of this notification — venue STAMP against our
+ * ARRIVAL stamp, which is the whole point: the lag is on our side, not theirs —
+ *
+ *   heat 48  SessionStarted 19:54:41.626   phase-two RaceStart 19:54:43
+ *   heat 49  SessionStarted 20:04:15.135   phase-two RaceStart 20:04:18
+ *   heat 50  SessionStarted 20:13:57.354   phase-two RaceStart 20:13:59
+ *
+ * ORDER IS NOT GUARANTEED, though, and the fix does not assume it: measured the
+ * same night against the shipped anchor, heat 53 had the notification 1.63s
+ * AHEAD and heat 54 had it 5.49s BEHIND. Whichever lands first anchors; the
+ * other is a no-op. Either way the two agree to within seconds on a healthy
+ * heat, so this changes no clock anyone is watching.
+ *
+ * — but on 2026-08-18 heat 47 the venue simply never sent it. The notification
+ * DID arrive, on time, at 19:45:25.354, while the race sat armed showing a
+ * static 7:00 on every screen in the building for its entire seven minutes.
+ * A signal we were already parsing (extractSessionLifecycle) and throwing away.
+ *
+ * It is also the BETTER anchor when both arrive: this carries the venue's own
+ * `Date`, so it is immune to our ingest lag, where the phase-two start is
+ * stamped on arrival. Whichever lands first wins; the other is then a no-op
+ * because the race is already running.
+ *
+ * ONLY EVER ANCHORS AN ARMED RACE. A replayed notification for a race already
+ * running, paused or finished changes nothing — the same discipline the replay
+ * guard enforces for starts, expressed as a phase check because these
+ * notifications carry no RecordVersion.
+ *
+ * KNOWN NARROW WINDOW: between this and the phase-two `RaceStart` (~1.6s) the
+ * race is now `running` rather than `armed`, so a track pause landing inside
+ * that window would be banked as a real pause and then closed again by the
+ * phase-two start reading as a resume. A pause within 1.6s of the flag has not
+ * been observed; it costs that one pause interval if it ever happens, which is
+ * strictly less wrong than the frozen clock this replaces.
+ */
+export function applySessionStarted(
+  clock: RaceClockState,
+  life: VenueSessionLifecycle,
+  atMs: number,
+): RaceClockState {
+  const next: RaceClockState = {
+    ...clock,
+    heatName: life.sessionName || clock.heatName,
+    heatNumber: life.heatNumber ?? clock.heatNumber,
+    track: life.track ?? clock.track,
+  };
+  if (clock.phase !== "armed" || clock.clockStartMs !== null) return next;
+
+  // Trust the venue's stamp only where it is plausible: at or after the arm we
+  // already recorded, and not meaningfully in our future. Anything else is a
+  // replay or a skewed clock, and arrival time is the honest fallback.
+  const stamped = life.atMs;
+  const plausible =
+    stamped !== null &&
+    stamped <= atMs + GREEN_STAMP_SLACK_MS &&
+    (clock.actualStartMs === null || stamped >= clock.actualStartMs);
+
+  return {
+    ...next,
+    phase: "running",
+    clockStartMs: plausible ? stamped : atMs,
+    anchorEstimated: false,
     updatedAtMs: atMs,
   };
 }
@@ -432,18 +529,21 @@ export function foldMessageIntoClocks(
   const stops = extractRaceStops(message);
   const finishes = extractRaceFinishes(message);
   const changes = extractDurationChanges(message);
+  const greens = extractSessionLifecycle(message).filter((l) => l.kind === "started");
 
   const touched = new Set<string>([
     ...starts.map((r) => r.raceId),
     ...stops.map((r) => r.raceId),
     ...finishes.map((r) => r.raceId),
     ...changes.map((c) => c.raceId),
+    ...greens.map((l) => l.sessionId),
   ]);
 
   for (const raceId of touched) {
     let clock = clocks.get(raceId) ?? emptyClock(raceId, atMs);
     for (const c of changes) if (c.raceId === raceId) clock = applyDurationChange(clock, c, atMs);
     for (const r of stops) if (r.raceId === raceId) clock = applyRaceStop(clock, r, atMs);
+    for (const l of greens) if (l.sessionId === raceId) clock = applySessionStarted(clock, l, atMs);
     for (const r of starts) if (r.raceId === raceId) clock = applyRaceStart(clock, r, atMs);
     for (const r of finishes) if (r.raceId === raceId) clock = applyRaceFinish(clock, r, atMs);
     clocks.set(raceId, clock);

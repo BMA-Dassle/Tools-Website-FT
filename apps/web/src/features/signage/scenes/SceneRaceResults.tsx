@@ -29,7 +29,27 @@
  */
 import { formatLap } from "~/features/racing/qualify";
 import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
-import { TRACK_ACCENTS, TRACK_LABELS, type TrackKey } from "../track";
+import { TRACK_LABELS, effectiveTrack, type TrackKey } from "../track";
+import { useTrackStatus } from "@/hooks/useTrackStatus";
+import {
+  Footer,
+  Header,
+  Shell,
+  BRONZE,
+  DIM,
+  FAST,
+  FOOTER_H,
+  GEL,
+  GOLD,
+  GROUND,
+  HEADER_H,
+  LINE,
+  PAD_X,
+  SILVER,
+} from "./results-chrome";
+import { TopTimesBoard } from "./TopTimesBoard";
+import { panelAt } from "../top-times";
+import { SLOT_MS } from "../director/schedule";
 import { withAlpha } from "../color";
 import { TvBrandLogo } from "../components/TvBrandLogo";
 import type { SignageVenue } from "../constants";
@@ -38,36 +58,69 @@ import type { SceneProps } from "../director/types";
 
 /* ── canvas geometry, authored at 1920×1080 ───────────────────────────── */
 
-const PAD_X = 46;
-const HEADER_H = 168;
-const FOOTER_H = 92;
 /** The qualifying panel's width in the single-column layout. */
 const PANEL_W = 656;
 const GAP = 34;
-
-const GEL = "#46d68c";
-/** Motorsport's purple for the fastest lap of the race. This is the palette's
- *  own Mega violet rather than a new colour — see app/tv/tv.css tokens. */
-const FAST = "#a06bff";
-const GOLD = "#d4af37";
-const SILVER = "#cfd6e0";
-const BRONZE = "#d08a4a";
-const DIM = "rgba(245,236,238,0.58)";
-const LINE = "rgba(255,255,255,0.12)";
 
 /** Above this many rows the single column would have to shrink past reading
  *  distance, so the layout splits. Mirrors WIDE_GRID_FROM in results-board.ts,
  *  which is what actually sets `view.wide`. */
 const COL_SPLIT = 2;
 
-export function SceneRaceResults({ feed, config, venue }: SceneProps) {
-  const track = config.resultsBoard?.track ?? null;
+export function SceneRaceResults({ feed, config, venue, nowMs, demo }: SceneProps) {
+  const configured = config.resultsBoard?.track ?? null;
   const view = feed?.raceResults ?? null;
+  const top = feed?.topTimes ?? null;
+
+  // THE SAME MEGA SIGNAL EVERY OTHER BOARD SCENE READS. The pit board, the
+  // check-in board and the camera monitor all take useTrackStatus +
+  // effectiveTrack; this one did not, and it was the only screen in the venue
+  // that still announced "BLUE TRACK" on a Mega night (owner 2026-08-18).
+  //
+  // The hook already corrects a lagging external flag with the data signal, so
+  // by the time it is read here a stale flag has been dealt with once, in one
+  // place, for the whole fleet.
+  const status = useTrackStatus();
+  const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
+
+  // PREVIEW BEATS CONFIG, for this one field and only on a test screen. The
+  // role lives in Neon and is shared with production, so the alternative way to
+  // review this board would be to re-point a real screen at it — which is a
+  // live wall on the floor. `?demo=top-times` reviews it without touching one.
+  // Preview-only: a live board follows its configured role.
+  const role = demo === "top-times" ? "top-times" : (config.resultsBoard?.role ?? "last-race");
 
   // A board nobody has pointed at a track yet. Says so, quietly, rather than
   // adopting one — a scores wall showing the wrong track's names is worse than
   // one showing none.
-  if (!track) return <SetupNotice />;
+  if (!configured) return <SetupNotice />;
+
+  /**
+   * WHAT THIS WALL CALLS ITSELF. Two different questions, in this order:
+   *
+   *   1. IF THERE IS A RACE ON SCREEN, it is captioned with the track it
+   *      ACTUALLY RAN ON. A Mega heat under a "Blue Track" header would be a
+   *      lie told in front of the group that just ran it — and the resolver can
+   *      legitimately hand a Blue board a Mega race (see rankFinished).
+   *   2. WITH NOTHING TO SHOW, the board takes the venue's current circuit, so
+   *      an idle wall on a Mega night reads MEGA TRACK in purple like every
+   *      other screen in the building rather than announcing a track whose
+   *      barrier is currently stacked against the fence.
+   *
+   * The configured track is the last resort, for an ordinary day before the
+   * first race has finished.
+   */
+  const track = view?.track ?? top?.track ?? effectiveTrack(configured, megaEnabled) ?? configured;
+
+  if (role === "top-times") {
+    if (!top || top.panels.length === 0) {
+      return <TopTimesIdle track={track} venue={venue} />;
+    }
+    return (
+      <TopTimesBoard track={track} venue={venue} panel={panelAt(top.panels, nowMs, SLOT_MS)} />
+    );
+  }
+
   if (!view) return <IdleBoard track={track} venue={venue} />;
 
   return view.wide ? (
@@ -78,119 +131,6 @@ export function SceneRaceResults({ feed, config, venue }: SceneProps) {
 }
 
 /* ── shared chrome ────────────────────────────────────────────────────── */
-
-function Header({
-  track,
-  venue,
-  title,
-  rightLabel,
-  rightValue,
-}: {
-  track: TrackKey;
-  venue: SignageVenue;
-  title: string;
-  rightLabel: string;
-  rightValue: string;
-}) {
-  const accent = TRACK_ACCENTS[track];
-  return (
-    <div
-      style={{
-        position: "absolute",
-        top: 0,
-        left: 0,
-        right: 0,
-        height: HEADER_H,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: `0 ${PAD_X}px`,
-        boxSizing: "border-box",
-        background: `linear-gradient(180deg, ${withAlpha(accent, 0.26)}, ${withAlpha(accent, 0.08)})`,
-        borderBottom: `7px solid ${accent}`,
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 28, minWidth: 0 }}>
-        {/* The mark, not the word (owner 2026-08-11 "use actual logos") — and at
-            TV distance a logo is recognised rather than read. TvBrandLogo falls
-            back to a wordmark rather than a broken-image glyph. */}
-        <TvBrandLogo venue={venue} height={78} />
-        <div
-          style={{ width: 14, height: 104, borderRadius: 7, background: accent, flex: "0 0 auto" }}
-        />
-        <div style={{ minWidth: 0 }}>
-          <div className="tv-eyebrow">{TRACK_LABELS[track]}</div>
-          <div
-            className="tv-display"
-            style={{
-              fontSize: 72,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {title}
-          </div>
-        </div>
-      </div>
-      <div style={{ textAlign: "right", flex: "0 0 auto", paddingLeft: 24 }}>
-        <div className="tv-eyebrow" style={{ color: DIM }}>
-          {rightLabel}
-        </div>
-        <div className="tv-num" style={{ fontSize: 54, fontWeight: 700 }}>
-          {rightValue}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Footer({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: 0,
-        right: 0,
-        bottom: 0,
-        height: FOOTER_H,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: `0 ${PAD_X}px`,
-        boxSizing: "border-box",
-        borderTop: `1px solid ${LINE}`,
-        background: "rgba(7,16,39,0.5)",
-        gap: 32,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 30,
-          fontWeight: 600,
-          minWidth: 0,
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}
-      >
-        {left}
-      </div>
-      <div
-        className="tv-num"
-        style={{
-          fontSize: 23,
-          color: DIM,
-          flex: "0 0 auto",
-          display: "flex",
-          alignItems: "center",
-        }}
-      >
-        {right}
-      </div>
-    </div>
-  );
-}
 
 /** The finish time, as a wall reads it.
  *
@@ -400,7 +340,7 @@ function Standings({
 
 function NarrowBoard({ view, venue }: { view: ResultsBoardView; venue: SignageVenue }) {
   return (
-    <div style={{ position: "absolute", inset: 0, background: "#000418" }}>
+    <div style={{ position: "absolute", inset: 0, background: GROUND }}>
       <Header
         track={view.track}
         venue={venue}
@@ -804,7 +744,7 @@ function WideBoard({ view, venue }: { view: ResultsBoardView; venue: SignageVenu
   const fastestName = view.fastest?.name ?? null;
 
   return (
-    <div style={{ position: "absolute", inset: 0, background: "#000418" }}>
+    <div style={{ position: "absolute", inset: 0, background: GROUND }}>
       <Header
         track={view.track}
         venue={venue}
@@ -917,59 +857,6 @@ function QualifyBand({ view }: { view: ResultsBoardView }) {
 
 /* ── the two states with no race in them ──────────────────────────────── */
 
-function Shell({
-  track,
-  venue,
-  title,
-  rightLabel,
-  rightValue,
-  big,
-  small,
-  footLeft,
-}: {
-  track: TrackKey;
-  venue: SignageVenue;
-  title: string;
-  rightLabel: string;
-  rightValue: string;
-  big: React.ReactNode;
-  small: string;
-  footLeft: string;
-}) {
-  return (
-    <div style={{ position: "absolute", inset: 0, background: "#000418" }}>
-      <Header
-        track={track}
-        venue={venue}
-        title={title}
-        rightLabel={rightLabel}
-        rightValue={rightValue}
-      />
-      <div
-        style={{
-          position: "absolute",
-          top: HEADER_H,
-          left: 0,
-          right: 0,
-          bottom: FOOTER_H,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          textAlign: "center",
-          padding: "0 120px",
-        }}
-      >
-        <div className="tv-display" style={{ fontSize: 92, marginBottom: 18 }}>
-          {big}
-        </div>
-        <div style={{ fontSize: 34, color: DIM, maxWidth: 1200 }}>{small}</div>
-      </div>
-      <Footer left={footLeft} right={<TvBrandLogo venue={venue} height={44} />} />
-    </div>
-  );
-}
-
 /**
  * No race has finished on this track today that we can name.
  *
@@ -1000,11 +887,41 @@ function IdleBoard({ track, venue }: { track: TrackKey; venue: SignageVenue }) {
   );
 }
 
+/**
+ * Nobody has set a lap in any window this board covers.
+ *
+ * Its own card rather than IdleBoard's, because the two say different things:
+ * that one is "the first race of the day has not finished", this one is "no
+ * qualifying laps in the window" — which on a `today` board is the same
+ * sentence before opening, and on a `month` board means the upstream gave us
+ * nothing and is worth a staff member noticing.
+ */
+function TopTimesIdle({ track, venue }: { track: TrackKey; venue: SignageVenue }) {
+  return (
+    <Shell
+      track={track}
+      venue={venue}
+      title="Fastest Laps"
+      rightLabel="Window"
+      rightValue="—"
+      big={
+        <>
+          The board is open
+          <br />
+          for a new record
+        </>
+      }
+      small="Fastest laps by tier appear here as soon as the first race of the window is in the books."
+      footLeft={TRACK_LABELS[track]}
+    />
+  );
+}
+
 /** Provisioned but nobody has picked a track. Staff-facing, and it names the
  *  exact place to fix it rather than just refusing. */
 function SetupNotice() {
   return (
-    <div style={{ position: "absolute", inset: 0, background: "#000418" }}>
+    <div style={{ position: "absolute", inset: 0, background: GROUND }}>
       <div
         style={{
           position: "absolute",

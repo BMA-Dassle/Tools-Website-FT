@@ -228,4 +228,18 @@ export interface SquareLineItem {
   catalogId: string | null;
 }
 
+/**
+ * A Square `service_charges` entry. NOT a line item — it never appears in `lineItems`, so
+ * anything that shows an order's money must add it in or the figures will not reach the
+ * total. Group-event service charges used to arrive disguised as a line item, which is why
+ * this went missing for so long. `amountCents` is PRE-tax.
+ */
+export interface SquareServiceCharge {
+  uid: string | null;
+  name: string;
+  amountCents: number;
+  taxCents: number;
+  taxable: boolean;
+}
+
 export type ShoeCategory = "Toddler" | "Male" | "Female";

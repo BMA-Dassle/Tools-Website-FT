@@ -14,6 +14,35 @@ const script = buildStartupScript({
   url: "https://fasttraxent.com/tv?screen=FT:1",
 });
 
+/**
+ * Every `goto x` / `call :x` in a batch file must land on a `:x` that exists.
+ * cmd does not fail loudly on a typo — it prints "The system cannot find the
+ * batch label specified" to a console nobody is looking at and carries on,
+ * which on a wall panel is indistinguishable from working. Both launchers grew
+ * a set of subroutines and two re-entry points; this is the cheap structural
+ * check that they are all wired up.
+ */
+function expectLabelsResolve(batch: string) {
+  const lines = batch.split("\r\n");
+  const defined = new Set(
+    lines
+      .map((l) => /^:([A-Za-z0-9_]+)\s*$/.exec(l.trim())?.[1]?.toLowerCase())
+      .filter((l): l is string => !!l),
+  );
+  const targets = new Set<string>();
+  for (const line of lines) {
+    if (line.trim().startsWith("REM ")) continue;
+    for (const m of line.matchAll(/\b(?:goto|call)\s+:?([A-Za-z0-9_]+)/g)) {
+      const name = m[1].toLowerCase();
+      if (name !== "eof") targets.add(name);
+    }
+  }
+  for (const t of targets) {
+    expect(defined, `goto/call :${t} has no matching label`).toContain(t);
+  }
+  expect(targets.size).toBeGreaterThan(2);
+}
+
 describe("startup script", () => {
   it("uses CRLF line endings", () => {
     // A .bat with bare LF endings misbehaves on some Windows shells, and these
@@ -83,7 +112,67 @@ describe("startup script", () => {
     // A TV and its switch power on together; without this Edge lands on an
     // error page and stays there all evening.
     expect(script).toContain(":waitnet");
-    expect(script).toContain("goto waitnet");
+    expect(script).toContain("goto waitnetloop");
+  });
+
+  it("WAITS ON EVERY LAUNCH, NOT JUST THE FIRST (the relaunch used to skip it)", () => {
+    // THE 2026-08-19 FAILURE. The wait sat ABOVE :launch, so `goto launch`
+    // jumped straight over it. The relaunch that happens during a network
+    // outage — the one case the wait exists for — went directly onto Edge's
+    // error page, where it stayed: Edge had not exited, so the loop below never
+    // fired again, and nothing on that page could ever retry.
+    const lines = script.split("\r\n");
+    const launchAt = lines.indexOf(":launch");
+    const gotoLaunchAt = lines.lastIndexOf("goto launch");
+    const callAt = lines.indexOf("call :waitnet");
+    expect(launchAt).toBeGreaterThanOrEqual(0);
+    expect(callAt).toBeGreaterThan(launchAt);
+    expect(callAt).toBeLessThan(gotoLaunchAt);
+  });
+
+  it("checks OUR address, not just a public resolver", () => {
+    // Pinging 1.1.1.1 says the internet is up. It does not say DNS resolves us,
+    // that Vercel is answering, or that the app booted — and a player that can
+    // ping the world but not reach the site is exactly a player on an error page.
+    expect(script).toContain('set "TV_PROBE=https://fasttraxent.com/api/kiosk/version"');
+    expect(script).toContain('curl.exe -s -f -o nul --max-time 10 "%TV_PROBE%"');
+  });
+
+  it("still has a check when the URL cannot be parsed", () => {
+    // A launcher URL is data reaching a shell. A probe we cannot build must
+    // degrade to the old ping, never to no check at all.
+    const odd = buildStartupScript({ screenId: "FT:1", name: "Blue", url: "not a url" });
+    expect(odd).toContain('set "TV_PROBE="');
+    expect(odd).toContain("if not defined TV_PROBE goto probeping");
+    expect(odd).toContain("ping -n 3 1.1.1.1");
+  });
+
+  it("starts exactly one network watchdog, and it recycles only on the way BACK UP", () => {
+    // The only thing that recovers a board ALREADY parked on the error page:
+    // Edge is alive, so the relaunch loop never fires. The watchdog kills it
+    // once the network returns. Killing it DURING the outage would be strictly
+    // worse — a screen that rode the outage out is showing its last good board,
+    // and it would be replaced by the launcher's waiting console.
+    expect(script.match(/start "TV network watchdog" \/min/g)).toHaveLength(1);
+    expect(script).toContain('if /I "%~1"=="netwatch" goto netwatch');
+    expect(script).toContain("if %DOWNFOR% GEQ 2 (");
+    expect(script).toContain("taskkill /f /im msedge.exe");
+
+    // The kill is inside the branch reached only when a probe SUCCEEDS.
+    const lines = script.split("\r\n");
+    const failBranchAt = lines.indexOf("if errorlevel 1 (", lines.indexOf(":netwatchloop"));
+    const killAt = lines.findIndex((l) => l.includes("taskkill"));
+    const gateAt = lines.indexOf("if %DOWNFOR% GEQ 2 (");
+    expect(failBranchAt).toBeGreaterThan(0);
+    expect(gateAt).toBeGreaterThan(failBranchAt);
+    expect(killAt).toBeGreaterThan(gateAt);
+  });
+
+  it("every label a goto or call jumps to actually exists", () => {
+    // A batch file with a typo'd label does not fail loudly; it prints "The
+    // system cannot find the batch label" to a console nobody is looking at and
+    // carries on, which on a wall panel is indistinguishable from working.
+    expectLabelsResolve(script);
   });
 
   it("relaunches forever, with a pause so a crash loop cannot spin the CPU", () => {
@@ -110,17 +199,56 @@ describe("startup script", () => {
 describe("instructions", () => {
   const steps = startupInstructions("FT:1");
 
-  it("names the folder, the file and both registry routes", () => {
+  it("names the folder and the file", () => {
     const all = steps.join(" ");
     expect(all).toContain("C:\\TV\\");
     expect(all).toContain("tv-ft-1.bat");
-    expect(all).toContain("CurrentVersion\\Run");
-    expect(all).toContain("Winlogon");
   });
 
-  it("warns that replacing the shell removes the desktop", () => {
-    // Someone will try this on their own laptop otherwise.
-    expect(steps.join(" ")).toMatch(/no Start menu|Safe Mode/);
+  it("installs the launcher as the WINDOWS SHELL", () => {
+    const all = steps.join(" ");
+    expect(all).toContain("Winlogon");
+    expect(all).toContain("Shell");
+    expect(all).toContain("explorer.exe");
+    // The full path, not just the filename — the registry value is a path.
+    expect(all).toContain("C:\\TV\\tv-ft-1.bat");
+  });
+
+  it("offers the shell method and NOTHING ELSE", () => {
+    // ONE METHOD FOR EVERY SCREEN (owner 2026-08-19). The Run-key route used to
+    // be step 5 here with the shell as an afterthought, and this asserts the
+    // reversal held: two documented ways to start a player meant two ways for one
+    // to be half-configured, and the Run-key one left a desktop behind the board
+    // that only showed itself when Edge crashed.
+    const all = steps.join(" ");
+    expect(all).not.toContain("CurrentVersion\\Run");
+    expect(all).not.toMatch(/run at sign-in|Run key/i);
+  });
+
+  it("teaches the way back out BEFORE taking the desktop away", () => {
+    // Task Manager is the escape hatch and it is load-bearing: Ctrl+Shift+Esc is
+    // handled by Windows, not the shell, so it still opens on a machine whose
+    // shell is a batch file. Someone has to know that before they set the value.
+    const all = steps.join(" ");
+    expect(all).toContain("Ctrl+Shift+Esc");
+    expect(all).toMatch(/no Start menu|no desktop|Safe Mode/);
+    // And the escape hatch is taught before the change that needs it.
+    const escapeAt = steps.findIndex((s) => s.includes("Ctrl+Shift+Esc"));
+    const shellAt = steps.findIndex((s) => s.includes("Winlogon"));
+    expect(escapeAt).toBeGreaterThanOrEqual(0);
+    expect(escapeAt).toBeLessThan(shellAt);
+  });
+
+  it("makes the player sign itself in", () => {
+    // Without autologon a reboot leaves the wall on the lock screen and the shell
+    // never starts at all — which looks exactly like a broken script.
+    expect(steps.join(" ")).toContain("netplwiz");
+  });
+
+  it("says to test by double-clicking while a desktop still exists", () => {
+    const all = steps.join(" ");
+    expect(all).toMatch(/Double-click/i);
+    expect(all).toMatch(/STILL WORKS|still works/);
   });
 });
 
@@ -198,6 +326,44 @@ describe("two-monitor startup script", () => {
     expect(dualCode).toContain('start "" /wait "%EDGE%"');
   });
 
+  it("waits for the network on EVERY launch, on BOTH boards", () => {
+    // :launch is shared — the main path falls into it and the second board's
+    // watchdog re-entry reaches it via :run — so one `call` inside the loop
+    // covers both. It used to sit above the loop and a relaunch skipped it.
+    const lines = dual.split("\r\n");
+    const launchAt = lines.indexOf(":launch");
+    const callAt = lines.indexOf("call :waitnet");
+    const gotoLaunchAt = lines.lastIndexOf("goto launch");
+    expect(callAt).toBeGreaterThan(launchAt);
+    expect(callAt).toBeLessThan(gotoLaunchAt);
+    // And the re-entry path really does reach it.
+    expect(lines.indexOf(":run")).toBeLessThan(launchAt);
+    expect(lines.indexOf(":watch")).toBeLessThan(lines.indexOf(":run"));
+  });
+
+  it("sets the probe BEFORE the re-entry dispatch — both re-entries read it", () => {
+    // `watch` and `netwatch` both jump past the rest of the file, so a probe
+    // assigned further down would be empty in exactly the two processes that
+    // need it, and every check would silently degrade to the ping fallback.
+    const lines = dual.split("\r\n");
+    const probeAt = lines.findIndex((l) => l.startsWith('set "TV_PROBE='));
+    expect(probeAt).toBeGreaterThanOrEqual(0);
+    expect(probeAt).toBeLessThan(lines.indexOf('if /I "%~1"=="watch" goto watch'));
+    expect(probeAt).toBeLessThan(lines.indexOf('if /I "%~1"=="netwatch" goto netwatch'));
+  });
+
+  it("starts exactly ONE network watchdog for the pair, not one per board", () => {
+    // The spawn sits on the main path, above the :watch re-entry, so the second
+    // board's process cannot start a second one. Two watchdogs would race to
+    // taskkill the same Edge.
+    expect(dual.match(/start "TV network watchdog" \/min/g)).toHaveLength(1);
+    expect(dualCode).toContain("taskkill /f /im msedge.exe");
+  });
+
+  it("every label a goto or call jumps to actually exists", () => {
+    expectLabelsResolve(dual);
+  });
+
   it("never leaves a bare % in either URL", () => {
     const encoded = buildDualStartupScript({
       left: { screenId: "FT:7", name: "Blue", url: "https://x/tv?screen=FT%3A7" },
@@ -217,5 +383,28 @@ describe("two-monitor startup script", () => {
     expect(steps[0]).toContain("BrowserSignin");
     expect(steps.join(" ")).toContain("Extend");
     expect(steps.join(" ")).toContain("SWAP_SIDES");
+  });
+
+  it("installs the pair the SAME one way a single screen is installed", () => {
+    // The two launchers disagreed about three flags once (see EDGE_COMMON_FLAGS)
+    // and the fix was one list. The install method is the same kind of thing: one
+    // set of steps, shared, so a fix to one cannot skip the other.
+    const steps = dualStartupInstructions("FT:7", "FT:8");
+    const all = steps.join(" ");
+    expect(all).toContain("Winlogon");
+    expect(all).toContain("C:\\TV\\tv-pair-ft-7-ft-8.bat");
+    expect(all).toContain("Ctrl+Shift+Esc");
+    expect(all).toContain("netplwiz");
+    expect(all).not.toContain("CurrentVersion\\Run");
+  });
+
+  it("orders the monitor check BEFORE the shell change", () => {
+    // Getting the sides wrong is fixable from a desktop and awkward without one,
+    // so SWAP_SIDES has to be settled while explorer is still the shell.
+    const steps = dualStartupInstructions("FT:7", "FT:8");
+    const swapAt = steps.findIndex((s) => s.includes("SWAP_SIDES"));
+    const shellAt = steps.findIndex((s) => s.includes("Winlogon"));
+    expect(swapAt).toBeGreaterThanOrEqual(0);
+    expect(swapAt).toBeLessThan(shellAt);
   });
 });

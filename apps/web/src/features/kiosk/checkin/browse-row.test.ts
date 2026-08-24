@@ -6,6 +6,7 @@ import {
   isDeadStatus,
   type BrowseLegLike,
 } from "./browse-row";
+import { fmtTime12, timeKey } from "./itinerary";
 
 const race = (
   heats: string[],
@@ -44,8 +45,35 @@ describe("browseRowTime — the race time, not the booking time", () => {
   });
 
   it("falls back to bookedAt only when NO leg has a heat", () => {
+    // 18:00Z on an EDT day is 2:00 PM ET — the fallback must hand back the ET
+    // wall-clock, because timeKey/fmtTime12 read it as one.
     const out = browseRowTime([bowling()]);
-    expect(out).toEqual({ iso: "2026-08-07T18:00:00.000Z", source: "booked" });
+    expect(out).toEqual({ iso: "2026-08-07T14:00:00", source: "booked" });
+  });
+
+  it("does NOT advertise a 9:00 PM lane as 1:00 AM (the live 4h defect)", () => {
+    // Mirlanda B., HPFM 2026-08-18 21:00 ET. Neon serializes booked_at as the
+    // UTC instant, so the board printed the stripped UTC hour — four hours out,
+    // and past midnight, which also sorted it to the bottom of the list.
+    const out = browseRowTime([bowling("confirmed", "2026-08-19T01:00:00.000Z")]);
+    expect(out).toEqual({ iso: "2026-08-18T21:00:00", source: "booked" });
+    expect(fmtTime12(out.iso)).toBe("9:00 PM");
+    expect(timeKey(out.iso)).toBe("2026-08-18T21:00");
+  });
+
+  it("orders heat-less legs by the CLOCK, not by the zone suffix", () => {
+    // A naive-ET leg and a UTC-stamped leg in one group: sorting the raw
+    // strings put "2026-08-18T22:30:00" before "2026-08-19T01:00:00.000Z" even
+    // though the second is the earlier lane (9:00 PM vs 10:30 PM).
+    const out = browseRowTime([
+      bowling("confirmed", "2026-08-18T22:30:00"),
+      bowling("confirmed", "2026-08-19T01:00:00.000Z"),
+    ]);
+    expect(out.iso).toBe("2026-08-18T21:00:00");
+  });
+
+  it("survives a leg with no bookedAt at all", () => {
+    expect(browseRowTime([{ productKind: "bowling" }])).toEqual({ iso: "", source: "booked" });
   });
 
   it("prefers a race heat over a bowling leg's bookedAt on a combo", () => {

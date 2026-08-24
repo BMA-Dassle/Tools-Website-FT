@@ -43,9 +43,12 @@ export function resolvePreselectPatch(args: {
     if (!party.some((m) => (m.category ?? "adult") === category)) continue;
     const already = category === "junior" ? current.packageIdJunior : current.packageIdAdult;
     if (already) continue;
-    const variants = eligiblePackages({ racerType: "new", schedule, category }).filter((p) =>
-      p.id.startsWith(preferredFamily),
-    );
+    const variants = eligiblePackages({
+      racerType: "new",
+      schedule,
+      category,
+      raceDate: date,
+    }).filter((p) => p.id.startsWith(preferredFamily));
     if (variants.length !== 1) continue; // ambiguous/none → that category's product step shows
     if (category === "junior") patch.packageIdJunior = variants[0].id;
     else patch.packageIdAdult = variants[0].id;

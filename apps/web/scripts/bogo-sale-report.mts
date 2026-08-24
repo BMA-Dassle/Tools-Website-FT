@@ -1,7 +1,19 @@
 /**
- * BOGO flash-sale report (2026-08-12 → EOD 2026-08-13).
+ * BOGO report — ALL-TIME totals, every BOGO sale to date.
  *
- * The sale ships in two halves that land in DIFFERENT tables, so neither one
+ * Both queries below filter by SLUG ONLY, with no date bound, so this has always
+ * been an all-time aggregate. That was indistinguishable from a sale report while
+ * BOGO existed for exactly two days (2026-08-12 → EOD 8/13); it stopped being
+ * true on 2026-08-19, when the promo became a recurring EVERY-WEDNESDAY offer
+ * (features/booking/data/packs.ts BOGO_SALE_RULE). The header used to print that
+ * two-day window over these numbers, which would now read as "the sale sold N"
+ * when N is in fact every Wednesday since. Hence the relabel.
+ *
+ * There is deliberately still NO date filter: adding one would mean choosing a
+ * period on the owner's behalf. If you want Wednesday-over-Wednesday, group by
+ * `created_at` week — the tables carry it.
+ *
+ * The promo ships in two halves that land in DIFFERENT tables, so neither one
  * alone answers "how did it do":
  *
  *   TRACK A — returning racers buy a 2-race CREDIT pack
@@ -56,7 +68,11 @@ const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
  */
 const TRACK_A = {
   "bogo-races-adult": { priceCents: 2099, retailCents: 4198, label: "BOGO Races (Mon-Thu)" },
-  "bogo-races-junior": { priceCents: 1599, retailCents: 3198, label: "BOGO Races Junior (Mon-Thu)" },
+  "bogo-races-junior": {
+    priceCents: 1599,
+    retailCents: 3198,
+    label: "BOGO Races Junior (Mon-Thu)",
+  },
 } as const;
 const TRACK_B = {
   "bogo-weekday": { priceCents: 2099, retailCents: 4198, label: "BOGO Races (adult)" },
@@ -70,7 +86,9 @@ const B_IDS = Object.keys(TRACK_B);
  *  race_pack_purchases, and a bare "relation does not exist" would read as a
  *  broken script rather than "nobody bought one yet". */
 async function tableExists(name: string): Promise<boolean> {
-  const r = (await sql`SELECT to_regclass(${`public.${name}`}) AS t`) as Array<{ t: string | null }>;
+  const r = (await sql`SELECT to_regclass(${`public.${name}`}) AS t`) as Array<{
+    t: string | null;
+  }>;
   return r[0]?.t != null;
 }
 
@@ -164,7 +182,8 @@ if (JSON_OUT) {
     ),
   );
 } else {
-  e("BOGO FLASH SALE — 2026-08-12 → EOD 2026-08-13");
+  e("BOGO RACES — ALL-TIME TOTALS (every BOGO sale to date)");
+  e("Ran 2026-08-12 → EOD 8/13 as a flash sale; EVERY WEDNESDAY since 8/19.");
   e("=".repeat(62));
 
   e("\nTRACK A — returning racers, 2-race credit pack");
@@ -209,8 +228,6 @@ if (JSON_OUT) {
   );
   e(
     `  grant-failed credits ............ ${failedN}` +
-      (failedN
-        ? "   <- deposit retry sweep owns these; verify they landed"
-        : ""),
+      (failedN ? "   <- deposit retry sweep owns these; verify they landed" : ""),
   );
 }

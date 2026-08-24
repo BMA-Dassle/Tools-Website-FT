@@ -4,6 +4,7 @@ import { join } from "path";
 import redis from "@/lib/redis";
 import { getBowlingReservation, type BowlingReservation } from "@/lib/bowling-db";
 import { FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
+import { a2pSender } from "~/features/sms/sender";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -11,10 +12,13 @@ const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
 
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
-const VOX_FROM_HEADPINZ = "+12393022155";
-const VOX_FROM_NAPLES = "+12394553755";
-// TODO(owner): dedicated FastTrax check-in line. Interim: FM building number.
-const VOX_FROM_FASTTRAX = "+12393022155";
+// Was three constants, one of which sent FastTrax bowling
+// confirmations from the HeadPinz DID -- a live bug the single
+// sender removes rather than fixes. The TODO is resolved: the
+// dedicated line is the A2P DID.
+const VOX_FROM_HEADPINZ = a2pSender();
+const VOX_FROM_NAPLES = a2pSender();
+const VOX_FROM_FASTTRAX = a2pSender();
 
 /** HeadPinz-blue "Before You Arrive" shoe-rental step (empty for FastTrax). */
 const SHOE_RENTAL_EMAIL_SECTION = `<tr>

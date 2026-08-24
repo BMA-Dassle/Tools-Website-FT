@@ -15,7 +15,7 @@
  * RACE_CREDIT_TYPES + lib/pandora-deposits.ts DEPOSIT_KIND), so a pack bought
  * here grants credits the v2 race checkout can spend.
  */
-import { etOffsetForLocalDate } from "@/lib/et-time";
+import { withinRecurringDayRule, type RecurringDayRule } from "@/lib/et-time";
 
 /** Pandora deposit-kind ids that race credits load onto. */
 export const RACE_PACK_DEPOSIT_KIND = {
@@ -84,45 +84,55 @@ export interface RacePack {
 }
 
 /**
- * BOGO flash sale — buy one race, get one WEEKDAY race credit free (owner
- * 2026-08-12). Ends END OF DAY Thu 2026-08-13 Eastern.
+ * BOGO races — a RECURRING WEEKLY promo: buy one race, get one WEEKDAY race
+ * credit free, EVERY WEDNESDAY (owner 2026-08-19). Ran 2026-08-12 → EOD
+ * 2026-08-13 as a one-off flash sale before that.
  *
  * The credits land on the Mon–Thu kind (`RACE_PACK_DEPOSIT_KIND.weekday` =
  * the "Weekday Race Credit" type in data/race-credits.ts), so the free race is
  * already day-locked to Mon–Thu by the existing redeem rail — no new deposit
- * kind and no new restriction logic.
+ * kind and no new restriction logic. That kind is deliberately NOT narrowed to
+ * Wednesdays: Pandora has no Wednesday-only deposit kind, and a banked credit
+ * that stays good on any Mon–Thu visit is more generous than advertised, which
+ * is the safe direction for a discount (never the other way round).
  *
- * WINDOW = PURCHASE TIME, not race date. It gates BOTH the sell surfaces and
- * `resolveKioskPacks`'s fail-closed slug check (they share one slug list), so
- * after the deadline the slug is simply not sellable — no separate teardown
- * step, and a stale client that still renders the tile gets a server refusal.
+ * THE RULE KEYS OFF THE RACE DATE, not the purchase instant — the promo is
+ * "BOGO on Wednesdays", so a guest booking on Tuesday for a Wednesday race gets
+ * it, and a Wednesday walk-up buying for Thursday does not. That is the same
+ * seam the standing Mon–Thu SKUs already use (`packSkusForRaceDate` →
+ * `dayBucket(raceDate)`), and the reason a race-date change re-validates pack
+ * picks in state/machine.ts. With no race date yet (the standalone walk-up
+ * rail) it falls back to the ET wall clock, where purchase day == race day.
+ *
+ * It gates BOTH the sell surfaces and `resolveKioskPacks`'s fail-closed slug
+ * check (they share one slug list), so off-day the slug is simply not sellable
+ * — no separate teardown step, and a stale client that still renders the tile
+ * gets a server refusal.
+ *
+ * ⚠ MUST stay equal to the `raceDays` rule on the BOGO packages in
+ * lib/packages.ts — the two halves of one advertised promo must run on the same
+ * days from the same date. `lib/` cannot import from `features/`, so a test pins
+ * them equal; it is not a stylistic nit.
  */
-export const BOGO_SALE_STARTS_AT = "2026-08-12T00:00:00";
-export const BOGO_SALE_ENDS_AT = "2026-08-13T23:59:59";
+export const BOGO_SALE_RULE: RecurringDayRule = { days: [3], from: "2026-08-19" };
 
-/** Slugs the sale adds to the catalog while it runs. */
+/** Slugs the promo adds to the catalog on its days. */
 export const BOGO_SALE_SLUGS = ["bogo-races-adult", "bogo-races-junior"] as const;
 
 /**
- * Is the flash sale live at `now`? ET wall-clock via `etOffsetForLocalDate`
- * (never a hardcoded offset — that is the Dec-19 6pm→5pm bug).
- *
- * THROWS on a malformed deadline rather than returning a boolean: an Invalid
- * Date compares false against everything, so a typo here would silently read as
- * "sale already over" and the SKUs would never appear at all.
+ * Is the BOGO promo live for a race on `raceDate`? A null/undefined race date
+ * falls back to today in ET at `now` (the walk-up rail, where purchase day ==
+ * race day). Thin by design: the day/floor logic is shared with the PACKAGE half
+ * of the same promo via `withinRecurringDayRule`, so the two cannot drift on the
+ * hard parts — the ET fallback, the local `YYYY-MM-DD` parse and the `from`
+ * floor. What still has to be pinned by a test is that both halves are handed
+ * the same RULE (see bogo-sale.test.ts).
  */
-export function bogoSaleActive(now: Date = new Date()): boolean {
-  const starts = new Date(`${BOGO_SALE_STARTS_AT}${etOffsetForLocalDate(BOGO_SALE_STARTS_AT)}`);
-  const ends = new Date(`${BOGO_SALE_ENDS_AT}${etOffsetForLocalDate(BOGO_SALE_ENDS_AT)}`);
-  if (Number.isNaN(starts.getTime()) || Number.isNaN(ends.getTime())) {
-    throw new Error(
-      `BOGO sale window is not a valid date range: ${BOGO_SALE_STARTS_AT} → ${BOGO_SALE_ENDS_AT}`,
-    );
-  }
-  // BOTH bounds. An end-only check reads as "active" for all of history before
-  // the deadline — which is not a hypothetical: it put the sale SKUs into the
-  // catalog for a July race date and broke the standing-catalog test.
-  return now.getTime() >= starts.getTime() && now.getTime() <= ends.getTime();
+export function bogoSaleActive(
+  raceDate: string | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  return withinRecurringDayRule(BOGO_SALE_RULE, raceDate, now);
 }
 
 export const RACE_PACKS: RacePack[] = [
@@ -180,12 +190,18 @@ export const RACE_PACKS: RacePack[] = [
     depositKindId: RACE_PACK_DEPOSIT_KIND.anytime,
     bmiProductId: "13079694",
   },
-  // ── BOGO flash sale (2026-08-12 → EOD 2026-08-13) ─────────────────────────
+  // ── BOGO races — every Wednesday ──────────────────────────────────────────
   // Two races for the price of one, priced off the SINGLE-RACE rate for each
   // tier (adult $20.99 / junior $15.99 in service/race-products.ts), so each
   // tier gets a true buy-one-get-one rather than one flat price that would
   // shortchange juniors. `category` is what stops an adult buying the cheaper
-  // junior SKU. Sold only while `bogoSaleActive()` — see BOGO_SALE_SLUGS.
+  // junior SKU. Sold only while `bogoSaleActive()` — see BOGO_SALE_DAYS.
+  //
+  // `badge` is an ENGLISH marker the sell surfaces branch on, NEVER printed —
+  // the visible ribbon comes from the i18n catalog (`racePack.picker.flashSale`
+  // / `payMode.flashSale`), so a Spanish kiosk cannot leak it. Its value only
+  // has to be truthy; "WEDNESDAYS" just reads honestly in a debug dump now the
+  // promo is weekly rather than a two-day flash sale.
   //
   // No bmiProductId: these are v2-only SKUs with no v1 `booking/sell`
   // equivalent, and that field is traceability-only (the v2 rail charges via
@@ -197,7 +213,7 @@ export const RACE_PACKS: RacePack[] = [
     dayType: "weekday",
     price: 20.99,
     regularPrice: 41.98,
-    badge: "FLASH SALE",
+    badge: "WEDNESDAYS",
     category: "adult",
     racerType: "existing",
     depositKindId: RACE_PACK_DEPOSIT_KIND.weekday,
@@ -210,7 +226,7 @@ export const RACE_PACKS: RacePack[] = [
     dayType: "weekday",
     price: 15.99,
     regularPrice: 31.98,
-    badge: "FLASH SALE",
+    badge: "WEDNESDAYS",
     category: "junior",
     racerType: "existing",
     depositKindId: RACE_PACK_DEPOSIT_KIND.weekday,

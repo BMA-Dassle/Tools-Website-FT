@@ -15,8 +15,10 @@
  * field to mismatch on.
  */
 import { clampOverscanPct, VENUE_INFO, type SignageVenue } from "./constants";
+import { resolveLogoMark, type LogoMark } from "./logo";
 import { clampHoldMs } from "./race-guide";
-import type { PlaylistEntry, ScreenConfig, SceneType } from "./types";
+import type { TopTimesRange } from "./top-times";
+import type { PlaylistEntry, ScreenConfig, SceneType, SceneSpan, ScreenWall } from "./types";
 
 export type ScreenRole =
   | "kiosk-bank"
@@ -26,6 +28,8 @@ export type ScreenRole =
   | "pit-board"
   | "results-board"
   | "check-in-guide"
+  | "front-desk"
+  | "logo-only"
   | "ads-only";
 
 export interface RolePreset {
@@ -178,6 +182,116 @@ const RACE_GUIDE_CONFIG: ScreenConfig = {
   },
 };
 
+/**
+ * ONE PANEL OF THE FRONT-DESK WALL at HeadPinz Fort Myers — five TVs over a
+ * second bank of kiosks, driven as one object off the shared clock.
+ *
+ * THE TEAR INVARIANT, and why this preset is the whole answer to it. Scene
+ * selection is `slot % totalSlots`, so two panels that disagree about their slot
+ * total wrap at different moments and the wall visibly tears. All five therefore
+ * carry a BYTE-IDENTICAL playlist — which is exactly what a shared preset object
+ * gives you, and what the seed script re-asserts against the database afterwards
+ * rather than trusting that a later hand-edit kept it true.
+ *
+ * That is also why NOTHING here carries `requiresData`. A data-gated entry is
+ * dropped from the rotation when its selector comes back empty, which changes
+ * `totalSlots` — and five players poll on independent 15s phases, so they can
+ * briefly disagree about whether it is empty. That is a torn wall for up to
+ * fifteen seconds. The same reason `event-welcome` is deliberately absent: HPFM:1
+ * already carries the party board, and it is the one scene here that would want
+ * gating.
+ *
+ * 8 slots = 5m20s: the VIP showcase gets four (two full passes of its four
+ * 20-second sub-slides), the menu board two, the kiosk how-to one, house ads one.
+ *
+ * `billboard-crown: true` is LOAD-BEARING AND MISLEADING, so read this before
+ * "tidying" it. The crown scene is declared in SceneType but is NOT in the
+ * registry's IMPLEMENTED set, so the scheduler refuses to select it and it never
+ * renders. The flag's OTHER job is telling SceneAdRotation to run the kiosks' own
+ * catalog on the kiosks' own cadence — it means "I am standing over a bank of
+ * kiosks", which is true of all five of these. Both meanings are wanted here.
+ *
+ * `celebration` is ON: the guest is at the bank directly below, and reacting to
+ * them is the point of hanging a screen there.
+ *
+ * `vip-welcome` IS ON, and it does not mean what its name suggests. The scene is
+ * NOT in the interrupt precedence chain — nothing in `resolveActiveScene` reads it
+ * — so enabling it preempts nothing. Its one live effect is that `config.vip` is
+ * what `vipCandidatesAt` consults, and that is the gate on the GOLD GREETING PAGES
+ * the welcome board interleaves between its party pages. TV5 runs that board as its
+ * wing, so with this off a VIP party inside its greeting window was silently
+ * dropped there while the kiosk-bank TV greeted it.
+ *
+ * The values therefore MATCH KIOSK_BANK_CONFIG exactly, and a test pins them to it:
+ * "VIP should be same as the kiosk welcome tv at headpinz" (owner 2026-08-20). Two
+ * screens greeting the same party by different rules is the kind of difference
+ * nobody can see until a party is standing in front of one of them.
+ *
+ * This is the GREETING, which is a specific party by name; the VIP *product* has a
+ * four-slide showcase on this wall, which is an advert. Both belong.
+ *
+ * `wall` itself is NOT in the preset. It is per screen by definition (each panel
+ * has its own position) and the seed script writes it around this config.
+ */
+const FRONT_DESK_CONFIG: ScreenConfig = {
+  // A STANDING STATE THAT GETS TAKEN OVER (owner 2026-08-19), and the reason this is
+  // nine slots rather than a new mechanism: 9 x 40s is SIX MINUTES exactly, of which
+  // the VIP showcase takes two slots — 80 seconds, which is precisely one full pass of
+  // its four 20-second slides, so no slide is ever cut in half. Pricing holds the wall
+  // the other 4m40s. VIP is on 22% of the time, against 50% in the first cut.
+  //
+  // SPANS. The showcase is the hero and takes all five; the menu board runs across the
+  // MIDDLE THREE, which is what frees TV1 for the self-check-in list and TV5 for
+  // tonight's events (their `wall.outsideScene`). A span rides on this byte-identical
+  // playlist, so every panel agrees on it without being told — see SceneSpan.
+  //
+  // NO SEPARATE KIOSK HOW-TO. "Buy it on the kiosk below" is permanent chrome under
+  // every pricing panel now, so telling a guest where to buy costs no airtime at all.
+  // NO HOUSE ADS EITHER: this wall's job is to price what is on sale tonight, and a
+  // generic advert alongside a real price is the weaker of the two.
+  playlist: [
+    { scene: "open-now", slots: 7, span: "middle" },
+    { scene: "vip-showcase", slots: 2, span: "wall" },
+  ],
+  interrupts: {
+    // Byte-for-byte KIOSK_BANK_CONFIG's — see the note above, and vipPinned in
+    // wall.test.ts, which fails if the two ever drift.
+    "vip-welcome": { enabled: true, leadMins: 10, floorMins: 3, minShowMs: 45_000 },
+    celebration: { enabled: true, maxAgeSecs: 90, showMs: 8_000 },
+    "billboard-crown": { enabled: true, joinEvery: 1 },
+  },
+  // The menu board's whole job is "what is open and when" — it is the one scene
+  // on the estate that must have the times, and it reads the same cache the
+  // kiosks below sell from, so the wall and the machine cannot disagree.
+  showNextAvailable: true,
+};
+
+/**
+ * A BRAND MARK ON BLACK, and nothing else.
+ *
+ * The role for a screen that is up before its content is — the Old Time Lanes
+ * pair at HeadPinz Fort Myers (owner 2026-08-19, "the only thing they will show
+ * is a logo for now"). Distinct from `ads-only`, which is the DEGRADED fallback:
+ * this is a deliberate choice, and a screen over new lanes advertising gel
+ * blasters on the far side of the building would be worse than a sign that
+ * simply says where you are.
+ *
+ * A LOGO SCREEN OWNS ITS WALL. Every interrupt is off, and the celebration one
+ * most pointedly: confetti for a booking made at a kiosk somewhere else, thrown
+ * across a holding card, is noise with no story behind it. It also carries no
+ * `requiresData` anywhere — the mark is a committed asset, so there is nothing
+ * for a gate to be about.
+ */
+const LOGO_ONLY_CONFIG: ScreenConfig = {
+  playlist: [{ scene: "venue-logo", slots: 1 }],
+  interrupts: {
+    "vip-welcome": { enabled: false },
+    celebration: { enabled: false },
+    "billboard-crown": { enabled: false },
+  },
+  venueLogo: { mark: "pinboyz" },
+};
+
 /** The safe fallback: house ads and nothing else. Needs no data at all, which
  *  is exactly why it is what an unprovisioned or degraded screen falls back to. */
 const ADS_ONLY_CONFIG: ScreenConfig = {
@@ -247,6 +361,22 @@ export const ROLE_PRESETS: RolePreset[] = [
     config: CAMERA_MONITOR_CONFIG,
   },
   {
+    role: "front-desk",
+    label: "Front desk wall panel (one of five)",
+    description:
+      "One panel of the five-TV wall over the second kiosk bank. All five run the SAME loop off the shared clock and each renders its own slice: the VIP Experience across the wall, the menu board of what's open, then one instruction per kiosk. Set the wall position after choosing this — and give all five the same wall id, or the wall tears.",
+    venues: ["HPFM"],
+    config: FRONT_DESK_CONFIG,
+  },
+  {
+    role: "logo-only",
+    label: "Logo on black (holding card)",
+    description:
+      "One brand mark, centred on black, and nothing else. For a screen that is hung before the content that will fill it. Needs no data, no track and no camera, so it cannot go stale or blank — pick which mark after choosing this.",
+    venues: ["FT", "HPFM", "HPN"],
+    config: LOGO_ONLY_CONFIG,
+  },
+  {
     role: "ads-only",
     label: "Advertising only",
     description: "House advertising on a loop. No guest data on screen.",
@@ -276,6 +406,23 @@ export interface ResolvedScreenConfig {
   billboardCrown: { enabled: boolean; joinEvery: number };
   scope: { resourceIds: string[]; gfCenterCodes: string[] };
   pairing: { groupId: string; position: number; count: number } | null;
+  /** Null for every screen not hung as part of a video wall — which is all of
+   *  them but the front-desk five. Ask `wallBrand()` rather than reading `brand`
+   *  directly: it is the thing that derives the ends when config is silent. */
+  wall: {
+    wallId: string;
+    position: number;
+    count: number;
+    gapPct: number;
+    /** "none" SILENCES this end; null means "not configured, derive it from the
+     *  panel's place on the wall". Collapsing the two would make the admin
+     *  form's "No mark" option do nothing on an end panel. */
+    brand: "fasttrax" | "headpinz" | "none" | null;
+    /** What this panel shows when the running scene does not reach it. Null on the
+     *  middle panels, which are never outside a span — the director then falls back to
+     *  house ads, which is also what a wing with nothing to say shows. */
+    outsideScene: SceneType | null;
+  } | null;
   adSet: string | null;
   showNextAvailable: boolean;
   checkinWindowMins: number;
@@ -297,8 +444,14 @@ export interface ResolvedScreenConfig {
   } | null;
   /** Null for anything that is not a results board, or one whose track has not
    *  been picked yet — the board then shows a setup notice rather than
-   *  reporting on a track at random. */
-  resultsBoard: { track: "blue" | "red" | "mega" } | null;
+   *  reporting on a track at random. `ranges` is never empty when this is
+   *  non-null: a top-times wall with no window to report on has nothing to
+   *  show, so it resolves to `["month"]` rather than to nothing. */
+  resultsBoard: {
+    track: "blue" | "red" | "mega";
+    role: "last-race" | "top-times";
+    ranges: TopTimesRange[];
+  } | null;
   /** Null for anything that is not a guide wall. `tracks` is never empty when
    *  this is non-null — a wall covering no track has nothing to point at. */
   raceGuide: {
@@ -306,6 +459,17 @@ export interface ResolvedScreenConfig {
     arrow: "left" | "right";
     holdMs: number;
   } | null;
+  /**
+   * Which mark a `venue-logo` screen wears.
+   *
+   * NEVER NULL, unlike briefingRoom / cameraMonitor / resultsBoard above — and
+   * the difference is the point. Those resolve to null so the board can show a
+   * setup notice, because there is no safe guess at which track or camera a
+   * screen means. A logo has a safe guess: the default mark. So this scene has no
+   * "not configured yet" state to design, and a screen whose entire content is
+   * one image can never come up blank.
+   */
+  venueLogo: { mark: LogoMark };
   /** Percent inset per edge for a panel that crops its own input. 0 on every
    *  screen that has not been told otherwise, so the default path is the
    *  unchanged full-bleed fit. */
@@ -322,9 +486,16 @@ function sanitizePlaylist(entries: PlaylistEntry[] | undefined): Required<Playli
       scene: e.scene as SceneType,
       slots: Number.isInteger(e.slots) && (e.slots as number) > 0 ? (e.slots as number) : 1,
       requiresData: e.requiresData === true,
+      // Only the one narrower literal switches. Anything else — a typo, a value from a
+      // newer deploy — is the WHOLE WALL, which is both the historical behaviour and
+      // the safe reading: a scene rendering wider than intended still fills the glass,
+      // whereas a wrongly-narrowed one would blank two panels.
+      span: (e.span === "middle" ? "middle" : "wall") as SceneSpan,
     }));
   // A screen with an empty playlist still has to show SOMETHING.
-  return cleaned.length > 0 ? cleaned : [{ scene: "ads", slots: 1, requiresData: false }];
+  return cleaned.length > 0
+    ? cleaned
+    : [{ scene: "ads", slots: 1, requiresData: false, span: "wall" as SceneSpan }];
 }
 
 /**
@@ -340,6 +511,7 @@ export function resolveScreenConfig(
   const cel = c.interrupts?.celebration ?? {};
   const crown = c.interrupts?.["billboard-crown"] ?? {};
   const pairing = c.pairing;
+  const wall = c.wall;
 
   return {
     playlist: sanitizePlaylist(c.playlist),
@@ -380,6 +552,13 @@ export function resolveScreenConfig(
             count: Math.max(1, numOr(pairing.count, 1)),
           }
         : null,
+    // A WALL IS ONLY A WALL IF IT IS NAMED. `wallId` is what groups the panels,
+    // so a nameless one resolves to "not on a wall" — adopting it would make a
+    // lone screen render one fifth of a composition and look broken. Everything
+    // else is clamped rather than rejected (the CONFIG_VERSION contract): every
+    // one of these values is a hand-typed admin field, and a screen that has run
+    // unattended for weeks must not go dark over a fat-fingered count.
+    wall: wall && typeof wall.wallId === "string" && wall.wallId ? resolveWall(wall) : null,
     adSet: typeof c.adSet === "string" && c.adSet ? c.adSet : null,
     showNextAvailable: c.showNextAvailable === true,
     // 8 minutes from the call (owner 2026-08-11).
@@ -420,11 +599,26 @@ export function resolveScreenConfig(
     // "not a results board", which shows the setup notice — the same posture
     // briefingRoom and cameraMonitor take, and for the same reason: guessing a
     // track would put Red's standings on the Blue wall.
+    //
+    // `role` takes the same posture as megaRole and pitMegaRole: only the
+    // non-default literal switches, so a results wall written before this field
+    // existed — and one whose role is a typo, or a value from a newer deploy —
+    // keeps showing the last race rather than silently becoming a leaderboard.
+    //
+    // `ranges` is filtered to the literals we know and de-duplicated (a list
+    // saved as ["month","month"] would otherwise buy itself two slots of the
+    // rotation), and an empty result resolves to ["month"]: a top-times wall
+    // with nothing to cycle through would render no panel at all, and the month
+    // is the window /leaderboards itself opens on.
     resultsBoard:
       c.resultsBoard?.track === "blue" ||
       c.resultsBoard?.track === "red" ||
       c.resultsBoard?.track === "mega"
-        ? { track: c.resultsBoard.track }
+        ? {
+            track: c.resultsBoard.track,
+            role: c.resultsBoard.role === "top-times" ? "top-times" : "last-race",
+            ranges: resultRanges(c.resultsBoard.ranges),
+          }
         : null,
     // ONE WALL, BOTH TRACKS (owner 2026-08-15). `tracks` is the field; the old
     // singular `track` is still honoured so a row written before that change
@@ -444,12 +638,59 @@ export function resolveScreenConfig(
           holdMs: clampHoldMs(c.raceGuide.holdMs),
         }
       : null,
+    // Resolved for EVERY screen, not just logo ones — it costs a string compare
+    // and it means the scene never branches on "is this configured". An absent,
+    // misspelt or newer-deploy mark becomes the default rather than nothing,
+    // which on a screen whose only content is one image is the difference
+    // between the wrong brand and a black panel.
+    venueLogo: { mark: resolveLogoMark(c.venueLogo?.mark) },
     // Clamped through the same helper the stage uses, so "what inset is legal"
     // has exactly one definition. 0 for an absent, negative, non-numeric or
     // absurd value — every one of which means "this panel is fine", which is the
     // safe reading: an unnecessary inset only wastes glass, whereas an unclamped
     // one can leave a wall dark.
     overscanPct: clampOverscanPct(c.overscanPct),
+  };
+}
+
+/**
+ * Does this screen show `scene` AT ALL — as a rotation entry, or as its wing's own
+ * board?
+ *
+ * The feed builder only assembles the sections a screen can actually use, and asking
+ * the playlist alone is how a WING gets starved: the front-desk five carry one
+ * byte-identical playlist (the tear invariant), so a wing's own board is named by
+ * `wall.outsideScene` and appears in no playlist anywhere. `bowling-checkin` was
+ * special-cased for exactly that; `event-welcome` was not, so TV5's events board
+ * asked for parties it was never sent and fell to house ads every night.
+ *
+ * One predicate for both, so the next wing scene cannot repeat it.
+ */
+export function screenShowsScene(config: ResolvedScreenConfig, scene: SceneType): boolean {
+  return config.playlist.some((p) => p.scene === scene) || config.wall?.outsideScene === scene;
+}
+
+/**
+ * A stored wall, clamped. Position into [0, count-1] and count to at least 1, so
+ * position 9 of a 5-panel wall renders panel 0's slice rather than nothing at
+ * all; gap into [0,100] defaulting to 12 (~6 inches on a ~48in picture, owner
+ * 2026-08-17). An unrecognised brand is DERIVED from the ends by `wallBrand`
+ * rather than trusted, for the same reason `briefingRoom` only accepts its two
+ * literals: a typo must not put a FastTrax mark in the middle of the wall.
+ */
+function resolveWall(w: ScreenWall): NonNullable<ResolvedScreenConfig["wall"]> {
+  const count = Math.max(1, Math.floor(numOr(w.count, 1)));
+  const position = Math.min(count - 1, Math.max(0, Math.floor(numOr(w.position, 0))));
+  return {
+    wallId: w.wallId,
+    position,
+    count,
+    gapPct: Math.min(100, Math.max(0, numOr(w.gapPct, 12))),
+    brand: w.brand === "fasttrax" || w.brand === "headpinz" || w.brand === "none" ? w.brand : null,
+    // Trusted as a bare string for the same reason the playlist's scene names are: an
+    // unbuilt or unknown name is refused by the scheduler (isSceneImplemented) and
+    // falls through to ads, so there is nothing here that a typo can break.
+    outsideScene: typeof w.outsideScene === "string" && w.outsideScene ? w.outsideScene : null,
   };
 }
 
@@ -467,6 +708,27 @@ function guideTracks(v: unknown): Array<"blue" | "red" | "mega"> {
     out.push(t);
   }
   return out.length > 0 ? out : ["blue", "red"];
+}
+
+/** Which windows a top-times wall cycles through, in the order given.
+ *
+ *  Order is the SAVED order, not a canonical one — a wall that should open on
+ *  the month and settle on the all-time board is a legitimate thing to want,
+ *  and sorting here would quietly take it away. Unknown values and repeats are
+ *  dropped; see the note at the `resultsBoard` branch for why empty becomes the
+ *  month. The accepted values are exactly RecordTimeRange, so every window
+ *  /leaderboards offers can be put on a wall. */
+function resultRanges(v: unknown): TopTimesRange[] {
+  const list = Array.isArray(v) ? v : [];
+  const seen = new Set<string>();
+  const out: TopTimesRange[] = [];
+  for (const r of list) {
+    if (r !== "today" && r !== "week" && r !== "month" && r !== "year" && r !== "alltime") continue;
+    if (seen.has(r)) continue;
+    seen.add(r);
+    out.push(r);
+  }
+  return out.length > 0 ? out : ["month"];
 }
 
 function numOr(v: unknown, fallback: number): number {

@@ -20,6 +20,7 @@ import redis from "@/lib/redis";
 import { pausedProductIds } from "~/features/maintenance";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
+import { displayNameFromFull } from "@/lib/display-name";
 import { loadSignageScreen } from "../data/signage-screens-db";
 import { parseScreenKey, VENUE_INFO, type SignageVenue } from "../constants";
 import {
@@ -28,7 +29,7 @@ import {
   reloadRequestedAt,
   demoRequestedFor,
 } from "../events.server";
-import { resolveScreenConfig } from "../defaults";
+import { resolveScreenConfig, screenShowsScene } from "../defaults";
 import { trackFromResourceIds } from "../track";
 import { raceCheckinInfo } from "./race-checkin";
 import { megaModeActive } from "./mega-mode.server";
@@ -41,6 +42,7 @@ import { readPitLanes } from "../pit/lane.server";
 import { readFastPitRosters } from "../pit/fast-roster.server";
 import { buildWelcomeBoard } from "./welcome";
 import { resolveResultsBoard } from "./results-board.server";
+import { resolveTopTimes } from "./top-times.server";
 import {
   briefingEnabled,
   cameraReturnBarEnabled,
@@ -59,7 +61,11 @@ import type { TvFeed, TvPulse } from "../types";
  *  be a pointless write storm. */
 const SEEN_TTL_SECONDS = 900;
 
-async function stampSeen(screenId: string, buildSha?: string | null): Promise<void> {
+async function stampSeen(
+  screenId: string,
+  buildSha?: string | null,
+  windowed?: boolean,
+): Promise<void> {
   try {
     // Record WHICH BUILD the screen is running, not just that it is alive.
     //
@@ -67,7 +73,15 @@ async function stampSeen(screenId: string, buildSha?: string | null): Promise<vo
     // code?", and there was no way to answer it without walking to the player.
     // A heartbeat that says "alive" and nothing else is what let a stale board
     // look like a broken feature more than once.
-    const payload = JSON.stringify({ at: new Date().toISOString(), build: buildSha ?? null });
+    // `windowed` only when TRUE. An absent key means "filling its panel", which
+    // is 17 of 19 screens on an ordinary night — recording the healthy case on
+    // every one of ~43,000 daily heartbeats would be pure noise, and it keeps
+    // every stamp written before this shipped readable as the healthy default.
+    const payload = JSON.stringify({
+      at: new Date().toISOString(),
+      build: buildSha ?? null,
+      ...(windowed ? { windowed: true } : {}),
+    });
     await redis.set(`signage:seen:${screenId}`, payload, "EX", SEEN_TTL_SECONDS);
   } catch {
     /* a heartbeat is diagnostics, never a reason to fail a feed */
@@ -86,6 +100,9 @@ async function stampSeen(screenId: string, buildSha?: string | null): Promise<vo
 export async function buildTvFeed(
   screenIdRaw: string | null,
   buildSha?: string | null,
+  /** The board reports it is not filling its monitor. Diagnostics only — it
+   *  changes nothing about what is built, only what the heartbeat records. */
+  windowed?: boolean,
 ): Promise<TvFeed> {
   const now = Date.now();
   const parsed = parseScreenKey(screenIdRaw);
@@ -110,7 +127,10 @@ export async function buildTvFeed(
     checkinProgress: null,
     checkinReturning: null,
     raceResults: null,
+    topTimes: null,
     raceGuide: null,
+    bowlingTonight: null,
+    bowlingCheckins: null,
     pausedProductIds: safePaused(),
     nextAvailable: null,
     reloadAt: null,
@@ -123,7 +143,7 @@ export async function buildTvFeed(
   const screen = await loadSignageScreen(screenIdRaw).catch(() => null);
   if (!screen) return base;
 
-  void stampSeen(screen.screenId, buildSha);
+  void stampSeen(screen.screenId, buildSha, windowed);
 
   const center = VENUE_INFO[parsed.venue]?.center ?? screen.center;
 
@@ -143,7 +163,13 @@ export async function buildTvFeed(
   // Only build what this screen actually shows. A track screen has no use for
   // the party board, and a lobby TV has no track — computing both for every
   // screen would double the work for nothing.
-  const wantsWelcome = config.playlist.some((p) => p.scene === "event-welcome");
+  //
+  // THE PLAYLIST IS NOT THE WHOLE ANSWER for a wall. TV5 of the front-desk five runs
+  // the events board as its WING (`wall.outsideScene`), and the five share one
+  // byte-identical playlist that names no wing scene at all — so asking the playlist
+  // alone left that panel asking for parties it was never sent, and falling to house
+  // ads every night of the year. `screenShowsScene` covers both routes.
+  const wantsWelcome = screenShowsScene(config, "event-welcome");
   const wantsBriefing =
     briefingEnabled() &&
     config.briefingRoom !== null &&
@@ -164,6 +190,12 @@ export async function buildTvFeed(
   const wantsCameraReturning = briefingEnabled() && parsed.venue === "FT" && cameraRoom !== null;
   // The pit board: its track's staged roster and the lane state.
   const wantsPit = track != null && config.playlist.some((p) => p.scene === "pit-board");
+  // The menu board is the only surface that needs the bowling catalog, and it only
+  // exists at the bowling venues — FastTrax has no lanes, so a FastTrax screen
+  // asking would be one Neon round trip per poll for a section it cannot use.
+  const wantsBowling = parsed.venue !== "FT" && config.playlist.some((p) => p.scene === "open-now");
+  // The other WING scene, named the same way — see the note on `wantsWelcome`.
+  const wantsCheckins = parsed.venue !== "FT" && screenShowsScene(config, "bowling-checkin");
   // The scores wall: the last race on ITS OWN configured track. Not `track`
   // above — that one comes from `scope.resourceIds`, which a results board
   // deliberately does not set (see ScreenConfig.resultsBoard).
@@ -179,16 +211,29 @@ export async function buildTvFeed(
     resultsBoardEnabled() &&
     configuredResultsTrack !== null &&
     config.playlist.some((p) => p.scene === "race-results");
-  // ON A MEGA DAY THE SCORES WALL FOLLOWS THE COMBINED CIRCUIT, server-side,
-  // no admin knob: a blue-configured wall would otherwise idle all night — its
-  // resource has no sessions when the barrier is out. The await is paid only
-  // by screens that actually show a results board, and megaModeActive() is
-  // false on every normal day (the mega carry key does not exist then), so
-  // the configured track flows through untouched.
-  const resultsTrack =
+  // THE LAST-RACE BOARD RESOLVES MEGA ITSELF, from the data, so its configured
+  // track is passed through untouched. It considers its own track AND Mega and
+  // shows whichever race ended most recently — see rankFinished. That is
+  // strictly better than force-swapping the track here, which blanked the wall
+  // whenever the flag ran ahead of the business day (observed 2026-08-18 00:30:
+  // flag true on a Tuesday, but the 8/17 business day was split-track, so a
+  // Mega-swapped board found nothing while Heat 60 Blue sat unshown).
+  //
+  // TOP-TIMES STILL USES THE FLAG, deliberately: a hall of fame is not about
+  // one race, so "which race ended last" cannot answer it. "Which circuit is
+  // the venue running" is the right question there, and megaModeActive() is
+  // exactly that.
+  const resultsTrack = configuredResultsTrack;
+  const topTimesTrack =
     wantsResults && configuredResultsTrack !== "mega" && (await megaModeActive().catch(() => false))
       ? ("mega" as const)
       : configuredResultsTrack;
+  // THE TWO ROLES ARE MUTUALLY EXCLUSIVE, so only one of the two resolvers ever
+  // runs for a given screen. `top-times` is the hall-of-fame face of the same
+  // scene — see ScreenConfig.resultsBoard.role — and it follows the Mega swap
+  // above for the same reason the last-race board does: on a Mega day nobody
+  // has raced this screen's own track since morning.
+  const wantsTopTimes = wantsResults && config.resultsBoard?.role === "top-times";
 
   const [
     raceCheckin,
@@ -200,7 +245,10 @@ export async function buildTvFeed(
     pitLanes,
     cameraReturning,
     raceResults,
+    topTimes,
     guideSection,
+    bowlingTonight,
+    bowlingCheckins,
   ] = await Promise.all([
     track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
     wantsWelcome
@@ -230,12 +278,23 @@ export async function buildTvFeed(
       : Promise.resolve(null),
     // Cached per venue+track inside the resolver, so two scores walls on the
     // same track cost one build — and cannot show two different answers.
-    wantsResults && resultsTrack
+    wantsResults && resultsTrack && !wantsTopTimes
       ? resolveResultsBoard(parsed.venue, resultsTrack, ymd).catch(() => null)
+      : Promise.resolve(null),
+    // Same deal, and cached harder: a hall of fame only moves when somebody
+    // beats a time. See CACHE_TTL_SECONDS in top-times.server.
+    wantsTopTimes && topTimesTrack
+      ? resolveTopTimes(
+          parsed.venue,
+          topTimesTrack,
+          config.resultsBoard?.ranges ?? ["month"],
+        ).catch(() => null)
       : Promise.resolve(null),
     guideTracks.length > 0
       ? buildGuideSection(guideTracks, ymd).catch(() => null)
       : Promise.resolve(null),
+    wantsBowling ? buildBowlingTonight(parsed.venue, now).catch(() => null) : Promise.resolve(null),
+    wantsCheckins ? buildBowlingCheckins(parsed.venue).catch(() => null) : Promise.resolve(null),
   ]);
 
   // Has the heat on the track board already been sent to a briefing room? One
@@ -271,7 +330,10 @@ export async function buildTvFeed(
         ? { fromSession: cameraReturning.heatNumber, groups: cameraReturning.racingAgain }
         : null,
     raceResults,
+    topTimes,
     raceGuide: guideSection,
+    bowlingTonight,
+    bowlingCheckins,
     // `vip` (the bowling-leg takeover) lands with the next scene.
     vip: null,
     // Null events mean we could not ask — the welcome entry then self-skips
@@ -279,6 +341,216 @@ export async function buildTvFeed(
     degraded: wantsWelcome && events === null,
   };
 }
+
+/**
+ * WHO SELF-CHECKED IN AND WHICH LANE.
+ *
+ * First names only, and that is not a nicety: this list is printed a foot tall in a
+ * public lobby, so it follows the same PII posture as every other board on the estate
+ * (see the note on SignageEvent). A surname is dropped even when we hold one.
+ *
+ * The reader already filters to self check-ins that have a lane; this only reduces a
+ * reservation to the three things the glass needs.
+ */
+async function buildBowlingCheckins(venue: SignageVenue): Promise<TvFeed["bowlingCheckins"]> {
+  const { getSelfCheckedInWithLanes, getSelfCheckinEligible } = await import("@/lib/bowling-db");
+  const { laneReadyKey, parseLaneReadySet } = await import("../lane-ready");
+  const center = VENUE_INFO[venue].squareLocationId;
+
+  // Three independent reads, in parallel. The readiness set comes from Redis — written by
+  // the `bowling-lane-ready` cron once a minute — because deciding it needs two QAMF
+  // calls, and a vendor read may never sit on a screen's render path.
+  const [done, due, readyRaw] = await Promise.all([
+    getSelfCheckedInWithLanes(center),
+    getSelfCheckinEligible(center),
+    redis.smembers(laneReadyKey(center)).catch(() => [] as string[]),
+  ]);
+  const ready = parseLaneReadySet(readyRaw);
+
+  const checkedIn: NonNullable<TvFeed["bowlingCheckins"]>["checkedIn"] = [];
+  for (const r of done) {
+    const name = displayNameFromFull(r.guestName ?? "");
+    if (!name) continue;
+    const lanes = laneList(r.dayofOrderLane);
+    if (!lanes) continue;
+    checkedIn.push({ name, lanes, laneReady: !!r.laneReadySentAt });
+  }
+
+  // ONLY THE ONES WHOSE LANE IS AVAILABLE. A guest who is due but whose lane is not ready
+  // cannot complete self check-in, so listing them would send them to a kiosk that turns
+  // them away — and the board that sent them is the last thing they trust afterwards.
+  //
+  // An EMPTY readiness set therefore empties this column, which is deliberate: it means
+  // either nobody is ready or the cron has not run, and both of those are "do not invite
+  // anybody". The column has designed copy for it.
+  const available: NonNullable<TvFeed["bowlingCheckins"]>["available"] = [];
+  for (const r of due) {
+    const entry = ready.get(r.id);
+    if (!entry) continue;
+    const name = displayNameFromFull(r.guestName ?? "");
+    if (!name) continue;
+    // Their booked time in ET wall-clock — the TIME RULE this file documents for the
+    // availability cache: `new Date(naive)` parses as the SERVER's zone, which on Vercel
+    // shifts an 8:00 PM slot to 4:00 PM.
+    const timeLabel = fmtTime12(toEtWallClock(r.bookedAt)) ?? "";
+    if (!timeLabel) continue;
+    // The cron's lane numbers win: they are what QAMF said at readiness time, whereas
+    // `dayof_order_lane` is only written once the lane actually opens.
+    available.push({ name, timeLabel, lanes: entry.lanes || laneList(r.dayofOrderLane) });
+  }
+
+  // Null only when there is nothing to say on EITHER side. The scene has designed copy for
+  // one-empty-one-full, so a half-populated board is content rather than a fault.
+  if (checkedIn.length === 0 && available.length === 0) return null;
+  return { available, checkedIn };
+}
+
+/** "12,13" or " 12 , 13 " -> "12, 13"; empty for nothing usable. QAMF and our own writer
+ *  disagree about spacing, so neither is trusted. */
+function laneList(raw: string | undefined): string {
+  return (raw ?? "")
+    .split(",")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+/** Day of week (0=Sun) AT THE VENUE. A UTC-clocked server has already rolled over
+ *  to tomorrow by 8pm ET, which would put Friday's bowling offers on a Thursday
+ *  night wall. Same Intl + America/New_York posture as etHourNow. */
+const ET_WEEKDAY: Record<string, number> = {
+  Sunday: 0,
+  Monday: 1,
+  Tuesday: 2,
+  Wednesday: 3,
+  Thursday: 4,
+  Friday: 5,
+  Saturday: 6,
+};
+
+function venueDayOfWeek(nowMs: number): number {
+  try {
+    const name = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "long",
+    }).format(new Date(nowMs));
+    const dow = ET_WEEKDAY[name];
+    if (dow !== undefined) return dow;
+  } catch {
+    /* fall through */
+  }
+  return new Date(nowMs).getDay();
+}
+
+/**
+ * Does this offer include shoes?
+ *
+ * Read off the catalog's own `description`, which states it either way on every row
+ * — "1.5 hours of unlimited bowling with shoes included" versus a flat "Shoes not
+ * included." The NEGATIVE is tested first and wins, because "Shoes not included"
+ * also contains the word "shoes" and a naive contains-check would invert every row
+ * that says so (Midnight Madness, both hourly rates, both KBF tiers).
+ *
+ * Returns false when the description is silent: an unstated inclusion is not a
+ * promise the wall may make on the desk's behalf.
+ */
+function offerIncludesShoes(description: string | null): boolean {
+  if (!description) return false;
+  const text = description.toLowerCase();
+  if (/shoes?\s+(are\s+)?not\s+included/.test(text)) return false;
+  return /\bshoes?\b/.test(text);
+}
+
+/** Cents to a wall price. Whole dollars drop the dead ".00". */
+function bowlingPriceLabel(cents: number | undefined): string | null {
+  if (typeof cents !== "number" || !(cents > 0)) return null;
+  return cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
+}
+
+/**
+ * TONIGHT'S BOWLING — the regular offer and the VIP one, priced.
+ *
+ * Bowling is the only attraction on this wall with no static price: lanes are
+ * dynamic through QAMF and `ATTRACTIONS.bowling` carries `price: 0` deliberately.
+ * The real numbers live in the experience catalog in Neon, which is a server read
+ * — so this is what makes a priced bowling panel possible at all instead of the
+ * wall inventing a lane price.
+ *
+ * THE SPECIAL IS THE `open` KIND, NOT THE LOWEST SORT ORDER. That was the first
+ * version's mistake: `sort_order` puts the everyday hourly lane rate (20-23) ahead of
+ * the packages (30+), so a Tuesday showed "Regular $45 per lane" and Fun 4 All never
+ * appeared at all (owner 2026-08-18). `kind` is the field that separates them —
+ * `hourly` is the baseline lane, `open` is the package — so the wall leads with the
+ * package and carries the lane rate underneath it. Within each kind the lowest
+ * `sort_order` still wins, so reordering the catalog moves the wall with it.
+ *
+ * THREE THINGS THIS DELIBERATELY DOES NOT DO:
+ *
+ *  - It does not pick by SLUG. Naming `fun-4-all` here would leave the wall quoting
+ *    a row somebody had since retired; it asks for "tonight's package" instead.
+ *  - It does not ignore `days_of_week`. Fun 4 All is Mon–Thu, Pizza Bowl is Sunday,
+ *    Midnight Madness is Fri/Sat. A wall quoting Sunday's package on a Tuesday is
+ *    quoting a price the kiosk will refuse.
+ *  - It does not compute a lane count or a total. It reports the catalog's own
+ *    per-unit price and says WHICH unit — hourly lanes are priced per lane (up to
+ *    six bowlers) and open-play packages per person, and conflating those is how
+ *    "$35" ends up wrong by a factor of six.
+ *
+ * `center_code` on the offers table is a SQUARE LOCATION ID, not a center slug, so
+ * it is bridged through VENUE_INFO rather than re-derived here.
+ */
+async function buildBowlingTonight(
+  venue: SignageVenue,
+  nowMs: number,
+): Promise<TvFeed["bowlingTonight"]> {
+  const { getBowlingExperiences } = await import("@/lib/bowling-db");
+  const { isPerLaneExperience } = await import("~/features/booking/service/bowling-offer");
+
+  const all = await getBowlingExperiences(VENUE_INFO[venue].squareLocationId);
+  if (all.length === 0) return null;
+
+  const today = venueDayOfWeek(nowMs);
+  const tonight = all
+    // An empty list means "every day" (the legacy default the catalog documents).
+    .filter((e) => e.daysOfWeek.length === 0 || e.daysOfWeek.includes(today))
+    // Kids Bowl Free has its own wizard and its own product, and is not the
+    // bowling a walk-up guest is being sold. It also came off this wall on
+    // 2026-08-18.
+    .filter((e) => !e.slug.startsWith("kbf-"))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+
+  const toOffer = (e: (typeof tonight)[number]) => {
+    const primary = (e.items ?? []).find((i) => i.sortOrder === 0) ?? (e.items ?? [])[0];
+    const mins = e.qamfOfferDurationMinutes;
+    return {
+      // The wall only ever shows TODAY's offer, so the day range in the catalog
+      // label is noise on a screen read from thirty feet ("Regular Mon–Thur" is
+      // just "Regular" once the wall has already filtered to tonight).
+      label: e.label.replace(DAY_SUFFIX, "").trim() || e.label,
+      priceLabel: bowlingPriceLabel(primary?.priceCents),
+      unit: isPerLaneExperience(e) ? "per lane" : "per person",
+      durationLabel: mins ? `${mins / 60} hours` : null,
+      shoesIncluded: offerIncludesShoes(e.description),
+    };
+  };
+
+  /** The regular + VIP pair of one kind, or null when that kind is not on tonight. */
+  const pairOfKind = (kind: "open" | "hourly") => {
+    const of = tonight.filter((e) => e.kind === kind);
+    const regular = of.find((e) => !e.isVip);
+    const vip = of.find((e) => e.isVip);
+    if (!regular && !vip) return null;
+    return { regular: regular ? toOffer(regular) : null, vip: vip ? toOffer(vip) : null };
+  };
+
+  const special = pairOfKind("open");
+  const hourly = pairOfKind("hourly");
+  if (!special && !hourly) return null;
+  return { special, hourly };
+}
+
+/** A trailing day range on a catalog label — "Regular Mon–Thur", "VIP Fri–Sun". */
+const DAY_SUFFIX = /\s+(Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat|Sun)[\u2013\u2014-].*$/i;
 
 /**
  * What a briefing room's TV needs from the slow feed: the films, the poster, and
@@ -434,6 +706,8 @@ function safePaused(): string[] {
 export async function buildTvPulse(
   screenIdRaw: string | null,
   buildSha?: string | null,
+  /** See buildTvFeed — diagnostics only. */
+  windowed?: boolean,
 ): Promise<TvPulse> {
   const now = Date.now();
   const parsed = parseScreenKey(screenIdRaw);
@@ -453,7 +727,7 @@ export async function buildTvPulse(
 
   const center = VENUE_INFO[parsed.venue]?.center ?? "fort-myers";
   // The pulse is the frequent one, so the build stamp rides it.
-  void stampSeen(screenIdRaw, buildSha);
+  void stampSeen(screenIdRaw, buildSha, windowed);
   // Briefing rooms exist at FastTrax only. Asking for them at HeadPinz would be
   // two wasted Redis reads on every pulse of every lobby screen.
   const wantsBriefing = briefingEnabled() && parsed.venue === "FT";

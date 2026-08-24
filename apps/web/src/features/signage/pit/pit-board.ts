@@ -316,6 +316,23 @@ export interface PitLaneFeed {
      *  only for a group promoted from a lane written before this field existed,
      *  or placed on track by hand from Override with nothing to copy from. */
     raceType: string | null;
+    /**
+     * THE ROOM THEY WILL WALK BACK INTO (owner 2026-08-17: "for mega keep a pill
+     * next to the race on what room they will be returning to").
+     *
+     * The other three slots have always carried it and this one dropped it on
+     * the wire — the stored lane knows it the whole time (it travels with the
+     * group through the promotion), so the room simply vanished off every
+     * screen for the fourteen minutes a heat is out and reappeared at `pitIn`.
+     * That is exactly the window in which staff are deciding which room to
+     * clear, which is what the tracker exists to answer.
+     *
+     * A group welcomes back into the SAME room it was briefed in
+     * (briefing/welcome-back.ts), so this is a fact about the future, not just
+     * the past. Null for a group placed on track by hand from Override with no
+     * staged slot to copy from — the pill is then absent rather than guessed.
+     */
+    room: "red" | "blue" | null;
   } | null;
   /**
    * BACK IN THE PIT, WAITING ON THE POST ANNOUNCEMENT (owner 2026-08-15: "the

@@ -19,7 +19,7 @@
  * Intentionally stateless data — every consumer pulls a definition
  * by id (`getPackage`) and reads only the fields it cares about.
  */
-import { etOffsetForLocalDate } from "./et-time";
+import { etOffsetForLocalDate, withinRecurringDayRule, type RecurringDayRule } from "./et-time";
 import type { MessageKey } from "~/features/kiosk/i18n";
 
 // ── Shared component prices ─────────────────────────────────────────────────
@@ -52,9 +52,11 @@ export type PackageId =
   | "ultimate-qualifier-weekday-junior"
   | "ultimate-qualifier-weekend"
   | "ultimate-qualifier-weekend-junior"
-  // BOGO flash sale (2026-08-12 → EOD 2026-08-13). Kept in the union after the
-  // sale ends: `getPackageIgnoreFlag` resolves ids on the confirmation page for
-  // bookings made during the sale, so removing these would break those pages.
+  // BOGO races — every Wednesday from 2026-08-19 (a one-off 2026-08-12 → EOD
+  // 2026-08-13 flash sale before that). These ids must stay in the union even if
+  // the promo is ever retired: `getPackageIgnoreFlag` resolves them on the
+  // confirmation page for bookings already made, so removing them breaks those
+  // pages retroactively.
   | "bogo-weekday"
   | "bogo-weekday-junior"
   | "rookie-pack"; // legacy alias kept for confirmation-page back-compat
@@ -157,6 +159,27 @@ export interface PackageDefinition {
    *  `bookableUntil` because an end-only bound reads as active for all of
    *  history before the deadline. */
   bookableFrom?: string;
+  /**
+   * RECURRING day-of-week restriction on the RACE DATE — "this bundle only
+   * exists for Wednesday races, from 2026-08-19" (BOGO, owner 2026-08-19).
+   * Omitted = any day the `schedules` allow, which is every standing package.
+   *
+   * Distinct from `schedules` on purpose: a `Schedule` is a PRICING TIER
+   * (weekday / weekend / mega — Tuesday is "mega", not "weekday"), shared with
+   * product pricing and heat grids. A weekly promo needs to name single days
+   * without minting a pricing tier per day, and `raceDays` narrows WITHIN
+   * whatever `schedules` already allows rather than replacing it.
+   *
+   * Distinct from `bookableFrom`/`bookableUntil` too, and that distinction is
+   * the whole point: those bound the PURCHASE instant, this bounds the RACE day.
+   * "BOGO Wednesdays" has to reach a guest booking on Tuesday for a Wednesday
+   * race, and must NOT reach a Wednesday walk-up booking Thursday — the exact
+   * opposite of what a purchase window does. Its own `from` is therefore the
+   * right floor for a recurring bundle, and `bookableFrom` is left off rather
+   * than set to the same date: two floors on two different clocks is exactly the
+   * drift one field prevents.
+   */
+  raceDays?: RecurringDayRule;
   /**
    * Short marketing flag rendered on the picker card, e.g. "FLASH SALE" — the
    * one thing that makes a limited-time bundle read differently from the
@@ -291,8 +314,21 @@ const UQ_DISCLAIMERS: PackageDefinition["disclaimers"] = {
     "** ULTIMATE QUALIFIER ** Customer is a NEW racer — has NOT yet qualified for Intermediate. STAFF: verify level-up before assigning kart to the Intermediate race. If customer did not qualify: offer additional Starter (if available) OR issue race credit. NO cash refunds — customer acknowledged disclaimer at booking.",
 };
 
+/**
+ * When BOGO runs: Wednesday RACES, from 2026-08-19 (owner). It ran 2026-08-12 →
+ * EOD 2026-08-13 as a one-off flash sale on a `bookableUntil` purchase window
+ * before that.
+ *
+ * ⚠ MUST stay equal to `BOGO_SALE_RULE` in features/booking/data/packs.ts, which
+ * gates the CREDIT-PACK half of the same advertised promo. `lib/` cannot import
+ * from `features/` (the same constraint that made the old `bookableUntil` ==
+ * `BOGO_SALE_ENDS_AT` pin necessary), so a test in bogo-sale.test.ts is the only
+ * thing keeping them equal.
+ */
+const BOGO_RACE_DAYS: RecurringDayRule = { days: [3], from: "2026-08-19" };
+
 const BOGO_LONG =
-  "Buy one race, get one free. You'll book two heats back-to-back: your Starter race, then an Intermediate race once you level up. Two races for the price of one — flash sale, today and tomorrow only.";
+  "Buy one race, get one free. You'll book two heats back-to-back: your Starter race, then an Intermediate race once you level up. Two races for the price of one — every Wednesday.";
 
 /**
  * BOGO carries the SAME conditional-Intermediate risk as the Ultimate Qualifier
@@ -320,7 +356,7 @@ const BOGO_DISCLAIMERS: PackageDefinition["disclaimers"] = {
   ],
   continueKey: "packageDisclaimer.continue",
   billMemo:
-    "** BOGO RACES (FLASH SALE) ** Customer is a NEW racer — has NOT yet qualified for Intermediate. Paid ONE race price for TWO heats. NO license, NO POV, NO appetizer included — do not comp these. STAFF: verify level-up before assigning kart to the Intermediate race. If customer did not qualify: offer additional Starter (if available) OR issue race credit. NO cash refunds — customer acknowledged disclaimer at booking.",
+    "** BOGO RACES (WEDNESDAY DEAL) ** Customer is a NEW racer — has NOT yet qualified for Intermediate. Paid ONE race price for TWO heats. NO license, NO POV, NO appetizer included — do not comp these. STAFF: verify level-up before assigning kart to the Intermediate race. If customer did not qualify: offer additional Starter (if available) OR issue race credit. NO cash refunds — customer acknowledged disclaimer at booking.",
 };
 
 // No appetizer since 2026-08-04 (owner). The Ultimate Qualifier dropped its
@@ -685,10 +721,11 @@ const PACKAGES: PackageDefinition[] = [
     disclaimers: UQ_DISCLAIMERS,
   },
 
-  // ── BOGO Races — Weekday (Adult, Red + Blue) ──────────────────────────────
-  // FLASH SALE 2026-08-12 → EOD 2026-08-13 (owner). Two races for the price of
-  // one, for NEW racers. Structurally the Ultimate Qualifier — the same Starter
-  // + Intermediate components, the same package-only Intermediate SKUs, the same
+  // ── BOGO Races — Wednesdays (Adult, Red + Blue) ───────────────────────────
+  // EVERY WEDNESDAY from 2026-08-19 (owner). Ran 2026-08-12 → EOD 2026-08-13 as
+  // a one-off flash sale before that. Two races for the price of one, for NEW
+  // racers. Structurally the Ultimate Qualifier — the same Starter +
+  // Intermediate components, the same package-only Intermediate SKUs, the same
   // gap rule — but stripped of the license, POV and appetizer, and priced at a
   // single race instead of the auto-summed bundle.
   //
@@ -698,9 +735,14 @@ const PACKAGES: PackageDefinition[] = [
   // built to earn — `maxQualifiedTier: "starter"` is what keeps the two from
   // ever being offered to the same racer.
   //
-  // ⚠ `bookableUntil` MUST stay equal to BOGO_SALE_ENDS_AT in
-  // features/booking/data/packs.ts — the two halves of one advertised sale must
-  // end on the same instant. A test pins them equal; it is not a stylistic nit.
+  // `schedules: ["weekday"]` STAYS: it is the pricing tier these component SKUs
+  // belong to, and `raceDays` narrows within it. Dropping it would let the
+  // weekday-priced products be offered against a weekend heat grid.
+  //
+  // ⚠ `raceDays` MUST stay equal to BOGO_SALE_RULE in
+  // features/booking/data/packs.ts — the two halves of one advertised promo must
+  // run on the same days from the same date. A test pins them equal; it is not a
+  // stylistic nit.
   {
     id: "bogo-weekday",
     maxQualifiedTier: "starter",
@@ -708,9 +750,10 @@ const PACKAGES: PackageDefinition[] = [
     shortDescription: "Two races for the price of one — Starter + Intermediate",
     longDescription: BOGO_LONG,
     enabled: true,
-    bookableFrom: "2026-08-12T00:00:00",
-    bookableUntil: "2026-08-13T23:59:59",
-    badge: "FLASH SALE",
+    // No bookableFrom/Until: `raceDays` carries the promo's own start floor, on
+    // the RACE clock this bundle is actually gated by. See the field's docs.
+    raceDays: BOGO_RACE_DAYS,
+    badge: "WEDNESDAYS",
     racerType: "new",
     schedules: ["weekday"],
     category: "adult",
@@ -751,7 +794,7 @@ const PACKAGES: PackageDefinition[] = [
     disclaimers: BOGO_DISCLAIMERS,
   },
 
-  // ── BOGO Races — Weekday Junior (Blue) ────────────────────────────────────
+  // ── BOGO Races — Wednesdays Junior (Blue) ─────────────────────────────────
   // Juniors race Blue only on weekdays, same as the UQ junior variant. Priced
   // off the JUNIOR single-race rate ($15.99, vs $20.99 adult) so each tier gets
   // a true buy-one-get-one rather than one flat price that shortchanges juniors.
@@ -768,7 +811,7 @@ const PACKAGES: PackageDefinition[] = [
   //
   // No `recommended` on either BOGO variant — the Ultimate Qualifier is the
   // house recommendation and at most one package per category should carry the
-  // ribbon ("the first match wins"). Taking it for a 2-day sale is a marketing
+  // ribbon ("the first match wins"). Taking it for a weekly promo is a marketing
   // call, not a technical one; `displayOrder: 5` already puts BOGO on top.
   {
     id: "bogo-weekday-junior",
@@ -777,9 +820,8 @@ const PACKAGES: PackageDefinition[] = [
     shortDescription: "Two junior races for the price of one — Starter + Intermediate",
     longDescription: BOGO_LONG,
     enabled: true,
-    bookableFrom: "2026-08-12T00:00:00",
-    bookableUntil: "2026-08-13T23:59:59",
-    badge: "FLASH SALE",
+    raceDays: BOGO_RACE_DAYS,
+    badge: "WEDNESDAYS",
     racerType: "new",
     schedules: ["weekday"],
     category: "junior",
@@ -975,7 +1017,19 @@ export interface EligibilityContext {
    *  ever run Starter, even when they are returning racers. Omitted = "starter"
    *  (nothing qualified), which keeps existing callers behaving as before. */
   qualifiedTier?: PackageTier;
-  /** Evaluation instant for `bookableUntil`. Defaults to now; inject in tests
+  /**
+   * The BOOKED race date (`YYYY-MM-DD`) — gates `raceDays`, the recurring
+   * day-of-week rule behind "BOGO Wednesdays". Omitted or null means the caller
+   * has no date yet, and a `raceDays` bundle falls back to today in ET (the
+   * walk-up rail, where purchase day == race day).
+   *
+   * Every caller already derives `schedule` from this same date, so passing it is
+   * free — but it is a SEPARATE field rather than replacing `schedule`, because a
+   * `Schedule` buckets Tuesday as "mega" and cannot name a single weekday.
+   */
+  raceDate?: string | null;
+  /** Evaluation instant for `bookableFrom`/`bookableUntil`, and the ET fallback
+   *  for `raceDays` when no `raceDate` is given. Defaults to now; inject in tests
    *  so window boundaries are assertable without a clock. */
   now?: Date;
 }
@@ -1002,6 +1056,28 @@ function withinBookableWindow(pkg: PackageDefinition, now: Date): boolean {
   return true;
 }
 
+/**
+ * Does a bundle's recurring `raceDays` rule admit a race on `raceDate`? True for
+ * every bundle without the field (all the standing ones), so this is safe to call
+ * unconditionally. A null/undefined `raceDate` falls back to today in ET.
+ *
+ * The day arithmetic lives in `withinRecurringDayRule` and is shared with the
+ * CREDIT-PACK half of the same promo (features/booking/data/packs.ts), so the ET
+ * fallback, the local `YYYY-MM-DD` parse and the `from` floor cannot drift
+ * between the two registries.
+ *
+ * Exported because it is also the invalidation rule when a guest CHANGES their
+ * race date mid-booking (features/booking/state/machine.ts): a bundle picked for
+ * a Wednesday must not survive a move to Thursday still priced at the deal.
+ */
+export function packageFitsRaceDate(
+  pkg: PackageDefinition,
+  raceDate: string | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  return !pkg.raceDays || withinRecurringDayRule(pkg.raceDays, raceDate, now);
+}
+
 /** Filters the registry to packages bookable in the current context.
  *  Used by the product picker to render its "packages" row. Sorted
  *  by `displayOrder` ascending so featured packages float to the
@@ -1012,6 +1088,7 @@ export function eligiblePackages(ctx: EligibilityContext): PackageDefinition[] {
     if ((p.bookableFrom || p.bookableUntil) && !withinBookableWindow(p, ctx.now ?? new Date())) {
       return false;
     }
+    if (!packageFitsRaceDate(p, ctx.raceDate, ctx.now ?? new Date())) return false;
     if (p.racerType !== "any" && ctx.racerType && p.racerType !== ctx.racerType) return false;
     if (
       p.maxQualifiedTier &&

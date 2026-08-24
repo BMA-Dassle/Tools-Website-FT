@@ -15,6 +15,46 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.24.1 — CHECK-IN SHOWED EVERY BOWLING RESERVATION FOUR HOURS LATE (owner
+ *         2026-08-19). A 9:00 PM lane read "1:00 AM" on the find-your-
+ *         reservation list, and the whole HeadPinz board was shifted the same
+ *         four hours — which also sorted the evening rows past midnight, to the
+ *         bottom of a list ordered by the wrong times. The list picks a row's
+ *         time from its heats and falls back to `bookedAt` for a leg that has
+ *         none; the fallback handed that stamp back verbatim, but Neon
+ *         serializes `booked_at` as a UTC instant while `timeKey`/`fmtTime12`
+ *         both read the string as a naive ET wall-clock and simply drop the
+ *         `Z`. So the board printed the UTC hour. The bug was latent until
+ *         1.23.x-era bowling check-in (owner 2026-08-16) put heat-less rows on
+ *         a list that had been racing-only — a race always has a heat, so the
+ *         fallback never reached a screen before. `browseRowTime` now converts
+ *         through `toEtWallClock`, the same helper the itinerary and the front-
+ *         desk TV already use for this exact column (the TV was right all
+ *         along, which is why the two boards disagreed), and it normalizes
+ *         before sorting so a group whose legs disagree about zone orders on
+ *         the clock instead of on the suffix.
+ * 1.24.0 — BOGO RACES IS NOW A WEEKLY WEDNESDAY PROMO, not a two-day flash sale
+ *         (owner 2026-08-19). Both halves of the offer — the returning-racer
+ *         credit pack and the new-racer package — swapped their fixed
+ *         2026-08-12 → EOD 8/13 purchase window for a recurring day-of-week
+ *         rule that keys off the RACE DATE: a guest booking Tuesday for a
+ *         Wednesday race gets the deal, and a Wednesday walk-up booking
+ *         Thursday does not. Race-date keying is what makes "every Wednesday"
+ *         mean what it says on a booking site; it also rides seams that already
+ *         existed (`packSkusForRaceDate` filters packs by race day, and the
+ *         reducer already re-validated pack picks when the date moves), so a
+ *         date change now adds and removes the deal in both registries
+ *         together. Packages got the same treatment via a new registry field
+ *         (`raceDays`), plus the matching invalidation the reducer never had —
+ *         previously ANY package survived a date change, so a bundle picked for
+ *         one schedule kept its price on a day it isn't sold. The Mon–Thu
+ *         deposit kind the free credit lands on is unchanged: the banked race
+ *         stays good on any Mon–Thu visit, which the copy now says outright in
+ *         EN + ES rather than implying the deal runs all week. Ribbons that
+ *         named the two August dates now name the day ("★ BOGO — EVERY
+ *         WEDNESDAY" / "★ BOGO — TODOS LOS MIÉRCOLES"), so they cannot go stale
+ *         week to week. Standalone attract-screen behaviour is untouched — BOGO
+ *         still never reaches the screen with no tier filter (1.22.x).
  * 1.23.0 — TWO NEW ACKNOWLEDGMENT SCREENS ON THE KIOSK, both EN + ES.
  *         (1) JUNIOR STARTER IS THE SLOW RACE (owner 2026-08-16). A parent
  *         books Junior Starter for a kid who already races karts, then finds
@@ -996,7 +1036,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.23.0";
+export const KIOSK_VERSION = "1.24.1";
 
 let bootVersion: string | null = null;
 let captured = false;

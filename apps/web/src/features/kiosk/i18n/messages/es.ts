@@ -321,6 +321,7 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherGz.onOrder": "{n} en tu orden",
   "codeEntry.voucherGz.comesOff": "se descuenta al pagar",
   "codeEntry.voucherGz.rowUsed": "ya utilizado",
+  "codeEntry.voucherGz.rowNotHere": "resérvalo cuando quieras — sigue válido",
   "codeEntry.voucherGz.rowNeedsHelp": "necesita ayuda — ve a Servicio al Cliente",
   "codeEntry.voucherGz.scanNext": "Agrega otro vale o cupón",
   "codeEntry.voucherGz.scanNextSub": "Escanéalo bajo la pantalla — o escribe el código:",
@@ -353,7 +354,20 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherGz.printNow": "Imprimir {n, plural, one {mi tarjeta} other {mis # tarjetas}}",
   "codeEntry.voucherGz.done": "Listo",
   "codeEntry.voucherGz.printingSubElsewhere":
-    "Recógelas en el quiosco principal o en Servicios al Huésped — tu vale sigue válido",
+    "Recógelas en cualquier quiosco de Game Zone — tu vale sigue válido",
+  "codeEntry.noDispenser.title": "Este kiosco no entrega tarjetas nuevas",
+  "codeEntry.noDispenser.body":
+    "Aquí puedes canjear parte de tu vale — recoge tus tarjetas en cualquier quiosco de Game Zone.",
+  "codeEntry.groupon.err.unknown": "No encontramos ese vale de Groupon — revisa el código",
+  "codeEntry.groupon.err.alreadyRedeemed":
+    "Ese Groupon ya se usó. En Servicios al Huésped pueden revisarlo.",
+  "codeEntry.groupon.err.unavailable":
+    "Groupon no responde en este momento — inténtalo de nuevo en un momento",
+  "codeEntry.groupon.err.unmapped":
+    "Todavía no tenemos configurada esa oferta de Groupon — pasa a Servicios al Huésped",
+  "codeEntry.groupon.err.used": "Ya se usó todo lo de ese Groupon",
+  "codeEntry.groupon.seeStaff":
+    "Vale de Groupon aceptado — recoge tus tarjetas en cualquier quiosco de Game Zone",
   "codeEntry.voucherGz.leaveWarn":
     "{n, plural, one {Tu tarjeta de juego aún no se imprime} other {Tus # tarjetas de juego aún no se imprimen}}. No se imprimirán solas después — el botón rosa en la pantalla de inicio te trae de vuelta aquí.",
   "codeEntry.voucherGz.leaveAnyway": "Salir de todos modos",

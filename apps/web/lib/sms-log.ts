@@ -305,6 +305,11 @@ export interface CronRunEntry {
   groupedSmsSends?: number;
   singleSmsSends?: number;
   emailSends?: number;
+  /** eticket-removal only: retraction judgements the venue's own broadcast
+   *  independently corroborated, so the six-minute grace did not apply. The
+   *  measure of whether that wire half is worth keeping — without it a
+   *  grace-skip is indistinguishable after the fact from a graced send. */
+  corroborated?: number;
   /** For checkin: which sessions were in /races-current during this fire */
   sessions?: { track: string; sessionId: number; reason?: string }[];
   /** Free-form error if the cron itself threw */

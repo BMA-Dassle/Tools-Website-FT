@@ -700,6 +700,10 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
           sessionId: racing.sessionId,
           heatNumber: racing.heatNumber,
           raceType: racing.raceType ?? null,
+          // The room travels with the group, exactly as the level does — it is
+          // where they will hand the kit back in. Stored all along; it was only
+          // this projection that dropped it. See PitLaneFeed.racing.room.
+          room: racing.room,
         }
       : null,
     pitIn: pitIn
@@ -825,9 +829,7 @@ export async function sendToHolding(
     // route documents. Token mismatch = the claim is not ours any more, and
     // the TTL retires it.
     if (claimed) {
-      await redis
-        .eval(RELEASE_CLAIM_IF_MINE, 1, claimKey, claimToken)
-        .catch(() => undefined);
+      await redis.eval(RELEASE_CLAIM_IF_MINE, 1, claimKey, claimToken).catch(() => undefined);
     }
   }
 }

@@ -13,6 +13,7 @@ import {
 } from "~/features/reservations-admin/combo-board";
 import { fmtClock, nowEtWallMs, todayET } from "~/features/reservations-admin/format";
 import type { ComboMeta, Reservation } from "~/features/reservations-admin/types";
+import { a2pSender } from "~/features/sms/sender";
 
 /**
  * T-60 "Your VIP Experience is almost here" cron — every 5 minutes.
@@ -49,7 +50,7 @@ export const maxDuration = 60;
 const WINDOW_MIN = 60;
 const DEDUP_TTL_S = 24 * 60 * 60;
 /** Check-in happens at FastTrax — send from the FastTrax number. */
-const SMS_FROM_FASTTRAX = "+12394819666";
+const SMS_FROM_FASTTRAX = a2pSender();
 const AUDIT_BCC = "vendorcases@dassle.us";
 
 const claimKey = (ymd: string, groupKey: string) => `alert:vip-almosthere:${ymd}:${groupKey}`;

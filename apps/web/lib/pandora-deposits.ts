@@ -95,7 +95,27 @@ export async function getDepositOverview(
   locationId: string = FASTTRAX_LOCATION_ID,
 ): Promise<DepositOverviewRow[]> {
   const url = `${PANDORA_BASE}/v2/bmi/deposits/${encodeURIComponent(locationId)}/${encodeURIComponent(String(personId))}`;
-  const res = await fetch(url, { headers: authHeaders(), cache: "no-store" });
+  /**
+   * BOUNDED, because this is awaited on the check-in critical path.
+   *
+   * The headsock read in /api/admin/checkin runs before the Pandora check-in
+   * write, so an untimed fetch here is a scan with no upper bound at all — the
+   * racer stands at the desk until the lambda itself gives up. That is not
+   * theoretical: on 2026-08-20 Pandora was answering /bmi/races/current in
+   * 16-30s, and this endpoint had no ceiling to stop it doing the same.
+   *
+   * 4s matches the other per-person reads on that path (the birthday lookup and
+   * the roster read in checkin-race-flags). It is generous for a healthy
+   * upstream — measured 0.45-0.47s the same day — and the caller already treats
+   * a throw as "no headsock detected" and checks the racer in regardless, so
+   * the cost of hitting this ceiling is a missed headsock prompt, never a
+   * blocked check-in.
+   */
+  const res = await fetch(url, {
+    headers: authHeaders(),
+    cache: "no-store",
+    signal: AbortSignal.timeout(4000),
+  });
   if (!res.ok) {
     throw new Error(`Pandora deposits ${res.status}: ${(await res.text()).slice(0, 200)}`);
   }

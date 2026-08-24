@@ -128,11 +128,10 @@ export function LoyaltySection({ session, dispatch, phone }: LoyaltySectionProps
     setVerifyStep("sending");
     setVerifyError("");
     try {
-      const centerPhone = "+12393022155"; // Fort Myers default
       const res = await fetch("/api/sms-verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ phone: digits, from: centerPhone }),
+        body: JSON.stringify({ phone: digits, brand: "headpinz" }),
       });
       if (res.ok) {
         setVerifyStep("code");

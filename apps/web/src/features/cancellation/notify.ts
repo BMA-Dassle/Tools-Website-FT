@@ -19,6 +19,7 @@ import { markCancelNotified, type BowlingReservation } from "@/lib/bowling-db";
 import { eventStartEt, formatGan, legLabel } from "./guards";
 import type { CancelOutcome } from "./types";
 import { FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
+import { a2pSender } from "~/features/sms/sender";
 
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
@@ -46,7 +47,7 @@ function brandFor(r: BowlingReservation): BrandMeta {
       fromName: "FastTrax Entertainment",
       centerName: "FastTrax Fort Myers",
       phone: "(239) 275-2226",
-      smsFrom: "+12394819666",
+      smsFrom: a2pSender(),
     };
   }
   if (isNaples) {
@@ -55,7 +56,7 @@ function brandFor(r: BowlingReservation): BrandMeta {
       fromName: "HeadPinz Entertainment",
       centerName: "HeadPinz Naples",
       phone: "(239) 455-3755",
-      smsFrom: "+12394553755",
+      smsFrom: a2pSender(),
     };
   }
   return {
@@ -63,7 +64,7 @@ function brandFor(r: BowlingReservation): BrandMeta {
     fromName: "HeadPinz Entertainment",
     centerName: "HeadPinz Fort Myers",
     phone: "(239) 302-2155",
-    smsFrom: "+12393022155",
+    smsFrom: a2pSender(),
   };
 }
 

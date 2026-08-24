@@ -20,6 +20,7 @@ import { groupVoucherItems, voucherGroupLabel } from "~/features/game-cards/vouc
 import { qrAttachment, voucherRedeemUrl } from "~/features/game-cards/service/voucher-mail";
 import { walletBadgesEmailHtml } from "~/features/game-cards/wallet/badges";
 import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
+import { a2pSender } from "~/features/sms/sender";
 
 // Re-export so any existing importer of this route's signature verifier keeps
 // working after the helpers moved to lib/booking-confirmation-link.
@@ -31,10 +32,26 @@ const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
 const FROM_NAME = process.env.SENDGRID_FROM_NAME || "FastTrax Entertainment";
 
+/**
+ * The ONLY standing copy on a confirmation: a shared, auditable mailbox.
+ *
+ * No individual belongs here. tyler@ sat on this BCC from 2026-08-03 to watch
+ * VIP combo confirmations, but this helper is the transport for BOTH rails
+ * (kiosk walk-up, web booking) across BOTH brands, so it copied him on every
+ * confirmation the highest-volume mailer we own sends — hundreds a week.
+ * Removed 2026-08-22: VIP notification moved to Teams, and staff who need to
+ * watch a booking type get a purpose-built alert (see world-cup/notify.server
+ * or combos/combo-notify), never a copy of the guest's own email.
+ */
+const AUDIT_BCC = "vendorcases@dassle.us";
+
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
-const VOX_FROM_FASTTRAX = "+12394819666";
-const VOX_FROM_HEADPINZ = "+12393022155";
-const VOX_FROM_NAPLES = "+12394553755";
+// One A2P sender for every brand. Each template already opens with
+// the brand name, which is also what TCR wants in HELP/opt-out
+// replies, so a shared DID stays unambiguous to the guest.
+const VOX_FROM_FASTTRAX = a2pSender();
+const VOX_FROM_HEADPINZ = a2pSender();
+const VOX_FROM_NAPLES = a2pSender();
 
 // ── Email templates (loaded once, cached per name) ──────────────────────────
 
@@ -81,9 +98,7 @@ async function sendEmail(
       personalizations: [
         {
           to: [{ email: to }],
-          // vendorcases is the standing audit copy; tyler@ added 2026-08-03 per
-          // owner so he sees VIP confirmations as they go out.
-          bcc: [{ email: "vendorcases@dassle.us" }, { email: "tyler@headpinz.com" }],
+          bcc: [{ email: AUDIT_BCC }],
         },
       ],
       from: { email: FROM_EMAIL, name: fromName || FROM_NAME },
@@ -461,7 +476,12 @@ export async function POST(req: NextRequest) {
       // points at the email, which carries the full codes block below. Only
       // claim "in your confirmation email" when an email address exists to
       // receive one (kiosk contacts always have one, but never misdirect).
-      const smsBody = `FastTrax: you're booked!${when ? ` ${when} ·` : ""} ${who}. Your e-ticket with check-in details will text you shortly — nothing to print.${codes.length > 0 && email ? " Your POV video codes are in your confirmation email." : ""} See you at the track!`;
+      // ASCII ONLY. The prior form carried a middot and an em dash, and a
+      // SINGLE non-ASCII character forces UCS-2: 70 chars per segment instead
+      // of 160. That made a 214-char confirmation FOUR billed segments, on 60
+      // of 88 sends in one measured day. Same information, GSM-7 safe, and the
+      // sign-off dropped (owner 2026-08-20) since it bought nothing.
+      const smsBody = `FastTrax: you're booked!${when ? ` ${when} -` : ""} ${who}. Your e-ticket with check-in details will text you shortly - nothing to print.${codes.length > 0 && email ? " POV video codes are in your confirmation email." : ""}`;
       // POV camera codes — kiosk counterpart of the web template's
       // ^SoldVouchersList()$ block (this branch's email is inline HTML, so the
       // placeholder never runs here). Renders only when codes were claimed.

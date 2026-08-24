@@ -25,6 +25,7 @@ import {
   ROLE_PRESETS,
   rolePreset,
   resolveScreenConfig,
+  screenShowsScene,
   type ScreenRole,
 } from "~/features/signage/defaults";
 import {
@@ -34,7 +35,15 @@ import {
   dualStartupInstructions,
 } from "~/features/signage/startup-script";
 import { resolvePair } from "~/features/signage/pairing";
+import {
+  LOGO_MARKS,
+  LOGO_MARK_KEYS,
+  DEFAULT_LOGO_MARK,
+  resolveLogoMark,
+  type LogoMark,
+} from "~/features/signage/logo";
 import type { ScreenConfig, SignageScreen } from "~/features/signage/types";
+import type { TopTimesRange } from "~/features/signage/top-times";
 import BriefingAssetManager, { type BriefingAssetState } from "./BriefingAssetManager";
 
 /** The build THIS admin page was served from, for comparing against a screen. */
@@ -296,6 +305,7 @@ export default function SignageAdminClient({ token }: { token: string }) {
                 // Resolved here rather than in the row: the row only knows its
                 // own screen, and a pair is a fact about the whole list.
                 pairedWith={pairSidesFor(data.screens, s.screenId)}
+                wallMates={wallMatesFor(data.screens, s.screenId)}
                 token={token}
                 heartbeat={data.seen[s.screenId] ?? null}
                 nowMs={loadedAt}
@@ -310,6 +320,25 @@ export default function SignageAdminClient({ token }: { token: string }) {
                 onSimulate={(action, extra, label) =>
                   post({ action, center: s.center, firstName: "Marcus", ...extra }, label)
                 }
+                // One press, every panel of the wall. Sent SEQUENTIALLY so a
+                // failure part-way names the screen it stopped on, rather than
+                // leaving a wall half-labelled with nothing to say which half.
+                onIdentifyWall={async (screenIds, on) => {
+                  for (const id of screenIds) {
+                    const ok = await post({
+                      action: "preview",
+                      center: s.center,
+                      screenId: id,
+                      mode: on ? "identify" : "off",
+                    });
+                    if (!ok) return;
+                  }
+                  setNote(
+                    on
+                      ? `✓ Identify sent to ${screenIds.join(", ")} — walk the wall; the filled box must move left to right. Clears itself in 5 minutes.`
+                      : `✓ Identify cleared on ${screenIds.join(", ")}.`,
+                  );
+                }}
                 onSimulateScan={(track, opts, label) =>
                   post(
                     {
@@ -336,6 +365,23 @@ export default function SignageAdminClient({ token }: { token: string }) {
 
 /* ── row ──────────────────────────────────────────────────────────────── */
 
+/** Every screen on this screen's WALL, in position order — itself included. Empty
+ *  for a screen that is not part of a wall. Resolved in the parent for the same
+ *  reason a pair is: a row only knows its own screen, and a wall is a fact about the
+ *  whole list. */
+function wallMatesFor(screens: SignageScreen[], screenId: string): string[] {
+  const wallId = screens.find((s) => s.screenId === screenId)?.config.wall?.wallId;
+  if (!wallId) return [];
+  return screens
+    .filter((s) => s.config.wall?.wallId === wallId)
+    .sort(
+      (a, b) =>
+        (a.config.wall?.position ?? 0) - (b.config.wall?.position ?? 0) ||
+        a.screenId.localeCompare(b.screenId),
+    )
+    .map((s) => s.screenId);
+}
+
 /** The two screen ids of this screen's pairing group, left first, or null. */
 function pairSidesFor(
   screens: SignageScreen[],
@@ -348,6 +394,7 @@ function pairSidesFor(
 function ScreenRow({
   screen,
   pairedWith,
+  wallMates,
   token,
   heartbeat,
   nowMs,
@@ -356,13 +403,17 @@ function ScreenRow({
   onTest,
   onSimulateScan,
   onSimulate,
+  onIdentifyWall,
   busy,
 }: {
   screen: SignageScreen;
   /** Set only when this screen is half of a two-screen pairing group. */
   pairedWith: { leftId: string; rightId: string } | null;
+  /** Every screen on this screen's wall, in position order. Empty when it is not on
+   *  one, which is what hides the wall-wide test. */
+  wallMates: string[];
   token: string;
-  heartbeat: { at: string; build: string | null } | null;
+  heartbeat: { at: string; build: string | null; windowed?: boolean } | null;
   /** Clock read once per load by the parent — never Date.now() during render. */
   nowMs: number;
   onEdit: () => void;
@@ -374,6 +425,8 @@ function ScreenRow({
     label?: string,
   ) => void;
   onSimulate: (action: string, extra?: Record<string, unknown>, label?: string) => void;
+  /** Put every panel of the wall into (or out of) the identify test at once. */
+  onIdentifyWall: (screenIds: string[], on: boolean) => void;
   busy: boolean;
 }) {
   const [showSetup, setShowSetup] = useState(false);
@@ -386,7 +439,11 @@ function ScreenRow({
   // broken feature (owner 2026-08-11).
   const resolved = resolveScreenConfig(screen.config, screen.venue as SignageVenue);
   const canRaceCheckin = resolved.playlist.some((p) => p.scene === "race-checkin");
-  const canWelcome = resolved.playlist.some((p) => p.scene === "event-welcome");
+  // NOT the playlist alone: the front-desk wall's TV5 runs the welcome board as its
+  // WING (`wall.outsideScene`), and the five share one playlist that names no wing
+  // scene — so the welcome and VIP previews were missing on the one panel that shows
+  // that board most of the evening.
+  const canWelcome = screenShowsScene(resolved, "event-welcome");
 
   // VIP is welcome-board content now (not an interrupt), so previewing it only
   // makes sense where the welcome board runs — and only if VIP pages are on.
@@ -404,7 +461,15 @@ function ScreenRow({
   // publicOrigin: this URL gets copied into TV player configs. Copied from
   // the auth-walled admin proxy domain, location.origin would brick the
   // board (a wall player has no Vercel Auth session).
-  const url = `${publicOrigin(typeof window !== "undefined" ? window.location.origin : "")}/tv?screen=${encodeURIComponent(screen.screenId)}`;
+  //
+  // THE SCREEN ID IS NOT PERCENT-ENCODED, deliberately, and this is the same trap
+  // the download route documents at length. A colon is legal in a query value, and
+  // the encoded form is actively harmful: inside a .bat `%3` is a parameter
+  // substitution, so `HPFM%3A2` expands to `HPFMA2` and the player asks for a screen
+  // that does not exist (owner 2026-08-11 — the boards showed the unprovisioned
+  // ads-only fallback all evening because of it). This URL is COPIED BY STAFF into
+  // player configs and pasted into scripts, so it has to be the literal form.
+  const url = `${publicOrigin(typeof window !== "undefined" ? window.location.origin : "")}/tv?screen=${screen.screenId}`;
   const scenes = (screen.config.playlist ?? []).map((p) => p.scene);
 
   return (
@@ -456,6 +521,17 @@ function ScreenRow({
             Picture pulled in {resolved.overscanPct}% per edge (this panel overscans)
           </p>
         )}
+        {heartbeat?.windowed && (
+          // NOT an error colour and not an alarm: the picture on this board is
+          // correct, TvStage scales the canvas to whatever viewport it gets. What
+          // is wrong is that Edge's chrome is showing on a guest-facing wall and
+          // the panel is not being filled. Actionable, hence the instruction.
+          <p style={{ margin: "8px 0 0", fontSize: 13, color: "#f0b341", fontWeight: 600 }}>
+            ⚠ This screen is not filling its panel — Edge is windowed, so the address bar is on the
+            wall. Click the board and press F11, or restart the player so the launcher re-applies
+            its fullscreen flag.
+          </p>
+        )}
         {heartbeat?.build && heartbeat.build !== CURRENT_BUILD && (
           <p
             style={{
@@ -481,6 +557,17 @@ function ScreenRow({
         >
           {url}
         </code>
+        {/* Which MACHINE this board hangs off. A wall is set up per player PC, not
+            per screen, so the card has to say which one it belongs to — otherwise
+            the only way to know is to remember the pairing group. */}
+        {pairedWith && (
+          <p style={{ ...hint, marginTop: 6 }}>
+            Shares a player PC with{" "}
+            <b>{pairedWith.leftId === screen.screenId ? pairedWith.rightId : pairedWith.leftId}</b>{" "}
+            — this board is on the <b>{pairedWith.leftId === screen.screenId ? "LEFT" : "RIGHT"}</b>{" "}
+            monitor. Use the 2-monitor script for that machine.
+          </p>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -491,8 +578,17 @@ function ScreenRow({
           href={`/api/admin/signage?token=${encodeURIComponent(token)}&script=${encodeURIComponent(screen.screenId)}`}
           style={{ ...btn, textDecoration: "none", display: "inline-block" }}
           download={startupScriptFileName(screen.screenId)}
+          // Named for what it actually drives. On a screen that shares a player PC
+          // this is the WRONG file — taking it to that machine leaves one monitor on
+          // a desktop — so the label says "this TV only" rather than leaving the
+          // person setting up a wall to infer it from the pairing group.
+          title={
+            pairedWith
+              ? `Drives THIS MONITOR ONLY. This screen shares a player PC with ${pairedWith.leftId === screen.screenId ? pairedWith.rightId : pairedWith.leftId} — use the 2-monitor script for that machine, and this one only to run this board on a PC of its own.`
+              : "One player PC driving this one screen."
+          }
         >
-          Download startup script
+          {pairedWith ? "Single-screen script (this TV only)" : "Download startup script"}
         </a>
         {/* Only offered where it can actually work. A two-monitor launcher needs
             a PAIRING GROUP to know which screen belongs on which side, so the
@@ -642,6 +738,46 @@ function ScreenRow({
             {/* One button per mood the scores wall can be in. They are separate
                 buttons rather than a dropdown because the whole reason to press
                 one is to compare it against the others on the wall. */}
+            {/* THE SETUP TEST, first because it is what you reach for when a wall is
+                newly hung: it prints each panel's number, its player and its monitor
+                side, and the two numbers that say whether the shine is in step. */}
+            <button
+              type="button"
+              onClick={() =>
+                onSimulate(
+                  "preview",
+                  { screenId: screen.screenId, mode: "identify" },
+                  `Identify sent to ${screen.screenId} — clears itself in 5 minutes.`,
+                )
+              }
+              style={{ ...btn, borderColor: "#00e2e5", color: "#00e2e5" }}
+              disabled={busy}
+              title="Print this panel's own number, player and monitor side on the glass, with its clock offset and shine phase"
+            >
+              Identify this screen
+            </button>
+            {wallMates.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onIdentifyWall(wallMates, true)}
+                  style={{ ...btn, borderColor: "#00e2e5", color: "#00e2e5", fontWeight: 700 }}
+                  disabled={busy}
+                  title={`Label all ${wallMates.length} panels at once (${wallMates.join(", ")}) — then walk the wall and check the filled box moves left to right`}
+                >
+                  Identify whole wall ({wallMates.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onIdentifyWall(wallMates, false)}
+                  style={btn}
+                  disabled={busy}
+                  title="Clear the test on every panel now, rather than waiting for it to expire"
+                >
+                  Clear wall test
+                </button>
+              </>
+            )}
             {canGuide && (
               <button
                 type="button"
@@ -725,6 +861,23 @@ function ScreenRow({
                 title="A 20-kart Mega grid, to check the two-column layout"
               >
                 Preview results (Mega)
+              </button>
+            )}
+            {canResults && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSimulate(
+                    "preview",
+                    { screenId: screen.screenId, mode: "top-times" },
+                    `Top-times preview pushed to ${screen.screenId}.`,
+                  )
+                }
+                style={btn}
+                disabled={busy}
+                title="The fastest-laps board, cycling today / this week / this month — works whatever role the screen is saved with"
+              >
+                Preview top times
               </button>
             )}
             {canVip && (
@@ -839,6 +992,15 @@ function SetupSteps({
           ? "The script waits for the network, reads the monitor layout, opens each board fullscreen on its own monitor with its own Edge profile, and relaunches either one automatically if Edge is closed or crashes."
           : "The script waits for the network, opens Edge in true kiosk mode with its own profile, and relaunches automatically if Edge is ever closed or crashes."}
       </p>
+      {/* Said once, plainly, above the steps' own detail. Every player on the
+          estate is installed the same way (owner 2026-08-19) — the Run-key
+          alternative used to sit in these steps as a second option and is gone. */}
+      <p style={{ margin: "10px 0 0", fontSize: 12, color: PORTAL_DARK.muted }}>
+        <b>Every screen is installed the same way:</b> the launcher replaces{" "}
+        <code>explorer.exe</code> as the Windows shell, so the player has no desktop, no taskbar and
+        no Start menu &mdash; just the board. <b>Ctrl+Shift+Esc still opens Task Manager</b>, which
+        is how you get a desktop back or undo it.
+      </p>
     </div>
   );
 }
@@ -867,6 +1029,18 @@ interface Draft {
   showResults: boolean;
   /** "" = no track picked, which shows the board's setup notice. */
   resultsTrack: "" | "blue" | "red" | "mega";
+  /** What this scores wall reports: the race that just finished, or the
+   *  fastest-laps hall of fame. Same idea as megaRole / pitMegaRole. */
+  resultsRole: "last-race" | "top-times";
+  /** Windows the top-times board cycles through, one per 40s slot. Stored as
+   *  one boolean each rather than a multi-select so the form stays a form; at
+   *  least one is forced on at save (see draftToConfig). The five are exactly
+   *  what /leaderboards offers — see TopTimesRange. */
+  resultsRangeToday: boolean;
+  resultsRangeWeek: boolean;
+  resultsRangeMonth: boolean;
+  resultsRangeYear: boolean;
+  resultsRangeAlltime: boolean;
   /** Check-in guide wall — owns its wall too. */
   showGuide: boolean;
   /** Which tracks the ONE check-in screen covers. */
@@ -887,6 +1061,25 @@ interface Draft {
   pairGroupId: string;
   pairPosition: number;
   pairCount: number;
+  /** The front-desk wall's four-scene loop. Ticked alone, like the briefing and
+   *  camera boards — a wall panel owns its screen. */
+  showFrontDesk: boolean;
+  /** A holding card: one brand mark on black. Ticked alone, same as the others —
+   *  the whole point is that nothing else is on the screen. */
+  showVenueLogo: boolean;
+  /** Which mark that card wears. Never "" — a logo screen always has a mark. */
+  venueLogoMark: LogoMark;
+  /** "" = this screen is not part of a video wall. */
+  wallId: string;
+  wallPosition: number;
+  wallCount: number;
+  /** Gap between panels as a percent of ONE panel's picture width. */
+  wallGapPct: number;
+  /** "" = derive from the ends (first fasttrax, last headpinz, inner none). */
+  wallBrand: "" | "fasttrax" | "headpinz" | "none";
+  /** What this panel shows when the running scene does not reach it. "" = house ads.
+   *  Only the WING panels of a wall need one. */
+  wallOutsideScene: "" | "bowling-checkin" | "event-welcome";
   /** Percent inset per edge for a panel that crops its own picture. 0 = off. */
   overscanPct: number;
 }
@@ -921,6 +1114,15 @@ function newDraft(): Draft {
     showPitBoard: false,
     showResults: false,
     resultsTrack: "",
+    resultsRole: "last-race",
+    resultsRangeToday: false,
+    resultsRangeWeek: false,
+    // The month is the default because it is what /leaderboards opens on: a
+    // hall of fame reports the standing record, not the session that just
+    // came off the track.
+    resultsRangeMonth: true,
+    resultsRangeYear: false,
+    resultsRangeAlltime: false,
     showGuide: false,
     guideTracks: "both",
     guideArrow: "left",
@@ -938,6 +1140,19 @@ function newDraft(): Draft {
     pairGroupId: "",
     pairPosition: 0,
     pairCount: 2,
+    showFrontDesk: false,
+    showVenueLogo: false,
+    venueLogoMark: DEFAULT_LOGO_MARK,
+    wallId: "",
+    wallPosition: 0,
+    // Five is the only wall that exists, so it is the sensible default the moment
+    // somebody types a wall id — but it stays editable, because the next wall
+    // will not be five.
+    wallCount: 5,
+    // ~6 inches on a ~48in picture (owner 2026-08-17).
+    wallGapPct: 12,
+    wallBrand: "",
+    wallOutsideScene: "",
     // A new screen assumes a panel that behaves. Nothing is inset until somebody
     // stands in front of a TV that is cropping and says so.
     overscanPct: 0,
@@ -986,6 +1201,14 @@ function draftFromScreen(s: SignageScreen): Draft {
       c.resultsBoard?.track === "mega"
         ? c.resultsBoard.track
         : "",
+    resultsRole: c.resultsBoard?.role === "top-times" ? "top-times" : "last-race",
+    // A saved board with no `ranges` predates the field; it reads back as
+    // month-only, which is what resolveScreenConfig resolves it to.
+    resultsRangeToday: (c.resultsBoard?.ranges ?? []).includes("today"),
+    resultsRangeWeek: (c.resultsBoard?.ranges ?? []).includes("week"),
+    resultsRangeMonth: (c.resultsBoard?.ranges ?? ["month"]).includes("month"),
+    resultsRangeYear: (c.resultsBoard?.ranges ?? []).includes("year"),
+    resultsRangeAlltime: (c.resultsBoard?.ranges ?? []).includes("alltime"),
     vipEnabled: c.interrupts?.["vip-welcome"]?.enabled !== false,
     vipLeadMins: c.interrupts?.["vip-welcome"]?.leadMins ?? 10,
     celebrationEnabled: c.interrupts?.celebration?.enabled !== false,
@@ -1000,11 +1223,51 @@ function draftFromScreen(s: SignageScreen): Draft {
     pairGroupId: c.pairing?.groupId ?? "",
     pairPosition: c.pairing?.position ?? 0,
     pairCount: c.pairing?.count ?? 2,
+    showFrontDesk: scenes.has("vip-showcase") || scenes.has("open-now"),
+    showVenueLogo: scenes.has("venue-logo"),
+    // Read back for the same reason as every field here — draftToConfig REBUILDS
+    // the blob — and resolved rather than trusted, so a hand-edited mark that
+    // this deploy has no artwork for shows the picker its real fallback instead
+    // of an empty select that saves as nothing.
+    venueLogoMark: resolveLogoMark(c.venueLogo?.mark),
+    // READ BACK, AND THIS IS THE SHARPEST CASE OF WHY. draftToConfig rebuilds the
+    // whole blob, so a field the form does not carry is dropped by the next
+    // unrelated save — and dropping `wall` from ONE panel of five does not merely
+    // lose a setting: that panel falls back to position 0 of 1, stops rendering its
+    // own slice, and the wall reads as broken while the other four are fine.
+    wallId: c.wall?.wallId ?? "",
+    wallPosition: c.wall?.position ?? 0,
+    wallCount: c.wall?.count ?? 5,
+    wallGapPct: typeof c.wall?.gapPct === "number" ? c.wall.gapPct : 12,
+    wallBrand:
+      c.wall?.brand === "fasttrax" || c.wall?.brand === "headpinz" || c.wall?.brand === "none"
+        ? c.wall.brand
+        : "",
+    // Read back like every other wall field: draftToConfig rebuilds the whole blob, so
+    // a field the form does not carry is one the next unrelated save drops — and
+    // dropping this turns a wing into house ads with nothing to say why.
+    wallOutsideScene:
+      c.wall?.outsideScene === "bowling-checkin" || c.wall?.outsideScene === "event-welcome"
+        ? c.wall.outsideScene
+        : "",
+
     // Read back so that editing anything else on a corrected screen does not
     // un-correct it — draftToConfig below rebuilds the whole blob, so a field
     // the form does not carry is a field the next save silently drops.
     overscanPct: typeof c.overscanPct === "number" ? c.overscanPct : 0,
   };
+}
+
+/** The ticked windows, in a fixed order — shortest first, the way
+ *  /leaderboards lists them. Never empty — see the note at the call site. */
+function resultRangesFromDraft(d: Draft): TopTimesRange[] {
+  const out: TopTimesRange[] = [];
+  if (d.resultsRangeToday) out.push("today");
+  if (d.resultsRangeWeek) out.push("week");
+  if (d.resultsRangeMonth) out.push("month");
+  if (d.resultsRangeYear) out.push("year");
+  if (d.resultsRangeAlltime) out.push("alltime");
+  return out.length > 0 ? out : ["month"];
 }
 
 /** Draft → the config blob the TV actually reads. */
@@ -1030,6 +1293,31 @@ function draftToConfig(d: Draft): ScreenConfig {
     // an advert rotating across the arrow that tells a group which room to
     // walk into would not just be noise, it would send them the wrong way.
     playlist.push({ scene: "race-guide", slots: 1 });
+  } else if (d.showFrontDesk) {
+    // A WALL PANEL OWNS ITS SCREEN, and this branch is the tear invariant in code.
+    // All five panels must carry a BYTE-IDENTICAL playlist, because scene selection is
+    // `slot % totalSlots` — two panels disagreeing about their slot total wrap at
+    // different moments and the wall visibly tears. Writing the literal here rather
+    // than composing it from tick-boxes is what makes that true by construction: the
+    // form cannot produce a variant playlist on one panel. Nothing carries
+    // `requiresData` for the same reason (see defaults.ts FRONT_DESK_CONFIG).
+    //
+    // IT MUST STAY IN STEP WITH THE PRESET. This literal is the second copy of the
+    // front-desk playlist, and it has already drifted once: the preset moved to nine
+    // slots with spans while this still wrote four scenes including a since-deleted
+    // `kiosk-howto` — so saving ANY front-desk screen from this form would have written
+    // a playlist with no spans, which renders the three-panel menu board across all
+    // five and leaves TV 4 and TV 5 blank. `rolePreset("front-desk")` is the source of
+    // truth; read from it rather than restating it.
+    for (const entry of rolePreset("front-desk").config.playlist ?? []) {
+      playlist.push(entry);
+    }
+  } else if (d.showVenueLogo) {
+    // A HOLDING CARD OWNS ITS WALL, and this is the least arguable case of it:
+    // the entire purpose is that ONE mark is on screen and nothing else. An advert
+    // rotating in beside it would turn a deliberate "this is where you are" into a
+    // screen that could not decide what it was for.
+    playlist.push({ scene: "venue-logo", slots: 1 });
   } else if (d.showResults) {
     // A SCORES WALL OWNS ITS WALL: a racer reading their own lap time off it
     // has thirty seconds on the walk past, and rotating an advert across that
@@ -1056,7 +1344,19 @@ function draftToConfig(d: Draft): ScreenConfig {
           },
         }
       : {}),
-    ...(d.showResults && d.resultsTrack ? { resultsBoard: { track: d.resultsTrack } } : {}),
+    ...(d.showResults && d.resultsTrack
+      ? {
+          resultsBoard: {
+            track: d.resultsTrack,
+            role: d.resultsRole,
+            // Windows only mean anything to the top-times role, and they are
+            // written in a fixed order so two boards ticked the same way rotate
+            // the same way. Everything unticked resolves to the month rather
+            // than to an empty rotation, which would render no panel at all.
+            ...(d.resultsRole === "top-times" ? { ranges: resultRangesFromDraft(d) } : {}),
+          },
+        }
+      : {}),
     ...(d.showGuide
       ? {
           raceGuide: {
@@ -1065,6 +1365,11 @@ function draftToConfig(d: Draft): ScreenConfig {
           },
         }
       : {}),
+    // Written only for a logo screen, so every other screen's blob stays exactly
+    // as wide as it was. Harmless if it did leak — resolveScreenConfig gives every
+    // screen a resolved mark and only the venue-logo scene ever reads it — but a
+    // pit board carrying a logo field would be a lie about what configures it.
+    ...(d.showVenueLogo ? { venueLogo: { mark: d.venueLogoMark } } : {}),
     interrupts: {
       "vip-welcome": { enabled: d.vipEnabled, leadMins: d.vipLeadMins },
       celebration: { enabled: d.celebrationEnabled },
@@ -1083,6 +1388,24 @@ function draftToConfig(d: Draft): ScreenConfig {
     ...(d.overscanPct > 0 ? { overscanPct: d.overscanPct } : {}),
     ...(d.pairGroupId
       ? { pairing: { groupId: d.pairGroupId, position: d.pairPosition, count: d.pairCount } }
+      : {}),
+    // Written only when the screen has a wall id: `wallId` is what groups the
+    // panels, and a wall block without one resolves to "not on a wall" anyway.
+    // Kept SEPARATE from `pairing` above, which is the whole architectural point —
+    // two of these five panels also share a player PC, and folding a 5-wide group
+    // into `pairing` would delete their two-monitor launcher (resolvePair needs
+    // exactly 2).
+    ...(d.wallId
+      ? {
+          wall: {
+            wallId: d.wallId,
+            position: d.wallPosition,
+            count: d.wallCount,
+            gapPct: d.wallGapPct,
+            ...(d.wallBrand ? { brand: d.wallBrand } : {}),
+            ...(d.wallOutsideScene ? { outsideScene: d.wallOutsideScene } : {}),
+          },
+        }
       : {}),
   };
 }
@@ -1118,6 +1441,19 @@ function ScreenForm({
       showPitBoard: scenes.has("pit-board"),
       showResults: scenes.has("race-results"),
       showGuide: scenes.has("race-guide"),
+      showFrontDesk: scenes.has("vip-showcase") || scenes.has("open-now"),
+      showVenueLogo: scenes.has("venue-logo"),
+      // The preset names a mark, so picking the role leaves nothing mandatory to
+      // fill in — a logo screen saved straight after choosing it is complete.
+      venueLogoMark: scenes.has("venue-logo")
+        ? resolveLogoMark(preset.config.venueLogo?.mark)
+        : draft.venueLogoMark,
+      // Picking the front-desk role fills in the wall defaults so the only thing
+      // left to set is WHICH panel this is. All five must share the wall id, which
+      // is why it is seeded rather than left blank for five separate typings.
+      wallId: scenes.has("vip-showcase") ? draft.wallId || "hpfm-front-desk" : draft.wallId,
+      wallCount: scenes.has("vip-showcase") ? 5 : draft.wallCount,
+      wallGapPct: scenes.has("vip-showcase") ? 12 : draft.wallGapPct,
       // Picking the briefing role at FastTrax defaults the venue too — the rooms
       // only exist there, and a briefing screen saved as HeadPinz would get no
       // briefing data at all (the pulse skips the lookup off-venue). Same for a
@@ -1129,7 +1465,12 @@ function ScreenForm({
         scenes.has("race-results") ||
         scenes.has("race-guide")
           ? "FT"
-          : draft.venue,
+          : // The front-desk wall is a HeadPinz Fort Myers fixture — it hangs over
+            // that building's second kiosk bank, and a panel saved as FastTrax would
+            // read the wrong venue's ad catalog and brand.
+            scenes.has("vip-showcase")
+            ? "HPFM"
+            : draft.venue,
       vipEnabled: preset.config.interrupts?.["vip-welcome"]?.enabled !== false,
       celebrationEnabled: preset.config.interrupts?.celebration?.enabled !== false,
       crownEnabled: preset.config.interrupts?.["billboard-crown"]?.enabled === true,
@@ -1263,7 +1604,44 @@ function ScreenForm({
           label="Race results board"
           hint="The race that just came back in — final standings with best laps, and who levelled up a class. For a wall at the kart return. Pick the track below. Takes the whole screen; nothing else shows and nothing interrupts it."
         />
+        <Check
+          checked={draft.showFrontDesk}
+          onChange={(v) => set("showFrontDesk", v)}
+          label="Front desk wall panel"
+          hint="One panel of the five-TV wall over the second kiosk bank. All five run the SAME loop — the VIP Experience, the menu board of what's open, then one instruction per kiosk — and each renders its own slice. Takes the whole screen; set the wall position below."
+        />
+        <Check
+          checked={draft.showVenueLogo}
+          onChange={(v) => set("showVenueLogo", v)}
+          label="Logo on black"
+          hint="A holding card: one brand mark, centred on black, and nothing else. For a screen hung before the content that will fill it. Needs no data, so it cannot go stale or blank. Takes the whole screen; pick the mark below."
+        />
       </fieldset>
+
+      {draft.showVenueLogo && (
+        <fieldset style={fieldset}>
+          <legend style={legend}>Logo on black</legend>
+          <Field label="Which mark?">
+            <select
+              value={draft.venueLogoMark}
+              onChange={(e) => set("venueLogoMark", e.target.value as LogoMark)}
+              style={input}
+            >
+              {LOGO_MARK_KEYS.map((mark) => (
+                <option key={mark} value={mark}>
+                  {LOGO_MARKS[mark].label}
+                </option>
+              ))}
+            </select>
+            <p style={hint}>
+              Only marks we hold artwork for are listed &mdash; an option that rendered nothing
+              would be worse than no option. To add one, drop the file into{" "}
+              <code>apps/web/public/promo/</code> and add a row to{" "}
+              <code>features/signage/logo.ts</code>.
+            </p>
+          </Field>
+        </fieldset>
+      )}
 
       {draft.showGuide && (
         <fieldset style={fieldset}>
@@ -1305,23 +1683,90 @@ function ScreenForm({
       )}
 
       {draft.showResults && (
-        <Field label="Which track's results does this screen show?">
-          <select
-            value={draft.resultsTrack}
-            onChange={(e) => set("resultsTrack", e.target.value as Draft["resultsTrack"])}
-            style={input}
-          >
-            <option value="">Choose a track…</option>
-            <option value="blue">Blue Track</option>
-            <option value="red">Red Track</option>
-            <option value="mega">Mega Track</option>
-          </select>
-          <p style={hint}>
-            Required. Until it is set the screen shows a setup notice rather than guessing a track.
-            Heat numbers repeat across tracks — Blue 59 and Red 59 are two different races — so this
-            is what decides which one the board is reporting.
-          </p>
-        </Field>
+        <fieldset style={fieldset}>
+          <legend style={legend}>Scores wall</legend>
+          <Field label="Which track's results does this screen show?">
+            <select
+              value={draft.resultsTrack}
+              onChange={(e) => set("resultsTrack", e.target.value as Draft["resultsTrack"])}
+              style={input}
+            >
+              <option value="">Choose a track…</option>
+              <option value="blue">Blue Track</option>
+              <option value="red">Red Track</option>
+              <option value="mega">Mega Track</option>
+            </select>
+            <p style={hint}>
+              Required. Until it is set the screen shows a setup notice rather than guessing a
+              track. Heat numbers repeat across tracks — Blue 59 and Red 59 are two different races
+              — so this is what decides which one the board is reporting. On a Mega day a Blue or
+              Red board follows the combined circuit on its own; there is nothing to change here.
+            </p>
+          </Field>
+
+          <Field label="What does this screen report?">
+            <select
+              value={draft.resultsRole}
+              onChange={(e) => set("resultsRole", e.target.value as Draft["resultsRole"])}
+              style={input}
+            >
+              <option value="last-race">Last race &mdash; the race that just finished</option>
+              <option value="top-times">Top times &mdash; fastest laps by tier</option>
+            </select>
+            <p style={hint}>
+              Two scores walls on one track show the same thing, which is exactly what a Mega day
+              makes of the Blue and Red pair. Set one to <strong>Last race</strong> and the other to{" "}
+              <strong>Top times</strong> and the pair covers both.
+            </p>
+          </Field>
+
+          {draft.resultsRole === "top-times" && (
+            <Field label="Which windows does it cycle through?">
+              <Check
+                checked={draft.resultsRangeToday}
+                onChange={(v) => set("resultsRangeToday", v)}
+                label="Today"
+                hint="Fastest laps set since 6am today."
+              />
+              <Check
+                checked={draft.resultsRangeWeek}
+                onChange={(v) => set("resultsRangeWeek", v)}
+                label="This week"
+                hint="A rolling seven days, not since Sunday — a Monday board would otherwise be nearly empty."
+              />
+              <Check
+                checked={draft.resultsRangeMonth}
+                onChange={(v) => set("resultsRangeMonth", v)}
+                label="This month"
+                hint="Since the 1st — the window the website's leaderboard opens on."
+              />
+              <Check
+                checked={draft.resultsRangeYear}
+                onChange={(v) => set("resultsRangeYear", v)}
+                label="This year"
+                hint="Since January 1st."
+              />
+              <Check
+                checked={draft.resultsRangeAlltime}
+                onChange={(v) => set("resultsRangeAlltime", v)}
+                label="All time"
+                hint="Every lap we hold a record for."
+              />
+              <p style={hint}>
+                One window per 40-second slot, in the order listed. Tick more than one and the board
+                rotates through them. Everything unticked is treated as This month. Adult and junior
+                get their own turn automatically, and only when somebody has actually raced that
+                class in the window — nothing to configure.
+              </p>
+              <p style={hint}>
+                These are the same windows, and the same records, as the leaderboard on the website
+                — a racer who checks their time at home sees the wall they walked past. Today and
+                This week are narrow enough to read as one session’s times rather than a hall of
+                fame, which is why neither is on by default.
+              </p>
+            </Field>
+          )}
+        </fieldset>
       )}
 
       {draft.showBriefing && (
@@ -1477,10 +1922,10 @@ function ScreenForm({
             <option value="tracker">Session tracker (every stage, checking in to pit in)</option>
           </select>
           <p style={hint}>
-            On Mega days both pit signs read the one combined lane, so the pair would show the
-            same seats. Set one to the session tracker and the pair splits the job: one sign
-            seats the group, the other shows every session&rsquo;s place in the pipeline —
-            called, briefing rooms, holding, karts, on track, pit in.
+            On Mega days both pit signs read the one combined lane, so the pair would show the same
+            seats. Set one to the session tracker and the pair splits the job: one sign seats the
+            group, the other shows every session&rsquo;s place in the pipeline — called, briefing
+            rooms, holding, karts, on track, pit in.
           </p>
         </Field>
       )}
@@ -1530,6 +1975,101 @@ function ScreenForm({
           percent costs a little picture, so stop at the first value that works.
         </p>
       </Field>
+
+      <fieldset style={fieldset}>
+        <legend style={legend}>Video wall (optional)</legend>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <input
+            type="text"
+            value={draft.wallId}
+            placeholder="Wall name, e.g. hpfm-front-desk"
+            onChange={(e) => set("wallId", e.target.value)}
+            style={{ ...input, flex: "1 1 200px" }}
+            aria-label="Wall name"
+          />
+          <input
+            type="number"
+            min={0}
+            value={draft.wallPosition}
+            onChange={(e) => set("wallPosition", Number(e.target.value))}
+            style={{ ...input, width: 110 }}
+            aria-label="Position on the wall (0 = far left)"
+          />
+          <input
+            type="number"
+            min={1}
+            value={draft.wallCount}
+            onChange={(e) => set("wallCount", Number(e.target.value))}
+            style={{ ...input, width: 110 }}
+            aria-label="Panels on the wall"
+          />
+        </div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+          <label style={{ ...hint, display: "flex", alignItems: "center", gap: 8 }}>
+            Gap between panels
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={draft.wallGapPct}
+              onChange={(e) => set("wallGapPct", Number(e.target.value))}
+              style={{ ...input, width: 90 }}
+              aria-label="Gap between panels, percent of one panel's width"
+            />
+            % of one panel
+          </label>
+          <select
+            value={draft.wallBrand}
+            onChange={(e) => set("wallBrand", e.target.value as Draft["wallBrand"])}
+            style={{ ...input, width: 220 }}
+            aria-label="Brand mark on this panel"
+          >
+            <option value="">Brand mark: from its place on the wall</option>
+            <option value="fasttrax">FastTrax</option>
+            <option value="headpinz">HeadPinz</option>
+            <option value="none">No mark</option>
+          </select>
+          <select
+            value={draft.wallOutsideScene}
+            onChange={(e) => set("wallOutsideScene", e.target.value as Draft["wallOutsideScene"])}
+            style={{ ...input, width: 300 }}
+            aria-label="What this panel shows when the scene does not reach it"
+          >
+            <option value="">When not part of the scene: house ads</option>
+            <option value="bowling-checkin">Self check-in list and lanes</option>
+            <option value="event-welcome">Today&apos;s events and VIPs</option>
+          </select>
+        </div>
+        <p style={hint}>
+          Several screens hung close enough to read as ONE picture. Give every panel the same wall
+          name and its own position — <b>0 is the far left as you face the wall</b> — and each one
+          renders its own slice of every scene instead of all five showing the same card.
+        </p>
+        <p style={hint}>
+          <b>All panels of a wall must show the same things.</b> Which scene is up is worked out
+          from the clock as <i>slot ÷ number of slots</i>, so a panel with a different set of
+          tick-boxes wraps at a different moment and the wall visibly tears. Tick{" "}
+          <b>Front desk wall panel</b> on all five and change nothing else.
+        </p>
+        <p style={hint}>
+          The gap is what a wall-long light pass has to travel across — measure it, don&apos;t
+          guess. ~6 inches on a ~48 inch picture is about 12%. It is a percentage of{" "}
+          <b>one panel&apos;s width</b>, not of the whole wall.
+        </p>
+        <p style={hint}>
+          <b>Some scenes use the whole wall, some only the middle.</b> When a scene covers the
+          middle three, the two END panels are not part of it &mdash; so each one shows whatever you
+          pick above instead. That is how the far-left panel becomes the self check-in list and the
+          far-right becomes today&rsquo;s events, while the middle three carry the pricing. A panel
+          with nothing of its own falls back to house advertising, and so does one whose board has
+          nothing to say tonight.
+        </p>
+        <p style={hint}>
+          This is separate from pairing below, and both can be set at once: pairing is which two
+          screens share one player PC (it must be exactly two, or the two-monitor launcher
+          disappears), while the wall is how many perform together.
+        </p>
+      </fieldset>
 
       <fieldset style={fieldset}>
         <legend style={legend}>Pair with another screen (optional)</legend>

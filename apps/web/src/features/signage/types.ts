@@ -18,6 +18,7 @@ import type { BriefingRoomState } from "./briefing/types";
 import type { CheckinProgressSession } from "./checkin-progress";
 import type { FastPitRoster, PitBoardInfo, PitLanes } from "./pit/pit-board";
 import type { ResultsBoardView } from "./results-board";
+import type { TopTimesView } from "./top-times";
 
 /**
  * A scene is one full-screen visual. Adding a scene type is the only reason
@@ -25,6 +26,10 @@ import type { ResultsBoardView } from "./results-board";
  *
  *  - `ads`            house advertising for what's purchasable at the kiosks
  *  - `event-welcome`  today's birthday parties + contracted group functions
+ *  - `event-checkin`  the events board's IDLE state: a check-in signpost for the
+ *                     guest who booked online, pointing at the kiosks below.
+ *                     Never a rotation entry — it is the UNDERSTUDY the events
+ *                     wing falls to on a night with nothing booked
  *  - `vip-welcome`    VIP party takeover ahead of their bowling leg
  *  - `celebration`    a booking/check-in just completed on a kiosk below
  *  - `billboard-crown` the TV joining the kiosk bank's billboard as its crown
@@ -49,11 +54,45 @@ import type { ResultsBoardView } from "./results-board";
  *                     rooms: what to know before you race, over track
  *                     photography — then a very large arrow in the track's
  *                     colour the moment that heat is sent to a room
+ *
+ *  THE FRONT-DESK WALL (HeadPinz Fort Myers, five panels over a second kiosk
+ *  bank). All three read `wall.position` through `choreo()` and render THEIR
+ *  SLICE of one composition — five panels of the same card would be a hall of
+ *  mirrors. All three are also DATA-OPTIONAL: they must never be given
+ *  `requiresData`, because a dropped entry changes `totalSlots` on one panel and
+ *  tears the wall (see ScreenWall and the plan's tear invariant).
+ *
+ *  - `vip-showcase`   the VIP Experience across five panels, four sub-slides:
+ *                     the statement, the night's three legs, what's included,
+ *                     the price. A gold identity rail names the product and its
+ *                     price on every panel of every slide, so a guest walking up
+ *                     mid-slide always knows what they are looking at
+ *  - `open-now`       the venue's menu board across the MIDDLE THREE panels: one
+ *                     subject per panel, dealt from six subject slots in two sets
+ *                     that cut together every 40s. Live "next available" from the
+ *                     same cache the kiosks read; a paused product shows no price
+ *                     and no time
+ *  - `bowling-checkin` the wall's LEFT WING: two columns — who can check themselves
+ *                     in right now, and who has, with their lane. Selected because
+ *                     that panel sits outside the running scene's span, never
+ *                     because it has data (see ScreenWall.outsideScene)
+ *
+ *  (`kiosk-howto` was here and is gone: "buy it on the kiosk below" became permanent
+ *  chrome under every pricing panel, which said both things at once and cost no
+ *  airtime, so the scene had nothing left to do.)
+ *
+ *  - `venue-logo`     one brand mark, centred on black, and nothing else. The
+ *                     scene a screen runs before it has a job: it needs no feed,
+ *                     no scope and no vendor, so it cannot be wrong. Which mark
+ *                     comes from `venueLogo.mark` — a logo screen is not tied to
+ *                     its venue's brand (the Old Time Lanes pair stands inside
+ *                     HeadPinz Fort Myers and wears the PinBoyz mark)
  *  - `sleep`          venue closed — panel/power saver
  */
 export type SceneType =
   | "ads"
   | "event-welcome"
+  | "event-checkin"
   | "vip-welcome"
   | "celebration"
   | "billboard-crown"
@@ -63,6 +102,10 @@ export type SceneType =
   | "pit-board"
   | "race-results"
   | "race-guide"
+  | "vip-showcase"
+  | "open-now"
+  | "bowling-checkin"
+  | "venue-logo"
   | "sleep";
 
 /** Scenes a screen rotates through on its base loop (interrupts are separate). */
@@ -75,6 +118,8 @@ export const ROTATION_SCENE_TYPES = [
   "pit-board",
   "race-results",
   "race-guide",
+  "vip-showcase",
+  "open-now",
 ] as const satisfies readonly SceneType[];
 
 /** Scenes that PREEMPT the rotation when their trigger fires. */
@@ -93,10 +138,36 @@ export const INTERRUPT_SCENE_TYPES = [
  * two screens with the same playlist frame-synced with no messaging between
  * them. A scene that wants ~80s asks for 2 slots.
  */
+/**
+ * How much of a WALL one playlist entry occupies.
+ *
+ *   `wall`    every panel — the default, and what every screen off a wall does.
+ *   `middle`  positions 1..count-2, i.e. the middle three of five. The panels either
+ *             side fall out of the composition and render their own `outsideScene`.
+ *
+ * ON THE ENTRY, NOT ON THE SCREEN, and that is what keeps the tear invariant intact
+ * for free: the playlist stays byte-identical on all five panels, the span is part of
+ * that identical playlist, and each panel works out from its OWN position whether it
+ * is inside. Nothing is negotiated between screens.
+ *
+ * A SPAN NEVER CHANGES AT RUNTIME. It is tempting to widen a 3-wide scene back to 5
+ * when the wings have nothing to say — and that tears the wall, for the same reason
+ * `requiresData` is banned here: five players poll on independent 15s phases, so for
+ * up to fifteen seconds one panel can believe the composition is 3-wide while another
+ * believes it is 5-wide, and both then render the leftmost slice. A wing with nothing
+ * to show runs the ADS scene instead, which is not a spanning composition at all (each
+ * panel picks its own slide off the shared clock), so there is no position to disagree
+ * about. See tasks/front-desk-wall-formats.md.
+ */
+export type SceneSpan = "wall" | "middle";
+
 export interface PlaylistEntry {
   scene: SceneType;
   /** Length in 40s slots. Defaults to 1. */
   slots?: number;
+  /** How much of a wall this entry occupies. Defaults to the whole wall, which is
+   *  also what every screen that is not on a wall does. */
+  span?: SceneSpan;
   /**
    * Skip this entry when its data selector comes back empty — an event-welcome
    * board with no events today must never render as a blank panel; the rotation
@@ -172,12 +243,73 @@ export interface ScreenPairing {
   count: number;
 }
 
+/**
+ * A VIDEO WALL — several screens hung close enough to read as one picture.
+ *
+ * The other half of `ScreenPairing`, and deliberately NOT the same field, because
+ * `pairing` is already doing two jobs that collide once a group grows past two:
+ *
+ *   1. `resolvePair()` returns null unless a group has EXACTLY 2 screens, and
+ *      that is what builds the two-monitor launcher (`buildDualStartupScript`).
+ *   2. `SceneBirthdayTakeover` and `track.ts megaSplit` read `position`/`count`
+ *      as the CHOREOGRAPHY primitive.
+ *
+ * The HeadPinz Fort Myers front-desk wall is five panels driven by three player
+ * PCs (2 + 1 + 2). Folding a 5-wide choreography group into `pairing` would take
+ * the dual launchers away from two of those machines. So the machine pairs stay
+ * in `pairing` and the wall lives here — `choreo()` in ./wall.ts is the one
+ * resolver every scene asks, so no scene has to know which field it got.
+ *
+ * THE GAP IS THE DESIGN CONSTRAINT. The karting boards sit ~4 feet apart, where
+ * nothing readable may cross the gap; these sit ~6 INCHES apart, where the gap
+ * reads as word-spacing. So the law for a wall is "a word never crosses a gap, a
+ * sentence may" — see tasks/front-desk-wall-plan.md.
+ */
+export interface ScreenWall {
+  /** Which wall. Every panel of one wall carries the same id. */
+  wallId: string;
+  /** 0 = leftmost as you FACE the wall. */
+  position: number;
+  /** How many panels the wall has. */
+  count: number;
+  /**
+   * Gap between panels as a percent of ONE panel's picture width. ~6in on a
+   * ~48in picture is ~12. Drives the virtual canvas any wall-wide gradient
+   * paints into, so a light pass travels at one speed across glass and gap
+   * alike. Clamped 0-100 at read time; defaults to 12.
+   */
+  gapPct?: number;
+  /**
+   * A brand mark this panel may carry. "two locations" is FastTrax FM + HeadPinz
+   * FM (owner 2026-08-17), and the two marks live on the two ENDS of the wall so
+   * the statement it makes has a bookend either side. Inner panels carry "none".
+   * Absent = derived (first panel fasttrax, last headpinz, inner none).
+   */
+  brand?: "fasttrax" | "headpinz" | "none";
+  /**
+   * WHAT THIS PANEL SHOWS WHEN THE RUNNING SCENE DOES NOT REACH IT.
+   *
+   * A fact about this panel's job, which is why it lives on the screen rather than on
+   * the playlist: the wall's left wing is the self-check-in board and its right wing
+   * is today's events, and that is true of those two panels whatever is playing in the
+   * middle. Absent on the middle panels, which are never outside a span.
+   *
+   * Falls back to house ads, which is the right answer for a wing whose own board has
+   * nothing to say — see the note on SceneSpan for why it must not instead widen the
+   * middle scene.
+   */
+  outsideScene?: SceneType;
+}
+
 /** The per-screen config blob (JSONB in Neon). Every field optional. */
 export interface ScreenConfig {
   playlist?: PlaylistEntry[];
   interrupts?: ScreenInterrupts;
   scope?: ScreenScope;
   pairing?: ScreenPairing;
+  /** This screen is one panel of a video wall — see ScreenWall. Absent on every
+   *  screen hung on its own, which is all of them but the front-desk five. */
+  wall?: ScreenWall;
   /** Which ad slide set to run. Defaults to the venue's own. */
   adSet?: string;
   /** Put "Next available" times on the ad slides. Off unless asked for — an
@@ -242,8 +374,26 @@ export interface ScreenConfig {
    *
    * Absent on every screen that is not a results board, which then shows the
    * setup notice rather than adopting a track at random.
+   *
+   * `role` is WHAT this wall reports, and it is the same idea as `megaRole` and
+   * `pitMegaRole` next door: two scores walls on one track — which is what a
+   * Mega day makes of the Blue and Red pair, since both then follow the one
+   * combined circuit — would otherwise show byte-identical content and waste a
+   * screen. `last-race` is the race that just came back in (the default, and
+   * today's behaviour to the pixel); `top-times` is the hall-of-fame board,
+   * fastest laps over a window.
+   *
+   * `ranges` belongs to `top-times` only: which windows it cycles through, in
+   * order, one per playlist slot. Empty or absent means `["month"]`, which is
+   * the window /leaderboards itself opens on — a hall of fame is about the
+   * standing record, whereas a "today" wall is a list of the session that just
+   * finished. Ignored by `last-race`.
    */
-  resultsBoard?: { track: "blue" | "red" | "mega" };
+  resultsBoard?: {
+    track: "blue" | "red" | "mega";
+    role?: "last-race" | "top-times";
+    ranges?: Array<"today" | "week" | "month" | "year" | "alltime">;
+  };
   /**
    * The check-in guide wall: which track it speaks for, WHICH WAY THE BRIEFING
    * ROOMS ARE, and how long the wayfinding takeover holds.
@@ -274,6 +424,19 @@ export interface ScreenConfig {
     holdMs?: number;
   };
   /**
+   * WHICH BRAND MARK a `venue-logo` screen wears.
+   *
+   * Deliberately NOT derived from the screen's venue. The Old Time Lanes pair
+   * stands inside HeadPinz Fort Myers and wears the PinBoyz mark, so a screen's
+   * building tells you nothing about the mark over it — and there are seven
+   * other HPFM screens that must not inherit this one.
+   *
+   * An absent, misspelt or newer-deploy mark resolves to the default rather than
+   * rendering nothing (`resolveLogoMark`): a screen whose only content is one
+   * image must not go black over a typo in a text field.
+   */
+  venueLogo?: { mark?: string };
+  /**
    * HOW MUCH OF THIS PANEL'S EDGE IS CROPPED — the one thing about a TV that the
    * TV cannot work out for itself.
    *
@@ -298,6 +461,35 @@ export interface ScreenConfig {
    * would otherwise leave a panel unlit.
    */
   overscanPct?: number;
+}
+
+/**
+ * One bowling offer as a wall reads it.
+ *
+ * `unit` matters as much as the price: an hourly lane is priced PER LANE (up to 6
+ * bowlers) and an open-play package PER PERSON, so a bare "$35" on a wall is two
+ * very different offers depending on which it is. Derived from the experience's
+ * own kind (`isPerLaneExperience`), never guessed.
+ */
+export interface BowlingWallOffer {
+  /** Guest-facing name, day range stripped — the wall only shows today's. */
+  label: string;
+  /** e.g. "$35". Absent when the catalog row carries no priced primary item. */
+  priceLabel: string | null;
+  /** "per lane" | "per person" */
+  unit: string;
+  /** e.g. "1.5 hours", when the offer has a fixed length. */
+  durationLabel: string | null;
+  /**
+   * Are shoes in the price?
+   *
+   * NOT a constant, and not something to assume of a "special": Fun 4 All and Pizza
+   * Bowl include them, MIDNIGHT MADNESS DOES NOT, and neither does an hourly lane.
+   * Blanket-printing "shoes included" would be a $5-per-person surprise at the desk
+   * on a Friday night. Derived from the catalog's own description so the wall follows
+   * whatever the offer actually says.
+   */
+  shoesIncluded: boolean;
 }
 
 /** A provisioned screen — one row of `signage_screens`. */
@@ -662,6 +854,18 @@ export interface TvFeed {
    */
   raceResults: ResultsBoardView | null;
   /**
+   * The OTHER face of the scores wall: fastest laps over a window, by tier and
+   * class, for a `race-results` screen whose `resultsBoard.role` is
+   * `top-times`. Null on every other screen, including a results wall in its
+   * default `last-race` role — the two roles are mutually exclusive and the
+   * feed only ever builds the one this screen asked for.
+   *
+   * PII NOTE — participant names as the timing system holds them, same posture
+   * as `raceResults` above and as the public /leaderboards page, which shows
+   * these exact rows.
+   */
+  topTimes: TopTimesView | null;
+  /**
    * Guide-wall extra: the live send state of EVERY track this one screen
    * covers, so a single wall can point either group at their room.
    *
@@ -684,6 +888,78 @@ export interface TvFeed {
        *  Mega day both rooms serve the one circuit. */
       briefedRoom: "red" | "blue" | null;
     }>;
+  } | null;
+  /**
+   * TONIGHT'S BOWLING, from the experience catalog — the regular offer and the VIP
+   * one, with the prices the kiosk will charge.
+   *
+   * Its own feed section rather than a price in the scene, because bowling is the
+   * one attraction with NO static price: lanes are dynamic through QAMF and
+   * `ATTRACTIONS.bowling` carries `price: 0` on purpose. The real numbers live in
+   * Neon (`bowling_experiences` + `bowling_experience_offers`), which is a server
+   * read, so the only honest way to get them onto a wall is through the feed.
+   *
+   * Null for every screen that does not run the menu board, and null when the
+   * catalog read fails — the panel then sells availability instead of inventing a
+   * lane price, which is the failure mode the house pricing rule exists to stop.
+   */
+  bowlingTonight: {
+    /**
+     * TONIGHT'S SPECIAL — the package, in its regular and VIP forms. Fun 4 All
+     * Mon–Thu, Midnight Madness Fri/Sat, Pizza Bowl Sunday. This is what the wall
+     * leads with: the hourly lane rate is the everyday baseline, not the offer
+     * (owner 2026-08-18, "Bowling is missing the special. Fun 4 All tonight").
+     */
+    special: { regular: BowlingWallOffer | null; vip: BowlingWallOffer | null } | null;
+    /** The plain hourly lane rate, so a guest who just wants a lane still has a
+     *  price. Null on a night with no hourly offer. */
+    hourly: { regular: BowlingWallOffer | null; vip: BowlingWallOffer | null } | null;
+  } | null;
+  /**
+   * WHO SELF-CHECKED IN AND WHICH LANE — the front-desk wall's left panel.
+   *
+   * Only SELF check-ins: a guest who checked in at the desk already had a human say
+   * the lane number, so listing them would pad the board with people who do not need
+   * it. Only rows whose lane has actually been assigned, because "checked in, lane
+   * coming" is a promise the board cannot keep.
+   *
+   * FIRST NAMES ONLY, like every other guest-facing board on the estate — this one is
+   * printed a foot tall in a public lobby. Null for every screen that does not run
+   * the board, and when the read fails.
+   */
+  bowlingCheckins: {
+    /**
+     * Guests whose LANE IS AVAILABLE, so self check-in will actually succeed right now
+     * (owner 2026-08-19) — not everyone who is merely due.
+     *
+     * Self check-in only completes when QAMF reports the lane ready, so a board listing
+     * everybody due would send guests to a kiosk that refuses them. Readiness is decided
+     * by the `bowling-lane-ready` cron once a minute and cached in Redis, because working
+     * it out takes two vendor reads and a vendor read may never sit on a screen's render
+     * path.
+     */
+    available: {
+      /** Redacted the way every guest-facing surface does it: "Gabby W." */
+      name: string;
+      /** Their booked time, so a guest can pick their own line out of several. */
+      timeLabel: string;
+      /**
+       * "12" or "12, 13" — shown BEFORE check-in, because "Lane 12, go ahead" is a better
+       * invitation than "you can check in". Empty when the booked lane was marked Ready
+       * without numbers being visible yet.
+       */
+      lanes: string;
+    }[];
+    /** Checked themselves in, with the lane they were given. */
+    checkedIn: {
+      /** Redacted the way every guest-facing surface does it: "Gabby W." */
+      name: string;
+      /** "12" or "12, 13" — whatever lanes they were given. */
+      lanes: string;
+      /** True once the lane-ready notification has gone out, i.e. the lane is
+       *  physically ready and they can walk over. */
+      laneReady: boolean;
+    }[];
   } | null;
   /** Product ids currently off-sale — never advertise a paused product. */
   pausedProductIds: string[];

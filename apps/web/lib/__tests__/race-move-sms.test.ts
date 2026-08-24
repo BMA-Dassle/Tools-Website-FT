@@ -41,16 +41,18 @@ describe("heatLabelShort", () => {
 
 describe("buildSingleMoveSmsBody", () => {
   it("names the racer and shows Was/Now on their own lines", () => {
-    const body = buildSingleMoveSmsBody(NEW_HEAT, OLD_REF, URL, CTA);
+    const body = buildSingleMoveSmsBody(NEW_HEAT, OLD_REF, URL);
     expect(body).toContain("FastTrax: race time change for Jordan Lee");
     expect(body).toContain("Was Heat 5 Blue Starter check-in 2:00 PM");
     expect(body).toContain("Now Heat 8 Red Pro check-in 3:10 PM");
     expect(body).toContain(URL);
-    expect(body).toContain(CTA);
+    // Trailing CTA removed 2026-08-20 — asserted absent so it cannot
+    // creep back in and cost 23 chars on every send.
+    expect(body).not.toContain(CTA);
   });
 
   it("is GSM-7 safe (ASCII only)", () => {
-    expect(buildSingleMoveSmsBody(NEW_HEAT, OLD_REF, URL, CTA)).not.toMatch(NON_GSM7);
+    expect(buildSingleMoveSmsBody(NEW_HEAT, OLD_REF, URL)).not.toMatch(NON_GSM7);
   });
 });
 
@@ -74,7 +76,6 @@ describe("buildGroupMoveSmsBody", () => {
         { member: CASEY, movedFrom: null },
       ],
       URL,
-      CTA,
     );
     expect(body).toContain("FastTrax: race time change");
     expect(body).toContain(
@@ -83,7 +84,10 @@ describe("buildGroupMoveSmsBody", () => {
     expect(body).toContain("- Casey Lee: Heat 6 Blue Starter check-in 2:15 PM");
     expect(body).not.toMatch(/Casey Lee: was/);
     expect(body).toContain(URL);
-    expect(body).toContain(CTA);
+    // The trailing "Have open for check-in" line was removed 2026-08-20 --
+    // it restated the link for 23 chars on a rail already paying for
+    // multi-segment sends. Asserted as an absence so it cannot creep back.
+    expect(body).not.toContain(CTA);
     expect(body).not.toMatch(NON_GSM7);
   });
 
@@ -94,13 +98,12 @@ describe("buildGroupMoveSmsBody", () => {
         { member: CASEY, movedFrom: null }, // 2:15
       ],
       URL,
-      CTA,
     );
     expect(body.indexOf("Casey Lee")).toBeLessThan(body.indexOf("Jordan Lee"));
   });
 
   it("guardian flavor uses the 'your racers' header", () => {
-    const body = buildGroupMoveSmsBody([{ member: NEW_HEAT, movedFrom: OLD_REF }], URL, CTA, {
+    const body = buildGroupMoveSmsBody([{ member: NEW_HEAT, movedFrom: OLD_REF }], URL, {
       guardian: true,
     });
     expect(body).toContain("FastTrax: race time change for your racers");

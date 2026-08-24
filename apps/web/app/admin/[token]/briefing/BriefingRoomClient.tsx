@@ -98,7 +98,6 @@ const INK = "#e8eef7";
  *  and a reload (including the self-update below) comes back to the same room. */
 const ROOM_STORAGE_KEY = "ft-briefing-room";
 
-
 /** "red" → "Red", for a button that names a room in a sentence. */
 function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
@@ -274,8 +273,12 @@ const STYLES = `
  */
 interface SessionStat {
   sessionId: number | string;
-  checkedIn: number;
-  total: number;
+  /** Null only until this heat has been counted once — after that the desk's
+   *  shared roster entry stands in. See features/racing/roster-count.ts. */
+  checkedIn: number | null;
+  total: number | null;
+  /** The count is the last one counted rather than a fresh read. */
+  stale?: boolean;
   /** Square location id — stats rows now include HP arena sessions (FM +
    *  Naples). Naples runs a separate BMI server whose sessionIds can
    *  numerically collide with FastTrax heats, so racing matches must
@@ -1195,6 +1198,25 @@ export default function BriefingRoomClient({
           s.locationId !== HP_NAPLES_LOCATION_ID,
       )) ||
     null;
+  /**
+   * THE COUNT, ONLY IF IT IS ACTUALLY A COUNT.
+   *
+   * A stats row now reports `null` when the desk's roster read did not come back
+   * (see features/racing/roster-count.ts) — the row still exists, because the
+   * heat is still called, but its numbers are unknown. Everything downstream of
+   * here already knows how to say "waiting on the roster"; it just has to be
+   * given null rather than a pair of zeros that read as an empty grid.
+   *
+   * A carried-over count is deliberately NOT passed through either: the pull
+   * gate opens on "everyone is here", and that has to mean counted just now.
+   */
+  const incomingCount =
+    incomingStat &&
+    !incomingStat.stale &&
+    typeof incomingStat.checkedIn === "number" &&
+    typeof incomingStat.total === "number"
+      ? { checkedIn: incomingStat.checkedIn, total: incomingStat.total }
+      : null;
   const incomingSentTo = incomingRace
     ? (control.board?.briefedSessions?.[String(incomingRace.sessionId)]?.room ?? null)
     : null;
@@ -1218,9 +1240,7 @@ export default function BriefingRoomClient({
     liveCounting: raceClock?.phase === "running",
     liveRemainingMs: raceClock?.liveRemainingMs ?? null,
     formatClock: clock,
-    checkedIn: incomingStat
-      ? { checkedIn: incomingStat.checkedIn, total: incomingStat.total }
-      : null,
+    checkedIn: incomingCount,
   });
 
   /**
@@ -1269,9 +1289,7 @@ export default function BriefingRoomClient({
     sentToRoom: incomingSentTo,
     inRoomHeatNumber: state?.heatNumber ?? null,
     roomOccupied: !!state,
-    checkedIn: incomingStat
-      ? { checkedIn: incomingStat.checkedIn, total: incomingStat.total }
-      : null,
+    checkedIn: incomingCount,
     late: pullLate,
   });
 
@@ -1292,10 +1310,10 @@ export default function BriefingRoomClient({
   /** Why the pull is not on offer, in the words the room would use. Null when
    *  there is nothing worth saying — an empty track needs no explanation. */
   const pullRefusal = (reason: PullRefusal): string | null => {
-    const short = incomingStat ? Math.max(0, incomingStat.total - incomingStat.checkedIn) : 0;
+    const short = incomingCount ? Math.max(0, incomingCount.total - incomingCount.checkedIn) : 0;
     switch (reason) {
       case "not-all-checked-in":
-        return `${incomingStat?.checkedIn ?? 0} of ${incomingStat?.total ?? 0} checked in — ${short} still to scan.`;
+        return `${incomingCount?.checkedIn ?? 0} of ${incomingCount?.total ?? 0} checked in — ${short} still to scan.`;
       case "no-roster":
         return "Waiting on the roster — the desk has no count for this heat yet.";
       case "room-occupied":
@@ -1310,7 +1328,6 @@ export default function BriefingRoomClient({
         return null;
     }
   };
-
 
   return (
     <main
@@ -1526,8 +1543,8 @@ export default function BriefingRoomClient({
                         color: pull.ok ? GREEN : INK,
                       }}
                     >
-                      {incomingStat && incomingStat.total > 0
-                        ? `${incomingStat.checkedIn} of ${incomingStat.total}`
+                      {incomingCount && incomingCount.total > 0
+                        ? `${incomingCount.checkedIn} of ${incomingCount.total}`
                         : "—"}
                     </span>
                     <span

@@ -71,6 +71,23 @@ export interface StageRow {
    * fact differently. `alert` is only ever a post-race announcement still owed.
    */
   tone: "none" | "good" | "warn" | "alert";
+  /**
+   * THE ROOM THIS GROUP IS COMING BACK TO — the four lane stages only.
+   *
+   * A group welcomes back into the room it was briefed in
+   * (briefing/welcome-back.ts), and the lane has carried that room on every
+   * slot since the send. So from the seats to the pit it is knowable the whole
+   * way through, and it is a fact about the FUTURE: on a Mega night one circuit
+   * is fed by two rooms, and "which room does this race belong to" is the
+   * question the tracker wall exists to answer (owner 2026-08-17).
+   *
+   * Null wherever it genuinely is not known: the desk stages (a called heat has
+   * not been given a room yet), a heat the timing feed alone put on track with
+   * no lane slot behind it, and a group placed by hand from Override with
+   * nothing to copy from. A room is never inferred from a neighbouring slot —
+   * the slots hold DIFFERENT groups on a busy night.
+   */
+  room?: "red" | "blue" | null;
 }
 
 const EMPTY = "—";
@@ -228,6 +245,7 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
       : undefined,
     heatNumber: holding?.heatNumber ?? null,
     tone: "none",
+    room: holding?.room ?? null,
   });
 
   const karts = lane?.karts ?? null;
@@ -238,6 +256,7 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
     detail: karts ? "seated — waiting on the green" : undefined,
     heatNumber: karts?.heatNumber ?? null,
     tone: karts ? "good" : "none",
+    room: karts?.room ?? null,
   });
 
   const racing = lane?.racing ?? null;
@@ -258,6 +277,10 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
     detail: trackDetail,
     heatNumber: onTrackHeat,
     tone: "none",
+    // THE LANE'S ROOM, NEVER THE FEED'S HEAT. `onTrackHeat` may have come from
+    // the timing socket alone, which knows a heat name and nothing about where
+    // that group was briefed — the same rule the level above already follows.
+    room: racing?.room ?? null,
   });
 
   const pitIn = lane?.pitIn ?? null;
@@ -273,6 +296,7 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
       : undefined,
     heatNumber: pitIn?.heatNumber ?? null,
     tone: pitIn ? "alert" : "none",
+    room: pitIn?.room ?? null,
   });
 
   return rows;

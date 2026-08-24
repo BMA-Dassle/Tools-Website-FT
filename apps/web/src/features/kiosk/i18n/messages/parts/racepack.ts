@@ -79,7 +79,13 @@ export const racepackEn = {
   // Limited-time SKU ribbon + tier marker. The registry's `badge` string is an
   // ENGLISH marker for the code to branch on — it is never printed, so a
   // Spanish kiosk always reads these.
-  "racePack.picker.flashSale": "Flash Sale",
+  //
+  // The ribbon names WHEN the current limited-time offer runs, so it changes
+  // with the offer: it read "Flash Sale" for the two-day 8/12–8/13 BOGO and
+  // reads "Wednesdays" now that BOGO is weekly (owner 2026-08-19). The key name
+  // is historical — only one limited-time SKU family carries a `badge` at a
+  // time, and whoever introduces the next one re-words this pair.
+  "racePack.picker.flashSale": "Wednesdays",
   "racePack.picker.juniorTier": "Junior",
   "racePack.picker.dayNoteWeekday": "Cheapest — good on Mon–Thu visits",
   "racePack.picker.dayNoteAny": "Use them any day of the week",
@@ -117,11 +123,18 @@ export const racepackEn = {
   "payMode.sub.today": "Prepay and save, or just pay for today. You’ll pick the race next.",
   "payMode.recommended": "★ FastTrax recommended",
   // Replaces the recommended pill while a limited-time bundle holds the hero card.
-  "payMode.flashSale": "★ FLASH SALE — AUG 12–13 ONLY",
+  // Names the promo's DAYS, not a countdown — BOGO is weekly now (owner
+  // 2026-08-19), so the old "AUG 12–13 ONLY" would go stale every week.
+  "payMode.flashSale": "★ BOGO — EVERY WEDNESDAY",
   "payMode.selected": "✓ Selected",
   "payMode.bogo.title": "2 Races for the Price of 1",
+  // Says BOTH days on purpose: the promo runs on Wednesday races, but the free
+  // credit lands on the Mon–Thu deposit kind and really is good on any of those
+  // days (packs.ts explains why it is not narrowed to Wednesdays). Naming only
+  // "Wednesday" here would understate the credit; naming only "Mon–Thu" would
+  // read as though the deal itself ran all week.
   "payMode.bogo.sub":
-    "Buy one race, get one free — the second banks to your account for a Mon–Thu visit.",
+    "Buy one race on a Wednesday, get one free — the second banks to your account for any Mon–Thu visit.",
   "payMode.raceWord": "{count, plural, one {race} other {races}}",
   "payMode.incl.prefix": "incl. {list}",
   "payMode.incl.license": "license",
@@ -222,7 +235,7 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   "racePack.picker.save": "Ahorra {amount}",
   // "Junior" se mantiene en inglés: es el nombre de la categoría de carrera que
   // ya usan el personal y la señalización del centro.
-  "racePack.picker.flashSale": "Oferta Relámpago",
+  "racePack.picker.flashSale": "Miércoles",
   "racePack.picker.juniorTier": "Junior",
   "racePack.picker.dayNoteWeekday": "Más barato — válido en visitas de lun–jue",
   "racePack.picker.dayNoteAny": "Úsalas cualquier día de la semana",
@@ -260,11 +273,11 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
     "Aunque hayas corrido en otro lugar — una carrera Starter aquí desbloquea los karts más rápidos.",
   "payMode.sub.today": "Prepaga y ahorra, o paga solo lo de hoy. La carrera se elige después.",
   "payMode.recommended": "★ Recomendado por FastTrax",
-  "payMode.flashSale": "★ OFERTA RELÁMPAGO — SOLO 12–13 DE AGO",
+  "payMode.flashSale": "★ BOGO — TODOS LOS MIÉRCOLES",
   "payMode.selected": "✓ Seleccionado",
   "payMode.bogo.title": "2 Carreras por el Precio de 1",
   "payMode.bogo.sub":
-    "Compra una carrera y llévate otra gratis — la segunda se guarda en tu cuenta para una visita de lun–jue.",
+    "Compra una carrera un miércoles y llévate otra gratis — la segunda se guarda en tu cuenta para cualquier visita de lun–jue.",
   "payMode.raceWord": "{count, plural, one {carrera} other {carreras}}",
   "payMode.incl.prefix": "incluye {list}",
   "payMode.incl.license": "licencia",

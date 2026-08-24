@@ -1,5 +1,143 @@
 # Lessons Learned
 
+## A latent fallback goes live the moment a filter widens — and the test that guarded it was asserting the bug (2026-08-19)
+
+**What happened:** every bowling reservation on the kiosk check-in list read four hours late — a
+9:40 PM lane advertised as 1:40 AM. 23 of 80 live HPFM reservations were wrong, and all 23 were
+bowling. The racing rows on the same list were all correct, and the front-desk TV, reading the
+SAME column out of the SAME table, was correct too.
+
+1. **A `Date` that becomes a string picks a zone, and `toISOString()` picks the wrong one.**
+   `bowling-db` maps `bookedAt: (row.booked_at as Date).toISOString()`, so the value is always a
+   UTC instant (`2026-08-19T01:00:00.000Z`). Everything downstream in the kiosk treats a time
+   string as a NAIVE ET wall-clock and strips the zone suffix — that is the documented house
+   convention. Hand those two facts to each other and the board prints the UTC hour. A `: string`
+   type says nothing about which clock the digits are on; same shape as the BMI id-precision trap.
+2. **The fallback had never been on a screen, so nobody had ever looked at it.** `browseRowTime`
+   reads the heat and falls back to `bookedAt` for a leg with none. While the list was
+   racing-only, the fallback was unreachable in practice — a race always has a heat. Bowling
+   check-in widened the filter to admit heat-less rows, and a code path with no live exposure
+   became the code path for a whole venue on the same deploy. **When you widen a filter, list what
+   the old filter was shielding.** The widening PR touched the grouping, the key, and the
+   inclusion rule; the one thing it did not revisit was the branch it had just made reachable.
+3. **Two surfaces reading one column and disagreeing is the cheapest possible bug report.** The
+   TV wrapped the same field in `toEtWallClock` and was right. Whenever a value renders in two
+   places, a mismatch localizes the fault to the renderer without any need to reason about the
+   data — and it is worth checking the sibling surface FIRST, because it also tells you which of
+   the two is wrong.
+4. **The unit test asserted the defect verbatim.** `expect(out).toEqual({ iso:
+"2026-08-07T18:00:00.000Z", source: "booked" })` — the raw `Z` string, pinned as correct. It
+   was written when the fallback served only rows that never rendered, so "what the function
+   returns" was the only available spec and it got frozen as the expectation. A test that restates
+   the implementation cannot fail with it. **Assert what the GUEST sees** (`fmtTime12(out.iso)` is
+   `"9:00 PM"`), not the intermediate the function happens to produce.
+5. **Normalize before you sort, not after.** The fallback sorted raw strings, so a group with one
+   naive-ET leg and one UTC-stamped leg ordered on the zone suffix rather than on the clock. The
+   4h display error also pushed every evening row past midnight, which re-sorted the whole list —
+   one unconverted value corrupted the ordering as well as the labels.
+
+Fixed on `worktree-kiosk-checkin-tz`: `browseRowTime` converts through `toEtWallClock`; probe
+`apps/web/scripts/checkin-browse-time-check.mts` prints the old label beside the new one per
+reservation, which is where the 23-of-80 measurement came from.
+
+## An unattended screen must never NAVIGATE during an outage — the browser's own error page is a dead end nothing of ours can reach (2026-08-19)
+
+**What happened:** the HeadPinz Fort Myers front-desk TVs "didn't recover nicely from network
+loss, they crashed." They did not crash from the outage. They navigated during it.
+
+1. **Riding out an outage and surviving a navigation are different problems, and we had only
+   solved the first.** The feed poll keeps its last good answer, the clock keeps its last offset,
+   `tv_feed_cache:` paints real content on a cold boot — an enormous amount of care, all of it
+   aimed at "keep rendering with no network". None of it helps for the one millisecond the page
+   asks the browser for a new document. `window.location.reload()` with the origin unreachable
+   lands Edge on **its own error page**, and that page is outside our world entirely: no script
+   of ours runs on it, so nothing retries; and the launcher's relaunch loop never fires either,
+   because **Edge did not exit** — it is alive and healthy, displaying a failure. Restoring the
+   network changes nothing at all. That is what "didn't recover" means.
+2. **Audit reloads by WHAT TRIGGERS THEM, not by whether the code looks careful.** Three things
+   reloaded a TV, and the review question that matters is "can this fire while the network is
+   down?" The self-update reads the network to latch, so it looked safe — but it can sit latched
+   for hours behind a briefing hold and navigate later. **The nightly memory recycle needs no
+   network at all**: pure clock, 02:00–06:00. And screens provisioned or power-cycled together
+   share an uptime, so they reach that window inside the same 5-minute check — one outage
+   overlapping those four hours takes **a whole wall simultaneously**. A clock-driven action on
+   an unattended fleet is a synchronised action.
+3. **A "wait for the network" that is not inside the retry loop protects only the first attempt.**
+   The launcher's wait sat above `:launch`, so `goto launch` skipped it. The relaunch after a
+   crash — the single case the wait exists for — went straight onto an error page. Whenever a
+   guard and a loop live in the same file, check which side of the label the guard is on.
+4. **Prove the SERVICE, not the internet.** The wait pinged `1.1.1.1`. That says the uplink is up;
+   it says nothing about whether DNS resolves us or the app is answering, and a player that can
+   ping the world but not reach the site is exactly a player that parks on an error page. Probe an
+   endpoint of ours that touches no database and no vendor (`/api/kiosk/version`).
+5. **Prevention is not recovery — something has to be able to reach a screen that is ALREADY
+   dead.** No amount of "do not navigate into an outage" helps a panel that is already on the
+   error page. That needs an actor outside the page: a second minimised process watching our
+   address and killing Edge on the **down→up transition**, so the relaunch loop takes over. On
+   the up transition only — killing it _during_ the outage would replace a board that was riding
+   it out with a waiting console.
+6. **There was no error boundary anywhere in the app.** Same dead end by a different road: an
+   exception escaping a scene handed a guest-facing wall to Next's white "Application error" with
+   nothing left running to recover it. An unattended surface needs a boundary that reloads itself
+   — with a circuit breaker, or a deterministic crash turns 19 screens into a reload loop against
+   our own origin.
+
+Fixed on `fix/tv-outage-recovery`: `reload-gate.ts` + `useGatedReload` (every TV reload now
+proves the origin answers first, and a drift-pin test fails any bare `location.reload()` under
+`features/signage/**` or `app/tv/**`), the launcher's wait moved inside the relaunch loop and
+pointed at our own origin, a `netwatch` recovery watchdog, and `app/tv/error.tsx`.
+
+## A new scene type shows ADS on every already-running screen until it reloads (2026-08-19)
+
+**What happened:** the `venue-logo` scene landed on main and both new Old Time Lanes screens
+(`HPFM:7`/`HPFM:8`) were reported showing house ads instead of the PinBoyz logo. Production was
+correct — a fresh load of `headpinz.com/tv?screen=HPFM:7` painted the logo, no console errors,
+asset serving under the new deploy id. The players were running the JavaScript bundle they had
+loaded BEFORE the deploy, and that bundle's `IMPLEMENTED` set has no `venue-logo`, so its
+scheduler refused the scene and fell through to the ad rotation.
+
+1. **This is the designed degradation, and it is invisible.** `isSceneImplemented` exists so a
+   playlist naming a scene the deploy lacks shows house ads instead of a blank wall (the
+   billboard-crown incident). The trap is that the SAME guard fires when the deploy is fine and
+   only the CLIENT is stale — and the symptom is identical: ads, with nothing on the screen
+   saying why. Expect it on every future signage deploy that introduces a scene type.
+2. **Diagnose the deployed URL before the code.** One headless-Edge screenshot of the real
+   production URL separated "the feature is broken" from "this tab is old" in a single step.
+   Checking that the asset 200s on prod ruled out deploy lag before any code was re-read. See
+   [[feedback_curl_does_not_prove_the_browser]] — the scene is client-rendered, so SSR HTML
+   contains no scene markup and `curl` cannot answer this question at all.
+3. **It self-heals in ~5 minutes; the Reload button just skips the wait.** `TvShell` polls
+   `kioskUpdateAvailable()` every `TV_UPDATE_CHECK_MS` and reloads once `safeToReload`. Verify
+   that flag rather than assuming it: `holdReloads` only applies to `race-checkin` and `briefing`
+   scenes, so a logo screen is always safe to reload — but a screen whose scene DOES hold would
+   have sat on ads until the room went idle.
+4. **"Reload <center> screens" is wider than it reads.** FastTrax and HeadPinz Fort Myers share
+   the center slug `fort-myers`, so that one button reloads all 19 screens at both venues, not
+   the two you are looking at. Harmless, but say so before pressing it in service hours.
+
+## One install method for every signage player: the launcher IS the Windows shell (2026-08-19)
+
+**Owner rule:** _"I only want to use shell method for all screens."_ The Run-key route
+(`HKCU\...\CurrentVersion\Run`) is OUT of the setup steps entirely; the launcher replaces
+`explorer.exe` as the `Shell` value under `HKLM\...\Winlogon`. Both launchers — single-screen and
+two-monitor — now share one `shellMethodSteps()` in `startup-script.ts`, for the same reason
+`EDGE_COMMON_FLAGS` is one list: they were separate once and immediately disagreed.
+
+1. **Two documented ways to start a player meant two ways to be half-configured.** The Run-key
+   one left a full desktop running behind the board, which only revealed itself when Edge
+   crashed — taskbar and Start menu on the wall, in front of guests.
+2. **Teach the escape hatch BEFORE the step that removes the desktop.** `Ctrl+Shift+Esc` is
+   handled by Windows, not by the shell, so Task Manager still opens on a machine whose shell is
+   a batch file — File → Run new task gets you `explorer.exe` or `regedit`. That is the only way
+   back, and a test asserts it appears in the steps ahead of the `Winlogon` step.
+3. **Autologon is part of the method, not a nicety.** With the shell set but no automatic
+   sign-in, a reboot leaves the wall on the lock screen and the launcher never starts — which
+   looks exactly like a broken script. `netplwiz`, or
+   `HKLM\...\PasswordLess\Device\DevicePasswordLessBuildVersion = 0` if the tick-box is missing.
+4. **A change to how something is INSTALLED needs the same sweep as a code change.** Grepping
+   for `CurrentVersion\Run` / `LobbyTV` / `SignagePair` across the repo was what proved no stale
+   copy of the old instructions survived in a doc, a route comment, or an SOP.
+
 ## A vendor's guard can be correct and still useless — it read the copy that goes stale (2026-08-16)
 
 Fast WSync's UPLOAD rail wedged for the whole center: `T_PARTICIPANT` 58922217
@@ -80,7 +218,7 @@ reach it — the gap between "back late" and "not back" was an order of magnitud
 
 **The second half, and it is the worse one:** `camera-return-peek.mts` printed "THE
 STRIP IS CLEAR — Cameras all in" while the wall showed seven. Its header claims it
-cannot drift because it *imports the shipped decider* — and it does. But it feeds that
+cannot drift because it _imports the shipped decider_ — and it does. But it feeds that
 decider Redis-only facts and skips the mandatory Pandora backstop the server applies,
 so on any night the bridge is flaky the ops tool contradicts the board it exists to
 explain. **Importing the same function is not the same as reproducing the same
@@ -4139,6 +4277,7 @@ generalised the lesson from "check these two fields" to "this function's default
 a trap; pass everything explicitly".
 
 **The rules:**
+
 1. **The location you PROVE against must be the location you WRITE to.** If a barrier
    and its write take a centre separately, they can disagree, and the barrier passing
    makes the failure look like a vendor problem rather than our own.
@@ -4205,7 +4344,7 @@ that one surface.
 **Root cause, two independent holes that lined up:**
 
 1. `resolveStandalone` built the resolver's party with `{ id, firstName, lastName,
-   bmiPersonId }` and nothing else. `category` and `isNewRacer` are OPTIONAL on that
+bmiPersonId }` and nothing else. `category` and `isNewRacer` are OPTIONAL on that
    party type, so the omission compiled — and `category ?? "adult"` then read EVERY
    racer as an adult (junior SKU refused for everyone, adult SKU accepted for
    juniors) while `isNewRacer` read falsy (a first-timer passed a returning-only
@@ -4300,7 +4439,10 @@ them with:
 ```ts
 // The server emits empty data frames as keep-alives between real
 // messages (~1/sec). They're not actionable — drop them.
-if (raw.length === 0) { debug("empty keep-alive frame"); return; }
+if (raw.length === 0) {
+  debug("empty keep-alive frame");
+  return;
+}
 ```
 
 That `~1/sec` was never a keep-alive. It was `RaceStatsResendInterval:
@@ -4495,11 +4637,11 @@ Two mechanisms, one blind spot:
    `group-function-pricing.ts`, but rows already written stayed wrong.
 2. **The repair had no trigger.** `app/api/cron/group-quote-tax-backfill/route.ts` exists
    precisely to recompute those rows — and was never added to `vercel.json`. It had never
-   run. (Same shape as the existing lesson: *a mechanism with no TRIGGER is worse than
-   none* — nobody re-greps for a route that isn't scheduled.)
+   run. (Same shape as the existing lesson: _a mechanism with no TRIGGER is worse than
+   none_ — nobody re-greps for a route that isn't scheduled.)
 
 **Why nothing caught it for three months:** Square's tax report showed **$0.00 tax on every
-group event** because of the slot bug. So an event that billed no tax looked *identical* to
+group event** because of the slot bug. So an event that billed no tax looked _identical_ to
 a healthy one. The one report that should have exposed the under-billing was blinded by the
 unrelated mis-recording. Two independent defects in the same column is what made both
 survive.
@@ -4532,3 +4674,217 @@ survive.
    "59 reshaped, 0 skipped" and was still wrong on one event. A separate read-only verifier
    that re-fetched every order and asserted the four end-state facts (pointer moved, new
    order OPEN + taxed + exact total, old order CANCELED, no legacy line) is what caught it.
+
+---
+
+## A failed read is not a zero — the check-in board's 0/0 flap (2026-08-18)
+
+**Symptom.** On a Mega night the desk board alternated between "CHECKED IN 0/0 · 0 still to
+scan" and "5/5 all here" for the same called heat, several times a minute, while the roster
+never moved. Scanning felt slow and occasionally flashed the wrong guest.
+
+**Measured, not inferred.** A read-only watch polled Pandora directly beside our own
+endpoint for 45 ticks (~13 min). Pandora's `races/current` hung past 15s on more than half
+of all calls; `participants` hard-hung at 20s repeatedly. **27 of 45 consecutive polls
+changed what the board would display.** At one tick the raw roster answered `5/5` in 705ms
+while our endpoint answered `0/0` in 127ms — a cache hit serving a poisoned snapshot.
+
+**Three defects, ours not theirs. Pandora being sick was the trigger; these turned it into a
+board that lied confidently.**
+
+1. **A silent catch left the initialised zeros standing.** `buildSessionStats` created each
+   row with `checkedIn: 0, total: 0` and both failure paths `return`ed without touching
+   them. The board cannot tell "the read failed" from "nobody is booked", so it printed the
+   second. Staff read `0/0` as "send them"; `—` reads as "ask the desk". **Initialise
+   unknown as `null`, never as the zero that is also a valid answer.**
+
+2. **Module-level cache = per lambda instance.** The 10s snapshot lived in module memory.
+   Vercel fans polls across instances, so one cached `0/0` caught during a hang while
+   another cached `5/5` from a good window, and the board **alternated instead of
+   converging**. A shared cache in Redis cannot disagree with itself. **If two readers must
+   agree, the cache goes in Redis — module memory is per-instance by definition.**
+
+3. **Caching the whole strip cached the session IDENTITY too.** When Pandora rolled heat 26
+   → 27, a snapshot went on naming heat 26, with heat 26's count, for ~26 seconds. **Cache
+   the expensive part under the id it belongs to; never cache the list that says which id is
+   current.** The cheap thing (three Redis GETs off the carry) is read every time.
+
+**Also found, same file:** the scan re-entrancy guard read `scanState` from a closure that
+`startReading` captured at first render (memoised on `token`, exhaustive-deps disabled), so
+it compared against `"idle"` forever and never fired. Harmless at 300ms; at Pandora's 9s it
+let staff fire a second concurrent check-in whose response flashed out of order. **A guard
+read by a long-lived closure must be a ref, not state.**
+
+**The rules:**
+
+1. **Unknown is not zero, and the UI must be able to say so.** Any count crossing a network
+   boundary needs a third state. `number | null`, rendered `—`.
+2. **A failed read keeps the last value it had, scoped to the thing it described.** A roster
+   from earlier in the SAME heat is very nearly right; a blank is certainly useless. Scope
+   it to the session id so it can never survive a roll, and dim it so "counted just now"
+   still means something — the green "all here" cue must never fire on a carried value.
+3. **Prefer the warm carry to a live upstream read on any staff surface.** `races-current`
+   has `cacheOnly=1` / `prefer=cache` for exactly this; the bare URL is the LIVE path. The
+   check-in route was the last caller still paying 9s for what the carry already had.
+4. **We already know our own writes — use them.** Every green scan is our own write, so the
+   desk keeps a set of the people it scanned into a session and floors the reported count
+   with it. A poll that catches the upstream before it has caught up can no longer drag the
+   number backwards. Pandora is then only for what we could not have seen.
+5. **Measure the upstream beside your own endpoint before blaming either.** Raw-vs-ours,
+   side by side, is what separated "Pandora is slow" from "we cache a lie". Note that a
+   probe from the office is not the lambda: this repo has measured Pandora at 5-10s from
+   iad1 while it answered in under a second from Fort Myers — a 5s timeout was being blown
+   by a HEALTHY upstream.
+
+**Still open:** the counts are computed by two independent pipelines — this route, and
+`features/signage/service/checkin-progress.ts` for the walls — each with its own per-instance
+memo, kept consistent by a comment rather than by code. (The wall's author had already
+reached rule 1 independently: "A HEAT WE CANNOT COUNT IS DROPPED, never shown as zero.")
+One shared source is the right end state.
+
+---
+
+## An upstream that answers fast or never needs CONCURRENCY, not a longer timeout (2026-08-18)
+
+**Symptom.** The races-current carry froze on heat 34 for fifteen minutes while heats 35 and
+36 were called. Every board in the building showed the stale heat; staff were calling sessions
+the board would not name.
+
+**The measurement that decided the fix.** Twelve consecutive `races/current` reads:
+
+```
+5 answered:  716ms · 1827ms · 4320ms · 5222ms · 7349ms
+7 still open at 45 SECONDS — never replied
+```
+
+This upstream does not have a latency distribution with a long tail. It has **two modes**:
+answer in under 7.4s, or never answer. That single fact invalidates the obvious fix.
+
+**Why the obvious fix was wrong.** The warm loop capped each read at 8s, and "8s is too tight
+for a slow upstream" is the natural reading — it is what we assumed before measuring. But every
+success was already inside 8s. Raising the ceiling would have changed nothing, because **you
+cannot wait out a request that never returns.** The ceiling was never the problem.
+
+**The actual bug was the loop's SHAPE.** It awaited each read before starting the next, so a bad
+minute was spent asleep on dead sockets and produced ~5 attempts. At a ~40% answer rate, a run
+of bad minutes writes nothing — and the carry is what every board reads.
+
+**The rules:**
+
+1. **Characterise the failure MODE before tuning the timeout.** "Slow" and "hangs forever" look
+   identical in an error rate and want opposite fixes. Print the latency of the SUCCESSES
+   separately from the failures — if every success is well inside the current ceiling, the
+   ceiling is not your bug.
+2. **Against a hang-prone upstream, overlap the attempts.** Several reads in flight, first
+   useful answer wins. Serial-with-timeout converts one dead socket into N seconds of doing
+   nothing, exactly when you can least afford it.
+3. **A timeout on a hedged call has a different job: RECYCLING THE SLOT, not patience.** Set it
+   just above the observed success ceiling (12s here, against a 7.4s worst success). Longer is
+   strictly worse — it holds a slot hostage to a request that will never reply.
+4. **Concurrency reintroduces ordering. Guard the write.** Overlapping reads land out of order,
+   so a stale answer could put the previous heat over the current one and jump the board
+   backwards. `callIsStalerThanStored` refuses a DIFFERENT session called EARLIER than the one
+   already held. Add the guard in the same commit as the concurrency, never after.
+5. **Keep the manual recovery and know its name.** `scripts/checkin-board-seed-called.mts` reads
+   Pandora directly and writes the carry; it never invents a heat. It is what recovered heat 35
+   while the loop was still broken. A frozen board needs a one-command answer at 5pm on a
+   Friday, not a deploy.
+
+---
+
+## An observer's own lookback can manufacture the alarm (2026-08-19)
+
+Watching the venue-wire participant work through a full race night, **three of the four alarms
+raised came from the monitoring scripts, not the system**. Every one looked like a real defect
+until it was chased down. That ratio is the lesson: a watcher that cries wolf trains you to
+ignore it, which is worse than no watcher.
+
+**The three false alarms, and what each one actually was:**
+
+1. **"Bookmarks STALLED"** — sessions behind the wire counter with an old last-read. They were
+   heats that had **already run**, which `pre-race-tickets` correctly drops from `relevant`, so
+   the bookmark stays behind until its TTL. Fixed the checker to look up run-state... and then
+   it fired again five hours later, because it decides "did this heat run" from the last 8,000
+   queue entries and those frames had **aged out of its own lookback window**. The observer's
+   horizon, not the system, produced the alarm both times.
+2. **"An SMS failed"** — a row with `ok=false`. But `status=null` means Voxtelesys was never
+   called: it is a CONSENT/CONTACT audit row ("SMS not opted in", "no contact on file"). A real
+   delivery failure has a **non-null status**. Counting the audit rows as failures made a
+   perfect night look broken.
+3. **"No e-ticket went out beyond 2h, so the widened window is inert"** — measured from
+   `sms:log`, which **does not contain emails**. A large share of guests here are SMS-opted-out
+   and email-opted-in; the racer in question had been notified 3h17m ahead by email. "Were they
+   told" is answered by the dedup key `alert:pre-race:{sessionId}:{personId}` (keyed on
+   personId, NOT participantId), never by the SMS log.
+
+**The rules:**
+
+1. **State the observer's window as part of any negative finding.** "No frames for this session"
+   means nothing until you say how far back you looked. Both stall alarms were a lookback
+   shorter than the night.
+2. **A derived flag needs its own ground truth, not a heuristic.** Deciding "this heat ran" from
+   a rolling buffer is guessing. Ask the source of truth (`actualStart`/`actualEnd`) or carry the
+   fact forward; do not re-derive it from a window that moves.
+3. **Know which rows in a log are ATTEMPTS and which are AUDIT.** `ok=false` with no upstream
+   status is a decision not to send, not a failure to send. They are opposite signals wearing
+   the same field.
+4. **One channel is not the rail.** Before concluding "we never told them", enumerate every
+   channel — here SMS and email — and check the channel-independent record instead.
+5. **Distinguish EVENT counters from ENTITY counters, in the name or the doc.**
+   `venue:roster:departed` increments once per FRAME in which any seat vanished; three racers
+   leaving together bump it by one. An earlier "2-for-2 match" was read as significant and was
+   pure coincidence.
+6. **Persist the metric that judges the feature, not just the one that debugs it.** The
+   corroboration count lived only in the cron's HTTP response, so a retraction that skipped its
+   grace was indistinguishable afterwards from one that waited — the single question the first
+   race night existed to answer could not be answered. Put it in the durable run log in the
+   same commit as the feature.
+
+## A guest's confirmation copies ONE shared mailbox — never a person (2026-08-22)
+
+Tyler reported getting **an email for every race booked**. He was not on any race alert list.
+The address was one line, in the wrong place:
+
+```ts
+// apps/web/app/api/notifications/booking-confirmation/route.ts — sendEmail()
+bcc: [{ email: "vendorcases@dassle.us" }, { email: "tyler@headpinz.com" }],
+```
+
+The comment above it said "so he sees VIP confirmations as they go out". `sendEmail` is this
+route's shared transport, used by both rails — kiosk walk-up and web booking — for FastTrax
+racing AND HeadPinz bowling. A BCC in there is a BCC on **every confirmation the
+highest-volume mailer we own sends**: hundreds a week, of which a handful were VIP.
+
+**Why it survived three weeks:** nothing failed. No error, no bounce, no guest impact, no log
+line. A misrouted BCC is invisible from inside the system — the only symptom is a staff inbox,
+and the only detector is the human filling it up.
+
+**The first fix was the wrong shape.** The obvious repair is to gate the address on
+`isVipComboBooking()` so only VIP bookings copy him. That is a smaller blast radius, not a
+correct design — it still answers "staff wants visibility" with a carbon of the guest's mail.
+The owner's answer was simpler: VIP notification had already moved to Teams, so the right
+recipient count was **zero**. Shipped state is `bcc: [{ email: AUDIT_BCC }]` — one shared,
+auditable mailbox, no parameter, no gate, no branch.
+
+**The rules:**
+
+1. **A named individual never rides along on guest mail.** Staff visibility is its own feature
+   with its own recipients — `world-cup/notify.server.ts` and `combos/combo-notify.ts` are the
+   pattern: a purpose-built alert, addressed to staff, saying what staff need. A BCC on the
+   guest's confirmation is not that; it is the guest's email in somebody else's inbox.
+2. **"Copy me on X" is scoped work, not a one-line add.** Before adding an address, ask what
+   else flows through the function you are editing. Here: two rails, two brands, every product.
+   If you cannot name the full set of mail that line will touch, you are not ready to add it.
+3. **Ask what the request is FOR before narrowing it.** "He only wanted VIP" was true and led
+   to the wrong fix. The actual state of the world — VIP moved to Teams — deleted the
+   requirement instead of shrinking it. A gate you do not need is still a branch to maintain,
+   a test to write, and a place for the next person to add a second name.
+4. **Guard it with a source scan, because a unit test cannot see this.** The send is "correct"
+   with or without the extra address. `bcc-scope.test.ts` asserts against the file: no address
+   literal in the personalization, exactly one recipient constant, no non-role mailbox anywhere
+   in the route. Verified it fails both ways a name comes back — inline in the BCC, and as a
+   second "gated" constant.
+5. **Volume decides the blast radius, so check it first.** A stray BCC on the group-function
+   mailer is a handful of emails a week and nobody notices. The same mistake on booking
+   confirmation is a mailbox nobody can use. Rank the mailers you touch by send volume before
+   deciding how careful to be.

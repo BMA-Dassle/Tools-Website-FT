@@ -7,6 +7,7 @@ import {
   loadPassesWithMembers,
   type KbfPassWithMembers,
 } from "@/lib/kbf-prefs";
+import { a2pSender } from "~/features/sms/sender";
 
 /**
  * POST /api/kbf/lookup
@@ -29,7 +30,7 @@ import {
 // ── External services ──────────────────────────────────────────────────────
 
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
-const VOX_FROM = process.env.VOX_FROM_NUMBER || "+12393022155";
+const VOX_FROM = a2pSender();
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
 

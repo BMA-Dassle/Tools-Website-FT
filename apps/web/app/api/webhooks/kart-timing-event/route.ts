@@ -3,7 +3,11 @@ import { after } from "next/server";
 import redis from "@/lib/redis";
 import { handleVenueMessage } from "~/features/signage/briefing/race-finish.server";
 import { updateRaceClocks } from "~/features/racing/race-clock.server";
+import { venueDedupeKey, VENUE_DEDUPE_TTL_SECONDS } from "~/features/racing/venue-dedupe";
 import { handleTrackEvents } from "~/features/racing/track-events.server";
+import { observeVenueCalls } from "~/features/racing/venue-called.server";
+import { markRosterTouched } from "~/features/racing/roster-dirty.server";
+import { markSeatDepartures } from "~/features/racing/roster-seats.server";
 
 /**
  * Kart timing broadcast webhook — receives messages forwarded by
@@ -92,6 +96,40 @@ export async function POST(req: NextRequest) {
     if (typeof t === "string") messageType = t;
   }
 
+  /**
+   * DROP THE SECOND COPY — the venue sends nearly everything twice.
+   *
+   * Measured over 88,172 invocations (2026-08-17→19): 80,836 singleton
+   * notifications carrying ~39,000 distinct payloads, i.e. 2.07 deliveries per
+   * real event. Everything below this gate — the FIFO write, the race-finish
+   * handler, the clock fold — ran twice for every one of them.
+   *
+   * The heartbeat is deliberately ABOVE nothing and below nothing: it is set
+   * before this returns either way, because a duplicate still proves the bridge
+   * is alive, and freezing the heartbeat on a quiet-but-duplicating pipe would
+   * make every bridge-liveness gate think the bridge had died.
+   *
+   * Fails OPEN. A Redis error here returns `null` from the claim, which we treat
+   * as "not seen" and process normally — a degraded cache must cost duplicate
+   * work, never a dropped event.
+   */
+  const dedupeKey = venueDedupeKey(message);
+  if (dedupeKey) {
+    let firstDelivery = true;
+    try {
+      // NX+EX in one op: the claim IS the check, so two invocations racing the
+      // same duplicate cannot both win.
+      firstDelivery =
+        (await redis.set(dedupeKey, "1", "EX", VENUE_DEDUPE_TTL_SECONDS, "NX")) === "OK";
+    } catch (err) {
+      console.warn("[kart-webhook] dedupe claim failed, processing anyway:", err);
+    }
+    if (!firstDelivery) {
+      redis.set(HEARTBEAT_KEY, new Date().toISOString(), "EX", HEARTBEAT_TTL).catch(() => void 0);
+      return NextResponse.json({ ok: true, kind: "duplicate", messageType });
+    }
+  }
+
   // Stash compact entry in the FIFO. Bridge already snapshotted
   // receivedAt for us; we add an ingestedAt server-side timestamp
   // so latency comparisons are possible.
@@ -168,6 +206,46 @@ export async function POST(req: NextRequest) {
    * smear. Never throws — see track-events.server.ts.
    */
   after(() => handleTrackEvents(message));
+
+  /**
+   * THE CALLED-HEAT SHADOW — writes `venue:called:*`, which nothing reads.
+   *
+   * Fourth and separate because it is not a feature: it is the evidence pass for
+   * moving session status off `races-current-warm`'s once-a-second Pandora poll
+   * (~53,000 calls/day). It records what the venue said and when, so a whole race
+   * day can be diffed against the carry before any writer is promoted. Takes the
+   * bridge's arrival stamp for the same reason the clock does — the latency
+   * question is "how much sooner would WE have known", not "when did the venue
+   * say it". See venue-called.server.ts.
+   */
+  after(() => observeVenueCalls(message, anchorMs));
+
+  /**
+   * THE ROSTER TOUCH MARK — one INCR per session the venue just mentioned.
+   *
+   * Fifth and separate because it is not about this message at all: it is a
+   * note for `pre-race-tickets`, which today re-reads every roster in its
+   * window every two minutes and gets back what it got last time. The venue
+   * mentions a median of ZERO sessions per two-minute tick, so this mark is how
+   * that cron learns which of the day's ~60 heats are worth a Pandora call.
+   *
+   * Takes no anchor: the mark is a counter, not a time (see
+   * roster-dirty.server.ts for why a timestamp would need an atomic max we
+   * cannot have). Never throws.
+   */
+  after(() => markRosterTouched(message));
+
+  /**
+   * THE SOLD-SEAT DEPARTURE WITNESS — a second, independent account of a racer
+   * leaving a heat, for `eticket-removals`.
+   *
+   * Sixth and separate because it answers a different question from the touch
+   * mark above: not "did anything happen here" but "did a PAID seat go away".
+   * That is what lets a retraction skip its six-minute grace, which exists only
+   * because one Pandora diff is not proof. Never throws; see
+   * roster-seats.server.ts.
+   */
+  after(() => markSeatDepartures(message));
 
   console.log(`[kart-webhook] queued type=${messageType}`);
   return NextResponse.json({ ok: true, kind: "queued", messageType });

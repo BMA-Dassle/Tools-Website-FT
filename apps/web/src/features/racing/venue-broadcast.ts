@@ -206,6 +206,21 @@ export function extractRaceFinishes(message: unknown): VenueRaceFinish[] {
 }
 
 /**
+ * Every `RaceAdvice` record — the dayplanner row, roster and all.
+ *
+ * This is where the venue says what a heat IS: `Name` ("68 - Mega Starter"),
+ * `ResourceId`, `ScheduledStart`, and `Drivers[]`. The call notification carries
+ * only a session id, a name and a resource, so anything needing the heat's race
+ * type or scheduled start joins to this by `RaceId`.
+ *
+ * `state` is always empty here — RaceAdvice has no `State` field, unlike the
+ * finish/start records this shares a parser with.
+ */
+export function extractRaceAdvice(message: unknown): VenueRaceFinish[] {
+  return extractRaceRecords(message, "RaceAdvice");
+}
+
+/**
  * Every `RaceStart` record — THE FLAG DROPPING, as it happens.
  *
  * Owner 2026-08-12: "don't we have race start from the karting websocket?" We do,
@@ -302,6 +317,67 @@ export function extractSessionLifecycle(message: unknown): VenueSessionLifecycle
       heatNumber: parseVenueHeatNumber(sessionName),
       track: VENUE_RESOURCE_TRACKS[String(r.ResourceId)] ?? null,
       kind,
+      atMs: parseVenueLocalMs(r.Date),
+    });
+  }
+  return out;
+}
+
+/**
+ * THE CALL — a heat being called to the grid, stamped by the venue.
+ *
+ *   { $type: "SessionAboutToStartNotification", ResourceId: -1,
+ *     SessionId: 58571867, SessionName: "68 - Mega Starter",
+ *     NotificationMetaId: -5022, Id: 59127337, Date: "2026-08-18T22:48:04.55" }
+ *
+ * WHY THIS MATTERS MORE THAN THE OTHER LIFECYCLE EVENTS: the called heat is the
+ * one piece of session state the whole estate reads, and today the ONLY way we
+ * learn it is `/api/cron/races-current-warm` polling Pandora once a second, all
+ * day, for ~53,000 calls a day. This is the same fact, pushed, for free.
+ *
+ * MEASURED AGAINST WHAT WE ACTUALLY RECORDED (92 called heats, `briefing_events.
+ * called_at` vs this stamp, 2026-08-19): the venue knew a median **5.2s** sooner,
+ * and on four heats it was minutes — 789s on Mega 60, 378s on Mega 48 — the
+ * vendor-degradation windows where polling is worth least. It is not uniformly
+ * earlier: one heat landed 11s AFTER the loop had it, so this supplements the
+ * poll rather than replacing its authority.
+ *
+ * TRACK IS ON THE RECORD, via ResourceId — verified across the whole buffer, not
+ * assumed from a Mega-only day: Blue heats carry 11208654, Red 11208660, and Mega
+ * genuinely is the `-1` sentinel (1,436 records, zero contradictions, and the
+ * same split holds across all ten notification types). `VENUE_RESOURCE_TRACKS`
+ * above already encoded this.
+ *
+ * A null `track` is returned rather than guessed. Nothing may put a heat on a
+ * board on the strength of a name parse — the same heat arrived as both
+ * "Heat 69" and "69 - Mega Starter" 23 seconds apart on 2026-08-19.
+ */
+export interface VenueSessionCall {
+  /** String, always — same id space as Pandora sessionIds (house rule). */
+  sessionId: string;
+  sessionName: string;
+  /** From "68 - Mega Starter" → 68. Null on names that do not lead with a
+   *  number ("Heat 69" before it is configured) — callers must not guess. */
+  heatNumber: number | null;
+  track: TrackKey | null;
+  /** The venue's own stamp. Null when unparseable — never silently "now". */
+  atMs: number | null;
+}
+
+export function extractSessionCalls(message: unknown): VenueSessionCall[] {
+  const records = Array.isArray(message) ? message : [message];
+  const out: VenueSessionCall[] = [];
+  for (const rec of records) {
+    if (!rec || typeof rec !== "object") continue;
+    const r = rec as Record<string, unknown>;
+    if (r["$type"] !== "SessionAboutToStartNotification") continue;
+    if (r.SessionId === undefined || r.SessionId === null) continue;
+    const sessionName = typeof r.SessionName === "string" ? r.SessionName : "";
+    out.push({
+      sessionId: String(r.SessionId),
+      sessionName,
+      heatNumber: parseVenueHeatNumber(sessionName),
+      track: VENUE_RESOURCE_TRACKS[String(r.ResourceId)] ?? null,
       atMs: parseVenueLocalMs(r.Date),
     });
   }
