@@ -35,6 +35,7 @@ import { ReservationTimer, type ReservationTimerHandle } from "./ReservationTime
 import { ReservationExpiredModal } from "./ReservationExpiredModal";
 import { comboBowlingComponent, getComboSpecial } from "~/features/combos/combo-specials";
 import { holdComboBowling, releaseComboBowlingHold } from "~/features/combos/combo-booking";
+import { planComboEntry } from "~/features/combos/combo-entry";
 import {
   worldCupCenterEnabled,
   worldCupEnabledCenters,
@@ -153,13 +154,23 @@ export function BookingFlow({
     // Combo-special entry: seed a FRESH session with the combo's components —
     // one race item (heat count enforced via session.comboSpecialId) + one
     // bowling item preset to the combo's duration — at the combo's center, and
-    // stamp comboSpecialId (once, like appliedPromo). A resumed combo session
-    // is left alone; an existing NON-combo cart is also left alone (we never
-    // clobber a cart in progress — the customer can finish or start over).
+    // stamp comboSpecialId (once, like appliedPromo). A resumed session of THIS
+    // combo is left alone. Anything else in the cart is released and replaced:
+    // clicking a VIP link is intent to book the VIP — the mirror of the
+    // "normal entry tears a stale combo down" path below. Until 2026-08-24 a
+    // non-empty cart made this a silent no-op, so a tab that had opened the
+    // Karting tile first (which seeds an empty race item) rendered a plain
+    // race wizard under the "Book the VIP Experience" title (planComboEntry).
     if (comboSpecialId) {
       const combo = getComboSpecial(comboSpecialId);
-      if (combo && combo.enabled && session.items.length === 0) {
-        if (!session.center) {
+      const plan = combo && combo.enabled ? planComboEntry(session, combo.id) : null;
+      if (combo && plan?.kind === "seed") {
+        for (const stale of plan.release) {
+          dispatch({ type: "removeItem", id: stale.id });
+          if (stale.kind === "bowling") void releaseComboBowlingHold(stale);
+          else void releaseItemBmiLines(session, stale);
+        }
+        if (session.center !== combo.center) {
           dispatch({ type: "setCenter", center: combo.center });
         }
         dispatch({ type: "setComboSpecial", id: combo.id });
