@@ -346,6 +346,15 @@ export function applyRaceStart(
 const GREEN_STAMP_SLACK_MS = 60_000;
 
 /**
+ * How far the venue's green stamp must sit AHEAD of an existing anchor before
+ * we believe the anchor was premature and move it. On a healthy heat the two
+ * signals agree to within seconds (p50 1s across 349 heats, worst honest lag
+ * 5.49s), so 30s cannot be ordinary jitter — while the real premature-anchor
+ * cases ran 93-430s ahead.
+ */
+const GREEN_CORRECTION_MIN_MS = 30_000;
+
+/**
  * `SessionStartedNotification` arrived — THE GREEN FLAG, stamped by the venue.
  *
  * WHY THIS EXISTS ALONGSIDE THE TWO-PHASE `RaceStart`. The phase-two start bump
@@ -373,10 +382,20 @@ const GREEN_STAMP_SLACK_MS = 60_000;
  * stamped on arrival. Whichever lands first wins; the other is then a no-op
  * because the race is already running.
  *
- * ONLY EVER ANCHORS AN ARMED RACE. A replayed notification for a race already
- * running, paused or finished changes nothing — the same discipline the replay
- * guard enforces for starts, expressed as a phase check because these
- * notifications carry no RecordVersion.
+ * ANCHORS AN ARMED RACE; CORRECTS A RUNNING ONE — FORWARD ONLY. On 2026-08-23
+ * blue heat 56 (race 58610991) the venue sent the phase-two RaceStart 34s
+ * after the arm and then HELD the karts: the real green — this notification,
+ * venue-stamped 22:16:10 — came four minutes later. The clock anchored on the
+ * early bump and hit 0:00 with 2:30 of racing left. Not a one-off: 7 heats in
+ * the 5 nights ending 2026-08-23, every one of them Blue. So when this
+ * notification arrives for a race already running or paused and its stamp is
+ * materially later than the anchor (GREEN_CORRECTION_MIN_MS), the anchor moves
+ * forward to the venue's stamp. Replay-safe without a RecordVersion: a
+ * replayed green carries the ORIGINAL flag's stamp — within seconds of the
+ * anchor on a healthy heat, never materially after it — and the future-slack
+ * rule still applies. A finished race is never touched. Pause bookkeeping
+ * accumulated before the true green was pre-race holding, not racing, so the
+ * correction resets it.
  *
  * KNOWN NARROW WINDOW: between this and the phase-two `RaceStart` (~1.6s) the
  * race is now `running` rather than `armed`, so a track pause landing inside
@@ -396,24 +415,51 @@ export function applySessionStarted(
     heatNumber: life.heatNumber ?? clock.heatNumber,
     track: life.track ?? clock.track,
   };
-  if (clock.phase !== "armed" || clock.clockStartMs !== null) return next;
+  if (clock.phase === "armed" && clock.clockStartMs === null) {
+    // Trust the venue's stamp only where it is plausible: at or after the arm we
+    // already recorded, and not meaningfully in our future. Anything else is a
+    // replay or a skewed clock, and arrival time is the honest fallback.
+    const stamped = life.atMs;
+    const plausible =
+      stamped !== null &&
+      stamped <= atMs + GREEN_STAMP_SLACK_MS &&
+      (clock.actualStartMs === null || stamped >= clock.actualStartMs);
 
-  // Trust the venue's stamp only where it is plausible: at or after the arm we
-  // already recorded, and not meaningfully in our future. Anything else is a
-  // replay or a skewed clock, and arrival time is the honest fallback.
-  const stamped = life.atMs;
-  const plausible =
-    stamped !== null &&
-    stamped <= atMs + GREEN_STAMP_SLACK_MS &&
-    (clock.actualStartMs === null || stamped >= clock.actualStartMs);
+    return {
+      ...next,
+      phase: "running",
+      clockStartMs: plausible ? stamped : atMs,
+      anchorEstimated: false,
+      updatedAtMs: atMs,
+    };
+  }
 
-  return {
-    ...next,
-    phase: "running",
-    clockStartMs: plausible ? stamped : atMs,
-    anchorEstimated: false,
-    updatedAtMs: atMs,
-  };
+  // THE PREMATURE-ANCHOR CORRECTION (blue heat 56, 2026-08-23 — see the doc
+  // above). Forward only, materially only, never past the pipe's honest lag,
+  // never on a finished race. The stamp must be trusted here or not act at
+  // all: falling back to arrival would turn an implausible replay into a
+  // correction, so an implausible stamp is simply ignored.
+  if ((clock.phase === "running" || clock.phase === "paused") && clock.clockStartMs !== null) {
+    const stamped = life.atMs;
+    const corrects =
+      stamped !== null &&
+      stamped >= clock.clockStartMs + GREEN_CORRECTION_MIN_MS &&
+      stamped <= atMs + GREEN_STAMP_SLACK_MS &&
+      (clock.actualStartMs === null || stamped >= clock.actualStartMs);
+    if (corrects) {
+      return {
+        ...next,
+        phase: "running",
+        clockStartMs: stamped,
+        pausedTotalMs: 0,
+        pausedSinceMs: null,
+        anchorEstimated: false,
+        updatedAtMs: atMs,
+      };
+    }
+  }
+
+  return next;
 }
 
 /**

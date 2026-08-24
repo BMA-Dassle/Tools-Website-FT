@@ -748,7 +748,9 @@ describe("heat 47 — the start that arrived at the chequered flag", () => {
   });
 
   it("ignores a green for a race that is not armed", () => {
-    // These notifications carry no RecordVersion, so the phase IS the guard.
+    // These notifications carry no RecordVersion, so the phase is the guard —
+    // a running race's anchor moves only for a MATERIALLY later stamp (the
+    // premature-anchor correction below); 20s is inside ordinary disagreement.
     let c = applyRaceStart(emptyClock("1", ARM), start({ recordVersion: "a" }), ARM);
     c = applyRaceStart(c, start({ recordVersion: "b" }), ARM + 70_000);
     const anchored = c.clockStartMs;
@@ -811,5 +813,100 @@ describe("heat 47 — the start that arrived at the chequered flag", () => {
     expect(c.phase).toBe("running");
     expect(c.clockStartMs).toBe(GREEN);
     expect(remainingMs(c, GREEN + 60_000)).toBe(SEVEN - 60_000);
+  });
+});
+
+describe("heat 56 — the start bump that came four minutes BEFORE the green (2026-08-23)", () => {
+  // Off the wire, verbatim: arm 22:11:37, phase-two RaceStart 22:12:11 (34s
+  // later — looked exactly like a healthy green), real SessionStarted stamped
+  // 22:16:10, SessionFinishing 22:22:11 = one minute before 22:16:10 + 7:00.
+  // Every screen hit 0:00 with 2:30 of racing left.
+  const ARM = ET("2026-08-23T22:11:37.264");
+  const BUMP = ET("2026-08-23T22:12:11.496");
+  const REAL_GREEN = ET("2026-08-23T22:16:10.000");
+  const SEVEN = 7 * 60_000;
+
+  const h56 = (over = {}) =>
+    rec({
+      raceId: "58610991",
+      heatName: "56 - Blue Intermediate",
+      heatNumber: 56,
+      actualStartMs: ARM,
+      durationMs: SEVEN,
+      ...over,
+    });
+
+  const green = (atMs: number | null) => ({
+    sessionId: "58610991",
+    sessionName: "56 - Blue Intermediate",
+    heatNumber: 56,
+    track: "blue" as const,
+    kind: "started" as const,
+    atMs,
+  });
+
+  const anchoredEarly = () => {
+    let c = applyRaceStart(
+      emptyClock("58610991", ARM),
+      h56({ recordVersion: "13432129454094000" }),
+      ARM,
+    );
+    c = applyRaceStart(c, h56({ recordVersion: "13432129454160000" }), BUMP);
+    expect(c.phase).toBe("running");
+    expect(c.clockStartMs).toBe(BUMP);
+    return c;
+  };
+
+  it("the venue's green moves a premature anchor forward", () => {
+    let c = anchoredEarly();
+    // Arrival trails the venue stamp by ordinary pipe lag.
+    c = applySessionStarted(c, green(REAL_GREEN), REAL_GREEN + 1_000);
+    expect(c.phase).toBe("running");
+    expect(c.clockStartMs).toBe(REAL_GREEN);
+    expect(c.anchorEstimated).toBe(false);
+    // THE CHECK: with 2:30 left on the venue's clock, ours no longer says 0:00.
+    const now = REAL_GREEN + SEVEN - 150_000;
+    expect(remainingMs(c, now)).toBe(150_000);
+  });
+
+  it("pause bookkeeping banked during the pre-green hold is discarded", () => {
+    let c = anchoredEarly();
+    // Staff held the field: a stop lands mid-hold and the race sits paused.
+    c = applyRaceStop(c, h56({ state: "Stopped" }), BUMP + 60_000);
+    expect(c.phase).toBe("paused");
+    c = applySessionStarted(c, green(REAL_GREEN), REAL_GREEN + 1_000);
+    expect(c.phase).toBe("running");
+    expect(c.clockStartMs).toBe(REAL_GREEN);
+    expect(c.pausedTotalMs).toBe(0);
+    expect(c.pausedSinceMs).toBeNull();
+  });
+
+  it("a REPLAYED green cannot move a healthy anchor", () => {
+    // A reconnect replays the notification long after the flag; its stamp is
+    // still the ORIGINAL green — within seconds of the anchor, not materially
+    // after it — so nothing moves.
+    let c = anchoredEarly();
+    c = applySessionStarted(c, green(REAL_GREEN), REAL_GREEN + 1_000);
+    const replayed = applySessionStarted(c, green(REAL_GREEN), REAL_GREEN + 240_000);
+    expect(replayed.clockStartMs).toBe(REAL_GREEN);
+    expect(replayed.pausedTotalMs).toBe(c.pausedTotalMs);
+  });
+
+  it("an implausible stamp is ignored rather than fallen back on", () => {
+    const c = anchoredEarly();
+    // Stamped beyond the future slack: no correction, and NO arrival fallback —
+    // that would let any late replay rewrite the clock.
+    const skewed = applySessionStarted(c, green(BUMP + 300_000), BUMP + 10_000);
+    expect(skewed.clockStartMs).toBe(BUMP);
+    // Unparseable Date: ignored.
+    expect(applySessionStarted(c, green(null), BUMP + 300_000).clockStartMs).toBe(BUMP);
+  });
+
+  it("a finished race is never corrected", () => {
+    let c = anchoredEarly();
+    c = applyRaceFinish(c, h56({ state: "Finished" }), BUMP + SEVEN);
+    const after = applySessionStarted(c, green(REAL_GREEN), REAL_GREEN + 1_000);
+    expect(after.phase).toBe("finished");
+    expect(after.clockStartMs).toBe(BUMP);
   });
 });
