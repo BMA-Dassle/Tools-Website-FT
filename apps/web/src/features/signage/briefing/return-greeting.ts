@@ -157,8 +157,23 @@ export function greetingStartMs(input: GreetingInput): number | null {
   // Motion mode. An onset stamped before the post (impossible by construction,
   // but clamp anyway) still greets after the press, never before it.
   if (arrivedAtMs != null) return Math.max(arrivedAtMs, postPlayedAtMs);
-  if (!motionHealthy) return postPlayedAtMs + fallbackMs;
-  return null;
+  /**
+   * NO ARRIVAL SEEN ⇒ THE TIMER STILL SPEAKS (owner 2026-08-24: "had nobody in
+   * room but it should have still played after what 30 or 45 seconds?").
+   *
+   * This used to return null — keep waiting — whenever the camera was HEALTHY
+   * and had simply not seen anybody yet, so a return the NVR missed was never
+   * greeted at all: the clip waited out the whole 2-minute window in silence.
+   * A camera that misses a quiet entrance is not rare, and the group is in the
+   * room either way.
+   *
+   * So motion is now what makes the greeting EARLIER and better-aimed, and the
+   * fixed delay is its backstop rather than its replacement — the same number,
+   * whether the NVR is broken (`motionHealthy` false) or merely quiet. That
+   * makes `motionHealthy` no longer part of this answer; it stays on the
+   * payload because the camera monitor reports it.
+   */
+  return postPlayedAtMs + fallbackMs;
 }
 
 /** Window shut = no first play, and no further repeats, ever. */

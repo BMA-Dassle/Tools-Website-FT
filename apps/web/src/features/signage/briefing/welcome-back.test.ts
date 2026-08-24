@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { GREETING_WINDOW_MS } from "./return-greeting";
 import { HARD_CAP_AFTER_END_MS, welcomeBackExpired, welcomeBackWindowOpen } from "./welcome-back";
 
 describe("welcomeBackWindowOpen — the timing system's own truth, not a guess", () => {
@@ -97,6 +98,46 @@ describe("welcomeBackExpired", () => {
         nowMs: NOW,
       }),
     ).toBe(false);
+  });
+
+  /**
+   * THE REGRESSION THAT MATTERS (owner 2026-08-24: "it actually cleared the
+   * welcome-back screen before even playing the first message, that can't
+   * happen"). The default linger and the greeting window are both two minutes,
+   * so a ceiling measured on the linger alone killed the screen at the same
+   * instant the clip's last chance did.
+   */
+  it("NEVER retires before the greeting's own window has closed", () => {
+    // The clip is still waiting on its 45s fallback here — retiring now would
+    // mean the group is never greeted at all.
+    expect(
+      welcomeBackExpired({
+        actualEndMs: NOW - 10 * M,
+        postPlayedAtMs: NOW - 40_000,
+        lingerAfterMs: 30_000,
+        nowMs: NOW,
+      }),
+    ).toBe(false);
+    // And a staff-shortened linger cannot cut the window short either.
+    for (const linger of [60_000, 30_000, 0]) {
+      expect(
+        welcomeBackExpired({
+          actualEndMs: NOW - 10 * M,
+          postPlayedAtMs: NOW - (GREETING_WINDOW_MS - 1_000),
+          lingerAfterMs: linger,
+          nowMs: NOW,
+        }),
+      ).toBe(false);
+    }
+    // One second past the window, with nothing asking for longer: done.
+    expect(
+      welcomeBackExpired({
+        actualEndMs: NOW - 10 * M,
+        postPlayedAtMs: NOW - (GREETING_WINDOW_MS + 1_000),
+        lingerAfterMs: 30_000,
+        nowMs: NOW,
+      }),
+    ).toBe(true);
   });
 
   it("honours a staff-widened linger rather than a constant of its own", () => {

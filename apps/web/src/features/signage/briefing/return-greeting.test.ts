@@ -57,9 +57,14 @@ describe("greetingStartMs", () => {
     ).toBe(POST + 31_000);
   });
 
-  it("motion mode KEEPS WAITING while the camera is healthy and nobody is in", () => {
-    // Null means "not yet", not "use the timer" — a greeting to an empty room
-    // is the bug this replaces. The 2-minute window is what bounds the wait.
+  /**
+   * REVERSED 2026-08-24. This asserted that a healthy camera with nobody seen
+   * meant "keep waiting" — which silenced the greeting entirely for any return
+   * the NVR missed, and the owner watched exactly that happen to an empty-
+   * reading room. The fixed delay is now the BACKSTOP in motion mode, not just
+   * the broken-NVR substitute: motion only ever makes the clip earlier.
+   */
+  it("motion mode still speaks on the timer when the camera sees nobody", () => {
     expect(
       greetingStartMs({
         byMotion: true,
@@ -67,7 +72,19 @@ describe("greetingStartMs", () => {
         arrivedAtMs: null,
         motionHealthy: true,
       }),
-    ).toBeNull();
+    ).toBe(POST + GREETING_FALLBACK_MS);
+  });
+
+  it("prefers a real arrival over the timer when the camera does see them", () => {
+    // Earlier than the fallback — motion is the whole point when it works.
+    expect(
+      greetingStartMs({
+        byMotion: true,
+        postPlayedAtMs: POST,
+        arrivedAtMs: POST + 20_000,
+        motionHealthy: true,
+      }),
+    ).toBe(POST + 20_000);
   });
 
   it("motion mode falls back to the timer when the NVR cannot answer", () => {
