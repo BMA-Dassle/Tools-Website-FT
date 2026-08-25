@@ -692,6 +692,95 @@
   justify-content: center;
   gap: 14px;
 }
+/* ── Lane handoff ──────────────────────────────────────────────────────────
+   The lane number is the one thing the guest has to remember and walk to, so it
+   gets its own tile instead of sitting inside a sentence as a 24px eyebrow. */
+.kiosk-canvas .k-lane-head {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+}
+.kiosk-canvas .k-lane-tile {
+  flex: 0 0 auto;
+  min-width: 236px;
+  padding: 16px 30px 24px;
+  border-radius: 22px;
+  text-align: center;
+  background: rgba(0, 226, 229, 0.12);
+  border: 2px solid rgba(0, 226, 229, 0.4);
+}
+.kiosk-canvas .k-lane-tile.is-open {
+  background: rgba(70, 214, 140, 0.12);
+  border-color: rgba(70, 214, 140, 0.45);
+}
+.kiosk-canvas .k-lane-word {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--k-dim);
+}
+.kiosk-canvas .k-lane-num {
+  font-family: var(--font-heading), sans-serif;
+  font-style: italic;
+  font-weight: 800;
+  font-size: 168px;
+  line-height: 0.9;
+  font-variant-numeric: tabular-nums;
+}
+/* A party on two or three lanes still has to fit the tile. */
+.kiosk-canvas .k-lane-num.is-multi {
+  font-size: 92px;
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+}
+.kiosk-canvas .k-lane-status {
+  font-family: var(--font-heading), sans-serif;
+  font-style: italic;
+  font-weight: 800;
+  font-size: 46px;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.kiosk-canvas .k-lane-autonote {
+  font-size: 27px;
+  color: var(--k-dim);
+}
+.kiosk-canvas .k-lane-tick {
+  font-size: 30px;
+  opacity: 0.72;
+  font-variant-numeric: tabular-nums;
+}
+/* Drains across the button that is about to fire, so the wait is visible as
+   motion and not only as a number. Paused for reduced-motion; the number and the
+   spoken copy still say what is about to happen. */
+.kiosk-canvas .k-lane-drain {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.17);
+  pointer-events: none;
+  animation: k-lane-drain linear forwards;
+}
+@keyframes k-lane-drain {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kiosk-canvas .k-lane-drain {
+    animation: none;
+    width: 0%;
+  }
+}
+
 .kiosk-canvas .k-util-btn {
   height: 76px;
   padding: 0 26px;

@@ -276,4 +276,38 @@ describe("confirmation catalog (interpolation)", () => {
       "Returning to start in 42s — touch anywhere to stay",
     );
   });
+
+  // The lane handoff puts the NUMBER in a tile and the word beside it, so the word
+  // and the status are separate strings in both catalogs. A guest on lanes 12+13
+  // must not be told "Pista" — the plural has to exist and has to differ.
+  it("has singular and plural lane words in both catalogs", () => {
+    expect(formatMessage("en", "confirmation.lane.word.one")).toBe("Lane");
+    expect(formatMessage("en", "confirmation.lane.word.many")).toBe("Lanes");
+    expect(formatMessage("es", "confirmation.lane.word.one")).toBe("Pista");
+    expect(formatMessage("es", "confirmation.lane.word.many")).toBe("Pistas");
+    expect(formatMessage("es", "confirmation.lane.word.many")).not.toBe(
+      formatMessage("es", "confirmation.lane.word.one"),
+    );
+  });
+
+  it("interpolates the auto-open countdown in both languages", () => {
+    expect(formatMessage("en", "confirmation.lane.autoOpen", { secs: "9" })).toBe(
+      "Opening automatically in 9s — tap Later to hold off.",
+    );
+    // The Spanish line must actually carry the number, not drop the placeholder.
+    expect(formatMessage("es", "confirmation.lane.autoOpen", { secs: "9" })).toContain("9");
+    expect(formatMessage("es", "confirmation.lane.autoOpen", { secs: "9" })).not.toContain(
+      "{secs}",
+    );
+  });
+
+  // "Later" is deliberately short so the primary button dominates. A translator
+  // lengthening it back into a sentence would undo the layout decision.
+  it("keeps the decline label short in both languages", () => {
+    for (const locale of ["en", "es"] as const) {
+      const later = formatMessage(locale, "confirmation.lane.later");
+      expect(later.length).toBeLessThanOrEqual(12);
+      expect(later).not.toContain(" ");
+    }
+  });
 });

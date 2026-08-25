@@ -217,5 +217,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
-  return NextResponse.json({ ok: true, lanesOpened, laneLabel });
+  // `laneNumbers` as well as the label: the kiosk confirmation renders the lane
+  // number as its own hero tile, and parsing it back out of an English label
+  // ("Lanes 12, 13") would be a formatting round-trip waiting to break.
+  return NextResponse.json({ ok: true, lanesOpened, laneLabel, laneNumbers });
 }

@@ -10,7 +10,7 @@
  * (e.g. /hp/book/bowling/confirmation?code=XXXX) — we surface its code and
  * keep a stable seam for the bowl-now live-lane display to hook into.
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { useKioskConfig } from "../KioskConfigContext";
@@ -180,6 +180,16 @@ function bowlingNeonIdFromSrc(src: string | null): number | null {
 // (staff opened it first); "declined"/"failed" are terminal for this screen.
 type LanePhase = "idle" | "ready" | "opening" | "open" | "declined" | "failed";
 
+/**
+ * How long the guest gets before the lane opens itself.
+ *
+ * Opening is what almost every guest wants, so it is the DEFAULT and declining is
+ * the escape hatch — that is one tap instead of two for the common case. The
+ * countdown drains on the button that is about to fire, so nothing happens without
+ * having been visibly announced first.
+ */
+const AUTO_OPEN_SECONDS = 15;
+
 export function KioskConfirmation({ src }: { src: string | null }) {
   const router = useRouter();
   const { config } = useKioskConfig();
@@ -263,6 +273,14 @@ export function KioskConfirmation({ src }: { src: string | null }) {
   const showRacing = includesRacing || racingFromBooking;
   const [lanePhase, setLanePhase] = useState<LanePhase>("idle");
   const [laneLabel, setLaneLabel] = useState("");
+  // The numbers themselves, not just the English label — the tile renders them as
+  // the hero and the word beside them is localized separately.
+  const [laneNumbers, setLaneNumbers] = useState<number[]>([]);
+  // The auto-open clock: when it started, and the seconds left on it. Both declared
+  // here, above the poll that arms them, so no setter is referenced before its
+  // binding exists.
+  const [laneArmedAtMs, setLaneArmedAtMs] = useState<number | null>(null);
+  const [autoSecs, setAutoSecs] = useState<number | null>(null);
 
   useEffect(() => {
     if (!laneNeonId || lanePhase !== "idle") return;
@@ -273,13 +291,23 @@ export function KioskConfirmation({ src }: { src: string | null }) {
           cache: "no-store",
         });
         if (!res.ok || !alive) return;
-        const data = (await res.json()) as { phase?: string; laneLabel?: string };
+        const data = (await res.json()) as {
+          phase?: string;
+          laneLabel?: string;
+          laneNumbers?: number[];
+        };
         if (!alive) return;
         if (data.phase === "ready") {
           setLaneLabel(data.laneLabel ?? "");
+          setLaneNumbers(data.laneNumbers ?? []);
+          setLaneArmedAtMs(Date.now());
+          // Seed the display so the countdown paints on the same frame the panel
+          // appears, instead of a quarter-second later.
+          setAutoSecs(AUTO_OPEN_SECONDS);
           setLanePhase("ready");
         } else if (data.phase === "running" || data.phase === "completed") {
           setLaneLabel(data.laneLabel ?? "");
+          setLaneNumbers(data.laneNumbers ?? []);
           setLanePhase("open");
         }
         // not_ready / cancelled → stay idle and keep polling until reset
@@ -297,7 +325,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
 
   const lanePanelVisible = lanePhase !== "idle" && lanePhase !== "declined";
 
-  async function handleOpenLane() {
+  const handleOpenLane = useCallback(async () => {
     if (!laneNeonId) return;
     setLanePhase("opening");
     try {
@@ -308,9 +336,11 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         ok?: boolean;
         lanesOpened?: number;
         laneLabel?: string;
+        laneNumbers?: number[];
       };
       if (res.ok && data.ok && (data.lanesOpened ?? 0) > 0) {
         if (data.laneLabel) setLaneLabel(data.laneLabel);
+        if (data.laneNumbers?.length) setLaneNumbers(data.laneNumbers);
         setLanePhase("open");
         return;
       }
@@ -324,9 +354,14 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         cache: "no-store",
       });
       if (res.ok) {
-        const data = (await res.json()) as { phase?: string; laneLabel?: string };
+        const data = (await res.json()) as {
+          phase?: string;
+          laneLabel?: string;
+          laneNumbers?: number[];
+        };
         if (data.phase === "running" || data.phase === "completed") {
           if (data.laneLabel) setLaneLabel(data.laneLabel);
+          if (data.laneNumbers?.length) setLaneNumbers(data.laneNumbers);
           setLanePhase("open");
           return;
         }
@@ -335,7 +370,35 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       // fall through to failed
     }
     setLanePhase("failed");
-  }
+  }, [laneNeonId]);
+
+  // ── Auto-open countdown ─────────────────────────────────────────────
+  // The clock is ARMED where the phase is set (in the poll), not in an effect, and
+  // the remaining seconds are DERIVED from that stamp rather than stored. So the
+  // only thing the interval does is force a repaint, and there is no countdown
+  // state that can survive a phase change and fire against a stale lane.
+  // One timer owns both the display and the firing. Remaining time is measured
+  // against the armed stamp rather than counted down, so a throttled kiosk tab
+  // cannot drift, and the open is fired from the timer callback — not from an
+  // effect watching a counter, which would be a setState cascade.
+  useEffect(() => {
+    if (lanePhase !== "ready" || laneArmedAtMs == null) return;
+    let fired = false;
+    const iv = setInterval(() => {
+      const left = Math.max(0, AUTO_OPEN_SECONDS - Math.floor((Date.now() - laneArmedAtMs) / 1000));
+      setAutoSecs(left);
+      if (left === 0 && !fired) {
+        fired = true;
+        clearInterval(iv);
+        void handleOpenLane();
+      }
+    }, 250);
+    return () => clearInterval(iv);
+  }, [lanePhase, laneArmedAtMs, handleOpenLane]);
+
+  // Gated on the phase, so a stale count left over from a previous arming can
+  // never put a countdown back on screen.
+  const countingDown = lanePhase === "ready" && autoSecs != null && autoSecs > 0;
 
   // Encode the CONFIRMATION URL (brand short link) as the QR so a guest can scan
   // it with their phone and land on their confirmation — the same /s/{code}
@@ -509,24 +572,55 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         >
           {(lanePhase === "ready" || lanePhase === "opening") && (
             <>
-              <div className="k-eyebrow text-[#00e2e5]">
-                {laneLabel
-                  ? t("confirmation.lane.readyTitle", { lane: laneLabel })
-                  : t("confirmation.lane.readyTitleGeneric")}
+              <div className="k-lane-head">
+                {laneNumbers.length > 0 && (
+                  <div className="k-lane-tile">
+                    <div className="k-lane-word">
+                      {t(
+                        laneNumbers.length > 1
+                          ? "confirmation.lane.word.many"
+                          : "confirmation.lane.word.one",
+                      )}
+                    </div>
+                    <div className={`k-lane-num${laneNumbers.length > 1 ? " is-multi" : ""}`}>
+                      {laneNumbers.join(" · ")}
+                    </div>
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  {/* With a number in the tile the status is a word; without one it has
+                      to carry the whole message, so it falls back to the sentence. */}
+                  <div className="k-lane-status text-[#00e2e5]">
+                    {laneNumbers.length > 0
+                      ? t("confirmation.lane.statusReady")
+                      : laneLabel
+                        ? t("confirmation.lane.readyTitle", { lane: laneLabel })
+                        : t("confirmation.lane.readyTitleGeneric")}
+                  </div>
+                  <p className="mt-[10px] text-[33px] leading-snug">
+                    {t("confirmation.lane.readyPrompt")}
+                  </p>
+                </div>
               </div>
-              <p className="mt-[12px] text-[32px] leading-snug">
-                {t("confirmation.lane.readyPrompt")}
-              </p>
               <div className="mt-[28px] flex items-center gap-[20px]">
                 <button
                   type="button"
                   disabled={lanePhase === "opening"}
                   onClick={() => void handleOpenLane()}
-                  className="k-btn-primary k-tap whitespace-nowrap text-[30px]"
+                  className="k-btn-primary k-tap relative overflow-hidden whitespace-nowrap text-[30px]"
                 >
-                  {lanePhase === "opening"
-                    ? t("confirmation.lane.opening")
-                    : t("confirmation.lane.openButton")}
+                  {countingDown && (
+                    <span
+                      className="k-lane-drain"
+                      style={{ animationDuration: `${AUTO_OPEN_SECONDS}s` }}
+                    />
+                  )}
+                  <span className="relative">
+                    {lanePhase === "opening"
+                      ? t("confirmation.lane.opening")
+                      : t("confirmation.lane.openButton")}
+                  </span>
+                  {countingDown && <span className="k-lane-tick relative">{autoSecs}</span>}
                 </button>
                 <button
                   type="button"
@@ -537,20 +631,45 @@ export function KioskConfirmation({ src }: { src: string | null }) {
                   {t("confirmation.lane.later")}
                 </button>
               </div>
+              {countingDown && (
+                <p className="k-lane-autonote mt-[18px]">
+                  {t("confirmation.lane.autoOpen", { secs: String(autoSecs) })}
+                </p>
+              )}
             </>
           )}
           {lanePhase === "open" && (
             <>
-              <div className="k-eyebrow text-[#46d68c]">
-                {laneLabel
-                  ? t("confirmation.lane.openTitle", { lane: laneLabel })
-                  : t("confirmation.lane.openTitleGeneric")}
+              <div className="k-lane-head">
+                {laneNumbers.length > 0 && (
+                  <div className="k-lane-tile is-open">
+                    <div className="k-lane-word">
+                      {t(
+                        laneNumbers.length > 1
+                          ? "confirmation.lane.word.many"
+                          : "confirmation.lane.word.one",
+                      )}
+                    </div>
+                    <div className={`k-lane-num${laneNumbers.length > 1 ? " is-multi" : ""}`}>
+                      {laneNumbers.join(" · ")}
+                    </div>
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="k-lane-status text-[#46d68c]">
+                    {laneNumbers.length > 0
+                      ? t("confirmation.lane.statusOpen")
+                      : laneLabel
+                        ? t("confirmation.lane.openTitle", { lane: laneLabel })
+                        : t("confirmation.lane.openTitleGeneric")}
+                  </div>
+                  <p className="mt-[10px] text-[33px] leading-snug">
+                    {config?.brand === "fasttrax"
+                      ? t("confirmation.lane.openBody.fasttrax")
+                      : t("confirmation.lane.openBody.headpinz")}
+                  </p>
+                </div>
               </div>
-              <p className="mt-[12px] text-[32px] leading-snug">
-                {config?.brand === "fasttrax"
-                  ? t("confirmation.lane.openBody.fasttrax")
-                  : t("confirmation.lane.openBody.headpinz")}
-              </p>
             </>
           )}
           {lanePhase === "failed" && (

@@ -137,11 +137,19 @@ export const en = {
   "confirmation.racing.howButton": "How does race check-in work?",
   "confirmation.lane.readyTitle": "{lane} is ready",
   "confirmation.lane.readyTitleGeneric": "Your lane is ready",
-  "confirmation.lane.readyPrompt":
-    "Would you like us to open your lane now so you can start bowling?",
+  "confirmation.lane.readyPrompt": "Shall we open it now so you can start bowling?",
   "confirmation.lane.opening": "Opening…",
   "confirmation.lane.openButton": "Open my lane",
-  "confirmation.lane.later": "I’ll check in later",
+  // Short on purpose. The old "I’ll check in later" forced the primary button
+  // narrow; the primary action should dominate.
+  "confirmation.lane.later": "Later",
+  // The lane number is the hero, so the word beside it is its own string rather
+  // than part of a sentence.
+  "confirmation.lane.word.one": "Lane",
+  "confirmation.lane.word.many": "Lanes",
+  "confirmation.lane.statusReady": "Ready",
+  "confirmation.lane.statusOpen": "Open — go bowl",
+  "confirmation.lane.autoOpen": "Opening automatically in {secs}s — tap Later to hold off.",
   "confirmation.lane.openTitle": "{lane} is open",
   "confirmation.lane.openTitleGeneric": "Your lane is open",
   "confirmation.lane.openBody.fasttrax": "Head on over — your lane is ready.",
