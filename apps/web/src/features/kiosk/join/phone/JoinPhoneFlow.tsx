@@ -20,7 +20,12 @@ import {
   type PersonData,
 } from "~/components/features/booking/steps/race/ReturningRacerLookup";
 import WaiverSigning from "@/components/pandora/WaiverSigning";
-import { pandoraOnboardGuest, type PandoraWaiverTemplate } from "@/lib/pandora";
+import {
+  pandoraCheckWaiver,
+  pandoraFetchWaiverTemplate,
+  pandoraOnboardGuest,
+  type PandoraWaiverTemplate,
+} from "@/lib/pandora";
 import { formatPersonName, normalizeEmail } from "~/lib/helpers/name-format";
 import { fetchNameDobMatches, personDataFromMatch } from "../../license/lookup-client";
 import { matchGateVerdict } from "../../license/match-gate";
@@ -106,24 +111,40 @@ export function JoinPhoneFlow({
     const cleanLast = formatPersonName(rest.join(" "));
     const cleanEmail = normalizeEmail(person.email ?? "");
     try {
-      // Same upsert the kiosk runs: resolves the SHORT Pandora id + the
-      // authoritative waiver status (the OTP guarantees a dedup identity).
-      const result = await pandoraOnboardGuest(
-        {
-          firstName: cleanFirst,
-          lastName: cleanLast,
-          email: cleanEmail,
-          phone: person.phone || "",
-          birthdate: dobIso,
-        },
-        brandLocation,
-      );
+      /**
+       * THIS GUEST IS ALREADY IDENTIFIED — WE DO NOT CREATE THEM AGAIN.
+       *
+       * The OTP just proved who they are and the lookup handed us their person
+       * id. This used to run the "upsert" anyway to resolve a SHORT Pandora id,
+       * on the belief that waiver-sign rejects the 17-digit Office form. Under
+       * cloud-first (2026-08-12) that create is a plain CREATE, so every phone
+       * join of a returning racer minted a fresh record — their real waiver
+       * stayed on the old one, so they were asked to sign again, and the next
+       * join did it again.
+       *
+       * The belief was wrong anyway: 3,198 waivers signed against 17-digit ids
+       * since 2026-08-12 against 5 failures, all of them people whose record
+       * lives at another center. We read their waiver status off the id we
+       * already hold instead, which is the same GET the onboard did.
+       */
+      const status = await pandoraCheckWaiver(person.personId, brandLocation);
+      // BMI's birthdate beats the typed one for the template's age gate — the
+      // rule that stopped a 17-year-old signing an adult waiver (2026-07-23).
+      // Falls back to the DOB this flow already age-checked, never to a default:
+      // a guessed age picks the wrong waiver, which is the failure that rule
+      // exists to prevent.
+      const bmiDob = status.birthdate ? String(status.birthdate).slice(0, 10) : dobIso;
+      const waiverAge = ageFromIso(bmiDob) ?? ageFromIso(dobIso);
+      const template =
+        status.valid || waiverAge === null
+          ? null
+          : await pandoraFetchWaiverTemplate(waiverAge, brandLocation);
       const draft: DraftGuest = {
         firstName: cleanFirst,
         lastName: cleanLast || undefined,
         bmiPersonId: person.personId, // 17-digit Office id — STRING, untouched
-        pandoraPersonId: result.personId,
-        dobIso,
+        pandoraPersonId: person.personId,
+        dobIso: bmiDob,
         phone: person.phone || undefined,
         email: cleanEmail || undefined,
         // OTP-proven phone (phone-mode lookup only) — lets kiosk rewards skip
@@ -133,11 +154,11 @@ export function JoinPhoneFlow({
         creditBalances: person.creditBalances,
         isNewRacer: false,
       };
-      if (result.waiverValid) {
+      if (!template) {
         await submit(draft);
       } else {
         setStage("waiver");
-        setStep({ k: "waiver", draft, template: result.template });
+        setStep({ k: "waiver", draft, template });
       }
     } catch {
       failOnboarding(() => void onboardReturning(person, dobIso));
@@ -231,6 +252,7 @@ export function JoinPhoneFlow({
           email: cleanEmail,
           phone: fields.phone,
           birthdate: fields.dobIso,
+          surface: "phone-join",
         },
         brandLocation,
       );

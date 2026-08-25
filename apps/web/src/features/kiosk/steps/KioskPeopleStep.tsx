@@ -610,6 +610,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           email: cleanEmail || session.contact.email || "",
           phone: phone.trim(),
           birthdate: toIsoDob(dob),
+          surface: "kiosk-setup",
         },
         brandLocation,
       );
@@ -685,7 +686,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     }
     // A minor needing a signature gets a guardian AFTER onboarding — the
     // waiver check below decides whether one is needed at all (owner 2026-07-18).
-    const minor = age < 18;
+    // The typed age is only the gate above; every branch past this point routes
+    // on the age BMI reports back, so there is no `minor` flag to carry here.
     setBusyAll(true);
     setFormError(null);
     // Route an unsigned minor into the guardian flow instead of the signature
@@ -754,6 +756,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             email: normalizeEmail(session.contact.email ?? ""),
             phone: session.contact.phone ?? "",
             birthdate: toIsoDob(dob),
+            surface: "kiosk-setup",
           },
           brandLocation,
         );
@@ -898,58 +901,54 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             return;
           }
         }
-        // Repair didn't take (patch refused, or the read still won't resolve) —
-        // fall through to the original create-to-resolve path unchanged.
-        if (dedupPhone || dedupEmail) {
-          const result = await pandoraOnboardGuest(
-            {
-              firstName: formatPersonName(member.firstName),
-              lastName: formatPersonName(member.lastName ?? ""),
-              email: dedupEmail,
-              phone: dedupPhone,
-              birthdate: toIsoDob(dob),
-            },
-            brandLocation,
-          );
-          // Returning racer: the BMI record's birthdate (refreshed by the
-          // onboard) is authoritative over what was typed at the kiosk.
-          const rAge = ageFromIso(result.birthdate) ?? age;
-          const rMinor = rAge < 18;
-          dispatch({
-            type: "updatePartyMember",
-            id: member.id,
-            patch: {
-              // Record's name wins over the local label — see submitNew.
-              firstName: formatPersonName(result.firstName) || member.firstName,
-              lastName: formatPersonName(result.lastName) || member.lastName,
-              pandoraPersonId: result.personId,
-              waiverValid: result.waiverValid,
-              isMinor: rMinor,
-              category: rAge < 13 ? "junior" : "adult",
-              dobIso: result.birthdate,
-            },
-          });
-          resetForm();
-          if (!result.waiverValid && result.template) {
-            openWaiverOrGuardian(result.personId, result.template, rMinor);
-          }
-        } else {
-          // No phone/email on file to dedup against — DON'T upsert (risk of a
-          // duplicate person). Old path; the front desk can sign at check-in.
-          // For a minor this keeps the 17-digit Office id (pre-existing sign
-          // limitation — Pandora may 500; front desk is the fallback).
-          const template = await pandoraFetchWaiverTemplate(age, brandLocation);
-          dispatch({
-            type: "updatePartyMember",
-            id: member.id,
-            patch: {
-              isMinor: minor,
-              category: age < 13 ? "junior" : "adult",
-              dobIso: toIsoDob(dob),
-            },
-          });
-          resetForm();
-          openWaiverOrGuardian(member.bmiPersonId, template, minor);
+        /**
+         * REPAIR DIDN'T TAKE — SIGN WITH THE ID WE HOLD ANYWAY. NEVER CREATE.
+         *
+         * This used to fall through to "create-to-resolve": mint a person to
+         * get a short id, and sign against that. It is the branch every signed-in
+         * returning racer without a current waiver reaches, and under cloud-first
+         * (2026-08-12) `pandoraCreatePerson` is a plain CREATE — so it minted a
+         * duplicate here every time the repair above did not take. The guest's
+         * real record kept its old waiver, the new one landed on the twin, and
+         * their next visit did it again: 194 guests with more than one record
+         * between 2026-08-12 and 24, 166 waivers stranded on the wrong one.
+         *
+         * The premise that forced the mint — "Pandora's waiver-sign REJECTS the
+         * 17-digit Office id" — is false, and this file's own note at the top of
+         * the branch already says so (the 500 was a null BIRTHDATE, not the id
+         * format). Production agrees at scale: 3,198 waivers signed against
+         * 17-digit ids since 2026-08-12, 5 failures, every one of them a person
+         * whose record lives at a different center — which minting here would not
+         * fix either.
+         *
+         * So this now matches its twin in KioskPartyManager.submitSetup, which
+         * has never had a create in this position. We still ASK BMI about the
+         * waiver first: an unreadable record answers nothing, but a readable one
+         * spares a returning racer from signing a waiver they already hold.
+         */
+        const held = member.pandoraPersonId ?? (member.bmiPersonId as string);
+        const status = await pandoraCheckWaiver(held, brandLocation).catch(() => null);
+        const refreshedIso = status?.birthdate
+          ? String(status.birthdate).slice(0, 10)
+          : toIsoDob(dob);
+        const rAge = ageFromIso(refreshedIso) ?? age;
+        const rMinor = rAge < 18;
+        const template = status?.valid
+          ? null
+          : await pandoraFetchWaiverTemplate(rAge, brandLocation);
+        dispatch({
+          type: "updatePartyMember",
+          id: member.id,
+          patch: {
+            waiverValid: status?.valid ?? false,
+            isMinor: rMinor,
+            category: rAge < 13 ? "junior" : "adult",
+            dobIso: refreshedIso,
+          },
+        });
+        resetForm();
+        if (template) {
+          openWaiverOrGuardian(held, template, rMinor);
         }
       }
     } catch (err) {
@@ -1030,6 +1029,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             phone: gPhoneTrim,
             birthdate: verdict.birthdate,
             location: brandLocation,
+            surface: "kiosk-guardian-new",
           });
           patchPerson(g.id, { pandoraPersonId: personId });
           sid = personId;
@@ -1155,6 +1155,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           email: gCleanEmail || "",
           phone: gPhone.trim(),
           birthdate: toIsoDob(gDob),
+          surface: "kiosk-guardian-new",
         },
         brandLocation,
       );
@@ -1234,11 +1235,17 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       // ADULT waiver). Pull the BMI record's birthdate before trusting "adult".
       let refreshedIso: string | null = bdIso ?? null;
       /**
-       * A LOOKED-UP ADULT OFTEN HAS NO birthDate, and this rail used to mint
-       * anyway to resolve a short id. That record answers Pandora 500 for ever,
-       * and their waiver then lands on it — live 2026-08-19, Amy Marhevka
-       * (three FM records in seven minutes, waiver on the unreadable one).
-       * With no DOB we sign with the id the lookup already gave us instead.
+       * WE ALREADY HAVE THIS PERSON'S ID — the lookup just gave it to us — so we
+       * sign with it. This rail used to mint here regardless, to resolve the
+       * 17-digit Office id into a "short" Pandora one; that bought nothing (3,198
+       * waivers have signed against 17-digit ids since 2026-08-12, against 5
+       * failures, all of them people whose record lives at another center) and it
+       * cost a duplicate every time an adult was tapped — their existing waiver
+       * is invisible on the new record, so they sign again, and the next child
+       * does it again. Christopher Amodeo: 6 records in 13 minutes.
+       *
+       * The age gate below is unaffected: `pandoraCheckWaiver` returns the BMI
+       * record's birthdate, which is where `refreshedIso` came from anyway.
        */
       const verdict = mintForSigningVerdict({
         fallbackId: person.personId,
@@ -1254,6 +1261,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           phone: dedupPhone,
           birthdate: verdict.birthdate,
           location: brandLocation,
+          surface: "kiosk-guardian-verified",
         });
         sid = personId;
         // A record minted seconds ago holds no waiver of its own, whatever the

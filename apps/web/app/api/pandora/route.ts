@@ -134,6 +134,22 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { firstName, lastName, email, phone, birthdate, guardianID, location } = body;
+    /**
+     * Which screen asked. Recorded on the queue row so a duplicate is traceable
+     * to its surface rather than inferred — see PandoraPersonCreateInput.surface.
+     * Trimmed and capped because it is free-form text from a client.
+     *
+     * UNDEFINED, NEVER NULL, when we do not know. `enqueueSync` merges payloads
+     * with jsonb `||`, where the newer value wins on any key both sides carry —
+     * and a literal `null` is a value. Sending `surface: null` on a replay from
+     * an older client would therefore ERASE a surface an earlier call recorded,
+     * turning the one field that explains a duplicate into a blank. Omitting the
+     * key leaves the recorded one standing.
+     */
+    const surface =
+      typeof body.surface === "string" && body.surface.trim()
+        ? body.surface.trim().slice(0, 40)
+        : undefined;
 
     if (!firstName || !lastName) {
       return NextResponse.json({ error: "firstName and lastName required" }, { status: 400 });
@@ -186,7 +202,8 @@ export async function POST(req: NextRequest) {
           barrier: "person-local",
           barrierRef: personId,
           locationId: locId,
-          payload: { personId, firstName, lastName },
+          // Spread so an unknown surface omits the key entirely — see above.
+          payload: { personId, firstName, lastName, ...(surface ? { surface } : {}) },
         });
 
         // Only needed when we minted WITHOUT a birthdate: that record reads 500

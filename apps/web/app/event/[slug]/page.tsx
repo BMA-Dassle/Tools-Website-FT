@@ -638,7 +638,15 @@ export default function GroupEventPage() {
       // Shared Pandora onboard: create person → check waiver → fetch template
       const pandoraLocation = event?.pandoraLocation ?? "headpinz";
       const result = await pandoraOnboardGuest(
-        { firstName, lastName, email, phone, birthdate: birthdate!, location: pandoraLocation },
+        {
+          firstName,
+          lastName,
+          email,
+          phone,
+          birthdate: birthdate!,
+          location: pandoraLocation,
+          surface: "event-page",
+        },
         pandoraLocation,
       );
       setPersonId(result.personId);

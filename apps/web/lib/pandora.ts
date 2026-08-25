@@ -23,6 +23,22 @@ export interface PandoraPersonCreateInput {
   birthdate?: string; // "YYYY-MM-DD"
   guardianID?: string;
   location?: PandoraCenterKey | string;
+  /**
+   * WHICH SCREEN ASKED FOR THIS RECORD. Recorded on the mint's queue row so a
+   * duplicate can be traced to the surface that made it instead of inferred.
+   *
+   * We needed this on 2026-08-24 and did not have it: the queue could prove 194
+   * guests had ended up with more than one record, but not which of the seven
+   * code paths that can mint had produced them — that took a correlation across
+   * waivers, joins, check-ins and hour-of-day to narrow, and it still could not
+   * separate two rails inside the same screen. A mint is rare and the tag is one
+   * short string; carry it.
+   *
+   * Free-form on purpose (a new surface must not need a type change to be
+   * visible), but keep it stable and hyphenated: `kiosk-guardian-verified`,
+   * `kiosk-setup`, `phone-join`, `event-page`, `web-race-pack`.
+   */
+  surface?: string;
 }
 
 export interface PandoraPersonCreateResult {

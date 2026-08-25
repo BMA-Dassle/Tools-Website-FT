@@ -4,7 +4,7 @@ import { mintForSigningVerdict } from "./mint-for-signing";
 const IDENTITY = { email: "amy@example.com", phone: "5705751239" };
 
 describe("mintForSigningVerdict", () => {
-  it("mints when we hold BOTH a dedup identity and a birthdate", () => {
+  it("mints for a guest we hold NO id for, when the record can land readable", () => {
     expect(mintForSigningVerdict({ ...IDENTITY, dobIso: "1981-07-30" })).toEqual({
       kind: "mint",
       birthdate: "1981-07-30",
@@ -49,12 +49,37 @@ describe("mintForSigningVerdict", () => {
     expect(mintForSigningVerdict({})).toEqual({ kind: "blocked", reason: "no-identity" });
   });
 
-  it("prefers the fresh readable record over the fallback when it can have one", () => {
-    // Holding an id is not a reason to skip a mint we can make readable — that
-    // is the short-id resolution the guardian rails still depend on.
+  /**
+   * THE DUPLICATE LOOP (measured 2026-08-12→24: 194 guests, 256 records, 166
+   * waivers stranded on a record that is not the guest's main one).
+   *
+   * This is the ugly real case, not a tidy one: Christopher Amodeo was LOOKED UP
+   * — so we held his id — and he had a perfectly good birthdate. The old rule
+   * minted anyway to resolve a "short" id, his existing waiver was invisible on
+   * the new record, so he signed again; then he tapped the next child and it
+   * happened again. Six records and three self-signed adult waivers in 13
+   * minutes. A birthdate in hand must NOT be a reason to create a second record
+   * for a guest we have already identified.
+   */
+  it("uses the id we already hold even when it could mint a perfectly good record", () => {
     expect(
-      mintForSigningVerdict({ ...IDENTITY, dobIso: "1981-07-30", fallbackId: "63000000008819494" }),
-    ).toEqual({ kind: "mint", birthdate: "1981-07-30" });
+      mintForSigningVerdict({ ...IDENTITY, dobIso: "1981-07-30", fallbackId: "63000000009076440" }),
+    ).toEqual({ kind: "use", personId: "63000000009076440" });
+  });
+
+  it("uses a held id whatever the birthdate looks like — a mint is never the repair", () => {
+    for (const dobIso of [undefined, null, "", "   ", "07/30/1981", "1981-7-30", "1981"]) {
+      expect(
+        mintForSigningVerdict({ ...IDENTITY, dobIso, fallbackId: "63000000009076440" }),
+      ).toEqual({ kind: "use", personId: "63000000009076440" });
+    }
+  });
+
+  it("uses a held id even with no dedup identity at all — an OTP sign-in carries neither", () => {
+    expect(mintForSigningVerdict({ fallbackId: "63000000009076440" })).toEqual({
+      kind: "use",
+      personId: "63000000009076440",
+    });
   });
 
   it("ignores a whitespace-only identity or fallback", () => {

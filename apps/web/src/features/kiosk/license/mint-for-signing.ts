@@ -29,25 +29,55 @@
  * So: a mint with no birthdate is never a repair, it is a new casualty. When we
  * cannot mint a READABLE record we sign with the id we already hold instead —
  * the fallback `chooseGuardian` has taken in production since 2026-07-30.
+ *
+ * ── AN ID WE ALREADY HOLD ALWAYS WINS (2026-08-24) ─────────────────────────
+ * The first version of this guard still minted whenever it COULD land a readable
+ * record, even for a guest whose id we were already holding. That preserved the
+ * original reason these rails minted at all: they were resolving a 17-digit
+ * Office id into a "short" Pandora id, because waiver sign was believed to need
+ * one (2026-07-18).
+ *
+ * That belief is now measurably false. Since the cloud-first mint went live on
+ * 2026-08-12, `waiver_signatures` holds 3,198 waivers SIGNED against 17-digit
+ * ids against 5 failures — and every one of those five is a person whose record
+ * lives at another center, which no amount of minting here would fix. A 17-digit
+ * id signs. The short-id resolution was buying nothing.
+ *
+ * What it COST is the duplicate loop: measured over 2026-08-12→24, 194 guests
+ * ended up with more than one record, 256 records in all, and 166 waiver
+ * signatures landed on a record that is not the guest's main one. The shape is
+ * always the same — an adult is looked up (so we hold their id), the rail mints
+ * anyway, their existing waiver is invisible on the new record, so they sign
+ * again; tap the next child and it happens again. Christopher Amodeo: 6 records
+ * and 3 self-signed adult waivers in 13 minutes.
+ *
+ * So the order is now: USE what we hold, and mint only for a guest we hold
+ * nothing for. This is not a dedupe — it never searches BMI and never picks a
+ * record we did not already have in hand, so the owner's rule that duplicates
+ * stay VISIBLE (via `matchGateVerdict` + LicenseMatchPicker, upstream) is
+ * untouched. It simply stops us creating a second record for a guest we have
+ * already identified.
  */
 
 /** BMI wants `YYYY-MM-DD`; anything else can never produce a readable record. */
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export type MintForSigningVerdict =
-  /** Mint — we hold a dedup identity AND a birthdate, so the record lands readable. */
+  /** Mint — we hold no id for this guest, but we can land a READABLE record. */
   | { kind: "mint"; birthdate: string }
-  /** Sign with an id we already hold; minting now would only add an unreadable twin. */
+  /** Sign with the id we already hold. Minting would only add a twin. */
   | { kind: "use"; personId: string }
   /** Nothing to sign with and nothing safe to create. */
   | { kind: "blocked"; reason: "no-birthdate" | "no-identity" };
 
 export interface MintForSigningInput {
   /**
-   * The id to sign with when we may not mint. Callers that have already
-   * exhausted their own id (`guardianSignableId`) pass their last resort here —
-   * a 17-digit Office id is accepted by the waiver rails (proved live
-   * 2026-08-19: waiver 59136537 signed against 63000000008851591).
+   * The id we ALREADY hold for this guest — from an account lookup, an OTP
+   * sign-in, or a mint earlier in this session. When present it wins: a
+   * 17-digit Office id is accepted by the waiver rails (proved live 2026-08-19,
+   * waiver 59136537 against 63000000008851591, and 3,198 times since).
+   *
+   * Named `fallbackId` when it was only a last resort; kept for its callers.
    */
   fallbackId?: string | null;
   /** ISO `YYYY-MM-DD`. Absent = we have no readable record to offer BMI. */
@@ -57,11 +87,13 @@ export interface MintForSigningInput {
 }
 
 export function mintForSigningVerdict(input: MintForSigningInput): MintForSigningVerdict {
-  const fallback = input.fallbackId?.trim() || null;
+  const held = input.fallbackId?.trim() || null;
   const hasIdentity = !!(input.email?.trim() || input.phone?.trim());
   const dob = input.dobIso?.trim() || "";
 
+  // An id in hand always wins — see "AN ID WE ALREADY HOLD ALWAYS WINS" above.
+  // This is the line that ends the duplicate loop.
+  if (held) return { kind: "use", personId: held };
   if (hasIdentity && ISO_DATE.test(dob)) return { kind: "mint", birthdate: dob };
-  if (fallback) return { kind: "use", personId: fallback };
   return { kind: "blocked", reason: hasIdentity ? "no-birthdate" : "no-identity" };
 }

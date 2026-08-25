@@ -543,6 +543,7 @@ export function KioskPartyManager({
           phone: gPhone,
           birthdate: verdict.birthdate,
           location: brandLocation,
+          surface: "kiosk-guardian-new",
         });
         onUpdateMember(guardian.id, { pandoraPersonId: personId });
         sid = personId;
@@ -682,6 +683,7 @@ export function KioskPartyManager({
               phone: gPhoneTrim,
               birthdate: verdict.birthdate,
               location: brandLocation,
+              surface: "kiosk-guardian-chosen",
             });
             patchPerson(g.id, { pandoraPersonId: personId });
             sid = personId;
@@ -799,6 +801,7 @@ export function KioskPartyManager({
           email: gEmail.trim() || "",
           phone: gPhone.trim(),
           birthdate: toIsoDob(gDob),
+          surface: "kiosk-guardian-new",
         },
         brandLocation,
       );
@@ -879,11 +882,17 @@ export function KioskPartyManager({
       // the template age to 35 — that is how a 17-year-old signed an ADULT waiver.
       let refreshedIso: string | null = bdIso ?? null;
       /**
-       * A LOOKED-UP ADULT OFTEN HAS NO birthDate, and this rail used to mint
-       * anyway to resolve a short id. That record answers Pandora 500 forever,
-       * and their waiver then lands on it — live 2026-08-19, Amy Marhevka
-       * (three FM records in seven minutes, waiver on the unreadable one).
-       * With no DOB we sign with the id the lookup already gave us instead.
+       * WE ALREADY HAVE THIS PERSON'S ID — the lookup just gave it to us — so we
+       * sign with it. This rail used to mint here regardless, to resolve the
+       * 17-digit Office id into a "short" Pandora one; that bought nothing (3,198
+       * waivers have signed against 17-digit ids since 2026-08-12, against 5
+       * failures, all of them people whose record lives at another center) and it
+       * cost a duplicate every time an adult was tapped — their existing waiver
+       * is invisible on the new record, so they sign again, and the next child
+       * does it again. Christopher Amodeo: 6 records in 13 minutes.
+       *
+       * The age gate below is unaffected: `pandoraCheckWaiver` returns the BMI
+       * record's birthdate, which is where `refreshedIso` came from anyway.
        */
       const verdict = mintForSigningVerdict({
         fallbackId: person.personId,
@@ -899,6 +908,7 @@ export function KioskPartyManager({
           phone: dedupPhone,
           birthdate: verdict.birthdate,
           location: brandLocation,
+          surface: "kiosk-guardian-verified",
         });
         sid = personId;
         // A record minted seconds ago holds no waiver of its own, whatever the
@@ -1121,6 +1131,7 @@ export function KioskPartyManager({
           phone: phone.trim(),
           birthdate: toIsoDob(dob),
           guardianID: guardianPersonId,
+          surface: "kiosk-setup",
         },
         brandLocation,
       );
@@ -1229,6 +1240,7 @@ export function KioskPartyManager({
             phone: contactPhone ?? "",
             birthdate: toIsoDob(dob),
             guardianID: guardianPersonId,
+            surface: "kiosk-setup",
           },
           brandLocation,
         );
