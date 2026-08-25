@@ -43,8 +43,38 @@ export interface WorldCupFixture {
   away?: WorldCupTeamRef | null;
 }
 
-/** Lane window sold per match: 2.5 hours from kickoff (owner decision 7/3). */
-export const WORLD_CUP_WINDOW_MINUTES = 150;
+/**
+ * Lane window sold per match, from kickoff. 2.5 hours at launch (owner 7/3),
+ * raised to 3 hours on 2026-08-25 to match the NFL game-day package.
+ *
+ * Conqueror already carries a 180-min Time option on every World Cup offer, so
+ * this needed no vendor work — probed live 2026-08-25:
+ *   FM 174 → 1390 · FM 175 → 1398 · Naples 139 → 1110 · Naples 141 → 1126
+ * The seed points the offer rows at those (see scripts/seed-world-cup-vip.ts);
+ * `bowling_experience_offers.duration_minutes` is the source of truth, never
+ * QAMF's `Minutes`.
+ */
+export const WORLD_CUP_WINDOW_MINUTES = 180;
+
+/**
+ * Guest-facing duration, e.g. "3 hours" or "2½ hours". Derived, because the
+ * copy used to hardcode the 2.5-hour SHAPE — `Math.floor(mins / 60)}½ hours`
+ * plus a separate "N hours 30 minutes" — which silently renders "3½ hours" and
+ * "3 hours 30 minutes" the moment the constant changes.
+ */
+export function worldCupWindowLabel(minutes = WORLD_CUP_WINDOW_MINUTES): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (m === 0) return `${h} ${h === 1 ? "hour" : "hours"}`;
+  if (m === 30) return `${h}½ hours`;
+  return `${h} hours ${m} minutes`;
+}
+
+/** Compact form for staff strings and email subjects, e.g. "3-hr", "2.5-hr". */
+export function worldCupWindowLabelShort(minutes = WORLD_CUP_WINDOW_MINUTES): string {
+  const h = minutes / 60;
+  return `${Number.isInteger(h) ? h : h.toFixed(1)}-hr`;
+}
 
 /**
  * Hide a match this close to (or past) kickoff. The availability route can't
@@ -192,8 +222,12 @@ export const WORLD_CUP_FIXTURES: WorldCupFixture[] = [
  */
 export const WORLD_CUP_POPUP_STARTS_AT_MS = Date.parse("2026-07-05T00:00:00-04:00");
 
-/** Feature self-expiry: final kickoff (7/19 3 PM ET) + the 150-min window. */
-export const WORLD_CUP_ENDS_AT_MS = Date.parse("2026-07-19T17:30:00-04:00");
+/** Final kickoff: 2026-07-19, 3 PM ET. */
+const WORLD_CUP_FINAL_KICKOFF_MS = Date.parse("2026-07-19T15:00:00-04:00");
+
+/** Feature self-expiry: the final's kickoff plus the lane window it sold.
+ *  Derived so it can't drift out of step with WORLD_CUP_WINDOW_MINUTES. */
+export const WORLD_CUP_ENDS_AT_MS = WORLD_CUP_FINAL_KICKOFF_MS + WORLD_CUP_WINDOW_MINUTES * 60_000;
 
 /* ───────────────────────── experience slugs ───────────────────────── */
 

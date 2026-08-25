@@ -16,6 +16,7 @@ import {
   fixtureStaffLabel,
   isWorldCupSlug,
   type WorldCupFixture,
+  worldCupWindowLabelShort,
 } from "./fixtures";
 import { worldCupCenterEnabled, worldCupCenterEnabledByQamfId } from "./flags";
 
@@ -131,5 +132,5 @@ export function worldCupQamfTitle(guestName: string, players: number): string {
 
 /** Lead line for the Conqueror Notes so front desk spots the package. */
 export function worldCupQamfBanner(fixture: WorldCupFixture): string {
-  return `*** WORLD CUP: ${fixtureStaffLabel(fixture)} (2.5-hr window, paid online) ***`;
+  return `*** WORLD CUP: ${fixtureStaffLabel(fixture)} (${worldCupWindowLabelShort()} window, paid online) ***`;
 }
