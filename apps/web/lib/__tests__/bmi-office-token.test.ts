@@ -29,6 +29,10 @@ let minted = 0;
 const httpsRequest = vi.fn();
 vi.mock("https", () => ({
   default: {
+    // lib/bmi-office-agent.ts constructs one of these at import time.
+    Agent: class {
+      destroy() {}
+    },
     request: (_opts: unknown, cb: (res: unknown) => void) => {
       httpsRequest();
       const listeners: Record<string, (arg?: unknown) => void> = {};

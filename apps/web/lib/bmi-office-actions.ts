@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { parseWithRawIds } from "@ft/db";
 import { officeReadSessionId } from "./bmi-office-ids";
 import { getOfficeToken } from "./bmi-office-token";
+import { officeAgent } from "./bmi-office-agent";
 
 /**
  * BMI Office write actions — update project status + record payment.
@@ -72,6 +73,7 @@ function httpsRequest(
       path,
       method,
       headers: { ...headers, "Content-Type": "application/json" },
+      agent: officeAgent,
     };
     const req = https.request(opts, (res) => {
       let data = "";

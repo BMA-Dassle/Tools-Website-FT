@@ -4,8 +4,10 @@ import { neon } from "@neondatabase/serverless";
 import { parseWithRawIds } from "@ft/db";
 import redis from "@/lib/redis";
 import { verifyCron } from "@/lib/cron-auth";
+import { withCronLock } from "@/lib/cron-lock";
 import { billIdFromOfficeProjectId, officeReadSessionId } from "@/lib/bmi-office-ids";
 import { getOfficeToken } from "@/lib/bmi-office-token";
+import { officeAgent } from "@/lib/bmi-office-agent";
 import { getBowlingReservationByBillId } from "@/lib/bowling-db";
 import { stampVipStateIfCombo } from "~/features/combos/vip-state.server";
 
@@ -72,6 +74,7 @@ function officeReq(
       path,
       method,
       headers: { ...headers, "Content-Type": "application/json" },
+      agent: officeAgent,
     };
     const req = https.request(opts, (res) => {
       let data = "";
@@ -451,10 +454,28 @@ async function sweepCenter(
   return result;
 }
 
+/**
+ * Cheap per run (2 dayPlanner reads) but the recovery loop is one project GET
+ * per recoverable project, which is unbounded — a bad BMI day makes this long.
+ * Explicit rather than riding Vercel's 60s default, which would kill it partway
+ * through a recovery pass.
+ */
+export const maxDuration = 120;
+
 export async function GET(req: NextRequest) {
   const denied = verifyCron(req);
   if (denied) return denied;
 
+  // Two copies recovering the same project would both write stateId -3 through
+  // Pandora. Idempotent, but there is no reason to double it.
+  const lock = await withCronLock("bmi-cancel-sweep", 180, () => runSweep(req));
+  if (!lock.ran) {
+    return NextResponse.json({ ok: true, skipped: "previous run still in flight" });
+  }
+  return lock.result!;
+}
+
+async function runSweep(req: NextRequest): Promise<NextResponse> {
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1";
   const now = new Date();
   const today = now.toISOString().slice(0, 10);

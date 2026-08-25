@@ -4966,8 +4966,24 @@ group-quote-dispatch cron to every 1 minute", which is what created this profile
 the 12-month windowing landed. Halves everything, and it makes the route's own 60-second
 `hermes_last_processed_at` debounce meaningful again — on a 60s cron that debounce could never
 fire. The route's doc comment already said "every 2 minutes", so the comment is now true.
-Still open: the 365-day horizon (12 monthly windows to catch a state flip made minutes ago),
-absent keep-alive, and no overlap lock.
+**FIXED 2026-08-25 — keep-alive, a concurrency ceiling, an overlap lock, and `maxDuration`.**
+No Office call passed an `agent`, so every request paid a fresh TCP+TLS handshake.
+`lib/bmi-office-agent.ts` is now the one shared `https.Agent` — `keepAlive`, `maxSockets: 4` as a
+hard ceiling (the house rule for this upstream: concurrency, not a longer timeout), one agent so
+the cap is 4 and not 4-per-module. Proven live with a CONTROL, which this needed more than most:
+Node's global agent ALSO keeps connections alive, so "it reused a socket" is the default and
+proves nothing on its own. Against a `keepAlive:false` control — officeAgent did 1 handshake then
+4 reuses, the control reused nothing, and 12 concurrent reads peaked at exactly 4 sockets.
+
+`lib/cron-lock.ts` adds `SET NX EX` mutexes on `group-quote-dispatch` and `bmi-cancel-sweep`, and
+both now declare `export const maxDuration = 120` (route-segment config, the Next idiom here)
+instead of riding the 60s default that was killing the scan mid-flight. Two rules the lock holds:
+it releases **only if it still owns the lock** (an overrun run must not delete the next run's), and
+it **fails OPEN** on a Redis error — overlap is a performance problem, but a cron that silently
+stops recovers no bookings and sends no contracts.
+
+Still open: the 365-day horizon — 12 monthly dayPlanner windows every run to catch a state flip
+made minutes ago.
 
 **FIXED 2026-08-25 — `lib/bmi-office-token.ts`.** One grant per tenant, memo + Redis, in-flight
 coalescing, `invalidateOfficeToken` for a 401. Held **1 hour, not the 23h the grant allows**: a

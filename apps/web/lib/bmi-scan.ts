@@ -10,8 +10,10 @@
  */
 
 import { fetchProject, fetchPersonsByIds } from "@/lib/bmi-office-actions";
+import https from "https";
 import { officeReadSessionId } from "@/lib/bmi-office-ids";
 import { getOfficeToken } from "@/lib/bmi-office-token";
+import { officeAgent } from "@/lib/bmi-office-agent";
 import {
   fetchReservationProducts,
   fetchReservationDetail,
@@ -74,18 +76,18 @@ function httpsRequest(
   headers: Record<string, string>,
   body?: string,
 ): Promise<{ status: number; body: string }> {
-  const https = require("https");
   return new Promise((resolve, reject) => {
     const opts = {
       hostname: OFFICE_HOST,
       path,
       method,
       headers: { ...headers, "Content-Type": "application/json" },
+      agent: officeAgent,
     };
-    const req = https.request(opts, (res: any) => {
+    const req = https.request(opts, (res) => {
       let data = "";
-      res.on("data", (c: string) => (data += c));
-      res.on("end", () => resolve({ status: res.statusCode, body: data }));
+      res.on("data", (c) => (data += c));
+      res.on("end", () => resolve({ status: res.statusCode ?? 500, body: data }));
     });
     req.on("error", reject);
     req.setTimeout(60_000, () => {

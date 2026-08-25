@@ -52,6 +52,10 @@ const state = vi.hoisted(() => ({
 
 vi.mock("https", () => ({
   default: {
+    // lib/bmi-office-agent.ts constructs one of these at import time.
+    Agent: class {
+      destroy() {}
+    },
     request: (
       opts: { method: string; path: string },
       cb: (res: EventEmitter & { statusCode: number }) => void,

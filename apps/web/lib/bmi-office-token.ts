@@ -1,5 +1,6 @@
 import https from "https";
 import redis from "@/lib/redis";
+import { officeAgent } from "@/lib/bmi-office-agent";
 
 /**
  * ONE BMI Office token per tenant, shared across every caller and every lambda.
@@ -84,6 +85,7 @@ function postToken(clientKey: string, body: string): Promise<{ status: number; b
           clientkey: clientKey,
           "x-fast-version": SMS_VERSION,
         },
+        agent: officeAgent,
       },
       (res) => {
         let data = "";

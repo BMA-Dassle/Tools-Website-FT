@@ -11,6 +11,7 @@ import {
 import { verifyCron } from "@/lib/cron-auth";
 import { officeReadSessionId } from "@/lib/bmi-office-ids";
 import { getOfficeToken } from "@/lib/bmi-office-token";
+import { officeAgent } from "@/lib/bmi-office-agent";
 import redis from "@/lib/redis";
 import {
   raceSettleGate,
@@ -115,6 +116,7 @@ function officeReq(
         path,
         method,
         headers: { ...headers, "Content-Type": "application/json" },
+        agent: officeAgent,
       },
       (res) => {
         let data = "";

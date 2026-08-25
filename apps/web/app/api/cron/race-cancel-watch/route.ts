@@ -17,6 +17,7 @@ import {
 import { getBowlingReservationByBillId } from "@/lib/bowling-db";
 import { officeReadSessionId } from "@/lib/bmi-office-ids";
 import { getOfficeToken } from "@/lib/bmi-office-token";
+import { officeAgent } from "@/lib/bmi-office-agent";
 
 /** The old bill's `combo_special_id`, so a rebuilt Ultimate VIP Experience is
  *  put back on "Confirmation - VIP" instead of plain -3 (owner 2026-08-02).
@@ -147,6 +148,7 @@ function officeReq(
         path,
         method,
         headers: { ...headers, "Content-Type": "application/json" },
+        agent: officeAgent,
       },
       (res) => {
         let data = "";

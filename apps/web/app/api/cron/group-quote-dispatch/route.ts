@@ -27,6 +27,7 @@ import { scanForNewEvents, CENTERS } from "@/lib/bmi-scan";
 import { reconcileDayofOrder } from "@/lib/group-function-dayof";
 import { taxCents as computeTaxCents, subtotalCents } from "@/lib/group-function-pricing";
 import { verifyCron } from "@/lib/cron-auth";
+import { withCronLock } from "@/lib/cron-lock";
 import { formatEtDateTime } from "@/lib/et-time";
 import { firePortalWebhookAsync } from "@/lib/portal-webhook";
 import {
@@ -52,10 +53,29 @@ import {
  *   ?limit=N   — max items to process per run (default 5)
  */
 
+/**
+ * Measured live 2026-08-25: the BMI scan alone takes 58-66s for both centers.
+ * With no maxDuration set this ran on Vercel's 60s default and was being killed
+ * mid-flight, which abandons in-flight Office requests. 120s fits inside the
+ * every-two-minute cadence with room, and the lock below covers the rest.
+ */
+export const maxDuration = 120;
+
 export async function GET(req: NextRequest) {
   const denied = verifyCron(req);
   if (denied) return denied;
 
+  // TTL sits above the observed runtime so a slow run still excludes the next
+  // tick, but a killed lambda (which never runs its finally) clears within a
+  // couple of cadences rather than parking contract sends.
+  const lock = await withCronLock("group-quote-dispatch", 180, () => runDispatch(req));
+  if (!lock.ran) {
+    return NextResponse.json({ ok: true, skipped: "previous run still in flight" });
+  }
+  return lock.result!;
+}
+
+async function runDispatch(req: NextRequest): Promise<NextResponse> {
   const dryRun = req.nextUrl.searchParams.get("dryRun") === "1";
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") || "5"), 20);
 
