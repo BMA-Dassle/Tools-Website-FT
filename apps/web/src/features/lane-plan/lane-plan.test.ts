@@ -19,6 +19,7 @@ import {
   wholeFreePairs,
 } from "./grid";
 import { bucketOf, buildOccupancyForecast, forecastAt } from "./forecast";
+import { findGridGaps, OPEN_LANE_GRACE_MINUTES, toFloorIntervals } from "./grid.server";
 import { deriveLaneGroups, allowedLanesFor, MIN_SAMPLES_FOR_CONFIDENCE } from "./lane-groups";
 import { chooseLanes, enumerateCandidates, replayGreenfield, sweepDay } from "./policy";
 import { spreadBias } from "./score";
@@ -34,6 +35,7 @@ function busy(
   overrides: Partial<BusyInterval> = {},
 ): BusyInterval {
   return {
+    source: "schedule",
     laneNumber: lane,
     startMs: T0 + startHours * HOUR,
     endMs: T0 + (startHours + durationHours) * HOUR,
@@ -56,6 +58,7 @@ function grid(busyList: BusyInterval[], laneCount = 16, extra: Partial<LaneGrid>
     lanes: Array.from({ length: laneCount }, (_, i) => i + 1),
     errorLanes: new Set(),
     openLanes: new Set(),
+    liveLanes: [],
     busy: busyList,
     windowStartMs: T0 - 4 * HOUR,
     windowEndMs: T0 + 8 * HOUR,
@@ -357,6 +360,83 @@ describe("greenfield replay", () => {
     });
     expect(placed.has("C-L")).toBe(false);
     expect(placed.has("C900")).toBe(false);
+  });
+});
+
+describe("the floor overrules the schedule", () => {
+  // Both cases observed live at Naples 2026-08-24 23:48 by scripts/lane-grid-check.mts.
+  const live = (
+    laneNumber: number,
+    status: string,
+    closedAtMs: number | null,
+    reservationId: string | null,
+  ) => ({ laneNumber, status, closedAtMs, reservationId });
+
+  it("keeps a lane busy when the session is running past its booked end", () => {
+    // Booked 10:15-11:45; it is 11:48 and the lane is still Open until ~11:50.
+    const bookedEnd = T0 + 1 * HOUR;
+    const now = bookedEnd + 3 * 60_000;
+    const floor = toFloorIntervals([live(27, "Open", now + 2 * 60_000, "X85285")], now);
+    expect(floor).toHaveLength(1);
+    expect(floor[0].source).toBe("floor");
+    // Held past the estimated close, because ClosedAt is an estimate and groups overrun.
+    expect(floor[0].endMs).toBeGreaterThan(now + OPEN_LANE_GRACE_MINUTES * 60_000);
+
+    const g = grid([busy(27, 0, 1, { reservationId: "X85285" }), ...floor], 32);
+    // The schedule alone would have called it free the moment the booking ended.
+    expect(
+      isLaneFree(
+        { ...g, busy: g.busy.filter((b) => b.source === "schedule") },
+        27,
+        now,
+        now + HOUR,
+      ),
+    ).toBe(true);
+    // With the floor read it is correctly still busy.
+    expect(isLaneFree(g, 27, now, now + 5 * 60_000)).toBe(false);
+  });
+
+  it("blocks a lane opened in Conqueror that no reservation explains", () => {
+    const now = T0;
+    const floor = toFloorIntervals([live(8, "Open", now + 4 * 60_000, null)], now);
+    expect(floor).toHaveLength(1);
+    expect(floor[0].reservationId).toBe("floor:lane-8");
+    expect(floor[0].isBlock).toBe(true);
+    const g = grid(floor, 32);
+    expect(isLaneFree(g, 8, now, now + 5 * 60_000)).toBe(false);
+    // And it must never be proposed for a move — there is no booking to move.
+    expect(isMovable(floor, g)).toBe(false);
+  });
+
+  it("ignores lanes that are merely Closed — Closed means free and ready", () => {
+    expect(toFloorIntervals([live(3, "Closed", null, null)], T0)).toHaveLength(0);
+  });
+
+  it("gap check reports only what the SCHEDULE missed, not the floor read it already has", () => {
+    const now = T0;
+    const liveLanes = [live(8, "Open", now + 4 * 60_000, null)];
+    const floor = toFloorIntervals(liveLanes, now);
+    const g = grid(floor, 32, { openLanes: new Set([8]), liveLanes });
+    // The grid covers lane 8 via the floor, but the check must still say the schedule
+    // knew nothing about it — otherwise it would trivially agree with itself.
+    const gaps = findGridGaps(g, now);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0].lane).toBe(8);
+    expect(gaps[0].severity).toBe("blocking");
+  });
+
+  it("treats a known booking running over as informational, not a hole", () => {
+    const now = T0 + HOUR + 3 * 60_000;
+    const liveLanes = [live(27, "Open", now + 2 * 60_000, "X85285")];
+    const g = grid(
+      [busy(27, 0, 1, { reservationId: "X85285" }), ...toFloorIntervals(liveLanes, now)],
+      32,
+      { openLanes: new Set([27]), liveLanes },
+    );
+    const gaps = findGridGaps(g, now);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0].severity).toBe("info");
+    expect(gaps[0].problem).toMatch(/running over/);
   });
 });
 

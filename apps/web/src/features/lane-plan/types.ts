@@ -10,6 +10,22 @@
 /** One lane occupied for [startMs, endMs). Half-open: an interval ending at T does
  *  not collide with one starting at T. */
 export interface BusyInterval {
+  /**
+   * Which vendor read produced this.
+   *
+   * `schedule` — `POST /reservations/search`, what is booked.
+   * `floor`    — `GET /lanes`, what is physically running right now.
+   *
+   * They genuinely disagree, and both are needed. Observed live at Naples 2026-08-24
+   * 23:48: lane 27 was still running reservation X85285 whose booked window had ENDED at
+   * 23:45 (sessions overrun), and lane 8 was Open with `Reservation: null` — a lane
+   * opened straight in Conqueror that no reservation will ever explain. Trusting the
+   * schedule alone would have sold both lanes out from under a playing group.
+   *
+   * The engine consumes both; `findGridGaps` compares only the `schedule` half against
+   * the floor, so the check keeps its teeth instead of trivially agreeing with itself.
+   */
+  source: "schedule" | "floor";
   laneNumber: number;
   startMs: number;
   endMs: number;
@@ -41,6 +57,20 @@ export interface LaneGrid {
   errorLanes: ReadonlySet<number>;
   /** Lanes currently `Open` — a session is physically running. */
   openLanes: ReadonlySet<number>;
+  /**
+   * The live floor as `GET /lanes` reports it — an INDEPENDENT read from the schedule.
+   *
+   * Kept alongside `busy` rather than merged into it, because the whole point is to have
+   * two sources that can disagree. `findGridGaps` compares them, and a disagreement means
+   * the schedule is missing occupancy we would otherwise sell twice.
+   */
+  liveLanes: ReadonlyArray<{
+    laneNumber: number;
+    status: string;
+    /** Estimated for a lane opened directly in Conqueror rather than through the API. */
+    closedAtMs: number | null;
+    reservationId: string | null;
+  }>;
   busy: readonly BusyInterval[];
   /** The window this grid is authoritative for. Reads outside it are not trustworthy. */
   windowStartMs: number;

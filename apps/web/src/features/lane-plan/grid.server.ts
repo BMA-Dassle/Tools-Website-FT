@@ -28,6 +28,52 @@ export const MAX_SESSION_MINUTES = 240;
 const DEAD_STATUSES = new Set(["Canceled", "NoShow"]);
 
 /**
+ * How long past a running lane's estimated close we keep treating it as busy.
+ *
+ * `ClosedAt` is explicitly an ESTIMATE for a lane opened directly in Conqueror, and real
+ * sessions overrun: Naples lane 27 at 23:48 on 2026-08-24 was still running a booking
+ * whose window ended at 23:45. Handing the next group a lane the last group is still on
+ * is far worse than holding it a few extra minutes.
+ */
+export const OPEN_LANE_GRACE_MINUTES = 15;
+
+/**
+ * Occupancy that only the FLOOR knows about.
+ *
+ * Two cases, both seen live and neither visible in the schedule:
+ *  - a session running past its booked end time
+ *  - a lane opened straight in Conqueror with `Reservation: null`, which no reservation
+ *    search will ever return
+ *
+ * Emitted as real busy intervals so every placement decision respects them, and marked
+ * `isBlock` so nothing ever tries to move them.
+ */
+export function toFloorIntervals(liveLanes: LaneGrid["liveLanes"], nowMs: number): BusyInterval[] {
+  const graceMs = OPEN_LANE_GRACE_MINUTES * 60_000;
+  const out: BusyInterval[] = [];
+  for (const l of liveLanes) {
+    if (l.status !== "Open") continue;
+    const endMs = Math.max(l.closedAtMs ?? nowMs, nowMs) + graceMs;
+    out.push({
+      source: "floor",
+      laneNumber: l.laneNumber,
+      startMs: nowMs,
+      endMs,
+      reservationId: l.reservationId ?? `floor:lane-${l.laneNumber}`,
+      laneStatus: "Running",
+      reservationStatus: "Arrived",
+      kind: l.reservationId ? "running session" : "lane opened in Conqueror",
+      isBlock: true,
+      webOfferId: null,
+      players: 0,
+      title: l.reservationId ? `running ${l.reservationId}` : `lane ${l.laneNumber} open`,
+      createdAtMs: null,
+    });
+  }
+  return out;
+}
+
+/**
  * Reservation categories that hold a lane but are not sellable open play.
  *
  * These still occupy the grid — a league on lanes 21-28 is as real as a paying group —
@@ -55,6 +101,7 @@ export function toBusyIntervals(reservations: readonly Reservation[]): BusyInter
       // with an empty player list) and must not be treated as occupancy.
       if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) continue;
       out.push({
+        source: "schedule",
         laneNumber: lane.LaneNumber,
         startMs,
         endMs,
@@ -98,15 +145,26 @@ export async function buildGrid(
     if (l.Status === "Open") openLanes.add(l.LaneNumber);
   }
 
+  const readAtMs = Date.now();
+  const liveLanes = lanes.map((l) => ({
+    laneNumber: l.LaneNumber,
+    status: String(l.Status ?? ""),
+    closedAtMs: l.ClosedAt ? Date.parse(l.ClosedAt) || null : null,
+    reservationId: l.Reservation?.Id ?? null,
+  }));
+
   return {
     centerId,
     lanes: lanes.map((l) => l.LaneNumber).sort((a, b) => a - b),
     errorLanes,
     openLanes,
-    busy: toBusyIntervals(reservations),
+    liveLanes,
+    // Both reads, deliberately. The schedule alone would sell a lane out from under a
+    // session that is running over, or one opened in Conqueror with no reservation at all.
+    busy: [...toBusyIntervals(reservations), ...toFloorIntervals(liveLanes, readAtMs)],
     windowStartMs,
     windowEndMs,
-    readAtMs: Date.now(),
+    readAtMs,
   };
 }
 
@@ -121,19 +179,67 @@ export async function buildGrid(
  *
  * Exit criterion for shadow -> live: zero gaps across a full weekend.
  */
-export function findGridGaps(
-  grid: LaneGrid,
-  atMs: number,
-): Array<{ lane: number; problem: string }> {
-  const gaps: Array<{ lane: number; problem: string }> = [];
-  const busyNow = new Set(
-    grid.busy.filter((b) => atMs >= b.startMs && atMs < b.endMs).map((b) => b.laneNumber),
-  );
-  for (const lane of grid.openLanes) {
-    if (!busyNow.has(lane)) {
+export interface GridGap {
+  lane: number;
+  severity: "blocking" | "info";
+  problem: string;
+}
+
+export function findGridGaps(grid: LaneGrid, atMs: number): GridGap[] {
+  const gaps: GridGap[] = [];
+  // Only the SCHEDULE half. The grid also carries floor-derived intervals, and comparing
+  // those against the floor would just confirm itself — the point of this check is to
+  // measure how much the schedule alone would have missed.
+  const scheduled = grid.busy.filter((b) => b.source === "schedule");
+  const busyNow = scheduled.filter((b) => atMs >= b.startMs && atMs < b.endMs);
+  const busyLanes = new Set(busyNow.map((b) => b.laneNumber));
+  const knownReservations = new Set(scheduled.map((b) => b.reservationId));
+
+  for (const live of grid.liveLanes) {
+    if (live.status !== "Open") continue;
+
+    // Something is physically playing on a lane the SCHEDULE believes is free. The grid
+    // now covers this from the floor read, so it is no longer a hole we would book into —
+    // but it still needs surfacing, because the frequency tells us how far the schedule
+    // can be trusted on its own.
+    if (!busyLanes.has(live.laneNumber)) {
+      const overrun =
+        live.reservationId && knownReservations.has(live.reservationId)
+          ? "its booked window has already ended (session running over)"
+          : live.reservationId
+            ? "and that reservation is not in the schedule at all"
+            : "with no reservation attached — opened directly in Conqueror";
       gaps.push({
-        lane,
-        problem: "lane is OPEN on the floor but the grid shows it free — occupancy is missing",
+        lane: live.laneNumber,
+        // Covered by the floor read, so not blocking; an unknown reservation still is.
+        severity:
+          live.reservationId && knownReservations.has(live.reservationId) ? "info" : "blocking",
+        problem: `OPEN on the floor${live.reservationId ? ` running ${live.reservationId}` : ""}, schedule shows free — ${overrun}`,
+      });
+      continue;
+    }
+
+    // Softer, but the same class of blindness: the lane is busy in both views, yet the
+    // reservation actually playing there never appeared in the search results at all.
+    if (live.reservationId && !knownReservations.has(live.reservationId)) {
+      gaps.push({
+        lane: live.laneNumber,
+        severity: "blocking",
+        problem: `running reservation ${live.reservationId} is absent from the search window entirely`,
+      });
+      continue;
+    }
+
+    // Both views agree the lane is busy but on different reservations — usually a lane
+    // opened for a walk-in on top of a booking, worth seeing but not a grid hole.
+    if (live.reservationId && !busyNow.some((b) => b.reservationId === live.reservationId)) {
+      gaps.push({
+        lane: live.laneNumber,
+        severity: "info",
+        problem: `floor is running ${live.reservationId}; schedule has ${busyNow
+          .filter((b) => b.laneNumber === live.laneNumber)
+          .map((b) => b.reservationId)
+          .join(", ")}`,
       });
     }
   }
