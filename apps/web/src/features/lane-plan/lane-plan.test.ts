@@ -463,6 +463,40 @@ describe("lane groups", () => {
     expect(allowedLanesFor(groups, 155)).toEqual([5, 6, 7, 8, 9]);
   });
 
+  it("drops rare strays — presence is not membership", () => {
+    // The real shape of FM offer 154 over 60 days: lanes 13-28 carried 9-36 observations
+    // each, while 6/7/9/10/12 appeared once or twice. Pinning to lane 6 was rejected live
+    // with 409 LanesNotCompatible on 2026-08-25 — those strays are bookings staff moved
+    // onto a lane inside Conqueror, which does not enforce the web offer's lane group.
+    const history = [
+      ...Array.from({ length: 120 }, (_, i) => res(`Xreal${i}`, 154, [13 + (i % 16)])),
+      res("Xstray1", 154, [6]),
+      res("Xstray2", 154, [7]),
+      res("Xstray3", 154, [7]),
+      res("Xstray4", 154, [12]),
+    ];
+    const groups = deriveLaneGroups(history);
+    const g = groups.get(154)!;
+    expect(g.confident).toBe(true);
+    expect(allowedLanesFor(groups, 154)).toEqual([
+      13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
+    ]);
+    expect(g.outliers).toEqual([6, 7, 12]);
+    // The counts survive so a rejected pin can be explained rather than just failing.
+    expect(g.counts.get(6)).toBe(1);
+    expect(g.counts.get(13)).toBeGreaterThan(5);
+  });
+
+  it("keeps a lane that is merely less popular, not an outlier", () => {
+    // 30 vs 8 is a real spread of demand across a group, not noise. 8 clears both the
+    // 10%-of-busiest bar and the absolute floor.
+    const history = [
+      ...Array.from({ length: 30 }, (_, i) => res(`Xa${i}`, 200, [5])),
+      ...Array.from({ length: 8 }, (_, i) => res(`Xb${i}`, 200, [6])),
+    ];
+    expect(allowedLanesFor(deriveLaneGroups(history), 200)).toEqual([5, 6]);
+  });
+
   it("refuses to restrict on thin evidence — a wrong fence is worse than none", () => {
     const groups = deriveLaneGroups([res("X1", 999, [3])]);
     expect(groups.get(999)!.confident).toBe(false);

@@ -17,9 +17,14 @@ import type { Reservation } from "@/lib/qamf-bowling";
 
 export interface LaneGroupEvidence {
   webOfferId: number;
+  /** Lanes that survive the frequency filter — our best guess at the real group. */
   lanes: number[];
-  /** How many reservations contributed. Low counts mean a narrow observed set that is
-   *  probably narrower than the real group — treat as weak. */
+  /** Every lane ever seen, with its observation count. Kept so a rejected pin can be
+   *  explained ("lane 6 was seen once in 316") rather than just failing. */
+  counts: Map<number, number>;
+  /** Lanes seen but discarded as noise. */
+  outliers: number[];
+  /** How many reservations contributed. */
   samples: number;
   /** True when we have enough evidence to restrict placement to these lanes. */
   confident: boolean;
@@ -30,6 +35,25 @@ export interface LaneGroupEvidence {
 export const MIN_SAMPLES_FOR_CONFIDENCE = 25;
 
 /**
+ * A lane must carry at least this share of the offer's busiest lane to count as part of
+ * the group.
+ *
+ * Presence alone is NOT membership. Verified the hard way 2026-08-25: the engine picked
+ * lane 6 for offer 154 because history showed the offer there — and QAMF rejected the
+ * create with `409 LanesNotCompatible`. Lane 6 had been seen ONCE in 316 observations,
+ * against 9-36 for lanes 13-28. Those strays are reservations staff moved onto a lane
+ * inside Conqueror, which does not enforce the web offer's lane group, so they are
+ * evidence of a manual override rather than of what the offer may book.
+ *
+ * 0.10 cleanly separates every offer we have data for: 154 and 158 resolve to 13-28,
+ * 155 and 159 to 5-12, each dropping only 1-2 observation strays.
+ */
+export const MIN_LANE_SHARE_OF_BUSIEST = 0.1;
+
+/** …and an absolute floor, so a thinly-used offer cannot promote a single sighting. */
+export const MIN_LANE_OBSERVATIONS = 3;
+
+/**
  * offer -> lanes it has been observed using.
  *
  * Dead reservations are excluded: a canceled booking still tells us the offer was
@@ -38,7 +62,7 @@ export const MIN_SAMPLES_FOR_CONFIDENCE = 25;
 export function deriveLaneGroups(
   reservations: readonly Reservation[],
 ): Map<number, LaneGroupEvidence> {
-  const lanesByOffer = new Map<number, Set<number>>();
+  const countsByOffer = new Map<number, Map<number, number>>();
   const samplesByOffer = new Map<number, number>();
 
   for (const r of reservations) {
@@ -46,22 +70,31 @@ export function deriveLaneGroups(
     const offer = r.WebOffer?.Id;
     if (offer == null) continue;
     samplesByOffer.set(offer, (samplesByOffer.get(offer) ?? 0) + 1);
-    let set = lanesByOffer.get(offer);
-    if (!set) {
-      set = new Set();
-      lanesByOffer.set(offer, set);
+    let counts = countsByOffer.get(offer);
+    if (!counts) {
+      counts = new Map();
+      countsByOffer.set(offer, counts);
     }
-    for (const l of r.Lanes ?? []) set.add(l.LaneNumber);
+    for (const l of r.Lanes ?? []) {
+      counts.set(l.LaneNumber, (counts.get(l.LaneNumber) ?? 0) + 1);
+    }
   }
 
   const out = new Map<number, LaneGroupEvidence>();
-  for (const [offer, set] of lanesByOffer) {
+  for (const [offer, counts] of countsByOffer) {
     const samples = samplesByOffer.get(offer) ?? 0;
+    const busiest = Math.max(...counts.values(), 0);
+    const floor = Math.max(MIN_LANE_OBSERVATIONS, busiest * MIN_LANE_SHARE_OF_BUSIEST);
+    const lanes: number[] = [];
+    const outliers: number[] = [];
+    for (const [lane, n] of counts) (n >= floor ? lanes : outliers).push(lane);
     out.set(offer, {
       webOfferId: offer,
-      lanes: [...set].sort((a, b) => a - b),
+      lanes: lanes.sort((a, b) => a - b),
+      counts,
+      outliers: outliers.sort((a, b) => a - b),
       samples,
-      confident: samples >= MIN_SAMPLES_FOR_CONFIDENCE,
+      confident: samples >= MIN_SAMPLES_FOR_CONFIDENCE && lanes.length > 0,
     });
   }
   return out;

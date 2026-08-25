@@ -370,13 +370,28 @@ export interface WebOfferDetail {
   };
   Services: Service[];
 }
+/**
+ * QAMF wraps this as `{ WebOffers: [...] }`. The declared return type has always said
+ * array, so callers that trusted it got an object and threw — `qamf-internal-test/center-live`
+ * carries a hand-rolled unwrap and a comment about exactly this. Unwrap here instead, the
+ * same way `listLanes` already does, so the type stops lying. The bare-array fallback keeps
+ * an envelope-less response working.
+ */
 export async function listWebOffers(centerId: number): Promise<WebOfferDetail[]> {
-  return call({
+  const res = await call<{ WebOffers?: WebOfferDetail[] } | WebOfferDetail[]>({
     method: "GET",
     path: `/centers/${centerId}/weboffers`,
     errLabel: `listWebOffers(${centerId})`,
     centerId,
   });
+  if (
+    res &&
+    !Array.isArray(res) &&
+    Array.isArray((res as { WebOffers?: WebOfferDetail[] }).WebOffers)
+  ) {
+    return (res as { WebOffers: WebOfferDetail[] }).WebOffers;
+  }
+  return Array.isArray(res) ? res : [];
 }
 
 /** GET /centers/{centerId}/weboffers/{id} — single web-offer detail */
@@ -417,11 +432,22 @@ export async function searchAvailability(
   });
 }
 
-/** POST /centers/{centerId}/reservations — create a temporary
- *  reservation. Returns the new Reservation with `Id` (Xnnn). */
+/**
+ * POST /centers/{centerId}/reservations — create a temporary reservation.
+ * Returns the new Reservation with `Id` (Xnnn).
+ *
+ * `input.Lanes` pins the reservation to specific lane numbers instead of letting QAMF
+ * auto-assign. The field has always been in our type and no caller has ever populated it,
+ * so every booking we have ever made took whatever lane QAMF chose. `apiVersion` exists
+ * because the pinned default (`2025-12-01.1.0`) predates the pin being documented — pass
+ * `"1.4"` when sending `Lanes`, and check the response rather than assuming it was
+ * honored: a version that does not understand the field will happily ignore it and
+ * auto-assign anyway.
+ */
 export async function createReservation(
   centerId: number,
   input: NewReservationInput,
+  apiVersion?: string,
 ): Promise<Reservation> {
   return call({
     method: "POST",
@@ -433,6 +459,7 @@ export async function createReservation(
     },
     errLabel: `createReservation(${centerId})`,
     centerId,
+    apiVersion,
   });
 }
 
