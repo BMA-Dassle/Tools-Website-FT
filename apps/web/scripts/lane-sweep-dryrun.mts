@@ -29,7 +29,7 @@ const { deriveLaneGroups, toLaneGroupMap } = await import("~/features/lane-plan/
 const { buildOccupancyForecast, forecastAt } = await import("~/features/lane-plan/forecast");
 const { sweepDay, affectedPairs, replayGreenfield } = await import("~/features/lane-plan/policy");
 const { DEFAULT_POLICY } = await import("~/features/lane-plan/types");
-const { byReservation, mateOf, wholeFreePairs, occupancyAt } =
+const { byReservation, lanesAvailableFor, mateOf, wholeFreePairs, occupancyAt } =
   await import("~/features/lane-plan/grid");
 type LaneGrid = import("~/features/lane-plan/types").LaneGrid;
 type BusyInterval = import("~/features/lane-plan/types").BusyInterval;
@@ -163,6 +163,37 @@ function crowdedByPressure(grid: LaneGrid): Record<string, { crowded: number; to
     if (mateBusy) bands[key].crowded++;
   }
   return bands;
+}
+
+/**
+ * Can we still SELL a long session? The number any rearrangement should be judged by.
+ *
+ * Lane count is a permutation and cannot be improved by moving anyone. What CAN change is
+ * whether some lane stays clear long enough to take a 90 or 120-minute booking. Measured at
+ * FM on 2026-08-15 at 17:00: 13 lanes free, none able to host even 90 minutes.
+ *
+ * Sums over each hour of the trading day, so one bad hour cannot hide behind ten good ones.
+ */
+function longSessionCapacity(grid: LaneGrid): {
+  slots90: number;
+  slots120: number;
+  worst: { atMs: number; free: number; can120: number };
+} {
+  let slots90 = 0;
+  let slots120 = 0;
+  let worst = { atMs: dayStartMs, free: 0, can120: 0, loss: -1 };
+  const from = Date.parse(`${DATE}T12:00:00.000-04:00`);
+  const to = Date.parse(`${DATE}T23:00:00.000-04:00`);
+  for (let t = from; t < to; t += 60 * 60_000) {
+    const free = lanesAvailableFor(grid, t, 15);
+    const can90 = lanesAvailableFor(grid, t, 90);
+    const can120 = lanesAvailableFor(grid, t, 120);
+    slots90 += can90;
+    slots120 += can120;
+    const loss = free - can120;
+    if (loss > worst.loss) worst = { atMs: t, free, can120, loss };
+  }
+  return { slots90, slots120, worst };
 }
 
 /** Apply a reservation -> lanes map to a grid in memory, so outcomes can be measured
@@ -349,6 +380,27 @@ console.log(
 if (green.unplaced.length) {
   console.log(
     `  ${green.unplaced.length} could not be placed (house genuinely full) — production fails open to QAMF.`,
+  );
+}
+
+// Long-session capacity — the only capacity metric a permutation can actually move.
+{
+  const lB = longSessionCapacity(before);
+  const lA = longSessionCapacity(after);
+  const lG = longSessionCapacity(greenGrid);
+  const delta = (a: number, b: number) => (b === a ? "same" : b > a ? `+${b - a}` : `${b - a}`);
+  console.log(`\n  LONG SESSIONS still sellable (lane-slots summed over 12pm-11pm):`);
+  console.log(
+    `      90 min   as booked ${String(lB.slots90).padStart(3)}   after sweep ${String(lA.slots90).padStart(3)} (${delta(lB.slots90, lA.slots90)})   pinned at create ${String(lG.slots90).padStart(3)} (${delta(lB.slots90, lG.slots90)})`,
+  );
+  console.log(
+    `     120 min   as booked ${String(lB.slots120).padStart(3)}   after sweep ${String(lA.slots120).padStart(3)} (${delta(lB.slots120, lA.slots120)})   pinned at create ${String(lG.slots120).padStart(3)} (${delta(lB.slots120, lG.slots120)})`,
+  );
+  console.log(
+    `      worst hour as booked: ${clock(lB.worst.atMs)} — ${lB.worst.free} lanes free, only ${lB.worst.can120} could take 2 hours`,
+  );
+  console.log(
+    `      a permutation cannot change how many lanes are FREE — only whether any stays clear long enough to sell.`,
   );
 }
 

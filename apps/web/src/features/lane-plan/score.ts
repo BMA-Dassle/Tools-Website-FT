@@ -18,11 +18,13 @@
  */
 import {
   freeLanes,
+  gapFit,
   isLaneFree,
   isTruePair,
   mateOf,
   pairOf,
   projectedOccupancy,
+  slivers,
   wholeFreePairs,
 } from "./grid";
 import type { LaneGrid, LanePolicy, Placement, PlanRequest } from "./types";
@@ -132,6 +134,29 @@ export function scorePlacement(
   );
   const pressureWeight = 0.3 + 0.7 * clamp(1 - (sb + 1) / 2, 0, 1);
   terms.wholePairs = policy.wholePairs * pressureWeight * pairsAfter;
+
+  // ── time fit: keep some lanes clear long enough to sell a long session ──
+  // Owner's rule: fill gaps hard, except when the house is dead. So the reward to sit
+  // snug against an existing booking rises as the spread bias falls. On a genuinely quiet
+  // afternoon (bias ~1) this contributes nothing and guests still get their space.
+  // Quadratic ramp: near zero while there are fresh pairs to spread into, rising sharply
+  // as they run out. A linear `(1 - sb) / 2` packed guests together on a quiet afternoon
+  // and measurably worsened privacy without buying long-session capacity; `-sb` overshot
+  // the other way and only fired when the forecast reserve exceeded free pairs, leaving
+  // the term inert on any board without forecast history.
+  const fillWeight = clamp(1 - sb, 0, 1) ** 2;
+  let touches = 0;
+  let stranded = 0;
+  for (const lane of sorted) {
+    const fit = gapFit(grid, lane, req.startMs, req.endMs, req.reservationId);
+    if (fit.before === 0) touches++;
+    if (fit.after === 0) touches++;
+    stranded += slivers(fit, policy.minSellableMinutes).length;
+  }
+  terms.timeFit = touches ? policy.timeFit * fillWeight * touches : 0;
+  // Stranding a gap nothing fits into is always wrong, at any pressure — a 25-minute hole
+  // is dead whether the house is empty or full.
+  terms.sliver = stranded ? -policy.sliverPenalty * stranded : 0;
 
   // ── never place on a lane under maintenance ─────────────────────────────
   terms.errorLanes = sorted.some((l) => grid.errorLanes.has(l)) ? -1e6 : 0;

@@ -114,6 +114,28 @@ export interface LanePolicy {
   /** Penalty per lane of gap when a multi-lane placement is not contiguous. */
   contiguity: number;
   /**
+   * Reward for a placement that butts straight onto an existing booking on that lane,
+   * leaving no dead time between them.
+   *
+   * This does NOT create capacity — which lane a booking sits on is a permutation, and
+   * cannot change how many lanes are free at 8pm. What it protects is DURATION: keeping
+   * some lanes clear in long stretches so a 90 or 120-minute session is still sellable.
+   * Measured at FM 2026-08-15 17:00 — 13 lanes free, none able to host 90 minutes.
+   *
+   * Scaled by pressure, so a dead afternoon still spreads guests out rather than
+   * shoulder-to-shoulder for a long session nobody is waiting to book.
+   */
+  timeFit: number;
+  /** Penalty for stranding a gap too short to sell to anyone. Always on. */
+  sliverPenalty: number;
+  /**
+   * The shortest session this center actually sells, in minutes — a gap below it is dead.
+   * PER-CENTER: HeadPinz's shortest open-play option is 60 (options 1226/1258); FastTrax
+   * duckpin genuinely sells 30 (option 33). A single global floor would either strand
+   * FastTrax inventory or fail to protect HeadPinz.
+   */
+  minSellableMinutes: number;
+  /**
    * How much of the house, measured in whole free pairs, must remain before the engine
    * stops spreading. Expressed as a fraction of total pairs: 0.35 on 14 pairs means the
    * dial reaches full-spread at ~5 fresh pairs and full-backfill at 0.
@@ -138,6 +160,9 @@ export const DEFAULT_POLICY: LanePolicy = {
   wholePairs: 6,
   pairIntegrity: 14,
   contiguity: 25,
+  timeFit: 12,
+  sliverPenalty: 10,
+  minSellableMinutes: 60,
   spreadPairSpan: 0.35,
   multiLaneShare: 0.22,
   moveCost: 8,

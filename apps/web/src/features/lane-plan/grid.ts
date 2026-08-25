@@ -134,6 +134,88 @@ export function projectedOccupancy(
   };
 }
 
+/**
+ * How snugly a window sits inside a lane's free time — the TIME dimension of packing.
+ *
+ * WHAT THIS IS NOT. It does not recover "lost lane-hours". Which lane a booking sits on is
+ * a permutation: if ten groups are bowling at 8pm then eighteen lanes are free at 8pm, no
+ * matter how they are arranged. Capacity at an instant cannot be improved by moving anyone.
+ *
+ * WHAT IT IS. A guest wanting two hours needs ONE lane clear for the whole two hours.
+ * Scatter bookings across every lane and the house can be a third empty while unable to
+ * sell a single long session. Measured at FM (`duration-fragmentation.mts`): on 2026-08-15
+ * at 17:00, **13 lanes were free and none could host even 90 minutes**; 2026-08-08 ran the
+ * same way from 15:00 to 18:00. So the goal is to keep some lanes clear for long stretches
+ * — the same argument as saving whole pairs for big parties, in the time axis.
+ *
+ * Consolidating bookings only helps where they are SCATTERED. If every lane is genuinely
+ * back-to-back the demand has filled the house and no arrangement changes that.
+ *
+ * Returns the dead time left on each side, in minutes. `null` means open-ended — no
+ * booking bounds that side within the grid's window.
+ */
+export function gapFit(
+  grid: LaneGrid,
+  lane: number,
+  startMs: number,
+  endMs: number,
+  ignoreReservationId?: string,
+): { before: number | null; after: number | null } {
+  let prevEnd = -Infinity;
+  let nextStart = Infinity;
+  for (const b of grid.busy) {
+    if (b.laneNumber !== lane || b.reservationId === ignoreReservationId) continue;
+    if (b.endMs <= startMs && b.endMs > prevEnd) prevEnd = b.endMs;
+    if (b.startMs >= endMs && b.startMs < nextStart) nextStart = b.startMs;
+  }
+  return {
+    before: prevEnd === -Infinity ? null : Math.round((startMs - prevEnd) / 60_000),
+    after: nextStart === Infinity ? null : Math.round((nextStart - endMs) / 60_000),
+  };
+}
+
+/**
+ * Gaps a placement would leave that are too short to sell to anybody.
+ *
+ * A zero gap is ideal — the booking butts straight onto its neighbour, wasting nothing. A
+ * gap at or above the shortest sellable session is fine, someone can still book it.
+ * Anything between is a hole no product fits into.
+ *
+ * `minSellableMinutes` is per-center and must come from the catalogue, not a constant:
+ * HeadPinz's shortest open-play option is 60 minutes (options 1226/1258) while FastTrax
+ * duckpin genuinely sells 30 (option 33), so a single global floor would either strand
+ * FastTrax inventory or fail to protect HeadPinz.
+ */
+export function slivers(
+  fit: { before: number | null; after: number | null },
+  minSellableMinutes: number,
+): number[] {
+  const out: number[] = [];
+  for (const gap of [fit.before, fit.after]) {
+    if (gap == null) continue;
+    if (gap > 0 && gap < minSellableMinutes) out.push(gap);
+  }
+  return out;
+}
+
+/**
+ * How many lanes could host a session of `minutes` starting at `atMs`.
+ *
+ * This is the number the time-packing policy actually exists to raise, and it is the one to
+ * judge any rearrangement by — not lane count, which a permutation cannot change. Pair it
+ * with plain free-lane count: when the two diverge, long sessions are being refused while
+ * the house sits half empty.
+ */
+export function lanesAvailableFor(
+  grid: LaneGrid,
+  atMs: number,
+  minutes: number,
+  allowed?: readonly number[] | null,
+): number {
+  const endMs = atMs + minutes * 60_000;
+  return freeLanes(grid, atMs, endMs, undefined, allowed).length;
+}
+
 /** Contiguous runs of free lanes over the window, as arrays of lane numbers. */
 export function freeRuns(
   grid: LaneGrid,

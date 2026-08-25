@@ -9,13 +9,16 @@ import { describe, expect, it } from "vitest";
 import {
   freeLanes,
   freeRuns,
+  gapFit,
   isLaneFree,
   isMovable,
   isTruePair,
+  lanesAvailableFor,
   mateOf,
   occupancyAt,
   pairOf,
   projectedOccupancy,
+  slivers,
   wholeFreePairs,
 } from "./grid";
 import { bucketOf, buildOccupancyForecast, forecastAt } from "./forecast";
@@ -24,7 +27,7 @@ import { deriveLaneGroups, allowedLanesFor, MIN_SAMPLES_FOR_CONFIDENCE } from ".
 import { chooseLanes, enumerateCandidates, replayGreenfield, sweepDay } from "./policy";
 import { classifyPinFailure, shouldFailOpen } from "./pin-errors";
 import { createWithLanePlan, describePinOutcome } from "./pin";
-import { spreadBias } from "./score";
+import { scorePlacement, spreadBias } from "./score";
 import { DEFAULT_POLICY, type BusyInterval, type LaneGrid } from "./types";
 
 const HOUR = 3600_000;
@@ -439,6 +442,91 @@ describe("the floor overrules the schedule", () => {
     expect(gaps).toHaveLength(1);
     expect(gaps[0].severity).toBe("info");
     expect(gaps[0].problem).toMatch(/running over/);
+  });
+});
+
+describe("packing in time, not just across lanes", () => {
+  it("measures the dead time either side of a placement", () => {
+    // Lane 5 booked 4-5pm and 7-8pm; we want 5:30-6:30 in between.
+    const g = grid([busy(5, -2, 1), busy(5, 1, 1)], 16);
+    const fit = gapFit(g, 5, T0 - 0.5 * HOUR, T0 + 0.5 * HOUR);
+    expect(fit.before).toBe(30);
+    expect(fit.after).toBe(30);
+  });
+
+  it("reports open-ended sides as null, not zero — nothing is being stranded", () => {
+    const g = grid([], 16);
+    expect(gapFit(g, 5, T0, T0 + HOUR)).toEqual({ before: null, after: null });
+  });
+
+  it("counts only gaps too short to sell", () => {
+    // 30 min is dead at HeadPinz (shortest option is 60); 90 min is sellable.
+    expect(slivers({ before: 30, after: 90 }, 60)).toEqual([30]);
+    // Butting straight onto a neighbour wastes nothing.
+    expect(slivers({ before: 0, after: 0 }, 60)).toEqual([]);
+    // FastTrax genuinely sells 30, so the same gap is fine there.
+    expect(slivers({ before: 30, after: null }, 30)).toEqual([]);
+  });
+
+  it("counts lanes that can host a LONG session, not just free lanes", () => {
+    // Every lane free at 6pm, but lanes 1-3 have a booking at 7pm.
+    const g = grid([busy(1, 1, 1), busy(2, 1, 1), busy(3, 1, 1)], 8);
+    expect(lanesAvailableFor(g, T0, 15)).toBe(8); // all free right now
+    expect(lanesAvailableFor(g, T0, 120)).toBe(5); // only 5 clear for two hours
+  });
+
+  it("does NOT chase gaps while the house is quiet", () => {
+    // Empty house, one booking on lane 3 ending exactly at T0. Sitting right against it
+    // would be a perfect time fit — but there is nobody to save the long run for.
+    const g = grid([busy(3, -2, 2)], 16);
+    const req = {
+      laneCount: 1,
+      startMs: T0,
+      endMs: T0 + 1.5 * HOUR,
+      players: 4,
+      webOfferId: 152,
+      allowedLanes: null,
+    };
+    expect(spreadBias(g, req, DEFAULT_POLICY)).toBeGreaterThan(0);
+    const snug = scorePlacement(g, req, [3], DEFAULT_POLICY);
+    expect(snug.terms.timeFit).toBe(0);
+  });
+
+  it("rewards butting onto a neighbour once pressure is real", () => {
+    // One lane of every pair taken, so the bias has crossed into backfill; lane 3 also has
+    // a booking ending exactly when ours starts.
+    const busyLanes = [1, 3, 5, 7, 9, 11, 13, 15].map((l) => busy(l, 0, 2));
+    const g = grid([...busyLanes, busy(4, -2, 2, { reservationId: "XPREV" })], 16);
+    const req = {
+      laneCount: 1,
+      startMs: T0,
+      endMs: T0 + 1.5 * HOUR,
+      players: 4,
+      webOfferId: 152,
+      allowedLanes: null,
+    };
+    expect(spreadBias(g, req, DEFAULT_POLICY)).toBeLessThanOrEqual(0);
+    const snug = scorePlacement(g, req, [4], DEFAULT_POLICY);
+    const loose = scorePlacement(g, req, [6], DEFAULT_POLICY);
+    expect(snug.terms.timeFit).toBeGreaterThan(0);
+    expect(loose.terms.timeFit).toBe(0);
+  });
+
+  it("penalises stranding an unsellable sliver at any pressure", () => {
+    // Lane 3 is booked again 45 minutes after our session would end — too short to sell.
+    const g = grid([busy(3, 2.25, 1)], 16);
+    const req = {
+      laneCount: 1,
+      startMs: T0,
+      endMs: T0 + 1.5 * HOUR,
+      players: 4,
+      webOfferId: 152,
+      allowedLanes: null,
+    };
+    const stranding = scorePlacement(g, req, [3], DEFAULT_POLICY);
+    const clean = scorePlacement(g, req, [8], DEFAULT_POLICY);
+    expect(stranding.terms.sliver).toBeLessThan(0);
+    expect(clean.terms.sliver).toBe(0);
   });
 });
 
