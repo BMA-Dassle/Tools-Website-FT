@@ -48,11 +48,18 @@ import type { PitLaneFeed } from "../pit/pit-board";
 /**
  * The stages, in the order a group passes through them.
  *
+ * "CHECKING IN", NOT "CALLED" — the word every wall in the estate already uses
+ * for this stage (the camera boards' "CHECKING IN 6 / 14", the track board's
+ * "Now checking in", the Mega tracker's own row). The desk keeps "Called" for
+ * its box because a staff tool is naming the EVENT it is counting from, with a
+ * "Checking in" clock inside it; a wall is naming what the group is DOING, and
+ * this rail is a wall component that happens also to hang off a tablet.
+ *
  * "Briefing" is ONE row on a night where one room feeds the track, and splits
  * into "Red room" / "Blue room" when two do — see buildStageRail's room block.
  */
 export type StageLabel =
-  | "Called"
+  | "Checking in"
   | "Briefing"
   | "Red room"
   | "Blue room"
@@ -62,7 +69,7 @@ export type StageLabel =
   | "Pit in";
 
 export const STAGE_LABELS: readonly StageLabel[] = [
-  "Called",
+  "Checking in",
   "Briefing",
   "Holding",
   "In karts",
@@ -319,7 +326,7 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
       ? `${fmt(input.calledForMs)} checking in`
       : null;
   rows.push({
-    label: "Called",
+    label: "Checking in",
     value: sessionLabel(calledHeat),
     type: calledHeat != null ? (called?.raceType ?? undefined) : undefined,
     detail: [countText, waitedText, briefPhrase?.text].filter(Boolean).join(" · ") || undefined,

@@ -291,7 +291,7 @@ export function StageRailView({
           gap: s.rowGap,
         }}
       >
-        {rows.map((r) => {
+        {rows.map((r, i) => {
           const empty = r.value === "—";
           // Compact drops the word, never the number: the label column already
           // says which stage this is.
@@ -307,6 +307,23 @@ export function StageRailView({
                 gap: compact ? 9 : 14,
                 flexWrap: "wrap",
                 minWidth: 0,
+                /**
+                 * A HAIRLINE BETWEEN THE BANDS, on the wall boards only.
+                 *
+                 * A stage row is a long line — label, session, level, pill,
+                 * detail — spread across a whole television, and the eye has to
+                 * carry left to right across a lot of empty middle. The Mega
+                 * tracker had these before it joined this component and lost
+                 * them in the move; putting them HERE rather than back in that
+                 * one board means the pit sign, the briefing TV and the tracker
+                 * band alike, which is the whole point of the shared renderer.
+                 *
+                 * Not on compact: the camera rail is 58% of a small panel with
+                 * its rows already tight, where a rule per row reads as noise.
+                 */
+                ...(compact || i === 0
+                  ? null
+                  : { borderTop: "1px solid rgba(245,236,238,0.12)", paddingTop: s.rowGap }),
               }}
             >
               <span
@@ -369,7 +386,7 @@ export function StageRailView({
                   {compact ? `→ ${r.room.toUpperCase()}` : `→ ${r.room.toUpperCase()} ROOM`}
                 </span>
               )}
-              {r.label === "Called" && calledCheckinAt && !empty && (
+              {r.label === "Checking in" && calledCheckinAt && !empty && (
                 <span
                   className="tv-eyebrow"
                   style={{ fontSize: s.type, color: "rgba(245,236,238,0.55)" }}

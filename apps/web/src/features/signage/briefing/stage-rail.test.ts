@@ -80,6 +80,20 @@ describe("buildStageRail", () => {
     expect(buildStageRail(BASE).map((r) => r.label)).toEqual([...STAGE_LABELS]);
   });
 
+  /**
+   * THE FIRST ROW IS "CHECKING IN", AND IT IS PINNED HERE (owner 2026-08-25).
+   *
+   * That is the word every wall in the estate already uses for this stage — the
+   * camera boards' "CHECKING IN 6 / 14", the track board's "Now checking in",
+   * the Mega tracker's own row before it joined this rail. The row briefly read
+   * "Called", which is the DESK's word for the box it counts from, and putting a
+   * staff tool's vocabulary on a wall is the drift this module exists to stop.
+   */
+  it("calls the first stage what the walls call it", () => {
+    expect(buildStageRail(BASE)[0].label).toBe("Checking in");
+    expect(STAGE_LABELS).not.toContain("Called");
+  });
+
   it("reads every stage as empty when nothing is happening", () => {
     const rows = buildStageRail(BASE);
     expect(rows.every((r) => r.value === "—")).toBe(true);
@@ -91,7 +105,7 @@ describe("buildStageRail", () => {
       ...BASE,
       called: { heatNumber: 61, raceType: "Intermediate" },
     });
-    expect(rowFor(rows, "Called")).toMatchObject({
+    expect(rowFor(rows, "Checking in")).toMatchObject({
       value: "Session 61",
       type: "Intermediate",
       heatNumber: 61,
@@ -107,7 +121,7 @@ describe("buildStageRail", () => {
         racing: { sessionId: "8900", heatNumber: 59, raceType: "Junior Starter", room: null },
       }),
     });
-    expect(rowFor(rows, "Called").value).toBe("—");
+    expect(rowFor(rows, "Checking in").value).toBe("—");
     expect(rowFor(rows, "On track").value).toBe("Session 59");
   });
 
@@ -117,7 +131,7 @@ describe("buildStageRail", () => {
       called: { heatNumber: 60, raceType: "Starter" },
       rooms: solo({ heatNumber: 60 }),
     });
-    expect(rowFor(rows, "Called").value).toBe("—");
+    expect(rowFor(rows, "Checking in").value).toBe("—");
     expect(rowFor(rows, "Briefing").value).toBe("Session 60");
   });
 
@@ -129,7 +143,7 @@ describe("buildStageRail", () => {
       called: { heatNumber: 60, raceType: "Starter" },
       rooms: solo({ kind: "assigned", triggeredAtMs: NOW - 10 * 60 * 60_000 }),
     });
-    expect(rowFor(rows, "Called").value).toBe("Session 60");
+    expect(rowFor(rows, "Checking in").value).toBe("Session 60");
     expect(rowFor(rows, "Briefing").value).toBe("—");
   });
 
@@ -153,7 +167,7 @@ describe("buildStageRail", () => {
         ),
       });
       expect(rows.map((r) => r.label)).toEqual([
-        "Called",
+        "Checking in",
         "Red room",
         "Blue room",
         "Holding",
@@ -206,7 +220,7 @@ describe("buildStageRail", () => {
         called: { heatNumber: 62, raceType: "Mega" },
         rooms: bothRooms({ heatNumber: 58 }, { heatNumber: 62 }),
       });
-      expect(rowFor(rows, "Called").value).toBe("—");
+      expect(rowFor(rows, "Checking in").value).toBe("—");
     });
 
     it("leaves a split night's single folded Briefing row alone", () => {
@@ -332,21 +346,27 @@ describe("buildStageRail", () => {
       called: { heatNumber: 61, raceType: "Intermediate" },
       checkedIn: { checkedIn: 9, total: 12 },
     });
-    expect(rowFor(short, "Called")).toMatchObject({ detail: "9 of 12 checked in", tone: "warn" });
+    expect(rowFor(short, "Checking in")).toMatchObject({
+      detail: "9 of 12 checked in",
+      tone: "warn",
+    });
 
     const full = buildStageRail({
       ...BASE,
       called: { heatNumber: 61, raceType: "Intermediate" },
       checkedIn: { checkedIn: 12, total: 12 },
     });
-    expect(rowFor(full, "Called")).toMatchObject({ detail: "12 of 12 checked in", tone: "good" });
+    expect(rowFor(full, "Checking in")).toMatchObject({
+      detail: "12 of 12 checked in",
+      tone: "good",
+    });
 
     const unread = buildStageRail({
       ...BASE,
       called: { heatNumber: 61, raceType: "Intermediate" },
       checkedIn: { checkedIn: 0, total: 0 },
     });
-    expect(rowFor(unread, "Called")).toMatchObject({ detail: undefined, tone: "none" });
+    expect(rowFor(unread, "Checking in")).toMatchObject({ detail: undefined, tone: "none" });
   });
 
   it("reads exactly as the wall always has when no extras are supplied", () => {
@@ -461,7 +481,7 @@ describe("buildStageRail", () => {
       called: { heatNumber: 61, raceType: "Intermediate" },
       rooms: solo({ heatNumber: 60 }),
     });
-    expect(rowFor(rows, "Called").room).toBeUndefined();
+    expect(rowFor(rows, "Checking in").room).toBeUndefined();
     expect(rowFor(rows, "Briefing").room).toBeUndefined();
   });
 });
@@ -518,7 +538,7 @@ describe("heatIsPastTheDesk", () => {
     // The rail folds rooms into its Called rule; this predicate deliberately does
     // not, so "Already in the blue room" survives on the red room's tablet.
     const rows = buildStageRail({ ...BASE, called: { heatNumber: 60, raceType: "Starter" } });
-    expect(rowFor(rows, "Called").value).toBe("Session 60");
+    expect(rowFor(rows, "Checking in").value).toBe("Session 60");
     expect(heatIsPastTheDesk(60, null)).toBe(false);
   });
 });

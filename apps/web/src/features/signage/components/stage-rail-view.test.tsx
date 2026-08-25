@@ -184,6 +184,29 @@ describe("StageRailView", () => {
     expect(text).toContain("Briefing");
   });
 
+  /**
+   * THE BANDS ARE A WALL THING. A stage row is a long line spread across a
+   * whole television and the eye has to carry it left to right; on the camera
+   * rail, 58% of a small panel with its rows already tight, a rule per row is
+   * noise. The tracker had these before it joined this component.
+   */
+  it("bands the wall rows with a hairline, but never the first", () => {
+    const tree = StageRailView({ rows: megaRows(), density: "wall", accent: "#a06bff" });
+    const borders = walk(tree)
+      .map((el) => el.props?.style?.borderTop)
+      .filter((v) => typeof v === "string" && v.startsWith("1px"));
+    // Seven rows on a Mega night, so six lines between them.
+    expect(borders).toHaveLength(6);
+  });
+
+  it("leaves the compact camera rail unbanded", () => {
+    const tree = StageRailView({ rows: megaRows(), density: "compact", accent: "#a06bff" });
+    const borders = walk(tree)
+      .map((el) => el.props?.style?.borderTop)
+      .filter((v) => typeof v === "string" && v.startsWith("1px"));
+    expect(borders).toHaveLength(0);
+  });
+
   it("never pills an empty stage — a room beside a dash is about nobody", () => {
     const rows = buildStageRail({
       called: null,
