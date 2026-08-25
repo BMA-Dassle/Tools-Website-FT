@@ -4936,6 +4936,28 @@ the set is greppable. `lib/__tests__/bmi-office-session-ids.test.ts` fails on an
 `x-session-id` built from a clock and pins each timer-driven poller to the helper — verified by
 reintroducing `scan-${Date.now()}` and watching it fail, which is also how the first version of
 that test was caught passing when it should not have (it checked the file for the identifier
-rather than the session-id line). Session-id churn was only the first of several load problems
-in the same area — call volume (a 365-day dayPlanner window every 60s), a single-slot token
-cache that re-auths per center per run, absent keep-alive, and no overlap lock — all still open.
+rather than the session-id line).
+
+**Proven live, not just reasoned.** `scripts/bmi-session-id-reuse-probe.ts` and
+`scripts/bmi-read-paths-live-probe.ts` (both read-only) confirm against the real API that a
+reused id is accepted on every touched endpoint — project, person, deposit/history, the
+`personsByIds` POST-as-lookup, search, dayPlanner, metadata — returns byte-identical bodies to a
+fresh id, survives 3 concurrent reads on one shared id, and costs no latency. Reuse was the risk
+the change introduced, and unit tests could only ever prove the STRING was stable.
+
+**dayPlanner responses NEVER byte-match, and it is not staleness.** `projectReference` is
+re-encrypted per response — the values are `U2FsdGVkX1…`, base64 `Salted__`, a CryptoJS/OpenSSL
+salted ciphertext of the same plaintext with a fresh salt. Fixed width, so the body LENGTH is
+identical while every hash differs. This faked a "reused session id serves different data"
+failure on 8/8 pairs until `scripts/bmi-dayplanner-response-variance.ts` named the field. Diff
+dayPlanner on a normalized body; equality after blanking that one field is also the proof that
+nothing else moved.
+
+**Still open, now with a number.** The live scan took **58.1s and 66.4s** across two runs for
+both centers — on a cron `vercel.json` runs every 60s, against Vercel's 60s default with
+`maxDuration` set on ZERO functions. Straddling the limit means runs are killed mid-flight and
+overlap, which is its own session-abandonment mechanism that stable ids do not fix. Both runs
+read 167 projects across a full year and found **0** in Send Contract — the case for cutting the
+horizon and the cadence: ~34,560 dayPlanner calls a day to find nothing. Also open: the
+single-slot token cache that re-auths per center per run, and absent keep-alive. (Measured from
+a workstation, not from Vercel's region — evidence of the overlap, not a production timing.)
