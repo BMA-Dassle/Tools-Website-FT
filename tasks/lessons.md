@@ -4955,11 +4955,24 @@ nothing else moved.
 
 **Still open, now with a number.** The live scan took **58.1s and 66.4s** across two runs for
 both centers — on a cron `vercel.json` runs every 60s, against Vercel's 60s default with
-`maxDuration` set on ZERO functions. Straddling the limit means runs are killed mid-flight and
-overlap, which is its own session-abandonment mechanism that stable ids do not fix. Both runs
+`maxDuration` set on ZERO functions. Both runs
 read 167 projects across a full year and found **0** in Send Contract — ~34,560 dayPlanner calls
-a day to find nothing. (Measured from a workstation, not from Vercel's region — evidence of the
-overlap, not a production timing.)
+a day to find nothing.
+
+**RETRACTED, same day, by looking at production.** From that local 58-66s I inferred the scan was
+"being killed mid-flight and overlapping" on Vercel's 60s default, and said so in a commit
+message. Vercel's own runtime logs say otherwise: over **12 hours** every single 504 belonged to
+`/api/cron/races-current-warm` (692) and `/api/tv/camera` (43). `group-quote-dispatch` and every
+BMI cron: **zero**. The workstation timing was never a production timing — this team is on Pro,
+whose function ceiling is well above the 60s I assumed — and a number measured on the wrong
+machine is not evidence about the right one. The `maxDuration` export and the lock are still
+worth having (explicit beats implicit, and overlap is still possible), but they were fixing a
+problem I had not demonstrated. **Check the platform's own logs before asserting what the
+platform did.**
+
+Unrelated but found while checking: `races-current-warm` 504s on essentially every run, ~58/hour,
+692 in 12 hours. A cron that has never once completed is nobody's alarm because it never fires
+one. Not investigated here.
 
 **Cadence cut to `*/2` (2026-08-25, owner call).** Straight revert of the 2026-05-27 "increase
 group-quote-dispatch cron to every 1 minute", which is what created this profile two days before
