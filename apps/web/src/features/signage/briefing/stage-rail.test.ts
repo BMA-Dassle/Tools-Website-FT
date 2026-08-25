@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildStageRail, heatIsPastTheDesk, STAGE_LABELS, type StageRailInput } from "./stage-rail";
+import {
+  buildStageRail,
+  heatIsPastTheDesk,
+  STAGE_LABELS,
+  type RailRoom,
+  type StageRailInput,
+} from "./stage-rail";
 import { EMPTY_PIT_LANE, type PitLaneFeed } from "../pit/pit-board";
 import type { BriefingRoomState } from "./types";
 
@@ -29,6 +35,26 @@ function room(over: Partial<BriefingRoomState>): BriefingRoomState {
     videoDurationMs: 5 * 60_000,
     ...over,
   };
+}
+
+/**
+ * ONE room serving the track — a split night, or the room tablet's own room.
+ * The rail keeps its single folded "Briefing" row for these; it only splits
+ * when a caller hands in two.
+ */
+function solo(over: Partial<BriefingRoomState>): RailRoom[] {
+  return [{ room: "red", state: room(over) }];
+}
+
+/** BOTH rooms, the way every Mega caller hands them in: red first, then blue. */
+function bothRooms(
+  red: Partial<BriefingRoomState> | null,
+  blue: Partial<BriefingRoomState> | null,
+): RailRoom[] {
+  return [
+    { room: "red", state: red ? room(red) : null },
+    { room: "blue", state: blue ? room(blue) : null },
+  ];
 }
 
 function lane(over: Partial<PitLaneFeed>): PitLaneFeed {
@@ -89,7 +115,7 @@ describe("buildStageRail", () => {
     const rows = buildStageRail({
       ...BASE,
       called: { heatNumber: 60, raceType: "Starter" },
-      rooms: [room({ heatNumber: 60 })],
+      rooms: solo({ heatNumber: 60 }),
     });
     expect(rowFor(rows, "Called").value).toBe("—");
     expect(rowFor(rows, "Briefing").value).toBe("Session 60");
@@ -101,21 +127,93 @@ describe("buildStageRail", () => {
     const rows = buildStageRail({
       ...BASE,
       called: { heatNumber: 60, raceType: "Starter" },
-      rooms: [room({ kind: "assigned", triggeredAtMs: NOW - 10 * 60 * 60_000 })],
+      rooms: solo({ kind: "assigned", triggeredAtMs: NOW - 10 * 60 * 60_000 }),
     });
     expect(rowFor(rows, "Called").value).toBe("Session 60");
     expect(rowFor(rows, "Briefing").value).toBe("—");
   });
 
-  it("takes whichever of two Mega rooms holds a live timeline", () => {
-    const rows = buildStageRail({
-      ...BASE,
-      rooms: [
-        room({ kind: "assigned", triggeredAtMs: NOW - 10 * 60 * 60_000, heatNumber: 58 }),
-        room({ heatNumber: 62, raceType: "Mega", track: "mega" }),
-      ],
+  /**
+   * TWO ROOMS, ONE TRACK — the shape of a Mega night, and the bug it caused
+   * (owner 2026-08-25: "we have two briefing rooms one track on mega, did we
+   * account for that on the new board?").
+   *
+   * The folded row took the FIRST room holding a live timeline. Red is always
+   * handed in first, so a Mega evening with both rooms briefing showed Red and
+   * silently dropped Blue — a staff member reading the wall had no way to know
+   * a second group was about to walk out of the other door.
+   */
+  describe("a Mega night's two rooms", () => {
+    it("splits into a row per room, each named for its own door", () => {
+      const rows = buildStageRail({
+        ...BASE,
+        rooms: bothRooms(
+          { heatNumber: 58, raceType: "Starter" },
+          { heatNumber: 62, raceType: "Mega", track: "mega" },
+        ),
+      });
+      expect(rows.map((r) => r.label)).toEqual([
+        "Called",
+        "Red room",
+        "Blue room",
+        "Holding",
+        "In karts",
+        "On track",
+        "Pit in",
+      ]);
+      expect(rows.find((r) => r.label === "Briefing")).toBeUndefined();
+      expect(rowFor(rows, "Red room")).toMatchObject({ value: "Session 58", type: "Starter" });
+      expect(rowFor(rows, "Blue room")).toMatchObject({ value: "Session 62", type: "Mega" });
     });
-    expect(rowFor(rows, "Briefing")).toMatchObject({ value: "Session 62", type: "Mega" });
+
+    /** THE ONE THE FOLDED ROW HID. Red is first in, so it always won. */
+    it("still shows Blue's group when Red is the one that is busy", () => {
+      const rows = buildStageRail({
+        ...BASE,
+        rooms: bothRooms({ heatNumber: 58 }, { heatNumber: 62, raceType: "Mega" }),
+      });
+      expect(rowFor(rows, "Blue room").value).toBe("Session 62");
+    });
+
+    /** An empty room reads EMPTY, never absent — "nobody is in Blue" and "Blue
+     *  is not on this screen" are different things to a staff member. */
+    it("shows an idle room as an empty row rather than dropping it", () => {
+      const rows = buildStageRail({
+        ...BASE,
+        rooms: bothRooms({ heatNumber: 62, raceType: "Mega" }, null),
+      });
+      expect(rowFor(rows, "Blue room")).toMatchObject({ value: "—", heatNumber: null });
+      expect(rowFor(rows, "Red room").value).toBe("Session 62");
+    });
+
+    it("tints each room row for its own door, and never pills it", () => {
+      const rows = buildStageRail({
+        ...BASE,
+        rooms: bothRooms({ heatNumber: 58 }, { heatNumber: 62 }),
+      });
+      expect(rowFor(rows, "Red room").labelTint).toBe("red");
+      expect(rowFor(rows, "Blue room").labelTint).toBe("blue");
+      // The label already names the room; a pill would repeat it.
+      expect(rowFor(rows, "Red room").room).toBeUndefined();
+      expect(rowFor(rows, "Blue room").room).toBeUndefined();
+    });
+
+    /** Both rooms still count as "past the desk" — the split must not reopen
+     *  the duplicate-session bug this module exists to prevent. */
+    it("drops a called heat that is in EITHER room", () => {
+      const rows = buildStageRail({
+        ...BASE,
+        called: { heatNumber: 62, raceType: "Mega" },
+        rooms: bothRooms({ heatNumber: 58 }, { heatNumber: 62 }),
+      });
+      expect(rowFor(rows, "Called").value).toBe("—");
+    });
+
+    it("leaves a split night's single folded Briefing row alone", () => {
+      const rows = buildStageRail({ ...BASE, rooms: solo({ heatNumber: 60 }) });
+      expect(rows.map((r) => r.label)).toEqual([...STAGE_LABELS]);
+      expect(rowFor(rows, "Briefing").labelTint).toBeUndefined();
+    });
   });
 
   /**
@@ -127,7 +225,7 @@ describe("buildStageRail", () => {
   it("gives a caller with a formatter a real countdown", () => {
     const rows = buildStageRail({
       ...BASE,
-      rooms: [room({ triggeredAtMs: NOW - (5 * 60_000 - 10_000) })],
+      rooms: solo({ triggeredAtMs: NOW - (5 * 60_000 - 10_000) }),
     });
     expect(rowFor(rows, "Briefing").detail).toBe("0:10 of film left");
   });
@@ -136,13 +234,13 @@ describe("buildStageRail", () => {
     const rows = buildStageRail({
       ...BASE,
       formatClock: undefined,
-      rooms: [room({ triggeredAtMs: NOW - (5 * 60_000 - 10_000) })],
+      rooms: solo({ triggeredAtMs: NOW - (5 * 60_000 - 10_000) }),
     });
     expect(rowFor(rows, "Briefing").detail).toBe("1 min of film left");
   });
 
   it("says the helmets are up once the film has run out", () => {
-    const rows = buildStageRail({ ...BASE, rooms: [room({ triggeredAtMs: NOW - 6 * 60_000 })] });
+    const rows = buildStageRail({ ...BASE, rooms: solo({ triggeredAtMs: NOW - 6 * 60_000 }) });
     expect(rowFor(rows, "Briefing")).toMatchObject({
       detail: "helmets — ready to send",
       tone: "good",
@@ -361,7 +459,7 @@ describe("buildStageRail", () => {
     const rows = buildStageRail({
       ...BASE,
       called: { heatNumber: 61, raceType: "Intermediate" },
-      rooms: [room({ heatNumber: 60 })],
+      rooms: solo({ heatNumber: 60 }),
     });
     expect(rowFor(rows, "Called").room).toBeUndefined();
     expect(rowFor(rows, "Briefing").room).toBeUndefined();

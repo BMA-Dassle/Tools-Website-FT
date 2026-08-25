@@ -1,5 +1,5 @@
 /**
- * WHERE EVERY SESSION ON A TRACK IS, in order. PURE — facts in, six rows out.
+ * WHERE EVERY SESSION ON A TRACK IS, in order. PURE — facts in, one row per stage out.
  *
  * This started life inside ScenePitBoard as the empty-state of the pit
  * assignment wall (owner 2026-08-14: "when nothing is showing on pit assignment
@@ -23,9 +23,11 @@
  *    places at once (owner 2026-08-14, live: "it's showing GF starter called,
  *    they're already racing"). A heat that has demonstrably moved on is not
  *    still called, and blanking is the honest answer: the next call fills it.
- *  • ON A MEGA NIGHT BOTH ROOMS SERVE THE ONE CIRCUIT, so the Briefing row reads
- *    whichever of them holds a live timeline. Callers hand in the rooms that
- *    serve their track and this takes the first one that is not idle.
+ *  • ON A MEGA NIGHT BOTH ROOMS SERVE THE ONE CIRCUIT, so the Briefing row
+ *    SPLITS — one row per room, each named and tinted for its own door. Callers
+ *    hand in the rooms that serve their track; hand in one and the single
+ *    "Briefing" row is unchanged, hand in two and you get both. Folding them
+ *    into one row showed Red and hid Blue for the whole evening.
  *  • THE ON-TRACK HEAT MAY COME FROM THE TIMING FEED when the lane has no racing
  *    slot — but its LEVEL never does. The socket knows a heat name and nothing
  *    about levels, and a type printed beside a session the lane cannot vouch for
@@ -40,11 +42,24 @@
 import { briefingTimelineAt } from "./phase";
 import { briefVerdict } from "./brief-verdict";
 import type { SendWindow } from "./pull-to-room";
-import type { BriefingRoomState } from "./types";
+import type { BriefingRoom, BriefingRoomState } from "./types";
 import type { PitLaneFeed } from "../pit/pit-board";
 
-/** The six stages, in the order a group passes through them. */
-export type StageLabel = "Called" | "Briefing" | "Holding" | "In karts" | "On track" | "Pit in";
+/**
+ * The stages, in the order a group passes through them.
+ *
+ * "Briefing" is ONE row on a night where one room feeds the track, and splits
+ * into "Red room" / "Blue room" when two do — see buildStageRail's room block.
+ */
+export type StageLabel =
+  | "Called"
+  | "Briefing"
+  | "Red room"
+  | "Blue room"
+  | "Holding"
+  | "In karts"
+  | "On track"
+  | "Pit in";
 
 export const STAGE_LABELS: readonly StageLabel[] = [
   "Called",
@@ -54,6 +69,19 @@ export const STAGE_LABELS: readonly StageLabel[] = [
   "On track",
   "Pit in",
 ] as const;
+
+/** The room rows' labels, in the order the rooms are always handed in. */
+export const ROOM_STAGE_LABEL: Record<BriefingRoom, StageLabel> = {
+  red: "Red room",
+  blue: "Blue room",
+};
+
+/** A briefing room and whatever it is currently running — the identity travels
+ *  WITH the state because a null room still has to be able to name itself. */
+export interface RailRoom {
+  room: BriefingRoom;
+  state: BriefingRoomState | null;
+}
 
 export interface StageRow {
   label: StageLabel;
@@ -102,6 +130,16 @@ export interface StageRow {
    * the slots hold DIFFERENT groups on a busy night.
    */
   room?: "red" | "blue" | null;
+  /**
+   * THIS ROW *IS* A ROOM — set on the split "Red room" / "Blue room" rows only,
+   * so a renderer can tint the label in the room's own colour without parsing
+   * its own words back out of the label.
+   *
+   * Distinct from `room` above, which is the room a group on a LANE stage is
+   * coming back to and earns a pill. A row whose label already names the room
+   * never wears one — the pill would be the screen repeating itself.
+   */
+  labelTint?: BriefingRoom | null;
 }
 
 const EMPTY = "—";
@@ -109,8 +147,14 @@ const EMPTY = "—";
 export interface StageRailInput {
   /** The track's called record, as Pandora reports it. */
   called: { heatNumber: number | null; raceType: string | null } | null;
-  /** The briefing rooms serving this track — both of them on a Mega night. */
-  rooms: Array<BriefingRoomState | null>;
+  /**
+   * The briefing rooms serving this track — both of them on a Mega night, and
+   * HAND THEM IN EVEN WHEN IDLE: it is the count of rooms, not the count of
+   * live ones, that decides whether this rail splits into a row per room. A
+   * Mega night with only Red briefing still has to show Blue as empty, or the
+   * screen cannot be read as "nobody is in Blue" rather than "Blue is hidden".
+   */
+  rooms: RailRoom[];
   lane: PitLaneFeed | null;
   nowMs: number;
   /**
@@ -229,7 +273,7 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
    * Matched on heat number because that is what every stage displays.
    */
   const downstream = laneHeats(lane);
-  for (const state of input.rooms) {
+  for (const { state } of input.rooms) {
     if (state?.heatNumber != null && briefingTimelineAt(state, nowMs).phase !== "idle") {
       downstream.add(state.heatNumber);
     }
@@ -294,22 +338,20 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
   });
 
   /**
-   * THE BRIEFING ROW. The room's OWN level, never its tier: a Pro session with
-   * no Pro film uploaded plays the Intermediate one, and `tier` would tell a Pro
-   * grid they are in an Intermediate race.
+   * WHAT ONE ROOM IS DOING. The room's OWN level, never its tier: a Pro session
+   * with no Pro film uploaded plays the Intermediate one, and `tier` would tell
+   * a Pro grid they are in an Intermediate race.
+   *
+   * `null` when the room is idle, so the two callers below can tell "nothing
+   * here" from "here is what is happening" without re-deriving the phase.
    */
-  let briefing: StageRow = {
-    label: "Briefing",
-    value: EMPTY,
-    heatNumber: null,
-    tone: "none",
-  };
-  for (const state of input.rooms) {
-    if (!state?.sessionId) continue;
+  const roomRow = (label: StageLabel, entry: RailRoom): StageRow | null => {
+    const state = entry.state;
+    if (!state?.sessionId) return null;
     const t = briefingTimelineAt(state, nowMs);
-    if (t.phase === "idle") continue;
-    briefing = {
-      label: "Briefing",
+    if (t.phase === "idle") return null;
+    return {
+      label,
       value: state.heatNumber != null ? sessionLabel(state.heatNumber) : "In a room",
       type: state.raceType ?? undefined,
       detail:
@@ -330,9 +372,51 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
       heatNumber: state.heatNumber,
       tone: t.phase === "helmet" ? "good" : "none",
     };
-    break;
+  };
+
+  /**
+   * ONE ROW PER ROOM WHEN TWO ROOMS FEED ONE TRACK — the shape of a Mega night
+   * (owner 2026-08-25: "we have two briefing rooms one track on mega, did we
+   * account for that on the new board?").
+   *
+   * The folded Briefing row took the FIRST room holding a live timeline, which
+   * is honest on a split night — one room, one track — and a lie on a Mega one,
+   * where both rooms brief into the single circuit all evening. Red is always
+   * handed in first, so what the walls actually did was show Red and silently
+   * drop Blue: a staff member reading "Briefing — Session 62" had no way to know
+   * a second group was thirty seconds off walking out of the other door. The
+   * session tracker was the only surface that ever split them, in a renderer of
+   * its own (ScenePitBoard's trackerRoomStage) — which is the drift this module
+   * exists to stop, so the split belongs HERE and every surface inherits it.
+   *
+   * One room in, one Briefing row out, exactly as before: a split night's rail
+   * is untouched, and so is the room tablet's on a non-Mega day.
+   */
+  if (input.rooms.length > 1) {
+    for (const entry of input.rooms) {
+      const label = ROOM_STAGE_LABEL[entry.room];
+      rows.push(
+        roomRow(label, entry) ?? {
+          label,
+          value: EMPTY,
+          heatNumber: null,
+          tone: "none",
+        },
+      );
+      // The label IS the room, so it wears the room's colour rather than a pill.
+      rows[rows.length - 1].labelTint = entry.room;
+    }
+  } else {
+    const only = input.rooms[0];
+    rows.push(
+      (only ? roomRow("Briefing", only) : null) ?? {
+        label: "Briefing",
+        value: EMPTY,
+        heatNumber: null,
+        tone: "none",
+      },
+    );
   }
-  rows.push(briefing);
 
   const holding = lane?.holding ?? null;
   // Only ever counted from a stamp we actually have; a missing or skewed atMs

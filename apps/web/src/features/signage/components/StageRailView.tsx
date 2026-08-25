@@ -11,6 +11,15 @@
  * reached the other two, and a briefing TV ended up with none of the treatment
  * its camera board had.
  *
+ * THERE WAS A FOURTH, and it was missed: the Mega SESSION TRACKER, which is a
+ * whole pit sign rather than a pane and so did not look like one of the rails
+ * (owner 2026-08-25: "did mega session tracker get the updates we did to the
+ * other boards?"). It had kept the fixed-pixel type this file was warned off,
+ * a second tone map, its own M:SS, and none of the numbers the walls gained —
+ * the time of day, the check-in clock, the briefing verdict, who is going
+ * straight back out. It renders here now like everything else; only its
+ * full-screen chrome is its own.
+ *
  * `buildStageRail` already made the surfaces agree on WHAT to say and
  * `briefVerdict` on what to advise. This is the third leg: how it LOOKS. One
  * tone map, one scale per density, one header, one back-to-back panel.
@@ -29,6 +38,7 @@
 import type { CSSProperties } from "react";
 import { withAlpha } from "../color";
 import { shortLevel, type StageRow } from "../briefing/stage-rail";
+import { TRACK_ACCENTS } from "../track";
 import type { TvFeed } from "../types";
 
 export type RailDensity = "wall" | "compact";
@@ -59,6 +69,9 @@ interface Scale {
   clockCap: string;
   b2bHead: string;
   b2bName: string;
+  /** The "→ RED ROOM" pill beside a lane row's session. */
+  pill: string;
+  pillPad: string;
   edge: number;
 }
 
@@ -94,6 +107,8 @@ const SCALE: Record<RailDensity, Scale> = {
     clockCap: "clamp(14px, 1.5vw, 30px)",
     b2bHead: "clamp(16px, 1.7vw, 34px)",
     b2bName: "clamp(20px, 2.2vw, 44px)",
+    pill: "clamp(15px, 1.6vw, 32px)",
+    pillPad: "0.25vh 0.9vw",
     edge: 7,
   },
   compact: {
@@ -111,6 +126,8 @@ const SCALE: Record<RailDensity, Scale> = {
     clockCap: "clamp(13px, 1.3vw, 26px)",
     b2bHead: "clamp(13px, 1.4vw, 28px)",
     b2bName: "clamp(17px, 1.8vw, 36px)",
+    pill: "clamp(12px, 1.3vw, 26px)",
+    pillPad: "0.2vh 0.7vw",
     edge: 5,
   },
 };
@@ -168,6 +185,17 @@ export function StageRailView({
   const s = SCALE[density];
   const compact = density === "compact";
   const showHead = !!trackLabel || !!clock || !!punctual || !!timeOfDay;
+  /**
+   * IS THIS TRACK FED BY TWO ROOMS — read off the rows themselves rather than
+   * taken as a prop, because the SAME fact decides both halves of the answer and
+   * a caller who set one and forgot the other would put the drift straight back.
+   *
+   * The builder splits Briefing into a row per room exactly when two rooms serve
+   * the track, and that is exactly when a lane row's room stops being obvious.
+   * On a split night the rail already sits inside its own room's screen, where
+   * "→ RED ROOM" on every row is the wall reading itself back.
+   */
+  const twoRooms = rows.some((r) => r.labelTint != null);
   return (
     <div
       style={{
@@ -287,7 +315,10 @@ export function StageRailView({
                   flex: `0 0 ${s.labelCol}`,
                   fontSize: s.label,
                   letterSpacing: "0.08em",
-                  color: "rgba(245,236,238,0.45)",
+                  // A ROOM ROW WEARS ITS OWN DOOR'S COLOUR. Staff say "red room"
+                  // and "blue room" pointing at the doors; the colour is how the
+                  // two rows are told apart at a glance from across the pit.
+                  color: r.labelTint ? TRACK_ACCENTS[r.labelTint] : "rgba(245,236,238,0.45)",
                 }}
               >
                 {r.label}
@@ -308,6 +339,34 @@ export function StageRailView({
                   style={{ fontSize: s.type, color: "rgba(245,236,238,0.55)" }}
                 >
                   {type}
+                </span>
+              )}
+              {/*
+                THE ROOM THIS RACE COMES BACK TO (owner 2026-08-17: "for mega
+                keep a pill next to the race on what room they will be returning
+                to"). Beside the session and not out at the right-hand edge,
+                because it is part of naming the group — a Mega night runs two
+                rooms into one lane, and the room is the half of "Session 25"
+                that says whose it is.
+
+                Never beside a "—": a pill floating next to an empty stage would
+                be about nobody.
+              */}
+              {twoRooms && r.room && !empty && (
+                <span
+                  className="tv-display"
+                  style={{
+                    fontSize: s.pill,
+                    whiteSpace: "nowrap",
+                    color: "#fff",
+                    padding: s.pillPad,
+                    borderRadius: 9,
+                    border: `2px solid ${TRACK_ACCENTS[r.room]}`,
+                    background: withAlpha(TRACK_ACCENTS[r.room], 0.2),
+                    boxShadow: `0 0 22px ${withAlpha(TRACK_ACCENTS[r.room], 0.45)}`,
+                  }}
+                >
+                  {compact ? `→ ${r.room.toUpperCase()}` : `→ ${r.room.toUpperCase()} ROOM`}
                 </span>
               )}
               {r.label === "Called" && calledCheckinAt && !empty && (

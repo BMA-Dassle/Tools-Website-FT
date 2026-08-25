@@ -37,9 +37,14 @@ import { useRaceClockForRace } from "~/features/racing/use-race-clocks";
 import { liveHeatNumber } from "../briefing/room-return";
 import { buildStageRail, type StageRow } from "../briefing/stage-rail";
 import { StageRailView } from "../components/StageRailView";
-import { venueTimeOfDay } from "../components/rail-clock";
+import { railClock, venueTimeOfDay } from "../components/rail-clock";
 import { briefingTimelineAt } from "../briefing/phase";
-import { resolveFilmTier, tierForRaceType, type BriefingRoomState } from "../briefing/types";
+import {
+  resolveFilmTier,
+  tierForRaceType,
+  type BriefingRoom,
+  type BriefingRoomState,
+} from "../briefing/types";
 import { sendWindow } from "../briefing/pull-to-room";
 import { roomCheckinProgress } from "../checkin-progress";
 import {
@@ -373,10 +378,12 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
     () =>
       buildStageRail({
         called: status?.currentRaces?.[track] ?? null,
-        // On a Mega night both rooms serve the one circuit, so both are ours.
-        rooms: (track === "mega" ? (["red", "blue"] as const) : ([track] as const)).map(
-          (r) => feed?.briefingRooms?.[r as "red" | "blue"] ?? null,
-        ),
+        // On a Mega night both rooms serve the one circuit, so both are ours —
+        // and handing in both is what splits the rail into a row per room.
+        rooms: (track === "mega" ? (["red", "blue"] as const) : ([track] as const)).map((r) => ({
+          room: r as BriefingRoom,
+          state: feed?.briefingRooms?.[r as BriefingRoom] ?? null,
+        })),
         lane,
         // THE TICKING CLOCK, NOT THE FEED'S STAMP (owner 2026-08-24: "why don't we
         // show real timer there?"). `feed.now` is the server clock as of the last
@@ -398,7 +405,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
          * them.
          */
         liveRemainingMs: liveClock?.remainingMs ?? null,
-        formatClock: fmtTrackerClock,
+        formatClock: railClock,
         // The desk's per-track progress record — it carries the count AND the
         // call stamp, where `raceCheckin` is one loose heat with nothing tying
         // it to this track's called session (fixed 2026-08-24).
@@ -411,34 +418,49 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
         checkinWindowMins: config.checkinWindowMins,
         brief: idleBrief,
       }),
-    [feed?.briefingRooms, feed?.now, nowMs, status?.currentRaces, track, lane, liveClock],
+    // THE COMPLETE LIST. `idleProgress`, `idleBrief` and the window were read in
+    // the body but missing from here — survivable while this array was only the
+    // idle wall's, because the 250ms `nowMs` retick recomputed it anyway, and
+    // not something to leave in place now the session tracker renders the same
+    // array as its whole screen.
+    [
+      feed?.briefingRooms,
+      nowMs,
+      status?.currentRaces,
+      track,
+      lane,
+      liveClock,
+      idleProgress,
+      idleBrief,
+      config.checkinWindowMins,
+    ],
   );
 
   // THE MEGA SPLIT, the pit signs' version (owner 2026-08-17: "one on the
   // right is assignment, one on the left would be session tracker"). Both pit
   // signs read the one combined lane on a Mega day, so a sign whose
   // pitMegaRole says so becomes the SESSION TRACKER — the idle wall's
-  // where-is-everyone rail, promoted to the whole screen, always on, with the
-  // extras the idle rail deliberately omits (check-in count, live clock).
+  // where-is-everyone rail, promoted to the whole screen, always on.
   // Per-screen setting in admin; default keeps today's assignment board.
+  //
+  // IT IS HANDED `idleStages`, NOT ITS OWN BUILD (2026-08-25). It used to call
+  // buildStageRail a second time with a thinner set of facts, which is how the
+  // one screen dedicated to answering "where is everyone" ended up the only one
+  // without the numbers: no check-in clock, no briefing verdict, no deadline,
+  // and `feed.raceCheckin` — a loose heat with nothing tying it to this track's
+  // called session — where every other surface had moved to the desk's own
+  // per-track progress record. Same array as the idle wall, so the two halves
+  // of a Mega pit cannot describe the night differently.
   if (track === "mega" && config.pitMegaRole === "tracker") {
     return (
       <SessionTracker
         accent={accent}
         onTime={status?.onTime ?? null}
         called={status?.currentRaces?.mega ?? null}
-        checkedIn={
-          feed?.raceCheckin?.checkedIn != null && feed?.raceCheckin?.total != null
-            ? { checkedIn: feed.raceCheckin.checkedIn, total: feed.raceCheckin.total }
-            : null
-        }
-        rooms={{
-          red: feed?.briefingRooms?.red ?? null,
-          blue: feed?.briefingRooms?.blue ?? null,
-        }}
-        lane={lane}
-        liveClock={liveClock}
-        nowMs={feed?.now ?? nowMs}
+        rows={idleStages}
+        timeOfDay={venueTimeOfDay(nowMs)}
+        calledCheckinAt={calledCheckinAt}
+        returning={feed?.checkinReturning ?? null}
       />
     );
   }
@@ -740,7 +762,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
             clock={
               liveClock
                 ? {
-                    text: fmtTrackerClock(liveClock.remainingMs),
+                    text: railClock(liveClock.remainingMs),
                     caption: liveClock.state === "paused" ? "Paused" : "On track",
                     paused: liveClock.state === "paused",
                   }
@@ -1256,52 +1278,28 @@ function Idle({
     </div>
   );
 }
-function fmtTrackerClock(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
-}
-
-const TRACKER_TONE: Record<StageRow["tone"], string> = {
-  none: "rgba(245,236,238,0.62)",
-  good: OK,
-  warn: AMBER,
-  alert: RED,
-};
-
-/** One briefing room's stage, in the rail's own words — split back out of the
- *  rail's single Briefing row because on a Mega night BOTH rooms brief at
- *  once, and that is exactly what this screen exists to show. */
-function trackerRoomStage(
-  state: BriefingRoomState | null,
-  nowMs: number,
-): { value: string; type?: string; detail?: string; tone: StageRow["tone"] } {
-  if (!state?.sessionId) return { value: "—", tone: "none" };
-  const t = briefingTimelineAt(state, nowMs);
-  if (t.phase === "idle") return { value: "—", tone: "none" };
-  return {
-    value: state.heatNumber != null ? `Session ${state.heatNumber}` : "In the room",
-    type: state.raceType ?? undefined,
-    detail:
-      t.phase === "video" && t.nextInMs != null
-        ? `${Math.max(1, Math.ceil(t.nextInMs / 60_000))} min of film left`
-        : t.phase === "helmet"
-          ? "helmets — ready to send"
-          : "waiting to start",
-    tone: t.phase === "helmet" ? "good" : "none",
-  };
-}
-
 /**
  * THE SESSION TRACKER — a Mega pit sign's other job (owner 2026-08-17).
  *
  * Both pit signs read the one combined lane on a Mega day, so a pair showing
  * identical seat grids wastes a screen. This is the idle wall's
- * where-is-everyone rail promoted to the WHOLE screen, always on, with the
- * extras the idle rail deliberately omits: the desk's check-in count, the
- * live race clock, and one row PER BRIEFING ROOM — two briefings feeding one
- * lane is the shape of a Mega night, and a single folded Briefing row would
- * hide half of it. Same builder as the idle rail and the room tablet
- * (buildStageRail), so no two surfaces can describe the night differently.
+ * where-is-everyone rail promoted to the WHOLE screen, always on.
+ *
+ * IT RENDERS THE SHARED RAIL, and that is the whole of its body (owner
+ * 2026-08-25: "did mega session tracker get the updates we did to the other
+ * boards?"). It was missed when the three rail renderers became one on 8/24
+ * because it is a board rather than a pane, so it sat out the fixes the walls
+ * got and kept the mistakes they had shed: fixed-pixel type on a television, a
+ * second tone map, a fourth M:SS. What it shows now — the time of day, how long
+ * the called grid has been checking in, the briefing verdict, who is going
+ * straight back out — arrives because it stopped having an opinion about any of
+ * it. The rows are `idleStages`, the very array the sign's own idle wall builds.
+ *
+ * WHAT IS STILL ITS OWN is the chrome around them: this is a named board with a
+ * brand mark, a title and a live chip, not a rail down the side of something
+ * else. Its header therefore carries the punctuality line and the clock, and
+ * StageRailView is handed none — two headers on one screen is the drift in the
+ * other direction.
  *
  * PII: session numbers and levels only — the full-names posture stays on the
  * assignment board alone.
@@ -1310,142 +1308,23 @@ function SessionTracker({
   accent,
   onTime,
   called,
-  checkedIn,
-  rooms,
-  lane,
-  liveClock,
-  nowMs,
+  rows,
+  timeOfDay,
+  calledCheckinAt,
+  returning,
 }: {
   accent: string;
   /** Our own on-time picture — the tracker shows the mega heat's predicted
    *  start, not a delay. `called` doubles as the heat the time belongs to. */
   onTime: OnTimeSnapshot | null;
   called: CurrentRace | null;
-  checkedIn: { checkedIn: number; total: number } | null;
-  rooms: Record<"red" | "blue", BriefingRoomState | null>;
-  lane: PitLaneFeed;
-  liveClock: ReturnType<typeof useLiveSessionClock>;
-  nowMs: number;
+  /** Built by the sign's own `idleStages` — same builder, same night, and on a
+   *  Mega day it already splits Red and Blue into a row each. */
+  rows: StageRow[];
+  timeOfDay: string;
+  calledCheckinAt: string | null;
+  returning: TvFeed["checkinReturning"];
 }) {
-  const rows = buildStageRail({
-    called,
-    rooms: [rooms.red, rooms.blue],
-    lane,
-    nowMs,
-    liveHeatNumber: liveClock ? liveHeatNumber(liveClock.heatName) : null,
-    liveCounting: liveClock?.counting === true,
-    liveRemainingMs: liveClock?.remainingMs ?? null,
-    formatClock: fmtTrackerClock,
-    checkedIn,
-  });
-  const byLabel = new Map(rows.map((r) => [r.label, r]));
-  const calledRow = byLabel.get("Called");
-  const laneRows = (["Holding", "In karts", "On track", "Pit in"] as const).map((l) =>
-    byLabel.get(l),
-  );
-  const stageBand = (args: {
-    key: string;
-    label: string;
-    labelColor?: string;
-    value: string;
-    type?: string;
-    detail?: string;
-    tone: StageRow["tone"];
-    /** THE ROOM THIS RACE COMES BACK TO, pilled beside the session itself
-     *  (owner 2026-08-17: "for mega keep a pill next to the race on what room
-     *  they will be returning to"). Beside the session and not out at the
-     *  right-hand edge, because it is part of naming the group — a Mega night
-     *  runs two rooms into one lane, and the room is the half of "Session 25"
-     *  that says whose it is. Null on any stage that cannot know it. */
-    room?: "red" | "blue" | null;
-  }) => (
-    <div
-      key={args.key}
-      style={{
-        flex: 1,
-        minHeight: 0,
-        display: "flex",
-        alignItems: "center",
-        gap: 40,
-        borderTop: "1px solid rgba(245,236,238,0.12)",
-        padding: `0 ${PAD_X}px`,
-      }}
-    >
-      <span
-        className="tv-display"
-        style={{
-          fontSize: 26,
-          letterSpacing: "0.14em",
-          textTransform: "uppercase",
-          fontStyle: "normal",
-          color: args.labelColor ?? "rgba(245,236,238,0.5)",
-          width: 260,
-          flexShrink: 0,
-        }}
-      >
-        {args.label}
-      </span>
-      <span
-        className="tv-display"
-        style={{
-          fontSize: 58,
-          lineHeight: 1,
-          whiteSpace: "nowrap",
-          color: args.value === "—" ? "rgba(245,236,238,0.28)" : "#fff",
-          textShadow: args.value === "—" ? undefined : `0 0 40px ${withAlpha(accent, 0.4)}`,
-        }}
-      >
-        {args.value}
-      </span>
-      {args.type && (
-        <span
-          className="tv-display"
-          style={{
-            fontSize: 24,
-            letterSpacing: "0.05em",
-            textTransform: "uppercase",
-            fontStyle: "normal",
-            color: "rgba(245,236,238,0.6)",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {args.type}
-        </span>
-      )}
-      {args.room && (
-        <span
-          className="tv-display"
-          style={{
-            fontSize: 28,
-            whiteSpace: "nowrap",
-            color: "#fff",
-            padding: "5px 18px",
-            borderRadius: 9,
-            border: `3px solid ${TRACK_ACCENTS[args.room]}`,
-            background: withAlpha(TRACK_ACCENTS[args.room], 0.2),
-            boxShadow: `0 0 28px ${withAlpha(TRACK_ACCENTS[args.room], 0.5)}`,
-          }}
-        >
-          {`→ ${args.room.toUpperCase()} ROOM`}
-        </span>
-      )}
-      <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 22 }}>
-        {args.detail && (
-          <span
-            className="tv-display"
-            style={{
-              fontSize: 30,
-              whiteSpace: "nowrap",
-              color: TRACKER_TONE[args.tone],
-            }}
-          >
-            {args.detail}
-          </span>
-        )}
-      </span>
-    </div>
-  );
-
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
       <div
@@ -1474,6 +1353,7 @@ function SessionTracker({
           inset: `${PAD_Y + 16}px 0 24px`,
           display: "flex",
           flexDirection: "column",
+          minHeight: 0,
         }}
       >
         <header
@@ -1488,7 +1368,7 @@ function SessionTracker({
           <TvBrandLogo venue="FT" height={40} />
           <span
             className="tv-display"
-            style={{ fontSize: 40, color: "#fff", whiteSpace: "nowrap" }}
+            style={{ fontSize: "clamp(22px, 2.1vw, 42px)", color: "#fff", whiteSpace: "nowrap" }}
           >
             Session tracker
           </span>
@@ -1500,48 +1380,42 @@ function SessionTracker({
             okColor={OK}
             warnColor={AMBER}
           />
+          {/* THE TIME OF DAY, IN VENUE TIME (owner 2026-08-24: "I'd like to have
+              the current time on each screen somewhere"). The rail puts it in
+              its own header; this board has one of its own, so it lands here. */}
+          <span
+            className="tv-eyebrow"
+            style={{
+              fontSize: "clamp(14px, 1.4vw, 28px)",
+              letterSpacing: "0.1em",
+              color: "rgba(245,236,238,0.5)",
+            }}
+          >
+            {timeOfDay}
+          </span>
           <span style={{ marginLeft: "auto" }}>
             <LiveSessionChip track="mega" accent={accent} />
           </span>
         </header>
 
-        {calledRow &&
-          stageBand({
-            key: "called",
-            label: "Checking in",
-            value: calledRow.value,
-            type: calledRow.type,
-            detail: calledRow.detail,
-            tone: calledRow.tone,
-          })}
-        {(["red", "blue"] as const).map((room) => {
-          const stage = trackerRoomStage(rooms[room], nowMs);
-          return stageBand({
-            key: `room-${room}`,
-            label: `${room} room`,
-            labelColor: TRACK_ACCENTS[room],
-            value: stage.value,
-            type: stage.type,
-            detail: stage.detail,
-            tone: stage.tone,
-          });
-        })}
-        {laneRows.map(
-          (row) =>
-            row &&
-            stageBand({
-              key: row.label,
-              label: row.label,
-              value: row.value,
-              type: row.type,
-              detail: row.detail,
-              tone: row.tone,
-              // Only ever beside a session this row actually names — a slot
-              // holding a group with no heat number reads "—", and a room
-              // pill floating next to a dash would be about nobody.
-              room: row.heatNumber != null ? row.room : null,
-            }),
-        )}
+        <StageRailView
+          rows={rows}
+          density="wall"
+          accent={accent}
+          // The header above already says the track, the delay and the clock.
+          trackLabel={undefined}
+          punctual={null}
+          clock={null}
+          timeOfDay={null}
+          calledCheckinAt={calledCheckinAt}
+          returning={returning}
+          trackShort={(t) => TRACK_SHORT[trackFromName(t) ?? "mega"] ?? t}
+          style={{
+            background: "transparent",
+            borderLeft: "none",
+            padding: `0 ${PAD_X}px`,
+          }}
+        />
       </div>
     </div>
   );

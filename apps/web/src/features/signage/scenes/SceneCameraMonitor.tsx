@@ -60,7 +60,12 @@ import { StageRailView } from "../components/StageRailView";
 import { railClock, venueTimeOfDay } from "../components/rail-clock";
 import { sendWindow } from "../briefing/pull-to-room";
 import { liveHeatNumber } from "../briefing/room-return";
-import { resolveFilmTier, tierForRaceType, type BriefingRoomState } from "../briefing/types";
+import {
+  resolveFilmTier,
+  tierForRaceType,
+  type BriefingRoom,
+  type BriefingRoomState,
+} from "../briefing/types";
 import type { SceneProps } from "../director/types";
 import type { TvFeed } from "../types";
 
@@ -132,9 +137,13 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
     const progress = roomCheckinProgress(feed?.checkinProgress ?? [], railTrack);
     return buildStageRail({
       called,
-      // On a Mega night the one circuit is fed by both rooms.
+      // On a Mega night the one circuit is fed by both rooms — and handing in
+      // both is what splits this rail into a row per room.
       rooms: (railTrack === "mega" ? (["red", "blue"] as const) : ([railTrack] as const)).map(
-        (r) => feed?.briefingRooms?.[r as "red" | "blue"] ?? null,
+        (r) => ({
+          room: r as BriefingRoom,
+          state: feed?.briefingRooms?.[r as BriefingRoom] ?? null,
+        }),
       ),
       lane: feed?.pitLanes?.[railTrack] ?? null,
       // THE TICKING CLOCK, NOT THE FEED'S STAMP (owner 2026-08-24: "why don't we

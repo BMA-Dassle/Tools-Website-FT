@@ -82,6 +82,7 @@ import { laneReturnRoom } from "~/features/signage/briefing/room-suggest";
 import {
   buildStageRail,
   heatIsPastTheDesk,
+  type RailRoom,
   type StageRow,
 } from "~/features/signage/briefing/stage-rail";
 import { startHoldRemainingMs, startHoldSeconds } from "~/features/signage/briefing/start-hold";
@@ -634,7 +635,16 @@ function StageRail({
                 fontWeight: 800,
                 letterSpacing: "0.1em",
                 textTransform: "uppercase",
-                color: here ? accent : PORTAL_DARK.muted,
+                // A ROOM ROW WEARS ITS OWN DOOR'S COLOUR — the same treatment
+                // the walls give it, so the rail in the hand and the rail on
+                // the wall read alike (owner 2026-08-25). On a Mega night this
+                // rail carries a Red room row and a Blue room row; without the
+                // tint they are two identical grey labels.
+                color: here
+                  ? accent
+                  : row.labelTint
+                    ? ROOM_COLOR[row.labelTint]
+                    : PORTAL_DARK.muted,
               }}
             >
               {row.label}
@@ -1254,9 +1264,12 @@ export default function BriefingRoomClient({
    * see StageRail. Both briefing rooms are handed in on a Mega night, when the
    * two of them serve the single circuit.
    */
-  const railRooms = megaEnabled
-    ? BRIEFING_ROOMS.map((r) => board?.rooms.find((x) => x.room === r)?.state ?? null)
-    : [state];
+  const railRooms: RailRoom[] = megaEnabled
+    ? BRIEFING_ROOMS.map((r) => ({
+        room: r,
+        state: board?.rooms.find((x) => x.room === r)?.state ?? null,
+      }))
+    : [{ room, state }];
   const railRows = buildStageRail({
     called: incomingRace
       ? { heatNumber: incomingRace.heatNumber, raceType: incomingRace.raceType }

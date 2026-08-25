@@ -170,9 +170,12 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
     const progress = roomCheckinProgress(feed?.checkinProgress ?? [], railTrack);
     return buildStageRail({
       called,
-      rooms: (megaEnabled ? (["red", "blue"] as const) : ([room ?? "red"] as const)).map(
-        (r) => roomsNow?.[r as "red" | "blue"] ?? null,
-      ),
+      // Both rooms on a Mega night — which is also what splits this rail into a
+      // row per room, so a TV in Red can see Blue's group about to walk out.
+      rooms: (megaEnabled ? (["red", "blue"] as const) : ([room ?? "red"] as const)).map((r) => ({
+        room: r as BriefingRoom,
+        state: roomsNow?.[r as BriefingRoom] ?? null,
+      })),
       lane: feed?.pitLanes?.[railTrack] ?? null,
       // THE TICKING CLOCK, NOT THE FEED'S STAMP (owner 2026-08-24: "why don't we
       // show real timer there?"). `feed.now` is the server clock as of the last
