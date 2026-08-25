@@ -8,7 +8,7 @@
  * A create is just a sweep with one new reservation added, which is why they share the
  * scoring path rather than being two systems.
  */
-import { byReservation, isMovable, pairOf } from "./grid";
+import { byReservation, freeLanes, isMovable, pairOf } from "./grid";
 import { candidateLanes, explain, scorePlacement, spreadBias } from "./score";
 import type {
   BusyInterval,
@@ -278,6 +278,157 @@ export function replayGreenfield(
   }
 
   return { placed, unplaced };
+}
+
+export interface DaySimulation {
+  /** Final lane assignment for every reservation the simulation moved or placed. */
+  placed: Map<string, number[]>;
+  /** Moves the morning sweep proposed over the pre-booked set. */
+  sweepMoves: ProposedMove[];
+  /** Reservations pinned at create because they were booked the same day. */
+  pinned: string[];
+  /** Reservations left exactly where QAMF put them — booked in advance. */
+  leftToQamf: string[];
+  /**
+   * Same-day bookings the policy rejected, seated on whatever was genuinely free — the
+   * fail-open path, where production drops `Lanes` and lets QAMF choose.
+   */
+  failedOpen: string[];
+  /**
+   * Same-day bookings that could not be seated at all, because the arrangement had already
+   * committed every lane free for their window. Excluded from the simulated board entirely —
+   * a booking is never stacked onto an occupied lane to keep the tally looking complete.
+   */
+  unplaced: string[];
+}
+
+/**
+ * BACKTEST: replay a day the way the system is ACTUALLY designed to run.
+ *
+ * `replayGreenfield` re-places every booking at create time, which models "pin everything"
+ * — an architecture we deliberately rejected, because a lane chosen fourteen days out is
+ * optimised against a board that is essentially empty and bears no relation to the day that
+ * eventually happens. Measuring that and calling it "pin at create" flatters or maligns the
+ * real design depending entirely on how much of the book was advance-booked.
+ *
+ * What actually runs:
+ *   1. Anything booked for a FUTURE date keeps whatever lane QAMF gave it. No pin.
+ *   2. A morning sweep re-solves the board that is known at open.
+ *   3. Same-day bookings are pinned as they arrive, in creation order, against the board as
+ *      it stood at that moment — which is all the information the real system would have.
+ *
+ * Only reservations created during the operating day count as same-day. `dayStartMs` is
+ * that boundary.
+ */
+export function simulateDay(
+  grid: LaneGrid,
+  policy: LanePolicy,
+  opts: Omit<SweepOptions, "replayHistoric"> & {
+    dayStartMs: number;
+    /** Re-solve the pre-booked board at open. Default true. `false` = same-day pins only,
+     *  which is the FastTrax pilot: nothing already booked is ever moved. */
+    sweepAdvance?: boolean;
+  },
+): DaySimulation {
+  const groups = byReservation(grid);
+  const advance: BusyInterval[][] = [];
+  const sameDay: BusyInterval[][] = [];
+  const fixed: BusyInterval[] = [];
+
+  for (const intervals of groups.values()) {
+    const start = Math.min(...intervals.map((i) => i.startMs));
+    const inWindow = start >= opts.fromMs && start < opts.toMs;
+    const staffPlaced = intervals[0].reservationId.startsWith("C");
+    const isBlock = intervals.some((i) => i.isBlock);
+    if (!inWindow || isBlock || (!policy.moveConquerorBookings && staffPlaced)) {
+      fixed.push(...intervals);
+      continue;
+    }
+    const created = intervals[0].createdAtMs;
+    // No creation stamp means we cannot tell when it was booked — treat it as advance and
+    // leave it alone rather than claiming a pin we could not have made.
+    if (created != null && created >= opts.dayStartMs) sameDay.push(intervals);
+    else advance.push(intervals);
+  }
+
+  // ── 1 + 2. The board at open is the advance bookings, then the morning sweep. ──
+  //
+  // `sweepAdvance: false` is the FastTrax pilot shape (owner decision 2026-08-25): pin the
+  // same-day bookings and never touch anything already on the books. It is strictly less
+  // invasive — no `moveReservationLanes` call, so no guest's lane changes after they booked,
+  // nothing to write back to Neon for a move, and the kiosk-freeze question does not arise.
+  const sweepAdvance = opts.sweepAdvance !== false;
+  const preBoard = withBusy(grid, [...fixed, ...advance.flat()]);
+  const sweep = sweepAdvance
+    ? sweepDay(preBoard, policy, { ...opts, replayHistoric: true })
+    : { moves: [] as ProposedMove[], considered: 0, frozen: 0 };
+  const placed = new Map<string, number[]>();
+  const moveById = new Map(sweep.moves.map((m) => [m.reservationId, m.to]));
+
+  const board: BusyInterval[] = [...fixed];
+  for (const intervals of advance) {
+    const target = moveById.get(intervals[0].reservationId);
+    if (target) placed.set(intervals[0].reservationId, target);
+    intervals.forEach((b, i) => board.push({ ...b, laneNumber: target?.[i] ?? b.laneNumber }));
+  }
+
+  // ── 3. Same-day arrivals, in the order they actually came in. ──
+  sameDay.sort((a, b) => (a[0].createdAtMs ?? 0) - (b[0].createdAtMs ?? 0));
+  const pinned: string[] = [];
+  const failedOpen: string[] = [];
+  const unplaced: string[] = [];
+
+  for (const intervals of sameDay) {
+    const head = intervals[0];
+    const working = withBusy(grid, board);
+    const req: PlanRequest = {
+      reservationId: head.reservationId,
+      laneCount: intervals.length,
+      startMs: Math.min(...intervals.map((i) => i.startMs)),
+      endMs: Math.max(...intervals.map((i) => i.endMs)),
+      players: intervals.reduce((n, i) => n + i.players, 0),
+      webOfferId: head.webOfferId,
+      allowedLanes: (head.webOfferId != null && opts.laneGroups?.get(head.webOfferId)) || null,
+    };
+    const { best } = chooseLanes(working, req, policy);
+    if (best) {
+      pinned.push(head.reservationId);
+      placed.set(head.reservationId, best.lanes);
+      intervals.forEach((b, i) => board.push({ ...b, laneNumber: best.lanes[i] ?? b.laneNumber }));
+      continue;
+    }
+
+    // FAIL OPEN, modelled honestly. The policy liked nothing, so production sends no `Lanes`
+    // and QAMF seats the party wherever it is genuinely free. Its HISTORIC lane is not
+    // automatically available any more — our own sweep may have moved somebody onto it — so
+    // falling back to that lane unconditionally scores a board that cannot exist. Two parties
+    // on one lane is the exact defect this simulation is meant to expose, not to manufacture.
+    const open = freeLanes(working, req.startMs, req.endMs, head.reservationId, req.allowedLanes);
+    const historic = intervals.map((i) => i.laneNumber);
+    const target = historic.every((l) => open.includes(l))
+      ? historic
+      : open.slice(0, intervals.length);
+
+    if (target.length < intervals.length) {
+      // Genuinely nowhere to seat them: the arrangement has over-committed the house. Leave
+      // the booking OFF the board rather than double-booking a lane to keep the tally whole.
+      unplaced.push(head.reservationId);
+      continue;
+    }
+
+    failedOpen.push(head.reservationId);
+    placed.set(head.reservationId, target);
+    intervals.forEach((b, i) => board.push({ ...b, laneNumber: target[i] ?? b.laneNumber }));
+  }
+
+  return {
+    placed,
+    sweepMoves: sweep.moves,
+    pinned,
+    leftToQamf: advance.map((i) => i[0].reservationId),
+    failedOpen,
+    unplaced,
+  };
 }
 
 /** Pairs touched by a set of moves — the blast radius of applying them. */

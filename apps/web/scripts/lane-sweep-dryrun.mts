@@ -27,9 +27,10 @@ const { searchReservations, toCenterLocalIso } = await import("@/lib/qamf-bowlin
 const { buildGrid } = await import("~/features/lane-plan/grid.server");
 const { deriveLaneGroups, toLaneGroupMap } = await import("~/features/lane-plan/lane-groups");
 const { buildOccupancyForecast, forecastAt } = await import("~/features/lane-plan/forecast");
-const { sweepDay, affectedPairs, replayGreenfield } = await import("~/features/lane-plan/policy");
+const { sweepDay, affectedPairs, replayGreenfield, simulateDay } =
+  await import("~/features/lane-plan/policy");
 const { DEFAULT_POLICY } = await import("~/features/lane-plan/types");
-const { byReservation, lanesAvailableFor, mateOf, wholeFreePairs, occupancyAt } =
+const { byReservation, freeLanes, lanesAvailableFor, mateOf, wholeFreePairs, occupancyAt } =
   await import("~/features/lane-plan/grid");
 type LaneGrid = import("~/features/lane-plan/types").LaneGrid;
 type BusyInterval = import("~/features/lane-plan/types").BusyInterval;
@@ -118,6 +119,40 @@ function crowdedSingles(grid: LaneGrid): { crowded: number; total: number } {
   return { crowded, total };
 }
 
+/**
+ * SAFETY INVARIANT: two parties may never share a lane at the same time.
+ *
+ * Rearranging a board is a PERMUTATION, so a simulated board must contain exactly the
+ * collisions the real one did (normally none). This is the bug class that already bit the
+ * first `sweepDay` — it seeded its working board with only the frozen set, so one booking
+ * could claim a lane another was still sitting on. Never eyeball this; count it.
+ */
+function laneCollisions(grid: LaneGrid): { lane: number; a: string; b: string; atMs: number }[] {
+  const hits: { lane: number; a: string; b: string; atMs: number }[] = [];
+  const byLane = new Map<number, BusyInterval[]>();
+  for (const b of grid.busy) {
+    const list = byLane.get(b.laneNumber);
+    if (list) list.push(b);
+    else byLane.set(b.laneNumber, [b]);
+  }
+  for (const [lane, list] of byLane) {
+    const sorted = [...list].sort((x, y) => x.startMs - y.startMs);
+    for (let i = 0; i < sorted.length; i++) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        if (sorted[j].startMs >= sorted[i].endMs) break;
+        if (sorted[i].reservationId === sorted[j].reservationId) continue;
+        hits.push({
+          lane,
+          a: sorted[i].reservationId,
+          b: sorted[j].reservationId,
+          atMs: sorted[j].startMs,
+        });
+      }
+    }
+  }
+  return hits;
+}
+
 /** Whole free pairs at the busiest moment — the inventory left for a walk-in big group. */
 function pairsAtPeak(grid: LaneGrid): { pairs: number; atMs: number; used: number } {
   let best = { pairs: Number.POSITIVE_INFINITY, atMs: dayStartMs, used: 0 };
@@ -198,15 +233,24 @@ function longSessionCapacity(grid: LaneGrid): {
 
 /** Apply a reservation -> lanes map to a grid in memory, so outcomes can be measured
  *  without writing anything. */
-function applyPlacements(grid: LaneGrid, target: Map<string, number[]>): LaneGrid {
+function applyPlacements(
+  grid: LaneGrid,
+  target: Map<string, number[]>,
+  /** Reservations the simulation could not seat. They are NOT on the simulated board, so
+   *  leaving them here at their historic lane would re-create the very double-booking the
+   *  engine refused to make, and score it against us. */
+  omit?: ReadonlySet<string>,
+): LaneGrid {
   const seen = new Map<string, number>();
-  const busy: BusyInterval[] = grid.busy.map((b) => {
-    const lanes = target.get(b.reservationId);
-    if (!lanes) return b;
-    const idx = seen.get(b.reservationId) ?? 0;
-    seen.set(b.reservationId, idx + 1);
-    return { ...b, laneNumber: lanes[idx] ?? b.laneNumber };
-  });
+  const busy: BusyInterval[] = grid.busy
+    .filter((b) => !omit?.has(b.reservationId))
+    .map((b) => {
+      const lanes = target.get(b.reservationId);
+      if (!lanes) return b;
+      const idx = seen.get(b.reservationId) ?? 0;
+      seen.set(b.reservationId, idx + 1);
+      return { ...b, laneNumber: lanes[idx] ?? b.laneNumber };
+    });
   return { ...grid, busy };
 }
 
@@ -351,15 +395,80 @@ if (!sweep.moves.length) {
   console.log(`\n  pairs touched: ${affectedPairs(sweep.moves).join(", ")}`);
 }
 
-// GREENFIELD: what if we had pinned every one of OUR bookings at create time, in the
-// order they actually arrived? The sweep repairs a bad board; this measures never building
-// one. Only meaningful on a retro day, where the whole day's bookings exist.
+// THE REAL DESIGN: advance bookings keep QAMF's lane, a morning sweep re-solves what is
+// known at open, and same-day bookings are pinned as they arrive. This is what actually
+// ships, so it is the number that matters.
+const sim = simulateDay(
+  before,
+  { ...DEFAULT_POLICY, moveConquerorBookings: MOVE_DESK },
+  { fromMs: dayStartMs, toMs: dayEndMs, laneGroups, nowMs: dayStartMs, dayStartMs },
+);
+const simGrid = applyPlacements(before, sim.placed, new Set(sim.unplaced));
+const cSim = crowdedSingles(simGrid);
+const pSim = pairsAtPeak(simGrid);
+
+// SAME-DAY PINS ONLY — the approved FastTrax pilot (owner, 2026-08-25). Pin bookings as they
+// arrive; never move anything already on the books. Strictly less invasive than the sweep:
+// no `moveReservationLanes` call at all, so no guest's lane changes after they booked.
+const simSD = simulateDay(
+  before,
+  { ...DEFAULT_POLICY, moveConquerorBookings: MOVE_DESK },
+  {
+    fromMs: dayStartMs,
+    toMs: dayEndMs,
+    laneGroups,
+    nowMs: dayStartMs,
+    dayStartMs,
+    sweepAdvance: false,
+  },
+);
+const sdGrid = applyPlacements(before, simSD.placed, new Set(simSD.unplaced));
+const cSD = crowdedSingles(sdGrid);
+const pSD = pairsAtPeak(sdGrid);
+
+// A REFUSAL MUST BE EXPLAINABLE. QAMF seated every one of these in real life, so if our
+// arrangement cannot, that is a defect in the arrangement — not a fact about the house.
+// Printing the lane group beside the genuinely-free lanes separates the two causes:
+// "the house was full" vs "our derived lane group forbade the only free lanes".
+if (sim.unplaced.length) {
+  console.log(`\n--- COULD NOT SEAT (${sim.unplaced.length}) — QAMF seated all of these ---`);
+  const groupsBefore = byReservation(before);
+  for (const id of sim.unplaced) {
+    const intervals = groupsBefore.get(id);
+    if (!intervals) continue;
+    const head = intervals[0];
+    const s = Math.min(...intervals.map((i) => i.startMs));
+    const e = Math.max(...intervals.map((i) => i.endMs));
+    const allowed = (head.webOfferId != null && laneGroups.get(head.webOfferId)) || null;
+    const anywhere = freeLanes(simGrid, s, e, id, null);
+    const inGroup = freeLanes(simGrid, s, e, id, allowed);
+    const verdict =
+      anywhere.length < intervals.length
+        ? "house genuinely full"
+        : inGroup.length < intervals.length
+          ? "LANE GROUP blocked it — free lanes existed outside the offer's group"
+          : "free lanes existed IN group — policy refused them";
+    console.log(
+      `  ${id.padEnd(9)} ${clock(s)}-${clock(e)} needs ${intervals.length} · was on ${intervals
+        .map((i) => i.laneNumber)
+        .join("+")} · offer ${head.webOfferId ?? "—"}`,
+    );
+    console.log(
+      `            group [${allowed ? allowed.join(",") : "any"}] · free anywhere [${
+        anywhere.join(",") || "none"
+      }] · free in group [${inGroup.join(",") || "none"}]  ->  ${verdict}`,
+    );
+  }
+}
+
+// PIN EVERYTHING: kept only as a contrast. Pins bookings made weeks out against a board
+// that was empty at the time — the architecture we rejected. Never quote this as "pinning".
 const green = replayGreenfield(
   before,
   { ...DEFAULT_POLICY, moveConquerorBookings: MOVE_DESK },
   { fromMs: dayStartMs, toMs: dayEndMs, laneGroups },
 );
-const greenGrid = applyPlacements(before, green.placed);
+const greenGrid = applyPlacements(before, green.placed, new Set(green.unplaced));
 const cGreen = crowdedSingles(greenGrid);
 const pGreen = pairsAtPeak(greenGrid);
 
@@ -367,15 +476,24 @@ const pct = (c: { crowded: number; total: number }) =>
   c.total ? `${c.crowded}/${c.total} (${((c.crowded / c.total) * 100).toFixed(1)}%)` : "0/0";
 
 console.log(`\n--- QUALITY ---`);
-console.log(`  single-lane parties seated against an occupied PAIR-MATE:`);
-console.log(`      as booked (QAMF auto-assign)  ${pct(cBefore)}`);
-console.log(`      after a sweep                 ${pct(cAfter)}`);
-console.log(`      if pinned at create           ${pct(cGreen)}   <- the real lever`);
+console.log(
+  `  how the day was booked: ${sim.leftToQamf.length} in advance (QAMF chose the lane) · ` +
+    `${sim.pinned.length} same-day pinned (we chose) · ` +
+    `${sim.failedOpen.length} same-day failed open (QAMF chose) · ` +
+    `${sim.unplaced.length} could not be seated at all`,
+);
+if (sim.unplaced.length) console.log(`      could not seat: ${sim.unplaced.join(", ")}`);
+console.log(`\n  single-lane parties seated against an occupied PAIR-MATE:`);
+console.log(`      as booked today               ${pct(cBefore)}`);
+console.log(`      sweep only                    ${pct(cAfter)}`);
+console.log(`      SAME-DAY PINS ONLY            ${pct(cSD)}   <- THE APPROVED PILOT`);
+console.log(`      sweep + same-day pin          ${pct(cSim)}   <- fuller design, later`);
+console.log(`      [contrast] pin everything     ${pct(cGreen)}   <- rejected architecture`);
 console.log(
   `  whole free pairs at the busiest moment (${clock(pBefore.atMs)}, ${pBefore.used}/${before.lanes.length} lanes used):`,
 );
 console.log(
-  `      as booked ${pBefore.pairs}   ·   after sweep ${pAfter.pairs}   ·   pinned at create ${pGreen.pairs}`,
+  `      as booked ${pBefore.pairs}   ·   sweep only ${pAfter.pairs}   ·   SAME-DAY ONLY ${pSD.pairs}   ·   sweep+pin ${pSim.pairs}   ·   [contrast] pin everything ${pGreen.pairs}`,
 );
 if (green.unplaced.length) {
   console.log(
@@ -387,14 +505,14 @@ if (green.unplaced.length) {
 {
   const lB = longSessionCapacity(before);
   const lA = longSessionCapacity(after);
-  const lG = longSessionCapacity(greenGrid);
+  const lG = longSessionCapacity(simGrid);
   const delta = (a: number, b: number) => (b === a ? "same" : b > a ? `+${b - a}` : `${b - a}`);
   console.log(`\n  LONG SESSIONS still sellable (lane-slots summed over 12pm-11pm):`);
   console.log(
-    `      90 min   as booked ${String(lB.slots90).padStart(3)}   after sweep ${String(lA.slots90).padStart(3)} (${delta(lB.slots90, lA.slots90)})   pinned at create ${String(lG.slots90).padStart(3)} (${delta(lB.slots90, lG.slots90)})`,
+    `      90 min   as booked ${String(lB.slots90).padStart(3)}   after sweep ${String(lA.slots90).padStart(3)} (${delta(lB.slots90, lA.slots90)})   THE DESIGN ${String(lG.slots90).padStart(3)} (${delta(lB.slots90, lG.slots90)})`,
   );
   console.log(
-    `     120 min   as booked ${String(lB.slots120).padStart(3)}   after sweep ${String(lA.slots120).padStart(3)} (${delta(lB.slots120, lA.slots120)})   pinned at create ${String(lG.slots120).padStart(3)} (${delta(lB.slots120, lG.slots120)})`,
+    `     120 min   as booked ${String(lB.slots120).padStart(3)}   after sweep ${String(lA.slots120).padStart(3)} (${delta(lB.slots120, lA.slots120)})   THE DESIGN ${String(lG.slots120).padStart(3)} (${delta(lB.slots120, lG.slots120)})`,
   );
   console.log(
     `      worst hour as booked: ${clock(lB.worst.atMs)} — ${lB.worst.free} lanes free, only ${lB.worst.can120} could take 2 hours`,
@@ -404,13 +522,35 @@ if (green.unplaced.length) {
   );
 }
 
+console.log(`\n  LANE COLLISIONS — two parties on one lane. Must match "as booked" (normally 0);`);
+console.log(`  anything a rearrangement ADDS is a board we must never apply:`);
+for (const [label, g] of [
+  ["as booked", before],
+  ["sweep only", after],
+  ["SAME-DAY ONLY (pilot)", sdGrid],
+  ["sweep + same-day pin", simGrid],
+  ["[contrast] pin everything", greenGrid],
+] as const) {
+  const hits = laneCollisions(g);
+  const detail = hits
+    .slice(0, 3)
+    .map((h) => `lane ${h.lane} ${h.a}/${h.b} @ ${clock(h.atMs)}`)
+    .join(" · ");
+  console.log(
+    `      ${label.padEnd(26)} ${String(hits.length).padStart(3)}${detail ? `   ${detail}` : ""}`,
+  );
+}
+
 console.log(`\n  crowding by how full the house was (the rule is conditional — at 80%+ there is`);
 console.log(`  nowhere to spread, so only the quiet band is a fair test of the policy):`);
 const bandsBefore = crowdedByPressure(before);
+const bandsSim = crowdedByPressure(simGrid);
 const bandsGreen = crowdedByPressure(greenGrid);
 for (const band of Object.keys(bandsBefore)) {
   console.log(
-    `      ${band.padEnd(20)} as booked ${pct(bandsBefore[band]).padEnd(16)} pinned ${pct(bandsGreen[band])}`,
+    `      ${band.padEnd(20)} as booked ${pct(bandsBefore[band]).padEnd(14)}` +
+      `THE DESIGN ${pct(bandsSim[band]).padEnd(14)}` +
+      `[contrast] pin everything ${pct(bandsGreen[band])}`,
   );
 }
 

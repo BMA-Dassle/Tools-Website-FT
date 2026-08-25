@@ -24,7 +24,13 @@ import {
 import { bucketOf, buildOccupancyForecast, forecastAt } from "./forecast";
 import { findGridGaps, OPEN_LANE_GRACE_MINUTES, toFloorIntervals } from "./grid.server";
 import { deriveLaneGroups, allowedLanesFor, MIN_SAMPLES_FOR_CONFIDENCE } from "./lane-groups";
-import { chooseLanes, enumerateCandidates, replayGreenfield, sweepDay } from "./policy";
+import {
+  chooseLanes,
+  enumerateCandidates,
+  replayGreenfield,
+  simulateDay,
+  sweepDay,
+} from "./policy";
 import { classifyPinFailure, shouldFailOpen } from "./pin-errors";
 import { createWithLanePlan, describePinOutcome } from "./pin";
 import { scorePlacement, spreadBias } from "./score";
@@ -657,6 +663,117 @@ describe("walking candidates without losing the booking", () => {
     const v = vendor(new Map([[25, OCCUPIED]]));
     const out = await createWithLanePlan({ candidates: [[25], [19]], create: v.create });
     expect(describePinOutcome(out)).toBe("pinned to 19 after 25 (lane_unavailable) refused");
+  });
+});
+
+describe("same-day pinning only", () => {
+  const opts = {
+    fromMs: T0 - HOUR,
+    toMs: T0 + 6 * HOUR,
+    nowMs: T0 - 4 * HOUR,
+    dayStartMs: T0 - 9 * HOUR, // the operating day opened at 9am; T0 is 6pm
+  };
+
+  it("leaves a booking made days ago exactly where QAMF put it", () => {
+    // Booked a week out. At create time the board was empty, so any lane we picked then
+    // would have been chosen against a fiction.
+    const g = grid(
+      [busy(7, 0, 1.5, { reservationId: "XADV", createdAtMs: T0 - 7 * 24 * HOUR })],
+      16,
+    );
+    const sim = simulateDay(g, DEFAULT_POLICY, opts);
+    expect(sim.leftToQamf).toContain("XADV");
+    expect(sim.pinned).not.toContain("XADV");
+  });
+
+  it("pins a booking made the same morning", () => {
+    const g = grid([busy(7, 0, 1.5, { reservationId: "XTODAY", createdAtMs: T0 - 6 * HOUR })], 16);
+    const sim = simulateDay(g, DEFAULT_POLICY, opts);
+    expect(sim.pinned).toContain("XTODAY");
+    expect(sim.leftToQamf).not.toContain("XTODAY");
+  });
+
+  it("treats a booking with no creation stamp as advance — never claim a pin we could not have made", () => {
+    const g = grid([busy(7, 0, 1.5, { reservationId: "XUNKNOWN", createdAtMs: null })], 16);
+    const sim = simulateDay(g, DEFAULT_POLICY, opts);
+    expect(sim.leftToQamf).toContain("XUNKNOWN");
+  });
+
+  it("places same-day arrivals in the order they were booked, not by difficulty", () => {
+    const g = grid(
+      [
+        busy(3, 0, 1.5, { reservationId: "XLATE", createdAtMs: T0 - 1 * HOUR }),
+        busy(4, 0, 1.5, { reservationId: "XEARLY", createdAtMs: T0 - 5 * HOUR }),
+      ],
+      16,
+    );
+    const sim = simulateDay(g, DEFAULT_POLICY, opts);
+    expect(sim.pinned).toEqual(["XEARLY", "XLATE"]);
+    // Both placed, and never onto the same lane.
+    const lanes = [...sim.placed.values()].flat();
+    expect(new Set(lanes).size).toBe(lanes.length);
+  });
+
+  /**
+   * THE INVARIANT. Rearranging is a permutation, so the simulated board must never contain
+   * an overlap the real one did not. The first version fell back to a booking's HISTORIC
+   * lane whenever the policy rejected every candidate — but the sweep may already have moved
+   * somebody onto that lane, so it quietly produced boards with two parties sharing a lane
+   * and then scored them. Every new collision on the Aug 1 and Aug 8 backtests came from
+   * exactly that path.
+   */
+  it("never seats two parties on one lane, even when it runs out of house", () => {
+    // Four lanes, seven same-day single-lane parties all wanting the same 90 minutes.
+    // It cannot possibly seat them all; it must refuse, not stack.
+    const wanted = Array.from({ length: 7 }, (_, i) =>
+      busy(((i % 4) + 1) as number, 0, 1.5, {
+        reservationId: `XSAME${i}`,
+        createdAtMs: T0 - (7 - i) * HOUR,
+      }),
+    );
+    const g = grid(wanted, 4);
+    const sim = simulateDay(g, DEFAULT_POLICY, opts);
+
+    // Rebuild the board the simulation actually produced: placed lanes, unseated dropped.
+    const dropped = new Set(sim.unplaced);
+    const board = g.busy
+      .filter((b) => !dropped.has(b.reservationId))
+      .map((b) => ({ ...b, laneNumber: sim.placed.get(b.reservationId)?.[0] ?? b.laneNumber }));
+
+    for (const a of board) {
+      for (const b of board) {
+        if (a === b || a.reservationId === b.reservationId) continue;
+        const sameLaneOverlap =
+          a.laneNumber === b.laneNumber && a.startMs < b.endMs && b.startMs < a.endMs;
+        expect(sameLaneOverlap).toBe(false);
+      }
+    }
+    // And it must have actually refused some — otherwise the fixture proves nothing.
+    expect(sim.unplaced.length).toBeGreaterThan(0);
+  });
+
+  it("counts a booking it cannot seat as unplaced, never as pinned", () => {
+    const wanted = Array.from({ length: 6 }, (_, i) =>
+      busy(((i % 2) + 1) as number, 0, 1.5, {
+        reservationId: `XFULL${i}`,
+        createdAtMs: T0 - (6 - i) * HOUR,
+      }),
+    );
+    const sim = simulateDay(grid(wanted, 2), DEFAULT_POLICY, opts);
+    for (const id of sim.unplaced) {
+      expect(sim.pinned).not.toContain(id);
+      expect(sim.failedOpen).not.toContain(id);
+      // Never carries a lane assignment — it is not on the board at all.
+      expect(sim.placed.has(id)).toBe(false);
+    }
+    expect(sim.pinned.length + sim.failedOpen.length + sim.unplaced.length).toBe(6);
+  });
+
+  it("never pins a front-desk booking", () => {
+    const g = grid([busy(7, 0, 1.5, { reservationId: "C900", createdAtMs: T0 - 2 * HOUR })], 16);
+    const sim = simulateDay(g, DEFAULT_POLICY, opts);
+    expect(sim.pinned).toHaveLength(0);
+    expect(sim.placed.has("C900")).toBe(false);
   });
 });
 
