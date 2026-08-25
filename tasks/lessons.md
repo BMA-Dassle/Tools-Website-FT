@@ -4957,7 +4957,14 @@ nothing else moved.
 both centers — on a cron `vercel.json` runs every 60s, against Vercel's 60s default with
 `maxDuration` set on ZERO functions. Straddling the limit means runs are killed mid-flight and
 overlap, which is its own session-abandonment mechanism that stable ids do not fix. Both runs
-read 167 projects across a full year and found **0** in Send Contract — the case for cutting the
-horizon and the cadence: ~34,560 dayPlanner calls a day to find nothing. Also open: the
-single-slot token cache that re-auths per center per run, and absent keep-alive. (Measured from
-a workstation, not from Vercel's region — evidence of the overlap, not a production timing.)
+read 167 projects across a full year and found **0** in Send Contract — ~34,560 dayPlanner calls
+a day to find nothing. (Measured from a workstation, not from Vercel's region — evidence of the
+overlap, not a production timing.)
+
+**Cadence cut to `*/2` (2026-08-25, owner call).** Straight revert of the 2026-05-27 "increase
+group-quote-dispatch cron to every 1 minute", which is what created this profile two days before
+the 12-month windowing landed. Halves everything, and it makes the route's own 60-second
+`hermes_last_processed_at` debounce meaningful again — on a 60s cron that debounce could never
+fire. The route's doc comment already said "every 2 minutes", so the comment is now true.
+Still open: the 365-day horizon (12 monthly windows to catch a state flip made minutes ago), the
+single-slot token cache that re-auths per center per run, absent keep-alive, and no overlap lock.

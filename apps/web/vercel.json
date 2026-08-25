@@ -154,7 +154,7 @@
     },
     {
       "path": "/api/cron/group-quote-dispatch",
-      "schedule": "* * * * *"
+      "schedule": "*/2 * * * *"
     },
     {
       "path": "/api/cron/group-tax-invariant-watch",
