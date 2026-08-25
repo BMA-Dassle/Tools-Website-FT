@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { etOffsetForLocalDate } from "@/lib/et-time";
 import redis from "@/lib/redis";
 import { sql } from "@/lib/db";
 import { getVideoReport } from "@/lib/vt3";
@@ -69,10 +70,7 @@ function isoToETYmd(iso: string | Date): string {
   }).format(typeof iso === "string" ? new Date(iso) : iso);
 }
 function etYmdToISO(ymd: string): string {
-  const month = parseInt(ymd.slice(5, 7), 10);
-  const isEDT = month >= 4 && month <= 10;
-  const offset = isEDT ? "-04:00" : "-05:00";
-  return `${ymd}T00:00:00${offset}`;
+  return `${ymd}T00:00:00${etOffsetForLocalDate(ymd)}`;
 }
 function ratio(num: number, denom: number): number {
   if (!Number.isFinite(num) || !Number.isFinite(denom) || denom === 0) return 0;

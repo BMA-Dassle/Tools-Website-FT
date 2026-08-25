@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { etOffsetForLocalDate } from "@/lib/et-time";
 import { getVideoReport, type Vt3VideoReportPoint } from "@/lib/vt3";
 
 /**
@@ -54,13 +55,10 @@ function daysAgoETYmd(n: number): string {
   }).format(new Date(ms));
 }
 
-/** ET start-of-day → ISO with the right DST offset. EDT (Apr–Oct) = -04:00,
- *  EST = -05:00. Same DST math used elsewhere in the codebase. */
+/** ET start-of-day → ISO with the right DST offset, from the IANA database
+ *  (the old Apr-Oct month test called Mar 8-31 EST, shifting the window). */
 function etYmdToISO(ymd: string): string {
-  const month = parseInt(ymd.slice(5, 7), 10);
-  const isEDT = month >= 4 && month <= 10;
-  const offset = isEDT ? "-04:00" : "-05:00";
-  return `${ymd}T00:00:00${offset}`;
+  return `${ymd}T00:00:00${etOffsetForLocalDate(ymd)}`;
 }
 
 interface ReportRow extends Vt3VideoReportPoint {

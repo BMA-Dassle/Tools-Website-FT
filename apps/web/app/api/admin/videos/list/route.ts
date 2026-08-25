@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { etOffsetForLocalDate } from "@/lib/et-time";
 import redis from "@/lib/redis";
 import {
   listMatchesInRange,
@@ -45,14 +46,10 @@ function etYmdToRangeMs(ymd: string): { startMs: number; endMs: number } {
   //
   // Correct calc: if ymd is '2026-04-23', we want the window Apr-23
   // 00:00 ET → Apr-24 00:00 ET. In UTC that's Apr-23 04:00Z → Apr-24
-  // 04:00Z during EDT (Apr-Oct). DST-aware offset per calendar month:
-  // UTC-4 for EDT months, UTC-5 for EST — close enough for a daily
-  // filter, which doesn't care about the 2-hour DST transition edge.
-  const month = parseInt(ymd.slice(5, 7), 10);
-  const isEDT = month >= 4 && month <= 10;
-  const offsetHours = isEDT ? 4 : 5;
-  const baseUtc = Date.parse(`${ymd}T00:00:00Z`);
-  const startMs = baseUtc + offsetHours * 60 * 60 * 1000;
+  // 04:00Z during EDT. The offset comes from the IANA database, not a
+  // month test — the old Apr-Oct approximation called Mar 8-31 EST and
+  // shifted the whole window an hour.
+  const startMs = Date.parse(`${ymd}T00:00:00${etOffsetForLocalDate(ymd)}`);
   const endMs = startMs + 24 * 60 * 60 * 1000;
   return { startMs, endMs };
 }
