@@ -1,6 +1,6 @@
 import Link from "next/link";
 import BookingLink from "@/components/BookingLink";
-import TuesdayAlert from "@/components/home/TuesdayAlert";
+import MegaDayAlert from "@/components/home/MegaDayAlert";
 
 const HERO_POSTER =
   "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-racing.webp";
@@ -85,8 +85,8 @@ export default function Hero() {
             Don&apos;t just watch the action—be the action.
           </p>
 
-          {/* Tuesday Mega Track alert (only renders on Tuesdays ET) */}
-          <TuesdayAlert />
+          {/* Mega Track alert (only renders on a Mega day, ET) */}
+          <MegaDayAlert />
 
           {/* CTAs */}
           <div className="flex flex-wrap gap-3">

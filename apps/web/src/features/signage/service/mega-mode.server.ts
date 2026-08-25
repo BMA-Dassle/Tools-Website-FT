@@ -19,9 +19,10 @@ import "server-only";
  *   - the data signal (mega carry strictly newest) via dataSaysMega.
  */
 import redis from "@/lib/redis";
-import { businessDayWeekdayET, businessDayYmdET } from "@/lib/race-business-day";
+import { businessDayYmdET } from "@/lib/race-business-day";
 import { loadAllFromRedis } from "~/features/racing/races-current.server";
 import { dataSaysMega, megaLadder, pickCurrentSession } from "~/features/racing/mega-mode";
+import { isMegaDay } from "~/features/racing/mega-calendar";
 import type { TrackKey } from "../track";
 import type { CachedRace } from "./race-checkin";
 
@@ -105,7 +106,13 @@ export async function megaDayPlannerToday(): Promise<boolean | null> {
     if (cached === "1") return true;
     if (cached === "0") return false;
     if (await redis.get(`mega-day:fail:${ymd}`)) return null;
-    const claimed = await redis.set(`mega-day:claim:${ymd}`, "1", "EX", DAYPLAN_CLAIM_TTL_SEC, "NX");
+    const claimed = await redis.set(
+      `mega-day:claim:${ymd}`,
+      "1",
+      "EX",
+      DAYPLAN_CLAIM_TTL_SEC,
+      "NX",
+    );
     if (claimed !== "OK") return null;
   } catch {
     return null;
@@ -140,7 +147,7 @@ export async function megaModeWithoutFlag(): Promise<boolean> {
     flag: null,
     dataMega: false,
     dayPlannerMega,
-    calendarMega: businessDayWeekdayET() === "Tue",
+    calendarMega: isMegaDay(businessDayYmdET()),
   });
 }
 
@@ -160,7 +167,7 @@ export async function megaModeActive(): Promise<boolean> {
     flag: null,
     dataMega: false,
     dayPlannerMega,
-    calendarMega: businessDayWeekdayET() === "Tue",
+    calendarMega: isMegaDay(businessDayYmdET()),
   });
 }
 

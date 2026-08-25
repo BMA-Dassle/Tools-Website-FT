@@ -1,5 +1,36 @@
 # Open Tasks
 
+## Mega Thursdays, Sep 3 – end of Oct 2026 (2026-08-25) — branch `worktree-mega-thursdays`
+
+Owner: "September 3rd through end of october we're adding mega to Thursdays. So that means no
+red or blue." Mega runs the combined circuit, so a Mega day sells Mega products and Blue/Red
+do not run at all.
+
+- [x] **One source of truth** — `src/features/racing/mega-calendar.ts`. Dated windows
+      (`MEGA_DAY_WINDOWS`): Tuesday open-ended, Thursday `from: 2026-09-03, until: 2026-10-31`.
+      `until` is REQUIRED on `MegaDayWindow` so a season cannot silently become permanent.
+      Built on `withinRecurringDayRule` (et-time), which gained an optional `until`.
+- [x] Twelve hardcoded `Tuesday` checks retired — both `scheduleForDate`s (v2 race-pricing +
+      v1 packages), pre-race-tickets cron, camera-assign route + client, signage `demoIsMegaDay`,
+      `megaLadder`'s `calendarMega` rung, kiosk attract slide + people-step notice, leaderboards
+      fallback, both booking flows' junior guard, homepage alert.
+- [x] Copy follows the calendar, not a literal: /racing, home attractions card + Mega alert,
+      leaderboards, racing-content constants, racing FAQ, and `MegaTrackDayJsonLd` (one dated
+      Event per Mega day, each taking hours from ITS OWN next occurrence).
+- [x] Kiosk i18n EN+ES: `stepReason.megaTuesday` → `stepReason.megaDay`, day-neutral in both.
+      The day NAME is a glossary proper noun from the window label, not a catalog entry.
+- [x] Gates: tsc, 6398 tests (28 new in `mega-calendar.test.ts` + season cases in
+      race-pricing), eslint clean on changed files, `next build` + a11y gate green.
+      `/`, `/racing`, `/leaderboards` all render `ƒ` so the season flips with no redeploy.
+- [x] Proven end to end: sellable tracks go `[Blue, Red]` → `[Mega]` on 09-03 … 10-29 and
+      revert by themselves on 11-05.
+- [ ] **Confirm with BMI/Pandora that the Thursday Mega sessions exist upstream.** This change
+      makes the site sell and query Mega on those Thursdays; the heat picker still gates on BMI
+      availability, so if the dayplanner has no Mega Thursday sessions the calendar will show
+      those days as unavailable rather than wrong.
+- [ ] Owner smoke on the first Mega Thursday (2026-09-03): booking shows Mega only, camera-assign
+      shows the Mega chip only, pre-race e-tickets address "Mega Track".
+
 ## Kiosk Race Sims placeholder (2026-08-23) — branch `feat/kiosk-race-sims`
 
 Owner: replace Kids Bowl Free on the kiosk with **Race Sims** (racing simulators, FastTrax FM).

@@ -4,6 +4,7 @@ import {
   fasttraxOpeningHoursSpec,
   formatHoursIso,
 } from "~/lib/constants/fasttrax-hours";
+import { megaCalendarTodayET, megaWindowsOn } from "~/features/racing/mega-calendar";
 
 export function LocalBusinessJsonLd() {
   const schema = {
@@ -621,38 +622,58 @@ export function MidnightMadnessJsonLd({ location }: { location: HeadPinzLocation
   );
 }
 
-export function MegaTrackTuesdayJsonLd() {
-  // Hours for the NEXT MEGA TUESDAY, not for today. The event is dated, and on
-  // 2026-08-05 the next one (08-11) sits on the far side of the 08-10 late-open
-  // switchover — keyed off today this advertised a 1:00 PM start for a day that
-  // opens at 3:00 PM. Same date as recurringEventSchema derives for startDate,
-  // so the advertised hours and the advertised date always agree.
-  const megaDate = nextOccurrenceDateIso("Tuesday");
-  const megaHours = fasttraxHoursFor(2, megaDate);
-  const schema = recurringEventSchema({
-    name: "Mega Track Tuesday at FastTrax",
-    description:
-      "Every Tuesday FastTrax pulls the barrier between Blue and Red tracks to create Florida's largest indoor racing circuit — the 2,108 ft Mega Track. Adult (all tiers), Junior Pro and Mini karts race for a flat $20.99. Junior racing on Mega is Junior Pro only — Junior Starter and Junior Intermediate do not run on Mega days.",
-    url: "https://fasttraxent.com/racing",
-    image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-racing.webp",
-    byDay: "Tuesday",
-    // A Mega day runs the full operating day.
-    startTime: `${formatHoursIso(megaHours.openMinutes)}:00`,
-    endTime: `${formatHoursIso(megaHours.closeMinutes)}:00`,
-    locationName: "FastTrax Entertainment",
-    streetAddress: "14501 Global Parkway",
-    addressLocality: "Fort Myers",
-    addressRegion: "FL",
-    postalCode: "33913",
-    organizerName: "FastTrax Entertainment",
-    organizerUrl: "https://fasttraxent.com",
-    price: "20.99",
-  });
+export function MegaTrackDayJsonLd() {
+  // ONE EVENT PER MEGA DAY, each resolved from its OWN next occurrence.
+  //
+  // Mega runs every Tuesday, plus Thursdays for the Sep-Oct 2026 season, and
+  // `mega-calendar` says which are live on the date this renders. Two rules
+  // this component learned the hard way and must keep:
+  //
+  //   1. Hours come from the OCCURRENCE, never from today. On 2026-08-05 the
+  //      next Mega day (08-11) sat on the far side of the 08-10 late-open
+  //      switchover; keyed off today this advertised a 1:00 PM start for a day
+  //      that opens at 3:00 PM.
+  //   2. Each day resolves its own hours rather than sharing one pair. Tuesday
+  //      and Thursday happen to be identical Mon-Fri days today, so this
+  //      changes nothing now — but a future Mega day on a weekend would open at
+  //      11 AM, and one shared startTime would quietly publish the wrong one.
+  //
+  // The /racing layout revalidates daily so these computed dates never freeze.
+  const today = megaCalendarTodayET();
+  const windows = megaWindowsOn(today);
   return (
-    <script
-      type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
-    />
+    <>
+      {windows.map((window) => {
+        const occurrence = nextOccurrenceDateIso(window.dayName);
+        const hours = fasttraxHoursFor(window.weekday, occurrence);
+        const schema = recurringEventSchema({
+          name: `${window.label} at FastTrax`,
+          description: `Every ${window.dayName} FastTrax pulls the barrier between Blue and Red tracks to create Florida's largest indoor racing circuit — the 2,108 ft Mega Track. Adult (all tiers), Junior Pro and Mini karts race for a flat $20.99. Junior racing on Mega is Junior Pro only — Junior Starter and Junior Intermediate do not run on Mega days.`,
+          url: "https://fasttraxent.com/racing",
+          image:
+            "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-racing.webp",
+          byDay: window.dayName,
+          // A Mega day runs the full operating day.
+          startTime: `${formatHoursIso(hours.openMinutes)}:00`,
+          endTime: `${formatHoursIso(hours.closeMinutes)}:00`,
+          locationName: "FastTrax Entertainment",
+          streetAddress: "14501 Global Parkway",
+          addressLocality: "Fort Myers",
+          addressRegion: "FL",
+          postalCode: "33913",
+          organizerName: "FastTrax Entertainment",
+          organizerUrl: "https://fasttraxent.com",
+          price: "20.99",
+        });
+        return (
+          <script
+            key={window.dayName}
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+          />
+        );
+      })}
+    </>
   );
 }
 

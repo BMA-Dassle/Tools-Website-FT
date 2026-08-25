@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listAssignmentsForSession } from "@/lib/camera-assign";
 import { getSessionBlockSnapshot } from "@/lib/video-block";
-import { businessDayETRange, businessDayWeekdayET } from "@/lib/race-business-day";
+import { businessDayETRange, businessDayYmdET } from "@/lib/race-business-day";
+import { isMegaDay } from "~/features/racing/mega-calendar";
 
 /**
  * GET /api/admin/camera-assign/session
@@ -234,22 +235,22 @@ export async function GET(req: NextRequest) {
     // Resolve which track resources to query.
     //
     // - Explicit `?track=...` → just that one (kiosk dedicated to a track).
-    // - No track + Tuesday (Mega day) → Mega Track ONLY.
+    // - No track + a Mega day → Mega Track ONLY.
     // - No track + other days → Blue + Red (Mega isn't running).
     //
-    // Was: "no track = all three resources" — meant Tuesdays burned
+    // Was: "no track = all three resources" — meant Mega days burned
     // 2 wasted Pandora calls (Blue + Red have no sessions), and
     // other days burned 1 wasted call (Mega). Each call is ~1-2s
     // normally, 12s+ during Pandora outages, so trimming wasted ones
     // cuts load and makes the page snappier.
     const requestedResource = trackSlugToResource(trackParam);
-    // Business-day weekday (2 AM ET rollover) so a Tuesday Mega night
-    // still resolves Mega heats up to 2 AM Wednesday.
-    const weekdayET = businessDayWeekdayET();
-    const isMegaDay = weekdayET === "Tue";
+    // Business-day DATE (2 AM ET rollover) so a Mega night still resolves
+    // Mega heats up to 2 AM the next morning, and so the Sep–Oct Mega
+    // Thursday season is read off the same calendar everything else uses.
+    const megaDay = isMegaDay(businessDayYmdET());
     const resources: readonly string[] = requestedResource
       ? [requestedResource]
-      : isMegaDay
+      : megaDay
         ? ["Mega Track"]
         : ["Blue Track", "Red Track"];
 

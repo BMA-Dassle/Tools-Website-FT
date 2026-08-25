@@ -20,6 +20,7 @@
  * by id (`getPackage`) and reads only the fields it cares about.
  */
 import { etOffsetForLocalDate, withinRecurringDayRule, type RecurringDayRule } from "./et-time";
+import { isMegaDay } from "~/features/racing/mega-calendar";
 import type { MessageKey } from "~/features/kiosk/i18n";
 
 // ── Shared component prices ─────────────────────────────────────────────────
@@ -1196,9 +1197,11 @@ export function packageLoosestGapMinutes(component: PackageRaceComponent): numbe
   return Math.min(rule.minutes, rule.sameTrackMinutes ?? rule.minutes);
 }
 
-/** Derive the current schedule slot from a date. Tuesday = "mega",
- *  Mon/Wed/Thu = "weekday", Fri/Sat/Sun = "weekend". Mirrors the
- *  classification in `app/book/race/data.ts`.
+/** Derive the current schedule slot from a date. A Mega day = "mega",
+ *  Fri/Sat/Sun = "weekend", everything else = "weekday". The v2 twin lives
+ *  at `~/features/booking/service/race-pricing`; both defer to
+ *  `mega-calendar` for which days are Mega, so the two cannot drift on the
+ *  one question that has actually changed.
  *
  *  Important: when given a `YYYY-MM-DD` string we parse it as LOCAL
  *  time, not UTC. `new Date("2026-04-28")` resolves to UTC midnight
@@ -1207,6 +1210,7 @@ export function packageLoosestGapMinutes(component: PackageRaceComponent): numbe
  *  the symptom that hid the Ultimate Qualifier card from the picker
  *  for an entire Tuesday. */
 export function scheduleForDate(d: Date | string): Schedule {
+  if (isMegaDay(d)) return "mega";
   let day: number;
   if (typeof d === "string") {
     const datePart = d.split("T")[0];
@@ -1220,7 +1224,6 @@ export function scheduleForDate(d: Date | string): Schedule {
   } else {
     day = d.getDay();
   }
-  if (day === 2) return "mega";
   if (day === 0 || day === 5 || day === 6) return "weekend";
   return "weekday";
 }

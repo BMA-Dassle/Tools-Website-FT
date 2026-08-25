@@ -52,7 +52,7 @@ export const RACE_TYPE_CARDS: RaceTypeCard[] = [
     age: "7–13 / 49”–70”",
     qual: "None — all juniors start here",
     desc: "Speed-controlled karts, easy track layout, team supervision.",
-    note: "Not available on Mega Track Tuesdays",
+    note: "Not available on Mega days",
   },
   {
     title: "Junior Intermediate",
@@ -61,7 +61,7 @@ export const RACE_TYPE_CARDS: RaceTypeCard[] = [
     age: "7–13 / 49”–70”",
     qual: "Lap time of 1:15 in Junior Starter",
     desc: "Faster karts, more challenging layout, real competition.",
-    note: "Not available on Mega Track Tuesdays",
+    note: "Not available on Mega days",
   },
   {
     title: "Junior Pro",
@@ -70,7 +70,7 @@ export const RACE_TYPE_CARDS: RaceTypeCard[] = [
     age: "7–13 / 49”–70”",
     qual: "Lap time of 45s in Junior Intermediate",
     desc: "Fastest junior karts, precision timing, most demanding config.",
-    note: "The only junior race on Mega Track Tuesdays",
+    note: "The only junior race on Mega days",
   },
 ];
 
@@ -101,7 +101,7 @@ export const KART_CLASS_CARDS: KartClassCard[] = [
       { label: "Track", value: "Blue Track only" },
       {
         label: "Note",
-        value: "Mega Track Tuesdays are Junior Pro only — no Junior Starter or Intermediate",
+        value: "Mega days are Junior Pro only — no Junior Starter or Intermediate",
       },
     ],
   },
@@ -152,10 +152,10 @@ export const TRACK_LAYOUTS: TrackLayoutInfo[] = [
     name: "The Mega Track",
     color: "rgb(134,82,255)",
     lengthFt: 2108,
-    blurb: "Tuesdays Only: Florida's longest multi-level track.",
+    blurb: "Florida's longest multi-level track — on Mega days only.",
     gif: `${BLOB}/images/tracks/mega-track-layout.gif`,
     warning:
-      "Junior Notice: Mega Track Tuesdays run Junior Pro races only — no Junior Starter or Junior Intermediate. Juniors must qualify all the way up to Junior Pro on a split-track day first.",
+      "Junior Notice: Mega days run Junior Pro races only — no Junior Starter or Junior Intermediate. Juniors must qualify all the way up to Junior Pro on a split-track day first.",
   },
 ];
 

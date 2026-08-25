@@ -53,7 +53,7 @@ import {
 } from "~/components/features/booking/steps/race/ReturningRacerLookup";
 import { useKioskConfig } from "../KioskConfigContext";
 import LicenceWalletChip from "../components/LicenceWalletChip";
-import { isMegaTuesdayToday } from "../assets";
+import { megaWindowTodayET } from "~/features/racing/mega-calendar";
 import { isTestKiosk, kioskHasCamera, kioskId } from "../config";
 import { KioskWaiverPhoto } from "../components/KioskWaiverPhoto";
 import { formatPersonName, normalizeEmail } from "~/lib/helpers/name-format";
@@ -1759,12 +1759,19 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       ? readyState.reason
       : null;
 
+  // The Mega day running RIGHT NOW (the kiosk books today), or null on a
+  // split-track day. Read per render, like the attract rotation's slide list,
+  // so the notice appears and retires across midnight without a reload.
+  const megaToday = megaWindowTodayET();
+
   return (
     <div className="space-y-[24px]">
-      {/* Mega Tuesday junior rule (owner 2026-07-21; narrowed 2026-08-05) — the
+      {/* Mega day junior rule (owner 2026-07-21; narrowed 2026-08-05) — the
           kiosk books TODAY, so on Mega days only JUNIOR PRO races run: no Junior
-          Starter, no Junior Intermediate. Racing only. */}
-      {isRace && isMegaTuesdayToday() && (
+          Starter, no Junior Intermediate. Racing only. The eyebrow names the
+          day that is actually running, so it reads "Mega Thursday" during the
+          Sep–Oct season instead of insisting it is Tuesday. */}
+      {isRace && megaToday && (
         <div className="flex items-start gap-[18px] rounded-2xl border-2 border-[#e53935] bg-[#e53935]/12 px-[28px] py-[22px]">
           <span
             aria-hidden="true"
@@ -1773,7 +1780,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             !
           </span>
           <div>
-            <div className="k-eyebrow text-[#ff5a52]">{t("peopleUi.megaTuesday")}</div>
+            <div className="k-eyebrow text-[#ff5a52]">{megaToday.label}</div>
             <div className="mt-[4px] text-[28px] font-bold text-[#ff8a86]">
               {t("peopleUi.megaJuniorWarning")}
             </div>

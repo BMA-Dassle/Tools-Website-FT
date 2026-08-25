@@ -27,6 +27,7 @@
  * without touching components.
  */
 import type { Brand, CenterCode } from "~/features/booking";
+import { megaWindowTodayET, type MegaDayWindow } from "~/features/racing/mega-calendar";
 import type { MessageKey } from "./i18n";
 
 const BLOB_HOST = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
@@ -239,38 +240,33 @@ const NAPLES_AD_SLIDES: KioskAdSlide[] = [
   },
 ];
 
-/** Mega Tuesday door (owner 2026-07-21) — leads the Fort Myers rotation on
- *  Tuesdays only, Mega-purple accent + the red junior rule. */
-const MEGA_TUESDAY_SLIDE: KioskAdSlide = {
-  title: "It's Mega Tuesday",
-  bannerAction: "to race the Mega",
-  accent: "#8652ff",
-  photo: KIOSK_PHOTOS.race,
-  notice: "Junior Pro only on Mega",
-  headline: "attract.letsGoMega",
-  // Reuses the kart reel: Mega IS racing, and it keeps the slide from being
-  // the only still one in an otherwise moving rotation.
-  video: "race",
-  vehicle: "car",
-};
-
-/** Center-local (America/New_York) Tuesday check — mirrors scheduleForDate's
- *  "day 2 = mega" rule without needing a booking date. Also consumed by the
- *  kiosk people step's Mega-day junior notice (the kiosk books TODAY). */
-export function isMegaTuesdayToday(): boolean {
-  return (
-    new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "long" }).format(
-      new Date(),
-    ) === "Tuesday"
-  );
+/** Mega day door (owner 2026-07-21) — leads the Fort Myers rotation on Mega
+ *  days only, Mega-purple accent + the red junior rule.
+ *
+ *  The title NAMES THE DAY, so it is built from the live window rather than
+ *  frozen: a slide reading "It's Mega Tuesday" on a Mega Thursday is worse
+ *  than no slide at all. Everything else about it is fixed. */
+function megaSlideFor(window: MegaDayWindow): KioskAdSlide {
+  return {
+    title: `It's ${window.label}`,
+    bannerAction: "to race the Mega",
+    accent: "#8652ff",
+    photo: KIOSK_PHOTOS.race,
+    notice: "Junior Pro only on Mega",
+    headline: "attract.letsGoMega",
+    // Reuses the kart reel: Mega IS racing, and it keeps the slide from being
+    // the only still one in an otherwise moving rotation.
+    video: "race",
+    vehicle: "car",
+  };
 }
 
 /** The attract rotation for this kiosk's center (null = not provisioned yet;
  *  the Fort Myers set is a harmless placeholder behind the setup card).
- *  Called per render, so the Tuesday slide appears/retires on the attract
+ *  Called per render, so the Mega slide appears/retires on the attract
  *  loop's own re-render cadence — no reload needed across midnight.
  *
- *  `brand` gates the Mega Tuesday slide to FASTTRAX kiosks. The rotation is
+ *  `brand` gates the Mega slide to FASTTRAX kiosks. The rotation is
  *  keyed by CENTER, and both FM venues share center "fort-myers", so HeadPinz
  *  Fort Myers was picking up a racing-only promo — complete with the red
  *  "Junior Pro only on Mega" rule — on the one bank that also runs the
@@ -280,6 +276,6 @@ export function isMegaTuesdayToday(): boolean {
  *  rule attached is not. Omit `brand` and nothing changes. */
 export function kioskAdSlidesFor(center: CenterCode | null, brand?: Brand): KioskAdSlide[] {
   if (center === "naples") return NAPLES_AD_SLIDES;
-  const megaToday = isMegaTuesdayToday() && brand !== "headpinz";
-  return megaToday ? [MEGA_TUESDAY_SLIDE, ...FORT_MYERS_AD_SLIDES] : FORT_MYERS_AD_SLIDES;
+  const megaWindow = brand === "headpinz" ? null : megaWindowTodayET();
+  return megaWindow ? [megaSlideFor(megaWindow), ...FORT_MYERS_AD_SLIDES] : FORT_MYERS_AD_SLIDES;
 }

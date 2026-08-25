@@ -7,6 +7,11 @@ import Link from "next/link";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { trackBookingClick } from "@/lib/analytics";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import {
+  isMegaDayTodayET,
+  megaCalendarTodayET,
+  megaDaysPhrase,
+} from "~/features/racing/mega-calendar";
 
 // Track/tier/class → rscId/scgId matrix + formatters live in the shared
 // constants module (2026-07-21) so the kiosk Race Info hub reads the same
@@ -26,18 +31,6 @@ const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 
 // Besttimes API — proxied through /api/besttimes with auto-token renewal
 const API_BASE = "/api/besttimes";
-
-function estNow() {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    weekday: "long",
-  }).formatToParts(new Date());
-  const get = (t: string) => parts.find((p) => p.type === t)?.value || "";
-  return { year: get("year"), month: get("month"), weekday: get("weekday") };
-}
 
 function LeaderboardCard({ category, timeRange }: { category: Category; timeRange: TimeRange }) {
   const [records, setRecords] = useState<BestTimeRecord[]>([]);
@@ -648,7 +641,10 @@ function LiveTimingTabs({ isMega }: { isMega: boolean }) {
 
 export default function LeaderboardsPage() {
   const trackResult = useTrackStatus();
-  const isMega = trackResult?.trackStatus.megaTrackEnabled ?? estNow().weekday === "Tuesday";
+  // The live flag is authoritative; the calendar is only the fallback for
+  // before it has been read. Which days are Mega comes from mega-calendar, so
+  // the Sep-Oct Mega Thursdays fall back correctly too.
+  const isMega = trackResult?.trackStatus.megaTrackEnabled ?? isMegaDayTodayET();
   const [timeRange, setTimeRange] = useState<TimeRange>("month");
   const [activeTrack, setActiveTrack] = useState<Track>("blue");
   const [classFilter, setClassFilter] = useState<"adult" | "junior">("adult");
@@ -986,7 +982,7 @@ export default function LeaderboardsPage() {
                   letterSpacing: "1.5px",
                 }}
               >
-                Tuesday Mega Track
+                Mega Track {megaDaysPhrase(megaCalendarTodayET())}
               </h3>
               <p
                 className="font-body"
@@ -996,9 +992,9 @@ export default function LeaderboardsPage() {
                   lineHeight: "1.5",
                 }}
               >
-                Tuesday Mega Track: Every Tuesday, we combine the Red and Blue tracks into one
-                massive multi-level circuit. Standings for Tuesdays are recorded on a dedicated Mega
-                Track leaderboard.
+                Every {megaDaysPhrase(megaCalendarTodayET(), "singular")}, we combine the Red and
+                Blue tracks into one massive multi-level circuit. Standings for those days are
+                recorded on a dedicated Mega Track leaderboard.
               </p>
             </div>
           </div>

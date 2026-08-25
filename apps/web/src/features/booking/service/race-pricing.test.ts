@@ -56,6 +56,36 @@ describe("scheduleForDate", () => {
     // 2026-06-02 in US-Eastern is still Tuesday even if parsed at midnight UTC
     expect(scheduleForDate("2026-06-02")).toBe("mega");
   });
+
+  /**
+   * Mega Thursdays, 2026-09-03 → end of October (owner 2026-08-25). The
+   * schedule is what decides which BMI products are SELLABLE, so this is the
+   * assertion that a Mega Thursday sells Mega races and stops selling the
+   * Blue/Red weekday ones.
+   *
+   * The plain-Thursday cases above (June) are deliberately left untouched: a
+   * Thursday outside the season must still resolve "weekday", and their
+   * passing unchanged is the proof this shipped no accidental change.
+   */
+  describe("the Sep–Oct 2026 Mega Thursday season", () => {
+    it("a Thursday inside the season → mega, not weekday", () => {
+      expect(scheduleForDate("2026-09-03")).toBe("mega"); // first
+      expect(scheduleForDate("2026-10-08")).toBe("mega"); // mid
+      expect(scheduleForDate("2026-10-29")).toBe("mega"); // last
+    });
+
+    it("a Thursday outside the season is still an ordinary weekday", () => {
+      expect(scheduleForDate("2026-08-27")).toBe("weekday"); // before it opens
+      expect(scheduleForDate("2026-11-05")).toBe("weekday"); // after it closes
+    });
+
+    it("leaves the rest of the season's week alone", () => {
+      expect(scheduleForDate("2026-09-08")).toBe("mega"); // Tuesday, as always
+      expect(scheduleForDate("2026-09-02")).toBe("weekday"); // Wednesday
+      expect(scheduleForDate("2026-09-04")).toBe("weekend"); // Friday
+      expect(scheduleForDate("2026-10-31")).toBe("weekend"); // Sat — window ends, still weekend
+    });
+  });
 });
 
 describe("upsell price constants", () => {

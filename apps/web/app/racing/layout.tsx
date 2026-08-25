@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { FAQJsonLd, MegaTrackTuesdayJsonLd } from "@/components/seo/JsonLd";
+import { FAQJsonLd, MegaTrackDayJsonLd } from "@/components/seo/JsonLd";
 import { FASTTRAX_OG } from "@/lib/seo";
 import {
   etDateIso,
@@ -8,9 +8,12 @@ import {
   formatHoursGroupLabel,
   formatHoursRangeTerse,
 } from "~/lib/constants/fasttrax-hours";
+import { megaDaysPhrase } from "~/features/racing/mega-calendar";
 
-// Daily ISR so MegaTrackTuesdayJsonLd's computed next-occurrence startDate
-// refreshes instead of freezing at build time.
+// Daily ISR so MegaTrackDayJsonLd's computed next-occurrence startDate
+// refreshes instead of freezing at build time — and so a Mega day joining or
+// leaving the calendar (Mega Thursdays, Sep-Oct 2026) reaches the schema and
+// the FAQ copy without a redeploy.
 export const revalidate = 86400;
 
 export const metadata: Metadata = {
@@ -92,9 +95,8 @@ function racingFaqList() {
         "Yes, races must be booked through the FastTrax Racing App or website. Book the day before to guarantee your heat. Walk-ins are accepted when availability allows, but booking in advance is strongly recommended.",
     },
     {
-      question: "What is Mega Track Tuesday at FastTrax?",
-      answer:
-        "Every Tuesday, FastTrax pulls the barriers between the Blue and Red tracks to create Florida's largest indoor racing circuit — the 2,108 ft Mega Track. Adult karts race every tier at the same $20.99 rate. Note: junior racing on Mega days is Junior Pro only — we do not run Junior Starter or Junior Intermediate races on the Mega Track, so juniors must qualify all the way up to Junior Pro on a split-track (Blue/Red) day first.",
+      question: `What is Mega Track ${megaDaysPhrase(etDateIso(), "singular")} at FastTrax?`,
+      answer: `Every ${megaDaysPhrase(etDateIso(), "singular")}, FastTrax pulls the barriers between the Blue and Red tracks to create Florida's largest indoor racing circuit — the 2,108 ft Mega Track. Adult karts race every tier at the same $20.99 rate. Note: junior racing on Mega days is Junior Pro only — we do not run Junior Starter or Junior Intermediate races on the Mega Track, so juniors must qualify all the way up to Junior Pro on a split-track (Blue/Red) day first.`,
     },
     {
       question: "How do I qualify for faster karts at FastTrax?",
@@ -134,7 +136,7 @@ function racingFaqList() {
     {
       question: "Can toddlers and small kids race at FastTrax?",
       answer:
-        "Yes! FastTrax has Mini Karts specifically designed for children ages 4-6. There's no minimum height requirement for Mini Karts. They feature adjustable pedals and seats, speed-controlled settings, and close at 10:00 PM daily. Mini Karts are available on Mega Track Tuesdays too.",
+        "Yes! FastTrax has Mini Karts specifically designed for children ages 4-6. There's no minimum height requirement for Mini Karts. They feature adjustable pedals and seats, speed-controlled settings, and close at 10:00 PM daily. Mini Karts are available on Mega days too.",
     },
     {
       question: "What are the best things to do in Fort Myers when it rains?",
@@ -182,7 +184,7 @@ export default function RacingLayout({ children }: { children: React.ReactNode }
   return (
     <>
       <FAQJsonLd faqs={racingFaqList()} />
-      <MegaTrackTuesdayJsonLd />
+      <MegaTrackDayJsonLd />
       {children}
     </>
   );

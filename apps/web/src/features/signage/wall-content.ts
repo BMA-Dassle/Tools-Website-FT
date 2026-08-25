@@ -71,7 +71,7 @@ export const WALL_ACCENT = {
  * day either. A wall in Fort Myers prices by Fort Myers' day: at 8pm Sunday ET a
  * UTC-clocked renderer has already rolled over to Monday, which is the difference
  * between the weekend tier and the weekday one. Same `Intl` + America/New_York
- * pattern as `etHourNow` and `isMegaTuesdayToday`.
+ * pattern as `etHourNow` and mega-calendar's `megaCalendarTodayET`.
  *
  * Falls back to the renderer's own day if `Intl` cannot answer — a wrong tier is
  * a bad outcome, but both tiers are on this wall all evening anyway (see

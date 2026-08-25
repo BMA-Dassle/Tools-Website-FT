@@ -63,7 +63,7 @@ export function dataSaysMega(races: {
  * signals disagree or go missing. PURE; callers gather the facts.
  *
  *   1. A FRESH external flag is authoritative either way — ops can run
- *      split tracks on a Tuesday and the boards obey. The data signal still
+ *      split tracks on a Mega day and the boards obey. The data signal still
  *      ORs on top of a fresh "false" flag (the flag is flipped by a human
  *      and lags the barrier; a called mega heat cannot lie).
  *   2. Flag unavailable (status app down / cache past its serve ceiling):
@@ -71,10 +71,10 @@ export function dataSaysMega(races: {
  *   3. Still blind: the DAYPLANNER verdict — did BMI schedule Mega Track
  *      sessions today (and none on Blue)? Real data from the source of
  *      truth, so a definite yes OR NO is trusted over the calendar.
- *   4. Nothing readable at all: the calendar. Mega runs Tuesdays, and a
- *      Tuesday night with every upstream dark should still default the
- *      boards to the circuit that is almost certainly running (owner
- *      2026-08-16: "Tuesday could remain as a hard-coded fallback").
+ *   4. Nothing readable at all: the calendar. A Mega night with every
+ *      upstream dark should still default the boards to the circuit that is
+ *      almost certainly running (owner 2026-08-16: "Tuesday could remain as
+ *      a hard-coded fallback").
  */
 export function megaLadder(args: {
   /** Fresh external megaTrackEnabled, or null when it cannot be read. */
@@ -83,7 +83,9 @@ export function megaLadder(args: {
   dataMega: boolean;
   /** Dayplanner verdict, or null when it could not be read. */
   dayPlannerMega: boolean | null;
-  /** Calendar last resort — is today (business day) a Mega Tuesday? */
+  /** Calendar last resort — is today (business day) a Mega day? Callers get
+   *  this from `./mega-calendar`, which knows the Mega Thursday season; do
+   *  NOT re-derive it from a weekday here. */
   calendarMega: boolean;
 }): boolean {
   if (args.flag != null) return args.flag || args.dataMega;
