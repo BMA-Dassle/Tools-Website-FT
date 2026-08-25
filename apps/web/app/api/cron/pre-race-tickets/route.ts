@@ -25,7 +25,7 @@ import { logSms, logCronRun } from "@/lib/sms-log";
 import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 import { sendEmail as sendGridEmail } from "@/lib/sendgrid";
 import { verifyCron } from "@/lib/cron-auth";
-import { inEticketQuietHours } from "~/features/eticket/quiet-hours";
+import { heldUntilMorning, inEticketQuietHours } from "~/features/eticket/quiet-hours";
 import { warmRacerCodes } from "~/features/kiosk/license/code-cache";
 import { recordNotified, forgetNotified } from "~/features/racing/eticket/removal-sweep";
 import { planRosterRead } from "~/features/racing/roster-dirty";
@@ -785,6 +785,7 @@ export async function GET(req: NextRequest) {
 
     let rostersRead = 0;
     let rostersSkipped = 0;
+    let heldForMorning = 0;
     const readReasons: Record<string, number> = {};
 
     for (const resourceName of resources) {
@@ -839,6 +840,23 @@ export async function GET(req: NextRequest) {
         // Bank the counter observed BEFORE the read — see bankRosterRead.
         await bankRosterRead("pre-race", sid, mark.dirtyCounter, Date.now());
 
+        // THE MORNING FLOOR. Reading the whole day's rosters is free; telling
+        // people about them at 12:01am is not. A daytime heat seen before 9am
+        // ET drops out of the candidate list WITHOUT writing a dedup key, so it
+        // is still fresh when the day opens. See quiet-hours.ts.
+        //
+        // WHAT MAKES IT COME BACK. The roster mark banked on this read is what
+        // the next tick consults, so the held racers only return if the planner
+        // reads this session again. It does: the quiet window (2am) closes the
+        // cron until the floor (9am), a seven-hour gap against a four-hour far
+        // net, so the 9am tick is always net-due. Anything ops could plausibly
+        // set ETICKET_QUIET_START_ET to keeps that gap over NET_FAR_MS —
+        // quiet-hours.test.ts pins it. If the kart bridge is stale at 9am the
+        // planner won't reach past the near horizon at all and the ticket goes
+        // out when the heat comes within 2h instead, which is the pre-2026-08-19
+        // behaviour and still never before the floor.
+        const holdForMorning = heldUntilMorning(session.scheduledStart);
+
         for (const p of participants) {
           const c: Candidate = { session, trackDisplay, participant: p };
           // A heat that has already gone off is nobody's NEXT race — the
@@ -848,12 +866,13 @@ export async function GET(req: NextRequest) {
           // `relevant` filter above has already excluded heats that ran more
           // than the grace ago, which is the only thing an e-ticket must not be
           // sent for; the dedup key does the rest.
-          candidates.push(c);
+          if (holdForMorning) heldForMorning++;
+          else candidates.push(c);
         }
       }
     }
     console.log(
-      `[pre-race] rosters read=${rostersRead} skipped=${rostersSkipped} reasons=${JSON.stringify(readReasons)}`,
+      `[pre-race] rosters read=${rostersRead} skipped=${rostersSkipped} heldForMorning=${heldForMorning} reasons=${JSON.stringify(readReasons)}`,
     );
 
     // PRE-WARM the racer login-code map for everyone with an upcoming heat.
@@ -874,10 +893,12 @@ export async function GET(req: NextRequest) {
     // they already carry, at no per-race cost. Skips everyone without a pass in
     // one Neon query, so a heat of non-holders costs nothing.
 
-    await warmRacerCodes(
-      CLIENT_KEY,
-      candidates.map((c) => c.participant.personId),
-    )
+    // Warm off BOTH lists: a racer held for the morning floor is still on a
+    // roster we read and still walks up to the desk today, so the pre-warm must
+    // not shrink just because their text is waiting for 9am.
+    await warmRacerCodes(CLIENT_KEY, [
+      ...new Set([...candidates, ...walletCandidates].map((c) => c.participant.personId)),
+    ])
       .then((r) => {
         if (r.warmed || r.failed) {
           console.log(
@@ -1524,6 +1545,7 @@ export async function GET(req: NextRequest) {
       windowEnd: new Date(windowEnd).toISOString(),
       activeResources: resources,
       candidates: candidates.length,
+      heldForMorning,
       sent,
       skipped,
       errors,

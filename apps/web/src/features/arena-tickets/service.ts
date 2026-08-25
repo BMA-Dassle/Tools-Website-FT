@@ -47,6 +47,7 @@ import {
 } from "@/lib/participant-contact";
 import { logSms } from "@/lib/sms-log";
 import { bmiKeyScope } from "@/lib/bmi-key-scope";
+import { heldUntilMorning } from "~/features/eticket/quiet-hours";
 import { HEADPINZ_BASE_URL } from "./constants";
 import { activeArenaCenters, type ArenaCenter } from "./centers";
 import { sendArenaEmail, sendArenaSms, type ArenaSmsAudit } from "./send";
@@ -93,6 +94,9 @@ export interface ArenaCronSummary {
   singleSmsSends: number;
   emailSends: number;
   movesDetected: number;
+  /** Sessions withheld by the 9am ET morning floor — counted rather than
+   *  dropped silently, so a run that sends nothing at 8am is readable. */
+  heldForMorning: number;
   /** Sessions on the HP Arena resource whose names didn't classify as
    *  laser tag / gel blaster (parties, events) — skipped, surfaced for
    *  observability. */
@@ -249,6 +253,7 @@ export async function runArenaTicketCron(opts: { dryRun: boolean }): Promise<Are
     singleSmsSends: 0,
     emailSends: 0,
     movesDetected: 0,
+    heldForMorning: 0,
     unclassifiedSessions: [],
   };
   for (const center of activeArenaCenters()) {
@@ -262,6 +267,7 @@ export async function runArenaTicketCron(opts: { dryRun: boolean }): Promise<Are
       totals.singleSmsSends += s.singleSmsSends;
       totals.emailSends += s.emailSends;
       totals.movesDetected += s.movesDetected;
+      totals.heldForMorning += s.heldForMorning;
       totals.unclassifiedSessions.push(...s.unclassifiedSessions);
     } catch (err) {
       console.error(`[arena-pre] center ${center.key} run failed:`, err);
@@ -285,6 +291,7 @@ async function runArenaTicketCronForCenter(
   let singleSmsSends = 0;
   let emailSends = 0;
   let movesDetected = 0;
+  let heldForMorning = 0;
   const unclassifiedSessions: string[] = [];
 
   // 1. Collect every (session, participant) pair in the window.
@@ -301,6 +308,16 @@ async function runArenaTicketCronForCenter(
         // Party / event / unknown session type on the arena resource —
         // not ours to ticket. Surface for observability.
         unclassifiedSessions.push(`${center.key}: ${session.name}`);
+        continue;
+      }
+      // THE MORNING FLOOR — the day's tickets wait for 9am ET, a session
+      // starting before 9am never does. Belt-and-braces here: the two-hour
+      // window above already means nothing daytime is visible before 9am, so
+      // this only bites if that window ever widens the way racing's did on
+      // 2026-08-19. It is the midnight laser-tag sessions this rail actually
+      // serves that make the carve-out matter, so state it where they are.
+      if (heldUntilMorning(session.scheduledStart)) {
+        heldForMorning++;
         continue;
       }
       let participants: Participant[] = [];
@@ -747,6 +764,7 @@ async function runArenaTicketCronForCenter(
     singleSmsSends,
     emailSends,
     movesDetected,
+    heldForMorning,
     unclassifiedSessions,
   };
 }
