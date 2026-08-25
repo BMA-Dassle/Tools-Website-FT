@@ -27,12 +27,27 @@ const TONE = {
   late: { bg: "rgba(240,179,65,0.14)", fg: "#f0b341", border: "rgba(240,179,65,0.35)" },
   pending: { bg: "rgba(148,163,184,0.14)", fg: "#94a3b8", border: "rgba(148,163,184,0.3)" },
   done: { bg: "rgba(34,197,94,0.12)", fg: "#22c55e", border: "rgba(34,197,94,0.3)" },
+  /** Closed by a person. Deliberately grey, not green: nothing landed. */
+  dismissed: { bg: "rgba(148,163,184,0.10)", fg: "#94a3b8", border: "rgba(148,163,184,0.22)" },
 } as const;
 
-function toneFor(r: AdminSyncRow): keyof typeof TONE {
+export function toneFor(r: AdminSyncRow): keyof typeof TONE {
   if (r.status === "parked") return "parked";
   if (r.status === "done") return "done";
+  // Terminal-and-quiet. Must be tested BEFORE the age fallback below, or a
+  // closed row reads as "late" for ever — the trap that hid `cancelled` rows.
+  if (r.status === "dismissed" || r.status === "cancelled") return "dismissed";
   return r.ageMin >= 10 ? "late" : "pending";
+}
+
+/** What the State pill says. One word per status; never "gave up" for a row a
+ *  person has already dealt with. */
+export function stateLabel(r: AdminSyncRow): string {
+  if (r.status === "done") return "landed";
+  if (r.status === "parked") return "gave up";
+  if (r.status === "dismissed") return "set aside";
+  if (r.status === "cancelled") return "cancelled";
+  return r.ageMin >= 10 ? "late" : "waiting";
 }
 
 /** Desk language beats field names: "waiting for the center's server to see the
@@ -42,6 +57,10 @@ const BARRIER_COPY: Record<string, string> = {
   "person-cloud": "waiting for BMI cloud to see the person",
   "project-local": "waiting for the reservation to reach the center",
   "party-ready": "waiting for the whole party to sync + all waivers verified",
+  // The two newest barriers had no entry, so staff read the raw slug as the
+  // tooltip on exactly the rows most likely to need explaining.
+  "party-seated": "waiting for every racer to appear on the grid",
+  "persons-local": "waiting for the center's server to see everyone named",
   none: "no wait",
 };
 
@@ -57,8 +76,14 @@ const KIND_COPY: Record<string, string> = {
   "guest-added": "Guest added (waiver)",
 };
 
-/** Waiting = still owed. Cleared = landed. Attention = gave up, needs a human. */
+/** Waiting = still owed. Cleared = landed, or closed by a person. Attention =
+ *  gave up and nobody has dealt with it yet. */
 type Filter = "waiting" | "cleared" | "attention" | "all";
+
+/** Closed for good, whoever closed it — a landed row and a set-aside row both
+ *  belong under "Cleared", because neither is owed any more. */
+export const isSettled = (r: AdminSyncRow): boolean =>
+  r.status === "done" || r.status === "dismissed" || r.status === "cancelled";
 
 /**
  * How long the step actually took, created → resolved.
@@ -82,27 +107,103 @@ function tookLabel(createdAt: string, resolvedAt: string | null): string | null 
   return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
 }
 
-export function BmiSyncPanel({ rows }: { rows: AdminSyncRow[] }) {
+export function BmiSyncPanel({
+  rows,
+  token,
+  olderParked = 0,
+  onChanged,
+}: {
+  rows: AdminSyncRow[];
+  /** Admin token, for the dismiss POST. Without it the control is not offered —
+   *  a button that cannot work must not be on screen. */
+  token?: string;
+  /** Still-parked rows OLDER than the board's window. Counted, not listed. */
+  olderParked?: number;
+  /** Ask the board to re-poll after a dismissal, so the row leaves immediately
+   *  instead of lingering until the next 20s tick. */
+  onChanged?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<Filter>("waiting");
+  /** Row id currently being dismissed — disables just that row's button. */
+  const [dismissing, setDismissing] = useState<number | null>(null);
+  const [dismissError, setDismissError] = useState<string | null>(null);
+  /** Dismissed here, this session. The board's next poll makes it authoritative;
+   *  until then this keeps the row from sitting there looking untouched. */
+  const [justDismissed, setJustDismissed] = useState<number[]>([]);
+
+  const visible = useMemo(
+    () => rows.filter((r) => !(r.source === "queue" && justDismissed.includes(r.id))),
+    [rows, justDismissed],
+  );
 
   const counts = useMemo(
     () => ({
-      waiting: rows.filter((r) => r.status === "pending").length,
-      late: rows.filter((r) => r.status === "pending" && r.ageMin >= 10).length,
-      cleared: rows.filter((r) => r.status === "done").length,
-      attention: rows.filter((r) => r.status === "parked").length,
-      all: rows.length,
+      waiting: visible.filter((r) => r.status === "pending").length,
+      late: visible.filter((r) => r.status === "pending" && r.ageMin >= 10).length,
+      cleared: visible.filter(isSettled).length,
+      attention: visible.filter((r) => r.status === "parked").length,
+      all: visible.length,
     }),
-    [rows],
+    [visible],
   );
 
   const shown = useMemo(() => {
-    if (filter === "all") return rows;
-    if (filter === "waiting") return rows.filter((r) => r.status === "pending");
-    if (filter === "cleared") return rows.filter((r) => r.status === "done");
-    return rows.filter((r) => r.status === "parked");
-  }, [rows, filter]);
+    if (filter === "all") return visible;
+    if (filter === "waiting") return visible.filter((r) => r.status === "pending");
+    if (filter === "cleared") return visible.filter(isSettled);
+    return visible.filter((r) => r.status === "parked");
+  }, [visible, filter]);
+
+  /**
+   * Close a work order. The reason is required by the API and asked for here —
+   * a row closed with no reason is indistinguishable from one nobody looked at,
+   * which is how the board filled up in the first place.
+   */
+  const dismiss = async (r: AdminSyncRow) => {
+    if (!token || r.source !== "queue") return;
+    const reason = window.prompt(
+      `Set aside "${KIND_COPY[r.kind] ?? r.kind}"${r.who ? ` for ${r.who}` : ""}?\n\n` +
+        `This does NOT do the work — it records that someone looked and decided\n` +
+        `it will not land. Say why (kept on the row):`,
+      "",
+    );
+    if (reason === null) return; // cancelled
+    if (reason.trim().length < 3) {
+      setDismissError("A reason is required — a few words is enough.");
+      return;
+    }
+    setDismissing(r.id);
+    setDismissError(null);
+    try {
+      const res = await fetch(`/api/admin/bmi-sync?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "dismiss",
+          source: "queue",
+          id: r.id,
+          reason: reason.trim(),
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        detail?: string;
+        error?: string;
+      } | null;
+      if (!res.ok) {
+        setDismissError(
+          data?.detail || data?.error || `Could not set it aside (HTTP ${res.status})`,
+        );
+        return;
+      }
+      setJustDismissed((prev) => [...prev, r.id]);
+      onChanged?.();
+    } catch (err) {
+      setDismissError(err instanceof Error ? err.message : "Could not set it aside");
+    } finally {
+      setDismissing(null);
+    }
+  };
 
   // Worst-first, so the button reads as the loudest thing outstanding.
   const badge =
@@ -153,6 +254,17 @@ export function BmiSyncPanel({ rows }: { rows: AdminSyncRow[] }) {
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>BMI sync</h2>
             <span style={{ fontSize: 12, opacity: 0.55 }}>
               on-site (Pandora) steps waiting on the center&apos;s server
+              {/* The board shows the last week. Anything older is COUNTED here
+                  rather than dropped — a quiet board must never be mistaken for
+                  an empty one. */}
+              {olderParked > 0 && (
+                <>
+                  {" · "}
+                  <span style={{ opacity: 0.85 }} title="Older than this board's 7-day window">
+                    {olderParked} older still stuck
+                  </span>
+                </>
+              )}
             </span>
             <button
               type="button"
@@ -204,6 +316,22 @@ export function BmiSyncPanel({ rows }: { rows: AdminSyncRow[] }) {
             })}
           </div>
 
+          {dismissError && (
+            <p
+              style={{
+                margin: "0 0 0.75rem 0",
+                padding: "0.5rem 0.75rem",
+                borderRadius: 8,
+                fontSize: 12,
+                backgroundColor: "rgba(239,68,68,0.15)",
+                color: "#ef4444",
+                border: "1px solid rgba(239,68,68,0.3)",
+              }}
+            >
+              {dismissError}
+            </p>
+          )}
+
           {shown.length === 0 ? (
             <p style={{ padding: "2rem 0", textAlign: "center", fontSize: 13, opacity: 0.45 }}>
               {filter === "waiting"
@@ -241,7 +369,26 @@ export function BmiSyncPanel({ rows }: { rows: AdminSyncRow[] }) {
                       Took
                     </th>
                     <th style={{ padding: "0.5rem 0.75rem 0.5rem 0", fontWeight: 500 }}>Tries</th>
-                    <th style={{ padding: "0.5rem 0 0.5rem 0", fontWeight: 500 }}>Last message</th>
+                    <th style={{ padding: "0.5rem 0.75rem 0.5rem 0", fontWeight: 500 }}>
+                      Last message
+                    </th>
+                    {/* The action column. Headed for screen readers but blank on
+                        screen — a visible "Action" label would be louder than the
+                        one small button it heads. */}
+                    <th style={{ padding: "0.5rem 0 0.5rem 0", fontWeight: 500 }}>
+                      <span
+                        style={{
+                          position: "absolute",
+                          width: 1,
+                          height: 1,
+                          overflow: "hidden",
+                          clip: "rect(0 0 0 0)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Action
+                      </span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -326,13 +473,7 @@ export function BmiSyncPanel({ rows }: { rows: AdminSyncRow[] }) {
                               whiteSpace: "nowrap",
                             }}
                           >
-                            {r.status === "done"
-                              ? "landed"
-                              : r.status === "parked"
-                                ? "gave up"
-                                : r.ageMin >= 10
-                                  ? "late"
-                                  : "waiting"}
+                            {stateLabel(r)}
                           </span>
                         </td>
                         <td
@@ -357,8 +498,39 @@ export function BmiSyncPanel({ rows }: { rows: AdminSyncRow[] }) {
                         <td style={{ padding: "0.5rem 0.75rem 0.5rem 0", opacity: 0.7 }}>
                           {r.attempts}
                         </td>
-                        <td style={{ padding: "0.5rem 0 0.5rem 0", fontSize: 12, opacity: 0.6 }}>
+                        <td
+                          style={{ padding: "0.5rem 0.75rem 0.5rem 0", fontSize: 12, opacity: 0.6 }}
+                        >
                           {r.lastError ?? "—"}
+                        </td>
+                        {/* SET ASIDE — only for a parked QUEUE row. A waiver row is a
+                            different table with its own rail, and a guest-add row is
+                            derived from a live probe and has no key to act on; the
+                            `source` check is what keeps an id from reaching the wrong
+                            table. No token (an embed that was not given one) means no
+                            button, rather than one that 401s. */}
+                        <td style={{ padding: "0.5rem 0 0.5rem 0", whiteSpace: "nowrap" }}>
+                          {token && r.source === "queue" && r.status === "parked" ? (
+                            <button
+                              type="button"
+                              onClick={() => void dismiss(r)}
+                              disabled={dismissing === r.id}
+                              title="Record that someone looked at this and it will not land. Does not do the work."
+                              style={{
+                                padding: "0.25rem 0.6rem",
+                                borderRadius: 9999,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                cursor: dismissing === r.id ? "not-allowed" : "pointer",
+                                border: "1px solid rgba(148,163,184,0.28)",
+                                background: "transparent",
+                                color: "inherit",
+                                opacity: dismissing === r.id ? 0.5 : 0.8,
+                              }}
+                            >
+                              {dismissing === r.id ? "…" : "Set aside"}
+                            </button>
+                          ) : null}
                         </td>
                       </tr>
                     );

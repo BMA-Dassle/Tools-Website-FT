@@ -292,6 +292,8 @@ export default function ReservationsBoard({
    * hide the pill rather than inventing a verdict.
    */
   const [syncRows, setSyncRows] = useState<AdminSyncRow[]>([]);
+  /** Still-stuck rows older than the panel's window — counted, never listed. */
+  const [syncOlderParked, setSyncOlderParked] = useState(0);
   const [syncByRes, setSyncByRes] = useState<Record<string, ReservationSyncState>>({});
   const visibleRefs = useMemo(
     () =>
@@ -309,6 +311,13 @@ export default function ReservationsBoard({
     [displayRows],
   );
   const refsKey = visibleRefs.join(",");
+  /**
+   * Bumped to re-run the sync poll NOW. Setting a row aside has to take effect
+   * on the glass immediately — waiting up to 20s for the next tick makes the
+   * button feel broken and invites a second tap.
+   */
+  const [syncReloadKey, setSyncReloadKey] = useState(0);
+  const reloadSync = useCallback(() => setSyncReloadKey((n) => n + 1), []);
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -320,10 +329,12 @@ export default function ReservationsBoard({
         if (!res.ok) return;
         const data = (await res.json()) as {
           rows?: AdminSyncRow[];
+          olderParked?: number;
           byReservation?: Record<string, ReservationSyncState>;
         };
         if (!alive) return;
         setSyncRows(data.rows ?? []);
+        setSyncOlderParked(data.olderParked ?? 0);
         setSyncByRes(data.byReservation ?? {});
       } catch {
         /* leave the last good data; the pill hides rather than guessing */
@@ -338,7 +349,7 @@ export default function ReservationsBoard({
       alive = false;
       clearInterval(t);
     };
-  }, [token, refsKey]);
+  }, [token, refsKey, syncReloadKey]);
 
   /** A reservation's verdict under either id form the enqueuers may have used. */
   const onsiteSyncFor = useCallback(
@@ -633,7 +644,12 @@ export default function ReservationsBoard({
           justifyContent: "flex-end",
         }}
       >
-        <BmiSyncPanel rows={syncRows} />
+        <BmiSyncPanel
+          rows={syncRows}
+          token={token}
+          olderParked={syncOlderParked}
+          onChanged={reloadSync}
+        />
       </div>
 
       {/* Content */}

@@ -91,7 +91,21 @@ export type SyncBarrier =
   /** Fire immediately. */
   | "none";
 
-export type SyncStatus = "pending" | "done" | "parked" | "cancelled";
+/**
+ * `pending` — owed, still being tried.
+ * `done`    — the followup landed.
+ * `parked`  — we ran out of patience. A WORK ORDER FOR A HUMAN.
+ * `dismissed` — a human read the work order and closed it. See `dismissSyncRow`.
+ * `cancelled` — set by hand in a few 2026-08 cleanups; no code writes it.
+ *
+ * A NOTE ON ADDING TO THIS UNION. Preview and production share one
+ * `bmi_sync_queue` table, so a status an older deploy does not recognise will be
+ * read by that older deploy. Every status here is SAFE in that respect because
+ * the work selector matches `status = 'pending'` explicitly (`listDueSyncRows`)
+ * — an unknown status is simply never picked up, which is the failure mode we
+ * want. Keep it that way: never write a selector that means "not done".
+ */
+export type SyncStatus = "pending" | "done" | "parked" | "dismissed" | "cancelled";
 
 export interface SyncQueueRow {
   id: number;
@@ -294,8 +308,19 @@ export async function enqueueSync(params: EnqueueSyncParams): Promise<SyncQueueR
     WHERE bmi_sync_queue.status = 'pending'
     RETURNING *
   `) as Array<Record<string, unknown>>;
-  // No row returned = the conflict hit a non-pending row, which is the correct
-  // no-op (already done/parked/cancelled).
+  /**
+   * No row returned = the conflict hit a non-pending row, which is the correct
+   * no-op: the work is already done, or already given up on, or a human has set
+   * it aside. Re-arming it here would undo their decision from a code path that
+   * cannot know why they made it.
+   *
+   * WHAT THIS MEANS FOR A DISMISSED ROW. `stamp-confirmation-state` is keyed
+   * `state-stamp:{billId}:{businessDate}`, so once a stamp is set aside, a LATER
+   * check-in on the same reservation that day will not re-queue it. That is the
+   * intended reading of "set aside" — the operator saw this reservation's stamp
+   * and decided it is not landing today — and it is why the dismiss reason is
+   * required and kept. To genuinely retry, clear the row rather than re-enqueue.
+   */
   const row = rows[0] ? mapRow(rows[0]) : null;
   if (!row) return null;
 
@@ -457,6 +482,50 @@ export async function parkSyncRow(row: SyncQueueRow, reason: string): Promise<vo
         last_error = ${reason.slice(0, 500)}
     WHERE id = ${row.id}
   `;
+}
+
+/**
+ * A HUMAN READ THE WORK ORDER AND CLOSED IT.
+ *
+ * A parked row is a work order (see `parkSyncRow`). Until now the board could
+ * only display work orders, never close them: nothing in the app wrote anything
+ * but `pending`/`done`/`parked`, so every row a human had already dealt with —
+ * or that was never actionable in the first place — stayed on the panel for
+ * ever, and the badge stayed red. On 2026-08-24 that was 33 rows, none of them
+ * a live fault, and a red badge that is always red is not a signal.
+ *
+ * DISMISSING IS NOT FIXING, and this is deliberately not `done`:
+ *   - `done` means the followup LANDED. Only a handler may say that.
+ *   - `dismissed` means a person decided it will not land and is not worth
+ *     chasing. The work is still owed to nobody; the row just stops shouting.
+ * The reason is required and it is kept: `last_error` holds the human's words,
+ * so a dismissed row can still be read six weeks later and explain itself.
+ * Nothing is deleted — the same rule the waiver half already follows, where a
+ * dismissed signature keeps its PNG because it is the only proof the guest
+ * signed (lib/waiver-sign-log.ts).
+ *
+ * ONLY A PARKED ROW MAY BE DISMISSED. A pending row is still being worked and
+ * burying it would hide live work; a done row has nothing to dismiss. The guard
+ * lives in the WHERE clause rather than a pre-read so two operators tapping at
+ * once cannot race, and the caller learns which it was from the return value.
+ */
+export async function dismissSyncRow(
+  id: number,
+  reason: string,
+  by?: string | null,
+): Promise<"dismissed" | "not-parked"> {
+  if (!isDbConfigured()) return "not-parked";
+  await ensureSchema();
+  const q = sql();
+  const note = `${by ? `${by}: ` : ""}${reason}`.slice(0, 500);
+  const rows = (await q`
+    UPDATE bmi_sync_queue
+    SET status = 'dismissed', resolved_at = now(), updated_at = now(),
+        last_error = ${note}
+    WHERE id = ${Number(id)} AND status = 'parked'
+    RETURNING id
+  `) as Array<Record<string, unknown>>;
+  return rows.length > 0 ? "dismissed" : "not-parked";
 }
 
 /** Rows that ran out of patience. Reported on EVERY cron run — including the

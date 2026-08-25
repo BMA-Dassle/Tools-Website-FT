@@ -34,9 +34,27 @@ import { sql, isDbConfigured } from "@/lib/db";
  *  here, which fails closed (still shown as owed) rather than wrongly cleared. */
 const RACING_LOCATION_ID = "LAB52GY480CJF";
 
+/** How far back the board looks by default. A week covers "what happened on
+ *  shift" and the weekend either side of it; older work is counted, not shown. */
+const DEFAULT_WINDOW_DAYS = 7;
+
 export interface AdminSyncRow {
   id: number;
+  /**
+   * WHICH TABLE `id` IS A KEY INTO. The panel unions three sources and two of
+   * them carry a real primary key from DIFFERENT tables — `bmi_sync_queue.id`
+   * and `waiver_signatures.id` are independent sequences, so id 1732 exists in
+   * both and means different things. `kind` cannot disambiguate them either:
+   * `push-waiver-signature` is both a `SyncKind` and what a waiver row calls
+   * itself. Any action taken on a row MUST send this, or it will eventually
+   * update the wrong table's row.
+   *
+   * `guest-add` rows are derived, not stored: their id is synthesised from a
+   * person id and is a key into nothing. They can never be acted on.
+   */
+  source: "queue" | "waiver" | "guest-add";
   kind: string;
+  /** `pending` | `done` | `parked` | `dismissed` — see SyncStatus. */
   status: string;
   barrier: string;
   barrierRef: string | null;
@@ -273,6 +291,7 @@ export async function listRecentGuestAdds(minutes = 720, limit = 100): Promise<A
       return {
         // Negative ids keep these distinct from real queue rows in React keys.
         id: -Number(r.person_id ? String(r.person_id).slice(-9) : Math.random() * 1e9),
+        source: "guest-add" as const,
         kind: "guest-added",
         transport: null,
         status,
@@ -302,15 +321,56 @@ export async function listRecentGuestAdds(minutes = 720, limit = 100): Promise<A
 }
 
 /**
+ * How much still-open work sits OUTSIDE the board's window.
+ *
+ * The number the panel prints so a quiet board is never mistaken for an empty
+ * one. Counts parked rows only: a pending row older than the window is not a
+ * thing that exists (the give-up deadlines are hours, not days).
+ *
+ * Read-only, never throws, and returns 0 when it cannot tell — a count is a
+ * footnote, and a footnote must never be the reason the board fails to render.
+ */
+export async function countParkedBeforeWindow(windowDays = DEFAULT_WINDOW_DAYS): Promise<number> {
+  if (!isDbConfigured() || windowDays <= 0) return 0;
+  const days = Number.isFinite(windowDays) ? Math.min(365, windowDays) : DEFAULT_WINDOW_DAYS;
+  try {
+    const q = sql();
+    const rows = (await q`
+      SELECT count(*)::int AS n FROM bmi_sync_queue
+      WHERE status = 'parked' AND created_at <= now() - (${days} * INTERVAL '1 day')
+    `) as Array<Record<string, unknown>>;
+    return Number(rows[0]?.n ?? 0);
+  } catch (err) {
+    console.warn("[bmi-sync-view] older-parked count failed:", err);
+    return 0;
+  }
+}
+
+/**
  * Everything in the table, for the admin panel. Parked first (needs a human),
  * then still-pending, then the resolved tail for context.
+ *
+ * WINDOWED (2026-08-24). This used to have no time bound at all, so every row
+ * ever parked stayed on the board for ever and the badge — whose whole job is to
+ * say "something needs you RIGHT NOW" — was permanently red from work that was
+ * weeks old. A signal that is always on is not a signal.
+ *
+ * The window HIDES nothing, though: `olderParked` counts what fell outside it,
+ * and the panel says so. That distinction is the point — an operational board
+ * may go quiet about old work, but it must never claim there is none. Use
+ * `windowDays: 0` to see everything (the cleanup scripts do).
  */
 export async function listSyncQueueForAdmin(
-  opts: { limit?: number; includeDone?: boolean } = {},
+  opts: { limit?: number; includeDone?: boolean; windowDays?: number } = {},
 ): Promise<AdminSyncRow[]> {
   if (!isDbConfigured()) return [];
   const limit = Math.min(500, Math.max(1, opts.limit ?? 200));
   const includeDone = opts.includeDone ?? true;
+  // 0 = no window. Clamped so a bad query string cannot produce `INTERVAL 'NaN'`.
+  const rawDays = opts.windowDays ?? DEFAULT_WINDOW_DAYS;
+  const windowDays = Number.isFinite(rawDays)
+    ? Math.min(365, Math.max(0, rawDays))
+    : DEFAULT_WINDOW_DAYS;
   try {
     const q = sql();
     const rows = (await q`
@@ -320,6 +380,7 @@ export async function listSyncQueueForAdmin(
              EXTRACT(EPOCH FROM (now() - created_at)) / 60 AS age_min
       FROM bmi_sync_queue
       WHERE (${includeDone} OR status <> 'done')
+        AND (${windowDays} = 0 OR created_at > now() - (${windowDays} * INTERVAL '1 day'))
       ORDER BY
         CASE status WHEN 'parked' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
         created_at DESC
@@ -327,6 +388,7 @@ export async function listSyncQueueForAdmin(
     `) as Array<Record<string, unknown>>;
     return rows.map((r) => ({
       id: Number(r.id),
+      source: "queue" as const,
       kind: String(r.kind),
       status: String(r.status),
       barrier: String(r.barrier),
@@ -520,6 +582,7 @@ export async function listWaiverPushesForAdmin(
         const signer = String(r.signer_person_id);
         return {
           id: Number(r.id),
+          source: "waiver" as const,
           kind: "push-waiver-signature",
           status,
           barrier: "persons-local",
