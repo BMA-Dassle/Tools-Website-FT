@@ -96,6 +96,8 @@ export type SyncBarrier =
  * `done`    — the followup landed.
  * `parked`  — we ran out of patience. A WORK ORDER FOR A HUMAN.
  * `dismissed` — a human read the work order and closed it. See `dismissSyncRow`.
+ * `lapsed`  — the MOMENT passed. Not a fault, and not a job for anyone: see
+ *             `lapseSyncRow`.
  * `cancelled` — set by hand in a few 2026-08 cleanups; no code writes it.
  *
  * A NOTE ON ADDING TO THIS UNION. Preview and production share one
@@ -105,7 +107,7 @@ export type SyncBarrier =
  * — an unknown status is simply never picked up, which is the failure mode we
  * want. Keep it that way: never write a selector that means "not done".
  */
-export type SyncStatus = "pending" | "done" | "parked" | "dismissed" | "cancelled";
+export type SyncStatus = "pending" | "done" | "parked" | "dismissed" | "lapsed" | "cancelled";
 
 export interface SyncQueueRow {
   id: number;
@@ -482,6 +484,41 @@ export async function parkSyncRow(row: SyncQueueRow, reason: string): Promise<vo
         last_error = ${reason.slice(0, 500)}
     WHERE id = ${row.id}
   `;
+}
+
+/**
+ * THE MOMENT PASSED — close the row quietly. Nobody is needed.
+ *
+ * Some followups are only meaningful inside a window. `stamp-confirmation-state`
+ * is the case that forced this: it marks a reservation as checked in, and staff
+ * read that state on the day. Once the party's last heat has run, the stamp has
+ * nothing left to say — landing it at midnight would claim something about a
+ * shift that ended hours ago.
+ *
+ * Before this, such a row could only end one of two ways: `done`, or `parked` at
+ * its give-up deadline. Parking calls it a WORK ORDER FOR A HUMAN, and every one
+ * of those is an alarm somebody has to read and dismiss. On 2026-08-18→23 that
+ * was 18 rows, none of which needed anybody: the racers had raced, just not on
+ * the heat the kiosk originally bound them to.
+ *
+ * `lapsed` is therefore neither success nor failure. It records that the work
+ * stopped being worth doing, and why, and takes the row off the board without
+ * ever having claimed the stamp landed. Only a PENDING row can lapse — a parked
+ * row has already been called out to a human, and quietly relabelling it would
+ * take work off someone's list without their knowing.
+ */
+export async function lapseSyncRow(row: SyncQueueRow, reason: string): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    UPDATE bmi_sync_queue
+    SET status = 'lapsed', resolved_at = now(), updated_at = now(),
+        last_error = ${reason.slice(0, 500)}
+    WHERE id = ${row.id} AND status = 'pending'
+    RETURNING id
+  `) as Array<Record<string, unknown>>;
+  return rows.length > 0;
 }
 
 /**

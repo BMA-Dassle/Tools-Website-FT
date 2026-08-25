@@ -19,6 +19,7 @@ import {
   partyReadyBarrier,
   partySeatedBarrier,
   type BarrierResult,
+  nyWallClockKey,
   type SeatRef,
 } from "@/lib/bmi-sync-barriers";
 import type { SyncQueueRow } from "@/lib/bmi-sync-queue";
@@ -77,7 +78,11 @@ export async function probeBarrier(row: SyncQueueRow): Promise<BarrierResult> {
             )
             .map((s) => ({ personId: String(s.personId), heatStart: String(s.heatStart) }))
         : [];
-      return partySeatedBarrier(loc, ids, seats);
+      // The row's own createdAt IS the check-in time — the stamp is enqueued
+      // during check-in, and a resumed check-in refreshes the payload without
+      // moving created_at. Converted to the same naive-ET key the seats use;
+      // created_at is UTC, so it must NOT be sliced raw.
+      return partySeatedBarrier(loc, ids, seats, nyWallClockKey(row.createdAt));
     }
     default:
       // Unknown barrier value (a row written by a newer deploy, say). Do NOT run

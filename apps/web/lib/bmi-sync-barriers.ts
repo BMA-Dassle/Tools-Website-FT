@@ -565,16 +565,35 @@ export interface SeatRef {
   heatStart: string;
 }
 
-const nyWallClockKey = (utcIso: string): string =>
+/** A UTC instant as the naive center-local key the seat side speaks
+ *  (`YYYY-MM-DDTHH:MM`). Exported so the probe can convert a row's
+ *  `created_at` — which is UTC — into the same vocabulary. */
+export const nyWallClockKey = (utcIso: string): string =>
   new Date(utcIso)
     .toLocaleString("sv-SE", { timeZone: "America/New_York" })
     .replace(" ", "T")
     .slice(0, 16);
 
+/**
+ * Sessions that are not a KART HEAT. A racer sitting in Nexus Laser Tag is not
+ * seated for their race, and both attractions live on the same BMI server (and
+ * therefore the same day list) as the FastTrax track — so once this gate stopped
+ * demanding an exact heat time, an arena booking could otherwise have satisfied
+ * a race seat. Matched on the session's `type`, the same field
+ * /api/pandora/sessions discriminates on.
+ */
+const NON_RACE_SESSION = /laser|gel blaster|arena/i;
+
 export async function partySeatedBarrier(
   locationId: string,
   personIds: string[],
   seats: SeatRef[],
+  /**
+   * When the party checked in, as a naive-ET `YYYY-MM-DDTHH:MM` key. Seats are
+   * accepted on any race session from this moment on — see the note in the body.
+   * Absent (an older row) keeps the original exact-heat behaviour.
+   */
+  checkedInAtNyKey?: string | null,
 ): Promise<BarrierResult> {
   // The waiver/local half is unchanged — a party that isn't ready can't be
   // seated-and-done either, and this keeps one gate rather than two.
@@ -601,10 +620,13 @@ export async function partySeatedBarrier(
       );
       if (!res.ok) return unreachable(`sessions ${day} → HTTP ${res.status}`);
       const body = (await res.json().catch(() => null)) as {
-        data?: Array<{ sessionId?: unknown; scheduledStart?: unknown }>;
+        data?: Array<{ sessionId?: unknown; scheduledStart?: unknown; type?: unknown }>;
       } | null;
       for (const s of body?.data ?? []) {
         if (!s?.sessionId || typeof s.scheduledStart !== "string") continue;
+        // Laser tag / gel blaster share this location's day list; being in one is
+        // not being on the grid. Only matters now the gate looks day-wide.
+        if (typeof s.type === "string" && NON_RACE_SESSION.test(s.type)) continue;
         // Two tracks can run a heat on the same minute, so a start key maps to a
         // LIST of sessions and a racer counts if they are on any of them.
         const k = nyWallClockKey(s.scheduledStart);
@@ -642,17 +664,54 @@ export async function partySeatedBarrier(
     }
   };
 
+  /**
+   * ON THE GRID, NOT ON THIS EXACT HEAT (2026-08-24).
+   *
+   * This gate used to demand each racer appear on the precise heat the kiosk
+   * bound them to. Staff move parties between heats constantly — a group runs
+   * late, a track goes down, someone asks for the next one — and the moment a
+   * racer is reseated, a check-in that went perfectly can never satisfy the
+   * gate. It waits out its 8 hours and parks as a work order for a human.
+   *
+   * Measured since the gate shipped on 2026-08-16: 16 of 57 stamp rows parked
+   * this way — more than one check-in in four. Of the 48
+   * seats they called "not on the grid", 38 raced a DIFFERENT heat that day and
+   * the other 10 raced under a different person record. Not one was a party that
+   * failed to show. A gate that is wrong a third of the time teaches staff to
+   * ignore the board, which costs more than the gate ever bought.
+   *
+   * So the question becomes the one staff actually mean: is this racer on the
+   * grid today, at or after the moment they checked in? The exact-heat key is
+   * still tried FIRST — it is the common case and it is one roster read — and
+   * the day is only scanned when that misses. Everything needed for the scan was
+   * already fetched: the sessions call has always been day-wide.
+   *
+   * Earlier heats are excluded because a racer who ran at noon and checked in at
+   * 6pm for an evening booking is not seated for the evening one.
+   */
+  const cutoff = checkedInAtNyKey ?? null;
+  const laterKeys = [...sessionsByStart.keys()]
+    .filter((k) => !cutoff || k >= cutoff)
+    .sort((a, b) => a.localeCompare(b));
+
   const missing: string[] = [];
   for (const seat of wanted) {
-    const sessionIds = sessionsByStart.get(seat.heatStart.slice(0, 16)) ?? [];
-    if (sessionIds.length === 0) {
-      // The heat block itself hasn't synced down — the same "not yet" every other
-      // barrier means by closed.
+    const exactKey = seat.heatStart.slice(0, 16);
+    const exact = sessionsByStart.get(exactKey) ?? [];
+    // Fast path first: the heat we booked them on, if it is down here at all.
+    const candidates = [
+      ...exact,
+      ...laterKeys.flatMap((k) => (k === exactKey ? [] : (sessionsByStart.get(k) ?? []))),
+    ];
+
+    if (candidates.length === 0) {
+      // Not one race session on this whole day has reached the local server —
+      // the same "not yet" every other barrier means by closed.
       missing.push(`${seat.personId}@${seat.heatStart.slice(11, 16)} (no local session)`);
       continue;
     }
     let seated = false;
-    for (const sid of sessionIds) {
+    for (const sid of candidates) {
       const ids = await participantsOf(sid);
       if (ids === null) return unreachable(`participants ${sid} unreadable`);
       if (ids.has(seat.personId)) {
@@ -664,8 +723,8 @@ export async function partySeatedBarrier(
   }
 
   return missing.length === 0
-    ? open(`${ready.detail}; all ${wanted.length} seat(s) on the grid`)
+    ? open(`${ready.detail}; all ${wanted.length} racer-heat(s) on the grid`)
     : closed(
-        `${missing.length}/${wanted.length} seat(s) not on the grid: ${missing.slice(0, 4).join(", ")}`,
+        `${missing.length}/${wanted.length} racer(s) not on the grid: ${missing.slice(0, 4).join(", ")}`,
       );
 }

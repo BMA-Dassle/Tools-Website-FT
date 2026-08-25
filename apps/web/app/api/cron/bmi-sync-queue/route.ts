@@ -5,11 +5,13 @@ import {
   listParkedSyncRows,
   markSyncDone,
   markSyncRetry,
+  lapseSyncRow,
   parkSyncRow,
   syncQueueCounts,
   type SyncQueueRow,
 } from "@/lib/bmi-sync-queue";
 import { probeBarrier } from "@/lib/bmi-sync-probe";
+import { lapseVerdict } from "@/lib/bmi-sync-lapse";
 import { SYNC_HANDLERS } from "@/lib/bmi-sync-handlers";
 
 /**
@@ -84,6 +86,8 @@ export async function GET(req: NextRequest) {
     waiting: 0,
     retry: 0,
     parked: 0,
+    /** Rows written off because their moment passed — never an alarm. */
+    lapsed: 0,
     deferred: 0,
   };
   const outcomes: Outcome[] = [];
@@ -93,6 +97,26 @@ export async function GET(req: NextRequest) {
       counts.deferred++;
       continue;
     }
+    /**
+     * HAS THE MOMENT PASSED? Checked BEFORE the barrier, because a row whose
+     * window has closed should not cost another vendor round trip to find out —
+     * and because the answer does not depend on what the barrier would say.
+     */
+    const lapse = lapseVerdict(row);
+    if (lapse) {
+      counts.lapsed++;
+      outcomes.push({
+        id: row.id,
+        kind: row.kind,
+        barrier: row.barrier,
+        verdict: "lapsed",
+        result: dryRun ? "would-lapse" : "lapsed",
+        detail: lapse,
+      });
+      if (!dryRun) await lapseSyncRow(row, lapse);
+      continue;
+    }
+
     const barrier = await probeBarrier(row);
 
     if (barrier.verdict === "closed") {

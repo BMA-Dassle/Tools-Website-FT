@@ -36,7 +36,8 @@ export function toneFor(r: AdminSyncRow): keyof typeof TONE {
   if (r.status === "done") return "done";
   // Terminal-and-quiet. Must be tested BEFORE the age fallback below, or a
   // closed row reads as "late" for ever — the trap that hid `cancelled` rows.
-  if (r.status === "dismissed" || r.status === "cancelled") return "dismissed";
+  if (r.status === "dismissed" || r.status === "cancelled" || r.status === "lapsed")
+    return "dismissed";
   return r.ageMin >= 10 ? "late" : "pending";
 }
 
@@ -46,6 +47,7 @@ export function stateLabel(r: AdminSyncRow): string {
   if (r.status === "done") return "landed";
   if (r.status === "parked") return "gave up";
   if (r.status === "dismissed") return "set aside";
+  if (r.status === "lapsed") return "too late";
   if (r.status === "cancelled") return "cancelled";
   return r.ageMin >= 10 ? "late" : "waiting";
 }
@@ -83,7 +85,10 @@ type Filter = "waiting" | "cleared" | "attention" | "all";
 /** Closed for good, whoever closed it — a landed row and a set-aside row both
  *  belong under "Cleared", because neither is owed any more. */
 export const isSettled = (r: AdminSyncRow): boolean =>
-  r.status === "done" || r.status === "dismissed" || r.status === "cancelled";
+  r.status === "done" ||
+  r.status === "dismissed" ||
+  r.status === "lapsed" ||
+  r.status === "cancelled";
 
 /**
  * How long the step actually took, created → resolved.

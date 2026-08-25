@@ -30,9 +30,11 @@ import {
   leaseSyncRow,
   markSyncDone,
   markSyncRetry,
+  lapseSyncRow,
   parkSyncRow,
 } from "@/lib/bmi-sync-queue";
 import { probeBarrier } from "@/lib/bmi-sync-probe";
+import { lapseVerdict } from "@/lib/bmi-sync-lapse";
 import { SYNC_LEASE_SECONDS, type SyncPushMessage } from "@/lib/bmi-sync-push";
 import { SYNC_HANDLERS } from "@/lib/bmi-sync-handlers";
 
@@ -93,6 +95,19 @@ export function createBmiSyncConsumer() {
         await markSyncRetry(row, `queue gave up after ${metadata.deliveryCount} deliveries`, {
           countAttempt: false,
         });
+        return;
+      }
+
+      /**
+       * HAS THE MOMENT PASSED? The same check the cron makes, in the same place
+       * relative to the barrier, from the same shared function — the two rails
+       * disagreeing about when a row is finished is exactly the drift
+       * `probeBarrier` was extracted to prevent.
+       */
+      const lapse = lapseVerdict(row);
+      if (lapse) {
+        console.log(`[bmi-sync-push] row ${rowId} (${row.kind}) LAPSED: ${lapse}`);
+        await lapseSyncRow(row, lapse);
         return;
       }
 
