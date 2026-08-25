@@ -13,3 +13,4 @@ export * from "./grid";
 export * from "./score";
 export * from "./policy";
 export * from "./lane-groups";
+export * from "./pin-errors";

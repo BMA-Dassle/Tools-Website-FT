@@ -228,12 +228,37 @@ The owner's bar is that we honour bookings we cannot see in our own DB. Prove it
    reservations ever overlap on a lane in our reconstruction, and that each real booking's
    lane was free in the grid built from what was known beforehand. Catches window and
    timezone bugs — the `PATCH /lanes` centre-local wall-clock trap is a known one.
-3. **Vendor backstop probe** (WRITE — needs owner OK, quiet future slot, Temporary holds
-   titled and deleted in `finally`). Pin a hold to a lane the grid says is **busy**.
-   - QAMF 409s ⇒ the vendor is our safety net; fail open confidently.
-   - QAMF accepts the double-book ⇒ **no safety net**; the grid must be perfect and the
-     pre-write re-read plus Redis lock in §7 become load-bearing.
-   **This must be answered before FastTrax goes live.**
+3. **Vendor backstop probe** — **ANSWERED 2026-08-25. QAMF refuses the double-book.**
+   Deliberately pinned a hold onto FM lane 25 at 16:30 Sat 8/29, over a booked birthday
+   party (`C417692`, 17:00-18:00) and its `Non-bookable` setup block. Result:
+   `409 Conflict — "Not enough resources available for the request"`. Nothing was created
+   and the party was untouched.
+   **So the vendor IS a second line of defence.** The grid can be imperfect without a guest
+   being double-booked, which downgrades the pre-write re-read and Redis lock in §7 from
+   load-bearing to belt-and-braces. They stay, but a gap in the grid is no longer a
+   guest-facing risk on its own.
+
+### Pin-at-create — ANSWERED 2026-08-25, and the first proof was worthless
+
+`POST /reservations` with `Lanes:[{LaneNumber}]` at `api-version 1.4` puts the booking on
+the lane we ask for. Verified at FM for 11:00 on 8/26.
+
+**The first run proved nothing and would have shipped a false conclusion.** It asked for
+lane 13 and got lane 13 — but a `--no-pin` control then showed QAMF's own default for that
+slot is *also* lane 13. The pin was indistinguishable from doing nothing. Asking for lane
+**20** (ranked #8 of 16, not the engine's choice) and landing on 20 is what actually proves
+it. **Any future claim that a pin "works" needs a lane the default would not have chosen.**
+
+### Reading the refusals (`src/features/lane-plan/pin-errors.ts`)
+
+Two different 409s, both meaning "try the next lane", and the retry loop originally only
+recognised one of them:
+
+| refusal | meaning | action |
+| --- | --- | --- |
+| `LanesNotCompatible` | lane outside the offer's Conqueror lane group | next candidate |
+| `"Not enough resources available"` | lane already taken for that window | next candidate |
+| anything else | not something another lane fixes | **fail open** — drop `Lanes` |
 
 Plus unit tests on the pure modules against fixtures from real days, including the ugly cases:
 a league blocking 8 lanes, a maintenance block, a session already running at window start.

@@ -43,6 +43,7 @@ const { buildGrid } = await import("~/features/lane-plan/grid.server");
 const { deriveLaneGroups, allowedLanesFor } = await import("~/features/lane-plan/lane-groups");
 const { buildOccupancyForecast, forecastAt } = await import("~/features/lane-plan/forecast");
 const { chooseLanes } = await import("~/features/lane-plan/policy");
+const { classifyPinFailure } = await import("~/features/lane-plan/pin-errors");
 const { spreadBias } = await import("~/features/lane-plan/score");
 const { isLaneFree, wholeFreePairs, mateOf } = await import("~/features/lane-plan/grid");
 const { DEFAULT_POLICY } = await import("~/features/lane-plan/types");
@@ -59,6 +60,13 @@ const PLAYERS = Number(flag("players") ?? 4);
 const MINUTES = Number(flag("minutes") ?? 90);
 const APPLY = args.includes("--apply");
 const KEEP = args.includes("--keep");
+/** Send NO `Lanes` at all — the baseline every booking we have ever made used. Answers
+ *  "what would QAMF have done on its own?", which is what a pin has to be measured against. */
+const NO_PIN = args.includes("--no-pin");
+/** Deliberately pin onto an OCCUPIED lane to find out whether the vendor refuses it.
+ *  Answers whether QAMF is a backstop or whether our grid is the only thing between a
+ *  guest and a double-booked lane. Creates a Temporary hold only, deleted immediately. */
+const COLLIDE = args.includes("--collide");
 const VERIFY_DELAY_MS = Number(flag("delay") ?? 20_000);
 const TITLE = flag("title") ?? `ZZZ LANE PIN TEST ${PLAYERS}p - auto-deletes`;
 
@@ -207,13 +215,60 @@ for (const p of ranked.slice(0, 5)) {
         .join(" · "),
   );
 }
-const PICK = best.lanes[0];
-console.log(`\n  ==> ENGINE PICKS LANE ${PICK} — ${reason}`);
+/**
+ * `--lane N` overrides the engine's choice.
+ *
+ * This is the CONTROL for the pin test. The engine naturally favours the lowest-numbered
+ * lane in a tie, so on an empty board it picks the first lane of the group — which may
+ * well be what QAMF would have auto-assigned anyway. Asking for a lane the engine would
+ * NOT have chosen is the only way to prove the pin is what decided the outcome.
+ */
+const FORCED = flag("lane") ? Number(flag("lane")) : null;
+const PICK = FORCED ?? best.lanes[0];
+if (FORCED != null) {
+  const rank = ranked.findIndex((p) => p.lanes[0] === FORCED);
+  console.log(
+    `\n  ==> LANE ${FORCED} FORCED (engine would have picked ${best.lanes[0]}) — ` +
+      (rank < 0
+        ? "NOT among the engine's candidates"
+        : `ranked #${rank + 1} of ${ranked.length}, score ${ranked[rank].score.toFixed(1)}`),
+  );
+  if (allowed && !allowed.includes(FORCED)) {
+    console.log(
+      `  WARNING: lane ${FORCED} is outside offer ${offer.Id}'s derived group [${allowed.join(",")}] — expect 409 LanesNotCompatible.`,
+    );
+  }
+} else {
+  console.log(`\n  ==> ENGINE PICKS LANE ${PICK} — ${reason}`);
+}
 
 // Never pin onto something. Belt and braces on top of the scorer.
 if (!isLaneFree(grid, PICK, startMs, endMs)) {
-  console.log(`  REFUSING: lane ${PICK} is not free for the whole window.`);
-  process.exit(1);
+  const clashes = grid.busy.filter(
+    (b) => b.laneNumber === PICK && b.startMs < endMs && startMs < b.endMs,
+  );
+  console.log(`\n  lane ${PICK} is NOT free for ${et(startMs)}-${et(endMs)}:`);
+  for (const c of clashes) {
+    console.log(
+      `    ${c.reservationId} · ${c.kind || "?"} · ${et(c.startMs)}-${et(c.endMs)} · "${c.title}"`,
+    );
+  }
+  if (!COLLIDE) {
+    console.log(`  REFUSING. Pass --collide to probe deliberately (see below).`);
+    process.exit(1);
+  }
+  /**
+   * DELIBERATE COLLISION PROBE — the vendor-backstop question.
+   *
+   * If QAMF refuses a pin onto an occupied lane, it is a second line of defence and our
+   * grid can be imperfect without anyone being double-booked. If it ACCEPTS, there is no
+   * safety net: the grid must be right every single time, and the pre-write re-read plus
+   * lock become load-bearing rather than belt-and-braces.
+   *
+   * This only ever creates a Temporary hold, which is deleted immediately. It cannot alter
+   * or remove the booking already there.
+   */
+  console.log(`  --collide set: probing whether QAMF ITSELF refuses the double-book.`);
 }
 
 if (!APPLY) {
@@ -267,11 +322,25 @@ try {
    * Production does the same and, once candidates run out, drops `Lanes` entirely and lets
    * QAMF auto-assign, so a lane preference can never cost a booking.
    */
-  for (const cand of ranked.slice(0, Number(flag("tries") ?? 6))) {
-    const lane = cand.lanes[0];
+  // A forced lane is a control: try that lane and nothing else. Falling through to the
+  // engine's next choice would answer a different question than the one being asked.
+  const attempts = NO_PIN
+    ? [0] // one attempt, with no Lanes at all — the baseline
+    : FORCED != null
+      ? [FORCED]
+      : ranked.slice(0, Number(flag("tries") ?? 6)).map((c) => c.lanes[0]);
+  for (const lane of attempts) {
     askedFor = lane;
-    const attempt = { ...input, Lanes: [{ ...input.Lanes[0], LaneNumber: lane }] };
-    console.log(`\nCreating pinned to lane ${lane} @ api-version 1.4…`);
+    // NO_PIN omits `Lanes` entirely — this is what every booking we have ever made did,
+    // and what production falls back to when no candidate is accepted.
+    const attempt = NO_PIN
+      ? { ...input, Lanes: undefined }
+      : { ...input, Lanes: [{ ...input.Lanes[0], LaneNumber: lane }] };
+    console.log(
+      NO_PIN
+        ? `\nCreating with NO Lanes (baseline — what QAMF chooses on its own) @ api-version 1.4…`
+        : `\nCreating pinned to lane ${lane} @ api-version 1.4…`,
+    );
     try {
       const res = await createReservation(CENTER, attempt, "1.4");
       created = res.Id;
@@ -289,15 +358,10 @@ try {
       break;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      const incompatible = msg.includes("LanesNotCompatible");
-      rejected.push({
-        lane,
-        why: incompatible ? "LanesNotCompatible (outside the lane group)" : msg.slice(0, 160),
-      });
-      console.log(
-        `  rejected: ${incompatible ? "409 LanesNotCompatible — outside the offer's lane group" : msg.slice(0, 240)}`,
-      );
-      if (!incompatible) break; // an unexpected error is not something to retry around
+      const verdict = classifyPinFailure(msg);
+      rejected.push({ lane, why: verdict.why });
+      console.log(`  rejected: ${verdict.why}`);
+      if (!verdict.tryNextLane) break; // not something another lane would fix
     }
   }
 
@@ -316,6 +380,12 @@ try {
       `  NO lane was accepted. In production this fails open: drop Lanes, let QAMF assign.`,
     );
     console.log(`  Nothing was left behind.`);
+  } else if (NO_PIN) {
+    console.log(`  reservation ${created} · sent NO Lanes · QAMF chose ${landedOn.join("+")}`);
+    console.log(
+      `  BASELINE — this is where a booking lands today, with nobody choosing. Compare it` +
+        ` against a pinned run before claiming the pin decided anything.`,
+    );
   } else {
     const honored = landedOn.length === 1 && landedOn[0] === askedFor;
     console.log(`  reservation ${created} · asked lane ${askedFor} · landed ${landedOn.join("+")}`);

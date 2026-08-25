@@ -22,6 +22,7 @@ import { bucketOf, buildOccupancyForecast, forecastAt } from "./forecast";
 import { findGridGaps, OPEN_LANE_GRACE_MINUTES, toFloorIntervals } from "./grid.server";
 import { deriveLaneGroups, allowedLanesFor, MIN_SAMPLES_FOR_CONFIDENCE } from "./lane-groups";
 import { chooseLanes, enumerateCandidates, replayGreenfield, sweepDay } from "./policy";
+import { classifyPinFailure, shouldFailOpen } from "./pin-errors";
 import { spreadBias } from "./score";
 import { DEFAULT_POLICY, type BusyInterval, type LaneGrid } from "./types";
 
@@ -437,6 +438,32 @@ describe("the floor overrules the schedule", () => {
     expect(gaps).toHaveLength(1);
     expect(gaps[0].severity).toBe("info");
     expect(gaps[0].problem).toMatch(/running over/);
+  });
+});
+
+describe("reading QAMF's refusals", () => {
+  // Both strings captured from live 409s at FM on 2026-08-25.
+  it("treats an out-of-group lane as recoverable", () => {
+    const v = classifyPinFailure(
+      `createReservation(9172) failed: 409 {"detail":"weboffer has validation errors: [{Type: LanesNotCompatible, Reason: 'Lanes passed are not compatible with web offer configuration (Lane Groups)'}]"}`,
+    );
+    expect(v.tryNextLane).toBe(true);
+    expect(v.code).toBe("lanes_not_compatible");
+  });
+
+  it("treats an occupied lane as recoverable — this is the vendor backstop", () => {
+    const v = classifyPinFailure(
+      `createReservation(9172) failed: 409 {"title":"Conflict","status":409,"detail":"Not enough resources available for the request"}`,
+    );
+    expect(v.tryNextLane).toBe(true);
+    expect(v.code).toBe("lane_unavailable");
+  });
+
+  it("fails open on anything it does not recognise — a lane preference is not worth a booking", () => {
+    const v = classifyPinFailure("500 Internal Server Error");
+    expect(v.tryNextLane).toBe(false);
+    expect(v.code).toBe("unknown");
+    expect(shouldFailOpen("500 Internal Server Error")).toBe(true);
   });
 });
 
