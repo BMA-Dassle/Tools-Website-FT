@@ -130,6 +130,7 @@ import {
   midnightMadnessWindowError,
   MidnightMadnessWindowError,
 } from "./bowling-offer";
+import { rawFoodItemsToReservationLines } from "./reservation-lines";
 import {
   insertBowlingReservation,
   insertReservationPlayers,
@@ -2820,12 +2821,21 @@ async function unifiedReserveInner(
                 : {}),
             },
           },
-          item.lineItems.map((li) => ({
-            squareProductId: li.squareProductId,
-            label: li.label ?? "Bowling",
-            quantity: li.quantity,
-            unitPriceCents: li.priceCents ?? 0,
-          })),
+          [
+            ...item.lineItems.map((li) => ({
+              squareProductId: li.squareProductId,
+              label: li.label ?? "Bowling",
+              quantity: li.quantity,
+              unitPriceCents: li.priceCents ?? 0,
+            })),
+            // Persist the guest's $0 food selections. These were pushed to
+            // SQUARE ONLY here, so a MIXED cart (bowling + a race / attraction
+            // / game-card leg — the ordinary kiosk shape) lost them whenever
+            // they failed to reach the order: the 2026-06-21 Pizza Bowl
+            // incident, recurring on the rail that never got fixed. Shared with
+            // app/api/bowling/v2/reserve so the two can't drift again.
+            ...rawFoodItemsToReservationLines(item.rawItems),
+          ],
         );
         neonIds.push(reservation.id);
         bowlingNeonId = reservation.id;

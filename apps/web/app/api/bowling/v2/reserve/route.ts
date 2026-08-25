@@ -80,6 +80,7 @@ import {
   kbfAdultPerGameCents,
   buildKbfExtraSquareLineItems,
 } from "~/features/booking/service/kbf-pricing";
+import { rawFoodItemsToReservationLines } from "~/features/booking/service/reservation-lines";
 
 const CONFIRM_RETRY_QUEUE = "qamf:bowling:confirm-retry";
 
@@ -804,16 +805,10 @@ export async function POST(req: NextRequest) {
   // drink notes) as reservation lines so the order is SAVED in Neon and stays
   // recoverable / visible on the admin board — previously rawItems were
   // transient (Square-only) and lost when they failed to reach the order.
-  // Pricing is computed from productItems (not reservationLines), so $0 food
-  // lines don't change any total; the product-backed Square map ignores lines
-  // with no squareProductId, so they are not double-added to the day-of order.
-  for (const ri of body.rawItems ?? []) {
-    reservationLines.push({
-      label: ri.note ? `${ri.name} — ${ri.note}` : ri.name,
-      quantity: ri.quantity,
-      unitPriceCents: 0,
-    });
-  }
+  // Shared with the unified rail (see reservation-lines.ts) — this rail was
+  // fixed in 2026-06 and the other was not, which is how the same data loss
+  // came back on mixed carts.
+  reservationLines.push(...rawFoodItemsToReservationLines(body.rawItems));
 
   // Booking fee: $2.99, 100% deposit, catalog item 7VKAFU3HDPRSKY7ZB6CKXTRW
   const BOOKING_FEE_CENTS = 299;
