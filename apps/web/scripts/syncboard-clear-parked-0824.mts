@@ -30,8 +30,17 @@
  * row is re-probed against Pandora's live grid, and anything that would now
  * OPEN is left alone for the queue to finish.
  *
- *   npx tsx scripts/syncboard-clear-parked-0824.mts          # report only
- *   APPLY=1 npx tsx scripts/syncboard-clear-parked-0824.mts  # write
+ * ── AND IT HANDS THE LANDABLE ONES BACK ────────────────────────────────────
+ * A row it refuses to close is a row that should be WORKING, and a parked row
+ * never is: every selector in the queue matches `status = 'pending'`, so parking
+ * is a dead end no cron will pick up again. `REDRIVE=1` puts those rows back to
+ * pending with fresh patience, which is the only thing that can actually resolve
+ * them. What happens next is the queue's business, not this script's — for a
+ * stamp whose heats have long since run, that means it lapses.
+ *
+ *   npx tsx scripts/syncboard-clear-parked-0824.mts              # report only
+ *   APPLY=1 npx tsx scripts/syncboard-clear-parked-0824.mts      # close the dead ones
+ *   APPLY=1 REDRIVE=1 npx tsx scripts/syncboard-clear-parked-0824.mts  # …and revive the rest
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { readFileSync } from "node:fs";
@@ -43,6 +52,7 @@ import { neon } from "@neondatabase/serverless";
 
 const sql = neon(process.env.DATABASE_URL!);
 const APPLY = process.env.APPLY === "1";
+const REDRIVE = process.env.REDRIVE === "1";
 const WHO = process.env.BY || "sync-board cleanup 2026-08-24";
 
 /**
@@ -119,9 +129,27 @@ async function main() {
       );
       if (verdict.verdict === "open") {
         console.log(
-          `#${r.id} ${r.created} ${kind} — WOULD LAND NOW (${verdict.detail.slice(0, 70)})\n` +
-            `   left alone: re-drive it rather than closing it`,
+          `#${r.id} ${r.created} ${kind} — WOULD LAND NOW (${verdict.detail.slice(0, 70)})`,
         );
+        if (APPLY && REDRIVE) {
+          /**
+           * Back to pending, with FRESH PATIENCE. `give_up_at` is an absolute
+           * timestamp and this row's is days in the past, so reviving without
+           * moving it would park the row again on the very next tick — which
+           * looks exactly like the revive having done nothing.
+           */
+          await sql`
+            UPDATE bmi_sync_queue
+            SET status = 'pending', resolved_at = NULL, updated_at = now(),
+                next_attempt_at = now(),
+                give_up_at = now() + INTERVAL '8 hours',
+                last_error = ${`${WHO}: revived — the widened gate says this is on the grid`}
+            WHERE id = ${Number(r.id)} AND status = 'parked'
+          `;
+          console.log(`   REVIVED → pending; the queue decides what it is worth now`);
+        } else {
+          console.log(`   left alone: re-drive it (REDRIVE=1) rather than closing it`);
+        }
         landable++;
         continue;
       }
@@ -144,7 +172,7 @@ async function main() {
 
   console.log(
     `\n${closed} ${APPLY ? "closed" : "would close"}, ` +
-      `${landable} left to re-drive (would land now), ${skipped} untouched.`,
+      `${landable} ${APPLY && REDRIVE ? "revived" : "left to re-drive (would land now)"}, ${skipped} untouched.`,
   );
   if (!APPLY) console.log(`\nRe-run with APPLY=1 to write.`);
   console.log(
