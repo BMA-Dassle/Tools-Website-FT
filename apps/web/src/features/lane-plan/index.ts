@@ -14,3 +14,4 @@ export * from "./score";
 export * from "./policy";
 export * from "./lane-groups";
 export * from "./pin-errors";
+export * from "./pin";

@@ -43,7 +43,7 @@ const { buildGrid } = await import("~/features/lane-plan/grid.server");
 const { deriveLaneGroups, allowedLanesFor } = await import("~/features/lane-plan/lane-groups");
 const { buildOccupancyForecast, forecastAt } = await import("~/features/lane-plan/forecast");
 const { chooseLanes } = await import("~/features/lane-plan/policy");
-const { classifyPinFailure } = await import("~/features/lane-plan/pin-errors");
+const { createWithLanePlan, describePinOutcome } = await import("~/features/lane-plan/pin");
 const { spreadBias } = await import("~/features/lane-plan/score");
 const { isLaneFree, wholeFreePairs, mateOf } = await import("~/features/lane-plan/grid");
 const { DEFAULT_POLICY } = await import("~/features/lane-plan/types");
@@ -223,16 +223,26 @@ for (const p of ranked.slice(0, 5)) {
  * well be what QAMF would have auto-assigned anyway. Asking for a lane the engine would
  * NOT have chosen is the only way to prove the pin is what decided the outcome.
  */
-const FORCED = flag("lane") ? Number(flag("lane")) : null;
+const FORCED_LANES = (flag("lanes") ?? flag("lane") ?? "")
+  .split(",")
+  .map((s) => Number(s.trim()))
+  .filter((n) => Number.isFinite(n) && n > 0);
+const FORCED = FORCED_LANES.length ? FORCED_LANES[0] : null;
 const PICK = FORCED ?? best.lanes[0];
 if (FORCED != null) {
   const rank = ranked.findIndex((p) => p.lanes[0] === FORCED);
   console.log(
-    `\n  ==> LANE ${FORCED} FORCED (engine would have picked ${best.lanes[0]}) — ` +
+    `\n  ==> LANE${FORCED_LANES.length > 1 ? `S ${FORCED_LANES.join(" -> ")}` : ` ${FORCED}`} FORCED ` +
+      `(engine would have picked ${best.lanes[0]}) — ` +
       (rank < 0
-        ? "NOT among the engine's candidates"
-        : `ranked #${rank + 1} of ${ranked.length}, score ${ranked[rank].score.toFixed(1)}`),
+        ? "first is NOT among the engine's candidates"
+        : `first ranked #${rank + 1} of ${ranked.length}, score ${ranked[rank].score.toFixed(1)}`),
   );
+  if (FORCED_LANES.length > 1) {
+    console.log(
+      `      walking in that exact order — each refusal must advance to the next, not abort`,
+    );
+  }
   if (allowed && !allowed.includes(FORCED)) {
     console.log(
       `  WARNING: lane ${FORCED} is outside offer ${offer.Id}'s derived group [${allowed.join(",")}] — expect 409 LanesNotCompatible.`,
@@ -322,48 +332,60 @@ try {
    * Production does the same and, once candidates run out, drops `Lanes` entirely and lets
    * QAMF auto-assign, so a lane preference can never cost a booking.
    */
-  // A forced lane is a control: try that lane and nothing else. Falling through to the
-  // engine's next choice would answer a different question than the one being asked.
-  const attempts = NO_PIN
-    ? [0] // one attempt, with no Lanes at all — the baseline
-    : FORCED != null
-      ? [FORCED]
-      : ranked.slice(0, Number(flag("tries") ?? 6)).map((c) => c.lanes[0]);
-  for (const lane of attempts) {
-    askedFor = lane;
-    // NO_PIN omits `Lanes` entirely — this is what every booking we have ever made did,
-    // and what production falls back to when no candidate is accepted.
-    const attempt = NO_PIN
-      ? { ...input, Lanes: undefined }
-      : { ...input, Lanes: [{ ...input.Lanes[0], LaneNumber: lane }] };
-    console.log(
-      NO_PIN
-        ? `\nCreating with NO Lanes (baseline — what QAMF chooses on its own) @ api-version 1.4…`
-        : `\nCreating pinned to lane ${lane} @ api-version 1.4…`,
-    );
-    try {
+  /**
+   * The walk itself is `createWithLanePlan` from the feature — the SAME code the booking
+   * routes will call. Re-implementing it here is precisely how the abort bug got in, so
+   * this script deliberately owns no retry logic of its own.
+   *
+   * `--lane` / `--lanes` is a control: those exact lanes in that exact order, nothing else
+   * appended, so a forced probe answers the question it was asked.
+   */
+  const candidates: number[][] = NO_PIN
+    ? []
+    : FORCED_LANES.length
+      ? FORCED_LANES.map((l) => [l])
+      : ranked.slice(0, Number(flag("tries") ?? 6)).map((c) => c.lanes);
+
+  const outcome = await createWithLanePlan({
+    candidates,
+    maxAttempts: candidates.length || 1,
+    onAttempt: (lanes) =>
+      console.log(
+        lanes
+          ? `\nCreating pinned to lane ${lanes.join("+")} @ api-version 1.4…`
+          : `\nCreating with NO Lanes${NO_PIN ? " (baseline — what QAMF chooses on its own)" : " — FAILING OPEN, letting QAMF choose"}…`,
+      ),
+    create: async (lanes) => {
+      const attempt = lanes
+        ? { ...input, Lanes: [{ ...input.Lanes[0], LaneNumber: lanes[0] }] }
+        : { ...input, Lanes: undefined };
       const res = await createReservation(CENTER, attempt, "1.4");
-      created = res.Id;
       console.log(`  created ${res.Id} · status ${res.Status}`);
-      console.log(
-        `  waiting ${VERIFY_DELAY_MS / 1000}s before verifying (an immediate read echoes the request)…`,
-      );
-      await sleep(VERIFY_DELAY_MS);
-      const after = await getReservation(CENTER, res.Id, "1.4");
-      landedOn = (after.Lanes ?? []).map((l) => l.LaneNumber);
-      console.log(
-        `  VERIFIED: asked for lane ${lane}, landed on ${landedOn.join("+") || "(none)"} · status ${after.Status} · ` +
-          `${(after.Lanes ?? []).map((l) => `${et(l.StartTime)}->${et(l.EndTime)}`).join(", ")}`,
-      );
-      break;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      const verdict = classifyPinFailure(msg);
-      rejected.push({ lane, why: verdict.why });
-      console.log(`  rejected: ${verdict.why}`);
-      if (!verdict.tryNextLane) break; // not something another lane would fix
+      return res;
+    },
+  });
+
+  for (const a of outcome.attempts) {
+    if (!a.ok && a.lanes) {
+      rejected.push({ lane: a.lanes[0], why: a.failure?.why ?? "?" });
+      console.log(`  rejected: ${a.failure?.why}`);
     }
   }
+
+  created = outcome.reservation.Id;
+  askedFor = outcome.pinnedTo?.[0] ?? 0;
+  console.log(
+    `  waiting ${VERIFY_DELAY_MS / 1000}s before verifying (an immediate read echoes the request)…`,
+  );
+  await sleep(VERIFY_DELAY_MS);
+  const after = await getReservation(CENTER, created, "1.4");
+  landedOn = (after.Lanes ?? []).map((l) => l.LaneNumber);
+  console.log(
+    `  VERIFIED: ${outcome.pinnedTo ? `asked for lane ${outcome.pinnedTo.join("+")}` : "sent no pin"}, ` +
+      `landed on ${landedOn.join("+") || "(none)"} · status ${after.Status} · ` +
+      `${(after.Lanes ?? []).map((l) => `${et(l.StartTime)}->${et(l.EndTime)}`).join(", ")}`,
+  );
+  console.log(`  walk: ${describePinOutcome(outcome)}`);
 
   console.log(`\n--- RESULT ---`);
   if (rejected.length) {
