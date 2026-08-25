@@ -4982,8 +4982,25 @@ it releases **only if it still owns the lock** (an overrun run must not delete t
 it **fails OPEN** on a Redis error — overlap is a performance problem, but a cron that silently
 stops recovers no bookings and sends no contracts.
 
-Still open: the 365-day horizon — 12 monthly dayPlanner windows every run to catch a state flip
-made minutes ago.
+**DO NOT CUT THE SCAN HORIZON. Measured, not argued.** The obvious saving — stop reading 365 days
+of dayPlanner every run — is a trap, and `scripts/bmi-scan-horizon-analysis.ts` proves it against
+all 434 contracts we have ever sent with the event still ahead of them. Lead time from "Send
+Contract" flip to event date: p50 **16d**, p90 **107d**, p99 **216d**, max **293d**. So a window
+of 30d would have stranded **33.2%** of them (144 contracts), 90d **11.8%** (51), 180d **2.1%**
+(9). Only 365d misses nothing. And the failure is SILENT: a project outside the window is
+indistinguishable from one nobody flipped, so the contract simply never sends and sales finds out
+from the guest.
+
+**Tier it instead — same saving, nothing stranded.** Keep reading the full year, just not at the
+same rate. The near month is where the urgency is (a third of contracts are flipped within 30
+days of the event); everything beyond has months of slack, so an hour's delay is immaterial.
+Modelled per day, both centers: today ~17,300; near-30d every 2min + full 365d every 30min
+~2,600 (**-85%**); + full 365d hourly ~2,000 (**-88%**). Note the owner's first instinct — far
+tier every 5 min — only reaches about -52%, because 12 windows every 5 minutes is still the bulk
+of the cost. The interval on the FAR tier is the lever, not the split itself.
+
+NOT BUILT (owner: "forget item 2 for now", 2026-08-25). The analysis stands for whoever picks
+it up.
 
 **FIXED 2026-08-25 — `lib/bmi-office-token.ts`.** One grant per tenant, memo + Redis, in-flight
 coalescing, `invalidateOfficeToken` for a 401. Held **1 hour, not the 23h the grant allows**: a
