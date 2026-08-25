@@ -37,6 +37,7 @@ import {
   moveReservationLanes,
   patchReservation,
   setReservationStatus,
+  toCenterLocalIso,
 } from "@/lib/qamf-bowling";
 import { buildQamfMemo, updateReservationReschedule } from "@/lib/bowling-db";
 import { sql } from "@/lib/db";
@@ -99,35 +100,6 @@ async function finalizeNeonReschedule(
   } catch (err) {
     console.error(`${logTag} status reset failed:`, err);
   }
-}
-
-/**
- * Render an instant as center-local wall-clock ISO with the real UTC offset,
- * e.g. "2026-07-15T15:30:00-04:00". REQUIRED for the lanes PATCH: Conqueror
- * takes the wall-clock portion as CENTER-LOCAL time and ignores the offset
- * (probed live 2026-07-14 — a Z-rendered 15:30 ET instant landed at 7:30 PM
- * ET, and the immediate GET echoed the requested instant so a same-moment
- * verify can't catch it). Writing local wall-clock + true offset is correct
- * under both interpretations. Both QAMF centers (9172 Fort Myers, 3148
- * Naples) are Eastern.
- */
-function toCenterLocalIso(ms: number): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-    timeZoneName: "longOffset",
-  }).formatToParts(new Date(ms));
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  // timeZoneName is "GMT-04:00" (or "GMT" for a zero offset).
-  const gmt = get("timeZoneName");
-  const offset = /GMT([+-]\d{2}:\d{2})/.exec(gmt)?.[1] ?? "+00:00";
-  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}${offset}`;
 }
 
 /**
