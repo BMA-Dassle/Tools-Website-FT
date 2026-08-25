@@ -143,6 +143,30 @@ describe("StageRailView", () => {
     });
   }
 
+  /**
+   * THE LABEL NEVER WRAPS (owner 2026-08-25: "I don't like that room drops below
+   * blue on all these"). "CHECKING IN" and "BLUE ROOM" were breaking onto a
+   * second line, which pushes that one row taller and knocks the rail out of
+   * rhythm. The column is sized in `em` of the label's own type, so it cannot
+   * drift out of step with the font clamps the way a `vw` guess did.
+   */
+  for (const density of ["wall", "compact"] as const) {
+    it(`never lets a ${density} stage label wrap onto a second line`, () => {
+      const tree = StageRailView({ rows: megaRows(), density, accent: "#a06bff" });
+      const labels = walk(tree).filter(
+        (el) => typeof el.props?.style?.flex === "string" && el.props.style.flex !== undefined,
+      );
+      // Seven rows on a Mega night, so seven label columns.
+      expect(labels).toHaveLength(7);
+      for (const el of labels) {
+        expect(el.props?.style?.whiteSpace).toBe("nowrap");
+        // Sized against its OWN type, not the viewport — the column has to
+        // follow the label's clamp, and `vw` does not.
+        expect(String(el.props?.style?.flex)).toMatch(/em$/);
+      }
+    });
+  }
+
   it("gives the two room rows distinct keys", () => {
     // Two rows that used to be one is how duplicate keys get introduced, and
     // React's answer to a duplicate key is to drop a row — on this wall, the

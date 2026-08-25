@@ -54,12 +54,37 @@ const TONE: Record<StageRow["tone"], string> = {
 const GOOD = "#46d68c";
 const WARN = "#f0b341";
 
+/**
+ * THE STAGE LABEL NEVER WRAPS (owner 2026-08-25: "I don't like that room drops
+ * below blue on all these" — CHECKING IN and BLUE ROOM were breaking onto a
+ * second line, which pushes that one row taller and knocks the whole rail out
+ * of rhythm).
+ *
+ * MEASURED IN `em`, NOT `vw`, AND THAT IS THE POINT. The column was `11vw`,
+ * which is a guess about a viewport pretending to be a guess about type: at
+ * 1080p that is 211px holding a 36.5px label, and the longest label in the set
+ * — "CHECKING IN", 11 characters of Exo 2 Bold with 0.08em tracking — measures
+ * about 7.25em, or 264px. It wrapped on a real television, not just in a
+ * windowed preview.
+ *
+ * `flex-basis` in `em` resolves against THIS span's own font-size, which is the
+ * density's clamped label size. So the column tracks the type automatically:
+ * change a clamp, or add a density, and the column follows with no second
+ * number to keep in step. 9em leaves headroom over the 7.25em worst case for
+ * the fallback face, which is wider than Exo 2 if the webfont has not landed.
+ *
+ * The width is shared by both densities on purpose — it is a property of the
+ * longest word in `StageLabel`, not of the screen. A NEW LABEL LONGER THAN
+ * "CHECKING IN" NEEDS THIS NUMBER CHECKED; the test pins the nowrap, not the
+ * arithmetic.
+ */
+const LABEL_COL = { flex: "0 0 9em", whiteSpace: "nowrap" } as const;
+
 interface Scale {
   pad: string;
   gap: string;
   rowGap: string;
   label: string;
-  labelCol: string;
   value: string;
   type: string;
   detail: string;
@@ -97,7 +122,6 @@ const SCALE: Record<RailDensity, Scale> = {
     gap: "1.8vh",
     rowGap: "1vh",
     label: "clamp(18px, 1.9vw, 38px)",
-    labelCol: "11vw",
     value: "clamp(28px, 3.1vw, 62px)",
     type: "clamp(16px, 1.7vw, 34px)",
     detail: "clamp(17px, 1.85vw, 37px)",
@@ -116,7 +140,6 @@ const SCALE: Record<RailDensity, Scale> = {
     gap: "2vh",
     rowGap: "0.9vh",
     label: "clamp(15px, 1.55vw, 31px)",
-    labelCol: "9.5vw",
     value: "clamp(22px, 2.5vw, 50px)",
     type: "clamp(13px, 1.4vw, 28px)",
     detail: "clamp(14px, 1.55vw, 31px)",
@@ -329,7 +352,7 @@ export function StageRailView({
               <span
                 className="tv-eyebrow"
                 style={{
-                  flex: `0 0 ${s.labelCol}`,
+                  ...LABEL_COL,
                   fontSize: s.label,
                   letterSpacing: "0.08em",
                   // A ROOM ROW WEARS ITS OWN DOOR'S COLOUR. Staff say "red room"

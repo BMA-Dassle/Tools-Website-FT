@@ -742,9 +742,9 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
           <SpotGrid roster={roster} accent={accent} sessionId={showSession.sessionId} />
         ) : showSession && roster === null ? (
           /* A group IS seated and we simply do not have their names yet — a
-             different thing from an empty board, and it used to render as
-             "Nothing to seat right now", which is a lie for the several seconds
-             a cold roster takes. `null` is "not loaded"; an actual empty roster
+             different thing from an empty board, and it used to fall through to
+             the idle wall, which is a lie for the several seconds a cold roster
+             takes. `null` is "not loaded"; an actual empty roster
              is `[]` and still falls through to Idle below (owner 2026-08-14:
              "while the screen waits for that roster show a fasttrax loading
              with spin"). */
@@ -1226,14 +1226,20 @@ function PitLoading({ accent, heatNumber }: { accent: string; heatNumber: number
 }
 
 /**
- * NOTHING TO SEAT — the pit sign's idle wall, now the SHARED rail.
+ * THE PIT SIGN'S IDLE WALL — the SHARED rail, and nothing else.
  *
  * This used to be a bespoke renderer with its own tone map and type scale, one
  * of three for the same six rows; a colour added to the camera board never
- * reached it (owner 2026-08-24: "they need to not drift"). It keeps its own
- * headline — this screen has a job the others do not, and "nothing to seat" is
- * the thing the group in front of it needs told — and hands everything below to
- * StageRailView at wall density.
+ * reached it (owner 2026-08-24: "they need to not drift"). It handed everything
+ * to StageRailView at wall density but kept a 72px "Nothing to seat right now"
+ * headline of its own.
+ *
+ * THE HEADLINE IS GONE (owner 2026-08-25: "remove nothing to seat right now at
+ * the top of pit assignment, its pointless"). It was the same sentence twice on
+ * one screen: the staff rail along the bottom edge already reads NOTHING TO SEAT
+ * whenever this state is up, and that band is the one a seating attendant is
+ * actually watching. All the headline did was spend the top third of the wall
+ * restating it, above the seven rows that answer the question it raises.
  */
 function Idle({
   accent,
@@ -1257,25 +1263,22 @@ function Idle({
   calledCheckinAt: string | null;
 }) {
   if (hasSession) return <div style={{ flex: 1 }} />;
+  // No wrapper: StageRailView already carries flex:1 / minHeight:0, and with the
+  // headline gone a column of one child was doing nothing but hold a dead gap.
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 20, minHeight: 0 }}>
-      <div className="tv-display" style={{ fontSize: 72, color: "#fff", lineHeight: 0.95 }}>
-        Nothing to seat right now
-      </div>
-      <StageRailView
-        rows={rows}
-        density="wall"
-        accent={accent}
-        trackLabel={trackLabel}
-        punctual={punctual}
-        clock={clock}
-        returning={returning}
-        timeOfDay={timeOfDay}
-        calledCheckinAt={calledCheckinAt}
-        trackShort={(t) => TRACK_SHORT[trackFromName(t) ?? "mega"] ?? t}
-        style={{ background: "transparent", borderLeft: "none", padding: 0 }}
-      />
-    </div>
+    <StageRailView
+      rows={rows}
+      density="wall"
+      accent={accent}
+      trackLabel={trackLabel}
+      punctual={punctual}
+      clock={clock}
+      returning={returning}
+      timeOfDay={timeOfDay}
+      calledCheckinAt={calledCheckinAt}
+      trackShort={(t) => TRACK_SHORT[trackFromName(t) ?? "mega"] ?? t}
+      style={{ background: "transparent", borderLeft: "none", padding: 0 }}
+    />
   );
 }
 /**
