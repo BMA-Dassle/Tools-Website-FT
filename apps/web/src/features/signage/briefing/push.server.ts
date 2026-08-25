@@ -39,7 +39,7 @@ import "server-only";
  */
 import webpush, { type PushSubscription } from "web-push";
 import redis from "@/lib/redis";
-import { alarmMessage, type AlarmCue } from "./desk-alarm";
+import { alarmMessage, type AlarmCue, type AlarmKind } from "./desk-alarm";
 
 /** Every registered device, as a Redis hash: endpoint → subscription JSON. */
 const SUBS_KEY = "briefing:push:subs";
@@ -115,6 +115,60 @@ export async function firePushForCue(
   }
   if (!claimed) return { sent: 0, skipped: true, pruned: 0 };
 
+  const { title, body } = alarmMessage(cue);
+  return fanOut({
+    title,
+    body,
+    // The service worker uses this to collapse a session's three alerts into
+    // one updating notification rather than three on the lock screen.
+    tag: `${cue.kind}:${cue.sessionId}`,
+    kind: cue.kind,
+    ttlSeconds: 25,
+  });
+}
+
+/**
+ * A TEST ALERT, on demand from the gear (owner 2026-08-24: "give some buttons
+ * to test push alerts").
+ *
+ * NO CLAIM, deliberately — the dedupe that stops two boards double-buzzing one
+ * deadline would also swallow the second press of a test button, which is
+ * exactly when somebody is standing there wondering whether it works. Each test
+ * carries its own tag so repeated presses stack rather than replace, and a
+ * longer TTL because a real alert is worthless once its deadline passes while a
+ * test is worth delivering whenever the phone next wakes.
+ *
+ * IT SAYS IT IS A TEST, in the title, because these land on lock screens and a
+ * plausible-looking "Session 42 is overdue" would send somebody running.
+ */
+export async function sendTestPush(
+  kind: AlarmKind | "pull",
+  stampMs: number,
+): Promise<{ sent: number; skipped: boolean; pruned: number }> {
+  if (!armed()) return { sent: 0, skipped: true, pruned: 0 };
+  const body =
+    kind === "call"
+      ? "This is what a session about to be called late sounds like."
+      : kind === "pull"
+        ? "This is what PULL TO BRIEFING NOW looks like — the check-in window is up with racers missing."
+        : "This is what a closing briefing window looks like.";
+  return fanOut({
+    title: "Test alert — FastTrax desk",
+    body,
+    tag: `test:${stampMs}`,
+    kind,
+    ttlSeconds: 300,
+  });
+}
+
+/** The one fan-out both paths use, so a test proves the real delivery path. */
+async function fanOut(msg: {
+  title: string;
+  body: string;
+  tag: string;
+  kind: string;
+  ttlSeconds: number;
+}): Promise<{ sent: number; skipped: boolean; pruned: number }> {
   let subs: Record<string, string>;
   try {
     subs = await redis.hgetall(SUBS_KEY);
@@ -122,14 +176,11 @@ export async function firePushForCue(
     return { sent: 0, skipped: true, pruned: 0 };
   }
 
-  const { title, body } = alarmMessage(cue);
   const payload = JSON.stringify({
-    title,
-    body,
-    // The service worker uses this to collapse a session's three alerts into
-    // one updating notification rather than three on the lock screen.
-    tag: `${cue.kind}:${cue.sessionId}`,
-    kind: cue.kind,
+    title: msg.title,
+    body: msg.body,
+    tag: msg.tag,
+    kind: msg.kind,
   });
 
   let sent = 0;
@@ -145,9 +196,10 @@ export async function firePushForCue(
         return;
       }
       try {
-        // TTL 25s: an alert about a deadline 30 seconds out is worthless once
-        // the deadline has passed, so it must not be held and delivered late.
-        await webpush.sendNotification(sub, payload, { TTL: 25 });
+        // A REAL ALERT EXPIRES IN 25s: one about a deadline 30 seconds out is
+        // worthless after it, so it must not be held and delivered late. A test
+        // asks for longer — see sendTestPush.
+        await webpush.sendNotification(sub, payload, { TTL: msg.ttlSeconds });
         sent++;
       } catch (err) {
         const status = (err as { statusCode?: number }).statusCode;

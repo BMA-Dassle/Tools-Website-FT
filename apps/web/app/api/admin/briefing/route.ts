@@ -34,6 +34,7 @@ import {
   countPushSubscriptions,
   firePushForCue,
   pushConfig,
+  sendTestPush,
   removePushSubscription,
 } from "~/features/signage/briefing/push.server";
 import type { AlarmCue } from "~/features/signage/briefing/desk-alarm";
@@ -297,6 +298,21 @@ export async function POST(req: NextRequest) {
     }
     await removePushSubscription(endpoint);
     return NextResponse.json({ ok: true, devices: await countPushSubscriptions() });
+  }
+
+  /**
+   * A TEST ALERT ON DEMAND (owner 2026-08-24: "give some buttons to test push
+   * alerts"). Same fan-out and same delivery path as a real cue, so a
+   * successful test proves the real thing — only the claim is skipped and the
+   * words say TEST. Returns the delivery count so the gear can report it.
+   */
+  if (action === "push-test") {
+    const kind = (body as { kind?: unknown }).kind;
+    if (kind !== "call" && kind !== "send" && kind !== "pull") {
+      return NextResponse.json({ error: "kind must be call, send or pull" }, { status: 400 });
+    }
+    const result = await sendTestPush(kind, Date.now());
+    return NextResponse.json({ ok: true, ...result });
   }
 
   /**

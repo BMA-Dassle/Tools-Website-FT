@@ -238,6 +238,12 @@ export interface BriefingControl {
    */
   setSendOverride: (allowed: boolean) => void;
   /**
+   * Send a TEST push to every registered device — the gear's proof that the
+   * chain works end to end (owner 2026-08-24). Same fan-out as a real alert;
+   * only the claim is skipped and the words say TEST.
+   */
+  testPush: (kind: "call" | "send" | "pull") => void;
+  /**
    * Change one of the greeting's three numbers — the no-camera delay, the
    * repeat cap, or how long a room may keep moving before the reminder
    * (owner 2026-08-23: "add these settings to the check in board gear
@@ -533,6 +539,21 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  const testPush = useCallback<BriefingControl["testPush"]>(
+    (kind) => {
+      void post(
+        { action: "push-test", kind },
+        kind === "call"
+          ? "Test CALL alert sent to every registered device"
+          : kind === "pull"
+            ? "Test PULL TO BRIEFING alert sent to every registered device"
+            : "Test SEND alert sent to every registered device",
+        `push-test:${kind}`,
+      );
+    },
+    [post],
+  );
+
   const setGreetingByMotion = useCallback<BriefingControl["setGreetingByMotion"]>(
     (enabled) => {
       void post(
@@ -727,6 +748,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     setCheckinWindow,
     setGreetingByMotion,
     setSendOverride,
+    testPush,
     setGreetingTiming,
     setRaceBookmarks,
     setCameraPreview,

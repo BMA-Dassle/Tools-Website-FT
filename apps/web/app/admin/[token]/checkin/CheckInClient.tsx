@@ -1961,6 +1961,56 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                     Sends a notification to this phone or PC even when the board is not on screen.
                     Open this page on a phone and press it there to add that phone.
                   </p>
+
+                  {/*
+                    TEST BUTTONS (owner 2026-08-24: "give some buttons to test
+                    push alerts"). They run the REAL fan-out — same subscriptions,
+                    same push services, same service worker — so a phone that
+                    buzzes here will buzz for a real deadline. Only the
+                    once-per-slot claim is skipped, because that dedupe would
+                    swallow the second press of a test button, and the words say
+                    TEST so nobody reads a lock screen and starts running.
+
+                    One per cue rather than a single "send something": each has
+                    its own copy, and the point of testing is to see the words
+                    that will actually arrive.
+                  */}
+                  <div className="mt-3 pt-3 border-t" style={{ borderColor: PORTAL_DARK.border }}>
+                    <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+                      Test an alert on every registered device
+                    </p>
+                    <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
+                      {(
+                        [
+                          { kind: "call" as const, label: "Call going late" },
+                          { kind: "send" as const, label: "Briefing window closing" },
+                          { kind: "pull" as const, label: "Pull to briefing now" },
+                        ] satisfies Array<{ kind: "call" | "send" | "pull"; label: string }>
+                      ).map((t) => (
+                        <button
+                          key={t.kind}
+                          type="button"
+                          disabled={!briefing.board || (briefing.board.push?.devices ?? 0) === 0}
+                          onClick={() => briefing.testPush(t.kind)}
+                          className="px-3 py-1.5 text-xs border hover:bg-white/5"
+                          style={{
+                            borderRadius: 8,
+                            borderColor: PORTAL_DARK.inputBorder,
+                            color: PORTAL_DARK.fg,
+                            opacity:
+                              briefing.board && (briefing.board.push?.devices ?? 0) > 0 ? 1 : 0.4,
+                          }}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+                      {(briefing.board?.push?.devices ?? 0) === 0
+                        ? "No devices registered yet — press “Alert this device” above first."
+                        : "Goes to every registered device, not just this one. The notification says TEST."}
+                    </p>
+                  </div>
                 </>
               ) : (
                 /* Honest about the blocker rather than offering a button that
