@@ -9,6 +9,7 @@ import {
   type BowlingReservation,
 } from "@/lib/bowling-db";
 import { verifyCron } from "@/lib/cron-auth";
+import { officeReadSessionId } from "@/lib/bmi-office-ids";
 import redis from "@/lib/redis";
 import {
   raceSettleGate,
@@ -277,7 +278,7 @@ async function arrivedNumbers(clientKey: string): Promise<Set<string>> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     "x-fast-version": SMS_VERSION,
-    "x-session-id": `race-dayof-${clientKey}`,
+    "x-session-id": officeReadSessionId("race-dayof", clientKey),
     clientkey: clientKey,
   };
 

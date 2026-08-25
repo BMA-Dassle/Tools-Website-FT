@@ -1,6 +1,7 @@
 import https from "https";
 import { randomUUID } from "crypto";
 import { parseWithRawIds } from "@ft/db";
+import { officeReadSessionId } from "./bmi-office-ids";
 
 /**
  * BMI Office write actions — update project status + record payment.
@@ -108,11 +109,33 @@ async function getOfficeToken(clientKey: string): Promise<string> {
   return cachedToken!;
 }
 
+/**
+ * Headers for a WRITE operation. The `x-session-id` is minted once per
+ * operation and the returned object is then reused across that operation's
+ * GET → mutate → PUT, which is what keeps the id constant across the pair the
+ * way the Office UI does (see `putProject` below). Do NOT make this stable
+ * process-wide: concurrent writes would then share one session, which is not a
+ * thing the UI ever does. Reads use `readHeaders`.
+ */
 function apiHeaders(token: string, clientKey: string) {
   return {
     Authorization: `Bearer ${token}`,
     "x-fast-version": SMS_VERSION,
     "x-session-id": randomUUID(),
+    clientkey: clientKey,
+  };
+}
+
+/**
+ * Headers for a pure READ. Same shape, but the session id is stable per tenant
+ * so a polled fetch stops minting a BMI session per call — a read carries no
+ * server-side edit state for a shared id to collide with.
+ */
+function readHeaders(token: string, clientKey: string) {
+  return {
+    Authorization: `Bearer ${token}`,
+    "x-fast-version": SMS_VERSION,
+    "x-session-id": officeReadSessionId("read", clientKey),
     clientkey: clientKey,
   };
 }
@@ -734,7 +757,7 @@ export async function fetchOfficePerson(
     const res = await httpsRequest(
       "GET",
       `/api/${clientKey}/person/${personId}`,
-      apiHeaders(token, clientKey),
+      readHeaders(token, clientKey),
     );
     if (res.status >= 400) return null;
     return JSON.parse(res.body);
@@ -759,7 +782,7 @@ export async function fetchOfficeDepositHistory(
     const res = await httpsRequest(
       "GET",
       `/api/${clientKey}/deposit/history?personId=${personId}&from=${encodeURIComponent(from)}&until=${encodeURIComponent(until)}`,
-      apiHeaders(token, clientKey),
+      readHeaders(token, clientKey),
     );
     if (res.status >= 400) return null;
     const rows = JSON.parse(res.body);
@@ -786,7 +809,8 @@ export async function fetchPersonsByIds(
   if (personIds.length === 0) return [];
   const clientKey = CLIENT_KEYS[centerCode] || "headpinzftmyers";
   const token = await getOfficeToken(clientKey);
-  const headers = apiHeaders(token, clientKey);
+  // POST, but a pure lookup — no server-side edit state to share.
+  const headers = readHeaders(token, clientKey);
 
   const res = await httpsRequest(
     "POST",
@@ -820,7 +844,7 @@ export async function fetchProject(
 ): Promise<Record<string, unknown> | null> {
   const clientKey = CLIENT_KEYS[centerCode] || "headpinzftmyers";
   const token = await getOfficeToken(clientKey);
-  const headers = apiHeaders(token, clientKey);
+  const headers = readHeaders(token, clientKey);
   const res = await httpsRequest("GET", `/api/${clientKey}/project/${projectId}`, headers);
   if (res.status >= 400) return null;
   return JSON.parse(res.body);
@@ -845,7 +869,7 @@ export async function fetchProjectRawIds(
   projectId: string,
 ): Promise<Record<string, unknown> | null> {
   const token = await getOfficeToken(clientKey);
-  const headers = apiHeaders(token, clientKey);
+  const headers = readHeaders(token, clientKey);
   const res = await httpsRequest("GET", `/api/${clientKey}/project/${projectId}`, headers);
   if (res.status >= 400) return null;
   return parseWithRawIds<Record<string, unknown>>(res.body);

@@ -10,6 +10,7 @@
  */
 
 import { fetchProject, fetchPersonsByIds } from "@/lib/bmi-office-actions";
+import { officeReadSessionId } from "@/lib/bmi-office-ids";
 import {
   fetchReservationProducts,
   fetchReservationDetail,
@@ -162,7 +163,9 @@ export async function scanForNewEvents(targetStateIds?: Set<string>): Promise<He
       const headers = {
         Authorization: `Bearer ${token}`,
         "x-fast-version": SMS_VERSION,
-        "x-session-id": `scan-${Date.now()}`,
+        // Stable per tenant — this poll runs every 60s, so a clock-derived id
+        // minted 1,440 BMI sessions a day per center. See officeReadSessionId.
+        "x-session-id": officeReadSessionId("scan", center.clientKey),
         clientkey: center.clientKey,
       };
 

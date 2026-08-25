@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import redis from "@/lib/redis";
+import { officeReadSessionId } from "@/lib/bmi-office-ids";
 import { parseWithRawIds, BMI_ID_FIELDS } from "@ft/db";
 import {
   SMS_TIMING_BASE_URL,
@@ -105,13 +106,21 @@ export async function getOfficeToken(clientKey: string): Promise<string> {
 
 // ── HTTP helpers (portal apiGet/apiPost/apiPut, precision-safe parse) ─
 
-function apiHeaders(token: string, clientKey: string): Record<string, string> {
+/**
+ * `x-session-id` policy for this module: reads share ONE stable session per
+ * tenant. BMI holds server-side state per session id, and a per-call
+ * `randomUUID()` here minted one on every guest request plus every 5-minute
+ * cache warm. The single write (`officePut` on projectLog — a GET → mutate →
+ * PUT) keeps its own per-operation id, which is what the portal does across an
+ * edit. See `officeReadSessionId` in lib/bmi-office-ids.ts.
+ */
+function apiHeaders(token: string, clientKey: string, sessionId: string): Record<string, string> {
   return {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
     clientkey: clientKey,
     "x-fast-version": SMS_VERSION,
-    "x-session-id": randomUUID(),
+    "x-session-id": sessionId,
     ...SMS_HEADERS,
   };
 }
@@ -119,12 +128,16 @@ function apiHeaders(token: string, clientKey: string): Record<string, string> {
 async function officeFetch<T>(
   clientKey: string,
   endpoint: string,
-  init?: { method?: string; body?: string },
+  init?: { method?: string; body?: string; sessionId?: string },
 ): Promise<T> {
   const token = await getOfficeToken(clientKey);
   const res = await fetch(`${SMS_TIMING_BASE_URL}/api/${clientKey}/${endpoint}`, {
     method: init?.method || "GET",
-    headers: apiHeaders(token, clientKey),
+    headers: apiHeaders(
+      token,
+      clientKey,
+      init?.sessionId ?? officeReadSessionId("events", clientKey),
+    ),
     body: init?.body,
     signal: AbortSignal.timeout(25_000),
   });
@@ -142,14 +155,19 @@ export function officeGet<T>(clientKey: string, endpoint: string): Promise<T> {
   return officeFetch<T>(clientKey, endpoint);
 }
 
-/** body must be pre-serialized (serializeWithRawIds / raw-id-safe string). */
+/** body must be pre-serialized (serializeWithRawIds / raw-id-safe string).
+ *  Rides the shared read session — POST is a lookup verb on this API
+ *  (personsByIds, reservations/search). A MUTATING post must pass its own
+ *  `sessionId` through officeFetch instead. */
 export function officePost<T>(clientKey: string, endpoint: string, body: string): Promise<T> {
   return officeFetch<T>(clientKey, endpoint, { method: "POST", body });
 }
 
-/** body must be pre-serialized (serializeWithRawIds / raw-id-safe string). */
+/** body must be pre-serialized (serializeWithRawIds / raw-id-safe string).
+ *  Per-operation session id: this is the write rail, and its caller reads the
+ *  record then puts it back. */
 export function officePut<T>(clientKey: string, endpoint: string, body: string): Promise<T> {
-  return officeFetch<T>(clientKey, endpoint, { method: "PUT", body });
+  return officeFetch<T>(clientKey, endpoint, { method: "PUT", body, sessionId: randomUUID() });
 }
 
 // ── Metadata lookups (portal getMetadata: ~550KB blob, Redis 2h) ─────

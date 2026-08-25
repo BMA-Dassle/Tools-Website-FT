@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import https from "https";
 import redis from "@/lib/redis";
+import { officeReadSessionId } from "@/lib/bmi-office-ids";
 
 /**
  * POST /api/booking/confirm
@@ -149,7 +150,7 @@ async function verifyPostConfirm(
     const h: Record<string, string> = {
       Authorization: `Bearer ${token}`,
       "x-fast-version": SMS_VERSION,
-      "x-session-id": `verify-${Date.now()}`,
+      "x-session-id": officeReadSessionId("verify", clientKey),
       clientkey: clientKey,
     };
 

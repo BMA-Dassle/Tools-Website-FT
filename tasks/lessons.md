@@ -4906,3 +4906,36 @@ pattern: deploy the replacement, let it prove out, THEN delete.
 **How to apply:** One filter/guard = the whole disable, commented as such at the site. Leave
 every downstream branch, i18n key, asset, and registry entry untouched. If a line must stop
 executing, comment it out with the re-enable instructions next to the off switch.
+
+## A clock-derived session id is a resource leak on someone else's server (2026-08-25)
+
+**What happened:** BMI Office reported that something named `sweep-headpinzfortmyers` was
+consuming their server connections. That is our `bmi-cancel-sweep` cron (`sweep-${clientKey}`,
+mis-transcribed — `headpinzfortmyers` exists nowhere in our code; the key is `headpinzftmyers`).
+It was the wrong suspect. BMI holds server-side state per `x-session-id`, and the sweep's id was
+the only STABLE one in the fleet — so it was the only one they could name. The volume was
+elsewhere: `bmi-scan.ts` sent `scan-${Date.now()}` on a cron that `vercel.json` runs **every
+minute**, so it opened a fresh BMI session ~1,440 times a day per tenant. Of 16 production
+`x-session-id` patterns, only 2 were stable.
+
+**The rule:** A session id identifies a CALLER, not a call. Derive it from what is stable about
+the caller — `{tag}-{clientKey}` — never from a clock. `Date.now()` in a session id is a UUID
+with worse properties: it guarantees a new server-side session per request and reveals nothing.
+The corollary is a diagnosis rule: **the caller a vendor can NAME is the one whose id is stable,
+which is evidence it is behaving, not evidence it is the problem.** Look for the unnamed churn.
+
+**Not banned: a per-OPERATION `randomUUID()` on a write rail.** `apiHeaders` in
+`lib/bmi-office-actions.ts` mints one and reuses the object across that operation's
+GET → mutate → PUT, which is what the Office UI does across a single edit (see `putProject`).
+Making that process-wide would put concurrent writes on one session — something the UI never
+does — for a load problem that reads can solve. Reads got `readHeaders`; writes were left alone.
+
+**How to apply:** `officeReadSessionId(tag, clientKey)` in `lib/bmi-office-ids.ts` is the one
+definition; every stable id routes through it, including the two that were already stable, so
+the set is greppable. `lib/__tests__/bmi-office-session-ids.test.ts` fails on any production
+`x-session-id` built from a clock and pins each timer-driven poller to the helper — verified by
+reintroducing `scan-${Date.now()}` and watching it fail, which is also how the first version of
+that test was caught passing when it should not have (it checked the file for the identifier
+rather than the session-id line). Session-id churn was only the first of several load problems
+in the same area — call volume (a 365-day dayPlanner window every 60s), a single-slot token
+cache that re-auths per center per run, absent keep-alive, and no overlap lock — all still open.

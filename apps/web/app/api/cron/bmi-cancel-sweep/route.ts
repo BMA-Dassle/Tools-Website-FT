@@ -4,7 +4,7 @@ import { neon } from "@neondatabase/serverless";
 import { parseWithRawIds } from "@ft/db";
 import redis from "@/lib/redis";
 import { verifyCron } from "@/lib/cron-auth";
-import { billIdFromOfficeProjectId } from "@/lib/bmi-office-ids";
+import { billIdFromOfficeProjectId, officeReadSessionId } from "@/lib/bmi-office-ids";
 import { getBowlingReservationByBillId } from "@/lib/bowling-db";
 import { stampVipStateIfCombo } from "~/features/combos/vip-state.server";
 
@@ -226,7 +226,9 @@ async function sweepCenter(
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     "x-fast-version": SMS_VERSION,
-    "x-session-id": `sweep-${center.clientKey}`,
+    // Already stable, and the id BMI Office named on 2026-08-25 — routed through
+    // the shared helper so every stable session id has one definition.
+    "x-session-id": officeReadSessionId("sweep", center.clientKey),
     clientkey: center.clientKey,
   };
 

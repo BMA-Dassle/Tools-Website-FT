@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import https from "https";
 import { getBowlingReservationByBillId } from "@/lib/bowling-db";
+import { officeReadSessionId } from "@/lib/bmi-office-ids";
 
 /**
  * GET /api/admin/booking/inspect?token=...&billId=63000000003750208
@@ -154,7 +155,7 @@ async function officeProject(clientKey: string, reservationNumber: string, billI
   const h: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     "x-fast-version": SMS_VERSION,
-    "x-session-id": `inspect-${billId}`,
+    "x-session-id": officeReadSessionId("inspect", clientKey),
     clientkey: clientKey,
   };
 

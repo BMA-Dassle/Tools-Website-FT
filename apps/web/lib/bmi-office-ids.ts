@@ -5,6 +5,30 @@
  * needs the projectId derivation imports from here instead).
  */
 
+/**
+ * A STABLE `x-session-id` for BMI Office READS: `{tag}-{clientKey}`.
+ *
+ * BMI Office holds server-side state per `x-session-id`. A caller that derives
+ * the header from a clock (`scan-${Date.now()}`) or a fresh `randomUUID()` mints
+ * a brand-new session on every tick, so a 60-second poll leaves ~1,440 of them
+ * behind per tenant per day. BMI Office reported connection exhaustion on
+ * 2026-08-25 and named `sweep-headpinzftmyers` — the one poller whose id was
+ * already stable, and therefore the only one they could see. The unstable
+ * pollers were the volume.
+ *
+ * Keyed by clientKey because a session is per-tenant: one id shared across both
+ * centers would attribute Naples reads to the Fort Myers session.
+ *
+ * READS ONLY. A write round-trip (GET → mutate → PUT) keeps its own
+ * per-operation id — see `apiHeaders` in lib/bmi-office-actions.ts. The Office
+ * UI holds one session across a single edit, so a per-operation id mirrors it;
+ * a process-wide id shared by concurrent writes would not, and a write path is
+ * not where we find out what BMI does with that.
+ */
+export function officeReadSessionId(tag: string, clientKey: string): string {
+  return `${tag}-${clientKey}`;
+}
+
 /** BMI Office project id = bill id + 1. Both are 17-digit strings beyond
  *  Number.MAX_SAFE_INTEGER — the increment runs on the last 10 digits only
  *  (safe as a Number) and the prefix stays raw text. Same computation

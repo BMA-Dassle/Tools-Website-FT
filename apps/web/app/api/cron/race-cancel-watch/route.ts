@@ -15,6 +15,7 @@ import {
   type ApiCall,
 } from "~/features/booking/service/bmi-rebuild";
 import { getBowlingReservationByBillId } from "@/lib/bowling-db";
+import { officeReadSessionId } from "@/lib/bmi-office-ids";
 
 /** The old bill's `combo_special_id`, so a rebuilt Ultimate VIP Experience is
  *  put back on "Confirmation - VIP" instead of plain -3 (owner 2026-08-02).
@@ -214,7 +215,7 @@ async function fetchOfficeProject(
     const res = await officeReq("GET", `/api/${clientKey}/project/${projectId}`, {
       Authorization: `Bearer ${token}`,
       "x-fast-version": SMS_VERSION,
-      "x-session-id": `cancel-watch-${projectId}`,
+      "x-session-id": officeReadSessionId("cancel-watch", clientKey),
       clientkey: clientKey,
     });
     status = res.status;

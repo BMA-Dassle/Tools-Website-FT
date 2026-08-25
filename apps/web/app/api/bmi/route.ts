@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import https from "https";
 import redis from "@/lib/redis";
 import { mirrorMemoIntoNotesByBillId } from "@/lib/bowling-db";
+import { officeReadSessionId } from "@/lib/bmi-office-ids";
 import { bmiWriteBlocked } from "~/features/maintenance";
 import { guardBillCancel } from "~/features/kiosk/service/cancel-guard";
 
@@ -282,7 +283,7 @@ async function verifyPostConfirm(
     const h: Record<string, string> = {
       Authorization: `Bearer ${token}`,
       "x-fast-version": SMS_VERSION,
-      "x-session-id": `verify-${Date.now()}`,
+      "x-session-id": officeReadSessionId("verify", clientKey),
       clientkey: clientKey,
     };
 
