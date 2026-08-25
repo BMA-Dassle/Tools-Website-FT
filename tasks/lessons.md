@@ -4966,5 +4966,24 @@ group-quote-dispatch cron to every 1 minute", which is what created this profile
 the 12-month windowing landed. Halves everything, and it makes the route's own 60-second
 `hermes_last_processed_at` debounce meaningful again — on a 60s cron that debounce could never
 fire. The route's doc comment already said "every 2 minutes", so the comment is now true.
-Still open: the 365-day horizon (12 monthly windows to catch a state flip made minutes ago), the
-single-slot token cache that re-auths per center per run, absent keep-alive, and no overlap lock.
+Still open: the 365-day horizon (12 monthly windows to catch a state flip made minutes ago),
+absent keep-alive, and no overlap lock.
+
+**The token cache is the bigger leak, and there is no logoff.** Measured live
+(`scripts/bmi-office-token-lifetime.ts`): `/auth/token` returns `expires_in: 86399` with
+`.issued`/`.expires` exactly 24h apart, the token is OPAQUE (not a JWT), and **every re-auth
+mints a different token** — so each one is a distinct grant BMI has to hold server-side for a
+full day. Now read that against the token cache in `lib/bmi-scan.ts` and
+`lib/bmi-office-actions.ts`: a SINGLE global slot keyed by clientKey, so a loop over both centers
+evicts on every iteration and re-auths every run. The scan alone was minting 2 tokens a minute =
+~2,880 a day, every one valid 24h, so they all overlap. That explains "taking up all their server
+connections" better than session-id churn does. Making the cache a per-clientKey map takes it to
+~2 a day per center.
+
+Two consequences. **We cannot log the old ones off** — BMI Office exposes no session-list and no
+logout/revoke endpoint in any spec or capture we hold, and only they can see the session table
+(which is why they, not we, spotted this). **We do not need to**: a 24h expiry means the backlog
+drains on its own within a day of stopping the minting. Do not go probing undocumented
+`/auth/logout` shapes to force it — a working call could drop staff off the Office UI
+mid-transaction, and killing sessions on a vendor's box is theirs to authorise. Ask them to reap
+it if the tail matters.
