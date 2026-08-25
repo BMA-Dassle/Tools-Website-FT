@@ -2,6 +2,7 @@ import https from "https";
 import { randomUUID } from "crypto";
 import { parseWithRawIds } from "@ft/db";
 import { officeReadSessionId } from "./bmi-office-ids";
+import { getOfficeToken } from "./bmi-office-token";
 
 /**
  * BMI Office write actions — update project status + record payment.
@@ -14,9 +15,9 @@ import { officeReadSessionId } from "./bmi-office-ids";
  */
 
 const OFFICE_HOST = "office-api22.sms-timing.com";
-const OFFICE_USER = process.env.BMI_OFFICE_USERNAME || "API2";
-const OFFICE_PASS_B64 = process.env.BMI_OFFICE_PASSWORD_B64 || "JGMxbjFlbGxv";
-const OFFICE_PASS = Buffer.from(OFFICE_PASS_B64, "base64").toString();
+// Office credentials are read (env only) inside lib/bmi-office-token.ts. They
+// used to sit here and in lib/bmi-scan.ts as literal defaults, which put the
+// service password in git history and in every preview build.
 const SMS_VERSION = "6251006 202511051229";
 
 const PAY_METHOD_IDS: Record<string, string> = {
@@ -55,9 +56,9 @@ const WAIVER_ACTIVITIES = [
   "vip birthday",
 ];
 
-let cachedToken: string | null = null;
-let tokenExpiry = 0;
-let tokenClientKey = "";
+// Token caching lives in lib/bmi-office-token.ts — one grant per tenant, shared
+// through Redis across every caller and every lambda. The single-slot cache that
+// used to sit here evicted itself on every loop over both centers.
 
 function httpsRequest(
   method: string,
@@ -85,28 +86,6 @@ function httpsRequest(
     if (body) req.write(body);
     req.end();
   });
-}
-
-async function getOfficeToken(clientKey: string): Promise<string> {
-  if (cachedToken && Date.now() < tokenExpiry - 60_000 && tokenClientKey === clientKey)
-    return cachedToken;
-  const postBody = `grant_type=password&username=${OFFICE_USER}&password=${OFFICE_PASS}`;
-  const res = await httpsRequest(
-    "POST",
-    "/auth/token",
-    {
-      "Content-Type": "application/x-www-form-urlencoded",
-      clientkey: clientKey,
-      "x-fast-version": SMS_VERSION,
-    },
-    postBody,
-  );
-  if (res.status !== 200) throw new Error(`Office auth failed: ${res.status}`);
-  const data = JSON.parse(res.body);
-  cachedToken = data.access_token;
-  tokenClientKey = clientKey;
-  tokenExpiry = Date.now() + parseInt(data.expires_in || "86400", 10) * 1000;
-  return cachedToken!;
 }
 
 /**

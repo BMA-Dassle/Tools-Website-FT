@@ -11,6 +11,7 @@
 
 import { fetchProject, fetchPersonsByIds } from "@/lib/bmi-office-actions";
 import { officeReadSessionId } from "@/lib/bmi-office-ids";
+import { getOfficeToken } from "@/lib/bmi-office-token";
 import {
   fetchReservationProducts,
   fetchReservationDetail,
@@ -21,9 +22,6 @@ import { taxCents } from "@/lib/group-function-pricing";
 import { normalizeEtDate } from "@/lib/et-time";
 
 const OFFICE_HOST = "office-api22.sms-timing.com";
-const OFFICE_USER = process.env.BMI_OFFICE_USERNAME || "API2";
-const OFFICE_PASS_B64 = process.env.BMI_OFFICE_PASSWORD_B64 || "JGMxbjFlbGxv";
-const OFFICE_PASS = Buffer.from(OFFICE_PASS_B64, "base64").toString();
 const SMS_VERSION = "6251006 202511051229";
 
 const CLIENT_KEYS: Record<string, string> = {
@@ -99,32 +97,6 @@ function httpsRequest(
   });
 }
 
-let cachedToken: string | null = null;
-let tokenExpiry = 0;
-let tokenClientKey = "";
-
-async function getToken(clientKey: string): Promise<string> {
-  if (cachedToken && Date.now() < tokenExpiry - 60_000 && tokenClientKey === clientKey) {
-    return cachedToken;
-  }
-  const res = await httpsRequest(
-    "POST",
-    "/auth/token",
-    {
-      "Content-Type": "application/x-www-form-urlencoded",
-      clientkey: clientKey,
-      "x-fast-version": SMS_VERSION,
-    },
-    `grant_type=password&username=${OFFICE_USER}&password=${OFFICE_PASS}`,
-  );
-  if (res.status !== 200) throw new Error(`Auth failed: ${res.status}`);
-  const data = JSON.parse(res.body);
-  cachedToken = data.access_token;
-  tokenClientKey = clientKey;
-  tokenExpiry = Date.now() + parseInt(data.expires_in || "86400", 10) * 1000;
-  return cachedToken!;
-}
-
 interface BmiProject {
   id: string;
   name: string;
@@ -159,7 +131,7 @@ export async function scanForNewEvents(targetStateIds?: Set<string>): Promise<He
 
   for (const center of CENTERS) {
     try {
-      const token = await getToken(center.clientKey);
+      const token = await getOfficeToken(center.clientKey);
       const headers = {
         Authorization: `Bearer ${token}`,
         "x-fast-version": SMS_VERSION,

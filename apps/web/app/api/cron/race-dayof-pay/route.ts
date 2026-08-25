@@ -10,6 +10,7 @@ import {
 } from "@/lib/bowling-db";
 import { verifyCron } from "@/lib/cron-auth";
 import { officeReadSessionId } from "@/lib/bmi-office-ids";
+import { getOfficeToken } from "@/lib/bmi-office-token";
 import redis from "@/lib/redis";
 import {
   raceSettleGate,
@@ -72,11 +73,7 @@ const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
 const SQUARE_VERSION = "2024-12-18";
 
 const OFFICE_HOST = "office-api22.sms-timing.com";
-const OFFICE_USER = process.env.BMI_OFFICE_USERNAME || "";
-const OFFICE_PASS_B64 = process.env.BMI_OFFICE_PASSWORD_B64 || "";
-const OFFICE_PASS = OFFICE_PASS_B64
-  ? Buffer.from(OFFICE_PASS_B64, "base64").toString()
-  : process.env.BMI_OFFICE_PASSWORD || "";
+// Credentials + token caching: lib/bmi-office-token.ts.
 const SMS_VERSION = "6251006 202511051229";
 const ARRIVED_STATE = "-5";
 
@@ -133,21 +130,6 @@ function officeReq(
     if (body) r.write(body);
     r.end();
   });
-}
-
-async function getOfficeToken(clientKey: string): Promise<string> {
-  const res = await officeReq(
-    "POST",
-    "/auth/token",
-    {
-      "Content-Type": "application/x-www-form-urlencoded",
-      clientkey: clientKey,
-      "x-fast-version": SMS_VERSION,
-    },
-    `grant_type=password&username=${OFFICE_USER}&password=${encodeURIComponent(OFFICE_PASS)}`,
-  );
-  if (res.status !== 200) throw new Error(`Office auth ${res.status}`);
-  return JSON.parse(res.body).access_token;
 }
 
 interface DpProject {

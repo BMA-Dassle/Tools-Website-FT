@@ -91,10 +91,25 @@ async function main() {
   }
 
   console.log(`\n${failures === 0 ? "PASS" : `FAIL (${failures})`} — live integration complete`);
-  process.exit(failures === 0 ? 0 : 1);
 }
 
-main().catch((e) => {
-  console.error("crashed:", e);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    process.exitCode = failures === 0 ? 0 : 1;
+  })
+  .catch((e) => {
+    console.error("crashed:", e);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    // The token cache and daily-events both hold the shared ioredis client, and
+    // its socket is still closing when the process ends. process.exit() there
+    // trips a libuv assertion on Windows AFTER a clean PASS, which reads like a
+    // failed run. Close it and let the loop drain instead of exiting hard.
+    try {
+      const { default: redis } = await import("@/lib/redis");
+      redis.disconnect();
+    } catch {
+      // Nothing to close.
+    }
+  });

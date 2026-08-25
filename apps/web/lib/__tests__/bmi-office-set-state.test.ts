@@ -85,7 +85,27 @@ vi.mock("https", () => ({
   },
 }));
 
+/**
+ * The token cache (lib/bmi-office-token.ts) reads Redis before minting. Stub it
+ * so the suite never opens a socket; a real ioredis here would retry against
+ * localhost on every test.
+ */
+vi.mock("@/lib/redis", () => {
+  const store = new Map<string, string>();
+  return {
+    default: {
+      get: async (k: string) => store.get(k) ?? null,
+      setex: async (k: string, _ttl: number, v: string) => {
+        store.set(k, v);
+        return "OK";
+      },
+      del: async (k: string) => (store.delete(k) ? 1 : 0),
+    },
+  };
+});
+
 const { setProjectState } = await import("../bmi-office-actions");
+const { __resetOfficeTokenCacheForTests } = await import("../bmi-office-token");
 
 /**
  * Build an Office handler.
@@ -176,6 +196,14 @@ function officeAsking(
 }
 
 beforeEach(() => {
+  // These used to come from literal defaults in lib/bmi-office-actions.ts, so
+  // this suite was implicitly authenticating with the real service password.
+  // Credentials are env-only now (lib/bmi-office-token.ts) — supply fakes, and
+  // clear the cached grant so each test mints through the mocked https.
+  process.env.BMI_OFFICE_USERNAME = "test-user";
+  process.env.BMI_OFFICE_PASSWORD = "test-pass";
+  delete process.env.BMI_OFFICE_PASSWORD_B64;
+  __resetOfficeTokenCacheForTests();
   state.pandoraOk = true;
   state.pandoraCalls = 0;
   state.putBodies = [];

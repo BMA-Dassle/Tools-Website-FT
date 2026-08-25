@@ -4969,6 +4969,17 @@ fire. The route's doc comment already said "every 2 minutes", so the comment is 
 Still open: the 365-day horizon (12 monthly windows to catch a state flip made minutes ago),
 absent keep-alive, and no overlap lock.
 
+**FIXED 2026-08-25 — `lib/bmi-office-token.ts`.** One grant per tenant, memo + Redis, in-flight
+coalescing, `invalidateOfficeToken` for a 401. Held **1 hour, not the 23h the grant allows**: a
+shared long-lived token is a shared failure mode (a revoked grant would wedge every cron for a
+day), and ~48 tokens/day is already ~100x below the level that caused the incident, so buying
+~2/day instead is indistinguishable to BMI and materially worse to operate. Proven live: run one
+logged two mints, and a SEPARATE process minutes later logged **zero** — it reused the Redis
+grant. Removing the literal credential defaults also broke
+`lib/__tests__/bmi-office-set-state.test.ts`, which had been implicitly authenticating with the
+real service password; it now supplies its own fakes. That is worth knowing on its own: a
+hardcoded default does not just leak a secret, it hides which tests depend on one.
+
 **The token cache is the bigger leak, and there is no logoff.** Measured live
 (`scripts/bmi-office-token-lifetime.ts`): `/auth/token` returns `expires_in: 86399` with
 `.issued`/`.expires` exactly 24h apart, the token is OPAQUE (not a JWT), and **every re-auth

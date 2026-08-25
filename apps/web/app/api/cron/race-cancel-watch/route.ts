@@ -16,6 +16,7 @@ import {
 } from "~/features/booking/service/bmi-rebuild";
 import { getBowlingReservationByBillId } from "@/lib/bowling-db";
 import { officeReadSessionId } from "@/lib/bmi-office-ids";
+import { getOfficeToken } from "@/lib/bmi-office-token";
 
 /** The old bill's `combo_special_id`, so a rebuilt Ultimate VIP Experience is
  *  put back on "Confirmation - VIP" instead of plain -3 (owner 2026-08-02).
@@ -69,11 +70,7 @@ const BMI_USERNAME = process.env.BMI_USERNAME || "";
 const BMI_PASSWORD = process.env.BMI_PASSWORD || "";
 
 const OFFICE_HOST = "office-api22.sms-timing.com";
-const OFFICE_USER = process.env.BMI_OFFICE_USERNAME || "";
-const OFFICE_PASS_B64 = process.env.BMI_OFFICE_PASSWORD_B64 || "";
-const OFFICE_PASS = OFFICE_PASS_B64
-  ? Buffer.from(OFFICE_PASS_B64, "base64").toString()
-  : process.env.BMI_OFFICE_PASSWORD || "";
+// Credentials + token caching: lib/bmi-office-token.ts.
 const SMS_VERSION = "6251006 202511051229";
 
 const bmiTokenCache: Record<string, { token: string; expiry: number }> = {};
@@ -165,30 +162,6 @@ function officeReq(
     if (body) req.write(body);
     req.end();
   });
-}
-
-let officeTokenCache: { token: string; expiry: number; clientKey: string } | null = null;
-async function getOfficeToken(clientKey: string): Promise<string> {
-  if (
-    officeTokenCache &&
-    officeTokenCache.clientKey === clientKey &&
-    Date.now() < officeTokenCache.expiry - 60_000
-  )
-    return officeTokenCache.token;
-  const res = await officeReq(
-    "POST",
-    "/auth/token",
-    {
-      "Content-Type": "application/x-www-form-urlencoded",
-      clientkey: clientKey,
-      "x-fast-version": SMS_VERSION,
-    },
-    `grant_type=password&username=${OFFICE_USER}&password=${encodeURIComponent(OFFICE_PASS)}`,
-  );
-  if (res.status !== 200) throw new Error(`Office auth ${res.status}`);
-  const token = JSON.parse(res.body).access_token;
-  officeTokenCache = { token, clientKey, expiry: Date.now() + 3500_000 };
-  return token;
 }
 
 interface OfficeProject {
