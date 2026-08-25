@@ -299,7 +299,9 @@ export const flowEn = {
   "stepReason.addRacer": "Add at least one racer to continue.",
   "stepReason.racerFirstName": "Every party member needs a first name.",
   "stepReason.raceDay": "Pick a race day to continue.",
-  "stepReason.megaTuesday": "Mega Tuesdays run Junior Pro races only.",
+  // Day-neutral: Mega runs Tuesdays year-round and Thursdays for the Sep–Oct
+  // 2026 season, and one entry has to cover both. See mega-calendar.
+  "stepReason.megaDay": "Mega days run Junior Pro races only.",
   "stepReason.racePackAdded": "Race pack added — now pick which race to run today.",
   "stepReason.pickAdultRace": "Pick an adult race to continue.",
   "stepReason.pickJuniorRace": "Pick a junior race to continue.",
@@ -541,7 +543,9 @@ export const flowEs: Record<keyof typeof flowEn, string> = {
   "stepReason.addRacer": "Agrega al menos un corredor para continuar.",
   "stepReason.racerFirstName": "Cada integrante del grupo necesita un nombre.",
   "stepReason.raceDay": "Elige un día de carreras para continuar.",
-  "stepReason.megaTuesday": "Los Mega Tuesdays solo tienen carreras Junior Pro.",
+  // "Mega" stays English (glossary brand noun); "días Mega" is the natural
+  // Spanish for the day-neutral English.
+  "stepReason.megaDay": "Los días Mega solo tienen carreras Junior Pro.",
   "stepReason.racePackAdded": "Paquete de carreras agregado — ahora elige qué carrera correr hoy.",
   "stepReason.pickAdultRace": "Elige una carrera de adultos para continuar.",
   "stepReason.pickJuniorRace": "Elige una carrera junior para continuar.",

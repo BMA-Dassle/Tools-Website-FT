@@ -25,6 +25,7 @@ import type { TrackKey } from "./track";
 import type { BriefingRoomState } from "./briefing/types";
 import { GREETING_TIMING_DEFAULTS } from "./briefing/return-greeting";
 import type { TvFeed, VipEntry, WelcomeEntry } from "./types";
+import { isMegaDayTodayET } from "~/features/racing/mega-calendar";
 
 export type DemoMode =
   | "event"
@@ -320,19 +321,15 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
  * this.
  */
 /**
- * Is "now" a Mega day (Tuesday, ET)? PREVIEWS ONLY. Live boards follow the
+ * Is "now" a Mega day (ET)? PREVIEWS ONLY. Live boards follow the
  * megaTrackEnabled signal and the session data — guessing Mega from the
- * calendar was deliberately rejected for live use, because a Tuesday that is
+ * calendar was deliberately rejected for live use, because a Mega day that is
  * not actually run as Mega would strand a board on an empty track. A preview
  * is fabricated anyway, so the calendar is exactly the right authority: press
  * Preview session on a Mega day, see a Mega session (owner 2026-08-11).
  */
 export function demoIsMegaDay(nowMs: number): boolean {
-  return (
-    new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(
-      new Date(nowMs),
-    ) === "Tue"
-  );
+  return isMegaDayTodayET(new Date(nowMs));
 }
 
 /* ── the scores wall ──────────────────────────────────────────────────── */

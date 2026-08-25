@@ -4,8 +4,10 @@
  *  display copy. Add keys to `peopleUiEn`; mirror every key in `peopleUiEs`.
  *  AGE-GATE LOGIC IS NEVER TOUCHED — only display strings are keyed.
  *  Glossary terms stay untranslated: FastTrax, HeadPinz, Game Zone, Podium,
- *  Pit Crew, Duckpin, Mega Tuesday, Starter (also proper nouns Express Lane,
- *  Junior, Blue/Red). */
+ *  Pit Crew, Duckpin, Mega Tuesday / Mega Thursday, Starter (also proper nouns
+ *  Express Lane, Junior, Blue/Red). The Mega day NAME is not a catalog entry at
+ *  all — it names whichever day is running and comes from `mega-calendar`'s
+ *  window label, identical in both languages. */
 export const peopleUiEn = {
   // intro
   "peopleUi.introSignedIn":
@@ -13,8 +15,9 @@ export const peopleUiEn = {
   "peopleUi.introAddEveryone":
     "Add everyone playing. Each person gets an account and signs the waiver right here — so check-in is the Express Lane, not a line.",
 
-  // Mega Tuesday junior notice (racing only)
-  "peopleUi.megaTuesday": "Mega Tuesday",
+  // Mega day junior notice (racing only). The eyebrow above this line is the
+  // day's own name ("Mega Tuesday" / "Mega Thursday") and comes from
+  // mega-calendar, not from here — see the glossary note at the top.
   "peopleUi.megaJuniorWarning":
     "Today is Junior Pro only — no Junior Starter or Junior Intermediate races. Juniors must qualify up to Junior Pro on a split-track (Blue/Red) day first.",
 
@@ -171,8 +174,8 @@ export const peopleUiEs: Record<keyof typeof peopleUiEn, string> = {
   "peopleUi.introAddEveryone":
     "Agrega a todos los que van a jugar. Cada persona obtiene una cuenta y firma la exención aquí mismo — así el registro es el Express Lane, no una fila.",
 
-  // Mega Tuesday junior notice (racing only)
-  "peopleUi.megaTuesday": "Mega Tuesday",
+  // Mega day junior notice (racing only). The eyebrow is the day's own name,
+  // from mega-calendar — a glossary proper noun, identical in both languages.
   "peopleUi.megaJuniorWarning":
     "Hoy solo hay carreras Junior Pro — no hay Junior Starter ni Junior Intermediate. Los Junior deben clasificar hasta Junior Pro primero en un día de pista dividida (Blue/Red).",
 

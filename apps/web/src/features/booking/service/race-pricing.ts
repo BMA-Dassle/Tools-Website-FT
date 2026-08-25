@@ -14,6 +14,7 @@
  * steps/race/*` when those components land in commit 9 — pricing math
  * stays vendor-neutral here.
  */
+import { isMegaDay } from "~/features/racing/mega-calendar";
 
 /** Schedule families (drive product filtering by day-of-week). */
 export type Schedule = "weekday" | "weekend" | "mega";
@@ -34,18 +35,24 @@ export function calculateTotal(subtotal: number): number {
 /**
  * Resolve which BMI page / product set a given calendar date belongs to:
  *
- *   Tuesday (day 2)           → "mega"   (Mega Tuesday combined config)
+ *   a Mega day                 → "mega"    (combined-circuit config)
  *   Friday / Saturday / Sunday → "weekend"
- *   Mon / Wed / Thu            → "weekday"
+ *   everything else            → "weekday"
  *
- * Ports v1's `scheduleForDate` verbatim — the local-time construction
- * path avoids the UTC-parse trap where "2026-06-01" interpreted as UTC
- * lands on the wrong wall-clock day in US-East zones.
+ * WHICH DAYS ARE MEGA IS NOT DECIDED HERE. It used to be — a bare
+ * `day === 2` — and that literal spread to eleven other files before Mega
+ * was added to Thursdays for the Sep–Oct 2026 season. `mega-calendar` owns
+ * the answer now; this function owns only the weekend/weekday split, and a
+ * Mega day is checked FIRST because it overrides both (Mega runs its own
+ * flat-rate products whatever the rest of the week charges).
  *
  * Accepts a Date or an ISO-y string. Strings shaped `YYYY-MM-DD` (with
- * or without a trailing T-time) take the local-time path.
+ * or without a trailing T-time) take the local-time path, which avoids the
+ * UTC-parse trap where "2026-06-01" interpreted as UTC lands on the wrong
+ * wall-clock day in US-East zones.
  */
 export function scheduleForDate(d: Date | string): Schedule {
+  if (isMegaDay(d)) return "mega";
   let day: number;
   if (typeof d === "string") {
     const datePart = d.split("T")[0];
@@ -59,7 +66,6 @@ export function scheduleForDate(d: Date | string): Schedule {
   } else {
     day = d.getDay();
   }
-  if (day === 2) return "mega";
   if (day === 0 || day === 5 || day === 6) return "weekend";
   return "weekday";
 }

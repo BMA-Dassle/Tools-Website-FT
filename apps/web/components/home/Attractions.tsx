@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import BookingLink from "@/components/BookingLink";
 import ComboTeaser from "~/components/features/combos/ComboTeaser";
+import { megaDaysPhrase } from "~/features/racing/mega-calendar";
 import {
   etDateIso,
   fasttraxHoursGroups,
@@ -9,36 +10,47 @@ import {
   formatHoursGroupLabel,
 } from "~/lib/constants/fasttrax-hours";
 
-// Exact data from live site inspection
-const row1 = [
-  {
-    title: "HIGH-POWERED RACING",
-    desc: "Experience our high-performance electric karts on our dual Blue and Red tracks.",
-    cta: "CHECK OUT RACING",
-    ctaBg: "rgb(228,28,29)",
-    border: "rgba(228,28,29,0.59)",
-    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06577.webp",
-    href: "/racing",
-  },
-  {
-    title: "MEGA TRACK TUESDAYS",
-    desc: "Every Tuesday, we pull the barriers to create Florida's largest indoor racing circuit.",
-    cta: "BOOK THE MEGA TRACK",
-    ctaBg: "rgb(134,82,255)",
-    border: "rgba(134,82,255,0.59)",
-    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06538.webp",
-    href: "/racing",
-  },
-  {
-    title: "THE GAME ZONE",
-    desc: "50+ arcade titles & VR experiences for the ultimate gaming adventure.",
-    cta: "LOAD A GAME CARD",
-    ctaBg: "rgb(0,74,173)",
-    border: "rgba(0,74,173,0.59)",
-    img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06445.webp",
-    href: "/attractions",
-  },
-];
+/**
+ * Exact data from live site inspection.
+ *
+ * A FUNCTION, not a module const, for the same reason `hoursPills()` is: the
+ * Mega card names the days Mega actually runs, and those are effective-DATED
+ * (Thursdays join for the Sep–Oct 2026 season). A module-level const would
+ * resolve `etDateIso()` once when the module first loaded — at BUILD time on a
+ * statically rendered page — and freeze the copy on whatever day that was.
+ */
+function row1Cards() {
+  const today = etDateIso();
+  return [
+    {
+      title: "HIGH-POWERED RACING",
+      desc: "Experience our high-performance electric karts on our dual Blue and Red tracks.",
+      cta: "CHECK OUT RACING",
+      ctaBg: "rgb(228,28,29)",
+      border: "rgba(228,28,29,0.59)",
+      img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06577.webp",
+      href: "/racing",
+    },
+    {
+      title: `MEGA TRACK ${megaDaysPhrase(today).toUpperCase()}`,
+      desc: `Every ${megaDaysPhrase(today, "singular")}, we pull the barriers to create Florida's largest indoor racing circuit.`,
+      cta: "BOOK THE MEGA TRACK",
+      ctaBg: "rgb(134,82,255)",
+      border: "rgba(134,82,255,0.59)",
+      img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06538.webp",
+      href: "/racing",
+    },
+    {
+      title: "THE GAME ZONE",
+      desc: "50+ arcade titles & VR experiences for the ultimate gaming adventure.",
+      cta: "LOAD A GAME CARD",
+      ctaBg: "rgb(0,74,173)",
+      border: "rgba(0,74,173,0.59)",
+      img: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06445.webp",
+      href: "/attractions",
+    },
+  ];
+}
 
 const row2 = [
   {
@@ -77,7 +89,13 @@ function hoursPills() {
   }));
 }
 
-function AttractionCard({ card, wide = false }: { card: (typeof row1)[0]; wide?: boolean }) {
+function AttractionCard({
+  card,
+  wide = false,
+}: {
+  card: ReturnType<typeof row1Cards>[0];
+  wide?: boolean;
+}) {
   return (
     <div
       className="flex flex-col rounded-lg overflow-hidden h-full"
@@ -207,7 +225,7 @@ export default function Attractions() {
 
         {/* Row 1: 3 cards */}
         <div className="flex flex-col sm:flex-row gap-8 mb-8 items-stretch">
-          {row1.map((card) => (
+          {row1Cards().map((card) => (
             <div key={card.title} className="flex-1 flex flex-col">
               <AttractionCard card={card} />
             </div>

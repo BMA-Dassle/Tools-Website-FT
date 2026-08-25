@@ -8,6 +8,11 @@ import { useState } from "react";
 import { trackBookingClick } from "@/lib/analytics";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { RACE_TYPE_CARDS, KART_CLASS_CARDS } from "~/lib/constants/racing-content";
+// Which days run Mega is effective-DATED (Thursdays join for the Sep-Oct 2026
+// season), so the copy below names them from the calendar rather than saying
+// "Tuesdays". The layout's daily ISR keeps the rendered HTML in step.
+import { megaDaysPhrase } from "~/features/racing/mega-calendar";
+import { etDateIso } from "~/lib/constants/fasttrax-hours";
 
 const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 const blueGlow = "rgba(0,12,255,0.4) 0px 0px 30px";
@@ -601,7 +606,7 @@ export default function RacingPage() {
                     fontSize: "18px",
                   }}
                 >
-                  Tuesdays Only: Florida&apos;s longest multi-level track.
+                  {megaDaysPhrase(etDateIso())} Only: Florida&apos;s longest multi-level track.
                 </p>
                 <p
                   className="font-body"
@@ -616,9 +621,9 @@ export default function RacingPage() {
                     border: "1px solid rgba(255,193,7,0.3)",
                   }}
                 >
-                  &#9888;&#65039; Junior Notice: Mega Track Tuesdays run Junior Pro races only — no
-                  Junior Starter or Junior Intermediate. Juniors must qualify all the way up to
-                  Junior Pro on a split-track day first.
+                  &#9888;&#65039; Junior Notice: Mega days run Junior Pro races only — no Junior
+                  Starter or Junior Intermediate. Juniors must qualify all the way up to Junior Pro
+                  on a split-track day first.
                 </p>
               </div>
 

@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import { modalBackdropProps } from "@/lib/a11y";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
-import { businessDayWeekdayET } from "@/lib/race-business-day";
+import { businessDayYmdET } from "@/lib/race-business-day";
+import { isMegaDay } from "~/features/racing/mega-calendar";
 import { ADMIN_SANS, PORTAL_DARK } from "~/components/features/admin-skin/theme";
 
 /**
@@ -237,16 +238,16 @@ const TRACK_CHIPS: { slug: Exclude<TrackSlug, "">; label: string; active: string
     },
   ];
 
-/** Tracks that are running today (ET). Tuesday = Mega only;
+/** Tracks that are running today (ET). A Mega day = Mega only;
  *  every other day = Blue + Red. Filters the chip row so staff
  *  never sees a track that isn't running, and prevents the page
  *  from accidentally querying it. */
 function visibleTrackSlugsET(): Array<Exclude<TrackSlug, "">> {
-  // Business-day weekday (2 AM ET rollover) so a Tuesday Mega night keeps
-  // the Mega chip selectable until 2 AM Wednesday while staff finish
-  // scanning. See lib/race-business-day.ts.
-  const weekday = businessDayWeekdayET();
-  return weekday === "Tue" ? ["mega"] : ["blue", "red"];
+  // Business-day DATE (2 AM ET rollover) so a Mega night keeps the Mega chip
+  // selectable until 2 AM the next morning while staff finish scanning. See
+  // lib/race-business-day.ts. The date (not the weekday) is what
+  // mega-calendar needs to honour the Sep–Oct Mega Thursday season.
+  return isMegaDay(businessDayYmdET()) ? ["mega"] : ["blue", "red"];
 }
 
 export default function CameraAssignClient({
@@ -259,9 +260,9 @@ export default function CameraAssignClient({
   version?: string;
 }) {
   // Only show chips for tracks that are running today.
-  // Tuesday = Mega only; other days = Blue + Red. If the URL was
+  // A Mega day = Mega only; other days = Blue + Red. If the URL was
   // bookmarked with a now-hidden track (e.g. ?track=blue on a
-  // Tuesday), drop it back to "" so we don't auto-query a track
+  // Mega day), drop it back to "" so we don't auto-query a track
   // that has no sessions today.
   const visibleSlugs = visibleTrackSlugsET();
   const visibleChips = TRACK_CHIPS.filter((c) => visibleSlugs.includes(c.slug));

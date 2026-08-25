@@ -33,6 +33,7 @@ import { readRosterMarks, bankRosterRead } from "~/features/racing/roster-dirty.
 import { updateLicencePasses } from "~/features/racing/wallet/licence-pass";
 import { formatHeat } from "~/features/racing/wallet/licence-meta";
 import { NO_NEXT_RACE } from "~/features/racing/wallet/licence-clear";
+import { isMegaDayTodayET } from "~/features/racing/mega-calendar";
 import { KARTING_CHECKIN_EMAIL_NOTE, KARTING_CHECKIN_SMS_NOTE } from "@/lib/karting-checkin-copy";
 
 /**
@@ -99,14 +100,15 @@ function resourceToTrackDisplay(r: string): string {
 }
 
 function activeResourcesForToday(): string[] {
-  const weekday = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    weekday: "short",
-  }).format(new Date());
+  // Plain ET CALENDAR day, deliberately NOT the 2 AM business day: this cron
+  // is forward-looking and its window is `todayETRange()` below, so the two
+  // must key off the same day or a post-midnight run would poll one day's
+  // tracks for the other day's heats. See the note in lib/race-business-day.
+  //
   // Pandora's /bmi/sessions expects "Mega Track" (with suffix) — the
-  // shorter "Mega" silently 404s, which is why this cron has been
-  // sending 0 pre-race e-tickets on Tuesdays.
-  if (weekday === "Tue") return ["Mega Track"];
+  // shorter "Mega" silently 404s, which is why this cron once sent 0
+  // pre-race e-tickets on Mega days.
+  if (isMegaDayTodayET()) return ["Mega Track"];
   return ["Blue Track", "Red Track"];
 }
 

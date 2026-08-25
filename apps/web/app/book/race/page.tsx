@@ -83,6 +83,7 @@ import {
   LICENSE_PRICE,
   POV_PRICE,
 } from "@/lib/packages";
+import { isMegaDay, megaWindowFor } from "~/features/racing/mega-calendar";
 import { raceWarningFor, type RaceWarning } from "~/features/booking/service/race-warnings";
 import { RaceWarningModal } from "~/components/features/booking/steps/race/RaceWarningModal";
 import ContactForm from "./components/ContactForm";
@@ -847,13 +848,11 @@ export default function BookRacePage() {
     setBookingCategory(adults > 0 ? "adult" : "junior");
     fetchCatalog(date);
 
-    // Mega Tuesday + a junior below Junior Pro = no qualifying product (Mega
+    // A Mega day + a junior below Junior Pro = no qualifying product (Mega
     // runs Junior Pro races only). Hold the step on `date` so the warning banner
     // below renders and the guest can pick a different date or adjust their
     // party before progressing.
-    const [y, m, d] = date.split("T")[0].split("-").map(Number);
-    const isTuesday = new Date(y, m - 1, d).getDay() === 2;
-    if (isTuesday && countJuniorsBlockedOnMega() > 0) {
+    if (isMegaDay(date) && countJuniorsBlockedOnMega() > 0) {
       return; // stay on "date" step — warning is rendered inline
     }
 
@@ -2095,22 +2094,19 @@ export default function BookRacePage() {
           (() => {
             // Mega runs JUNIOR PRO races only (owner 2026-08-05, effective
             // 2026-08-10) — no Junior Starter, no Junior Intermediate — so any
-            // junior below Junior Pro has nothing to book on a Tuesday. Catch it
-            // the moment Tuesday is picked (via selectedDate), before the guest
+            // junior below Junior Pro has nothing to book on a Mega day. Catch
+            // it the moment one is picked (via selectedDate), before the guest
             // burns time on product + heat selection only to find no junior
-            // options.
-            const isMegaTuesday = (() => {
-              if (!selectedDate) return false;
-              const [y, m, d] = selectedDate.split("T")[0].split("-").map(Number);
-              return new Date(y, m - 1, d).getDay() === 2; // 2 = Tuesday
-            })();
+            // options. Which days are Mega comes from mega-calendar, so the
+            // Sep–Oct Mega Thursdays are caught by the same guard.
+            const megaWindow = selectedDate ? megaWindowFor(selectedDate) : null;
             const blockedJuniorCount = countJuniorsBlockedOnMega();
-            const blockedForJuniors = isMegaTuesday && blockedJuniorCount > 0;
+            const blockedForJuniors = megaWindow !== null && blockedJuniorCount > 0;
             return (
               <div className="space-y-6">
                 <DatePicker selected={selectedDate} onSelect={handleDateSelect} />
 
-                {blockedForJuniors && (
+                {blockedForJuniors && megaWindow && (
                   <div className="rounded-xl border-2 border-amber-400/50 bg-amber-400/10 p-5">
                     <div className="flex items-start gap-3">
                       <svg
@@ -2128,10 +2124,13 @@ export default function BookRacePage() {
                       </svg>
                       <div className="flex-1">
                         <p className="text-amber-400 font-bold text-sm uppercase tracking-wider mb-1">
-                          Heads up — Mega Tuesday
+                          Heads up — {megaWindow.label}
                         </p>
                         <p className="text-white/80 text-sm leading-relaxed mb-3">
-                          Tuesdays run on the Mega Track only, and Mega runs{" "}
+                          {/* "This date", not "Tuesdays" — the heading already
+                              names the day, and Thursday runs Mega only for the
+                              Sep–Oct season. */}
+                          This date runs on the Mega Track only, and Mega runs{" "}
                           <strong>Junior Pro races only</strong> — no Junior Starter or Junior
                           Intermediate. Your{" "}
                           {blockedJuniorCount === 1

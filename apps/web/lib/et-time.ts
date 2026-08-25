@@ -53,16 +53,27 @@ export function normalizeEtDate(dateStr: string): string {
 
 /**
  * A recurring day-of-week offer window, e.g. "every Wednesday from 2026-08-19"
- * (BOGO races). Both fields are required together on purpose: a day-of-week rule
- * has no natural end, so without `from` it reads as active for every matching
- * day in HISTORY — which is not a hypothetical, it is what once put limited-time
- * SKUs into the catalog for a July race date.
+ * (BOGO races). `days` and `from` are required together on purpose: a
+ * day-of-week rule has no natural start, so without `from` it reads as active
+ * for every matching day in HISTORY — which is not a hypothetical, it is what
+ * once put limited-time SKUs into the catalog for a July race date.
+ *
+ * `until` closes the other end for a rule that runs for a SEASON rather than
+ * forever (Mega Thursdays, Sep–Oct 2026). It is optional because the original
+ * shape — open-ended from a start date — is still the common one; a rule type
+ * that must name an end would force every permanent rule to invent a fake one.
+ * Anything modelling a limited run should declare it explicitly rather than
+ * lean on the default: see `MegaDayWindow`, which requires `until` so a new
+ * window cannot quietly become permanent.
  */
 export interface RecurringDayRule {
   /** `Date.getDay()` numbering — 0 Sun … 6 Sat. `[3]` = Wednesdays. */
   days: readonly number[];
   /** First calendar day the rule applies to, `YYYY-MM-DD`, inclusive. */
   from: string;
+  /** Last calendar day the rule applies to, `YYYY-MM-DD`, inclusive.
+   *  Omitted or `null` = open-ended, the original behaviour. */
+  until?: string | null;
 }
 
 const ET_WEEKDAY_INDEX: Record<string, number> = {
@@ -79,7 +90,7 @@ const ET_WEEKDAY_INDEX: Record<string, number> = {
  *  instant: Vercel runs UTC, so 9pm Wednesday ET is already Thursday there and
  *  any ET day rule would flip four hours early (the Dec-19 6pm→5pm bug's
  *  cousin). Both centers are US-Eastern. */
-function etDay(now: Date): { ymd: string; weekday: number } {
+export function etDay(now: Date = new Date()): { ymd: string; weekday: number } {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
     weekday: "short",
@@ -109,8 +120,12 @@ function etDay(now: Date): { ymd: string; weekday: number } {
  * `YYYY-MM-DD` is parsed as LOCAL, not UTC: `new Date("2026-08-19")` is UTC
  * midnight, which reads back as the day BEFORE in any negative-offset zone —
  * the trap documented on `scheduleForDate`, which once hid a package for a whole
- * Tuesday. `from` is compared as a STRING, which is exactly right for
- * zero-padded `YYYY-MM-DD` and sidesteps a second timezone decision.
+ * Tuesday. `from` and `until` are compared as STRINGS, which is exactly right
+ * for zero-padded `YYYY-MM-DD` and sidesteps a second timezone decision.
+ *
+ * `until` is INCLUSIVE — the last day named still runs. A season announced as
+ * "through the end of October" is `until: "2026-10-31"`, and the last matching
+ * weekday inside it is admitted.
  */
 export function withinRecurringDayRule(
   rule: RecurringDayRule,
@@ -129,6 +144,7 @@ export function withinRecurringDayRule(
     ({ ymd, weekday } = etDay(now));
   }
   if (ymd < rule.from) return false;
+  if (rule.until != null && ymd > rule.until) return false;
   return rule.days.includes(weekday);
 }
 

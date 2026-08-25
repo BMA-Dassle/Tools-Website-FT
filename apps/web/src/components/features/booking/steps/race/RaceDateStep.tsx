@@ -8,6 +8,7 @@ import {
   bowlingHorizonMaxDate,
 } from "~/features/booking/service/bowling-hours";
 import { comboBowlingComponent, getComboSpecial } from "~/features/combos/combo-specials";
+import { isMegaDay, megaDaysPhrase, megaWindowFor } from "~/features/racing/mega-calendar";
 import { getGroupEventForDate, getPublicReopenTimeForDate } from "@/lib/group-events";
 
 /**
@@ -15,17 +16,21 @@ import { getGroupEventForDate, getPublicReopenTimeForDate } from "@/lib/group-ev
  *
  * v1 parity: full port of `apps/web/app/book/race/components/DatePicker.tsx`.
  * Probes BMI per-month availability for both regular tracks (Mon-Thu Starter
- * Red + Fri-Sun Starter Red) and the Mega track (Tuesdays only) so each
- * cell knows whether it's available, mega-only, or neither. Cells reserved
- * for private group events (`getGroupEventForDate`) render amber + unclickable.
+ * Red + Fri-Sun Starter Red) and the Mega track so each cell knows whether
+ * it's available, mega-only, or neither. Which days run Mega comes from BMI's
+ * own availability here, so the calendar shading needs no code change when a
+ * Mega day is added — but the junior guard below is a RULE, not availability,
+ * and reads `mega-calendar`. Cells reserved for private group events
+ * (`getGroupEventForDate`) render amber + unclickable.
  *
  * Inline warning surface (v1 page.tsx:2001-2068): when the customer picks a
- * Tuesday AND the party contains a junior who has no Mega race to book, the
- * "Heads up — Mega Tuesday" amber banner renders below the calendar and
- * `canAdvance` blocks Next until they pick a different date or change party.
- * Mega runs JUNIOR PRO ONLY (owner 2026-08-05, effective 2026-08-10): BMI has no
- * Junior Starter Mega product and Junior Intermediate Mega was retired, so the
- * banner covers first-timers AND returning juniors below Junior Pro.
+ * Mega day AND the party contains a junior who has no Mega race to book, the
+ * "Heads up — Mega Tuesday/Thursday" amber banner renders below the calendar
+ * and `canAdvance` blocks Next until they pick a different date or change
+ * party. Mega runs JUNIOR PRO ONLY (owner 2026-08-05, effective 2026-08-10):
+ * BMI has no Junior Starter Mega product and Junior Intermediate Mega was
+ * retired, so the banner covers first-timers AND returning juniors below
+ * Junior Pro.
  *
  * Imports v1's `getGroupEventForDate` from `lib/group-events.ts` directly —
  * static config registry, shared between v1 + v2.
@@ -102,10 +107,11 @@ function juniorsBlockedOnMega(party: PartyMember[]): PartyMember[] {
   );
 }
 
-function isTuesdayISO(iso: string): boolean {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d).getDay() === 2;
-}
+/** The reason `canAdvance` blocks a junior party on a Mega day. Day-neutral on
+ *  purpose: the kiosk reverse-maps this EXACT string to a translated catalog
+ *  entry (KioskFlow.tsx → `stepReason.megaDay`), and a string that named the
+ *  weekday would need one catalog entry per Mega day, in two languages. */
+const MEGA_JUNIOR_BLOCK_REASON = "Mega days run Junior Pro races only.";
 
 const RaceDateStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, onChange }) => {
   const today = useMemo(() => new Date(), []);
@@ -207,10 +213,12 @@ const RaceDateStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, 
     viewYear > today.getFullYear() ||
     (viewYear === today.getFullYear() && viewMonth > today.getMonth());
 
-  // Mega Tuesday junior guard — same logic v1 page.tsx uses.
+  // Mega day junior guard — same logic v1 page.tsx uses. Keyed off the
+  // SELECTED date, never today: a guest booking on a Wednesday for a Mega
+  // Thursday must see the banner then, not on arrival.
   const blockedJuniors = juniorsBlockedOnMega(session.party);
-  const selectedIsTuesday = item.date ? isTuesdayISO(item.date) : false;
-  const blockedForJuniors = selectedIsTuesday && blockedJuniors.length > 0;
+  const selectedMegaWindow = item.date ? megaWindowFor(item.date) : null;
+  const blockedForJuniors = selectedMegaWindow !== null && blockedJuniors.length > 0;
 
   return (
     <div className="space-y-6">
@@ -354,7 +362,12 @@ const RaceDateStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, 
 
         {megaDates.size > 0 && (
           <div className="mt-3 rounded-xl border border-[#A855F7]/20 bg-[#A855F7]/5 p-3 text-center">
-            <p className="mb-0.5 text-xs font-semibold text-[#C084FC]">Mega Track Tuesdays</p>
+            {/* Names the days the venue actually runs Mega on the date the
+                guest is looking at — "Mega Track Tuesdays and Thursdays"
+                during the Sep–Oct season, back to Tuesdays alone after it. */}
+            <p className="mb-0.5 text-xs font-semibold text-[#C084FC]">
+              Mega Track {megaDaysPhrase(todayStr)}
+            </p>
             <p className="text-[13px] leading-relaxed text-white/40">
               Blue &amp; Red tracks combine into one massive circuit!
             </p>
@@ -368,10 +381,10 @@ const RaceDateStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, 
         )}
       </div>
 
-      {/* Mega Tuesday + new juniors banner — mirrors v1 page.tsx:2021-2068.
+      {/* Mega day + new juniors banner — mirrors v1 page.tsx:2021-2068.
           Renders below the calendar; canAdvance blocks Next until the
           customer picks a different date or changes their party. */}
-      {blockedForJuniors && (
+      {blockedForJuniors && selectedMegaWindow && (
         <div className="rounded-xl border-2 border-amber-400/50 bg-amber-400/10 p-5">
           <div className="flex items-start gap-3">
             <svg
@@ -389,10 +402,13 @@ const RaceDateStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, 
             </svg>
             <div className="flex-1">
               <p className="mb-1 text-sm font-bold tracking-wider text-amber-400 uppercase">
-                Heads up — Mega Tuesday
+                Heads up — {selectedMegaWindow.label}
               </p>
               <p className="mb-3 text-sm leading-relaxed text-white/80">
-                Tuesdays run on the Mega Track only, and Mega runs{" "}
+                {/* "This date", not "Thursdays" — Thursday only runs Mega for
+                    the Sep–Oct season, and the banner must not imply it always
+                    does. The heading above already names the day. */}
+                This date runs on the Mega Track only, and Mega runs{" "}
                 <strong>Junior Pro races only</strong> — no Junior Starter or Junior Intermediate.
                 Your{" "}
                 {blockedJuniors.length === 1
@@ -429,10 +445,10 @@ export const RaceDateStep: StepDef<RaceItem> = {
   isVisible: () => true,
   canAdvance: (item, session) => {
     if (!item.date) return { reason: "Pick a race day to continue." };
-    if (isTuesdayISO(item.date) && juniorsBlockedOnMega(session.party).length > 0) {
+    if (isMegaDay(item.date) && juniorsBlockedOnMega(session.party).length > 0) {
       // Kiosk localizes this exact string — keep KioskFlow.tsx's reverse map and
-      // the `stepReason.megaTuesday` catalog entry (en + es) in sync with it.
-      return { reason: "Mega Tuesdays run Junior Pro races only." };
+      // the `stepReason.megaDay` catalog entry (en + es) in sync with it.
+      return { reason: MEGA_JUNIOR_BLOCK_REASON };
     }
     return true;
   },
