@@ -366,6 +366,19 @@ export default function BoardCardList({
                     -{dollars(r.refundCents)}
                   </span>
                 )}
+                {(r.editRefundCents ?? 0) > 0 && (
+                  <span
+                    style={{
+                      color: "#ef4444",
+                      fontSize: "0.6rem",
+                      fontWeight: 600,
+                      marginLeft: 4,
+                    }}
+                    title="Refunded after booking via Edit / Refund — see History"
+                  >
+                    Refunded {dollars(r.editRefundCents ?? 0)}
+                  </span>
+                )}
                 {r.storeCreditGiftCardGan && (r.storeCreditCents ?? 0) > 0 && (
                   <span
                     style={{

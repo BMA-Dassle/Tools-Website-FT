@@ -66,7 +66,11 @@ import {
   TerminalPaymentUnverifiedError,
   TerminalAmountMismatchError,
 } from "~/features/booking/service/deposit";
-import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
+import {
+  captureCardFromDeposit,
+  resolveCaptureSourceKind,
+  type PaymentSourceKind,
+} from "~/features/card-vault";
 import { bowlingPricingMode } from "~/features/booking/service/bowling-booked-pricing";
 import {
   isMidnightMadnessSlug,
@@ -1142,6 +1146,9 @@ export async function POST(req: NextRequest) {
   /** Idempotency base for the deposit charge — also seeds the card-vault
    *  CreateCard key (`cof-${depositBaseKey}`). Set when a deposit is charged. */
   let depositBaseKey: string | undefined;
+  /** Server-side tender truth for the card-vault (gift card covered all →
+   *  never a card), from createDepositAndCharge. */
+  let depositTender: string | undefined;
   let loyaltyRewardId: string | undefined;
   const rewardDiscountCents = body.rewardDiscountCents ?? 0;
   let depositCents = 0; // actual charged amount (tax-inclusive)
@@ -1719,6 +1726,7 @@ export async function POST(req: NextRequest) {
 
           squareDepositOrderId = depositResult.depositOrderId;
           squareDepositPaymentId = depositResult.depositPaymentId;
+          depositTender = depositResult.depositTender;
           squareGiftCardId = depositResult.giftCardId ?? undefined;
           squareGiftCardGan = depositResult.giftCardGan ?? undefined;
           depositCents = chargeCents;
@@ -2030,7 +2038,9 @@ export async function POST(req: NextRequest) {
         reservationId: neonId || null,
         depositOrderId: squareDepositOrderId ?? null,
         baseKey: depositBaseKey,
-        sourceKind: body.sourceKind,
+        // Server-side tender truth (gift card covered everything → never a
+        // card) beats the client tag when it is more specific.
+        sourceKind: resolveCaptureSourceKind(body.sourceKind, depositTender),
         permanentConsent: body.saveCardConsent === true,
       });
     } catch (err) {

@@ -213,7 +213,12 @@ export const repriceBowling = (params: {
   const newPlayers = Math.max(1, spec.playerCount ?? currentPlayers);
   const defaultLanes =
     booked.pricingMode === "per_lane" ? booked.laneCount : Math.max(1, Math.ceil(newPlayers / 6));
-  const newLanes = Math.max(1, spec.laneCount ?? defaultLanes);
+  // Per-person experiences derive their lanes from the player count; an
+  // explicit laneCount is acknowledged (warning below) but never applied —
+  // otherwise the ignored number still flowed into newLaneCount and the plan
+  // emitted a fatal qamf_rebook for a change it had just called a no-op.
+  const newLanes =
+    booked.pricingMode === "per_lane" ? Math.max(1, spec.laneCount ?? defaultLanes) : defaultLanes;
 
   if (booked.pricingMode === "per_person" && spec.laneCount != null) {
     warnings.push({

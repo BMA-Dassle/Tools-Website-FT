@@ -30,6 +30,7 @@ const card = (partial: Partial<SavedCardRow> = {}): SavedCardRow => ({
   consentSource: null,
   captureAttempts: 0,
   captureLastError: null,
+  captureSkipReason: null,
   disabledAt: null,
   disableAttempts: 0,
   disableLastError: null,

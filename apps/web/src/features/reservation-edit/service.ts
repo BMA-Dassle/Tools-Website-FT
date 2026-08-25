@@ -14,6 +14,7 @@
  */
 
 import {
+  addEditRefundCents,
   getBowlingReservation,
   getReservationPlayersWithShoeAllowance,
   getBowlingExperiences,
@@ -24,13 +25,17 @@ import {
 } from "@/lib/bowling-db";
 import {
   finishEditEvent,
+  getEditEvent,
   getOpenEditEvent,
   markEditPendingPayment,
   nextEditAttempt,
   recordEditPayment,
   recordEditRefund,
+  recordEditReturnOrder,
+  recordEditStoreCredit,
   refundedCentsForPayment,
   startEditEvent,
+  strandedStoreCredit,
   listEditEventsByAnchors,
 } from "@/lib/reservation-edit-log";
 import { getLatestCancelEvent } from "@/lib/reservation-cancel-log";
@@ -48,6 +53,9 @@ import { resolveCenter } from "~/features/cancellation/centers";
 import {
   editFlagEnabled as flag,
   isPreDecreaseOnlyPlan,
+  isRefundOnlyPlan,
+  managerWarningCodes,
+  missingAcknowledgements,
   PRE_DECREASE_FLAG,
   refundFlagForPhase,
 } from "./guards";
@@ -64,11 +72,15 @@ import {
 } from "./square-actions";
 import { playersToQamfRoster, rebookQamfForLaneChange, syncQamfPlayers } from "./qamf-sync";
 import {
+  EditExecutionError,
   EditGuardError,
+  type EditAcknowledgement,
   type EditPaymentSource,
   type EditSettlement,
   type EditStep,
   type EditWarning,
+  type HeatMeta,
+  type ManualStep,
 } from "./types";
 
 export interface ExecuteEditRequest {
@@ -97,6 +109,18 @@ export interface ExecuteEditRequest {
    * a day-of refund step.
    */
   dayofRefundReason?: string;
+  /**
+   * Codes of the plan's manager-severity warnings staff ticked ("Conqueror /
+   * BMI will not be updated — I will do X by hand"). The executor refuses
+   * `ack_required` unless every such code is here (or `managerOverride` is
+   * set — the legacy single-checkbox signal). On a pay-link resume the codes
+   * recorded at creation are reused.
+   */
+  acknowledgedCodes?: string[];
+  /** Staff initials typed next to the acknowledgment (no per-staff identity otherwise). */
+  acknowledgedBy?: string;
+  /** Legacy post_complete acknowledgment: counts as acknowledging every manager code. */
+  managerOverride?: boolean;
 }
 
 export interface EditResult {
@@ -111,6 +135,13 @@ export interface EditResult {
   paymentLinkUrl?: string;
   stepLog: Array<{ step: string; ok: boolean; detail?: string }>;
   warnings: EditWarning[];
+  /**
+   * Everything a human still has to do by hand: the acknowledged manager
+   * warnings (predicted) plus any best-effort sync step that failed during
+   * execution (unpredicted). Persisted on the ledger row; the modal shows it
+   * as a red "do this by hand" block, History as a follow-up badge.
+   */
+  manualSteps: ManualStep[];
 }
 
 /**
@@ -206,6 +237,17 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
         `reducing a booking before check-in has been switched off (${PRE_DECREASE_FLAG}=false)`,
       );
     }
+    // The MASTER switch, enforced where money moves. Until 2026-08-24 it was
+    // checked only in the admin route, so a direct executor call (the pay-link
+    // resume) skipped it. Same exemptions as the route: pure refunds and
+    // pre-check-in reductions ride their own switches.
+    if (!flag("RESERVATION_EDIT_V2") && !isRefundOnlyPlan(plan) && !isPreDecreaseOnlyPlan(plan)) {
+      throw new EditGuardError(
+        "edit_not_enabled",
+        "Reservation editing has been switched off (RESERVATION_EDIT_V2=false) — only refunds " +
+          "and pre-check-in reductions are running.",
+      );
+    }
     // A1 was OVERTURNED on 2026-07-27 by an owner-authorized live probe: the
     // API DOES accept partial refunds of gift-card-funded payments, and the §8
     // smoke checklist in tasks/future/post-dayof-refund-plan.md passed live
@@ -280,6 +322,50 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
       );
     }
 
+    // ── Acknowledgment (owner rule 2026-08-24): every manager-severity
+    // warning — "Conqueror/BMI will NOT be updated by this edit" — must have
+    // been ticked by staff BEFORE any money moves, and the record of who
+    // ticked what lives on the ledger row. A pay-link resume reuses the codes
+    // recorded when the link was created (the guest paying is not the one who
+    // acknowledges).
+    let acknowledgedCodes = req.acknowledgedCodes;
+    let acknowledgedBy: string | null = req.acknowledgedBy?.trim() || null;
+    if (req.resumeEditId && !acknowledgedCodes) {
+      const prior = await getEditEvent(req.resumeEditId);
+      acknowledgedCodes = prior?.acknowledged?.codes;
+      acknowledgedBy = prior?.acknowledged?.by ?? null;
+    }
+    const missing = missingAcknowledgements(plan, acknowledgedCodes, req.managerOverride === true);
+    if (missing.length > 0) {
+      throw new EditGuardError(
+        "ack_required",
+        "Before this goes through, acknowledge what will NOT be updated automatically: " +
+          plan.warnings
+            .filter((w) => missing.includes(w.code))
+            .map((w) => w.manualStep ?? w.message)
+            .join(" · "),
+        { missing },
+      );
+    }
+    const requiredCodes = managerWarningCodes(plan);
+    const acknowledged: EditAcknowledgement | null =
+      requiredCodes.length > 0
+        ? {
+            codes: requiredCodes,
+            by: acknowledgedBy,
+            at: new Date().toISOString(),
+          }
+        : null;
+    /** By-hand follow-ups: the acknowledged warnings first (predicted). */
+    const manualSteps: ManualStep[] = plan.warnings
+      .filter((w) => w.severity === "manager")
+      .map((w) => ({
+        system: w.system ?? "conqueror",
+        code: w.code,
+        message: w.manualStep ?? w.message,
+        predicted: true,
+      }));
+
     await startEditEvent({
       editId,
       anchorReservationId: anchorId,
@@ -293,6 +379,8 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
       plan: {
         planHash: plan.planHash,
         steps: plan.steps,
+        warnings: plan.warnings,
+        money: plan.money,
         legs: plan.legs.map((l) => ({
           id: l.reservationId,
           order: l.dayofOrderId,
@@ -300,8 +388,14 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
           newTotal: l.newTotalCents,
         })),
       },
+      acknowledged,
     });
     stepLog.push({ step: "audit_start", ok: true });
+    /** Money that went back to the guest's tenders this attempt (edit_refund_cents). */
+    let guestRefundedCents = 0;
+    /** Surviving race heats after a BMI removal — persisted with the Neon commit. */
+    let survivingHeats: HeatMeta[] | undefined;
+    let heatsRowId: number | undefined;
 
     const paymentIds: string[] = [];
     const refundIds: string[] = [];
@@ -317,6 +411,8 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
     let gcBaselineCents: number | undefined;
     const rebuiltOrders: Array<{ oldOrderId: string; newOrderId: string }> = [];
     let storeCreditGan: string | undefined;
+    let storeCreditGiftCardId: string | undefined;
+    let storeCreditIssuedCents = 0;
     let newQamfReservationId: string | undefined;
 
     // Resolve the payment source for increases once.
@@ -333,6 +429,8 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
     const fallbackLocationId = center.attractionCancelCenterCode;
     const primaryLeg: EditPlanLeg = plan.legs[0];
     const chargeLocationId = primaryLeg.orderLocationId ?? fallbackLocationId;
+    /** Did the Conqueror roster/title push succeed (qamf_memo reports it honestly). */
+    let qamfSynced = false;
 
     try {
       for (const step of plan.steps) {
@@ -350,7 +448,42 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
             const { buildPayLinkUrl } = await import("./pay-link");
             const paymentLinkUrl = buildPayLinkUrl(req.origin, editId);
             stepLog.push({ step: step.kind, ok: true, detail: "awaiting guest payment" });
-            await finishEditEvent(editId, { state: "pending_payment", stepLog });
+            // Best-effort: text/email the guest the link so staff don't have to
+            // read a URL over the phone. Never throws — the row is already
+            // pending_payment and the link is returned regardless.
+            try {
+              const { sendPayLinkNotice } = await import("./pay-link-notify");
+              const sent = await sendPayLinkNotice({
+                guestName: anchor.guestName ?? null,
+                phone: anchor.guestPhone ?? null,
+                email: anchor.guestEmail ?? null,
+                amountCents: plan.diffCents,
+                url: paymentLinkUrl,
+                editId,
+                createdAtMs: Date.now(),
+                eventAtMs: anchor.bookedAt ? new Date(anchor.bookedAt).getTime() : null,
+              });
+              stepLog.push({
+                step: "link_sent",
+                ok: sent.channels.length > 0,
+                detail: sent.channels.length > 0 ? sent.channels.join("+") : sent.error,
+              });
+              if (sent.channels.length === 0) {
+                warnings.push({
+                  severity: "warning",
+                  code: "link_not_sent",
+                  system: "guest",
+                  message: `The payment link could not be sent automatically (${sent.error ?? "no phone or email on file"}) — copy it and send it to the guest yourself.`,
+                });
+              }
+            } catch (e) {
+              stepLog.push({
+                step: "link_sent",
+                ok: false,
+                detail: e instanceof Error ? e.message : String(e),
+              });
+            }
+            await finishEditEvent(editId, { state: "pending_payment", stepLog, manualSteps });
             return {
               editId,
               state: "pending_payment",
@@ -360,6 +493,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               paymentLinkUrl,
               stepLog,
               warnings,
+              manualSteps,
             };
           }
 
@@ -381,6 +515,13 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               mode: step.kind === "bmi_add_heats" ? "add" : "remove",
               origin: req.origin,
             });
+            if (res.survivingHeats) {
+              // Removal ran BEFORE money; the metadata write waits for the
+              // Neon commit so booking_metadata.heats only changes when the
+              // whole edit lands (a retry can still find the heat otherwise).
+              survivingHeats = res.survivingHeats;
+              heatsRowId = res.heatsRowId;
+            }
             stepLog.push({ step: step.kind, ok: true, detail: res.detail });
             break;
           }
@@ -455,7 +596,22 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
             // and Square at 642¢). Refunding the planner's number here while
             // the card only got Square's would over-refund the guest by the
             // difference, and leave the gift-card decrement inconsistent too.
-            const owed = dayofRefundedCents ?? step.amountCents ?? -plan.diffCents;
+            //
+            // ...but never MORE than the planner's guest figure: on a gap-comped
+            // (or partly-refunded) deposit the guest's tenders cannot take the
+            // whole return back, and the planner capped guestOwedCents to what
+            // they can. Exceeding it here made the cascade fail AFTER the day-of
+            // refund had moved.
+            const squareFigure = dayofRefundedCents ?? step.amountCents ?? -plan.diffCents;
+            const cap = plan.guestOwedCents > 0 ? plan.guestOwedCents : squareFigure;
+            const owed = Math.min(squareFigure, cap);
+            if (owed !== squareFigure) {
+              stepLog.push({
+                step: "refund_cap",
+                ok: true,
+                detail: `guest refund capped at ${owed}¢ (Square returned ${squareFigure}¢; the house keeps the difference)`,
+              });
+            }
             // Capacity shortfalls throw INSIDE refundAcrossTenders before any
             // money moves; landing here under-refunded means a clamp race —
             // issued refunds are recorded, so a re-run nets them and heals.
@@ -465,12 +621,49 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
                 `refunded ${r.refundedCents} of ${owed} cents — issued refunds are recorded; re-run this edit to settle the remainder`,
               );
             }
+            guestRefundedCents += r.refundedCents;
             stepLog.push({ step: step.kind, ok: true, detail: `-${r.refundedCents}` });
             break;
           }
 
           case "refund_dayof_payment": {
-            if (!anchor.dayofPaymentId) throw new Error("no lane-open payment id on the row");
+            // Resolved across the money group at plan time (the clicked row
+            // may be the attraction/race leg; lane-open stamps the bowling
+            // row). A null here is a corrupted plan — the planner refuses
+            // dayof_payment_unresolved long before this.
+            const dayofPaymentId = plan.money.dayofPaymentId ?? step.target ?? null;
+            if (!dayofPaymentId) {
+              throw new Error(
+                "plan carries a day-of refund but no payment id was resolved for the group",
+              );
+            }
+
+            // NET refunds prior attempts already issued against THIS payment
+            // BEFORE creating anything: a retry after a crash must not mint a
+            // second return order for items already returned.
+            // refundTenderPartial clamps only to the payment's un-refunded
+            // remainder, which stays large after a partial — so a retry that
+            // bumped to a fresh idempotency namespace would otherwise refund
+            // the same items twice. (The deposit leg has had this netting
+            // since 2026-07-11; the day-of leg never did.)
+            const prior = await refundedCentsForPayment(
+              plan.legIds,
+              dayofPaymentId,
+              fetchRefundFacts,
+            );
+            for (const rid of prior.refundIds) {
+              if (!refundIds.includes(rid)) refundIds.push(rid);
+              await recordEditRefund(editId, rid);
+            }
+            if (step.amountCents != null && prior.cents >= step.amountCents) {
+              dayofRefundedCents = prior.cents;
+              stepLog.push({
+                step: step.kind,
+                ok: true,
+                detail: `already refunded (${prior.cents}¢ netted from a prior attempt)`,
+              });
+              break;
+            }
 
             // ITEMIZED, never amount-only (owner rule 2026-07-27). Build a
             // return order naming the exact lines coming off the paid order;
@@ -513,6 +706,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               })),
             });
             returnOrderIds.push(ret.returnOrderId);
+            await recordEditReturnOrder(editId, ret.returnOrderId);
             // Square's own tax-inclusive figure wins over the planner's, and
             // becomes the amount every later leg uses.
             const asked = ret.returnTotalCents;
@@ -527,21 +721,6 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               stepLog.push({ step: "return_order", ok: true, detail: ret.returnOrderId });
             }
 
-            // NET refunds prior attempts already issued against THIS payment.
-            // refundTenderPartial clamps only to the payment's un-refunded
-            // remainder, which stays large after a partial — so a retry that
-            // bumped to a fresh idempotency namespace would otherwise refund
-            // the same items twice. (The deposit leg has had this netting
-            // since 2026-07-11; the day-of leg never did.)
-            const prior = await refundedCentsForPayment(
-              plan.legIds,
-              anchor.dayofPaymentId,
-              fetchRefundFacts,
-            );
-            for (const rid of prior.refundIds) {
-              if (!refundIds.includes(rid)) refundIds.push(rid);
-              await recordEditRefund(editId, rid);
-            }
             const owed = Math.max(0, asked - prior.cents);
             if (owed === 0) {
               stepLog.push({
@@ -555,7 +734,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
             const r = await refundTenderPartial({
               editId,
               refundIndex: 90, // reserved namespace for the gift-card tender refund
-              paymentId: anchor.dayofPaymentId,
+              paymentId: dayofPaymentId,
               amountCents: owed,
               // Owner rule: staff-supplied, never the deposit journal key.
               reason: dayofRefundReason!,
@@ -621,9 +800,31 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
           }
 
           case "issue_store_credit": {
-            const amount = step.amountCents ?? -plan.diffCents;
-            storeCreditGan = await issueEditStoreCredit(editId, anchor, amount, chargeLocationId);
-            stepLog.push({ step: step.kind, ok: true, detail: storeCreditGan });
+            // Same figure the card path would refund: Square's return total
+            // when the day-of leg ran, capped at what the guest is owed.
+            const squareFigure = dayofRefundedCents ?? step.amountCents ?? -plan.diffCents;
+            const amount = Math.min(
+              squareFigure,
+              plan.guestOwedCents > 0 ? plan.guestOwedCents : squareFigure,
+            );
+            const issued = await issueEditStoreCredit(
+              editId,
+              anchor,
+              plan,
+              amount,
+              chargeLocationId,
+            );
+            storeCreditGan = issued.gan;
+            storeCreditGiftCardId = issued.giftCardId;
+            storeCreditIssuedCents += issued.issuedCents;
+            stepLog.push({
+              step: step.kind,
+              ok: true,
+              detail:
+                issued.nettedCents > 0
+                  ? `${issued.gan} (+${issued.issuedCents}¢; ${issued.nettedCents}¢ already issued by a prior attempt, netted)`
+                  : issued.gan,
+            });
             break;
           }
 
@@ -709,17 +910,24 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
           }
 
           case "neon_commit": {
-            await commitNeon(plan, req, newQamfReservationId, rebuiltOrders);
+            await commitNeon(plan, req, newQamfReservationId, rebuiltOrders, {
+              guestRefundedCents,
+              survivingHeats,
+              heatsRowId,
+            });
             stepLog.push({ step: step.kind, ok: true });
             break;
           }
 
           case "qamf_set_players": {
+            // step.target carries the money group's QAMF id (a combo's
+            // bowling leg when the modal was opened from the race leg).
+            const target = newQamfReservationId ?? step.target ?? anchor.qamfReservationId;
+            const desired = primaryLeg.newPlayerCount;
             try {
-              // step.target carries the money group's QAMF id (a combo's
-              // bowling leg when the modal was opened from the race leg).
-              const target = newQamfReservationId ?? step.target ?? anchor.qamfReservationId;
-              if (!target) break;
+              if (!target) {
+                throw new Error("no Conqueror reservation id on this booking");
+              }
               const { players } = await getReservationPlayersWithShoeAllowance(anchorId);
               const roster = playersToQamfRoster(
                 (req.plan.spec.players ?? players).map((p) => ({
@@ -727,7 +935,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
                   shoeSize: p.shoeSize ?? null,
                   bumpers: p.bumpers ?? null,
                 })),
-                primaryLeg.newPlayerCount ?? players.length,
+                desired ?? players.length,
               );
               const synced = await syncQamfPlayers({
                 qamfCenterId: center.qamfCenterId,
@@ -735,23 +943,45 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
                 players: roster,
                 guestName: anchor.guestName ?? "Guest",
               });
+              qamfSynced = true;
               stepLog.push({ step: step.kind, ok: true, detail: `${synced.lanesUpdated} lane(s)` });
             } catch (e) {
-              // Best-effort: staff can fix the roster in Conqueror.
+              // Best-effort: staff fix the roster in Conqueror. Actionable —
+              // say WHICH reservation and WHAT count, and record it as a
+              // by-hand step unless the plan already warned about it.
               const msg = e instanceof Error ? e.message : String(e);
+              const already = manualSteps.some((m) => m.system === "conqueror" && m.predicted);
+              const manual = `Conqueror NOT updated: set reservation ${target ?? "(unlinked)"}${desired != null ? ` to ${desired} bowler(s)` : "'s roster"} by hand (${msg.slice(0, 160)})`;
               warnings.push({
                 severity: "warning",
                 code: "qamf_players_failed",
-                message: `QAMF roster sync failed — update Conqueror manually (${msg})`,
+                system: "conqueror",
+                message: manual,
+                manualStep: manual,
               });
+              if (!already) {
+                manualSteps.push({
+                  system: "conqueror",
+                  code: "qamf_players_failed",
+                  message: manual,
+                  predicted: false,
+                });
+              }
               stepLog.push({ step: step.kind, ok: false, detail: msg });
             }
             break;
           }
 
           case "qamf_memo":
-            // Title/Notes were re-patched inside syncQamfPlayers.
-            stepLog.push({ step: step.kind, ok: true, detail: "with qamf_set_players" });
+            // The Title "(Np)" re-PATCH happens inside syncQamfPlayers — report
+            // what actually happened there rather than a standing "ok".
+            stepLog.push({
+              step: step.kind,
+              ok: qamfSynced,
+              detail: qamfSynced
+                ? "title re-patched with qamf_set_players"
+                : "skipped — roster sync failed",
+            });
             break;
 
           case "notify": {
@@ -766,13 +996,20 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
                 settlement: plan.settlement,
                 spec: plan.spec,
                 rebuiltOrders: rebuiltOrders.length > 0 ? rebuiltOrders : undefined,
+                acknowledged: acknowledged ?? undefined,
+                manualSteps: manualSteps.length > 0 ? manualSteps : undefined,
               },
             });
-            if (req.notifyGuest) {
+            // A refund of a paid/closed visit is not a booking change — the
+            // original confirmation must NOT be re-sent as if it were (a fully
+            // refunded past visit was getting a fresh "you're booked" message).
+            const resendable =
+              req.notifyGuest && !isRefundOnlyPlan(plan) && plan.phase !== "post_complete";
+            if (resendable) {
               // Bowling/KBF: resend the confirmation with the updated details
               // (same delegation as the admin Resend action — forceResend
               // bypasses dedup). Best-effort; race/attraction confirmations
-              // have no equivalent route yet → staff resend manually.
+              // have no equivalent route → the plan already warned staff.
               if (anchor.productKind === "open" || anchor.productKind === "kbf") {
                 try {
                   const res = await fetch(`${req.origin}/api/notifications/bowling-confirmation`, {
@@ -796,10 +1033,12 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
                   stepLog.push({ step: "notify_guest", ok: false });
                 }
               } else {
-                warnings.push({
-                  severity: "info",
-                  code: "resend_manual",
-                  message: "Resend the updated confirmation from the Resend action",
+                // Racing/attraction: no automated confirmation exists — the
+                // plan-time resend_manual warning already told staff.
+                stepLog.push({
+                  step: "notify_guest",
+                  ok: false,
+                  detail: "no automated racing/attraction confirmation",
                 });
               }
             }
@@ -814,7 +1053,10 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
         paymentIds,
         refundIds,
         storeCreditGan,
+        storeCreditGiftCardId,
+        storeCreditCents: storeCreditIssuedCents > 0 ? storeCreditIssuedCents : undefined,
         stepLog,
+        manualSteps,
       });
       return {
         editId,
@@ -826,25 +1068,40 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
         newQamfReservationId,
         stepLog,
         warnings,
+        manualSteps,
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      const failedStep = plan.steps.find((s) => !stepLog.some((l) => l.step === s.kind))?.kind;
       stepLog.push({ step: "error", ok: false, detail: msg });
       await finishEditEvent(editId, {
         state: "failed",
         paymentIds,
         refundIds,
+        // A failed attempt that minted/loaded a store-credit card still owns
+        // that value — the ledger must show it so the retry nets it.
+        storeCreditGan,
+        storeCreditGiftCardId,
+        storeCreditCents: storeCreditIssuedCents > 0 ? storeCreditIssuedCents : undefined,
         stepLog,
+        manualSteps,
         error: msg,
       });
       await recordAdminAction({
         reservationId: anchorId,
         action: "edit",
         outcome: "failed",
-        detail: { editId, phase: plan.phase, diffCents: plan.diffCents },
+        detail: {
+          editId,
+          phase: plan.phase,
+          diffCents: plan.diffCents,
+          failedStep,
+          acknowledged: acknowledged ?? undefined,
+        },
         error: msg,
       });
-      throw err;
+      if (err instanceof EditGuardError) throw err;
+      throw new EditExecutionError(msg, { editId, failedStep, stepLog });
     }
   } finally {
     try {
@@ -931,8 +1188,9 @@ const refundAcrossTenders = async (
       targets.push({ paymentId: pid, label: `edit ${ev.editId}` });
     }
   }
-  if (anchor.squareDepositOrderId) {
-    const deposit = await fetchOrderFacts(anchor.squareDepositOrderId);
+  const depositOrderId = plan.money.depositOrderId ?? anchor.squareDepositOrderId ?? null;
+  if (depositOrderId) {
+    const deposit = await fetchOrderFacts(depositOrderId);
     for (const t of deposit.tenders) {
       targets.push({ paymentId: t.paymentId, label: "deposit" });
     }
@@ -1024,28 +1282,57 @@ const refundAcrossTenders = async (
 const issueEditStoreCredit = async (
   editId: string,
   anchor: BowlingReservation,
+  plan: EditPlan,
   amountCents: number,
   fallbackLocationId: string,
-): Promise<string> => {
-  const locationId = anchor.squareGiftCardId
-    ? ((await fetchGiftCardFacts(anchor.squareGiftCardId)).locationId ?? fallbackLocationId)
+): Promise<{ giftCardId: string; gan: string; issuedCents: number; nettedCents: number }> => {
+  const depositGiftCardId = plan.money.giftCardId ?? anchor.squareGiftCardId ?? null;
+  const locationId = depositGiftCardId
+    ? ((await fetchGiftCardFacts(depositGiftCardId)).locationId ?? fallbackLocationId)
     : fallbackLocationId;
 
-  if (anchor.storeCreditGiftCardId && anchor.storeCreditGiftCardGan) {
-    await loadGiftCard({
-      giftCardId: anchor.storeCreditGiftCardId,
-      locationId,
-      amountCents,
-      baseKey: `${editId}-sc`,
-      buyerPaymentInstrumentIds: [],
-    });
-    await updateStoreCreditIssued(anchor.id, {
-      giftCardId: anchor.storeCreditGiftCardId,
-      gan: anchor.storeCreditGiftCardGan,
-      cents: (anchor.storeCreditCents ?? 0) + amountCents,
+  // Store-credit NETTING (mirrors the refund doctrine): a prior attempt that
+  // minted/loaded a card and then died on a later step still owns that value.
+  // Load only the remainder — never the full amount again — and adopt the
+  // stranded card so the guest ends with ONE card holding the whole credit.
+  const stranded = await strandedStoreCredit(plan.legIds, editId);
+  const nettedCents = Math.min(stranded.cents, amountCents);
+  const remainder = amountCents - nettedCents;
+
+  // The card to load: the group's existing store-credit card (an earlier edit
+  // or a cancel may have issued one on ANY leg — resolved at plan time), else
+  // the stranded attempt's card, else mint.
+  const existingId = plan.money.storeCreditGiftCardId ?? stranded.giftCardId ?? null;
+  const existingGan = plan.money.storeCreditGan ?? stranded.gan ?? null;
+  const targetRowId = plan.money.storeCreditLegId ?? anchor.id;
+  const priorRowCents =
+    plan.money.storeCreditLegId != null
+      ? plan.money.storeCreditCents
+      : (anchor.storeCreditCents ?? 0);
+
+  if (existingId && existingGan) {
+    if (remainder > 0) {
+      await loadGiftCard({
+        giftCardId: existingId,
+        locationId,
+        amountCents: remainder,
+        baseKey: `${editId}-sc`,
+        buyerPaymentInstrumentIds: [],
+      });
+      await recordEditStoreCredit(editId, existingId, existingGan, remainder);
+    } else {
+      // Everything was already issued by the stranded attempt — just claim it.
+      await recordEditStoreCredit(editId, existingId, existingGan, 0);
+    }
+    await updateStoreCreditIssued(targetRowId, {
+      giftCardId: existingId,
+      gan: existingGan,
+      // Stranded cents were already added to the row by the attempt that
+      // issued them; only the remainder is new.
+      cents: priorRowCents + remainder,
       state: "issued",
     });
-    return anchor.storeCreditGiftCardGan;
+    return { giftCardId: existingId, gan: existingGan, issuedCents: remainder, nettedCents };
   }
 
   const discountId =
@@ -1054,18 +1341,20 @@ const issueEditStoreCredit = async (
     "37C3SN4245TUCN3RF7XMNKPU";
   const minted = await mintDigitalGiftCard({
     locationId,
-    amountCents,
+    amountCents: remainder,
     baseKey: editId,
     discountCatalogObjectId: discountId,
     customerId: anchor.squareCustomerId,
   });
+  // Forward recovery: the ledger learns about the card the instant it exists.
+  await recordEditStoreCredit(editId, minted.giftCardId, minted.gan, remainder);
   await updateStoreCreditIssued(anchor.id, {
     giftCardId: minted.giftCardId,
     gan: minted.gan,
-    cents: amountCents,
+    cents: remainder,
     state: "issued",
   });
-  return minted.gan;
+  return { giftCardId: minted.giftCardId, gan: minted.gan, issuedCents: remainder, nettedCents };
 };
 
 /**
@@ -1119,11 +1408,11 @@ const rebuildAndSettleDayofOrders = async (
     }
 
     if (newTotal > 0) {
-      if (!anchor.squareGiftCardId)
-        throw new Error("no deposit gift card to pay the rebuilt order");
+      const giftCardId = plan.money.giftCardId ?? anchor.squareGiftCardId;
+      if (!giftCardId) throw new Error("no deposit gift card to pay the rebuilt order");
       const payRes = await sq("POST", "/payments", {
         idempotency_key: `${editId}-repay-${n}`,
-        source_id: anchor.squareGiftCardId,
+        source_id: giftCardId,
         amount_money: { amount: newTotal, currency: "USD" },
         order_id: newOrderId,
         location_id: leg.orderLocationId,
@@ -1156,7 +1445,24 @@ const commitNeon = async (
   req: ExecuteEditRequest,
   newQamfReservationId?: string,
   rebuiltOrders: Array<{ oldOrderId: string; newOrderId: string }> = [],
+  extra: {
+    /** Cents returned to the guest's tenders this attempt → bowling_reservations.edit_refund_cents. */
+    guestRefundedCents?: number;
+    /** Race heats surviving a BMI removal (written here, not inside bmi-sync). */
+    survivingHeats?: HeatMeta[];
+    heatsRowId?: number;
+  } = {},
 ): Promise<void> => {
+  if (extra.survivingHeats && extra.heatsRowId != null) {
+    const { persistHeatsMeta } = await import("./bmi-sync");
+    await persistHeatsMeta(extra.heatsRowId, extra.survivingHeats);
+  }
+  if ((extra.guestRefundedCents ?? 0) > 0) {
+    // The board's "Refunded" chip keys off refund_cents, which is CANCEL
+    // semantics (drives "your booking was cancelled" copy). Edit refunds get
+    // their own running total so a fully refunded visit stops looking untouched.
+    await addEditRefundCents(plan.anchorId, extra.guestRefundedCents!);
+  }
   for (const leg of plan.legs) {
     if (!leg.newNeonLines) continue; // race legs keep their lines (BMI-driven)
     const lines: ReservationLine[] = leg.newNeonLines.map((l) => ({

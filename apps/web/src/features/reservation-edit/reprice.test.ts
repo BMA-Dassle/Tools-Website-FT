@@ -210,7 +210,7 @@ describe("repriceBowling", () => {
     expect(r.lines.find((l) => l.role === "primary")!.quantity).toBe(6);
   });
 
-  it("per-person derives lanes from players and flags explicit laneCount", () => {
+  it("per-person IGNORES an explicit laneCount — lanes stay derived from players", () => {
     const r = repriceBowling({
       booked: perPerson,
       currentPlayerCount: 2,
@@ -218,7 +218,10 @@ describe("repriceBowling", () => {
       spec: { playerCount: 7, laneCount: 1 },
       shoeCatalog: [],
     });
-    expect(r.newLaneCount).toBe(1); // explicit wins…
+    // "Ignored" has to mean ignored: the returned count is the derived one
+    // (7 players ⇒ 2 lanes). Echoing the operator's 1 back made the planner
+    // read a lane CHANGE and emit a fatal Conqueror rebook for a no-op edit.
+    expect(r.newLaneCount).toBe(2);
     expect(r.warnings.some((w) => w.code === "lane_count_ignored")).toBe(true);
   });
 

@@ -6,13 +6,19 @@
  * the pending edit via POST /api/edit-payments/[editId].
  *
  * Deliberately brand-neutral (served on both domains) and single-purpose:
- * amount due + card form. Wallets/gift cards are hidden by keeping the form
- * to its card section (tokenize mode with card-only sources still shows
- * wallets when available — acceptable; wallet payments simply skip the vault).
+ * amount due + a typed card. Wallets and the gift-card toggle are HIDDEN here
+ * (`hideWallets` / `hideGiftCard`): the edit executor charges one card source
+ * for the whole difference and cannot redeem a gift card, and Apple/Google
+ * Pay tokens can never be kept on file — a plain card is what makes the NEXT
+ * edit chargeable without another link. The full tokenize payload
+ * (sourceKind + the "save my card" consent) is forwarded so the vault records
+ * the truth instead of a hard-coded 'card' / no-consent (COF-6).
  */
 
 import { useCallback, useEffect, useState } from "react";
 import PaymentForm from "@/components/square/PaymentForm";
+
+type TokenizePayload = Parameters<NonNullable<Parameters<typeof PaymentForm>[0]["onTokenize"]>>[0];
 
 interface Summary {
   guestName: string;
@@ -65,7 +71,15 @@ export default function PayEditClient({ editId, token }: { editId: string; token
   }, [editId, token]);
 
   const completePayment = useCallback(
-    async (params: { cardNonce: string | null; savedCardId: string | null }) => {
+    async (params: TokenizePayload) => {
+      // Defence in depth: the gift-card toggle is hidden on this page, but a
+      // gift-card tender can never be settled by the edit executor (it would
+      // charge the whole difference to the card). Refuse rather than overcharge.
+      if (params.giftCardNonce || params.sourceKind === "gift_card") {
+        setPhase("error");
+        setMessage("Gift cards can't be used for this payment — please enter a card.");
+        return;
+      }
       const nonce = params.savedCardId ?? params.cardNonce;
       if (!nonce) {
         setPhase("error");
@@ -77,7 +91,12 @@ export default function PayEditClient({ editId, token }: { editId: string; token
         const res = await fetch(`/api/edit-payments/${encodeURIComponent(editId)}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, cardNonce: nonce }),
+          body: JSON.stringify({
+            token,
+            cardNonce: nonce,
+            sourceKind: params.sourceKind,
+            saveCardConsent: params.saveCardConsent,
+          }),
         });
         const data = (await res.json()) as { ok?: boolean; error?: string; detail?: string };
         if (!res.ok || !data.ok) {
@@ -140,6 +159,8 @@ export default function PayEditClient({ editId, token }: { editId: string; token
             billId={editId}
             contact={{ firstName: summary.guestName, lastName: "", email: "", phone: "" }}
             onTokenize={completePayment}
+            hideWallets
+            hideGiftCard
             onSuccess={() => {}}
             onError={(err) => {
               setPhase("error");

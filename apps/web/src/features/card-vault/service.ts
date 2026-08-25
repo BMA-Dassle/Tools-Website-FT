@@ -9,11 +9,18 @@
  *  - CreateCard uses the captured *payment id* as source_id (never re-uses the
  *    single-use nonce — lesson 2026-06-18) with key `cof-${baseKey}` (20
  *    chars; Square's CreateCard idempotency cap is 45 — lesson 2026-06-20).
- *  - Wallet tokens are NOT storable as cards: skipped by client sourceKind AND
- *    double-checked server-side via the payment's card_details.
+ *  - Wallet tokens are NOT storable as cards (Square Cards API overview:
+ *    "Payments made using Square Pay, Apple Pay, Google Pay, Cash App Pay, or
+ *    cards on file cannot be used to store a card") — skipped by client
+ *    sourceKind. Gift-card tenders are caught server-side from the payment's
+ *    card_brand / source_type (they DO carry card_details, so presence alone
+ *    proves nothing). Every skip still writes a provenance row so the ledger
+ *    can answer "why is there no card?" (COF-1).
+ *  - Terminal Square codes (SOURCE_USED, INVALID_CARD_DATA, …) retire the row
+ *    on the first failure — the hourly sweep never re-probes them (COF-5).
  */
 import { squareErrorDetail, squareFetch } from "~/features/account/data/square-client";
-import { fetchSavedCards } from "~/features/account/data/customers";
+import { fetchSavedCardsOrNull } from "~/features/account/data/customers";
 import { saveCardOnFile } from "~/features/account/data/cards";
 import type { SavedCard } from "~/features/account/types";
 import { SquarePaymentError } from "@/lib/square-gift-card";
@@ -22,6 +29,7 @@ import {
   getCardForCustomer,
   getCardStatusForReservation,
   recordCaptureFailure,
+  recordTerminalCaptureFailure,
   upsertCapturedCard,
 } from "./data";
 import type {
@@ -30,12 +38,33 @@ import type {
   ChargeSavedCardParams,
   ChargeSavedCardResult,
   ChargeableCard,
+  ChargeableCardLookup,
+  PaymentSourceKind,
 } from "./types";
 
 const IDEMPOTENCY_KEY_MAX = 45;
 
+/**
+ * CreateCard error codes a retry can never fix. The first CreateCard consumed
+ * the payment source (SOURCE_USED), the source is not a storable card
+ * (INVALID_CARD_DATA / INVALID_CARD — a gift-card payment that slipped past
+ * the tag), the 24h source window closed (SOURCE_EXPIRED), or the issuer
+ * refused to store it (verification required / expired). Prod evidence
+ * 2026-08-24: 12 rows stuck at 5 attempts, 0 ever recovered by a retry.
+ */
+const TERMINAL_CREATE_CARD_CODES: ReadonlySet<string> = new Set([
+  "SOURCE_USED",
+  "INVALID_CARD_DATA",
+  "INVALID_CARD",
+  "SOURCE_EXPIRED",
+  "CARD_DECLINED_VERIFICATION_REQUIRED",
+  "CARD_EXPIRED",
+]);
+
 interface SquarePaymentCard {
   card_brand?: string;
+  card_type?: string;
+  prepaid_type?: string;
   last_4?: string;
   exp_month?: number;
   exp_year?: number;
@@ -46,10 +75,40 @@ interface SquarePaymentResponse {
   payment?: {
     id?: string;
     status?: string;
+    /** "CARD" for typed cards, wallets AND swiped/keyed Square gift cards;
+     *  "GIFT_CARD" for GAN-sourced gift-card auths. */
+    source_type?: string;
     card_details?: { card?: SquarePaymentCard };
   };
   errors?: Array<{ code?: string; detail?: string }>;
 }
+
+/** A Square gift card paid this — nothing here can ever be vaulted. */
+const isGiftCardTender = (payment: SquarePaymentResponse["payment"]): boolean =>
+  payment?.source_type?.toUpperCase() === "GIFT_CARD" ||
+  (payment?.card_details?.card?.card_brand ?? "").toUpperCase() === "SQUARE_GIFT_CARD";
+
+/**
+ * Server-side tender truth beats the client tag when it is MORE specific.
+ * `createDepositAndCharge` reports which tender became `depositPaymentId`:
+ *  - "gift_card" — the gift card covered the whole deposit, so no card tender
+ *    exists; the client tagged 'card' from its own (stale) balance preview
+ *    (COF-4: every "Invalid card data." row was this case);
+ *  - "saved" — the source was a card on file (`ccof:…`);
+ *  - "wallet" — when a caller can prove it;
+ *  - "card" / "unknown" / undefined — the server cannot tell a typed card from
+ *    a wallet DPAN (both are `cnon:` tokens, both read source_type CARD), so
+ *    the client's tag stands.
+ */
+export const resolveCaptureSourceKind = (
+  clientKind: PaymentSourceKind | undefined,
+  depositTender: string | undefined,
+): PaymentSourceKind | undefined => {
+  if (depositTender === "gift_card" || depositTender === "saved" || depositTender === "wallet") {
+    return depositTender;
+  }
+  return clientKind;
+};
 
 /** Dedupe: fingerprint when both sides have one, else brand+last4+exp. */
 const matchSavedCard = (
@@ -73,14 +132,20 @@ const matchSavedCard = (
  * Silently capture the deposit card onto the Square customer + record
  * provenance in `reservation_saved_cards`. Never throws (plan §7 steps 1–5):
  *  1. Skip non-card sources (wallet / gift-card-only / untagged legacy
- *     clients). `sourceKind === "saved"` records a `we_added=false,
+ *     clients) — but WRITE a terminal provenance row (square_card_id NULL,
+ *     capture_skip_reason set) so staff can see why no card exists.
+ *     `sourceKind === "saved"` records a `we_added=false,
  *     consent_source='preexisting'` row (the card already lived on file).
- *  2. GET /payments/{id} → card_details.card (brand/last4/exp/fingerprint) —
- *     also the server-side wallet double-check (no storable card → skip).
+ *  2. GET /payments/{id} → card_details.card (brand/last4/exp/fingerprint).
+ *     A SQUARE_GIFT_CARD brand / GIFT_CARD source is a gift-card tender
+ *     mis-tagged 'card' → terminal skip, never CreateCard. No card_details
+ *     at all → skip (attempts bumped so the sweep retires it).
  *  3. Dedupe against the customer's live saved cards → existing-card row
- *     (`we_added=false`, never auto-disabled).
+ *     (`we_added=false`, never auto-disabled). A ListCards FAILURE defers to
+ *     the sweep — never CreateCard blind (it could mint a duplicate).
  *  4. No match → CreateCard from the payment id, key `cof-${baseKey}`.
- *  5. Any failure → recordCaptureFailure row; the sweep retries (≤5).
+ *  5. Failure → recordCaptureFailure row; the sweep retries (≤5) — unless
+ *     Square's code is terminal, in which case the row is retired at once.
  */
 export const captureCardFromDeposit = async (
   params: CaptureCardParams,
@@ -91,10 +156,33 @@ export const captureCardFromDeposit = async (
     if (!squareCustomerId) return { ok: true, skipped: "no_square_customer" };
     // Untagged (stale client bundle) is treated as unknown — never guess a
     // wallet token into CreateCard. Tagged non-card sources are skipped too;
-    // "saved" continues (provenance row below).
-    if (!sourceKind) return { ok: true, skipped: "no_source_kind" };
-    if (sourceKind === "wallet" || sourceKind === "gift_card") {
-      return { ok: true, skipped: `source_kind_${sourceKind}` };
+    // "saved" continues (provenance row below). Each skip leaves a terminal
+    // provenance row (COF-1) — wrapped on its own so a Neon hiccup can never
+    // fall through to the retryable failure path and re-probe a wallet.
+    if (!sourceKind || sourceKind === "wallet" || sourceKind === "gift_card") {
+      const skipReason = sourceKind ?? "no_source_kind";
+      try {
+        await upsertCapturedCard({
+          squareCustomerId,
+          squareCardId: null,
+          sourceReservationId: params.reservationId,
+          sourceDepositOrderId: params.depositOrderId ?? null,
+          sourcePaymentId: paymentId,
+          weAdded: false,
+          permanentConsent: params.permanentConsent,
+          consentSource: params.permanentConsent ? "checkout_optin" : null,
+          captureSkipReason: skipReason,
+        });
+      } catch (err) {
+        console.error(
+          `[card-vault] skip provenance write failed payment=${paymentId} reason=${skipReason}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+      return {
+        ok: true,
+        skipped: sourceKind ? `source_kind_${sourceKind}` : "no_source_kind",
+      };
     }
 
     const failureCtx = {
@@ -130,17 +218,38 @@ export const captureCardFromDeposit = async (
       await recordCaptureFailure({ ...failureCtx, error });
       return { ok: false, error };
     }
+    if (isGiftCardTender(payRes.data.payment)) {
+      // A Square gift card paid the deposit (the client tagged 'card' because
+      // its balance preview said a card remainder was due; the server-side
+      // balance covered everything — COF-4). Gift-card payments carry
+      // card_details (brand SQUARE_GIFT_CARD, prepaid), so only the brand /
+      // source check catches them. Terminal: CreateCard would answer
+      // INVALID_CARD_DATA on every attempt.
+      await recordTerminalCaptureFailure({
+        ...failureCtx,
+        error: "gift card tender — nothing storable",
+        skipReason: "gift_card",
+      });
+      return { ok: true, skipped: "gift_card_tender" };
+    }
     const paymentCard = payRes.data.payment?.card_details?.card;
     if (!paymentCard) {
-      // Gift-card-only tender / wallet double-check: nothing storable. Bump
-      // the pending anchor's attempts so the sweep retires it instead of
-      // re-probing this payment every hour forever.
+      // No card facts at all: nothing storable. Bump the pending anchor's
+      // attempts so the sweep retires it instead of re-probing this payment
+      // every hour forever.
       await recordCaptureFailure({ ...failureCtx, error: "no storable card on payment" });
       return { ok: true, skipped: "no_card_details" };
     }
 
-    // 3. Dedupe against the customer's live cards on file.
-    const saved = await fetchSavedCards(squareCustomerId);
+    // 3. Dedupe against the customer's live cards on file. A ListCards
+    // failure must NOT read as "no cards" — CreateCard would then mint a
+    // duplicate of a card that already landed. Defer to the sweep instead.
+    const saved = await fetchSavedCardsOrNull(squareCustomerId);
+    if (saved === null) {
+      const error = "saved-cards lookup failed before CreateCard";
+      await recordCaptureFailure({ ...failureCtx, error });
+      return { ok: false, error };
+    }
     const existing = matchSavedCard(saved, paymentCard);
 
     if (existing || sourceKind === "saved") {
@@ -180,7 +289,17 @@ export const captureCardFromDeposit = async (
     });
     if (!created.ok || !created.cardId) {
       const error = created.error ?? "CreateCard failed";
-      await recordCaptureFailure({ ...failureCtx, error });
+      if (created.code && TERMINAL_CREATE_CARD_CODES.has(created.code)) {
+        // Retrying can never produce a card — retire the row now, keeping
+        // THIS error text (a sweep retry used to overwrite it — COF-5).
+        await recordTerminalCaptureFailure({
+          ...failureCtx,
+          error: `${created.code}: ${error}`,
+          skipReason: `terminal:${created.code}`,
+        });
+      } else {
+        await recordCaptureFailure({ ...failureCtx, error });
+      }
       return { ok: false, error };
     }
 
@@ -281,16 +400,26 @@ export const chargeSavedCard = async (
  * Which card an edit charge would hit — for the dry-run display AND the
  * execute step. Preference order: the vault row for THIS money group
  * (deposit order id), then the customer's newest vault row, then any live
- * saved card on the Square customer. Always cross-checked against
- * `fetchSavedCards` so a disabled/expired card is never offered.
+ * saved card on the Square customer. Always cross-checked against Square's
+ * live card list so a disabled/expired card is never offered.
+ *
+ * Returns a discriminated outcome (COF-7): `lookup_failed` when Square could
+ * not be asked (never "no card"), `none` with the money group's skip reason
+ * when the vault knows WHY there is no card (wallet / gift-card tender).
  */
 export const getChargeableCard = async (
   customerId: string,
   depositOrderId: string | null | undefined,
-): Promise<ChargeableCard | null> => {
-  if (!customerId) return null;
-  const live = (await fetchSavedCards(customerId)).filter((c) => !c.expired);
-  if (live.length === 0) return null;
+): Promise<ChargeableCardLookup> => {
+  if (!customerId) return { status: "no_customer" };
+  const listed = await fetchSavedCardsOrNull(customerId);
+  if (listed === null) return { status: "lookup_failed" };
+  const live = listed.filter((c) => !c.expired);
+
+  const groupRow = await getCardStatusForReservation(depositOrderId ?? null, customerId);
+  if (live.length === 0) {
+    return { status: "none", skipReason: groupRow?.captureSkipReason ?? null };
+  }
 
   const toChargeable = (
     card: SavedCard,
@@ -306,17 +435,17 @@ export const getChargeableCard = async (
     permanentConsent: permanent,
   });
 
-  const groupRow = await getCardStatusForReservation(depositOrderId ?? null, customerId);
   if (groupRow?.squareCardId && !groupRow.disabledAt) {
     const match = live.find((c) => c.id === groupRow.squareCardId);
-    if (match) return toChargeable(match, true, groupRow.permanentConsent);
+    if (match)
+      return { status: "card", card: toChargeable(match, true, groupRow.permanentConsent) };
   }
 
   const anyRow = await getCardForCustomer(customerId);
   if (anyRow?.squareCardId) {
     const match = live.find((c) => c.id === anyRow.squareCardId);
-    if (match) return toChargeable(match, true, anyRow.permanentConsent);
+    if (match) return { status: "card", card: toChargeable(match, true, anyRow.permanentConsent) };
   }
 
-  return toChargeable(live[0], false, false);
+  return { status: "card", card: toChargeable(live[0], false, false) };
 };

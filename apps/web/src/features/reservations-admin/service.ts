@@ -17,6 +17,7 @@ import {
   updateGuestContact,
   type BowlingReservation,
 } from "@/lib/bowling-db";
+import { isDbConfigured, sql } from "@/lib/db";
 import { listCancelEventsByAnchors, type CancelEventRow } from "@/lib/reservation-cancel-log";
 import { listEditEventsByAnchors, type EditEventRow } from "@/lib/reservation-edit-log";
 import { patchReservation } from "@/lib/qamf-bowling";
@@ -66,10 +67,85 @@ export type HistoryEntry =
   | { source: "edit"; at: string; event: EditEventRow };
 
 export interface ReservationDetail {
-  reservation: BowlingReservation & { lines: unknown[] };
+  reservation: BowlingReservation & { lines: unknown[] } & EditMoneyFacts;
   /** Every row sharing the anchor's deposit charge (combo legs, mixed carts). */
   group: DetailLeg[];
   history: HistoryEntry[];
+}
+
+/**
+ * Money facts the board and detail rows need that `rowToReservation` does
+ * not carry (both come from the 2026-08-24 edit/refund audit).
+ */
+export interface EditMoneyFacts {
+  /**
+   * Cents refunded AFTER booking through Edit/Refund
+   * (bowling_reservations.edit_refund_cents). Separate from the cancel
+   * cascade's refund_cents, whose semantics (never summed across legs, exported
+   * as the cancel refund) must not change.
+   */
+  editRefundCents: number;
+  /**
+   * Another row on the SAME day-of order recorded the lane-open payment. A
+   * bowling+attraction / bowling+race cart writes two rows sharing one order and
+   * only the bowling leg carries dayof_payment_id — the other leg can still
+   * refund from that order, so the Refund door must open on it too.
+   */
+  groupHasDayofPayment: boolean;
+}
+
+const NO_MONEY_FACTS: EditMoneyFacts = { editRefundCents: 0, groupHasDayofPayment: false };
+
+/**
+ * One batched read for a page of reservation ids. `edit_refund_cents` is read
+ * through `to_jsonb(r) ->> …` so the query also works before the engine's
+ * `ensureBowlingSchema` has added the column — a display chip must never be
+ * able to 500 the board.
+ */
+export async function fetchEditMoneyFacts(ids: number[]): Promise<Map<number, EditMoneyFacts>> {
+  const out = new Map<number, EditMoneyFacts>();
+  if (ids.length === 0 || !isDbConfigured()) return out;
+  const q = sql();
+  const rows = await q`
+    SELECT r.id,
+           (to_jsonb(r) ->> 'edit_refund_cents') AS edit_refund_cents,
+           EXISTS (
+             SELECT 1 FROM bowling_reservations s
+             WHERE s.square_dayof_order_id = r.square_dayof_order_id
+               AND s.id <> r.id
+               AND s.dayof_payment_id IS NOT NULL
+           ) AS group_has_dayof_payment
+    FROM bowling_reservations r
+    WHERE r.id = ANY(${ids})
+  `;
+  for (const row of rows as Array<Record<string, unknown>>) {
+    // Plain integer ids / cents — not BMI ids, Number() is safe here.
+    out.set(Number(row.id), {
+      editRefundCents: Number(row.edit_refund_cents ?? 0) || 0,
+      groupHasDayofPayment: row.group_has_dayof_payment === true,
+    });
+  }
+  return out;
+}
+
+/**
+ * Attach {@link EditMoneyFacts} to rows that already carry a Neon id. Best
+ * effort: a failed read leaves every row at the zero facts rather than failing
+ * the list — the facts drive a chip and a button, never money.
+ */
+export async function attachEditMoneyFacts<T extends { id: number }>(
+  rows: T[],
+): Promise<Array<T & EditMoneyFacts>> {
+  let facts = new Map<number, EditMoneyFacts>();
+  try {
+    facts = await fetchEditMoneyFacts(rows.map((r) => r.id));
+  } catch (err) {
+    console.warn(
+      "[reservations-admin] edit money facts unavailable:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+  return rows.map((r) => ({ ...r, ...(facts.get(r.id) ?? NO_MONEY_FACTS) }));
 }
 
 function toLeg(r: BowlingReservation): DetailLeg {
@@ -128,13 +204,16 @@ export async function getReservationDetail(query: {
   const group = await listCancelGroupReservations(anchor);
   const legIds = group.map((g) => g.id);
 
-  const [cancelEvents, actions, editEvents] = await Promise.all([
+  const [cancelEvents, actions, editEvents, [reservation]] = await Promise.all([
     listCancelEventsByAnchors(legIds),
     listAdminActions(legIds),
     // Edits carry their own money (top-up charges, refunds, store credit) and
     // were previously invisible here — every mutation of a reservation has to
     // be readable from this tab.
     listEditEventsByAnchors(legIds),
+    // Post-booking refunds + the shared-order payment fact (Overview chip,
+    // Refund door on the non-paying leg).
+    attachEditMoneyFacts([{ ...anchor, lines }]),
   ]);
 
   const history: HistoryEntry[] = [
@@ -144,7 +223,7 @@ export async function getReservationDetail(query: {
   ].sort((a, b) => String(b.at).localeCompare(String(a.at)));
 
   return {
-    reservation: { ...anchor, lines },
+    reservation,
     group: group.map(toLeg),
     history,
   };
@@ -207,6 +286,9 @@ export interface TimelineNode {
 export interface SavedCardStatus {
   brand: string | null;
   last4: string | null;
+  /** True = a Square card id exists on the row. False = nothing was ever
+   *  kept: see `captureSkipReason` / `captureLastError` for why. */
+  captured: boolean;
   /** True = WE silently captured it at booking (auto-removed ~72h after the
    *  visit); false = the card pre-existed on the customer. */
   weAdded: boolean;
@@ -214,6 +296,12 @@ export interface SavedCardStatus {
   permanentConsent: boolean;
   /** ISO timestamp when the sweep disabled it; null = still on file. */
   disabledAt: string | null;
+  /** Why no card could be kept: "wallet" | "gift_card" | "no_source_kind" |
+   *  "terminal:<SQUARE_CODE>"; null on a real capture or a retrying row. */
+  captureSkipReason: string | null;
+  /** Last CreateCard error text (a retrying or retired row); null otherwise. */
+  captureLastError: string | null;
+  captureAttempts: number;
 }
 
 export interface PaymentTimeline {
@@ -432,9 +520,13 @@ export async function getPaymentTimeline(neonId: number): Promise<PaymentTimelin
       ? {
           brand: savedCardRow.cardBrand,
           last4: savedCardRow.cardLast4,
+          captured: !!savedCardRow.squareCardId,
           weAdded: savedCardRow.weAdded,
           permanentConsent: savedCardRow.permanentConsent,
           disabledAt: savedCardRow.disabledAt,
+          captureSkipReason: savedCardRow.captureSkipReason,
+          captureLastError: savedCardRow.captureLastError,
+          captureAttempts: savedCardRow.captureAttempts,
         }
       : null,
   };

@@ -11,7 +11,15 @@
 //   ~/features/reservation-edit/hash      (planHash — node crypto)
 //   ~/features/reservation-edit/pay-link  (HMAC links — node crypto)
 export * from "./types";
-export { selectPhase, assertEditable, isPreDecreaseOnlyPlan, PRE_DECREASE_FLAG } from "./guards";
+export {
+  selectPhase,
+  assertEditable,
+  isPreDecreaseOnlyPlan,
+  isRefundOnlyPlan,
+  managerWarningCodes,
+  missingAcknowledgements,
+  PRE_DECREASE_FLAG,
+} from "./guards";
 export type { PhaseFacts, EditabilityFacts, SquareOrderState } from "./guards";
 export {
   resolveBookedPricing,

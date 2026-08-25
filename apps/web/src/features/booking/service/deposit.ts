@@ -124,9 +124,21 @@ export interface ExternalTerminalPayment {
   source: "terminal";
 }
 
+/**
+ * Which tender `depositPaymentId` refers to, as far as the SERVER can tell.
+ * The card-vault capture prefers this over the client's PaymentForm tag when
+ * it is more specific: a gift card that covered the whole deposit leaves no
+ * card tender at all, but the client tagged 'card' from its balance preview
+ * (COF-4). A typed card and a wallet DPAN are indistinguishable here (both
+ * `cnon:` tokens, both source_type CARD) → undefined, the client tag stands.
+ */
+export type DepositTender = "card" | "gift_card" | "wallet" | "saved" | "unknown";
+
 export interface DepositResult {
   depositOrderId: string;
   depositPaymentId: string;
+  /** See DepositTender — undefined when the server cannot know. */
+  depositTender?: DepositTender;
   /** Null when the deposit was CAPTURED but gift-card create/activate failed
    *  (see giftCardPending) — the booking is recovered forward, not refunded. */
   giftCardId: string | null;
@@ -522,6 +534,16 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
   if (!depositPaymentId) {
     throw new Error("Payment succeeded but returned no ID");
   }
+  // Server-side tender truth for the card-vault (see DepositTender). When the
+  // gift card covered everything, authorizeMultiTender never created a card
+  // tender and the GC payment IS the deposit payment.
+  const depositTender: DepositTender | undefined = cardPaymentId
+    ? cardSourceId?.startsWith("ccof:")
+      ? "saved"
+      : undefined
+    : gcPaymentId
+      ? "gift_card"
+      : undefined;
 
   // ── 3 + 4. Create + ACTIVATE the gift card from the CAPTURED deposit ──
   // The card is already captured (payOrder). If gift-card create/activate fails
@@ -547,6 +569,7 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
     return {
       depositOrderId,
       depositPaymentId,
+      depositTender,
       giftCardId,
       giftCardGan,
       gcApprovedCents,
@@ -561,6 +584,7 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
     return {
       depositOrderId,
       depositPaymentId,
+      depositTender,
       giftCardId: null,
       giftCardGan: null,
       gcApprovedCents,
@@ -658,6 +682,9 @@ export async function createDepositAndChargeTenders(
   // "card over gc" preference), else the last gift card.
   const lastCard = [...result.tenders].reverse().find((t) => t.kind === "card");
   const depositPaymentId = (lastCard ?? result.tenders[result.tenders.length - 1]).paymentId;
+  // Gift-card-only split → the deposit payment is a gift card (never
+  // vaultable). A card tender's kind (typed / wallet / saved) is unknown here.
+  const depositTender: DepositTender | undefined = lastCard ? undefined : "gift_card";
 
   // ── 3 + 4. Create + ACTIVATE the deposit gift card from ALL captures ──
   try {
@@ -679,6 +706,7 @@ export async function createDepositAndChargeTenders(
     return {
       depositOrderId,
       depositPaymentId,
+      depositTender,
       giftCardId,
       giftCardGan,
       gcApprovedCents,
@@ -699,6 +727,7 @@ export async function createDepositAndChargeTenders(
     return {
       depositOrderId,
       depositPaymentId,
+      depositTender,
       giftCardId: null,
       giftCardGan: null,
       gcApprovedCents,

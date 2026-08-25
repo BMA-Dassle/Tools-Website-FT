@@ -311,6 +311,11 @@ export async function ensureBowlingSchema(): Promise<void> {
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`;
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS square_refund_id TEXT`;
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS refund_cents INTEGER NOT NULL DEFAULT 0`;
+  // Money returned to the guest by reservation EDITS (partial/full refunds of
+  // a paid visit). Separate from refund_cents on purpose: that column carries
+  // CANCEL semantics (guest-facing "your booking was cancelled" copy, survey
+  // export). 2026-08-24 audit.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS edit_refund_cents INTEGER NOT NULL DEFAULT 0`;
 
   // ── eGift card columns (idempotent) ──────────────────────────────
   // The gift card stores the exact deposit amount, enabling accurate
@@ -640,6 +645,9 @@ export interface BowlingReservation {
   squareRefundId?: string;
   /** Actual amount refunded to the customer (cents). 0 if free booking. */
   refundCents: number;
+  /** Cents returned to the guest by reservation EDITS (not cancellation).
+   *  Optional: only reads populate it — inserts never set it (defaults to 0). */
+  editRefundCents?: number;
   /**
    * How the cancellation settled: 'refund' (card refund), 'store_credit'
    * (deposit converted to a new customer gift card), or 'none' ($0 rows —
@@ -875,6 +883,7 @@ function rowToReservation(row: Record<string, unknown>): BowlingReservation {
     cancelledAt: row.cancelled_at ? (row.cancelled_at as Date).toISOString() : undefined,
     squareRefundId: (row.square_refund_id as string) ?? undefined,
     refundCents: (row.refund_cents as number) ?? 0,
+    editRefundCents: (row.edit_refund_cents as number) ?? 0,
     cancellationOutcome:
       (row.cancellation_outcome as BowlingReservation["cancellationOutcome"]) ?? undefined,
     cancelledBy: (row.cancelled_by as BowlingReservation["cancelledBy"]) ?? undefined,
@@ -2505,6 +2514,18 @@ export async function updateStoreCreditIssued(
       store_credit_gift_card_gan = ${sc.gan},
       store_credit_cents         = ${sc.cents},
       store_credit_state         = ${sc.state}
+    WHERE id = ${id}
+  `;
+}
+
+/** Add to the running total of money reservation EDITS returned to the guest. */
+export async function addEditRefundCents(id: number, cents: number): Promise<void> {
+  if (!isDbConfigured() || cents <= 0) return;
+  await ensureBowlingSchema();
+  const q = sql();
+  await q`
+    UPDATE bowling_reservations
+    SET edit_refund_cents = COALESCE(edit_refund_cents, 0) + ${cents}
     WHERE id = ${id}
   `;
 }

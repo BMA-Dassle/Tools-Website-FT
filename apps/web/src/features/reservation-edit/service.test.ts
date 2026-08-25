@@ -19,6 +19,7 @@ vi.mock("@/lib/bowling-db", () => ({
   getBowlingExperiences: vi.fn(async () => []),
   updateReservationAfterEdit: vi.fn(async () => {}),
   updateStoreCreditIssued: vi.fn(async () => {}),
+  addEditRefundCents: vi.fn(async () => {}),
 }));
 vi.mock("@/lib/reservation-edit-log", () => ({
   nextEditAttempt: vi.fn(async () => 1),
@@ -30,7 +31,16 @@ vi.mock("@/lib/reservation-edit-log", () => ({
   listEditEventsByAnchors: vi.fn(async () => []),
   getLatestEditEvent: vi.fn(async () => null),
   getOpenEditEvent: vi.fn(async () => null),
+  getEditEvent: vi.fn(async () => null),
   refundedCentsForPayment: vi.fn(async () => ({ cents: 0, refundIds: [] })),
+  recordEditReturnOrder: vi.fn(async () => {}),
+  recordEditStoreCredit: vi.fn(async () => {}),
+  strandedStoreCredit: vi.fn(async () => ({
+    cents: 0,
+    giftCardId: null,
+    gan: null,
+    editIds: [],
+  })),
 }));
 vi.mock("@/lib/reservation-cancel-log", () => ({
   getLatestCancelEvent: vi.fn(async () => null),
@@ -183,6 +193,17 @@ const mkPlan = (steps: EditStep[], over: Partial<EditPlan> = {}): EditPlan => ({
       attractionChanges: null,
     },
   ],
+  money: {
+    payingLegId: 42,
+    dayofPaymentId: "PAY_DAYOF",
+    giftCardId: "GC1",
+    depositOrderId: "DEP1",
+    storeCreditLegId: null,
+    storeCreditGiftCardId: null,
+    storeCreditGan: null,
+    storeCreditCents: 0,
+    closedUnpaid: false,
+  },
   diffCents: 4999,
   guestOwedCents: 0,
   gcDecrementCents: 0,

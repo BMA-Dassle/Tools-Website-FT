@@ -94,9 +94,24 @@ export default function ManageReservationModal({
         : null;
   const showResend = notTerminal && !!(r.guestEmail || r.guestPhone);
   const showCancel = cancelActionable(r);
+  // A desk booking (Conqueror) has no web deposit, no Square order and no
+  // priced lines — nothing here can reprice, charge or refund it, and a roster
+  // edit would overwrite the names the desk typed. Edit stays hidden.
+  const isConqueror = r.bookingSource === "conqueror";
+  const showEdit = !isCancelled && !isConqueror;
+  // The lane-open payment may sit on a SIBLING leg (bowling+attraction /
+  // bowling+race share one day-of order; only the bowling leg records the
+  // payment). The board row carries the fact; the detail's money group is the
+  // fallback when the row predates it.
+  const groupHasDayofPayment =
+    !!r.groupHasDayofPayment ||
+    (detail?.group.some((leg) => leg.id !== r.id && !!leg.dayofPaymentId) ?? false);
+  const actionRow: Row =
+    groupHasDayofPayment && !r.groupHasDayofPayment ? { ...r, groupHasDayofPayment: true } : r;
+  const refundFromSibling = !r.dayofPaymentId && groupHasDayofPayment;
   // Mutually exclusive with Cancel by construction: Cancel owns rows that have
   // not started, Refund owns rows that have. So the red slot is never ambiguous.
-  const showRefund = refundActionable(r);
+  const showRefund = refundActionable(actionRow);
 
   function mutated(msg: string) {
     onToast(msg);
@@ -304,11 +319,11 @@ export default function ManageReservationModal({
             </a>
           )}
           <span style={{ flex: 1 }} />
-          {!isCancelled && (
+          {showEdit ? (
             <button
               type="button"
               onClick={() => setAction("edit")}
-              title="Edit players, lanes, shoes, or racers — price differences charge or refund automatically"
+              title="Edit players, lanes, shoes, or racers — price differences charge or refund automatically (a preview shows first; editing may be switched off)"
               style={{
                 ...ACTION_BTN,
                 border: "1px solid rgba(245,158,11,0.4)",
@@ -317,12 +332,23 @@ export default function ManageReservationModal({
             >
               Edit
             </button>
+          ) : (
+            !isCancelled &&
+            isConqueror && (
+              <span style={{ fontSize: "0.7rem", color: "var(--ba-muted)" }}>
+                Desk booking — change it in Conqueror
+              </span>
+            )
           )}
           {showRefund && (
             <button
               type="button"
               onClick={() => setAction("refund")}
-              title="Refund part or all of what was charged at the venue — the booking stays as it happened"
+              title={
+                refundFromSibling
+                  ? "Refund from the bowling part of this booking — the venue charge lives on its order"
+                  : "Refund part or all of what was charged at the venue — the booking stays as it happened"
+              }
               style={{
                 ...ACTION_BTN,
                 border: "1px solid rgba(239,68,68,0.4)",
@@ -433,7 +459,7 @@ export default function ManageReservationModal({
       )}
       {(action === "edit" || action === "refund") && (
         <EditReservationModal
-          reservation={r}
+          reservation={actionRow}
           token={token}
           intent={action === "refund" ? "refund" : "edit"}
           onClose={() => setAction(null)}

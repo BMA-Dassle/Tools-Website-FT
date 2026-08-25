@@ -6,6 +6,14 @@ export interface SaveCardResult {
   brand?: string;
   last4?: string;
   error?: string;
+  /** Square error code on failure (SOURCE_USED, INVALID_CARD_DATA, …) — the
+   *  card-vault uses it to tell a terminal failure from a transient one. */
+  code?: string;
+}
+
+function squareErrorCode(data: unknown): string | undefined {
+  const errs = (data as { errors?: { code?: string }[] })?.errors;
+  return Array.isArray(errs) && errs[0]?.code ? errs[0].code : undefined;
 }
 
 /**
@@ -44,7 +52,7 @@ export async function saveCardOnFile(params: {
 
   const card = data.card;
   if (!ok || !card?.id) {
-    return { ok: false, error: squareErrorDetail(data) };
+    return { ok: false, error: squareErrorDetail(data), code: squareErrorCode(data) };
   }
   return { ok: true, cardId: card.id, brand: card.card_brand || "Card", last4: card.last_4 || "" };
 }

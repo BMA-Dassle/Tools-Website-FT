@@ -75,7 +75,7 @@ const heatsMetaOf = (row: BowlingReservation): HeatMeta[] => {
   return meta && Array.isArray(meta.heats) ? (meta.heats as HeatMeta[]) : [];
 };
 
-const persistHeatsMeta = async (reservationId: number, heats: HeatMeta[]): Promise<void> => {
+export const persistHeatsMeta = async (reservationId: number, heats: HeatMeta[]): Promise<void> => {
   const q = sql();
   await q`
     UPDATE bowling_reservations
@@ -135,6 +135,15 @@ const reconfirmBill = async (
 
 export interface BmiSyncResult {
   detail: string;
+  /**
+   * REMOVE mode only: the heats that remain after the removal. NOT persisted
+   * here — the executor writes them with the Neon commit, so
+   * booking_metadata.heats only changes when the whole edit lands (a retry
+   * after a later-step failure can still see, and re-price, the heat).
+   */
+  survivingHeats?: HeatMeta[];
+  /** The row whose booking_metadata.heats those belong to (the race leg). */
+  heatsRowId?: number;
 }
 
 /**
@@ -350,7 +359,19 @@ export const syncBmiRaceEdit = async (params: {
   }
 
   let removedCount = 0;
+  let alreadyGone = 0;
   for (const r of removed) {
+    // Idempotent for the retry window: a prior attempt may have removed this
+    // line at BMI and then failed on a later step. A line the live bill no
+    // longer carries is a success, not a 4xx. Presence is checked on the RAW
+    // overview text — never JSON.parse a BMI body that carries line ids.
+    const present = new RegExp(`"billLineId"\\s*:\\s*"?${r.bmiLineId}"?(?![0-9])`).test(
+      overviewBefore.text,
+    );
+    if (!present && /"billLineId"/.test(overviewBefore.text)) {
+      alreadyGone++;
+      continue;
+    }
     const body = stringifyWithRawIds({}, { rawIds: { orderId: billId, billLineId: r.bmiLineId! } });
     const res = await proxyCall(origin, clientKey, "POST", "booking/removeItem", body);
     if (res.status >= 400) {
@@ -359,11 +380,16 @@ export const syncBmiRaceEdit = async (params: {
     removedCount++;
   }
 
-  await reconfirmBill(origin, clientKey, billId, anchor.comboSpecialId);
+  if (removedCount > 0) await reconfirmBill(origin, clientKey, billId, anchor.comboSpecialId);
 
   const keep = heatsMeta.filter((_, i) => !removed.some((r) => r.index === i));
-  await persistHeatsMeta(raceRow.id, keep);
-  return { detail: `removed ${removedCount} heat line(s)` };
+  return {
+    detail:
+      `removed ${removedCount} heat line(s)` +
+      (alreadyGone > 0 ? ` (${alreadyGone} already gone from the bill)` : ""),
+    survivingHeats: keep,
+    heatsRowId: raceRow.id,
+  };
 };
 
 /* ── Attraction add-on quantity edits ─────────────────────────────────── */

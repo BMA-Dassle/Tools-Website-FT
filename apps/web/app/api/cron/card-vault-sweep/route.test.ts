@@ -46,6 +46,7 @@ const pendingRow = (partial: Record<string, unknown> = {}) => ({
   consentSource: null,
   captureAttempts: 1,
   captureLastError: "boom",
+  captureSkipReason: null,
   disabledAt: null,
   disableAttempts: 0,
   disableLastError: null,
@@ -136,6 +137,23 @@ describe("GET /api/cron/card-vault-sweep — phase 1 capture retry", () => {
     await GET(makeReq());
     expect(vault.captureCardFromDeposit).toHaveBeenCalledWith(
       expect.objectContaining({ sourceKind: "saved" }),
+    );
+  });
+
+  it("never re-probes a terminal row (skip reason set) — wallet / gift card / SOURCE_USED stay retired", async () => {
+    vault.listPendingCaptures.mockResolvedValue([
+      pendingRow({ captureSkipReason: "wallet" }),
+      pendingRow({ id: 12, sourcePaymentId: "PAY_2", captureSkipReason: "terminal:SOURCE_USED" }),
+      pendingRow({ id: 13, sourcePaymentId: "PAY_3" }),
+    ]);
+    vault.captureCardFromDeposit.mockResolvedValue({ ok: true, cardId: "ccof:Z", deduped: false });
+
+    const res = await GET(makeReq());
+    const json = await res.json();
+    expect(json.captures).toMatchObject({ pending: 3, attempted: 1, skipped: 2, succeeded: 1 });
+    expect(vault.captureCardFromDeposit).toHaveBeenCalledTimes(1);
+    expect(vault.captureCardFromDeposit).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentId: "PAY_3" }),
     );
   });
 

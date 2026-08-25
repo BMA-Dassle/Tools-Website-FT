@@ -134,7 +134,65 @@ export type EditGuardCode =
   | "dayof_reason_reserved"
   // Whole-visit refund on a lane-open order — belongs to the cancel cascade.
   | "full_refund_use_cancel"
+  // The plan carries manager-severity warnings (Conqueror/BMI will not be
+  // updated) that staff have not acknowledged. Execute-time only; the dry-run
+  // returns the warnings so the modal can collect the acknowledgments first.
+  | "ack_required"
+  // Booked at the desk in Conqueror (booking_source='conqueror'): no web
+  // deposit, no Square order, no priced lines — nothing here can reprice,
+  // charge or refund it. Refused before any Square read.
+  | "conqueror_origin"
+  // A paid day-of order whose lane-open payment id no leg of the money group
+  // recorded and the live order's tenders don't identify unambiguously.
+  | "dayof_payment_unresolved"
   | "no_changes";
+
+/**
+ * Which execution gates are OPEN in this environment — the mount probe's
+ * `no_changes` payload carries it so the modal can say "editing is switched
+ * off" BEFORE staff fill the form out. Every value is a kill switch read
+ * through `editFlagEnabled` (`!== "false"`), never an opt-in gate.
+ */
+export interface EditCapabilities {
+  /** RESERVATION_EDIT_V2 — charges, external sync, rebuilds. */
+  edit: boolean;
+  /** Refund of an already-paid day-of order in THIS row's phase (mid/post). */
+  refund: boolean;
+  /** RESERVATION_EDIT_V2_PRE_DECREASE — pre-check-in reductions. */
+  preDecrease: boolean;
+  /** Human copy for whatever is off, or null when everything is on. */
+  blockedReason: string | null;
+}
+
+/** Structured payload of the `no_changes` guard error (the mount probe). */
+export interface NoChangesData {
+  current: unknown;
+  capabilities: EditCapabilities;
+}
+
+/**
+ * Something a human must do by hand because an external system was NOT (or
+ * may not have been) updated by the edit. Predicted ones come from the plan's
+ * manager-severity warnings staff acknowledged; unpredicted ones come from a
+ * best-effort sync step failing at execution. Persisted on the ledger row
+ * (`reservation_edit_events.manual_steps`) and shown on the success screen and
+ * in History, so the acknowledgment is a record, not a click.
+ */
+export interface ManualStep {
+  system: "conqueror" | "bmi" | "square" | "guest";
+  code: string;
+  message: string;
+  /** True when the plan warned about it before Execute (staff acknowledged). */
+  predicted: boolean;
+}
+
+/** Who acknowledged which manager warnings, recorded on the ledger row. */
+export interface EditAcknowledgement {
+  codes: string[];
+  /** Staff initials typed into the modal (single shared portal token → no identity otherwise). */
+  by: string | null;
+  at: string;
+}
 
 /** Typed guard failure — routes map these to 409s with the code as reason. */
 export class EditGuardError extends Error {
@@ -155,6 +213,31 @@ export class EditGuardError extends Error {
     this.name = "EditGuardError";
     this.code = code;
     this.data = data;
+  }
+}
+
+/**
+ * A cascade that started (audit row written) and then failed on a step. Carries
+ * what the modal needs to say something useful — which attempt, which step —
+ * without the route reading the ledger back.
+ */
+export class EditExecutionError extends Error {
+  readonly editId: string;
+  readonly failedStep: string | undefined;
+  readonly stepLog: Array<{ step: string; ok: boolean; detail?: string }>;
+  constructor(
+    message: string,
+    ctx: {
+      editId: string;
+      failedStep?: string;
+      stepLog: Array<{ step: string; ok: boolean; detail?: string }>;
+    },
+  ) {
+    super(message);
+    this.name = "EditExecutionError";
+    this.editId = ctx.editId;
+    this.failedStep = ctx.failedStep;
+    this.stepLog = ctx.stepLog;
   }
 }
 
@@ -196,10 +279,21 @@ export interface EditStep {
   amountCents?: number;
 }
 
+/**
+ * A plan warning. `severity: "manager"` means an external system (Conqueror /
+ * BMI) will NOT be updated by this edit — the modal must collect an explicit
+ * acknowledgment per such warning BEFORE Execute, and the executor refuses
+ * (`ack_required`) unless every manager code was acknowledged. `system` and
+ * `manualStep` carry the plain-English by-hand instruction for staff.
+ */
 export interface EditWarning {
   severity: "info" | "warning" | "manager";
   code: string;
   message: string;
+  /** Which system the warning is about (manager warnings always set it). */
+  system?: ManualStep["system"];
+  /** Exactly what staff must do by hand, e.g. "Add 1 bowler to Conqueror reservation X158469". */
+  manualStep?: string;
 }
 
 /** A priced line in the repriced (desired) state. */

@@ -57,11 +57,27 @@ export const syncQamfPlayers = async (params: {
   // api-version "1.2" — the pinned version's schema omits Player.Id, and
   // without ids the per-player DELETE has nothing to address (probed live
   // 2026-07-11: same reservation returns ids under 1.2, none under the pin).
+  const desired = params.players.length;
+  // A zero-length roster can only come from a plan that lost its player rows
+  // (combo legs have none until the roster is captured). Pushing it would
+  // DELETE every bowler / retitle "(0p)" / overwrite the desk's names with
+  // placeholders — refuse before touching Conqueror.
+  if (desired === 0) {
+    throw new Error(
+      "refusing to push an empty roster to Conqueror — the booking has no player rows to sync",
+    );
+  }
+
   let live = await getReservation(params.qamfCenterId, params.qamfReservationId, "1.2");
   let lanes = live.Lanes ?? [];
-  if (lanes.length === 0) return { lanesUpdated: 0, playersRemoved: 0 };
+  if (lanes.length === 0) {
+    // A reservation with no lanes was deleted or collapsed at the desk — a
+    // silent {0,0} here read as "synced" in the step log.
+    throw new Error(
+      `Conqueror reservation ${params.qamfReservationId} has no lanes — it may have been removed at the desk`,
+    );
+  }
 
-  const desired = params.players.length;
   const liveTotal = lanes.reduce((s, l) => s + (l.Players?.length ?? 0), 0);
 
   // ── DECREASE: delete the excess players, then re-read live state ─────
@@ -119,11 +135,15 @@ export const syncQamfPlayers = async (params: {
     for (let s = 0; s < seatCount; s++) {
       seat++;
       const p = params.players[next];
+      // A desired slot with no name keeps the LIVE seat's name (the desk may
+      // have typed real bowlers in Conqueror); placeholders only fill seats
+      // nobody has ever named.
+      const liveName = lane.Players?.[s]?.Name?.trim() || null;
       if (p) {
-        assigned.push(p);
+        assigned.push({ ...p, name: p.name?.trim() || liveName || `Bowler ${seat}` });
         next++;
       } else {
-        assigned.push({ name: `Bowler ${seat}` });
+        assigned.push({ name: liveName || `Bowler ${seat}` });
       }
     }
     await setLanePlayers(
@@ -148,14 +168,23 @@ export const syncQamfPlayers = async (params: {
   });
 
   // Names + Title ARE synced at this point — the throw only makes the count
-  // gap loud (surfaces as the modal's Conqueror warning).
+  // gap loud (surfaces as the modal's Conqueror warning + a by-hand step).
   if (countShortfall > 0) {
     throw new Error(
-      `QAMF still shows ${countShortfall} extra bowler(s)` +
+      `Conqueror still shows ${countShortfall} extra bowler(s)` +
         (deleteFailure
           ? ` — the player DELETE failed (${deleteFailure.slice(0, 160)})`
           : " — no addressable player ids") +
-        `; names and "(${desired}p)" title are synced — adjust the bowler count in Conqueror manually`,
+        `; names and "(${desired}p)" title are synced — remove the bowler(s) in Conqueror by hand`,
+    );
+  }
+  // INCREASE: the lane-players PUT is same-count-only, so bowlers beyond the
+  // live seat count never reach Conqueror. Until 2026-08-24 this was silent
+  // (the title said "(Np)" while the lanes kept the old count) — say so.
+  if (next < desired) {
+    throw new Error(
+      `Conqueror still shows ${liveTotal} bowler(s) — its API cannot add ${desired - next} seat(s) ` +
+        `to an existing lane; names and "(${desired}p)" title are synced — add the bowler(s) in Conqueror by hand`,
     );
   }
 

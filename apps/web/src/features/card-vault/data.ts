@@ -67,6 +67,11 @@ const ensureSchema = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS rsc_deposit_order
       ON reservation_saved_cards (source_deposit_order_id)
   `;
+  // Added 2026-08-24 (card-on-file audit COF-1/4/5): the table already exists
+  // in prod, so new columns ride ALTER … IF NOT EXISTS, never the CREATE.
+  await q`
+    ALTER TABLE reservation_saved_cards ADD COLUMN IF NOT EXISTS capture_skip_reason TEXT
+  `;
   schemaReady = true;
 };
 
@@ -88,6 +93,7 @@ const rowToCard = (r: any): SavedCardRow => ({
   consentSource: (r.consent_source as ConsentSource | null) ?? null,
   captureAttempts: r.capture_attempts ?? 0,
   captureLastError: r.capture_last_error ?? null,
+  captureSkipReason: r.capture_skip_reason ?? null,
   disabledAt: r.disabled_at ? new Date(r.disabled_at).toISOString() : null,
   disableAttempts: r.disable_attempts ?? 0,
   disableLastError: r.disable_last_error ?? null,
@@ -112,12 +118,19 @@ export interface UpsertCapturedCardParams {
   weAdded: boolean;
   permanentConsent: boolean;
   consentSource: ConsentSource | null;
+  /**
+   * Terminal provenance marker (see SavedCardRow.captureSkipReason). Set on
+   * the skip rows the capture writes for wallet / gift-card / untagged
+   * tenders so the ledger records WHY no card exists. Omit for real captures.
+   */
+  captureSkipReason?: string | null;
 }
 
 /**
  * Insert-or-update keyed on source_payment_id. A retry never clears a
  * previously captured card id (COALESCE) and permanent consent is sticky —
- * it can be granted later but never silently revoked by a replay.
+ * it can be granted later but never silently revoked by a replay. A row that
+ * gains a real card id drops any skip reason (the two are mutually exclusive).
  */
 export const upsertCapturedCard = async (p: UpsertCapturedCardParams): Promise<void> => {
   if (!isDbConfigured()) return;
@@ -128,12 +141,12 @@ export const upsertCapturedCard = async (p: UpsertCapturedCardParams): Promise<v
       square_customer_id, square_card_id, card_brand, card_last4,
       card_exp_month, card_exp_year, fingerprint,
       source_reservation_id, source_deposit_order_id, source_payment_id,
-      we_added, permanent_consent, consent_source
+      we_added, permanent_consent, consent_source, capture_skip_reason
     ) VALUES (
       ${p.squareCustomerId}, ${p.squareCardId}, ${p.cardBrand ?? null}, ${p.cardLast4 ?? null},
       ${p.cardExpMonth ?? null}, ${p.cardExpYear ?? null}, ${p.fingerprint ?? null},
       ${p.sourceReservationId}, ${p.sourceDepositOrderId}, ${p.sourcePaymentId},
-      ${p.weAdded}, ${p.permanentConsent}, ${p.consentSource}
+      ${p.weAdded}, ${p.permanentConsent}, ${p.consentSource}, ${p.captureSkipReason ?? null}
     )
     ON CONFLICT (source_payment_id) DO UPDATE SET
       square_card_id = COALESCE(EXCLUDED.square_card_id, reservation_saved_cards.square_card_id),
@@ -145,6 +158,10 @@ export const upsertCapturedCard = async (p: UpsertCapturedCardParams): Promise<v
       we_added = EXCLUDED.we_added,
       permanent_consent = reservation_saved_cards.permanent_consent OR EXCLUDED.permanent_consent,
       consent_source = COALESCE(EXCLUDED.consent_source, reservation_saved_cards.consent_source),
+      capture_skip_reason = CASE
+        WHEN EXCLUDED.square_card_id IS NOT NULL THEN NULL
+        ELSE COALESCE(EXCLUDED.capture_skip_reason, reservation_saved_cards.capture_skip_reason)
+      END,
       capture_last_error = NULL,
       updated_at = NOW()
   `;
@@ -181,7 +198,40 @@ export const recordCaptureFailure = async (p: RecordCaptureFailureParams): Promi
   `;
 };
 
-/** Pending captures (CreateCard not yet succeeded), oldest-touched first. */
+/**
+ * TERMINAL failure anchor — the payment can never become a card on file
+ * (gift-card tender, SOURCE_USED, INVALID_CARD_DATA, …). Retires the row in
+ * one write: attempts jump to the cap AND `capture_skip_reason` is stamped, so
+ * the sweep never re-probes it and the ROOT error text survives (a retry used
+ * to overwrite it with "Source was used before." — COF-5).
+ */
+export const recordTerminalCaptureFailure = async (
+  p: RecordCaptureFailureParams & { skipReason: string },
+): Promise<void> => {
+  if (!isDbConfigured()) return;
+  await ensureSchema();
+  const q = sql();
+  await q`
+    INSERT INTO reservation_saved_cards (
+      square_customer_id, source_reservation_id, source_deposit_order_id, source_payment_id,
+      we_added, permanent_consent, consent_source, capture_attempts, capture_last_error,
+      capture_skip_reason
+    ) VALUES (
+      ${p.squareCustomerId}, ${p.sourceReservationId}, ${p.sourceDepositOrderId},
+      ${p.sourcePaymentId}, TRUE, ${p.permanentConsent}, ${p.consentSource},
+      ${MAX_CAPTURE_ATTEMPTS}, ${p.error.slice(0, 500)}, ${p.skipReason.slice(0, 100)}
+    )
+    ON CONFLICT (source_payment_id) DO UPDATE SET
+      capture_attempts = GREATEST(reservation_saved_cards.capture_attempts + 1, ${MAX_CAPTURE_ATTEMPTS}),
+      capture_last_error = ${p.error.slice(0, 500)},
+      capture_skip_reason = COALESCE(reservation_saved_cards.capture_skip_reason, ${p.skipReason.slice(0, 100)}),
+      updated_at = NOW()
+  `;
+};
+
+/** Pending captures (CreateCard not yet succeeded), oldest-touched first.
+ *  Terminal rows (a skip reason) are never candidates — a wallet / gift-card
+ *  payment re-probed as 'card' is exactly the stuck-row pattern (COF-1/5). */
 export const listPendingCaptures = async (limit: number): Promise<SavedCardRow[]> => {
   if (!isDbConfigured()) return [];
   await ensureSchema();
@@ -190,6 +240,7 @@ export const listPendingCaptures = async (limit: number): Promise<SavedCardRow[]
     SELECT * FROM reservation_saved_cards
     WHERE square_card_id IS NULL
       AND disabled_at IS NULL
+      AND capture_skip_reason IS NULL
       AND capture_attempts < ${MAX_CAPTURE_ATTEMPTS}
     ORDER BY updated_at ASC
     LIMIT ${limit}
@@ -272,9 +323,11 @@ export const getCardForCustomer = async (customerId: string): Promise<SavedCardR
 
 /**
  * Vault row for a reservation's money group — matched by the deposit order id
- * (the group key), falling back to the customer's newest row (covers legacy
- * rows and admin-granted cards). Disabled rows ARE returned so the Payments
- * tab can show "removed {date}".
+ * (the group key; skip / pending rows ARE returned so the Payments tab can say
+ * WHY there is no card), falling back to the customer's newest row that holds
+ * a card (covers legacy rows and admin-granted cards — another reservation's
+ * skip row is not this reservation's status). Disabled rows ARE returned so
+ * the Payments tab can show "removed {date}".
  */
 export const getCardStatusForReservation = async (
   depositOrderId: string | null | undefined,
@@ -296,6 +349,7 @@ export const getCardStatusForReservation = async (
     const rows = await q`
       SELECT * FROM reservation_saved_cards
       WHERE square_customer_id = ${customerId}
+        AND square_card_id IS NOT NULL
       ORDER BY created_at DESC
       LIMIT 1
     `;

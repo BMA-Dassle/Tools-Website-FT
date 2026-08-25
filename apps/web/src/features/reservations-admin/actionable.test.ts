@@ -49,6 +49,29 @@ describe("refundActionable", () => {
   it("never offers a refund on a cancelled row", () => {
     // The cancel cascade already settled it; a second path would double-refund.
     expect(refundActionable(row({ status: "cancelled", dayofPaymentId: "PAY1" }))).toBe(false);
+    expect(refundActionable(row({ status: "cancelled", groupHasDayofPayment: true }))).toBe(false);
+  });
+
+  it("offers a refund on the NON-paying leg of a shared day-of order", () => {
+    // Res 24493 (attraction) shares one order with 24492 (open); only the
+    // bowling leg carries dayof_payment_id. Staff opening the attraction leg
+    // saw no Refund button and fell into Edit, which died mid-cascade.
+    for (const status of TERMINAL) {
+      expect(
+        refundActionable(
+          row({
+            status,
+            productKind: "attraction",
+            dayofPaymentId: undefined,
+            groupHasDayofPayment: true,
+          }),
+        ),
+      ).toBe(true);
+    }
+    // The sibling's payment does not un-hide Refund before the visit starts.
+    for (const status of LIVE) {
+      expect(refundActionable(row({ status, groupHasDayofPayment: true }))).toBe(false);
+    }
   });
 
   it("is mutually exclusive with Cancel for every status", () => {
@@ -56,8 +79,10 @@ describe("refundActionable", () => {
     // staff would have to guess which one settles money correctly.
     for (const status of [...TERMINAL, ...LIVE, "cancelled"] as const) {
       for (const dayofPaymentId of [undefined, "PAY1"]) {
-        const r = row({ status, dayofPaymentId });
-        expect(refundActionable(r) && cancelActionable(r)).toBe(false);
+        for (const groupHasDayofPayment of [false, true]) {
+          const r = row({ status, dayofPaymentId, groupHasDayofPayment });
+          expect(refundActionable(r) && cancelActionable(r)).toBe(false);
+        }
       }
     }
   });

@@ -14,9 +14,16 @@
  *
  * Mount probe: an EMPTY spec dry-run. The engine throws no_changes before
  * returning a plan, so that error means "editable, nothing changed yet" and
- * the form initializes from the board row; the first real change hydrates
- * lane/shoe/roster facts from plan.current. Money is NEVER computed here —
- * only server cents are rendered.
+ * the form initializes from the board row; it also carries the environment's
+ * kill-switch state (capabilities). The first real change hydrates lane/shoe/
+ * roster facts from plan.current. Money is NEVER computed here — only server
+ * cents are rendered.
+ *
+ * Acknowledgments: every manager-severity warning on the CURRENT plan
+ * (Conqueror / BMI will NOT be updated) gets its own checkbox, plus the
+ * acknowledging staff member's initials. The set is keyed by warning code, so
+ * a plan refresh that introduces a new code arrives unticked; Execute sends the
+ * ticked codes + initials, and the engine records them on the ledger row.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
@@ -24,21 +31,36 @@ import { CENTERS, STATUS_LABELS } from "~/features/reservations-admin/constants"
 import { dollars, fmtClock, fmtDate, ganDisplay } from "~/features/reservations-admin/format";
 import type { Reservation } from "~/features/reservations-admin/types";
 import type { EditCurrentState } from "~/features/reservation-edit/plan";
-import type { EditPaymentSource, EditSettlement } from "~/features/reservation-edit/types";
+import type {
+  EditCapabilities,
+  EditPaymentSource,
+  EditSettlement,
+  ManualStep,
+} from "~/features/reservation-edit/types";
 import type { EditResult } from "~/features/reservation-edit/service";
 import ModalShell from "../ModalShell";
 import { INPUT_STYLE, NAV_BTN } from "../theme";
 import {
   buildDiffRows,
+  buildExecuteAck,
   buildSpec,
   classifyExecuteFailure,
   classifyMountOutcome,
+  collectManualSteps,
+  defaultNotifyGuest,
+  describeEditError,
   emptyForm,
   executeGate,
   isEmptySpec,
-  planNeedsManagerAck,
+  managerWarnings,
+  notifyLabel,
+  POST_COMPLETE_ACK_CODE,
+  residualWarnings,
   resultSummary,
+  splitEnvNote,
+  SYSTEM_LABELS,
   WARNING_COLORS,
+  type EditErrorCopy,
   type EditFormState,
 } from "./editPlanHelpers";
 import { useEditPlan } from "./useEditPlan";
@@ -75,12 +97,102 @@ const SMALL_INPUT: CSSProperties = {
   fontSize: "0.78rem",
 };
 
+/** Prominent amber block — kill switches, preview-only, form fixes. */
+const AMBER_BLOCK: CSSProperties = {
+  padding: "0.6rem 0.75rem",
+  borderRadius: 8,
+  backgroundColor: "rgba(245,158,11,0.12)",
+  border: "1px solid rgba(245,158,11,0.35)",
+  fontSize: "0.78rem",
+  color: ACCENT,
+  marginBottom: "0.9rem",
+  lineHeight: 1.5,
+};
+
+/** Red block — manager checks, by-hand follow-ups, blocked / failed states. */
+const RED_BLOCK: CSSProperties = {
+  padding: "0.6rem 0.75rem",
+  borderRadius: 8,
+  backgroundColor: "rgba(239,68,68,0.12)",
+  border: "1px solid rgba(239,68,68,0.3)",
+  fontSize: "0.78rem",
+  color: "#ef4444",
+  marginBottom: "0.9rem",
+  lineHeight: 1.5,
+};
+
+const PRIMARY_BTN: CSSProperties = {
+  padding: "0.5rem 1.25rem",
+  borderRadius: 8,
+  fontSize: "0.8rem",
+  fontWeight: 700,
+  cursor: "pointer",
+  border: "none",
+  backgroundColor: ACCENT,
+  color: "#fff",
+};
+
 /** Heats list before the first plan arrives — from the board row's metadata. */
 const heatsFromBoard = (r: Reservation): Array<{ index: number; label: string }> =>
   (r.bookingMetadata?.heats ?? []).map((h, index) => ({
     index,
     label: `${h.assignedTo || "Racer"}${h.heatId ? ` — ${fmtClock(h.heatId)}` : ""}`,
   }));
+
+/** Collapsed raw code / detail / ledger ids — never the primary copy. */
+function SupportDetails({ text }: { text: string }) {
+  if (!text) return null;
+  return (
+    <details style={{ marginTop: 6, fontSize: "0.66rem", color: "var(--ba-muted)" }}>
+      <summary style={{ cursor: "pointer" }}>Details for support</summary>
+      <code
+        style={{
+          display: "block",
+          marginTop: 4,
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+          fontFamily: "ui-monospace, monospace",
+        }}
+      >
+        {text}
+      </code>
+    </details>
+  );
+}
+
+function ErrorCopyBlock({ copy, tone }: { copy: EditErrorCopy; tone: "red" | "amber" }) {
+  return (
+    <div style={tone === "red" ? RED_BLOCK : AMBER_BLOCK}>
+      <div style={{ fontWeight: 700 }}>{copy.title}</div>
+      {copy.body && <div style={{ color: "var(--ba-fg)", marginTop: 2 }}>{copy.body}</div>}
+      <SupportDetails text={copy.supportDetail} />
+    </div>
+  );
+}
+
+function SystemBadge({ system }: { system: ManualStep["system"] }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "0 6px",
+        borderRadius: 4,
+        fontSize: "0.62rem",
+        fontWeight: 700,
+        textTransform: "uppercase",
+        letterSpacing: 0.5,
+        color: "#ef4444",
+        border: "1px solid rgba(239,68,68,0.4)",
+        backgroundColor: "rgba(239,68,68,0.08)",
+        marginRight: 6,
+        whiteSpace: "nowrap",
+        verticalAlign: "middle",
+      }}
+    >
+      {SYSTEM_LABELS[system]}
+    </span>
+  );
+}
 
 export default function EditReservationModal({
   reservation,
@@ -105,6 +217,8 @@ export default function EditReservationModal({
   );
   const [form, setForm] = useState<EditFormState>(emptyForm);
   const [current, setCurrent] = useState<EditCurrentState | null>(null);
+  /** Kill-switch state from the mount probe's no_changes payload. */
+  const [capabilities, setCapabilities] = useState<EditCapabilities | null>(null);
   const [refundDest, setRefundDest] = useState<EditSettlement | null>(null);
   /**
    * Reason recorded on the DAY-OF Square refund. Deliberately NOT the deposit
@@ -112,23 +226,30 @@ export default function EditReservationModal({
    * portal's journal key, and one economic refund moves money twice.
    */
   const [dayofRefundReason, setDayofRefundReason] = useState("");
-  const [notifyGuest, setNotifyGuest] = useState(true);
-  /** Post-complete: the mount probe demanded a manager acknowledgment. */
+  /** Staff toggled the notify box (else the phase/intent default applies). */
+  const [notifyTouched, setNotifyTouched] = useState(false);
+  const [notifyChoice, setNotifyChoice] = useState(false);
+  /** Post-complete: the mount probe demanded the closed-visit acknowledgment. */
   const [ackRequired, setAckRequired] = useState(false);
-  /** Sticky "manager has acknowledged once" — sent on every dry-run. */
-  const [ackGiven, setAckGiven] = useState(false);
-  /** Live checkbox state — gates EXECUTE only. */
-  const [acked, setAcked] = useState(false);
+  /** The closed-visit acknowledgment was given — sent as managerOverride on every request. */
+  const [postCompleteAcked, setPostCompleteAcked] = useState(false);
+  /** Blocked-screen checkbox — state only; "Continue" performs the transition. */
+  const [blockedAckTicked, setBlockedAckTicked] = useState(false);
+  /** Manager-warning codes staff ticked. Stale codes are ignored, new ones arrive unticked. */
+  const [ackedCodes, setAckedCodes] = useState<ReadonlySet<string>>(() => new Set());
+  const [ackInitials, setAckInitials] = useState("");
+  /** A server refusal that sends staff back to the form (missing ack, bad reason). */
+  const [editNotice, setEditNotice] = useState<EditErrorCopy | null>(null);
   const [result, setResult] = useState<EditResult | null>(null);
-  const [blockMsg, setBlockMsg] = useState<string | null>(null);
-  const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [blockCopy, setBlockCopy] = useState<EditErrorCopy | null>(null);
+  const [errCopy, setErrCopy] = useState<EditErrorCopy | null>(null);
   const [errorCtx, setErrorCtx] = useState<"mount" | "execute">("mount");
   const [offerLink, setOfferLink] = useState(false);
   /** planHash of a quote auto-refreshed after a plan_stale execute — shows
    *  the "prices refreshed" notice for exactly that quote. */
   const [refreshedHash, setRefreshedHash] = useState<string | null>(null);
   const [ganCopied, setGanCopied] = useState(false);
-  const [idCopied, setIdCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const { plan, planError, planLoading, requestPlan, clearPlan, execute } = useEditPlan(
     reservation.id,
@@ -148,6 +269,9 @@ export default function EditReservationModal({
    */
   const bowlingEditable = intent !== "refund" && !isCombo && !isRace;
   const racersEditable = intent !== "refund" && (isRace || isCombo);
+  /** The venue charge lives on a sibling leg's order (shared day-of order). */
+  const refundFromSibling =
+    intent === "refund" && !reservation.dayofPaymentId && !!reservation.groupHasDayofPayment;
 
   const basePlayerCount = current?.playerCount ?? reservation.playerCount ?? 1;
   const effPlayerCount = form.playerCount ?? basePlayerCount;
@@ -159,7 +283,9 @@ export default function EditReservationModal({
   );
   const specEmpty = isEmptySpec(spec);
   const specJson = JSON.stringify(spec);
-  const requestKey = `${specJson}|${refundDest ?? ""}`;
+  // The closed-visit ack changes what the server will answer, so it is part of
+  // the quote key: giving it re-quotes the same spec.
+  const requestKey = `${specJson}|${refundDest ?? ""}|${postCompleteAcked ? "ack" : ""}`;
   const lastKey = useRef<string | null>(null);
 
   /* ── Dry-run wrapper: cache plan.current so the form stays hydrated
@@ -174,9 +300,10 @@ export default function EditReservationModal({
       // no_changes is the healthy "editable, nothing changed yet" answer and it
       // carries `current` — hydrate from it so the form (and on a settled
       // reservation, the day-of order lines that ARE the refund control) is
-      // populated the moment the modal opens.
-      else if (r.kind === "error" && r.error.code === "no_changes" && r.error.data?.current) {
-        setCurrent(r.error.data.current);
+      // populated the moment the modal opens — plus the kill-switch state.
+      else if (r.kind === "error" && r.error.code === "no_changes") {
+        if (r.error.data?.current) setCurrent(r.error.data.current);
+        if (r.error.data?.capabilities) setCapabilities(r.error.data.capabilities);
       }
       return r;
     },
@@ -197,10 +324,10 @@ export default function EditReservationModal({
         setAckRequired(true);
         setPhase("blocked");
       } else if (outcome.kind === "blocked") {
-        setBlockMsg(outcome.message);
+        setBlockCopy(outcome.copy);
         setPhase("blocked");
       } else {
-        setErrMsg(outcome.message);
+        setErrCopy(outcome.copy);
         setErrorCtx("mount");
         setPhase("error");
       }
@@ -227,45 +354,76 @@ export default function EditReservationModal({
     lastKey.current = requestKey;
     void requestQuote(spec, {
       settlement: refundDest ?? undefined,
-      managerOverride: ackGiven || undefined,
+      managerOverride: postCompleteAcked || undefined,
     });
-  }, [phase, requestKey, specEmpty, spec, refundDest, ackGiven, requestQuote, clearPlan]);
+  }, [phase, requestKey, specEmpty, spec, refundDest, postCompleteAcked, requestQuote, clearPlan]);
+
+  /** The closed-visit gate: acknowledge once, seed its code, re-quote. */
+  const givePostCompleteAck = useCallback(() => {
+    setPostCompleteAcked(true);
+    setAckedCodes((prev) => new Set([...prev, POST_COMPLETE_ACK_CODE]));
+  }, []);
 
   /* ── Execute ──────────────────────────────────────────────────────────── */
   const handleExecuteFailure = useCallback(
-    async (error: { status: number; code: string; detail: string | null }, diffCents: number) => {
+    async (error: Parameters<typeof classifyExecuteFailure>[0], diffCents: number) => {
       const action = classifyExecuteFailure(error, diffCents);
       if (action.kind === "refresh_plan") {
         lastKey.current = requestKey;
         const refreshed = await requestQuote(spec, {
           settlement: refundDest ?? undefined,
-          managerOverride: ackGiven || undefined,
+          managerOverride: postCompleteAcked || undefined,
           immediate: true,
         });
         if (refreshed.kind === "plan") setRefreshedHash(refreshed.plan.planHash);
         setPhase("edit");
         return;
       }
+      if (action.kind === "ack_required") {
+        // Whatever the server says is missing must be re-ticked, never assumed.
+        const missing = new Set(action.missing);
+        setAckedCodes((prev) => new Set([...prev].filter((c) => !missing.has(c))));
+        setEditNotice(action.copy);
+        setPhase("edit");
+        return;
+      }
+      if (action.kind === "fix_form") {
+        setEditNotice(action.copy);
+        setPhase("edit");
+        return;
+      }
       if (action.kind === "blocked") {
-        setBlockMsg(action.message);
+        setBlockCopy(action.copy);
         setPhase("blocked");
         return;
       }
-      setErrMsg(action.message);
+      setErrCopy(action.copy);
       setOfferLink(action.offerPaymentLink);
       setErrorCtx("execute");
       setPhase("error");
     },
-    [requestKey, requestQuote, spec, refundDest, ackGiven],
+    [requestKey, requestQuote, spec, refundDest, postCompleteAcked],
   );
+
+  /* ── Derived view state ──────────────────────────────────────────────── */
+  const planPhase = plan?.phase ?? null;
+  const notifyGuest = isRace
+    ? false
+    : notifyTouched
+      ? notifyChoice
+      : defaultNotifyGuest({ intent, phase: planPhase, isRace });
 
   const runExecute = useCallback(
     async (overrideSource?: EditPaymentSource) => {
       const activePlan = plan;
       if (!activePlan) return;
+      setEditNotice(null);
       setPhase("busy");
       const settlementOpt = activePlan.diffCents < 0 ? (refundDest ?? undefined) : undefined;
-      const managerOverride = ackGiven && acked ? true : undefined;
+      // Legacy single-checkbox signal for the closed-visit path (back-compat);
+      // the explicit per-code list travels alongside it.
+      const managerOverride = postCompleteAcked ? true : undefined;
+      const ack = buildExecuteAck(activePlan, ackedCodes, ackInitials);
       let hash = activePlan.planHash;
       const source: EditPaymentSource | undefined =
         overrideSource ??
@@ -297,6 +455,7 @@ export default function EditReservationModal({
         planHash: hash,
         notifyGuest,
         dayofRefundReason: dayofRefundReason.trim() || undefined,
+        ...ack,
       });
       if (res.kind === "result") {
         setResult(res.result);
@@ -308,8 +467,9 @@ export default function EditReservationModal({
     [
       plan,
       refundDest,
-      ackGiven,
-      acked,
+      postCompleteAcked,
+      ackedCodes,
+      ackInitials,
       spec,
       notifyGuest,
       dayofRefundReason,
@@ -374,15 +534,22 @@ export default function EditReservationModal({
     }));
   const dropRacerRow = (i: number) =>
     setForm((f) => ({ ...f, addRacers: f.addRacers.filter((_, j) => j !== i) }));
+  const toggleAck = (code: string, on: boolean) => {
+    setEditNotice(null);
+    setAckedCodes((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(code);
+      else next.delete(code);
+      return next;
+    });
+  };
 
-  /* ── Derived view state ──────────────────────────────────────────────── */
-  const needsAck = ackRequired || planNeedsManagerAck(plan);
   const gate = executeGate({
     plan,
     planLoading,
     refundDest,
-    needsManagerAck: needsAck,
-    managerAcked: acked,
+    ackedCodes,
+    ackInitials,
     dayofRefundReason,
   });
   const busy = phase === "busy";
@@ -392,8 +559,15 @@ export default function EditReservationModal({
   const needsDayofReason = (plan?.steps ?? []).some(
     (s) => s.kind === "refund_dayof_payment" || s.kind === "refund_dayof_order",
   );
-  const managerWarnings = (plan?.warnings ?? []).filter((w) => w.severity === "manager");
+  const managerList = managerWarnings(plan);
   const otherWarnings = (plan?.warnings ?? []).filter((w) => w.severity !== "manager");
+  // The reservation drifted into post_complete while the modal was open (lane
+  // closed mid-session): the dry-run now demands the closed-visit ack. Offer
+  // it here instead of a dead-end error line.
+  const driftAck = planError?.code === "post_complete_ack_required" && !postCompleteAcked;
+  const editingOff = intent === "edit" && capabilities != null && !capabilities.edit;
+  const refundsOff = intent === "refund" && capabilities != null && !capabilities.refund;
+  const blockedNote = plan?.executionBlocked ? splitEnvNote(plan.executionBlocked.message) : null;
   const displayHeats: Array<{ index: number; label: string }> = current
     ? current.heats.map((h) => ({
         index: h.index,
@@ -433,28 +607,14 @@ export default function EditReservationModal({
     </button>
   );
 
-  const managerBanner = needsAck && (
-    <div
-      style={{
-        padding: "0.6rem 0.75rem",
-        borderRadius: 8,
-        backgroundColor: "rgba(239,68,68,0.12)",
-        border: "1px solid rgba(239,68,68,0.3)",
-        fontSize: "0.75rem",
-        color: "#ef4444",
-        marginBottom: "0.9rem",
-        lineHeight: 1.5,
-      }}
-    >
+  /** Closed-visit gate: checkbox is state, the button is the action. */
+  const postCompleteGate = (onContinue: () => void) => (
+    <div style={RED_BLOCK}>
       <div style={{ fontWeight: 700 }}>Manager check required</div>
-      {managerWarnings.length > 0 ? (
-        managerWarnings.map((w, i) => <div key={i}>{w.message}</div>)
-      ) : (
-        <div>
-          Day-of order already closed — QAMF and BMI will NOT be updated. Adjust Conqueror/BMI
-          manually.
-        </div>
-      )}
+      <div>
+        The day-of order for this reservation is already closed — Conqueror and BMI will NOT be
+        updated by an edit. Adjust them by hand afterwards.
+      </div>
       <label
         style={{
           display: "flex",
@@ -468,32 +628,128 @@ export default function EditReservationModal({
       >
         <input
           type="checkbox"
-          checked={acked}
+          checked={blockedAckTicked}
           disabled={busy}
-          onChange={(e) => {
-            setAcked(e.target.checked);
-            if (e.target.checked) setAckGiven(true);
-          }}
+          onChange={(e) => setBlockedAckTicked(e.target.checked)}
           style={{ marginTop: 2 }}
         />
-        <span>I understand — QAMF/BMI will NOT be updated</span>
+        <span>I understand — Conqueror/BMI will NOT be updated</span>
       </label>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+        <button
+          type="button"
+          disabled={!blockedAckTicked || busy}
+          onClick={onContinue}
+          style={{
+            ...PRIMARY_BTN,
+            backgroundColor: "#ef4444",
+            opacity: blockedAckTicked && !busy ? 1 : 0.5,
+            cursor: blockedAckTicked && !busy ? "pointer" : "not-allowed",
+          }}
+        >
+          Continue to edit
+        </button>
+      </div>
     </div>
   );
 
+  const managerBanner = driftAck
+    ? postCompleteGate(givePostCompleteAck)
+    : managerList.length > 0 && (
+        <div style={RED_BLOCK}>
+          <div style={{ fontWeight: 700 }}>Manager check required</div>
+          <div style={{ color: "var(--ba-fg)", marginTop: 2 }}>
+            These systems will NOT be updated by this change. Tick each line to confirm you will
+            make it by hand.
+          </div>
+          {managerList.map((w) => {
+            const ticked = ackedCodes.has(w.code);
+            const label = w.manualStep ?? w.message;
+            return (
+              <label
+                key={w.code}
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "flex-start",
+                  marginTop: 8,
+                  cursor: "pointer",
+                  color: "var(--ba-fg)",
+                  fontWeight: 600,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={ticked}
+                  disabled={busy}
+                  onChange={(e) => toggleAck(w.code, e.target.checked)}
+                  style={{ marginTop: 2 }}
+                />
+                <span style={{ flex: 1 }}>
+                  {w.system && <SystemBadge system={w.system} />}
+                  {label}
+                  {w.manualStep && w.message !== w.manualStep && (
+                    <div
+                      style={{
+                        fontSize: "0.7rem",
+                        color: "var(--ba-muted)",
+                        fontWeight: 400,
+                        marginTop: 2,
+                      }}
+                    >
+                      {w.message}
+                    </div>
+                  )}
+                </span>
+              </label>
+            );
+          })}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
+            <label
+              htmlFor="edit-ack-initials"
+              style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--ba-fg)" }}
+            >
+              Your initials
+            </label>
+            <input
+              id="edit-ack-initials"
+              type="text"
+              value={ackInitials}
+              disabled={busy}
+              maxLength={4}
+              placeholder="e.g. EO"
+              autoComplete="off"
+              onChange={(e) => {
+                setEditNotice(null);
+                setAckInitials(e.target.value.replace(/[^A-Za-z]/g, "").toUpperCase());
+              }}
+              style={{ ...SMALL_INPUT, width: 72, textTransform: "uppercase" }}
+            />
+            <span style={{ fontSize: "0.68rem", color: "var(--ba-muted)" }}>
+              2-4 letters — recorded with the edit
+            </span>
+          </div>
+        </div>
+      );
+
   const executeLabel = busy
     ? "Working..."
-    : gate.mode === "charge_card" && plan
-      ? `Charge ${dollars(plan.diffCents)} & Update`
-      : gate.mode === "payment_link"
-        ? "Send payment link"
-        : gate.mode === "refund" && plan
-          ? refundDest === "store_credit"
-            ? `Update & Issue ${dollars(-plan.diffCents)} Gift Card`
-            : `Update & Refund ${dollars(-plan.diffCents)}`
-          : "Confirm Changes";
+    : plan?.executionBlocked
+      ? "Preview only"
+      : gate.mode === "charge_card" && plan
+        ? `Charge ${dollars(plan.diffCents)} & Update`
+        : gate.mode === "payment_link"
+          ? "Send payment link"
+          : gate.mode === "refund" && plan
+            ? refundDest === "store_credit"
+              ? `Update & Issue ${dollars(-plan.diffCents)} Gift Card`
+              : `Update & Refund ${dollars(-plan.diffCents)}`
+            : "Confirm Changes";
 
   const executeColor = gate.mode === "refund" && refundDest === "store_credit" ? "#22c55e" : ACCENT;
+
+  const manualSteps = result ? collectManualSteps(result) : [];
+  const resultWarnings = result ? residualWarnings(result, manualSteps) : [];
 
   return (
     <ModalShell
@@ -507,20 +763,28 @@ export default function EditReservationModal({
         style={{
           display: "flex",
           justifyContent: "space-between",
-          alignItems: "center",
+          alignItems: "flex-start",
           marginBottom: "1rem",
         }}
       >
-        <h3 style={{ fontSize: "1rem", fontWeight: 700, color: ACCENT, margin: 0 }}>
-          {intent === "refund"
-            ? "Refund Reservation"
-            : isCombo
-              ? "Edit VIP Combo — racers"
-              : "Edit Reservation"}
-        </h3>
+        <div>
+          <h3 style={{ fontSize: "1rem", fontWeight: 700, color: ACCENT, margin: 0 }}>
+            {intent === "refund"
+              ? "Refund Reservation"
+              : isCombo
+                ? "Edit VIP Combo — racers"
+                : "Edit Reservation"}
+          </h3>
+          {refundFromSibling && (
+            <div style={{ fontSize: "0.72rem", color: "var(--ba-muted)", marginTop: 2 }}>
+              Refunding from the bowling part of this booking — the venue charge lives on its order.
+            </div>
+          )}
+        </div>
         <button
           type="button"
           onClick={onClose}
+          aria-label="Close"
           style={{
             background: "none",
             border: "none",
@@ -553,6 +817,30 @@ export default function EditReservationModal({
               {STATUS_LABELS[reservation.status] ?? reservation.status}
             </div>
           </div>
+
+          {/* Kill switches — known from the mount probe, BEFORE staff fill anything in */}
+          {editingOff && (
+            <div style={AMBER_BLOCK}>
+              <div style={{ fontWeight: 700 }}>Editing is switched off right now</div>
+              <div style={{ color: "var(--ba-fg)", marginTop: 2 }}>
+                You can preview changes and process refunds only. Ask Eric to turn it back on.
+              </div>
+            </div>
+          )}
+          {refundsOff && (
+            <div style={AMBER_BLOCK}>
+              <div style={{ fontWeight: 700 }}>
+                Refunds for this visit are switched off right now
+              </div>
+              <div style={{ color: "var(--ba-fg)", marginTop: 2 }}>
+                {capabilities?.blockedReason
+                  ? splitEnvNote(capabilities.blockedReason).text
+                  : "The preview is accurate — ask Eric to turn it back on."}
+              </div>
+            </div>
+          )}
+
+          {editNotice && <ErrorCopyBlock copy={editNotice} tone="amber" />}
 
           {managerBanner}
 
@@ -715,7 +1003,7 @@ export default function EditReservationModal({
                           {a.name}{" "}
                           <span style={{ color: "var(--ba-muted)" }}>
                             {a.timeLabel}
-                            {a.editable ? "" : " — not editable here (no BMI line ids)"}
+                            {a.editable ? "" : " — change this one in BMI"}
                           </span>
                         </span>
                       </div>
@@ -752,7 +1040,7 @@ export default function EditReservationModal({
                     ))}
                   </select>
                   <div style={{ fontSize: "0.68rem", color: "var(--ba-muted)", marginTop: 4 }}>
-                    Changing lane time rebooks the QAMF reservation at the same start.
+                    Changing lane time rebooks the Conqueror reservation at the same start.
                   </div>
                 </>
               )}
@@ -1053,16 +1341,7 @@ export default function EditReservationModal({
 
             {plan != null && plan.planHash === refreshedHash && (
               <div
-                style={{
-                  padding: "0.5rem 0.75rem",
-                  borderRadius: 8,
-                  backgroundColor: "rgba(245,158,11,0.1)",
-                  border: "1px solid rgba(245,158,11,0.25)",
-                  fontSize: "0.72rem",
-                  color: ACCENT,
-                  marginBottom: 8,
-                  fontWeight: 600,
-                }}
+                style={{ ...AMBER_BLOCK, marginBottom: 8, fontSize: "0.72rem", fontWeight: 600 }}
               >
                 Prices refreshed — review the updated quote before executing.
               </div>
@@ -1078,24 +1357,20 @@ export default function EditReservationModal({
               <div style={{ fontSize: "0.78rem", color: "var(--ba-muted)" }}>Repricing...</div>
             )}
 
-            {!planLoading && planError && planError.code !== "no_changes" && (
-              <div
-                style={{
-                  padding: "0.5rem 0.75rem",
-                  borderRadius: 8,
-                  backgroundColor: "rgba(245,158,11,0.1)",
-                  border: "1px solid rgba(245,158,11,0.25)",
-                  fontSize: "0.72rem",
-                  color: ACCENT,
-                  lineHeight: 1.5,
-                }}
-              >
-                {planError.detail || planError.code}
-              </div>
-            )}
+            {!planLoading &&
+              planError &&
+              planError.code !== "no_changes" &&
+              planError.code !== "post_complete_ack_required" && (
+                <ErrorCopyBlock copy={describeEditError(planError)} tone="amber" />
+              )}
             {!planLoading && planError?.code === "no_changes" && !specEmpty && (
               <div style={{ fontSize: "0.78rem", color: "var(--ba-muted)" }}>
                 These changes leave the reservation exactly as booked — nothing to do.
+              </div>
+            )}
+            {!planLoading && driftAck && (
+              <div style={{ fontSize: "0.78rem", color: "var(--ba-muted)" }}>
+                Confirm the manager check above to price this change.
               </div>
             )}
 
@@ -1205,6 +1480,20 @@ export default function EditReservationModal({
                   </span>
                 </div>
 
+                {/* Environment refusal — prominent, not fine print. The preview
+                    above is still accurate; only running it is switched off. */}
+                {blockedNote && (
+                  <div
+                    style={{ ...AMBER_BLOCK, marginBottom: 10 }}
+                    title={blockedNote.envNote ?? undefined}
+                  >
+                    <div style={{ fontWeight: 700 }}>
+                      Preview only — this can&rsquo;t run right now
+                    </div>
+                    <div style={{ color: "var(--ba-fg)", marginTop: 2 }}>{blockedNote.text}</div>
+                  </div>
+                )}
+
                 {/* Warnings (manager ones live in the banner above) */}
                 {otherWarnings.length > 0 && (
                   <div style={{ fontSize: "0.7rem", lineHeight: 1.5, marginBottom: 10 }}>
@@ -1236,21 +1525,9 @@ export default function EditReservationModal({
                       {dollars(plan.diffCents)} → added to the reservation deposit
                     </div>
                   ) : (
-                    <div
-                      style={{
-                        padding: "0.5rem 0.75rem",
-                        borderRadius: 8,
-                        backgroundColor: "rgba(245,158,11,0.1)",
-                        border: "1px solid rgba(245,158,11,0.25)",
-                        fontSize: "0.75rem",
-                        color: ACCENT,
-                        marginBottom: 10,
-                        lineHeight: 1.5,
-                        fontWeight: 600,
-                      }}
-                    >
-                      No card on file — collect payment via link. The guest pays on a secure page
-                      and the edit completes automatically.
+                    <div style={{ ...AMBER_BLOCK, marginBottom: 10, fontWeight: 600 }}>
+                      No card on file — you&rsquo;ll get a secure payment link for the guest; the
+                      edit completes when they pay.
                     </div>
                   ))}
 
@@ -1289,7 +1566,10 @@ export default function EditReservationModal({
                           disabled={busy}
                           maxLength={120}
                           placeholder="e.g. Pizza returned unmade — lane 6"
-                          onChange={(e) => setDayofRefundReason(e.target.value)}
+                          onChange={(e) => {
+                            setEditNotice(null);
+                            setDayofRefundReason(e.target.value);
+                          }}
                           style={{ ...SMALL_INPUT, width: "100%" }}
                         />
                         <div
@@ -1311,33 +1591,50 @@ export default function EditReservationModal({
           </div>
 
           {/* Notify + actions */}
-          <label
-            style={{
-              display: "flex",
-              gap: 8,
-              alignItems: "flex-start",
-              fontSize: "0.75rem",
-              color: "var(--ba-muted)",
-              margin: "0 2px 10px",
-              cursor: "pointer",
-              lineHeight: 1.45,
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={notifyGuest}
-              disabled={busy}
-              onChange={(e) => setNotifyGuest(e.target.checked)}
-              style={{ marginTop: 2 }}
-            />
-            <span>Email &amp; text the updated confirmation to the guest</span>
-          </label>
+          {isRace ? (
+            <div
+              style={{
+                fontSize: "0.72rem",
+                color: "var(--ba-muted)",
+                margin: "0 2px 10px",
+                lineHeight: 1.45,
+              }}
+            >
+              Racing/attraction confirmations can&rsquo;t be resent automatically — contact the
+              guest.
+            </div>
+          ) : (
+            <label
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "flex-start",
+                fontSize: "0.75rem",
+                color: "var(--ba-muted)",
+                margin: "0 2px 10px",
+                cursor: "pointer",
+                lineHeight: 1.45,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={notifyGuest}
+                disabled={busy}
+                onChange={(e) => {
+                  setNotifyTouched(true);
+                  setNotifyChoice(e.target.checked);
+                }}
+                style={{ marginTop: 2 }}
+              />
+              <span>{notifyLabel({ intent, phase: planPhase })}</span>
+            </label>
+          )}
 
           <div
             style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}
           >
-            {!gate.enabled && gate.reason && plan && (
-              <span style={{ fontSize: "0.68rem", color: "var(--ba-muted)", marginRight: "auto" }}>
+            {!gate.enabled && gate.reason && plan && !plan.executionBlocked && (
+              <span style={{ fontSize: "0.7rem", color: "var(--ba-muted)", marginRight: "auto" }}>
                 {gate.reason}
               </span>
             )}
@@ -1354,14 +1651,9 @@ export default function EditReservationModal({
               onClick={() => void runExecute()}
               disabled={busy || !gate.enabled}
               style={{
-                padding: "0.5rem 1.25rem",
-                borderRadius: 8,
-                fontSize: "0.8rem",
-                fontWeight: 700,
+                ...PRIMARY_BTN,
                 cursor: busy || !gate.enabled ? "not-allowed" : "pointer",
-                border: "none",
                 backgroundColor: executeColor,
-                color: "#fff",
                 opacity: busy || !gate.enabled ? 0.5 : 1,
               }}
             >
@@ -1394,27 +1686,69 @@ export default function EditReservationModal({
             {result.state === "pending_payment" ? (
               <>
                 <div style={{ fontWeight: 700, color: ACCENT }}>
-                  Payment link created — send it to the guest.
+                  Payment link created — send it to the guest (they also get a text/email if we have
+                  their contact)
                 </div>
                 <div style={{ marginTop: 4, color: "var(--ba-muted)", fontSize: "0.78rem" }}>
                   The edit completes automatically when the guest pays {dollars(result.diffCents)}.
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-                  <span style={{ fontFamily: "monospace", fontSize: "0.85rem", fontWeight: 700 }}>
-                    {result.editId}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void navigator.clipboard.writeText(result.editId).then(() => {
-                        setIdCopied(true);
-                        setTimeout(() => setIdCopied(false), 1500);
-                      });
+                {result.paymentLinkUrl ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      marginTop: 8,
+                      flexWrap: "wrap",
                     }}
-                    style={{ ...NAV_BTN, fontSize: "0.7rem", padding: "0.25rem 0.6rem" }}
                   >
-                    {idCopied ? "Copied" : "Copy"}
-                  </button>
+                    <span
+                      style={{
+                        fontFamily: "ui-monospace, monospace",
+                        fontSize: "0.78rem",
+                        fontWeight: 700,
+                        wordBreak: "break-all",
+                        flex: "1 1 200px",
+                      }}
+                    >
+                      {result.paymentLinkUrl}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(result.paymentLinkUrl!).then(() => {
+                          setLinkCopied(true);
+                          setTimeout(() => setLinkCopied(false), 1500);
+                        });
+                      }}
+                      style={{ ...NAV_BTN, fontSize: "0.7rem", padding: "0.25rem 0.6rem" }}
+                    >
+                      {linkCopied ? "Copied" : "Copy"}
+                    </button>
+                    <a
+                      href={result.paymentLinkUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        ...NAV_BTN,
+                        fontSize: "0.7rem",
+                        padding: "0.25rem 0.6rem",
+                        textDecoration: "none",
+                        display: "inline-block",
+                      }}
+                    >
+                      Open ↗
+                    </a>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 6, color: "#ef4444", fontSize: "0.78rem" }}>
+                    The link URL was not returned — find it in History (edit {result.editId}) or ask
+                    support.
+                  </div>
+                )}
+                <div style={{ marginTop: 6, color: "var(--ba-muted)", fontSize: "0.68rem" }}>
+                  Edit id{" "}
+                  <span style={{ fontFamily: "ui-monospace, monospace" }}>{result.editId}</span>
                 </div>
               </>
             ) : (
@@ -1477,9 +1811,9 @@ export default function EditReservationModal({
                   ))}
               </>
             )}
-            {result.warnings.length > 0 && (
+            {resultWarnings.length > 0 && (
               <div style={{ marginTop: 8, fontSize: "0.7rem", lineHeight: 1.5 }}>
-                {result.warnings.map((w, i) => (
+                {resultWarnings.map((w, i) => (
                   <div key={i} style={{ color: WARNING_COLORS[w.severity] }}>
                     {w.message}
                   </div>
@@ -1487,22 +1821,45 @@ export default function EditReservationModal({
               </div>
             )}
           </div>
+
+          {/* By-hand follow-ups — red, titled, one line per system. Never a
+              0.7rem amber line under a green "updated". */}
+          {manualSteps.length > 0 && (
+            <div style={{ ...RED_BLOCK, fontSize: "0.8rem" }}>
+              <div style={{ fontWeight: 700 }}>Not updated automatically — do this by hand</div>
+              <ul style={{ margin: "6px 0 0", paddingLeft: 18, color: "var(--ba-fg)" }}>
+                {manualSteps.map((s, i) => (
+                  <li key={i} style={{ marginBottom: 4 }}>
+                    <SystemBadge system={s.system} />
+                    {s.message}
+                    {s.predicted && (
+                      <span style={{ color: "var(--ba-muted)", fontSize: "0.7rem" }}>
+                        {" "}
+                        — acknowledged before the edit
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div style={{ display: "flex", justifyContent: "flex-end" }}>
             <button
               type="button"
               onClick={finish}
               style={{
+                ...PRIMARY_BTN,
                 padding: "0.5rem 1.5rem",
-                borderRadius: 8,
-                fontSize: "0.8rem",
-                fontWeight: 700,
-                cursor: "pointer",
-                border: "none",
-                backgroundColor: result.state === "pending_payment" ? ACCENT : "#22c55e",
-                color: "#fff",
+                backgroundColor:
+                  manualSteps.length > 0
+                    ? "#ef4444"
+                    : result.state === "pending_payment"
+                      ? ACCENT
+                      : "#22c55e",
               }}
             >
-              Done
+              {manualSteps.length > 0 ? "I will make these changes" : "Done"}
             </button>
           </div>
         </>
@@ -1510,68 +1867,13 @@ export default function EditReservationModal({
 
       {phase === "blocked" && (
         <>
-          {ackRequired && !ackGiven ? (
-            <div
-              style={{
-                padding: "0.6rem 0.75rem",
-                borderRadius: 8,
-                backgroundColor: "rgba(239,68,68,0.12)",
-                border: "1px solid rgba(239,68,68,0.3)",
-                fontSize: "0.78rem",
-                color: "#ef4444",
-                marginBottom: "1rem",
-                lineHeight: 1.5,
-              }}
-            >
-              <div style={{ fontWeight: 700 }}>Manager check required</div>
-              <div>
-                The day-of order for this reservation is already closed — QAMF and BMI will NOT be
-                updated by an edit. Adjust Conqueror/BMI manually.
-              </div>
-              <label
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "flex-start",
-                  marginTop: 8,
-                  cursor: "pointer",
-                  color: "var(--ba-fg)",
-                  fontWeight: 600,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={acked}
-                  onChange={(e) => {
-                    setAcked(e.target.checked);
-                    if (e.target.checked) {
-                      setAckGiven(true);
-                      setPhase("loading");
-                      void probe(true);
-                    }
-                  }}
-                  style={{ marginTop: 2 }}
-                />
-                <span>I understand — QAMF/BMI will NOT be updated</span>
-              </label>
-            </div>
-          ) : (
-            <div
-              style={{
-                padding: "0.6rem 0.75rem",
-                borderRadius: 8,
-                backgroundColor: "rgba(239,68,68,0.12)",
-                border: "1px solid rgba(239,68,68,0.3)",
-                fontSize: "0.78rem",
-                color: "#ef4444",
-                marginBottom: "1rem",
-                lineHeight: 1.5,
-                fontWeight: 600,
-              }}
-            >
-              {blockMsg}
-            </div>
-          )}
+          {ackRequired && !postCompleteAcked
+            ? postCompleteGate(() => {
+                givePostCompleteAck();
+                setPhase("loading");
+                void probe(true);
+              })
+            : blockCopy && <ErrorCopyBlock copy={blockCopy} tone="red" />}
           <div style={{ display: "flex", justifyContent: "flex-end" }}>
             <button type="button" onClick={onClose} style={{ ...NAV_BTN, fontSize: "0.8rem" }}>
               Close
@@ -1580,22 +1882,9 @@ export default function EditReservationModal({
         </>
       )}
 
-      {phase === "error" && (
+      {phase === "error" && errCopy && (
         <>
-          <div
-            style={{
-              padding: "0.5rem 0.75rem",
-              borderRadius: 8,
-              fontSize: "0.8rem",
-              fontWeight: 600,
-              marginBottom: "1rem",
-              backgroundColor: "rgba(239,68,68,0.15)",
-              color: "#ef4444",
-              border: "1px solid rgba(239,68,68,0.3)",
-            }}
-          >
-            {errMsg}
-          </div>
+          <ErrorCopyBlock copy={errCopy} tone="red" />
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
             <button type="button" onClick={onClose} style={{ ...NAV_BTN, fontSize: "0.8rem" }}>
               Close
@@ -1622,22 +1911,13 @@ export default function EditReservationModal({
               onClick={() => {
                 if (errorCtx === "mount") {
                   setPhase("loading");
-                  void probe(ackGiven);
+                  void probe(postCompleteAcked);
                 } else {
                   setPhase("edit");
                   void runExecute();
                 }
               }}
-              style={{
-                padding: "0.5rem 1.25rem",
-                borderRadius: 8,
-                fontSize: "0.8rem",
-                fontWeight: 700,
-                cursor: "pointer",
-                border: "none",
-                backgroundColor: ACCENT,
-                color: "#fff",
-              }}
+              style={PRIMARY_BTN}
             >
               {errorCtx === "mount" ? "Try Again" : "Retry"}
             </button>

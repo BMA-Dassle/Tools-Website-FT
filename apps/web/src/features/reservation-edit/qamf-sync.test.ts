@@ -152,11 +152,13 @@ describe("syncQamfPlayers — decrease via per-player DELETE", () => {
         players: [{ name: "Ann" }],
         guestName: "Ann Guest",
       }),
-    ).rejects.toThrow(/still shows 1 extra bowler.*adjust the bowler count in Conqueror/);
+    ).rejects.toThrow(/still shows 1 extra bowler.*remove the bowler\(s\) in Conqueror by hand/);
 
     // Best-available sync happened anyway: same-count names + "(1p)" title.
+    // The seat we could not delete keeps the name Conqueror already had —
+    // overwriting it with "Bowler 2" would erase what the desk typed.
     const sent = vi.mocked(setLanePlayers).mock.calls[0][3];
-    expect(sent.map((p: { Name: string }) => p.Name)).toEqual(["Ann", "Bowler 2"]);
+    expect(sent.map((p: { Name: string }) => p.Name)).toEqual(["Ann", "Bob"]);
     expect(vi.mocked(patchReservation)).toHaveBeenCalledWith(
       9172,
       "X158469",
@@ -182,7 +184,7 @@ describe("syncQamfPlayers — decrease via per-player DELETE", () => {
         players: [{ name: "Ann" }],
         guestName: "Ann Guest",
       }),
-    ).rejects.toThrow(/no addressable player ids.*adjust the bowler count in Conqueror/);
+    ).rejects.toThrow(/no addressable player ids.*remove the bowler\(s\) in Conqueror by hand/);
     expect(vi.mocked(deleteLanePlayer)).not.toHaveBeenCalled();
     expect(vi.mocked(setLanePlayers)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(patchReservation)).toHaveBeenCalledWith(
@@ -215,7 +217,10 @@ describe("syncQamfPlayers — decrease via per-player DELETE", () => {
     expect(sent.map((p: { Name: string }) => p.Name)).toEqual(["Ann", "Bobby"]);
   });
 
-  it("an increase beyond booked seats syncs the first names and the Title carries the count", async () => {
+  it("an increase beyond booked seats syncs names + title, then THROWS so the gap is loud", async () => {
+    // The lane-players PUT is same-count-only, so the third bowler never
+    // reaches Conqueror. Until 2026-08-24 this passed silently: the title read
+    // "(3p)" while the lanes still held two seats, and the step log said ok.
     vi.mocked(getReservation).mockResolvedValue(
       futureReservation([
         {
@@ -226,12 +231,14 @@ describe("syncQamfPlayers — decrease via per-player DELETE", () => {
       ]) as never,
     );
 
-    await syncQamfPlayers({
-      qamfCenterId: 9172,
-      qamfReservationId: "X158469",
-      players: [{ name: "Ann" }, { name: "Bob" }, { name: "Cara" }],
-      guestName: "Ann Guest",
-    });
+    await expect(
+      syncQamfPlayers({
+        qamfCenterId: 9172,
+        qamfReservationId: "X158469",
+        players: [{ name: "Ann" }, { name: "Bob" }, { name: "Cara" }],
+        guestName: "Ann Guest",
+      }),
+    ).rejects.toThrow(/cannot add 1 seat\(s\).*add the bowler\(s\) in Conqueror by hand/);
 
     expect(vi.mocked(deleteLanePlayer)).not.toHaveBeenCalled();
     const sent = vi.mocked(setLanePlayers).mock.calls[0][3];

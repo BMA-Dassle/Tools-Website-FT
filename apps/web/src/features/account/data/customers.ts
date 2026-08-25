@@ -51,12 +51,29 @@ interface SquareCard {
  * Saved cards for a customer. Mapper ported verbatim from
  * app/api/square/customer/route.ts (filters disabled cards, computes `expired`),
  * plus the owning customerId so set-card can scope offered cards to a sub's customer.
+ *
+ * A Square failure reads as "no cards" here — callers that must tell the two
+ * apart (the card-vault's edit-charge lookup) use `fetchSavedCardsOrNull`.
  */
 export async function fetchSavedCards(customerId: string): Promise<SavedCard[]> {
-  const { ok, data } = await squareFetch<{ cards?: SquareCard[] }>(
+  return (await fetchSavedCardsOrNull(customerId)) ?? [];
+}
+
+/**
+ * Same as `fetchSavedCards`, but a ListCards failure (non-2xx / malformed
+ * body) returns NULL instead of an empty list, so "Square is down" is never
+ * mistaken for "the guest has no card".
+ */
+export async function fetchSavedCardsOrNull(customerId: string): Promise<SavedCard[] | null> {
+  const { ok, status, data } = await squareFetch<{ cards?: SquareCard[] }>(
     `/cards?customer_id=${encodeURIComponent(customerId)}`,
   );
-  if (!ok || !Array.isArray(data.cards)) return [];
+  if (!ok) {
+    console.warn(`[account] ListCards failed: ${status} ${squareErrorDetail(data)}`);
+    return null;
+  }
+  // 200 with no `cards` key = a customer with no cards on file.
+  if (!Array.isArray(data.cards)) return [];
 
   const now = new Date();
   return data.cards

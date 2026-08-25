@@ -4,7 +4,12 @@
  * layer behind the card-vault-sweep cron.
  * See tasks/future/reservation-editing-plan.md §2 / §7.
  */
-export { captureCardFromDeposit, chargeSavedCard, getChargeableCard } from "./service";
+export {
+  captureCardFromDeposit,
+  chargeSavedCard,
+  getChargeableCard,
+  resolveCaptureSourceKind,
+} from "./service";
 export {
   DISABLE_AFTER_MS,
   MAX_CAPTURE_ATTEMPTS,
@@ -21,6 +26,7 @@ export {
   markDisabled,
   recordCaptureFailure,
   recordDisableFailure,
+  recordTerminalCaptureFailure,
   upsertCapturedCard,
 } from "./data";
 export type {
@@ -29,6 +35,7 @@ export type {
   ChargeSavedCardParams,
   ChargeSavedCardResult,
   ChargeableCard,
+  ChargeableCardLookup,
   ConsentSource,
   DisableGroupLeg,
   PaymentSourceKind,

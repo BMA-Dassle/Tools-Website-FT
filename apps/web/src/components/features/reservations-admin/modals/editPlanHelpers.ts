@@ -1,7 +1,8 @@
 /**
  * Pure logic for the Edit Reservation modal — the dry-run/execute HTTP
- * wrapper, mount/execute outcome classification, EditSpec assembly from the
- * form state, diff-table pairing, and execute gating.
+ * wrapper, mount/execute outcome classification, staff-facing error copy,
+ * EditSpec assembly from the form state, diff-table pairing, execute gating
+ * (per-warning acknowledgments + initials), and success-screen derivations.
  *
  * Framework-free ON PURPOSE: the repo's vitest environment is node (no
  * jsdom / testing-library), so everything behavioral the modal does lives
@@ -15,10 +16,13 @@
  */
 import type { EditCurrentState, EditPlan, PlanLine } from "~/features/reservation-edit/plan";
 import type {
+  EditCapabilities,
+  EditGuardCode,
   EditPaymentSource,
   EditSettlement,
   EditSpec,
   EditWarning,
+  ManualStep,
 } from "~/features/reservation-edit/types";
 import type { EditResult } from "~/features/reservation-edit/service";
 import { dollars, ganDisplay } from "~/features/reservations-admin/format";
@@ -33,11 +37,20 @@ export interface EditApiError {
   detail: string | null;
   /**
    * Structured payload some codes carry. `no_changes` — the healthy mount-probe
-   * answer — ships `current` so the form hydrates on open; without it a settled
+   * answer — ships `current` so the form hydrates on open (without it a settled
    * reservation shows no day-of order lines and the refund control never
-   * appears.
+   * appears) plus `capabilities` (which kill switches are thrown). `ack_required`
+   * ships `missing` — the manager codes staff did not acknowledge.
    */
-  data?: { current?: EditCurrentState } | null;
+  data?: {
+    current?: EditCurrentState;
+    capabilities?: EditCapabilities;
+    missing?: string[];
+  } | null;
+  /** Execute failures: the ledger row the attempt wrote (for support). */
+  editId?: string | null;
+  /** Execute failures: the step that was running when it failed. */
+  failedStep?: string | null;
 }
 
 export type EditPostOutcome =
@@ -53,9 +66,14 @@ export interface EditPostBody {
   dryRun: boolean;
   planHash?: string;
   notifyGuest?: boolean;
+  /** Legacy post-complete acknowledgment — still sent for back-compat. */
   managerOverride?: boolean;
   /** Staff reason for the DAY-OF refund leg (required once the order is paid). */
   dayofRefundReason?: string;
+  /** Codes of every manager-severity warning staff ticked before Execute. */
+  acknowledgedCodes?: string[];
+  /** Staff initials (2-4 letters) — required whenever acknowledgedCodes is non-empty. */
+  acknowledgedBy?: string;
 }
 
 /** POST /api/admin/reservations/edit — dry-run returns {plan}, execute returns EditResult. */
@@ -91,6 +109,8 @@ export const postEdit = async (token: string, body: EditPostBody): Promise<EditP
         code: typeof json.error === "string" ? json.error : `http_${res.status}`,
         detail: typeof json.detail === "string" ? json.detail : null,
         data: (json.data as EditApiError["data"]) ?? null,
+        ...(typeof json.editId === "string" ? { editId: json.editId } : {}),
+        ...(typeof json.failedStep === "string" ? { failedStep: json.failedStep } : {}),
       },
     };
   }
@@ -107,80 +127,282 @@ export const postEdit = async (token: string, body: EditPostBody): Promise<EditP
   return { kind: "result", result: json as unknown as EditResult };
 };
 
+/* ── Staff-facing error copy ──────────────────────────────────────────── */
+
+/**
+ * Every code the client can receive: the engine's guard codes plus the
+ * route-level ones (`edit_failed` for plain Errors, `not_enabled` for the
+ * kill switches, `plan_hash_required`) and the two the client itself mints.
+ * A full Record so adding a guard code without staff copy fails `tsc`.
+ */
+export type EditErrorCode =
+  | EditGuardCode
+  | "edit_failed"
+  | "not_enabled"
+  | "plan_hash_required"
+  | "network"
+  | "bad_response";
+
+export const GUARD_COPY: Record<EditErrorCode, { title: string; body?: string }> = {
+  not_found: {
+    title: "Reservation not found",
+    body: "It may have been removed or merged — reload the board.",
+  },
+  cancelled: { title: "This reservation is cancelled — nothing to edit." },
+  unsupported_kind: {
+    title: "This booking can't be edited here",
+    body: "Change it in Conqueror or BMI, and adjust the money in Square.",
+  },
+  phase_conflict: {
+    title: "Square and our records disagree about whether this visit was paid",
+    body: "Don't move money here — check the Payments tab and fix it in Square.",
+  },
+  combo_phase_split: {
+    title: "Part of this booking has been charged at the venue and part has not",
+    body: "Open the part that has NOT been charged, or handle it in Square.",
+  },
+  leg_phase_split: {
+    title: "Part of this booking has been charged at the venue and part has not",
+    body: "Open the part that has NOT been charged, or handle it in Square.",
+  },
+  lane_change_mid_session: {
+    title: "Lanes and lane time can't change while the guests are bowling",
+    body: "Do it in Conqueror.",
+  },
+  mid_session_unsupported: {
+    title: "Heats and attraction slots can't change once the visit has started",
+    body: "Adjust them in BMI.",
+  },
+  pricing_unresolvable: {
+    title: "We can't work out a safe price for this change",
+    body: "You can still refund individual day-of charges, or adjust the booking in Square or Conqueror.",
+  },
+  edit_in_progress: {
+    title: "Another edit on this booking is still running or waiting on a payment link",
+    body: "Check History; if it's stuck, ask support to close it.",
+  },
+  cancel_in_progress: {
+    title: "A cancellation is running on this booking",
+    body: "Wait for it to finish, then reload.",
+  },
+  plan_stale: {
+    title: "The reservation changed since the preview",
+    body: "Prices refreshed — review the updated quote and try again.",
+  },
+  post_complete_ack_required: {
+    title: "Manager check required",
+    body: "This visit is closed — Conqueror and BMI will NOT be updated by an edit.",
+  },
+  refund_not_enabled: {
+    title: "Refunds for this stage of a visit are switched off right now",
+    body: "The preview is accurate — ask Eric to turn it back on.",
+  },
+  edit_not_enabled: {
+    title: "Editing is switched off right now",
+    body: "You can preview changes and process refunds only. Ask Eric to turn it back on.",
+  },
+  bmi_line_unavailable: {
+    title: "BMI can't be updated from here for this item",
+    body: "Change it in BMI, then adjust the money with Refund.",
+  },
+  heat_capacity: { title: "That heat is full", body: "Pick a different heat in BMI first." },
+  qamf_availability: {
+    title: "Conqueror can't fit that change",
+    body: "Check lane availability in Conqueror, then try again.",
+  },
+  payment_required: {
+    title: "The card on file was declined",
+    body: "Send the guest a payment link instead.",
+  },
+  dayof_reason_required: {
+    title: "Add a reason for the refund",
+    body: "The day-of refund is recorded in Square with a staff reason.",
+  },
+  dayof_reason_reserved: {
+    title: "That refund reason is reserved",
+    body: "“Reservation Deposit” is the deposit leg's label — write what was refunded instead.",
+  },
+  full_refund_use_cancel: {
+    title: "Refunding the whole visit is a cancellation",
+    body: "Use Cancel — it voids the booking and refunds the money.",
+  },
+  ack_required: {
+    title: "Confirm the by-hand steps first",
+    body: "Tick every red item and add your initials, then execute again.",
+  },
+  conqueror_origin: {
+    title: "Desk booking — change it in Conqueror",
+    body: "Booked at the desk: there is no web deposit or price to adjust here.",
+  },
+  dayof_payment_unresolved: {
+    title: "We can't tell which payment paid for this visit",
+    body: "Refund it in Square directly.",
+  },
+  no_changes: { title: "No changes yet" },
+  edit_failed: {
+    title: "The change didn't finish",
+    body: "Check the Payments tab before retrying — money already moved is netted, never moved twice.",
+  },
+  not_enabled: {
+    title: "Editing is switched off right now",
+    body: "You can preview changes and process refunds only. Ask Eric to turn it back on.",
+  },
+  plan_hash_required: {
+    title: "The preview is missing",
+    body: "Close and re-open the editor, then try again.",
+  },
+  network: {
+    title: "Couldn't reach the edit service",
+    body: "Check the connection and try again.",
+  },
+  bad_response: {
+    title: "The edit service sent an unexpected answer",
+    body: "Try again; if it repeats, tell support.",
+  },
+};
+
+export interface EditErrorCopy {
+  title: string;
+  /** Plain-English body — the server's staff-directed detail when it has one. */
+  body: string;
+  /** Raw code + detail + ledger ids, for the collapsed "Details for support". */
+  supportDetail: string;
+}
+
+/** Codes whose `detail` the CLIENT wrote (an exception message) — never staff copy. */
+const CLIENT_CODES: ReadonlySet<string> = new Set(["network", "bad_response"]);
+
+/**
+ * Turn a typed route error into staff copy. The engine writes many
+ * staff-directed details (which leg to open, what to do in Square), so the
+ * server detail is the body whenever it is a real sentence — i.e. differs
+ * from the bare code. The map's body is the fallback. Never renders a bare code.
+ */
+export const describeEditError = (error: EditApiError): EditErrorCopy => {
+  const entry = (GUARD_COPY as Record<string, { title: string; body?: string } | undefined>)[
+    error.code
+  ] ?? { title: "This change cannot be made here" };
+  const serverDetail =
+    error.detail && error.detail !== error.code && !CLIENT_CODES.has(error.code)
+      ? error.detail
+      : null;
+  const supportDetail = [
+    error.code,
+    error.detail && error.detail !== error.code ? error.detail : null,
+    error.editId ? `edit ${error.editId}` : null,
+    error.failedStep ? `failed at ${error.failedStep}` : null,
+    error.status ? `HTTP ${error.status}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return { title: entry.title, body: serverDetail ?? entry.body ?? "", supportDetail };
+};
+
+/**
+ * Kill-switch messages embed the env var for ops ("(RESERVATION_EDIT_V2=false)").
+ * Staff copy drops it; the caller keeps it in a title attribute.
+ */
+export const splitEnvNote = (message: string): { text: string; envNote: string | null } => {
+  const m = message.match(/\s*\(([A-Z][A-Z0-9_]+=[^)\s]+)\)/);
+  if (!m) return { text: message, envNote: null };
+  return {
+    text: message
+      .replace(m[0], "")
+      .replace(/\s{2,}/g, " ")
+      .trim(),
+    envNote: m[1],
+  };
+};
+
 /* ── Mount-probe classification ───────────────────────────────────────── */
 
 export type MountOutcome =
-  | { kind: "edit" }
+  | { kind: "edit"; capabilities: EditCapabilities | null }
   | { kind: "ack_required" }
-  | { kind: "blocked"; message: string }
-  | { kind: "error"; message: string };
+  | { kind: "blocked"; copy: EditErrorCopy }
+  | { kind: "error"; copy: EditErrorCopy };
 
 /**
  * The modal opens with a dry-run on an EMPTY spec. The engine throws
  * no_changes BEFORE returning a plan, so that error is the EXPECTED healthy
  * answer ("editable, nothing changed yet" — the form initializes from the
- * board row instead). post_complete_ack_required means editable only after
- * the manager acknowledges the no-QAMF/BMI warning. Everything else with an
- * HTTP status is a real gate (cancelled / phase_conflict / combo_phase_split
- * / …) → blocked; status 0 is transport failure → retryable error.
+ * board row instead) and it carries the environment's kill-switch state.
+ * post_complete_ack_required means editable only after the manager
+ * acknowledges the no-QAMF/BMI warning. Everything else with an HTTP status
+ * is a real gate (cancelled / phase_conflict / combo_phase_split / …) →
+ * blocked; status 0 is transport failure → retryable error.
  */
 export const classifyMountOutcome = (
   outcome: { kind: "plan"; plan: EditPlan } | { kind: "error"; error: EditApiError },
 ): MountOutcome => {
-  if (outcome.kind === "plan") return { kind: "edit" };
+  if (outcome.kind === "plan") return { kind: "edit", capabilities: null };
   const { error } = outcome;
-  if (error.code === "no_changes") return { kind: "edit" };
-  if (error.code === "post_complete_ack_required") return { kind: "ack_required" };
-  if (error.status === 0) {
-    return { kind: "error", message: error.detail ?? "Could not reach the edit service" };
+  if (error.code === "no_changes") {
+    return { kind: "edit", capabilities: error.data?.capabilities ?? null };
   }
-  return { kind: "blocked", message: error.detail || error.code };
+  if (error.code === "post_complete_ack_required") return { kind: "ack_required" };
+  const copy = describeEditError(error);
+  if (error.status === 0) return { kind: "error", copy };
+  return { kind: "blocked", copy };
 };
 
 /* ── Execute-failure classification ───────────────────────────────────── */
 
 export type ExecuteFailureAction =
   | { kind: "refresh_plan" }
-  | { kind: "blocked"; message: string }
-  | { kind: "error"; message: string; offerPaymentLink: boolean };
+  /** Manager codes were not acknowledged — back to the form with the banner. */
+  | { kind: "ack_required"; missing: string[]; copy: EditErrorCopy }
+  /** A form field needs fixing (day-of refund reason) — back to the form. */
+  | { kind: "fix_form"; copy: EditErrorCopy }
+  /** Nothing the operator can do from here — Close only. */
+  | { kind: "blocked"; copy: EditErrorCopy }
+  | { kind: "error"; copy: EditErrorCopy; offerPaymentLink: boolean };
+
+/**
+ * Capacity / config / environment refusals. Retrying cannot succeed and a
+ * payment link would re-plan into the same fatal step, so neither is offered.
+ */
+const BLOCKED_EXECUTE_CODES: ReadonlySet<string> = new Set([
+  "heat_capacity",
+  "qamf_availability",
+  "bmi_line_unavailable",
+  "conqueror_origin",
+  "dayof_payment_unresolved",
+  "unsupported_kind",
+  "pricing_unresolvable",
+  "not_enabled",
+  "refund_not_enabled",
+  "edit_not_enabled",
+]);
+
+/** Steps after which every fatal external step has passed — a link can finish the edit. */
+const CHARGE_STEPS: ReadonlySet<string> = new Set(["charge_topup", "charge_dayof_order"]);
 
 export const classifyExecuteFailure = (
   error: EditApiError,
   diffCents: number,
 ): ExecuteFailureAction => {
   if (error.code === "plan_stale") return { kind: "refresh_plan" };
-  if (error.code === "not_enabled") {
-    return {
-      kind: "blocked",
-      message: "Reservation editing is not enabled in this environment.",
-    };
+  const copy = describeEditError(error);
+  if (error.code === "ack_required") {
+    return { kind: "ack_required", missing: error.data?.missing ?? [], copy };
   }
-  // Phase flag off. NOT an acknowledgment problem — nothing the operator can
-  // tick unlocks it, so say so plainly instead of re-offering the checkbox.
-  if (error.code === "refund_not_enabled") {
-    return {
-      kind: "blocked",
-      message:
-        error.detail ||
-        "Refunding a reservation this far along is not enabled in this environment yet.",
-    };
+  if (error.code === "dayof_reason_required" || error.code === "dayof_reason_reserved") {
+    return { kind: "fix_form", copy };
   }
+  if (BLOCKED_EXECUTE_CODES.has(error.code)) return { kind: "blocked", copy };
   if (error.code === "payment_required") {
-    return {
-      kind: "error",
-      message: error.detail || "The card on file was declined.",
-      offerPaymentLink: diffCents > 0,
-    };
+    return { kind: "error", copy, offerPaymentLink: diffCents > 0 };
   }
-  if (error.status === 409 || error.status === 404) {
-    return { kind: "blocked", message: error.detail || error.code };
-  }
-  // edit_failed 502 and anything unexpected — retryable; increases can fall
-  // back to a payment link (the guest pays on our self-hosted page).
+  // Other 409/404s: the reservation moved under us (phase, cancel, lock).
+  if (error.status === 409 || error.status === 404) return { kind: "blocked", copy };
+  // edit_failed 502 and anything unexpected — retryable (money already moved
+  // is netted server-side). A payment link only helps once the charge step is
+  // what failed: earlier fatal steps (BMI heats, QAMF rebook) would re-fail.
   return {
     kind: "error",
-    message: error.detail || error.code,
-    offerPaymentLink: diffCents > 0,
+    copy,
+    offerPaymentLink: diffCents > 0 && !!error.failedStep && CHARGE_STEPS.has(error.failedStep),
   };
 };
 
@@ -388,6 +610,58 @@ export const buildDiffRows = (oldLines: PlanLine[], newLines: PlanLine[]): DiffR
   return rows;
 };
 
+/* ── Manager acknowledgments ──────────────────────────────────────────── */
+
+/**
+ * The one manager code the engine emits for a closed visit. The blocked-screen
+ * "I understand" gate acknowledges exactly this, so the edit-phase banner
+ * pre-ticks it rather than asking for the same statement twice.
+ */
+export const POST_COMPLETE_ACK_CODE = "post_complete_no_external_sync";
+
+export const managerWarnings = (plan: EditPlan | null): EditWarning[] =>
+  (plan?.warnings ?? []).filter((w) => w.severity === "manager");
+
+/** Distinct manager codes on the plan, in warning order. */
+export const managerCodes = (plan: EditPlan | null): string[] => [
+  ...new Set(managerWarnings(plan).map((w) => w.code)),
+];
+
+export const planNeedsManagerAck = (plan: EditPlan | null): boolean =>
+  managerWarnings(plan).length > 0;
+
+/** Manager codes on the CURRENT plan that staff have not ticked. */
+export const missingAckCodes = (plan: EditPlan | null, ackedCodes: ReadonlySet<string>): string[] =>
+  managerCodes(plan).filter((c) => !ackedCodes.has(c));
+
+/** Two to four letters — the shared portal token carries no identity otherwise. */
+export const isValidInitials = (raw: string): boolean => /^[A-Za-z]{2,4}$/.test(raw.trim());
+
+export const normalizeInitials = (raw: string): string => raw.trim().toUpperCase();
+
+/**
+ * What Execute sends: only the codes that are BOTH on the current plan and
+ * ticked (a stale tick for a warning that disappeared is never sent), plus the
+ * initials whenever there is anything to acknowledge.
+ */
+export const buildExecuteAck = (
+  plan: EditPlan,
+  ackedCodes: ReadonlySet<string>,
+  initials: string,
+): { acknowledgedCodes: string[]; acknowledgedBy?: string } => {
+  const acknowledgedCodes = managerCodes(plan).filter((c) => ackedCodes.has(c));
+  return acknowledgedCodes.length > 0
+    ? { acknowledgedCodes, acknowledgedBy: normalizeInitials(initials) }
+    : { acknowledgedCodes };
+};
+
+export const SYSTEM_LABELS: Record<ManualStep["system"], string> = {
+  conqueror: "Conqueror",
+  bmi: "BMI",
+  square: "Square",
+  guest: "Guest",
+};
+
 /* ── Execute gating ───────────────────────────────────────────────────── */
 
 export type ExecuteMode = "charge_card" | "payment_link" | "refund" | "confirm";
@@ -409,16 +683,21 @@ const modeOf = (plan: EditPlan): ExecuteMode =>
 
 /**
  * Whether Execute may fire and which action it performs:
- *   - manager warnings require the explicit acknowledgment checkbox;
+ *   - an environment refusal (kill switch) disables it outright;
+ *   - every manager warning on the CURRENT plan needs its own tick, plus the
+ *     acknowledging staff member's initials;
  *   - decreases require a refund destination (CancelModal's pickRow rule);
+ *   - a day-of refund leg requires a staff reason;
  *   - increases charge the card on file, or fall to the payment-link CTA.
  */
 export const executeGate = (args: {
   plan: EditPlan | null;
   planLoading: boolean;
   refundDest: EditSettlement | null;
-  needsManagerAck: boolean;
-  managerAcked: boolean;
+  /** Manager warning codes staff ticked (may include stale ones — ignored). */
+  ackedCodes: ReadonlySet<string>;
+  /** Initials typed next to the acknowledgments. */
+  ackInitials: string;
   /** Text entered for the day-of refund leg, when the plan has one. */
   dayofRefundReason?: string;
 }): ExecuteGate => {
@@ -428,10 +707,19 @@ export const executeGate = (args: {
   // Environment refusal, not an operator mistake — surface it first so nobody
   // fills the rest of the form out before learning the button can't fire.
   if (plan.executionBlocked) {
-    return { enabled: false, reason: plan.executionBlocked.message, mode };
+    return { enabled: false, reason: splitEnvNote(plan.executionBlocked.message).text, mode };
   }
-  if (args.needsManagerAck && !args.managerAcked) {
-    return { enabled: false, reason: "Acknowledge the QAMF/BMI warning first", mode };
+  if (planNeedsManagerAck(plan)) {
+    if (missingAckCodes(plan, args.ackedCodes).length > 0) {
+      return {
+        enabled: false,
+        reason: "Tick every red item to confirm you will make those changes by hand",
+        mode,
+      };
+    }
+    if (!isValidInitials(args.ackInitials)) {
+      return { enabled: false, reason: "Add your initials (2-4 letters) to the check", mode };
+    }
   }
   if (plan.diffCents < 0 && !args.refundDest) {
     return { enabled: false, reason: "Pick where the refund goes", mode };
@@ -447,8 +735,80 @@ export const executeGate = (args: {
   return { enabled: true, reason: null, mode };
 };
 
-export const planNeedsManagerAck = (plan: EditPlan | null): boolean =>
-  (plan?.warnings ?? []).some((w) => w.severity === "manager");
+/* ── Notify checkbox ──────────────────────────────────────────────────── */
+
+/**
+ * Whether the "notify the guest" box starts ticked. Off for refunds and for
+ * anything after the visit closed (the only template we can send is the
+ * original "your lane is reserved" confirmation), and forced off for racing /
+ * attraction rows, which have no automated resend at all.
+ */
+export const defaultNotifyGuest = (args: {
+  intent: "edit" | "refund";
+  phase: EditPlan["phase"] | null;
+  isRace: boolean;
+}): boolean => {
+  if (args.isRace) return false;
+  if (args.intent === "refund") return false;
+  if (args.phase === "post_complete") return false;
+  return true;
+};
+
+export const notifyLabel = (args: {
+  intent: "edit" | "refund";
+  phase: EditPlan["phase"] | null;
+}): string =>
+  args.intent === "edit" && args.phase !== "post_complete"
+    ? "Email & text the updated confirmation to the guest"
+    : "Re-send the booking confirmation to the guest (not usual after a refund)";
+
+/* ── Success-screen derivations ───────────────────────────────────────── */
+
+/** Post-execution warning codes that mean a human still has to fix something. */
+const MANUAL_WARNING_SYSTEM = (code: string): ManualStep["system"] | null => {
+  if (code === "qamf_players_failed" || /^qamf_.*_failed$/.test(code)) return "conqueror";
+  if (/^bmi_.*_failed$/.test(code)) return "bmi";
+  if (code === "resend_manual") return "guest";
+  return null;
+};
+
+/**
+ * Everything staff must do by hand after this result: the engine's typed
+ * `manualSteps` (predicted = acknowledged before Execute; unpredicted = a
+ * best-effort sync step failed), with a fallback derived from the legacy
+ * warning codes for results written before the field existed.
+ */
+export const collectManualSteps = (result: EditResult): ManualStep[] => {
+  const explicit = result.manualSteps ?? [];
+  const out: ManualStep[] = [...explicit];
+  const seen = new Set(out.map((s) => `${s.code}|${s.message}`));
+  for (const w of result.warnings) {
+    const system = MANUAL_WARNING_SYSTEM(w.code);
+    if (!system) continue;
+    const key = `${w.code}|${w.message}`;
+    if (seen.has(key)) continue;
+    // Same code already carried as a typed step → the typed one wins.
+    if (explicit.some((s) => s.code === w.code)) continue;
+    seen.add(key);
+    out.push({ system, code: w.code, message: w.message, predicted: false });
+  }
+  return out;
+};
+
+/** Warnings that were NOT promoted to manual steps (plain info lines). */
+export const residualWarnings = (result: EditResult, manual: ManualStep[]): EditWarning[] => {
+  const codes = new Set(manual.map((s) => s.code));
+  return result.warnings.filter((w) => !codes.has(w.code));
+};
+
+/** Toast suffix naming the system(s) that need a hand. */
+export const manualFixSuffix = (steps: ManualStep[]): string => {
+  if (steps.length === 0) return "";
+  const systems = [...new Set(steps.map((s) => s.system))];
+  const external = systems.filter((s) => s !== "guest");
+  if (external.length === 0) return " — the guest was NOT notified, contact them";
+  return ` — ${external.map((s) => SYSTEM_LABELS[s]).join("/")} needs a manual fix`;
+};
 
 /* ── Display helpers ──────────────────────────────────────────────────── */
 
@@ -460,16 +820,17 @@ export const WARNING_COLORS: Record<EditWarning["severity"], string> = {
 
 /** Toast line for onDone — mirrors CancelModal's finish() wording. */
 export const resultSummary = (guest: string, result: EditResult): string => {
+  const suffix = manualFixSuffix(collectManualSteps(result));
   if (result.state === "pending_payment") {
-    return `${guest}: edit pending payment — link created (${result.editId})`;
+    return `${guest}: edit pending payment — send the guest the ${dollars(result.diffCents)} payment link${suffix}`;
   }
   if (result.diffCents > 0) {
-    return `${guest}: reservation updated — ${dollars(result.diffCents)} charged`;
+    return `${guest}: reservation updated — ${dollars(result.diffCents)} charged${suffix}`;
   }
   if (result.diffCents < 0) {
     return result.storeCreditGan
-      ? `${guest}: reservation updated — ${dollars(-result.diffCents)} gift card ${ganDisplay(result.storeCreditGan)}`
-      : `${guest}: reservation updated — ${dollars(-result.diffCents)} refunded`;
+      ? `${guest}: reservation updated — ${dollars(-result.diffCents)} gift card ${ganDisplay(result.storeCreditGan)}${suffix}`
+      : `${guest}: reservation updated — ${dollars(-result.diffCents)} refunded${suffix}`;
   }
-  return `${guest}: reservation updated`;
+  return `${guest}: reservation updated${suffix}`;
 };

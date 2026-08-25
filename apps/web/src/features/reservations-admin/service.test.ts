@@ -24,6 +24,9 @@ const audit = vi.hoisted(() => ({
 const bmiNotes = vi.hoisted(() => ({ syncNoteToBmi: vi.fn() }));
 
 vi.mock("@/lib/bowling-db", () => db);
+// The edit-money facts read goes straight to Neon; with no DATABASE_URL it
+// returns the zero facts, which is what the detail tests assert against.
+vi.mock("@/lib/db", () => ({ sql: vi.fn(), isDbConfigured: () => false }));
 vi.mock("@/lib/reservation-cancel-log", () => cancelLog);
 vi.mock("@/lib/reservation-edit-log", () => editLog);
 vi.mock("~/features/reservation-edit/square-actions", () => editSquare);
@@ -101,6 +104,9 @@ describe("getReservationDetail", () => {
     expect(detail!.history.map((h) => h.source)).toEqual(["action", "cancel"]);
     // Cancel-event lookup covers EVERY leg id, not just the anchor.
     expect(cancelLog.listCancelEventsByAnchors).toHaveBeenCalledWith([4211, 4212]);
+    // No DB in tests → the money facts default rather than throwing.
+    expect(detail!.reservation.editRefundCents).toBe(0);
+    expect(detail!.reservation.groupHasDayofPayment).toBe(false);
   });
 
   it("resolves ?billId= as a string and 404s cleanly", async () => {

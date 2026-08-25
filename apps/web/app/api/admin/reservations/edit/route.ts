@@ -6,13 +6,25 @@ import {
   isRefundOnlyPlan,
   PRE_DECREASE_FLAG,
 } from "~/features/reservation-edit/guards";
-import { EditGuardError, type EditSettlement, type EditSpec } from "~/features/reservation-edit";
+import {
+  EditExecutionError,
+  EditGuardError,
+  type EditSettlement,
+  type EditSpec,
+} from "~/features/reservation-edit";
+import { recordAdminAction } from "~/features/reservations-admin/audit";
 
 // Live Square reads (order snapshots + orders/calculate per leg) can stack up
 // for combo groups.
 export const maxDuration = 60;
 
-/** Guard codes that mean "state moved / not editable" → 409; the rest → 400. */
+/**
+ * Guard codes that mean "state moved / not editable / not this way" → 409 so
+ * the modal renders a BLOCKED screen (Close only). Everything else → 400,
+ * which the modal treats as an operator-correctable error. Capacity and
+ * config refusals used to fall through as 400 and were offered "Retry" +
+ * "Send payment link".
+ */
 const CONFLICT_CODES = new Set([
   "cancelled",
   "phase_conflict",
@@ -24,8 +36,16 @@ const CONFLICT_CODES = new Set([
   "cancel_in_progress",
   "plan_stale",
   "post_complete_ack_required",
+  "ack_required",
   "refund_not_enabled",
+  "edit_not_enabled",
   "full_refund_use_cancel",
+  "conqueror_origin",
+  "dayof_payment_unresolved",
+  "heat_capacity",
+  "qamf_availability",
+  "bmi_line_unavailable",
+  "unsupported_kind",
 ]);
 
 /**
@@ -72,6 +92,8 @@ export async function POST(req: NextRequest) {
     notifyGuest?: unknown;
     managerOverride?: unknown;
     dayofRefundReason?: unknown;
+    acknowledgedCodes?: unknown;
+    acknowledgedBy?: unknown;
   };
   try {
     body = await req.json();
@@ -96,11 +118,17 @@ export async function POST(req: NextRequest) {
     | { kind: "none" }
     | undefined;
   const managerOverride = body.managerOverride === true;
+  const acknowledgedCodes = Array.isArray(body.acknowledgedCodes)
+    ? body.acknowledgedCodes.filter((c): c is string => typeof c === "string")
+    : undefined;
+  const acknowledgedBy =
+    typeof body.acknowledgedBy === "string" ? body.acknowledgedBy.trim().slice(0, 8) : undefined;
+  const dryRun = body.dryRun !== false;
 
   try {
     const plan = await buildEditPlan({ neonId, spec, settlement, paymentSource, managerOverride });
 
-    if (body.dryRun !== false) {
+    if (dryRun) {
       return NextResponse.json({ plan });
     }
 
@@ -160,11 +188,35 @@ export async function POST(req: NextRequest) {
       // executor rejects a missing/reserved value before any money moves.
       dayofRefundReason:
         typeof body.dayofRefundReason === "string" ? body.dayofRefundReason : undefined,
+      // Owner rule 2026-08-24: every "Conqueror/BMI will NOT be updated"
+      // warning is acknowledged (by code, with initials) before money moves;
+      // the executor refuses ack_required otherwise and records who ticked what.
+      acknowledgedCodes,
+      acknowledgedBy,
+      managerOverride,
     });
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof EditGuardError) {
       const status = err.code === "not_found" ? 404 : CONFLICT_CODES.has(err.code) ? 409 : 400;
+      // Refusals used to leave no trace anywhere (guard 4xx were not logged and
+      // the ledger records executions only), so nobody could tell how often
+      // staff hit a wall or on which rows. The mount probe's no_changes is
+      // the healthy answer and stays quiet.
+      if (err.code !== "no_changes") {
+        console.warn(
+          `[admin/reservations/edit] neonId=${neonId} ${dryRun ? "dry-run" : "EXECUTE"} refused: ${err.code} — ${err.message}`,
+        );
+        if (!dryRun) {
+          await recordAdminAction({
+            reservationId: neonId,
+            action: "edit",
+            outcome: "failed",
+            detail: { blocked: true, code: err.code, spec },
+            error: err.message,
+          });
+        }
+      }
       return NextResponse.json(
         {
           error: err.code,
@@ -174,6 +226,22 @@ export async function POST(req: NextRequest) {
           ...(err.data !== undefined ? { data: err.data } : {}),
         },
         { status },
+      );
+    }
+    if (err instanceof EditExecutionError) {
+      console.error(
+        `[admin/reservations/edit] neonId=${neonId} ${err.editId} failed at ${err.failedStep ?? "?"}:`,
+        err.message,
+      );
+      return NextResponse.json(
+        {
+          error: "edit_failed",
+          detail: err.message,
+          editId: err.editId,
+          failedStep: err.failedStep ?? null,
+          stepLog: err.stepLog,
+        },
+        { status: 502 },
       );
     }
     const msg = err instanceof Error ? err.message : "unknown error";

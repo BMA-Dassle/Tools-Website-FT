@@ -38,6 +38,24 @@ export interface EditEventStart {
   spec: unknown;
   /** The dry-run plan the cascade is about to execute. */
   plan: unknown;
+  /** Manager-severity warning codes staff acknowledged before Execute. */
+  acknowledged?: EditEventAcknowledged | null;
+}
+
+/** Who acknowledged which "Conqueror/BMI will not be updated" warnings. */
+export interface EditEventAcknowledged {
+  codes: string[];
+  /** Staff initials typed into the modal; null on the pay-link resume path. */
+  by: string | null;
+  at: string;
+}
+
+/** One by-hand follow-up recorded on the event (mirrors reservation-edit ManualStep). */
+export interface EditEventManualStep {
+  system: "conqueror" | "bmi" | "square" | "guest";
+  code: string;
+  message: string;
+  predicted: boolean;
 }
 
 export interface EditEventFinish {
@@ -46,9 +64,11 @@ export interface EditEventFinish {
   refundIds?: string[];
   storeCreditGiftCardId?: string;
   storeCreditGan?: string;
+  storeCreditCents?: number;
   oldDayofOrderId?: string;
   newDayofOrderId?: string;
   stepLog?: unknown;
+  manualSteps?: EditEventManualStep[];
   error?: string;
 }
 
@@ -67,11 +87,15 @@ export interface EditEventRow {
   refundIds: string[] | null;
   storeCreditGiftCardId: string | null;
   storeCreditGan: string | null;
+  storeCreditCents: number | null;
   oldDayofOrderId: string | null;
   newDayofOrderId: string | null;
+  returnOrderIds: string[] | null;
   spec: unknown;
   plan: unknown;
   stepLog: unknown;
+  manualSteps: EditEventManualStep[] | null;
+  acknowledged: EditEventAcknowledged | null;
   error: string | null;
   createdAt: string;
   completedAt: string | null;
@@ -109,6 +133,20 @@ async function ensureSchema(): Promise<void> {
     )
   `;
   await q`CREATE INDEX IF NOT EXISTS ree_res ON reservation_edit_events (anchor_reservation_id)`;
+  // 2026-08-24 audit additions (idempotent):
+  //  - manual_steps: what a human still has to do by hand because Conqueror/BMI
+  //    was not updated (predicted = acknowledged before Execute; unpredicted =
+  //    a best-effort sync step failed). The record behind the acknowledgment.
+  //  - acknowledged: which manager-severity warning codes staff ticked, their
+  //    initials, and when.
+  //  - store_credit_cents: what THIS attempt loaded/minted, so a retry can net
+  //    a stranded credit the way refunds are netted.
+  //  - return_order_ids: itemized return orders this attempt created, so a
+  //    retry reuses them instead of minting a duplicate.
+  await q`ALTER TABLE reservation_edit_events ADD COLUMN IF NOT EXISTS manual_steps JSONB`;
+  await q`ALTER TABLE reservation_edit_events ADD COLUMN IF NOT EXISTS acknowledged JSONB`;
+  await q`ALTER TABLE reservation_edit_events ADD COLUMN IF NOT EXISTS store_credit_cents INTEGER`;
+  await q`ALTER TABLE reservation_edit_events ADD COLUMN IF NOT EXISTS return_order_ids TEXT[]`;
   schemaReady = true;
 }
 
@@ -156,11 +194,12 @@ export async function startEditEvent(ev: EditEventStart): Promise<void> {
   await q`
     INSERT INTO reservation_edit_events (
       edit_id, anchor_reservation_id, leg_ids, phase, diff_cents, settlement,
-      actor, attempt, state, spec, plan
+      actor, attempt, state, spec, plan, acknowledged
     ) VALUES (
       ${ev.editId}, ${ev.anchorReservationId}, ${ev.legIds}, ${ev.phase},
       ${ev.diffCents}, ${ev.settlement}, ${ev.actor}, ${ev.attempt}, 'started',
-      ${JSON.stringify(ev.spec)}, ${JSON.stringify(ev.plan)}
+      ${JSON.stringify(ev.spec)}, ${JSON.stringify(ev.plan)},
+      ${ev.acknowledged ? JSON.stringify(ev.acknowledged) : null}
     )
     ON CONFLICT (edit_id) DO UPDATE SET
       state = 'started',
@@ -168,7 +207,46 @@ export async function startEditEvent(ev: EditEventStart): Promise<void> {
       settlement = EXCLUDED.settlement,
       spec = EXCLUDED.spec,
       plan = EXCLUDED.plan,
+      acknowledged = COALESCE(EXCLUDED.acknowledged, reservation_edit_events.acknowledged),
       error = NULL
+  `;
+}
+
+/**
+ * Persist a store-credit card the moment it exists (minted or loaded) — same
+ * forward-recovery doctrine as recordEditPayment. A crash between the Square
+ * call and finishEditEvent still leaves the card on the event row, so a retry
+ * can NET it instead of loading the same card twice, and the cancel planner can
+ * see that the row's store-credit card belongs to an edit.
+ */
+export async function recordEditStoreCredit(
+  editId: string,
+  giftCardId: string,
+  gan: string,
+  cents: number,
+): Promise<void> {
+  if (!isDbConfigured()) throw new Error("reservation-edit-log: DATABASE_URL not configured");
+  await ensureSchema();
+  const q = sql();
+  await q`
+    UPDATE reservation_edit_events
+    SET store_credit_gift_card_id = ${giftCardId},
+        store_credit_gan = ${gan},
+        store_credit_cents = COALESCE(store_credit_cents, 0) + ${cents}
+    WHERE edit_id = ${editId}
+  `;
+}
+
+/** Persist an itemized return order id the moment Square creates it. */
+export async function recordEditReturnOrder(editId: string, returnOrderId: string): Promise<void> {
+  if (!isDbConfigured()) throw new Error("reservation-edit-log: DATABASE_URL not configured");
+  await ensureSchema();
+  const q = sql();
+  await q`
+    UPDATE reservation_edit_events
+    SET return_order_ids = array_append(COALESCE(return_order_ids, '{}'), ${returnOrderId})
+    WHERE edit_id = ${editId}
+      AND NOT (${returnOrderId} = ANY(COALESCE(return_order_ids, '{}')))
   `;
 }
 
@@ -234,9 +312,11 @@ export async function finishEditEvent(editId: string, fin: EditEventFinish): Pro
         refund_ids = COALESCE(${fin.refundIds ?? null}, refund_ids),
         store_credit_gift_card_id = COALESCE(${fin.storeCreditGiftCardId ?? null}, store_credit_gift_card_id),
         store_credit_gan = COALESCE(${fin.storeCreditGan ?? null}, store_credit_gan),
+        store_credit_cents = COALESCE(${fin.storeCreditCents ?? null}, store_credit_cents),
         old_dayof_order_id = COALESCE(${fin.oldDayofOrderId ?? null}, old_dayof_order_id),
         new_dayof_order_id = COALESCE(${fin.newDayofOrderId ?? null}, new_dayof_order_id),
         step_log = COALESCE(${fin.stepLog ? JSON.stringify(fin.stepLog) : null}, step_log),
+        manual_steps = COALESCE(${fin.manualSteps ? JSON.stringify(fin.manualSteps) : null}, manual_steps),
         error = ${fin.error ?? null},
         completed_at = NOW()
       WHERE edit_id = ${editId}
@@ -266,11 +346,15 @@ function rowToEvent(r: any): EditEventRow {
     refundIds: r.refund_ids,
     storeCreditGiftCardId: r.store_credit_gift_card_id,
     storeCreditGan: r.store_credit_gan,
+    storeCreditCents: r.store_credit_cents ?? null,
     oldDayofOrderId: r.old_dayof_order_id,
     newDayofOrderId: r.new_dayof_order_id,
+    returnOrderIds: r.return_order_ids ?? null,
     spec: r.spec,
     plan: r.plan,
     stepLog: r.step_log,
+    manualSteps: Array.isArray(r.manual_steps) ? r.manual_steps : null,
+    acknowledged: r.acknowledged ?? null,
     error: r.error,
     createdAt: r.created_at,
     completedAt: r.completed_at,
@@ -386,6 +470,15 @@ export async function getOpenEditEvent(reservationIds: number[]): Promise<EditEv
  * (service.ts) but never covered day-of payments.
  *
  * FAILED/REJECTED refunds are ignored — that money never left.
+ *
+ * Only STRANDED refunds count — those recorded by attempts that never
+ * completed (crashed / failed / this attempt's own resume) and that no
+ * completed attempt has absorbed. A COMPLETED attempt's refund is settled
+ * money from a DIFFERENT edit: netting it here made a second, unrelated
+ * refund on the same reservation skip its day-of leg entirely ("already
+ * refunded") while still paying the guest from the deposit — the same
+ * absorbed/stranded split refundAcrossTenders has always applied on the
+ * deposit leg. (2026-08-24 audit, R3.)
  */
 export async function refundedCentsForPayment(
   reservationIds: number[],
@@ -395,7 +488,12 @@ export async function refundedCentsForPayment(
   ) => Promise<{ paymentId: string; amountCents: number; status: string }>,
 ): Promise<{ cents: number; refundIds: string[] }> {
   const events = await listEditEventsByAnchors(reservationIds);
-  const ids = [...new Set(events.flatMap((e) => e.refundIds ?? []))];
+  const absorbed = new Set(
+    events.filter((e) => e.state === "completed").flatMap((e) => e.refundIds ?? []),
+  );
+  const ids = [
+    ...new Set(events.filter((e) => e.state !== "completed").flatMap((e) => e.refundIds ?? [])),
+  ].filter((id) => !absorbed.has(id));
   let cents = 0;
   const matched: string[] = [];
   for (const rid of ids) {
@@ -411,4 +509,32 @@ export async function refundedCentsForPayment(
     matched.push(rid);
   }
   return { cents, refundIds: matched };
+}
+
+/**
+ * Store credit already issued against this money group by attempts that never
+ * completed — the store-credit twin of refundedCentsForPayment. A failed
+ * attempt that minted/loaded a card and then died on a later step still owns
+ * that value; a retry must load only the remainder, never the full amount again.
+ * Returns the stranded cents plus the card they sit on (the retry reuses it).
+ */
+export async function strandedStoreCredit(
+  reservationIds: number[],
+  excludeEditId?: string,
+): Promise<{ cents: number; giftCardId: string | null; gan: string | null; editIds: string[] }> {
+  const events = await listEditEventsByAnchors(reservationIds);
+  let cents = 0;
+  let giftCardId: string | null = null;
+  let gan: string | null = null;
+  const editIds: string[] = [];
+  for (const e of events) {
+    if (e.state === "completed") continue;
+    if (excludeEditId && e.editId === excludeEditId) continue;
+    if (!e.storeCreditCents || e.storeCreditCents <= 0) continue;
+    cents += e.storeCreditCents;
+    giftCardId = giftCardId ?? e.storeCreditGiftCardId;
+    gan = gan ?? e.storeCreditGan;
+    editIds.push(e.editId);
+  }
+  return { cents, giftCardId, gan, editIds };
 }

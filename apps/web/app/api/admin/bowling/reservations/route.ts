@@ -14,6 +14,7 @@ import { getVouchersByBillIds, voucherItemLabel } from "~/features/game-cards/da
 import { getVoucherStatus } from "~/features/game-cards/service/native-voucher";
 import type { VipVoucherSummary } from "~/features/reservations-admin/types";
 import { belongsOnHeadpinzFmBoard } from "~/features/reservations-admin/center-scope";
+import { attachEditMoneyFacts } from "~/features/reservations-admin/service";
 import {
   attachRaceLiveState,
   fetchLiveHeats,
@@ -132,21 +133,26 @@ export async function GET(req: NextRequest) {
     // Attach guest-survey snapshot per reservation (one batch query, no
     // N+1). Reservations without a survey row return `survey: null`.
     const surveyMap = await getSurveysForReservations(withCodes.map((r) => r.id));
-    const enriched = await Promise.all(
-      withCodes.map(async (r) => ({
-        ...r,
-        survey: surveyMap.get(String(r.id)) ?? null,
-        // Canonical v2 (multi-activity) short confirmation link for any BMI-bill
-        // leg (race/attraction). This is the same /s/{code} the guest gets by
-        // email/SMS and the account dashboard shows, so a booking that spans
-        // multiple activities opens the multi-activity confirmation hub instead
-        // of the single-activity v1 page. Bowling/KBF rows have no bmiBillId and
-        // get their v2 link by sibling propagation below (or keep their bowling
-        // /s/{shortCode}). Deterministic + idempotent; best-effort.
-        confirmationShortUrl: r.bmiBillId
-          ? await confirmationShortUrl(r.bmiBillId, true).catch(() => undefined)
-          : (undefined as string | undefined),
-      })),
+    // editRefundCents (post-booking refunds → board chip) and
+    // groupHasDayofPayment (Refund door on the non-paying leg of a shared
+    // order) ride one batched read; failure leaves the zero facts.
+    const enriched = await attachEditMoneyFacts(
+      await Promise.all(
+        withCodes.map(async (r) => ({
+          ...r,
+          survey: surveyMap.get(String(r.id)) ?? null,
+          // Canonical v2 (multi-activity) short confirmation link for any BMI-bill
+          // leg (race/attraction). This is the same /s/{code} the guest gets by
+          // email/SMS and the account dashboard shows, so a booking that spans
+          // multiple activities opens the multi-activity confirmation hub instead
+          // of the single-activity v1 page. Bowling/KBF rows have no bmiBillId and
+          // get their v2 link by sibling propagation below (or keep their bowling
+          // /s/{shortCode}). Deterministic + idempotent; best-effort.
+          confirmationShortUrl: r.bmiBillId
+            ? await confirmationShortUrl(r.bmiBillId, true).catch(() => undefined)
+            : (undefined as string | undefined),
+        })),
+      ),
     );
 
     // Propagate the v2 link to sibling legs of the SAME booking that have no BMI
@@ -233,7 +239,9 @@ export async function GET(req: NextRequest) {
     // spans FastTrax racing + HeadPinz bowling, so staff at either location must
     // see it regardless of the center this portal is scoped to. The two legs
     // share a square_dayof_order_id; the client groups on that.
-    const vipReservations = await listVipComboReservations({ startDate: date, endDate: date });
+    const vipReservations = await attachEditMoneyFacts(
+      await listVipComboReservations({ startDate: date, endDate: date }),
+    );
 
     // Booking-minted vouchers (V2 grant) keyed by bill — the VIP cards show
     // the code + QR + what's still AVAILABLE on it, so managers see a guest's

@@ -204,8 +204,16 @@ export async function buildCancelPlan(req: CancelRequest): Promise<BuildPlanResu
       if (sc?.storeCreditGiftCardId) {
         const { listEditEventsByAnchors } = await import("@/lib/reservation-edit-log");
         const editEvents = await listEditEventsByAnchors(legs.map((l) => l.id));
+        // ANY state — a failed edit attempt that minted the card and died on a
+        // later step still owns it. Match on the GAN too: the two edit-issued
+        // cards in prod before 2026-08-24 were recorded with the GAN only.
         const editIssued = editEvents.some(
-          (e) => e.state === "completed" && e.storeCreditGiftCardId === sc.storeCreditGiftCardId,
+          (e) =>
+            (e.storeCreditGiftCardId != null &&
+              e.storeCreditGiftCardId === sc.storeCreditGiftCardId) ||
+            (e.storeCreditGan != null &&
+              sc.storeCreditGiftCardGan != null &&
+              e.storeCreditGan === sc.storeCreditGiftCardGan),
         );
         if (editIssued) {
           throw new CancelGuardError(

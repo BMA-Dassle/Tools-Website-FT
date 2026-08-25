@@ -8,6 +8,7 @@ import {
   verifyPayLinkToken,
 } from "~/features/reservation-edit/pay-link";
 import { EditGuardError, type EditSettlement, type EditSpec } from "~/features/reservation-edit";
+import type { PaymentSourceKind } from "~/features/card-vault";
 
 export const maxDuration = 60;
 
@@ -18,12 +19,27 @@ export const maxDuration = 60;
  *   → { guestName, amountDueCents, expiresAt, state } for the pay page.
  *
  * POST /api/edit-payments/{editId}
- *   Body: { token, cardNonce }
+ *   Body: { token, cardNonce, sourceKind?, saveCardConsent? }
  *   Completes the pending_payment edit: verifies the token + expiry, rebuilds
  *   the plan from the stored spec, refuses when the reservation moved since
  *   the link was created (planHash mismatch → staff re-run the edit), then
  *   resumes the SAME edit attempt with the guest's card nonce as the source.
+ *   `sourceKind` / `saveCardConsent` are PaymentForm's tokenize tags — they
+ *   drive the card-vault capture (a wallet is skipped, a ticked "save my card"
+ *   becomes permanent consent) instead of a hard-coded 'card' / false.
  */
+
+const SOURCE_KINDS: ReadonlySet<string> = new Set<PaymentSourceKind>([
+  "card",
+  "wallet",
+  "saved",
+  "gift_card",
+]);
+
+/** Unknown / missing → undefined, so the vault's "no_source_kind" skip applies
+ *  to a stale bundle rather than guessing a wallet into CreateCard. */
+const parseSourceKind = (v: unknown): PaymentSourceKind | undefined =>
+  typeof v === "string" && SOURCE_KINDS.has(v) ? (v as PaymentSourceKind) : undefined;
 
 const loadPending = async (
   editId: string,
@@ -82,7 +98,12 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ editId: str
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ editId: string }> }) {
   const { editId } = await ctx.params;
-  let body: { token?: unknown; cardNonce?: unknown };
+  let body: {
+    token?: unknown;
+    cardNonce?: unknown;
+    sourceKind?: unknown;
+    saveCardConsent?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
@@ -91,6 +112,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ editId: st
   const token = typeof body.token === "string" ? body.token : "";
   const cardNonce = typeof body.cardNonce === "string" ? body.cardNonce : "";
   if (!cardNonce) return NextResponse.json({ error: "card_required" }, { status: 400 });
+  const sourceKind = parseSourceKind(body.sourceKind);
+  const permanentConsent = body.saveCardConsent === true;
 
   const loaded = await loadPending(editId, token);
   if (!loaded.ok) return loaded.res;
@@ -148,8 +171,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ editId: st
             reservationId: anchor.id,
             depositOrderId: anchor.squareDepositOrderId ?? null,
             baseKey: editId.replace(/[^a-z0-9]/gi, "").slice(0, 16),
-            sourceKind: "card",
-            permanentConsent: false,
+            sourceKind,
+            permanentConsent,
           });
         }
       } catch {

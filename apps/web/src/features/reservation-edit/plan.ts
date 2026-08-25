@@ -16,6 +16,7 @@ import {
   getBowlingSquareProducts,
   getReservationPlayersWithShoeAllowance,
   listCancelGroupReservations,
+  type BowlingExperienceWithDetails,
   type BowlingReservation,
   type BowlingSquareProduct,
 } from "@/lib/bowling-db";
@@ -59,6 +60,7 @@ import {
 import {
   EditGuardError,
   type BowlingBookedStamp,
+  type EditCapabilities,
   type EditGuardCode,
   type EditPaymentSource,
   type EditPhase,
@@ -67,6 +69,7 @@ import {
   type EditStep,
   type EditWarning,
   type HeatMeta,
+  type NoChangesData,
   type ProductFacts,
   type RepricedLine,
   type StoredLine,
@@ -211,6 +214,38 @@ export interface EditCurrentState {
  */
 const GAP_COMP_MAX_CENTS = 200;
 
+/**
+ * The money group's shared instruments, resolved at PLAN time from the WHOLE
+ * group — never from the row staff happened to click. A bowling + attraction
+ * (or + race) booking shares one deposit, one internal gift card and one
+ * day-of order, but lane-open stamps `dayof_payment_id` on the BOWLING row
+ * only; anchoring a refund from the sibling row used to plan fine and then die
+ * in the executor ("no lane-open payment id on the row", edit-24493, 2026-08-23).
+ * The executor reads THIS block, and `dayofPaymentId` is sealed into the plan
+ * hash through the refund step's target.
+ */
+export interface EditPlanMoney {
+  /** Leg whose row carries the lane-open payment for the anchor's order. */
+  payingLegId: number | null;
+  /** Payment to refund for a paid day-of order (null → no post-payment refund possible). */
+  dayofPaymentId: string | null;
+  /** The internal deposit gift card (one per group). */
+  giftCardId: string | null;
+  depositOrderId: string | null;
+  /** Store-credit card an earlier edit/cancel already issued for this group. */
+  storeCreditLegId: number | null;
+  storeCreditGiftCardId: string | null;
+  storeCreditGan: string | null;
+  storeCreditCents: number;
+  /**
+   * The visit is closed (status completed / no_show) but its day-of order was
+   * never paid — lane-open never ran, the deposit still sits on the gift card.
+   * Refunds then come off the DEPOSIT tenders, not a day-of payment, and the
+   * Square order / Conqueror / BMI are left alone (acknowledged by staff).
+   */
+  closedUnpaid: boolean;
+}
+
 export interface EditPlan {
   anchorId: number;
   legIds: number[];
@@ -218,6 +253,7 @@ export interface EditPlan {
   phase: EditPhase;
   spec: EditSpec;
   legs: EditPlanLeg[];
+  money: EditPlanMoney;
   /** Σ new − Σ old across the money group (tax-inclusive, cents). */
   diffCents: number;
   /**
@@ -463,6 +499,20 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
   // 1. Load the anchor + its money group.
   const anchor = await getBowlingReservation(req.neonId);
   if (!anchor) throw new EditGuardError("not_found");
+  // Desk bookings (Conqueror-originated, synced in by the bowling-events
+  // consumer) have no web deposit, no Square order, no priced lines and no
+  // pricing stamp — there is nothing here to reprice, charge or refund, and a
+  // roster push would overwrite the desk's real bowler names. 655 of the 690
+  // upcoming bowling rows on 2026-08-24 were this shape. Refuse before any
+  // Square read, with copy that says where the booking actually lives.
+  if (anchor.bookingSource === "conqueror") {
+    throw new EditGuardError(
+      "conqueror_origin",
+      "This reservation was booked at the front desk in Conqueror — its bowlers, lanes, time " +
+        "and money live there. Change it in Conqueror; nothing here can reprice, charge or " +
+        "refund it.",
+    );
+  }
   const group = await listCancelGroupReservations(anchor);
   const legIds = group.map((g) => g.id);
   const isCombo = group.some((g) => g.comboSpecialId != null) && group.length > 1;
@@ -490,11 +540,31 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     }
   }
 
+  // Phase is a property of the DAY-OF ORDER, not of the row. A bowling +
+  // attraction/race booking shares ONE day-of order, but lane-open stamps
+  // `dayof_order_sent_at` / `dayof_payment_id` / status on the bowling row
+  // only (updateBowlingReservationLaneOpen is single-row). Fed its own
+  // columns, the un-stamped sibling reads "tenders but never marked" and
+  // throws phase_conflict — which made MID refunds impossible on every such
+  // group from EITHER leg. So each leg inherits the sent-at (and a
+  // 'completed' status) from any leg sharing its order; the genuine conflict
+  // (tenders on an order NO leg was stamped for) still throws.
+  const legsOnOrder = (orderId: string | null | undefined): BowlingReservation[] =>
+    orderId ? group.filter((g) => g.squareDayofOrderId === orderId) : [];
   const legPhase = (leg: BowlingReservation): EditPhase => {
     const snap = legSnapshots.get(leg.id) ?? null;
+    const shared = legsOnOrder(leg.squareDayofOrderId);
+    const status =
+      leg.status === "cancelled"
+        ? leg.status
+        : shared.some((g) => g.status === "completed")
+          ? "completed"
+          : leg.status;
+    const sentAt =
+      leg.dayofOrderSentAt ?? shared.find((g) => g.dayofOrderSentAt)?.dayofOrderSentAt ?? null;
     return selectPhase({
-      status: leg.status,
-      dayofOrderSentAt: leg.dayofOrderSentAt ?? null,
+      status,
+      dayofOrderSentAt: sentAt,
       hasDayofOrder: !!leg.squareDayofOrderId,
       orderState: snap?.state ?? null,
       orderTenderCount: snap?.tenderCount ?? 0,
@@ -502,6 +572,66 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
   };
   const phases = group.map(legPhase);
   const phase = phases[0];
+
+  // ── Money-group instruments (see EditPlanMoney) ─────────────────────────
+  const anchorSnap = legSnapshots.get(anchor.id) ?? null;
+  const payingLeg =
+    legsOnOrder(anchor.squareDayofOrderId).find((g) => g.dayofPaymentId) ??
+    (anchor.dayofPaymentId ? anchor : null);
+  let dayofPaymentId: string | null = payingLeg?.dayofPaymentId ?? null;
+  const groupGiftCardId =
+    anchor.squareGiftCardId ?? group.find((g) => g.squareGiftCardId)?.squareGiftCardId ?? null;
+  const groupDepositOrderId =
+    anchor.squareDepositOrderId ??
+    group.find((g) => g.squareDepositOrderId)?.squareDepositOrderId ??
+    null;
+  // A paid order whose payment id no leg recorded (lane-open's retryable
+  // branch never persists it): adopt the order's tender ONLY when there is
+  // exactly one and it was funded by a gift card — i.e. our own internal
+  // deposit card paying at lane-open. A guest's POS tender is never adopted.
+  if (
+    !dayofPaymentId &&
+    phase !== "pre" &&
+    anchor.squareDayofOrderId &&
+    anchorSnap &&
+    anchorSnap.tenderCount === 1 &&
+    groupGiftCardId
+  ) {
+    try {
+      const facts = await fetchOrderFacts(anchor.squareDayofOrderId);
+      const tender = facts.tenders[0];
+      const pay = tender ? await fetchPaymentFacts(tender.paymentId) : null;
+      if (tender && pay?.sourceType === "GIFT_CARD") {
+        dayofPaymentId = tender.paymentId;
+        warnings.push({
+          severity: "info",
+          code: "dayof_payment_recovered",
+          message:
+            "The venue charge's payment id was not recorded on this booking — recovered it from " +
+            "the paid order's single gift-card tender.",
+        });
+      }
+    } catch {
+      /* unresolved → the refund steps below refuse at plan time */
+    }
+  }
+  const storeCreditLeg = group.find((g) => g.storeCreditGiftCardId) ?? null;
+  const money: EditPlanMoney = {
+    payingLegId: payingLeg?.id ?? null,
+    dayofPaymentId,
+    giftCardId: groupGiftCardId,
+    depositOrderId: groupDepositOrderId,
+    storeCreditLegId: storeCreditLeg?.id ?? null,
+    storeCreditGiftCardId: storeCreditLeg?.storeCreditGiftCardId ?? null,
+    storeCreditGan: storeCreditLeg?.storeCreditGiftCardGan ?? null,
+    storeCreditCents: storeCreditLeg?.storeCreditCents ?? 0,
+    closedUnpaid:
+      phase === "post_complete" &&
+      !!anchor.squareDayofOrderId &&
+      anchorSnap != null &&
+      anchorSnap.tenderCount === 0 &&
+      (anchorSnap.state === "OPEN" || anchorSnap.state === "DRAFT"),
+  };
 
   const changesLaneCount =
     spec.laneCount != null ||
@@ -529,9 +659,24 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
   // product (World Cup VIP switchover) still resolve their kind; only the
   // shoe catalog offered for NEW lines filters to active.
   let centerProducts = await getBowlingSquareProducts(anchor.centerCode, undefined, true);
-  const centerSlugForCatalog = resolveCenter(anchor.centerCode, anchor.productKind).slug;
-  if (centerProducts.length === 0 && centerSlugForCatalog !== anchor.centerCode) {
-    centerProducts = await getBowlingSquareProducts(centerSlugForCatalog, undefined, true);
+  const centerIdentity = resolveCenter(anchor.centerCode, anchor.productKind);
+  if (centerProducts.length === 0 && centerIdentity.slug !== anchor.centerCode) {
+    centerProducts = await getBowlingSquareProducts(centerIdentity.slug, undefined, true);
+  }
+  // bowling_square_products is keyed by SQUARE LOCATION id; v2 rows store the
+  // SLUG ('fort-myers' / 'naples'), which the two lookups above never map —
+  // leaving those rows with no shoe catalog and no resolvable primary line
+  // (every fort-myers/naples web bowling row on 2026-08-24). The HeadPinz
+  // building's location id is the third key to try.
+  if (
+    centerProducts.length === 0 &&
+    centerIdentity.attractionCancelCenterCode !== anchor.centerCode
+  ) {
+    centerProducts = await getBowlingSquareProducts(
+      centerIdentity.attractionCancelCenterCode,
+      undefined,
+      true,
+    );
   }
   const productsById = new Map(centerProducts.map((p) => [p.id, p]));
   const shoeCatalog: ProductFacts[] = centerProducts
@@ -605,7 +750,10 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         ? raceProductLabel(h.productId, h.category === "junior" ? "junior" : "adult")
         : "Race heat",
       category: h.category === "junior" ? ("junior" as const) : ("adult" as const),
-      removable: true,
+      // A heat booked before line tracking (no bmiLineId) on a billed row
+      // cannot be removed here — the planner refuses it; tell the UI up front
+      // so the checkbox is disabled instead of erroring on the first tick.
+      removable: !(anchor.bmiBillId && h.bmiLineId == null),
     })),
     durationOptions: [],
     durationMultiplier: null,
@@ -647,6 +795,12 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
 
   // 4. Reprice per leg → desired order lines.
   const legs: EditPlanLeg[] = [];
+  /**
+   * The anchor leg's resolved experience (a lane/duration rebook needs its
+   * QAMF web offer). Held in a box because it is assigned inside the per-leg
+   * closure below and read after it.
+   */
+  const anchorCtx: { experience: BowlingExperienceWithDetails | null } = { experience: null };
 
   const bowlingLegPlan = async (
     leg: BowlingReservation,
@@ -659,30 +813,64 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     // duration options (hourly rentals). Stamp rows resolve by slug; legacy
     // rows by the primary product — searched in the experience's ITEMS and
     // its duration-option OVERRIDE products (2h bookings book the override).
-    const stamp = (leg.bookingMetadata as { bowling?: { experienceSlug?: string | null } } | null)
-      ?.bowling;
+    const stamp = (
+      leg.bookingMetadata as {
+        bowling?: { experienceSlug?: string | null; pricingMode?: string | null };
+      } | null
+    )?.bowling;
     const experience = matchExperienceForRow({
       experiences: await loadExperiencesForCenter(leg.centerCode, leg.productKind),
       stampSlug: stamp?.experienceSlug ?? null,
       stored,
     });
+    if (leg.id === anchor.id) anchorCtx.experience = experience;
+
+    // The stamp writer in bowling/v2/reserve derived pricingMode from the
+    // PRODUCT kind ("open"), not the EXPERIENCE kind, so every hourly rental
+    // was stamped per_person while its primary quantity is lanes × hours —
+    // and every player/lane change on those rows failed "primary quantity N
+    // does not reconcile" (13 of the 26 upcoming web bowling rows on
+    // 2026-08-24). An hourly / Pizza Bowl experience is per-lane by the one
+    // predicate booking uses (bowling-booked-pricing.ts); a stamp that says
+    // otherwise is wrong, so re-derive from the lines and let commitNeon
+    // persist the corrected stamp (self-heal on the first successful edit).
+    const expectsPerLane =
+      experience?.kind === "hourly" || (experience?.slug ?? "").startsWith("pizza-bowl");
+    const stampContradictsExperience =
+      expectsPerLane && stamp != null && stamp.pricingMode === "per_person";
+    const metadataForPricing: Record<string, unknown> | null = stampContradictsExperience
+      ? { ...(leg.bookingMetadata ?? {}), bowling: undefined }
+      : (leg.bookingMetadata ?? null);
 
     // Pricing resolution is only REQUIRED when the edit scales the lane line
     // (players / lanes / duration). Shoe, roster, and attraction edits carry
     // the primary unchanged, so legacy rows with unresolvable pricing still
-    // take those edits instead of hard-blocking.
+    // take those edits instead of hard-blocking. KBF has no priced lane line
+    // at all (the bowling is free), so a KBF player-count change is a roster
+    // change — it never scales a primary either.
     const scalesPrimary =
-      spec.playerCount != null || spec.laneCount != null || spec.durationOptionId != null;
+      (spec.playerCount != null && leg.productKind !== "kbf") ||
+      spec.laneCount != null ||
+      spec.durationOptionId != null;
     let booked: ResolvedBookedPricing;
     let carryPrimary = false;
     try {
       booked = resolveBookedPricing({
-        bookingMetadata: leg.bookingMetadata ?? null,
+        bookingMetadata: metadataForPricing,
         playerCount: legPlayers,
         lines: stored,
         experienceKind: experience?.kind ?? null,
         experienceSlug: experience?.slug ?? null,
       });
+      if (stampContradictsExperience && leg.id === anchor.id) {
+        warnings.push({
+          severity: "info",
+          code: "stamp_corrected",
+          message:
+            "This booking's pricing stamp said per-person for a per-lane experience; the lane " +
+            "line was re-read as per-lane from what was booked (saved on the first edit).",
+        });
+      }
     } catch (err) {
       if (!(err instanceof EditGuardError) || scalesPrimary) throw err;
       carryPrimary = true;
@@ -795,6 +983,15 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       primaryRequired: scalesPrimary,
     });
     warnings.push(...reprice.warnings);
+    if (leg.productKind === "kbf" && spec.playerCount != null && leg.id === anchor.id) {
+      warnings.push({
+        severity: "info",
+        code: "kbf_money_unchanged",
+        message:
+          "Kids Bowl Free lanes are free, so changing the player count moves no money — paid " +
+          "adult games and shoes stay as booked; adjust those lines separately.",
+      });
+    }
 
     let repricedLines = reprice.lines;
     if (leg.productKind === "kbf" && spec.kbf) {
@@ -854,7 +1051,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         newLines = snap.lines.map((l) => ({ ...l }));
         neonLinesOut = null;
         warnings.push({
-          severity: "info",
+          severity: "warning",
           code: "lines_carried",
           message:
             "This booking's stored lines don't map onto its day-of order, so both are left " +
@@ -1003,6 +1200,9 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       // the order — commitNeon then leaves this leg's lines untouched.
       newNeonLines: neonLinesOut,
       newPlayerCount: reprice.newPlayerCount,
+      // Per-person experiences derive lanes from players (6 per lane) — an
+      // explicit laneCount is noted, never applied, so it must not read as a
+      // lane change and rebook Conqueror.
       newLaneCount: reprice.newLaneCount,
       newDuration:
         durationOption && durationOption.squareMultiplier !== booked.durationMultiplier
@@ -1324,9 +1524,34 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       }
     }
 
+    // Every combo revenue-split line is engine-owned: a POS/food line added to
+    // either order is the only thing spec.orderLines may touch here.
+    const comboEngineLines: EngineOwnedLine[] = [true, false].flatMap((isNew) =>
+      repriceComboRacers({
+        combo,
+        date: comboDate,
+        racers: [{ id: "probe", isNew }],
+      }).byEntity.flatMap((e) =>
+        e.lines.map((l) => ({ squareCatalogObjectId: l.squareCatalogObjectId, label: l.label })),
+      ),
+    );
+
+    // The combo's bowling headcount follows the racer roster (one racer = one
+    // bowler). Carry the new count on the BOWLING leg so Conqueror's title and
+    // the Neon row can follow it; racer changes never rebook lanes, so the
+    // Conqueror seat count itself needs the by-hand step warned about below.
+    const comboBowlingLeg = group.find((g) => g.productKind === "open" || g.productKind === "kbf");
+    const comboBowlerDelta = (spec.racers?.add?.length ?? 0) - removedRacers.size;
+
     for (const leg of group) {
       const snap = legSnapshots.get(leg.id) ?? null;
-      const survivors = (legLines.get(leg.id) ?? []).filter((l) => l.quantity > 0);
+      const survivors = applyOrderLineSpec(
+        (legLines.get(leg.id) ?? []).filter((l) => l.quantity > 0),
+        spec.orderLines,
+        leg.id === anchor.id,
+        [...anchorEngineLines, ...comboEngineLines],
+        phase !== "pre",
+      );
       const newTotal = snap
         ? await calculateOrderTotal(snap.locationId, survivors, snap.taxes, snap.discounts)
         : survivors.reduce((s, l) => s + l.totalCents, 0);
@@ -1352,7 +1577,10 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         newTotalCents: newTotal,
         returnedLines: computeReturnedLines(snap?.lines ?? [], survivors),
         newNeonLines: null,
-        newPlayerCount: null,
+        newPlayerCount:
+          comboBowlingLeg && leg.id === comboBowlingLeg.id && comboBowlerDelta !== 0
+            ? Math.max(1, (comboBowlingLeg.playerCount ?? 0) + comboBowlerDelta)
+            : null,
         newLaneCount: null,
         newDuration: null,
         resolvedStamp: null,
@@ -1371,9 +1599,9 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
   const diffCents = legs.reduce((s, l) => s + (l.newTotalCents - l.oldTotalCents), 0);
 
   let giftCard: EditPlan["giftCard"] = null;
-  if (anchor.squareGiftCardId) {
+  if (money.giftCardId) {
     try {
-      const gc = await fetchGiftCardFacts(anchor.squareGiftCardId);
+      const gc = await fetchGiftCardFacts(money.giftCardId);
       giftCard = { id: gc.id, gan: gc.gan, balanceCents: gc.balanceCents, state: gc.state };
     } catch {
       warnings.push({
@@ -1403,9 +1631,9 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
   // refuse rather than guess.
   let guestOwedCents = diffCents < 0 ? -diffCents : 0;
   const gcDecrementCents = guestOwedCents;
-  if (diffCents < 0 && anchor.squareDepositOrderId) {
+  if (diffCents < 0 && money.depositOrderId) {
     try {
-      const deposit = await fetchOrderFacts(anchor.squareDepositOrderId);
+      const deposit = await fetchOrderFacts(money.depositOrderId);
       let capacity = 0;
       for (const t of deposit.tenders) {
         const pay = await fetchPaymentFacts(t.paymentId);
@@ -1413,22 +1641,37 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       }
       if (capacity < gcDecrementCents) {
         const shortfall = gcDecrementCents - capacity;
+        const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
         if (shortfall > GAP_COMP_MAX_CENTS) {
           throw new EditGuardError(
             "pricing_unresolvable",
-            `refund of ${gcDecrementCents}¢ exceeds refundable deposit capacity (${capacity}¢) by ` +
-              `${shortfall}¢ — more than the ${GAP_COMP_MAX_CENTS}¢ lane-open comp allowance, so ` +
-              `something else moved this money. Reconcile in Square first.`,
+            `Only ${dollars(capacity)} of this ${dollars(gcDecrementCents)} refund can go back to ` +
+              `the guest's payment — ${dollars(shortfall)} of the deposit was already refunded ` +
+              `outside this tool (Square dashboard or POS). Reconcile it in Square first, or ` +
+              `refund a smaller amount.`,
+          );
+        }
+        if (capacity === 0 && req.settlement !== "store_credit") {
+          throw new EditGuardError(
+            "pricing_unresolvable",
+            "Nothing can go back to the guest's payment — the deposit has already been refunded " +
+              "in full. Choose a gift card instead, or reconcile in Square.",
           );
         }
         guestOwedCents = capacity;
+        // The cause is not knowable from here (a lane-open courtesy comp OR a
+        // small refund made outside this tool look identical), so say what
+        // will happen and make staff confirm it rather than guessing.
         warnings.push({
-          severity: "warning",
-          code: "gap_comp_reversal",
+          severity: "manager",
+          code: "refund_shortfall",
+          system: "square",
           message:
-            `${shortfall}¢ of this refund was a lane-open courtesy comp and has no card to return ` +
-            `to — the guest receives ${guestOwedCents}¢ and the gift card is cleared of all ` +
-            `${gcDecrementCents}¢.`,
+            `Only ${dollars(capacity)} of this ${dollars(gcDecrementCents)} refund can go back to ` +
+            `the guest — the deposit no longer covers the last ${dollars(shortfall)} (a lane-open ` +
+            `courtesy comp, or money already refunded in Square). The internal gift card is still ` +
+            `cleared of the full ${dollars(gcDecrementCents)}.`,
+          manualStep: `Confirm in Square that the remaining ${dollars(shortfall)} was already returned to the guest (or comp it there).`,
         });
       }
     } catch (err) {
@@ -1442,12 +1685,16 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
   }
 
   let chargeCard: EditPlan["chargeCard"] = null;
+  let cardLookup: Awaited<ReturnType<typeof getChargeableCard>> = { status: "no_customer" };
   if (diffCents > 0 && anchor.squareCustomerId) {
     try {
-      const card = await getChargeableCard(anchor.squareCustomerId, anchor.squareDepositOrderId);
-      if (card) chargeCard = { cardId: card.cardId, brand: card.brand, last4: card.last4 };
+      cardLookup = await getChargeableCard(anchor.squareCustomerId, anchor.squareDepositOrderId);
+      if (cardLookup.status === "card") {
+        const { card } = cardLookup;
+        chargeCard = { cardId: card.cardId, brand: card.brand, last4: card.last4 };
+      }
     } catch {
-      /* vault unavailable → treated as no card on file */
+      cardLookup = { status: "lookup_failed" }; // vault unreachable ≠ "no card"
     }
   }
 
@@ -1461,24 +1708,75 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     });
   }
   if (diffCents > 0 && !chargeCard && req.paymentSource?.kind !== "payment_link") {
-    warnings.push({
-      severity: "warning",
-      code: "no_card_on_file",
-      message: "price increases but no card is on file — send the guest a payment link",
-    });
+    if (cardLookup.status === "lookup_failed") {
+      warnings.push({
+        severity: "warning",
+        code: "card_lookup_failed",
+        message: "Card lookup failed — retry before sending a payment link",
+      });
+    } else if (
+      cardLookup.status === "none" &&
+      (cardLookup.skipReason === "wallet" || cardLookup.skipReason === "gift_card")
+    ) {
+      warnings.push({
+        severity: "warning",
+        code: "card_not_storable",
+        message:
+          "Guest paid with Apple/Google Pay (or a gift card) — that card cannot be kept on file; collect an increase with a payment link.",
+      });
+    } else {
+      warnings.push({
+        severity: "warning",
+        code: "no_card_on_file",
+        message: "price increases but no card is on file — send the guest a payment link",
+      });
+    }
   }
 
   // 6. Steps.
   const steps: EditStep[] = [{ kind: "audit_start", fatal: true }];
+  /**
+   * The payment a post-payment refund reverses. Resolved across the money
+   * group above; when nothing recorded it (and the live order could not
+   * identify it unambiguously) refuse HERE, at plan time, before the
+   * acknowledgment, the reason box and the audit row — not in the executor.
+   */
+  const requireDayofPaymentId = (): string => {
+    if (money.dayofPaymentId) return money.dayofPaymentId;
+    throw new EditGuardError(
+      "dayof_payment_unresolved",
+      "The venue charge for this booking can't be matched to a payment we recorded, so it " +
+        "can't be refunded from here. Refund it in Square (Transactions) instead.",
+    );
+  };
+  const comboBowlerDeltaForWarning = isCombo
+    ? (spec.racers?.add?.length ?? 0) -
+      new Set(
+        (spec.racers?.removeHeatIndexes ?? []).map((i) => {
+          const h = heatsFromMetadata(group.find((g) => g.productKind === "race") ?? anchor)[i];
+          return h?.bmiPersonId ?? h?.assignedTo ?? h?.racer ?? `?${i}`;
+        }),
+      ).size
+    : 0;
   const lanesChanged = legs.some(
     (l) =>
       l.newLaneCount != null && current.laneCount != null && l.newLaneCount !== current.laneCount,
   );
   const durationChanged = legs.some((l) => l.newDuration != null);
   const attractionsChanged = legs.some((l) => (l.attractionChanges?.length ?? 0) > 0);
-  const playersChanged =
-    legs.some((l) => l.newPlayerCount != null && l.newPlayerCount !== current.playerCount) ||
-    (spec.players?.length ?? 0) > 0;
+  // A count change is only real when the SPEC asked for one (or a combo racer
+  // change implied one). The repricer clamps to ≥1, so on a 0-player row an
+  // EMPTY spec used to read as "players changed" — the mount probe returned an
+  // executable plan for an untouched form.
+  const countLeg = legs.find((l) => l.newPlayerCount != null) ?? null;
+  const countBase = isCombo
+    ? (group.find((g) => g.id === countLeg?.reservationId)?.playerCount ?? current.playerCount)
+    : current.playerCount;
+  const countDelta =
+    countLeg?.newPlayerCount != null && (spec.playerCount != null || isCombo)
+      ? countLeg.newPlayerCount - countBase
+      : 0;
+  const playersChanged = countDelta !== 0 || (spec.players?.length ?? 0) > 0;
 
   if (durationChanged && phase !== "pre") {
     // The lane block's length is a physical booking — only changeable before
@@ -1496,15 +1794,51 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     anchor.qamfReservationId ?? group.find((g) => g.qamfReservationId)?.qamfReservationId;
   const groupBmiBillId = anchor.bmiBillId ?? group.find((g) => g.bmiBillId)?.bmiBillId;
 
+  /** Plain-English "do this by hand" warnings — one per system that will NOT follow the edit. */
+  const manager = (
+    code: string,
+    system: NonNullable<EditWarning["system"]>,
+    message: string,
+    manualStep: string,
+  ) => warnings.push({ severity: "manager", code, system, message, manualStep });
+  const racersAdded = spec.racers?.add?.length ?? 0;
+  const racersRemoved = spec.racers?.removeHeatIndexes?.length ?? 0;
+
+  if (changesRaceHeats && racersAdded > 0 && !groupBmiBillId) {
+    // Never charge for a heat that will not be booked (never mint before a
+    // step that can fail): without a BMI bill there is nothing to add to.
+    throw new EditGuardError(
+      "bmi_line_unavailable",
+      "This booking has no BMI bill to add a racer to — book the extra racer in BMI directly.",
+    );
+  }
+
   if (phase === "pre") {
     // External capacity FIRST (fatal) — never charge for capacity we can't get.
     // Duration changes rebook too: QAMF has no time-length mutation, and the
     // new Time option id only applies on a fresh reservation.
     if ((lanesChanged || durationChanged) && groupQamfId) {
+      // The rebook resolves the web offer from the booked experience; a
+      // legacy row with none would only fail INSIDE the cascade, after the
+      // Conqueror reservation was deleted. Refuse here instead.
+      if (!anchorCtx.experience?.qamfWebOfferId) {
+        throw new EditGuardError(
+          "qamf_availability",
+          "This booking's Conqueror web offer can't be resolved (legacy booking), so lanes and " +
+            "lane time can't be rebooked from here — reschedule it in Conqueror instead.",
+        );
+      }
       steps.push({ kind: "qamf_rebook", fatal: true, target: groupQamfId });
     }
-    if (changesRaceHeats && (spec.racers?.add?.length ?? 0) > 0 && groupBmiBillId) {
+    if (changesRaceHeats && racersAdded > 0 && groupBmiBillId) {
       steps.push({ kind: "bmi_add_heats", fatal: true, target: groupBmiBillId });
+    }
+    if (changesRaceHeats && racersRemoved > 0 && groupBmiBillId) {
+      // BEFORE money (fatal). Excess BMI capacity is the safe failure: if BMI
+      // refuses, nothing has been refunded yet. Running it after neon_commit
+      // (the old order) meant a BMI 4xx marked the edit failed AFTER the guest
+      // was refunded, with the heat still booked and no way to retry cleanly.
+      steps.push({ kind: "bmi_remove_lines", fatal: true, target: groupBmiBillId });
     }
     if (attractionsChanged) {
       // Capacity + entitlement replace on the attraction's own BMI bill —
@@ -1550,12 +1884,58 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       }
     }
     steps.push({ kind: "neon_commit", fatal: true });
-    if (changesRaceHeats && (spec.racers?.removeHeatIndexes?.length ?? 0) > 0 && groupBmiBillId) {
-      steps.push({ kind: "bmi_remove_lines", fatal: false, target: groupBmiBillId });
-    }
-    if ((playersChanged || lanesChanged || (isCombo && changesRaceHeats)) && groupQamfId) {
+    // Roster/title push to Conqueror — best-effort, after money. A combo racer
+    // change carries no bowler names (the roster rows don't exist yet), so a
+    // push would only rewrite the desk's names with placeholders: skip it and
+    // rely on the by-hand step warned about below.
+    if ((playersChanged || lanesChanged) && !isCombo && groupQamfId) {
       steps.push({ kind: "qamf_set_players", fatal: false, target: groupQamfId });
       steps.push({ kind: "qamf_memo", fatal: false, target: groupQamfId });
+    }
+
+    // ── What Conqueror / BMI will NOT do for this edit (acknowledged) ──────
+    if (groupQamfId) {
+      const conqueror = `Conqueror reservation ${groupQamfId}`;
+      if (isCombo && changesRaceHeats && comboBowlerDeltaForWarning !== 0) {
+        manager(
+          "combo_conqueror_count",
+          "conqueror",
+          `The bowling side of this combo stays at ${countBase} bowler(s) in Conqueror — racer ` +
+            "changes don't rebook the lanes.",
+          `Set ${conqueror} to ${countBase + comboBowlerDeltaForWarning} bowler(s) by hand.`,
+        );
+      } else if (countDelta > 0 && !lanesChanged) {
+        manager(
+          "qamf_count_increase_manual",
+          "conqueror",
+          `Conqueror will still show ${countBase} bowler(s) — its API can't add a seat to an ` +
+            "existing lane (names and the title update; the seat count does not).",
+          `Add ${countDelta} bowler(s) to ${conqueror} by hand.`,
+        );
+      } else if (countDelta < 0 && !lanesChanged) {
+        manager(
+          "qamf_count_decrease_manual",
+          "conqueror",
+          `Conqueror will still show ${countBase} bowler(s) — it rejects removing a bowler from ` +
+            "this booking (price-key setup on the web offer). The refund goes through regardless.",
+          `Remove ${-countDelta} bowler(s) from ${conqueror} by hand.`,
+        );
+      }
+    } else if (countDelta !== 0 || lanesChanged || durationChanged) {
+      manager(
+        "qamf_unlinked",
+        "conqueror",
+        "This booking isn't linked to a Conqueror reservation — nothing here can update the lanes.",
+        "Update the bowler count / lanes in Conqueror by hand.",
+      );
+    }
+    if (changesRaceHeats && racersRemoved > 0 && !groupBmiBillId) {
+      manager(
+        "bmi_unlinked",
+        "bmi",
+        "This booking has no BMI bill — the removed heat(s) come off the price only.",
+        "Remove the heat(s) from the racer's BMI booking by hand.",
+      );
     }
   } else if (phase === "mid") {
     if (diffCents > 0) {
@@ -1589,7 +1969,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       steps.push({
         kind: "refund_dayof_payment",
         fatal: true,
-        target: anchor.dayofPaymentId ?? undefined,
+        target: requireDayofPaymentId(),
         amountCents: gcDecrementCents,
       });
       // The guest leg is capped at what their tenders can take back.
@@ -1604,6 +1984,35 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         // and strip any excess. Deterministic, no async window.
         steps.push({ kind: "reconcile_gift_card", fatal: true, target: giftCard.id });
       }
+      // Lines the booking itself owns (the lane, shoes, race products) coming
+      // off a paid order: Conqueror/BMI still hold the original booking.
+      const frozenEngineLines = legs
+        .flatMap((l) => l.returnedLines)
+        .filter((r) =>
+          isEngineOwnedLine({ catalogObjectId: null, name: r.name }, anchorEngineLines),
+        )
+        .map((r) => r.name);
+      if (frozenEngineLines.length > 0) {
+        manager(
+          "mid_external_frozen",
+          anchor.productKind === "race" || anchor.productKind === "attraction"
+            ? "bmi"
+            : "conqueror",
+          `Refunding ${[...new Set(frozenEngineLines)].join(", ")} after check-in takes the ` +
+            "money back only — Conqueror/BMI still show the original booking.",
+          "If bowlers, lanes or heats actually changed, update Conqueror/BMI by hand.",
+        );
+      }
+    }
+    if (countDelta !== 0) {
+      manager(
+        countDelta > 0 ? "qamf_count_increase_manual" : "qamf_count_decrease_manual",
+        "conqueror",
+        `Conqueror will still show ${countBase} bowler(s) after check-in — the lane seat count ` +
+          "can't be changed from here once the session is open.",
+        `${countDelta > 0 ? "Add" : "Remove"} ${Math.abs(countDelta)} bowler(s) ${countDelta > 0 ? "to" : "from"} ` +
+          `Conqueror reservation ${anchor.qamfReservationId ?? groupQamfId ?? "(unlinked)"} by hand.`,
+      );
     }
     // NO update_dayof_order here. Square refuses ANY line change on an order
     // with finalized tenders — "LineItems cannot be modified for finalized
@@ -1623,17 +2032,66 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       });
     }
     steps.push({ kind: "neon_commit", fatal: true });
-    if (playersChanged && anchor.qamfReservationId) {
-      steps.push({ kind: "qamf_set_players", fatal: false, target: anchor.qamfReservationId });
+    if (playersChanged && !isCombo && groupQamfId) {
+      steps.push({ kind: "qamf_set_players", fatal: false, target: groupQamfId });
     }
+  } else if (money.closedUnpaid) {
+    // The visit closed (status-close cron / no-show) but lane-open never ran:
+    // the day-of order is OPEN with zero tenders and the deposit still sits on
+    // the internal gift card. There is no day-of payment to refund; the money
+    // comes off the DEPOSIT tenders, exactly like a pre-check-in reduction,
+    // and the open Square order / Conqueror / BMI are left as they are.
+    if (diffCents > 0) {
+      throw new EditGuardError(
+        "unsupported_kind",
+        "This visit is closed and its lane order was never paid — nothing can be added to it here.",
+      );
+    }
+    if (diffCents < 0) {
+      if (settlement === "store_credit") {
+        steps.push({ kind: "issue_store_credit", fatal: true, amountCents: guestOwedCents });
+      } else {
+        steps.push({ kind: "refund_tender", fatal: true, amountCents: guestOwedCents });
+      }
+      if (giftCard) {
+        steps.push({
+          kind: "adjust_gift_card_down",
+          fatal: true,
+          target: giftCard.id,
+          amountCents: gcDecrementCents,
+        });
+      }
+    }
+    manager(
+      "closed_unpaid_refund",
+      "square",
+      "This visit is closed but its lane order was never paid (lane-open never ran). The refund " +
+        "comes off the deposit; the open Square order, Conqueror and BMI are not touched.",
+      `Close or void the open Square order for this visit by hand${anchor.squareDayofOrderId ? ` (order ${anchor.squareDayofOrderId})` : ""}.`,
+    );
+    steps.push({ kind: "neon_commit", fatal: true });
   } else {
-    // post_complete: full refund → rebuild → repay → complete. QAMF/BMI NEVER.
+    // post_complete: money-only. QAMF/BMI NEVER.
     warnings.push({
       severity: "manager",
       code: "post_complete_no_external_sync",
+      system:
+        anchor.productKind === "race" || anchor.productKind === "attraction" ? "bmi" : "conqueror",
       message:
-        "Day-of order already closed — QAMF and BMI will NOT be updated. Adjust Conqueror/BMI manually.",
+        "This visit is closed — Conqueror and BMI will NOT be updated by anything done here.",
+      manualStep: "If bowlers, lanes or heats actually changed, update Conqueror/BMI by hand.",
     });
+    if (diffCents > 0) {
+      // The rebuild path (refund every tender amount-only, charge, rebuild the
+      // order, repay from the gift card) breaks the itemized-refund rule and
+      // repays from a credit Square posts asynchronously. Not a path money
+      // should take unattended — a new sale in Square is the honest shape.
+      throw new EditGuardError(
+        "unsupported_kind",
+        "This visit has already closed and its paid order is frozen — nothing can be added to " +
+          "it here. Ring the extra items up as a new sale in Square.",
+      );
+    }
     // A COMPLETED order's lines are frozen, so a pure price DECREASE has two
     // possible shapes:
     //
@@ -1677,7 +2135,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       steps.push({
         kind: "refund_dayof_payment",
         fatal: true,
-        target: anchor.dayofPaymentId ?? undefined,
+        target: requireDayofPaymentId(),
         amountCents: gcDecrementCents,
       });
       if (settlement === "store_credit") {
@@ -1707,6 +2165,18 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     steps.push({ kind: "neon_commit", fatal: true });
   }
   steps.push({ kind: "notify", fatal: false });
+  if (anchor.productKind === "race" || anchor.productKind === "attraction") {
+    // No automated racing/attraction confirmation exists — the bowling resend
+    // would send the wrong template. Say so in the preview, not after.
+    warnings.push({
+      severity: "warning",
+      code: "resend_manual",
+      system: "guest",
+      message:
+        "Racing/attraction confirmations can't be re-sent automatically — tell the guest about " +
+        "the change yourself.",
+    });
+  }
 
   if (diffCents > 0 && req.paymentSource?.kind === "payment_link") {
     // The charge step waits on the guest — flag it in the step list.
@@ -1726,8 +2196,29 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     !attractionsChanged &&
     !changesRaceHeats;
   // Carry `current` back with it: this is the modal's mount-probe answer, and
-  // the form (roster, shoe catalog, day-of order lines) hydrates from it.
-  if (noChanges) throw new EditGuardError("no_changes", undefined, { current });
+  // the form (roster, shoe catalog, day-of order lines) hydrates from it —
+  // plus which execution gates are open in this environment, so the modal can
+  // say "editing is switched off" BEFORE staff fill anything in.
+  if (noChanges) {
+    const phaseRefundFlag = refundFlagForPhase(phase);
+    const capabilities: EditCapabilities = {
+      edit: editFlagEnabled("RESERVATION_EDIT_V2"),
+      refund: phaseRefundFlag ? editFlagEnabled(phaseRefundFlag) : true,
+      preDecrease: editFlagEnabled(PRE_DECREASE_FLAG),
+      blockedReason: null,
+    };
+    if (!capabilities.refund) {
+      capabilities.blockedReason =
+        "Refunds for this stage of the visit are switched off right now — ask Eric to turn them back on.";
+    } else if (!capabilities.edit) {
+      capabilities.blockedReason =
+        "Editing is switched off right now — you can preview changes and process refunds" +
+        (capabilities.preDecrease ? " and pre-check-in reductions" : "") +
+        " only. Ask Eric to turn it back on.";
+    }
+    const data: NoChangesData = { current, capabilities };
+    throw new EditGuardError("no_changes", undefined, data);
+  }
 
   // 7. Executability. The plan is honest either way — only whether it may RUN
   // depends on flags, so report that instead of letting staff fill the form out
@@ -1736,8 +2227,8 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
   const movesPaidOrderMoney = steps.some(
     (s) => s.kind === "refund_dayof_payment" || s.kind === "refund_dayof_order",
   );
-  const phaseFlag = movesPaidOrderMoney ? refundFlagForPhase(phase) : null;
-  const refundOnly = isRefundOnlyPlan({ diffCents, steps });
+  const phaseFlag = movesPaidOrderMoney || money.closedUnpaid ? refundFlagForPhase(phase) : null;
+  const refundOnly = isRefundOnlyPlan({ diffCents, steps, phase });
   const preDecreaseOnly = isPreDecreaseOnlyPlan({ phase, diffCents, steps });
   let executionBlocked: { code: EditGuardCode; message: string } | null = null;
   if (phaseFlag && !editFlagEnabled(phaseFlag)) {
@@ -1786,6 +2277,14 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       new: l.newLines,
     })),
     steps: steps.map((s) => ({ k: s.kind, t: s.target ?? null, a: s.amountCents ?? null })),
+    // The instruments the executor will actually move money on. If lane-open
+    // stamps a payment id between preview and execute, the plan is stale.
+    money: {
+      p: money.dayofPaymentId,
+      g: money.giftCardId,
+      d: money.depositOrderId,
+      u: money.closedUnpaid,
+    },
   });
 
   return {
@@ -1795,6 +2294,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     phase,
     spec,
     legs,
+    money,
     diffCents,
     guestOwedCents,
     gcDecrementCents,

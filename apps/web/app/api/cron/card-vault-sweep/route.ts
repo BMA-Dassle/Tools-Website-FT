@@ -93,10 +93,22 @@ export async function GET(req: NextRequest) {
 
   for (const row of pending) {
     if (dryRun) continue;
+    if (row.captureSkipReason) {
+      // Terminal provenance (wallet / gift card / SOURCE_USED …) — the SQL
+      // shortlist already excludes these; never re-probe one as 'card'.
+      capturesSkipped++;
+      continue;
+    }
     capturesAttempted++;
     try {
-      // Deterministic per payment id, so every sweep retry of this row
-      // replays the SAME CreateCard key (`cof-` + 16 hex = 20 chars ≤ 45).
+      // Deterministic per payment id, so every sweep retry of THIS row uses
+      // the same CreateCard key (`cof-` + 16 hex = 20 chars ≤ 45) — it is NOT
+      // the booking-time key (that one was derived from the bill / a random
+      // deposit seed), so Square sees a fresh request rather than a replay.
+      // That is safe only because captureCardFromDeposit dedupes against the
+      // customer's live cards FIRST: a card the original CreateCard did land
+      // is adopted, never re-created. A terminal Square code (SOURCE_USED,
+      // INVALID_CARD_DATA, …) retires the row inside the capture.
       const result = await captureCardFromDeposit({
         squareCustomerId: row.squareCustomerId,
         paymentId: row.sourcePaymentId,

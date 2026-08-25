@@ -46,7 +46,12 @@ import {
 import { centerCodeFor } from "~/config/intercard-centers";
 import { formatPersonName } from "~/lib/helpers/name-format";
 import { after } from "next/server";
-import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
+import {
+  captureCardFromDeposit,
+  resolveCaptureSourceKind,
+  type PaymentSourceKind,
+} from "~/features/card-vault";
+import { resolveAudienceMember } from "~/features/marketing/audience";
 import { confirmBmiPayment, getBmiBillStatus } from "./bmi-confirm";
 import { reserveBaseKey } from "./reserve-idempotency";
 import { describeDroppedLeg, partitionBookableLegs } from "./bookable";
@@ -1458,6 +1463,41 @@ async function unifiedReserveInner(
   // every retry, so all 7 keys replay the SAME order / payment / gift card.
   const baseKey = seedSource ? reserveBaseKey(seedSource) : randomBytes(8).toString("hex");
 
+  // ── Square customer (web only) ─────────────────────────────────────────
+  // The client resolves a Square customer only when a RETURNING racer is in
+  // the party (the phone → saved-cards reveal is gated on bmiPersonId), so a
+  // first-time race / attraction / VIP-combo guest arrived with none and the
+  // card-vault capture at the end of the fan-out never ran (COF-2). Resolve
+  // one server-side, once, exactly like app/api/bowling/v2/reserve (loyalty →
+  // phone → name → create; deterministic for a phone, so a retry attaches the
+  // same customer to the same idempotent keys), and stamp it on EVERY leg row
+  // (the edit planner reads squareCustomerId off whichever leg staff click).
+  // NEVER for a kiosk session / reader payment — kiosk bookings must not start
+  // vaulting cards (owner rule) — and never fatal.
+  let resolvedSquareCustomerId: string | undefined = input.squareCustomerId;
+  if (
+    !resolvedSquareCustomerId &&
+    !prepareOnly &&
+    !session.context?.kiosk &&
+    !input.externalPayment &&
+    contact.phone
+  ) {
+    try {
+      const audience = await resolveAudienceMember({
+        phone: contact.phone,
+        firstName: contact.firstName,
+        lastName: contact.lastName,
+        email: contact.email || undefined,
+      });
+      resolvedSquareCustomerId = audience.squareCustomerId;
+    } catch (err) {
+      console.warn(
+        "[unified-reserve] audience resolve failed (non-fatal):",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   // ── Native voucher claim — charge-time, single use ───────────────────
   // Race/attraction items on OUR (HPW) vouchers reduce THIS charge:
   // planVoucherCoverage has already excluded the heat / dropped the attraction
@@ -1815,7 +1855,7 @@ async function unifiedReserveInner(
         idempotency_key: `unified-dayof-${baseKey}-${keySuffix}`,
         order: {
           location_id: locId,
-          ...(input.squareCustomerId ? { customer_id: input.squareCustomerId } : {}),
+          ...(resolvedSquareCustomerId ? { customer_id: resolvedSquareCustomerId } : {}),
           line_items: items.map((li) => {
             if (li.catalogObjectId) {
               return {
@@ -1986,6 +2026,8 @@ async function unifiedReserveInner(
   let depositResult: {
     depositOrderId: string | null;
     depositPaymentId: string | null;
+    /** Server-side tender truth for the card-vault (see DepositTender). */
+    depositTender?: string;
     giftCardId: string | null;
     giftCardGan: string | null;
   } = { depositOrderId: null, depositPaymentId: null, giftCardId: null, giftCardGan: null };
@@ -2298,7 +2340,7 @@ async function unifiedReserveInner(
           locationId,
           cardSourceId: input.cardSourceId,
           giftCardNonce: input.giftCardNonce,
-          squareCustomerId: input.squareCustomerId,
+          squareCustomerId: resolvedSquareCustomerId,
           ganPrefix,
           ganSuffix,
           note: depositNote,
@@ -2307,6 +2349,7 @@ async function unifiedReserveInner(
         depositResult = {
           depositOrderId: dr.depositOrderId,
           depositPaymentId: dr.depositPaymentId,
+          depositTender: dr.depositTender,
           giftCardId: dr.giftCardId,
           giftCardGan: dr.giftCardGan,
         };
@@ -2465,7 +2508,7 @@ async function unifiedReserveInner(
           domain: session.appliedPromo.domains[0] ?? "racing",
           externalRef: squareDayofOrderId,
           amountOffCents: promoSavingsCents,
-          squareCustomerId: input.squareCustomerId,
+          squareCustomerId: resolvedSquareCustomerId,
         });
       }
     } catch (err) {
@@ -2731,7 +2774,7 @@ async function unifiedReserveInner(
             guestPhone: contact.phone ?? "",
             notes: `v2 unified ${item.kind} booking`,
             bookingSource: session.context?.kiosk ? "kiosk" : "web",
-            squareCustomerId: input.squareCustomerId ?? undefined,
+            squareCustomerId: resolvedSquareCustomerId ?? undefined,
             squareLoyaltyRewardId: loyaltyRewardId ?? undefined,
             rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : undefined,
             // Coupon applied to this item's lines (admin board display).
@@ -3157,7 +3200,7 @@ async function unifiedReserveInner(
             guestPhone: contact.phone ?? "",
             notes: `v2 unified ${bookingKind} booking`,
             bookingSource: session.context?.kiosk ? "kiosk" : "web",
-            squareCustomerId: input.squareCustomerId ?? undefined,
+            squareCustomerId: resolvedSquareCustomerId ?? undefined,
             squareLoyaltyRewardId: loyaltyRewardId ?? undefined,
             rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : undefined,
             // Coupon share not carried by the bowling rows (races, attractions,
@@ -3579,15 +3622,17 @@ async function unifiedReserveInner(
   // captureCardFromDeposit never throws by contract; belt-and-braces wrap.
   // NEVER on a kiosk terminal booking — the reader charge vaults no card
   // (owner rule: "Kiosk is NOT going to use saved card").
-  if (depositResult.depositPaymentId && input.squareCustomerId && !input.externalPayment) {
+  if (depositResult.depositPaymentId && resolvedSquareCustomerId && !input.externalPayment) {
     try {
       await captureCardFromDeposit({
-        squareCustomerId: input.squareCustomerId,
+        squareCustomerId: resolvedSquareCustomerId,
         paymentId: depositResult.depositPaymentId,
         reservationId: neonIds[0] ?? null,
         depositOrderId: depositResult.depositOrderId,
         baseKey,
-        sourceKind: input.sourceKind,
+        // Server-side tender truth (gift card covered everything → never a
+        // card) beats the client tag when it is more specific.
+        sourceKind: resolveCaptureSourceKind(input.sourceKind, depositResult.depositTender),
         permanentConsent: input.saveCardConsent === true,
       });
     } catch (err) {

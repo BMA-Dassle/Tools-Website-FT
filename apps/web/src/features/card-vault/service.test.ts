@@ -5,12 +5,18 @@ import { SquarePaymentError } from "@/lib/square-gift-card";
 const data = vi.hoisted(() => ({
   upsertCapturedCard: vi.fn(),
   recordCaptureFailure: vi.fn(),
+  recordTerminalCaptureFailure: vi.fn(),
   getCardForCustomer: vi.fn(),
   getCardStatusForReservation: vi.fn(),
 }));
 vi.mock("./data", () => data);
 
-import { captureCardFromDeposit, chargeSavedCard, getChargeableCard } from "./service";
+import {
+  captureCardFromDeposit,
+  chargeSavedCard,
+  getChargeableCard,
+  resolveCaptureSourceKind,
+} from "./service";
 
 const BASE_KEY = "26ad0266ecd84a73"; // 16 hex chars — the reserve base key shape
 const CUSTOMER = "CUS_1";
@@ -46,41 +52,73 @@ let sq: SquareMockHandle;
 const cardCreateCalls = () =>
   sq.allCalls().filter((c) => c.method === "POST" && c.url.endsWith("/v2/cards"));
 
+/** GET /v2/cards?customer_id=… calls (ListCards dedupe / chargeable lookup). */
+const cardListCalls = () =>
+  sq.allCalls().filter((c) => c.method === "GET" && c.url.includes("/v2/cards?"));
+
+/** The terminal provenance row every skipped tender must leave behind (COF-1). */
+const skipRow = (captureSkipReason: string) =>
+  expect.objectContaining({
+    squareCustomerId: CUSTOMER,
+    squareCardId: null,
+    sourcePaymentId: PAYMENT,
+    sourceReservationId: 4211,
+    sourceDepositOrderId: "DEP_ORDER_1",
+    weAdded: false,
+    captureSkipReason,
+  });
+
 beforeEach(() => {
   vi.clearAllMocks();
   sq = installSquareMock();
   data.upsertCapturedCard.mockResolvedValue(undefined);
   data.recordCaptureFailure.mockResolvedValue(undefined);
+  data.recordTerminalCaptureFailure.mockResolvedValue(undefined);
 });
 
 describe("captureCardFromDeposit — skip matrix", () => {
-  it("skips wallet sources without touching Square or Neon", async () => {
+  it("wallet: no Square call, but a terminal provenance row so staff can see WHY there is no card", async () => {
     const result = await captureCardFromDeposit(captureParams({ sourceKind: "wallet" }));
     expect(result).toEqual({ ok: true, skipped: "source_kind_wallet" });
     expect(sq.allCalls()).toHaveLength(0);
-    expect(data.upsertCapturedCard).not.toHaveBeenCalled();
+    expect(data.upsertCapturedCard).toHaveBeenCalledTimes(1);
+    expect(data.upsertCapturedCard).toHaveBeenCalledWith(skipRow("wallet"));
+    // Never a RETRYABLE row — the sweep must not re-probe a wallet as 'card'.
     expect(data.recordCaptureFailure).not.toHaveBeenCalled();
+    expect(data.recordTerminalCaptureFailure).not.toHaveBeenCalled();
   });
 
-  it("skips gift-card-only tenders", async () => {
+  it("gift-card-only tender: provenance row with reason gift_card", async () => {
     const result = await captureCardFromDeposit(captureParams({ sourceKind: "gift_card" }));
     expect(result).toEqual({ ok: true, skipped: "source_kind_gift_card" });
     expect(sq.allCalls()).toHaveLength(0);
+    expect(data.upsertCapturedCard).toHaveBeenCalledWith(skipRow("gift_card"));
+    expect(data.recordCaptureFailure).not.toHaveBeenCalled();
   });
 
-  it("skips when there is no payment id ($0 / free bookings)", async () => {
+  it("skips when there is no payment id ($0 / free bookings) — nothing to record", async () => {
     const result = await captureCardFromDeposit(captureParams({ paymentId: null }));
     expect(result).toEqual({ ok: true, skipped: "no_payment_id" });
     expect(sq.allCalls()).toHaveLength(0);
+    expect(data.upsertCapturedCard).not.toHaveBeenCalled();
   });
 
-  it("skips untagged sources (stale client) — never guesses a wallet into CreateCard", async () => {
+  it("untagged (stale client): never guesses a wallet into CreateCard; provenance row no_source_kind", async () => {
     const result = await captureCardFromDeposit(captureParams({ sourceKind: undefined }));
     expect(result).toEqual({ ok: true, skipped: "no_source_kind" });
     expect(sq.allCalls()).toHaveLength(0);
+    expect(data.upsertCapturedCard).toHaveBeenCalledWith(skipRow("no_source_kind"));
   });
 
-  it("skips when the payment carries no storable card (server-side wallet double-check)", async () => {
+  it("a Neon failure on the provenance write still returns the skip and never opens a retryable row", async () => {
+    data.upsertCapturedCard.mockRejectedValue(new Error("neon down"));
+    const result = await captureCardFromDeposit(captureParams({ sourceKind: "wallet" }));
+    expect(result).toEqual({ ok: true, skipped: "source_kind_wallet" });
+    expect(data.recordCaptureFailure).not.toHaveBeenCalled();
+    expect(sq.allCalls()).toHaveLength(0);
+  });
+
+  it("skips when the payment carries no storable card at all", async () => {
     sq.onPaymentGet(PAYMENT).reply(paymentWithCard(undefined));
     const result = await captureCardFromDeposit(captureParams({ sourceKind: "card" }));
     expect(result).toEqual({ ok: true, skipped: "no_card_details" });
@@ -89,6 +127,49 @@ describe("captureCardFromDeposit — skip matrix", () => {
     // …and the pending anchor's attempts were bumped so the sweep retires it.
     expect(data.recordCaptureFailure).toHaveBeenCalledWith(
       expect.objectContaining({ error: expect.stringContaining("no storable card") }),
+    );
+  });
+
+  it("gift-card tender mis-tagged 'card' (brand SQUARE_GIFT_CARD) → terminal skip, no ListCards, no CreateCard", async () => {
+    // Prod rows #2009/#2011/#3443/#4283: the server-side GC balance covered the
+    // whole deposit, the client tagged 'card', and CreateCard answered
+    // INVALID_CARD_DATA five times. Gift-card payments DO carry card_details.
+    sq.onPaymentGet(PAYMENT).reply(
+      paymentWithCard({
+        card_brand: "SQUARE_GIFT_CARD",
+        card_type: "DEBIT",
+        prepaid_type: "PREPAID",
+        last_4: "0426",
+        exp_month: 12,
+        exp_year: 2050,
+      }),
+    );
+    const create = sq.onCardCreate();
+
+    const result = await captureCardFromDeposit(captureParams({ sourceKind: "card" }));
+    expect(result).toEqual({ ok: true, skipped: "gift_card_tender" });
+    expect(create.calls()).toHaveLength(0);
+    expect(cardListCalls()).toHaveLength(0);
+    expect(data.recordTerminalCaptureFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourcePaymentId: PAYMENT,
+        skipReason: "gift_card",
+        error: expect.stringContaining("gift card tender"),
+      }),
+    );
+    // Terminal, not retryable.
+    expect(data.recordCaptureFailure).not.toHaveBeenCalled();
+  });
+
+  it("gift-card tender by source_type GIFT_CARD (GAN auth, no card_details) → same terminal skip", async () => {
+    sq.onPaymentGet(PAYMENT).reply({
+      payment: { id: PAYMENT, status: "COMPLETED", source_type: "GIFT_CARD" },
+    });
+    const result = await captureCardFromDeposit(captureParams({ sourceKind: "card" }));
+    expect(result).toEqual({ ok: true, skipped: "gift_card_tender" });
+    expect(cardCreateCalls()).toHaveLength(0);
+    expect(data.recordTerminalCaptureFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ skipReason: "gift_card" }),
     );
   });
 
@@ -235,11 +316,11 @@ describe("captureCardFromDeposit — new card", () => {
     );
   });
 
-  it("CreateCard failure → recordCaptureFailure + {ok:false}, NEVER throws", async () => {
+  it("transient CreateCard failure → recordCaptureFailure (retryable) + {ok:false}, NEVER throws", async () => {
     sq.onPaymentGet(PAYMENT).reply(paymentWithCard(visa));
     sq.onCardsList().reply({ cards: [] });
-    sq.onCardCreate().replyError(400, {
-      errors: [{ code: "INVALID_CARD_DATA", detail: "Card cannot be stored" }],
+    sq.onCardCreate().replyError(503, {
+      errors: [{ code: "SERVICE_UNAVAILABLE", detail: "Card cannot be stored right now" }],
     });
 
     // Must resolve (not reject) — a capture failure can never fail a booking.
@@ -250,9 +331,71 @@ describe("captureCardFromDeposit — new card", () => {
         squareCustomerId: CUSTOMER,
         sourcePaymentId: PAYMENT,
         sourceReservationId: 4211,
-        error: expect.stringContaining("Card cannot be stored"),
+        error: expect.stringContaining("Card cannot be stored right now"),
       }),
     );
+    // A transient code stays on the sweep's retry list.
+    expect(data.recordTerminalCaptureFailure).not.toHaveBeenCalled();
+  });
+
+  it("SOURCE_USED → terminal: the row is retired at once and the ROOT error text is kept", async () => {
+    // Prod: 8 rows stuck at 5 attempts with "Source was used before." — the
+    // first CreateCard consumed the source; every retry was futile and each
+    // one overwrote the original error.
+    sq.onPaymentGet(PAYMENT).reply(paymentWithCard(visa));
+    sq.onCardsList().reply({ cards: [] });
+    sq.onCardCreate().replyError(400, {
+      errors: [{ code: "SOURCE_USED", detail: "Source was used before." }],
+    });
+
+    const result = await captureCardFromDeposit(captureParams({ permanentConsent: true }));
+    expect(result).toEqual({ ok: false, error: "Source was used before." });
+    expect(data.recordTerminalCaptureFailure).toHaveBeenCalledTimes(1);
+    expect(data.recordTerminalCaptureFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        squareCustomerId: CUSTOMER,
+        sourcePaymentId: PAYMENT,
+        sourceReservationId: 4211,
+        permanentConsent: true,
+        consentSource: "checkout_optin",
+        skipReason: "terminal:SOURCE_USED",
+        error: expect.stringContaining("Source was used before."),
+      }),
+    );
+    expect(data.recordCaptureFailure).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "INVALID_CARD_DATA",
+    "INVALID_CARD",
+    "SOURCE_EXPIRED",
+    "CARD_DECLINED_VERIFICATION_REQUIRED",
+    "CARD_EXPIRED",
+  ])("%s is terminal — never left for the sweep to retry", async (code) => {
+    sq.onPaymentGet(PAYMENT).reply(paymentWithCard(visa));
+    sq.onCardsList().reply({ cards: [] });
+    sq.onCardCreate().replyError(400, { errors: [{ code, detail: `${code} detail` }] });
+
+    const result = await captureCardFromDeposit(captureParams());
+    expect(result.ok).toBe(false);
+    expect(data.recordTerminalCaptureFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ skipReason: `terminal:${code}` }),
+    );
+    expect(data.recordCaptureFailure).not.toHaveBeenCalled();
+  });
+
+  it("ListCards failure defers to the sweep — never CreateCard blind (could mint a duplicate)", async () => {
+    sq.onPaymentGet(PAYMENT).reply(paymentWithCard(visa));
+    sq.onCardsList().replyError(500, { errors: [{ code: "INTERNAL_SERVER_ERROR" }] });
+    const create = sq.onCardCreate();
+
+    const result = await captureCardFromDeposit(captureParams());
+    expect(result).toEqual({ ok: false, error: "saved-cards lookup failed before CreateCard" });
+    expect(create.calls()).toHaveLength(0);
+    expect(data.recordCaptureFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ error: expect.stringContaining("saved-cards lookup failed") }),
+    );
+    expect(data.recordTerminalCaptureFailure).not.toHaveBeenCalled();
   });
 
   it("payment fetch failure → recordCaptureFailure + {ok:false}, no throw", async () => {
@@ -348,13 +491,16 @@ describe("getChargeableCard", () => {
       permanentConsent: true,
     });
 
-    const card = await getChargeableCard(CUSTOMER, "DEP_ORDER_1");
-    expect(card).toMatchObject({
-      cardId: "ccof:VAULT",
-      brand: "VISA",
-      last4: "4242",
-      fromVault: true,
-      permanentConsent: true,
+    const res = await getChargeableCard(CUSTOMER, "DEP_ORDER_1");
+    expect(res).toMatchObject({
+      status: "card",
+      card: {
+        cardId: "ccof:VAULT",
+        brand: "VISA",
+        last4: "4242",
+        fromVault: true,
+        permanentConsent: true,
+      },
     });
   });
 
@@ -367,13 +513,58 @@ describe("getChargeableCard", () => {
     data.getCardStatusForReservation.mockResolvedValue(null);
     data.getCardForCustomer.mockResolvedValue(null);
 
-    const card = await getChargeableCard(CUSTOMER, "DEP_ORDER_1");
-    expect(card).toMatchObject({ cardId: "ccof:LIVE", fromVault: false });
+    const res = await getChargeableCard(CUSTOMER, "DEP_ORDER_1");
+    expect(res).toMatchObject({ status: "card", card: { cardId: "ccof:LIVE", fromVault: false } });
   });
 
-  it("returns null when the customer has no live cards", async () => {
+  it("'none' when the customer has no live cards and the vault has no explanation", async () => {
     sq.onCardsList().reply({ cards: [] });
-    const card = await getChargeableCard(CUSTOMER, "DEP_ORDER_1");
-    expect(card).toBeNull();
+    data.getCardStatusForReservation.mockResolvedValue(null);
+    const res = await getChargeableCard(CUSTOMER, "DEP_ORDER_1");
+    expect(res).toEqual({ status: "none", skipReason: null });
+  });
+
+  it("'none' carries the money group's skip reason (wallet payer) so the planner can say why", async () => {
+    sq.onCardsList().reply({ cards: [] });
+    data.getCardStatusForReservation.mockResolvedValue({
+      squareCardId: null,
+      disabledAt: null,
+      permanentConsent: false,
+      captureSkipReason: "wallet",
+    });
+    const res = await getChargeableCard(CUSTOMER, "DEP_ORDER_1");
+    expect(res).toEqual({ status: "none", skipReason: "wallet" });
+  });
+
+  it("'lookup_failed' when ListCards errors — a Square 5xx must never read as 'no card'", async () => {
+    sq.onCardsList().replyError(500, { errors: [{ code: "INTERNAL_SERVER_ERROR" }] });
+    const res = await getChargeableCard(CUSTOMER, "DEP_ORDER_1");
+    expect(res).toEqual({ status: "lookup_failed" });
+    expect(data.getCardStatusForReservation).not.toHaveBeenCalled();
+  });
+
+  it("'no_customer' without touching Square", async () => {
+    const res = await getChargeableCard("", "DEP_ORDER_1");
+    expect(res).toEqual({ status: "no_customer" });
+    expect(sq.allCalls()).toHaveLength(0);
+  });
+});
+
+describe("resolveCaptureSourceKind — server tender truth vs client tag", () => {
+  it("a gift card that covered the whole deposit overrides a client 'card' tag (COF-4)", () => {
+    expect(resolveCaptureSourceKind("card", "gift_card")).toBe("gift_card");
+    expect(resolveCaptureSourceKind(undefined, "gift_card")).toBe("gift_card");
+  });
+
+  it("a saved-card source (ccof:) is 'saved' whatever the client said", () => {
+    expect(resolveCaptureSourceKind("card", "saved")).toBe("saved");
+  });
+
+  it("a card tender the server cannot classify leaves the client tag alone (typed card vs wallet)", () => {
+    expect(resolveCaptureSourceKind("wallet", undefined)).toBe("wallet");
+    expect(resolveCaptureSourceKind("card", undefined)).toBe("card");
+    expect(resolveCaptureSourceKind("wallet", "card")).toBe("wallet");
+    expect(resolveCaptureSourceKind(undefined, "card")).toBeUndefined();
+    expect(resolveCaptureSourceKind(undefined, "unknown")).toBeUndefined();
   });
 });

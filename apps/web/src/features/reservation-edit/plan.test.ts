@@ -24,7 +24,10 @@ vi.mock("@/lib/reservation-edit-log", () => ({
   hasOpenEditEvent: vi.fn(async () => false),
 }));
 vi.mock("~/features/card-vault", () => ({
-  getChargeableCard: vi.fn(async () => ({ cardId: "ccof:CARD1", brand: "VISA", last4: "4242" })),
+  getChargeableCard: vi.fn(async () => ({
+    status: "card",
+    card: { cardId: "ccof:CARD1", brand: "VISA", last4: "4242" },
+  })),
 }));
 
 import { getBowlingReservation, listCancelGroupReservations } from "@/lib/bowling-db";
@@ -184,6 +187,10 @@ const mkRow = (over: Partial<BowlingReservation> = {}): BowlingReservation =>
     squareDepositOrderId: "DEP1",
     squareDepositPaymentId: "PAY_DEP",
     squareDayofOrderId: "O1",
+    // Lane-open stamps this alongside dayof_order_sent_at; a paid-order refund
+    // is planned against it (resolved across the money group), so the fixture
+    // carries it the way a real lane-opened row does.
+    dayofPaymentId: "PAY_GC",
     squareGiftCardId: "GC1",
     squareGiftCardGan: "WEBHPFM123",
     depositCents: 0,
@@ -429,7 +436,7 @@ describe("buildEditPlan — guest-owed vs gift-card-decrement amounts", () => {
     const plan = await buildEditPlan({ neonId: 42, spec: { playerCount: 1 } });
     expect(plan.guestOwedCents).toBe(-plan.diffCents);
     expect(plan.gcDecrementCents).toBe(-plan.diffCents);
-    expect(plan.warnings.some((w) => w.code === "gap_comp_reversal")).toBe(false);
+    expect(plan.warnings.some((w) => w.code === "refund_shortfall")).toBe(false);
   });
 
   it("caps the guest's refund at deposit capacity but still clears the whole card", async () => {
@@ -444,7 +451,12 @@ describe("buildEditPlan — guest-owed vs gift-card-decrement amounts", () => {
     const plan = await buildEditPlan({ neonId: 42, spec: { playerCount: 1 } });
     expect(plan.gcDecrementCents).toBe(owed);
     expect(plan.guestOwedCents).toBe(owed - 150);
-    expect(plan.warnings.some((w) => w.code === "gap_comp_reversal")).toBe(true);
+    // A shortfall is MANAGER-severity: the cause (lane-open comp vs money
+    // already refunded in Square) is not knowable from here, so staff confirm
+    // what the guest actually gets before it executes.
+    const shortfall = plan.warnings.find((w) => w.code === "refund_shortfall");
+    expect(shortfall?.severity).toBe("manager");
+    expect(shortfall?.manualStep).toMatch(/1\.50/);
 
     // Steps carry the right amount each: guest leg capped, card leg full.
     const refund = plan.steps.find((s) => s.kind === "refund_tender")!;
@@ -494,10 +506,14 @@ describe("buildEditPlan — phase gates", () => {
     );
   });
 
-  it("post-complete requires the manager acknowledgment, then plans refund+rebuild", async () => {
+  it("post-complete requires the manager acknowledgment, and REFUSES an increase", async () => {
     world.order.state = "COMPLETED";
     world.order.tenders = [{ paymentId: "PAY_GC", amount: 5000 }];
-    const row = mkRow({ status: "completed", dayofOrderSentAt: "2026-08-01T13:00:00Z" });
+    const row = mkRow({
+      status: "completed",
+      dayofOrderSentAt: "2026-08-01T13:00:00Z",
+      dayofPaymentId: "PAY_GC",
+    });
     vi.mocked(getBowlingReservation).mockResolvedValue(row as never);
     vi.mocked(listCancelGroupReservations).mockResolvedValue([row] as never);
 
@@ -505,19 +521,16 @@ describe("buildEditPlan — phase gates", () => {
       "post_complete_ack_required",
     );
 
-    const plan = await buildEditPlan({
-      neonId: 42,
-      spec: { playerCount: 3 },
-      managerOverride: true,
-    });
-    expect(plan.phase).toBe("post_complete");
-    expect(plan.warnings.some((w) => w.severity === "manager")).toBe(true);
-    const kinds = plan.steps.map((s) => s.kind);
-    expect(kinds).toContain("refund_dayof_order");
-    expect(kinds).toContain("rebuild_dayof_order");
-    expect(kinds).toContain("pay_dayof_order");
-    expect(kinds).toContain("complete_dayof_order");
-    expect(kinds).not.toContain("qamf_set_players"); // QAMF never touched post-complete
+    // Growing a CLOSED visit used to emit the rebuild path: refund every
+    // tender amount-only (breaking the itemized-refund rule), charge, build a
+    // replacement order, repay it from a gift-card credit Square posts
+    // asynchronously. Too much money movement to run unattended — the honest
+    // shape is a new sale in Square.
+    expect(
+      await guardCode(() =>
+        buildEditPlan({ neonId: 42, spec: { playerCount: 3 }, managerOverride: true }),
+      ),
+    ).toBe("unsupported_kind");
   });
 
   it("post-complete DECREASE is money-only — no rebuild, no order-id swap", async () => {

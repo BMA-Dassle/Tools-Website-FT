@@ -112,9 +112,26 @@ export default function OverviewTab({
     quantity: number;
     unitPriceCents: number;
   }>;
+  // Cancel refunds (refundCents) and post-booking Edit/Refund refunds
+  // (editRefundCents) are different money; the row shows both so a second
+  // staffer never sees a fully refunded visit looking untouched.
+  const editRefundCents = r.editRefundCents ?? 0;
+  const refundedCents = r.refundCents + editRefundCents;
 
   return (
     <>
+      {r.status !== "cancelled" && refundedCents > 0 && (
+        <Card title="Refunded" style={{ borderColor: "rgba(239,68,68,0.4)" }}>
+          <div style={{ fontSize: "0.82rem", lineHeight: 1.7, color: "#ef4444", fontWeight: 600 }}>
+            Refunded {dollars(refundedCents)}
+            <span style={{ color: "var(--ba-muted)", fontWeight: 400 }}>
+              {" "}
+              — after booking via Edit / Refund. Details in History and the Payments tab.
+            </span>
+          </div>
+        </Card>
+      )}
+
       {r.status === "cancelled" && (
         <Card title="Cancellation" style={{ borderColor: "rgba(239,68,68,0.4)" }}>
           <div style={{ fontSize: "0.82rem", lineHeight: 1.7 }}>
@@ -123,6 +140,11 @@ export default function OverviewTab({
             {r.cancellationOutcome ?? "unknown"}
             {r.refundCents > 0 && (
               <div style={{ color: "#ef4444" }}>Refunded {dollars(r.refundCents)}</div>
+            )}
+            {editRefundCents > 0 && (
+              <div style={{ color: "#ef4444" }}>
+                Refunded {dollars(editRefundCents)} earlier via Edit / Refund
+              </div>
             )}
             {r.storeCreditGiftCardGan && (r.storeCreditCents ?? 0) > 0 && (
               <div style={{ color: "#22c55e", fontFamily: "ui-monospace, monospace" }}>

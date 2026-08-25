@@ -145,6 +145,12 @@ interface PaymentFormProps {
   /** Kiosk: hide Apple/Google Pay (shared public device — wallets aren't used).
    *  Skips wallet init so the buttons never render. Web default = wallets on. */
   hideWallets?: boolean;
+  /** Hide the "Have a gift card?" toggle. The reservation-edit pay link uses
+   *  it: the edit executor charges ONE card source for the whole difference
+   *  and cannot redeem a gift card, so offering the toggle there would
+   *  overcharge the card relative to what the button promised. Default off
+   *  (every other caller keeps the gift-card path). */
+  hideGiftCard?: boolean;
 }
 
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
@@ -199,6 +205,7 @@ export default function PaymentForm({
   postPaymentAction,
   onTokenize,
   hideWallets = false,
+  hideGiftCard = false,
 }: PaymentFormProps) {
   const squareLocationId = detectSquareLocationId(locationIdProp);
   const [status, setStatus] = useState<"loading" | "ready" | "processing" | "success" | "error">(
@@ -650,8 +657,10 @@ export default function PaymentForm({
       </button>
 
       {/* Gift card — rare path, so collapsed to a text toggle until asked
-          for. Applied state renders the summary chip in the same slot. */}
-      {giftCardNonce ? (
+          for. Applied state renders the summary chip in the same slot.
+          Absent entirely when the caller cannot settle a gift-card tender
+          (reservation-edit pay link). */}
+      {hideGiftCard ? null : giftCardNonce ? (
         <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 flex items-start justify-between gap-3">
           <div className="text-sm">
             <p className="text-emerald-200 font-semibold">Gift card •••• {giftCardLast4 ?? ""}</p>

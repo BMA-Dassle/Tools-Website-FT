@@ -147,13 +147,50 @@ const REFUND_ONLY_STEPS: ReadonlySet<EditStepKind> = new Set<EditStepKind>([
 export const isRefundOnlyPlan = (plan: {
   diffCents: number;
   steps: ReadonlyArray<{ kind: EditStepKind }>;
+  /**
+   * Optional: when given, a post-payment plan that refunds the DEPOSIT tenders
+   * directly (`refund_tender` without `refund_dayof_payment`) also counts —
+   * that is the closed-but-never-paid shape (visit closed, day-of order still
+   * OPEN with zero tenders, deposit sitting on the gift card). Without a phase
+   * the historical rule holds: refund_dayof_payment is required, so a PRE
+   * decrease is never refund-only.
+   */
+  phase?: EditPhase;
 }): boolean =>
   // Money strictly comes back...
   plan.diffCents < 0 &&
-  // ...off a PAID day-of order (a pre-payment decrease is an ordinary edit)...
-  plan.steps.some((s) => s.kind === "refund_dayof_payment") &&
+  // ...off a PAID day-of order (a pre-payment decrease is an ordinary edit),
+  // or off the deposit of a visit that closed without its day-of order ever
+  // being paid (post-payment phases only)...
+  (plan.steps.some((s) => s.kind === "refund_dayof_payment") ||
+    (plan.phase != null &&
+      plan.phase !== "pre" &&
+      plan.steps.some((s) => s.kind === "refund_tender"))) &&
   // ...and nothing else happens.
   plan.steps.every((s) => REFUND_ONLY_STEPS.has(s.kind));
+
+/** Codes of every manager-severity (acknowledgment-gating) warning on a plan. */
+export const managerWarningCodes = (plan: {
+  warnings: ReadonlyArray<{ severity: string; code: string }>;
+}): string[] => [
+  ...new Set(plan.warnings.filter((w) => w.severity === "manager").map((w) => w.code)),
+];
+
+/**
+ * Manager codes the staff did NOT acknowledge. `managerOverride` is the legacy
+ * single-checkbox signal (post_complete) and counts as acknowledging every
+ * code, so the pay-link resume path and older clients keep working; the modal
+ * now sends the explicit list.
+ */
+export const missingAcknowledgements = (
+  plan: { warnings: ReadonlyArray<{ severity: string; code: string }> },
+  acknowledgedCodes: ReadonlyArray<string> | undefined,
+  managerOverride: boolean,
+): string[] => {
+  if (managerOverride) return [];
+  const have = new Set(acknowledgedCodes ?? []);
+  return managerWarningCodes(plan).filter((c) => !have.has(c));
+};
 
 /**
  * Kill switch for the PRE-phase DECREASE path — a reduction taken BEFORE the

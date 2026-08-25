@@ -38,7 +38,14 @@ export interface Reservation {
   guestPhone?: string;
   notes?: string;
   cancelledAt?: string;
+  /** Cents the CANCEL cascade refunded — never summed across legs. */
   refundCents: number;
+  /**
+   * Cents refunded AFTER booking through Edit/Refund
+   * (bowling_reservations.edit_refund_cents). Kept apart from refundCents so the
+   * cancel semantics (and the survey export that reads them) stay intact.
+   */
+  editRefundCents?: number;
   /** How the cancellation settled: 'refund' | 'store_credit' | 'none'. */
   cancellationOutcome?: string;
   /** Who cancelled: 'customer' (self-serve) or 'admin' (this portal). */
@@ -49,6 +56,12 @@ export interface Reservation {
   dayofOrderSentAt?: string;
   dayofOrderLane?: string;
   dayofPaymentId?: string;
+  /**
+   * Another row on the SAME day-of order recorded the lane-open payment. A
+   * bowling+attraction / bowling+race cart shares one order and only the
+   * bowling leg carries dayofPaymentId — the other leg can still refund from it.
+   */
+  groupHasDayofPayment?: boolean;
   dayofOrderError?: string;
   dayofOrderSource?: string;
   preArrivalSentAt?: string;

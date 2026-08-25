@@ -75,5 +75,9 @@ export function refundActionable(r: Reservation): boolean {
   if (r.status !== "arrived" && r.status !== "completed" && r.status !== "no_show") return false;
   // There must be a day-of charge to refund. Without one nothing was collected
   // at the venue, so there is no paid order for an itemized return to target.
-  return !!r.dayofPaymentId;
+  // The charge may sit on a SIBLING leg: a bowling+attraction / bowling+race
+  // cart shares one day-of order and only the bowling leg records the payment,
+  // so the non-paying leg refunds from the same order (the planner resolves the
+  // payment group-wide).
+  return !!(r.dayofPaymentId || r.groupHasDayofPayment);
 }

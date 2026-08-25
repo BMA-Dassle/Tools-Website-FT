@@ -59,11 +59,43 @@ function orderStateColor(state: string): string {
   return "#ef4444";
 }
 
-/** "Card on file" status line from the card-vault provenance row. */
+/** "Card on file" status line from the card-vault provenance row. A row
+ *  without a Square card id is NOT a card on file — say why instead (a
+ *  pending row used to render green as "saved permanently"). */
 function savedCardLine(card: NonNullable<PaymentTimeline["savedCard"]>): {
   text: string;
   color: string;
 } {
+  if (!card.captured) {
+    if (card.captureSkipReason === "wallet") {
+      return {
+        text: "Paid with Apple/Google Pay — no card can be kept on file",
+        color: "var(--ba-muted)",
+      };
+    }
+    if (card.captureSkipReason === "gift_card") {
+      return { text: "Paid with a gift card — no card to keep on file", color: "var(--ba-muted)" };
+    }
+    if (card.captureSkipReason === "no_source_kind") {
+      return {
+        text: "Payment source unknown (older checkout) — no card kept on file",
+        color: "var(--ba-muted)",
+      };
+    }
+    const reason =
+      card.captureLastError ??
+      (card.captureSkipReason ? card.captureSkipReason.replace(/^terminal:/, "") : null);
+    if (card.captureSkipReason || card.captureAttempts >= 5) {
+      return {
+        text: `Card capture failed (${reason ?? "unknown"}) — ask the guest for a card if a charge is needed`,
+        color: "#f59e0b",
+      };
+    }
+    return {
+      text: `Card capture pending${reason ? ` (${reason})` : ""} — retrying hourly`,
+      color: "#f59e0b",
+    };
+  }
   const label = `Card on file: ${(card.brand || "CARD").toUpperCase()} •${card.last4 || "????"}`;
   if (card.disabledAt) {
     const removed = new Date(card.disabledAt).toLocaleDateString("en-US", {
@@ -382,6 +414,7 @@ export default function PaymentsTab({
           </span>
           {neonId != null &&
             token &&
+            payments.savedCard.captured &&
             payments.savedCard.weAdded &&
             !payments.savedCard.permanentConsent &&
             !payments.savedCard.disabledAt && (

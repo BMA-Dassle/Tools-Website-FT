@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { buildGanPrefix } from "@/lib/gan";
-import { createDepositAndCharge, DepositPaymentError } from "~/features/booking/service/deposit";
-import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
+import {
+  createDepositAndCharge,
+  DepositPaymentError,
+  type DepositTender,
+} from "~/features/booking/service/deposit";
+import {
+  captureCardFromDeposit,
+  resolveCaptureSourceKind,
+  type PaymentSourceKind,
+} from "~/features/card-vault";
+import { resolveAudienceMember } from "~/features/marketing/audience";
 import { bmiBillIsLive } from "~/features/booking/service/bmi-confirm";
 import { reserveBaseKey } from "~/features/booking/service/reserve-idempotency";
 import {
@@ -418,6 +427,34 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── Step 0d: Square customer (web only) ─────────────────────────────
+    // The client only resolves a Square customer when a RETURNING racer is in
+    // the party (the phone → saved-cards reveal is gated on bmiPersonId), so
+    // first-timers arrived with no customer and the card-vault capture below
+    // never ran (COF-2: 470 race + 40 attraction web rows in 30d). Resolve one
+    // server-side exactly like app/api/bowling/v2/reserve (loyalty → phone →
+    // name → create; deterministic for a phone, so a retry attaches the same
+    // customer to the same idempotent order/payment/cof keys). NEVER on the
+    // kiosk — kiosk bookings must not start vaulting cards (owner rule) — and
+    // never fatal: the booking proceeds without a customer, as before.
+    let resolvedSquareCustomerId: string | undefined = body.squareCustomerId;
+    if (!resolvedSquareCustomerId && body.bookingSource !== "kiosk" && body.contact.phone) {
+      try {
+        const audience = await resolveAudienceMember({
+          phone: body.contact.phone,
+          firstName: body.contact.firstName,
+          lastName: body.contact.lastName,
+          email: body.contact.email || undefined,
+        });
+        resolvedSquareCustomerId = audience.squareCustomerId;
+      } catch (err) {
+        console.warn(
+          "[v2/reserve] audience resolve failed (non-fatal):",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
     // ── Step 1: Build Square day-of order ───────────────────────────────
     const taxCatalogId = LOCATION_TAX[locationId];
     const orderTaxes = taxCatalogId
@@ -457,7 +494,7 @@ export async function POST(req: NextRequest) {
         idempotency_key: `v2-dayof-${baseKey}`,
         order: {
           location_id: locationId,
-          ...(body.squareCustomerId ? { customer_id: body.squareCustomerId } : {}),
+          ...(resolvedSquareCustomerId ? { customer_id: resolvedSquareCustomerId } : {}),
           line_items: sqLineItems,
           ...(orderTaxes.length > 0 ? { taxes: orderTaxes } : {}),
         },
@@ -555,6 +592,7 @@ export async function POST(req: NextRequest) {
     let depositResult: {
       depositOrderId: string | null;
       depositPaymentId: string | null;
+      depositTender?: DepositTender;
       giftCardId: string | null;
       giftCardGan: string | null;
       gcApprovedCents: number;
@@ -588,7 +626,7 @@ export async function POST(req: NextRequest) {
           locationId,
           cardSourceId: body.cardSourceId,
           giftCardNonce: body.giftCardNonce,
-          squareCustomerId: body.squareCustomerId,
+          squareCustomerId: resolvedSquareCustomerId,
           ganPrefix,
           ganSuffix,
           note: `Deposit - ${ganPrefix}${ganSuffix} - ${new Date().toISOString().slice(0, 10)}`,
@@ -597,6 +635,7 @@ export async function POST(req: NextRequest) {
         depositResult = {
           depositOrderId: dr.depositOrderId,
           depositPaymentId: dr.depositPaymentId,
+          depositTender: dr.depositTender,
           giftCardId: dr.giftCardId,
           giftCardGan: dr.giftCardGan,
           gcApprovedCents: dr.gcApprovedCents,
@@ -659,7 +698,7 @@ export async function POST(req: NextRequest) {
             guestPhone: body.contact.phone,
             notes: `v2 ${body.bookingKind} booking`,
             bookingSource: body.bookingSource === "kiosk" ? "kiosk" : "web",
-            squareCustomerId: body.squareCustomerId ?? undefined,
+            squareCustomerId: resolvedSquareCustomerId ?? undefined,
             squareLoyaltyRewardId: loyaltyRewardId ?? undefined,
             rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : undefined,
             // Coupon bookkeeping (see ReserveBody.promoCode — never affects pricing).
@@ -695,15 +734,23 @@ export async function POST(req: NextRequest) {
     // card on file for later edit charges. Same deterministic baseKey as
     // every other Square key on this bill, so a retry replays `cof-…`.
     // captureCardFromDeposit never throws by contract; belt-and-braces wrap.
-    if (depositResult.depositPaymentId && body.squareCustomerId) {
+    // Kiosk bookings never resolve a customer above and the kiosk client sends
+    // none, so this stays off for the kiosk (owner rule: no saved cards there).
+    if (
+      depositResult.depositPaymentId &&
+      resolvedSquareCustomerId &&
+      body.bookingSource !== "kiosk"
+    ) {
       try {
         await captureCardFromDeposit({
-          squareCustomerId: body.squareCustomerId,
+          squareCustomerId: resolvedSquareCustomerId,
           paymentId: depositResult.depositPaymentId,
           reservationId: neonId,
           depositOrderId: depositResult.depositOrderId,
           baseKey,
-          sourceKind: body.sourceKind,
+          // Server-side tender truth (gift card covered everything → never a
+          // card) beats the client tag when it is more specific.
+          sourceKind: resolveCaptureSourceKind(body.sourceKind, depositResult.depositTender),
           permanentConsent: body.saveCardConsent === true,
         });
       } catch (captureErr) {
@@ -725,7 +772,7 @@ export async function POST(req: NextRequest) {
             domain: "racing",
             externalRef: dayofOrderId,
             amountOffCents: body.promoSavingsCents ?? 0,
-            squareCustomerId: body.squareCustomerId ?? null,
+            squareCustomerId: resolvedSquareCustomerId ?? null,
           });
           console.log(
             `[v2/reserve] promo ${codeRow.code} redeemed (order=${dayofOrderId} off=$${((body.promoSavingsCents ?? 0) / 100).toFixed(2)})`,

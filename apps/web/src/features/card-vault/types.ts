@@ -45,6 +45,20 @@ export interface SavedCardRow {
   consentSource: ConsentSource | null;
   captureAttempts: number;
   captureLastError: string | null;
+  /**
+   * Why this payment could NEVER become a card on file — set on terminal
+   * provenance rows (square_card_id stays NULL forever, the sweep never
+   * retries them):
+   *  - "wallet" / "gift_card" / "no_source_kind" — the client-tagged tender
+   *    is not storable (Square: Apple/Google Pay and gift cards cannot be
+   *    saved as cards on file);
+   *  - "gift_card" is also written server-side when GET /payments shows a
+   *    SQUARE_GIFT_CARD brand / GIFT_CARD source under a 'card' tag;
+   *  - "terminal:<SQUARE_CODE>" — CreateCard failed with a code that a retry
+   *    can never fix (SOURCE_USED, INVALID_CARD_DATA, …).
+   * NULL = a real capture (or a retryable pending row).
+   */
+  captureSkipReason: string | null;
   disabledAt: string | null;
   disableAttempts: number;
   disableLastError: string | null;
@@ -107,3 +121,18 @@ export interface ChargeableCard {
   fromVault: boolean;
   permanentConsent: boolean;
 }
+
+/**
+ * Outcome of `getChargeableCard`. The planner must be able to tell "the guest
+ * has no card" from "Square could not be asked" (a 5xx used to read as 'no
+ * card on file' and staff sent an unnecessary payment link) and from "the
+ * guest paid with a tender that can never be vaulted".
+ */
+export type ChargeableCardLookup =
+  | { status: "card"; card: ChargeableCard }
+  /** No live card anywhere on the customer. `skipReason` echoes the money
+   *  group's vault row (`wallet` / `gift_card` / …) when one explains why. */
+  | { status: "none"; skipReason: string | null }
+  /** ListCards failed (Square error / unreachable) — retry, do not conclude. */
+  | { status: "lookup_failed" }
+  | { status: "no_customer" };

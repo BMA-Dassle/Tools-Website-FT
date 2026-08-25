@@ -37,6 +37,10 @@ export interface ExecuteOpts {
   notifyGuest: boolean;
   /** Staff reason for the DAY-OF refund leg (required once the order is paid). */
   dayofRefundReason?: string;
+  /** Manager-warning codes staff ticked on the current plan. */
+  acknowledgedCodes?: string[];
+  /** Initials of whoever ticked them (required when acknowledgedCodes is non-empty). */
+  acknowledgedBy?: string;
 }
 
 export type RequestPlanResult =
@@ -155,6 +159,8 @@ export function useEditPlan(neonId: number, token: string): UseEditPlan {
         ...(opts.paymentSource ? { paymentSource: opts.paymentSource } : {}),
         ...(opts.managerOverride ? { managerOverride: true } : {}),
         ...(opts.dayofRefundReason ? { dayofRefundReason: opts.dayofRefundReason } : {}),
+        ...(opts.acknowledgedCodes ? { acknowledgedCodes: opts.acknowledgedCodes } : {}),
+        ...(opts.acknowledgedBy ? { acknowledgedBy: opts.acknowledgedBy } : {}),
       });
     },
     [neonId, token, supersede],
