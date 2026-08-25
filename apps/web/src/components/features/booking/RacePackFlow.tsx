@@ -5,11 +5,11 @@ import PaymentForm, { type PaymentResult } from "@/components/square/PaymentForm
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { calculateTax, calculateTotal, isRelevantMembership } from "@/app/book/race/data";
 import {
-  RACE_PACKS,
   SQUARE_RACE_PACK_CATALOG_ID,
   racePackLabel,
   type RacePack,
 } from "~/features/booking/data/packs";
+import { webPackSkus } from "~/features/booking/service/race-pack-kiosk";
 
 /**
  * v2 race-pack purchase — `/book/race-pack/v2`.
@@ -399,7 +399,13 @@ export function RacePackFlow() {
 
   return (
     <div className="brand-fasttrax min-h-screen">
-      <section className="mx-auto max-w-2xl px-4 py-8 sm:py-10">
+      {/* pt-32 sm:pt-36 clears the site nav, which is `fixed` so it can overlay
+          a full-bleed hero (components/Nav.tsx) and therefore reserves NO layout
+          space. This page has no hero, so the old py-8 put the title UNDER the
+          nav pill (~126px tall: 28px top bar + a 98px pill). Same offset every
+          other hero-less booking page uses — /book/checkout, the per-activity v2
+          layouts under /book, /book/race-packs/confirmation. */}
+      <section className="mx-auto max-w-2xl px-4 pt-32 pb-16 sm:pt-36">
         <header className="mb-6 text-center">
           <div
             className="mb-2 font-bold uppercase text-[#00E2E5]"
@@ -425,7 +431,12 @@ export function RacePackFlow() {
         {/* ── Step: select ─────────────────────────────────────────────── */}
         {step === "select" && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {RACE_PACKS.map((pack) => (
+            {/* The web catalog accessor, NEVER the raw RACE_PACKS array — that
+                array carries the tier-priced BOGO SKUs, which this page has no
+                tier to restrict against (see `webPackSkus`). It is also the one
+                accessor that reads no clock, so a "use client" component cannot
+                render a different catalog on the server than on hydration. */}
+            {webPackSkus().map((pack) => (
               <button
                 key={pack.slug}
                 type="button"

@@ -148,6 +148,36 @@ export function kioskPackSkus(now: Date = new Date()): RacePack[] {
 }
 
 /**
+ * The packs the WEB race-pack page (`/book/race-pack/v2`) offers — THE STANDING
+ * SIX, and NEVER day-filtered. v1 `/book/race-packs` parity, which this page
+ * replaced: it sold all six every day of the week.
+ *
+ * Two deliberate differences from the other two accessors, both following from
+ * the same fact — THIS PAGE BOOKS NO RACE ("This does not book you a race" is
+ * on its own review screen), it only loads credits that never expire:
+ *
+ *  - NO limited-time SKUs, for the same reason `kioskPackSkus` excludes them:
+ *    the BOGO SKUs are tier-priced (adult $20.99 / junior $15.99) and this page
+ *    has no tier to restrict them against — it takes a racer's identity AFTER
+ *    the pack is picked, and never their category at all. Rendered raw they were
+ *    two near-identical "2 race credits / Mon–Thu" tiles differing only in
+ *    price, so anyone could take the junior price. That is the same mis-sell
+ *    that was removed from the kiosk attract screen on 2026-08-13 (owner: BOGO
+ *    does not belong on a screen with no tier); the WEB standalone page was
+ *    missed then because it renders the catalog array directly.
+ *  - NO Fri–Sun weekday-pack hiding. The day rule exists because the pack's
+ *    FIRST CREDIT covers the race being booked, and a Mon–Thu credit cannot
+ *    cover a Fri–Sun race — `kioskPackSkus` (walk-up: purchase day == race day)
+ *    and `packSkusForRaceDate` (the booked race day) both spend that credit
+ *    immediately. Nothing is spent here, so hiding half the catalog every
+ *    Fri–Sun would only refuse a Saturday buyer the pack for their Monday
+ *    visit. The Mon–Thu limit is disclosed instead, on the review step.
+ */
+export function webPackSkus(): RacePack[] {
+  return skusFor(STANDING_PACK_SLUGS, false);
+}
+
+/**
  * The packs an IN-BOOKING surface may offer for a race on `raceDate` — the
  * standing catalog PLUS any live limited-time SKU. The Mon–Thu pack hides when
  * the BOOKED race falls Fri–Sun: its first credit covers that race at checkout,

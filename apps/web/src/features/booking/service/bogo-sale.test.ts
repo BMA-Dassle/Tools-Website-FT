@@ -20,7 +20,12 @@ import {
   getRacePack,
   racePackLabel,
 } from "../data/packs";
-import { kioskPackSkus, packSkusForRaceDate, resolveKioskPacks } from "./race-pack-kiosk";
+import {
+  kioskPackSkus,
+  packSkusForRaceDate,
+  resolveKioskPacks,
+  webPackSkus,
+} from "./race-pack-kiosk";
 import {
   packFitsMember,
   promotedSaleSku,
@@ -44,6 +49,9 @@ const SAT = "2026-08-22";
 const WED_BUYS = new Date("2026-08-19T18:00:00-04:00");
 const TUE_BUYS = new Date("2026-08-18T18:00:00-04:00");
 const LATER_BUYS = new Date("2026-09-15T18:00:00-04:00");
+/** An off-promo weekday and a weekend day, for the clock-free web catalog. */
+const MON_BUYS = new Date("2026-08-24T18:00:00-04:00");
+const SAT_BUYS = new Date("2026-08-22T18:00:00-04:00");
 /** Before the promo existed — the floor that stops a recurring rule reaching back. */
 const BEFORE = new Date("2026-07-15T18:00:00-04:00");
 
@@ -517,5 +525,63 @@ describe("BOGO — never on the standalone walk-up screen", () => {
       { now: WED_BUYS, surface: "standalone" },
     );
     expect(resolved[0].priceCents).toBe(7999);
+  });
+});
+
+/**
+ * The WEB race-pack page (`/book/race-pack/v2`) is the SECOND screen with no
+ * tier, and it was missed when the kiosk one was fixed on 2026-08-13: it
+ * rendered the raw `RACE_PACKS` array, so it showed BOGO tiles every day —
+ * ignoring even the promo's own day rule — and its own review step never asks a
+ * racer's category. Owner 2026-08-25: the BOGOs do not belong on this page.
+ *
+ * Worse there than on the kiosk: that rail charges the tile's own price through
+ * `/api/square/pay` and grants `raceCount` credits directly, so it has no
+ * `resolveKioskPacks` step to fail closed behind the UI. On this one surface the
+ * catalog accessor IS the enforcement point — which is exactly why the page must
+ * never reach past it to the raw array.
+ */
+describe("BOGO — never on the web race-pack page", () => {
+  it("the web catalog is the standing six, promo day or not", () => {
+    const slugs = webPackSkus().map((p) => p.slug);
+    expect(slugs).toEqual([
+      "3-race-weekday",
+      "3-race-anytime",
+      "5-race-weekday",
+      "5-race-anytime",
+      "10-race-weekday",
+      "10-race-anytime",
+    ]);
+    for (const slug of BOGO_SALE_SLUGS) expect(slugs).not.toContain(slug);
+  });
+
+  it("no tier- or history-restricted SKU can ever reach that page", () => {
+    // The durable guard, same as the standalone screen's: the next limited-time
+    // SKU won't be called BOGO, and this page still has no tier to check it.
+    for (const p of webPackSkus()) {
+      expect(p.category).toBeUndefined();
+      expect(p.racerType).toBeUndefined();
+    }
+  });
+
+  it("reads no clock — the catalog cannot differ between promo day and any other", () => {
+    // Deliberately clock-free, unlike the other two accessors: this page books
+    // no race, and it renders inside a "use client" component that is also
+    // server-rendered, where a date-dependent catalog is a hydration mismatch
+    // waiting for a midnight or Thu→Fri boundary.
+    expect(webPackSkus().map((p) => p.slug)).toEqual(kioskPackSkus(MON_BUYS).map((p) => p.slug));
+    expect(bogoSaleActive(WED, WED_BUYS)).toBe(true); // promo IS live at that instant…
+    expect(webPackSkus().some((p) => p.badge)).toBe(false); // …and still not on this page
+  });
+
+  it("keeps every Mon–Thu pack on a weekend, unlike the walk-up screen", () => {
+    // v1 `/book/race-packs` parity. The Fri–Sun hiding exists because the
+    // pack's FIRST CREDIT covers the race being booked; this page books no
+    // race and its credits never expire, so hiding half the catalog every
+    // weekend would just refuse a Saturday buyer the pack for their Monday
+    // visit. The Mon–Thu limit is disclosed on the review step instead.
+    const weekendWalkUp = kioskPackSkus(SAT_BUYS).map((p) => p.slug);
+    expect(weekendWalkUp).not.toContain("3-race-weekday");
+    expect(webPackSkus().map((p) => p.slug)).toContain("3-race-weekday");
   });
 });
