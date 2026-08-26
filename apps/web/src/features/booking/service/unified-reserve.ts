@@ -41,6 +41,7 @@ import {
   raceSimItemConfigured,
   RaceSimNotConfiguredError,
   RaceSimMixedCartError,
+  RaceSimStaleHoldError,
   RACE_SIM_SQUARE_CATALOG_ID,
 } from "~/features/race-sims/products";
 import { centerCodeFor } from "~/config/intercard-centers";
@@ -1778,6 +1779,12 @@ async function unifiedReserveInner(
     for (const item of racesimItems) {
       if (!raceSimItemConfigured(item)) {
         throw new RaceSimNotConfiguredError(item.productSlug);
+      }
+      // The held line's quantity must match the cart's racer count — a
+      // party change after the hold (racerCount follows the roster) without
+      // the re-hold landing would charge N seats while BMI holds M.
+      if (item.bmiLineId && item.heldQty != null && item.heldQty !== Math.max(1, item.racerCount)) {
+        throw new RaceSimStaleHoldError();
       }
     }
     const hasHeadpinzItem = session.items.some(

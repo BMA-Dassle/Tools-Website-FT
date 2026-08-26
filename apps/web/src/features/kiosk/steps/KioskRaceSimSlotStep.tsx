@@ -1,29 +1,60 @@
 "use client";
 
 /**
- * Kiosk Race Sims time step — "race now" first (KioskSlotStep's semantics on
- * the racesim item). The date is ALWAYS today (walk-up device); a hero card
- * offers the next available session in one tap with an EAGER $0-key hold
- * (bookRaceSimOnAdvance — gel/laser hold semantics), and a native chip grid
- * beneath is the "later today" path. All three track keys share the "Race
- * Sim" resource sessions (capacity 4), so availability is fetched with the
- * CHOSEN track's key and freeSpots gates seats.
+ * Kiosk Race Sims time step — the racing HEAT PICKER's layout on a sim item
+ * (owner 2026-08-26: "follow racing as close as possible"). Mirrors
+ * RaceHeatPickerStep's kiosk render at canvas px: centered heading +
+ * "product · date" line, "Booking for N racers" summary, ONE flat
+ * earliest-first grid of time cards (big time → block name → tri-color status
+ * line → capacity bar; no track badge — racing only badges multi-track grids,
+ * and a sim grid is always the one chosen track), racing's selected / idle /
+ * disabled card states, tap-to-unpick (releases the hold, like racing's
+ * deselect), per-card "Holding…" overlay, hold-error card, loading /
+ * error+Retry / empty shells, a near-now lead cutoff, cart-spacing AND
+ * existing-reservation conflict greying (racing's booked-heats signal), and
+ * a semi-live 30s refetch.
  *
- * Until the BMI keys are armed (race-sims/products.ts), raceSimBookingTarget
- * is null and this step shows the no-sessions state — bookable nowhere,
- * consistent with reserve guard 2e.
+ * Racing books per (heat × racer) line with racers stamped at the pick; a
+ * sim is ONE $0 track-key line for the whole party, so the tap stamps the
+ * roster (racerCount/assignedTo from session.party — racing's "whole party
+ * races") and eager-holds with that quantity (bookRaceSimOnAdvance, which
+ * records heldQty). If the party changes after a hold, racerCount (roster)
+ * and heldQty (BMI) diverge: this step re-holds at the new quantity, and
+ * reserve guard 2e refuses until they agree — racing's per-racer lines make
+ * this automatic; the single line needs the explicit re-hold.
+ *
+ * Karting-only pieces deliberately NOT mirrored: category split, tier/track
+ * product fan-out, Mega/junior restriction rules, the karting-check-in
+ * banner + "Est. racing by" line, licence fee reminder, RacerSelectorModal,
+ * "Add another race" loop. Until the BMI keys are armed
+ * (race-sims/products.ts), raceSimBookingTarget is null and this step shows
+ * the empty state — bookable nowhere, consistent with reserve guard 2e.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { RaceSimItem, StepDef } from "~/features/booking";
 import { bmiAdapter, type BmiBlock, type BmiProposal } from "~/features/booking/data/bmi";
 import { releaseItemBmiLines } from "~/features/booking/service/checkout";
-import { raceSimBookingTarget } from "~/features/race-sims/products";
+import { getRaceSimProduct, raceSimBookingTarget } from "~/features/race-sims/products";
 import { bookRaceSimOnAdvance } from "~/features/race-sims/service";
-import { pickFirstSlot, slotLabel, slotStartMs, todayYmd } from "../service/first-available";
-import { BrandedLoader } from "../components/BrandedLoader";
-import { useT } from "../i18n";
+import { slotLabel, slotStartMs, todayYmd } from "../service/first-available";
+import { PRODUCT_NAME_KEYS } from "./KioskRaceSimProductStep";
+import { useLocale } from "../i18n";
+import type { MessageKey } from "../i18n";
 
-const ACCENT = "#ff6b6b";
+/** Racing's kiosk lead for returning racers (RaceHeatPickerStep
+ *  KIOSK_RETURNING_LEAD_MINUTES) — sims have no briefing, so the shorter one. */
+const LEAD_MS = 10 * 60_000;
+/** RACE_AVAILABILITY_POLL_MS parity — the grid stays semi-live. */
+const POLL_MS = 30_000;
+/** Spacing against the rest of the cart AND the party's other reservations
+ *  today (racing's CROSS_TRACK_MIN_GAP_MIN / KioskSlotStep buffer). */
+const CONFLICT_BUFFER_MS = 30 * 60_000;
+
+const TRACK_NAME_KEYS: Record<string, MessageKey> = {
+  a: "racesim.track.a",
+  b: "racesim.track.b",
+  c: "racesim.track.c",
+};
 
 type SlotEntry = { block: BmiBlock; proposal: BmiProposal };
 
@@ -34,15 +65,24 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   dispatch,
   setBusy,
 }) => {
-  const t = useT();
+  const { t, locale } = useLocale();
   const target = raceSimBookingTarget(item.trackKey);
-  const qty = Math.max(1, item.racerCount);
+  // Racing: the whole party races — quantity comes from the roster, and the
+  // tap stamps it onto the item (racing stamps racers at the heat pick).
+  const partyIds = session.party.map((m) => m.id);
+  const qty = Math.max(1, partyIds.length);
+  const personIds = [
+    ...new Set(session.party.map((m) => m.bmiPersonId).filter((id): id is string => !!id)),
+  ].sort();
 
   const [slots, setSlots] = useState<SlotEntry[]>([]);
-  const [firstPick, setFirstPick] = useState<SlotEntry | null>(null);
   const [scanState, setScanState] = useState<"loading" | "done" | "error">("loading");
+  const [refreshTick, setRefreshTick] = useState(0);
   const [holding, setHolding] = useState<string | null>(null); // block.start mid-hold
   const [holdError, setHoldError] = useState<string | null>(null);
+  // The party's heats/slots in OTHER reservations today (racing's
+  // booked-heats signal, matched by bmiPersonId). Fail-open: empty on error.
+  const [existingTimes, setExistingTimes] = useState<number[]>([]);
 
   // Kiosk = walk-up: the date is always today.
   const today = todayYmd();
@@ -51,15 +91,15 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.date, today]);
 
+  // Fetch today's sessions for the chosen track's key; refetch every 30s.
   useEffect(() => {
     if (!target || item.date !== today) {
       setScanState("done");
       setSlots([]);
-      setFirstPick(null);
       return;
     }
     let cancelled = false;
-    setScanState("loading");
+    if (refreshTick === 0) setScanState("loading");
     bmiAdapter
       .getAvailability({
         date: today,
@@ -74,168 +114,282 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
           const block = proposal.blocks[0]?.block;
           if (block && !byStart.has(block.start)) byStart.set(block.start, { block, proposal });
         }
-        const entries = Array.from(byStart.values()).sort(
-          (a, b) => slotStartMs(a.block.start) - slotStartMs(b.block.start),
+        setSlots(
+          Array.from(byStart.values()).sort(
+            (a, b) => slotStartMs(a.block.start) - slotStartMs(b.block.start),
+          ),
         );
-        setSlots(entries);
-        // Conservative cart-conflict skip for the hero — stay 30 min clear of
-        // everything else booked this session (KioskSlotStep convention).
-        const otherTimes: number[] = [];
-        for (const other of session.items) {
-          if (other.id === item.id) continue;
-          if (other.kind === "race") {
-            for (const h of other.heats) if (h.heatId) otherTimes.push(slotStartMs(h.heatId));
-          } else if (other.kind === "attraction" && other.slot) {
-            otherTimes.push(slotStartMs(other.slot));
-          } else if (other.kind === "racesim" && other.slot) {
-            otherTimes.push(slotStartMs(other.slot));
-          } else if ((other.kind === "bowling" || other.kind === "kbf") && other.bookedAt) {
-            otherTimes.push(slotStartMs(other.bookedAt));
-          }
-        }
-        const conflictsCart = (start: string): boolean => {
-          const ms = slotStartMs(start);
-          return otherTimes.some((o) => Math.abs(o - ms) < 30 * 60_000);
-        };
-        const pick = pickFirstSlot(
-          entries.map(({ block }) => ({ start: block.start, freeSpots: block.freeSpots })),
-          { nowMs: Date.now(), quantity: qty, blocked: conflictsCart },
-        );
-        setFirstPick(pick ? (byStart.get(pick.start) ?? null) : null);
         setScanState("done");
       })
       .catch(() => {
         if (!cancelled) setScanState("error");
       });
+    const timer = setInterval(() => setRefreshTick((n) => n + 1), POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+    // target is derived from trackKey; its two ids are the stable deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target?.productId, target?.pageId, item.date, qty, today, refreshTick]);
+
+  // Existing-reservation conflicts — same endpoint racing's grid polls
+  // (/api/booking/v2/booked-heats), excluding this session's own bill.
+  const personKey = personIds.join(",");
+  useEffect(() => {
+    if (!personKey) {
+      setExistingTimes([]);
+      return;
+    }
+    let cancelled = false;
+    const params = new URLSearchParams({ date: today, personIds: personKey });
+    if (session.bmiBillId) params.set("excludeBillId", session.bmiBillId);
+    fetch(`/api/booking/v2/booked-heats?${params.toString()}`)
+      .then(async (res) => {
+        if (!res.ok) return { heats: [] as Array<{ heatId: string }> };
+        return (await res.json()) as { heats: Array<{ heatId: string }> };
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setExistingTimes(data.heats.map((h) => slotStartMs(h.heatId)));
+      })
+      .catch(() => {
+        if (!cancelled) setExistingTimes([]);
+      });
     return () => {
       cancelled = true;
     };
-  }, [
-    target?.productId,
-    target?.pageId,
-    item.date,
-    qty,
-    today,
-    session.items,
-    item.id,
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- target is derived from trackKey (stable per render)
-  ]);
+  }, [personKey, today, session.bmiBillId, refreshTick]);
 
-  const bookSlot = async (entry: SlotEntry) => {
+  // Other cart activities' times — racing's cart-conflict gating, flat buffer.
+  const cartTimes: number[] = [];
+  for (const other of session.items) {
+    if (other.id === item.id) continue;
+    if (other.kind === "race") {
+      for (const h of other.heats) if (h.heatId) cartTimes.push(slotStartMs(h.heatId));
+    } else if ((other.kind === "attraction" || other.kind === "racesim") && other.slot) {
+      cartTimes.push(slotStartMs(other.slot));
+    } else if ((other.kind === "bowling" || other.kind === "kbf") && other.bookedAt) {
+      cartTimes.push(slotStartMs(other.bookedAt));
+    }
+  }
+  const tooClose = (times: number[], start: string): boolean => {
+    const ms = slotStartMs(start);
+    return times.some((o) => Math.abs(o - ms) < CONFLICT_BUFFER_MS);
+  };
+
+  /** Release whatever this item holds and clear the pick (racing's deselect). */
+  const unpick = useCallback(async () => {
     if (holding) return;
-    setHolding(entry.block.start);
+    setHolding(item.slot);
     setHoldError(null);
     setBusy?.(true);
     try {
       if (item.bmiLineId) await releaseItemBmiLines(session, item);
-      onChange({ slot: entry.block.start, slotProposal: entry.proposal, bmiLineId: null });
-      await bookRaceSimOnAdvance(
-        session,
-        { ...item, slot: entry.block.start, slotProposal: entry.proposal, bmiLineId: null },
-        dispatch,
-      );
-    } catch (err) {
-      onChange({ slot: null, slotProposal: null, bmiLineId: null });
-      // err.message is a raw vendor/technical detail — appended untranslated.
-      setHoldError(
-        err instanceof Error ? `${t("slot.hold.filled")} (${err.message})` : t("slot.hold.filled"),
-      );
     } finally {
+      onChange({ slot: null, slotProposal: null, bmiLineId: null, heldQty: null });
       setHolding(null);
       setBusy?.(false);
     }
-  };
+  }, [holding, item, session, onChange, setBusy]);
 
-  const heroSelected = !!firstPick && item.slot === firstPick.block.start;
+  const bookSlot = useCallback(
+    async (entry: SlotEntry) => {
+      if (holding) return;
+      setHolding(entry.block.start);
+      setHoldError(null);
+      setBusy?.(true);
+      const stamped = {
+        slot: entry.block.start,
+        slotProposal: entry.proposal,
+        bmiLineId: null,
+        heldQty: null,
+        racerCount: qty,
+        assignedTo: partyIds,
+      };
+      try {
+        if (item.bmiLineId) await releaseItemBmiLines(session, item);
+        onChange(stamped);
+        await bookRaceSimOnAdvance(session, { ...item, ...stamped }, dispatch);
+      } catch (err) {
+        onChange({ slot: null, slotProposal: null, bmiLineId: null, heldQty: null });
+        // err.message is a raw vendor/technical detail — appended untranslated.
+        setHoldError(
+          err instanceof Error
+            ? `${t("slot.hold.filled")} (${err.message})`
+            : t("slot.hold.filled"),
+        );
+      } finally {
+        setHolding(null);
+        setBusy?.(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- partyIds is rebuilt per render from session.party
+    [holding, item, session, onChange, dispatch, setBusy, qty, t],
+  );
+
+  // Party changed after the hold: BMI holds heldQty seats, the roster says
+  // qty — re-hold the same session at the new quantity (racing's per-racer
+  // lines re-stamp for free; the sim's single line must re-hold).
+  useEffect(() => {
+    if (!item.slot || !item.bmiLineId || item.heldQty == null || holding) return;
+    if (item.heldQty === qty || scanState !== "done") return;
+    const entry = slots.find((s) => s.block.start === item.slot);
+    if (entry) void bookSlot(entry);
+  }, [item.slot, item.bmiLineId, item.heldQty, qty, holding, scanState, slots, bookSlot]);
+
   const nowMs = Date.now();
-  const laterSlots = slots.filter(
-    ({ block }) => slotStartMs(block.start) > nowMs && block.start !== firstPick?.block.start,
+  const leadCutoffMs = nowMs + LEAD_MS;
+  const visible = slots.filter(({ block }) => slotStartMs(block.start) >= leadCutoffMs);
+
+  const product = getRaceSimProduct(item.productSlug);
+  const productNameKey = item.productSlug ? PRODUCT_NAME_KEYS[item.productSlug] : undefined;
+  const productName = productNameKey
+    ? t(productNameKey)
+    : (product?.name ?? t("racesim.tile.name"));
+  const trackName = item.trackKey ? t(TRACK_NAME_KEYS[item.trackKey]) : null;
+  const displayDate = new Date(`${today}T12:00:00`).toLocaleDateString(
+    locale === "es" ? "es-US" : "en-US",
+    { weekday: "long", month: "long", day: "numeric" },
   );
 
   return (
     <div className="space-y-[32px]">
-      {/* Race-now hero */}
-      {scanState === "loading" ? (
-        <div className="flex justify-center py-[48px]">
-          <BrandedLoader brand={session.entryBrand} size={180} label={t("slot.finding")} />
-        </div>
-      ) : firstPick ? (
-        <button
-          type="button"
-          onClick={() => void bookSlot(firstPick)}
-          disabled={holding != null}
-          className="k-glass k-tap relative w-full overflow-hidden p-[40px] text-left"
-          style={{ borderLeft: `8px solid ${heroSelected ? ACCENT : "rgba(255,255,255,0.15)"}` }}
-        >
-          <div className="k-eyebrow" style={{ color: ACCENT }}>
-            {t("slot.nextAvailable")}
-          </div>
-          <div className="k-display mt-[10px] text-[150px] leading-none tabular-nums">
-            {slotLabel(firstPick.block.start)}
-          </div>
-          <div className="mt-[12px] text-[28px] text-white/60">
-            {holding === firstPick.block.start
-              ? t("slot.holding")
-              : heroSelected
-                ? t("slot.held")
-                : t("slot.spotsOpen", { count: firstPick.block.freeSpots })}
-          </div>
-          {holding === firstPick.block.start && (
-            <div className="absolute right-[40px] top-1/2 h-[40px] w-[40px] -translate-y-1/2 animate-spin rounded-full border-4 border-white/20 border-t-[#ff6b6b]" />
-          )}
-        </button>
-      ) : scanState === "error" ? (
-        <div className="k-glass p-[28px] text-center text-[26px] text-red-200">
-          {t("slot.error")}
-        </div>
-      ) : (
-        <div className="k-glass p-[32px] text-center text-[28px] text-white/55">
-          {t("slot.noneSoon")}
-        </div>
-      )}
+      {/* Header — racing's "Pick a Heat" + "product · date" line. */}
+      <div className="text-center">
+        <h2 className="k-display mb-[6px] text-[32px] tracking-widest text-white">
+          {t("racesim.slot.heading")}
+        </h2>
+        <p className="text-[18px] text-white/50">
+          <span className="text-white/80">
+            {productName}
+            {trackName ? ` · ${trackName}` : ""}
+          </span>{" "}
+          · {displayDate}
+        </p>
+      </div>
 
-      {holdError && (
-        <div className="rounded-[24px] border border-amber-500/40 bg-amber-500/10 px-[28px] py-[20px] text-[26px] text-amber-100">
+      {/* Racer count summary — racing's "Booking for N racers" card. */}
+      <div className="mx-auto max-w-[520px] rounded-[16px] border border-white/8 bg-white/[0.03] p-[16px] text-center">
+        <p className="text-[17px] text-white/50">{t("racesim.slot.bookingFor", { count: qty })}</p>
+      </div>
+
+      {holdError && !holding && (
+        <div className="mx-auto max-w-[520px] rounded-[16px] border border-red-500/30 bg-red-500/5 p-[16px] text-center text-[17px] text-red-300">
           {holdError}
         </div>
       )}
 
-      {/* Later-today grid — native chips (freeSpots-gated for the party). */}
-      {laterSlots.length > 0 && (
-        <div>
-          <div className="k-eyebrow mb-[16px] text-white/40">{t("slot.orPickAnother")}</div>
-          <div className="grid grid-cols-4 gap-[16px]">
-            {laterSlots.map((entry) => {
-              const full = entry.block.freeSpots < qty;
-              const selected = item.slot === entry.block.start;
-              const isHolding = holding === entry.block.start;
-              return (
-                <button
-                  key={entry.block.start}
-                  type="button"
-                  disabled={full || holding != null}
-                  onClick={() => void bookSlot(entry)}
-                  className={`k-tap rounded-[16px] border-2 px-[16px] py-[20px] text-center ${
-                    selected
-                      ? "bg-[#ff6b6b]/10"
-                      : full
-                        ? "border-white/10 bg-white/[0.02] opacity-40"
-                        : "border-white/12 bg-white/[0.04]"
-                  }`}
-                  style={selected ? { borderColor: ACCENT } : undefined}
-                >
-                  <div className="text-[28px] font-extrabold tabular-nums">
-                    {isHolding ? "…" : slotLabel(entry.block.start)}
+      {scanState === "loading" ? (
+        <div className="flex h-[260px] items-center justify-center">
+          <div className="h-[42px] w-[42px] animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
+        </div>
+      ) : scanState === "error" ? (
+        <div className="rounded-[16px] border border-red-500/30 bg-red-500/5 p-[20px] text-center">
+          <p className="text-[18px] text-red-300">{t("slot.error")}</p>
+          <button
+            type="button"
+            onClick={() => setRefreshTick((n) => n + 1)}
+            className="k-tap mt-[10px] rounded-[10px] border border-white/15 px-[20px] py-[8px] text-[16px] font-semibold text-white/70"
+          >
+            {t("racesim.slot.retry")}
+          </button>
+        </div>
+      ) : visible.length === 0 ? (
+        <div className="rounded-[16px] border border-white/10 bg-white/[0.03] p-[20px] text-center text-[18px] text-white/50">
+          {t("racesim.slot.empty")}
+        </div>
+      ) : (
+        /* The grid — one flat earliest-first grid, racing's 4 columns. */
+        <div className="grid grid-cols-4 gap-[10px]">
+          {visible.map((entry) => {
+            const { block } = entry;
+            const free = block.freeSpots;
+            const cap = Math.max(1, block.capacity ?? free);
+            const isSelected = item.slot === block.start;
+            const isHolding = holding === block.start;
+            const isLowCap = free < qty;
+            const isCartConflict = !isSelected && tooClose(cartTimes, block.start);
+            const isExistingConflict =
+              !isSelected && !isCartConflict && tooClose(existingTimes, block.start);
+            const isConflict = isCartConflict || isExistingConflict;
+            const isFull = !isSelected && (isLowCap || isConflict);
+
+            // Racing's status matrix (single-track grid), in its precedence.
+            let statusKey: MessageKey;
+            let statusVars: Record<string, string | number> = {};
+            let statusClass: string;
+            if (isExistingConflict) {
+              statusKey = "racesim.slot.tooCloseExisting";
+              statusClass = "text-amber-400";
+            } else if (isCartConflict) {
+              statusKey = "racesim.slot.tooClose";
+              statusClass = "text-amber-400";
+            } else if (isLowCap && free > 0) {
+              statusKey = "racesim.slot.needOnly";
+              statusVars = { need: qty, free };
+              statusClass = "text-red-400";
+            } else if (free === 0) {
+              statusKey = "racesim.slot.full";
+              statusClass = "text-red-400";
+            } else if (free / cap <= 0.3) {
+              statusKey = "racesim.slot.spotsLeft";
+              statusVars = { count: free };
+              statusClass = "text-amber-400";
+            } else {
+              statusKey = "racesim.slot.open";
+              statusVars = { free, cap };
+              statusClass = "text-emerald-400";
+            }
+
+            const cardClass = isSelected
+              ? "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50"
+              : isFull
+                ? "cursor-not-allowed border-white/5 bg-white/[0.03] opacity-40"
+                : "cursor-pointer border-white/10 bg-white/5";
+            const barClass = isLowCap
+              ? "bg-red-500"
+              : isConflict
+                ? "bg-amber-400/50"
+                : free / cap <= 0.3
+                  ? "bg-amber-400"
+                  : "bg-emerald-400";
+
+            return (
+              <button
+                key={block.start}
+                type="button"
+                disabled={isFull || holding != null}
+                // Tapping the picked card unpicks it (racing's deselect —
+                // releases the hold); any other card switches the hold.
+                onClick={() => void (isSelected ? unpick() : bookSlot(entry))}
+                className={`k-tap relative rounded-[16px] border p-[16px] text-left ${cardClass}`}
+              >
+                {isHolding && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-[6px] rounded-[16px] border border-[#00E2E5]/60 bg-[#000418]/85 backdrop-blur-sm">
+                    <div className="h-[26px] w-[26px] animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
+                    <span className="text-[14px] font-semibold text-[#00E2E5]">
+                      {t("slot.holding")}
+                    </span>
                   </div>
-                  <div className="mt-[4px] text-[18px] text-white/45">
-                    {full
-                      ? t("categories.tile.unavailable")
-                      : t("slot.spotsOpen", { count: entry.block.freeSpots })}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+                )}
+                <div className="k-num mb-[2px] text-[24px] font-bold text-white">
+                  {slotLabel(block.start)}
+                </div>
+                <div className="mb-[10px]" />
+                <div className="mb-[4px] text-[15px] font-medium text-white/60">{block.name}</div>
+                <div className={`text-[16px] font-medium ${statusClass}`}>
+                  {t(statusKey, statusVars)}
+                </div>
+                <div className="mt-[10px] h-[5px] overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className={`h-full rounded-full ${barClass}`}
+                    style={{ width: isConflict ? "100%" : `${Math.min(100, (free / cap) * 100)}%` }}
+                  />
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

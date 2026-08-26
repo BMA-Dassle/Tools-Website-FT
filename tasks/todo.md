@@ -51,6 +51,19 @@ the tile → PIN sheet) opens the flow for that session. Full booking-session in
       (`parts/racesim.ts`), `kioskRaceSimEnabled()` kill switch (default ON).
 - [x] Tests: catalog, pricing builder, cart readiness, cascade, registry pins. Full suite +
       `next build` green.
+- [x] Booking rail (merged to main via f512e12a): gel/laser slots on racing-style $0 track keys
+      (one key per track, shared Race Sim resource cap 4), shared Square catalog id ARMED
+      (PZXWYNOY4MUAPXACMBMTFYMD), $14 Mon–Thu / $16 Fri–Sun; guard 2e track-aware + refuses
+      mixed racesim+HeadPinz carts; packs deferred (`bookable:false`).
+- [x] Flow restructured to mirror RACING (owner 2026-08-26, branch `feat/racesim-racing-flow`):
+      Who's racing? (whole party, racing semantics, own id `racesim-party`) → Your Info (the same
+      ContactStep, forward-skipped) → Race Options → Track (TrackInfoBanner cards) → Time
+      (heat-picker layout: 4-col grid, status matrix, capacity bar, tap-to-unpick, 10-min lead,
+      cart + existing-reservation conflicts, `heldQty` re-hold when the party changes). Schema v15.
+      Omitted as karting-only: pay-mode (until sim packs), Race Video & Extras, licence, age-7
+      floor, tier badges. Waiver re-check on advance now blocks sims like racing.
+- [ ] **STILL OWED (arms booking):** the 3 BMI track-key productIds + shared pageId →
+      `race-sims/products.ts`; confirm weekend = Fri–Sun; optional Race Sim resourceId.
 - [ ] Owner live smoke on a FastTrax FM kiosk (tile lock, 5-tap+PIN, flow to the 409 at pay,
       idle relock; HP kiosks show no KBF and no Race Sims tile).
 - [ ] **Before arming real ids** (all recorded in products.ts header + guard 2e comment):

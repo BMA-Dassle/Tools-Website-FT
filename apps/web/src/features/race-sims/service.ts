@@ -33,9 +33,10 @@ export async function bookRaceSimOnAdvance(
     throw new Error("Race sim track key not configured");
   }
 
+  const quantity = Math.max(1, item.racerCount);
   const result = await bmiAdapter.bookHeat({
     productId: target.productId,
-    quantity: Math.max(1, item.racerCount),
+    quantity,
     proposal: item.slotProposal,
     orderId: session.bmiBillId,
     clientKey: undefined, // FastTrax FM — proxy default key owns the bill
@@ -51,9 +52,11 @@ export async function bookRaceSimOnAdvance(
     await registerContact(result.rawOrderId, session.contact, session.party, undefined);
   }
 
+  // heldQty records what BMI actually holds; racerCount keeps following the
+  // roster, and the two disagreeing is the re-hold / refuse signal.
   dispatch({
     type: "updateItem",
     id: item.id,
-    patch: { bmiLineId: result.billLineId },
+    patch: { bmiLineId: result.billLineId, heldQty: quantity },
   });
 }

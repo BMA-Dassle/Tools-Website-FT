@@ -31,7 +31,7 @@ import type { MessageKey } from "../i18n";
 
 /** Catalog slug → display-name key (data-borne copy localizes via the message
  *  catalog; the catalog's own `name` is the EN source of truth + fallback). */
-const PRODUCT_NAME_KEYS: Record<string, MessageKey> = {
+export const PRODUCT_NAME_KEYS: Record<string, MessageKey> = {
   "sim-single": "racesim.product.sim-single",
   "sim-3-pack": "racesim.product.sim-3-pack",
   "sim-5-pack": "racesim.product.sim-5-pack",

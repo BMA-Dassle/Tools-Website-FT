@@ -27,8 +27,9 @@ import {
 import { KioskRaceSimProductStep } from "../steps/KioskRaceSimProductStep";
 import { KioskRaceSimTrackStep } from "../steps/KioskRaceSimTrackStep";
 import { KioskRaceSimSlotStep } from "../steps/KioskRaceSimSlotStep";
+import { ContactStep } from "~/components/features/booking/steps/ContactStep";
 
-export const KIOSK_SCHEMA_VERSION = 14; // v14: RaceSimItem slot/slotProposal/bmiLineId (real booking rail)
+export const KIOSK_SCHEMA_VERSION = 15; // v15: racesim flow mirrors racing (people-first, contact, track, time)
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
 
 /** Match the web registry's World Cup gating for bowling time steps. */
@@ -229,18 +230,21 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     KioskBowlingDetailsStep as StepDef,
   ),
   // Race Sims (FastTrax FM): kiosk-only flow — the web registry's racesim
-  // list is deliberately empty. Walk-up like everything else on the kiosk
-  // (no date step; the slot step stamps today). Product (1 Race / packs) →
-  // track (A/B/C) → the same people list the other activities use → time
-  // (eager $0-key hold, gel/laser semantics). People BEFORE time so the
-  // party size is known when freeSpots gates the session (capacity 4), and
-  // so the main contact exists before the first BMI line books
-  // (contact-up-front rule). Checkout fail-closed until the BMI keys are
-  // armed (features/race-sims/products.ts).
+  // list is deliberately empty. FOLLOWS THE KIOSK RACING FLOW step for step
+  // (owner 2026-08-26: "follow racing as close as possible") with the track
+  // step added: Who's racing? (whole party, racing semantics) → Your Info
+  // (the same ContactStep racing carries — KioskFlow skips it forward once
+  // the main person's contact is complete) → Race Options (karting product
+  // page layout) → Track (the added step) → Time (heat-picker layout, eager
+  // $0-key hold). Racing's pay-mode step (race packs/bundles) and Race Video
+  // & Extras (POV camera, headsock, licence) have no sim analog yet — pay
+  // mode slots in when sim packs get keys. Checkout fail-closed until the
+  // BMI keys are armed (features/race-sims/products.ts).
   racesim: [
+    KioskRaceSimPeopleStep as StepDef,
+    ContactStep,
     KioskRaceSimProductStep as StepDef,
     KioskRaceSimTrackStep as StepDef,
-    KioskRaceSimPeopleStep as StepDef,
     KioskRaceSimSlotStep as StepDef,
   ],
 };

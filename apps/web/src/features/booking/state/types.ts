@@ -665,6 +665,11 @@ export interface RaceSimItem extends BookingItemBase {
   /** BMI bill line id — set after the $0 track-key line books (eager hold on
    *  slot pick, gel/laser semantics). releaseItemBmiLines keys off it. */
   bmiLineId: string | null;
+  /** Quantity the held BMI line was booked with. racerCount follows the
+   *  roster live (people step), so a party change after the hold makes these
+   *  differ — the slot step re-holds and reserve guard 2e refuses until they
+   *  agree again (racing's per-racer lines make this automatic). */
+  heldQty: number | null;
   /**
    * KIOSK-ONLY (optional — web never writes it): session.party member ids
    * participating in THIS sim line, AttractionItem.participants parity so
@@ -978,6 +983,7 @@ export function newItem(activity: Activity): SessionItem {
         slot: null,
         slotProposal: null,
         bmiLineId: null,
+        heldQty: null,
         assignedTo: [],
       };
     case "kbf":

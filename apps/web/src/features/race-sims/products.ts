@@ -176,6 +176,20 @@ export class RaceSimNotConfiguredError extends Error {
  * location, so the sim revenue would land in the HeadPinz account. Until the
  * combo-split-orders treatment covers sims, the cart must be paid separately.
  */
+/**
+ * Thrown by guard 2e when a sim's held BMI line was booked for a different
+ * party size than the cart now carries (racerCount ≠ heldQty): the party
+ * changed after the hold and the re-hold hasn't landed. Charging would
+ * collect for N seats while BMI holds M.
+ */
+export class RaceSimStaleHoldError extends Error {
+  readonly code = "RACESIM_STALE_HOLD" as const;
+  constructor() {
+    super("Your group changed after the time was held — please re-pick your time.");
+    this.name = "RaceSimStaleHoldError";
+  }
+}
+
 export class RaceSimMixedCartError extends Error {
   readonly code = "RACESIM_MIXED_CART" as const;
   constructor() {

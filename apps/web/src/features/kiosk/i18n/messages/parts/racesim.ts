@@ -44,7 +44,19 @@ export const racesimEn = {
   "racesim.track.a": "Track A",
   "racesim.track.b": "Track B",
   "racesim.track.c": "Track C",
-  "racesim.track.rotates": "Rotating lineup",
+  "racesim.track.tagline": "Rotating layout — a new lineup every week or two.",
+
+  // --- Time step (racing heat-picker layout) ---
+  "racesim.slot.heading": "Pick a Time",
+  "racesim.slot.bookingFor": "Booking for {count, plural, one {# racer} other {# racers}}",
+  "racesim.slot.full": "Full",
+  "racesim.slot.spotsLeft": "{count, plural, one {# spot} other {# spots}} left",
+  "racesim.slot.open": "{free} of {cap} open",
+  "racesim.slot.needOnly": "Need {need}, only {free} left",
+  "racesim.slot.tooClose": "Too close to another activity",
+  "racesim.slot.tooCloseExisting": "Too close to an existing reservation",
+  "racesim.slot.retry": "Retry",
+  "racesim.slot.empty": "No sessions available today.",
 
   // --- KioskFlow shell lookups (activity label lives in parts/flow.ts) ---
   "stepTitle.raceOptions": "Race Options",
@@ -77,7 +89,18 @@ export const racesimEs: Record<keyof typeof racesimEn, string> = {
   "racesim.track.a": "Pista A",
   "racesim.track.b": "Pista B",
   "racesim.track.c": "Pista C",
-  "racesim.track.rotates": "Alineación rotativa",
+  "racesim.track.tagline": "Trazado rotativo — alineación nueva cada una o dos semanas.",
+
+  "racesim.slot.heading": "Elige una hora",
+  "racesim.slot.bookingFor": "Reserva para {count, plural, one {# piloto} other {# pilotos}}",
+  "racesim.slot.full": "Lleno",
+  "racesim.slot.spotsLeft": "{count, plural, one {Queda # lugar} other {Quedan # lugares}}",
+  "racesim.slot.open": "{free} de {cap} libres",
+  "racesim.slot.needOnly": "Necesitas {need}, solo quedan {free}",
+  "racesim.slot.tooClose": "Muy cerca de otra actividad",
+  "racesim.slot.tooCloseExisting": "Muy cerca de una reserva existente",
+  "racesim.slot.retry": "Reintentar",
+  "racesim.slot.empty": "No hay sesiones disponibles hoy.",
 
   "stepTitle.raceOptions": "Opciones de carrera",
   "stepTitle.track": "Pista",
