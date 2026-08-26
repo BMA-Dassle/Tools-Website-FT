@@ -46,14 +46,18 @@ describe("race-sims catalog", () => {
     expect(raceSimPriceFor(single, "garbage")).toBe(16);
   });
 
-  it("FAIL-CLOSED: no item is configured while the BMI keys/page are null", () => {
-    // The Square id IS armed (owner-pasted 2026-08-23) — that alone must
-    // never open checkout: a Square id with no BMI key would charge with no
-    // reservation behind it.
+  it("FAIL-CLOSED: no item is configured while the BMI page is null", () => {
+    // Square id + all three track keys ARE armed (owner 2026-08-23/26) — a
+    // key without its public-booking page can't fetch availability or book,
+    // so the page is the last gate: charging must stay closed until it lands.
     expect(RACE_SIM_SQUARE_CATALOG_ID).toBe("PZXWYNOY4MUAPXACMBMTFYMD");
+    expect(RACE_SIM_TRACKS.map((t) => t.bmiProductId)).toEqual([
+      "59535405",
+      "59537905",
+      "59537953",
+    ]);
     expect(RACE_SIM_PAGE_ID).toBeNull();
     for (const track of RACE_SIM_TRACKS) {
-      expect(track.bmiProductId).toBeNull();
       expect(raceSimBookingTarget(track.key)).toBeNull();
     }
     expect(raceSimItemConfigured({ productSlug: "sim-single", trackKey: "a" })).toBe(false);

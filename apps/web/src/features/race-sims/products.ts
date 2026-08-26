@@ -13,9 +13,9 @@
  *      every sim line; per-line price is overridden at charge time because
  *      pricing is day-of-week based).
  *   2. RACE_SIM_PAGE_ID — the BMI public-booking page the track keys live on.
- *   3. RACE_SIM_TRACKS[*].bmiProductId — the three $0 track keys (RAW digit
- *      strings, copied verbatim from BMI — NEVER through Number()/JSON.parse,
- *      @ft/db BMI id precision rule).
+ *      STILL NULL — the last value the owner owes; everything else is armed.
+ *   3. RACE_SIM_TRACKS[*].bmiProductId — DONE 2026-08-26 (59535405 / 59537905
+ *      / 59537953, "Race Sim - Track A/B/C").
  * BMI-side invariants (owner confirmed the setup mirrors racing's): keys carry
  * a $0/credit deposit key — a money key gets the bill's schedules stripped
  * (W57040); the dayplanner draws the SAME capacity pool the desk sees.
@@ -42,10 +42,13 @@ export interface RaceSimTrack {
   bmiProductId: string | null;
 }
 
+// $0 track keys — owner-provided 2026-08-26 (BMI names "Race Sim - Track A/B/C").
+// 8-digit product ids (safe as literals; the 17-digit precision rule is for
+// bill/person ids). Transcribed from a screenshot — verify against BMI once.
 export const RACE_SIM_TRACKS: readonly RaceSimTrack[] = [
-  { key: "a", name: "Track A", bmiProductId: null },
-  { key: "b", name: "Track B", bmiProductId: null },
-  { key: "c", name: "Track C", bmiProductId: null },
+  { key: "a", name: "Track A", bmiProductId: "59535405" },
+  { key: "b", name: "Track B", bmiProductId: "59537905" },
+  { key: "c", name: "Track C", bmiProductId: "59537953" },
 ] as const;
 
 /** BMI public-booking page the track keys live on — null until owner-provided
