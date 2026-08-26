@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   mergePitRoster,
   orderPitRoster,
+  pitCardName,
   pitRailState,
   pitArrivalNoticeVisible,
   PIT_ARRIVAL_NOTICE_MS,
@@ -113,6 +114,24 @@ describe("orderPitRoster", () => {
   });
 });
 
+describe("pitCardName", () => {
+  it("names the locked place, from the row Pandora actually sends", () => {
+    expect(pitCardName({ personId: null, firstName: null, lastName: null })).toBe("Locked Place");
+  });
+
+  it("a racer with a name keeps it", () => {
+    expect(pitCardName({ personId: "1707260", firstName: "Adam", lastName: "ray" })).toBe(
+      "Adam ray",
+    );
+  });
+
+  it("a racer with NO name on file is still a Racer, not a locked place", () => {
+    // Their card exists because a real participation does — blanking it would
+    // hide somebody standing at the fence.
+    expect(pitCardName({ personId: "19272377", firstName: null, lastName: null })).toBe("Racer");
+  });
+});
+
 describe("mergePitRoster", () => {
   const fastRow = (over: Partial<FastPitRow> & { personId: string }): FastPitRow => ({
     participantId: over.personId,
@@ -130,6 +149,7 @@ describe("mergePitRoster", () => {
     cameraDue: false,
     birthday: false,
     vip: false,
+    locked: false,
     backToBack: null,
     ...over,
   });
@@ -162,6 +182,42 @@ describe("mergePitRoster", () => {
       ["2", 1],
       ["1", 2],
     ]);
+  });
+
+  /**
+   * LOCKED PLACES — a place staff held in BMI, which Pandora reports as a
+   * participation with no person on it (see isLockedPlace). The board used to
+   * name these "Racer" and hand them a silhouette, so three on a Mega grid read
+   * as three blank spots (owner 2026-08-25).
+   */
+  it("names a locked place, instead of calling it a Racer", () => {
+    const merged = mergePitRoster(
+      [fastRow({ personId: "", name: "Locked Place", participantId: "59595194" })],
+      [],
+    );
+    expect(merged[0]).toMatchObject({ name: "Locked Place", locked: true, personId: "" });
+  });
+
+  it("a locked place never inherits another one's badges through the empty id", () => {
+    // Both carry personId "" — a plain Map lookup would hand the second card
+    // the first's birthday, VIP and camera.
+    const merged = mergePitRoster(
+      [
+        fastRow({ personId: "", participantId: "1", name: "Locked Place" }),
+        fastRow({ personId: "", participantId: "2", name: "Locked Place" }),
+      ],
+      [slowEntry({ personId: "", birthday: true, vip: true, camera: "12" })],
+    );
+    expect(merged.every((e) => e.locked)).toBe(true);
+    expect(merged.every((e) => !e.birthday && !e.vip && e.camera === null)).toBe(true);
+  });
+
+  it("a real racer is never marked locked", () => {
+    const merged = mergePitRoster(
+      [fastRow({ personId: "63000000003415010", name: "Eddie Corona" })],
+      [],
+    );
+    expect(merged[0].locked).toBe(false);
   });
 
   it("keeps birthday and VIP joins from the slow build", () => {

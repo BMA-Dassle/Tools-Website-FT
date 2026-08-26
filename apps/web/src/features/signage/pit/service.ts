@@ -20,7 +20,7 @@ import { listAssignmentsForSession } from "@/lib/camera-assign";
 import { vipComboPersonLegsOnDate } from "@/lib/bowling-db";
 import { readRaceStartedMarker } from "../briefing/race-finish.server";
 import { sessionBriefed } from "../briefing/state.server";
-import { participantCheckedIn } from "../checkin-progress";
+import { isLockedPlace, participantCheckedIn } from "../checkin-progress";
 import { sessionRoster } from "../service/checkin-progress";
 import type { TrackKey } from "../track";
 import { readCueStamp } from "./audio.server";
@@ -30,6 +30,7 @@ import { backToBackForRoster } from "./back-to-back.server";
 import { scheduledStartOf } from "./day-schedule.server";
 import {
   orderPitRoster,
+  pitCardName,
   type PitBoardInfo,
   type PitParticipantRow,
   type PitRosterEntry,
@@ -206,10 +207,9 @@ export async function buildPitBoard(
     const checkedIn = participantCheckedIn(row);
     const camera = cameraByPerson.get(pid) ?? null;
     const hasVideo = typeof row.viewpointCredit === "number" && row.viewpointCredit > 0;
-    const name = [row.firstName ?? "", row.lastName ?? ""].join(" ").trim() || "Racer";
     return {
       spot,
-      name,
+      name: pitCardName(row),
       personId: pid,
       participantId: row.participantId == null ? null : String(row.participantId),
       checkedIn,
@@ -217,6 +217,9 @@ export async function buildPitBoard(
       cameraDue: hasVideo && camera == null,
       birthday: birthdays[i] === true,
       vip: vips.has(pid),
+      // A locked place has no personId, so every id-keyed join above already
+      // misses it — this is the one fact about the card that is positive.
+      locked: isLockedPlace(row),
       backToBack: backToBack.get(pid) ?? null,
     };
   });

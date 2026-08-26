@@ -858,7 +858,7 @@ function SpotCard({
   sessionId: string;
   compact: boolean;
 }) {
-  const numCol = r.vip ? GOLD : accent;
+  const numCol = r.locked ? RED : r.vip ? GOLD : accent;
   /**
    * BIRTHDAYS AND VIPS GLOW (owner 2026-08-14: "make the bdays and VIPs stand
    * out more, maybe a glow around the picture box/name").
@@ -873,25 +873,47 @@ function SpotCard({
    * status silently hiding the other. The keyframe takes the two colours as
    * custom properties precisely so this needs no third variant (tv.css).
    */
-  const glowA = r.birthday ? withAlpha(PINK, 0.85) : r.vip ? withAlpha(GOLD, 0.8) : null;
-  const glowB = r.vip ? withAlpha(GOLD, 0.5) : r.birthday ? withAlpha(PINK, 0.45) : null;
-  const flagged = r.vip || r.birthday;
-  const border = r.vip
-    ? `3px solid ${withAlpha(GOLD, 0.95)}`
+  /**
+   * A LOCKED PLACE FLASHES RED, and it wins the card outright (owner
+   * 2026-08-25). It is not a racer with a status — it is the absence of one, so
+   * there is nothing for a birthday or a VIP flag to be about, and the glow it
+   * carries is the faster alert cadence rather than the calm 2.8s breathe the
+   * celebratory ones use. Three of these on a grid are exactly the "blank
+   * spots" this card exists to stop being blank.
+   */
+  const glowA = r.locked
+    ? withAlpha(RED, 0.95)
     : r.birthday
-      ? `3px solid ${withAlpha(PINK, 0.95)}`
-      : "1px solid rgba(255,255,255,0.12)";
+      ? withAlpha(PINK, 0.85)
+      : r.vip
+        ? withAlpha(GOLD, 0.8)
+        : null;
+  const glowB = r.locked
+    ? withAlpha(RED, 0.55)
+    : r.vip
+      ? withAlpha(GOLD, 0.5)
+      : r.birthday
+        ? withAlpha(PINK, 0.45)
+        : null;
+  const flagged = r.locked || r.vip || r.birthday;
+  const border = r.locked
+    ? `3px solid ${withAlpha(RED, 0.95)}`
+    : r.vip
+      ? `3px solid ${withAlpha(GOLD, 0.95)}`
+      : r.birthday
+        ? `3px solid ${withAlpha(PINK, 0.95)}`
+        : "1px solid rgba(255,255,255,0.12)";
   // One step for the whole pill group, so Birthday, VIP and back-to-back can
   // never disagree about their own size on the same card.
   const pillSize = compact ? 17 : 20;
   const pillPad = compact ? "4px 11px" : "5px 16px";
   return (
     <div
-      className={flagged ? "tv-card-glow" : undefined}
+      className={r.locked ? "tv-card-glow-alert" : flagged ? "tv-card-glow" : undefined}
       style={
         {
           position: "relative",
-          background: "rgba(7,16,39,0.55)",
+          background: r.locked ? withAlpha(RED, 0.13) : "rgba(7,16,39,0.55)",
           border,
           borderRadius: 28,
           // NOT hidden when the card glows: `overflow: hidden` clips a box-shadow
@@ -905,7 +927,7 @@ function SpotCard({
       }
     >
       <div style={{ position: "relative", flex: 1, minHeight: compact ? 120 : 180 }}>
-        <Photo sessionId={sessionId} personId={r.personId} />
+        <Photo sessionId={sessionId} personId={r.personId} locked={r.locked} />
         <div
           className="tv-display tv-num"
           style={{
@@ -1094,7 +1116,12 @@ function SpotCard({
           </span>
         )}
       </div>
-      {!r.checkedIn && (
+      {/* A LOCKED PLACE IS NOT A NO-SHOW, so it never wears the no-show
+          treatment: the dim + static ring says "chase this racer", and there is
+          no racer to chase. Its own flashing red glow already carries the
+          message, and two reds on one card — one steady, one pulsing — would
+          only make the grid harder to read. */}
+      {!r.checkedIn && !r.locked && (
         <>
           <div
             aria-hidden
@@ -1124,15 +1151,30 @@ function SpotCard({
 
 /** The racer's photo, with the silhouette as the ground so a missing or
  *  still-loading face never leaves a hole in a card. */
-function Photo({ sessionId, personId }: { sessionId: string; personId: string }) {
+function Photo({
+  sessionId,
+  personId,
+  locked,
+}: {
+  sessionId: string;
+  personId: string;
+  locked?: boolean;
+}) {
   return (
     <div
       style={{
         position: "absolute",
         inset: 0,
-        background: "linear-gradient(160deg, #0d1a36, #071027)",
+        background: locked
+          ? `linear-gradient(160deg, ${withAlpha(RED, 0.22)}, #1a0708)`
+          : "linear-gradient(160deg, #0d1a36, #071027)",
       }}
     >
+      {/*
+        A PADLOCK, NOT A SILHOUETTE. The person-shaped placeholder is precisely
+        what made a locked place read as a racer whose photo had not loaded —
+        the card has to say "nobody is coming" from across the pit.
+      */}
       <svg
         viewBox="0 0 100 100"
         width="100%"
@@ -1140,8 +1182,17 @@ function Photo({ sessionId, personId }: { sessionId: string; personId: string })
         preserveAspectRatio="xMidYMid slice"
         aria-hidden
       >
-        <circle cx="50" cy="37" r="16" fill="rgba(245,236,238,0.16)" />
-        <path d="M16 96c4-22 17-32 34-32s30 10 34 32" fill="rgba(245,236,238,0.12)" />
+        {locked ? (
+          <g fill="none" stroke={withAlpha(RED, 0.5)} strokeWidth={7} strokeLinecap="round">
+            <path d="M35 46V35a15 15 0 0 1 30 0v11" />
+            <rect x={29} y={46} width={42} height={34} rx={7} fill={withAlpha(RED, 0.22)} />
+          </g>
+        ) : (
+          <>
+            <circle cx="50" cy="37" r="16" fill="rgba(245,236,238,0.16)" />
+            <path d="M16 96c4-22 17-32 34-32s30 10 34 32" fill="rgba(245,236,238,0.12)" />
+          </>
+        )}
       </svg>
       {PIT_PHOTOS_ENABLED && /^\d+$/.test(personId) && (
         // eslint-disable-next-line @next/next/no-img-element -- a fixed-size

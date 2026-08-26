@@ -24,6 +24,7 @@ import { readBriefingRooms } from "../briefing/state.server";
 import { briefingTimelineAt } from "../briefing/phase";
 import { HELMET_PHASE_MS } from "../briefing/types";
 import { pitDisplaySession } from "./service";
+import { pitCardName } from "./pit-board";
 import type { FastPitRoster, FastPitRow, PitParticipantRow } from "./pit-board";
 
 /** How stale the fast roster may be. With the 2s pulse on top, the wall
@@ -91,7 +92,7 @@ function toFastRows(rows: PitParticipantRow[]): FastPitRow[] {
   return rows.map((r) => ({
     participantId: r.participantId == null ? null : String(r.participantId),
     personId: r.personId == null ? "" : String(r.personId),
-    name: [r.firstName ?? "", r.lastName ?? ""].join(" ").trim() || "Racer",
+    name: pitCardName(r),
     // Verbatim shape (timestamp string / true / null) so the client-side merge
     // can feed it straight back through orderPitRoster.
     checkedIn: participantCheckedIn(r)

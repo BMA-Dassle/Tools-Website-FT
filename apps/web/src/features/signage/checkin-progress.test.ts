@@ -3,6 +3,7 @@ import {
   checkinRailState,
   checkingInTracks,
   countCheckedIn,
+  isLockedPlace,
   participantCheckedIn,
   readyToSend,
   roomCheckinProgress,
@@ -31,20 +32,101 @@ describe("participantCheckedIn — checkedIn is a TIMESTAMP, not a flag", () => 
   });
 });
 
+describe("isLockedPlace", () => {
+  /**
+   * THE REAL ROW, verbatim from Pandora — one place locked by staff on Mega
+   * heat 67 (session 59039776) on 2026-08-25 and read straight back off
+   * /bmi/session/{loc}/{sid}/participants. Kept whole rather than trimmed to
+   * the fields under test: the point of this fixture is that the ONLY thing
+   * distinguishing it from a racer is that nobody is in it.
+   */
+  const lockedPlace = {
+    participantId: "59595194",
+    personId: null,
+    firstName: null,
+    lastName: null,
+    email: null,
+    homePhone: null,
+    mobilePhone: null,
+    paid: false,
+    kartNumber: null,
+    raceInfo: { startPosition: 0, finishPosition: 0, laps: 0, bestLap: 0, average: 0 },
+    viewpointCredit: 0,
+    headsockCredit: 0,
+    checkedIn: null,
+    guardian: null,
+  };
+
+  it("THE ROW THIS EXISTS FOR: a place locked in BMI, as Pandora sends it", () => {
+    expect(isLockedPlace(lockedPlace)).toBe(true);
+  });
+
+  it("survives excludeRemoved=true, so it is not a removed racer", () => {
+    // Recorded on the same probe: both filter modes returned it. A rule that
+    // assumed the removed filter would take care of these would never fire.
+    expect(isLockedPlace({ ...lockedPlace, checkedIn: null })).toBe(true);
+  });
+
+  it("a racer is never one — 17-digit ids included", () => {
+    expect(isLockedPlace({ personId: "63000000003415010" })).toBe(false);
+    expect(isLockedPlace({ personId: "1707260" })).toBe(false);
+  });
+
+  it("an empty or blank id counts as locked — a card cannot join on it either", () => {
+    expect(isLockedPlace({ personId: "" })).toBe(true);
+    expect(isLockedPlace({ personId: "   " })).toBe(true);
+  });
+
+  it("the DRIVER 1 PLACEHOLDER is NOT this — it is a booked seat with no name", () => {
+    // id 17750277 has a person behind it and is filtered elsewhere
+    // (dropNullParticipants). Conflating the two would hide a real booking.
+    expect(isLockedPlace({ personId: "17750277" })).toBe(false);
+  });
+});
+
 describe("countCheckedIn", () => {
   it("counts stamps against the whole roster", () => {
     expect(
       countCheckedIn([
-        { checkedIn: "2026-08-12T16:00:00" },
-        { checkedIn: null },
-        { checkedIn: "2026-08-12T16:02:00" },
-        {},
+        { personId: "1", checkedIn: "2026-08-12T16:00:00" },
+        { personId: "2", checkedIn: null },
+        { personId: "3", checkedIn: "2026-08-12T16:02:00" },
+        { personId: "4" },
       ]),
     ).toEqual({ checkedIn: 2, total: 4 });
   });
 
+  it("A LOCKED PLACE IS NOT A PERSON — it leaves the denominator alone", () => {
+    // Mega 67, 2026-08-25: one racer, one locked place. The rail said "0 of 2"
+    // and could never reach 2, while the desk's own strip said "0 of 1".
+    expect(
+      countCheckedIn([
+        { personId: "63000000003415010", checkedIn: null },
+        { personId: null, checkedIn: null },
+      ]),
+    ).toEqual({ checkedIn: 0, total: 1 });
+  });
+
+  it("a heat of one racer and three locked places completes at 1 of 1", () => {
+    expect(
+      countCheckedIn([
+        { personId: "1707260", checkedIn: "2026-08-26T00:19:32.000Z" },
+        { personId: null },
+        { personId: null },
+        { personId: null },
+      ]),
+    ).toEqual({ checkedIn: 1, total: 1 });
+  });
+
   it("an empty roster is 0 of 0, not a crash", () => {
     expect(countCheckedIn([])).toEqual({ checkedIn: 0, total: 0 });
+  });
+
+  it("a roster of nothing but locked places is 0 of 0, not 0 of 3", () => {
+    expect(countCheckedIn([{ personId: null }, { personId: null }, { personId: null }])).toEqual({
+      checkedIn: 0,
+      total: 0,
+    });
   });
 });
 

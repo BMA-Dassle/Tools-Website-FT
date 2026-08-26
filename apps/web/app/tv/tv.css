@@ -837,14 +837,45 @@
   animation: tv-card-glow 2.8s ease-in-out infinite;
 }
 
+/* THE SAME GLOW ON THE ALERT CADENCE — for the pit board's locked places (owner
+   2026-08-25: "flash it RED"). Same shape and the same custom properties, on the
+   house beat: 1.4s, what every other "look at this" on these screens already
+   runs on (ready rail, overdue rail, beacons, birthday halo), so a board with a
+   locked place and a flashing rail still reads as one instrument. The calm 2.8s
+   breathe above stays what a celebration looks like; this is what a hold looks
+   like, and the two must not be mistaken for each other across a pit.
+
+   A KEYFRAME OF ITS OWN, not the 2.8s one reused at a second duration: the
+   phase-seek that keeps every screen in step is keyed by ANIMATION NAME
+   (TV_MOTION_PERIODS_MS in features/signage/clock.ts), so one name cannot have
+   two periods without the seek landing one of them at the wrong moment. */
+@keyframes tv-card-glow-alert {
+  0%,
+  100% {
+    box-shadow:
+      0 0 28px var(--tv-glow-a, transparent),
+      0 0 64px var(--tv-glow-b, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 46px var(--tv-glow-a, transparent),
+      0 0 104px var(--tv-glow-b, transparent);
+  }
+}
+.tv-card-glow-alert {
+  animation: tv-card-glow-alert 1.4s ease-in-out infinite;
+}
+
 /* Reduced motion: hold the bright end of both, so the emphasis survives without
    the movement. Mirrors how the other animations here degrade. */
 @media (prefers-reduced-motion: reduce) {
   .tv-spin,
-  .tv-card-glow {
+  .tv-card-glow,
+  .tv-card-glow-alert {
     animation: none;
   }
-  .tv-card-glow {
+  .tv-card-glow,
+  .tv-card-glow-alert {
     box-shadow:
       0 0 40px var(--tv-glow-a, transparent),
       0 0 90px var(--tv-glow-b, transparent);

@@ -39,6 +39,9 @@ export const TV_MOTION_PERIODS_MS: Record<string, number> = {
   /** The birthday/VIP card glow — two beats: slow enough to read as emphasis
    *  rather than an alarm, still cresting on the house beat. */
   "tv-card-glow": 2800,
+  /** The SAME card glow at alarm speed — the pit board's locked places. One
+   *  beat, because a held kart is something to act on rather than celebrate. */
+  "tv-card-glow-alert": 1400,
   "tv-kenburns": 60000, // 30s ease-in-out alternate → 60s there-and-back
   "tv-sweep": 7500,
   "tv-neon-flicker": 7000,

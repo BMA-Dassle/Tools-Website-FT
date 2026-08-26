@@ -52,6 +52,9 @@ const BEAT_FAMILY = [
   "tv-bday-glow",
   "tv-breathe",
   "tv-chev",
+  // The pit board's locked-place card. It flashes at a marshal like the rails
+  // do, so it belongs to the beat family rather than the 2.8s celebration one.
+  "tv-card-glow-alert",
 ];
 
 describe("TV motion", () => {

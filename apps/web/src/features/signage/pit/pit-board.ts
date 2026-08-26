@@ -23,7 +23,7 @@
  */
 
 import type { CheckinRosterRow } from "../checkin-progress";
-import { participantCheckedIn } from "../checkin-progress";
+import { LOCKED_PLACE_LABEL, isLockedPlace, participantCheckedIn } from "../checkin-progress";
 
 /** The roster fields the pit board reads. A superset of CheckinRosterRow —
  *  the participants payload carries all of these (lib/participant-contact.ts
@@ -62,6 +62,16 @@ export interface PitRosterEntry {
   birthday: boolean;
   vip: boolean;
   /**
+   * A PLACE STAFF LOCKED IN BMI, not a racer (owner 2026-08-25).
+   *
+   * The board used to hand these a card reading "Racer" with no photo, which is
+   * indistinguishable from a real racer whose photo failed — three of them on a
+   * Mega grid read as three blank spots nobody could explain. They keep their
+   * card, because a held kart is something a marshal has to SEE, and they are
+   * now named and flashed red so the card says what it is. See isLockedPlace.
+   */
+  locked: boolean;
+  /**
    * BACK-TO-BACK, and where they are going (owner 2026-08-14).
    *
    * `arriving` = out on track right now in an earlier heat and staged here, so
@@ -79,6 +89,24 @@ export interface PitRosterEntry {
 export interface OrderedPitRow {
   row: PitParticipantRow;
   spot: number;
+}
+
+/**
+ * WHAT A CARD IS CALLED — the one place the board decides, so the fast pulse,
+ * the 15s build and the client-side merge can never put three different words
+ * on the same spot.
+ *
+ * A locked place is named as one. A person with no name on file still reads
+ * "Racer": their card exists because a real participation does, and blanking it
+ * would hide a racer who is standing right there.
+ */
+export function pitCardName(row: {
+  firstName?: string | null;
+  lastName?: string | null;
+  personId?: string | number | null;
+}): string {
+  if (isLockedPlace(row)) return LOCKED_PLACE_LABEL;
+  return [row.firstName ?? "", row.lastName ?? ""].join(" ").trim() || "Racer";
 }
 
 /** BMI's grid position for a row, or null when the grid has not minted one. */
@@ -221,10 +249,15 @@ export function mergePitRoster(fast: FastPitRow[], slow: PitRosterEntry[]): PitR
   }));
   return orderPitRoster(rows).map(({ row, spot }) => {
     const pid = row.personId == null ? "" : String(row.personId);
-    const known = extras.get(pid);
+    const locked = isLockedPlace(row);
+    // A locked place matches nothing in the slow build (it has no personId to
+    // join on), so it must never inherit another card's badges by matching "".
+    const known = locked ? undefined : extras.get(pid);
     return {
       spot,
-      name: String(row.firstName ?? "").trim() || known?.name || "Racer",
+      name: locked
+        ? LOCKED_PLACE_LABEL
+        : String(row.firstName ?? "").trim() || known?.name || "Racer",
       personId: pid,
       participantId: row.participantId == null ? null : String(row.participantId),
       checkedIn: participantCheckedIn(row),
@@ -232,6 +265,7 @@ export function mergePitRoster(fast: FastPitRow[], slow: PitRosterEntry[]): PitR
       cameraDue: known?.cameraDue ?? false,
       birthday: known?.birthday ?? false,
       vip: known?.vip ?? false,
+      locked,
       backToBack: known?.backToBack ?? null,
     };
   });

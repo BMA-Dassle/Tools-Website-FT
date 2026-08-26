@@ -65,9 +65,44 @@ export interface CalledRaceRecord {
   calledAt?: string | null;
 }
 
-/** The one field of a roster row that matters here. */
+/** The fields of a roster row that matter here. */
 export interface CheckinRosterRow {
   checkedIn?: string | boolean | null;
+  /** Null on a LOCKED PLACE — see isLockedPlace. STRING when present (house
+   *  rule: a BMI personId never passes through `Number()`). */
+  personId?: string | number | null;
+}
+
+/** What the boards call a locked place. One string, so a card and a legend can
+ *  never word it differently. */
+export const LOCKED_PLACE_LABEL = "Locked Place";
+
+/**
+ * IS THIS ROW A LOCKED PLACE RATHER THAN A PERSON?
+ *
+ * Staff can lock a place on a session in BMI to hold a kart back — an injured
+ * kart, a spare held for a walk-up, a seat kept clear beside a junior. Pandora
+ * reports that as an ordinary entry on the session's participants payload:
+ * a real `participantId`, `personId: null`, every name and contact field null,
+ * `paid: false`, and `raceInfo.startPosition` 0. It survives
+ * `excludeRemoved=true`, because it is not a removed racer — it is an occupied
+ * place with nobody in it. (Confirmed live 2026-08-25 against Mega heat 67,
+ * session 59039776, by locking one place and reading the payload back.)
+ *
+ * A NULL personId IS THE WHOLE TEST. Everything else on the row is null too, so
+ * anything stricter only adds ways to miss one; and there is no other kind of
+ * row on this payload with no person attached — a booked-but-unnamed seat comes
+ * through as the "DRIVER 1 PLACEHOLDER" person (id 17750277), which HAS an id
+ * and is filtered separately by dropNullParticipants on the proxy rail.
+ *
+ * The pit board SHOWS these (marshals need to see a held place, and it is the
+ * one thing on the grid a photo can never explain), and the counts EXCLUDE
+ * them: a locked place can never check in, so counting it means every board in
+ * the building waits forever for a racer who does not exist.
+ */
+export function isLockedPlace(row: CheckinRosterRow): boolean {
+  const id = row.personId;
+  return id == null || String(id).trim().length === 0;
 }
 
 /**
@@ -87,9 +122,18 @@ export function participantCheckedIn(row: CheckinRosterRow): boolean {
   return v.trim().length > 0;
 }
 
-/** Progress through a roster. Total is every row we were given. */
+/**
+ * Progress through a roster. Total is every row we were given THAT IS A PERSON.
+ *
+ * Locked places are dropped from both halves (see isLockedPlace). They cannot
+ * check in, so counting them made "0 of 2" out of a heat holding one racer and
+ * one held kart — a rail that never completes, and a number that disagreed with
+ * the desk's own strip, which has always dropped them (dropNullParticipants on
+ * /api/admin/checkin). Same rule now on both sides of the room.
+ */
 export function countCheckedIn(rows: CheckinRosterRow[]): { checkedIn: number; total: number } {
-  return { checkedIn: rows.filter(participantCheckedIn).length, total: rows.length };
+  const people = rows.filter((r) => !isLockedPlace(r));
+  return { checkedIn: people.filter(participantCheckedIn).length, total: people.length };
 }
 
 /**
