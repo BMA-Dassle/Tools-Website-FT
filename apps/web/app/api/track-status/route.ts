@@ -252,7 +252,7 @@ function servable(entry: CachedEntry | null): entry is CachedEntry {
  *
  * Instead, answer the ONE question we can still answer without the upstream:
  * are we in mega mode? megaModeWithoutFlag runs the resilience ladder —
- * called mega heat → BMI dayplanner → Tuesday calendar (owner 2026-08-16:
+ * called mega heat → BMI dayplanner → Mega-day calendar (owner 2026-08-16:
  * "can't always guarantee the track status app will be up"). `tracks: []`
  * is honest: we genuinely do not know the delays, and every consumer already
  * renders an empty delay list; `degraded: true` marks the payload for

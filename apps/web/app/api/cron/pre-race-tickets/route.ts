@@ -40,7 +40,7 @@ import { KARTING_CHECKIN_EMAIL_NOTE, KARTING_CHECKIN_SMS_NOTE } from "@/lib/kart
  * Flow A — Pre-race e-ticket cron.
  *
  * Every 2 min (see vercel.json), looks at all sessions starting in the next ~2 hours on the
- * operating tracks for today (Blue + Red on normal days, Mega only on Tuesdays),
+ * operating tracks for today (Blue + Red on split-track days, Mega only on Mega days),
  * and sends each participant an e-ticket.
  *
  * Participants sharing a phone number (family bookings) are bucketed so they
