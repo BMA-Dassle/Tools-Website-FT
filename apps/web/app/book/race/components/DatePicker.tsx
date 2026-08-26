@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { megaCalendarTodayET, megaDaysPhrase } from "~/features/racing/mega-calendar";
 import { bmiGet } from "../data";
 import { getGroupEventForDate } from "@/lib/group-events";
 
@@ -11,7 +12,7 @@ interface DatePickerProps {
   onSelect: (date: string) => void;
 }
 
-// Mega product (Tuesdays — full combined track)
+// Mega product (Mega days — full combined track)
 const MEGA_PRODUCT_ID = "24965505";
 // Regular products covering weekdays + weekends
 const REGULAR_PRODUCT_IDS = [
@@ -291,7 +292,12 @@ export default function DatePicker({ productId, selected, onSelect }: DatePicker
         {/* Mega explainer */}
         {megaDates.size > 0 && (
           <div className="mt-3 rounded-xl border border-[#A855F7]/20 bg-[#A855F7]/5 p-3 text-center">
-            <p className="text-[#C084FC] text-xs font-semibold mb-0.5">Mega Track Tuesdays</p>
+            {/* Names the days the venue actually runs Mega — "Mega Track
+                Tuesdays and Thursdays" during the Sep-Oct season, Tuesdays
+                alone outside it. Twin of the v2 RaceDateStep legend. */}
+            <p className="text-[#C084FC] text-xs font-semibold mb-0.5">
+              Mega Track {megaDaysPhrase(megaCalendarTodayET())}
+            </p>
             <p className="text-white/40 text-[13px] leading-relaxed">
               Blue &amp; Red tracks combine into one massive circuit!
             </p>

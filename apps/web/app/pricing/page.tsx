@@ -6,6 +6,19 @@ import BookingLink from "@/components/BookingLink";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { FASTTRAX_OG } from "@/lib/seo";
 import ComboSpecials from "~/components/features/combos/ComboSpecials";
+import {
+  megaCalendarTodayET,
+  megaDaysPhrase,
+  megaWindowsOn,
+} from "~/features/racing/mega-calendar";
+
+/** Rate-table heading for the Mega column: "Tue (Mega Track)", or
+ *  "Tue & Thu (Mega Track)" while the Sep–Oct 2026 Mega Thursday season runs.
+ *  Abbreviated because it is a table header sharing a row with "Mon–Thu". */
+function megaColumnHeading(): string {
+  const days = megaWindowsOn(megaCalendarTodayET()).map((w) => w.dayName.slice(0, 3));
+  return `${days.join(" & ")} (Mega Track)`;
+}
 
 export const metadata: Metadata = {
   title: "Go-Kart Racing Prices, Combos & Packages – FastTrax Fort Myers",
@@ -237,7 +250,7 @@ export default function PricingPage() {
             <table className="w-full max-w-4xl mx-auto" style={{ borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  {["Kart Class", "Mon–Thu", "Fri–Sun", "Tuesday (Mega Track)"].map((h) => (
+                  {["Kart Class", "Mon–Thu", "Fri–Sun", megaColumnHeading()].map((h) => (
                     <th
                       key={h}
                       className="text-left px-5 py-3 font-body"
@@ -343,6 +356,19 @@ export default function PricingPage() {
                 </tr>
               </tbody>
             </table>
+            {/* A Mega day is priced from the Mega column, NOT the weekday one —
+                the JUNIOR rate differs by $5 ($15.99 weekday vs $20.99 Mega).
+                Harmless while Mega was only ever Tuesday and the header said
+                so; with Mega Thursdays (Sep–Oct 2026) a Thursday sits inside
+                "Mon–Thu" AND in the Mega column, so the table has to say out
+                loud which one wins. */}
+            <p
+              className="text-center mx-auto mt-5 font-body"
+              style={{ color: "rgba(245,236,238,0.6)", fontSize: "15px" }}
+            >
+              {megaDaysPhrase(megaCalendarTodayET())} run on the Mega Track — those days are priced
+              from the Mega Track column, not the weekday one.
+            </p>
           </div>
         </div>
       </section>

@@ -677,7 +677,7 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
   const centerId = qamfCenterIdForCode(session.center) ?? 9172;
   const party = session.party;
 
-  // Junior parties can't run the combo on Mega Tuesday (no junior Starter
+  // Junior parties can't run the combo on a Mega day (no junior Starter
   // Mega product) — say WHY instead of just showing zero times.
   const megaJuniorBlocked =
     !!date &&
@@ -1032,8 +1032,7 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
           className="rounded-xl px-4 py-3 text-center text-sm font-medium"
           style={{ backgroundColor: `${GOLD}14`, color: GOLD }}
         >
-          Junior racers can&apos;t run the combo on Mega Track Tuesdays — please go back and pick
-          another day.
+          Junior racers can&apos;t run the combo on Mega days — please go back and pick another day.
         </div>
       )}
 
