@@ -24,6 +24,9 @@
  */
 import { useCallback, useRef, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
+// The kind list is named ONCE, in desk-alarm.ts. Retyping it here is how `pull`
+// came to exist on the board and not in the endpoint's shape check.
+import type { AlarmKind } from "~/features/signage/briefing/desk-alarm";
 import type {
   BriefingPhase,
   BriefingRoom,
@@ -242,7 +245,7 @@ export interface BriefingControl {
    * chain works end to end (owner 2026-08-24). Same fan-out as a real alert;
    * only the claim is skipped and the words say TEST.
    */
-  testPush: (kind: "call" | "send" | "pull") => void;
+  testPush: (kind: AlarmKind) => void;
   /**
    * Change one of the greeting's three numbers — the no-camera delay, the
    * repeat cap, or how long a room may keep moving before the reminder

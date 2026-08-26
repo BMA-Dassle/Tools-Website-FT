@@ -10,6 +10,7 @@ import { useScanSound } from "./useScanSound";
 // TYPE-ONLY: scan-history.ts imports the redis client, so a value import here
 // would drag a server module into the client bundle. `import type` is erased.
 import type { ScanHistoryEntry, ScanHistoryStats } from "~/features/checkin/scan-history";
+import type { AlarmKind } from "~/features/signage/briefing/desk-alarm";
 import {
   parseCameraPreviewMode,
   type CameraPreviewMode,
@@ -1985,7 +1986,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                           { kind: "call" as const, label: "Call going late" },
                           { kind: "send" as const, label: "Briefing window closing" },
                           { kind: "pull" as const, label: "Pull to briefing now" },
-                        ] satisfies Array<{ kind: "call" | "send" | "pull"; label: string }>
+                        ] satisfies Array<{ kind: AlarmKind; label: string }>
                       ).map((t) => (
                         <button
                           key={t.kind}

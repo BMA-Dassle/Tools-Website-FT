@@ -100,7 +100,12 @@ import {
   type SendWindow,
 } from "~/features/signage/briefing/pull-to-room";
 import { briefVerdict } from "~/features/signage/briefing/brief-verdict";
-import { callAlarmCue, sendAlarmCue, type AlarmCue } from "~/features/signage/briefing/desk-alarm";
+import {
+  callAlarmCue,
+  pullAlarmCue,
+  sendAlarmCue,
+  type AlarmCue,
+} from "~/features/signage/briefing/desk-alarm";
 import { laneReturnRoom, suggestMegaRoom } from "~/features/signage/briefing/room-suggest";
 import { trackDisplay, verdictLabel } from "~/features/racing/on-time-display";
 import { liveHeatNumber } from "~/features/signage/briefing/room-return";
@@ -386,6 +391,28 @@ function useNowMs(intervalMs = 1_000): number {
     return () => clearInterval(iv);
   }, [intervalMs]);
   return now;
+}
+
+/**
+ * REPORT ONE ALARM CUE, AND ONLY WHEN IT CHANGES.
+ *
+ * Deps are the cue's own PRIMITIVES, so the effect runs once per slot rather
+ * than once a second — no object identity, no ref. The caller (`useDeskAlarm`)
+ * plays each `(kind, session, slot)` exactly once, so reporting the same live
+ * cue on a re-render is free.
+ *
+ * ONE HOOK PER CUE, called unconditionally, which is what lets the board report
+ * every live deadline instead of picking one. See the call sites below.
+ */
+function useAlarmCue(cue: AlarmCue | null, onAlarmCue: (cue: AlarmCue) => void): void {
+  const kind = cue?.kind ?? null;
+  const slot = cue?.slot ?? null;
+  const sessionId = cue?.sessionId ?? null;
+  const heatNumber = cue?.heatNumber ?? null;
+  useEffect(() => {
+    if (kind == null || slot == null || sessionId == null) return;
+    onAlarmCue({ kind, slot, sessionId, heatNumber });
+  }, [kind, slot, sessionId, heatNumber, onAlarmCue]);
 }
 
 /** A called heat's check-in progress, as the station polls it. */
@@ -1650,10 +1677,12 @@ function RoomColumn({
     nextCall != null ? nextCall.callAtMs + CALL_WINDOW_MIN * 60_000 : Number.NaN;
 
   /**
-   * THE TWO AUDIBLE DEADLINES (owner 2026-08-23). Reported every tick; the
-   * alarm hook plays each once per 10-second slot, three times per event. Both
-   * cues are derived from the SAME numbers the box is already showing, so the
-   * sound can never claim something the screen does not.
+   * THE AUDIBLE DEADLINES (owner 2026-08-23, plus the pull-now flip 2026-08-24).
+   * Reported every tick; the alarm hook plays each once per 10-second slot,
+   * three times per event — except `pull`, which is a verdict rather than a
+   * countdown and plays once. Every cue is derived from the SAME numbers the box
+   * is already showing, so the sound can never claim something the screen does
+   * not.
    */
   const callCue = callAlarmCue({
     nowMs,
@@ -1684,40 +1713,54 @@ function RoomColumn({
     formatClock,
   });
 
+  /** The called group standing at the desk — the subject of BOTH the pull and
+   *  the send alarm, so it is named once rather than twice. */
+  const calledForAlarm =
+    race && !sentTo ? { sessionId: String(race.sessionId), heatNumber: race.heatNumber } : null;
+
+  /**
+   * PULL TO BRIEFING NOW — the group's check-in window has run out with racers
+   * still missing, so the choice is brief them now or hold the track for people
+   * who are not coming. It reaches phones too, through the same fan-out (owner
+   * 2026-08-24: "this should be built into our push notifications").
+   *
+   * ITS OWN CUE, not the send alarm's last beat, which is what it used to be —
+   * see pullAlarmCue for the hour-long Redis claim that arrangement was leaving
+   * on `send:{session}:1` and the real final beat it swallowed.
+   */
+  const pullCue = pullAlarmCue({
+    called: calledForAlarm,
+    pullNow: brief.kind === "pull-now",
+  });
+
   const sendCue = sendAlarmCue({
-    called:
-      race && !sentTo ? { sessionId: String(race.sessionId), heatNumber: race.heatNumber } : null,
+    called: calledForAlarm,
     calledForMs: checkingInMs,
     // The alarm rides the GRACE countdown — the minute in which the desk is
     // out of time but can still act is exactly the minute worth shouting in.
     windowClosesInMs: sendWin.kind === "grace" ? sendWin.graceLeftMs : null,
-    /**
-     * ...AND THE PULL-NOW FLIP, which is the other moment worth a noise: the
-     * group's check-in window has run out with racers still missing, so the
-     * choice is brief them now or hold the track for people who are not coming.
-     * It reaches phones too, through the same fan-out (owner 2026-08-24: "this
-     * should be built into our push notifications").
-     */
-    pullNow: brief.kind === "pull-now",
   });
-  // The send deadline outranks the call one: a group already standing at the
-  // desk is the more expensive of the two to lose.
-  const cue = sendCue ?? callCue;
-  // Deps are the cue's own PRIMITIVES, so the effect runs three times an event
-  // rather than once a second — and no object identity or ref is involved.
-  const cueKind = cue?.kind ?? null;
-  const cueSlot = cue?.slot ?? null;
-  const cueSession = cue?.sessionId ?? null;
-  const cueHeat = cue?.heatNumber ?? null;
-  useEffect(() => {
-    if (cueKind == null || cueSlot == null || cueSession == null) return;
-    onAlarmCue({
-      kind: cueKind,
-      slot: cueSlot,
-      sessionId: cueSession,
-      heatNumber: cueHeat,
-    });
-  }, [cueKind, cueSlot, cueSession, cueHeat, onAlarmCue]);
+
+  /**
+   * EVERY LIVE DEADLINE IS REPORTED, NOT ONLY THE MOST EXPENSIVE ONE.
+   *
+   * This was `const cue = sendCue ?? callCue`, on the reasoning that a group
+   * already standing at the desk outranks a session still to be called. That is
+   * sound for deciding which box to colour and wrong for a speaker: `pull-now`
+   * is a STATE that stands until the group is sent or the grid fills, and for
+   * every second of it the `??` threw the call alarm away — so the next heat
+   * went late with nobody told, on exactly the nights the desk was already
+   * behind.
+   *
+   * There is no double-buzz to trade against. `useDeskAlarm` plays once per
+   * (kind, session, slot) and its sound restarts rather than stacks, so two live
+   * cues are ONE noise and two notifications about two different sessions. Pull
+   * and send cannot both be live anyway: brief-verdict.ts ranks `grace` above
+   * `pull-now`, and `grace` is the only window the send alarm rides.
+   */
+  useAlarmCue(pullCue, onAlarmCue);
+  useAlarmCue(sendCue, onAlarmCue);
+  useAlarmCue(callCue, onAlarmCue);
 
   /** Time left in the check-in window; negative once it has passed. Null when no
    *  window is known, which is also when no alert can fire. */

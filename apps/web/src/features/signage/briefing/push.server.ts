@@ -142,7 +142,7 @@ export async function firePushForCue(
  * plausible-looking "Session 42 is overdue" would send somebody running.
  */
 export async function sendTestPush(
-  kind: AlarmKind | "pull",
+  kind: AlarmKind,
   stampMs: number,
 ): Promise<{ sent: number; skipped: boolean; pruned: number }> {
   if (!armed()) return { sent: 0, skipped: true, pruned: 0 };
