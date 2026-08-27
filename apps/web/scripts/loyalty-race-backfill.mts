@@ -35,6 +35,13 @@ for (const line of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
 
 const APPLY = process.argv.includes("--apply");
 const ONLY = process.argv.find((a) => a.startsWith("--only="))?.split("=")[1];
+/**
+ * --enrolled-only restricts the credit to bookings made when the guest was
+ * ALREADY a rewards member. Without it, ~109 bookings belong to people who
+ * joined after that race — crediting those is goodwill, not a correction, so it
+ * is an explicit choice rather than a silent default either way.
+ */
+const ENROLLED_ONLY = process.argv.includes("--enrolled-only");
 const KINDS = (
   process.argv.find((a) => a.startsWith("--kinds="))?.split("=")[1] ?? "race,attraction"
 )
@@ -114,17 +121,33 @@ if (rows.length === 0) process.exit(0);
 // Which customers hold a loyalty account (30 ids max per search).
 const cids = [...new Set(rows.map((r) => r.cid))] as string[];
 const acctOf = new Map<string, string>();
+// enrolled_at comes back on the search response — no extra round trip needed.
+const enrolledAt = new Map<string, string>();
 for (let i = 0; i < cids.length; i += 30) {
   const res = await sq("/loyalty/accounts/search", {
     query: { customer_ids: cids.slice(i, i + 30) },
     limit: 200,
   });
-  for (const a of res.loyalty_accounts ?? []) acctOf.set(a.customer_id, a.id);
+  for (const a of res.loyalty_accounts ?? []) {
+    acctOf.set(a.customer_id, a.id);
+    enrolledAt.set(a.id, a.enrolled_at ?? a.created_at ?? "");
+  }
 }
-const members = rows.filter((r) => acctOf.has(r.cid));
+let members = rows.filter((r) => acctOf.has(r.cid));
 console.log(
   `  ${acctOf.size}/${cids.length} customers are rewards members → ${members.length} bookings\n`,
 );
+
+if (ENROLLED_ONLY) {
+  const before = members.length;
+  members = members.filter((r) => {
+    const en = enrolledAt.get(acctOf.get(r.cid)!);
+    return en ? new Date(en).getTime() <= new Date(r.booked_at).getTime() : false;
+  });
+  console.log(
+    `  --enrolled-only: dropped ${before - members.length} booking(s) made before the guest joined → ${members.length}\n`,
+  );
+}
 
 type Row = (typeof members)[number];
 interface Plan {
@@ -202,9 +225,86 @@ for (const p of todo.slice(0, ONLY ? 50 : 20))
 if (!ONLY && todo.length > 20) console.log(`   … and ${todo.length - 20} more`);
 
 if (!APPLY) {
-  console.log(`\nDRY RUN — nothing written. Re-run with --apply to credit.`);
+  // Dump the WHOLE plan, not the 20 rows printed above — a credit to hundreds of
+  // real guest accounts should be reviewable in full before anyone types --apply.
+  const csv = [
+    "reservation_id,booked_on,guest_name,guest_phone,kind,eligible_gross_usd,est_pinz,loyalty_account,order_id",
+    ...todo.map((p) =>
+      [
+        p.row.id,
+        new Date(p.row.booked_at).toISOString().slice(0, 10),
+        `"${String(p.row.guest_name ?? "").replace(/"/g, "''")}"`,
+        p.row.guest_phone ?? "",
+        p.row.product_kind,
+        (p.gross / 100).toFixed(2),
+        Math.floor((p.gross / 100) * 10),
+        p.acct,
+        p.row.oid,
+      ].join(","),
+    ),
+  ].join("\n");
+  writeFileSync("loyalty-race-backfill-plan.csv", csv);
+
+  // Per-guest roll-up: what any ONE guest is about to receive. A single account
+  // with an implausible total is the cheapest signal that something is wrong.
+  const byAcct = new Map<string, { name: string; rows: number; pts: number; gross: number }>();
+  for (const p of todo) {
+    const g = byAcct.get(p.acct) ?? { name: String(p.row.guest_name ?? ""), rows: 0, pts: 0, gross: 0 };
+    g.rows++;
+    g.pts += Math.floor((p.gross / 100) * 10);
+    g.gross += p.gross;
+    byAcct.set(p.acct, g);
+  }
+  const perGuest = [...byAcct.entries()].sort((a, b) => b[1].pts - a[1].pts);
+  console.log(`\n═══ PER-GUEST ROLL-UP ═══`);
+  console.log(`  distinct rewards accounts to credit : ${perGuest.length}`);
+  console.log(`  largest single credit               : ${perGuest[0]?.[1].pts ?? 0} Pinz (~$${(((perGuest[0]?.[1].pts ?? 0) / 1000) * 10).toFixed(2)})`);
+  const median = perGuest.length ? perGuest[Math.floor(perGuest.length / 2)][1].pts : 0;
+  console.log(`  median credit                       : ${median} Pinz (~$${((median / 1000) * 10).toFixed(2)})`);
+  console.log(`\n  top 10 credits:`);
+  for (const [acct, g] of perGuest.slice(0, 10))
+    console.log(
+      `    ${String(g.name).slice(0, 24).padEnd(24)} ${String(g.rows).padStart(3)} bookings  ` +
+        `$${(g.gross / 100).toFixed(2).padStart(8)}  → ${String(g.pts).padStart(6)} Pinz  ${acct}`,
+    );
+
+  writeFileSync(
+    "loyalty-race-backfill-plan.json",
+    JSON.stringify(
+      {
+        generatedFor: "dry run",
+        kinds: KINDS,
+        examined: rows.length,
+        members: members.length,
+        alreadyCredited: alreadyDone.length,
+        notPayable: skipped.map((p) => ({ id: p.row.id, why: p.skip })),
+        toCredit: todo.length,
+        eligibleGrossCents: todo.reduce((s, p) => s + p.gross, 0),
+        estimatedPinz: estPts,
+        distinctAccounts: perGuest.length,
+        rows: todo.map((p) => ({
+          id: p.row.id,
+          bookedAt: p.row.booked_at,
+          name: p.row.guest_name,
+          phone: p.row.guest_phone,
+          kind: p.row.product_kind,
+          grossCents: p.gross,
+          estPinz: Math.floor((p.gross / 100) * 10),
+          acct: p.acct,
+          orderId: p.row.oid,
+          orderState: p.state,
+        })),
+      },
+      null,
+      1,
+    ),
+  );
+
+  console.log(`\n  full plan → apps/web/loyalty-race-backfill-plan.csv (${todo.length} rows)`);
+  console.log(`            → apps/web/loyalty-race-backfill-plan.json`);
+  console.log(`\nDRY RUN — nothing written to Square.`);
   console.log(
-    `Recommended: --only=<id> --apply on ONE booking first, confirm in Square, then the rest.`,
+    `Next: --only=<id> --apply on ONE booking first, confirm in Square, then the rest.`,
   );
   process.exit(0);
 }
