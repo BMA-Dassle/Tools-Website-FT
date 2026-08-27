@@ -56,8 +56,16 @@ export const racesimEn = {
   "racesim.slot.tooCloseExisting": "Too close to an existing reservation",
   "racesim.slot.retry": "Retry",
   "racesim.slot.empty": "No sessions available today.",
+  // Racing's scheduling-rule statuses on the sim grid.
+  "racesim.slot.reservedForEvent": "Reserved for event",
+  "racesim.slot.privateEvent.title": "Private Event",
+  "racesim.slot.privateEvent.body":
+    "Today is reserved for a private event and is not available for public booking.",
+  /** Track switcher helper under the cards — {track} = "Track A". */
+  "racesim.slot.trackHint": "Showing {track} sessions — tap another track to switch.",
 
   // --- KioskFlow shell lookups (activity label lives in parts/flow.ts) ---
+  "stepReason.racesimConflict": "That time is too close to another activity — pick another.",
   "stepTitle.raceOptions": "Race Options",
   "stepTitle.track": "Track",
   "stepReason.racesimProduct": "Pick a race to continue.",
@@ -97,6 +105,12 @@ export const racesimEs: Record<keyof typeof racesimEn, string> = {
   "racesim.slot.tooCloseExisting": "Muy cerca de una reserva existente",
   "racesim.slot.retry": "Reintentar",
   "racesim.slot.empty": "No hay sesiones disponibles hoy.",
+  "racesim.slot.reservedForEvent": "Reservado para un evento",
+  "racesim.slot.privateEvent.title": "Evento privado",
+  "racesim.slot.privateEvent.body":
+    "Hoy está reservado para un evento privado y no está disponible para reservas públicas.",
+  "racesim.slot.trackHint": "Mostrando sesiones de {track} — toca otra pista para cambiar.",
+  "stepReason.racesimConflict": "Esa hora está muy cerca de otra actividad — elige otra.",
 
   "stepTitle.raceOptions": "Opciones de carrera",
   "stepTitle.track": "Pista",

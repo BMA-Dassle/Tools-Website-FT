@@ -44,6 +44,13 @@ import {
   RaceSimStaleHoldError,
   RACE_SIM_SQUARE_CATALOG_ID,
 } from "~/features/race-sims/products";
+import {
+  raceSimCartPersonHeats,
+  raceSimBookingConflictMessage,
+  findCartKartSimConflict,
+  cartKartSimConflictMessage,
+  RACE_SIM_CONFLICT_TRACK,
+} from "~/features/race-sims/scheduling";
 import { centerCodeFor } from "~/config/intercard-centers";
 import { formatPersonName } from "~/lib/helpers/name-format";
 import { after } from "next/server";
@@ -1182,11 +1189,14 @@ export class CrossCategoryHeatCollisionError extends Error {
 /** Rejection copy for a cross-reservation spacing conflict. */
 export function existingBookingConflictMessage(conflict: {
   cart: { heatId: string | null; racer?: string | null };
-  existing: { heatId: string };
+  existing: { heatId: string; track?: string | null };
 }): string {
   const who = conflict.cart.racer || "One of your racers";
   const cartLabel = conflict.cart.heatId ? heatClockLabel(conflict.cart.heatId) : "the selected";
-  return `${who} already has a race booked at ${heatClockLabel(conflict.existing.heatId)} — too close to the ${cartLabel} heat. Please pick a different time.`;
+  // The blocker can be a Race Sim session (raceHeatsForPersonsOnDate returns
+  // both) — name it honestly instead of calling every booking a race.
+  const what = conflict.existing.track === RACE_SIM_CONFLICT_TRACK ? "a sim session" : "a race";
+  return `${who} already has ${what} booked at ${heatClockLabel(conflict.existing.heatId)} — too close to the ${cartLabel} heat. Please pick a different time.`;
 }
 
 // ── Main orchestrator ─────────────────────────────────────────────────
@@ -1650,6 +1660,57 @@ async function unifiedReserveInner(
       } catch (err) {
         if (err instanceof ExistingBookingConflictError) throw err;
         console.error("[unifiedReserve] cross-reservation check errored (failing open):", err);
+      }
+    }
+  }
+
+  // ── 0b-sim. Guard: cross-reservation spacing for Race Sims ─────────
+  // The same rule as 0b, on the sim session: a rider must not sit a sim too
+  // close to a kart heat or another sim they hold in a SEPARATE reservation
+  // (racing's heatsConflict — 30 min cross-track vs a kart heat, skip-a-slot
+  // vs another sim; race-sims/scheduling.ts). raceHeatsForPersonsOnDate
+  // returns karting heats AND prior sim sessions, so this is symmetric with
+  // 0b. Fail-open on a query error, fail-closed on a conflict — before any
+  // Square write.
+  if (racesimItems.length > 0) {
+    // Cart-internal first (pure cart data — NOT fail-open): a kart heat and a
+    // sim session in THIS cart too close together. Racing's own grid can't
+    // see a cart sim, so this is the last gate before money moves.
+    const cartClash = findCartKartSimConflict(session.items);
+    if (cartClash) {
+      console.error(
+        `[unifiedReserve] EXISTING_BOOKING_CONFLICT (cart kart↔sim) — sim ${cartClash.simSlot} vs heat ${cartClash.heatId}`,
+      );
+      throw new ExistingBookingConflictError(cartKartSimConflictMessage(cartClash));
+    }
+    const cartSims = racesimItems.flatMap((r) => raceSimCartPersonHeats(r, session.party));
+    const simPersonIds = [
+      ...new Set(cartSims.map((h) => h.bmiPersonId).filter((id): id is string => !!id)),
+    ];
+    const simDates = [...new Set(cartSims.map((h) => h.heatId.slice(0, 10)))];
+    if (simPersonIds.length > 0) {
+      try {
+        const existing = (
+          await Promise.all(
+            simDates.map((date) =>
+              raceHeatsForPersonsOnDate({
+                date,
+                personIds: simPersonIds,
+                excludeBillId: session.bmiBillId,
+              }),
+            ),
+          )
+        ).flat();
+        const conflict = findCrossBookingConflict(cartSims, existing);
+        if (conflict) {
+          console.error(
+            `[unifiedReserve] EXISTING_BOOKING_CONFLICT (sim) — person ${conflict.cart.bmiPersonId} cart ${conflict.cart.heatId} vs booked ${conflict.existing.heatId}`,
+          );
+          throw new ExistingBookingConflictError(raceSimBookingConflictMessage(conflict));
+        }
+      } catch (err) {
+        if (err instanceof ExistingBookingConflictError) throw err;
+        console.error("[unifiedReserve] sim cross-reservation check errored (failing open):", err);
       }
     }
   }
@@ -3106,18 +3167,24 @@ async function unifiedReserveInner(
           track: getRaceSimTrack(r.trackKey)?.name ?? null,
           slot: r.slot,
           racerCount: Math.max(1, r.racerCount),
-          ...(r.participants && r.participants.length > 0
-            ? {
-                participants: r.participants
-                  .map((id) => session.party.find((m) => m.id === id))
-                  .filter((m): m is NonNullable<typeof m> => Boolean(m))
-                  .map((m) => ({
-                    name: `${m.firstName} ${m.lastName ?? ""}`.trim(),
-                    bmiPersonId: m.bmiPersonId ?? null,
-                    waiverValid: m.waiverValid ?? false,
-                  })),
-              }
-            : {}),
+          // Riders with their BMI ids — this is what raceHeatsForPersonsOnDate
+          // reads to grey/refuse a later booking too close to this session
+          // (cross-reservation spacing), so it must ALWAYS be written: the
+          // kiosk stamps the roster on assignedTo (racing's "everyone
+          // races"); participants is the older attraction-style field.
+          participants: (r.assignedTo.length > 0
+            ? r.assignedTo
+            : r.participants && r.participants.length > 0
+              ? r.participants
+              : session.party.map((m) => m.id)
+          )
+            .map((id) => session.party.find((m) => m.id === id))
+            .filter((m): m is NonNullable<typeof m> => Boolean(m))
+            .map((m) => ({
+              name: `${m.firstName} ${m.lastName ?? ""}`.trim(),
+              bmiPersonId: m.bmiPersonId ?? null,
+              waiverValid: m.waiverValid ?? false,
+            })),
         }));
     }
 

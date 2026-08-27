@@ -1,42 +1,63 @@
 "use client";
 
 /**
- * Kiosk Race Sims time step — the racing HEAT PICKER's layout on a sim item
- * (owner 2026-08-26: "follow racing as close as possible"). Mirrors
- * RaceHeatPickerStep's kiosk render at canvas px: centered heading +
- * "product · date" line, "Booking for N racers" summary, ONE flat
- * earliest-first grid of time cards (big time → block name → tri-color status
- * line → capacity bar; no track badge — racing only badges multi-track grids,
- * and a sim grid is always the one chosen track), racing's selected / idle /
- * disabled card states, tap-to-unpick (releases the hold, like racing's
- * deselect), per-card "Holding…" overlay, hold-error card, loading /
- * error+Retry / empty shells, a near-now lead cutoff, cart-spacing AND
- * existing-reservation conflict greying (racing's booked-heats signal), and
- * a semi-live 30s refetch.
+ * Kiosk Race Sims time step — the racing HEAT PICKER on a sim item (owner
+ * 2026-08-26: "follow racing as close as possible", "apply all of our
+ * scheduling rules", and keep the Track step AND let guests change track on
+ * the heat-pick screen).
+ *
+ * Layout mirrors RaceHeatPickerStep's kiosk render at canvas px: centered
+ * heading + "product · track · date" line, racing's TrackInfoBanner track
+ * cards (Track A/B/C) above the grid, "Booking for N racers" summary, ONE
+ * flat earliest-first grid of time cards (big time → block name → tri-color
+ * status line → capacity bar), racing's selected / idle / disabled states,
+ * tap-to-unpick, per-card "Holding…" overlay, hold-error card, loading /
+ * error+Retry / empty shells, semi-live 30s refetch.
+ *
+ * Track cards: on racing they FILTER one multi-track grid; every sim track
+ * is its own $0 key that books the same rigs, so here a card SWITCHES the
+ * track — releases any held line (the hold is per key), clears the pick and
+ * refetches that key's sessions. Same visual, honest semantics.
+ *
+ * Scheduling rules — racing's engine via race-sims/scheduling.ts, shared
+ * with the reserve guard so grid and server agree: spacing (heatsConflict:
+ * 30 min vs a kart heat, skip-a-session vs another sim) against the whole
+ * cart AND the party's other reservations today (booked-heats — karting heats
+ * + prior sim sessions); group events (full-day private event blocks the
+ * screen, morning buyout greys before the public reopen, event windows grey
+ * overlapping sessions); capacity vs party; a 10-min lead. canAdvance re-runs
+ * the spacing check on the picked slot, racing's canAdvanceFor pattern.
  *
  * Racing books per (heat × racer) line with racers stamped at the pick; a
  * sim is ONE $0 track-key line for the whole party, so the tap stamps the
- * roster (racerCount/assignedTo from session.party — racing's "whole party
- * races") and eager-holds with that quantity (bookRaceSimOnAdvance, which
- * records heldQty). If the party changes after a hold, racerCount (roster)
- * and heldQty (BMI) diverge: this step re-holds at the new quantity, and
- * reserve guard 2e refuses until they agree — racing's per-racer lines make
- * this automatic; the single line needs the explicit re-hold.
+ * roster (racerCount/assignedTo from session.party) and eager-holds with that
+ * quantity (bookRaceSimOnAdvance records heldQty). A party change after the
+ * hold re-holds at the new quantity; reserve guard 2e refuses a stale hold.
  *
- * Karting-only pieces deliberately NOT mirrored: category split, tier/track
- * product fan-out, Mega/junior restriction rules, the karting-check-in
- * banner + "Est. racing by" line, licence fee reminder, RacerSelectorModal,
- * "Add another race" loop. Until the BMI keys are armed
- * (race-sims/products.ts), raceSimBookingTarget is null and this step shows
- * the empty state — bookable nowhere, consistent with reserve guard 2e.
+ * Karting-only rules deliberately not mirrored: tier/category restrictions,
+ * cross-category collision, pack caps, licence lead/briefing copy.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RaceSimItem, StepDef } from "~/features/booking";
 import { bmiAdapter, type BmiBlock, type BmiProposal } from "~/features/booking/data/bmi";
 import { releaseItemBmiLines } from "~/features/booking/service/checkout";
-import { getRaceSimProduct, raceSimBookingTarget } from "~/features/race-sims/products";
+import {
+  RACE_SIM_TRACKS,
+  getRaceSimProduct,
+  raceSimBookingTarget,
+  type RaceSimTrackKey,
+} from "~/features/race-sims/products";
 import { bookRaceSimOnAdvance } from "~/features/race-sims/service";
-import { slotLabel, slotStartMs, todayYmd } from "../service/first-available";
+import {
+  cartTimedBookings,
+  raceSimPrivateEventTitle,
+  raceSimSlotBeforeReopen,
+  raceSimSlotConflicts,
+  raceSimSlotEventReserved,
+  wallClockMs,
+  type TimedBooking,
+} from "~/features/race-sims/scheduling";
+import { slotLabel, todayYmd } from "../service/first-available";
 import { PRODUCT_NAME_KEYS } from "./KioskRaceSimProductStep";
 import { useLocale } from "../i18n";
 import type { MessageKey } from "../i18n";
@@ -46,17 +67,23 @@ import type { MessageKey } from "../i18n";
 const LEAD_MS = 10 * 60_000;
 /** RACE_AVAILABILITY_POLL_MS parity — the grid stays semi-live. */
 const POLL_MS = 30_000;
-/** Spacing against the rest of the cart AND the party's other reservations
- *  today (racing's CROSS_TRACK_MIN_GAP_MIN / KioskSlotStep buffer). */
-const CONFLICT_BUFFER_MS = 30 * 60_000;
 
-const TRACK_NAME_KEYS: Record<string, MessageKey> = {
+const TRACK_NAME_KEYS: Record<RaceSimTrackKey, MessageKey> = {
   a: "racesim.track.a",
   b: "racesim.track.b",
   c: "racesim.track.c",
 };
+/** Racing's track palette (TRACK_CARD / TRACK_TINT): Red, Blue, Mega purple. */
+const TRACK_TINT: Record<RaceSimTrackKey, { tint: string; title: string }> = {
+  a: { tint: "#e53935", title: "#fca5a5" },
+  b: { tint: "#4fa9ff", title: "#93c5fd" },
+  c: { tint: "#8652ff", title: "#d8b4fe" },
+};
 
 type SlotEntry = { block: BmiBlock; proposal: BmiProposal };
+
+/** Sentinel for `holding` while a track switch releases the old line. */
+const SWITCHING = "__track__";
 
 const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   item,
@@ -78,11 +105,13 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   const [slots, setSlots] = useState<SlotEntry[]>([]);
   const [scanState, setScanState] = useState<"loading" | "done" | "error">("loading");
   const [refreshTick, setRefreshTick] = useState(0);
-  const [holding, setHolding] = useState<string | null>(null); // block.start mid-hold
+  const [holding, setHolding] = useState<string | null>(null); // block.start (or SWITCHING)
   const [holdError, setHoldError] = useState<string | null>(null);
-  // The party's heats/slots in OTHER reservations today (racing's
-  // booked-heats signal, matched by bmiPersonId). Fail-open: empty on error.
-  const [existingTimes, setExistingTimes] = useState<number[]>([]);
+  // The party's karting heats + sim sessions in OTHER reservations today
+  // (racing's booked-heats signal, matched by bmiPersonId), with their track
+  // so the spacing rule can tell same-track from cross-track. Fail-open.
+  const [existing, setExisting] = useState<TimedBooking[]>([]);
+  const lastTargetRef = useRef<string | null>(null);
 
   // Kiosk = walk-up: the date is always today.
   const today = todayYmd();
@@ -99,7 +128,10 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
       return;
     }
     let cancelled = false;
-    if (refreshTick === 0) setScanState("loading");
+    // Show the spinner on first load and on a track switch (new key), never
+    // on the silent 30s poll.
+    if (refreshTick === 0 || lastTargetRef.current !== target.productId) setScanState("loading");
+    lastTargetRef.current = target.productId;
     bmiAdapter
       .getAvailability({
         date: today,
@@ -116,7 +148,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
         }
         setSlots(
           Array.from(byStart.values()).sort(
-            (a, b) => slotStartMs(a.block.start) - slotStartMs(b.block.start),
+            (a, b) => wallClockMs(a.block.start) - wallClockMs(b.block.start),
           ),
         );
         setScanState("done");
@@ -133,12 +165,13 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target?.productId, target?.pageId, item.date, qty, today, refreshTick]);
 
-  // Existing-reservation conflicts — same endpoint racing's grid polls
-  // (/api/booking/v2/booked-heats), excluding this session's own bill.
+  // Existing-reservation conflicts — the same endpoint racing's grid polls
+  // (/api/booking/v2/booked-heats: karting heats + prior sim sessions),
+  // excluding this session's own bill.
   const personKey = personIds.join(",");
   useEffect(() => {
     if (!personKey) {
-      setExistingTimes([]);
+      setExisting([]);
       return;
     }
     let cancelled = false;
@@ -146,37 +179,26 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
     if (session.bmiBillId) params.set("excludeBillId", session.bmiBillId);
     fetch(`/api/booking/v2/booked-heats?${params.toString()}`)
       .then(async (res) => {
-        if (!res.ok) return { heats: [] as Array<{ heatId: string }> };
-        return (await res.json()) as { heats: Array<{ heatId: string }> };
+        if (!res.ok) return { heats: [] as Array<{ heatId: string; track: string | null }> };
+        return (await res.json()) as { heats: Array<{ heatId: string; track: string | null }> };
       })
       .then((data) => {
         if (cancelled) return;
-        setExistingTimes(data.heats.map((h) => slotStartMs(h.heatId)));
+        setExisting(
+          data.heats.map((h) => ({ startMs: wallClockMs(h.heatId), track: h.track ?? null })),
+        );
       })
       .catch(() => {
-        if (!cancelled) setExistingTimes([]);
+        if (!cancelled) setExisting([]);
       });
     return () => {
       cancelled = true;
     };
   }, [personKey, today, session.bmiBillId, refreshTick]);
 
-  // Other cart activities' times — racing's cart-conflict gating, flat buffer.
-  const cartTimes: number[] = [];
-  for (const other of session.items) {
-    if (other.id === item.id) continue;
-    if (other.kind === "race") {
-      for (const h of other.heats) if (h.heatId) cartTimes.push(slotStartMs(h.heatId));
-    } else if ((other.kind === "attraction" || other.kind === "racesim") && other.slot) {
-      cartTimes.push(slotStartMs(other.slot));
-    } else if ((other.kind === "bowling" || other.kind === "kbf") && other.bookedAt) {
-      cartTimes.push(slotStartMs(other.bookedAt));
-    }
-  }
-  const tooClose = (times: number[], start: string): boolean => {
-    const ms = slotStartMs(start);
-    return times.some((o) => Math.abs(o - ms) < CONFLICT_BUFFER_MS);
-  };
+  // Other cart activities — racing's cart-conflict gating, via the shared
+  // spacing rule (track-aware).
+  const cartOthers = cartTimedBookings(session.items, item.id);
 
   /** Release whatever this item holds and clear the pick (racing's deselect). */
   const unpick = useCallback(async () => {
@@ -228,6 +250,25 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
     [holding, item, session, onChange, dispatch, setBusy, qty, t],
   );
 
+  /** Track cards: switching track = a different $0 key, so release the held
+   *  line, clear the pick, and let the fetch effect load that key's sessions. */
+  const switchTrack = useCallback(
+    async (key: RaceSimTrackKey) => {
+      if (holding || key === item.trackKey) return;
+      setHolding(SWITCHING);
+      setHoldError(null);
+      setBusy?.(true);
+      try {
+        if (item.bmiLineId) await releaseItemBmiLines(session, item);
+      } finally {
+        onChange({ trackKey: key, slot: null, slotProposal: null, bmiLineId: null, heldQty: null });
+        setHolding(null);
+        setBusy?.(false);
+      }
+    },
+    [holding, item, session, onChange, setBusy],
+  );
+
   // Party changed after the hold: BMI holds heldQty seats, the roster says
   // qty — re-hold the same session at the new quantity (racing's per-racer
   // lines re-stamp for free; the sim's single line must re-hold).
@@ -240,7 +281,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
 
   const nowMs = Date.now();
   const leadCutoffMs = nowMs + LEAD_MS;
-  const visible = slots.filter(({ block }) => slotStartMs(block.start) >= leadCutoffMs);
+  const visible = slots.filter(({ block }) => wallClockMs(block.start) >= leadCutoffMs);
 
   const product = getRaceSimProduct(item.productSlug);
   const productNameKey = item.productSlug ? PRODUCT_NAME_KEYS[item.productSlug] : undefined;
@@ -252,6 +293,24 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
     locale === "es" ? "es-US" : "en-US",
     { weekday: "long", month: "long", day: "numeric" },
   );
+
+  // Racing's full-day private-event guard — the whole screen, before the grid.
+  const privateEvent = raceSimPrivateEventTitle(today);
+  if (privateEvent) {
+    return (
+      <div className="space-y-[32px]">
+        <div className="rounded-[16px] border border-amber-500/30 bg-amber-500/5 p-[28px] text-center">
+          <p className="k-display text-[32px] text-amber-300">
+            {t("racesim.slot.privateEvent.title")}
+          </p>
+          <p className="mt-[8px] text-[20px] text-white/60">
+            {t("racesim.slot.privateEvent.body")}
+          </p>
+          <p className="mt-[8px] text-[17px] text-white/40">{privateEvent}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-[32px]">
@@ -267,6 +326,43 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
           </span>{" "}
           · {displayDate}
         </p>
+      </div>
+
+      {/* Track cards — racing's TrackInfoBanner (tinted card, display title,
+          ring when active, siblings dimmed); here they switch the key. */}
+      <div className="space-y-[10px]">
+        <div className="grid grid-cols-3 gap-[16px]">
+          {RACE_SIM_TRACKS.map((track) => {
+            const active = item.trackKey === track.key;
+            const { tint, title } = TRACK_TINT[track.key];
+            return (
+              <button
+                key={track.key}
+                type="button"
+                aria-pressed={active}
+                disabled={holding != null}
+                onClick={() => void switchTrack(track.key)}
+                className={`k-tap rounded-[16px] border-2 px-[24px] py-[18px] text-left ${
+                  item.trackKey && !active ? "opacity-40" : ""
+                }`}
+                style={{
+                  borderColor: active ? tint : `${tint}66`,
+                  background: `${tint}14`,
+                  boxShadow: active ? `0 0 0 4px ${tint}99` : "none",
+                }}
+              >
+                <div className="k-display text-[26px] tracking-wider" style={{ color: title }}>
+                  {t(TRACK_NAME_KEYS[track.key])}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        {trackName && (
+          <p className="text-center text-[16px] text-white/35">
+            {t("racesim.slot.trackHint", { track: trackName })}
+          </p>
+        )}
       </div>
 
       {/* Racer count summary — racing's "Booking for N racers" card. */}
@@ -304,22 +400,31 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
         <div className="grid grid-cols-4 gap-[10px]">
           {visible.map((entry) => {
             const { block } = entry;
+            const startMs = wallClockMs(block.start);
             const free = block.freeSpots;
             const cap = Math.max(1, block.capacity ?? free);
             const isSelected = item.slot === block.start;
             const isHolding = holding === block.start;
-            const isLowCap = free < qty;
-            const isCartConflict = !isSelected && tooClose(cartTimes, block.start);
+            // Racing's gates, in its order. Selected cards are never "full".
+            const isEventReserved =
+              !isSelected && raceSimSlotEventReserved(today, block.start, block.stop);
+            const isBeforeReopen = !isSelected && raceSimSlotBeforeReopen(today, block.start);
+            const isCartConflict = !isSelected && raceSimSlotConflicts(startMs, cartOthers);
             const isExistingConflict =
-              !isSelected && !isCartConflict && tooClose(existingTimes, block.start);
+              !isSelected && !isCartConflict && raceSimSlotConflicts(startMs, existing);
             const isConflict = isCartConflict || isExistingConflict;
-            const isFull = !isSelected && (isLowCap || isConflict);
+            const isLowCap = free < qty;
+            const isFull =
+              !isSelected && (isLowCap || isConflict || isEventReserved || isBeforeReopen);
 
-            // Racing's status matrix (single-track grid), in its precedence.
+            // Racing's status matrix, in its precedence.
             let statusKey: MessageKey;
             let statusVars: Record<string, string | number> = {};
             let statusClass: string;
-            if (isExistingConflict) {
+            if (isEventReserved || isBeforeReopen) {
+              statusKey = "racesim.slot.reservedForEvent";
+              statusClass = "text-amber-400";
+            } else if (isExistingConflict) {
               statusKey = "racesim.slot.tooCloseExisting";
               statusClass = "text-amber-400";
             } else if (isCartConflict) {
@@ -347,9 +452,10 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
               : isFull
                 ? "cursor-not-allowed border-white/5 bg-white/[0.03] opacity-40"
                 : "cursor-pointer border-white/10 bg-white/5";
+            const amberBar = isConflict || isEventReserved || isBeforeReopen;
             const barClass = isLowCap
               ? "bg-red-500"
-              : isConflict
+              : amberBar
                 ? "bg-amber-400/50"
                 : free / cap <= 0.3
                   ? "bg-amber-400"
@@ -384,7 +490,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
                 <div className="mt-[10px] h-[5px] overflow-hidden rounded-full bg-white/10">
                   <div
                     className={`h-full rounded-full ${barClass}`}
-                    style={{ width: isConflict ? "100%" : `${Math.min(100, (free / cap) * 100)}%` }}
+                    style={{ width: amberBar ? "100%" : `${Math.min(100, (free / cap) * 100)}%` }}
                   />
                 </div>
               </button>
@@ -396,12 +502,21 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   );
 };
 
-// TODO(i18n): title/reason localize via KioskFlow's lookup maps — "Time" →
-// stepTitle.time and the reason → stepReason.kioskSlot both already exist.
+// TODO(i18n): title/reasons localize via KioskFlow's lookup maps — "Time" →
+// stepTitle.time, the two reasons → stepReason.kioskSlot / racesimConflict.
 export const KioskRaceSimSlotStep: StepDef<RaceSimItem> = {
   id: "racesim-slot",
   title: "Time",
   Component: KioskRaceSimSlotStepComponent,
   isVisible: () => true,
-  canAdvance: (item) => (item.slot ? true : { reason: "Pick a time to continue." }),
+  // Racing's canAdvanceFor re-runs the spacing rule as the wizard gate; the
+  // sim gate re-checks the picked session against the rest of the cart.
+  canAdvance: (item, session) => {
+    if (!item.slot) return { reason: "Pick a time to continue." };
+    const others = cartTimedBookings(session.items, item.id);
+    if (raceSimSlotConflicts(wallClockMs(item.slot), others)) {
+      return { reason: "That time is too close to another activity — pick another." };
+    }
+    return true;
+  },
 };
