@@ -115,14 +115,17 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
 
   // Kiosk = walk-up: the date is always today.
   const today = todayYmd();
+  // The date the grid shows: item.date when it is today or later (the test
+  // kiosk may have rolled it forward), otherwise today.
+  const gridDate = item.date && item.date >= today ? item.date : today;
   useEffect(() => {
-    if (item.date !== today) onChange({ date: today, slot: null, slotProposal: null });
+    if (!item.date || item.date < today) onChange({ date: today, slot: null, slotProposal: null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.date, today]);
 
   // Fetch today's sessions for the chosen track's key; refetch every 30s.
   useEffect(() => {
-    if (!target || item.date !== today) {
+    if (!target || !item.date) {
       setScanState("done");
       setSlots([]);
       return;
@@ -134,7 +137,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
     lastTargetRef.current = target.productId;
     bmiAdapter
       .getAvailability({
-        date: today,
+        date: gridDate,
         productId: target.productId,
         pageId: target.pageId,
         quantity: qty,
@@ -163,7 +166,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
     };
     // target is derived from trackKey; its two ids are the stable deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target?.productId, target?.pageId, item.date, qty, today, refreshTick]);
+  }, [target?.productId, target?.pageId, item.date, gridDate, qty, today, refreshTick]);
 
   // Existing-reservation conflicts — the same endpoint racing's grid polls
   // (/api/booking/v2/booked-heats: karting heats + prior sim sessions),
@@ -175,7 +178,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
       return;
     }
     let cancelled = false;
-    const params = new URLSearchParams({ date: today, personIds: personKey });
+    const params = new URLSearchParams({ date: gridDate, personIds: personKey });
     if (session.bmiBillId) params.set("excludeBillId", session.bmiBillId);
     fetch(`/api/booking/v2/booked-heats?${params.toString()}`)
       .then(async (res) => {
@@ -194,7 +197,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
     return () => {
       cancelled = true;
     };
-  }, [personKey, today, session.bmiBillId, refreshTick]);
+  }, [personKey, gridDate, session.bmiBillId, refreshTick]);
 
   // Other cart activities — racing's cart-conflict gating, via the shared
   // spacing rule (track-aware).
@@ -281,7 +284,31 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
 
   const nowMs = Date.now();
   const leadCutoffMs = nowMs + LEAD_MS;
-  const visible = slots.filter(({ block }) => wallClockMs(block.start) >= leadCutoffMs);
+  const visible = slots.filter(
+    ({ block }) => gridDate !== today || wallClockMs(block.start) >= leadCutoffMs,
+  );
+
+  // TEST KIOSK ONLY (kiosk 99, context.kioskTest) — racing's rig: when TODAY's
+  // grid has settled empty (all sessions past/lead-filtered/none planned), roll
+  // the item ONE day forward so after-close testing has a real grid. One roll
+  // per mount; only ever off today. Real kiosks have no kioskTest flag.
+  const kioskTestRig = !!session.context?.kioskTest;
+  const testRolledRef = useRef(false);
+  useEffect(() => {
+    if (!kioskTestRig || testRolledRef.current || !target) return;
+    if (gridDate !== today || scanState !== "done" || visible.length > 0) return;
+    testRolledRef.current = true;
+    const next = new Date(`${today}T12:00:00`);
+    next.setDate(next.getDate() + 1);
+    onChange({
+      date: next.toISOString().slice(0, 10),
+      slot: null,
+      slotProposal: null,
+      bmiLineId: null,
+      heldQty: null,
+    });
+  }, [kioskTestRig, target, gridDate, today, scanState, visible.length, onChange]);
+  const testShowingFutureDay = kioskTestRig && gridDate > today;
 
   const product = getRaceSimProduct(item.productSlug);
   const productNameKey = item.productSlug ? PRODUCT_NAME_KEYS[item.productSlug] : undefined;
@@ -289,13 +316,13 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
     ? t(productNameKey)
     : (product?.name ?? t("racesim.tile.name"));
   const trackName = item.trackKey ? t(TRACK_NAME_KEYS[item.trackKey]) : null;
-  const displayDate = new Date(`${today}T12:00:00`).toLocaleDateString(
+  const displayDate = new Date(`${gridDate}T12:00:00`).toLocaleDateString(
     locale === "es" ? "es-US" : "en-US",
     { weekday: "long", month: "long", day: "numeric" },
   );
 
   // Racing's full-day private-event guard — the whole screen, before the grid.
-  const privateEvent = raceSimPrivateEventTitle(today);
+  const privateEvent = raceSimPrivateEventTitle(gridDate);
   if (privateEvent) {
     return (
       <div className="space-y-[32px]">
@@ -327,6 +354,11 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
           · {displayDate}
         </p>
       </div>
+      {testShowingFutureDay && (
+        <div className="mx-auto max-w-[720px] rounded-[12px] border border-amber-500/40 bg-amber-500/10 px-[16px] py-[8px] text-center text-[15px] font-semibold text-amber-300">
+          TEST KIOSK — today&apos;s sessions are done; showing tomorrow&apos;s grid
+        </div>
+      )}
 
       {/* Track cards — racing's TrackInfoBanner (tinted card, display title,
           ring when active, siblings dimmed); here they switch the key. */}
@@ -407,8 +439,8 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
             const isHolding = holding === block.start;
             // Racing's gates, in its order. Selected cards are never "full".
             const isEventReserved =
-              !isSelected && raceSimSlotEventReserved(today, block.start, block.stop);
-            const isBeforeReopen = !isSelected && raceSimSlotBeforeReopen(today, block.start);
+              !isSelected && raceSimSlotEventReserved(gridDate, block.start, block.stop);
+            const isBeforeReopen = !isSelected && raceSimSlotBeforeReopen(gridDate, block.start);
             const isCartConflict = !isSelected && raceSimSlotConflicts(startMs, cartOthers);
             const isExistingConflict =
               !isSelected && !isCartConflict && raceSimSlotConflicts(startMs, existing);
