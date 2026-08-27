@@ -168,5 +168,5 @@ export const KioskRaceSimProductStep: StepDef<RaceSimItem> = {
   title: "Race Options",
   Component: KioskRaceSimProductStepComponent,
   isVisible: () => true,
-  canAdvance: (item) => (item.productSlug ? true : { reason: "Pick 1 Race or a Race Pack." }),
+  canAdvance: (item) => (item.productSlug ? true : { reason: "Pick a race to continue." }),
 };

@@ -301,7 +301,7 @@ const STEP_REASON_KEYS: Record<string, MessageKey> = {
   "Select a time slot": "stepReason.selectTimeSlot",
   "Select at least 1 bowler": "stepReason.selectBowler",
   "Select at least one bowler": "stepReason.selectBowlerKbf",
-  "Pick 1 Race or a Race Pack.": "stepReason.racesimProduct",
+  "Pick a race to continue.": "stepReason.racesimProduct",
   "Pick a track.": "stepReason.racesimTrack",
   "Tap a time to hold your lane": "stepReason.holdLane",
   "Verify your KBF pass first": "stepReason.verifyKbf",

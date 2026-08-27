@@ -60,7 +60,7 @@ export const racesimEn = {
   // --- KioskFlow shell lookups (activity label lives in parts/flow.ts) ---
   "stepTitle.raceOptions": "Race Options",
   "stepTitle.track": "Track",
-  "stepReason.racesimProduct": "Pick 1 Race or a Race Pack.",
+  "stepReason.racesimProduct": "Pick a race to continue.",
   "stepReason.racesimTrack": "Pick a track.",
 } as const;
 
@@ -100,6 +100,6 @@ export const racesimEs: Record<keyof typeof racesimEn, string> = {
 
   "stepTitle.raceOptions": "Opciones de carrera",
   "stepTitle.track": "Pista",
-  "stepReason.racesimProduct": "Elige 1 carrera o un paquete.",
+  "stepReason.racesimProduct": "Elige una carrera para continuar.",
   "stepReason.racesimTrack": "Elige una pista.",
 };
