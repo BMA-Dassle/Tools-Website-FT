@@ -124,6 +124,17 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
         }
       }
 
+      if (other.kind === "racesim") {
+        // Race sim sessions (kiosk-only item): 15-min rigs in the FastTrax
+        // building — every picked session counts, like race heats.
+        if (other.date !== item.date) continue;
+        for (const s of other.sessions) {
+          const ms = new Date(s.slot.replace(/Z$/, "")).getTime();
+          if (isNaN(ms)) continue;
+          times.push({ startMs: ms, endMs: ms + 15 * 60_000, building: "fasttrax" });
+        }
+      }
+
       if (other.kind === "attraction") {
         const attr = other as AttractionItem;
         if (!attr.slot || !attr.date || attr.date !== item.date) continue;

@@ -115,6 +115,9 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   // so the rule can tell a sim row from a kart heat. Fail-open.
   const [existing, setExisting] = useState<TimedBooking[]>([]);
   const lastTargetRef = useRef<string | null>(null);
+  // Serializes the party-change re-hold (racing's useEagerHeatHold holdingRef):
+  // a ref, not state, so the effect never re-fires on its own state write.
+  const reholdRef = useRef(false);
 
   // Kiosk = walk-up: the date is always today.
   const today = todayYmd();
@@ -209,7 +212,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
    *  deselect). Other picks stay. */
   const unpickSession = useCallback(
     async (sess: RaceSimSession) => {
-      if (holding) return;
+      if (holding || reholdRef.current) return;
       setHolding(sess.slot);
       setHoldError(null);
       setBusy?.(true);
@@ -230,7 +233,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   const bookSlot = useCallback(
     async (entry: SlotEntry) => {
       const trackKey = item.trackKey;
-      if (holding || !trackKey) return;
+      if (holding || reholdRef.current || !trackKey) return;
       const start = entry.block.start;
       setHolding(start);
       setHoldError(null);
@@ -277,47 +280,57 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   // Party changed after a hold: BMI holds heldQty seats, the roster says qty —
   // re-hold that session at the new quantity, one at a time (racing's
   // per-racer lines re-stamp for free; a sim line must re-hold).
+  //
+  // Serialized through reholdRef and keyed on the stale session's identity
+  // only — never on `holding` (a state dep would re-fire the effect on its own
+  // setHolding, cancel the in-flight repair after the release and strand the
+  // step in "Holding…"; review 2026-08-26). No cancel flag: the teardown in
+  // `finally` is unconditional, and each branch leaves the item honest —
+  // release failed → the old line is still held (kept as is, guard 2e refuses
+  // the stale hold); re-book failed → the session is dropped (its line is gone).
   const stale = item.sessions.find((s) => s.bmiLineId && s.heldQty != null && s.heldQty !== qty);
   useEffect(() => {
-    if (!stale || holding) return;
-    let cancelled = false;
-    (async () => {
-      setHolding(stale.slot);
-      setBusy?.(true);
-      const reset = item.sessions.map((s) =>
-        sameSession(s, stale.trackKey, stale.slot) ? { ...s, bmiLineId: null, heldQty: null } : s,
+    if (!stale || reholdRef.current) return;
+    reholdRef.current = true;
+    const target = stale;
+    const roster = { racerCount: qty, assignedTo: partyIds };
+    const reset = item.sessions.map((s) =>
+      sameSession(s, target.trackKey, target.slot) ? { ...s, bmiLineId: null, heldQty: null } : s,
+    );
+    const fail = (err: unknown) =>
+      setHoldError(
+        err instanceof Error ? `${t("slot.hold.filled")} (${err.message})` : t("slot.hold.filled"),
       );
+    (async () => {
+      setHolding(target.slot);
+      setHoldError(null);
+      setBusy?.(true);
+      let released = false;
       try {
-        await releaseRaceSimSessionLines(session, [stale]);
-        if (cancelled) return;
-        onChange({ sessions: reset, racerCount: qty, assignedTo: partyIds });
+        await releaseRaceSimSessionLines(session, [target]);
+        released = true;
+        onChange({ sessions: reset, ...roster });
         await bookRaceSimSession(
           session,
-          { ...item, sessions: reset, racerCount: qty, assignedTo: partyIds },
-          stale,
+          { ...item, sessions: reset, ...roster },
+          target,
           dispatch,
         );
       } catch (err) {
-        if (!cancelled) {
-          onChange({ sessions: reset.filter((s) => !sameSession(s, stale.trackKey, stale.slot)) });
-          setHoldError(
-            err instanceof Error
-              ? `${t("slot.hold.filled")} (${err.message})`
-              : t("slot.hold.filled"),
-          );
+        if (released) {
+          onChange({
+            sessions: reset.filter((s) => !sameSession(s, target.trackKey, target.slot)),
+          });
         }
+        fail(err);
       } finally {
-        if (!cancelled) {
-          setHolding(null);
-          setBusy?.(false);
-        }
+        reholdRef.current = false;
+        setHolding(null);
+        setBusy?.(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the stale session identity only
-  }, [stale?.slot, stale?.trackKey, stale?.heldQty, qty, holding]);
+  }, [stale?.slot, stale?.trackKey, stale?.heldQty, qty]);
 
   const nowMs = Date.now();
   const leadCutoffMs = nowMs + LEAD_MS;

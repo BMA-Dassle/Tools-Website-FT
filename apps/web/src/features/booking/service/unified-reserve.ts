@@ -51,6 +51,7 @@ import {
   cartKartSimConflictMessage,
   isRaceSimTrackLabel,
   findRaceSimCrossBookingConflict,
+  findRaceSimSelfConflict,
 } from "~/features/race-sims/scheduling";
 import { centerCodeFor } from "~/config/intercard-centers";
 import { formatPersonName } from "~/lib/helpers/name-format";
@@ -1690,6 +1691,17 @@ async function unifiedReserveInner(
         `[unifiedReserve] EXISTING_BOOKING_CONFLICT (cart kart↔sim) — sim ${cartClash.simSlot} vs heat ${cartClash.heatId}`,
       );
       throw new ExistingBookingConflictError(cartKartSimConflictMessage(cartClash));
+    }
+    // Two sim sessions on ONE start across the cart (same four rigs) — the
+    // grid greys it and canAdvance gates it; the server still refuses.
+    const simSelfClash = findRaceSimSelfConflict(racesimItems.flatMap((r) => r.sessions));
+    if (simSelfClash) {
+      console.error(
+        `[unifiedReserve] EXISTING_BOOKING_CONFLICT (sim same start) — ${simSelfClash.a.slot} on ${simSelfClash.a.trackKey}/${simSelfClash.b.trackKey}`,
+      );
+      throw new ExistingBookingConflictError(
+        "You picked the same time on two sim tracks — the sims share the same rigs. Please remove one of them.",
+      );
     }
     const cartSims = racesimItems.flatMap((r) => raceSimCartPersonHeats(r, session.party));
     const simPersonIds = [

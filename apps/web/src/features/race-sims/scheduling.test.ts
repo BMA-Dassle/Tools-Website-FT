@@ -118,8 +118,20 @@ describe("sim-vs-kart: racing's 30-minute cross-activity spacing", () => {
       sim([sess(T("15:00"), "a"), sess(T("11:15"), "b")]),
     ];
     const hit = findCartKartSimConflict(items);
-    expect(hit).toEqual({ simSlot: T("11:15"), heatId: T("11:00"), track: "Red" });
+    expect(hit).toMatchObject({ simSlot: T("11:15"), track: "Red", kind: "race" });
+    expect(new Date(hit!.heatId).getTime()).toBe(ms("11:00"));
     expect(cartKartSimConflictMessage(hit!)).toContain("30 minutes");
+    expect(cartKartSimConflictMessage(hit!)).toContain("race is too close");
+    // An attraction slot in the cart is an activity with no track → 30-min rule too
+    const attraction = {
+      ...(newItem("attraction") as Extract<SessionItem, { kind: "attraction" }>),
+      id: "at1",
+      date: "2026-08-27",
+      slot: T("11:00"),
+    };
+    const attrHit = findCartKartSimConflict([attraction, sim([sess(T("11:15"), "a")])]);
+    expect(attrHit?.kind).toBe("attraction");
+    expect(cartKartSimConflictMessage(attrHit!)).toContain("activity is too close");
     expect(
       findCartKartSimConflict([
         race([{ heatId: T("11:00"), track: "Red" }]),

@@ -243,43 +243,54 @@ export function findRaceSimCrossBookingConflict(
 }
 
 /**
- * Cart-internal kart↔sim spacing — the one case neither grid catches alone:
- * racing's heat grid checks only its own heats, so a kart heat picked AFTER a
- * held sim never sees it. The whole party rides every sim session, so ANY
- * kart heat in the cart is the same person's booking; every (session, heat)
- * pair is checked with racing's cross-activity rule (30 min). Returns the
- * first offending pair, or null.
+ * Cart-internal spacing between the cart's sim sessions and its OTHER timed
+ * activities — the case no single grid can be trusted with: racing's heat grid
+ * checks only its own heats, and an attraction/bowling picked AFTER a held
+ * sim may never have seen it. The whole party rides every sim session, so any
+ * other timed item in the cart is the same people's booking; every (session,
+ * activity) pair is checked with racing's cross-activity rule (30 min).
+ * Returns the first offending pair (heatId = the other activity's start as an
+ * epoch ISO), or null. Sim-vs-sim across items is findRaceSimSelfConflict's job.
  */
 export function findCartKartSimConflict(
   items: SessionItem[],
-): { simSlot: string; heatId: string; track: string | null } | null {
+): { simSlot: string; heatId: string; track: string | null; kind: SessionItem["kind"] } | null {
   const sessions = items.flatMap((i) => (i.kind === "racesim" ? i.sessions : []));
   if (sessions.length === 0) return null;
-  for (const other of items) {
-    if (other.kind !== "race") continue;
-    for (const h of other.heats) {
-      if (!h.heatId) continue;
-      const heatMs = wallClockMs(h.heatId);
-      for (const s of sessions) {
-        if (
-          heatsConflict(
-            wallClockMs(s.slot),
-            raceSimConflictTrack(s.trackKey),
-            heatMs,
-            h.track ?? null,
-          )
-        ) {
-          return { simSlot: s.slot, heatId: h.heatId, track: h.track ?? null };
-        }
+  const others = items.flatMap((i) =>
+    i.kind === "racesim" ? [] : cartTimedBookings([i], "").map((b) => ({ ...b, kind: i.kind })),
+  );
+  for (const o of others) {
+    for (const s of sessions) {
+      if (
+        heatsConflict(wallClockMs(s.slot), raceSimConflictTrack(s.trackKey), o.startMs, o.track)
+      ) {
+        return {
+          simSlot: s.slot,
+          heatId: new Date(o.startMs).toISOString(),
+          track: o.track,
+          kind: o.kind,
+        };
       }
     }
   }
   return null;
 }
 
-/** Rejection copy for a cart-internal kart↔sim conflict. */
-export function cartKartSimConflictMessage(c: { simSlot: string; heatId: string }): string {
-  return `Your ${heatClockLabel(c.heatId)} race is too close to your ${heatClockLabel(c.simSlot)} sim session — racing and sims need 30 minutes between them. Please pick a different time.`;
+/** Rejection copy for a cart-internal sim↔activity conflict. */
+export function cartKartSimConflictMessage(c: {
+  simSlot: string;
+  heatId: string;
+  kind?: SessionItem["kind"];
+}): string {
+  const what = c.kind === "race" ? "race" : c.kind === "attraction" ? "activity" : "booking";
+  // heatId is an epoch ISO here; label it in the same local wall-clock terms
+  // every grid parses with.
+  const otherLabel = new Date(c.heatId).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `Your ${otherLabel} ${what} is too close to your ${heatClockLabel(c.simSlot)} sim session — activities need 30 minutes between them. Please pick a different time.`;
 }
 
 /** Rejection copy for a sim cross-reservation conflict — racing's

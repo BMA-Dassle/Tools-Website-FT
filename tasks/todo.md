@@ -80,6 +80,13 @@ the tile → PIN sheet) opens the flow for that session. Full booking-session in
       collides ("Picked on Track A"), back-to-back allowed, no gap; sim-vs-kart/attraction/bowling
       keeps racing's 30-min spacing. Conflict label per session = "Track A/B/C" (persisted +
       emitted by raceHeatsForPersonsOnDate). Schema v16.
+- [x] Picks BMI stops proposing still render (f42fe7a8): BMI omits blocks with freeSpots < party
+      and never returns full blocks, so our own hold hid the selected card and hid "4:15 on A" from
+      B's grid — cards are rebuilt from the pick's block ("Picked" / "Picked on Track A").
+- [x] Adversarial review (12 agents, 4 confirmed) fixed: party-change re-hold effect deadlock
+      (ref-serialized, no cancel flag, unconditional teardown); cart sim↔attraction/bowling spacing
+      now server-guarded + web attraction grid sees sim sessions; cart-level sim same-start refused
+      server-side; bookRaceSimSessions threads a reparented bill id forward.
 - [ ] Owner live smoke on kiosk 99 / FastTrax FM kiosk: tile lock, 5-tap+PIN, party → Race Options
       → Track → Time (tomorrow's grid after close), pick 10:00 A then see 10:00 greyed on B/C and
       10:15 open, unpick releases the BMI line, pay → Square lines per session, BMI lines on the

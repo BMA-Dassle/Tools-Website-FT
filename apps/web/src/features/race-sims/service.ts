@@ -22,20 +22,22 @@ const sameSession = (a: RaceSimSession, b: { trackKey: string; slot: string }) =
 
 /**
  * Hold ONE session (identified by track + slot) with BMI. Returns the item's
- * sessions with that session's bmiLineId + heldQty filled in — and dispatches
- * the same array onto the item, so callers chaining several holds can pass
- * the returned array forward instead of re-reading stale props.
+ * sessions with that session's bmiLineId + heldQty filled in, plus the bill
+ * id the line actually landed on — and dispatches both onto the session, so
+ * callers chaining several holds pass the returned values forward instead of
+ * re-reading stale props (a reparent mid-chain must not split the lines
+ * across two BMI orders).
  */
 export async function bookRaceSimSession(
   session: BookingSession,
   item: RaceSimItem,
   which: { trackKey: string; slot: string },
   dispatch: Dispatch<Action>,
-): Promise<RaceSimSession[]> {
+): Promise<{ sessions: RaceSimSession[]; bmiBillId: string | null }> {
   const idx = item.sessions.findIndex((s) => sameSession(s, which));
   if (idx < 0) throw new Error("Cannot book: session not on the item");
   const target = item.sessions[idx];
-  if (target.bmiLineId) return item.sessions; // already held
+  if (target.bmiLineId) return { sessions: item.sessions, bmiBillId: session.bmiBillId }; // already held
   const key = raceSimBookingTarget(target.trackKey);
   if (!key) {
     // Keys not armed — the grid can't have offered real sessions, and reserve
@@ -68,20 +70,23 @@ export async function bookRaceSimSession(
     i === idx ? { ...s, bmiLineId: result.billLineId, heldQty: quantity } : s,
   );
   dispatch({ type: "updateItem", id: item.id, patch: { sessions: next } });
-  return next;
+  return { sessions: next, bmiBillId: result.rawOrderId || session.bmiBillId };
 }
 
 /** Hold every session that isn't held yet — the checkout-time backstop
- *  (racing's bookHeatsOnAdvance skips heats that already carry a line). */
+ *  (racing's bookHeatsOnAdvance skips heats that already carry a line).
+ *  Threads the adopted bill id forward so every line lands on ONE order. */
 export async function bookRaceSimSessions(
   session: BookingSession,
   item: RaceSimItem,
   dispatch: Dispatch<Action>,
 ): Promise<void> {
   let current = item;
+  let onBill = session;
   for (const s of item.sessions) {
     if (s.bmiLineId) continue;
-    const next = await bookRaceSimSession(session, current, s, dispatch);
-    current = { ...current, sessions: next };
+    const { sessions, bmiBillId } = await bookRaceSimSession(onBill, current, s, dispatch);
+    current = { ...current, sessions };
+    onBill = { ...onBill, bmiBillId };
   }
 }
