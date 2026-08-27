@@ -206,8 +206,9 @@ const NATIVE_STEP_IDS = new Set([
   "bowling-time",
   "kiosk-bowling-details",
   "kiosk-bowling-people",
-  // Race Sims (kiosk-native, canvas px).
-  "racesim-product",
+  // Race Sims (kiosk-native, canvas px). racesim-product is deliberately NOT
+  // here: it is authored in karting's web rem classes and rides the same
+  // kiosk zoom as karting's product page so the two render identically.
   "racesim-track",
   "racesim-slot",
   "racesim-party",

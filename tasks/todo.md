@@ -62,8 +62,11 @@ the tile → PIN sheet) opens the flow for that session. Full booking-session in
       cart + existing-reservation conflicts, `heldQty` re-hold when the party changes). Schema v15.
       Omitted as karting-only: pay-mode (until sim packs), Race Video & Extras, licence, age-7
       floor, tier badges. Waiver re-check on advance now blocks sims like racing.
-- [ ] **STILL OWED (arms booking):** the 3 BMI track-key productIds + shared pageId →
-      `race-sims/products.ts`; confirm weekend = Fri–Sun; optional Race Sim resourceId.
+- [x] **ARMED 2026-08-26:** track keys A 59535405 / B 59537905 / C 59537953 + shared page
+      59716066 in `race-sims/products.ts` — guard 2e passes; sim singles book + charge for real
+      behind the tile's PIN gate. Still unconfirmed: weekend = Fri–Sun; optional resourceId.
+- [ ] Track switcher on the Time screen (owner: keep the Track step AND allow changing track on
+      the heat-pick screen) + racing's full scheduling rule set on the sim grid and at reserve.
 - [ ] Owner live smoke on a FastTrax FM kiosk (tile lock, 5-tap+PIN, flow to the 409 at pay,
       idle relock; HP kiosks show no KBF and no Race Sims tile).
 - [ ] **Before arming real ids** (all recorded in products.ts header + guard 2e comment):

@@ -17,9 +17,11 @@ export const racesimEn = {
   "racesim.tile.comingSoon": "Coming Soon",
   "racesim.tile.comingSoonNote": "Racing simulators are almost here — stay tuned!",
 
-  // --- Product step (1 Race vs Race Packs — karting-product-page layout) ---
-  "racesim.product.intro": "How many races?",
-  "racesim.product.introHelp": "Prices are per racer — pick one option for your group.",
+  // --- Product step (karting KIOSK product page: one simple card per sellable) ---
+  // Karting's heading is "Choose Your Race"; its helper talks about tiers
+  // ("races you've qualified for"), which sims don't have — hence ours.
+  "racesim.product.heading": "Choose Your Race",
+  "racesim.product.helper": "Pick the race that fits your group.",
   // Tier-rung section header's right-side meta (mirrors karting's
   // "Everyone starts here").
   "racesim.product.sectionMeta": "Everyone rides here",
@@ -27,16 +29,13 @@ export const racesimEn = {
   "racesim.product.trackLine": "Runs on 3 rotating tracks — pick yours next",
   // Product display names key by catalog slug (race-sims/products.ts).
   "racesim.product.sim-single": "1 Race",
-  "racesim.product.sim-3-pack": "3-Race Pack",
-  "racesim.product.sim-5-pack": "5-Race Pack",
   "racesim.product.single.sub": "One race on the track of your choice.",
-  /** Deferred-pack column note (packs shown but not sellable yet). */
-  "racesim.product.pack.sub": "More races, better price — mix tracks.",
-  "racesim.product.perRacer": "per racer",
-  /** {price} pre-formatted ("$13.33"), {count} = races in the pack. */
-  "racesim.product.perRace": "{price}/race · {count} races",
-  /** {amount} pre-formatted ("$15") — the amber pack-savings chip. */
-  "racesim.product.save": "Save {amount}",
+  /** Renders after "$14.00 / " — karting's price row reads "$20.99 / racer". */
+  "racesim.product.perRacer": "racer",
+  /** Karting's group-math footer: "$20.99 × 3 racers = $62.97 total".
+   *  {unit}/{total} pre-formatted, {count} = racers in the party. */
+  "racesim.product.groupTotal":
+    "{unit} × {count, plural, one {# racer} other {# racers}} = {total} total",
   "racesim.product.selected": "Selected",
 
   // --- Track step (Track A/B/C, rotating lineup) ---
@@ -71,18 +70,15 @@ export const racesimEs: Record<keyof typeof racesimEn, string> = {
   "racesim.tile.comingSoon": "Próximamente",
   "racesim.tile.comingSoonNote": "Los simuladores de carreras ya casi llegan — ¡mantente atento!",
 
-  "racesim.product.intro": "¿Cuántas carreras?",
-  "racesim.product.introHelp": "Los precios son por piloto — elige una opción para tu grupo.",
+  "racesim.product.heading": "Elige tu carrera",
+  "racesim.product.helper": "Elige la carrera que le convenga a tu grupo.",
   "racesim.product.sectionMeta": "Todos corren aquí",
   "racesim.product.trackLine": "Corre en 3 pistas rotativas — elige la tuya después",
   "racesim.product.sim-single": "1 carrera",
-  "racesim.product.sim-3-pack": "Paquete de 3 carreras",
-  "racesim.product.sim-5-pack": "Paquete de 5 carreras",
   "racesim.product.single.sub": "Una carrera en la pista que elijas.",
-  "racesim.product.pack.sub": "Más carreras, mejor precio — combina pistas.",
-  "racesim.product.perRacer": "por piloto",
-  "racesim.product.perRace": "{price}/carrera · {count} carreras",
-  "racesim.product.save": "Ahorra {amount}",
+  "racesim.product.perRacer": "piloto",
+  "racesim.product.groupTotal":
+    "{unit} × {count, plural, one {# piloto} other {# pilotos}} = {total} en total",
   "racesim.product.selected": "Seleccionado",
 
   "racesim.track.intro": "Tres pistas en rotación — alineación nueva cada una o dos semanas.",
