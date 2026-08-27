@@ -26,6 +26,7 @@ import {
   fetchTrackSessions,
   fetchTrackWatermarks,
 } from "~/features/reservations-admin/race-live-state.server";
+import { accrueLoyaltyPoints } from "~/features/loyalty";
 
 /**
  * GET /api/cron/race-dayof-pay
@@ -298,7 +299,7 @@ async function arrivedNumbers(clientKey: string): Promise<Set<string>> {
 // ── Square: charge the gift card against the open day-of order ──────────────
 // (single gift card per race; mirrors group-dayof-pay payDayofOrder)
 
-async function chargeDayof(
+async function settleDayofOrder(
   r: BowlingReservation,
 ): Promise<{ paid: boolean; paymentId?: string; note: string }> {
   const orderId = r.squareDayofOrderId!;
@@ -388,6 +389,55 @@ async function chargeDayof(
     paymentId,
     note: `charged $${(paidAmount / 100).toFixed(2)}${remaining > 0 ? ` ($${(remaining / 100).toFixed(2)} remaining)` : ""}`,
   };
+}
+
+/**
+ * Settle the day-of order, then credit HeadPinz Rewards.
+ *
+ * The accrual is a SEPARATE step on purpose: Square only accepts
+ * AccumulateLoyaltyPoints once the order carries no balance, and this cron has
+ * three different routes to "paid" (already COMPLETED, $0-model completed, gift
+ * card charged in full). Re-reading the order afterwards asks Square whether it
+ * is genuinely settled rather than trusting our own arithmetic, and hands us the
+ * authoritative `customer_id` / `location_id` — the order's location is the
+ * FastTrax one, which is not the reservation's centerCode.
+ *
+ * Racing and standalone attractions earned NOTHING before this: bowling called
+ * AccumulateLoyaltyPoints in processLaneOpen, this cron never did, and Square
+ * does not accrue on its own for Orders-API orders. See features/loyalty/accrue.ts.
+ *
+ * Never fatal — a loyalty failure must not fail a settle or block the Neon write.
+ */
+async function chargeDayof(
+  r: BowlingReservation,
+): Promise<{ paid: boolean; paymentId?: string; note: string }> {
+  const result = await settleDayofOrder(r);
+  if (!result.paid) return result;
+
+  try {
+    const res = await fetch(`${SQUARE_BASE}/orders/${r.squareDayofOrderId}`, {
+      headers: sqHeaders(),
+    });
+    if (!res.ok) return result;
+    const order = (await res.json()).order;
+    // A balance still due → Square would reject the accrual. Partial-payment
+    // rows are rare here (the card is funded to the full total at booking).
+    if (!order || (order.net_amount_due_money?.amount ?? 0) !== 0) return result;
+
+    const accrual = await accrueLoyaltyPoints({
+      orderId: r.squareDayofOrderId!,
+      locationId: order.location_id,
+      customerId: order.customer_id ?? r.squareCustomerId,
+      idempotencyKey: `race-dayof-loyalty-${r.id}`,
+      logTag: `[race-dayof-pay] id=${r.id}`,
+    });
+    if (accrual.status === "accrued") {
+      return { ...result, note: `${result.note}; +${accrual.points} Pinz` };
+    }
+  } catch (err) {
+    console.warn(`[race-dayof-pay] id=${r.id} loyalty step threw:`, err);
+  }
+  return result;
 }
 
 export async function GET(req: NextRequest) {

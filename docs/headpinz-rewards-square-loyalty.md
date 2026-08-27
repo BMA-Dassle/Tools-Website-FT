@@ -2,7 +2,12 @@
 
 ## Overview
 
-HeadPinz Rewards is a loyalty program built on Square's Loyalty API. Customers earn "Pinz" (points) on bowling purchases and can redeem them for discounts. The program is surfaced during the bowling booking wizard and tracked in the admin reservations view.
+HeadPinz Rewards is a loyalty program built on Square's Loyalty API. Customers earn "Pinz" (points) on bowling, racing and standalone-attraction purchases and can redeem them for discounts. The program is surfaced during checkout and tracked in the admin reservations view.
+
+> **Every rail that finishes paying a day-of order MUST call `accrueLoyaltyPoints`
+> (`src/features/loyalty`).** Square credits nothing on its own for an Orders-API order.
+> Racing shipped without that call and credited NOBODY from 2026-05-31 to 2026-08-27 — see
+> "Racing accrual gap" below.
 
 ## Square Loyalty Architecture
 
@@ -194,15 +199,64 @@ PUT /v2/orders/{order_id}
 
 ## Key Files
 
-| File                                           | What                                                          |
-| ---------------------------------------------- | ------------------------------------------------------------- |
-| `components/bowling/BowlingWizard.tsx`         | Loyalty UI, enrollment, reward selection                      |
-| `app/api/bowling/v2/reserve/route.ts`          | Booking endpoint — passes loyalty data through                |
-| `app/api/square/bowling-orders/route.ts`       | Day-of order + deposit + gift card creation                   |
-| `app/api/square/bowling-orders/quote/route.ts` | Quote endpoint (sets customer_id on order)                    |
-| `lib/bowling-lane-open.ts`                     | Lane-open: gift card payment, order completion, point accrual |
-| `lib/sales-lead-config.ts`                     | Planner phone/email config (Stephanie, Lori, Kelsea)          |
-| `app/api/square/loyalty/*/route.ts`            | Loyalty API wrappers                                          |
+| File                                           | What                                                                  |
+| ---------------------------------------------- | --------------------------------------------------------------------- |
+| `components/bowling/BowlingWizard.tsx`         | Loyalty UI, enrollment, reward selection                              |
+| `app/api/bowling/v2/reserve/route.ts`          | Booking endpoint — passes loyalty data through                        |
+| `app/api/square/bowling-orders/route.ts`       | Day-of order + deposit + gift card creation                           |
+| `app/api/square/bowling-orders/quote/route.ts` | Quote endpoint (sets customer_id on order)                            |
+| `src/features/loyalty/accrue.ts`               | **The one accrual implementation** — every settle rail calls it       |
+| `lib/bowling-lane-open.ts`                     | Bowling lane-open: gift card payment, order completion, calls accrual |
+| `app/api/cron/race-dayof-pay/route.ts`         | Race + attraction settle, calls accrual (added 2026-08-27)            |
+| `scripts/loyalty-race-backfill.mts`            | Retro-credit script for the un-accrued race/attraction backlog        |
+| `lib/sales-lead-config.ts`                     | Planner phone/email config (Stephanie, Lori, Kelsea)                  |
+| `app/api/square/loyalty/*/route.ts`            | Loyalty API wrappers                                                  |
+
+## Racing accrual gap (2026-05-31 → 2026-08-27)
+
+Reported by a guest (Jeremy Playford) who books races online and never saw Pinz.
+He was right, and it was not operator error.
+
+**Root cause.** Racing and standalone attractions settle in
+`app/api/cron/race-dayof-pay`, not in `processLaneOpen`. Only `processLaneOpen`
+ever called `AccumulateLoyaltyPoints`, so the race rail attached `customer_id` to
+the day-of order and stopped there. The v2 booking types even documented the
+wrong model — `LoyaltyState` claimed "points auto-accrue … no verification
+needed" — which is exactly the misconception the "Points Do NOT Accrue
+Automatically" section above warns against.
+
+**Measured against Square's own ledger (2026-08-27),** using
+`POST /v2/loyalty/events/search` with an `order_filter` per order:
+
+| Measure                                             | Value                                    |
+| --------------------------------------------------- | ---------------------------------------- |
+| rewards-member race bookings, paid, customer-linked | 1,166                                    |
+| of those that accrued                               | 5                                        |
+| of those with NO accrual event                      | **1,161**                                |
+| eligible gross never credited                       | **$100,095.49**                          |
+| Pinz never issued                                   | **~1,000,268** (~$10,002 of guest value) |
+| distinct rewards members affected                   | ~943                                     |
+
+Nothing was wrong with eligibility: the orders were `COMPLETED` with
+`net_amount_due = 0`, every one carried a `customer_id`, the FastTrax location
+(`LAB52GY480CJF`) is in the program, and `Karting` / `Race Pack` sit in category
+`IC2BH6F6KBJ5BBSSSGXJPSZF`, which is **not** on the accrual exclusion list. (The
+excluded karting categories are the Group-Function ones — `GF Karting`,
+`GF Karting Buyout`.) The request was simply never made.
+
+The same guest's other household account, which rings up at the register, shows
+159 accruals / 16,010 points over the same period — Square POS makes the call for
+you, our checkout has to make it itself.
+
+**Fix.** The accrual moved into one shared function,
+`src/features/loyalty/accrue.ts`, called by both `processLaneOpen` and
+`race-dayof-pay` after the order reaches `net_amount_due = 0`. The race path
+re-reads the order before accruing so it uses Square's own view of "paid" and the
+order's authoritative `location_id` (FastTrax, not the reservation's centerCode).
+
+**Backlog.** `scripts/loyalty-race-backfill.mts` re-accrues the missed orders
+against their original order ids, so Square recomputes the correct points rather
+than us inventing a number. Dry-run by default; needs owner approval to `--apply`.
 
 ## Lessons Learned
 
@@ -212,4 +266,5 @@ PUT /v2/orders/{order_id}
 4. **Quote endpoint must include customer_id** — otherwise the day-of order is created without it, and the fallback PUT to add it later can silently fail
 5. **`new Date(bookedAt).toLocaleDateString()` shifts dates on UTC servers** — extract date from ISO string directly with `.slice(0, 10)`
 6. **Custom GANs work** — `gan_source: "OTHER"` with 8-20 alphanumeric chars lets you label gift cards (e.g., HPFMX77012)
-7. **loyaltyAccountId must always be sent** — not just during reward redemption, so lane-open can accrue points without an extra lookup (future optimization)
+7. **A new paid-order rail is a new accrual site** — points are credited only by an explicit API call, so any code path that finishes paying a day-of order must call `accrueLoyaltyPoints` or that rail silently credits nobody. Racing missed this for three months.
+8. **loyaltyAccountId must always be sent** — not just during reward redemption, so lane-open can accrue points without an extra lookup (future optimization)

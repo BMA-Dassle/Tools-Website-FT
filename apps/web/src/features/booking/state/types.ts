@@ -738,8 +738,14 @@ export interface SelectedRewardTier {
  * Square Loyalty state. Populated during checkout when the customer's
  * phone resolves to a HeadPinz Rewards account (or they enroll).
  *
- * Earning: `customerId` is attached to the Square day-of order so
- * points auto-accrue (10 Pinz per $1). No verification needed.
+ * Earning: `customerId` is attached to the Square day-of order, which is
+ * NECESSARY BUT NOT SUFFICIENT — Square does not accrue on its own for an
+ * Orders-API order. The points (10 Pinz per $1) are only credited when a
+ * settle rail explicitly calls AccumulateLoyaltyPoints via
+ * `accrueLoyaltyPoints` (features/loyalty) once the order is fully paid:
+ * processLaneOpen for bowling, race-dayof-pay for races/attractions. No
+ * verification needed to EARN. This comment used to claim auto-accrual, and
+ * that belief is why racing credited nobody for three months.
  *
  * Redeeming: requires SMS verification to prove ownership. After
  * verify, reward tiers become selectable to reduce the deposit.

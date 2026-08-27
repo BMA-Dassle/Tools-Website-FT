@@ -1,4 +1,5 @@
 import { type BowlingReservation, updateBowlingReservationLaneOpen } from "@/lib/bowling-db";
+import { accrueLoyaltyPoints } from "~/features/loyalty";
 
 /**
  * Lane-open processor for bowling reservations.
@@ -470,57 +471,18 @@ export async function processLaneOpen(opts: {
 
   // ── 3c. Accrue loyalty points ─────────────────────────────────────
   // Square requires the order to be paid (net_amount_due = 0) before
-  // AccumulateLoyaltyPoints succeeds. Order does NOT need to be COMPLETED.
-  // Best-effort: look up loyalty account from customer_id, then accrue.
-  if (reservation.squareCustomerId && reservation.squareDayofOrderId && !processingError) {
-    try {
-      const searchRes = await fetch(`${SQUARE_BASE}/loyalty/accounts/search`, {
-        method: "POST",
-        headers: sqHeaders(),
-        body: JSON.stringify({ query: { customer_ids: [reservation.squareCustomerId] } }),
-      });
-      if (searchRes.ok) {
-        const searchData = (await searchRes.json()) as {
-          loyalty_accounts?: { id: string }[];
-        };
-        const loyaltyAccountId = searchData.loyalty_accounts?.[0]?.id;
-        if (loyaltyAccountId) {
-          const accRes = await fetch(
-            `${SQUARE_BASE}/loyalty/accounts/${loyaltyAccountId}/accumulate`,
-            {
-              method: "POST",
-              headers: sqHeaders(),
-              body: JSON.stringify({
-                accumulate_points: { order_id: reservation.squareDayofOrderId },
-                location_id: orderLocationId ?? reservation.centerCode,
-                idempotency_key: `${idempotencyBase}-loyalty`,
-              }),
-            },
-          );
-          if (accRes.ok) {
-            const accData = (await accRes.json()) as {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              events?: Array<{ accumulate_points?: { points?: number } }>;
-            };
-            const pts = (accData.events ?? []).reduce(
-              (s, e) => s + (e.accumulate_points?.points ?? 0),
-              0,
-            );
-            console.log(`[lane-open] neonId=${neonId} loyalty accrued ${pts} pts`);
-          } else {
-            // Non-fatal — order might not be fully paid yet (partial deposit)
-            const accErr = await accRes.json().catch(() => ({}));
-            console.log(
-              `[lane-open] neonId=${neonId} loyalty accumulate skipped (order may not be fully paid):`,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (accErr as any).errors?.[0]?.detail ?? accRes.status,
-            );
-          }
-        }
-      }
-    } catch (err) {
-      console.warn(`[lane-open] neonId=${neonId} loyalty accrual error:`, err);
-    }
+  // AccumulateLoyaltyPoints succeeds; the order does NOT need to be COMPLETED.
+  // Square never accrues on its own for an Orders-API order — customer_id on the
+  // order is necessary but NOT sufficient. Shared with the race/attraction rail
+  // (race-dayof-pay), which was missing this call entirely until 2026-08-27.
+  if (!processingError && reservation.squareDayofOrderId) {
+    await accrueLoyaltyPoints({
+      orderId: reservation.squareDayofOrderId,
+      locationId: orderLocationId ?? reservation.centerCode,
+      customerId: reservation.squareCustomerId,
+      idempotencyKey: `${idempotencyBase}-loyalty`,
+      logTag: `[lane-open] neonId=${neonId}`,
+    });
   }
 
   // ── 4. Write to Neon ──────────────────────────────────────────────
