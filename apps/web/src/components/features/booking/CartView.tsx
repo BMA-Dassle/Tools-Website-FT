@@ -1366,7 +1366,9 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
     // Same catalog + day-of-week helper the charge builder reads
     // (race-sims/products.ts), so the estimate can't drift from the charge.
     const product = getRaceSimProduct(item.productSlug);
-    return product ? raceSimPriceFor(product, item.date) * Math.max(1, item.racerCount) : 0;
+    return product
+      ? raceSimPriceFor(product, item.date) * Math.max(1, item.racerCount) * item.sessions.length
+      : 0;
   }
   // bowling / kbf — combo bowling is charged inside the flat combo line.
   if (session.comboSpecialId && item.kind === "bowling") return 0;
@@ -1408,7 +1410,7 @@ export function allItemsReady(session: BookingSession): boolean {
       case "racesim":
         // Slot required (attraction parity): a sim leg with no session time
         // must never reach the pay screen (the 2026-07-28 phantom-leg class).
-        return !!item.productSlug && !!item.trackKey && !!item.slot && item.racerCount > 0;
+        return !!item.productSlug && item.sessions.length > 0 && item.racerCount > 0;
     }
   });
 }
@@ -1453,6 +1455,12 @@ export function itemSortMs(item: SessionItem): number {
         return Date.parse(`${item.date}T${String(item.hour % 24).padStart(2, "0")}:00:00`) || FAR;
       }
       return FAR;
+    }
+    case "racesim": {
+      const starts = item.sessions
+        .map((s) => Date.parse(s.slot.replace(/Z$/, "")))
+        .filter((n) => Number.isFinite(n));
+      return starts.length ? Math.min(...starts) : FAR;
     }
     default:
       return FAR;
@@ -1520,8 +1528,11 @@ function otherItemSummary(item: SessionItem): string {
     case "racesim":
       return [
         fmtCartDate(item.date),
-        fmtCartIsoTime(item.slot),
-        getRaceSimTrack(item.trackKey)?.name ?? null,
+        ...[...item.sessions]
+          .sort((a, b) => a.slot.localeCompare(b.slot))
+          .map((s) =>
+            `${fmtCartIsoTime(s.slot) ?? ""} ${getRaceSimTrack(s.trackKey)?.name ?? ""}`.trim(),
+          ),
         `${item.racerCount} racer${item.racerCount === 1 ? "" : "s"}`,
       ]
         .filter(Boolean)

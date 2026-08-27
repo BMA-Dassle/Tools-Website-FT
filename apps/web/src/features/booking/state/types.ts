@@ -643,6 +643,23 @@ export interface KbfItem extends BookingItemBase, BowlingCommon {
  * `item.lineItems` breaks at COMPILE time instead of silently treating a sim
  * as a bookable lane.
  */
+/** One picked sim session — racing's RaceHeatAssignment for sims: the whole
+ *  group rides this session on this track, as ONE $0 track-key line on the
+ *  shared bill. Picks accumulate across tracks (karting parity); the only
+ *  sim-vs-sim rule is that one start time can't be picked on two tracks. */
+export interface RaceSimSession {
+  trackKey: "a" | "b" | "c";
+  /** ISO start (BMI block.start) — wall-clock, naive. */
+  slot: string;
+  /** The block's BMI proposal — needed for booking. JSON-safe. */
+  slotProposal: BmiProposal;
+  /** BMI bill line id once held. releaseItemBmiLines keys off it. */
+  bmiLineId: string | null;
+  /** Quantity the held line was booked with. racerCount follows the roster
+   *  live; a mismatch means re-hold (grid) / refuse (reserve guard 2e). */
+  heldQty: number | null;
+}
+
 export interface RaceSimItem extends BookingItemBase {
   kind: "racesim";
   /** YYYY-MM-DD — kiosk stamps today at creation (walk-up). */
@@ -657,19 +674,10 @@ export interface RaceSimItem extends BookingItemBase {
   trackKey: "a" | "b" | "c" | null;
   /** Racers on this product; the people step keeps it = assignedTo.length. */
   racerCount: number;
-  /** ISO start of the chosen sim session (attraction parity — the kiosk slot
-   *  step writes it; all three track keys share the same sessions). */
-  slot: string | null;
-  /** The chosen slot's BMI proposal — needed for booking. JSON-safe. */
-  slotProposal: BmiProposal | null;
-  /** BMI bill line id — set after the $0 track-key line books (eager hold on
-   *  slot pick, gel/laser semantics). releaseItemBmiLines keys off it. */
-  bmiLineId: string | null;
-  /** Quantity the held BMI line was booked with. racerCount follows the
-   *  roster live (people step), so a party change after the hold makes these
-   *  differ — the slot step re-holds and reserve guard 2e refuses until they
-   *  agree again (racing's per-racer lines make this automatic). */
-  heldQty: number | null;
+  /** Picked sessions across tracks — racing's heats[]. Each holds its own $0
+   *  track-key line; `trackKey` above is only the track the time grid is
+   *  currently showing. */
+  sessions: RaceSimSession[];
   /**
    * KIOSK-ONLY (optional — web never writes it): session.party member ids
    * participating in THIS sim line, AttractionItem.participants parity so
@@ -980,10 +988,7 @@ export function newItem(activity: Activity): SessionItem {
         productSlug: null,
         trackKey: null,
         racerCount: 1,
-        slot: null,
-        slotProposal: null,
-        bmiLineId: null,
-        heldQty: null,
+        sessions: [],
         assignedTo: [],
       };
     case "kbf":

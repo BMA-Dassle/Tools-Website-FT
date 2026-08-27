@@ -34,6 +34,7 @@ export type {
   RaceHeatAssignment,
   RaceItem,
   RaceSimItem,
+  RaceSimSession,
   SelectedRewardTier,
   SessionItem,
 } from "./state/types";

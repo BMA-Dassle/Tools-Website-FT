@@ -49,7 +49,8 @@ import {
   raceSimBookingConflictMessage,
   findCartKartSimConflict,
   cartKartSimConflictMessage,
-  RACE_SIM_CONFLICT_TRACK,
+  isRaceSimTrackLabel,
+  findRaceSimCrossBookingConflict,
 } from "~/features/race-sims/scheduling";
 import { centerCodeFor } from "~/config/intercard-centers";
 import { formatPersonName } from "~/lib/helpers/name-format";
@@ -715,34 +716,36 @@ export function buildCombinedLineItems(session: BookingSession): {
     });
   }
 
-  // Race Sims: priced from the in-code catalog (race-sims/products.ts —
-  // day-of-week pricing keyed on item.date), collected in FULL (the BMI line
-  // is a $0 track key; Square owns the money). ONE shared Square catalog id
-  // for every sim line (owner 2026-08-23) with the price as a per-line
-  // override + the track riding the line name — the race-pack pattern.
-  // Guard 2e (unifiedReserveInner) still refuses BEFORE any Square write
-  // until the BMI keys are armed, so an un-armed line can only reach the quote.
+  // Race Sims: ONE line per picked session (racing's heats[] shape), priced
+  // from the in-code catalog (race-sims/products.ts — day-of-week rate keyed
+  // on item.date) × racers, collected in FULL (the BMI line is a $0 track
+  // key; Square owns the money). ONE shared Square catalog id for every sim
+  // line (owner 2026-08-23) with the price as a per-line override and the
+  // track + time riding the line name — the race-pack pattern. Guard 2e
+  // refuses BEFORE any Square write until every session's key is armed.
   for (const item of session.items) {
     if (item.kind !== "racesim") continue;
     const product = getRaceSimProduct(item.productSlug);
     if (!product) continue; // unready draft — allItemsReady blocks it upstream
     const qty = Math.max(1, item.racerCount);
     const unitCents = Math.round(raceSimPriceFor(product, item.date) * 100);
-    const track = getRaceSimTrack(item.trackKey);
-    const name = `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""}`;
-    totalPriceCents += unitCents * qty;
-    totalDepositCents += unitCents * qty;
-    sqLineItems.push({
-      name,
-      quantity: String(qty),
-      ...(RACE_SIM_SQUARE_CATALOG_ID
-        ? {
-            catalogObjectId: RACE_SIM_SQUARE_CATALOG_ID,
-            basePriceMoney: { amount: unitCents, currency: "USD" },
-          }
-        : { basePriceMoney: { amount: unitCents, currency: "USD" } }),
-    });
-    pricedLines.push({ name, quantity: qty, unitCents });
+    for (const s of item.sessions) {
+      const track = getRaceSimTrack(s.trackKey);
+      const name = `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""} · ${heatClockLabel(s.slot)}`;
+      totalPriceCents += unitCents * qty;
+      totalDepositCents += unitCents * qty;
+      sqLineItems.push({
+        name,
+        quantity: String(qty),
+        ...(RACE_SIM_SQUARE_CATALOG_ID
+          ? {
+              catalogObjectId: RACE_SIM_SQUARE_CATALOG_ID,
+              basePriceMoney: { amount: unitCents, currency: "USD" },
+            }
+          : { basePriceMoney: { amount: unitCents, currency: "USD" } }),
+      });
+      pricedLines.push({ name, quantity: qty, unitCents });
+    }
   }
 
   // Pack lines LAST (after every booked-thing line) — one revenue line per
@@ -1195,7 +1198,7 @@ export function existingBookingConflictMessage(conflict: {
   const cartLabel = conflict.cart.heatId ? heatClockLabel(conflict.cart.heatId) : "the selected";
   // The blocker can be a Race Sim session (raceHeatsForPersonsOnDate returns
   // both) — name it honestly instead of calling every booking a race.
-  const what = conflict.existing.track === RACE_SIM_CONFLICT_TRACK ? "a sim session" : "a race";
+  const what = isRaceSimTrackLabel(conflict.existing.track) ? "a sim session" : "a race";
   return `${who} already has ${what} booked at ${heatClockLabel(conflict.existing.heatId)} — too close to the ${cartLabel} heat. Please pick a different time.`;
 }
 
@@ -1586,7 +1589,12 @@ async function unifiedReserveInner(
         : {}),
       ...(i.kind === "race" ? { heatCount: i.heats.length } : {}),
       ...(i.kind === "attraction" ? { slug: i.slug } : {}),
-      ...(i.kind === "racesim" ? { slug: i.productSlug, trackKey: i.trackKey, slot: i.slot } : {}),
+      ...(i.kind === "racesim"
+        ? {
+            slug: i.productSlug,
+            sessions: i.sessions.map((s) => ({ trackKey: s.trackKey, slot: s.slot })),
+          }
+        : {}),
     })),
     comboSpecialId: session.comboSpecialId ?? null,
   };
@@ -1701,7 +1709,7 @@ async function unifiedReserveInner(
             ),
           )
         ).flat();
-        const conflict = findCrossBookingConflict(cartSims, existing);
+        const conflict = findRaceSimCrossBookingConflict(cartSims, existing);
         if (conflict) {
           console.error(
             `[unifiedReserve] EXISTING_BOOKING_CONFLICT (sim) — person ${conflict.cart.bmiPersonId} cart ${conflict.cart.heatId} vs booked ${conflict.existing.heatId}`,
@@ -1838,14 +1846,20 @@ async function unifiedReserveInner(
   // treatment covers sims. Races + duckpin are FastTrax — those mix fine.
   if (racesimItems.length > 0) {
     for (const item of racesimItems) {
-      if (!raceSimItemConfigured(item)) {
+      if (item.sessions.length === 0) {
         throw new RaceSimNotConfiguredError(item.productSlug);
       }
-      // The held line's quantity must match the cart's racer count — a
-      // party change after the hold (racerCount follows the roster) without
-      // the re-hold landing would charge N seats while BMI holds M.
-      if (item.bmiLineId && item.heldQty != null && item.heldQty !== Math.max(1, item.racerCount)) {
-        throw new RaceSimStaleHoldError();
+      for (const s of item.sessions) {
+        // Each session books through ITS track's key — every one must be armed.
+        if (!raceSimItemConfigured({ productSlug: item.productSlug, trackKey: s.trackKey })) {
+          throw new RaceSimNotConfiguredError(item.productSlug);
+        }
+        // The held line's quantity must match the cart's racer count — a
+        // party change after the hold (racerCount follows the roster) without
+        // the re-hold landing would charge N seats while BMI holds M.
+        if (s.bmiLineId && s.heldQty != null && s.heldQty !== Math.max(1, item.racerCount)) {
+          throw new RaceSimStaleHoldError();
+        }
       }
     }
     const hasHeadpinzItem = session.items.some(
@@ -3099,14 +3113,17 @@ async function unifiedReserveInner(
         quantity: a.qty,
         unitPriceCents: Math.round(a.price * 100),
       })),
-      ...racesimItems.map((r) => {
+      ...racesimItems.flatMap((r) => {
         const product = getRaceSimProduct(r.productSlug);
-        const track = getRaceSimTrack(r.trackKey);
-        return {
-          label: `Race Sims — ${product?.name ?? "Race"}${track ? ` · ${track.name}` : ""}`,
-          quantity: Math.max(1, r.racerCount),
-          unitPriceCents: product ? Math.round(raceSimPriceFor(product, r.date) * 100) : 0,
-        };
+        const unitPriceCents = product ? Math.round(raceSimPriceFor(product, r.date) * 100) : 0;
+        return r.sessions.map((s) => {
+          const track = getRaceSimTrack(s.trackKey);
+          return {
+            label: `Race Sims — ${product?.name ?? "Race"}${track ? ` · ${track.name}` : ""} · ${heatClockLabel(s.slot)}`,
+            quantity: Math.max(1, r.racerCount),
+            unitPriceCents,
+          };
+        });
       }),
     ];
 
@@ -3159,33 +3176,35 @@ async function unifiedReserveInner(
     // start (for day-of tooling), track, racer count, and the who's-riding
     // roster, all on the reservation record itself.
     if (racesimItems.length > 0) {
-      bookingMetadata.racesims = racesimItems
-        .filter((r) => r.slot)
-        .map((r) => ({
-          slug: r.productSlug,
-          trackKey: r.trackKey,
-          track: getRaceSimTrack(r.trackKey)?.name ?? null,
-          slot: r.slot,
-          racerCount: Math.max(1, r.racerCount),
-          // Riders with their BMI ids — this is what raceHeatsForPersonsOnDate
-          // reads to grey/refuse a later booking too close to this session
-          // (cross-reservation spacing), so it must ALWAYS be written: the
-          // kiosk stamps the roster on assignedTo (racing's "everyone
-          // races"); participants is the older attraction-style field.
-          participants: (r.assignedTo.length > 0
+      // Race sims — same persist-at-capture treatment as attractions, ONE
+      // entry per picked session: slot start (day-of tooling), track, racer
+      // count, and the who's-riding roster WITH BMI ids — this is what
+      // raceHeatsForPersonsOnDate reads to grey/refuse a later booking at the
+      // same time (cross-reservation rule), so it is ALWAYS written.
+      bookingMetadata.racesims = racesimItems.flatMap((r) => {
+        const ids =
+          r.assignedTo.length > 0
             ? r.assignedTo
             : r.participants && r.participants.length > 0
               ? r.participants
-              : session.party.map((m) => m.id)
-          )
-            .map((id) => session.party.find((m) => m.id === id))
-            .filter((m): m is NonNullable<typeof m> => Boolean(m))
-            .map((m) => ({
-              name: `${m.firstName} ${m.lastName ?? ""}`.trim(),
-              bmiPersonId: m.bmiPersonId ?? null,
-              waiverValid: m.waiverValid ?? false,
-            })),
+              : session.party.map((m) => m.id);
+        const participants = ids
+          .map((id) => session.party.find((m) => m.id === id))
+          .filter((m): m is NonNullable<typeof m> => Boolean(m))
+          .map((m) => ({
+            name: `${m.firstName} ${m.lastName ?? ""}`.trim(),
+            bmiPersonId: m.bmiPersonId ?? null,
+            waiverValid: m.waiverValid ?? false,
+          }));
+        return r.sessions.map((s) => ({
+          slug: r.productSlug,
+          trackKey: s.trackKey,
+          track: getRaceSimTrack(s.trackKey)?.name ?? null,
+          slot: s.slot,
+          racerCount: Math.max(1, r.racerCount),
+          participants,
         }));
+      });
     }
 
     // ── Durable anchor (confirm_pending) BEFORE BMI confirm ───────────

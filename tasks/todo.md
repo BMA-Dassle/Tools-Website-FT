@@ -71,8 +71,19 @@ the tile → PIN sheet) opens the flow for that session. Full booking-session in
       kart↔sim guard, booked-heats returns prior sims. Product page = karting kiosk card (b80666ad).
 - [x] LIVE BLOCKER RESOLVED 2026-08-26: "no sessions" was BMI-side — the (Web) keys had no planning
       link to the Race Sim resource; owner fixed it, sessions propose from 08-27 (32/day, cap 4).
-- [ ] Owner live smoke on a FastTrax FM kiosk (tile lock, 5-tap+PIN, flow to the 409 at pay,
-      idle relock; HP kiosks show no KBF and no Race Sims tile).
+- [x] Test kiosk (99, `context.kioskTest`) rolls the sim Time grid to tomorrow when today settles
+      empty — racing's rig, amber staff banner, never on real kiosks (5b662135).
+- [x] **Multi-session across tracks (owner 2026-08-26, karting parity):** `RaceSimItem.sessions[]`
+      (racing's heats[]; {trackKey, slot, slotProposal, bmiLineId, heldQty}) — picks accumulate on
+      the Time step, track cards only filter, unpick releases one line, one Square line per session
+      × racers, one metadata entry per session. Owner rule: sim-vs-sim = SAME start on any track
+      collides ("Picked on Track A"), back-to-back allowed, no gap; sim-vs-kart/attraction/bowling
+      keeps racing's 30-min spacing. Conflict label per session = "Track A/B/C" (persisted +
+      emitted by raceHeatsForPersonsOnDate). Schema v16.
+- [ ] Owner live smoke on kiosk 99 / FastTrax FM kiosk: tile lock, 5-tap+PIN, party → Race Options
+      → Track → Time (tomorrow's grid after close), pick 10:00 A then see 10:00 greyed on B/C and
+      10:15 open, unpick releases the BMI line, pay → Square lines per session, BMI lines on the
+      Race Sim resource; HP kiosks show no KBF and no Race Sims tile.
 - [ ] **Before arming real ids** (all recorded in products.ts header + guard 2e comment):
       decide the vendor booking rail (Square id alone would charge with no reservation);
       fix `resolveLocationId` attribution for mixed racesim+HeadPinz carts; owner prices.

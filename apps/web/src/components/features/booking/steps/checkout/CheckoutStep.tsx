@@ -532,14 +532,16 @@ export function CheckoutStep({
         const product = getRaceSimProduct(item.productSlug);
         if (!product) continue;
         const qty = Math.max(1, item.racerCount);
-        const track = getRaceSimTrack(item.trackKey);
         const unit = raceSimPriceFor(product, item.date);
-        reviewLines.push({
-          name: `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""}`,
-          quantity: qty,
-          amount: (Math.round(unit * 100) * qty) / 100,
-          time: item.slot ?? undefined,
-        });
+        for (const s of item.sessions) {
+          const track = getRaceSimTrack(s.trackKey);
+          reviewLines.push({
+            name: `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""}`,
+            quantity: qty,
+            amount: (Math.round(unit * 100) * qty) / 100,
+            time: s.slot,
+          });
+        }
       }
 
       // Attractions are NOT added from the cart here: they book onto the SAME

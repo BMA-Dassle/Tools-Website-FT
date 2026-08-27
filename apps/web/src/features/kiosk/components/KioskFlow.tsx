@@ -303,6 +303,8 @@ const STEP_REASON_KEYS: Record<string, MessageKey> = {
   "Select at least one bowler": "stepReason.selectBowlerKbf",
   "Pick a race to continue.": "stepReason.racesimProduct",
   "That time is too close to another activity — pick another.": "stepReason.racesimConflict",
+  "You picked the same time on two tracks — remove one to continue.":
+    "stepReason.racesimSelfConflict",
   "Pick a track.": "stepReason.racesimTrack",
   "Tap a time to hold your lane": "stepReason.holdLane",
   "Verify your KBF pass first": "stepReason.verifyKbf",
@@ -949,7 +951,7 @@ export function KioskFlow({
       if (i.kind === "attraction") return !!(i as AttractionItem).bmiLineId;
       // Race sims hold a $0 track-key line exactly like an attraction slot —
       // dropping it as a "draft" would orphan the line on the shared bill.
-      if (i.kind === "racesim") return !!(i as RaceSimItem).bmiLineId;
+      if (i.kind === "racesim") return (i as RaceSimItem).sessions.some((s) => !!s.bmiLineId);
       if (i.kind === "bowling") return !!(i as BowlingItem).qamfReservationId;
       return false; // kbf holds nothing until checkout
     });

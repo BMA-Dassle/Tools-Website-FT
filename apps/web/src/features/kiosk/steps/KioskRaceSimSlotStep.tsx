@@ -2,9 +2,9 @@
 
 /**
  * Kiosk Race Sims time step — the racing HEAT PICKER on a sim item (owner
- * 2026-08-26: "follow racing as close as possible", "apply all of our
- * scheduling rules", and keep the Track step AND let guests change track on
- * the heat-pick screen).
+ * 2026-08-26: "follow racing as close as possible", keep the Track step AND
+ * let guests change track on the heat-pick screen, and — like karting across
+ * tracks — picks ACCUMULATE: "if I select 10 on Track A … 10:15 would be open").
  *
  * Layout mirrors RaceHeatPickerStep's kiosk render at canvas px: centered
  * heading + "product · track · date" line, racing's TrackInfoBanner track
@@ -14,42 +14,42 @@
  * tap-to-unpick, per-card "Holding…" overlay, hold-error card, loading /
  * error+Retry / empty shells, semi-live 30s refetch.
  *
- * Track cards: on racing they FILTER one multi-track grid; every sim track
- * is its own $0 key that books the same rigs, so here a card SWITCHES the
- * track — releases any held line (the hold is per key), clears the pick and
- * refetches that key's sessions. Same visual, honest semantics.
+ * Track cards FILTER the grid exactly like racing's: switching track keeps
+ * every pick (item.sessions — racing's heats[]) and shows that track's key's
+ * sessions; a pick on any track adds a session and eager-holds ONE $0
+ * track-key line for the whole party; tapping a picked card releases it.
  *
- * Scheduling rules — racing's engine via race-sims/scheduling.ts, shared
- * with the reserve guard so grid and server agree: spacing (heatsConflict:
- * 30 min vs a kart heat, skip-a-session vs another sim) against the whole
- * cart AND the party's other reservations today (booked-heats — karting heats
- * + prior sim sessions); group events (full-day private event blocks the
- * screen, morning buyout greys before the public reopen, event windows grey
- * overlapping sessions); capacity vs party; a 10-min lead. canAdvance re-runs
- * the spacing check on the picked slot, racing's canAdvanceFor pattern.
+ * Scheduling rules — race-sims/scheduling.ts, shared with the reserve guard
+ * so grid and server agree: sim-vs-sim = the SAME time slot on another track
+ * is the same rigs (greyed "Picked on Track A"), back-to-back is allowed;
+ * sim-vs-kart heat / attraction / bowling = racing's 30-min cross-activity
+ * spacing, against the whole cart AND the party's other reservations today
+ * (booked-heats); group events (full-day private event blocks the screen,
+ * morning buyout greys before the public reopen, event windows grey
+ * overlapping sessions); capacity vs party; a 10-min lead. canAdvance
+ * re-runs the checks on every picked session, racing's canAdvanceFor.
  *
  * Racing books per (heat × racer) line with racers stamped at the pick; a
- * sim is ONE $0 track-key line for the whole party, so the tap stamps the
- * roster (racerCount/assignedTo from session.party) and eager-holds with that
- * quantity (bookRaceSimOnAdvance records heldQty). A party change after the
- * hold re-holds at the new quantity; reserve guard 2e refuses a stale hold.
- *
- * Karting-only rules deliberately not mirrored: tier/category restrictions,
- * cross-category collision, pack caps, licence lead/briefing copy.
+ * sim session is ONE $0 line for the whole party, so the tap stamps the
+ * roster (racerCount/assignedTo from session.party) and holds with that
+ * quantity (heldQty). A party change after the hold re-holds each session at
+ * the new quantity; reserve guard 2e refuses a stale hold.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { RaceSimItem, StepDef } from "~/features/booking";
+import type { RaceSimItem, RaceSimSession, StepDef } from "~/features/booking";
 import { bmiAdapter, type BmiBlock, type BmiProposal } from "~/features/booking/data/bmi";
-import { releaseItemBmiLines } from "~/features/booking/service/checkout";
+import { releaseRaceSimSessionLines } from "~/features/booking/service/checkout";
 import {
   RACE_SIM_TRACKS,
   getRaceSimProduct,
   raceSimBookingTarget,
   type RaceSimTrackKey,
 } from "~/features/race-sims/products";
-import { bookRaceSimOnAdvance } from "~/features/race-sims/service";
+import { bookRaceSimSession } from "~/features/race-sims/service";
 import {
   cartTimedBookings,
+  findRaceSimSelfConflict,
+  ownPickAtSameStart,
   raceSimPrivateEventTitle,
   raceSimSlotBeforeReopen,
   raceSimSlotConflicts,
@@ -82,8 +82,8 @@ const TRACK_TINT: Record<RaceSimTrackKey, { tint: string; title: string }> = {
 
 type SlotEntry = { block: BmiBlock; proposal: BmiProposal };
 
-/** Sentinel for `holding` while a track switch releases the old line. */
-const SWITCHING = "__track__";
+const sameSession = (s: RaceSimSession, trackKey: string | null, slot: string) =>
+  s.trackKey === trackKey && s.slot === slot;
 
 const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   item,
@@ -105,11 +105,11 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   const [slots, setSlots] = useState<SlotEntry[]>([]);
   const [scanState, setScanState] = useState<"loading" | "done" | "error">("loading");
   const [refreshTick, setRefreshTick] = useState(0);
-  const [holding, setHolding] = useState<string | null>(null); // block.start (or SWITCHING)
+  const [holding, setHolding] = useState<string | null>(null); // block.start being held/released
   const [holdError, setHoldError] = useState<string | null>(null);
   // The party's karting heats + sim sessions in OTHER reservations today
   // (racing's booked-heats signal, matched by bmiPersonId), with their track
-  // so the spacing rule can tell same-track from cross-track. Fail-open.
+  // so the rule can tell a sim row from a kart heat. Fail-open.
   const [existing, setExisting] = useState<TimedBooking[]>([]);
   const lastTargetRef = useRef<string | null>(null);
 
@@ -119,11 +119,11 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   // kiosk may have rolled it forward), otherwise today.
   const gridDate = item.date && item.date >= today ? item.date : today;
   useEffect(() => {
-    if (!item.date || item.date < today) onChange({ date: today, slot: null, slotProposal: null });
+    if (!item.date || item.date < today) onChange({ date: today, sessions: [] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.date, today]);
 
-  // Fetch today's sessions for the chosen track's key; refetch every 30s.
+  // Fetch the shown track's key's sessions; refetch every 30s.
   useEffect(() => {
     if (!target || !item.date) {
       setScanState("done");
@@ -199,45 +199,53 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
     };
   }, [personKey, gridDate, session.bmiBillId, refreshTick]);
 
-  // Other cart activities — racing's cart-conflict gating, via the shared
-  // spacing rule (track-aware).
+  // Other cart activities — racing's cart-conflict gating, via the shared rule.
   const cartOthers = cartTimedBookings(session.items, item.id);
 
-  /** Release whatever this item holds and clear the pick (racing's deselect). */
-  const unpick = useCallback(async () => {
-    if (holding) return;
-    setHolding(item.slot);
-    setHoldError(null);
-    setBusy?.(true);
-    try {
-      if (item.bmiLineId) await releaseItemBmiLines(session, item);
-    } finally {
-      onChange({ slot: null, slotProposal: null, bmiLineId: null, heldQty: null });
-      setHolding(null);
-      setBusy?.(false);
-    }
-  }, [holding, item, session, onChange, setBusy]);
-
-  const bookSlot = useCallback(
-    async (entry: SlotEntry) => {
+  /** Tap a picked card: release its $0 line and drop the session (racing's
+   *  deselect). Other picks stay. */
+  const unpickSession = useCallback(
+    async (sess: RaceSimSession) => {
       if (holding) return;
-      setHolding(entry.block.start);
+      setHolding(sess.slot);
       setHoldError(null);
       setBusy?.(true);
-      const stamped = {
-        slot: entry.block.start,
+      try {
+        if (sess.bmiLineId) await releaseRaceSimSessionLines(session, [sess]);
+      } finally {
+        onChange({
+          sessions: item.sessions.filter((s) => !sameSession(s, sess.trackKey, sess.slot)),
+        });
+        setHolding(null);
+        setBusy?.(false);
+      }
+    },
+    [holding, item.sessions, session, onChange, setBusy],
+  );
+
+  /** Tap an open card: ADD a session on the shown track and hold it. */
+  const bookSlot = useCallback(
+    async (entry: SlotEntry) => {
+      const trackKey = item.trackKey;
+      if (holding || !trackKey) return;
+      const start = entry.block.start;
+      setHolding(start);
+      setHoldError(null);
+      setBusy?.(true);
+      const added: RaceSimSession = {
+        trackKey,
+        slot: start,
         slotProposal: entry.proposal,
         bmiLineId: null,
         heldQty: null,
-        racerCount: qty,
-        assignedTo: partyIds,
       };
+      const next = [...item.sessions.filter((s) => !sameSession(s, trackKey, start)), added];
+      const stamped = { sessions: next, racerCount: qty, assignedTo: partyIds };
       try {
-        if (item.bmiLineId) await releaseItemBmiLines(session, item);
         onChange(stamped);
-        await bookRaceSimOnAdvance(session, { ...item, ...stamped }, dispatch);
+        await bookRaceSimSession(session, { ...item, ...stamped }, added, dispatch);
       } catch (err) {
-        onChange({ slot: null, slotProposal: null, bmiLineId: null, heldQty: null });
+        onChange({ sessions: next.filter((s) => !sameSession(s, trackKey, start)) });
         // err.message is a raw vendor/technical detail — appended untranslated.
         setHoldError(
           err instanceof Error
@@ -253,34 +261,60 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
     [holding, item, session, onChange, dispatch, setBusy, qty, t],
   );
 
-  /** Track cards: switching track = a different $0 key, so release the held
-   *  line, clear the pick, and let the fetch effect load that key's sessions. */
+  /** Track cards filter the grid (racing's TrackInfoBanner): every pick stays. */
   const switchTrack = useCallback(
-    async (key: RaceSimTrackKey) => {
+    (key: RaceSimTrackKey) => {
       if (holding || key === item.trackKey) return;
-      setHolding(SWITCHING);
       setHoldError(null);
-      setBusy?.(true);
-      try {
-        if (item.bmiLineId) await releaseItemBmiLines(session, item);
-      } finally {
-        onChange({ trackKey: key, slot: null, slotProposal: null, bmiLineId: null, heldQty: null });
-        setHolding(null);
-        setBusy?.(false);
-      }
+      onChange({ trackKey: key });
     },
-    [holding, item, session, onChange, setBusy],
+    [holding, item.trackKey, onChange],
   );
 
-  // Party changed after the hold: BMI holds heldQty seats, the roster says
-  // qty — re-hold the same session at the new quantity (racing's per-racer
-  // lines re-stamp for free; the sim's single line must re-hold).
+  // Party changed after a hold: BMI holds heldQty seats, the roster says qty —
+  // re-hold that session at the new quantity, one at a time (racing's
+  // per-racer lines re-stamp for free; a sim line must re-hold).
+  const stale = item.sessions.find((s) => s.bmiLineId && s.heldQty != null && s.heldQty !== qty);
   useEffect(() => {
-    if (!item.slot || !item.bmiLineId || item.heldQty == null || holding) return;
-    if (item.heldQty === qty || scanState !== "done") return;
-    const entry = slots.find((s) => s.block.start === item.slot);
-    if (entry) void bookSlot(entry);
-  }, [item.slot, item.bmiLineId, item.heldQty, qty, holding, scanState, slots, bookSlot]);
+    if (!stale || holding) return;
+    let cancelled = false;
+    (async () => {
+      setHolding(stale.slot);
+      setBusy?.(true);
+      const reset = item.sessions.map((s) =>
+        sameSession(s, stale.trackKey, stale.slot) ? { ...s, bmiLineId: null, heldQty: null } : s,
+      );
+      try {
+        await releaseRaceSimSessionLines(session, [stale]);
+        if (cancelled) return;
+        onChange({ sessions: reset, racerCount: qty, assignedTo: partyIds });
+        await bookRaceSimSession(
+          session,
+          { ...item, sessions: reset, racerCount: qty, assignedTo: partyIds },
+          stale,
+          dispatch,
+        );
+      } catch (err) {
+        if (!cancelled) {
+          onChange({ sessions: reset.filter((s) => !sameSession(s, stale.trackKey, stale.slot)) });
+          setHoldError(
+            err instanceof Error
+              ? `${t("slot.hold.filled")} (${err.message})`
+              : t("slot.hold.filled"),
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setHolding(null);
+          setBusy?.(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the stale session identity only
+  }, [stale?.slot, stale?.trackKey, stale?.heldQty, qty, holding]);
 
   const nowMs = Date.now();
   const leadCutoffMs = nowMs + LEAD_MS;
@@ -289,25 +323,30 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   );
 
   // TEST KIOSK ONLY (kiosk 99, context.kioskTest) — racing's rig: when TODAY's
-  // grid has settled empty (all sessions past/lead-filtered/none planned), roll
-  // the item ONE day forward so after-close testing has a real grid. One roll
-  // per mount; only ever off today. Real kiosks have no kioskTest flag.
+  // grid has settled empty (all sessions past/lead-filtered/none planned) and
+  // nothing is picked yet, roll the item ONE day forward so after-close
+  // testing has a real grid. One roll per mount; only ever off today. Real
+  // kiosks have no kioskTest flag.
   const kioskTestRig = !!session.context?.kioskTest;
   const testRolledRef = useRef(false);
   useEffect(() => {
     if (!kioskTestRig || testRolledRef.current || !target) return;
     if (gridDate !== today || scanState !== "done" || visible.length > 0) return;
+    if (item.sessions.length > 0) return;
     testRolledRef.current = true;
     const next = new Date(`${today}T12:00:00`);
     next.setDate(next.getDate() + 1);
-    onChange({
-      date: next.toISOString().slice(0, 10),
-      slot: null,
-      slotProposal: null,
-      bmiLineId: null,
-      heldQty: null,
-    });
-  }, [kioskTestRig, target, gridDate, today, scanState, visible.length, onChange]);
+    onChange({ date: next.toISOString().slice(0, 10), sessions: [] });
+  }, [
+    kioskTestRig,
+    target,
+    gridDate,
+    today,
+    scanState,
+    visible.length,
+    item.sessions.length,
+    onChange,
+  ]);
   const testShowingFutureDay = kioskTestRig && gridDate > today;
 
   const product = getRaceSimProduct(item.productSlug);
@@ -320,6 +359,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
     locale === "es" ? "es-US" : "en-US",
     { weekday: "long", month: "long", day: "numeric" },
   );
+  const pickedCount = item.sessions.length;
 
   // Racing's full-day private-event guard — the whole screen, before the grid.
   const privateEvent = raceSimPrivateEventTitle(gridDate);
@@ -361,7 +401,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
       )}
 
       {/* Track cards — racing's TrackInfoBanner (tinted card, display title,
-          ring when active, siblings dimmed); here they switch the key. */}
+          ring when active, siblings dimmed); they filter the grid, picks stay. */}
       <div className="space-y-[10px]">
         <div className="grid grid-cols-3 gap-[16px]">
           {RACE_SIM_TRACKS.map((track) => {
@@ -373,7 +413,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
                 type="button"
                 aria-pressed={active}
                 disabled={holding != null}
-                onClick={() => void switchTrack(track.key)}
+                onClick={() => switchTrack(track.key)}
                 className={`k-tap rounded-[16px] border-2 px-[24px] py-[18px] text-left ${
                   item.trackKey && !active ? "opacity-40" : ""
                 }`}
@@ -397,9 +437,18 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
         )}
       </div>
 
-      {/* Racer count summary — racing's "Booking for N racers" card. */}
+      {/* Racer count summary — racing's "Booking for N racers" card, plus the
+          running pick count across tracks. */}
       <div className="mx-auto max-w-[520px] rounded-[16px] border border-white/8 bg-white/[0.03] p-[16px] text-center">
-        <p className="text-[17px] text-white/50">{t("racesim.slot.bookingFor", { count: qty })}</p>
+        <p className="text-[17px] text-white/50">
+          {t("racesim.slot.bookingFor", { count: qty })}
+          {pickedCount > 0 && (
+            <span className="text-[#00E2E5]">
+              {" · "}
+              {t("racesim.slot.pickedCount", { count: pickedCount })}
+            </span>
+          )}
+        </p>
       </div>
 
       {holdError && !holding && (
@@ -435,8 +484,13 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
             const startMs = wallClockMs(block.start);
             const free = block.freeSpots;
             const cap = Math.max(1, block.capacity ?? free);
-            const isSelected = item.slot === block.start;
+            const picked = item.sessions.find((s) => sameSession(s, item.trackKey, block.start));
+            const isSelected = !!picked;
             const isHolding = holding === block.start;
+            // The same start already picked on ANOTHER track — same rigs.
+            const ownOther = isSelected
+              ? null
+              : ownPickAtSameStart(item.sessions, block.start, item.trackKey);
             // Racing's gates, in its order. Selected cards are never "full".
             const isEventReserved =
               !isSelected && raceSimSlotEventReserved(gridDate, block.start, block.stop);
@@ -444,7 +498,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
             const isCartConflict = !isSelected && raceSimSlotConflicts(startMs, cartOthers);
             const isExistingConflict =
               !isSelected && !isCartConflict && raceSimSlotConflicts(startMs, existing);
-            const isConflict = isCartConflict || isExistingConflict;
+            const isConflict = isCartConflict || isExistingConflict || !!ownOther;
             const isLowCap = free < qty;
             const isFull =
               !isSelected && (isLowCap || isConflict || isEventReserved || isBeforeReopen);
@@ -455,6 +509,10 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
             let statusClass: string;
             if (isEventReserved || isBeforeReopen) {
               statusKey = "racesim.slot.reservedForEvent";
+              statusClass = "text-amber-400";
+            } else if (ownOther) {
+              statusKey = "racesim.slot.pickedOtherTrack";
+              statusVars = { track: t(TRACK_NAME_KEYS[ownOther.trackKey]) };
               statusClass = "text-amber-400";
             } else if (isExistingConflict) {
               statusKey = "racesim.slot.tooCloseExisting";
@@ -498,9 +556,9 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
                 key={block.start}
                 type="button"
                 disabled={isFull || holding != null}
-                // Tapping the picked card unpicks it (racing's deselect —
-                // releases the hold); any other card switches the hold.
-                onClick={() => void (isSelected ? unpick() : bookSlot(entry))}
+                // Tapping a picked card unpicks it (racing's deselect —
+                // releases its hold); an open card ADDS a session.
+                onClick={() => void (picked ? unpickSession(picked) : bookSlot(entry))}
                 className={`k-tap relative rounded-[16px] border p-[16px] text-left ${cardClass}`}
               >
                 {isHolding && (
@@ -535,18 +593,22 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
 };
 
 // TODO(i18n): title/reasons localize via KioskFlow's lookup maps — "Time" →
-// stepTitle.time, the two reasons → stepReason.kioskSlot / racesimConflict.
+// stepTitle.time, the reasons → stepReason.kioskSlot / racesimConflict /
+// racesimSelfConflict.
 export const KioskRaceSimSlotStep: StepDef<RaceSimItem> = {
   id: "racesim-slot",
   title: "Time",
   Component: KioskRaceSimSlotStepComponent,
   isVisible: () => true,
-  // Racing's canAdvanceFor re-runs the spacing rule as the wizard gate; the
-  // sim gate re-checks the picked session against the rest of the cart.
+  // Racing's canAdvanceFor re-runs the rules as the wizard gate: at least one
+  // session, no two of them on one start, none too close to the rest of the cart.
   canAdvance: (item, session) => {
-    if (!item.slot) return { reason: "Pick a time to continue." };
+    if (item.sessions.length === 0) return { reason: "Pick a time to continue." };
+    if (findRaceSimSelfConflict(item.sessions)) {
+      return { reason: "You picked the same time on two tracks — remove one to continue." };
+    }
     const others = cartTimedBookings(session.items, item.id);
-    if (raceSimSlotConflicts(wallClockMs(item.slot), others)) {
+    if (item.sessions.some((s) => raceSimSlotConflicts(wallClockMs(s.slot), others))) {
       return { reason: "That time is too close to another activity — pick another." };
     }
     return true;

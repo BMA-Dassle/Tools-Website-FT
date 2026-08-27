@@ -29,7 +29,7 @@ import {
   heatsConflict,
 } from "~/features/booking/service/conflict";
 import { evaluateRaceRestrictions } from "~/features/booking/service/race-restriction-rules";
-import { RACE_SIM_CONFLICT_TRACK } from "~/features/race-sims/scheduling";
+import { raceSimConflictTrack } from "~/features/race-sims/scheduling";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
 import { useCrossTierBlocks } from "./useCrossTierBlocks";
@@ -494,8 +494,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       // track; heatsConflict only needs the label to differ from red/blue/mega.
       .concat(
         session.items.flatMap((i) =>
-          i.kind === "racesim" && i.slot
-            ? [{ heatId: i.slot, track: RACE_SIM_CONFLICT_TRACK as TrackOrNull }]
+          i.kind === "racesim"
+            ? i.sessions.map((s) => ({
+                heatId: s.slot,
+                track: raceSimConflictTrack(s.trackKey) as TrackOrNull,
+              }))
             : [],
         ),
       );

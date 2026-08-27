@@ -99,7 +99,7 @@ const attractionService: BookingService = {
 
 // ── Race Sims service ───────────────────────────────────────────────────
 
-import { bookRaceSimOnAdvance } from "~/features/race-sims/service";
+import { bookRaceSimSessions } from "~/features/race-sims/service";
 import type { RaceSimItem } from "../state/types";
 
 /**
@@ -119,13 +119,9 @@ const racesimService: BookingService = {
       item: RaceSimItem;
       dispatch: Dispatch<Action>;
     };
-    if (item.bmiLineId) {
-      return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
-    }
-    if (!item.slotProposal) {
-      return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
-    }
-    await bookRaceSimOnAdvance(session, item, dispatch);
+    // Every picked session that isn't held yet gets its $0 line (the kiosk
+    // grid eager-holds on pick; this is the checkout-time backstop).
+    await bookRaceSimSessions(session, item, dispatch);
     return { holdId: session.bmiBillId ?? "", squareOrderId: "" };
   },
   confirm: async () => ({ ok: true as const }),

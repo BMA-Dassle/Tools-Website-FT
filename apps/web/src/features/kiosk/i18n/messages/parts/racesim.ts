@@ -63,9 +63,14 @@ export const racesimEn = {
     "Today is reserved for a private event and is not available for public booking.",
   /** Track switcher helper under the cards — {track} = "Track A". */
   "racesim.slot.trackHint": "Showing {track} sessions — tap another track to switch.",
+  /** Same start already picked on another sim track — {track} = that track. */
+  "racesim.slot.pickedOtherTrack": "Picked on {track}",
+  "racesim.slot.pickedCount": "{count, plural, one {# session picked} other {# sessions picked}}",
 
   // --- KioskFlow shell lookups (activity label lives in parts/flow.ts) ---
   "stepReason.racesimConflict": "That time is too close to another activity — pick another.",
+  "stepReason.racesimSelfConflict":
+    "You picked the same time on two tracks — remove one to continue.",
   "stepTitle.raceOptions": "Race Options",
   "stepTitle.track": "Track",
   "stepReason.racesimProduct": "Pick a race to continue.",
@@ -110,7 +115,11 @@ export const racesimEs: Record<keyof typeof racesimEn, string> = {
   "racesim.slot.privateEvent.body":
     "Hoy está reservado para un evento privado y no está disponible para reservas públicas.",
   "racesim.slot.trackHint": "Mostrando sesiones de {track} — toca otra pista para cambiar.",
+  "racesim.slot.pickedOtherTrack": "Elegida en {track}",
+  "racesim.slot.pickedCount": "{count, plural, one {# sesión elegida} other {# sesiones elegidas}}",
   "stepReason.racesimConflict": "Esa hora está muy cerca de otra actividad — elige otra.",
+  "stepReason.racesimSelfConflict":
+    "Elegiste la misma hora en dos pistas — quita una para continuar.",
 
   "stepTitle.raceOptions": "Opciones de carrera",
   "stepTitle.track": "Pista",

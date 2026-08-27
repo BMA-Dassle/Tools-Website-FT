@@ -1,28 +1,31 @@
 /**
- * Race Sims scheduling rules — the SAME rule engine racing runs, applied to a
- * sim session (owner 2026-08-26: "make sure we apply all of our scheduling
- * rules"). Pure functions shared by the kiosk time grid (greys a card) and
- * the reserve guard (refuses the charge), so the two can never disagree.
+ * Race Sims scheduling rules — shared by the kiosk time grid (greys a card /
+ * gates Continue) and the reserve guard (refuses the charge), so the two can
+ * never disagree.
  *
- * Racing's rules and how a sim maps onto them:
- *   - SPACING (conflict.ts heatsConflict): same-track heats must skip a slot;
- *     cross-track needs 30 min to walk over and check in. All three sim
- *     tracks run on the SAME rigs, so sim-vs-sim is same-track — one shared
- *     conflict label, which heatsConflict resolves to its 20-min "skip at
- *     least one session" fallback — and sim-vs-kart is cross-track (30 min).
- *   - CROSS-RESERVATION (findCrossBookingConflict): the same rider's bookings
- *     in OTHER reservations today, matched by bmiPersonId — served by
- *     raceHeatsForPersonsOnDate, which reads karting heats AND prior sim
- *     sessions (booking_metadata.racesims[].participants).
- *   - GROUP EVENTS (lib/group-events): full-day private event blocks the
- *     screen; a morning-only buyout greys sessions before the public reopen;
- *     an event-window reservation greys overlapping sessions (karting-track
- *     extensions don't apply to sims — raceWindowAppliesToTrack with null).
- *   - CAPACITY and LEAD TIME live in the grid (freeSpots vs party, 10 min).
- *   Karting-only rules (tier/category restrictions, cross-category collision,
- *   pack caps) have no sim analog and are deliberately not applied.
+ * A sim item carries MANY sessions (RaceSimItem.sessions — racing's heats[]),
+ * each on a track, and picks accumulate across tracks like karting's
+ * "add another race or track". The rules (owner 2026-08-26):
+ *   - SIM vs SIM: the SAME time slot on any track is the same four rigs — a
+ *     10:00 on Track A blocks 10:00 on B and C — and that is the ONLY sim-vs-sim
+ *     rule: back-to-back sessions (10:00 then 10:15) are allowed, no gap.
+ *   - SIM vs KART HEAT (and attractions / bowling): racing's cross-activity
+ *     spacing, heatsConflict — 30 minutes to finish, walk over and check in.
+ *   - CROSS-RESERVATION: the same rider's bookings in OTHER reservations today
+ *     (raceHeatsForPersonsOnDate: karting heats + prior sim sessions), same two
+ *     rules per rider.
+ *   - GROUP EVENTS (lib/group-events): full-day private event, morning buyout
+ *     reopen, event windows (karting-track extensions don't apply to sims).
+ *   - CAPACITY and LEAD TIME live in the grid.
+ *   Karting-only rules (tier/category, cross-category, pack caps, same-track
+ *   skip-a-slot) deliberately do NOT apply to sims.
  */
-import type { PartyMember, RaceSimItem, SessionItem } from "~/features/booking/state/types";
+import type {
+  PartyMember,
+  RaceSimItem,
+  RaceSimSession,
+  SessionItem,
+} from "~/features/booking/state/types";
 import {
   heatsConflict,
   heatClockLabel,
@@ -34,11 +37,25 @@ import {
   getRaceBlockWindowsForDate,
   raceWindowAppliesToTrack,
 } from "@/lib/group-events";
+import { RACE_SIM_TRACKS, getRaceSimTrack } from "./products";
 
-/** The conflict "track" every sim session carries — one label for all three
- *  sim tracks because they share the rigs (see header). Normalizes to
- *  "race sim", never colliding with red/blue/mega. */
-export const RACE_SIM_CONFLICT_TRACK = "Race Sim";
+/** Fallback conflict label when a session has no resolvable track. */
+export const RACE_SIM_TRACK_FALLBACK = "Race Sim";
+
+/** The label a sim session carries in every conflict list AND in
+ *  booking_metadata.racesims[].track — the track's display name ("Track A").
+ *  Distinct from red/blue/mega, so heatsConflict treats sim-vs-kart as
+ *  cross-track; isRaceSimTrackLabel recognizes it as a sim for the
+ *  same-slot rule. */
+export function raceSimConflictTrack(trackKey: string | null | undefined): string {
+  return getRaceSimTrack(trackKey ?? null)?.name ?? RACE_SIM_TRACK_FALLBACK;
+}
+
+/** True when a timed booking is a sim session (its track is a sim label). */
+export function isRaceSimTrackLabel(track: string | null | undefined): boolean {
+  if (!track) return false;
+  return track === RACE_SIM_TRACK_FALLBACK || RACE_SIM_TRACKS.some((t) => t.name === track);
+}
 
 /** Wall-clock ISO ("2026-08-26T15:00:00", optional trailing Z) → epoch ms,
  *  the same parse racing's grid and conflict helpers use. */
@@ -48,15 +65,22 @@ export function wallClockMs(iso: string): number {
 
 export interface TimedBooking {
   startMs: number;
-  /** Racing track name for heats, RACE_SIM_CONFLICT_TRACK for sims, null for
-   *  attractions/bowling (null = always the 30-min cross-track rule). */
+  /** Racing track name for heats, a sim track label for sim sessions, null
+   *  for attractions/bowling (null = always the 30-min cross-activity rule). */
   track: string | null;
 }
 
-/** Every timed booking in the cart EXCEPT `excludeItemId`, labelled the way
- *  heatsConflict expects. Broader than racing's own grid (which only checks
- *  the race item's heats) — a sim rider can't be in two places, so the whole
- *  cart counts, like the attraction grid does. */
+/** Does a candidate sim session at `candidateStartMs` conflict with one other
+ *  timed booking? Sim-vs-sim = same start only; anything else = racing's
+ *  cross-activity spacing. */
+export function simConflictsWith(candidateStartMs: number, other: TimedBooking): boolean {
+  if (isRaceSimTrackLabel(other.track)) return other.startMs === candidateStartMs;
+  return heatsConflict(other.startMs, other.track, candidateStartMs, RACE_SIM_TRACK_FALLBACK);
+}
+
+/** Every timed booking in the cart EXCEPT item `excludeItemId`. Broader than
+ *  racing's own grid (which only checks its race item's heats) — a rider
+ *  can't be in two places, so the whole cart counts. */
 export function cartTimedBookings(items: SessionItem[], excludeItemId: string): TimedBooking[] {
   const out: TimedBooking[] = [];
   for (const other of items) {
@@ -66,8 +90,9 @@ export function cartTimedBookings(items: SessionItem[], excludeItemId: string): 
         if (h.heatId) out.push({ startMs: wallClockMs(h.heatId), track: h.track ?? null });
       }
     } else if (other.kind === "racesim") {
-      if (other.slot)
-        out.push({ startMs: wallClockMs(other.slot), track: RACE_SIM_CONFLICT_TRACK });
+      for (const s of other.sessions) {
+        out.push({ startMs: wallClockMs(s.slot), track: raceSimConflictTrack(s.trackKey) });
+      }
     } else if (other.kind === "attraction") {
       if (other.slot) out.push({ startMs: wallClockMs(other.slot), track: null });
     } else if (other.kind === "bowling" || other.kind === "kbf") {
@@ -77,18 +102,40 @@ export function cartTimedBookings(items: SessionItem[], excludeItemId: string): 
   return out.filter((b) => Number.isFinite(b.startMs));
 }
 
-/** Racing's spacing rule, sim-side: is a candidate sim session too close to
- *  any of `others`? */
+/** Is a candidate sim session too close to any of `others`? */
 export function raceSimSlotConflicts(candidateStartMs: number, others: TimedBooking[]): boolean {
-  return others.some((o) =>
-    heatsConflict(o.startMs, o.track, candidateStartMs, RACE_SIM_CONFLICT_TRACK),
-  );
+  return others.some((o) => simConflictsWith(candidateStartMs, o));
+}
+
+/** The item's own pick that occupies this start on ANOTHER track, if any —
+ *  the "10:00 on Track A blocks 10:00 on B and C" rule, for the card label. */
+export function ownPickAtSameStart(
+  sessions: RaceSimSession[],
+  start: string,
+  currentTrackKey: string | null,
+): RaceSimSession | null {
+  const ms = wallClockMs(start);
+  return sessions.find((s) => s.trackKey !== currentTrackKey && wallClockMs(s.slot) === ms) ?? null;
+}
+
+/** The wizard gate's self-check (racing's canAdvanceFor): two of the item's
+ *  own sessions on the same start. Returns the pair or null. */
+export function findRaceSimSelfConflict(
+  sessions: RaceSimSession[],
+): { a: RaceSimSession; b: RaceSimSession } | null {
+  for (let i = 0; i < sessions.length; i++) {
+    for (let j = i + 1; j < sessions.length; j++) {
+      if (wallClockMs(sessions[i].slot) === wallClockMs(sessions[j].slot)) {
+        return { a: sessions[i], b: sessions[j] };
+      }
+    }
+  }
+  return null;
 }
 
 /** Racing's "Reserved for event" rule: the session overlaps an event-window
  *  reservation on this date. Karting-track-scoped extensions never apply to a
- *  sim (raceWindowAppliesToTrack with a null track), exactly as they never
- *  apply to a heat on a track outside the extension. */
+ *  sim (raceWindowAppliesToTrack with a null track). */
 export function raceSimSlotEventReserved(date: string, startIso: string, stopIso: string): boolean {
   const start = wallClockMs(startIso);
   const stop = wallClockMs(stopIso);
@@ -113,18 +160,15 @@ export function raceSimPrivateEventTitle(date: string): string | null {
   return getGroupEventForDate(date)?.eventTitle ?? null;
 }
 
-/**
- * The sim item's riders as per-person timed bookings — racing's
- * raceHeatsMetadata shape, for findCrossBookingConflict. One entry per rider
- * with a BMI person id (riders without one have no identity to match, same
- * as racing). Roster = assignedTo, falling back to participants, then the
- * whole party (the kiosk stamps the whole party — racing's "everyone races").
- */
+/** The item's riders for the cross-reservation guard — racing's
+ *  raceHeatsMetadata shape: one row per (session × rider with a BMI id).
+ *  Roster = assignedTo → participants → whole party (the kiosk stamps the
+ *  whole party — racing's "everyone races"). */
 export function raceSimCartPersonHeats(
   item: RaceSimItem,
   party: PartyMember[],
 ): BookedPersonHeat[] {
-  if (!item.slot) return [];
+  if (item.sessions.length === 0) return [];
   const ids =
     item.assignedTo.length > 0
       ? item.assignedTo
@@ -133,43 +177,70 @@ export function raceSimCartPersonHeats(
         : party.map((m) => m.id);
   const byId = new Map(party.map((m) => [m.id, m]));
   const out: BookedPersonHeat[] = [];
-  for (const id of ids) {
-    const m = byId.get(id);
-    if (!m?.bmiPersonId) continue;
-    out.push({
-      heatId: item.slot,
-      track: RACE_SIM_CONFLICT_TRACK,
-      bmiPersonId: m.bmiPersonId,
-      racer: m.firstName ?? null,
-    });
+  for (const s of item.sessions) {
+    for (const id of ids) {
+      const m = byId.get(id);
+      if (!m?.bmiPersonId) continue;
+      out.push({
+        heatId: s.slot,
+        track: raceSimConflictTrack(s.trackKey),
+        bmiPersonId: m.bmiPersonId,
+        racer: m.firstName ?? null,
+      });
+    }
   }
   return out;
+}
+
+/** Cross-reservation check for sim rows — racing's findCrossBookingConflict
+ *  with the sim rules: per rider, an existing SIM at the same start collides;
+ *  an existing kart heat needs racing's 30-minute spacing. */
+export function findRaceSimCrossBookingConflict(
+  cartSims: BookedPersonHeat[],
+  existingHeats: BookedPersonHeat[],
+): { cart: BookedPersonHeat; existing: BookedPersonHeat } | null {
+  for (const c of cartSims) {
+    if (!c.bmiPersonId || !c.heatId) continue;
+    const cMs = wallClockMs(c.heatId);
+    if (!Number.isFinite(cMs)) continue;
+    for (const e of existingHeats) {
+      if (!e.bmiPersonId || e.bmiPersonId !== c.bmiPersonId || !e.heatId) continue;
+      const eMs = wallClockMs(e.heatId);
+      if (!Number.isFinite(eMs)) continue;
+      if (simConflictsWith(cMs, { startMs: eMs, track: e.track })) return { cart: c, existing: e };
+    }
+  }
+  return null;
 }
 
 /**
  * Cart-internal kart↔sim spacing — the one case neither grid catches alone:
  * racing's heat grid checks only its own heats, so a kart heat picked AFTER a
- * held sim never sees it. The whole party rides the sim, so ANY kart heat in
- * the cart is the same person's booking; every (sim slot, kart heat) pair is
- * checked with racing's rule (cross-track: 30 min). Returns the first
- * offending pair, or null. Used by the reserve guard (fail-closed) and
- * mirrored on racing's grid by including cart sims in its cart-conflict set.
+ * held sim never sees it. The whole party rides every sim session, so ANY
+ * kart heat in the cart is the same person's booking; every (session, heat)
+ * pair is checked with racing's cross-activity rule (30 min). Returns the
+ * first offending pair, or null.
  */
 export function findCartKartSimConflict(
   items: SessionItem[],
 ): { simSlot: string; heatId: string; track: string | null } | null {
-  const sims = items.filter((i): i is RaceSimItem => i.kind === "racesim" && !!i.slot);
-  if (sims.length === 0) return null;
+  const sessions = items.flatMap((i) => (i.kind === "racesim" ? i.sessions : []));
+  if (sessions.length === 0) return null;
   for (const other of items) {
     if (other.kind !== "race") continue;
     for (const h of other.heats) {
       if (!h.heatId) continue;
       const heatMs = wallClockMs(h.heatId);
-      for (const sim of sims) {
+      for (const s of sessions) {
         if (
-          heatsConflict(wallClockMs(sim.slot!), RACE_SIM_CONFLICT_TRACK, heatMs, h.track ?? null)
+          heatsConflict(
+            wallClockMs(s.slot),
+            raceSimConflictTrack(s.trackKey),
+            heatMs,
+            h.track ?? null,
+          )
         ) {
-          return { simSlot: sim.slot!, heatId: h.heatId, track: h.track ?? null };
+          return { simSlot: s.slot, heatId: h.heatId, track: h.track ?? null };
         }
       }
     }
@@ -189,7 +260,9 @@ export function raceSimBookingConflictMessage(conflict: {
   existing: { heatId: string; track: string | null };
 }): string {
   const who = conflict.cart.racer || "One of your riders";
-  const what = conflict.existing.track === RACE_SIM_CONFLICT_TRACK ? "a sim session" : "a race";
   const cartLabel = conflict.cart.heatId ? heatClockLabel(conflict.cart.heatId) : "the selected";
-  return `${who} already has ${what} booked at ${heatClockLabel(conflict.existing.heatId)} — too close to the ${cartLabel} session. Please pick a different time.`;
+  if (isRaceSimTrackLabel(conflict.existing.track)) {
+    return `${who} already has a sim session at ${heatClockLabel(conflict.existing.heatId)} — the same time as the ${cartLabel} session. Please pick a different time.`;
+  }
+  return `${who} already has a race booked at ${heatClockLabel(conflict.existing.heatId)} — too close to the ${cartLabel} session. Please pick a different time.`;
 }

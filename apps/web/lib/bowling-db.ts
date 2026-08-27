@@ -1906,7 +1906,7 @@ export async function raceHeatsForPersonsOnDate(opts: {
       AND t.e->>'bmiPersonId' = ANY(${personIds})
       AND left(t.e->>'heatId', 10) = ${opts.date}
     UNION ALL
-    SELECT s.e->>'slot' AS heat_id, 'Race Sim' AS track,
+    SELECT s.e->>'slot' AS heat_id, s.e->>'track' AS track,
            p.e->>'bmiPersonId' AS person_id, p.e->>'name' AS racer
     FROM bowling_reservations r
     CROSS JOIN LATERAL jsonb_array_elements(

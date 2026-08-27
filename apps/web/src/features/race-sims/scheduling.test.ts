@@ -1,146 +1,174 @@
+import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
-import { newItem, newPartyMember, type RaceSimItem, type SessionItem } from "~/features/booking";
+import type { BmiProposal } from "~/features/booking/data/bmi";
+import type { RaceSimSession, SessionItem } from "~/features/booking/state/types";
+import { newItem } from "~/features/booking/state/types";
 import {
-  RACE_SIM_CONFLICT_TRACK,
+  RACE_SIM_TRACK_FALLBACK,
   cartKartSimConflictMessage,
   cartTimedBookings,
   findCartKartSimConflict,
+  findRaceSimCrossBookingConflict,
+  findRaceSimSelfConflict,
+  isRaceSimTrackLabel,
+  ownPickAtSameStart,
   raceSimBookingConflictMessage,
   raceSimCartPersonHeats,
+  raceSimConflictTrack,
   raceSimSlotConflicts,
   wallClockMs,
 } from "./scheduling";
 
-const T = (hhmm: string) => wallClockMs(`2026-08-26T${hhmm}:00`);
+const proposal = { blocks: [], productLineId: null } as unknown as BmiProposal;
+const sess = (slot: string, trackKey: "a" | "b" | "c" = "a"): RaceSimSession => ({
+  trackKey,
+  slot,
+  slotProposal: proposal,
+  bmiLineId: null,
+  heldQty: null,
+});
+const T = (hhmm: string) => `2026-08-27T${hhmm}:00`;
+const ms = (hhmm: string) => wallClockMs(T(hhmm));
 
-describe("the sim conflict label is ONE string across TS and SQL", () => {
-  it("raceHeatsForPersonsOnDate emits exactly RACE_SIM_CONFLICT_TRACK for sim rows", () => {
-    // Grid (TS) and guard (SQL) must agree on the label or sim-vs-sim silently
-    // degrades from same-track (skip a session) to cross-track (30 min).
+const race = (heats: { heatId: string; track: string }[]): SessionItem => ({
+  ...(newItem("race") as Extract<SessionItem, { kind: "race" }>),
+  id: "race1",
+  heats: heats.map((h) => ({
+    heatId: h.heatId,
+    track: h.track,
+    bmiLineId: null,
+    racerId: "p1",
+  })) as never,
+});
+const sim = (sessions: RaceSimSession[], id = "sim1"): SessionItem => ({
+  ...(newItem("racesim") as Extract<SessionItem, { kind: "racesim" }>),
+  id,
+  productSlug: "sim-single",
+  racerCount: 2,
+  sessions,
+});
+
+describe("sim track labels", () => {
+  it("each sim track carries its own display-name label; unknown → fallback", () => {
+    expect(raceSimConflictTrack("a")).toBe("Track A");
+    expect(raceSimConflictTrack("c")).toBe("Track C");
+    expect(raceSimConflictTrack(null)).toBe(RACE_SIM_TRACK_FALLBACK);
+    expect(isRaceSimTrackLabel("Track B")).toBe(true);
+    expect(isRaceSimTrackLabel(RACE_SIM_TRACK_FALLBACK)).toBe(true);
+    expect(isRaceSimTrackLabel("Red")).toBe(false);
+    expect(isRaceSimTrackLabel(null)).toBe(false);
+  });
+
+  it("bowling-db emits the persisted per-session track label, not one flat literal", () => {
+    // raceHeatsForPersonsOnDate's sim rows must surface the SAME label the
+    // metadata writer persisted (getRaceSimTrack(...).name) so the grid's
+    // isRaceSimTrackLabel check recognizes them as sims.
     const sql = readFileSync(resolve(__dirname, "../../../lib/bowling-db.ts"), "utf8");
-    expect(sql).toContain(`'${RACE_SIM_CONFLICT_TRACK}' AS track`);
+    expect(sql).toContain("s.e->>'track' AS track");
+    expect(sql).not.toContain("'Race Sim' AS track");
   });
 });
 
-describe("findCartKartSimConflict — kart heat vs sim session in ONE cart", () => {
-  const sim = (slot: string) =>
-    ({ ...(newItem("racesim") as RaceSimItem), id: "s1", slot }) as SessionItem;
-  const race = (heatId: string) =>
-    ({
-      ...newItem("race"),
-      heats: [{ productId: "1", track: "Red", heatId, bmiLineId: null, assignedTo: "m1" }],
-    }) as SessionItem;
-
-  it("flags a kart heat within 30 min of the held sim, either order", () => {
-    expect(
-      findCartKartSimConflict([sim("2026-08-26T15:00:00"), race("2026-08-26T15:12:00")]),
-    ).toEqual({ simSlot: "2026-08-26T15:00:00", heatId: "2026-08-26T15:12:00", track: "Red" });
-    expect(
-      findCartKartSimConflict([race("2026-08-26T14:45:00"), sim("2026-08-26T15:00:00")]),
-    ).not.toBeNull();
+describe("sim-vs-sim: same start on any track collides, back-to-back is allowed", () => {
+  it("10:00 on Track A blocks 10:00 on B and C; 10:15 is open", () => {
+    const picked = [sess(T("10:00"), "a")];
+    expect(ownPickAtSameStart(picked, T("10:00"), "b")?.trackKey).toBe("a");
+    expect(ownPickAtSameStart(picked, T("10:00"), "c")?.trackKey).toBe("a");
+    expect(ownPickAtSameStart(picked, T("10:15"), "b")).toBeNull();
+    // On the SAME track the pick is the card itself, not a block
+    expect(ownPickAtSameStart(picked, T("10:00"), "a")).toBeNull();
   });
 
-  it("clears at 30 minutes, and with no sim or no heat", () => {
+  it("another sim item in the cart: same start conflicts, adjacent does not (no gap rule)", () => {
+    const others = cartTimedBookings([sim([sess(T("10:00"), "a")], "other")], "me");
+    expect(others).toEqual([{ startMs: ms("10:00"), track: "Track A" }]);
+    expect(raceSimSlotConflicts(ms("10:00"), others)).toBe(true);
+    expect(raceSimSlotConflicts(ms("10:15"), others)).toBe(false);
+    expect(raceSimSlotConflicts(ms("09:45"), others)).toBe(false);
+  });
+
+  it("self-check finds two of the item's own sessions on one start", () => {
+    expect(findRaceSimSelfConflict([sess(T("10:00"), "a"), sess(T("10:15"), "b")])).toBeNull();
+    const hit = findRaceSimSelfConflict([sess(T("10:00"), "a"), sess(T("10:00"), "b")]);
+    expect(hit?.a.trackKey).toBe("a");
+    expect(hit?.b.trackKey).toBe("b");
+  });
+});
+
+describe("sim-vs-kart: racing's 30-minute cross-activity spacing", () => {
+  it("a kart heat within 30 minutes blocks the sim card; 30+ is fine", () => {
+    const others = cartTimedBookings([race([{ heatId: T("10:00"), track: "Red" }])], "me");
+    expect(raceSimSlotConflicts(ms("10:15"), others)).toBe(true);
+    expect(raceSimSlotConflicts(ms("10:29"), others)).toBe(true);
+    expect(raceSimSlotConflicts(ms("10:30"), others)).toBe(false);
+    expect(raceSimSlotConflicts(ms("09:30"), others)).toBe(false);
+  });
+
+  it("attractions/bowling (no track) use the same 30-minute rule", () => {
+    const others = [{ startMs: ms("10:00"), track: null }];
+    expect(raceSimSlotConflicts(ms("10:20"), others)).toBe(true);
+    expect(raceSimSlotConflicts(ms("10:30"), others)).toBe(false);
+  });
+
+  it("cart-internal kart↔sim guard checks EVERY session and reports the pair", () => {
+    const items = [
+      race([{ heatId: T("11:00"), track: "Red" }]),
+      sim([sess(T("15:00"), "a"), sess(T("11:15"), "b")]),
+    ];
+    const hit = findCartKartSimConflict(items);
+    expect(hit).toEqual({ simSlot: T("11:15"), heatId: T("11:00"), track: "Red" });
+    expect(cartKartSimConflictMessage(hit!)).toContain("30 minutes");
     expect(
-      findCartKartSimConflict([sim("2026-08-26T15:00:00"), race("2026-08-26T15:30:00")]),
+      findCartKartSimConflict([
+        race([{ heatId: T("11:00"), track: "Red" }]),
+        sim([sess(T("11:30"), "a")]),
+      ]),
     ).toBeNull();
-    expect(findCartKartSimConflict([race("2026-08-26T15:00:00")])).toBeNull();
-    expect(findCartKartSimConflict([sim("2026-08-26T15:00:00")])).toBeNull();
+    expect(findCartKartSimConflict([sim([sess(T("11:00"), "a")])])).toBeNull();
+  });
+});
+
+describe("cross-reservation (same rider, other reservations today)", () => {
+  const party = [
+    { id: "p1", firstName: "Ana", lastName: "R", bmiPersonId: "12345678901234567" },
+    { id: "p2", firstName: "Bo", lastName: "R", bmiPersonId: null },
+  ] as never;
+
+  it("emits one row per session × rider with a BMI id, labelled by track", () => {
+    const item = sim([sess(T("10:00"), "a"), sess(T("10:15"), "b")]) as Extract<
+      SessionItem,
+      { kind: "racesim" }
+    >;
+    const rows = raceSimCartPersonHeats(item, party);
+    expect(rows).toEqual([
+      { heatId: T("10:00"), track: "Track A", bmiPersonId: "12345678901234567", racer: "Ana" },
+      { heatId: T("10:15"), track: "Track B", bmiPersonId: "12345678901234567", racer: "Ana" },
+    ]);
   });
 
-  it("message names both times", () => {
+  it("existing sim at the same start collides; adjacent existing sim does not; kart heat needs 30", () => {
+    const cart = [{ heatId: T("10:00"), track: "Track A", bmiPersonId: "1", racer: "Ana" }];
+    const sameSim = [{ heatId: T("10:00"), track: "Track C", bmiPersonId: "1", racer: null }];
+    const nextSim = [{ heatId: T("10:15"), track: "Track C", bmiPersonId: "1", racer: null }];
+    const kart = [{ heatId: T("10:20"), track: "Blue", bmiPersonId: "1", racer: null }];
+    const otherRider = [{ heatId: T("10:00"), track: "Track C", bmiPersonId: "2", racer: null }];
+    expect(findRaceSimCrossBookingConflict(cart, sameSim)?.existing.track).toBe("Track C");
+    expect(findRaceSimCrossBookingConflict(cart, nextSim)).toBeNull();
+    expect(findRaceSimCrossBookingConflict(cart, kart)?.existing.track).toBe("Blue");
+    expect(findRaceSimCrossBookingConflict(cart, otherRider)).toBeNull();
+  });
+
+  it("rejection copy names a sim session vs a race", () => {
+    const base = { cart: { heatId: T("10:00"), racer: "Ana" } };
     expect(
-      cartKartSimConflictMessage({ simSlot: "2026-08-26T15:00:00", heatId: "2026-08-26T15:12:00" }),
-    ).toContain("3:12 PM race is too close to your 3:00 PM sim session");
-  });
-});
-
-describe("raceSimSlotConflicts — racing's spacing rule on a sim session", () => {
-  it("sim vs karting heat is CROSS-track: 30-minute buffer", () => {
-    const kart = [{ startMs: T("15:00"), track: "Red" }];
-    expect(raceSimSlotConflicts(T("15:15"), kart)).toBe(true); // 15 min → too close
-    expect(raceSimSlotConflicts(T("15:29"), kart)).toBe(true);
-    expect(raceSimSlotConflicts(T("15:30"), kart)).toBe(false); // exactly 30 → clear
-  });
-
-  it("sim vs sim is SAME-track (shared rigs): skip at least one session", () => {
-    const sim = [{ startMs: T("15:00"), track: RACE_SIM_CONFLICT_TRACK }];
-    expect(raceSimSlotConflicts(T("15:15"), sim)).toBe(true); // back-to-back → too close
-    expect(raceSimSlotConflicts(T("15:20"), sim)).toBe(false); // heatsConflict's 20-min fallback
-  });
-
-  it("attractions/bowling carry no track → the 30-minute cross rule", () => {
-    const attr = [{ startMs: T("15:00"), track: null }];
-    expect(raceSimSlotConflicts(T("15:20"), attr)).toBe(true);
-    expect(raceSimSlotConflicts(T("15:30"), attr)).toBe(false);
-  });
-});
-
-describe("cartTimedBookings — every other timed item, labelled for heatsConflict", () => {
-  it("maps heats with their track, sims to the shared sim label, others to null", () => {
-    const race = {
-      ...newItem("race"),
-      heats: [
-        {
-          productId: "1",
-          track: "Blue",
-          heatId: "2026-08-26T15:00:00",
-          bmiLineId: null,
-          assignedTo: "m1",
-        },
-      ],
-    } as SessionItem;
-    const sim = { ...(newItem("racesim") as RaceSimItem), id: "s1", slot: "2026-08-26T16:00:00" };
-    const me = { ...(newItem("racesim") as RaceSimItem), id: "me", slot: "2026-08-26T17:00:00" };
-    const out = cartTimedBookings([race, sim, me], "me");
-    expect(out).toEqual([
-      { startMs: T("15:00"), track: "Blue" },
-      { startMs: T("16:00"), track: RACE_SIM_CONFLICT_TRACK },
-    ]);
-  });
-});
-
-describe("raceSimCartPersonHeats — per-rider rows for the cross-reservation guard", () => {
-  it("emits one row per rider WITH a BMI id, racing's shape", () => {
-    const a = newPartyMember({ firstName: "Ana", bmiPersonId: "70000000000000001" });
-    const b = newPartyMember({ firstName: "Bo" }); // no BMI id → no identity to match
-    const item = {
-      ...(newItem("racesim") as RaceSimItem),
-      slot: "2026-08-26T15:00:00",
-      assignedTo: [a.id, b.id],
-    };
-    expect(raceSimCartPersonHeats(item, [a, b])).toEqual([
-      {
-        heatId: "2026-08-26T15:00:00",
-        track: RACE_SIM_CONFLICT_TRACK,
-        bmiPersonId: "70000000000000001",
-        racer: "Ana",
-      },
-    ]);
-  });
-
-  it("falls back to the whole party when nothing is stamped, and to nothing without a slot", () => {
-    const a = newPartyMember({ firstName: "Ana", bmiPersonId: "70000000000000001" });
-    const stampless = { ...(newItem("racesim") as RaceSimItem), slot: "2026-08-26T15:00:00" };
-    expect(raceSimCartPersonHeats(stampless, [a])).toHaveLength(1);
-    expect(raceSimCartPersonHeats({ ...stampless, slot: null }, [a])).toEqual([]);
-  });
-});
-
-describe("raceSimBookingConflictMessage", () => {
-  it("names the rider and says session vs race by the existing booking's kind", () => {
-    const msg = raceSimBookingConflictMessage({
-      cart: { heatId: "2026-08-26T15:15:00", racer: "Ana" },
-      existing: { heatId: "2026-08-26T15:00:00", track: "Red" },
-    });
-    expect(msg).toContain("Ana already has a race booked at 3:00 PM");
-    expect(msg).toContain("3:15 PM session");
-    const sim = raceSimBookingConflictMessage({
-      cart: { heatId: null },
-      existing: { heatId: "2026-08-26T15:00:00", track: RACE_SIM_CONFLICT_TRACK },
-    });
-    expect(sim).toContain("One of your riders already has a sim session booked");
+      raceSimBookingConflictMessage({
+        ...base,
+        existing: { heatId: T("10:00"), track: "Track B" },
+      }),
+    ).toContain("already has a sim session");
+    expect(
+      raceSimBookingConflictMessage({ ...base, existing: { heatId: T("10:20"), track: "Red" } }),
+    ).toContain("already has a race booked");
   });
 });
