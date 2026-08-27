@@ -46,21 +46,30 @@ describe("race-sims catalog", () => {
     expect(raceSimPriceFor(single, "garbage")).toBe(16);
   });
 
-  it("FAIL-CLOSED: no item is configured while the BMI page is null", () => {
-    // Square id + all three track keys ARE armed (owner 2026-08-23/26) — a
-    // key without its public-booking page can't fetch availability or book,
-    // so the page is the last gate: charging must stay closed until it lands.
+  it("ARMED 2026-08-26: every money id is set and singles are configured per track", () => {
+    // Pins the live wiring so a stray edit can't silently unarm (or re-arm
+    // with a wrong id) what the owner provided: shared Square id, one $0 key
+    // per track, one shared public-booking page.
     expect(RACE_SIM_SQUARE_CATALOG_ID).toBe("PZXWYNOY4MUAPXACMBMTFYMD");
+    expect(RACE_SIM_PAGE_ID).toBe("59716066");
     expect(RACE_SIM_TRACKS.map((t) => t.bmiProductId)).toEqual([
       "59535405",
       "59537905",
       "59537953",
     ]);
-    expect(RACE_SIM_PAGE_ID).toBeNull();
     for (const track of RACE_SIM_TRACKS) {
-      expect(raceSimBookingTarget(track.key)).toBeNull();
+      expect(raceSimBookingTarget(track.key)).toEqual({
+        productId: track.bmiProductId,
+        pageId: "59716066",
+      });
+      expect(raceSimItemConfigured({ productSlug: "sim-single", trackKey: track.key })).toBe(true);
     }
-    expect(raceSimItemConfigured({ productSlug: "sim-single", trackKey: "a" })).toBe(false);
+  });
+
+  it("FAIL-CLOSED edges stay closed: no track picked, unknown track, unknown product", () => {
+    expect(raceSimItemConfigured({ productSlug: "sim-single", trackKey: null })).toBe(false);
+    expect(raceSimItemConfigured({ productSlug: "sim-single", trackKey: "x" })).toBe(false);
+    expect(raceSimItemConfigured({ productSlug: "nope", trackKey: "a" })).toBe(false);
   });
 
   it("a deferred pack is never configured, even with every id armed", () => {
@@ -69,8 +78,7 @@ describe("race-sims catalog", () => {
     expect(raceSimItemConfigured({ productSlug: "sim-3-pack", trackKey: "a" })).toBe(false);
   });
 
-  it("booking target requires BOTH the track key and the shared page", () => {
-    expect(raceSimBookingTarget("a")).toBeNull();
+  it("booking target misses safely for no/unknown track", () => {
     expect(raceSimBookingTarget(null)).toBeNull();
     expect(raceSimBookingTarget("x")).toBeNull();
   });

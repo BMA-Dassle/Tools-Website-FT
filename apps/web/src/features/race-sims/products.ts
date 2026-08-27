@@ -8,14 +8,16 @@
  * the SAME sessions (shared resource/dayplanner, minitrack-shaped schedule),
  * so the track choice picks WHICH key books, never which times exist.
  *
- * ARMING CHECKLIST (checkout is fail-closed until ALL of these are set):
+ * ARMING CHECKLIST — ALL DONE 2026-08-26; singles are LIVE (behind the kiosk
+ * tile's staff PIN gate until the guest-launch PR removes it):
  *   1. RACE_SIM_SQUARE_CATALOG_ID — DONE 2026-08-23 (owner-pasted, shared by
  *      every sim line; per-line price is overridden at charge time because
  *      pricing is day-of-week based).
- *   2. RACE_SIM_PAGE_ID — the BMI public-booking page the track keys live on.
- *      STILL NULL — the last value the owner owes; everything else is armed.
+ *   2. RACE_SIM_PAGE_ID — DONE 2026-08-26 (59716066).
  *   3. RACE_SIM_TRACKS[*].bmiProductId — DONE 2026-08-26 (59535405 / 59537905
  *      / 59537953, "Race Sim - Track A/B/C").
+ * To take sims off sale in an emergency, null any one of these — guard 2e
+ * refuses before any Square write (and the kill switch pulls the tile).
  * BMI-side invariants (owner confirmed the setup mirrors racing's): keys carry
  * a $0/credit deposit key — a money key gets the bill's schedules stripped
  * (W57040); the dayplanner draws the SAME capacity pool the desk sees.
@@ -51,9 +53,11 @@ export const RACE_SIM_TRACKS: readonly RaceSimTrack[] = [
   { key: "c", name: "Track C", bmiProductId: "59537953" },
 ] as const;
 
-/** BMI public-booking page the track keys live on — null until owner-provided
- *  (racing parity: one shared page for all keys, like BUILD_PAGE_ID). */
-export const RACE_SIM_PAGE_ID: string | null = null;
+/** BMI public-booking page the three track keys live on — owner-provided
+ *  2026-08-26 (racing parity: one shared page for all keys, like BUILD_PAGE_ID).
+ *  With this set, every arming-checklist item is done: booking + charging are
+ *  LIVE behind the kiosk tile's staff PIN gate. */
+export const RACE_SIM_PAGE_ID: string | null = "59716066";
 
 /**
  * ONE Square catalog variation for EVERY sim line (owner 2026-08-23) — the
