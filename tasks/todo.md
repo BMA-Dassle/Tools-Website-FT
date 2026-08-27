@@ -65,8 +65,12 @@ the tile → PIN sheet) opens the flow for that session. Full booking-session in
 - [x] **ARMED 2026-08-26:** track keys A 59535405 / B 59537905 / C 59537953 + shared page
       59716066 in `race-sims/products.ts` — guard 2e passes; sim singles book + charge for real
       behind the tile's PIN gate. Still unconfirmed: weekend = Fri–Sun; optional resourceId.
-- [ ] Track switcher on the Time screen (owner: keep the Track step AND allow changing track on
-      the heat-pick screen) + racing's full scheduling rule set on the sim grid and at reserve.
+- [x] Track switcher on the Time screen + racing's full scheduling rule set on the sim grid and at
+      reserve (7d31ec77): heatsConflict spacing (sim label "Race Sim" — 30 min vs karts, skip a
+      session vs sims), group-event reopen/window/private-day, cross-reservation guard 0b-sim + cart
+      kart↔sim guard, booked-heats returns prior sims. Product page = karting kiosk card (b80666ad).
+- [x] LIVE BLOCKER RESOLVED 2026-08-26: "no sessions" was BMI-side — the (Web) keys had no planning
+      link to the Race Sim resource; owner fixed it, sessions propose from 08-27 (32/day, cap 4).
 - [ ] Owner live smoke on a FastTrax FM kiosk (tile lock, 5-tap+PIN, flow to the 409 at pay,
       idle relock; HP kiosks show no KBF and no Race Sims tile).
 - [ ] **Before arming real ids** (all recorded in products.ts header + guard 2e comment):
