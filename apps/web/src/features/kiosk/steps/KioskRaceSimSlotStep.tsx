@@ -50,6 +50,7 @@ import {
   cartTimedBookings,
   findRaceSimSelfConflict,
   ownPickAtSameStart,
+  ownSessionsMissingFromGrid,
   raceSimPrivateEventTitle,
   raceSimSlotBeforeReopen,
   raceSimSlotConflicts,
@@ -80,7 +81,9 @@ const TRACK_TINT: Record<RaceSimTrackKey, { tint: string; title: string }> = {
   c: { tint: "#8652ff", title: "#d8b4fe" },
 };
 
-type SlotEntry = { block: BmiBlock; proposal: BmiProposal };
+/** `synthetic`: a card rebuilt from one of our own picks that BMI no longer
+ *  proposes (our hold took the shared rigs) — see ownSessionsMissingFromGrid. */
+type SlotEntry = { block: BmiBlock; proposal: BmiProposal; synthetic?: boolean };
 
 const sameSession = (s: RaceSimSession, trackKey: string | null, slot: string) =>
   s.trackKey === trackKey && s.slot === slot;
@@ -349,6 +352,38 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   ]);
   const testShowingFutureDay = kioskTestRig && gridDate > today;
 
+  // Own picks BMI no longer proposes on the shown track: every sim track books
+  // the same four rigs, so our own hold eats the seats and BMI drops any block
+  // with fewer free seats than the party (it never returns a full block).
+  // Without this a party of 4 loses its SELECTED card on the next poll (can't
+  // unpick), and a 4:15 picked on Track A silently vanishes from Track B
+  // instead of reading "Picked on Track A". Rebuild those cards from the
+  // pick's own block.
+  const grid: SlotEntry[] = [
+    ...visible,
+    ...ownSessionsMissingFromGrid(
+      item.sessions,
+      visible.map((e) => e.block.start),
+      gridDate,
+      item.trackKey,
+    ).map((s) => {
+      const b = s.slotProposal.blocks[0]?.block;
+      return {
+        synthetic: true,
+        proposal: s.slotProposal,
+        block: {
+          name: b?.name ?? "",
+          capacity: b?.capacity ?? qty,
+          freeSpots: 0,
+          resourceId: b?.resourceId ?? 0,
+          prices: b?.prices ?? [],
+          start: s.slot,
+          stop: b?.stop ?? s.slot,
+        },
+      };
+    }),
+  ].sort((a, b) => wallClockMs(a.block.start) - wallClockMs(b.block.start));
+
   const product = getRaceSimProduct(item.productSlug);
   const productNameKey = item.productSlug ? PRODUCT_NAME_KEYS[item.productSlug] : undefined;
   const productName = productNameKey
@@ -472,15 +507,16 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
             {t("racesim.slot.retry")}
           </button>
         </div>
-      ) : visible.length === 0 ? (
+      ) : grid.length === 0 ? (
         <div className="rounded-[16px] border border-white/10 bg-white/[0.03] p-[20px] text-center text-[18px] text-white/50">
           {t("racesim.slot.empty")}
         </div>
       ) : (
         /* The grid — one flat earliest-first grid, racing's 4 columns. */
         <div className="grid grid-cols-4 gap-[10px]">
-          {visible.map((entry) => {
+          {grid.map((entry) => {
             const { block } = entry;
+            const synthetic = !!entry.synthetic;
             const startMs = wallClockMs(block.start);
             const free = block.freeSpots;
             const cap = Math.max(1, block.capacity ?? free);
@@ -507,7 +543,11 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
             let statusKey: MessageKey;
             let statusVars: Record<string, string | number> = {};
             let statusClass: string;
-            if (isEventReserved || isBeforeReopen) {
+            if (isSelected && synthetic) {
+              // Our own hold took the rigs — BMI has no live count to show.
+              statusKey = "racesim.slot.picked";
+              statusClass = "text-[#00E2E5]";
+            } else if (isEventReserved || isBeforeReopen) {
               statusKey = "racesim.slot.reservedForEvent";
               statusClass = "text-amber-400";
             } else if (ownOther) {
@@ -543,13 +583,17 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
                 ? "cursor-not-allowed border-white/5 bg-white/[0.03] opacity-40"
                 : "cursor-pointer border-white/10 bg-white/5";
             const amberBar = isConflict || isEventReserved || isBeforeReopen;
-            const barClass = isLowCap
-              ? "bg-red-500"
-              : amberBar
-                ? "bg-amber-400/50"
-                : free / cap <= 0.3
-                  ? "bg-amber-400"
-                  : "bg-emerald-400";
+            const fullBar = amberBar || (isSelected && synthetic);
+            const barClass =
+              isSelected && synthetic
+                ? "bg-[#00E2E5]/60"
+                : isLowCap
+                  ? "bg-red-500"
+                  : amberBar
+                    ? "bg-amber-400/50"
+                    : free / cap <= 0.3
+                      ? "bg-amber-400"
+                      : "bg-emerald-400";
 
             return (
               <button
@@ -580,7 +624,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
                 <div className="mt-[10px] h-[5px] overflow-hidden rounded-full bg-white/10">
                   <div
                     className={`h-full rounded-full ${barClass}`}
-                    style={{ width: amberBar ? "100%" : `${Math.min(100, (free / cap) * 100)}%` }}
+                    style={{ width: fullBar ? "100%" : `${Math.min(100, (free / cap) * 100)}%` }}
                   />
                 </div>
               </button>

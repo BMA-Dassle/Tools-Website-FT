@@ -65,6 +65,8 @@ export const racesimEn = {
   "racesim.slot.trackHint": "Showing {track} sessions — tap another track to switch.",
   /** Same start already picked on another sim track — {track} = that track. */
   "racesim.slot.pickedOtherTrack": "Picked on {track}",
+  /** Status line on a picked card BMI stopped proposing (our hold took the rigs). */
+  "racesim.slot.picked": "Picked",
   "racesim.slot.pickedCount": "{count, plural, one {# session picked} other {# sessions picked}}",
 
   // --- KioskFlow shell lookups (activity label lives in parts/flow.ts) ---
@@ -116,6 +118,7 @@ export const racesimEs: Record<keyof typeof racesimEn, string> = {
     "Hoy está reservado para un evento privado y no está disponible para reservas públicas.",
   "racesim.slot.trackHint": "Mostrando sesiones de {track} — toca otra pista para cambiar.",
   "racesim.slot.pickedOtherTrack": "Elegida en {track}",
+  "racesim.slot.picked": "Elegida",
   "racesim.slot.pickedCount": "{count, plural, one {# sesión elegida} other {# sesiones elegidas}}",
   "stepReason.racesimConflict": "Esa hora está muy cerca de otra actividad — elige otra.",
   "stepReason.racesimSelfConflict":

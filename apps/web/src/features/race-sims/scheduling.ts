@@ -118,6 +118,35 @@ export function ownPickAtSameStart(
   return sessions.find((s) => s.trackKey !== currentTrackKey && wallClockMs(s.slot) === ms) ?? null;
 }
 
+/**
+ * The item's own picks that BMI is no longer proposing on the shown grid —
+ * one per start, preferring the shown track's session. Every sim track books
+ * the same four rigs and BMI's availability only returns blocks with
+ * freeSpots ≥ the requested quantity (never a full block), so our own hold
+ * can make a picked start disappear: a party of 4 loses its SELECTED card on
+ * the next poll, and a 4:15 picked on Track A vanishes from Track B instead
+ * of reading "Picked on Track A". The grid synthesizes cards for these.
+ */
+export function ownSessionsMissingFromGrid(
+  sessions: RaceSimSession[],
+  shownStarts: string[],
+  gridDate: string,
+  currentTrackKey: string | null,
+): RaceSimSession[] {
+  const shown = new Set(shownStarts.map(wallClockMs));
+  const byStart = new Map<number, RaceSimSession>();
+  for (const s of sessions) {
+    if (s.slot.slice(0, 10) !== gridDate) continue;
+    const ms = wallClockMs(s.slot);
+    if (!Number.isFinite(ms) || shown.has(ms)) continue;
+    const prev = byStart.get(ms);
+    if (!prev || (s.trackKey === currentTrackKey && prev.trackKey !== currentTrackKey)) {
+      byStart.set(ms, s);
+    }
+  }
+  return [...byStart.values()].sort((a, b) => wallClockMs(a.slot) - wallClockMs(b.slot));
+}
+
 /** The wizard gate's self-check (racing's canAdvanceFor): two of the item's
  *  own sessions on the same start. Returns the pair or null. */
 export function findRaceSimSelfConflict(

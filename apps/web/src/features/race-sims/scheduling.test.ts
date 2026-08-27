@@ -13,6 +13,7 @@ import {
   findRaceSimSelfConflict,
   isRaceSimTrackLabel,
   ownPickAtSameStart,
+  ownSessionsMissingFromGrid,
   raceSimBookingConflictMessage,
   raceSimCartPersonHeats,
   raceSimConflictTrack,
@@ -170,5 +171,29 @@ describe("cross-reservation (same rider, other reservations today)", () => {
     expect(
       raceSimBookingConflictMessage({ ...base, existing: { heatId: T("10:20"), track: "Red" } }),
     ).toContain("already has a race booked");
+  });
+});
+
+describe("own picks BMI stopped proposing (shared rigs) get synthesized cards", () => {
+  it("returns picks on the grid date whose start is not shown, one per start, shown track first", () => {
+    const sessions = [
+      sess(T("16:15"), "a"), // picked on A, BMI dropped 16:15 from B's grid (our hold ate the rigs)
+      sess(T("16:30"), "b"), // picked on B, still proposed → not synthesized
+      sess(T("17:00"), "a"),
+      sess(T("17:00"), "b"), // both missing at 17:00 → ONE card, the shown track's (b)
+      sess("2026-08-28T16:15:00", "a"), // other date → ignored
+    ];
+    const shown = [T("16:30"), T("16:45")];
+    const missing = ownSessionsMissingFromGrid(sessions, shown, "2026-08-27", "b");
+    expect(missing.map((s) => [s.slot.slice(11, 16), s.trackKey])).toEqual([
+      ["16:15", "a"],
+      ["17:00", "b"],
+    ]);
+  });
+
+  it("nothing missing when every pick is still proposed", () => {
+    expect(
+      ownSessionsMissingFromGrid([sess(T("16:15"), "a")], [T("16:15")], "2026-08-27", "a"),
+    ).toEqual([]);
   });
 });
