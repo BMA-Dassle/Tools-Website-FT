@@ -1,23 +1,17 @@
 import { notFound } from "next/navigation";
-import CameraAssignClient from "../CameraAssignClient";
-import { adminPoppins } from "~/components/features/admin-skin/font";
-import { mintAdminApiToken } from "@/lib/admin-api-token";
+import AdminToolPage from "@/app/admin/_tools/camera-assign-track/AdminToolPage";
 
 /**
- * Track-scoped camera-assignment tool — one kiosk per track.
+ * v1: `/admin/{ADMIN_CAMERA_TOKEN}/camera-assign/{blue|red|mega}`.
  *
- * URL: /admin/{ADMIN_CAMERA_TOKEN}/camera-assign/{blue|red|mega}
- *
- * Same middleware gate as the no-track variant (…/camera-assign), just
- * scopes the session-picker to one Pandora resource so different staff
- * can work different tracks at the same time without stepping on each
- * other.
+ * The static token in the path is the credential. Kept alongside the SSO route
+ * at `/admin/camera-assign/{track}` (same component, no credential in the URL)
+ * per the v2 cutover pattern. The token check below is belt-and-braces with the
+ * middleware's unified gate, unchanged from before the split.
  */
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-const VALID_TRACKS = ["blue", "red", "mega"] as const;
 
 type Props = { params: Promise<{ token: string; track: string }> };
 
@@ -26,19 +20,5 @@ export default async function Page({ params }: Props) {
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!expected || token !== expected) notFound();
 
-  // The client sends this back as x-admin-token / ?token= for its
-  // /api/admin/* calls, exactly where it always sent one — but it is now a
-  // signed 8-hour credential, not the permanent ADMIN_CAMERA_TOKEN. The
-  // static token never reaches a browser again.
-  // (Pinned by scripts/check-admin-token-leak.mjs.)
-  const apiToken = await mintAdminApiToken();
-
-  const trackSlug = track.toLowerCase();
-  if (!VALID_TRACKS.includes(trackSlug as (typeof VALID_TRACKS)[number])) notFound();
-
-  return (
-    <div className={adminPoppins.variable}>
-      <CameraAssignClient token={apiToken} track={trackSlug} />
-    </div>
-  );
+  return <AdminToolPage track={track} />;
 }

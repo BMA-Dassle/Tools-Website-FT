@@ -1,0 +1,207 @@
+import { describe, it, expect } from "vitest";
+import {
+  ADMIN_TOOL_SLUGS,
+  DEVICE_TOKEN_TOOLS,
+  SSO_ADMIN_TOOLS,
+  TOKEN_ONLY_TOOLS,
+} from "~/lib/constants/admin-tools";
+import {
+  DEFAULT_ADMIN_HOST,
+  isAdminHost,
+  isSsoSelfPath,
+  isSsoToolPath,
+  parseAdminHosts,
+  resolveAdminHostPath,
+} from "./tools";
+
+/**
+ * The routing table, in isolation from the middleware that executes it.
+ *
+ * These are the same rules `apps/admin/src/routes.ts` enforced for the proxy
+ * shell, ported in-process — so the assertions are deliberately the shell's,
+ * plus the ones the split into SSO and token tools adds. The registry itself
+ * (which slug is on which list) is pinned in
+ * `~/lib/constants/admin-tools.test.ts`; this file only proves the mapping.
+ */
+
+const TOKEN = "a".repeat(32);
+
+describe("isSsoToolPath — only the migrated tools", () => {
+  it("is true for a migrated tool page and its deeper segments", () => {
+    expect(isSsoToolPath("/admin/reservations", TOKEN)).toBe(true);
+    expect(isSsoToolPath("/admin/reservations/", TOKEN)).toBe(true);
+    expect(isSsoToolPath("/admin/checkin", TOKEN)).toBe(true);
+    expect(isSsoToolPath("/admin/camera-assign", TOKEN)).toBe(true);
+    expect(isSsoToolPath("/admin/camera-assign/blue", TOKEN)).toBe(true);
+  });
+
+  it("is FALSE for the unattended wall displays", () => {
+    // The owner decision, expressed where the gate can act on it: pit and
+    // briefing must never be handed to the SSO branch, because the SSO branch's
+    // answer to "no session" is a redirect to Microsoft, and a wall board
+    // cannot answer it.
+    for (const slug of DEVICE_TOKEN_TOOLS) {
+      expect(isSsoToolPath(`/admin/${slug}`, TOKEN), slug).toBe(false);
+    }
+  });
+
+  it("is FALSE for every tool that has not migrated yet", () => {
+    for (const slug of TOKEN_ONLY_TOOLS) {
+      expect(isSsoToolPath(`/admin/${slug}`, TOKEN), slug).toBe(false);
+    }
+  });
+
+  it("is false for everything the other credentials own", () => {
+    // These three exclusions are what keep the golden matrix unchanged.
+    expect(isSsoToolPath(`/admin/${TOKEN}/reservations`, TOKEN)).toBe(false);
+    expect(isSsoToolPath("/admin/embed/videos", TOKEN)).toBe(false);
+    expect(isSsoToolPath("/api/admin/videos/list", TOKEN)).toBe(false);
+  });
+
+  it("is false for a non-tool second segment and for the bare /admin", () => {
+    expect(isSsoToolPath("/admin/wrong/reservations", TOKEN)).toBe(false);
+    expect(isSsoToolPath("/admin//reservations", TOKEN)).toBe(false);
+    expect(isSsoToolPath("/admin", TOKEN)).toBe(false);
+    expect(isSsoToolPath("/admin/", TOKEN)).toBe(false);
+    expect(isSsoToolPath("/administration", TOKEN)).toBe(false);
+  });
+
+  it("yields to the static token when the token happens to BE a slug", () => {
+    expect(isSsoToolPath("/admin/checkin", "checkin")).toBe(false);
+    // …and claims it again once that token is not configured.
+    expect(isSsoToolPath("/admin/checkin", "")).toBe(true);
+  });
+});
+
+describe("isSsoSelfPath — the routes that must work with no session", () => {
+  it("covers Auth.js's endpoints and the SSO surfaces", () => {
+    for (const p of [
+      "/api/auth",
+      "/api/auth/signin",
+      "/api/auth/callback/headpinz",
+      "/api/auth/session",
+      "/sso",
+      "/sso/signin",
+      "/sso/error",
+      "/sso/diag",
+      "/sso/error/",
+    ]) {
+      expect(isSsoSelfPath(p), p).toBe(true);
+    }
+  });
+
+  it("does not swallow lookalike siblings", () => {
+    expect(isSsoSelfPath("/api/authorize")).toBe(false);
+    expect(isSsoSelfPath("/ssot")).toBe(false);
+  });
+});
+
+describe("isAdminHost", () => {
+  it("matches the default staff domain, port and case insensitively", () => {
+    expect(isAdminHost(DEFAULT_ADMIN_HOST)).toBe(true);
+    expect(isAdminHost("ADMIN.FastTraxEnt.com:443")).toBe(true);
+  });
+
+  it("does not match the brand hosts, a lookalike, or localhost", () => {
+    for (const h of [
+      "fasttraxent.com",
+      "headpinz.com",
+      "admin-preview.fasttraxent.com",
+      "notadmin.fasttraxent.com",
+      "localhost:3111",
+      "",
+    ]) {
+      expect(isAdminHost(h), h).toBe(false);
+    }
+  });
+
+  it("matches an ADMIN_HOSTS entry — preview aliases come from env, not source", () => {
+    const hosts = parseAdminHosts(" preview-a.vercel.app , preview-b.vercel.app ");
+    expect(hosts).toEqual(["preview-a.vercel.app", "preview-b.vercel.app"]);
+    expect(isAdminHost("preview-b.vercel.app", hosts)).toBe(true);
+    expect(isAdminHost("preview-c.vercel.app", hosts)).toBe(false);
+    expect(parseAdminHosts(undefined)).toEqual([]);
+  });
+});
+
+describe("resolveAdminHostPath", () => {
+  it("decides the self paths FIRST — /api/auth IS an /api path", () => {
+    // Regression pin: if the self branch moves below the /api rule, the
+    // sign-in callback is treated as ordinary API traffic and nobody gets in.
+    expect(resolveAdminHostPath("/api/auth/callback/headpinz")).toEqual({ kind: "self" });
+    expect(resolveAdminHostPath("/sso/signin")).toEqual({ kind: "self" });
+  });
+
+  it("maps a migrated tool onto its v2 route, deeper segments intact", () => {
+    expect(resolveAdminHostPath("/reservations")).toEqual({
+      kind: "tool",
+      pathname: "/admin/reservations",
+    });
+    expect(resolveAdminHostPath("/reservations/")).toEqual({
+      kind: "tool",
+      pathname: "/admin/reservations",
+    });
+    expect(resolveAdminHostPath("/camera-assign/blue")).toEqual({
+      kind: "tool",
+      pathname: "/admin/camera-assign/blue",
+    });
+    for (const slug of SSO_ADMIN_TOOLS) {
+      expect(resolveAdminHostPath(`/${slug}`), slug).toEqual({
+        kind: "tool",
+        pathname: `/admin/${slug}`,
+      });
+    }
+  });
+
+  it("keeps EVERY un-migrated tool resolving, on the legacy tokened route", () => {
+    // `admin.fasttraxent.com/deals` works today (the shell proxies it to
+    // /admin/{token}/deals) and is in staff email going back months. Moving the
+    // domain onto this deployment must not 404 eighteen tools. Same gate,
+    // different rewrite target.
+    for (const slug of [...DEVICE_TOKEN_TOOLS, ...TOKEN_ONLY_TOOLS]) {
+      expect(resolveAdminHostPath(`/${slug}`), slug).toEqual({
+        kind: "legacy-tool",
+        slug,
+        path: `/${slug}`,
+      });
+    }
+    expect(resolveAdminHostPath("/daily-events/12345")).toEqual({
+      kind: "legacy-tool",
+      slug: "daily-events",
+      path: "/daily-events/12345",
+    });
+  });
+
+  it("classifies every registered slug as one kind of tool or the other", () => {
+    for (const slug of ADMIN_TOOL_SLUGS) {
+      const kind = resolveAdminHostPath(`/${slug}`).kind;
+      expect(kind, slug).toBe(SSO_ADMIN_TOOLS.has(slug) ? "tool" : "legacy-tool");
+    }
+  });
+
+  it("passes assets, API traffic, canonical /admin/* and the staff previews", () => {
+    for (const p of [
+      "/_next/static/x.js",
+      "/_vercel/insights/script.js",
+      "/favicon.ico",
+      "/images/logo.png",
+      "/api",
+      "/api/admin/videos/list",
+      "/admin",
+      "/admin/reservations",
+      "/admin/embed/videos",
+      `/admin/${TOKEN}/pit`,
+      "/contract",
+      "/contract/abc",
+      "/v/HPW4K7M9PQR",
+    ]) {
+      expect(resolveAdminHostPath(p), p).toEqual({ kind: "pass" });
+    }
+  });
+
+  it("404s the root and every guest route", () => {
+    for (const p of ["/", "/book", "/book/race/v2", "/racing", "/fort-myers", "/v", "/w/abc"]) {
+      expect(resolveAdminHostPath(p), p).toEqual({ kind: "not-found" });
+    }
+  });
+});
