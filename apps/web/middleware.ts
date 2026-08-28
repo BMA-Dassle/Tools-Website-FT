@@ -4,6 +4,7 @@ import { HEADPINZ_FM_CENTER_CODE, HEADPINZ_NAPLES_CENTER_CODE } from "@/lib/qamf
 import { googleReviewUrl } from "~/lib/constants/review-links";
 import { maintenanceRedirectForPath, SERVICE_NOTICE_PATH } from "~/features/maintenance";
 import { isChromeFreePath, isMobileBarFreePath } from "~/lib/constants/chrome-routes";
+import { verifyAdminApiToken } from "@/lib/admin-api-token";
 
 /**
  * Stamp the chrome decision for a path onto a request-header set. ONE rule for
@@ -233,6 +234,28 @@ export async function middleware(request: NextRequest) {
       const requestHeaders = new Headers(request.headers);
       requestHeaders.set("x-admin-route", "1");
       requestHeaders.set("x-admin-via", "proxy-key");
+      return NextResponse.next({ request: { headers: requestHeaders } });
+    }
+
+    // ── Signed, short-lived API token (staff browsers) ────────────────
+    // Admin pages no longer hand ADMIN_CAMERA_TOKEN to their client
+    // components; they mint an 8-hour HMAC credential instead (see
+    // lib/admin-api-token.ts) and the client sends it in the SAME place it
+    // always sent the static one — `x-admin-token` or `?token=`. Accepting
+    // it here is what got the permanent bearer secret out of ~20 browser
+    // bundles without changing a single client component.
+    //
+    // Additive: a request carrying the static token, the proxy key, an
+    // api-key or an embed signature never reaches this branch's failure
+    // path — every one of those is decided above or below, untouched. An
+    // expired or forged signed token simply falls through to the static
+    // check and then to the standard 404.
+    const signedCandidate =
+      request.headers.get("x-admin-token") || request.nextUrl.searchParams.get("token") || "";
+    if (signedCandidate && (await verifyAdminApiToken(signedCandidate))) {
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set("x-admin-route", "1");
+      requestHeaders.set("x-admin-via", "api-token");
       return NextResponse.next({ request: { headers: requestHeaders } });
     }
 

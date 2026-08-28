@@ -4540,11 +4540,21 @@ the main deployment with the correct origin, so only the two CLIENT-side sites
    `/reservations` and it would have recorded staff sessions full of customer
    PII. The `x-admin-route` request header is the only truthful signal — the
    root layout gates `<ClarityAnalytics />` on it server-side.
-5. **The admin domain must not be a subdomain of fasttraxent.com /
-   headpinz.com** — `publicOrigin()`'s keep-list would treat it as a guest
-   host (QRs/TV URLs would point at the auth wall), and middleware brand
-   detection keys on `hostname.includes("headpinz.com")`. Use the
-   `*.vercel.app` domain or a dedicated apex.
+5. ~~**The admin domain must not be a subdomain of fasttraxent.com /
+   headpinz.com**~~ — **AMENDED 2026-08-28 (SSO): `admin.fasttraxent.com` is
+   now allowed.** The original ban existed for one reason — `publicOrigin()`'s
+   keep-list would have treated an `admin.` host as a guest host and baked the
+   auth wall into VIP voucher QRs and TV player URLs. `publicOrigin()` now
+   excludes any host whose FIRST label is exactly `admin` before the keep-list
+   runs, so the failure it guarded against cannot happen
+   (`src/lib/helpers/public-origin.ts` + its test). The second half of the old
+   rule still stands and is now the only live constraint: **middleware brand
+   detection keys on `hostname.includes("headpinz.com")`**, so
+   `admin.headpinz.com` would be brand-detected as HeadPinz and `/hp`-rewritten
+   — use `admin.fasttraxent.com` (the shell forwards upstream anyway, so the
+   brand of the shell host is irrelevant to what staff see). Any OTHER new
+   brand subdomain re-opens the original question: check `publicOrigin()` and
+   the brand detection before adding one.
 6. **A trusted-proxy header beats a duplicated secret store.** The main gate
    accepts `x-admin-proxy-key` (env `ADMIN_PROXY_KEY`, additive, inert until
    set) so the shell stays authenticated when `ADMIN_CAMERA_TOKEN` is later
