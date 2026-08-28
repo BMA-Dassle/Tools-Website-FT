@@ -124,9 +124,26 @@ describe("signed in without the role", () => {
     expect(loc.searchParams.get("loc")).toBeNull();
   });
 
-  it("blocks API calls and assets the same way", async () => {
-    const api = (await proxy())(xhr("/api/admin/videos/list", NO_ROLE));
-    expect(api.headers.get("location")).toContain("SSO_E_NO_ROLE");
+  it("403s an API call — an XHR cannot read an HTML apology either", async () => {
+    // Same reasoning as the 401 in the no-session block: a fetch that follows a
+    // 302 gets a page and reports a JSON parse error. 403 rather than 401
+    // because re-authenticating is exactly what will NOT help here.
+    const res = (await proxy())(xhr("/api/admin/videos/list", NO_ROLE));
+    expect(res.status).toBe(403);
+    expect(res.headers.get("location")).toBeNull();
+    await expect(res.json()).resolves.toEqual({ error: "sso_no_role" });
+  });
+
+  it("404s assets and non-navigations rather than redirecting them to a page", async () => {
+    for (const r of [
+      xhr("/_next/static/chunks/main.js", NO_ROLE),
+      req("/favicon.ico", { auth: NO_ROLE, headers: { "sec-fetch-mode": "no-cors" } }),
+      req("/pit", { auth: NO_ROLE, method: "POST" }),
+    ]) {
+      const res = (await proxy())(r);
+      expect(res.status, r.nextUrl.pathname).toBe(404);
+      expect(res.headers.get("location"), r.nextUrl.pathname).toBeNull();
+    }
   });
 
   it("still reaches /sso/error itself, or the page could never render", async () => {
@@ -197,5 +214,36 @@ describe("signed in with the role — today's routing, unchanged", () => {
     const res = (await proxy())(req("/pit", { auth: { user: {}, roles: ["access"] } }));
     expect(res.headers.get("x-middleware-request-x-sso-email")).toBeNull();
     expect(res.headers.get("x-middleware-request-x-sso-name")).toBeNull();
+  });
+
+  it("never lets the visitor write their own identity headers", async () => {
+    // The upstream trusts x-sso-* BECAUSE they arrive with the proxy key. If a
+    // caller's own header survived the copy, anyone signed in could sign the
+    // admin audit trail as anyone else — and the nameless-session case above
+    // was passing only because that test never sent one.
+    const spoofed = {
+      "x-sso-email": "ceo@headpinz.com",
+      "x-sso-name": "Someone Else",
+      "x-admin-proxy-key": "guessed",
+    };
+    const withSession = (await proxy())(req("/pit", { auth: STAFF, headers: spoofed }));
+    expect(withSession.headers.get("x-middleware-request-x-sso-email")).toBe("eric@headpinz.com");
+    expect(withSession.headers.get("x-middleware-request-x-sso-name")).toBe("Eric Osborn");
+    expect(withSession.headers.get("x-middleware-request-x-admin-proxy-key")).toBe(PROXY_KEY);
+
+    // …and with nothing to replace them with, they are dropped, not passed on.
+    const nameless = (await proxy())(
+      req("/pit", { auth: { user: {}, roles: ["access"] }, headers: spoofed }),
+    );
+    expect(nameless.headers.get("x-middleware-request-x-sso-email")).toBeNull();
+    expect(nameless.headers.get("x-middleware-request-x-sso-name")).toBeNull();
+  });
+
+  it("drops a caller-supplied proxy key when this project has none of its own", async () => {
+    delete process.env.ADMIN_PROXY_KEY;
+    const res = (await proxy())(
+      req("/pit", { auth: STAFF, headers: { "x-admin-proxy-key": "guessed" } }),
+    );
+    expect(res.headers.get("x-middleware-request-x-admin-proxy-key")).toBeNull();
   });
 });

@@ -245,18 +245,31 @@ export async function middleware(request: NextRequest) {
     // it here is what got the permanent bearer secret out of ~20 browser
     // bundles without changing a single client component.
     //
+    // `/api/admin/*` ONLY, and that scope is load-bearing. This credential
+    // lives in a browser for 8 hours and travels in query strings, so it is
+    // exactly the thing that gets copied out of a URL bar, a devtools log or
+    // a shared screenshot. lib/admin-api-token.ts says it in one line: "it is
+    // NOT a page credential." Honouring that here is what keeps a leaked
+    // minted token from rendering /admin/<anything>/api-docs — a "use client"
+    // page with no server-side token check of its own — and what leaves PR 2's
+    // "pages require x-admin-proxy-key" lockdown with something to lock down.
+    // The page credentials stay the proxy key (above) and the static token
+    // (below).
+    //
     // Additive: a request carrying the static token, the proxy key, an
     // api-key or an embed signature never reaches this branch's failure
     // path — every one of those is decided above or below, untouched. An
     // expired or forged signed token simply falls through to the static
     // check and then to the standard 404.
-    const signedCandidate =
-      request.headers.get("x-admin-token") || request.nextUrl.searchParams.get("token") || "";
-    if (signedCandidate && (await verifyAdminApiToken(signedCandidate))) {
-      const requestHeaders = new Headers(request.headers);
-      requestHeaders.set("x-admin-route", "1");
-      requestHeaders.set("x-admin-via", "api-token");
-      return NextResponse.next({ request: { headers: requestHeaders } });
+    if (pathname.startsWith("/api/admin/")) {
+      const signedCandidate =
+        request.headers.get("x-admin-token") || request.nextUrl.searchParams.get("token") || "";
+      if (signedCandidate && (await verifyAdminApiToken(signedCandidate))) {
+        const requestHeaders = new Headers(request.headers);
+        requestHeaders.set("x-admin-route", "1");
+        requestHeaders.set("x-admin-via", "api-token");
+        return NextResponse.next({ request: { headers: requestHeaders } });
+      }
     }
 
     // Token extraction: for /admin/{token}/..., token is the 2nd

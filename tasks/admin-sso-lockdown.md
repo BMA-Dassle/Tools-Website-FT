@@ -15,6 +15,35 @@ is classified below, so the cutover can be reasoned about rather than guessed at
 
 ---
 
+## Before PR 1 merges — two ordering facts that are not optional
+
+**A. The admin project's SSO env must exist BEFORE the first deploy of this
+branch.** Set `SSO_ISSUER`, `SSO_CLIENT_ID`, `SSO_CLIENT_SECRET` and
+`AUTH_SECRET` on `tools-website-ft-admin` first. Auth.js validates its
+configuration on the first *request*, so with any of them missing the `auth()`
+wrapper in `proxy.ts` throws on every request — `/sso/error` and `/api/auth/*`
+included — and the shell 500s everything. That project is a working
+Vercel-Authentication wall today; deploying without the block trades "walled" for
+"broken". (`apps/admin/auth.ts` builds its config in a factory so the values are
+read per request, not at import — that fixes stale env, not missing env.)
+
+**B. `apps/web` must not ship more than a window ahead of the shell's domain.**
+`src/lib/helpers/admin-url.ts` hard-targets `https://admin.fasttraxent.com`, and
+after PR 1 every staff link goes through it: `adminBoardUrl()` (staff email),
+`vipBoardUrl()` (Teams cards), and both `/admin/{token}/daily-events` redirect
+shims. Until that domain is attached, either attach it in the same window as the
+`tools-website-ft` deploy or set `ADMIN_PUBLIC_URL` on `tools-website-ft` to the
+shell's `.vercel.app` origin. Otherwise every "Open board" button and every
+brand-domain daily-events bookmark points at a domain that does not resolve.
+
+**C. The PR 1 smoke has not been run.** `apps/admin/proxy.test.ts` mocks `./auth`
+wholesale, so the real Auth.js wrapper, the `req.auth` shape, the cookie flags
+and the sign-in round trip are unverified in this branch. The checklist is in
+`tasks/todo.md` under "PR 1 smoke"; treat those behaviours as claims until it is
+run on the preview.
+
+---
+
 ## The surface, counted
 
 Grepped across `apps/web` (excluding `node_modules`):
@@ -43,6 +72,14 @@ anything a staff member pasted into a chat.
 **Fix:** the pages call `mintAdminApiToken()` (`apps/web/lib/admin-api-token.ts`)
 and pass an 8-hour HMAC credential instead. Client components are untouched —
 same prop, same header, different value.
+
+The minted token authenticates **`/api/admin/*` only** — the middleware branch
+that accepts it is scoped to that prefix. It is a browser-held credential that
+travels in query strings, so treating it as a page credential too would hand
+whoever copied one out of a URL bar 8 hours of `/admin/<anything>/…` (including
+`api-docs`, a `"use client"` page with no check of its own) and would leave PR 2
+step 2 with nothing to lock down. The page credentials remain the shell's
+`x-admin-proxy-key` and the static token in the path.
 
 23 pages: `[token]/{briefing, camera-assign, camera-assign/[track], checkin,
 daily-events-v2, deals, deposit-failures, discount-codes, e-tickets,
@@ -209,6 +246,13 @@ writes `actor: "admin"` with a comment saying a name "would be fiction" — it i
 no longer fiction. *Proposed fix (not blocking PR 2): read `x-sso-email` in the
 admin audit writers, gated on the request having arrived with the proxy key, so
 the board's action history names a person.*
+
+The precondition for that is already in place: `proxy.ts` **deletes** every
+inbound `x-sso-*` (and any inbound `x-admin-proxy-key`) before setting its own,
+so those headers are the shell's word or absent — never the visitor's. Without
+that strip, a signed-in temp could have signed the audit trail as anyone by
+sending one header. Any future identity header must join `IDENTITY_HEADERS` in
+`apps/admin/proxy.ts` the day it is added.
 
 **7. The deal-sale alert's recipient list is still the only access control on it.**
 `notifyStaffDealSale` mails voucher codes and money facts to

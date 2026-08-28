@@ -29,8 +29,12 @@ import { resolveAdminProxyPath } from "./src/routes";
  *     pollutes the sign-in page's callback with a stylesheet URL.
  *
  * A session WITHOUT the role is a different failure from no session at all —
- * signing them in again cannot fix it — so it goes to /sso/error?code=SSO_E_NO_ROLE,
- * which tells them to ask for access.
+ * signing them in again cannot fix it — so a NAVIGATION goes to
+ * /sso/error?code=SSO_E_NO_ROLE, which tells them to ask for access. The same
+ * api/asset split applies there as here: an /api/* call gets 403
+ * {error:"sso_no_role"} (403, not 401 — do not invite a re-auth that cannot
+ * help) and anything else gets 404, because an HTML explanation is only useful
+ * to something that renders HTML.
  *
  * EDGE-COMPATIBLE. Auth.js's `jwt` session strategy reads the session out of
  * the cookie with no database call, which is what lets this whole file run in
@@ -52,6 +56,13 @@ import { resolveAdminProxyPath } from "./src/routes";
  * No matcher config on purpose: the shell owns no assets or routes, so the
  * proxy must see every request — including /_next/* — to forward it.
  */
+/**
+ * Headers that state WHO the request is from. The shell is the only thing
+ * entitled to write them; they are stripped off every inbound request before
+ * the shell sets its own. Add to this list, never replace it.
+ */
+const IDENTITY_HEADERS = ["x-sso-email", "x-sso-name"] as const;
+
 export default auth((request) => {
   const upstream = process.env.ADMIN_UPSTREAM_ORIGIN || "https://headpinz.com";
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
@@ -81,6 +92,19 @@ export default auth((request) => {
   if (!hasAccess(session)) {
     // Signed in, no role. A second sign-in cannot fix it, so never loop them
     // back to Microsoft — say what is wrong and who can fix it.
+    //
+    // Same three-way split as the no-session branch above, and for the same
+    // reason: only a navigation can be shown an HTML explanation. A board's
+    // XHR that follows a 302 to /sso/error parses a page as JSON and reports a
+    // syntax error; an asset request that follows it caches HTML as CSS.
+    //
+    // 403, not the 401 the no-session branch uses: 401 means "authenticate and
+    // try again", which is precisely the loop this branch exists to prevent.
+    // The caller is authenticated; it is the role that is missing.
+    if (isApiPath(request.nextUrl.pathname)) {
+      return NextResponse.json({ error: "sso_no_role" }, { status: 403 });
+    }
+    if (!isPageLikeGet(request)) return notFound();
     const url = request.nextUrl.clone();
     url.pathname = "/sso/error";
     url.search = "";
@@ -100,10 +124,23 @@ export default auth((request) => {
   if (decision.kind === "forward" || decision.kind === "forward-admin") {
     const url = new URL(decision.pathname + request.nextUrl.search, upstream);
     const requestHeaders = new Headers(request.headers);
+    // Never forward a caller-supplied proxy key. With ADMIN_PROXY_KEY set the
+    // line below overwrites it anyway; with it unset, a copied-through header
+    // would be the visitor speaking to the upstream gate in the shell's voice.
+    requestHeaders.delete("x-admin-proxy-key");
     if (proxyKey) requestHeaders.set("x-admin-proxy-key", proxyKey);
     // Who is looking at this board. The upstream does not authenticate on
     // these — they are for audit lines and "signed in as" chrome, and the
     // proxy key is what makes them trustworthy there.
+    //
+    // DELETE BEFORE SET, ALWAYS. `requestHeaders` starts as a copy of the
+    // VISITOR's headers, so any x-sso-* they send arrives here. Setting only
+    // when the session has the field would forward the visitor's own value
+    // whenever it does not — a signed-in temp typing one header could sign the
+    // audit trail as anyone. The proxy key vouches for these headers upstream,
+    // so they must be OURS or absent, never the caller's. Any future identity
+    // header goes in this list on the same day it is added.
+    for (const h of IDENTITY_HEADERS) requestHeaders.delete(h);
     if (session.user?.email) requestHeaders.set("x-sso-email", session.user.email);
     if (session.user?.name) requestHeaders.set("x-sso-name", session.user.name);
     return NextResponse.rewrite(url, { request: { headers: requestHeaders } });

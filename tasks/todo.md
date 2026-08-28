@@ -35,8 +35,43 @@ Auth is **SSO, not Vercel Authentication**. Env on that project:
 | `ADMIN_CAMERA_TOKEN` | the main site's current token, injected into forwarded paths |
 | `ADMIN_UPSTREAM_ORIGIN` | local dev only (defaults to `https://headpinz.com`) |
 
-Deploy order: verify on the `.vercel.app` URL → turn Vercel Authentication **off** → attach
-`admin.fasttraxent.com` (CNAME → `cname.vercel-dns.com`) → tell staff to use the clean URLs.
+**SET THE FOUR SSO VARS BEFORE MERGING PR 1.** `SSO_ISSUER`, `SSO_CLIENT_ID`,
+`SSO_CLIENT_SECRET` and `AUTH_SECRET` must exist on `tools-website-ft-admin` *before* the
+first deploy of this branch, not after it. Auth.js validates its config on the first
+request, so with any of them missing the `auth()` wrapper in `proxy.ts` throws on every
+request — including `/sso/error` and `/api/auth/*` — and the shell answers 500 to
+everything. Today that project is a working Vercel-Authentication wall, so deploying
+without the env block is a straight downgrade from "walled" to "broken".
+
+Deploy order:
+
+1. Set the env block above on `tools-website-ft-admin` (all four SSO vars, plus
+   `ADMIN_CAMERA_TOKEN`). Gateway client `fasttrax-admin` must already list this
+   project's `*.vercel.app` callback.
+2. Deploy the shell and verify on the `.vercel.app` URL (see the smoke list below).
+3. **In the same window**, either attach `admin.fasttraxent.com` (CNAME →
+   `cname.vercel-dns.com`) or set `ADMIN_PUBLIC_URL` on `tools-website-ft` to the shell's
+   `.vercel.app` origin. Every staff link `apps/web` now builds — `adminBoardUrl()`,
+   `vipBoardUrl()`, both `/admin/{token}/daily-events` redirect shims — hard-targets
+   `https://admin.fasttraxent.com` (`src/lib/helpers/admin-url.ts`). Ship the `apps/web`
+   side ahead of one of those two and every "Open board" button in staff email/Teams, and
+   every brand-domain daily-events bookmark, lands on a domain that does not resolve.
+4. Turn Vercel Authentication **off** on the admin project.
+5. Tell staff to use the clean URLs.
+
+**PR 1 smoke — NOT YET RUN (2026-08-28).** `proxy.test.ts` mocks `./auth` wholesale, so
+nothing in this branch exercises the real Auth.js v5 wrapper under Next 16 `proxy.ts`: the
+`req.auth` shape, the cookie flags and the sign-in round trip are all unverified claims
+until someone drives them. Before merge, run the shell on its `.vercel.app` preview
+against the gateway and record:
+
+- [ ] unauthenticated `/pit` → Microsoft sign-in → returns to `/pit` (not to `/`)
+- [ ] `/api/admin/videos/list` with no session → `401 {"error":"sso_expired"}`, no redirect
+- [ ] a session with no `fasttrax-admin.access` role → `/sso/error?code=SSO_E_NO_ROLE`;
+      the same session on `/api/*` → `403 {"error":"sso_no_role"}`, no redirect
+- [ ] session cookie attributes: `HttpOnly`, `Secure`, `SameSite=Lax`
+- [ ] a board page loads and mutates, and its XHRs carry the **minted** token — the static
+      `ADMIN_CAMERA_TOKEN` appears nowhere in the network log
 
 Troubleshooting, in order: `curl -H "Authorization: Bearer $DIAG_SECRET" https://admin.fasttraxent.com/sso/diag`
 — it reports discovery/JWKS reachability **with timings**, the caller's session and roles, env

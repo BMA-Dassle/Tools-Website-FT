@@ -104,11 +104,35 @@ describe("admin gate — NEW: signed api-token credential", () => {
     expect(r.via).toBe("api-token");
   });
 
-  it("accepts it on /admin/* pages as well (harmless — same credential class)", async () => {
+  it("is NOT a page credential — a minted token opens no /admin/* page", async () => {
+    // The whole point of the short-lived token is that a browser may hold it.
+    // A browser-held credential that ALSO renders pages is a page credential
+    // by another name: /admin/<anything>/api-docs is a "use client" page whose
+    // only protection is the gate, and PR 2's "pages require x-admin-proxy-key"
+    // lockdown would be a no-op for anyone holding one of these for 8 hours.
     const signed = await mintAdminApiToken();
-    const r = await gate(`/admin/embed/nope?token=${encodeURIComponent(signed)}`);
-    expect(r.status).toBe(200);
-    expect(r.via).toBe("api-token");
+    for (const p of [
+      `/admin/anything/pit?token=${encodeURIComponent(signed)}`,
+      `/admin/anything/api-docs?token=${encodeURIComponent(signed)}`,
+      `/admin/embed/nope?token=${encodeURIComponent(signed)}`,
+    ]) {
+      expect(await gate(p), p).toMatchObject({ status: 404, via: null });
+    }
+    // …and the header form is no different from the query form.
+    expect(await gate("/admin/anything/pit", { "x-admin-token": signed })).toMatchObject({
+      status: 404,
+      via: null,
+    });
+  });
+
+  it("still lets the static token open a page while a minted one rides along", async () => {
+    // The minted token must not *subtract* either: a real page URL keeps
+    // working when a client happens to attach its API credential as well.
+    const signed = await mintAdminApiToken();
+    expect(await gate(`/admin/${TOKEN}/pit`, { "x-admin-token": signed })).toMatchObject({
+      status: 200,
+      adminRoute: "1",
+    });
   });
 
   it("404s an EXPIRED token — it falls through to the static check and fails", async () => {
