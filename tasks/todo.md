@@ -1,5 +1,55 @@
 # Open Tasks
 
+## Admin SSO — PR 1 done, PR 2 needs the owner's go (2026-08-28) — branch `feat/admin-sso`
+
+Goal: **no human reaches a FastTrax admin page without a Microsoft sign-in.** Two PRs on
+purpose — PR 1 cannot break anyone; PR 2 is the only step that removes access.
+
+Full audit + the "Unresolved before PR 2" list: [tasks/admin-sso-lockdown.md](admin-sso-lockdown.md).
+
+### PR 1 — `feat/admin-sso` (done, not deployed)
+
+- [x] `apps/admin` gets Auth.js v5 against the HeadPinz SSO gateway (client `fasttrax-admin`,
+      role `access`). `proxy.ts` = `auth((req) => …)`; `/api/auth/*` + `/sso/*` are `self`.
+- [x] `lib/admin-api-token.ts` — signed 8h `<expMs>.<hmac>` credential, Web Crypto so the edge
+      middleware can verify it. Middleware accepts it as `x-admin-via: api-token`.
+- [x] 23 admin pages mint one instead of handing out `ADMIN_CAMERA_TOKEN`; ~45 API routes +
+      `verifyPortal` moved their inline checks to `lib/admin-request-auth.ts`.
+- [x] Staff links (email, Teams cards, in-app board links, the daily-events shims) build clean
+      shell URLs via `adminToolUrl()`.
+- [x] `scripts/check-admin-token-leak.mjs` in `npm run test -w fasttrax-web`.
+- [x] `publicOrigin()` excludes `admin.*` hosts — lessons.md rule #5 amended.
+
+### Runbook — the admin Vercel project (`tools-website-ft-admin`)
+
+Auth is **SSO, not Vercel Authentication**. Env on that project:
+
+| Var | What |
+|---|---|
+| `SSO_ISSUER` | `https://auth.headpinz.com/oidc` (local: `http://localhost:3100/oidc`) |
+| `SSO_CLIENT_ID` | `fasttrax-admin` |
+| `SSO_CLIENT_SECRET` | from the gateway's client registry |
+| `AUTH_SECRET` | Auth.js cookie encryption — `openssl rand -base64 32` |
+| `DIAG_SECRET` | bearer for `GET /sso/diag` |
+| `ADMIN_PROXY_KEY` | shared with `tools-website-ft`; the shell's credential upstream |
+| `ADMIN_CAMERA_TOKEN` | the main site's current token, injected into forwarded paths |
+| `ADMIN_UPSTREAM_ORIGIN` | local dev only (defaults to `https://headpinz.com`) |
+
+Deploy order: verify on the `.vercel.app` URL → turn Vercel Authentication **off** → attach
+`admin.fasttraxent.com` (CNAME → `cname.vercel-dns.com`) → tell staff to use the clean URLs.
+
+Troubleshooting, in order: `curl -H "Authorization: Bearer $DIAG_SECRET" https://admin.fasttraxent.com/sso/diag`
+— it reports discovery/JWKS reachability **with timings**, the caller's session and roles, env
+presence (never values), and the last ten sign-in errors. "Signed in but bounced" is almost
+always a missing `fasttrax-admin.access` role in Entra; the page says so with `SSO_E_NO_ROLE`.
+
+### PR 2 — `feat/admin-lockdown` (BLOCKED on owner review of the audit)
+
+- [ ] Owner reads [tasks/admin-sso-lockdown.md](admin-sso-lockdown.md) and rules on its seven
+      unresolved items — especially the **briefing wall tablet** (#2), which is the one surface
+      that a page-level lockdown would strand.
+- [ ] Then: the eight-step PR 2 checklist at the end of that file.
+
 ## Mega Thursdays, Sep 3 – end of Oct 2026 (2026-08-25) — branch `worktree-mega-thursdays`
 
 Owner: "September 3rd through end of october we're adding mega to Thursdays. So that means no

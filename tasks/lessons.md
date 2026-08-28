@@ -1,5 +1,45 @@
 # Lessons Learned
 
+## A shared secret that forty-five files compare for themselves can never be replaced (2026-08-28)
+
+**What happened (caught in design, not production):** getting `ADMIN_CAMERA_TOKEN` out of
+browsers looked like a page-level change — swap what the `[token]` pages hand their client
+components, done. It was not. Roughly **45 `/api/admin/*` route handlers each carried their own
+copy** of `token === process.env.ADMIN_CAMERA_TOKEN`, deliberate defense in depth behind the
+middleware gate. Every one of them would have answered 401 the moment a page minted a
+short-lived token instead — every board dead, on a change whose diff touched no route.
+
+The same shape hid in the outbound direction. `adminBoardUrl()`, `vipBoardUrl()`, two in-app
+board links and two `redirect()` shims each built `/admin/${token}/…` independently, so the
+token lived in staff inboxes, Teams history and `Location` headers, and rotating it meant
+re-sending the archive.
+
+**The rules:**
+
+1. **A credential compared in N places has N places to update and N chances to miss one.**
+   Before changing what a credential IS, grep for who compares it — the count is the real size
+   of the change. One `isAdminCredential()` that accepts *the set of valid credentials* is what
+   makes the set extensible; `x === env.SECRET` in forty-five files is what freezes it.
+2. **Defense in depth must not mean duplicated logic.** The inline route checks were right to
+   exist (these routes refund cards and write to screens guests see) and they still do — they
+   delegate. What was wrong was that each one hard-coded WHICH credential, not THAT there must
+   be one. Delegating kept the property that a matcher change cannot open the routes, and a
+   forged `x-admin-route: 1` header still proves nothing.
+3. **Never authenticate a route by trusting a header the middleware set.** It is the tempting
+   one-file fix and it converts any future matcher edit into a total bypass. Verify a real
+   secret in the handler, or accept that the middleware is your only gate — do not pretend to
+   have both.
+4. **A URL is a place a secret goes to live forever.** Email, Teams cards, `Location` headers
+   and browser history all outlive the rotation. Build staff links through ONE helper that has
+   no secret to embed (`adminToolUrl()`), so the question "does this link leak?" has a
+   structural answer instead of a per-call-site one.
+5. **New credential schemes must not require a new env var to work on day one.** The signed
+   token's HMAC key falls back to `ADMIN_CAMERA_TOKEN`, which every environment already has, so
+   nothing waited on a Vercel change to keep working. Ship the mechanism, then decouple the key.
+6. **Pin the property, not the instance.** `scripts/check-admin-token-leak.mjs` fails the build
+   if any client-reachable module reads the token env. Fixing 23 pages fixes today; the pin is
+   what stops page 24.
+
 ## A latent fallback goes live the moment a filter widens — and the test that guarded it was asserting the bug (2026-08-19)
 
 **What happened:** every bowling reservation on the kiosk check-in list read four hours late — a
