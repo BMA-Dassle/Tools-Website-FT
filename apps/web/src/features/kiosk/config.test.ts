@@ -24,14 +24,14 @@ describe("gameZoneCapability", () => {
     expect(gameZoneCapability(base({ cardReaderEnabled: true, dispenserId: null }))).toBe("none");
   });
 
-  it("is 'reload' for an MSR-only kiosk", () => {
-    expect(gameZoneCapability(base({ msrEnabled: true }))).toBe("reload");
+  it("is 'swipe' for an MSR-only kiosk (buy by swiping a blank + reload + balance)", () => {
+    expect(gameZoneCapability(base({ msrEnabled: true }))).toBe("swipe");
   });
 
   it("msrUse gates the MSR: 'giftcard' is split-tender hardware, not Game Zone", () => {
     expect(gameZoneCapability(base({ msrEnabled: true, msrUse: "giftcard" }))).toBe("none");
-    expect(gameZoneCapability(base({ msrEnabled: true, msrUse: "gamezone" }))).toBe("reload");
-    expect(gameZoneCapability(base({ msrEnabled: true, msrUse: "both" }))).toBe("reload");
+    expect(gameZoneCapability(base({ msrEnabled: true, msrUse: "gamezone" }))).toBe("swipe");
+    expect(gameZoneCapability(base({ msrEnabled: true, msrUse: "both" }))).toBe("swipe");
   });
 
   it("is 'none' for a null config", () => {

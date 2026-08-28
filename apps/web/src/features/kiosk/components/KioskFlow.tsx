@@ -68,7 +68,7 @@ import {
 } from "../service/qualification-refresh-client";
 import { useKioskConfig } from "../KioskConfigContext";
 import { useLocale, type MessageKey, type Translate } from "../i18n";
-import { gameZoneCapability, isTestKiosk } from "../config";
+import { cardIssueRail, gameZoneCapability, isTestKiosk } from "../config";
 import {
   kioskMergedCheckoutEnabled,
   kioskCheckoutUpsellEnabled,
@@ -1824,8 +1824,10 @@ export function KioskFlow({
             // in cart to trigger upsell"; KBF counts — it's a lane booking),
             // only when NO Game Zone cards ride the cart, once per session,
             // and only when this kiosk can actually sell + fulfill a new card
-            // (cart rail + reader rail + dispenser "full" capability — the
-            // dispenser is a hard requirement, owner re-confirmed 7/21).
+            // (cart rail + reader rail + a way to put a card in the guest's
+            // hand: the dispenser, or — since 2026-08-28 — a swipe reader with
+            // blank stock under the screen; the confirmation screen prompts
+            // the swipe. Superseded the 7/21 dispenser-only requirement).
             // Every gate is named so a device console shows exactly why the
             // page didn't appear.
             // `?upsellPreview=1` on the flow URL bypasses ONLY the hardware
@@ -1850,7 +1852,7 @@ export function KioskFlow({
                 ["no-cards-in-cart", !session.gameCardPurchase?.cards.length],
                 ["gz-cart-flag", kioskGzCartEnabled()],
                 ["reader-paired", upsellPreview || !!config.readerId],
-                ["dispenser-full", upsellPreview || gameZoneCapability(config) === "full"],
+                ["card-issue", upsellPreview || gameZoneCapability(config) !== "none"],
               ] as const
             )
               .filter(([, ok]) => !ok)
@@ -2108,8 +2110,9 @@ export function KioskFlow({
         }}
         appliedPromo={promoEnabled ? session.appliedPromo : null}
         onClearPromo={() => dispatch({ type: "applyPromo", promo: null })}
-        // A kiosk without a dispenser must never promise to print a card.
-        canDispenseCards={gameZoneCapability(config) === "full"}
+        // How a card reaches the guest here (dispenser / swiped blank / not at
+        // all) — the receipt must never promise what this machine can't do.
+        cardIssue={cardIssueRail(config)}
         // "Who's here from your booking?" — a reservation-linked voucher
         // offers its party on the receipt; a tapped chip lands the person on
         // the SESSION party, so every later people step is prefilled. The
@@ -2128,7 +2131,7 @@ export function KioskFlow({
         <KioskGameZone
           center={config.center}
           brand={config.brand}
-          capability={gameZoneCapability(config) === "reload" ? "reload" : "full"}
+          capability={gameZoneCapability(config) === "swipe" ? "swipe" : "full"}
           initialVoucherCodes={gzVoucherCodes}
           // A game card scanned on the attract screen or the chooser — opens
           // straight on its balance rather than asking for the card again.

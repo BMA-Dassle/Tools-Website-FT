@@ -33,7 +33,9 @@ export interface TerminalPreparedRow {
   tokens: number;
   bonusTokens: number;
   amountCents: number;
-  /** "" for a new_card (account attached when the blank is dispensed). */
+  /** "" for a new_card on a dispenser kiosk (account attached when the blank
+   *  is dispensed); the swiped blank's number on an MSR-only kiosk, where the
+   *  guest swipes BEFORE paying and the row is persisted with it. */
   accountNumber: string;
 }
 

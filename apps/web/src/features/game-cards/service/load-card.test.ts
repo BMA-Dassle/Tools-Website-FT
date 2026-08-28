@@ -199,6 +199,31 @@ describe("loadCard clear-on-encode (GC_CLEAR_ON_ENCODE=1)", () => {
     expect(order).toContain("markLoadState:load_failed");
   });
 
+  it("never clears a SWIPED new card — the guest chose it, so it only ever gains value", async () => {
+    // MSR-only kiosk (2026-08-28): the blank came off the holder under the
+    // screen and was swiped, not pulled from the stacker. If the client's
+    // blank check were wrong and the card carried value, a clear would wipe a
+    // guest's balance to add the tokens they just paid for — stacking is the
+    // harmless outcome, clearing is not.
+    const { intercard, log } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(chargedRow);
+    (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0 });
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: true,
+      accountNumber: input.accountNumber,
+      balance: { tokens: 500, bonusTokens: 100, eTickets: 0, timeMinutes: 0 },
+    });
+    const { loadCard } = await import("./load-card");
+
+    const res = await loadCard({ ...input, swiped: true });
+    expect(res.loaded).toBe(true);
+    expect(intercard.clearAccount).not.toHaveBeenCalled();
+    // Still a fresh-blank row: the swiped account is attached and credited once.
+    expect(log.setTxnAccount).toHaveBeenCalledWith(input.txnId, input.accountNumber);
+    expect(intercard.creditAccountValues).toHaveBeenCalledTimes(1);
+    expect(order).toContain("markLoadState:loaded");
+  });
+
   it("never clears a reload (would wipe the guest's own balance)", async () => {
     const { intercard, log } = await mocks();
     (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue({ ...chargedRow, kind: "reload" });
@@ -307,6 +332,30 @@ describe("loadCard (comp voucher: free load, authorised by the claim)", () => {
     const res = await loadCard(input);
     expect(res.loaded).toBe(true);
     expect(order.indexOf("clearAccount")).toBeLessThan(order.indexOf("creditAccountValues"));
+    vi.stubEnv("GC_CLEAR_ON_ENCODE", "");
+  });
+
+  it("a comped card the guest SWIPED (no-dispenser kiosk) is credited without a clear", async () => {
+    vi.stubEnv("GC_CLEAR_ON_ENCODE", "1");
+    const { intercard, log, claims } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(voucherRow);
+    (claims.getLiveClaimForTxn as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: voucherRow.voucherCode,
+      packageId: "gzv-100",
+      status: "claimed",
+    });
+    (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0 });
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: true,
+      accountNumber: input.accountNumber,
+      balance: { tokens: 0, bonusTokens: 100, eTickets: 0, timeMinutes: 0 },
+    });
+    const { loadCard } = await import("./load-card");
+
+    const res = await loadCard({ ...input, swiped: true });
+    expect(res.loaded).toBe(true);
+    expect(intercard.clearAccount).not.toHaveBeenCalled();
+    expect(intercard.creditAccountValues).toHaveBeenCalledTimes(1);
     vi.stubEnv("GC_CLEAR_ON_ENCODE", "");
   });
 });

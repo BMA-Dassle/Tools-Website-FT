@@ -14,10 +14,23 @@
  * purchase path used by the public /reload page, so it's safe to reuse as-is.
  *
  * NEW cards (1–10 in one order) run through the same UX — pick a package per
- * card, pay, "dispense" — but the dispense is SIMULATED for now (owner
- * 2026-07-18): no physical card is ejected and no real charge/account is
- * created. Swap simDispense() for real create-account + purchase + hardware
- * dispense once the dispenser + Intercard new-account issuance are wired.
+ * card, pay once — and are fulfilled on one of TWO hardware rails, chosen by
+ * `capability`:
+ *  - "full"  — CRT-591 DISPENSER: pay → dispense a blank → read its account →
+ *              load → present, one card at a time (the reader holds one card).
+ *  - "swipe" — MSR ONLY (owner 2026-08-28; these kiosks used to be reload-only):
+ *              the guest takes a blank from the holder UNDER the screen and
+ *              swipes it BEFORE paying. Each swipe is verified blank (never
+ *              found in Intercard, or found empty with no history — see
+ *              game-cards/blank-card.ts); Pay arms only when every card in the
+ *              cart holds a verified blank. After the charge the loads are a
+ *              pure credit loop — no hardware step can fail, and nothing is
+ *              ever "retained": a load that doesn't confirm leaves the row
+ *              pending for the reconcile cron, and the guest keeps the card.
+ *              A swiped card is never clear-on-encoded (load-card.ts).
+ *              The same rail fulfils comp vouchers (swipe → claim → credit)
+ *              and turns a "card not found" on Reload / Check balance into a
+ *              "Looks like a new card — set it up" hand-off.
  */
 import { useEffect, useRef, useState } from "react";
 import PaymentForm from "@/components/square/PaymentForm";
@@ -41,12 +54,21 @@ import {
 } from "~/features/game-cards/constants";
 import { centerCodeFor } from "~/config/intercard-centers";
 import type { Brand, CenterCode } from "~/features/booking";
-import { useGameCardDispenser, useSerialMsr, type FaultBehavior } from "../card-reader";
+import {
+  useGameCardDispenser,
+  useSerialMsr,
+  createSwipeWaiter,
+  SwipeWaitError,
+  type FaultBehavior,
+} from "../card-reader";
+import { classifySwipedCard, type SwipedCardClass } from "~/features/game-cards/blank-card";
+import type { VerifyResult } from "~/features/game-cards/types";
 import type { GameCardCartPurchase } from "~/features/booking/state/types";
 import { useKioskConfig } from "../KioskConfigContext";
 import { kioskDeviceKey } from "../config";
 import { BrandedLoader } from "./BrandedLoader";
 import { CardSlotGuide } from "./CardSlotGuide";
+import { SwipeBlankGuide } from "./SwipeBlankGuide";
 import { KioskDispenserHold } from "./KioskDispenserHold";
 import { useT, type Translate } from "../i18n";
 
@@ -81,6 +103,13 @@ type HoldFault = Extract<FaultBehavior, { kind: "hold" }>;
  *  and hold for staff. Bounded so a stack loaded facing the wrong way can't be
  *  fed through the reader one card at a time until the whole stacker is gone. */
 const MAX_BAD_BLANKS = 3;
+
+/** Swipe kiosks: how long a voucher run waits for the guest to swipe the next
+ *  blank before giving up. A wait must ALWAYS end — a guest who walks away
+ *  mid-run would otherwise leave the screen listening, and the next person's
+ *  swipe would collect their card. Nothing is claimed until a blank is in hand,
+ *  so timing out costs nobody anything. */
+const SWIPE_WAIT_MS = 90_000;
 
 /** Consecutive failed AUTO reads (reload / balance) before we stop re-arming the
  *  gate and wait for an explicit tap. Without this, an unreadable or stuck card
@@ -135,23 +164,44 @@ const BIN_FULL_HOLD: HoldFault = {
 interface CartCard {
   accountNumber: string;
   packageId: string;
-  status: "unverified" | "verifying" | "ok" | "bad";
+  /** `notfound` = Intercard CONFIRMED no such account (a blank — on a swipe
+   *  kiosk that's the "set it up as a new card" hand-off); `bad` = the lookup
+   *  failed or was ambiguous, so the guest is asked to try again. */
+  status: "unverified" | "verifying" | "ok" | "bad" | "notfound";
   balance?: { tokens: number; bonusTokens?: number };
   holderName?: string;
 }
 
 /**
- * A brand-new card being purchased. Its Intercard account is read off the
- * blank as it's dispensed (pre-encoded stock); tokens are loaded before the
- * card is presented. `txnId` ties it to the charged ledger row.
+ * A brand-new card being purchased. On a dispenser kiosk its Intercard account
+ * is read off the blank as it's dispensed (pre-encoded stock) AFTER payment; on
+ * a swipe kiosk the guest swipes the blank BEFORE payment and `blankStatus`
+ * records the verdict. Tokens are loaded before the card is presented / as
+ * soon as the charge clears. `txnId` ties it to the charged ledger row.
  */
 interface NewCard {
   packageId: string;
   txnId?: string; // ledger row from the upfront charge
-  account?: string; // read off the blank during dispense
+  account?: string; // read off the blank during dispense, or swiped up front
   loaded?: boolean; // tokens confirmed loaded
   cardStatus?: "pending" | "dispensing" | "loaded" | "failed";
   balanceTokens?: number; // real balance after load
+  /** Swipe kiosks only — what the swipe-time lookup said about `account`.
+   *  "blank" is the ONLY state that arms Pay. */
+  blankStatus?: "checking" | "blank" | "active" | "duplicate" | "unknown";
+  /** For the "that card isn't new" message: tokens already on it (0 with
+   *  `hadHistory` = a spent card). */
+  existingTokens?: number;
+  hadHistory?: boolean;
+}
+
+/** The verify route CONFIRMED there is no such account — a blank, or a cleared
+ *  card. A failed or ambiguous lookup (503, network, exception code) must never
+ *  read as "this card is blank": that would sell a guest their own card back. */
+function confirmedNotFound(ok: boolean, data: unknown): boolean {
+  if (!ok || !data || typeof data !== "object") return false;
+  const d = data as { exists?: unknown; notFound?: unknown };
+  return d.exists === false && d.notFound === "confirmed";
 }
 
 /** The game-cards API returns errors as `{ error: string, code }`. */
@@ -229,10 +279,11 @@ interface BalanceTxn {
   device?: string;
 }
 
-/** Balance-check card state (mode "balance" — one card at a time, owner rule). */
+/** Balance-check card state (mode "balance" — one card at a time, owner rule).
+ *  `notfound` = confirmed absent (a blank); `bad` = lookup failed/ambiguous. */
 interface BalanceCard {
   accountNumber: string;
-  status: "reading" | "checking" | "ok" | "bad";
+  status: "reading" | "checking" | "ok" | "bad" | "notfound";
   name?: string;
   balance?: { tokens: number; bonusTokens: number; eTickets: number; timeMinutes: number };
   /** Recent card activity — shown like the web reload page (owner 2026-07-18). */
@@ -261,14 +312,13 @@ function TokenTileBody({ p }: { p: (typeof TOKEN_PACKAGES)[number] }) {
   );
 }
 
-/** One-line package summary for a COLLAPSED card row (owner: minimize after pick). */
-// TODO(i18n): module-scope helper (no React) — can't reach useT(); the "tokens"/
-// "free" words stay English until this is threaded a `t` param or turned into a
-// component. Numbers/price already render correctly for es.
-function pkgLabel(packageId: string): string {
+/** One-line package summary for a COLLAPSED card row (owner: minimize after
+ *  pick). Module-scope, so the catalog `t` is threaded in. */
+function pkgLabel(t: Translate, packageId: string): string {
   const p = TOKEN_PACKAGES.find((x) => x.id === packageId);
   if (!p) return "";
-  return `${p.tokens} tokens${p.bonusTokens ? ` +${p.bonusTokens} free` : ""} · $${(p.priceCents / 100).toFixed(0)}`;
+  const bonus = p.bonusTokens ? ` ${t("gamezone.freeBonus", { n: p.bonusTokens })}` : "";
+  return `${p.tokens} ${t("gamezone.tokensUnit")}${bonus} · $${(p.priceCents / 100).toFixed(0)}`;
 }
 
 /** Staff-readable card-system status: local bridge (instant) vs cloud (slower).
@@ -305,10 +355,11 @@ export function KioskGameZone({
 }: {
   center: CenterCode;
   brand: Brand;
-  /** "full" = dispenser (buy + reload + balance); "reload" = MSR reader only —
-   *  reload + balance check, NO new-card sales (that tile greys out and points
-   *  to the front kiosk / Guest Services — owner 2026-07-20). */
-  capability?: "full" | "reload";
+  /** "full" = CRT-591 dispenser (buy from the stacker + reload + balance);
+   *  "swipe" = MSR swipe reader only — reload + balance check, and new cards
+   *  by swiping a blank from the holder under the screen (owner 2026-08-28,
+   *  reversing the 2026-07-20 reload-only rule). */
+  capability?: "full" | "swipe";
   onExit: () => void;
   /** Fires true while the dispenser is mid-operation/holding so the flow can
    *  pause the idle watchdog (don't reset a guest mid-dispense). */
@@ -336,11 +387,11 @@ export function KioskGameZone({
   onVoucherOutcome?: (outcomes: { code: string; loaded: boolean }[]) => void;
 }) {
   const t = useT();
-  // Every kiosk lands on the chooser — MSR-only kiosks offer reload + balance
-  // check there, with new-card sales greyed out (owner 2026-07-20; the first
-  // MSR release wrongly jumped straight to reload, hiding balance check).
-  // EXCEPT when a comp voucher was already scanned on the coupon screen: go
-  // straight to redemption.
+  // Every kiosk lands on the chooser — dispenser and swipe kiosks alike offer
+  // new cards, reload and balance check there (the first MSR release wrongly
+  // jumped straight to reload, hiding balance check). EXCEPT when a comp
+  // voucher was already scanned on the coupon screen: go straight to
+  // redemption.
   const [mode, setMode] = useState<Mode>(
     initialVoucherCodes?.length ? "voucher" : initialCardAccount ? "balance" : "choose",
   );
@@ -497,6 +548,17 @@ export function KioskGameZone({
   const [holdFault, setHoldFault] = useState<HoldFault | null>(null);
   const holdRef = useRef<{ resolve: (resume: boolean) => void; reinit: boolean } | null>(null);
   const [reloadPending, setReloadPending] = useState(false);
+  // Swipe kiosk, new cards: at least one credit didn't confirm (row pending →
+  // reconcile cron; the guest keeps the card) — the done screen says so.
+  const [newLoadIssue, setNewLoadIssue] = useState(false);
+  // Voucher run on a swipe kiosk: the leg currently waiting for a swipe (the
+  // step guide renders instead of the loader) + the last swipe's verdict.
+  const [swipeWait, setSwipeWait] = useState<{
+    n: number;
+    total: number;
+    checking: boolean;
+    note: string | null;
+  } | null>(null);
 
   const holdUntilResolved = (fault: HoldFault): Promise<boolean> =>
     new Promise<boolean>((resolve) => {
@@ -593,6 +655,21 @@ export function KioskGameZone({
       const pkg = TOKEN_PACKAGES.find((p) => p.id === c.packageId);
       return sum + (pkg?.priceCents ?? 0);
     }, 0) + activationFeeCents("new_card", newCards.length);
+  /** Pay / Add-to-visit may arm: a dispenser kiosk needs the CRT connected with
+   *  stock; a swipe kiosk needs EVERY row to hold a verified blank. */
+  const newReady =
+    capability === "swipe"
+      ? newCards.length > 0 && newCards.every((c) => !!c.account && c.blankStatus === "blank")
+      : readerReady && dispenser.stacker !== "empty";
+  /** Purchase lines for the new-card cart. On a swipe kiosk each carries the
+   *  account the guest swiped, so the ledger row is persisted WITH it before
+   *  any money moves (persist-first: a browser death after the charge leaves a
+   *  row the reconcile cron can still credit). */
+  const newCardItems = () =>
+    newCards.map((c) => ({
+      packageId: c.packageId,
+      ...(capability === "swipe" && c.account ? { accountNumber: c.account } : {}),
+    }));
   const setNewCard = (i: number, patch: Partial<NewCard>) =>
     setNewCards((cs) => cs.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
   const addNewCard = () =>
@@ -621,7 +698,9 @@ export function KioskGameZone({
           holderName: bal.name ?? data.name,
         });
       } else {
-        setCard(i, { status: "bad" });
+        // A CONFIRMED no-such-account is a blank (swipe kiosks offer to set it
+        // up as a new card); anything else is a failed lookup — try again.
+        setCard(i, { status: confirmedNotFound(res.ok, data) ? "notfound" : "bad" });
       }
     } catch {
       setCard(i, { status: "bad" });
@@ -701,7 +780,10 @@ export function KioskGameZone({
           transactions: Array.isArray(data.transactions) ? data.transactions : undefined,
         });
       } else {
-        setBalCard({ accountNumber: acct, status: "bad" });
+        setBalCard({
+          accountNumber: acct,
+          status: confirmedNotFound(res.ok, data) ? "notfound" : "bad",
+        });
       }
     } catch {
       setBalCard({ accountNumber: acct, status: "bad" });
@@ -735,15 +817,154 @@ export function KioskGameZone({
     await fetchBalance(r.value);
   };
 
-  // Serial-swipe MSR (reload-only kiosks, capability "reload"): a raw COM
-  // swipe reader instead of the CRT-591 — each swipe streams `;6283=<acct>?`
-  // (see useSerialMsr.ts). A valid swipe lands wherever the screen is waiting
-  // for a card — the expanded reload row, or the balance check — and verifies
-  // / looks up immediately, exactly like a typed entry. A kiosk has a
-  // dispenser OR an MSR, never both (dispenser wins in gameZoneCapability).
-  const msrActive = capability === "reload" && !!config?.msrEnabled;
+  // ── Swipe kiosks: is a swiped card a BLANK we may sell as new? ──────────────
+  // One lookup → the shared verdict (game-cards/blank-card.ts). A failed or
+  // ambiguous lookup is "unknown", never "blank".
+  const classifyAccount = async (
+    acct: string,
+  ): Promise<{ cls: SwipedCardClass; tokens: number; hadHistory: boolean }> => {
+    const unknown = { cls: "unknown" as const, tokens: 0, hadHistory: false };
+    try {
+      const res = await fetch("/api/game-cards/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accountNumber: acct, locationCode }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        exists?: boolean;
+        notFound?: "confirmed" | "ambiguous";
+        balance?: {
+          tokens?: number;
+          bonusTokens?: number;
+          eTickets?: number;
+          timeMinutes?: number;
+        };
+        cashBalance?: number;
+        transactions?: unknown[];
+      } | null;
+      if (!res.ok || !data) return unknown;
+      const b = data.balance;
+      const transactions = Array.isArray(data.transactions) ? data.transactions : [];
+      const cls = classifySwipedCard({
+        exists: data.exists === true,
+        notFound: data.notFound,
+        cashBalance: data.cashBalance,
+        balance: b
+          ? {
+              tokens: b.tokens ?? 0,
+              bonusTokens: b.bonusTokens ?? 0,
+              eTickets: b.eTickets ?? 0,
+              timeMinutes: b.timeMinutes ?? 0,
+            }
+          : undefined,
+        transactions: transactions as VerifyResult["transactions"],
+      });
+      return {
+        cls,
+        tokens: (b?.tokens ?? 0) + (b?.bonusTokens ?? 0),
+        hadHistory: transactions.length > 0,
+      };
+    } catch {
+      return unknown;
+    }
+  };
+
+  /** Look up the swiped account for new-card row `i` and record the verdict. */
+  const verifySwipedRow = async (i: number, acct: string) => {
+    setNewCardAt(i, {
+      account: acct,
+      blankStatus: "checking",
+      existingTokens: undefined,
+      hadHistory: undefined,
+    });
+    const r = await classifyAccount(acct);
+    setNewCardAt(
+      i,
+      r.cls === "active"
+        ? { blankStatus: "active", existingTokens: r.tokens, hadHistory: r.hadHistory }
+        : { blankStatus: r.cls },
+    );
+  };
+
+  /** A swipe while the NEW-CARD cart is up. Target: the expanded row; else the
+   *  first row still without a card; else (every row already holds a swiped
+   *  card) a NEW row — swiping another blank is how you add one. One lookup in
+   *  flight at a time, so a double swipe can't report card B's verdict against
+   *  card A's number. */
+  const swipeNewCard = async (acct: string) => {
+    if (newCards.some((c) => c.blankStatus === "checking")) return;
+    let target = newEditIdx != null && newEditIdx < newCards.length ? newEditIdx : -1;
+    if (target < 0) target = newCards.findIndex((c) => !c.account);
+    if (target < 0) {
+      if (newCards.length >= 10) return;
+      target = newCards.length;
+      setNewCards((cs) => [...cs, { packageId: TOKEN_PACKAGES[1].id }]);
+      setNewEditIdx(target);
+    }
+    if (newCards.some((c, idx) => idx !== target && c.account === acct)) {
+      setNewCardAt(target, { blankStatus: "duplicate" });
+      return;
+    }
+    await verifySwipedRow(target, acct);
+  };
+
+  /** "Set up this card": a Reload / Check-balance swipe Intercard has never
+   *  seen is a blank — carry it into the new-card cart as a row and RE-VERIFY
+   *  it there under the cart's own rule (the balance lookup's verdict is not
+   *  trusted twice). An untouched default cart is replaced; a cart already
+   *  holding swiped cards gains a row. */
+  const setUpSwipedCard = (acct: string) => {
+    const fresh: NewCard = {
+      packageId: TOKEN_PACKAGES[1].id,
+      account: acct,
+      blankStatus: "checking",
+    };
+    const keep = newCards.some((c) => c.account);
+    const next = keep ? [...newCards, fresh].slice(0, 10) : [fresh];
+    const idx = next.length - 1;
+    setNewCards(next);
+    setNewEditIdx(idx);
+    setBalCard(null);
+    setBalTyped("");
+    setMode("newcard");
+    void verifySwipedRow(idx, acct);
+  };
+
+  /** "Reload this card instead": the card swiped as NEW already carries value
+   *  — hand it to the reload cart pre-filled and verify it there. */
+  const reloadSwipedInstead = (i: number) => {
+    const c = newCards[i];
+    if (!c?.account) return;
+    const acct = c.account;
+    setNewCardAt(i, {
+      account: undefined,
+      blankStatus: undefined,
+      existingTokens: undefined,
+      hadHistory: undefined,
+    });
+    setCards([{ accountNumber: acct, packageId: c.packageId, status: "unverified" }]);
+    setReloadEditIdx(0);
+    setMode("reload");
+    void verify(0, acct);
+  };
+
+  // Serial-swipe MSR (capability "swipe" — kiosks WITHOUT a dispenser): a raw
+  // COM swipe reader instead of the CRT-591 — each swipe streams
+  // `;6283=<acct>?` (see useSerialMsr.ts). A valid swipe lands wherever the
+  // screen is waiting for a card: an imperative run awaiting one (the voucher
+  // basket), the expanded reload row, the balance check, or the new-card cart
+  // (swipe kiosks sell new cards by having the guest swipe a blank BEFORE
+  // paying — owner 2026-08-28). A kiosk has a dispenser OR an MSR, never both
+  // (dispenser wins in gameZoneCapability).
+  const msrActive = capability === "swipe" && !!config?.msrEnabled;
   const [msrBadSwipe, setMsrBadSwipe] = useState(false);
+  // ONE waiter for the component's life (lazy state, never re-created; a
+  // StrictMode remount reuses it). `feed` runs FIRST so a run awaiting a
+  // swipe is never starved by the reactive routing below.
+  const [swipeWaiter] = useState(createSwipeWaiter);
   const onMsrSwipe = (acct: string) => {
+    if (swipeWaiter.feed(acct)) return;
     if (phase !== "cart") return; // never mid-payment/loading
     setMsrBadSwipe(false);
     if (mode === "balance") {
@@ -752,16 +973,30 @@ export function KioskGameZone({
     } else if (mode === "reload" && reloadEditIdx != null) {
       setCard(reloadEditIdx, { accountNumber: acct, status: "unverified" });
       void verify(reloadEditIdx, acct);
+    } else if (mode === "newcard") {
+      void swipeNewCard(acct);
     }
   };
   const msr = useSerialMsr({
-    enabled: msrActive,
+    // Hold the port ONLY while a card can matter here. The pay screen's
+    // gift-card capture (msrUse "both") needs the same reader, and one COM
+    // port opens once — a hook that is done listening must let go.
+    enabled: msrActive && phase === "cart",
     portInfo: config?.msrPortInfo ?? null,
     baud: config?.msrBaud ?? null,
     onSwipe: onMsrSwipe,
     onBadSwipe: () => setMsrBadSwipe(true),
   });
   const msrListening = msrActive && msr.connection.state === "listening";
+  /** This kiosk can put a NEW card in the guest's hand right now — the
+   *  dispenser is connected, or the swipe reader is listening. */
+  const canIssue = readerReady || msrListening;
+  // A pending swipe wait belongs to the voucher run: leaving voucher mode, or
+  // the whole screen, ends it (the awaiting code treats that as a cancel).
+  useEffect(() => {
+    if (mode !== "voucher") swipeWaiter.cancel();
+  }, [mode, swipeWaiter]);
+  useEffect(() => () => swipeWaiter.cancel(), [swipeWaiter]);
 
   // AUTO-ARM the card slot (owner 2026-07-18: "guest should never have to push
   // a button to insert a card"): whenever a screen is WAITING on a card — the
@@ -835,8 +1070,9 @@ export function KioskGameZone({
   // card one at a time (load must clear before a card is handed over).
   const payNewCards = async (cardNonce: string) => {
     // Don't take money if the bin is already full — hold up front so staff empty
-    // it before we charge (bail → stay on the cart, nothing charged).
-    if (!(await holdIfBinFull())) return;
+    // it before we charge (bail → stay on the cart, nothing charged). Swipe
+    // kiosks have no bin.
+    if (capability === "full" && !(await holdIfBinFull())) return;
     setPhase("loading");
     setError(null);
     setDispenseMsg(t("gamezone.processingPayment"));
@@ -847,7 +1083,7 @@ export function KioskGameZone({
         body: JSON.stringify({
           kind: "new_card",
           locationCode,
-          items: newCards.map((c) => ({ packageId: c.packageId })),
+          items: newCardItems(),
           cardNonce,
         }),
       });
@@ -861,7 +1097,7 @@ export function KioskGameZone({
       setNewCards((cs) =>
         cs.map((c, i) => ({ ...c, txnId: data.rows[i]?.txnId, cardStatus: "pending" as const })),
       );
-      await dispenseNewCards(data.groupId, data.rows);
+      await fulfillNewCards(data.groupId, data.rows);
     } catch {
       setError(t("gamezone.err.paymentFailedRetry"));
       setPhase("error");
@@ -931,11 +1167,6 @@ export function KioskGameZone({
       // staff), whereas a released-but-dispensed one gives away a second card.
       // Failing to release is the safe direction.
     }
-  };
-
-  const voucherFail = (msg: string) => {
-    setVoucherMsg(msg);
-    setVoucherPhase("error");
   };
 
   /**
@@ -1010,6 +1241,9 @@ export function KioskGameZone({
   const creditVoucherCard = async (
     claim: { code: string; txnId: string; groupId: string; grant: RedeemedGrant },
     account: string,
+    /** `swiped`: the blank is a guest-swiped card (swipe kiosk) — already in
+     *  their hand, never cleared server-side, nothing to present or retain. */
+    opts: { swiped?: boolean } = {},
   ): Promise<boolean> => {
     setDispenseMsg(t("gamezone.voucher.loading"));
     // On-prem bridge first (instant on the floor), cloud SOAP as the fallback —
@@ -1033,6 +1267,7 @@ export function KioskGameZone({
           accountNumber: account,
           locationCode,
           preLoaded: bridged,
+          swiped: !!opts.swiped,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1042,6 +1277,12 @@ export function KioskGameZone({
     }
 
     if (!loaded) {
+      if (opts.swiped) {
+        // The card is already in the guest's hand — nothing to retain. The row
+        // is pending WITH its account, so the reconcile cron finishes the
+        // credit; the voucher stays spent. Tell them to keep the card.
+        return failRow(claim.code, t("gamezone.swipe.voucher.loadPending"));
+      }
       // Don't hand over an empty card — bin it. The row stays pending and the
       // reconcile cron recovers the credit; the voucher stays spent, so staff
       // (not the guest) resolve it.
@@ -1053,14 +1294,55 @@ export function KioskGameZone({
     }
 
     console.log(
-      `[kiosk] gz voucher fulfilled: ${claim.code} → card #${displayCardNumber(account)}`,
+      `[kiosk] gz voucher fulfilled: ${claim.code} → card #${displayCardNumber(account)}${opts.swiped ? " (swiped)" : ""}`,
     );
     setBasketRow(claim.code, { status: "loaded", cardNumber: displayCardNumber(account) });
-    setDispenseMsg(t("gamezone.voucher.takeCard"));
-    await dispenser.present();
-    await dispenser.waitTaken({ timeoutMs: 30_000 });
+    if (!opts.swiped) {
+      setDispenseMsg(t("gamezone.voucher.takeCard"));
+      await dispenser.present();
+      await dispenser.waitTaken({ timeoutMs: 30_000 });
+    }
     voucherClaimRef.current = null; // fulfilled
     return true;
+  };
+
+  /**
+   * SWIPE kiosk, voucher run: wait for the guest to swipe a BLANK for card `n`
+   * of `total`. Bounded (SWIPE_WAIT_MS) and Cancel-able — nothing is claimed
+   * while this waits, so ending it costs nobody anything. A card that already
+   * carries value, one already loaded this run, or one we couldn't check
+   * re-prompts with a note rather than failing the leg.
+   */
+  const acquireBlankBySwipe = async (
+    n: number,
+    total: number,
+    used: Set<string>,
+  ): Promise<{ ok: true; account: string } | { ok: false; why: "cancelled" | "timeout" }> => {
+    let note: string | null = null;
+    for (;;) {
+      setSwipeWait({ n, total, checking: false, note });
+      let acct: string;
+      try {
+        acct = await swipeWaiter.wait({ timeoutMs: SWIPE_WAIT_MS });
+      } catch (err) {
+        setSwipeWait(null);
+        return {
+          ok: false,
+          why: err instanceof SwipeWaitError && err.kind === "timeout" ? "timeout" : "cancelled",
+        };
+      }
+      if (used.has(acct)) {
+        note = t("gamezone.swipe.duplicate");
+        continue;
+      }
+      setSwipeWait({ n, total, checking: true, note: null });
+      const r = await classifyAccount(acct);
+      if (r.cls === "blank") {
+        setSwipeWait(null);
+        return { ok: true, account: acct };
+      }
+      note = r.cls === "active" ? t("gamezone.swipe.active.short") : t("gamezone.swipe.unknown");
+    }
   };
 
   /**
@@ -1159,11 +1441,15 @@ export function KioskGameZone({
     // clears one pending leg per loaded entry, so re-reporting a prior run's
     // rows would over-clear the guest's remaining cards.
     const runOutcomes: { code: string; loaded: boolean }[] = [];
+    // Swipe kiosk: accounts loaded THIS run (a re-swipe of the same blank must
+    // not credit it twice) and why the run stopped early, if it did.
+    const runAccounts = new Set<string>();
+    let stopped: "cancelled" | "timeout" | null = null;
     try {
       const queue = source.filter((r) => r.status === "ready" || r.status === "failed");
       const totalCards = queue.reduce((s, r) => s + Math.max(1, r.gzCount) - r.issued, 0);
       let cardNo = 0;
-      for (const row of queue) {
+      run: for (const row of queue) {
         const legsOwed = Math.max(1, row.gzCount) - row.issued;
         if (legsOwed <= 0) continue;
         setBasketRow(row.code, { status: "dispensing", error: undefined });
@@ -1171,10 +1457,26 @@ export function KioskGameZone({
         for (let leg = 0; leg < legsOwed; leg++) {
           cardNo++;
           setDispenseMsg(
-            totalCards > 1
-              ? t("gamezone.voucher.dispensingN", { n: cardNo, total: totalCards })
-              : t("gamezone.voucher.dispensing"),
+            capability === "swipe"
+              ? t("gamezone.voucher.checking")
+              : totalCards > 1
+                ? t("gamezone.voucher.dispensingN", { n: cardNo, total: totalCards })
+                : t("gamezone.voucher.dispensing"),
           );
+
+          // SWIPE kiosk: the blank comes FIRST. Nothing is claimed until a
+          // verified blank is in the guest's hand, so a Cancel or a timeout
+          // costs nothing and leaves every code intact for a retry.
+          let swipedAccount: string | null = null;
+          if (capability === "swipe") {
+            const got = await acquireBlankBySwipe(cardNo, totalCards, runAccounts);
+            if (!got.ok) {
+              stopped = got.why;
+              setBasketRow(row.code, { status: "ready", error: undefined });
+              break run;
+            }
+            swipedAccount = got.account;
+          }
 
           // Claim HERE, not at scan time — one claim per CARD.
           let claimed: { txnId: string; groupId: string; grant: RedeemedGrant } | null = null;
@@ -1236,8 +1538,13 @@ export function KioskGameZone({
             txnId: claimed.txnId,
             groupId: claimed.groupId,
           };
-          const ok = await dispenseVoucherCard({ code: row.code, ...claimed });
+          const ok = swipedAccount
+            ? await creditVoucherCard({ code: row.code, ...claimed }, swipedAccount, {
+                swiped: true,
+              })
+            : await dispenseVoucherCard({ code: row.code, ...claimed });
           voucherClaimRef.current = null;
+          if (ok && swipedAccount) runAccounts.add(swipedAccount);
           runOutcomes.push({ code: row.code, loaded: ok });
           if (!ok) break; // dispenseVoucherCard already failed the row — next row
           issued++;
@@ -1260,7 +1567,17 @@ export function KioskGameZone({
       // REF — calling the parent inside a state updater ran it during render
       // (and twice under StrictMode).
       const rows = voucherBasketRef.current;
-      setVoucherPhase(rows.some((r) => r.status === "loaded") ? "done" : "error");
+      const anyLoaded = rows.some((r) => r.status === "loaded");
+      if (stopped && !anyLoaded) {
+        // The swipe wait ended (Cancel / timeout) with nothing issued and
+        // nothing claimed — back to the basket, codes intact, and say why.
+        setVoucherMsg(
+          t(stopped === "timeout" ? "gamezone.swipe.timedOut" : "gamezone.swipe.cancelled"),
+        );
+        setVoucherPhase("entry");
+      } else {
+        setVoucherPhase(anyLoaded ? "done" : "error");
+      }
       onVoucherOutcome?.(runOutcomes);
     }
   };
@@ -1295,7 +1612,7 @@ export function KioskGameZone({
   const seededVoucherRef = useRef<string | null>(null);
   useEffect(() => {
     const seed = initialVoucherCodes ?? [];
-    if (seed.length === 0 || !readerReady) return;
+    if (seed.length === 0 || !canIssue) return;
     const key = seed.join(",");
     if (seededVoucherRef.current === key) return;
     seededVoucherRef.current = key;
@@ -1316,7 +1633,7 @@ export function KioskGameZone({
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialVoucherCodes, readerReady]);
+  }, [initialVoucherCodes, canIssue]);
 
   // A claim still held when the guest walks away (mode change or the whole Game
   // Zone closing) is given back rather than burned — `voucherClaimRef` is
@@ -1524,12 +1841,84 @@ export function KioskGameZone({
     setConsoCombining(false);
   };
 
-  // Dispense → read → load → present, ONE card at a time. Faults are handled by
-  // category: a recoverable "hold" (out of cards, jam, bin) pauses on the hold
-  // overlay and, on staff resume, retries the SAME card; a bad blank is captured
-  // and re-dispensed, but only up to MAX_BAD_BLANKS in a row — then it holds for
+  // SWIPE kiosk, after the charge: every card's account was swiped and verified
+  // BEFORE payment, so this is a pure credit loop — no dispense, no bin, no
+  // present, nothing to retain. A credit that doesn't confirm leaves the row
+  // pending WITH its account (persist-first at prepare), so the reconcile cron
+  // finishes it and the guest KEEPS the card; the run continues with the next
+  // card rather than aborting a basket the guest has already paid for.
+  const loadSwipedNewCards = async (
+    groupId: string,
+    rows: Array<{ txnId: string; accountNumber?: string }>,
+  ) => {
+    let anyPending = false;
+    for (let i = 0; i < newCards.length; i++) {
+      const txnId = rows[i]?.txnId;
+      if (!txnId) break;
+      const account = rows[i]?.accountNumber || newCards[i]?.account;
+      if (!account) {
+        // Can't happen (Pay arms only on verified blanks) — but never credit blind.
+        anyPending = true;
+        setNewCardAt(i, { cardStatus: "failed" });
+        continue;
+      }
+      setNewCardAt(i, { account, cardStatus: "pending" });
+      setDispenseMsg(t("gamezone.loadingOntoCard", { n: i + 1 }));
+      // On-prem bridge FIRST (fast local EIS), cloud SOAP fallback server-side
+      // (preLoaded:false). Never both — no double-credit. `swiped` tells the
+      // server this card is the guest's choice: never clear-on-encode it.
+      const pkg = TOKEN_PACKAGES.find((p) => p.id === newCards[i]?.packageId);
+      const bridged = pkg
+        ? await creditTokensViaBridge({
+            accountNumber: account,
+            tokens: pkg.tokens,
+            bonusTokens: pkg.bonusTokens,
+          })
+        : false;
+      let loaded = false;
+      let balanceTokens: number | undefined;
+      try {
+        const res = await fetch("/api/game-cards/load-card", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            groupId,
+            txnId,
+            accountNumber: account,
+            locationCode,
+            preLoaded: bridged,
+            swiped: true,
+          }),
+        });
+        const data = await res.json();
+        loaded = res.ok && data.loaded === true;
+        balanceTokens = data.balance?.tokens;
+      } catch {
+        loaded = false;
+      }
+      if (loaded) {
+        setNewCardAt(i, { account, loaded: true, cardStatus: "loaded", balanceTokens });
+      } else {
+        anyPending = true;
+        setNewCardAt(i, { account, loaded: false, cardStatus: "failed" });
+      }
+    }
+    setDispenseMsg(null);
+    setNewLoadIssue(anyPending);
+    setPhase("done");
+  };
+
+  // Fulfil the charged rows on this kiosk's rail. DISPENSER: dispense → read →
+  // load → present, ONE card at a time. Faults are handled by category: a
+  // recoverable "hold" (out of cards, jam, bin) pauses on the hold overlay and,
+  // on staff resume, retries the SAME card; a bad blank is captured and
+  // re-dispensed, but only up to MAX_BAD_BLANKS in a row — then it holds for
   // staff too (wrong-way stock); a dead-end aborts (money safe, rows pending).
-  const dispenseNewCards = async (groupId: string, rows: Array<{ txnId: string }>) => {
+  const fulfillNewCards = async (
+    groupId: string,
+    rows: Array<{ txnId: string; accountNumber?: string }>,
+  ) => {
+    if (capability === "swipe") return loadSwipedNewCards(groupId, rows);
     const abort = (i: number, message: string) => {
       setNewCardAt(i, { cardStatus: "failed" });
       setError(message);
@@ -1698,12 +2087,12 @@ export function KioskGameZone({
     // New-card dispense needs a non-full bin — hold before charging on the
     // reader (reload never dispenses/bins, so it's exempt). Staff bail → throw
     // the money-safe message so the terminal flow aborts before any charge.
-    if (kind === "new_card" && !(await holdIfBinFull())) {
+    if (kind === "new_card" && capability === "full" && !(await holdIfBinFull())) {
       throw new Error(t("gamezone.seeAttendantSafe"));
     }
     const items =
       kind === "new_card"
-        ? newCards.map((c) => ({ packageId: c.packageId }))
+        ? newCardItems()
         : cards.map((c) => ({ accountNumber: c.accountNumber.trim(), packageId: c.packageId }));
     const res = await fetch("/api/game-cards/terminal-prepare", {
       method: "POST",
@@ -1811,7 +2200,7 @@ export function KioskGameZone({
             cardStatus: "pending" as const,
           })),
         );
-        await dispenseNewCards(data.groupId, data.rows ?? []);
+        await fulfillNewCards(data.groupId, data.rows ?? []);
       } else {
         // reload: cards are already in the guest's hand — load each on the on-prem
         // bridge, then report through /load-card (owner: kiosk reload uses the
@@ -1875,10 +2264,9 @@ export function KioskGameZone({
 
   // ── Mode chooser: New card vs Reload vs Balance ──
   if (mode === "choose") {
-    // MSR-only kiosks read cards but can't dispense — new cards are sold at
-    // the front kiosk / Guest Services (owner 2026-07-20). The tile stays
-    // visible so guests learn where to go, but greyed out.
-    const canSellNewCards = capability !== "reload";
+    // New cards need a way to put a card in the guest's hand — the dispenser
+    // connected, or the swipe reader listening (canIssue). Until then the tile
+    // stays visible but greyed, saying which device it is waiting on.
     return (
       // Center the chooser vertically in the flow body — min-h-full keeps it
       // centered when it fits and lets it scroll if it ever overflows (owner
@@ -1897,15 +2285,19 @@ export function KioskGameZone({
         <div className="grid gap-[24px]">
           <button
             type="button"
-            disabled={!canSellNewCards || !readerReady}
+            disabled={!canIssue}
             onClick={() => setMode("newcard")}
             className="k-glass k-tap p-[40px] text-left disabled:opacity-40"
             style={{ borderLeft: "8px solid #f800c6" }}
           >
             <div className="k-display text-[48px]">{t("gamezone.chooser.new.title")}</div>
             <div className="mt-[10px] text-[28px] text-white/55">
-              {!canSellNewCards
-                ? t("gamezone.chooser.new.unavailable")
+              {capability === "swipe"
+                ? msrListening
+                  ? t("gamezone.swipe.chooser.new.ready")
+                  : msr.connection.state === "error"
+                    ? t("gamezone.swipe.readerOffline")
+                    : t("gamezone.connectingReader")
                 : readerReady
                   ? t("gamezone.chooser.new.ready")
                   : dispenser.reconnecting
@@ -1937,15 +2329,16 @@ export function KioskGameZone({
             <div className="k-display text-[48px]">{t("gamezone.chooser.balance.title")}</div>
             <div className="mt-[10px] text-[28px] text-white/55">
               {/* MSR kiosks swipe; dispenser kiosks insert. */}
-              {capability === "reload"
+              {capability === "swipe"
                 ? t("gamezone.chooser.balance.subSwipe")
                 : t("gamezone.chooser.balance.subInsert")}
             </div>
           </button>
-          {/* Redeem a comp voucher — needs the dispenser (a card comes out) but
-              NOT a cart, a booking or a payment: a guest can walk up holding
-              only the voucher (owner 2026-07-29). Flag defaults ON. */}
-          {kioskVoucherGzEnabled() && canSellNewCards && readerReady && (
+          {/* Redeem a comp voucher — needs a way to hand over a card (the
+              dispenser, or a swiped blank) but NOT a cart, a booking or a
+              payment: a guest can walk up holding only the voucher (owner
+              2026-07-29). Flag defaults ON. */}
+          {kioskVoucherGzEnabled() && canIssue && (
             <button
               type="button"
               onClick={() => {
@@ -2024,7 +2417,11 @@ export function KioskGameZone({
                 ? t("gamezone.voucher.scanTitle")
                 : t("gamezone.voucher.scanMoreTitle")}
             </h2>
-            <p className="mt-2 max-w-xl text-xl text-white/60">{t("gamezone.voucher.scanBody")}</p>
+            <p className="mt-2 max-w-xl text-xl text-white/60">
+              {capability === "swipe"
+                ? t("gamezone.swipe.voucher.scanBody")
+                : t("gamezone.voucher.scanBody")}
+            </p>
 
             {/* The basket. Scan as many as they're holding, then one tap. */}
             {voucherBasket.length > 0 && (
@@ -2133,15 +2530,32 @@ export function KioskGameZone({
 
         {(voucherPhase === "checking" || voucherPhase === "dispensing") && (
           <div className="flex min-h-0 flex-1 items-center justify-center">
-            <BrandedLoader
-              brand={brand}
-              label={
-                voucherPhase === "checking"
-                  ? t("gamezone.voucher.checking")
-                  : (dispenseMsg ?? t("gamezone.voucher.dispensing"))
-              }
-              sublabel={t("gamezone.voucher.checkingSub")}
-            />
+            {swipeWait ? (
+              // Swipe kiosk: this leg is waiting for the guest to swipe a blank.
+              // Nothing is claimed yet, so Cancel is free; the wait is bounded.
+              <SwipeBlankGuide
+                step={swipeWait.checking ? "checking" : "wait"}
+                label={
+                  swipeWait.total > 1
+                    ? t("gamezone.swipe.legN", { n: swipeWait.n, total: swipeWait.total })
+                    : t("gamezone.swipe.voucher.swipeTitle")
+                }
+                sublabel={swipeWait.total > 1 ? t("gamezone.swipe.voucher.swipeTitle") : undefined}
+                listening={msrListening}
+                note={swipeWait.note}
+                onCancel={swipeWait.checking ? undefined : () => swipeWaiter.cancel()}
+              />
+            ) : (
+              <BrandedLoader
+                brand={brand}
+                label={
+                  voucherPhase === "checking"
+                    ? t("gamezone.voucher.checking")
+                    : (dispenseMsg ?? t("gamezone.voucher.dispensing"))
+                }
+                sublabel={t("gamezone.voucher.checkingSub")}
+              />
+            )}
           </div>
         )}
 
@@ -2611,13 +3025,36 @@ export function KioskGameZone({
           </div>
         ) : (
           <>
-            {balCard?.status === "bad" && (
-              <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-red-100">
-                {msrActive
-                  ? t("gamezone.balance.notFoundSwipe")
-                  : t("gamezone.balance.notFoundInsert")}
+            {balCard?.status === "notfound" && msrActive ? (
+              // Intercard has never seen this card. On a swipe kiosk that IS a
+              // new card (a blank has no account until its first credit) — offer
+              // to set it up instead of dead-ending on "not found". The
+              // hand-off re-verifies in the new-card cart.
+              <div className="mb-4 rounded-2xl border border-amber-400/50 bg-amber-400/10 px-5 py-4 text-left">
+                <div className="font-heading text-2xl font-extrabold italic text-amber-200">
+                  {t("gamezone.swipe.newCard.title")}
+                </div>
+                <p className="mt-1 text-base text-white/75">
+                  {t("gamezone.swipe.newCard.body", {
+                    num: displayCardNumber(balCard.accountNumber),
+                  })}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setUpSwipedCard(balCard.accountNumber)}
+                  className="k-tap mt-4 w-full rounded-xl bg-[#f800c6] px-5 py-4 text-lg font-extrabold text-white"
+                >
+                  {t("gamezone.swipe.newCard.setUp")}
+                </button>
+                <p className="mt-2 text-center text-sm text-white/45">
+                  {t("gamezone.swipe.newCard.orSwipeAgain")}
+                </p>
               </div>
-            )}
+            ) : balCard?.status === "bad" || balCard?.status === "notfound" ? (
+              <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-red-100">
+                {msrActive ? t("gamezone.swipe.unknown") : t("gamezone.balance.notFoundInsert")}
+              </div>
+            ) : null}
             {readerReady ? (
               <button
                 type="button"
@@ -2677,7 +3114,13 @@ export function KioskGameZone({
     if (mode === "newcard") {
       const statusLabel = (c: NewCard): string => {
         if (c.cardStatus === "loaded") return t("gamezone.status.loaded");
-        if (c.cardStatus === "failed") return t("gamezone.status.seeAttendant");
+        // Swipe kiosk: a credit that didn't confirm is pending on the row (the
+        // cron finishes it) — the guest keeps the card, nobody needs staff yet.
+        if (c.cardStatus === "failed") {
+          return capability === "swipe"
+            ? t("gamezone.status.onTheWay")
+            : t("gamezone.status.seeAttendant");
+        }
         if (c.cardStatus === "dispensing") return t("gamezone.status.dispensing");
         if (c.account) return t("gamezone.status.loadingTokens");
         return t("gamezone.status.waiting");
@@ -2706,7 +3149,11 @@ export function KioskGameZone({
                       {t("gamezone.cardN", { n: i + 1 })}
                     </div>
                     <div className="font-heading text-xl font-extrabold tabular-nums">
-                      {c.account ? displayCardNumber(c.account) : t("gamezone.status.dispensing")}
+                      {c.account
+                        ? displayCardNumber(c.account)
+                        : capability === "swipe"
+                          ? t("gamezone.status.waiting")
+                          : t("gamezone.status.dispensing")}
                     </div>
                   </div>
                   <div className="text-right">
@@ -2773,8 +3220,15 @@ export function KioskGameZone({
             })}
           </div>
           <p className="mt-4 text-sm text-white/50">
-            {t("gamezone.grabCards", { count: newCards.length })}
+            {capability === "swipe"
+              ? t("gamezone.cardsReadyBody", { count: newCards.length })
+              : t("gamezone.grabCards", { count: newCards.length })}
           </p>
+          {newLoadIssue && (
+            <p className="mt-3 rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-left text-sm text-amber-100">
+              {t("gamezone.swipe.loadPending")}
+            </p>
+          )}
           <button
             type="button"
             onClick={onExit}
@@ -2816,6 +3270,63 @@ export function KioskGameZone({
     );
   }
 
+  /** Swipe kiosk — the CARD half of an expanded new-card row: the two-step
+   *  guide until a blank is swiped, then the verdict (new / has value / same
+   *  card twice / couldn't check). */
+  const swipeRowStatus = (c: NewCard, i: number) => {
+    if (c.blankStatus === "checking") {
+      return <SwipeBlankGuide step="checking" listening={msrListening} />;
+    }
+    if (c.blankStatus === "blank" && c.account) {
+      return (
+        <div className="rounded-xl border border-[#46d68c]/40 bg-[#46d68c]/10 px-4 py-3">
+          <div className="text-base font-bold text-[#46d68c]">
+            {t("gamezone.swipe.blankOk", { num: displayCardNumber(c.account) })}
+          </div>
+          <div className="mt-0.5 text-sm text-white/50">{t("gamezone.swipe.replace")}</div>
+        </div>
+      );
+    }
+    if (c.blankStatus === "active" && c.account) {
+      return (
+        <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3">
+          <div className="text-base font-bold text-red-200">{t("gamezone.swipe.active.title")}</div>
+          <div className="mt-0.5 text-sm text-red-100/80">
+            {c.existingTokens
+              ? t("gamezone.swipe.active.body", {
+                  num: displayCardNumber(c.account),
+                  n: c.existingTokens,
+                })
+              : t("gamezone.swipe.active.bodyUsed", { num: displayCardNumber(c.account) })}
+          </div>
+          <button
+            type="button"
+            onClick={() => reloadSwipedInstead(i)}
+            className="k-tap mt-3 w-full rounded-xl bg-[#00e2e5] px-4 py-3 text-base font-bold text-[#04252b]"
+          >
+            {t("gamezone.swipe.reloadInstead")}
+          </button>
+          <div className="mt-2 text-center text-sm text-white/50">
+            {t("gamezone.swipe.replace")}
+          </div>
+        </div>
+      );
+    }
+    return (
+      <SwipeBlankGuide
+        step="wait"
+        listening={msrListening}
+        note={
+          c.blankStatus === "duplicate"
+            ? t("gamezone.swipe.duplicate")
+            : c.blankStatus === "unknown"
+              ? t("gamezone.swipe.unknown")
+              : null
+        }
+      />
+    );
+  };
+
   // ── New cards — add 1–10 cards, pick a package each, "pay & dispense" ──
   if (mode === "newcard" && phase === "cart") {
     return (
@@ -2835,7 +3346,11 @@ export function KioskGameZone({
             {t("gamezone.back")}
           </button>
         </div>
-        <p className="mb-5 text-white/55">{t("gamezone.newCards.intro")}</p>
+        <p className="mb-5 text-white/55">
+          {capability === "swipe"
+            ? t("gamezone.swipe.newCards.intro")
+            : t("gamezone.newCards.intro")}
+        </p>
 
         <div className="space-y-4">
           {newCards.map((c, i) => {
@@ -2871,29 +3386,52 @@ export function KioskGameZone({
                   </div>
                 </div>
                 {expanded ? (
-                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    {/* Checkout-upsell specials never show on the standalone grids. */}
-                    {TOKEN_PACKAGES.filter((p) => !p.upsell).map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => {
-                          setNewCard(i, { packageId: p.id });
-                          setNewEditIdx(null); // collapse after picking
-                        }}
-                        className={`rounded-xl border-2 px-3 py-4 text-center ${
-                          c.packageId === p.id
-                            ? "border-[#00e2e5] bg-[#00e2e5]/10 text-white"
-                            : "border-white/10 bg-white/[0.02] text-white/60"
-                        }`}
-                      >
-                        <TokenTileBody p={p} />
-                      </button>
-                    ))}
-                  </div>
+                  <>
+                    {/* Swipe kiosk: the card itself comes first — take a blank
+                        from the holder and swipe it; the package grid follows. */}
+                    {capability === "swipe" && <div className="mt-3">{swipeRowStatus(c, i)}</div>}
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {/* Checkout-upsell specials never show on the standalone grids. */}
+                      {TOKEN_PACKAGES.filter((p) => !p.upsell).map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            setNewCard(i, { packageId: p.id });
+                            // Collapse after picking — unless this row still
+                            // needs its swipe (keep it open so the guide shows).
+                            if (capability !== "swipe" || c.blankStatus === "blank") {
+                              setNewEditIdx(null);
+                            }
+                          }}
+                          className={`rounded-xl border-2 px-3 py-4 text-center ${
+                            c.packageId === p.id
+                              ? "border-[#00e2e5] bg-[#00e2e5]/10 text-white"
+                              : "border-white/10 bg-white/[0.02] text-white/60"
+                          }`}
+                        >
+                          <TokenTileBody p={p} />
+                        </button>
+                      ))}
+                    </div>
+                  </>
                 ) : (
                   <div className="mt-1 text-lg font-semibold text-white/80">
-                    {pkgLabel(c.packageId)}
+                    {capability === "swipe" && (
+                      <>
+                        {c.account && c.blankStatus === "blank"
+                          ? `#${displayCardNumber(c.account)}`
+                          : t("gamezone.noCardNumber")}
+                        {" · "}
+                      </>
+                    )}
+                    {pkgLabel(t, c.packageId)}
+                    {capability === "swipe" &&
+                      (c.blankStatus === "blank" ? (
+                        <span className="text-[#46d68c]"> · ✓</span>
+                      ) : (
+                        <span className="text-[#f0b341]"> · {t("gamezone.swipe.needsSwipe")}</span>
+                      ))}
                   </div>
                 )}
               </div>
@@ -2928,12 +3466,11 @@ export function KioskGameZone({
           {addToVisit ? (
             <button
               type="button"
-              disabled={!readerReady || dispenser.stacker === "empty"}
+              disabled={!newReady}
               onClick={() =>
-                addToVisit({
-                  mode: "new_card",
-                  cards: newCards.map((c) => ({ packageId: c.packageId })),
-                })
+                // Swipe kiosk: the swiped accounts ride the booking, so the
+                // confirmation screen loads them with no second swipe.
+                addToVisit({ mode: "new_card", cards: newCardItems() })
               }
               className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
             >
@@ -2942,20 +3479,36 @@ export function KioskGameZone({
           ) : (
             <button
               type="button"
-              disabled={!readerReady || dispenser.stacker === "empty"}
+              disabled={!newReady}
               onClick={() => setPhase("paying")}
               className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
             >
-              {t("gamezone.payDispense")}
+              {capability === "swipe" ? t("gamezone.payLoad") : t("gamezone.payDispense")}
             </button>
           )}
         </div>
         {addToVisit && (
           <p className="mt-2 text-center text-sm text-white/45">
-            {t("gamezone.newCards.checkoutNote")}
+            {capability === "swipe"
+              ? t("gamezone.swipe.newCards.checkoutNote")
+              : t("gamezone.newCards.checkoutNote")}
           </p>
         )}
-        {!readerReady ? (
+        {capability === "swipe" ? (
+          !msrListening ? (
+            <p className="mt-2 text-center text-sm text-amber-300/80">
+              {msr.connection.state === "error"
+                ? t("gamezone.swipe.readerOffline")
+                : t("gamezone.connectingReader")}
+            </p>
+          ) : !newReady ? (
+            <p className="mt-2 text-center text-sm text-white/40">
+              {t("gamezone.swipe.eachToContinue")}
+            </p>
+          ) : (
+            <p className="mt-2 text-center text-sm text-white/40">{t("gamezone.swipe.payNote")}</p>
+          )
+        ) : !readerReady ? (
           <p className="mt-2 text-center text-sm text-amber-300/80">
             {dispenser.reconnecting
               ? t("gamezone.connecting.label")
@@ -2990,7 +3543,11 @@ export function KioskGameZone({
           </div>
           <p className="mt-1 text-sm text-white/50">
             {t("gamezone.payCount", { count: payCount })} ·{" "}
-            {isNew ? t("gamezone.paySubNew") : t("gamezone.paySubReload")}
+            {isNew
+              ? capability === "swipe"
+                ? t("gamezone.paySubNewSwipe")
+                : t("gamezone.paySubNew")
+              : t("gamezone.paySubReload")}
           </p>
         </div>
         {useReader && readerId ? (
@@ -3108,7 +3665,9 @@ export function KioskGameZone({
           return (
             <div key={i} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
               <div className="flex items-center justify-between">
-                <span className="font-heading text-lg font-extrabold italic">Card {i + 1}</span>
+                <span className="font-heading text-lg font-extrabold italic">
+                  {t("gamezone.cardN", { n: i + 1 })}
+                </span>
                 <div className="flex items-center gap-4">
                   {!expanded && (
                     <button
@@ -3116,7 +3675,7 @@ export function KioskGameZone({
                       onClick={() => setReloadEditIdx(i)}
                       className="text-sm font-bold text-[#00e2e5]"
                     >
-                      Edit
+                      {t("gamezone.edit")}
                     </button>
                   )}
                   {cards.length > 1 && (
@@ -3128,7 +3687,7 @@ export function KioskGameZone({
                       }}
                       className="text-sm text-white/45"
                     >
-                      Remove
+                      {t("gamezone.remove")}
                     </button>
                   )}
                 </div>
@@ -3209,11 +3768,34 @@ export function KioskGameZone({
                       {t("gamezone.balanceTokens", { n: c.balance?.tokens ?? 0 })}
                     </div>
                   )}
-                  {c.status === "bad" && (
-                    <div className="mt-2 text-sm text-red-300">
-                      {msrActive ? t("gamezone.notFoundSwipe") : t("gamezone.notFoundNumber")}
+                  {c.status === "notfound" && msrActive ? (
+                    // A swiped card Intercard has never seen is a BLANK — offer
+                    // the new-card flow instead of "not found" (re-verified there).
+                    <div className="mt-3 rounded-xl border border-amber-400/50 bg-amber-400/10 px-4 py-3">
+                      <div className="text-base font-bold text-amber-200">
+                        {t("gamezone.swipe.newCard.title")}
+                      </div>
+                      <div className="mt-0.5 text-sm text-white/75">
+                        {t("gamezone.swipe.newCard.body", {
+                          num: displayCardNumber(c.accountNumber),
+                        })}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setUpSwipedCard(c.accountNumber)}
+                        className="k-tap mt-3 w-full rounded-xl bg-[#f800c6] px-4 py-3 text-base font-extrabold text-white"
+                      >
+                        {t("gamezone.swipe.newCard.setUp")}
+                      </button>
+                      <div className="mt-2 text-center text-xs text-white/45">
+                        {t("gamezone.swipe.newCard.orSwipeAgain")}
+                      </div>
                     </div>
-                  )}
+                  ) : c.status === "bad" || c.status === "notfound" ? (
+                    <div className="mt-2 text-sm text-red-300">
+                      {msrActive ? t("gamezone.swipe.unknown") : t("gamezone.notFoundNumber")}
+                    </div>
+                  ) : null}
                   <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
                     {/* Checkout-upsell specials never show on the standalone grids. */}
                     {TOKEN_PACKAGES.filter((p) => !p.upsell).map((p) => (
@@ -3242,7 +3824,7 @@ export function KioskGameZone({
                   {c.accountNumber.trim()
                     ? `#${displayCardNumber(c.accountNumber.trim())}`
                     : t("gamezone.noCardNumber")}{" "}
-                  · {pkgLabel(c.packageId)}
+                  · {pkgLabel(t, c.packageId)}
                   {c.status === "ok" ? (
                     <span className="text-[#46d68c]"> · ✓</span>
                   ) : (
@@ -3264,7 +3846,7 @@ export function KioskGameZone({
           }}
           className="mt-4 w-full rounded-2xl border-2 border-dashed border-[#00e2e5]/40 px-5 py-4 font-bold text-[#00e2e5]"
         >
-          + Add another card
+          {t("gamezone.addAnotherCard")}
         </button>
       )}
 

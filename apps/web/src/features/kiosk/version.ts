@@ -15,6 +15,34 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.25.0 — KIOSKS WITHOUT A DISPENSER SELL NEW GAME ZONE CARDS (owner
+ *         2026-08-28, reversing the 2026-07-20 reload-only rule). An MSR-only
+ *         kiosk gets a holder of blank cards under the screen; the guest takes
+ *         one and swipes it — "Step 1 take a new card · Step 2 swipe it" on
+ *         every prompt (SwipeBlankGuide). The swipe happens BEFORE paying: each
+ *         cart row is verified blank (Intercard answers result 1 for an account
+ *         it has never seen — probed live; -1 stays ambiguous and is never sold
+ *         as new; a card with any tokens/eTickets/time/cash/history is refused
+ *         with "Reload this card instead"), and Pay arms only when every row
+ *         holds one. After the charge the loads are a pure credit loop —
+ *         nothing dispenses, nothing is retained, an unconfirmed credit leaves
+ *         the row pending WITH its account (persisted at prepare) for the
+ *         reconcile cron and the guest keeps the card. A swiped card is NEVER
+ *         clear-on-encoded. Reload / Check balance: a swiped card Intercard
+ *         has never seen now reads "Looks like a new card → Set up this card"
+ *         (re-verified in the cart) instead of dead-ending on "not found";
+ *         lookup failures still say "couldn't check — swipe again". Comp
+ *         vouchers with card legs fulfil here too (swipe → claim → credit;
+ *         Cancel + 90 s timeout while nothing is claimed), the coupon receipt
+ *         says "Load my cards", and cards bought with a booking load on the
+ *         confirmation screen (pre-swiped rows directly; upsell rows prompt a
+ *         swipe there). Every hardware wait on the confirmation screen is now
+ *         bounded — a device that never connects releases the screen after
+ *         60 s instead of freezing it (dispenser kiosks too). useSerialMsr
+ *         releases the COM port when disabled, so the pay screen's gift-card
+ *         swipe works after a Game Zone sale on msrUse "both". Capability
+ *         "reload" is renamed "swipe"; the checkout upsell no longer requires
+ *         a dispenser. All new copy EN + ES.
  * 1.24.1 — CHECK-IN SHOWED EVERY BOWLING RESERVATION FOUR HOURS LATE (owner
  *         2026-08-19). A 9:00 PM lane read "1:00 AM" on the find-your-
  *         reservation list, and the whole HeadPinz board was shifted the same
@@ -1036,7 +1064,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.24.1";
+export const KIOSK_VERSION = "1.25.0";
 
 let bootVersion: string | null = null;
 let captured = false;

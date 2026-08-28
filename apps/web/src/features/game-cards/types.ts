@@ -52,7 +52,19 @@ export interface CardTxn {
 export interface VerifyResult {
   exists: boolean;
   accountNumber: string;
+  /**
+   * Only when `exists` is false — HOW we know. "confirmed": Intercard answered
+   * and there is no such account (a blank card, or a cleared one). "ambiguous":
+   * the service returned an exception code, so absence is NOT established.
+   * The swipe-to-buy rail (blank-card.ts) sells a card as new only on
+   * "confirmed"; every other caller can keep reading `exists` alone.
+   */
+  notFound?: "confirmed" | "ambiguous";
   balance?: CardBalance;
+  /** Cash + bonus cash on the card, in dollars — present only when > 0. Not
+   *  displayed anywhere; exists so the swipe-to-buy blank check never reads a
+   *  card holding cash as empty stock. */
+  cashBalance?: number;
   /** Card holder name if the lookup returns it (masked/omitted otherwise). */
   name?: string;
   /** Recent on-card activity, newest first (for the expandable history section). */

@@ -6,24 +6,47 @@
  * 2026-07-18: "we're combining the you're-booked and card-dispense screen").
  *
  * Reads the charged row pointers checkout stashed (gz-fulfillment.ts) and runs
- * the SAME per-card sequence as the standalone Game Zone flow:
- *   new_card — dispense → read → bridge-load (SOAP fallback server-side via
- *              /load-card preLoaded) → present → wait for pickup; a failed load
- *              captures the blank (never hand over an empty card).
+ * the SAME per-card sequence as the standalone Game Zone flow, on whichever
+ * hardware rail this kiosk has (gameZoneCapability):
+ *   new_card, DISPENSER — dispense → read → bridge-load (SOAP fallback
+ *              server-side via /load-card preLoaded) → present → wait for
+ *              pickup; a failed load captures the blank (never hand over an
+ *              empty card).
+ *   new_card, SWIPE kiosk (no dispenser, owner 2026-08-28) — the account was
+ *              either swiped in the Game Zone cart and rides the row, or (a
+ *              checkout-upsell card) the guest is asked HERE to take a blank
+ *              from the holder under the screen and swipe it; then bridge-load.
+ *              Nothing to present or retain — a load that doesn't confirm
+ *              leaves the row pending WITH its account and the guest keeps the
+ *              card. A swiped card is never clear-on-encoded (load-card.ts).
  *   reload   — bridge-load each card the guest already holds + report.
  * Rows are already CHARGED in the ledger, so any failure here recovers forward
  * via the reconcile cron — the guest's money is never stranded, never re-charged.
  *
- * Owns its own CRT-591 connection (the Game Zone screen is long unmounted);
- * auto-reconnects silently on a provisioned kiosk. The parent pauses its
- * auto-reset while this is busy.
+ * Every wait on hardware is BOUNDED. This screen disables Done and pauses the
+ * auto-reset while cards are in flight; a device that never connects, or a
+ * guest who walks away mid-swipe, must release the screen — otherwise the next
+ * guest's swipe would collect the previous guest's paid tokens.
+ *
+ * Owns its own CRT-591 / MSR connection (the Game Zone screen is long
+ * unmounted); auto-reconnects silently on a provisioned kiosk.
  */
 import { useEffect, useRef, useState } from "react";
 import { useKioskConfig } from "../KioskConfigContext";
-import { useGameCardDispenser, type FaultBehavior } from "../card-reader";
+import { gameZoneCapability } from "../config";
+import {
+  createSwipeWaiter,
+  useGameCardDispenser,
+  useSerialMsr,
+  type FaultBehavior,
+} from "../card-reader";
+import { classifySwipedCard, type SwipedCardClass } from "~/features/game-cards/blank-card";
+import type { VerifyResult } from "~/features/game-cards/types";
 import { creditTokensViaBridge } from "../service/game-card-bridge";
 import { clearGzFulfillment, type GzFulfillmentPayload } from "../service/gz-fulfillment";
 import { KioskDispenserHold } from "./KioskDispenserHold";
+import { SwipeBlankGuide } from "./SwipeBlankGuide";
+import { useT } from "../i18n";
 
 type HoldFault = Extract<FaultBehavior, { kind: "hold" }>;
 
@@ -33,7 +56,18 @@ function displayCardNumber(acct: string): string {
   return acct.replace(/^0+(?=\d)/, "");
 }
 
-type CardStatus = "waiting" | "dispensing" | "loading" | "take" | "done" | "failed";
+/** `pending` — the credit didn't confirm but the row carries its account, so
+ *  the reconcile cron finishes it (swipe kiosk: the guest keeps the card).
+ *  `failed` — needs an attendant. */
+type CardStatus =
+  | "waiting"
+  | "dispensing"
+  | "swipe"
+  | "loading"
+  | "take"
+  | "done"
+  | "pending"
+  | "failed";
 
 interface CardRow {
   txnId: string;
@@ -43,14 +77,11 @@ interface CardRow {
   status: CardStatus;
 }
 
-const STATUS_LABEL: Record<CardStatus, string> = {
-  waiting: "Waiting…",
-  dispensing: "Dispensing…",
-  loading: "Loading tokens…",
-  take: "Take your card",
-  done: "Loaded ✓",
-  failed: "See an attendant",
-};
+/** Swipe kiosk: how long each card waits for its swipe before the run gives up. */
+const SWIPE_WAIT_MS = 90_000;
+/** How long to wait for the device (CRT / MSR) to connect before releasing the
+ *  screen — the payment is safe, the rows recover forward. */
+const DEVICE_READY_MS = 60_000;
 
 export function KioskGzFulfillment({
   payload,
@@ -60,8 +91,32 @@ export function KioskGzFulfillment({
   /** True while cards are still coming out — parent pauses its auto-reset. */
   onBusyChange: (busy: boolean) => void;
 }) {
+  const t = useT();
   const { config } = useKioskConfig();
+  const swipeKiosk = gameZoneCapability(config) === "swipe";
   const dispenser = useGameCardDispenser({ config });
+
+  // Swipe kiosk: only rows WITHOUT an account need the reader here (cards
+  // swiped in the Game Zone cart already carry theirs).
+  const needsSwipe =
+    swipeKiosk && payload.mode === "new_card" && payload.cards.some((c) => !c.accountNumber);
+  // ONE waiter for the component's life (lazy state, never re-created; a
+  // StrictMode remount reuses it).
+  const [swipeWaiter] = useState(createSwipeWaiter);
+  const [swipeNote, setSwipeNote] = useState<string | null>(null);
+  const [swipeChecking, setSwipeChecking] = useState(false);
+  const msr = useSerialMsr({
+    enabled: needsSwipe && !!config?.msrEnabled,
+    portInfo: config?.msrPortInfo ?? null,
+    baud: config?.msrBaud ?? null,
+    onSwipe: (acct) => {
+      swipeWaiter.feed(acct);
+    },
+    onBadSwipe: () => setSwipeNote(t("gamezone.badSwipe")),
+  });
+  const msrListening = msr.connection.state === "listening";
+  useEffect(() => () => swipeWaiter.cancel(), [swipeWaiter]);
+
   const [rows, setRows] = useState<CardRow[]>(
     payload.cards.map((c) => ({
       txnId: c.txnId,
@@ -106,9 +161,31 @@ export function KioskGzFulfillment({
   const setRow = (i: number, patch: Partial<CardRow>) =>
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
-  // Run ONCE. Reloads need only the on-prem bridge; new cards wait for the
-  // dispenser connection (silent auto-reconnect) before starting.
-  const ready = payload.mode === "reload" || dispenser.ready;
+  // What this payload waits on before starting: reload → nothing (bridge only);
+  // new cards on a swipe kiosk → the MSR, and only if some row still needs a
+  // swipe; new cards on a dispenser kiosk → the CRT (silent auto-reconnect).
+  const ready =
+    payload.mode === "reload" || (swipeKiosk ? !needsSwipe || msrListening : dispenser.ready);
+
+  // A device that never connects must not freeze the confirmation screen (Done
+  // disabled, auto-reset paused) forever: give up, release the screen with the
+  // payment-safe message. Rows stay charged + pending; the cron / staff recover.
+  useEffect(() => {
+    if (ready || startedRef.current) return;
+    const timer = setTimeout(() => {
+      if (startedRef.current) return;
+      startedRef.current = true;
+      setStarted(true);
+      setRows((rs) => rs.map((r) => (r.status === "waiting" ? { ...r, status: "failed" } : r)));
+      setNote(t("gamezone.fulfill.gaveUp"));
+      clearGzFulfillment();
+      onBusyChange(false);
+    }, DEVICE_READY_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+
+  // Run ONCE, as soon as the device this payload needs is ready.
   useEffect(() => {
     if (!ready || startedRef.current) return;
     startedRef.current = true;
@@ -120,9 +197,11 @@ export function KioskGzFulfillment({
       accountNumber: string,
       tokens: number,
       bonusTokens: number,
+      swiped: boolean,
     ): Promise<{ loaded: boolean; balanceTokens?: number }> => {
       // On-prem bridge FIRST (fast local EIS); /load-card records it (preLoaded)
       // or falls back to cloud SOAP server-side — never both, no double-credit.
+      // `swiped` = the guest chose this card: the server never clears it.
       const bridged = await creditTokensViaBridge({ accountNumber, tokens, bonusTokens });
       try {
         const res = await fetch("/api/game-cards/load-card", {
@@ -134,12 +213,66 @@ export function KioskGzFulfillment({
             accountNumber,
             locationCode: payload.locationCode,
             preLoaded: bridged,
+            ...(swiped ? { swiped: true } : {}),
           }),
         });
         const data = await res.json();
         return { loaded: res.ok && data.loaded === true, balanceTokens: data.balance?.tokens };
       } catch {
         return { loaded: false };
+      }
+    };
+
+    /** Is the swiped card a blank we may load as new? Same rule as the Game
+     *  Zone cart (blank-card.ts); a failed lookup is "unknown", never blank. */
+    const classifyBlank = async (acct: string): Promise<SwipedCardClass> => {
+      try {
+        const res = await fetch("/api/game-cards/verify", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ accountNumber: acct, locationCode: payload.locationCode }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        const data = (await res.json().catch(() => null)) as Partial<VerifyResult> | null;
+        if (!res.ok || !data) return "unknown";
+        return classifySwipedCard({
+          exists: data.exists === true,
+          notFound: data.notFound,
+          balance: data.balance,
+          cashBalance: data.cashBalance,
+          transactions: data.transactions,
+        });
+      } catch {
+        return "unknown";
+      }
+    };
+
+    /** Swipe kiosk: wait for the guest to swipe a BLANK for row `i`. Active /
+     *  duplicate / unknown swipes re-prompt with a note. Null = the wait timed
+     *  out (guest gone) — the caller fails the rest of the run. */
+    const acquireBlankBySwipe = async (i: number, used: Set<string>): Promise<string | null> => {
+      for (;;) {
+        setRow(i, { status: "swipe" });
+        let acct: string;
+        try {
+          acct = await swipeWaiter.wait({ timeoutMs: SWIPE_WAIT_MS });
+        } catch {
+          return null;
+        }
+        if (used.has(acct)) {
+          setSwipeNote(t("gamezone.swipe.duplicate"));
+          continue;
+        }
+        setSwipeChecking(true);
+        const cls = await classifyBlank(acct);
+        setSwipeChecking(false);
+        if (cls === "blank") {
+          setSwipeNote(null);
+          return acct;
+        }
+        setSwipeNote(
+          cls === "active" ? t("gamezone.swipe.active.short") : t("gamezone.swipe.unknown"),
+        );
       }
     };
 
@@ -150,14 +283,63 @@ export function KioskGzFulfillment({
           for (let i = 0; i < payload.cards.length; i++) {
             const c = payload.cards[i];
             setRow(i, { status: "loading" });
-            const { loaded } = await loadCard(c.txnId, c.accountNumber, c.tokens, c.bonusTokens);
+            const { loaded } = await loadCard(
+              c.txnId,
+              c.accountNumber,
+              c.tokens,
+              c.bonusTokens,
+              false,
+            );
             // A failed report leaves the row pending — the reconcile cron loads
             // it via cloud SOAP shortly. Paid tokens always arrive.
-            setRow(i, { status: loaded ? "done" : "failed" });
-            if (!loaded) setNote("A card will finish loading in a few minutes — it's paid for.");
+            setRow(i, { status: loaded ? "done" : "pending" });
+            if (!loaded) setNote(t("gamezone.fulfill.note.pendingReload"));
+          }
+        } else if (swipeKiosk) {
+          // SWIPE kiosk: a pre-swiped account rides the row; a card without
+          // one (checkout upsell) is swiped here. Load, nothing to hand over.
+          const used = new Set<string>(
+            payload.cards.map((c) => c.accountNumber).filter((a): a is string => !!a),
+          );
+          for (let i = 0; i < payload.cards.length; i++) {
+            const c = payload.cards[i];
+            let account: string | null = c.accountNumber || null;
+            if (!account) {
+              account = await acquireBlankBySwipe(i, used);
+              if (!account) {
+                // The guest walked away. Fail this and every remaining row —
+                // payment safe, rows pending for the cron / staff — and let the
+                // screen go (finally releases busy).
+                setRows((rs) =>
+                  rs.map((r, idx) =>
+                    idx >= i && r.status !== "done" && r.status !== "pending"
+                      ? { ...r, status: "failed" }
+                      : r,
+                  ),
+                );
+                setNote(t("gamezone.fulfill.swipeTimeout"));
+                return;
+              }
+              used.add(account);
+            }
+            setRow(i, { accountNumber: account, status: "loading" });
+            const { loaded, balanceTokens } = await loadCard(
+              c.txnId,
+              account,
+              c.tokens,
+              c.bonusTokens,
+              true,
+            );
+            // The card is in the guest's hand and the row carries its account:
+            // an unconfirmed credit is finished by the reconcile cron.
+            setRow(i, {
+              status: loaded ? "done" : "pending",
+              ...(balanceTokens != null ? { tokens: balanceTokens } : {}),
+            });
+            if (!loaded) setNote(t("gamezone.swipe.loadPending"));
           }
         } else {
-          const SAFE = "Your payment is safe — please see an attendant.";
+          const SAFE = t("gamezone.seeAttendantSafe");
           // Bin a held card WITHOUT ever forcing it into a full bin (owner hard
           // rule): capture() refuses on full and returns the bin-full hold —
           // pause for staff, then finish the capture (GZ-screen captureSafely).
@@ -221,7 +403,7 @@ export function KioskGzFulfillment({
               }
               if (++blanksBad > 3) {
                 setRow(i, { status: "failed" });
-                setNote(`We couldn't get a clean read from the dispenser. ${SAFE}`);
+                setNote(`${t("gamezone.err.cleanRead")} ${SAFE}`);
                 return;
               }
               i--;
@@ -235,14 +417,13 @@ export function KioskGzFulfillment({
               account,
               c.tokens,
               c.bonusTokens,
+              false,
             );
             if (!loaded) {
               // Never hand over an unloaded blank — bin it; the row recovers forward.
               await captureSafely();
               setRow(i, { status: "failed" });
-              setNote(
-                "A card couldn't be loaded and was retained. Your payment is safe — please see an attendant.",
-              );
+              setNote(`${t("gamezone.err.cardRetained")} ${SAFE}`);
               return;
             }
             setRow(i, {
@@ -262,6 +443,28 @@ export function KioskGzFulfillment({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
+  const statusLabel = (s: CardStatus): string => {
+    switch (s) {
+      case "waiting":
+        return t("gamezone.status.waiting");
+      case "dispensing":
+        return t("gamezone.status.dispensing");
+      case "swipe":
+        return t("gamezone.fulfill.status.swipe");
+      case "loading":
+        return t("gamezone.status.loadingTokens");
+      case "take":
+        return t("gamezone.takeYourCard");
+      case "done":
+        return t("gamezone.status.loaded");
+      case "pending":
+        return t("gamezone.status.onTheWay");
+      case "failed":
+        return t("gamezone.status.seeAttendant");
+    }
+  };
+  const swipeRowIdx = rows.findIndex((r) => r.status === "swipe");
+
   return (
     <div className="relative w-full max-w-[860px] rounded-[24px] border border-[#f800c6]/40 bg-white/[0.04] p-[32px] text-left">
       {/* Recoverable dispenser fault — full-screen hold (fixed: this card is not
@@ -277,11 +480,13 @@ export function KioskGzFulfillment({
         </div>
       )}
       <div className="k-eyebrow text-[#f800c6]">
-        {payload.mode === "new_card" ? "Your Game Zone cards" : "Loading your Game Zone cards"}
+        {payload.mode === "new_card"
+          ? t("gamezone.fulfill.title.new")
+          : t("gamezone.fulfill.title.reload")}
       </div>
       {payload.mode === "new_card" && (
         <p className="mt-[6px] text-[24px] text-white/55">
-          Take each card from the dispenser as it comes out.
+          {swipeKiosk ? t("gamezone.fulfill.swipeEach") : t("gamezone.fulfill.takeEach")}
         </p>
       )}
       <div className="mt-[16px] space-y-[10px]">
@@ -292,7 +497,7 @@ export function KioskGzFulfillment({
           >
             <div className="min-w-0">
               <div className="text-[18px] font-bold uppercase tracking-[0.25em] text-white/40">
-                Card {i + 1}
+                {t("gamezone.cardN", { n: i + 1 })}
               </div>
               <div className="text-[28px] font-extrabold tabular-nums">
                 {r.accountNumber ? `#${displayCardNumber(r.accountNumber)}` : "—"}
@@ -300,7 +505,7 @@ export function KioskGzFulfillment({
             </div>
             <div className="text-right">
               <div className="text-[26px] font-extrabold tabular-nums text-[#00e2e5]">
-                {r.tokens} tk
+                {r.tokens} {t("gamezone.tkAbbrev")}
               </div>
               <div
                 className={`text-[20px] ${
@@ -308,21 +513,37 @@ export function KioskGzFulfillment({
                     ? "text-red-300"
                     : r.status === "done"
                       ? "text-[#46d68c]"
-                      : r.status === "take"
+                      : r.status === "take" || r.status === "swipe" || r.status === "pending"
                         ? "text-[#f0b341]"
                         : "text-white/50"
                 }`}
               >
-                {STATUS_LABEL[r.status]}
+                {statusLabel(r.status)}
               </div>
             </div>
           </div>
         ))}
       </div>
-      {payload.mode === "new_card" && !dispenser.ready && !started && (
+      {/* Swipe kiosk: the step guide for the card currently waiting on a swipe.
+          No Cancel — these cards are paid for; the wait is bounded instead. */}
+      {swipeRowIdx >= 0 && (
+        <div className="mt-[20px]">
+          <SwipeBlankGuide
+            size="lg"
+            step={swipeChecking ? "checking" : "wait"}
+            label={
+              rows.length > 1
+                ? t("gamezone.swipe.legN", { n: swipeRowIdx + 1, total: rows.length })
+                : t("gamezone.swipe.legOne")
+            }
+            listening={msrListening}
+            note={swipeNote}
+          />
+        </div>
+      )}
+      {payload.mode === "new_card" && !ready && !started && (
         <p className="mt-[12px] text-[22px] text-amber-300/80">
-          Connecting to the card dispenser… if this doesn&rsquo;t start, see an attendant — your
-          cards are paid for.
+          {swipeKiosk ? t("gamezone.fulfill.connectingReader") : t("gamezone.fulfill.connecting")}
         </p>
       )}
       {note && <p className="mt-[12px] text-[22px] text-amber-300/80">{note}</p>}

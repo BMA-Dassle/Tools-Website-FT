@@ -74,10 +74,14 @@ export interface NewCardChargeResult {
 
 /**
  * BUY (new cards): charge ONCE for a basket of blanks, then hand back one
- * ledger row per card. The account numbers aren't known yet — each blank is
- * dispensed + read + loaded afterward via `loadCard()` (service/load-card.ts).
- * No verify (nothing to verify) and NO load here — that's the whole point of
- * the split (charge must land before we dispense; load lands per card after).
+ * ledger row per card. On a DISPENSER kiosk the account numbers aren't known
+ * yet — each blank is dispensed + read + loaded afterward via `loadCard()`
+ * (service/load-card.ts). On an MSR-only kiosk the guest swiped each blank
+ * BEFORE paying, so the item carries its `accountNumber` and the row is
+ * persisted with it (persist-first: a browser death after the charge leaves a
+ * row the reconcile cron can still credit). No verify (nothing to verify) and
+ * NO load here — that's the whole point of the split (charge must land before
+ * we dispense/credit; load lands per card after).
  */
 export async function chargeNewCardOrder(
   input: PurchaseInput,
@@ -92,7 +96,9 @@ export async function chargeNewCardOrder(
   const resolved = input.items.map((it) => {
     const pkg = getPackage(it.packageId);
     if (!pkg) throw new GameCardHttpError(400, "UNKNOWN_PACKAGE", "That package isn't available.");
-    return { pkg };
+    // "" on a dispenser kiosk (read off the blank at load); the swiped blank's
+    // number on an MSR-only kiosk.
+    return { pkg, accountNumber: it.accountNumber ?? "" };
   });
 
   const groupId = randomUUID();
@@ -104,7 +110,8 @@ export async function chargeNewCardOrder(
     resolved.reduce((sum, r) => sum + r.pkg.priceCents, 0) +
     activationFeeCents("new_card", resolved.length);
 
-  // Persist one row per card BEFORE charging (account attached later at load).
+  // Persist one row per card BEFORE charging (account attached later at load
+  // when the dispenser reads it; already known when the guest swiped it).
   const rows: NewCardRow[] = [];
   const txnByRow: { txnId: string }[] = [];
   for (const r of resolved) {
@@ -114,7 +121,7 @@ export async function chargeNewCardOrder(
       groupId,
       kind: "new_card",
       locationCode: input.locationCode,
-      accountNumber: "", // filled at load time (setTxnAccount)
+      accountNumber: r.accountNumber,
       packageId: r.pkg.id,
       tokens: r.pkg.tokens,
       bonusTokens: r.pkg.bonusTokens,
@@ -142,7 +149,7 @@ export async function chargeNewCardOrder(
       lines: resolved.map((r) => ({
         label: r.pkg.label,
         amountCents: r.pkg.priceCents,
-        accountNumber: "",
+        accountNumber: r.accountNumber,
       })),
     });
   } catch {

@@ -65,10 +65,11 @@ export interface KioskConfig {
   dispenserId?: string | null;
   /**
    * Whether a Game Zone card MSR (magnetic-stripe reader) is attached. An MSR
-   * reads an EXISTING card but can't dispense a new one, so it enables RELOAD
-   * + BALANCE CHECK but not new-card sales (owner 2026-07-20 — new cards are
-   * sold at the front kiosk / Guest Services). Ignored when a dispenser is
-   * present.
+   * reads a card the guest presents, so it enables RELOAD + BALANCE CHECK and
+   * — since 2026-08-28 — NEW-CARD sales too: the kiosk carries a holder of
+   * blank cards under the screen; the guest takes one and swipes it, and the
+   * tokens load onto that card (capability "swipe"). This reverses the
+   * 2026-07-20 reload-only rule. Ignored when a dispenser is present.
    *
    * The MSR is a raw serial SWIPE reader on its own COM port (NOT the CRT-591
    * protocol): each swipe streams one ISO track-2 burst `;6283=<account>?`
@@ -346,13 +347,18 @@ export function kioskHasCamera(cfg: KioskConfig | null): boolean {
 }
 
 /**
- * What Game Zone card actions this kiosk's hardware supports (owner 2026-07-19):
- *  - "full"   — a card DISPENSER is connected (reads + writes): buy new + reload + balance.
- *  - "reload" — only an MSR reader is attached (reads an existing card): reload +
- *               balance check; new cards are sold at the front kiosk / Guest Services.
- *  - "none"   — no card hardware: Game Zone cards unavailable on this kiosk.
+ * What Game Zone card actions this kiosk's hardware supports (owner 2026-07-19,
+ * revised 2026-08-28):
+ *  - "full"  — a card DISPENSER is connected (reads + writes): buy new + reload +
+ *              balance; new cards come out of the stacker.
+ *  - "swipe" — only an MSR swipe reader is attached: reload + balance check, AND
+ *              new cards — the guest takes a blank from the holder under the
+ *              screen and swipes it (owner 2026-08-28; was reload-only before).
+ *  - "none"  — no card hardware: Game Zone cards unavailable on this kiosk.
  */
-export function gameZoneCapability(cfg: KioskConfig | null): "full" | "reload" | "none" {
+export type GameZoneCapability = "full" | "swipe" | "none";
+
+export function gameZoneCapability(cfg: KioskConfig | null): GameZoneCapability {
   if (!cfg) return "none";
   // A dispenser (the CRT-591) only counts when the reader is ENABLED. dispenserId
   // holds the CRT's serial, saved on a past connect — it lingers after the CRT
@@ -361,8 +367,19 @@ export function gameZoneCapability(cfg: KioskConfig | null): "full" | "reload" |
   if (cfg.cardReaderEnabled && cfg.dispenserId) return "full";
   // An MSR pointed at gift cards (msrUse "giftcard") is split-tender hardware,
   // not Game Zone hardware — it must not light up reload. "both" keeps it.
-  if (cfg.msrEnabled && (cfg.msrUse ?? "gamezone") !== "giftcard") return "reload";
+  if (cfg.msrEnabled && (cfg.msrUse ?? "gamezone") !== "giftcard") return "swipe";
   return "none";
+}
+
+/**
+ * How a NEW card physically reaches the guest on this kiosk — the coupon
+ * receipt's copy and footer hang on this: "dispense" (comes out of the CRT),
+ * "swipe" (the guest takes a blank from the holder and swipes it), "none".
+ */
+export type CardIssueRail = "dispense" | "swipe" | "none";
+export function cardIssueRail(cfg: KioskConfig | null): CardIssueRail {
+  const cap = gameZoneCapability(cfg);
+  return cap === "full" ? "dispense" : cap === "swipe" ? "swipe" : "none";
 }
 
 /** URL params win over stored values field-by-field. */

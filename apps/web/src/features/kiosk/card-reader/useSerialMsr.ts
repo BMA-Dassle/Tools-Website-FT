@@ -262,23 +262,32 @@ export function useSerialMsr(opts: UseSerialMsrOptions = {}) {
     return (await openPort(match, { silent: true })) ? "connected" : "failed";
   }, [portInfo, openPort]);
 
+  // One reconnect loop at a time — the `enabled` effect below and the
+  // stream-ended handler can both ask for one.
+  const reconnectingRef = useRef(false);
   const attemptReconnect = useCallback(async () => {
-    for (const backoff of RECONNECT_BACKOFFS) {
-      if (portRef.current || closingRef.current) return;
-      const r = await reopenSilently();
-      if (r === "connected") return;
-      if (r === "no-grant") {
-        // Never granted (fresh kiosk) — that's not a fault, just not set up yet.
-        setConnection({ state: "disconnected", hadPortGrant: false });
-        return;
+    if (reconnectingRef.current) return;
+    reconnectingRef.current = true;
+    try {
+      for (const backoff of RECONNECT_BACKOFFS) {
+        if (portRef.current || closingRef.current) return;
+        const r = await reopenSilently();
+        if (r === "connected") return;
+        if (r === "no-grant") {
+          // Never granted (fresh kiosk) — that's not a fault, just not set up yet.
+          setConnection({ state: "disconnected", hadPortGrant: false });
+          return;
+        }
+        await delay(backoff);
       }
-      await delay(backoff);
-    }
-    if (!portRef.current) {
-      setConnection({
-        state: "error",
-        message: "The card swipe reader is offline and couldn't reconnect.",
-      });
+      if (!portRef.current && !closingRef.current) {
+        setConnection({
+          state: "error",
+          message: "The card swipe reader is offline and couldn't reconnect.",
+        });
+      }
+    } finally {
+      reconnectingRef.current = false;
     }
   }, [reopenSilently]);
   useEffect(() => {
@@ -300,17 +309,31 @@ export function useSerialMsr(opts: UseSerialMsrOptions = {}) {
     setConnection({ state: "disconnected", hadPortGrant });
   }, [closePort]);
 
-  // Feature-detect + provisioned auto-connect on mount; close on unmount.
-  const triedAutoRef = useRef(false);
+  // Feature-detect, then follow `enabled` LIVE: true → provisioned auto-connect
+  // (silent grant reuse); false → let the port GO. The MSR is one COM port that
+  // several consumers want at different moments — Game Zone buy/reload/balance,
+  // the pay screen's gift-card capture (msrUse "both"), the admin test surface
+  // — and only one can hold it open. A consumer that is done listening must
+  // release it, not merely ignore bursts. (Until 2026-08-28 the auto-connect
+  // was mount-only and a disabled hook kept the port, which starved the
+  // gift-card flow on the pay screen after a Game Zone sale.)
+  // `disconnect` also flips closingRef, which stops an in-flight reconnect loop
+  // and makes a port that finishes opening late close itself (readLoop's
+  // stream-ended handler treats it as deliberate).
   useEffect(() => {
     if (typeof navigator === "undefined" || !("serial" in navigator)) {
       setConnection({ state: "unsupported" });
       return;
     }
-    if (!enabled || triedAutoRef.current) return;
-    triedAutoRef.current = true;
-    void attemptReconnect();
-  }, [enabled, attemptReconnect]);
+    if (enabled) {
+      // A prior disable (or mount-while-disabled) left closingRef raised to
+      // stop loops; lower it or attemptReconnect bails on its first check.
+      closingRef.current = false;
+      if (!portRef.current) void attemptReconnect();
+      return;
+    }
+    void disconnect();
+  }, [enabled, attemptReconnect, disconnect]);
   useEffect(() => {
     return () => {
       void closePort();

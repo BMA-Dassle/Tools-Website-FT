@@ -162,7 +162,7 @@ export function KioskCodeEntry({
   onGzCardRemoveOne,
   appliedPromo = null,
   onClearPromo,
-  canDispenseCards = true,
+  cardIssue = "dispense",
   party = [],
   onPartyAdd,
   onPartyRemove,
@@ -221,13 +221,18 @@ export function KioskCodeEntry({
    *  the receipt is up must never replace it. */
   appliedPromo?: AppliedPromo | null;
   onClearPromo?: () => void;
-  /** FALSE on kiosks without a card dispenser (MSR-only / none): the receipt
-   *  still accepts card vouchers but says to collect at the front kiosk /
-   *  Guest Services, offers no print action and no leave warning — a machine
-   *  that cannot print must never promise to (owner 2026-07-30 screenshot:
-   *  "GAME ZONE CARDS NOT AVAILABLE ON THIS KIOSK" yet the flow offered
-   *  "get my card"). */
-  canDispenseCards?: boolean;
+  /** How a NEW card reaches the guest on THIS kiosk (config.cardIssueRail):
+   *  "dispense" — it comes out of the CRT ("Print my cards");
+   *  "swipe"    — no dispenser; the guest takes a blank from the holder under
+   *               the screen and swipes it at the Game Zone screen ("Load my
+   *               cards", owner 2026-08-28);
+   *  "none"     — no card hardware: the receipt still accepts card vouchers
+   *               but says to collect at another Game Zone kiosk / Guest
+   *               Services, offers no issue action and no leave warning — a
+   *               machine that cannot hand over a card must never promise to
+   *               (owner 2026-07-30 screenshot: "GAME ZONE CARDS NOT AVAILABLE
+   *               ON THIS KIOSK" yet the flow offered "get my card"). */
+  cardIssue?: "dispense" | "swipe" | "none";
   /** The session party — the "Who's here from your booking?" chips derive
    *  selected/disabled state from it (session truth, remount-proof). */
   party?: PartyMember[];
@@ -332,13 +337,15 @@ export function KioskCodeEntry({
   }, []);
   const noDispenseReportedRef = useRef(false);
   useEffect(() => {
-    if (canDispenseCards || pendingGzCards.length === 0 || noDispenseReportedRef.current) return;
+    if (cardIssue !== "none" || pendingGzCards.length === 0 || noDispenseReportedRef.current) {
+      return;
+    }
     noDispenseReportedRef.current = true;
     clarityEvent("kiosk:receipt:no-dispenser");
     console.warn(
-      `[kiosk] card voucher accepted on a NO-DISPENSER kiosk — guest directed to front kiosk / Guest Services`,
+      `[kiosk] card voucher accepted on a kiosk with NO card hardware — guest directed to another Game Zone kiosk / Guest Services`,
     );
-  }, [canDispenseCards, pendingGzCards.length]);
+  }, [cardIssue, pendingGzCards.length]);
   /** Native codes already handled this session — a re-scan is a no-op. Seeded
    *  with everything the parent already holds so a remount can't re-add it. */
   const processedNativeRef = useRef<Set<string>>(
@@ -903,20 +910,22 @@ export function KioskCodeEntry({
    * — and, just as importantly, that redeeming the rest here is still fine.
    *
    * Informational, not an error: it uses the amber/among-friends treatment and
-   * never blocks the input. `canDispenseCards` is
-   * `gameZoneCapability(config) === "full"`, so this also covers a kiosk whose
-   * CRT is merely toggled off, not just one that never had hardware.
+   * never blocks the input. Only for `cardIssue === "none"` — a kiosk with a
+   * swipe reader DOES hand over cards (the guest swipes a blank), and a kiosk
+   * whose CRT is merely toggled off reads as "none" too, not just one that
+   * never had hardware.
    */
-  const noDispenserNotice = canDispenseCards ? null : (
-    <div className="mt-[20px] rounded-[18px] border border-[rgba(255,176,32,0.45)] bg-[rgba(255,176,32,0.08)] px-[28px] py-[18px] text-left">
-      <div className="text-[28px] font-semibold text-[#ffb020]">
-        {t("codeEntry.noDispenser.title")}
+  const noDispenserNotice =
+    cardIssue !== "none" ? null : (
+      <div className="mt-[20px] rounded-[18px] border border-[rgba(255,176,32,0.45)] bg-[rgba(255,176,32,0.08)] px-[28px] py-[18px] text-left">
+        <div className="text-[28px] font-semibold text-[#ffb020]">
+          {t("codeEntry.noDispenser.title")}
+        </div>
+        <div className="mt-[6px] text-[24px] leading-[1.35] text-white/70">
+          {t("codeEntry.noDispenser.body")}
+        </div>
       </div>
-      <div className="mt-[6px] text-[24px] leading-[1.35] text-white/70">
-        {t("codeEntry.noDispenser.body")}
-      </div>
-    </div>
-  );
+    );
 
   // ── Result panels ──
   if (panel) {
@@ -1087,7 +1096,7 @@ export function KioskCodeEntry({
       // its verdict to copy and callbacks.
       const plan = receiptPlan({
         cardCodes: codes.length,
-        canDispense: canDispenseCards,
+        canIssue: cardIssue !== "none",
         cartVouchers: cartLabels.length,
         promoApplied: !!appliedPromo,
       });
@@ -1119,12 +1128,26 @@ export function KioskCodeEntry({
         }
         leaveTo("start-picking");
       };
+      // "Print" on a dispenser kiosk; "Load" on a swipe kiosk — nothing prints
+      // there, the guest swipes a blank and the tokens load onto it.
+      const swipeIssue = cardIssue === "swipe";
       const finish =
         plan.primary === "print"
-          ? { label: t("codeEntry.voucherGz.printNow", { n: cardCount }), onClick: startPrint }
+          ? {
+              label: t(
+                swipeIssue ? "codeEntry.voucherGz.loadNow" : "codeEntry.voucherGz.printNow",
+                {
+                  n: cardCount,
+                },
+              ),
+              onClick: startPrint,
+            }
           : plan.primary === "print-continue"
             ? {
-                label: t("codeEntry.voucherGz.finishCards", { n: cardCount }),
+                label: t(
+                  swipeIssue ? "codeEntry.voucherGz.loadCards" : "codeEntry.voucherGz.finishCards",
+                  { n: cardCount },
+                ),
                 onClick: startPrint,
               }
             : plan.primary === "start-picking"
@@ -1162,9 +1185,11 @@ export function KioskCodeEntry({
                   {t("codeEntry.voucherGz.printingTitle", { n: Math.max(gzCards.length, 1) })}
                 </div>
                 <div className="mt-[4px] text-[20px] text-white/45">
-                  {canDispenseCards
+                  {cardIssue === "dispense"
                     ? t("codeEntry.voucherGz.printingSub")
-                    : t("codeEntry.voucherGz.printingSubElsewhere")}
+                    : cardIssue === "swipe"
+                      ? t("codeEntry.voucherGz.printingSubSwipe")
+                      : t("codeEntry.voucherGz.printingSubElsewhere")}
                 </div>
                 <ul className="mt-[14px] space-y-[10px]">
                   {gzGroups.map((g) => {
@@ -1198,10 +1223,11 @@ export function KioskCodeEntry({
                               })}
                             </span>
                           )}
-                          {/* Steppers only where a card can actually come out.
-                              Choosing a quantity of something this machine will
-                              not hand you is theatre. */}
-                          {canDispenseCards && (
+                          {/* Steppers only where a card can actually reach the
+                              guest (dispensed, or a swiped blank). Choosing a
+                              quantity of something this machine will not hand
+                              you is theatre. */}
+                          {cardIssue !== "none" && (
                             <>
                               <button
                                 type="button"
@@ -1512,11 +1538,16 @@ export function KioskCodeEntry({
           </div>
 
           {leaveWarn && warnOnBack ? (
-            /* Back with unprinted cards: cards do NOT print later on their
-               own, so say it and offer the right exit both ways. */
+            /* Back with unissued cards: cards do NOT print / load later on
+               their own, so say it and offer the right exit both ways. */
             <div className="mt-auto rounded-[20px] border border-[#ff8c7a]/45 bg-[#ff8c7a]/[0.08] px-[28px] py-[20px]">
               <div className="text-center text-[26px] leading-[1.35] text-[#ffb3a6]">
-                {t("codeEntry.voucherGz.leaveWarn", { n: cardCount })}
+                {t(
+                  cardIssue === "swipe"
+                    ? "codeEntry.voucherGz.leaveWarnSwipe"
+                    : "codeEntry.voucherGz.leaveWarn",
+                  { n: cardCount },
+                )}
               </div>
               <div className="mt-[16px] flex gap-[24px]">
                 <button
@@ -1533,7 +1564,12 @@ export function KioskCodeEntry({
                   {t("codeEntry.voucherGz.leaveAnyway")}
                 </button>
                 <button type="button" onClick={startPrint} className="k-btn-primary k-tap">
-                  {t("codeEntry.voucherGz.printNow", { n: cardCount })}
+                  {t(
+                    cardIssue === "swipe"
+                      ? "codeEntry.voucherGz.loadNow"
+                      : "codeEntry.voucherGz.printNow",
+                    { n: cardCount },
+                  )}
                 </button>
               </div>
             </div>

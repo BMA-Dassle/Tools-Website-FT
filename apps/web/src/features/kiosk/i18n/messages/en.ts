@@ -67,9 +67,9 @@ export const en = {
   "categories.attr.eyebrow": "{count, plural, one {# attraction} other {# attractions}}",
   "categories.attr.blurb.naples": "Bowling, gel blasters, laser tag & more — pick a time and go",
   "categories.attr.blurb.default": "Racing, bowling, blasters & more — pick a time and go",
-  "categories.gameZone.eyebrow.reload": "Reload · check balance",
+  // One tile copy for dispenser AND swipe kiosks — both buy + reload + balance
+  // (owner 2026-08-28: no-dispenser kiosks sell new cards by swipe).
   "categories.gameZone.eyebrow.full": "Reload · buy · 1 to 10 cards",
-  "categories.gameZone.blurb.reload": "Reload your arcade card or check its balance — no waiting",
   "categories.gameZone.blurb.full": "Buy or reload arcade tokens — no waiting",
   "categories.disabled.experience":
     "Not available right now — please check back or ask an attendant.",
@@ -164,6 +164,10 @@ export const en = {
   "confirmation.done": "Done — start over",
   "confirmation.dispensing": "Dispensing your cards…",
   "confirmation.dispensingHint": "Grab each card as it comes out — we’ll finish up automatically.",
+  // Kiosk without a dispenser: the guest swipes a blank per card instead.
+  "confirmation.loadingCards": "Loading your cards…",
+  "confirmation.loadingCardsHint":
+    "Swipe each new card when asked — we’ll finish up automatically.",
   "confirmation.returningIn": "Returning to start in {seconds}s — touch anywhere to stay",
   "confirmation.raceCheckin.eyebrow": "Race check-in",
   "confirmation.raceCheckin.title": "What to expect",
@@ -417,6 +421,12 @@ export const en = {
   // "& continue" (there's an order to go back to); no dispenser → Done.
   "codeEntry.voucherGz.finishCards": "Print my {n, plural, one {card} other {# cards}} & continue",
   "codeEntry.voucherGz.printNow": "Print my {n, plural, one {card} other {# cards}}",
+  // Kiosk without a dispenser (swipe kiosk): nothing prints — the guest swipes a
+  // blank from the holder and the tokens LOAD onto it.
+  "codeEntry.voucherGz.loadCards": "Load my {n, plural, one {card} other {# cards}} & continue",
+  "codeEntry.voucherGz.loadNow": "Load my {n, plural, one {card} other {# cards}}",
+  "codeEntry.voucherGz.printingSubSwipe":
+    "Take a blank card from the holder below — you’ll swipe it at the Game Zone screen",
   "codeEntry.voucherGz.done": "Done",
   // This kiosk has no dispenser — cards are collected elsewhere; the voucher
   // stays live (nothing was claimed here).
@@ -450,6 +460,8 @@ export const en = {
   // the pink home-screen tile is the way back.
   "codeEntry.voucherGz.leaveWarn":
     "{n, plural, one {Your game card hasn’t printed yet} other {Your # game cards haven’t printed yet}}. Nothing prints on its own later — the pink button on the home screen brings you back here.",
+  "codeEntry.voucherGz.leaveWarnSwipe":
+    "{n, plural, one {Your game card hasn’t been loaded yet} other {Your # game cards haven’t been loaded yet}}. Nothing loads on its own later — the pink button on the home screen brings you back here.",
   "codeEntry.voucherGz.leaveAnyway": "Leave anyway",
   "codeEntry.giftcard.title": "That’s a gift card",
   "codeEntry.giftcard.body":

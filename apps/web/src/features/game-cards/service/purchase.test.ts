@@ -338,6 +338,31 @@ describe("chargeNewCardOrder (buy: charge upfront, no verify/load)", () => {
     expect(order).not.toContain("markLoadState:loaded");
   });
 
+  it("persists a SWIPED blank's account on its row before the charge (no-dispenser kiosk)", async () => {
+    // MSR-only kiosk: the guest swiped each blank BEFORE paying, so the row is
+    // durable WITH its account — a browser death after the charge leaves a row
+    // the reconcile cron can still credit (persist-first).
+    const { sq } = await loadMocks();
+    const tlog = await import("../data/transactions-log");
+    const { chargeNewCardOrder } = await import("./purchase");
+
+    const res = await chargeNewCardOrder({
+      kind: "new_card",
+      locationCode: 12,
+      items: [
+        { packageId: "tok-500", accountNumber: "0000000001037356" },
+        { packageId: "tok-100" }, // dispenser-style row: account attached at load
+      ],
+      cardNonce: "cnon-1",
+    });
+
+    expect(res.rows).toHaveLength(2);
+    const startCalls = (tlog.startTxn as ReturnType<typeof vi.fn>).mock.calls;
+    expect(startCalls[0][0]).toMatchObject({ kind: "new_card", accountNumber: "0000000001037356" });
+    expect(startCalls[1][0]).toMatchObject({ kind: "new_card", accountNumber: "" });
+    expect(sq.authorizeMultiTender).toHaveBeenCalledTimes(1);
+  });
+
   it("marks every row charge-failed and throws on a decline", async () => {
     const { sq } = await loadMocks();
     (sq.authorizeMultiTender as ReturnType<typeof vi.fn>).mockRejectedValueOnce(

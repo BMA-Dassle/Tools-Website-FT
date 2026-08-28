@@ -82,7 +82,7 @@ export function DeviceCheckCard({ config }: { config: KioskConfig | null }) {
       ? `CRT-591 ${config.dispenserId}`
       : "CRT-591 serial"
     : config?.msrEnabled
-      ? "MSR (reload only)"
+      ? "MSR (swipe: buy + reload + balance)"
       : "none";
   const gzConfigured = !!(config?.cardReaderEnabled || config?.msrEnabled);
 

@@ -1,5 +1,45 @@
 # Open Tasks
 
+## Kiosks without a dispenser: new cards by swipe (2026-08-28) — branch `worktree-kiosk-no-dispenser-new-card`
+
+Owner: MSR-only kiosks (no CRT-591) get a holder of blank cards under the screen; the guest takes
+one and swipes it. Reverses the 2026-07-20 reload-only rule. Plus: a "card not found" on Reload /
+Check balance is a NEW card → hand off to set it up; card vouchers fulfil here too.
+
+- [x] Live probe pinned the Intercard not-found signature: result **1** (+ all-zero balance block)
+      = confirmed absent; 0 = found; -1 = exception. `verifyAccount` now reports
+      `notFound: "confirmed" | "ambiguous"` + `cashBalance`; `classifySwipedCard` (blank-card.ts)
+      is the ONE rule for "is this swiped card a blank" (unknown ≠ blank).
+- [x] Swipe BEFORE pay: new-card cart rows swipe + verify first; Pay arms only on all-blank.
+      Post-payment is a pure credit loop; `load-card` `swiped:true` → never clear-on-encode.
+      Persist-first: prepare/purchase rows carry the swiped account (`purchase.ts`, prepare items).
+- [x] `gameZoneCapability` `"reload"` → `"swipe"`; `cardIssueRail` for the receipt; upsell gate
+      `card-issue`; categories tile one copy; staff copy (admin / device check).
+- [x] Reload / balance `notfound` (confirmed only) → "Looks like a new card" + Set up this card
+      (re-verified in the cart); lookup failures stay "couldn't check — swipe again".
+- [x] Voucher run on swipe kiosks: swipe → claim → credit per leg; Cancel + 90 s timeout while
+      nothing is claimed; `creditVoucherCard(..., {swiped})` never presents/retains.
+- [x] `KioskGzFulfillment`: swipe rail (pre-swiped rows load directly; upsell rows prompt a swipe),
+      bounded waits (90 s per card, 60 s device-ready give-up releases the screen — also fixes a
+      never-connecting CRT freezing the confirmation screen), i18n'd.
+- [x] `useSerialMsr` honours `enabled` live (releases the port) — fixes the pay-screen gift-card
+      MSR contention on `msrUse:"both"`; Game Zone holds the port only in the cart phase.
+- [x] Coupon receipt `cardIssue` tri-state: swipe kiosks get "Load my cards" + swipe copy + a
+      swipe leave-warning; only `none` shows the no-dispenser notice.
+- [x] i18n EN+ES for every new string; `SwipeBlankGuide` (Step 1 take a card · Step 2 swipe it).
+- [x] Gates: tsc clean, full vitest 6456 green (new: blank-card, swipe-waiter, load-card
+      swiped/no-clear, intercard not-found split, purchase persist-first), eslint 0 errors on changed
+      files, `next build` + a11y gate green.
+- [ ] Push + PR; owner hardware smoke on an MSR kiosk — no MSR available here. Checklist: New-card
+      tile live · Step 1/2 guide · swipe blank ⇒ "#… new card" · swipe a loaded card ⇒ refused +
+      "Reload this card instead" · pay on the reader ⇒ tokens land · Check balance on a blank ⇒
+      "Looks like a new card" → Set up → cart prefilled · Reload row same · coupon receipt with a
+      card leg ⇒ "Load my card" ⇒ swipe ⇒ loaded; walk away ⇒ Cancel/timeout returns to the basket
+      with nothing claimed · Add to my visit ⇒ confirmation loads the pre-swiped card with no prompt ·
+      checkout upsell ⇒ confirmation prompts a swipe; walk away ⇒ 90 s → Done re-enabled · pay-screen
+      gift-card swipe still works with `msrUse:"both"` · a dispenser kiosk behaves as before (only
+      change: a never-connecting CRT releases the confirmation screen after 60 s).
+
 ## Mega Thursdays, Sep 3 – end of Oct 2026 (2026-08-25) — branch `worktree-mega-thursdays`
 
 Owner: "September 3rd through end of october we're adding mega to Thursdays. So that means no
@@ -61,8 +101,8 @@ the tile → PIN sheet) opens the flow for that session. Full booking-session in
 
 ## TVs did not recover from a network loss (2026-08-19) — branch `fix/tv-outage-recovery`
 
-Owner: *"HeadPinz Fort Myers front desk TVs didn't recover nicely from network loss, they
-crashed."*
+Owner: _"HeadPinz Fort Myers front desk TVs didn't recover nicely from network loss, they
+crashed."_
 
 **ROOT CAUSE — the failure is not the outage, it is the NAVIGATION.** Everything on a TV is
 built to ride a network loss out: the feed poll keeps its last good answer, the clock keeps its
@@ -108,7 +148,7 @@ proves the internet is up and says nothing about whether DNS resolves us or Verc
 - [x] **Launcher: a network watchdog that recovers an ALREADY-DEAD board** — one extra minimised
       process, spawned once, checking every 60s. On the **down→up transition** (two consecutive
       failures, then a success) it `taskkill`s Edge; the main loop's `start /wait` returns,
-      `:waitnet` confirms the network, and the board relaunches. Never kills *during* the outage:
+      `:waitnet` confirms the network, and the board relaunches. Never kills _during_ the outage:
       a screen that rode it out is showing its last good board, and recycling it would replace
       that with the launcher's waiting console.
 - [x] **`app/tv/error.tsx`** — there was **no error boundary anywhere in this app**, so a scene
@@ -155,7 +195,7 @@ proves the internet is up and says nothing about whether DNS resolves us or Verc
 - **Two sibling branches are still unmerged and cover adjacent halves of the same subject.** They
   are deliberately NOT folded in here (one PR, one purpose), but neither should be forgotten:
   - `worktree-tv-poll-wedge` (`b95beb9ec`) — a stalled `fetch` has no deadline, so the no-overlap
-    poll loop can stop **forever**; and every hide→show flap forks the loop. That is the *other*
+    poll loop can stop **forever**; and every hide→show flap forks the loop. That is the _other_
     way a wall goes quiet during bad wifi.
   - `fix/tv-poll-when-window-hidden` (`64cf1d918`) — Edge reports a fullscreen player as hidden
     when Windows thinks it is occluded, which stops every poll on the page.
@@ -167,7 +207,7 @@ proves the internet is up and says nothing about whether DNS resolves us or Verc
 
 Owner ask: two screens at HeadPinz Fort Myers labelled **Old Time Left** / **Old Time Right**,
 showing **only the PinBoyz logo on black** for now, **each on its own computer** — plus:
-*"only use shell method for all screens."*
+_"only use shell method for all screens."_
 
 **ON MAIN as `55ae3f525`** (commit `4d0f21ddb`, pushed 2026-08-19 from worktree
 `.claude/worktrees/old-time-lanes-screens`). origin/main moved TWICE mid-push — 8c6158d07 →
@@ -180,7 +220,7 @@ real Edge after the merge (identical DOM).
       Reads no feed, no scope, no vendor: the one scene nothing upstream can blank. Wired into
       `registry.tsx` (switch + `IMPLEMENTED` + `sceneHasData`).
 - [x] **`logo-only` role preset** — logo alone, every interrupt OFF, no `requiresData`.
-      Distinct from `ads-only`, which stays the *degraded* fallback.
+      Distinct from `ads-only`, which stays the _degraded_ fallback.
 - [x] **`logo.ts` mark registry** — asset table + `resolveLogoMark`. Only marks we hold artwork
       for are listed; anything unrecognised resolves to the default rather than to a blank screen.
 - [x] **Asset** `apps/web/public/promo/pinboyz-logo.webp` — 576×636, webp q92 with alpha, 74KB
@@ -209,7 +249,7 @@ real Edge after the merge (identical DOM).
 - [ ] Clean up: `git worktree remove .claude/worktrees/old-time-lanes-screens` and delete the
       local branch `worktree-old-time-lanes-screens`.
 - [ ] Owner call: the platform's **bottom-right identity stamp** (`Old Time Left · HPFM:7 ·
-      v0.8.0`) is on all 19 screens and is still there. "Only a logo" may mean it should go on
+    v0.8.0`) is on all 19 screens and is still there. "Only a logo" may mean it should go on
       these two — one line in `TvShell` if so.
 
 ### Deliberately NOT paired
@@ -224,7 +264,7 @@ player) — a one-line change to the script's `PLAN`.
 
 ### Shell method is now the ONLY method
 
-Owner: *"I only want to use shell method for all screens."* The Run-key route is **gone** from
+Owner: _"I only want to use shell method for all screens."_ The Run-key route is **gone** from
 the setup steps; both launchers (single and dual) now share one `shellMethodSteps()` list, and
 the steps teach **Ctrl+Shift+Esc** (Task Manager is handled by Windows, not the shell, so it
 still opens on a machine whose shell is a batch file) **before** the step that removes the
@@ -719,8 +759,8 @@ the event. See lessons.md § "A derived flag written only at INSERT rots" (third
 instance) and § "Refunding a deposit while its gift card stays funded pays twice".
 
 - [x] **`syncQuoteCenter`** (group-quote-dispatch) re-derives `center_code /
-  center_name / square_location_id / brand / base_url / gan_prefix /
-  hermes_center` on every "Send Contract" pass, gated on
+center_name / square_location_id / brand / base_url / gan_prefix /
+hermes_center` on every "Send Contract" pass, gated on
       `center_code`/`square_location_id` so ~170 legacy `gan_prefix` rows don't churn.
       Audit-logs `center_moved`, writes a BMI private note, folds the move into the
       post-sign `changes[]` set (a venue change can move zero money, which the

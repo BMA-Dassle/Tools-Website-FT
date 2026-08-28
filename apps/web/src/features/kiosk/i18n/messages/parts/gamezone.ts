@@ -109,8 +109,6 @@ export const gamezoneEn = {
   // --- Mode chooser ---
   "gamezone.chooser.title": "Game Zone cards",
   "gamezone.chooser.new.title": "New Game Zone cards",
-  "gamezone.chooser.new.unavailable":
-    "Not available at this kiosk — new Game Zone cards can be purchased at the front kiosk or at Guest Services",
   "gamezone.chooser.new.ready": "Set up 1–10 fresh cards — pick a token package for each",
   "gamezone.chooser.new.offline": "Card dispenser unavailable — see an attendant",
   "gamezone.chooser.reload.title": "Reload existing cards",
@@ -196,7 +194,6 @@ export const gamezoneEn = {
   "gamezone.txn.activity": "Activity",
   "gamezone.balance.checkAnother": "Check another card",
   "gamezone.balance.reloadThis": "Reload this card",
-  "gamezone.balance.notFoundSwipe": "We couldn’t find that card — try swiping it again.",
   "gamezone.balance.notFoundInsert": "We couldn’t find that card — try inserting it again.",
   "gamezone.blockedFlip": "Couldn’t read — flip the card & tap to try again",
   "gamezone.balance.insertToCheck": "Insert your card to check it",
@@ -233,17 +230,88 @@ export const gamezoneEn = {
   "gamezone.msr.replaceCard": "Card #{num} — swipe a different card to replace it",
   "gamezone.swipeOnReader": "Swipe your card on the reader",
   "gamezone.balanceTokens": "balance {n} tokens",
-  "gamezone.notFoundSwipe": "Card not found — try swiping it again.",
   "gamezone.notFoundNumber": "Card not found — check the number.",
   "gamezone.noCardNumber": "No card number",
   "gamezone.needsCheck": "needs check",
   "gamezone.cardNumberScanType": "Card number (scan or type)",
   "gamezone.checkEachToContinue": "Check each card number to continue.",
 
+  // --- Swipe-to-buy: kiosks WITHOUT a dispenser (owner 2026-08-28) ---
+  // The guest takes a blank from the holder under the screen and swipes it;
+  // the tokens load onto that card. Nothing comes out of the machine, so every
+  // prompt says WHERE the card is and WHAT to do with it.
+  "gamezone.swipe.stepN": "Step {n}",
+  "gamezone.swipe.step1.title": "Take a new card",
+  "gamezone.swipe.step1.body": "From the card holder below the screen",
+  "gamezone.swipe.step2.title": "Swipe it",
+  "gamezone.swipe.step2.body": "On the card reader — stripe down, slow and steady",
+  "gamezone.swipe.chooser.new.ready":
+    "Take a new card from the holder below and swipe it — 1 to 10 cards, a token package for each",
+  "gamezone.swipe.readerOffline": "Card reader offline — please see an attendant",
+  "gamezone.swipe.newCards.intro":
+    "Add a card for everyone in your group and pick each one’s token package. Take a new card from the holder below and swipe it for each. One payment covers them all.",
+  "gamezone.swipe.checking": "Checking that card…",
+  "gamezone.swipe.blankOk": "Card #{num} · new card",
+  "gamezone.swipe.replace": "Swipe a different card to replace it",
+  "gamezone.swipe.needsSwipe": "needs a swipe",
+  "gamezone.swipe.active.title": "That card isn’t new",
+  "gamezone.swipe.active.body":
+    "Card #{num} already has {n, plural, one {# token} other {# tokens}} on it. To add tokens to it, use Reload instead.",
+  "gamezone.swipe.active.bodyUsed":
+    "Card #{num} has been used before. To add tokens to it, use Reload instead.",
+  "gamezone.swipe.active.short":
+    "That card already has tokens on it — take a NEW card from the holder and swipe that one.",
+  "gamezone.swipe.reloadInstead": "Reload this card instead",
+  "gamezone.swipe.duplicate": "That card is already in your order — swipe a different one.",
+  "gamezone.swipe.unknown": "We couldn’t check that card — swipe it again.",
+  "gamezone.swipe.eachToContinue": "Swipe a new card for each card to continue.",
+  "gamezone.swipe.payNote": "Pay once — the tokens load onto the cards you swiped.",
+  "gamezone.swipe.newCards.checkoutNote":
+    "Cards are paid with your booking at checkout and load on the confirmation screen.",
+  // Reload / balance check met a card Intercard has never seen: a blank.
+  "gamezone.swipe.newCard.title": "Looks like a new card",
+  "gamezone.swipe.newCard.body":
+    "Card #{num} hasn’t been set up yet — new cards are loaded on the New cards screen.",
+  "gamezone.swipe.newCard.setUp": "Set up this card",
+  "gamezone.swipe.newCard.orSwipeAgain": "Not a new card? Swipe it again.",
+  "gamezone.swipe.legN": "Card {n} of {total}",
+  "gamezone.swipe.legOne": "Your card",
+  "gamezone.swipe.voucher.scanBody":
+    "Hold the voucher under the scanner. Then take a new card from the holder below and swipe it — your free tokens load onto it.",
+  "gamezone.swipe.voucher.swipeTitle": "Swipe your new card",
+  "gamezone.swipe.timedOut":
+    "No card was swiped, so nothing was claimed — tap Get my cards to try again.",
+  "gamezone.swipe.cancelled":
+    "Cancelled — nothing was claimed. Tap Get my cards when you’re ready.",
+  "gamezone.swipe.loadPending":
+    "Tokens are on their way to your card — if they don’t show in a minute, keep the card and see an attendant.",
+  "gamezone.swipe.voucher.loadPending":
+    "This card couldn’t be loaded yet — keep it, and if the tokens don’t show in a minute see an attendant. Your voucher is recorded.",
+  "gamezone.status.onTheWay": "Tokens on the way",
+
+  // --- Fulfilment on the confirmation screen (KioskGzFulfillment) ---
+  "gamezone.fulfill.title.new": "Your Game Zone cards",
+  "gamezone.fulfill.title.reload": "Loading your Game Zone cards",
+  "gamezone.fulfill.takeEach": "Take each card from the dispenser as it comes out.",
+  "gamezone.fulfill.swipeEach":
+    "Take a new card from the holder below and swipe it — one card at a time, when asked.",
+  "gamezone.fulfill.status.swipe": "Swipe a new card",
+  "gamezone.fulfill.note.pendingReload":
+    "A card will finish loading in a few minutes — it’s paid for.",
+  "gamezone.fulfill.connecting":
+    "Connecting to the card dispenser… if this doesn’t start, see an attendant — your cards are paid for.",
+  "gamezone.fulfill.connectingReader":
+    "Connecting to the card reader… if this doesn’t start, see an attendant — your cards are paid for.",
+  "gamezone.fulfill.gaveUp":
+    "We couldn’t start loading your cards. Your payment is safe — please see an attendant.",
+  "gamezone.fulfill.swipeTimeout":
+    "No card was swiped. Your payment is safe — please see an attendant for your remaining cards.",
+
   // --- Payment screen ---
   "gamezone.pay": "Pay {amount}",
   "gamezone.payCount": "{count, plural, one {# card} other {# cards}}",
   "gamezone.paySubNew": "cards dispense once payment clears",
+  "gamezone.paySubNewSwipe": "tokens load onto your swiped cards once payment clears",
   "gamezone.paySubReload": "tokens load the moment payment clears",
 } as const;
 
@@ -347,8 +415,6 @@ export const gamezoneEs: Record<keyof typeof gamezoneEn, string> = {
   // --- Mode chooser ---
   "gamezone.chooser.title": "Tarjetas Game Zone",
   "gamezone.chooser.new.title": "Tarjetas Game Zone nuevas",
-  "gamezone.chooser.new.unavailable":
-    "No disponible en este kiosco — las tarjetas Game Zone nuevas se pueden comprar en el kiosco principal o en Atención al Cliente",
   "gamezone.chooser.new.ready":
     "Configura de 1 a 10 tarjetas nuevas — elige un paquete de fichas para cada una",
   "gamezone.chooser.new.offline": "Dispensador de tarjetas no disponible — consulta a un encargado",
@@ -442,7 +508,6 @@ export const gamezoneEs: Record<keyof typeof gamezoneEn, string> = {
   "gamezone.txn.activity": "Actividad",
   "gamezone.balance.checkAnother": "Consultar otra tarjeta",
   "gamezone.balance.reloadThis": "Recargar esta tarjeta",
-  "gamezone.balance.notFoundSwipe": "No encontramos esa tarjeta — intenta deslizarla de nuevo.",
   "gamezone.balance.notFoundInsert": "No encontramos esa tarjeta — intenta insertarla de nuevo.",
   "gamezone.blockedFlip": "No se pudo leer — voltea la tarjeta y toca para intentar de nuevo",
   "gamezone.balance.insertToCheck": "Inserta tu tarjeta para consultarla",
@@ -481,16 +546,86 @@ export const gamezoneEs: Record<keyof typeof gamezoneEn, string> = {
   "gamezone.msr.replaceCard": "Tarjeta #{num} — desliza una tarjeta diferente para reemplazarla",
   "gamezone.swipeOnReader": "Desliza tu tarjeta en el lector",
   "gamezone.balanceTokens": "saldo {n} fichas",
-  "gamezone.notFoundSwipe": "Tarjeta no encontrada — intenta deslizarla de nuevo.",
   "gamezone.notFoundNumber": "Tarjeta no encontrada — revisa el número.",
   "gamezone.noCardNumber": "Sin número de tarjeta",
   "gamezone.needsCheck": "falta verificar",
   "gamezone.cardNumberScanType": "Número de tarjeta (escanear o escribir)",
   "gamezone.checkEachToContinue": "Verifica el número de cada tarjeta para continuar.",
 
+  // --- Compra deslizando: kioscos SIN dispensador (owner 2026-08-28) ---
+  "gamezone.swipe.stepN": "Paso {n}",
+  "gamezone.swipe.step1.title": "Toma una tarjeta nueva",
+  "gamezone.swipe.step1.body": "Del portatarjetas debajo de la pantalla",
+  "gamezone.swipe.step2.title": "Deslízala",
+  "gamezone.swipe.step2.body": "En el lector de tarjetas — con la banda hacia abajo, lento y firme",
+  "gamezone.swipe.chooser.new.ready":
+    "Toma una tarjeta nueva del portatarjetas de abajo y deslízala — de 1 a 10 tarjetas, un paquete de fichas para cada una",
+  "gamezone.swipe.readerOffline":
+    "Lector de tarjetas fuera de servicio — por favor, consulta a un encargado",
+  "gamezone.swipe.newCards.intro":
+    "Agrega una tarjeta para cada persona de tu grupo y elige el paquete de fichas de cada una. Toma una tarjeta nueva del portatarjetas de abajo y deslízala por cada una. Un solo pago las cubre todas.",
+  "gamezone.swipe.checking": "Verificando esa tarjeta…",
+  "gamezone.swipe.blankOk": "Tarjeta #{num} · tarjeta nueva",
+  "gamezone.swipe.replace": "Desliza una tarjeta diferente para reemplazarla",
+  "gamezone.swipe.needsSwipe": "falta deslizar",
+  "gamezone.swipe.active.title": "Esa tarjeta no es nueva",
+  "gamezone.swipe.active.body":
+    "La tarjeta #{num} ya tiene {n, plural, one {# ficha} other {# fichas}}. Para agregarle fichas, usa Recargar.",
+  "gamezone.swipe.active.bodyUsed":
+    "La tarjeta #{num} ya se ha usado antes. Para agregarle fichas, usa Recargar.",
+  "gamezone.swipe.active.short":
+    "Esa tarjeta ya tiene fichas — toma una tarjeta NUEVA del portatarjetas y desliza esa.",
+  "gamezone.swipe.reloadInstead": "Mejor recargar esta tarjeta",
+  "gamezone.swipe.duplicate": "Esa tarjeta ya está en tu orden — desliza una diferente.",
+  "gamezone.swipe.unknown": "No pudimos verificar esa tarjeta — deslízala de nuevo.",
+  "gamezone.swipe.eachToContinue": "Desliza una tarjeta nueva por cada tarjeta para continuar.",
+  "gamezone.swipe.payNote":
+    "Paga una sola vez — las fichas se cargan en las tarjetas que deslizaste.",
+  "gamezone.swipe.newCards.checkoutNote":
+    "Las tarjetas se pagan con tu reserva al finalizar la compra y se cargan en la pantalla de confirmación.",
+  "gamezone.swipe.newCard.title": "Parece una tarjeta nueva",
+  "gamezone.swipe.newCard.body":
+    "La tarjeta #{num} todavía no está activada — las tarjetas nuevas se cargan en la pantalla de Tarjetas nuevas.",
+  "gamezone.swipe.newCard.setUp": "Activar esta tarjeta",
+  "gamezone.swipe.newCard.orSwipeAgain": "¿No es una tarjeta nueva? Deslízala de nuevo.",
+  "gamezone.swipe.legN": "Tarjeta {n} de {total}",
+  "gamezone.swipe.legOne": "Tu tarjeta",
+  "gamezone.swipe.voucher.scanBody":
+    "Coloca el vale bajo el escáner. Luego toma una tarjeta nueva del portatarjetas de abajo y deslízala — tus fichas gratis se cargan en ella.",
+  "gamezone.swipe.voucher.swipeTitle": "Desliza tu tarjeta nueva",
+  "gamezone.swipe.timedOut":
+    "No se deslizó ninguna tarjeta, así que no se canjeó nada — toca Obtener mis tarjetas para intentarlo de nuevo.",
+  "gamezone.swipe.cancelled":
+    "Cancelado — no se canjeó nada. Toca Obtener mis tarjetas cuando estés listo.",
+  "gamezone.swipe.loadPending":
+    "Las fichas van en camino a tu tarjeta — si no aparecen en un minuto, conserva la tarjeta y consulta a un encargado.",
+  "gamezone.swipe.voucher.loadPending":
+    "Esta tarjeta aún no se pudo cargar — consérvala y, si las fichas no aparecen en un minuto, consulta a un encargado. Tu vale quedó registrado.",
+  "gamezone.status.onTheWay": "Fichas en camino",
+
+  // --- Entrega en la pantalla de confirmación (KioskGzFulfillment) ---
+  "gamezone.fulfill.title.new": "Tus tarjetas Game Zone",
+  "gamezone.fulfill.title.reload": "Cargando tus tarjetas Game Zone",
+  "gamezone.fulfill.takeEach": "Toma cada tarjeta del dispensador a medida que salga.",
+  "gamezone.fulfill.swipeEach":
+    "Toma una tarjeta nueva del portatarjetas de abajo y deslízala — una tarjeta a la vez, cuando se te indique.",
+  "gamezone.fulfill.status.swipe": "Desliza una tarjeta nueva",
+  "gamezone.fulfill.note.pendingReload":
+    "Una tarjeta terminará de cargarse en unos minutos — ya está pagada.",
+  "gamezone.fulfill.connecting":
+    "Conectando con el dispensador de tarjetas… si esto no empieza, consulta a un encargado — tus tarjetas ya están pagadas.",
+  "gamezone.fulfill.connectingReader":
+    "Conectando con el lector de tarjetas… si esto no empieza, consulta a un encargado — tus tarjetas ya están pagadas.",
+  "gamezone.fulfill.gaveUp":
+    "No pudimos empezar a cargar tus tarjetas. Tu pago está seguro — por favor, consulta a un encargado.",
+  "gamezone.fulfill.swipeTimeout":
+    "No se deslizó ninguna tarjeta. Tu pago está seguro — por favor, consulta a un encargado por tus tarjetas restantes.",
+
   // --- Payment screen ---
   "gamezone.pay": "Pagar {amount}",
   "gamezone.payCount": "{count, plural, one {# tarjeta} other {# tarjetas}}",
   "gamezone.paySubNew": "las tarjetas se dispensan cuando se acredita el pago",
+  "gamezone.paySubNewSwipe":
+    "las fichas se cargan en las tarjetas que deslizaste cuando se acredita el pago",
   "gamezone.paySubReload": "las fichas se cargan en cuanto se acredita el pago",
 };

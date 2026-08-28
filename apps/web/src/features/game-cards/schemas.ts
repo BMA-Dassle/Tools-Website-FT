@@ -231,6 +231,14 @@ export const LoadCardSchema = z.object({
    * the server credits via SOAP (the fallback when no bridge is reachable).
    */
   preLoaded: z.boolean().optional(),
+  /**
+   * The account came off a card the GUEST presented (swiped on an MSR-only
+   * kiosk — a blank from the holder under the screen), not off a blank the
+   * dispenser pulled from its stacker. A guest-presented card is never
+   * clear-on-encoded: a blank has nothing to clear, and a card that somehow
+   * carries value must keep it (the guest paid for the tokens being added).
+   */
+  swiped: z.boolean().optional(),
 });
 export type LoadCardInput = z.infer<typeof LoadCardSchema>;
 

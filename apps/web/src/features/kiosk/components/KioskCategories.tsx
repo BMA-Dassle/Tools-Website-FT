@@ -183,7 +183,7 @@ export function KioskCategories({
   const [raceSimPinOpen, setRaceSimPinOpen] = useState(false);
   const { config } = useKioskConfig();
   const t = useT();
-  const gameZone = gameZoneCapability(config); // "full" | "reload" | "none"
+  const gameZone = gameZoneCapability(config); // "full" | "swipe" | "none"
   // KBF kiosk booking is DISABLED, not deleted (2026-08-23 — Race Sims takes
   // its slot; owner: keep the KBF code). This filter is the ONLY off switch:
   // every KBF flow/step/i18n path below it stays intact, and web /book/v2 +
@@ -469,19 +469,14 @@ export function KioskCategories({
           ) : (
             <CategoryCard
               photo={KIOSK_PHOTOS.arcade}
-              eyebrow={
-                gameZone === "reload"
-                  ? t("categories.gameZone.eyebrow.reload")
-                  : t("categories.gameZone.eyebrow.full")
-              }
+              // Dispenser and swipe kiosks both buy + reload + check balance
+              // (owner 2026-08-28: no-dispenser kiosks sell new cards by
+              // swiping a blank) — one copy.
+              eyebrow={t("categories.gameZone.eyebrow.full")}
               accent="#f800c6"
               // Game Zone — locked glossary proper noun, never translated.
               title="Game Zone"
-              blurb={
-                gameZone === "reload"
-                  ? t("categories.gameZone.blurb.reload")
-                  : t("categories.gameZone.blurb.full")
-              }
+              blurb={t("categories.gameZone.blurb.full")}
               onClick={onOpenGameZone}
             />
           )}

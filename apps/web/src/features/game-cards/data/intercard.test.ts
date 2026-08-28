@@ -188,7 +188,7 @@ describe("intercard verifyAccount — balance + history parse", () => {
     expect(r.transactions?.[2]).toMatchObject({ device: "Web", transType: "Credit", tokens: 50 });
   });
 
-  it("treats a non-zero result as card-not-found (never charges downstream)", async () => {
+  it("treats a non-zero result as card-not-found (never charges downstream) — -1 is AMBIGUOUS", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({
@@ -201,5 +201,58 @@ describe("intercard verifyAccount — balance + history parse", () => {
     const { verifyAccount } = await import("./intercard");
     const r = await verifyAccount("999", 12);
     expect(r.exists).toBe(false);
+    // A server exception is not proof the account is absent — the swipe-to-buy
+    // rail must not sell this card as new.
+    expect(r.notFound).toBe("ambiguous");
+  });
+
+  it("result 1 with an all-zero balance block is a CONFIRMED not-found (live shape, 2026-08-28 probe)", async () => {
+    // Captured off the live service for an account Intercard has never seen —
+    // exactly what a blank card looks like before its first credit.
+    const UNKNOWN_RESPONSE =
+      `<AcountHistoryWithPhotoXMLResponse xmlns="http://tempuri.org/">` +
+      `<AcountHistoryWithPhotoXMLResult>1</AcountHistoryWithPhotoXMLResult>` +
+      `<AccountBalance><Account>999999999999</Account><Status>0</Status>` +
+      `<CashBalance>0</CashBalance><BonusCashBalance>0</BonusCashBalance><PointBalance>0</PointBalance>` +
+      `<Firstused>0001-01-01T00:00:00</Firstused><Lastused>0001-01-01T00:00:00</Lastused>` +
+      `<TodateCashIn>0</TodateCashIn><TodaysCashIn>0</TodaysCashIn><CardRegistered>false</CardRegistered>` +
+      `<GroupID>0</GroupID><TokenBalance>0</TokenBalance><TokenBonusBalance>0</TokenBonusBalance>` +
+      `<TPLY_Duration>0</TPLY_Duration></AccountBalance></AcountHistoryWithPhotoXMLResponse>`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () => UNKNOWN_RESPONSE,
+      })) as unknown as typeof fetch,
+    );
+    const { verifyAccount } = await import("./intercard");
+    const r = await verifyAccount("999999999999", 12);
+    expect(r.exists).toBe(false);
+    expect(r.notFound).toBe("confirmed");
+    expect(r.balance).toBeUndefined();
+  });
+
+  it("surfaces a cash balance so a card holding cash never reads as empty stock", async () => {
+    const CASH_RESPONSE =
+      `<AcountHistoryWithPhotoXMLResponse xmlns="http://tempuri.org/">` +
+      `<AcountHistoryWithPhotoXMLResult>0</AcountHistoryWithPhotoXMLResult>` +
+      `<AccountBalance><Account>1</Account><statusText>Expired</statusText>` +
+      `<CashBalance>20.0000</CashBalance><BonusCashBalance>50.0000</BonusCashBalance><PointBalance>0</PointBalance>` +
+      `<TokenBalance>0</TokenBalance><TokenBonusBalance>0</TokenBonusBalance><TPLY_Duration>0</TPLY_Duration>` +
+      `</AccountBalance></AcountHistoryWithPhotoXMLResponse>`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () => CASH_RESPONSE,
+      })) as unknown as typeof fetch,
+    );
+    const { verifyAccount } = await import("./intercard");
+    const r = await verifyAccount("1", 12);
+    expect(r.exists).toBe(true);
+    expect(r.balance).toEqual({ tokens: 0, bonusTokens: 0, eTickets: 0, timeMinutes: 0 });
+    expect(r.cashBalance).toBe(70);
   });
 });
