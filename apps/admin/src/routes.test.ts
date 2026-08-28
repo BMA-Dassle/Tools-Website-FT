@@ -18,6 +18,47 @@ describe("ADMIN_TOOL_SLUGS", () => {
   });
 });
 
+describe("resolveAdminProxyPath — self (the only routes this app owns)", () => {
+  it("keeps Auth.js's endpoints here — proxying the callback makes sign-in impossible", () => {
+    for (const p of [
+      "/api/auth",
+      "/api/auth/signin",
+      "/api/auth/callback/headpinz",
+      "/api/auth/session",
+      "/api/auth/signout",
+      "/api/auth/csrf",
+    ]) {
+      expect(resolveAdminProxyPath(p, TOKEN), p).toEqual({ kind: "self" });
+    }
+  });
+
+  it("keeps the SSO surfaces here", () => {
+    for (const p of ["/sso", "/sso/error", "/sso/diag", "/sso/error/"]) {
+      expect(resolveAdminProxyPath(p, TOKEN), p).toEqual({ kind: "self" });
+    }
+  });
+
+  it("wins over the /api forward — order matters, /api/auth IS an /api path", () => {
+    // Regression pin: if the `self` branch ever moves below the /api rule,
+    // every sign-in 404s upstream and nobody can get in.
+    expect(resolveAdminProxyPath("/api/auth/callback/headpinz", TOKEN).kind).toBe("self");
+    expect(resolveAdminProxyPath("/api/admin/videos/list", TOKEN).kind).toBe("forward");
+  });
+
+  it("does not swallow lookalike siblings", () => {
+    expect(resolveAdminProxyPath("/api/authorize", TOKEN)).toEqual({
+      kind: "forward",
+      pathname: "/api/authorize",
+    });
+    expect(resolveAdminProxyPath("/ssot", TOKEN)).toEqual({ kind: "not-found" });
+  });
+
+  it("is decided with no token configured — sign-in must work before anything else does", () => {
+    expect(resolveAdminProxyPath("/api/auth/signin", "")).toEqual({ kind: "self" });
+    expect(resolveAdminProxyPath("/sso/error", "")).toEqual({ kind: "self" });
+  });
+});
+
 describe("resolveAdminProxyPath — forward (same path upstream)", () => {
   it("forwards ALL api traffic to the main deployment's own gates", () => {
     for (const p of ["/api", "/api/foo", "/api/admin/videos/list", "/api/pandora/races-current"]) {
