@@ -297,6 +297,21 @@ true literally, the upstream page route has to stop carrying the token as a
 route segment (e.g. `/admin/board/[slug]` gated on the proxy key alone), which
 is a bigger change than PR 2 and should not be bolted onto it.*
 
+*Review addendum (2026-08-28, owner-side review): PR 2 as listed does NOT fully
+close this. After step 2 a scraped token is useless for pages, and the rotation
+kills every pre-cutover copy — but the ROTATED token is still serialised into
+every board's RSC payload through the shell, and step 3 still accepts the static
+token on `/api/admin/*` via `x-admin-token` for the nine crons. So any SSO
+holder can scrape the current token from view-source and call mutation APIs
+directly, outside the shell, for as long as they keep it — including after
+their role is removed. Two fixes, pick one for PR 2: (a) give the crons their
+own machine credential (`verifyCron` already exists; the `?token=` bypass can
+become `CRON_SECRET`-only) and stop accepting the static token on `/api/admin/*`
+altogether — then a scraped token opens nothing; or (b) the shell forwards to a
+token-less segment (`/admin/board/<slug>`, proxy-key gated) so the secret never
+reaches the RSC payload. (a) is the smaller diff and is recommended for PR 2;
+(b) can follow.*
+
 ---
 
 ## PR 2 checklist (for when the go is given)
