@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { sql, isDbConfigured } from "@/lib/db";
 import { ensureBowlingSchema } from "@/lib/bowling-db";
 import { patchReservation } from "@/lib/qamf-bowling";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /**
  * POST /api/admin/bowling/backfill-memo?token=...
@@ -117,8 +118,7 @@ interface LineRow {
 export async function POST(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const token = searchParams.get("token") ?? "";
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected || token !== expected) {
+  if (!(await isAdminApiRequest(req, { token: token }))) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

@@ -9,7 +9,7 @@ import { formatDocumentSummary } from "@/lib/portal-format";
  * Find contracts for an event by BMI code.
  */
 export async function GET(req: NextRequest) {
-  const denied = verifyPortal(req);
+  const denied = await verifyPortal(req);
   if (denied) return denied;
 
   const bmiCode = req.nextUrl.searchParams.get("bmiCode") || "";

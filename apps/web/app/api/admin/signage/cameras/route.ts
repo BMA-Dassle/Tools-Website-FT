@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { listCameras, nxConfigured } from "~/features/signage/nx/camera.server";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /**
  * The camera list, for the picker on the Lobby TVs admin page.
@@ -13,15 +14,18 @@ import { listCameras, nxConfigured } from "~/features/signage/nx/camera.server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function authed(req: NextRequest): boolean {
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected) return false;
-  const token = req.nextUrl.searchParams.get("token") || req.headers.get("x-admin-token") || "";
-  return token === expected;
+/**
+ * Defense in depth behind the middleware gate — see lib/admin-request-auth.
+ * Accepts the static ADMIN_CAMERA_TOKEN (crons, scripts), a signed
+ * short-lived token (what staff browsers now hold), or the SSO shell's
+ * proxy key. Async because signature checks are Web Crypto.
+ */
+async function authed(req: NextRequest): Promise<boolean> {
+  return isAdminApiRequest(req);
 }
 
 export async function GET(req: NextRequest) {
-  if (!authed(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await authed(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (!nxConfigured()) {
     // Not an error the admin can fix from here — say so plainly so the picker can
     // show "camera bridge not configured" instead of an empty dropdown.

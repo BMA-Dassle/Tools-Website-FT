@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { isBriefingAssetKey, type BriefingAssetKey } from "~/features/signage/briefing/types";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /**
  * Client-upload tokens for briefing videos.
@@ -57,15 +58,18 @@ const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const AUDIO_TYPES = ["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/mp4"];
 const MAX_AUDIO_BYTES = 25 * 1_024 * 1_024;
 
-function authed(req: NextRequest): boolean {
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected) return false;
-  const token = req.nextUrl.searchParams.get("token") || req.headers.get("x-admin-token") || "";
-  return token === expected;
+/**
+ * Defense in depth behind the middleware gate — see lib/admin-request-auth.
+ * Accepts the static ADMIN_CAMERA_TOKEN (crons, scripts), a signed
+ * short-lived token (what staff browsers now hold), or the SSO shell's
+ * proxy key. Async because signature checks are Web Crypto.
+ */
+async function authed(req: NextRequest): Promise<boolean> {
+  return isAdminApiRequest(req);
 }
 
 export async function POST(req: NextRequest) {
-  if (!authed(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await authed(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   let body: HandleUploadBody;
   try {

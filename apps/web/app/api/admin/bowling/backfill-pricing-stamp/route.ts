@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDbConfigured } from "@/lib/db";
 import { runStampBackfill } from "~/features/reservation-edit/stamp-backfill";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /**
  * POST /api/admin/bowling/backfill-pricing-stamp?token=...
@@ -25,8 +26,7 @@ export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected || token !== expected) {
+  if (!(await isAdminApiRequest(req, { token: token }))) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

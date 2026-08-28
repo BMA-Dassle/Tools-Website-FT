@@ -12,12 +12,15 @@
  *
  * TWO RULES IT ENFORCES:
  *
- *   THE LINK IS REAL OR IT IS ABSENT. `adminBoardUrl` builds the tokenised URL
- *   from env and returns null when the token isn't configured. A null CTA is
- *   omitted, never rendered as a placeholder — an un-clickable link that looks
- *   clickable is worse than no link, and the token is what makes the page open.
- *   The token is a bearer credential, so this is internal mail only; never put
- *   an `adminBoardUrl` in anything a guest receives.
+ *   THE LINK IS REAL OR IT IS ABSENT. `adminBoardUrl` builds a working URL, and
+ *   a null CTA is omitted rather than rendered as a placeholder — an
+ *   un-clickable link that looks clickable is worse than no link. As of the SSO
+ *   lockdown (2026-08-28) the link carries NO credential: it points at the
+ *   staff shell (`admin.fasttraxent.com/deals`), where the reader's own
+ *   Microsoft sign-in is the credential. Before that it embedded
+ *   ADMIN_CAMERA_TOKEN, which meant every alert ever sent was a copy of a
+ *   permanent bearer secret sitting in an inbox — forwardable, screenshottable,
+ *   and impossible to rotate without re-sending the archive.
  *
  *   IT READS ON A PHONE. Staff read these on a phone, so: one column that never
  *   needs a horizontal scroll, 16px body text (below that iOS Safari zooms),
@@ -35,23 +38,20 @@
  */
 
 import { PORTAL_BLUE, PORTAL_BLUE_SOFT, PORTAL_DARK } from "~/components/features/admin-skin/theme";
-
-/** Public origin — a preview deploy links to ITSELF, not to production. */
-function siteOrigin(): string {
-  return (process.env.NEXT_PUBLIC_SITE_URL || "https://headpinz.com").replace(/\/$/, "");
-}
+import { adminToolUrl } from "./admin-url";
 
 /**
- * Absolute, tokenised URL for an admin board — e.g. `adminBoardUrl("deals")` →
- * `https://headpinz.com/admin/{ADMIN_CAMERA_TOKEN}/deals`.
+ * Absolute, credential-free URL for an admin board — `adminBoardUrl("deals")` →
+ * `https://admin.fasttraxent.com/deals` (the SSO staff shell).
  *
- * Null when `ADMIN_CAMERA_TOKEN` is unset (local runs, a misconfigured preview),
- * so a caller can omit the button rather than mail out a link that 404s.
+ * Kept as a named alias of `adminToolUrl` rather than deleted: it is the verb
+ * this module's callers already speak, and the docs above hang off it. The
+ * `| null` in the return type stays so callers keep their "omit the button"
+ * branch — but it is now unreachable, because a link with no secret in it has
+ * nothing left to be missing.
  */
 export function adminBoardUrl(board: string): string | null {
-  const token = process.env.ADMIN_CAMERA_TOKEN;
-  if (!token) return null;
-  return `${siteOrigin()}/admin/${encodeURIComponent(token)}/${board.replace(/^\//, "")}`;
+  return adminToolUrl(board);
 }
 
 export function escapeHtml(s: string): string {
@@ -84,7 +84,8 @@ export interface AdminEmailArgs {
   footnote?: string | null;
 }
 
-const SANS = "'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+const SANS =
+  "'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 const MONO = "'Cascadia Mono',Consolas,ui-monospace,SFMono-Regular,Menlo,monospace";
 
 function rowHtml(row: AdminEmailRow): string {
@@ -189,4 +190,3 @@ export function renderAdminEmail(args: AdminEmailArgs): { html: string; text: st
 
   return { html, text };
 }
-

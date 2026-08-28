@@ -9,7 +9,7 @@ import { formatPaymentDetail } from "@/lib/portal-format";
  * Single event payment detail.
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ bmiCode: string }> }) {
-  const denied = verifyPortal(req);
+  const denied = await verifyPortal(req);
   if (denied) return denied;
 
   const { bmiCode } = await params;

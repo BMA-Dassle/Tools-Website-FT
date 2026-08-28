@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  * view's Payments tab.
  */
 export async function GET(req: NextRequest) {
-  const denied = verifyPortal(req);
+  const denied = await verifyPortal(req);
   if (denied) return denied;
 
   const sp = req.nextUrl.searchParams;

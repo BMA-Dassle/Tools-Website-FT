@@ -8,10 +8,8 @@ import {
   NATIVE_GRANT_DENOMINATIONS,
 } from "~/features/game-cards/service/native-voucher";
 import { getVoucher, listVoucherBatch } from "~/features/game-cards/data/vouchers-db";
-import {
-  emailMintBatch,
-  sendVoucherToGuest,
-} from "~/features/game-cards/service/voucher-mail";
+import { emailMintBatch, sendVoucherToGuest } from "~/features/game-cards/service/voucher-mail";
+import { isAdminCredential } from "@/lib/admin-request-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,8 +33,6 @@ export const dynamic = "force-dynamic";
  * Zone items only for now — attraction/race items are mintable in the service
  * but have no redemption rail, so this surface won't offer them yet.
  */
-
-const ADMIN_TOKEN = process.env.ADMIN_CAMERA_TOKEN || "";
 
 function unauthorized() {
   return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
@@ -88,14 +84,17 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: "bad_request" }, { status: 400 });
   }
-  if (!ADMIN_TOKEN || parsed.data.token !== ADMIN_TOKEN) return unauthorized();
+  if (!(await isAdminCredential(parsed.data.token))) return unauthorized();
 
   try {
     if (parsed.data.action === "mint") {
       const { count, bonusTokens, batchLabel, expiresAt, createdBy } = parsed.data;
       if (!(NATIVE_GRANT_DENOMINATIONS as readonly number[]).includes(bonusTokens)) {
         return NextResponse.json(
-          { ok: false, error: `bonusTokens must be one of ${NATIVE_GRANT_DENOMINATIONS.join(", ")}` },
+          {
+            ok: false,
+            error: `bonusTokens must be one of ${NATIVE_GRANT_DENOMINATIONS.join(", ")}`,
+          },
           { status: 400 },
         );
       }
@@ -152,7 +151,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  if (!ADMIN_TOKEN || url.searchParams.get("token") !== ADMIN_TOKEN) return unauthorized();
+  if (!(await isAdminCredential(url.searchParams.get("token")))) return unauthorized();
 
   const code = url.searchParams.get("code");
   if (code) {

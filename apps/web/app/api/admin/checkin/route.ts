@@ -51,6 +51,7 @@ import {
   type ScanKind,
   type ScanOutcome,
 } from "~/features/checkin/scan-history";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
@@ -94,10 +95,14 @@ function formatHeatLabel(
   return time ? `${parts} at ${time}`.trim() : parts;
 }
 
-function auth(req: NextRequest): boolean {
-  const token = req.nextUrl.searchParams.get("token") ?? req.headers.get("x-admin-token") ?? "";
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  return !!expected && token === expected;
+/**
+ * Defense in depth behind the middleware gate — see lib/admin-request-auth.
+ * Accepts the static ADMIN_CAMERA_TOKEN (crons, scripts), a signed
+ * short-lived token (what staff browsers now hold), or the SSO shell's
+ * proxy key. Async because signature checks are Web Crypto.
+ */
+async function auth(req: NextRequest): Promise<boolean> {
+  return isAdminApiRequest(req);
 }
 
 async function lookupGuest(
@@ -812,7 +817,7 @@ export async function POST(req: NextRequest) {
 }
 
 async function runCheckinScan(req: NextRequest): Promise<NextResponse> {
-  if (!auth(req)) {
+  if (!(await auth(req))) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -1903,7 +1908,7 @@ async function getSessionStats(): Promise<SessionStat[]> {
 // --------------- GET: Self-test suite ---------------
 
 export async function GET(req: NextRequest) {
-  if (!auth(req)) {
+  if (!(await auth(req))) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

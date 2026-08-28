@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import https from "https";
 import { getBowlingReservationByBillId } from "@/lib/bowling-db";
 import { officeReadSessionId } from "@/lib/bmi-office-ids";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /**
  * GET /api/admin/booking/inspect?token=...&billId=63000000003750208
@@ -52,10 +53,14 @@ const STATE_NAMES: Record<string, string> = {
   "8489113": "Confirmation - Kiosk (Naples)",
 };
 
-function auth(req: NextRequest): boolean {
-  const token = req.nextUrl.searchParams.get("token") ?? "";
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  return !!expected && token === expected;
+/**
+ * Defense in depth behind the middleware gate — see lib/admin-request-auth.
+ * Accepts the static ADMIN_CAMERA_TOKEN (crons, scripts), a signed
+ * short-lived token (what staff browsers now hold), or the SSO shell's
+ * proxy key. Async because signature checks are Web Crypto.
+ */
+async function auth(req: NextRequest): Promise<boolean> {
+  return isAdminApiRequest(req);
 }
 
 // ── Square ────────────────────────────────────────────────────────────────
@@ -193,7 +198,7 @@ function clientKeyFor(centerCode: string | undefined): string {
 }
 
 export async function GET(req: NextRequest) {
-  if (!auth(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await auth(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const billId = req.nextUrl.searchParams.get("billId") ?? "";
   if (!billId) return NextResponse.json({ error: "billId required" }, { status: 400 });

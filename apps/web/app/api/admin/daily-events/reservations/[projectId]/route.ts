@@ -20,7 +20,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
-  const denied = verifyPortal(req);
+  const denied = await verifyPortal(req);
   if (denied) return denied;
 
   const { projectId } = await params;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGfQuoteByShortId } from "@/lib/group-function-db";
 import { notifyDepositPaid, notifyContractSent } from "@/lib/group-function-notify";
+import { isAdminCredential } from "@/lib/admin-request-auth";
 
 /**
  * POST /api/admin/group-functions/resend-notify
@@ -8,8 +9,6 @@ import { notifyDepositPaid, notifyContractSent } from "@/lib/group-function-noti
  * Resend a notification email for a group function quote.
  * Body: { shortId, type: "deposit_paid" | "contract_sent", token }
  */
-
-const ADMIN_TOKEN = process.env.ADMIN_CAMERA_TOKEN || "";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -19,7 +18,7 @@ export async function POST(req: NextRequest) {
     token: string;
   };
 
-  if (!ADMIN_TOKEN || token !== ADMIN_TOKEN) {
+  if (!(await isAdminCredential(token))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
