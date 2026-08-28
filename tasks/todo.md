@@ -59,19 +59,51 @@ Deploy order:
 4. Turn Vercel Authentication **off** on the admin project.
 5. Tell staff to use the clean URLs.
 
-**PR 1 smoke — NOT YET RUN (2026-08-28).** `proxy.test.ts` mocks `./auth` wholesale, so
-nothing in this branch exercises the real Auth.js v5 wrapper under Next 16 `proxy.ts`: the
-`req.auth` shape, the cookie flags and the sign-in round trip are all unverified claims
-until someone drives them. Before merge, run the shell on its `.vercel.app` preview
-against the gateway and record:
+**PR 1 smoke — RUN LOCALLY 2026-08-28, 22 of 23 checks pass.** Four servers on this
+machine: mock Entra `:3200` · gateway `:3100` · `fasttrax-web` `:3111` · the shell `:3001`
+with `ADMIN_UPSTREAM_ORIGIN=http://localhost:3111`. It found one real bug (below) before it
+could get past the front door, and one unresolved leak (audit item #8). Still worth
+repeating on the `.vercel.app` preview for the two things localhost cannot show: `Secure`
+cookies and Vercel's own proxy.
 
-- [ ] unauthenticated `/pit` → Microsoft sign-in → returns to `/pit` (not to `/`)
-- [ ] `/api/admin/videos/list` with no session → `401 {"error":"sso_expired"}`, no redirect
-- [ ] a session with no `fasttrax-admin.access` role → `/sso/error?code=SSO_E_NO_ROLE`;
-      the same session on `/api/*` → `403 {"error":"sso_no_role"}`, no redirect
-- [ ] session cookie attributes: `HttpOnly`, `Secure`, `SameSite=Lax`
-- [ ] a board page loads and mutates, and its XHRs carry the **minted** token — the static
-      `ADMIN_CAMERA_TOKEN` appears nowhere in the network log
+**The bug it found: the shell answered every request with "The Proxy file "/proxy" must
+export a function named `proxy` or a default function."** — the entire front door,
+`/sso/error` and `/api/auth/*` included. `auth.ts` passes a config FACTORY to `NextAuth`
+(deliberately, so the config reads the runtime env), and for a function config next-auth's
+`initAuth` returns an `async` wrapper — so `auth(handler)` is a Promise, and Next's proxy
+loader hard-fails on `typeof mod.default !== "function"`. Fixed by awaiting it inside a real
+`proxy` function; pinned by `apps/admin/proxy.contract.test.ts`, which checks the export
+shape against the UNMOCKED module. `proxy.test.ts` could never have caught it — it mocks
+`./auth` to the identity function, which is exactly the blind spot this checklist called out.
+
+- [x] unauthenticated `/pit` → sign-in → returns to `/pit` (not to `/`). Chain:
+      `/pit` → `307 /api/auth/signin?callbackUrl=%2Fpit` → *(Auth.js provider chooser — one
+      provider, still one click; marketing skips this with its own `/sso/signin`)* →
+      `:3100/oidc/auth` → `/interaction/<uid>` → `:3200/authorize` → `/api/interaction/callback`
+      → `/finish` → `/api/auth/callback/headpinz` → `/pit` (200, board rendered)
+- [x] `/api/admin/videos/list` with no session → `401 {"error":"sso_expired"}`, no redirect
+- [x] a user with no `fasttrax-admin.access` → stopped at the **gateway's** `/no-access`
+      (`client=fasttrax-admin`, `role=fasttrax-admin.access`, `rid=…`) — no code is issued,
+      so the shell never sees a session and `/api/*` for that user is `401`, not `403`.
+      **The shell's own `/sso/error?code=SSO_E_NO_ROLE` branch is unreachable through a real
+      gateway by design** (the gateway's `fasttrax-admin.access` and the shell's `access` are
+      the same role): it is defence in depth, covered by `proxy.test.ts`, not a live path.
+      The original wording of this line expected the shell to answer — it does not, and
+      should not.
+- [x] session cookie: `HttpOnly` ✓, `SameSite=Lax` ✓. `Secure` is correctly **false** over
+      `http://localhost` — re-check on the preview, which is the only place it can be true.
+- [x] `/reservations` and `/daily-events-v2` render; `/admin/<token>/pit` → `307 /pit`;
+      `/contract/anything` forwards upstream; `/nonexistent` → `404`, not a redirect
+- [x] `/sso/diag`: `401` without the bearer, `200` with it, and no secret value in the body
+- [~] **the static token appears nowhere in the network log** — true of requests, false of
+      the HTML. Zero occurrences across 79 requests on `/pit` and ~50 on each of six more
+      boards; each board's HTML carries a fresh minted `<expMs>.<hex>` instead. But the
+      static token IS in every board's HTML, twice, via Next's RSC route-segment payload for
+      the upstream `/admin/[token]/…` path. No application code is involved. See
+      [tasks/admin-sso-lockdown.md](admin-sso-lockdown.md) **unresolved #8**.
+- [ ] **a board MUTATES** — not covered. None of the seven boards issues an `/api/admin/*`
+      XHR on load (they are server-rendered and hold the minted token for later), so the
+      minted-token request path is still unexercised. Needs a click on the preview.
 
 Troubleshooting, in order: `curl -H "Authorization: Bearer $DIAG_SECRET" https://admin.fasttraxent.com/sso/diag`
 — it reports discovery/JWKS reachability **with timings**, the caller's session and roles, env

@@ -260,6 +260,43 @@ sending one header. Any future identity header must join `IDENTITY_HEADERS` in
 was the acute problem; the mail body itself is still sensitive and unencrypted.
 *No fix proposed — noted so it is a decision rather than an oversight.*
 
+**8. The static token still reaches the browser — in Next's RSC payload, not in
+any component prop.** Found by driving the shell against a local gateway
+(2026-08-28, three-server smoke). `ADMIN_CAMERA_TOKEN` appears **twice in the
+HTML of every proxied board** — `/pit`, `/reservations`, `/daily-events-v2`,
+`/checkin`, `/camera-assign`, `/discount-codes`, `/signage`, `/videos` were all
+checked and all leak it:
+
+```
+"c":["","admin","<ADMIN_CAMERA_TOKEN>","pit"]        // canonical segment list
+["token","<ADMIN_CAMERA_TOKEN>","d",null]            // router state tree
+```
+
+Both come from Next serialising the resolved dynamic segment of the upstream
+route `/admin/[token]/pit`. **No application code is involved**, so section 1's
+fix is not incomplete and `check-admin-token-leak.mjs` is not broken — it looks
+for `ADMIN_CAMERA_TOKEN` *references* in client modules, and there are none.
+The same smoke confirms the rest of section 1 holds: across 79 browser requests
+on `/pit` and ~50 per board on six more, the static token appears in **zero**
+URLs, headers or bodies, and each board's HTML carries a freshly minted
+`<expMs>.<hex>` credential instead.
+
+Consequence: anyone who can open a board through the SSO shell can read the
+static token out of `view-source` and, until PR 2, use it directly at
+`fasttraxent.com/admin/{token}/…` from outside the shell. That is a narrower
+audience than before PR 1 (SSO holders, not everyone who was ever mailed a
+link) but it is not zero, and it means **PR 1 alone does not achieve "no human
+path to an admin page without SSO"** — the rotation in PR 2 is what closes it.
+
+*Proposed fix: none needed in PR 1; PR 2 already closes it twice over — step 2
+makes a path-only token 404 for pages, and the rotation invalidates every token
+scraped before the cutover. The thing to change is the CLAIM: "the static token
+never reaches a browser again" is true of application code and false of the
+page HTML until the shell stops proxying to a tokened path. If it should be
+true literally, the upstream page route has to stop carrying the token as a
+route segment (e.g. `/admin/board/[slug]` gated on the proxy key alone), which
+is a bigger change than PR 2 and should not be bolted onto it.*
+
 ---
 
 ## PR 2 checklist (for when the go is given)
