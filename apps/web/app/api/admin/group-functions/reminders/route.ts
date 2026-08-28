@@ -6,6 +6,7 @@ import {
   recordEventNotification,
 } from "@/lib/group-function-db";
 import { RULES, eventWaiverLinkUrl, type RuleContext } from "@/lib/group-event-rules";
+import { isAdminCredential } from "@/lib/admin-request-auth";
 
 /**
  * Admin reminder visibility + manual fire.
@@ -20,8 +21,6 @@ import { RULES, eventWaiverLinkUrl, type RuleContext } from "@/lib/group-event-r
  *        still fire normally).
  */
 
-const ADMIN_TOKEN = process.env.ADMIN_CAMERA_TOKEN || "";
-
 // Audit-log events emitted by the reminder engine / win-back flow.
 const REMINDER_EVENTS = new Set([
   ...RULES.map((r) => r.dedupKey ?? r.key),
@@ -31,7 +30,7 @@ const REMINDER_EVENTS = new Set([
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") || "";
-  if (!ADMIN_TOKEN || token !== ADMIN_TOKEN) {
+  if (!(await isAdminCredential(token))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const shortId = req.nextUrl.searchParams.get("shortId") || "";
@@ -73,7 +72,7 @@ export async function POST(req: NextRequest) {
     ruleKey?: string;
   };
 
-  if (!ADMIN_TOKEN || token !== ADMIN_TOKEN) {
+  if (!(await isAdminCredential(token))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (!shortId || !ruleKey) {

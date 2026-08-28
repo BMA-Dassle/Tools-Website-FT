@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateBowlingCheckinMethod } from "@/lib/bowling-db";
 import { recordAdminAction } from "~/features/reservations-admin/audit";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /**
  * POST /api/admin/bowling/reservations/checkin?token=...
@@ -11,8 +12,7 @@ import { recordAdminAction } from "~/features/reservations-admin/audit";
  */
 export async function POST(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected || token !== expected) {
+  if (!(await isAdminApiRequest(req, { token: token }))) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

@@ -6,6 +6,7 @@ import { recordAdminAction } from "~/features/reservations-admin/audit";
 import { centerLabel } from "~/features/reservations-admin/format";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { sendBowlingTimeChangedAlert } from "~/features/vip-move-alerts/time-change.server";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /** Combo time shifts are same-day nudges: at most this far from the booked slot. */
 const COMBO_SHIFT_WINDOW_MS = 60 * 60_000;
@@ -49,8 +50,7 @@ const CENTER_CODE_TO_QAMF: Record<string, number> = {
 export async function POST(req: NextRequest) {
   // ── Auth ───────────────────────────────────────────────────────────
   const token = req.nextUrl.searchParams.get("token") ?? "";
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected || token !== expected) {
+  if (!(await isAdminApiRequest(req, { token: token }))) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

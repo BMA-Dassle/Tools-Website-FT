@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getReservation } from "@/lib/qamf-bowling";
 import { getBowlingReservation } from "@/lib/bowling-db";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 // center_code carries two namespaces (see the board route's BRIDGE note):
 // bowling rows usually store the Square location ID, but combo bowling legs
@@ -21,8 +22,7 @@ const CENTER_CODE_TO_QAMF: Record<string, number> = {
  */
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected || token !== expected) {
+  if (!(await isAdminApiRequest(req, { token: token }))) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

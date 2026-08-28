@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { detailQuerySchema } from "~/features/reservations-admin/schemas";
 import { getReservationDetail } from "~/features/reservations-admin/service";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /**
  * GET /api/admin/reservations/detail?token=…&id=<neonId>
@@ -15,8 +16,7 @@ import { getReservationDetail } from "~/features/reservations-admin/service";
  */
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected || token !== expected) {
+  if (!(await isAdminApiRequest(req, { token: token }))) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

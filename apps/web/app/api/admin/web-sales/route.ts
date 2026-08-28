@@ -16,6 +16,7 @@ import {
   summarizeWebSales,
   toCsv,
 } from "~/features/web-sales";
+import { isAdminCredential } from "@/lib/admin-request-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,16 +52,21 @@ export const maxDuration = 120;
  * enable it (checked, not assumed).
  */
 
-function authed(token: string | null | undefined): boolean {
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  return !!expected && token === expected;
+/**
+ * Defense in depth behind the middleware gate — see lib/admin-request-auth.
+ * Accepts the static ADMIN_CAMERA_TOKEN (crons, scripts), a signed
+ * short-lived token (what staff browsers now hold), or the SSO shell's
+ * proxy key. Async because signature checks are Web Crypto.
+ */
+async function authed(token: string | null | undefined): Promise<boolean> {
+  return isAdminCredential(token);
 }
 
 /** Hard cap on an export. Large enough for a year of sales, small enough not to OOM. */
 const CSV_MAX_ROWS = 5000;
 
 export async function GET(req: NextRequest) {
-  if (!authed(req.nextUrl.searchParams.get("token"))) {
+  if (!(await authed(req.nextUrl.searchParams.get("token")))) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
@@ -101,13 +107,23 @@ export async function GET(req: NextRequest) {
   }
   if (daysBetweenYmd(from, to) > MAX_RANGE_DAYS) {
     return NextResponse.json(
-      { ok: false, error: "range_too_wide", detail: `Pick a range of ${MAX_RANGE_DAYS} days or fewer.` },
+      {
+        ok: false,
+        error: "range_too_wide",
+        detail: `Pick a range of ${MAX_RANGE_DAYS} days or fewer.`,
+      },
       { status: 400 },
     );
   }
 
   const adapters = adaptersFor(parsed.data.source);
-  const query = { from, to, q: parsed.data.q, status: parsed.data.status, venue: parsed.data.venue };
+  const query = {
+    from,
+    to,
+    q: parsed.data.q,
+    status: parsed.data.status,
+    venue: parsed.data.venue,
+  };
 
   // The export runs the SAME query path as the screen — only the cursor and the
   // page size differ — so a CSV can never disagree with the table above it.
@@ -176,7 +192,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   // Token on the QUERY STRING as well as the body: the middleware gate runs
   // before this handler and cannot read a body, so a body-only token 404s.
-  if (!authed(req.nextUrl.searchParams.get("token"))) {
+  if (!(await authed(req.nextUrl.searchParams.get("token")))) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
@@ -188,7 +204,7 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  if (!authed(parsed.data.token)) {
+  if (!(await authed(parsed.data.token))) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
@@ -280,6 +296,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "plan_stale" }, { status: 409 });
     }
     console.error("[web-sales] action failed:", err);
-    return NextResponse.json({ ok: false, error: "action_failed", detail: message }, { status: 502 });
+    return NextResponse.json(
+      { ok: false, error: "action_failed", detail: message },
+      { status: 502 },
+    );
   }
 }

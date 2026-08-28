@@ -7,6 +7,7 @@ import {
   resolveFixedCamera,
 } from "~/features/signage/nx/camera.server";
 import { parseLiveResolution } from "~/features/signage/nx/camera-preview";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /**
  * ONE live-stream URL for a briefing-room or holding-area camera, for the
@@ -39,15 +40,18 @@ export const dynamic = "force-dynamic";
  * default standing, so an older caller behaves exactly as it did.
  */
 
-function authed(req: NextRequest): boolean {
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected) return false;
-  const token = req.nextUrl.searchParams.get("token") || req.headers.get("x-admin-token") || "";
-  return token === expected;
+/**
+ * Defense in depth behind the middleware gate — see lib/admin-request-auth.
+ * Accepts the static ADMIN_CAMERA_TOKEN (crons, scripts), a signed
+ * short-lived token (what staff browsers now hold), or the SSO shell's
+ * proxy key. Async because signature checks are Web Crypto.
+ */
+async function authed(req: NextRequest): Promise<boolean> {
+  return isAdminApiRequest(req);
 }
 
 export async function GET(req: NextRequest) {
-  if (!authed(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await authed(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (!signageEnabled() || !cameraMonitorEnabled()) {
     return NextResponse.json({ error: "camera monitor is switched off" }, { status: 404 });
   }

@@ -21,6 +21,7 @@ import {
 } from "~/features/reservations-admin/race-live-state.server";
 import { getReservation } from "@/lib/qamf-bowling";
 import { FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /** QAMF numeric center ids (mirrors bowling-lane-poll) — both center_code
  *  namespaces (combo bowling legs store the slug, not the Square ID). */
@@ -54,8 +55,7 @@ const QAMF_CENTER_ID: Record<string, number> = {
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const token = searchParams.get("token") ?? "";
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected || token !== expected) {
+  if (!(await isAdminApiRequest(req, { token: token }))) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

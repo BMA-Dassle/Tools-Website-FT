@@ -4,6 +4,7 @@ import {
   type KioskWaiverJoinRow,
 } from "~/features/kiosk/data/kiosk-waiver-joins-db";
 import { reattachJoinRows } from "~/features/kiosk/waiver/attach-backfill";
+import { isAdminCredential } from "@/lib/admin-request-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -38,13 +39,12 @@ export const maxDuration = 60;
  * for stale-'attached' archaeology, which the cron never touches.
  */
 
-const ADMIN_TOKEN = process.env.ADMIN_CAMERA_TOKEN || "";
 const DEFAULT_ATTACHED_BEFORE = "2026-07-30T00:00:00Z";
 const MAX_LIMIT = 100;
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
-  if (!ADMIN_TOKEN || sp.get("token") !== ADMIN_TOKEN) {
+  if (!(await isAdminCredential(sp.get("token")))) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
   const dryRun = sp.get("dryRun") !== "0"; // mutating is the explicit opt-in

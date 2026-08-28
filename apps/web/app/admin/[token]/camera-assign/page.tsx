@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import CameraAssignClient from "./CameraAssignClient";
 import { adminPoppins } from "~/components/features/admin-skin/font";
+import { mintAdminApiToken } from "@/lib/admin-api-token";
 
 /**
  * Camera-assignment front-desk tool.
@@ -22,6 +23,13 @@ export default async function Page({ params }: Props) {
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!expected || token !== expected) notFound();
 
+  // The client sends this back as x-admin-token / ?token= for its
+  // /api/admin/* calls, exactly where it always sent one — but it is now a
+  // signed 8-hour credential, not the permanent ADMIN_CAMERA_TOKEN. The
+  // static token never reaches a browser again.
+  // (Pinned by scripts/check-admin-token-leak.mjs.)
+  const apiToken = await mintAdminApiToken();
+
   // Build/deploy version. Vercel auto-populates VERCEL_GIT_COMMIT_SHA
   // on every deployment; we shorten to 7 chars (the conventional Git
   // short SHA) for a compact display string. Falls back to "dev" when
@@ -31,7 +39,7 @@ export default async function Page({ params }: Props) {
 
   return (
     <div className={adminPoppins.variable}>
-      <CameraAssignClient token={token} version={version} />
+      <CameraAssignClient token={apiToken} version={version} />
     </div>
   );
 }

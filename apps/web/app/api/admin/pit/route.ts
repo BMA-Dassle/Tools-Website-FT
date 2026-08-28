@@ -15,6 +15,7 @@ import type { ClipLengths, PitCueStamps, PostRaceGate } from "~/features/signage
 import type { QsysLiveState } from "~/features/signage/pit/qsys.server";
 import type { PitLanes } from "~/features/signage/pit/pit-board";
 import type { TrackKey } from "~/features/signage/track";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /**
  * The pit control station's API (/admin/{token}/pit).
@@ -33,11 +34,14 @@ import type { TrackKey } from "~/features/signage/track";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function authed(req: NextRequest): boolean {
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected) return false;
-  const token = req.nextUrl.searchParams.get("token") || req.headers.get("x-admin-token") || "";
-  return token === expected;
+/**
+ * Defense in depth behind the middleware gate — see lib/admin-request-auth.
+ * Accepts the static ADMIN_CAMERA_TOKEN (crons, scripts), a signed
+ * short-lived token (what staff browsers now hold), or the SSO shell's
+ * proxy key. Async because signature checks are Web Crypto.
+ */
+async function authed(req: NextRequest): Promise<boolean> {
+  return isAdminApiRequest(req);
 }
 
 const PIT_TRACKS: TrackKey[] = ["blue", "red", "mega"];
@@ -71,7 +75,7 @@ export interface PitBoardResponse {
 }
 
 export async function GET(req: NextRequest) {
-  if (!authed(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await authed(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const lanes = await readPitLanes();
   // Second driver for the stay-seated loop, beside the pulse — a night the
@@ -134,7 +138,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!authed(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await authed(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   let body: { action?: string; track?: string };
   try {

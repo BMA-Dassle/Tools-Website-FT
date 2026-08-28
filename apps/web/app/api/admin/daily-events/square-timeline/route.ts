@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * no website quote. Lazy-loaded by the detail view's Payments tab.
  */
 export async function GET(req: NextRequest) {
-  const denied = verifyPortal(req);
+  const denied = await verifyPortal(req);
   if (denied) return denied;
 
   const projectId = req.nextUrl.searchParams.get("projectId");
