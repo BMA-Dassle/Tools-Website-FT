@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
+import type { NextAuthRequest } from "next-auth";
 import { auth, hasAccess } from "./auth";
 import { resolveAdminProxyPath } from "./src/routes";
 
@@ -63,7 +64,12 @@ import { resolveAdminProxyPath } from "./src/routes";
  */
 const IDENTITY_HEADERS = ["x-sso-email", "x-sso-name"] as const;
 
-export default auth((request) => {
+/**
+ * The routing decision for one request, with the session already attached by
+ * `auth()`. Exported so the tests can drive it directly; wired up as the
+ * proxy's default export below.
+ */
+export function handleAdminRouting(request: NextAuthRequest): NextResponse {
   const upstream = process.env.ADMIN_UPSTREAM_ORIGIN || "https://headpinz.com";
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   const proxyKey = process.env.ADMIN_PROXY_KEY || "";
@@ -147,7 +153,37 @@ export default auth((request) => {
   }
 
   return notFound();
-});
+}
+
+/** What Next calls: `(request, event) => Response`. */
+type ProxyHandler = (req: NextRequest, ev: NextFetchEvent) => Promise<Response>;
+
+/**
+ * `export default auth(handleAdminRouting)` is what the Auth.js docs show, and
+ * it does not work here. Next's proxy loader takes `mod.proxy ?? mod.default`
+ * and hard-fails on `typeof handlerUserland !== "function"`
+ * (next/dist/build/templates/middleware.js), so the shell answered
+ *
+ *   The Proxy file "/proxy" must export a function named `proxy` or a default
+ *   function.
+ *
+ * to EVERY request — including /sso/error and /api/auth/*, i.e. the entire
+ * front door. The cause is the deliberate factory in auth.ts: for a FUNCTION
+ * config, next-auth's `initAuth` returns an `async` wrapper, so
+ * `auth(handleAdminRouting)` is a `Promise` of the handler rather than the
+ * handler. (auth.ts must keep the factory — it is what makes the config read
+ * the RUNTIME environment; see the comment there.)
+ *
+ * Awaiting it inside a real function is the whole fix, and the `await`
+ * degrades to a no-op if next-auth ever returns the handler synchronously
+ * again. proxy.test.ts cannot catch this — it mocks `auth` to the identity
+ * function so it can drive the routing with hand-built sessions — so the
+ * export shape is pinned in proxy.contract.test.ts against the real module.
+ */
+export default async function proxy(req: NextRequest, ev: NextFetchEvent): Promise<Response> {
+  const handler = (await auth(handleAdminRouting)) as unknown as ProxyHandler;
+  return handler(req, ev);
+}
 
 /** Same opaque fail-closed body as the main deployment's admin gate. */
 function notFound(): NextResponse {

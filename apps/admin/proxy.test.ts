@@ -27,8 +27,16 @@ const NO_ROLE = { user: { email: "temp@headpinz.com", name: "Temp" }, roles: [] 
 
 type Handler = (req: NextRequest & { auth: unknown }) => Response;
 
+/**
+ * The routing handler, not the default export. `auth()` is mocked to the
+ * identity function above, so with a non-lazy config the two would be the same
+ * object — but auth.ts uses a config FACTORY, for which next-auth returns an
+ * async wrapper, so the default export has to await it (see proxy.ts). Driving
+ * the named export keeps every case below synchronous; the shape of the default
+ * export is pinned separately in proxy.contract.test.ts.
+ */
 async function proxy(): Promise<Handler> {
-  return (await import("./proxy")).default as unknown as Handler;
+  return (await import("./proxy")).handleAdminRouting as unknown as Handler;
 }
 
 function req(
