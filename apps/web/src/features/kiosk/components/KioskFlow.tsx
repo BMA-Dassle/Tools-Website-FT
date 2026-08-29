@@ -683,6 +683,40 @@ export function KioskFlow({
     if (handoff) void Promise.resolve().then(() => setEntryScanHandoff(handoff));
   }, []);
 
+  /**
+   * Pick up a scan stashed by the router a moment ago — the mount effect above
+   * CANNOT (owner 2026-08-28: a card scanned on the chooser landed on the Game
+   * Zone menu instead of its balance). Coming from the attract screen this
+   * component mounts fresh and the effect reads the stash; scanning on the
+   * chooser or a shelf, it is already mounted, the effect has long since run
+   * and found nothing, and the payload sat in sessionStorage unread. So the
+   * destination callbacks consume it at the moment they open the screen.
+   * Harmless from the attract path: the mount effect already cleared the key,
+   * so this is a no-op there.
+   */
+  const takeHandoff = (target: EntryScanHandoff["target"]) => {
+    const h = consumeEntryScan(target);
+    if (h) setEntryScanHandoff(h);
+  };
+
+  // A hand-off belongs to the ONE visit to the screen it opened. Drop it once
+  // that screen closes, so re-opening by TAP starts on the chooser instead of
+  // replaying a card the guest already finished with. `sessionStorage` was
+  // cleared on read, so only this state needs it — and only AFTER a delivery:
+  // clearing whenever nothing is open would race the mount effect above, which
+  // loads the attract-screen payload a microtask before `?goto=` opens the
+  // screen it was addressed to. The ref is that "has been delivered" bit.
+  const handoffDeliveredRef = useRef(false);
+  useEffect(() => {
+    if (codeEntryOpen || gzOpen) {
+      handoffDeliveredRef.current = true;
+      return;
+    }
+    if (!handoffDeliveredRef.current) return;
+    handoffDeliveredRef.current = false;
+    void Promise.resolve().then(() => setEntryScanHandoff(null));
+  }, [codeEntryOpen, gzOpen]);
+
   // Scan-to-start on the chooser + the two shelves. Same router the attract
   // screen uses; only the navigation differs — from here the code screen and
   // Game Zone open IN PLACE, no route change. `codeEntryAvailable` mirrors the
@@ -692,12 +726,19 @@ export function KioskFlow({
     config,
     codeEntryAvailable: promoEnabled || voucherRedeem,
     goCheckin: () => router.push("/kiosk/checkin"),
+    // Take the hand-off BEFORE opening the screen. React batches both setStates
+    // into one render either way, but the order makes that irrelevant: the
+    // destination must never mount for even one render with the payload still
+    // missing, because it reads it in a `useState` initializer (which screen to
+    // open on) that never runs again.
     goCodeEntry: () => {
       clarityEvent("kiosk:code:open");
+      takeHandoff("code-entry");
       setCodeEntryOpen(true);
     },
     goGameCard: () => {
       clarityEvent("kiosk:gamezone:open");
+      takeHandoff("game-card");
       setGzVoucherCodes(null);
       setGzOpen(true);
     },
