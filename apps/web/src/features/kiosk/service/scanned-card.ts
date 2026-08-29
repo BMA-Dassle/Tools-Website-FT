@@ -21,11 +21,50 @@
  * "not for me" and leave the scan to whoever else is listening.
  */
 import { cardNumberFromScan } from "~/features/game-cards/scan";
+import { centerCodeFor } from "~/config/intercard-centers";
+import type { Brand, CenterCode } from "~/features/booking";
 
 /** Only these ever redirect to an account; anything else is not a card QR and
  *  must not cost a round-trip (the server enforces its own allowlist too). */
 const RESOLVABLE_HOST_RE =
   /^https?:\/\/(?:www\.)?(?:icardinc\.net|swflpassport\.com|headpinz\.com)\//i;
+
+/**
+ * Does Intercard know this account? Used where a screen must not move the guest
+ * on a card it cannot account for (the attract scan).
+ *
+ * Three answers, not two: "unsure" means the lookup itself failed or could not
+ * confirm — an Intercard outage must never turn a guest with a real card away,
+ * so callers route on "unsure" and let the destination own the failure copy.
+ * Only a CONFIRMED absence is a "no".
+ */
+export async function cardIsKnown(
+  accountNumber: string,
+  config: { center?: string; brand?: string } | null,
+): Promise<"yes" | "no" | "unsure"> {
+  try {
+    const res = await fetch("/api/game-cards/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        accountNumber,
+        ...(config?.center && config?.brand
+          ? { locationCode: centerCodeFor(config.center as CenterCode, config.brand as Brand) }
+          : {}),
+      }),
+      signal: AbortSignal.timeout(25_000),
+    });
+    const data = (await res.json().catch(() => null)) as {
+      exists?: boolean;
+      notFound?: "confirmed" | "ambiguous";
+    } | null;
+    if (!res.ok || !data) return "unsure";
+    if (data.exists === true) return "yes";
+    return data.notFound === "confirmed" ? "no" : "unsure";
+  } catch {
+    return "unsure";
+  }
+}
 
 export async function accountFromScan(raw: string): Promise<string | null> {
   const s = (raw || "").trim();

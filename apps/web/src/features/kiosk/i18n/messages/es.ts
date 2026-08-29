@@ -293,9 +293,12 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.placeholder": "Toca aquí para escribirlo",
   "codeEntry.scanHint.lead": "O escanéalo",
   "codeEntry.scanHint.body":
-    "Acerca el código al lector debajo de la pantalla — funcionan cupones impresos, códigos QR de correo y vales.",
-  "codeEntry.groupon.typeOnly": "¿Tienes un Groupon? Escribe el número — toca abajo.",
+    "Escanea un vale de HeadPinz o FastTrax, o un cupón impreso — acércalo bajo la pantalla.",
+  "codeEntry.groupon.typeOnly":
+    "¿Tienes un Groupon? No lo escanees — toca «Escribir el código» abajo.",
   "codeEntry.groupon.typeHere": "Los números de Groupon se escriben aquí.",
+  "codeEntry.gamecard.notHere":
+    "Esa es una tarjeta Game Zone — usa la pantalla de Game Zone para las tarjetas. Esta pantalla es para cupones y vales.",
   "codeEntry.apply": "Aplicar código",
   "codeEntry.back": "‹ Atrás",
   "codeEntry.checking": "Verificando tu código…",

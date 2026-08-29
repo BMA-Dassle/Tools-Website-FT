@@ -331,13 +331,20 @@ export const en = {
   "codeEntry.inputLabel": "Coupon or voucher code",
   "codeEntry.placeholder": "Tap here to type it",
   "codeEntry.scanHint.lead": "Or scan it",
+  // NAME the two paths (owner 2026-08-28). "Vouchers" alone left a guest with a
+  // Groupon waving it at a reader that will never recognise it. Brand nouns
+  // (HeadPinz, FastTrax, Groupon) stay English in both catalogs.
   "codeEntry.scanHint.body":
-    "Hold the code under the screen — paper coupons, e-mail QR codes and vouchers all work.",
-  // Groupon is TYPED on this kiosk (owner 2026-08-28): its short code is 7-8
-  // characters with nothing to separate it from a promo or a card number, so
-  // scanning no longer guesses. "Groupon" is a brand noun — English in both.
-  "codeEntry.groupon.typeOnly": "Groupon? Type the number instead — tap below.",
+    "Scan a HeadPinz or FastTrax voucher, or a printed coupon — hold it under the screen.",
+  // Groupon is TYPED on this kiosk: its short code is 7-8 characters with
+  // nothing to separate it from a promo or a card number, so scanning no
+  // longer guesses.
+  "codeEntry.groupon.typeOnly": "Groupon? Don’t scan it — tap “Type the code instead” below.",
   "codeEntry.groupon.typeHere": "Groupon numbers are typed here.",
+  // A Game Zone card scanned on the coupon screen: named, and refused where the
+  // guest stands. This screen is coupons and vouchers; cards belong to Game Zone.
+  "codeEntry.gamecard.notHere":
+    "That's a Game Zone card — use the Game Zone screen for cards. This screen is for coupons and vouchers.",
   "codeEntry.apply": "Apply code",
   "codeEntry.back": "‹ Back",
   "codeEntry.checking": "Checking your code…",

@@ -195,6 +195,8 @@ export const gamezoneEn = {
   "gamezone.balance.checkAnother": "Check another card",
   "gamezone.balance.reloadThis": "Reload this card",
   "gamezone.balance.notFoundInsert": "We couldn’t find that card — try inserting it again.",
+  "gamezone.balance.notRecognised":
+    "We don’t recognise card #{num}. Check the number, or see an attendant.",
   "gamezone.blockedFlip": "Couldn’t read — flip the card & tap to try again",
   "gamezone.balance.insertToCheck": "Insert your card to check it",
   "gamezone.balance.swipeToCheck": "Swipe your card to check it",
@@ -510,6 +512,8 @@ export const gamezoneEs: Record<keyof typeof gamezoneEn, string> = {
   "gamezone.balance.checkAnother": "Consultar otra tarjeta",
   "gamezone.balance.reloadThis": "Recargar esta tarjeta",
   "gamezone.balance.notFoundInsert": "No encontramos esa tarjeta — intenta insertarla de nuevo.",
+  "gamezone.balance.notRecognised":
+    "No reconocemos la tarjeta #{num}. Revisa el número o consulta a un encargado.",
   "gamezone.blockedFlip": "No se pudo leer — voltea la tarjeta y toca para intentar de nuevo",
   "gamezone.balance.insertToCheck": "Inserta tu tarjeta para consultarla",
   "gamezone.balance.swipeToCheck": "Desliza tu tarjeta para consultarla",

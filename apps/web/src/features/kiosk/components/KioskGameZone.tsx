@@ -863,33 +863,6 @@ export function KioskGameZone({
     await verifySwipedRow(target, acct);
   };
 
-  /** "Set up this card": a Reload / Check-balance swipe Intercard has never
-   *  seen is a blank — carry it into the new-card cart as a row and RE-VERIFY
-   *  it there under the cart's own rule (the balance lookup's verdict is not
-   *  trusted twice). An untouched default cart is replaced; a cart already
-   *  holding swiped cards gains a row — or, if it is already full, is simply
-   *  shown (never silently replacing its tenth card). */
-  const setUpSwipedCard = (acct: string) => {
-    setBalCard(null);
-    setBalTyped("");
-    setMode("newcard");
-    const keep = newCards.some((c) => c.account);
-    if (keep && newCards.length >= 10) {
-      setNewEditIdx(null);
-      return;
-    }
-    const fresh: NewCard = {
-      packageId: TOKEN_PACKAGES[1].id,
-      account: acct,
-      blankStatus: "checking",
-    };
-    const next = keep ? [...newCards, fresh] : [fresh];
-    const idx = next.length - 1;
-    setNewCards(next);
-    setNewEditIdx(idx);
-    void verifySwipedRow(idx, acct);
-  };
-
   /**
    * Send a card the balance/reload lookup could not find to the RELOAD cart,
    * pre-filled. The dispenser counterpart of "Set up this card": on a kiosk
@@ -3036,46 +3009,28 @@ export function KioskGameZone({
           </div>
         ) : (
           <>
-            {balCard?.status === "notfound" && msrActive ? (
-              // Intercard has never seen this card. On a swipe kiosk that IS a
-              // new card (a blank has no account until its first credit) — offer
-              // to set it up instead of dead-ending on "not found". The
-              // hand-off re-verifies in the new-card cart.
+            {balCard?.status === "notfound" ? (
+              // A card we cannot account for says exactly that and offers
+              // nothing (owner 2026-08-28). It used to offer "set it up as a
+              // new card" on an MSR kiosk — setting a card up is now reached
+              // deliberately from the New cards screen and nowhere else, so an
+              // unrecognised number can never turn into a sale. Reload stays
+              // one tap away below on a dispenser kiosk.
               <div className="mb-4 rounded-2xl border border-amber-400/50 bg-amber-400/10 px-5 py-4 text-left">
-                <div className="font-heading text-2xl font-extrabold italic text-amber-200">
-                  {t("gamezone.swipe.newCard.title")}
-                </div>
-                <p className="mt-1 text-base text-white/75">
-                  {t("gamezone.swipe.newCard.body", {
+                <div className="text-base text-white/85">
+                  {t("gamezone.balance.notRecognised", {
                     num: displayCardNumber(balCard.accountNumber),
                   })}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setUpSwipedCard(balCard.accountNumber)}
-                  className="k-tap mt-4 w-full rounded-xl bg-[#f800c6] px-5 py-4 text-lg font-extrabold text-white"
-                >
-                  {t("gamezone.swipe.newCard.setUp")}
-                </button>
-                <p className="mt-2 text-center text-sm text-white/45">
-                  {t("gamezone.swipe.newCard.orSwipeAgain")}
-                </p>
-              </div>
-            ) : balCard?.status === "notfound" ? (
-              // DISPENSER kiosk: a card we cannot find is still the guest's own
-              // card — new ones come from the stacker, so the useful move is
-              // reload (which re-reads it on insert), never "set it up".
-              <div className="mb-4 rounded-2xl border border-amber-400/50 bg-amber-400/10 px-5 py-4 text-left">
-                <div className="text-base text-white/80">
-                  {t("gamezone.balance.notFoundInsert")}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => reloadFoundCard(balCard.accountNumber)}
-                  className="k-tap mt-3 w-full rounded-xl bg-[#00e2e5] px-5 py-4 text-lg font-bold text-[#04252b]"
-                >
-                  {t("gamezone.balance.reloadThis")}
-                </button>
+                {readerReady && (
+                  <button
+                    type="button"
+                    onClick={() => reloadFoundCard(balCard.accountNumber)}
+                    className="k-tap mt-3 w-full rounded-xl bg-[#00e2e5] px-5 py-4 text-lg font-bold text-[#04252b]"
+                  >
+                    {t("gamezone.balance.reloadThis")}
+                  </button>
+                )}
               </div>
             ) : balCard?.status === "bad" ? (
               <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-red-100">
@@ -3797,30 +3752,15 @@ export function KioskGameZone({
                       {t("gamezone.balanceTokens", { n: c.balance?.tokens ?? 0 })}
                     </div>
                   )}
-                  {c.status === "notfound" && msrActive ? (
-                    // A swiped card Intercard has never seen is a BLANK — offer
-                    // the new-card flow instead of "not found" (re-verified there).
-                    <div className="mt-3 rounded-xl border border-amber-400/50 bg-amber-400/10 px-4 py-3">
-                      <div className="text-base font-bold text-amber-200">
-                        {t("gamezone.swipe.newCard.title")}
-                      </div>
-                      <div className="mt-0.5 text-sm text-white/75">
-                        {t("gamezone.swipe.newCard.body", {
-                          num: displayCardNumber(c.accountNumber),
-                        })}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setUpSwipedCard(c.accountNumber)}
-                        className="k-tap mt-3 w-full rounded-xl bg-[#f800c6] px-4 py-3 text-base font-extrabold text-white"
-                      >
-                        {t("gamezone.swipe.newCard.setUp")}
-                      </button>
-                      <div className="mt-2 text-center text-xs text-white/45">
-                        {t("gamezone.swipe.newCard.orSwipeAgain")}
-                      </div>
+                  {c.status === "notfound" ? (
+                    // Says what it is and stops. New cards are set up from the
+                    // New cards screen only (owner 2026-08-28).
+                    <div className="mt-2 text-sm text-amber-200">
+                      {t("gamezone.balance.notRecognised", {
+                        num: displayCardNumber(c.accountNumber),
+                      })}
                     </div>
-                  ) : c.status === "bad" || c.status === "notfound" ? (
+                  ) : c.status === "bad" ? (
                     <div className="mt-2 text-sm text-red-300">
                       {msrActive ? t("gamezone.swipe.unknown") : t("gamezone.notFoundNumber")}
                     </div>

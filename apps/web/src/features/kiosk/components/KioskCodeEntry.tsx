@@ -718,13 +718,14 @@ export function KioskCodeEntry({
         return;
       }
       if (kind === "game-card") {
-        // Receipt up → an existing game card is a pointer, not a result worth
-        // replacing the guest's card list for. Inline note instead.
-        if (panelRef.current?.kind === "voucher-gamecard") {
-          setInfo(t("codeEntry.gamecard.body"));
-          return;
-        }
-        setPanel({ kind: "game-card" });
+        // NOT a destination from this screen (owner 2026-08-28: "voucher page
+        // no cards"). It used to open a panel whose button walked the guest to
+        // Game Zone; this screen is for coupons and vouchers, so a card is
+        // named and refused where they stand — no panel, no navigation. The
+        // Game Zone screens (and the attract scan, for a card we know) are
+        // where a card belongs.
+        logReject("game-card", code, "not-on-this-screen");
+        setInfo(t("codeEntry.gamecard.notHere"));
         return;
       }
       if (kind === "gift-card") {
@@ -1723,31 +1724,33 @@ export function KioskCodeEntry({
       <div className="flex h-full flex-col items-center px-[64px] pb-[40px] pt-[96px] text-center">
         <div className="k-eyebrow">{t("codeEntry.eyebrow")}</div>
         <h1 className="k-display mt-[24px] text-[84px]">{t("codeEntry.scanTitle")}</h1>
-        <p className="mt-[20px] max-w-[24ch] text-[30px] leading-[1.4] text-white/70">
+        {/* THE INSTRUCTIONS ARE THE SCREEN (owner 2026-08-28: "make
+            instructions much bigger, can make scanner image smaller"). A guest
+            holding a Groupon and a guest holding a HeadPinz voucher do two
+            DIFFERENT things here, and the old copy said neither — it described
+            the scanner. Both paths are now named, at a size that reads from
+            arm's length, and the scan target shrinks to make room: it is an
+            affordance, not the content. */}
+        <p className="mt-[24px] max-w-[22ch] text-[42px] font-semibold leading-[1.25] text-white/90">
           {t("codeEntry.scanHint.body")}
         </p>
-        {/* Groupon is TYPED here (owner 2026-08-28). Its short code is 7-8
-            characters with nothing to tell it apart from a promo or a card, so
-            the kiosk no longer guesses on a scan — it asks. Said on the scan
-            screen, where a guest holding a Groupon is about to wave it at a
-            reader that will not recognise it. */}
-        <p className="mt-[14px] max-w-[26ch] text-[26px] leading-[1.35] text-[#ffb020]">
+        <p className="mt-[20px] max-w-[24ch] text-[34px] font-semibold leading-[1.3] text-[#ffb020]">
           {t("codeEntry.groupon.typeOnly")}
         </p>
         {noDispenserNotice}
 
-        {/* The scan target — dead center. The kiosk's scanner sits below the
-            screen; the pulsing frame is the "present it here" affordance. */}
+        {/* The scan target — the kiosk's scanner sits below the screen; the
+            pulsing frame is the "present it here" affordance. */}
         <div className="flex min-h-0 flex-1 items-center justify-center">
-          <div className="relative h-[460px] w-[460px]">
-            <span className="absolute left-0 top-0 h-[88px] w-[88px] rounded-tl-[28px] border-l-[10px] border-t-[10px] border-[#00e2e5]" />
-            <span className="absolute right-0 top-0 h-[88px] w-[88px] rounded-tr-[28px] border-r-[10px] border-t-[10px] border-[#00e2e5]" />
-            <span className="absolute bottom-0 left-0 h-[88px] w-[88px] rounded-bl-[28px] border-b-[10px] border-l-[10px] border-[#00e2e5]" />
-            <span className="absolute bottom-0 right-0 h-[88px] w-[88px] rounded-br-[28px] border-b-[10px] border-r-[10px] border-[#00e2e5]" />
-            <div className="absolute inset-[28px] flex items-center justify-center rounded-[20px] border border-dashed border-[rgba(0,226,229,0.3)]">
-              <ScanGlyph size={200} />
+          <div className="relative h-[300px] w-[300px]">
+            <span className="absolute left-0 top-0 h-[60px] w-[60px] rounded-tl-[22px] border-l-[8px] border-t-[8px] border-[#00e2e5]" />
+            <span className="absolute right-0 top-0 h-[60px] w-[60px] rounded-tr-[22px] border-r-[8px] border-t-[8px] border-[#00e2e5]" />
+            <span className="absolute bottom-0 left-0 h-[60px] w-[60px] rounded-bl-[22px] border-b-[8px] border-l-[8px] border-[#00e2e5]" />
+            <span className="absolute bottom-0 right-0 h-[60px] w-[60px] rounded-br-[22px] border-b-[8px] border-r-[8px] border-[#00e2e5]" />
+            <div className="absolute inset-[22px] flex items-center justify-center rounded-[16px] border border-dashed border-[rgba(0,226,229,0.3)]">
+              <ScanGlyph size={130} />
             </div>
-            <div className="absolute inset-x-[36px] top-1/2 h-[6px] rounded-full bg-[#00e2e5] shadow-[0_0_30px_rgba(0,226,229,0.9)] motion-safe:animate-pulse" />
+            <div className="absolute inset-x-[26px] top-1/2 h-[5px] rounded-full bg-[#00e2e5] shadow-[0_0_24px_rgba(0,226,229,0.9)] motion-safe:animate-pulse" />
           </div>
         </div>
 
