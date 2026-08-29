@@ -61,6 +61,7 @@ import {
   type FaultBehavior,
 } from "../card-reader";
 import { acquireBlankBySwipe, classifySwipedAccount } from "../service/swiped-card";
+import { accountFromScan } from "../service/scanned-card";
 import type { GameCardCartPurchase } from "~/features/booking/state/types";
 import { useKioskConfig } from "../KioskConfigContext";
 import { kioskDeviceKey } from "../config";
@@ -784,8 +785,22 @@ export function KioskGameZone({
   useEffect(() => {
     if (seededCardRef.current || !initialCardAccount) return;
     seededCardRef.current = true;
-    setBalTyped(initialCardAccount);
-    void fetchBalance(initialCardAccount);
+    // RESOLVE FIRST. The entry classifier cannot decode an Intercard shortlink
+    // (`icardinc.net/<code>` carries no number), so it hands the whole URL
+    // through as the "account". Feeding that to /verify fails its digits-only
+    // schema, and the guest was told "we couldn't check that card" for a
+    // perfectly good scan (owner 2026-08-28). accountFromScan returns a bare
+    // number untouched and follows the shortlink only when it has to.
+    setBalCard({ accountNumber: "", status: "checking" });
+    void (async () => {
+      const acct = await accountFromScan(initialCardAccount);
+      if (!acct) {
+        setBalCard({ accountNumber: initialCardAccount, status: "bad" });
+        return;
+      }
+      setBalTyped(acct);
+      await fetchBalance(acct);
+    })();
     // fetchBalance is redefined every render; the ref guard is the real gate.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialCardAccount]);
@@ -875,6 +890,24 @@ export function KioskGameZone({
     void verifySwipedRow(idx, acct);
   };
 
+  /**
+   * Send a card the balance/reload lookup could not find to the RELOAD cart,
+   * pre-filled. The dispenser counterpart of "Set up this card": on a kiosk
+   * whose new cards come out of the STACKER, offering to "set up" the card in
+   * the guest's hand is meaningless — a fresh blank is dispensed, not adopted.
+   * Reload is where that card belongs, and inserting it there re-reads it
+   * properly (owner 2026-08-28: "shouldn't happen on a card dispenser
+   * connected — should go to reload").
+   */
+  const reloadFoundCard = (acct: string) => {
+    setCards([{ accountNumber: acct, packageId: TOKEN_PACKAGES[1].id, status: "unverified" }]);
+    setReloadEditIdx(0);
+    setBalCard(null);
+    setBalTyped("");
+    setMode("reload");
+    void verify(0, acct);
+  };
+
   /** "Reload this card instead": the card swiped as NEW already carries value
    *  — hand it to the reload cart pre-filled and verify it there. */
   const reloadSwipedInstead = (i: number) => {
@@ -902,7 +935,13 @@ export function KioskGameZone({
   // StrictMode remount reuses it). `feed` runs FIRST so a run awaiting a
   // swipe is never starved by the reactive routing below.
   const [swipeWaiter] = useState(createSwipeWaiter);
-  const onMsrSwipe = (acct: string) => {
+  /**
+   * A card number has arrived — SWIPED on the MSR or SCANNED off the card's QR
+   * / barcode. Both are the same act ("here is my card"), so they land in the
+   * same place: an imperative run awaiting one (the voucher basket), the
+   * expanded reload row, the balance check, or the new-card cart.
+   */
+  const routeCardNumber = (acct: string) => {
     if (swipeWaiter.feed(acct)) return;
     if (phase !== "cart") return; // never mid-payment/loading
     setMsrBadSwipe(false);
@@ -916,6 +955,7 @@ export function KioskGameZone({
       void swipeNewCard(acct);
     }
   };
+  const onMsrSwipe = routeCardNumber;
   const msr = useSerialMsr({
     // Hold the port ONLY while a card can matter here. The pay screen's
     // gift-card capture (msrUse "both") needs the same reader, and one COM
@@ -1517,25 +1557,53 @@ export function KioskGameZone({
     }
   };
 
-  // Scanner inputs for voucher mode — the serial QR reader and the keyboard
-  // wedge both feed the same handler, exactly as on the coupon screen.
+  /**
+   * Scanner inputs. ONE reader instance for the whole screen, dispatched by
+   * mode — not one per surface: `useQrScanner` connects on first enable and
+   * only releases the COM port on unmount, so a second instance would find the
+   * port taken and silently never listen.
+   *
+   * Voucher mode feeds the basket. Every other card surface (balance, reload,
+   * new card) feeds `routeCardNumber` — the SAME place a swipe lands, because
+   * scanning the card and swiping it are the same act (owner 2026-08-28: "both
+   * the QR and the barcode on the card should work"). The card's 1D barcode is
+   * the bare account number and decodes locally; its QR is an Intercard
+   * shortlink that reveals nothing until followed, so `accountFromScan` hands
+   * that one to /api/game-cards/resolve-scan. A payload that resolves to no
+   * account is left alone — it was not a card.
+   */
   const voucherScanArmed = mode === "voucher" && voucherPhase === "entry";
+  const cardScanArmed =
+    phase === "cart" && (mode === "balance" || mode === "reload" || mode === "newcard");
+  const scanArmed = voucherScanArmed || cardScanArmed;
+  const onScanPayload = (payload: string) => {
+    if (mode === "voucher") {
+      if (voucherScanArmed) void addVoucherToBasket(payload);
+      return;
+    }
+    if (!cardScanArmed) return;
+    void (async () => {
+      const acct = await accountFromScan(payload);
+      if (acct) routeCardNumber(acct);
+    })();
+  };
   useQrScanner({
-    enabled: voucherScanArmed && !!config?.qrScannerEnabled,
+    enabled: scanArmed && !!config?.qrScannerEnabled,
     modelId: config?.qrScannerModel,
     baudRate: config?.qrScannerBaud ?? null,
     portInfo: config?.qrScannerPortInfo ?? null,
     allowLoneGrantFallback: false,
-    onScan: (scan) => void addVoucherToBasket(scan.payload),
+    // Held in a ref by the hook, so this inline closure always sees live state.
+    onScan: (scan) => onScanPayload(scan.payload),
   });
-  const voucherWedge = useWedgeScan((raw) => void addVoucherToBasket(raw));
-  const voucherWedgeArm = voucherWedge.arm;
+  const scanWedge = useWedgeScan(onScanPayload);
+  const scanWedgeArm = scanWedge.arm;
   useEffect(() => {
-    if (!voucherScanArmed || !config?.scannerEnabled) return;
-    voucherWedgeArm();
-    const id = setInterval(voucherWedgeArm, 8_000);
+    if (!scanArmed || !config?.scannerEnabled) return;
+    scanWedgeArm();
+    const id = setInterval(scanWedgeArm, 8_000);
     return () => clearInterval(id);
-  }, [voucherScanArmed, config?.scannerEnabled, voucherWedgeArm]);
+  }, [scanArmed, config?.scannerEnabled, scanWedgeArm]);
 
   // Codes handed over from the coupon screen join the basket on arrival — the
   // guest already scanned them once. When EVERY handed-over code validates,
@@ -2993,7 +3061,23 @@ export function KioskGameZone({
                   {t("gamezone.swipe.newCard.orSwipeAgain")}
                 </p>
               </div>
-            ) : balCard?.status === "bad" || balCard?.status === "notfound" ? (
+            ) : balCard?.status === "notfound" ? (
+              // DISPENSER kiosk: a card we cannot find is still the guest's own
+              // card — new ones come from the stacker, so the useful move is
+              // reload (which re-reads it on insert), never "set it up".
+              <div className="mb-4 rounded-2xl border border-amber-400/50 bg-amber-400/10 px-5 py-4 text-left">
+                <div className="text-base text-white/80">
+                  {t("gamezone.balance.notFoundInsert")}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => reloadFoundCard(balCard.accountNumber)}
+                  className="k-tap mt-3 w-full rounded-xl bg-[#00e2e5] px-5 py-4 text-lg font-bold text-[#04252b]"
+                >
+                  {t("gamezone.balance.reloadThis")}
+                </button>
+              </div>
+            ) : balCard?.status === "bad" ? (
               <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-red-100">
                 {msrActive ? t("gamezone.swipe.unknown") : t("gamezone.balance.notFoundInsert")}
               </div>

@@ -183,20 +183,19 @@ describe("classifyEntryScan", () => {
       });
     });
 
-    // A digit run that could ALSO be a Groupon must not be committed to Game
-    // Zone here: the code screen is the only surface that asks Groupon before
-    // the game-card rail claims it, and an unknown account on a swipe kiosk now
-    // reads as "looks like a new card" — which would offer to sell the guest a
-    // card they already paid Groupon for.
-    it("sends an ambiguous padded run to the code screen, not Game Zone", () => {
+    // Every padded digit run goes to Game Zone, whatever its width. A run that
+    // is ALSO Groupon-shaped briefly detoured to the code screen so Groupon
+    // could be tried first; scanning no longer checks Groupon at all (owner
+    // 2026-08-28 — it is typed), so the detour would only delay real card
+    // scans. Cards scan anywhere; vouchers scan on the voucher screen.
+    it("sends a padded run that is also Groupon-shaped straight to Game Zone", () => {
       expect(classifyEntryScan("000089895632")).toMatchObject({
-        kind: "code-entry",
+        kind: "game-card",
         value: "89895632",
       });
     });
 
-    it("still sends a full-width Intercard barcode straight to Game Zone", () => {
-      // The common case must not gain a detour: 16 wide, so never Groupon-tested.
+    it("sends a full-width Intercard barcode straight to Game Zone", () => {
       expect(classifyEntryScan("0000000001038091")).toMatchObject({
         kind: "game-card",
         value: "1038091",

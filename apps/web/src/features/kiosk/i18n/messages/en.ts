@@ -333,6 +333,11 @@ export const en = {
   "codeEntry.scanHint.lead": "Or scan it",
   "codeEntry.scanHint.body":
     "Hold the code under the screen — paper coupons, e-mail QR codes and vouchers all work.",
+  // Groupon is TYPED on this kiosk (owner 2026-08-28): its short code is 7-8
+  // characters with nothing to separate it from a promo or a card number, so
+  // scanning no longer guesses. "Groupon" is a brand noun — English in both.
+  "codeEntry.groupon.typeOnly": "Groupon? Type the number instead — tap below.",
+  "codeEntry.groupon.typeHere": "Groupon numbers are typed here.",
   "codeEntry.apply": "Apply code",
   "codeEntry.back": "‹ Back",
   "codeEntry.checking": "Checking your code…",

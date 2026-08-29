@@ -843,6 +843,32 @@ export function KioskCodeEntry({
     [routeClassified, t, tryGroupon],
   );
 
+  /**
+   * SCANNED payloads skip the Groupon lookup entirely (owner 2026-08-28:
+   * "any scanning no longer has to check groupon first" — Groupon is TYPED on
+   * this kiosk for now, and the screen says so).
+   *
+   * The speculative lookup only ever existed because a 7-8 character code is
+   * ambiguous on shape. Taking scanning out of that guess removes the whole
+   * cost: no vendor round-trip in front of a game card, a HeadPinz voucher or
+   * a promo, and no chance of a scan being claimed by the wrong rail. The
+   * unambiguous printed `VS-` form still routes to Groupon if it is ever
+   * scanned — that shape is Groupon or nothing, so it is not a guess.
+   *
+   * Deliberately temporary: the owner expects to revisit scanning Groupons.
+   * When that returns, point `handleRaw` back at routeWithGrouponFallback.
+   */
+  const routeScanned = useCallback(
+    async (c: ReturnType<typeof classifyKioskCode>) => {
+      if (c.kind === "groupon") {
+        await routeWithGrouponFallback(c);
+        return;
+      }
+      await routeClassified(c.kind, c.value);
+    },
+    [routeClassified, routeWithGrouponFallback],
+  );
+
   const handleRaw = useCallback(
     (raw: string) => {
       // A terminal panel swallows scans; the voucher list welcomes them.
@@ -855,9 +881,9 @@ export function KioskCodeEntry({
           ? c.value
           : "",
       );
-      void routeWithGrouponFallback(c);
+      void routeScanned(c);
     },
-    [panel, routeWithGrouponFallback],
+    [panel, routeScanned],
   );
 
   /** Replay a scan that happened on an entry screen before we existed. Ref-
@@ -1700,6 +1726,14 @@ export function KioskCodeEntry({
         <p className="mt-[20px] max-w-[24ch] text-[30px] leading-[1.4] text-white/70">
           {t("codeEntry.scanHint.body")}
         </p>
+        {/* Groupon is TYPED here (owner 2026-08-28). Its short code is 7-8
+            characters with nothing to tell it apart from a promo or a card, so
+            the kiosk no longer guesses on a scan — it asks. Said on the scan
+            screen, where a guest holding a Groupon is about to wave it at a
+            reader that will not recognise it. */}
+        <p className="mt-[14px] max-w-[26ch] text-[26px] leading-[1.35] text-[#ffb020]">
+          {t("codeEntry.groupon.typeOnly")}
+        </p>
         {noDispenserNotice}
 
         {/* The scan target — dead center. The kiosk's scanner sits below the
@@ -1739,6 +1773,11 @@ export function KioskCodeEntry({
     <div className="flex h-full flex-col px-[64px] pb-[40px] pt-[104px]">
       <div className="k-eyebrow">{t("codeEntry.eyebrow")}</div>
       <h1 className="k-display mt-[24px] text-[80px]">{t("codeEntry.title")}</h1>
+      {/* The other half of the steer on the scan screen: this IS where a
+          Groupon number goes. */}
+      <p className="mt-[10px] text-[26px] leading-[1.35] text-white/60">
+        {t("codeEntry.groupon.typeHere")}
+      </p>
       {noDispenserNotice}
 
       <input

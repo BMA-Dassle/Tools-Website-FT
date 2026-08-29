@@ -157,18 +157,12 @@ export function classifyEntryScan(input: string): EntryScanRoute {
   const code = classifyKioskCode(raw);
   switch (code.kind) {
     case "game-card":
-      // A digit run that could ALSO be a Groupon code goes to the code screen,
-      // not straight to Game Zone: that screen owns the Groupon-first fallback
-      // (routeWithGrouponFallback) and still shows the Game Zone card panel
-      // when Groupon disowns it, so nothing is lost either way. Sending it to
-      // Game Zone instead would dead-end a real voucher on a balance lookup —
-      // and on a swipe kiosk an unknown account now reads as "looks like a new
-      // card", which would offer to SELL the guest a card they already paid
-      // Groupon for. Only the ambiguous shapes divert (see grouponCandidate);
-      // a full-width Intercard barcode is unaffected.
-      return code.grouponCandidate
-        ? { kind: "code-entry", value: code.value, raw }
-        : { kind: "game-card", value: code.value, raw };
+      // A card scan goes to Game Zone, full stop. It briefly diverted an
+      // ambiguous digit run to the code screen so Groupon could be tried
+      // first; that is gone with scanning-checks-Groupon (owner 2026-08-28 —
+      // Groupon is typed for now), and keeping it would send padded CARD scans
+      // on a detour for a lookup that no longer happens.
+      return { kind: "game-card", value: code.value, raw };
     case "gift-card":
       return { kind: "unsupported", reason: "gift-card", raw };
     case "bmi-voucher":
