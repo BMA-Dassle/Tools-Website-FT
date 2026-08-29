@@ -26,6 +26,10 @@ import {
  *   - an SSO slug with no `/admin/<slug>/page.tsx` → CI fails (307s to a 404)
  *   - an SSO slug whose v2 page is not backed by a shared `_tools` module
  *                                                  → CI fails (v1 and v2 will drift)
+ *   - a `_tools` module for a slug that is NOT SSO → CI fails (a one-caller
+ *                                                    abstraction claiming two)
+ *   - a v2 page left behind by a tool that went BACK to the token
+ *                                                  → CI fails (ungated board)
  */
 
 const APP_ADMIN = fileURLToPath(new URL("../../../app/admin/", import.meta.url));
@@ -69,12 +73,37 @@ describe("the three lists partition the real tool directories", () => {
     }
   });
 
-  it("names the three staffed tools and the two wall displays", () => {
-    // Spelled out rather than derived: this is an owner decision (2026-08-28),
-    // so a change to it should have to change this line and be argued for in
-    // the diff, not slide in as a side effect of an edit somewhere else.
-    expect(sorted(SSO_ADMIN_TOOLS)).toEqual(["camera-assign", "checkin", "reservations"]);
+  it("names the four desk tools and the two wall displays", () => {
+    // Spelled out rather than derived: this is an owner decision (2026-08-28,
+    // revised the same day after a shift on the shipped gate), so a change to
+    // it should have to change this line and be argued for in the diff, not
+    // slide in as a side effect of an edit somewhere else.
+    expect(sorted(SSO_ADMIN_TOOLS)).toEqual(["checkin", "e-tickets", "reservations", "videos"]);
     expect(sorted(DEVICE_TOKEN_TOOLS)).toEqual(["briefing", "pit"]);
+  });
+
+  it("keeps camera-assign on the TOKEN, not behind sign-in", () => {
+    // The revision this file exists to hold. camera-assign shipped SSO-gated
+    // and came straight back off: it is worked TRACKSIDE on shared kiosks —
+    // one per track, standing up between heats — so a per-person Microsoft
+    // sign-in is a password typed on a shared device in front of guests, every
+    // time the session lapses. It is not a device tool either (a human works
+    // it), so it belongs on neither of the other two lists.
+    expect(TOKEN_ONLY_TOOLS.has("camera-assign")).toBe(true);
+    expect(SSO_ADMIN_TOOLS.has("camera-assign")).toBe(false);
+    expect(DEVICE_TOKEN_TOOLS.has("camera-assign")).toBe(false);
+    expect(isSsoAdminTool("camera-assign")).toBe(false);
+  });
+
+  it("puts e-tickets and videos behind sign-in", () => {
+    // Both are front-desk tools that paint guest contact details and can mail
+    // a ticket or a video link to any address typed into them. On the token,
+    // the URL that opened them was a forwardable bearer credential for that.
+    for (const slug of ["e-tickets", "videos"]) {
+      expect(SSO_ADMIN_TOOLS.has(slug), slug).toBe(true);
+      expect(isSsoAdminTool(slug), slug).toBe(true);
+      expect(TOKEN_ONLY_TOOLS.has(slug), slug).toBe(false);
+    }
   });
 
   it("keeps the predicates in step with the sets", () => {
@@ -95,14 +124,26 @@ describe("every SSO tool has a v2 page; nothing else does", () => {
     expect(dirsIn(APP_ADMIN).filter((d) => !NON_TOOL_DIRS.has(d))).toEqual(sorted(SSO_ADMIN_TOOLS));
   });
 
-  it("renders a page at /admin/<slug> for each — nested routes included", () => {
+  it("renders a page at /admin/<slug> for each", () => {
     for (const slug of SSO_ADMIN_TOOLS) {
       expect(existsSync(`${APP_ADMIN}${slug}/page.tsx`), `no v2 page for ${slug}`).toBe(true);
     }
-    // camera-assign's nested route is the one the directory comparison above
-    // cannot see: /admin/camera-assign/blue must resolve as well as
-    // /admin/camera-assign.
-    expect(existsSync(`${APP_ADMIN}camera-assign/[track]/page.tsx`)).toBe(true);
+  });
+
+  it("gives camera-assign NO v2 page — neither the board nor its nested track route", () => {
+    // The directory comparison above catches `/admin/camera-assign`; the
+    // nested `[track]` route is the one it cannot see, and it is the one most
+    // likely to be left behind by a half-done revert. Both must be gone: a
+    // stray `/admin/camera-assign/blue` would be an ungated board (the SSO
+    // branch no longer claims the path, so nothing would gate it but the
+    // static-token check it does not have).
+    expect(existsSync(`${APP_ADMIN}camera-assign/page.tsx`)).toBe(false);
+    expect(existsSync(`${APP_ADMIN}camera-assign/[track]/page.tsx`)).toBe(false);
+    expect(existsSync(`${APP_ADMIN}camera-assign`)).toBe(false);
+    // …and the v1 tree still carries both, because a token URL comes down only
+    // on an explicit owner "pull it".
+    expect(existsSync(`${APP_ADMIN}[token]/camera-assign/page.tsx`)).toBe(true);
+    expect(existsSync(`${APP_ADMIN}[token]/camera-assign/[track]/page.tsx`)).toBe(true);
   });
 
   it("mirrors every v1 page of a migrated tool, and no others", () => {
@@ -138,7 +179,17 @@ describe("every SSO tool has a v2 page; nothing else does", () => {
         `missing shared module for ${slug}`,
       ).toBe(true);
     }
-    expect(existsSync(`${APP_ADMIN}_tools/camera-assign-track/AdminToolPage.tsx`)).toBe(true);
+  });
+
+  it("_tools holds a directory for exactly the SSO tools and nothing else", () => {
+    // The other half of the same rule, and the one that caught camera-assign's
+    // leftovers. `_tools` exists ONLY because two routes render one component.
+    // When a tool leaves SSO its module has a single caller, and a shared
+    // module with one caller is indirection that lies: the next reader takes
+    // `_tools/camera-assign` as evidence that `/admin/camera-assign` exists.
+    // Fold it back into the `[token]` page instead.
+    const modules = dirsIn(`${APP_ADMIN}_tools/`);
+    expect(modules).toEqual(sorted(SSO_ADMIN_TOOLS));
   });
 
   /**
@@ -156,10 +207,13 @@ describe("every SSO tool has a v2 page; nothing else does", () => {
    * when the suite runs without a build (the E2E covers the same property end
    * to end, by actually rendering the board).
    *
+   * Every v2 route is static now that camera-assign's `[track]` one is gone,
+   * so the whole property reduces to the `staticRoutes` membership below.
+   *
    * Verified 2026-08-28 on this branch:
-   *   staticRoutes:  /admin/camera-assign, /admin/checkin, /admin/reservations
-   *   dynamicRoutes: /admin/camera-assign/[track] (index 0, ahead of every
-   *                  /admin/[token]/* entry), then /admin/[token]/…
+   *   staticRoutes:  /admin/checkin, /admin/e-tickets, /admin/reservations,
+   *                  /admin/videos
+   *   dynamicRoutes: /admin/[token]/… only — no /admin/camera-assign/[track].
    */
   const MANIFEST = fileURLToPath(new URL("../../../.next/routes-manifest.json", import.meta.url));
   it.skipIf(!existsSync(MANIFEST))(
@@ -175,12 +229,12 @@ describe("every SSO tool has a v2 page; nothing else does", () => {
       for (const slug of SSO_ADMIN_TOOLS) {
         expect(statics.has(`/admin/${slug}`), `/admin/${slug} should be a static route`).toBe(true);
       }
-      // The nested one cannot be static (it has a [track] segment), so it must
-      // instead sort ahead of every /admin/[token]/* entry.
-      const track = dynamics.indexOf("/admin/camera-assign/[track]");
-      const firstToken = dynamics.findIndex((p) => p.startsWith("/admin/[token]/"));
-      expect(track).toBeGreaterThanOrEqual(0);
-      expect(track).toBeLessThan(firstToken);
+      // And nothing compiles a route for the tool that went back to the token:
+      // no static /admin/camera-assign, no dynamic /admin/camera-assign/[track].
+      expect(statics.has("/admin/camera-assign")).toBe(false);
+      expect(dynamics).not.toContain("/admin/camera-assign/[track]");
+      // The v1 tree is untouched — every token URL still compiles.
+      expect(dynamics.some((p) => p.startsWith("/admin/[token]/"))).toBe(true);
     },
   );
 
