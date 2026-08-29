@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { adminToolUrl } from "~/lib/helpers/admin-url";
 
 /**
  * Portal-URL-scheme parity: the employee portal deep-linked event details at
@@ -22,11 +23,10 @@ export default async function Page({
   if (!/^-?\d{1,20}$/.test(projectId)) notFound();
 
   const sp = await searchParams;
-  const qs = new URLSearchParams({ event: projectId });
   const location = typeof sp.location === "string" ? sp.location : "";
   const date = typeof sp.date === "string" ? sp.date : "";
-  if (location) qs.set("location", location);
-  if (date) qs.set("date", date);
 
-  redirect(`/admin/${token}/daily-events?${qs.toString()}`);
+  // Clean shell URL — see the sibling shim: a tokened redirect() target is a
+  // browser-visible copy of the permanent admin secret.
+  redirect(adminToolUrl("daily-events-v2", { event: projectId, location, date }));
 }

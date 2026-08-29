@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { PORTAL_BLUE_SOFT, PORTAL_DARK } from "~/components/features/admin-skin/theme";
+import { adminToolUrl } from "~/lib/helpers/admin-url";
 
 /**
  * Deal-pack sales board.
@@ -175,7 +176,9 @@ export default function DealsAdminClient({ token }: { token: string }) {
       style={{ background: PORTAL_DARK.bodyGradient }}
     >
       <h1 className="text-2xl font-bold">Deal packs</h1>
-      <p className="mt-1 text-sm text-white/50">Prepaid voucher bundles sold on headpinz.com/deals</p>
+      <p className="mt-1 text-sm text-white/50">
+        Prepaid voucher bundles sold on headpinz.com/deals
+      </p>
 
       {/*
         A funnel, NOT a redirect. This board stays: it is the surface staff reach
@@ -186,13 +189,15 @@ export default function DealsAdminClient({ token }: { token: string }) {
         cheese.
       */}
       <a
-        href={`/admin/${encodeURIComponent(token)}/web-sales?source=deals`}
+        href={adminToolUrl("web-sales", { source: "deals" })}
         className="mt-3 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold no-underline"
         style={{ borderColor: PORTAL_DARK.border, color: PORTAL_BLUE_SOFT }}
       >
         Open in Web sales
         <span aria-hidden>&rarr;</span>
-        <span className="font-normal text-white/40">search · refunds · resend to another address</span>
+        <span className="font-normal text-white/40">
+          search · refunds · resend to another address
+        </span>
       </a>
 
       {/* Rollup */}
@@ -300,9 +305,7 @@ export default function DealsAdminClient({ token }: { token: string }) {
                   <div className="text-xs text-white/40">{p.locationKey}</div>
                 </td>
                 <td className="py-3 pr-4 text-white/70">{p.qty}</td>
-                <td className="py-3 pr-4 whitespace-nowrap text-white/70">
-                  {money(p.totalCents)}
-                </td>
+                <td className="py-3 pr-4 whitespace-nowrap text-white/70">{money(p.totalCents)}</td>
                 <td className={`py-3 pr-4 whitespace-nowrap ${statusTone(p)}`}>
                   {statusLabel(p)}
                   {p.lastError && (

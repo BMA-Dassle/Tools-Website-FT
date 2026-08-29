@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listGfQuotes, type GfQuoteStatus } from "@/lib/group-function-db";
+import { isAdminCredential } from "@/lib/admin-request-auth";
 
 /**
  * Admin: list group function quotes.
@@ -7,11 +8,9 @@ import { listGfQuotes, type GfQuoteStatus } from "@/lib/group-function-db";
  * GET /api/admin/group-functions?token=...&status=...&limit=...
  */
 
-const ADMIN_TOKEN = process.env.ADMIN_CAMERA_TOKEN || "";
-
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") || "";
-  if (!ADMIN_TOKEN || token !== ADMIN_TOKEN) {
+  if (!(await isAdminCredential(token))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

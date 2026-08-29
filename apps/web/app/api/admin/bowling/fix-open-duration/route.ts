@@ -8,6 +8,7 @@ import {
   patchReservation,
 } from "@/lib/qamf-bowling";
 import { buildQamfMemo } from "@/lib/bowling-db";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /**
  * POST /api/admin/bowling/fix-open-duration?token=…[&dryRun=true][&target=pizza-bowl|fun-4-all]
@@ -114,8 +115,7 @@ type ResultEntry = {
 
 export async function POST(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected || token !== expected) {
+  if (!(await isAdminApiRequest(req, { token: token }))) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

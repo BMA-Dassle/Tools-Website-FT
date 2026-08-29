@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import BriefingRoomClient from "./BriefingRoomClient";
 import { adminPoppins } from "~/components/features/admin-skin/font";
 import { parseBriefingRoom } from "~/features/signage/briefing/types";
+import { mintAdminApiToken } from "@/lib/admin-api-token";
 
 /**
  * THE IN-ROOM BRIEFING SCREEN — one room, two presses.
@@ -43,6 +44,13 @@ export default async function Page({ params, searchParams }: Props) {
   // page uses, so a routing change can never quietly expose this.
   if (!expected || token !== expected) notFound();
 
+  // The client sends this back as x-admin-token / ?token= for its
+  // /api/admin/* calls, exactly where it always sent one — but it is now a
+  // signed 8-hour credential, not the permanent ADMIN_CAMERA_TOKEN. The
+  // static token never reaches a browser again.
+  // (Pinned by scripts/check-admin-token-leak.mjs.)
+  const apiToken = await mintAdminApiToken();
+
   const sha = process.env.VERCEL_GIT_COMMIT_SHA || "";
   const version = sha ? sha.slice(0, 7) : "dev";
 
@@ -58,7 +66,7 @@ export default async function Page({ params, searchParams }: Props) {
 
   return (
     <div className={adminPoppins.variable}>
-      <BriefingRoomClient token={token} version={version} room={room} />
+      <BriefingRoomClient token={apiToken} version={version} room={room} />
     </div>
   );
 }

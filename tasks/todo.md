@@ -49,6 +49,122 @@ Check balance is a NEW card → hand off to set it up; card vouchers fulfil here
       checkout upsell ⇒ confirmation prompts a swipe; walk away ⇒ 90 s → Done re-enabled · pay-screen
       gift-card swipe still works with `msrUse:"both"` · a dispenser kiosk behaves as before (only
       change: a never-connecting CRT releases the confirmation screen after 60 s).
+## Admin SSO — PR 1 done, PR 2 needs the owner's go (2026-08-28) — branch `feat/admin-sso`
+
+Goal: **no human reaches a FastTrax admin page without a Microsoft sign-in.** Two PRs on
+purpose — PR 1 cannot break anyone; PR 2 is the only step that removes access.
+
+Full audit + the "Unresolved before PR 2" list: [tasks/admin-sso-lockdown.md](admin-sso-lockdown.md).
+
+### PR 1 — `feat/admin-sso` (done, not deployed)
+
+- [x] `apps/admin` gets Auth.js v5 against the HeadPinz SSO gateway (client `fasttrax-admin`,
+      role `access`). `proxy.ts` = `auth((req) => …)`; `/api/auth/*` + `/sso/*` are `self`.
+- [x] `lib/admin-api-token.ts` — signed 8h `<expMs>.<hmac>` credential, Web Crypto so the edge
+      middleware can verify it. Middleware accepts it as `x-admin-via: api-token`.
+- [x] 23 admin pages mint one instead of handing out `ADMIN_CAMERA_TOKEN`; ~45 API routes +
+      `verifyPortal` moved their inline checks to `lib/admin-request-auth.ts`.
+- [x] Staff links (email, Teams cards, in-app board links, the daily-events shims) build clean
+      shell URLs via `adminToolUrl()`.
+- [x] `scripts/check-admin-token-leak.mjs` in `npm run test -w fasttrax-web`.
+- [x] `publicOrigin()` excludes `admin.*` hosts — lessons.md rule #5 amended.
+
+### Runbook — the admin Vercel project (`tools-website-ft-admin`)
+
+Auth is **SSO, not Vercel Authentication**. Env on that project:
+
+| Var | What |
+|---|---|
+| `SSO_ISSUER` | `https://auth.headpinz.com/oidc` (local: `http://localhost:3100/oidc`) |
+| `SSO_CLIENT_ID` | `fasttrax-admin` |
+| `SSO_CLIENT_SECRET` | from the gateway's client registry |
+| `AUTH_SECRET` | Auth.js cookie encryption — `openssl rand -base64 32` |
+| `DIAG_SECRET` | bearer for `GET /sso/diag` |
+| `ADMIN_PROXY_KEY` | shared with `tools-website-ft`; the shell's credential upstream |
+| `ADMIN_CAMERA_TOKEN` | the main site's current token, injected into forwarded paths |
+| `ADMIN_UPSTREAM_ORIGIN` | local dev only (defaults to `https://headpinz.com`) |
+
+**SET THE FOUR SSO VARS BEFORE MERGING PR 1.** `SSO_ISSUER`, `SSO_CLIENT_ID`,
+`SSO_CLIENT_SECRET` and `AUTH_SECRET` must exist on `tools-website-ft-admin` *before* the
+first deploy of this branch, not after it. Auth.js validates its config on the first
+request, so with any of them missing the `auth()` wrapper in `proxy.ts` throws on every
+request — including `/sso/error` and `/api/auth/*` — and the shell answers 500 to
+everything. Today that project is a working Vercel-Authentication wall, so deploying
+without the env block is a straight downgrade from "walled" to "broken".
+
+Deploy order:
+
+1. Set the env block above on `tools-website-ft-admin` (all four SSO vars, plus
+   `ADMIN_CAMERA_TOKEN`). Gateway client `fasttrax-admin` must already list this
+   project's `*.vercel.app` callback.
+2. Deploy the shell and verify on the `.vercel.app` URL (see the smoke list below).
+3. **In the same window**, either attach `admin.fasttraxent.com` (CNAME →
+   `cname.vercel-dns.com`) or set `ADMIN_PUBLIC_URL` on `tools-website-ft` to the shell's
+   `.vercel.app` origin. Every staff link `apps/web` now builds — `adminBoardUrl()`,
+   `vipBoardUrl()`, both `/admin/{token}/daily-events` redirect shims — hard-targets
+   `https://admin.fasttraxent.com` (`src/lib/helpers/admin-url.ts`). Ship the `apps/web`
+   side ahead of one of those two and every "Open board" button in staff email/Teams, and
+   every brand-domain daily-events bookmark, lands on a domain that does not resolve.
+4. Turn Vercel Authentication **off** on the admin project.
+5. Tell staff to use the clean URLs.
+
+**PR 1 smoke — RUN LOCALLY 2026-08-28, 22 of 23 checks pass.** Four servers on this
+machine: mock Entra `:3200` · gateway `:3100` · `fasttrax-web` `:3111` · the shell `:3001`
+with `ADMIN_UPSTREAM_ORIGIN=http://localhost:3111`. It found one real bug (below) before it
+could get past the front door, and one unresolved leak (audit item #8). Still worth
+repeating on the `.vercel.app` preview for the two things localhost cannot show: `Secure`
+cookies and Vercel's own proxy.
+
+**The bug it found: the shell answered every request with "The Proxy file "/proxy" must
+export a function named `proxy` or a default function."** — the entire front door,
+`/sso/error` and `/api/auth/*` included. `auth.ts` passes a config FACTORY to `NextAuth`
+(deliberately, so the config reads the runtime env), and for a function config next-auth's
+`initAuth` returns an `async` wrapper — so `auth(handler)` is a Promise, and Next's proxy
+loader hard-fails on `typeof mod.default !== "function"`. Fixed by awaiting it inside a real
+`proxy` function; pinned by `apps/admin/proxy.contract.test.ts`, which checks the export
+shape against the UNMOCKED module. `proxy.test.ts` could never have caught it — it mocks
+`./auth` to the identity function, which is exactly the blind spot this checklist called out.
+
+- [x] unauthenticated `/pit` → sign-in → returns to `/pit` (not to `/`). Chain:
+      `/pit` → `307 /api/auth/signin?callbackUrl=%2Fpit` → *(Auth.js provider chooser — one
+      provider, still one click; marketing skips this with its own `/sso/signin`)* →
+      `:3100/oidc/auth` → `/interaction/<uid>` → `:3200/authorize` → `/api/interaction/callback`
+      → `/finish` → `/api/auth/callback/headpinz` → `/pit` (200, board rendered)
+- [x] `/api/admin/videos/list` with no session → `401 {"error":"sso_expired"}`, no redirect
+- [x] a user with no `fasttrax-admin.access` → stopped at the **gateway's** `/no-access`
+      (`client=fasttrax-admin`, `role=fasttrax-admin.access`, `rid=…`) — no code is issued,
+      so the shell never sees a session and `/api/*` for that user is `401`, not `403`.
+      **The shell's own `/sso/error?code=SSO_E_NO_ROLE` branch is unreachable through a real
+      gateway by design** (the gateway's `fasttrax-admin.access` and the shell's `access` are
+      the same role): it is defence in depth, covered by `proxy.test.ts`, not a live path.
+      The original wording of this line expected the shell to answer — it does not, and
+      should not.
+- [x] session cookie: `HttpOnly` ✓, `SameSite=Lax` ✓. `Secure` is correctly **false** over
+      `http://localhost` — re-check on the preview, which is the only place it can be true.
+- [x] `/reservations` and `/daily-events-v2` render; `/admin/<token>/pit` → `307 /pit`;
+      `/contract/anything` forwards upstream; `/nonexistent` → `404`, not a redirect
+- [x] `/sso/diag`: `401` without the bearer, `200` with it, and no secret value in the body
+- [~] **the static token appears nowhere in the network log** — true of requests, false of
+      the HTML. Zero occurrences across 79 requests on `/pit` and ~50 on each of six more
+      boards; each board's HTML carries a fresh minted `<expMs>.<hex>` instead. But the
+      static token IS in every board's HTML, twice, via Next's RSC route-segment payload for
+      the upstream `/admin/[token]/…` path. No application code is involved. See
+      [tasks/admin-sso-lockdown.md](admin-sso-lockdown.md) **unresolved #8**.
+- [ ] **a board MUTATES** — not covered. None of the seven boards issues an `/api/admin/*`
+      XHR on load (they are server-rendered and hold the minted token for later), so the
+      minted-token request path is still unexercised. Needs a click on the preview.
+
+Troubleshooting, in order: `curl -H "Authorization: Bearer $DIAG_SECRET" https://admin.fasttraxent.com/sso/diag`
+— it reports discovery/JWKS reachability **with timings**, the caller's session and roles, env
+presence (never values), and the last ten sign-in errors. "Signed in but bounced" is almost
+always a missing `fasttrax-admin.access` role in Entra; the page says so with `SSO_E_NO_ROLE`.
+
+### PR 2 — `feat/admin-lockdown` (BLOCKED on owner review of the audit)
+
+- [ ] Owner reads [tasks/admin-sso-lockdown.md](admin-sso-lockdown.md) and rules on its seven
+      unresolved items — especially the **briefing wall tablet** (#2), which is the one surface
+      that a page-level lockdown would strand.
+- [ ] Then: the eight-step PR 2 checklist at the end of that file.
 
 ## Mega Thursdays, Sep 3 – end of Oct 2026 (2026-08-25) — branch `worktree-mega-thursdays`
 

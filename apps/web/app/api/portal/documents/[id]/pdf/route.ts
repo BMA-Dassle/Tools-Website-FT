@@ -8,7 +8,7 @@ import { getGfQuoteByShortId } from "@/lib/group-function-db";
  * Redirect to the signed PDF URL.
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const denied = verifyPortal(req);
+  const denied = await verifyPortal(req);
   if (denied) return denied;
 
   const { id } = await params;

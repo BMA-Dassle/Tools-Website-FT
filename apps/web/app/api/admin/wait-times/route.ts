@@ -11,6 +11,7 @@ import {
   waitsForDay,
   waitsSince,
 } from "~/features/racing/wait-times";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /**
  * WAIT TIMES — every movement, per group and averaged (owner 2026-08-12).
@@ -48,11 +49,14 @@ const VENUE = "FT";
 /** A month is plenty for a trend and bounded enough to stay one quick query. */
 const MAX_DAYS = 31;
 
-function authed(req: NextRequest): boolean {
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected) return false;
-  const token = req.nextUrl.searchParams.get("token") || req.headers.get("x-admin-token") || "";
-  return token === expected;
+/**
+ * Defense in depth behind the middleware gate — see lib/admin-request-auth.
+ * Accepts the static ADMIN_CAMERA_TOKEN (crons, scripts), a signed
+ * short-lived token (what staff browsers now hold), or the SSO shell's
+ * proxy key. Async because signature checks are Web Crypto.
+ */
+async function authed(req: NextRequest): Promise<boolean> {
+  return isAdminApiRequest(req);
 }
 
 /** `n` business days before `from`. Anchored at noon UTC so stepping back never
@@ -64,7 +68,7 @@ function businessDayMinus(from: string, n: number): string {
 }
 
 export async function GET(req: NextRequest) {
-  if (!authed(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await authed(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const params = req.nextUrl.searchParams;
   const dayParam = params.get("day");

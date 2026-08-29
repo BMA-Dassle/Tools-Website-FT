@@ -10,7 +10,7 @@ import { sql } from "@/lib/db";
  * Returns lightweight stubs; portal fetches full detail via /documents/{id}.
  */
 export async function GET(req: NextRequest) {
-  const denied = verifyPortal(req);
+  const denied = await verifyPortal(req);
   if (denied) return denied;
 
   const since = req.nextUrl.searchParams.get("since") || "";

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CancelGuardError, cancelReservationCascade } from "~/features/cancellation";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 // Refund + teardown + BMI state verification (Pandora writes can take ~25s to
 // become visible) can exceed the default function window.
@@ -20,8 +21,7 @@ export const maxDuration = 60;
  */
 export async function POST(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected || token !== expected) {
+  if (!(await isAdminApiRequest(req, { token: token }))) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

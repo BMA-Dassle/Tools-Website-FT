@@ -96,6 +96,7 @@ import { holdingAvailability } from "~/features/signage/pit/holding-availability
 import { useRaceClockForTrack } from "~/features/racing/use-race-clocks";
 import { liveHeatNumber } from "~/features/signage/briefing/room-return";
 import { useBriefingControl } from "../checkin/useBriefingControl";
+import { adminToolUrl } from "~/lib/helpers/admin-url";
 
 const ROOM_COLOR: Record<BriefingRoom, string> = { red: "#ff5a52", blue: "#4a9bff" };
 const TRACK_COLOR: Record<string, string> = { red: "#ff5a52", blue: "#4a9bff", mega: "#a06bff" };
@@ -1103,7 +1104,7 @@ export default function BriefingRoomClient({
           {BRIEFING_ROOMS.map((r) => (
             <a
               key={r}
-              href={`/admin/${encodeURIComponent(token)}/briefing?room=${r}`}
+              href={adminToolUrl("briefing", { room: r })}
               className="brc-btn"
               style={{
                 width: 260,
@@ -1542,7 +1543,7 @@ ${film}
         {/* The escape hatch for a tablet set to the wrong room. Small on purpose:
             it is a setup control, pressed once in the life of the screen. */}
         <a
-          href={`/admin/${encodeURIComponent(token)}/briefing?room=${room === "red" ? "blue" : "red"}`}
+          href={adminToolUrl("briefing", { room: room === "red" ? "blue" : "red" })}
           style={{ fontSize: 12, color: PORTAL_DARK.muted, textDecoration: "underline" }}
         >
           switch to {room === "red" ? "blue" : "red"}

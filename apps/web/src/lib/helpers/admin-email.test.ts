@@ -7,23 +7,26 @@ afterEach(() => {
 });
 
 describe("adminBoardUrl", () => {
-  it("builds the REAL tokenised board URL", () => {
-    // The whole point: the deal-sale alert shipped with a literal
-    // "/admin/<token>/deals" placeholder, which is a dead end in an inbox.
+  it("builds a REAL, credential-free link into the SSO staff shell", () => {
+    // The alert originally shipped a literal "/admin/<token>/deals"
+    // placeholder — a dead end in an inbox. Then it shipped the real token,
+    // which is a bearer secret sitting in staff mail forever. Now it ships
+    // neither: the reader's Microsoft sign-in opens the board.
     process.env.ADMIN_CAMERA_TOKEN = "tok123";
     process.env.NEXT_PUBLIC_SITE_URL = "https://headpinz.com";
-    expect(adminBoardUrl("deals")).toBe("https://headpinz.com/admin/tok123/deals");
+    expect(adminBoardUrl("deals")).toBe("https://admin.fasttraxent.com/deals");
   });
 
-  it("points a preview deploy at ITSELF, and tolerates a trailing slash", () => {
+  it("NEVER contains the admin token, and tolerates a leading slash", () => {
     process.env.ADMIN_CAMERA_TOKEN = "tok123";
-    process.env.NEXT_PUBLIC_SITE_URL = "https://preview.vercel.app/";
-    expect(adminBoardUrl("/deals")).toBe("https://preview.vercel.app/admin/tok123/deals");
+    const url = adminBoardUrl("/deals");
+    expect(url).toBe("https://admin.fasttraxent.com/deals");
+    expect(url).not.toContain("tok123");
   });
 
-  it("is null without a token, so a caller omits the button instead of faking it", () => {
+  it("still returns a link with no token env at all — nothing left to be missing", () => {
     delete process.env.ADMIN_CAMERA_TOKEN;
-    expect(adminBoardUrl("deals")).toBeNull();
+    expect(adminBoardUrl("deals")).toBe("https://admin.fasttraxent.com/deals");
   });
 });
 
@@ -62,6 +65,20 @@ describe("renderAdminEmail", () => {
     const { html } = renderAdminEmail({ ...base, cta: null });
     expect(html).toContain("Ada &lt;Lovelace&gt;");
     expect(html).not.toContain("Ada <Lovelace>");
+  });
+
+  it("carries the static admin token in NEITHER the html nor the text", () => {
+    process.env.ADMIN_CAMERA_TOKEN = "tok123";
+    const { html, text } = renderAdminEmail({
+      ...base,
+      cta: { label: "Open the sales board", url: adminBoardUrl("deals") },
+      footnote: "FastTrax admin",
+    });
+    expect(html).not.toContain("tok123");
+    expect(text).not.toContain("tok123");
+    expect(html).not.toContain("/admin/");
+    expect(text).not.toContain("/admin/");
+    expect(html).toContain('href="https://admin.fasttraxent.com/deals"');
   });
 
   it("ships a text alternative carrying the same facts", () => {

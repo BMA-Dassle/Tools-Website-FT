@@ -23,6 +23,7 @@ import {
 import { resolvePair, pairProblem } from "~/features/signage/pairing";
 import type { ScreenConfig } from "~/features/signage/types";
 import { demoIsMegaDay } from "~/features/signage/demo";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /**
  * Screen management for staff.
@@ -45,11 +46,14 @@ const TRACK_RESOURCE_IDS: Record<string, string> = {
   mega: "-1",
 };
 
-function authed(req: NextRequest): boolean {
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected) return false;
-  const token = req.nextUrl.searchParams.get("token") || req.headers.get("x-admin-token") || "";
-  return token === expected;
+/**
+ * Defense in depth behind the middleware gate — see lib/admin-request-auth.
+ * Accepts the static ADMIN_CAMERA_TOKEN (crons, scripts), a signed
+ * short-lived token (what staff browsers now hold), or the SSO shell's
+ * proxy key. Async because signature checks are Web Crypto.
+ */
+async function authed(req: NextRequest): Promise<boolean> {
+  return isAdminApiRequest(req);
 }
 
 /** Last-seen stamps, written by the feed on every poll. Absent = never seen or
@@ -93,7 +97,7 @@ async function lastSeen(
 }
 
 export async function GET(req: NextRequest) {
-  if (!authed(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await authed(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   // Startup script for one screen, as a downloadable .bat. Generated per screen
   // so the URL inside it is already correct — the person setting up a TV should
@@ -171,7 +175,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!authed(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await authed(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   let body: {
     action?: string;

@@ -10,6 +10,7 @@ import {
 } from "~/features/deals";
 import { fulfilDealPurchase } from "~/features/deals/service/purchase";
 import { voidNativeVoucher } from "~/features/game-cards/service/native-voucher";
+import { isAdminCredential } from "@/lib/admin-request-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,13 +33,18 @@ export const maxDuration = 120;
  * cutting new codes.
  */
 
-function authed(token: string | null | undefined): boolean {
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  return !!expected && token === expected;
+/**
+ * Defense in depth behind the middleware gate — see lib/admin-request-auth.
+ * Accepts the static ADMIN_CAMERA_TOKEN (crons, scripts), a signed
+ * short-lived token (what staff browsers now hold), or the SSO shell's
+ * proxy key. Async because signature checks are Web Crypto.
+ */
+async function authed(token: string | null | undefined): Promise<boolean> {
+  return isAdminCredential(token);
 }
 
 export async function GET(req: NextRequest) {
-  if (!authed(req.nextUrl.searchParams.get("token"))) {
+  if (!(await authed(req.nextUrl.searchParams.get("token")))) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
   const deal = req.nextUrl.searchParams.get("deal") ?? undefined;
@@ -79,7 +85,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: "bad_request" }, { status: 400 });
   }
-  if (!authed(parsed.data.token)) {
+  if (!(await authed(parsed.data.token))) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
