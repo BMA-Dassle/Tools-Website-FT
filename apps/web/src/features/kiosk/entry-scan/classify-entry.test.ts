@@ -182,6 +182,26 @@ describe("classifyEntryScan", () => {
         value: "1063464",
       });
     });
+
+    // A digit run that could ALSO be a Groupon must not be committed to Game
+    // Zone here: the code screen is the only surface that asks Groupon before
+    // the game-card rail claims it, and an unknown account on a swipe kiosk now
+    // reads as "looks like a new card" — which would offer to sell the guest a
+    // card they already paid Groupon for.
+    it("sends an ambiguous padded run to the code screen, not Game Zone", () => {
+      expect(classifyEntryScan("000089895632")).toMatchObject({
+        kind: "code-entry",
+        value: "89895632",
+      });
+    });
+
+    it("still sends a full-width Intercard barcode straight to Game Zone", () => {
+      // The common case must not gain a detour: 16 wide, so never Groupon-tested.
+      expect(classifyEntryScan("0000000001038091")).toMatchObject({
+        kind: "game-card",
+        value: "1038091",
+      });
+    });
   });
 
   describe("coupon QRs recurse into their inner code", () => {
