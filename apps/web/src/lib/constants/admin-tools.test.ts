@@ -73,12 +73,12 @@ describe("the three lists partition the real tool directories", () => {
     }
   });
 
-  it("names the desk tools and the two wall displays", () => {
+  it("names the four desk tools and the two wall displays", () => {
     // Spelled out rather than derived: this is an owner decision (2026-08-28,
     // revised the same day after a shift on the shipped gate), so a change to
     // it should have to change this line and be argued for in the diff, not
     // slide in as a side effect of an edit somewhere else.
-    expect(sorted(SSO_ADMIN_TOOLS)).toEqual(["checkin", "reservations"]);
+    expect(sorted(SSO_ADMIN_TOOLS)).toEqual(["checkin", "e-tickets", "reservations", "videos"]);
     expect(sorted(DEVICE_TOKEN_TOOLS)).toEqual(["briefing", "pit"]);
   });
 
@@ -93,6 +93,17 @@ describe("the three lists partition the real tool directories", () => {
     expect(SSO_ADMIN_TOOLS.has("camera-assign")).toBe(false);
     expect(DEVICE_TOKEN_TOOLS.has("camera-assign")).toBe(false);
     expect(isSsoAdminTool("camera-assign")).toBe(false);
+  });
+
+  it("puts e-tickets and videos behind sign-in", () => {
+    // Both are front-desk tools that paint guest contact details and can mail
+    // a ticket or a video link to any address typed into them. On the token,
+    // the URL that opened them was a forwardable bearer credential for that.
+    for (const slug of ["e-tickets", "videos"]) {
+      expect(SSO_ADMIN_TOOLS.has(slug), slug).toBe(true);
+      expect(isSsoAdminTool(slug), slug).toBe(true);
+      expect(TOKEN_ONLY_TOOLS.has(slug), slug).toBe(false);
+    }
   });
 
   it("keeps the predicates in step with the sets", () => {
@@ -200,7 +211,8 @@ describe("every SSO tool has a v2 page; nothing else does", () => {
    * so the whole property reduces to the `staticRoutes` membership below.
    *
    * Verified 2026-08-28 on this branch:
-   *   staticRoutes:  /admin/checkin, /admin/reservations
+   *   staticRoutes:  /admin/checkin, /admin/e-tickets, /admin/reservations,
+   *                  /admin/videos
    *   dynamicRoutes: /admin/[token]/… only — no /admin/camera-assign/[track].
    */
   const MANIFEST = fileURLToPath(new URL("../../../.next/routes-manifest.json", import.meta.url));

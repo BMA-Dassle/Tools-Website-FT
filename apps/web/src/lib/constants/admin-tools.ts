@@ -56,8 +56,19 @@
  *     seconds before the next heat goes out. It is back on
  *     `/admin/{ADMIN_CAMERA_TOKEN}/camera-assign` (and `/{track}`), where it
  *     was, and where it works.
+ *   - `e-tickets` and `videos` came ON. Both are staffed desk tools — the same
+ *     front-desk keyboard that already runs `checkin`, resending tickets and
+ *     video links to guests who are standing there. Both handle guest contact
+ *     details and both were on the token, which means their URL was a
+ *     forwardable bearer credential for a screen full of customer email
+ *     addresses and phone numbers. Those two are the ones worth a sign-in.
  */
-export const SSO_ADMIN_TOOLS: ReadonlySet<string> = new Set(["checkin", "reservations"]);
+export const SSO_ADMIN_TOOLS: ReadonlySet<string> = new Set([
+  "checkin",
+  "e-tickets",
+  "reservations",
+  "videos",
+]);
 
 /**
  * UNATTENDED DEVICE SURFACES — these keep the token URL PERMANENTLY.
@@ -109,14 +120,12 @@ export const TOKEN_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "deals",
   "deposit-failures",
   "discount-codes",
-  "e-tickets",
   "group-approvals",
   "group-functions",
   "healthnet",
   "kbf",
   "sales",
   "signage",
-  "videos",
   "web-sales",
 ]);
 

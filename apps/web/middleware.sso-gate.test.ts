@@ -246,6 +246,99 @@ describe("SSO gate — /admin/<tool> on a brand host", () => {
   });
 });
 
+/**
+ * THE FULL MATRIX, RUN AGAIN FOR THE TWO SLUGS THAT JUST JOINED.
+ *
+ * The assertions above prove the BRANCH on `reservations`; these prove the
+ * REGISTRY — that `e-tickets` and `videos` actually reach that branch. The two
+ * are separable failures: an edit that adds a slug to `SSO_ADMIN_TOOLS` but
+ * leaves `isSsoToolPath` looking at the wrong list would keep every assertion
+ * above green while the two new boards answered 404 to a signed-in human, or
+ * (worse, if the lists were crossed the other way) served with no gate at all.
+ *
+ * Same real Auth.js cookies as everything else in this file — `encode()` from
+ * `@auth/core/jwt`, salted with the cookie name, decoded by the middleware's
+ * own `decode`. A mock would prove the branching and hide the one thing that
+ * can silently break.
+ */
+describe("SSO gate — the two tools that moved onto sign-in (owner decision 2026-08-28)", () => {
+  const MOVED = ["e-tickets", "videos"] as const;
+
+  it("is on the SSO list, so this file is testing what it claims to test", () => {
+    // Guards the matrix below against quietly becoming vacuous if the registry
+    // changes: these cases only mean anything while these slugs are SSO tools.
+    for (const slug of MOVED) {
+      expect(SSO_ADMIN_TOOLS.has(slug), slug).toBe(true);
+      expect(TOKEN_ONLY_TOOLS.has(slug), slug).toBe(false);
+    }
+  });
+
+  it("sends an unauthenticated NAVIGATION to /sso/signin, carrying the path asked for", async () => {
+    for (const slug of MOVED) {
+      const r = await gate(`/admin/${slug}?q=abc`, { nav: true });
+      expect(r.status, slug).toBe(307);
+      const loc = new URL(r.location!);
+      expect(loc.pathname, slug).toBe("/sso/signin");
+      expect(loc.searchParams.get("callbackUrl"), slug).toBe(`/admin/${slug}?q=abc`);
+    }
+  });
+
+  it("404s an unauthenticated XHR — a board's fetch must not be sent to Microsoft", async () => {
+    // Both of these boards poll. A 307 followed by an XHR parses a sign-in page
+    // as JSON and surfaces "Unexpected token <" instead of "your session ended".
+    for (const slug of MOVED) {
+      expect(
+        await gate(`/admin/${slug}`, { headers: { accept: "application/json" } }),
+        slug,
+      ).toMatchObject({ status: 404, contentType: "text/plain" });
+    }
+  });
+
+  it("sends a signed-in user WITHOUT the role to /sso/error, never back to Microsoft", async () => {
+    for (const slug of MOVED) {
+      const r = await gate(`/admin/${slug}`, { nav: true, headers: { cookie: await noRole() } });
+      expect(r.status, slug).toBe(307);
+      const loc = new URL(r.location!);
+      expect(loc.pathname, slug).toBe("/sso/error");
+      expect(loc.searchParams.get("code"), slug).toBe("SSO_E_NO_ROLE");
+    }
+  });
+
+  it("lets a valid session through, stamped with who it is", async () => {
+    const cookie = await staff();
+    for (const slug of MOVED) {
+      expect(await gate(`/admin/${slug}`, { nav: true, headers: { cookie } }), slug).toMatchObject({
+        status: 200,
+        adminRoute: "1",
+        via: "sso",
+        email: "eric@headpinz.com",
+      });
+    }
+  });
+
+  it("keeps their TOKEN url working, with no session, exactly as before", async () => {
+    // The non-negotiable half of the move: nothing was deleted from the v1
+    // tree, so every bookmark, cron and Teams card still resolves.
+    for (const slug of MOVED) {
+      expect(await gate(`/admin/${TOKEN}/${slug}`, { nav: true }), slug).toMatchObject({
+        status: 200,
+        adminRoute: "1",
+        via: null,
+      });
+    }
+  });
+
+  it("leaves /admin/embed/videos on the HMAC branch, not the new SSO route", async () => {
+    // `videos` joining SSO_ADMIN_TOOLS puts the string "videos" one segment
+    // away from the portal's iframe surface. If `isSsoToolPath` ever read
+    // segment 3 instead of segment 2, every embedded video log would start
+    // 307ing an iframe at a Microsoft sign-in page.
+    env({ ADMIN_EMBED_SECRET: "embed-secret" });
+    expect(await gate("/admin/embed/videos", { nav: true })).toMatchObject({ status: 403 });
+    expect(await gate("/admin/embed/e-tickets", { nav: true })).toMatchObject({ status: 403 });
+  });
+});
+
 describe("camera-assign went BACK to the token (owner decision 2026-08-28)", () => {
   it("serves both of its token URLs with no session", async () => {
     // Trackside kiosks, one per track. This is the whole reason it came off

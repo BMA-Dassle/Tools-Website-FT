@@ -31,6 +31,8 @@ describe("isSsoToolPath — only the migrated tools", () => {
     expect(isSsoToolPath("/admin/reservations", TOKEN)).toBe(true);
     expect(isSsoToolPath("/admin/reservations/", TOKEN)).toBe(true);
     expect(isSsoToolPath("/admin/checkin", TOKEN)).toBe(true);
+    expect(isSsoToolPath("/admin/e-tickets", TOKEN)).toBe(true);
+    expect(isSsoToolPath("/admin/videos", TOKEN)).toBe(true);
     // Deeper segments ride along on the slug, whether or not a route renders
     // them — the gate decides on segment 2 and nothing else.
     expect(isSsoToolPath("/admin/checkin/anything", TOKEN)).toBe(true);
@@ -161,6 +163,14 @@ describe("resolveAdminHostPath", () => {
       kind: "tool",
       pathname: "/admin/reservations",
     });
+    expect(resolveAdminHostPath("/e-tickets")).toEqual({
+      kind: "tool",
+      pathname: "/admin/e-tickets",
+    });
+    expect(resolveAdminHostPath("/videos")).toEqual({
+      kind: "tool",
+      pathname: "/admin/videos",
+    });
     expect(resolveAdminHostPath("/checkin/anything")).toEqual({
       kind: "tool",
       pathname: "/admin/checkin/anything",
@@ -176,7 +186,7 @@ describe("resolveAdminHostPath", () => {
   it("keeps EVERY un-migrated tool resolving, on the legacy tokened route", () => {
     // `admin.fasttraxent.com/deals` works today (the shell proxies it to
     // /admin/{token}/deals) and is in staff email going back months. Moving the
-    // domain onto this deployment must not 404 nineteen tools. Same gate,
+    // domain onto this deployment must not 404 seventeen tools. Same gate,
     // different rewrite target.
     for (const slug of [...DEVICE_TOKEN_TOOLS, ...TOKEN_ONLY_TOOLS]) {
       expect(resolveAdminHostPath(`/${slug}`), slug).toEqual({

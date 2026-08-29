@@ -1,21 +1,22 @@
 import { notFound } from "next/navigation";
-import EticketAdminClient from "./EticketAdminClient";
-import { adminPoppins } from "~/components/features/admin-skin/font";
-import { mintAdminApiToken } from "@/lib/admin-api-token";
+import AdminToolPage from "@/app/admin/_tools/e-tickets/AdminToolPage";
 
 /**
- * E-ticket admin page for front-desk staff.
+ * v1: `/admin/{ADMIN_CAMERA_TOKEN}/e-tickets`.
  *
- * Guarded by middleware.ts (unified ADMIN_CAMERA_TOKEN). This page
- * double-checks server-side so if middleware is ever bypassed, we
- * fail closed. The client side then drives filter state + resend
- * actions via /api/admin/e-tickets/{list,resend}.
+ * The static token in the path is the credential. Kept alongside the SSO route
+ * at `/admin/e-tickets` (same component, no credential in the URL) per the v2
+ * cutover pattern: ship v2 next to v1, let ops sign off, 308 v1 → v2, delete v1
+ * in a third PR. This route stays live until an explicit owner "pull it".
  *
- * URL shape: /admin/{ADMIN_CAMERA_TOKEN}/e-tickets
+ * The token check below is belt-and-braces with the middleware's unified gate,
+ * unchanged from before the split — a routing change must not quietly expose
+ * this.
  *
- * Legacy ADMIN_ETICKETS_TOKEN is also accepted server-side as a soft
- * alias during the bookmark-rotation window. Middleware also
- * 308-redirects legacy URLs to the canonical token at request time.
+ * Legacy `ADMIN_ETICKETS_TOKEN` is still accepted server-side as a soft alias
+ * during the bookmark-rotation window; middleware also 308-redirects legacy
+ * URLs to the canonical token at request time. That alias is this route's
+ * business alone — the SSO route has no token to alias.
  */
 
 export const dynamic = "force-dynamic"; // never static — auth depends on request
@@ -33,16 +34,5 @@ export default async function Page({ params }: Props) {
     (!!cameraToken && token === cameraToken) || (!!legacyToken && token === legacyToken);
   if (!tokenOk) notFound();
 
-  // The client sends this back as x-admin-token / ?token= for its
-  // /api/admin/* calls, exactly where it always sent one — but it is now a
-  // signed 8-hour credential, not the permanent ADMIN_CAMERA_TOKEN. The
-  // static token never reaches a browser again.
-  // (Pinned by scripts/check-admin-token-leak.mjs.)
-  const apiToken = await mintAdminApiToken();
-
-  return (
-    <div className={adminPoppins.variable}>
-      <EticketAdminClient token={apiToken} />
-    </div>
-  );
+  return <AdminToolPage />;
 }
