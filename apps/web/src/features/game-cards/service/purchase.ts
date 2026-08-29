@@ -30,6 +30,7 @@ import {
 import { linkCard } from "../data/customer-cards";
 import { saveCardOnFile } from "~/features/account/data/cards";
 import { isEisQueueCenter } from "./bridge-queue";
+import { assertSwipedBlanks } from "./swiped-blank-guard";
 
 /**
  * Optional signed-in context. `verifiedCustomerId` is resolved by the route
@@ -100,6 +101,12 @@ export async function chargeNewCardOrder(
     // number on an MSR-only kiosk.
     return { pkg, accountNumber: it.accountNumber ?? "" };
   });
+  // Swiped blanks are re-checked server-side before anything is persisted or
+  // charged — see swiped-blank-guard.ts. Dispenser items (no account) skip it.
+  await assertSwipedBlanks(
+    resolved.map((r) => r.accountNumber).filter((a) => a.length > 0),
+    input.locationCode,
+  );
 
   const groupId = randomUUID();
   const baseKey = randomBytes(8).toString("hex");

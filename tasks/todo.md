@@ -30,6 +30,16 @@ Check balance is a NEW card → hand off to set it up; card vouchers fulfil here
 - [x] Gates: tsc clean, full vitest 6456 green (new: blank-card, swipe-waiter, load-card
       swiped/no-clear, intercard not-found split, purchase persist-first), eslint 0 errors on changed
       files, `next build` + a11y gate green.
+- [x] Post-review hardening (8/28, adversarial review of `34aa14ad7`): reconcile cron gives kiosk
+      `new_card`/`voucher` rows a 15-min grace (persisting the swiped account had made them
+      SOAP-eligible while the kiosk was still bridge-crediting them — double credit);
+      `swiped-blank-guard.ts` re-checks every swiped account server-side before money moves on
+      all three charge rails (terminal-prepare, purchase, reserve-prepare); load-card refuses
+      `ACCOUNT_MISMATCH` on rows that carry an account and never clears a fresh-blank row that
+      already knows its card; swipe-kiosk voucher claims persist the swiped account (`voucher`
+      kind, all issuers); `useSerialMsr` enable/disable races (re-enable during close, late open,
+      stale state stamp) fixed; confirmation-screen device give-up 60 s → 5 min; a verified cart
+      row is never replaced by the next swipe (it adds a card); shared `service/swiped-card.ts`.
 - [ ] Push + PR; owner hardware smoke on an MSR kiosk — no MSR available here. Checklist: New-card
       tile live · Step 1/2 guide · swipe blank ⇒ "#… new card" · swipe a loaded card ⇒ refused +
       "Reload this card instead" · pay on the reader ⇒ tokens land · Check balance on a blank ⇒
@@ -249,7 +259,7 @@ real Edge after the merge (identical DOM).
 - [ ] Clean up: `git worktree remove .claude/worktrees/old-time-lanes-screens` and delete the
       local branch `worktree-old-time-lanes-screens`.
 - [ ] Owner call: the platform's **bottom-right identity stamp** (`Old Time Left · HPFM:7 ·
-    v0.8.0`) is on all 19 screens and is still there. "Only a logo" may mean it should go on
+  v0.8.0`) is on all 19 screens and is still there. "Only a logo" may mean it should go on
       these two — one line in `TvShell` if so.
 
 ### Deliberately NOT paired

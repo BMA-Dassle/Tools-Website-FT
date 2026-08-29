@@ -16,7 +16,8 @@
  * Rules that keep it safe on a kiosk:
  *  - Every wait is BOUNDED. A guest who walks away mid-run must not leave the
  *    screen listening forever — the next person's swipe would receive the
- *    previous guest's paid tokens. Callers always pass `timeoutMs`.
+ *    previous guest's paid tokens. The bound is enforced HERE: a wait without
+ *    an explicit `timeoutMs` gets DEFAULT_SWIPE_WAIT_MS, never "forever".
  *  - `feed` returns false when nobody is waiting, so the caller's ordinary
  *    swipe handling runs untouched.
  *  - `cancel` rejects only the PENDING wait; the instance stays usable. It is
@@ -26,6 +27,11 @@
  */
 
 export type SwipeWaitEnd = "cancelled" | "timeout";
+
+/** How long a kiosk listens for the guest's swipe before assuming they walked
+ *  away — one number for every swipe prompt (cart, voucher run, confirmation
+ *  screen), so the guest experience never differs by screen. */
+export const DEFAULT_SWIPE_WAIT_MS = 90_000;
 
 export class SwipeWaitError extends Error {
   readonly kind: SwipeWaitEnd;
@@ -37,7 +43,8 @@ export class SwipeWaitError extends Error {
 }
 
 export interface SwipeWaitOptions {
-  /** Give up after this long (rejects with kind "timeout"). */
+  /** Give up after this long (rejects with kind "timeout"). Defaults to
+   *  DEFAULT_SWIPE_WAIT_MS — a wait is never unbounded. */
   timeoutMs?: number;
   /** External cancel (rejects with kind "cancelled"). */
   signal?: AbortSignal;
@@ -85,9 +92,10 @@ export function createSwipeWaiter(): SwipeWaiter {
           opts.signal?.removeEventListener("abort", onAbort);
         };
         pending = { resolve, reject, cleanup };
-        if (opts.timeoutMs != null) {
-          timer = setTimeout(() => take()?.reject(new SwipeWaitError("timeout")), opts.timeoutMs);
-        }
+        timer = setTimeout(
+          () => take()?.reject(new SwipeWaitError("timeout")),
+          opts.timeoutMs ?? DEFAULT_SWIPE_WAIT_MS,
+        );
         if (opts.signal) {
           if (opts.signal.aborted) onAbort();
           else opts.signal.addEventListener("abort", onAbort, { once: true });

@@ -68,7 +68,7 @@ import {
 } from "../service/qualification-refresh-client";
 import { useKioskConfig } from "../KioskConfigContext";
 import { useLocale, type MessageKey, type Translate } from "../i18n";
-import { cardIssueRail, gameZoneCapability, isTestKiosk } from "../config";
+import { gameZoneCapability, isTestKiosk } from "../config";
 import {
   kioskMergedCheckoutEnabled,
   kioskCheckoutUpsellEnabled,
@@ -2112,7 +2112,7 @@ export function KioskFlow({
         onClearPromo={() => dispatch({ type: "applyPromo", promo: null })}
         // How a card reaches the guest here (dispenser / swiped blank / not at
         // all) — the receipt must never promise what this machine can't do.
-        cardIssue={cardIssueRail(config)}
+        capability={gameZoneCapability(config)}
         // "Who's here from your booking?" — a reservation-linked voucher
         // offers its party on the receipt; a tapped chip lands the person on
         // the SESSION party, so every later people step is prefilled. The

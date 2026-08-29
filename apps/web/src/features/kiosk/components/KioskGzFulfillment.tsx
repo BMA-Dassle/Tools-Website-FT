@@ -40,8 +40,7 @@ import {
   useSerialMsr,
   type FaultBehavior,
 } from "../card-reader";
-import { classifySwipedCard, type SwipedCardClass } from "~/features/game-cards/blank-card";
-import type { VerifyResult } from "~/features/game-cards/types";
+import { acquireBlankBySwipe } from "../service/swiped-card";
 import { creditTokensViaBridge } from "../service/game-card-bridge";
 import { clearGzFulfillment, type GzFulfillmentPayload } from "../service/gz-fulfillment";
 import { KioskDispenserHold } from "./KioskDispenserHold";
@@ -77,11 +76,18 @@ interface CardRow {
   status: CardStatus;
 }
 
-/** Swipe kiosk: how long each card waits for its swipe before the run gives up. */
-const SWIPE_WAIT_MS = 90_000;
-/** How long to wait for the device (CRT / MSR) to connect before releasing the
- *  screen — the payment is safe, the rows recover forward. */
-const DEVICE_READY_MS = 60_000;
+/**
+ * How long to wait for the device (CRT / MSR) to connect before releasing the
+ * screen — the payment is safe, the rows recover forward. Generous on purpose:
+ * a first CRT connect on this screen (Game Zone never opened this session, so
+ * no parked connection to adopt) can hunt every granted COM port through two
+ * baud passes with backoffs, and staff may be mid-replug; before 2026-08-28 the
+ * screen waited forever, which at least let a late connect finish the cards.
+ * Five minutes keeps that recovery for any realistic connect while still
+ * guaranteeing the screen cannot stay locked (Done disabled, auto-reset
+ * paused) indefinitely.
+ */
+const DEVICE_READY_MS = 5 * 60_000;
 
 export function KioskGzFulfillment({
   payload,
@@ -192,16 +198,18 @@ export function KioskGzFulfillment({
     setStarted(true);
     onBusyChange(true);
 
+    // A guest-PRESENTED card (swipe kiosk, new cards): the server never
+    // clear-on-encodes it. Derived once here, not threaded per call — a copied
+    // `false` on the swipe rail would be the one way to wipe a guest's card.
+    const swiped = swipeKiosk && payload.mode === "new_card";
     const loadCard = async (
       txnId: string,
       accountNumber: string,
       tokens: number,
       bonusTokens: number,
-      swiped: boolean,
     ): Promise<{ loaded: boolean; balanceTokens?: number }> => {
       // On-prem bridge FIRST (fast local EIS); /load-card records it (preLoaded)
       // or falls back to cloud SOAP server-side — never both, no double-credit.
-      // `swiped` = the guest chose this card: the server never clears it.
       const bridged = await creditTokensViaBridge({ accountNumber, tokens, bonusTokens });
       try {
         const res = await fetch("/api/game-cards/load-card", {
@@ -213,7 +221,7 @@ export function KioskGzFulfillment({
             accountNumber,
             locationCode: payload.locationCode,
             preLoaded: bridged,
-            ...(swiped ? { swiped: true } : {}),
+            swiped,
           }),
         });
         const data = await res.json();
@@ -223,57 +231,23 @@ export function KioskGzFulfillment({
       }
     };
 
-    /** Is the swiped card a blank we may load as new? Same rule as the Game
-     *  Zone cart (blank-card.ts); a failed lookup is "unknown", never blank. */
-    const classifyBlank = async (acct: string): Promise<SwipedCardClass> => {
-      try {
-        const res = await fetch("/api/game-cards/verify", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ accountNumber: acct, locationCode: payload.locationCode }),
-          signal: AbortSignal.timeout(15_000),
-        });
-        const data = (await res.json().catch(() => null)) as Partial<VerifyResult> | null;
-        if (!res.ok || !data) return "unknown";
-        return classifySwipedCard({
-          exists: data.exists === true,
-          notFound: data.notFound,
-          balance: data.balance,
-          cashBalance: data.cashBalance,
-          transactions: data.transactions,
-        });
-      } catch {
-        return "unknown";
-      }
-    };
-
-    /** Swipe kiosk: wait for the guest to swipe a BLANK for row `i`. Active /
-     *  duplicate / unknown swipes re-prompt with a note. Null = the wait timed
-     *  out (guest gone) — the caller fails the rest of the run. */
-    const acquireBlankBySwipe = async (i: number, used: Set<string>): Promise<string | null> => {
-      for (;;) {
-        setRow(i, { status: "swipe" });
-        let acct: string;
-        try {
-          acct = await swipeWaiter.wait({ timeoutMs: SWIPE_WAIT_MS });
-        } catch {
-          return null;
-        }
-        if (used.has(acct)) {
-          setSwipeNote(t("gamezone.swipe.duplicate"));
-          continue;
-        }
-        setSwipeChecking(true);
-        const cls = await classifyBlank(acct);
-        setSwipeChecking(false);
-        if (cls === "blank") {
-          setSwipeNote(null);
-          return acct;
-        }
-        setSwipeNote(
-          cls === "active" ? t("gamezone.swipe.active.short") : t("gamezone.swipe.unknown"),
-        );
-      }
+    /** Swipe kiosk: wait for the guest to swipe a BLANK for row `i` — the
+     *  shared loop (service/swiped-card.ts), so this screen and the Game Zone
+     *  cart give the same swiped card the same verdict and the same re-prompt.
+     *  Null = the wait ended (guest gone) — the caller fails the rest of the run. */
+    const swipeBlankFor = async (i: number, used: Set<string>): Promise<string | null> => {
+      setRow(i, { status: "swipe" });
+      const got = await acquireBlankBySwipe({
+        waiter: swipeWaiter,
+        locationCode: payload.locationCode,
+        used,
+        t,
+        onState: (s) => {
+          setSwipeChecking(s.phase === "checking");
+          setSwipeNote(s.phase === "waiting" ? s.note : null);
+        },
+      });
+      return got.ok ? got.account : null;
     };
 
     void (async () => {
@@ -283,13 +257,7 @@ export function KioskGzFulfillment({
           for (let i = 0; i < payload.cards.length; i++) {
             const c = payload.cards[i];
             setRow(i, { status: "loading" });
-            const { loaded } = await loadCard(
-              c.txnId,
-              c.accountNumber,
-              c.tokens,
-              c.bonusTokens,
-              false,
-            );
+            const { loaded } = await loadCard(c.txnId, c.accountNumber, c.tokens, c.bonusTokens);
             // A failed report leaves the row pending — the reconcile cron loads
             // it via cloud SOAP shortly. Paid tokens always arrive.
             setRow(i, { status: loaded ? "done" : "pending" });
@@ -305,7 +273,7 @@ export function KioskGzFulfillment({
             const c = payload.cards[i];
             let account: string | null = c.accountNumber || null;
             if (!account) {
-              account = await acquireBlankBySwipe(i, used);
+              account = await swipeBlankFor(i, used);
               if (!account) {
                 // The guest walked away. Fail this and every remaining row —
                 // payment safe, rows pending for the cron / staff — and let the
@@ -328,7 +296,6 @@ export function KioskGzFulfillment({
               account,
               c.tokens,
               c.bonusTokens,
-              true,
             );
             // The card is in the guest's hand and the row carries its account:
             // an unconfirmed credit is finished by the reconcile cron.
@@ -417,7 +384,6 @@ export function KioskGzFulfillment({
               account,
               c.tokens,
               c.bonusTokens,
-              false,
             );
             if (!loaded) {
               // Never hand over an unloaded blank — bin it; the row recovers forward.

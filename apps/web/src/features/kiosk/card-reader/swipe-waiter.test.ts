@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createSwipeWaiter, SwipeWaitError } from "./swipe-waiter";
+import { createSwipeWaiter, DEFAULT_SWIPE_WAIT_MS, SwipeWaitError } from "./swipe-waiter";
 
 describe("createSwipeWaiter", () => {
   beforeEach(() => vi.useFakeTimers());
@@ -59,6 +59,16 @@ describe("createSwipeWaiter", () => {
     ac.abort();
     await expect(p).rejects.toMatchObject({ kind: "cancelled" });
     expect(w.waiting).toBe(false);
+  });
+
+  it("a wait with no explicit timeout is still bounded (DEFAULT_SWIPE_WAIT_MS)", async () => {
+    const w = createSwipeWaiter();
+    const p = w.wait();
+    const rejected = expect(p).rejects.toMatchObject({ kind: "timeout" });
+    vi.advanceTimersByTime(DEFAULT_SWIPE_WAIT_MS - 1);
+    expect(w.waiting).toBe(true);
+    vi.advanceTimersByTime(1);
+    await rejected;
   });
 
   it("an already-aborted signal rejects immediately", async () => {

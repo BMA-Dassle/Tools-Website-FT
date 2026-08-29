@@ -58,11 +58,9 @@ import {
   useGameCardDispenser,
   useSerialMsr,
   createSwipeWaiter,
-  SwipeWaitError,
   type FaultBehavior,
 } from "../card-reader";
-import { classifySwipedCard, type SwipedCardClass } from "~/features/game-cards/blank-card";
-import type { VerifyResult } from "~/features/game-cards/types";
+import { acquireBlankBySwipe, classifySwipedAccount } from "../service/swiped-card";
 import type { GameCardCartPurchase } from "~/features/booking/state/types";
 import { useKioskConfig } from "../KioskConfigContext";
 import { kioskDeviceKey } from "../config";
@@ -103,13 +101,6 @@ type HoldFault = Extract<FaultBehavior, { kind: "hold" }>;
  *  and hold for staff. Bounded so a stack loaded facing the wrong way can't be
  *  fed through the reader one card at a time until the whole stacker is gone. */
 const MAX_BAD_BLANKS = 3;
-
-/** Swipe kiosks: how long a voucher run waits for the guest to swipe the next
- *  blank before giving up. A wait must ALWAYS end — a guest who walks away
- *  mid-run would otherwise leave the screen listening, and the next person's
- *  swipe would collect their card. Nothing is claimed until a blank is in hand,
- *  so timing out costs nobody anything. */
-const SWIPE_WAIT_MS = 90_000;
 
 /** Consecutive failed AUTO reads (reload / balance) before we stop re-arming the
  *  gate and wait for an explicit tap. Without this, an unreadable or stuck card
@@ -189,10 +180,9 @@ interface NewCard {
   /** Swipe kiosks only — what the swipe-time lookup said about `account`.
    *  "blank" is the ONLY state that arms Pay. */
   blankStatus?: "checking" | "blank" | "active" | "duplicate" | "unknown";
-  /** For the "that card isn't new" message: tokens already on it (0 with
-   *  `hadHistory` = a spent card). */
+  /** For the "that card isn't new" message: tokens already on it (0 = a card
+   *  with history / cash / time but no tokens — "has been used before"). */
   existingTokens?: number;
-  hadHistory?: boolean;
 }
 
 /** The verify route CONFIRMED there is no such account — a blank, or a cleared
@@ -548,9 +538,6 @@ export function KioskGameZone({
   const [holdFault, setHoldFault] = useState<HoldFault | null>(null);
   const holdRef = useRef<{ resolve: (resume: boolean) => void; reinit: boolean } | null>(null);
   const [reloadPending, setReloadPending] = useState(false);
-  // Swipe kiosk, new cards: at least one credit didn't confirm (row pending →
-  // reconcile cron; the guest keeps the card) — the done screen says so.
-  const [newLoadIssue, setNewLoadIssue] = useState(false);
   // Voucher run on a swipe kiosk: the leg currently waiting for a swipe (the
   // step guide renders instead of the loader) + the last swipe's verdict.
   const [swipeWait, setSwipeWait] = useState<{
@@ -818,91 +805,43 @@ export function KioskGameZone({
   };
 
   // ── Swipe kiosks: is a swiped card a BLANK we may sell as new? ──────────────
-  // One lookup → the shared verdict (game-cards/blank-card.ts). A failed or
-  // ambiguous lookup is "unknown", never "blank".
-  const classifyAccount = async (
-    acct: string,
-  ): Promise<{ cls: SwipedCardClass; tokens: number; hadHistory: boolean }> => {
-    const unknown = { cls: "unknown" as const, tokens: 0, hadHistory: false };
-    try {
-      const res = await fetch("/api/game-cards/verify", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ accountNumber: acct, locationCode }),
-        signal: AbortSignal.timeout(15_000),
-      });
-      const data = (await res.json().catch(() => null)) as {
-        exists?: boolean;
-        notFound?: "confirmed" | "ambiguous";
-        balance?: {
-          tokens?: number;
-          bonusTokens?: number;
-          eTickets?: number;
-          timeMinutes?: number;
-        };
-        cashBalance?: number;
-        transactions?: unknown[];
-      } | null;
-      if (!res.ok || !data) return unknown;
-      const b = data.balance;
-      const transactions = Array.isArray(data.transactions) ? data.transactions : [];
-      const cls = classifySwipedCard({
-        exists: data.exists === true,
-        notFound: data.notFound,
-        cashBalance: data.cashBalance,
-        balance: b
-          ? {
-              tokens: b.tokens ?? 0,
-              bonusTokens: b.bonusTokens ?? 0,
-              eTickets: b.eTickets ?? 0,
-              timeMinutes: b.timeMinutes ?? 0,
-            }
-          : undefined,
-        transactions: transactions as VerifyResult["transactions"],
-      });
-      return {
-        cls,
-        tokens: (b?.tokens ?? 0) + (b?.bonusTokens ?? 0),
-        hadHistory: transactions.length > 0,
-      };
-    } catch {
-      return unknown;
-    }
-  };
+  // The lookup + verdict live in service/swiped-card.ts (shared with the
+  // confirmation screen), so both screens read the same card the same way.
 
   /** Look up the swiped account for new-card row `i` and record the verdict. */
   const verifySwipedRow = async (i: number, acct: string) => {
-    setNewCardAt(i, {
-      account: acct,
-      blankStatus: "checking",
-      existingTokens: undefined,
-      hadHistory: undefined,
-    });
-    const r = await classifyAccount(acct);
+    setNewCardAt(i, { account: acct, blankStatus: "checking", existingTokens: undefined });
+    const r = await classifySwipedAccount(acct, locationCode);
     setNewCardAt(
       i,
       r.cls === "active"
-        ? { blankStatus: "active", existingTokens: r.tokens, hadHistory: r.hadHistory }
+        ? { blankStatus: "active", existingTokens: r.tokens }
         : { blankStatus: r.cls },
     );
   };
 
-  /** A swipe while the NEW-CARD cart is up. Target: the expanded row; else the
-   *  first row still without a card; else (every row already holds a swiped
-   *  card) a NEW row — swiping another blank is how you add one. One lookup in
-   *  flight at a time, so a double swipe can't report card B's verdict against
-   *  card A's number. */
+  /** A swipe while the NEW-CARD cart is up. Target: the expanded row IF it is
+   *  still waiting for its card (no account yet, or its last swipe was refused);
+   *  else the first such row; else (every row already holds a verified blank) a
+   *  NEW row — swiping the next blank is how a family adds the next card. A
+   *  verified row is never silently replaced by a later swipe (Remove + re-swipe
+   *  swaps one). One lookup in flight at a time, so a double swipe can't report
+   *  card B's verdict against card A's number. */
   const swipeNewCard = async (acct: string) => {
     if (newCards.some((c) => c.blankStatus === "checking")) return;
-    let target = newEditIdx != null && newEditIdx < newCards.length ? newEditIdx : -1;
-    if (target < 0) target = newCards.findIndex((c) => !c.account);
+    const waiting = (c: NewCard) => c.blankStatus !== "blank";
+    const expanded =
+      newEditIdx != null && newEditIdx < newCards.length ? newCards[newEditIdx] : undefined;
+    let target = expanded && waiting(expanded) ? (newEditIdx as number) : -1;
+    if (target < 0) target = newCards.findIndex(waiting);
+    const duplicate = newCards.some((c, idx) => idx !== target && c.account === acct);
     if (target < 0) {
-      if (newCards.length >= 10) return;
+      if (duplicate || newCards.length >= 10) return; // already in the order / cart full
       target = newCards.length;
       setNewCards((cs) => [...cs, { packageId: TOKEN_PACKAGES[1].id }]);
       setNewEditIdx(target);
     }
-    if (newCards.some((c, idx) => idx !== target && c.account === acct)) {
+    if (duplicate) {
       setNewCardAt(target, { blankStatus: "duplicate" });
       return;
     }
@@ -913,21 +852,26 @@ export function KioskGameZone({
    *  seen is a blank — carry it into the new-card cart as a row and RE-VERIFY
    *  it there under the cart's own rule (the balance lookup's verdict is not
    *  trusted twice). An untouched default cart is replaced; a cart already
-   *  holding swiped cards gains a row. */
+   *  holding swiped cards gains a row — or, if it is already full, is simply
+   *  shown (never silently replacing its tenth card). */
   const setUpSwipedCard = (acct: string) => {
+    setBalCard(null);
+    setBalTyped("");
+    setMode("newcard");
+    const keep = newCards.some((c) => c.account);
+    if (keep && newCards.length >= 10) {
+      setNewEditIdx(null);
+      return;
+    }
     const fresh: NewCard = {
       packageId: TOKEN_PACKAGES[1].id,
       account: acct,
       blankStatus: "checking",
     };
-    const keep = newCards.some((c) => c.account);
-    const next = keep ? [...newCards, fresh].slice(0, 10) : [fresh];
+    const next = keep ? [...newCards, fresh] : [fresh];
     const idx = next.length - 1;
     setNewCards(next);
     setNewEditIdx(idx);
-    setBalCard(null);
-    setBalTyped("");
-    setMode("newcard");
     void verifySwipedRow(idx, acct);
   };
 
@@ -937,12 +881,7 @@ export function KioskGameZone({
     const c = newCards[i];
     if (!c?.account) return;
     const acct = c.account;
-    setNewCardAt(i, {
-      account: undefined,
-      blankStatus: undefined,
-      existingTokens: undefined,
-      hadHistory: undefined,
-    });
+    setNewCardAt(i, { account: undefined, blankStatus: undefined, existingTokens: undefined });
     setCards([{ accountNumber: acct, packageId: c.packageId, status: "unverified" }]);
     setReloadEditIdx(0);
     setMode("reload");
@@ -1308,42 +1247,29 @@ export function KioskGameZone({
 
   /**
    * SWIPE kiosk, voucher run: wait for the guest to swipe a BLANK for card `n`
-   * of `total`. Bounded (SWIPE_WAIT_MS) and Cancel-able — nothing is claimed
-   * while this waits, so ending it costs nobody anything. A card that already
-   * carries value, one already loaded this run, or one we couldn't check
-   * re-prompts with a note rather than failing the leg.
+   * of `total` — the shared loop (service/swiped-card.ts): bounded and
+   * Cancel-able, nothing is claimed while it waits, so ending it costs nobody
+   * anything; a card with value, one already used this run, or one we couldn't
+   * check re-prompts with a note. Its state drives the swipe panel below.
    */
-  const acquireBlankBySwipe = async (
-    n: number,
-    total: number,
-    used: Set<string>,
-  ): Promise<{ ok: true; account: string } | { ok: false; why: "cancelled" | "timeout" }> => {
-    let note: string | null = null;
-    for (;;) {
-      setSwipeWait({ n, total, checking: false, note });
-      let acct: string;
-      try {
-        acct = await swipeWaiter.wait({ timeoutMs: SWIPE_WAIT_MS });
-      } catch (err) {
-        setSwipeWait(null);
-        return {
-          ok: false,
-          why: err instanceof SwipeWaitError && err.kind === "timeout" ? "timeout" : "cancelled",
-        };
-      }
-      if (used.has(acct)) {
-        note = t("gamezone.swipe.duplicate");
-        continue;
-      }
-      setSwipeWait({ n, total, checking: true, note: null });
-      const r = await classifyAccount(acct);
-      if (r.cls === "blank") {
-        setSwipeWait(null);
-        return { ok: true, account: acct };
-      }
-      note = r.cls === "active" ? t("gamezone.swipe.active.short") : t("gamezone.swipe.unknown");
-    }
-  };
+  const waitForBlank = (n: number, total: number, used: ReadonlySet<string>) =>
+    acquireBlankBySwipe({
+      waiter: swipeWaiter,
+      locationCode,
+      used,
+      t,
+      onState: (s) =>
+        setSwipeWait(
+          s.phase === "idle"
+            ? null
+            : {
+                n,
+                total,
+                checking: s.phase === "checking",
+                note: s.phase === "waiting" ? s.note : null,
+              },
+        ),
+    });
 
   /**
    * SCAN → add to the basket. Validates only (see validateNativeVoucher): a
@@ -1469,7 +1395,7 @@ export function KioskGameZone({
           // costs nothing and leaves every code intact for a retry.
           let swipedAccount: string | null = null;
           if (capability === "swipe") {
-            const got = await acquireBlankBySwipe(cardNo, totalCards, runAccounts);
+            const got = await waitForBlank(cardNo, totalCards, runAccounts);
             if (!got.ok) {
               stopped = got.why;
               setBasketRow(row.code, { status: "ready", error: undefined });
@@ -1491,6 +1417,11 @@ export function KioskGameZone({
                 locationCode,
                 center: config?.center,
                 kioskId: config ? kioskDeviceKey(config) : undefined,
+                // Swipe kiosk: the blank already in hand rides the claim, so
+                // the comped row is persisted WITH its card (persist-first) —
+                // a load that never reaches the server still leaves a row
+                // the reconcile cron can credit.
+                accountNumber: swipedAccount ?? undefined,
               }),
             });
             const data = (await res.json().catch(() => ({}))) as {
@@ -1544,7 +1475,10 @@ export function KioskGameZone({
               })
             : await dispenseVoucherCard({ code: row.code, ...claimed });
           voucherClaimRef.current = null;
-          if (ok && swipedAccount) runAccounts.add(swipedAccount);
+          // A claim was taken against this blank — loaded OR pending (the cron
+          // finishes a pending credit onto it) — so it is spoken for: the next
+          // leg must not accept the same card again.
+          if (swipedAccount) runAccounts.add(swipedAccount);
           runOutcomes.push({ code: row.code, loaded: ok });
           if (!ok) break; // dispenseVoucherCard already failed the row — next row
           issued++;
@@ -1568,13 +1502,14 @@ export function KioskGameZone({
       // (and twice under StrictMode).
       const rows = voucherBasketRef.current;
       const anyLoaded = rows.some((r) => r.status === "loaded");
-      if (stopped && !anyLoaded) {
-        // The swipe wait ended (Cancel / timeout) with nothing issued and
-        // nothing claimed — back to the basket, codes intact, and say why.
+      if (stopped) {
+        // The swipe wait ended (Cancel / timeout). Nothing issued → back to the
+        // basket, codes intact; some cards issued → the done screen, but SAY
+        // the run stopped early so a half-issued code isn't read as finished.
         setVoucherMsg(
           t(stopped === "timeout" ? "gamezone.swipe.timedOut" : "gamezone.swipe.cancelled"),
         );
-        setVoucherPhase("entry");
+        setVoucherPhase(anyLoaded ? "done" : "entry");
       } else {
         setVoucherPhase(anyLoaded ? "done" : "error");
       }
@@ -1851,14 +1786,16 @@ export function KioskGameZone({
     groupId: string,
     rows: Array<{ txnId: string; accountNumber?: string }>,
   ) => {
-    let anyPending = false;
     for (let i = 0; i < newCards.length; i++) {
       const txnId = rows[i]?.txnId;
       if (!txnId) break;
+      // The account came back on the charged row (persisted at prepare from the
+      // swipe); the cart copy is the same value.
       const account = rows[i]?.accountNumber || newCards[i]?.account;
       if (!account) {
-        // Can't happen (Pay arms only on verified blanks) — but never credit blind.
-        anyPending = true;
+        // Can't happen (Pay arms only on verified blanks) — never credit blind,
+        // and make the impossible loud rather than a quiet failed row.
+        console.error(`[kiosk] swipe new-card row ${i + 1} has no account (txn ${txnId})`);
         setNewCardAt(i, { cardStatus: "failed" });
         continue;
       }
@@ -1899,12 +1836,10 @@ export function KioskGameZone({
       if (loaded) {
         setNewCardAt(i, { account, loaded: true, cardStatus: "loaded", balanceTokens });
       } else {
-        anyPending = true;
         setNewCardAt(i, { account, loaded: false, cardStatus: "failed" });
       }
     }
     setDispenseMsg(null);
-    setNewLoadIssue(anyPending);
     setPhase("done");
   };
 
@@ -2579,6 +2514,14 @@ export function KioskGameZone({
               </div>
             )}
 
+            {/* A run that stopped early (swipe Cancel / timeout) says so here —
+                the rows below would otherwise read as a finished basket. */}
+            {voucherMsg && (
+              <p className="mt-3 text-lg text-amber-200" role="alert">
+                {voucherMsg}
+              </p>
+            )}
+
             {/* Per-row outcome. A partial run must show WHICH card is missing —
                 "something went wrong" would leave the guest guessing. */}
             <ul className="mt-6 w-full space-y-2 text-left">
@@ -3224,7 +3167,9 @@ export function KioskGameZone({
               ? t("gamezone.cardsReadyBody", { count: newCards.length })
               : t("gamezone.grabCards", { count: newCards.length })}
           </p>
-          {newLoadIssue && (
+          {/* Swipe kiosk: a credit that didn't confirm is pending on its row
+              (the cron finishes it) — the guest keeps the card, say so. */}
+          {capability === "swipe" && newCards.some((c) => c.cardStatus === "failed") && (
             <p className="mt-3 rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-left text-sm text-amber-100">
               {t("gamezone.swipe.loadPending")}
             </p>
@@ -3283,7 +3228,7 @@ export function KioskGameZone({
           <div className="text-base font-bold text-[#46d68c]">
             {t("gamezone.swipe.blankOk", { num: displayCardNumber(c.account) })}
           </div>
-          <div className="mt-0.5 text-sm text-white/50">{t("gamezone.swipe.replace")}</div>
+          <div className="mt-0.5 text-sm text-white/50">{t("gamezone.swipe.swipeMoreToAdd")}</div>
         </div>
       );
     }

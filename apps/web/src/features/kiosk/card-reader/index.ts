@@ -66,6 +66,7 @@ export {
 } from "./useSerialMsr";
 export {
   createSwipeWaiter,
+  DEFAULT_SWIPE_WAIT_MS,
   SwipeWaitError,
   type SwipeWaiter,
   type SwipeWaitEnd,

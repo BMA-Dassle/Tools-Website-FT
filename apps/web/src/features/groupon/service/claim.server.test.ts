@@ -162,12 +162,25 @@ describe("claimGrouponGameZone", () => {
     expect(claimVoucher).not.toHaveBeenCalled();
   });
 
-  it("credits a card the guest already holds without looking like a fresh blank", async () => {
+  it("credits a card the guest already holds (WEB leg) without looking like a fresh blank", async () => {
     // clear-on-encode would wipe their existing balance if this said "voucher".
-    await claim({ accountNumber: "1038091" });
+    // The web leg (voucher-to-card.ts) always claims with source "web".
+    await claim({ accountNumber: "1038091", source: "web" });
 
     expect(startCompedTxn).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "voucher_reload", accountNumber: "1038091" }),
+    );
+  });
+
+  it("a SWIPE kiosk's blank rides the claim as a `voucher` row that already knows its card", async () => {
+    // No dispenser: the guest swiped the blank BEFORE the claim (persist-first).
+    // Still fresh stock (`voucher`), not the web leg — load-card never clears a
+    // fresh-blank row that carries its account, and the reconcile cron gives
+    // `voucher` rows the kiosk's grace window.
+    await claim({ accountNumber: "0000000001037356", source: "kiosk" });
+
+    expect(startCompedTxn).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "voucher", accountNumber: "0000000001037356" }),
     );
   });
 

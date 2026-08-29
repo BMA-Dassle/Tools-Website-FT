@@ -32,7 +32,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppliedPromo } from "~/features/discount-codes";
 import type { PartyMember } from "~/features/booking";
 import { useKioskConfig } from "../KioskConfigContext";
-import { kioskDeviceKey } from "../config";
+import { kioskDeviceKey, type GameZoneCapability } from "../config";
 import { useQrScanner } from "../qr-scanner/useQrScanner";
 import { useWedgeScan } from "../checkin/wedge-scan";
 import { classifyKioskCode, type KioskCodeKind } from "../code-entry/classify";
@@ -162,7 +162,7 @@ export function KioskCodeEntry({
   onGzCardRemoveOne,
   appliedPromo = null,
   onClearPromo,
-  cardIssue = "dispense",
+  capability = "full",
   party = [],
   onPartyAdd,
   onPartyRemove,
@@ -221,18 +221,19 @@ export function KioskCodeEntry({
    *  the receipt is up must never replace it. */
   appliedPromo?: AppliedPromo | null;
   onClearPromo?: () => void;
-  /** How a NEW card reaches the guest on THIS kiosk (config.cardIssueRail):
-   *  "dispense" — it comes out of the CRT ("Print my cards");
-   *  "swipe"    — no dispenser; the guest takes a blank from the holder under
-   *               the screen and swipes it at the Game Zone screen ("Load my
-   *               cards", owner 2026-08-28);
-   *  "none"     — no card hardware: the receipt still accepts card vouchers
-   *               but says to collect at another Game Zone kiosk / Guest
-   *               Services, offers no issue action and no leave warning — a
-   *               machine that cannot hand over a card must never promise to
-   *               (owner 2026-07-30 screenshot: "GAME ZONE CARDS NOT AVAILABLE
-   *               ON THIS KIOSK" yet the flow offered "get my card"). */
-  cardIssue?: "dispense" | "swipe" | "none";
+  /** This kiosk's Game Zone hardware (config.gameZoneCapability) — how a NEW
+   *  card reaches the guest:
+   *  "full"  — the CRT dispenser hands it out ("Print my cards");
+   *  "swipe" — no dispenser; the guest takes a blank from the holder under the
+   *            screen and swipes it at the Game Zone screen ("Load my cards",
+   *            owner 2026-08-28);
+   *  "none"  — no card hardware: the receipt still accepts card vouchers but
+   *            says to collect at another Game Zone kiosk / Guest Services,
+   *            offers no issue action and no leave warning — a machine that
+   *            cannot hand over a card must never promise to (owner 2026-07-30
+   *            screenshot: "GAME ZONE CARDS NOT AVAILABLE ON THIS KIOSK" yet the
+   *            flow offered "get my card"). */
+  capability?: GameZoneCapability;
   /** The session party — the "Who's here from your booking?" chips derive
    *  selected/disabled state from it (session truth, remount-proof). */
   party?: PartyMember[];
@@ -337,7 +338,7 @@ export function KioskCodeEntry({
   }, []);
   const noDispenseReportedRef = useRef(false);
   useEffect(() => {
-    if (cardIssue !== "none" || pendingGzCards.length === 0 || noDispenseReportedRef.current) {
+    if (capability !== "none" || pendingGzCards.length === 0 || noDispenseReportedRef.current) {
       return;
     }
     noDispenseReportedRef.current = true;
@@ -345,7 +346,7 @@ export function KioskCodeEntry({
     console.warn(
       `[kiosk] card voucher accepted on a kiosk with NO card hardware — guest directed to another Game Zone kiosk / Guest Services`,
     );
-  }, [cardIssue, pendingGzCards.length]);
+  }, [capability, pendingGzCards.length]);
   /** Native codes already handled this session — a re-scan is a no-op. Seeded
    *  with everything the parent already holds so a remount can't re-add it. */
   const processedNativeRef = useRef<Set<string>>(
@@ -910,13 +911,13 @@ export function KioskCodeEntry({
    * — and, just as importantly, that redeeming the rest here is still fine.
    *
    * Informational, not an error: it uses the amber/among-friends treatment and
-   * never blocks the input. Only for `cardIssue === "none"` — a kiosk with a
+   * never blocks the input. Only for `capability === "none"` — a kiosk with a
    * swipe reader DOES hand over cards (the guest swipes a blank), and a kiosk
    * whose CRT is merely toggled off reads as "none" too, not just one that
    * never had hardware.
    */
   const noDispenserNotice =
-    cardIssue !== "none" ? null : (
+    capability !== "none" ? null : (
       <div className="mt-[20px] rounded-[18px] border border-[rgba(255,176,32,0.45)] bg-[rgba(255,176,32,0.08)] px-[28px] py-[18px] text-left">
         <div className="text-[28px] font-semibold text-[#ffb020]">
           {t("codeEntry.noDispenser.title")}
@@ -1096,7 +1097,7 @@ export function KioskCodeEntry({
       // its verdict to copy and callbacks.
       const plan = receiptPlan({
         cardCodes: codes.length,
-        canIssue: cardIssue !== "none",
+        canIssue: capability !== "none",
         cartVouchers: cartLabels.length,
         promoApplied: !!appliedPromo,
       });
@@ -1130,7 +1131,7 @@ export function KioskCodeEntry({
       };
       // "Print" on a dispenser kiosk; "Load" on a swipe kiosk — nothing prints
       // there, the guest swipes a blank and the tokens load onto it.
-      const swipeIssue = cardIssue === "swipe";
+      const swipeIssue = capability === "swipe";
       const finish =
         plan.primary === "print"
           ? {
@@ -1185,9 +1186,9 @@ export function KioskCodeEntry({
                   {t("codeEntry.voucherGz.printingTitle", { n: Math.max(gzCards.length, 1) })}
                 </div>
                 <div className="mt-[4px] text-[20px] text-white/45">
-                  {cardIssue === "dispense"
+                  {capability === "full"
                     ? t("codeEntry.voucherGz.printingSub")
-                    : cardIssue === "swipe"
+                    : capability === "swipe"
                       ? t("codeEntry.voucherGz.printingSubSwipe")
                       : t("codeEntry.voucherGz.printingSubElsewhere")}
                 </div>
@@ -1227,7 +1228,7 @@ export function KioskCodeEntry({
                               guest (dispensed, or a swiped blank). Choosing a
                               quantity of something this machine will not hand
                               you is theatre. */}
-                          {cardIssue !== "none" && (
+                          {capability !== "none" && (
                             <>
                               <button
                                 type="button"
@@ -1543,7 +1544,7 @@ export function KioskCodeEntry({
             <div className="mt-auto rounded-[20px] border border-[#ff8c7a]/45 bg-[#ff8c7a]/[0.08] px-[28px] py-[20px]">
               <div className="text-center text-[26px] leading-[1.35] text-[#ffb3a6]">
                 {t(
-                  cardIssue === "swipe"
+                  capability === "swipe"
                     ? "codeEntry.voucherGz.leaveWarnSwipe"
                     : "codeEntry.voucherGz.leaveWarn",
                   { n: cardCount },
@@ -1565,7 +1566,7 @@ export function KioskCodeEntry({
                 </button>
                 <button type="button" onClick={startPrint} className="k-btn-primary k-tap">
                   {t(
-                    cardIssue === "swipe"
+                    capability === "swipe"
                       ? "codeEntry.voucherGz.loadNow"
                       : "codeEntry.voucherGz.printNow",
                     { n: cardCount },

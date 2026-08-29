@@ -371,17 +371,6 @@ export function gameZoneCapability(cfg: KioskConfig | null): GameZoneCapability 
   return "none";
 }
 
-/**
- * How a NEW card physically reaches the guest on this kiosk — the coupon
- * receipt's copy and footer hang on this: "dispense" (comes out of the CRT),
- * "swipe" (the guest takes a blank from the holder and swipes it), "none".
- */
-export type CardIssueRail = "dispense" | "swipe" | "none";
-export function cardIssueRail(cfg: KioskConfig | null): CardIssueRail {
-  const cap = gameZoneCapability(cfg);
-  return cap === "full" ? "dispense" : cap === "swipe" ? "swipe" : "none";
-}
-
 /** URL params win over stored values field-by-field. */
 export function mergeKioskConfig(
   stored: KioskConfig | null,

@@ -9,10 +9,11 @@
  * with one. Used by the new-card cart row, the voucher run ("card 2 of 3") and
  * the confirmation-screen fulfilment of cards bought with a booking.
  *
- * Pure inline SVG (no emoji, no external assets); the active step glows and
- * the swiping card animates with the existing k-slot-card keyframe family's
- * reduced-motion guard (app/kiosk/kiosk.css) — with motion reduced, both
- * figures rest as static "here / like this" diagrams.
+ * Pure inline SVG (no emoji, no external assets); both steps glow while the
+ * kiosk waits for the swipe (it cannot sense the "take a card" half) and the
+ * swiping card animates under the existing reduced-motion guard
+ * (app/kiosk/kiosk.css) — with motion reduced, both figures rest as static
+ * "here / like this" diagrams.
  *
  * `size` — "md" for screens wrapped in `kiosk-zoom` (rem scale), "lg" for the
  * fixed-canvas confirmation column (px scale).
@@ -142,23 +143,19 @@ export function SwipeBlankGuide({
 }) {
   const t = useT();
   const lg = size === "lg";
-  const stepBox = (
-    n: 1 | 2,
-    active: boolean,
-    title: string,
-    body: string,
-    glyph: React.ReactNode,
-  ) => (
+  // Both steps light together while we wait (the kiosk can't sense the "take a
+  // card" half) and dim together while the swiped card is being checked.
+  const lit = step === "wait";
+  const stepBox = (n: 1 | 2, title: string, body: string, glyph: React.ReactNode) => (
     <div
       className={`flex flex-1 flex-col items-center rounded-2xl border-2 text-center transition-colors ${
         lg ? "px-[20px] py-[18px]" : "px-4 py-3.5"
-      } ${active ? "border-[#46d68c] bg-[#46d68c]/10" : "border-white/10 bg-white/[0.03]"}`}
-      aria-current={active ? "step" : undefined}
+      } ${lit ? "border-[#46d68c] bg-[#46d68c]/10" : "border-white/10 bg-white/[0.03]"}`}
     >
       <div
         className={`font-bold uppercase tracking-[0.25em] ${
           lg ? "text-[18px]" : "text-[11px]"
-        } ${active ? "text-[#46d68c]" : "text-white/40"}`}
+        } ${lit ? "text-[#46d68c]" : "text-white/40"}`}
       >
         {t("gamezone.swipe.stepN", { n })}
       </div>
@@ -188,17 +185,15 @@ export function SwipeBlankGuide({
       <div className={`flex w-full gap-3 ${label || sublabel ? (lg ? "mt-[16px]" : "mt-3") : ""}`}>
         {stepBox(
           1,
-          step === "wait",
           t("gamezone.swipe.step1.title"),
           t("gamezone.swipe.step1.body"),
-          <HolderGlyph active={step === "wait"} />,
+          <HolderGlyph active={lit} />,
         )}
         {stepBox(
           2,
-          step === "wait",
           t("gamezone.swipe.step2.title"),
           t("gamezone.swipe.step2.body"),
-          <SwipeGlyph active={step === "wait"} />,
+          <SwipeGlyph active={lit} />,
         )}
       </div>
       <div

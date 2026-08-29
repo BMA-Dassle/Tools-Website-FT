@@ -38,7 +38,7 @@
  *         confirmation screen (pre-swiped rows directly; upsell rows prompt a
  *         swipe there). Every hardware wait on the confirmation screen is now
  *         bounded — a device that never connects releases the screen after
- *         60 s instead of freezing it (dispenser kiosks too). useSerialMsr
+ *         5 min instead of freezing it (dispenser kiosks too). useSerialMsr
  *         releases the COM port when disabled, so the pay screen's gift-card
  *         swipe works after a Game Zone sale on msrUse "both". Capability
  *         "reload" is renamed "swipe"; the checkout upsell no longer requires
