@@ -31,8 +31,30 @@ describe("isSsoToolPath — only the migrated tools", () => {
     expect(isSsoToolPath("/admin/reservations", TOKEN)).toBe(true);
     expect(isSsoToolPath("/admin/reservations/", TOKEN)).toBe(true);
     expect(isSsoToolPath("/admin/checkin", TOKEN)).toBe(true);
-    expect(isSsoToolPath("/admin/camera-assign", TOKEN)).toBe(true);
-    expect(isSsoToolPath("/admin/camera-assign/blue", TOKEN)).toBe(true);
+    expect(isSsoToolPath("/admin/e-tickets", TOKEN)).toBe(true);
+    expect(isSsoToolPath("/admin/videos", TOKEN)).toBe(true);
+    // Deeper segments ride along on the slug, whether or not a route renders
+    // them — the gate decides on segment 2 and nothing else.
+    expect(isSsoToolPath("/admin/checkin/anything", TOKEN)).toBe(true);
+  });
+
+  it("covers EVERY slug on the SSO list, so no v2 board is left ungated", () => {
+    for (const slug of SSO_ADMIN_TOOLS) {
+      expect(isSsoToolPath(`/admin/${slug}`, TOKEN), slug).toBe(true);
+    }
+  });
+
+  it("is FALSE for camera-assign, board and track alike (owner decision 2026-08-28)", () => {
+    // It shipped SSO-gated and came back off: trackside kiosks, shared between
+    // staff, worked standing up between heats. The nested path matters as much
+    // as the board — `/admin/camera-assign/blue` must not be claimed by the
+    // SSO branch either, because there is no v2 route for it to redirect to.
+    expect(isSsoToolPath("/admin/camera-assign", TOKEN)).toBe(false);
+    expect(isSsoToolPath("/admin/camera-assign/blue", TOKEN)).toBe(false);
+    expect(isSsoToolPath("/admin/camera-assign/", TOKEN)).toBe(false);
+    // …and its token URLs are untouched by any of this.
+    expect(isSsoToolPath(`/admin/${TOKEN}/camera-assign`, TOKEN)).toBe(false);
+    expect(isSsoToolPath(`/admin/${TOKEN}/camera-assign/blue`, TOKEN)).toBe(false);
   });
 
   it("is FALSE for the unattended wall displays", () => {
@@ -141,9 +163,17 @@ describe("resolveAdminHostPath", () => {
       kind: "tool",
       pathname: "/admin/reservations",
     });
-    expect(resolveAdminHostPath("/camera-assign/blue")).toEqual({
+    expect(resolveAdminHostPath("/e-tickets")).toEqual({
       kind: "tool",
-      pathname: "/admin/camera-assign/blue",
+      pathname: "/admin/e-tickets",
+    });
+    expect(resolveAdminHostPath("/videos")).toEqual({
+      kind: "tool",
+      pathname: "/admin/videos",
+    });
+    expect(resolveAdminHostPath("/checkin/anything")).toEqual({
+      kind: "tool",
+      pathname: "/admin/checkin/anything",
     });
     for (const slug of SSO_ADMIN_TOOLS) {
       expect(resolveAdminHostPath(`/${slug}`), slug).toEqual({
@@ -156,7 +186,7 @@ describe("resolveAdminHostPath", () => {
   it("keeps EVERY un-migrated tool resolving, on the legacy tokened route", () => {
     // `admin.fasttraxent.com/deals` works today (the shell proxies it to
     // /admin/{token}/deals) and is in staff email going back months. Moving the
-    // domain onto this deployment must not 404 eighteen tools. Same gate,
+    // domain onto this deployment must not 404 seventeen tools. Same gate,
     // different rewrite target.
     for (const slug of [...DEVICE_TOKEN_TOOLS, ...TOKEN_ONLY_TOOLS]) {
       expect(resolveAdminHostPath(`/${slug}`), slug).toEqual({
@@ -169,6 +199,18 @@ describe("resolveAdminHostPath", () => {
       kind: "legacy-tool",
       slug: "daily-events",
       path: "/daily-events/12345",
+    });
+    // camera-assign rejoined this group, nested route and all — the clean staff
+    // URL keeps working, it just rewrites to the tokened board again.
+    expect(resolveAdminHostPath("/camera-assign")).toEqual({
+      kind: "legacy-tool",
+      slug: "camera-assign",
+      path: "/camera-assign",
+    });
+    expect(resolveAdminHostPath("/camera-assign/blue")).toEqual({
+      kind: "legacy-tool",
+      slug: "camera-assign",
+      path: "/camera-assign/blue",
     });
   });
 

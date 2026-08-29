@@ -1,15 +1,15 @@
 import { notFound } from "next/navigation";
-import { adminPoppins } from "~/components/features/admin-skin/font";
-import VideoAdminClient from "./VideoAdminClient";
-import { mintAdminApiToken } from "@/lib/admin-api-token";
+import AdminToolPage from "@/app/admin/_tools/videos/AdminToolPage";
 
 /**
- * Video resend admin.
+ * v1: `/admin/{ADMIN_CAMERA_TOKEN}/videos`.
  *
- * URL: /admin/{ADMIN_CAMERA_TOKEN}/videos
+ * The static token in the path is the credential. Kept alongside the SSO route
+ * at `/admin/videos` (same component, no credential in the URL) per the v2
+ * cutover pattern. This route stays live until an explicit owner "pull it".
  *
- * Middleware gates on ADMIN_CAMERA_TOKEN (shared with the camera-assign
- * tool — same staff, same workflow). Server-side double-check below.
+ * The token check below is belt-and-braces with the middleware's unified gate,
+ * unchanged from before the split.
  */
 
 export const dynamic = "force-dynamic";
@@ -22,16 +22,5 @@ export default async function Page({ params }: Props) {
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!expected || token !== expected) notFound();
 
-  // The client sends this back as x-admin-token / ?token= for its
-  // /api/admin/* calls, exactly where it always sent one — but it is now a
-  // signed 8-hour credential, not the permanent ADMIN_CAMERA_TOKEN. The
-  // static token never reaches a browser again.
-  // (Pinned by scripts/check-admin-token-leak.mjs.)
-  const apiToken = await mintAdminApiToken();
-
-  return (
-    <div className={adminPoppins.variable}>
-      <VideoAdminClient token={apiToken} />
-    </div>
-  );
+  return <AdminToolPage />;
 }

@@ -239,17 +239,148 @@ describe("SSO gate — /admin/<tool> on a brand host", () => {
     );
   });
 
-  it("covers camera-assign's nested [track] route", async () => {
-    const cookie = await staff();
-    expect(
-      await gate("/admin/camera-assign/blue", { nav: true, headers: { cookie } }),
-    ).toMatchObject({ status: 200, via: "sso" });
-  });
-
   it("gates EVERY migrated tool — no v2 board is left ungated", async () => {
     for (const slug of SSO_ADMIN_TOOLS) {
       expect(await gate(`/admin/${slug}`, { nav: true }), slug).toMatchObject({ status: 307 });
     }
+  });
+});
+
+/**
+ * THE FULL MATRIX, RUN AGAIN FOR THE TWO SLUGS THAT JUST JOINED.
+ *
+ * The assertions above prove the BRANCH on `reservations`; these prove the
+ * REGISTRY — that `e-tickets` and `videos` actually reach that branch. The two
+ * are separable failures: an edit that adds a slug to `SSO_ADMIN_TOOLS` but
+ * leaves `isSsoToolPath` looking at the wrong list would keep every assertion
+ * above green while the two new boards answered 404 to a signed-in human, or
+ * (worse, if the lists were crossed the other way) served with no gate at all.
+ *
+ * Same real Auth.js cookies as everything else in this file — `encode()` from
+ * `@auth/core/jwt`, salted with the cookie name, decoded by the middleware's
+ * own `decode`. A mock would prove the branching and hide the one thing that
+ * can silently break.
+ */
+describe("SSO gate — the two tools that moved onto sign-in (owner decision 2026-08-28)", () => {
+  const MOVED = ["e-tickets", "videos"] as const;
+
+  it("is on the SSO list, so this file is testing what it claims to test", () => {
+    // Guards the matrix below against quietly becoming vacuous if the registry
+    // changes: these cases only mean anything while these slugs are SSO tools.
+    for (const slug of MOVED) {
+      expect(SSO_ADMIN_TOOLS.has(slug), slug).toBe(true);
+      expect(TOKEN_ONLY_TOOLS.has(slug), slug).toBe(false);
+    }
+  });
+
+  it("sends an unauthenticated NAVIGATION to /sso/signin, carrying the path asked for", async () => {
+    for (const slug of MOVED) {
+      const r = await gate(`/admin/${slug}?q=abc`, { nav: true });
+      expect(r.status, slug).toBe(307);
+      const loc = new URL(r.location!);
+      expect(loc.pathname, slug).toBe("/sso/signin");
+      expect(loc.searchParams.get("callbackUrl"), slug).toBe(`/admin/${slug}?q=abc`);
+    }
+  });
+
+  it("404s an unauthenticated XHR — a board's fetch must not be sent to Microsoft", async () => {
+    // Both of these boards poll. A 307 followed by an XHR parses a sign-in page
+    // as JSON and surfaces "Unexpected token <" instead of "your session ended".
+    for (const slug of MOVED) {
+      expect(
+        await gate(`/admin/${slug}`, { headers: { accept: "application/json" } }),
+        slug,
+      ).toMatchObject({ status: 404, contentType: "text/plain" });
+    }
+  });
+
+  it("sends a signed-in user WITHOUT the role to /sso/error, never back to Microsoft", async () => {
+    for (const slug of MOVED) {
+      const r = await gate(`/admin/${slug}`, { nav: true, headers: { cookie: await noRole() } });
+      expect(r.status, slug).toBe(307);
+      const loc = new URL(r.location!);
+      expect(loc.pathname, slug).toBe("/sso/error");
+      expect(loc.searchParams.get("code"), slug).toBe("SSO_E_NO_ROLE");
+    }
+  });
+
+  it("lets a valid session through, stamped with who it is", async () => {
+    const cookie = await staff();
+    for (const slug of MOVED) {
+      expect(await gate(`/admin/${slug}`, { nav: true, headers: { cookie } }), slug).toMatchObject({
+        status: 200,
+        adminRoute: "1",
+        via: "sso",
+        email: "eric@headpinz.com",
+      });
+    }
+  });
+
+  it("keeps their TOKEN url working, with no session, exactly as before", async () => {
+    // The non-negotiable half of the move: nothing was deleted from the v1
+    // tree, so every bookmark, cron and Teams card still resolves.
+    for (const slug of MOVED) {
+      expect(await gate(`/admin/${TOKEN}/${slug}`, { nav: true }), slug).toMatchObject({
+        status: 200,
+        adminRoute: "1",
+        via: null,
+      });
+    }
+  });
+
+  it("leaves /admin/embed/videos on the HMAC branch, not the new SSO route", async () => {
+    // `videos` joining SSO_ADMIN_TOOLS puts the string "videos" one segment
+    // away from the portal's iframe surface. If `isSsoToolPath` ever read
+    // segment 3 instead of segment 2, every embedded video log would start
+    // 307ing an iframe at a Microsoft sign-in page.
+    env({ ADMIN_EMBED_SECRET: "embed-secret" });
+    expect(await gate("/admin/embed/videos", { nav: true })).toMatchObject({ status: 403 });
+    expect(await gate("/admin/embed/e-tickets", { nav: true })).toMatchObject({ status: 403 });
+  });
+});
+
+describe("camera-assign went BACK to the token (owner decision 2026-08-28)", () => {
+  it("serves both of its token URLs with no session", async () => {
+    // Trackside kiosks, one per track. This is the whole reason it came off
+    // SSO, so it is the assertion that has to hold.
+    for (const p of [`/admin/${TOKEN}/camera-assign`, `/admin/${TOKEN}/camera-assign/blue`]) {
+      expect(await gate(p, { nav: true }), p).toMatchObject({
+        status: 200,
+        adminRoute: "1",
+        via: null,
+      });
+    }
+  });
+
+  it("404s the token-less paths — no sign-in redirect, and no v2 page to render", async () => {
+    // A 307 here would be the regression: a kiosk between heats sent to
+    // Microsoft, with nothing at /admin/camera-assign to come back to. It must
+    // fall through to the static-token check and 404, exactly as an unknown
+    // admin path does.
+    const cookie = await staff();
+    for (const p of ["/admin/camera-assign", "/admin/camera-assign/blue"]) {
+      expect(await gate(p, { nav: true }), p).toMatchObject({
+        status: 404,
+        contentType: "text/plain",
+      });
+      // …and a valid Microsoft session does not open it either. There is no
+      // route there to open.
+      expect(await gate(p, { nav: true, headers: { cookie } }), p).toMatchObject({ status: 404 });
+    }
+  });
+
+  it("still resolves on the admin host, via the legacy tokened rewrite", async () => {
+    // `admin.fasttraxent.com/camera-assign` is in staff hands and must keep
+    // working — behind the same SSO gate, rewritten to the tokened board.
+    const cookie = await staff();
+    const r = await gate("/camera-assign/blue", {
+      host: "admin.fasttraxent.com",
+      nav: true,
+      headers: { cookie },
+    });
+    expect(r.status).toBe(200);
+    expect(new URL(r.rewrite!).pathname).toBe(`/admin/${TOKEN}/camera-assign/blue`);
+    expect(r.via).toBe("sso");
   });
 });
 
@@ -386,8 +517,12 @@ describe("admin host alias — admin.fasttraxent.com serves the tools and nothin
 
   it("keeps deeper segments and the query string", async () => {
     const cookie = await staff();
-    const deep = await gate("/camera-assign/blue", { host: HOST, nav: true, headers: { cookie } });
-    expect(new URL(deep.rewrite!).pathname).toBe("/admin/camera-assign/blue");
+    // Deeper segments ride along on BOTH rewrites. No SSO tool has a nested
+    // route today (camera-assign's `[track]` one went back to the token), so
+    // the legacy form is where a deep path is actually exercised — and it is
+    // the one that matters, since `/daily-events/{projectId}` is a real link.
+    const deep = await gate("/daily-events/12345", { host: HOST, nav: true, headers: { cookie } });
+    expect(new URL(deep.rewrite!).pathname).toBe(`/admin/${TOKEN}/daily-events/12345`);
 
     const q = await gate("/checkin?board=1&loc=ft", { host: HOST, nav: true, headers: { cookie } });
     const rewritten = new URL(q.rewrite!);
@@ -399,7 +534,7 @@ describe("admin host alias — admin.fasttraxent.com serves the tools and nothin
   it("keeps an UN-MIGRATED tool working, via the tokened route, behind the same gate", async () => {
     // `admin.fasttraxent.com/deals` is in staff email going back months and is
     // what `adminToolUrl()` still produces. The domain moving onto this
-    // deployment must not 404 eighteen boards. Same gate, legacy rewrite.
+    // deployment must not 404 seventeen boards. Same gate, legacy rewrite.
     const anon = await gate("/deals", { host: HOST, nav: true });
     expect(anon.status).toBe(307);
     expect(new URL(anon.location!).pathname).toBe("/sso/signin");
