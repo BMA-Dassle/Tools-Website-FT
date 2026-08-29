@@ -19,6 +19,18 @@
  *      `_tools/<slug>/AdminToolPage.tsx` first is step 0 — see
  *      `_tools/reservations` for the shape.)
  *
+ * MOVING ONE BACK IS THE SAME TWO EDITS IN REVERSE, and it happens — see
+ * `camera-assign` below. Move the slug back to {@link TOKEN_ONLY_TOOLS}, delete
+ * `app/admin/<slug>/` **and** the now single-consumer `_tools/<slug>/` module,
+ * folding its body back into the `[token]` page. `_tools/` holds one directory
+ * per SSO tool and nothing else; a module with one caller is indirection that
+ * lies about having two.
+ *
+ * WHAT NEVER CHANGES EITHER WAY: `app/admin/[token]/<slug>/` stays. Every
+ * `/admin/{ADMIN_CAMERA_TOKEN}/<tool>` URL keeps working for every tool on
+ * every list — staff bookmarks, crons and Teams cards outlive any of these
+ * decisions, and a token URL comes down only on an explicit owner "pull it".
+ *
  * `admin-tools.test.ts` fails if you do one without the other, and fails if a
  * slug here does not name a real directory under `app/admin/[token]/`.
  * ────────────────────────────────────────────────────────────────────────────
@@ -28,17 +40,24 @@
  * The tools a HUMAN signs in to reach: `/admin/<tool>`, no credential in the
  * URL, a Microsoft session holding the `access` role is the credential.
  *
- * Three tools, not twenty-one, because this PR ships the GATE and a proven
- * migration path rather than a big-bang move. Each of these is a staffed
- * surface — somebody is at the keyboard, and an eight-hour sign-in costs them
- * one click a shift. The rest keep their `/admin/{ADMIN_CAMERA_TOKEN}/<tool>`
- * URL, unchanged, and move over in later PRs two edits at a time.
+ * THE TEST OF MEMBERSHIP IS THE FURNITURE, NOT THE DATA. Every tool here is a
+ * DESK tool: somebody is sitting at a keyboard they own, and an eight-hour
+ * sign-in costs them one click a shift. That is a cheap price for taking the
+ * credential out of the URL. Where the same click is paid standing at a kiosk
+ * between heats, or on a screen nobody types on at all, it is not cheap and the
+ * tool keeps its token.
+ *
+ * OWNER REVISION, 2026-08-28, after a shift on the shipped gate:
+ *
+ *   - `camera-assign` came OFF this list. It reads as a desk tool and is not
+ *     one — it is worked TRACKSIDE, on shared kiosks, one per track, standing
+ *     up between heats. A Microsoft sign-in there is a password typed on a
+ *     kiosk in front of guests, on a device three people share, in the ninety
+ *     seconds before the next heat goes out. It is back on
+ *     `/admin/{ADMIN_CAMERA_TOKEN}/camera-assign` (and `/{track}`), where it
+ *     was, and where it works.
  */
-export const SSO_ADMIN_TOOLS: ReadonlySet<string> = new Set([
-  "camera-assign", // incl. the nested /[track] route
-  "checkin",
-  "reservations",
-]);
+export const SSO_ADMIN_TOOLS: ReadonlySet<string> = new Set(["checkin", "reservations"]);
 
 /**
  * UNATTENDED DEVICE SURFACES — these keep the token URL PERMANENTLY.
@@ -66,12 +85,24 @@ export const SSO_ADMIN_TOOLS: ReadonlySet<string> = new Set([
 export const DEVICE_TOKEN_TOOLS: ReadonlySet<string> = new Set(["pit", "briefing"]);
 
 /**
- * Everything else: still reached at `/admin/{ADMIN_CAMERA_TOKEN}/<tool>`, and
- * a candidate to move to SSO later. Staffed surfaces, all of them — they are
- * here because this PR is deliberately small, not because they are special.
+ * Everything else: still reached at `/admin/{ADMIN_CAMERA_TOKEN}/<tool>`.
+ *
+ * Most are here because the migration is deliberately incremental, not because
+ * they are special — they are candidates to move to SSO later, two edits at a
+ * time.
+ *
+ * `camera-assign` is here for a REASON, and it is not "not yet". It shipped
+ * behind SSO and came back on the owner's first shift with it (2026-08-28): the
+ * tool is worked trackside on shared kiosks, standing up between heats, so a
+ * per-person Microsoft sign-in is the wrong credential for it in the same way
+ * it is wrong for a wall display — just for crowding and shared hardware rather
+ * than for nobody being there. It is not a device tool either (a human does
+ * work it, and rotating the token must not be blocked on a display plan), so it
+ * lives here. Moving it back to SSO needs a new owner decision, not a tidy-up.
  */
 export const TOKEN_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "api-docs",
+  "camera-assign", // incl. the nested /[track] route — owner decision, see above
   "christmas-in-july",
   "daily-events",
   "daily-events-v2",

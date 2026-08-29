@@ -108,7 +108,7 @@ export type AdminHostDecision =
  * the shell proxies it to `/admin/{ADMIN_CAMERA_TOKEN}/deals`, and that URL is
  * in staff email, in Teams cards, and in `adminToolUrl()` output going back
  * months. This PR moves the domain onto this deployment, and moving it must not
- * break the eighteen tools that are not migrating yet. So a clean tool URL
+ * break the nineteen tools that are not behind sign-in. So a clean tool URL
  * resolves either way:
  *
  *   - `tool` — the slug has a v2 page. Rewrite to `/admin/<slug>`; no
@@ -173,8 +173,9 @@ export function resolveAdminHostPath(pathname: string): AdminHostDecision {
  *     and the shell all still use it.
  *   - every slug that is NOT in `SSO_ADMIN_TOOLS` — `pit` and `briefing`
  *     because they are unattended displays that must never be sent to a login
- *     screen, and the sixteen token-only tools because they have no v2 page to
- *     render.
+ *     screen, `camera-assign` because it is worked trackside on shared kiosks
+ *     (owner decision 2026-08-28), and the other sixteen token-only tools
+ *     because they have no v2 page to render.
  */
 export function isSsoToolPath(pathname: string, expectedToken: string): boolean {
   if (pathname.startsWith("/api/")) return false;
