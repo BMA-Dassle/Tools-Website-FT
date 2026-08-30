@@ -15,6 +15,25 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.26.0 — A SCANNED BOOKING VOUCHER AUTO-LINKS ITS PARTY (owner 2026-08-30:
+ *         "we already know who is on it — no need to ask/lookup/create
+ *         profiles again"). When a VIP (or any guest holding a reservation-
+ *         minted voucher) scans their redemption QR, the coupon/voucher
+ *         receipt used to OFFER the booking's people as tap-to-add chips and
+ *         then warn if nobody was tapped — the people we had already
+ *         identified at booking sat one un-obvious tap away from being re-
+ *         typed at the next people step. The roster now lands directly on the
+ *         session party the moment it resolves, through the same prefill rail
+ *         a chip tap used (BMI ids attached, isNewRacer false, live waiver
+ *         truth carried), so racing / laser tag / gel blaster steps open with
+ *         the group already named and nobody is looked up or minted twice.
+ *         Chips render pre-selected and stay tap-to-REMOVE for anyone who
+ *         didn't come today; a deliberate removal is never re-added, and a
+ *         person already signed in by phone or check-in is left alone
+ *         (session truth wins). Mirrors check-in's 2026-08-07 auto-load —
+ *         the receipt was the last surface still asking. The "nobody picked"
+ *         warning survives only as a safety net for a guest who removed
+ *         every chip. New copy EN + ES.
  * 1.25.0 — KIOSKS WITHOUT A DISPENSER SELL NEW GAME ZONE CARDS (owner
  *         2026-08-28, reversing the 2026-07-20 reload-only rule). An MSR-only
  *         kiosk gets a holder of blank cards under the screen; the guest takes
@@ -1064,7 +1083,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.25.0";
+export const KIOSK_VERSION = "1.26.0";
 
 let bootVersion: string | null = null;
 let captured = false;

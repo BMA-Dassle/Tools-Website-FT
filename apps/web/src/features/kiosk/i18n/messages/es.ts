@@ -347,9 +347,9 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherGz.pickWarnGo": "Continuar de todos modos",
   "codeEntry.voucherGz.pickWarnStay": "Elegir personas",
   "codeEntry.voucherGz.promoRow": "se aplica al pagar",
-  "codeEntry.voucherGz.partyTitle": "¿Quién vino de tu reserva?",
+  "codeEntry.voucherGz.partyTitle": "Tu grupo ya está incluido",
   "codeEntry.voucherGz.partySub":
-    "Toca a todos los que juegan hoy — tendremos sus nombres listos en cada paso.",
+    "Ya agregamos a todos los de tu reserva — sus nombres estarán listos en cada paso. Toca a quien no haya venido hoy para quitarlo.",
   "codeEntry.voucherGz.partyLoadingTitle": "Revisando tu vale",
   "codeEntry.voucherGz.partyLoadingSub":
     "Si este vale tiene una reserva, traeremos a todos los que están en ella.",

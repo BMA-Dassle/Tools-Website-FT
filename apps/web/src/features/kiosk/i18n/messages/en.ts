@@ -411,11 +411,13 @@ export const en = {
   // The session promo shown INLINE on the receipt (a coupon scanned/typed
   // mid-receipt must never replace the guest's card list).
   "codeEntry.voucherGz.promoRow": "applies at checkout",
-  // "Who's here from your booking?" — a reservation-linked voucher offers the
-  // booking's people as tap-to-include chips (prefills the session party).
-  "codeEntry.voucherGz.partyTitle": "Who’s here from your booking?",
+  // "Your group is already in" — a reservation-linked voucher AUTO-LINKS the
+  // booking's people onto the session party the moment its roster resolves
+  // (no re-asking, no re-typing); the chips render pre-selected and a tap
+  // removes anyone who didn't come today.
+  "codeEntry.voucherGz.partyTitle": "Your group is already in",
   "codeEntry.voucherGz.partySub":
-    "Tap everyone playing today — we’ll have their names ready at every step.",
+    "Everyone from your booking is loaded — their names will be ready at every step. Tap anyone who isn’t here today to take them off.",
   // The roster lookup runs through BMI and can take most of a minute — the
   // section shows the branded loader meanwhile, under a header that doesn't
   // promise a booking we haven't found yet.

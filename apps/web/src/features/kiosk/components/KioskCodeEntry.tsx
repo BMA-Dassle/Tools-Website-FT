@@ -234,11 +234,12 @@ export function KioskCodeEntry({
    *            screenshot: "GAME ZONE CARDS NOT AVAILABLE ON THIS KIOSK" yet the
    *            flow offered "get my card"). */
   capability?: GameZoneCapability;
-  /** The session party — the "Who's here from your booking?" chips derive
-   *  selected/disabled state from it (session truth, remount-proof). */
+  /** The session party — the booking-roster chips derive selected/disabled
+   *  state from it (session truth, remount-proof). */
   party?: PartyMember[];
-  /** Parent dispatches addPartyMember — a tapped booking-roster chip lands the
-   *  person on the session party, so every later people step is prefilled. */
+  /** Parent dispatches addPartyMember — the booking's roster AUTO-LINKS
+   *  through this the moment it resolves (and a re-tapped chip re-adds), so
+   *  every later people step is prefilled. */
   onPartyAdd?: (member: PartyMember) => void;
   /** Parent dispatches removePartyMember — called ONLY for members this
    *  screen's chips added (removePartyMember cascade-clears assignments). */
@@ -315,7 +316,9 @@ export function KioskCodeEntry({
   const [leaveWarn, setLeaveWarn] = useState(false);
   // "Start picking" with a booking party offered but NOBODY selected → ask
   // first (owner 2026-08-02). Print/Done paths are exempt — cards don't care
-  // who's playing.
+  // who's playing. Since the roster auto-links (2026-08-30) this only fires
+  // after the guest removed every auto-added chip — kept as the safety net
+  // for exactly that deliberate case.
   const [pickWarn, setPickWarn] = useState(false);
   // "Add another" starts as a compact button (owner 2026-08-02: the always-
   // open panel ate the bottom of the screen and clipped the list). Expanding
@@ -420,6 +423,43 @@ export function KioskCodeEntry({
     // Mount-only: later scans call loadVoucherRoster directly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // AUTO-LINK the roster the moment it lands (owner 2026-08-30: "we already
+  // know who is on it — no need to ask / look up / create profiles again").
+  // Every person a scanned voucher's booking knows joins the session party
+  // through the SAME prefill rail a chip tap uses, so a returning VIP's
+  // people are simply there at every later step — names recognised, BMI ids
+  // attached, nobody re-typed or re-minted. The chips render pre-selected and
+  // stay tap-to-REMOVE for anyone who didn't come today. Mirrors check-in's
+  // auto-load (KioskCheckinFlow, owner 2026-08-07: "why were they just not
+  // auto loaded in list"). Ref-gated per person key so a deliberate removal is
+  // never undone by a re-run; someone already on the party (phone sign-in,
+  // check-in prefill) is left alone — session truth wins, same as a tap.
+  const autoLinkedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!onPartyAdd) return;
+    const people = mergeRosters(voucherRosters);
+    if (people.length === 0) return;
+    // Accumulate adds across the loop so two rosters landing together can't
+    // hand prefillPartyMembers the same stale party and add near-duplicates.
+    const partyView = [...party];
+    const added: Record<string, string> = {};
+    for (const person of people) {
+      if (autoLinkedRef.current.has(person.key)) continue;
+      autoLinkedRef.current.add(person.key);
+      if (personChipState(person, party, addedIds).state !== "idle") continue;
+      const [member] = prefillPartyMembers(partyView, [person]);
+      if (!member) continue;
+      partyView.push(member);
+      onPartyAdd(member);
+      added[person.key] = member.id;
+    }
+    const n = Object.keys(added).length;
+    if (n === 0) return;
+    console.log(`[kiosk] receipt party: auto-linked ${n} guest(s) from booking voucher`);
+    clarityEvent("kiosk:receipt:party-autolink");
+    setAddedIds((prev) => ({ ...prev, ...added }));
+  }, [voucherRosters, party, addedIds, onPartyAdd]);
 
   /** One line per rejected code — reason + kind, never silent. */
   const logReject = (kind: string, code: string, reason: string) => {
@@ -1404,10 +1444,11 @@ export function KioskCodeEntry({
                 </ul>
               </section>
             )}
-            {/* Who's here from your booking? — the voucher's reservation
-                offers its people as tap-to-include chips. Selection lands on
-                the SESSION party (prefills every later people step); waiver
-                signing still happens where it always has. */}
+            {/* Your group from your booking — the voucher's reservation
+                AUTO-LINKS its people onto the SESSION party the moment the
+                roster lands (prefills every later people step); the chips
+                render pre-selected and a tap removes anyone who didn't come
+                today. Waiver signing still happens where it always has. */}
             {(partyPeople.length > 0 || partyLoading) && (
               <section>
                 {/* Until a roster actually lands, the header stays

@@ -2154,10 +2154,10 @@ export function KioskFlow({
         // How a card reaches the guest here (dispenser / swiped blank / not at
         // all) — the receipt must never promise what this machine can't do.
         capability={gameZoneCapability(config)}
-        // "Who's here from your booking?" — a reservation-linked voucher
-        // offers its party on the receipt; a tapped chip lands the person on
-        // the SESSION party, so every later people step is prefilled. The
-        // receipt only ever removes members its own chips added.
+        // "Your group is already in" — a reservation-linked voucher AUTO-
+        // LINKS its party onto the SESSION party as the roster resolves
+        // (chips pre-selected, tap to remove), so every later people step is
+        // prefilled. The receipt only ever removes members it added itself.
         party={session.party}
         onPartyAdd={(member) => dispatch({ type: "addPartyMember", member })}
         onPartyRemove={(id) => dispatch({ type: "removePartyMember", id })}

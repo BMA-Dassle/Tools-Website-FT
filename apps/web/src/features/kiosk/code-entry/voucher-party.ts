@@ -12,6 +12,11 @@
  * Matching MUST mirror prefillPartyMembers (id overlap first, name-key
  * fallback) so a chip that reads "selected" is exactly a person prefill would
  * add nothing for — the round-trip test locks the two together.
+ *
+ * Since 2026-08-30 the receipt AUTO-LINKS the merged roster onto the session
+ * party as it arrives (owner: "we already know who is on it"), so chips start
+ * "added" and a tap mostly REMOVES; the states below are unchanged — auto-link
+ * is just a programmatic tap on every idle chip.
  */
 import type { CheckinPartyMember } from "../checkin/types";
 import { isPlaceholderRacerName } from "../checkin/party-prefill";
