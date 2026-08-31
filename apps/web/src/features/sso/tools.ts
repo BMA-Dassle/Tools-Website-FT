@@ -186,3 +186,48 @@ export function isSsoToolPath(pathname: string, expectedToken: string): boolean 
   if (expectedToken && seg === expectedToken) return false;
   return SSO_ADMIN_TOOLS.has(seg);
 }
+
+/**
+ * THE REDIRECT LANE. Given `/admin/{ADMIN_CAMERA_TOKEN}/<slug>[/…]`, the clean
+ * `/admin/<slug>[/…]` a staff member should be sent to instead — or `null` when
+ * the path must render exactly as it does today.
+ *
+ * WHY IT EXISTS (owner request, 2026-08-30). Staff bookmarked the tokened URLs
+ * for years. Moving a tool to SSO does not un-bookmark anything, so the old URL
+ * kept serving the board with the credential still in it — which meant the
+ * sign-in was optional for exactly the people who already had the link, and the
+ * token stayed in circulation in the one place it is most copied from: the URL
+ * bar of a board somebody screenshots. Bouncing the bookmark to the clean URL
+ * turns it into a sign-in, once, and then the bookmark updates itself.
+ *
+ * The CALLER decides 307 vs 308, and it must be 307. A 308 is heuristically
+ * cached by browsers, and a cached `{token} → clean` mapping outlives an
+ * `ADMIN_CAMERA_TOKEN` rotation — this repo learned that the hard way; see the
+ * comment on the legacy shim in `middleware.ts`.
+ *
+ * NULL — the path is served, not redirected — for every one of these:
+ *   - `/api/…` anything. A board's XHR that follows a redirect to an HTML page
+ *     reports a JSON syntax error instead of an auth failure.
+ *   - a segment 2 that is NOT the configured token. An unknown token must keep
+ *     failing closed with the gate's opaque 404; redirecting it would tell an
+ *     attacker which slugs exist. An unset token means nothing to compare, so
+ *     nothing to redirect.
+ *   - `/admin/embed/…` — segment 2 is `embed`, never the token, so the portal's
+ *     HMAC iframes are excluded by the same test.
+ *   - a slug that is not an SSO tool: `camera-assign` (and its `/{track}`),
+ *     `pit`, `briefing`. Those render at their token URL, unchanged, forever.
+ *   - a bare `/admin/{token}` with no slug at all.
+ *
+ * Deeper segments ride along, so `/admin/{token}/daily-events/12345` becomes
+ * `/admin/daily-events/12345`. The caller carries the query string.
+ */
+export function ssoCleanPathForTokenPath(pathname: string, expectedToken: string): string | null {
+  if (!expectedToken) return null;
+  if (pathname.startsWith("/api/")) return null;
+  if (!pathname.startsWith("/admin/")) return null;
+  const segments = pathname.split("/");
+  if (segments[2] !== expectedToken) return null;
+  const rest = segments.slice(3);
+  if (!SSO_ADMIN_TOOLS.has(rest[0] ?? "")) return null;
+  return `/admin/${rest.join("/")}`;
+}
