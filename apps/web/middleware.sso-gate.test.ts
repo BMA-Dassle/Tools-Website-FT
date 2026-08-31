@@ -605,6 +605,42 @@ describe("the redirect lane — a bookmarked token URL becomes a sign-in", () =>
     }
   });
 
+  it("does NOT redirect a non-navigation — a POST or an XHR keeps rendering", async () => {
+    // The rule `isPageLikeGet` exists for, applied to the one branch of the
+    // gate that redirects unconditionally. A tokened board is still a rendered
+    // board today, so a server action posting back to `/admin/{token}/sales`,
+    // or its own `fetch()` of an RSC payload, must be SERVED — bounced to
+    // `/admin/sales` it meets `ssoAdminGate`'s non-navigation arm and gets an
+    // opaque 404 with nothing in it to explain the failure.
+    const served = { status: 200, adminRoute: "1", via: null };
+
+    // A form post / server action.
+    expect(await gate(`/admin/${TOKEN}/sales`, { method: "POST" })).toMatchObject(served);
+    // A board's own JSON fetch — no sec-fetch-mode, JSON Accept.
+    expect(
+      await gate(`/admin/${TOKEN}/sales`, { headers: { accept: "application/json" } }),
+    ).toMatchObject(served);
+    // A browser that DOES send sec-fetch-mode, and says this is not a page load.
+    expect(
+      await gate(`/admin/${TOKEN}/sales`, {
+        headers: { "sec-fetch-mode": "cors", accept: "text/html" },
+      }),
+    ).toMatchObject(served);
+    // HEAD — a link checker or a monitor, not a person with a bookmark.
+    expect(await gate(`/admin/${TOKEN}/sales`, { method: "HEAD" })).toMatchObject(served);
+  });
+
+  it("still redirects a navigation that omits sec-fetch-mode, on the Accept fallback", async () => {
+    // The other half of `isPageLikeGet`: an older client that sends no
+    // `Sec-Fetch-Mode` is judged by its Accept header, so a real bookmark from
+    // one still self-heals rather than silently keeping the token URL alive.
+    const r = await gate(`/admin/${TOKEN}/sales`, {
+      headers: { accept: "text/html,application/xhtml+xml" },
+    });
+    expect(r.status).toBe(307);
+    expect(new URL(r.location!).pathname).toBe("/admin/sales");
+  });
+
   it("composes with the legacy 308: legacy → canonical → clean", async () => {
     // The legacy shim is untouched and fires first (a legacy token is not the
     // canonical one, so the lane never sees it). Hop two is the lane, and it is
@@ -621,7 +657,13 @@ describe("the redirect lane — a bookmarked token URL becomes a sign-in", () =>
 
   it("is off entirely with ADMIN_TOKEN_REDIRECT_DISABLED — the kill switch restores today", async () => {
     // Flags are kill switches, never opt-in gates: this ships ON and the env
-    // var exists only to put the estate back the way it was without a deploy.
+    // var exists only to put the estate back the way it was.
+    //
+    // IT COSTS A REDEPLOY IN PRODUCTION, which this test cannot show. Vitest
+    // mutates `process.env` in-process; the deployed lane is EDGE middleware,
+    // where Next inlines the value at BUILD time, so a Vercel env-var change
+    // reaches only a NEW deployment. Read this assertion as "the branch is
+    // correct", not as "the switch is instant" — the rollback is a deploy.
     env({ ADMIN_TOKEN_REDIRECT_DISABLED: "true" });
     for (const slug of SSO_ADMIN_TOOLS) {
       // `daily-events` is a redirect shim in its own right — it renders and

@@ -213,7 +213,16 @@ describe("admin gate — UNCHANGED: static ADMIN_CAMERA_TOKEN", () => {
     // docs mention it). Exempting it would have made a magic query param a way
     // to keep a retired token URL alive, which is the opposite of the point.
     // The HMAC tree, which the portal actually uses, is untouched.
-    const r = await gate(`/admin/${TOKEN}/reservations?embedded=1`);
+    //
+    // NAVIGATION HEADERS on purpose: the lane only bounces page loads
+    // (`isPageLikeGet`), and an `?embedded=1` iframe IS one — a frame's
+    // top-level load sends `Sec-Fetch-Mode: navigate` the same as a tab's. The
+    // rest of this file deliberately sends none, which is why every other page
+    // assertion here is written against a token-only slug.
+    const r = await gate(`/admin/${TOKEN}/reservations?embedded=1`, {
+      "sec-fetch-mode": "navigate",
+      accept: "text/html,application/xhtml+xml",
+    });
     expect(r.status).toBe(307);
     const loc = new URL(r.location!);
     expect(loc.pathname).toBe("/admin/reservations");
