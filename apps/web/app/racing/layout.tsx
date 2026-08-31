@@ -19,7 +19,7 @@ export const revalidate = 86400;
 export const metadata: Metadata = {
   title: "Indoor Go-Kart Racing & Qualifications – FastTrax Fort Myers",
   description:
-    "Race high-performance EcoVolt GT electric karts on Florida's largest indoor multi-level track. Adult, Junior & Mini karts ages 4+. Starter to Pro qualification system. 63,000 sq ft in Fort Myers. Better than outdoor go-karts — rain or shine. Book your heat now.",
+    "Race high-performance EcoVolt GT electric karts on Florida's largest indoor multi-level track. Adult & Junior karts ages 7+. Starter to Pro qualification system. 63,000 sq ft in Fort Myers. Better than outdoor go-karts — rain or shine. Book your heat now.",
   keywords: [
     "indoor go kart racing Fort Myers",
     "go karts Fort Myers",
@@ -37,7 +37,6 @@ export const metadata: Metadata = {
     "multi level go kart track",
     "kids go karts Fort Myers",
     "junior go karts",
-    "mini karts for kids",
     "go kart birthday party Fort Myers",
     "best go karts SWFL",
     "electric kart racing Fort Myers",
@@ -50,7 +49,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Indoor Go-Kart Racing – FastTrax Fort Myers, FL",
     description:
-      "Florida's largest indoor multi-level electric kart track. Adult, Junior & Mini karts with Starter-to-Pro qualification system. 63,000 sq ft of racing action.",
+      "Florida's largest indoor multi-level electric kart track. Adult & Junior karts with Starter-to-Pro qualification system. 63,000 sq ft of racing action.",
     type: "website",
     url: "https://fasttraxent.com/racing",
     images: [...FASTTRAX_OG],
@@ -77,12 +76,12 @@ function racingFaqList() {
     {
       question: "How much does go-kart racing cost at FastTrax?",
       answer:
-        "Adult kart racing starts at $20.99 per heat (Mon-Thu) and $26.99 (Fri-Sun). Junior karts are $15.99-$19.99. Mini karts for ages 4-6 are $9.99-$14.99. A one-time $4.99 Racing License (valid for one year) is required for all racers.",
+        "Adult kart racing starts at $20.99 per heat (Mon-Thu) and $26.99 (Fri-Sun). Junior karts are $15.99-$19.99. A one-time $4.99 Racing License (valid for one year) is required for all racers.",
     },
     {
       question: "What age do you have to be to race at FastTrax?",
       answer:
-        'FastTrax has karts for racers as young as 4 years old. Mini Karts are for ages 4-6. Junior Karts are for ages 7-13 (49" to 70" tall). Adult Karts are for ages 13+ (must be at least 59" tall).',
+        'FastTrax has karts for racers as young as 7 years old. Junior Karts are for ages 7-13 (49" to 70" tall). Adult Karts are for ages 13+ (must be at least 59" tall).',
     },
     {
       question: "How fast do the go-karts go at FastTrax?",
@@ -134,9 +133,9 @@ function racingFaqList() {
         "FastTrax is located at 14501 Global Parkway, Fort Myers, FL 33913 — near Gulf Coast Town Center and I-75. Free parking is available on-site. The venue is easy to find and accessible from Cape Coral, Estero, Bonita Springs, Naples, and all of Southwest Florida.",
     },
     {
-      question: "Can toddlers and small kids race at FastTrax?",
+      question: "What is the youngest age that can race at FastTrax?",
       answer:
-        "Yes! FastTrax has Mini Karts specifically designed for children ages 4-6. There's no minimum height requirement for Mini Karts. They feature adjustable pedals and seats, speed-controlled settings, and close at 10:00 PM daily. Mini Karts are available on Mega days too.",
+        'Racers must be at least 7 years old to drive. Junior Karts are for ages 7-13 (49" to 70" tall) and Adult Karts are for ages 13+ (59" or taller). Our Mini Karts for ages 4-6 have closed permanently to make way for a new attraction. Younger children are still welcome in the arcade, duckpin bowling, shuffleboard, and Nemo’s Trackside.',
     },
     {
       question: "What are the best things to do in Fort Myers when it rains?",
