@@ -18,7 +18,10 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["**/*.{test,spec}.{ts,tsx}"],
-    exclude: ["**/node_modules/**", "**/.next/**", "**/dist/**"],
+    // `e2e/` is Playwright's (playwright.config.ts) — its *.spec.ts files
+    // import @playwright/test, which Vitest cannot run. Same glob, different
+    // runner, so the boundary has to be drawn here.
+    exclude: ["**/node_modules/**", "**/.next/**", "**/dist/**", "e2e/**"],
     passWithNoTests: true,
     server: {
       // next-auth's ESM does a bare `import "next/server"`. Externalised, Node

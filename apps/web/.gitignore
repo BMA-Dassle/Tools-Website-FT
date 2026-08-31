@@ -50,3 +50,9 @@ _preview-welcome.ts
 
 # Local-only recipient data (PII) for one-shot blasts — never commit
 scripts/.data/
+
+# Playwright (apps/web/playwright.config.ts) — run artefacts, never committed.
+/test-results/
+/playwright-report/
+/blob-report/
+/.playwright/
