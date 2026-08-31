@@ -1,7 +1,16 @@
 import { notFound } from "next/navigation";
-import { adminPoppins } from "~/components/features/admin-skin/font";
-import GroupFunctionsClient from "./GroupFunctionsClient";
-import { mintAdminApiToken } from "@/lib/admin-api-token";
+import AdminToolPage from "@/app/admin/_tools/group-functions/AdminToolPage";
+
+/**
+ * v1: `/admin/{ADMIN_CAMERA_TOKEN}/group-functions`.
+ *
+ * The static token in the path is the credential. Kept alongside the SSO route
+ * at `/admin/group-functions` (same component, no credential in the URL) per
+ * the v2 cutover pattern; the middleware 307s this URL to the clean one.
+ *
+ * The token check below is belt-and-braces with the middleware's unified gate,
+ * unchanged from before the split.
+ */
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -13,16 +22,5 @@ export default async function Page({ params }: Props) {
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!expected || token !== expected) notFound();
 
-  // The client sends this back as x-admin-token / ?token= for its
-  // /api/admin/* calls, exactly where it always sent one — but it is now a
-  // signed 8-hour credential, not the permanent ADMIN_CAMERA_TOKEN. The
-  // static token never reaches a browser again.
-  // (Pinned by scripts/check-admin-token-leak.mjs.)
-  const apiToken = await mintAdminApiToken();
-
-  return (
-    <div className={adminPoppins.variable}>
-      <GroupFunctionsClient token={apiToken} />
-    </div>
-  );
+  return <AdminToolPage />;
 }

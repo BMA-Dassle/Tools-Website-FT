@@ -1,19 +1,16 @@
 import { notFound } from "next/navigation";
-import { adminPoppins } from "~/components/features/admin-skin/font";
-import DailyEventsBoardV2 from "~/components/features/daily-events-v2/DailyEventsBoardV2";
-import { mintAdminApiToken } from "@/lib/admin-api-token";
+import AdminToolPage from "@/app/admin/_tools/daily-events-v2/AdminToolPage";
 
 /**
- * Admin: Daily Events v2 — owner-approved hybrid redesign (2026-07-13),
- * deployed ALONGSIDE v1 per the v2 cutover safety pattern (ops signs off
- * before any redirect; /daily-events stays untouched).
+ * v1: `/admin/{ADMIN_CAMERA_TOKEN}/daily-events-v2`.
  *
- * Keeps v1's bones: banded day sections, two-line rows, PaymentCell.
- * Adds: needs-attention sentences, per-day money/risk summaries in the
- * band, a Day ⇄ Week (Wed–Tue) toggle replacing the week tabs — all
- * skinned with the employee portal's design system (navy/blue, Poppins).
+ * The static token in the path is the credential. Kept alongside the SSO route
+ * at `/admin/daily-events-v2` (same component, no credential in the URL) per
+ * the v2 cutover pattern; the middleware 307s this URL to the clean one.
  *
- * URL: /admin/{ADMIN_CAMERA_TOKEN}/daily-events-v2
+ * The token check below is belt-and-braces with the middleware's unified gate,
+ * unchanged from before the split. `/admin/embed/daily-events-v2` — the
+ * portal's HMAC iframe — is a different route and is untouched by any of this.
  */
 
 export const dynamic = "force-dynamic";
@@ -26,16 +23,5 @@ export default async function Page({ params }: Props) {
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!expected || token !== expected) notFound();
 
-  // The client sends this back as x-admin-token / ?token= for its
-  // /api/admin/* calls, exactly where it always sent one — but it is now a
-  // signed 8-hour credential, not the permanent ADMIN_CAMERA_TOKEN. The
-  // static token never reaches a browser again.
-  // (Pinned by scripts/check-admin-token-leak.mjs.)
-  const apiToken = await mintAdminApiToken();
-
-  return (
-    <div className={adminPoppins.variable}>
-      <DailyEventsBoardV2 token={apiToken} />
-    </div>
-  );
+  return <AdminToolPage />;
 }

@@ -49,12 +49,52 @@ Check balance is a NEW card → hand off to set it up; card vouchers fulfil here
       checkout upsell ⇒ confirmation prompts a swipe; walk away ⇒ 90 s → Done re-enabled · pay-screen
       gift-card swipe still works with `msrUse:"both"` · a dispenser kiosk behaves as before (only
       change: a never-connecting CRT releases the confirmation screen after 60 s).
-## Admin SSO — PR 1 done, PR 2 needs the owner's go (2026-08-28) — branch `feat/admin-sso`
+## Admin SSO — PR A LIVE, PR B needs the owner's go (2026-08-30) — branch `feat/admin-sso-remaining`
 
 Goal: **no human reaches a FastTrax admin page without a Microsoft sign-in.** Two PRs on
-purpose — PR 1 cannot break anyone; PR 2 is the only step that removes access.
+purpose — PR A cannot break anyone; PR B is the only step that removes access.
 
-Full audit + the "Unresolved before PR 2" list: [tasks/admin-sso-lockdown.md](admin-sso-lockdown.md).
+Full audit, the shipped tool split, the redirect lane and the "Unresolved before PR B" list:
+[tasks/admin-sso-lockdown.md](admin-sso-lockdown.md).
+
+### The split, as shipped — 18 SSO / 3 token
+
+Source of truth: `apps/web/src/lib/constants/admin-tools.ts`, drift-pinned to the real
+route directories by `admin-tools.test.ts`.
+
+- **SSO (18)** — clean `/admin/<slug>`, a Microsoft session is the credential:
+  `api-docs`, `checkin`, `christmas-in-july`, `daily-events`, `daily-events-v2`, `deals`,
+  `deposit-failures`, `discount-codes`, `e-tickets`, `group-approvals`, `group-functions`,
+  `healthnet`, `kbf`, `reservations`, `sales`, `signage`, `videos`, `web-sales`.
+- **Token, permanently (3)** — `camera-assign` (+ `/[track]`, trackside kiosks), `pit` and
+  `briefing` (wall displays nobody signs into). Owner decisions 2026-08-28 and 2026-08-30.
+
+The test of membership is the FURNITURE, not the data: a desk tool signs in, a kiosk or a
+wall screen does not.
+
+### Redirect lane (2026-08-30, owner request) — `feat/admin-sso-remaining`
+
+- [x] Fourteen office tools moved to SSO, each with the established three-file shape:
+      `_tools/<slug>/AdminToolPage.tsx` + a `[token]` shell that keeps its token check +
+      a new `/admin/<slug>` shell that `await requireSsoAdmin()`.
+- [x] `api-docs` split into `ApiDocsClient.tsx` and a server shell — it was the one page
+      with NO server-side check of its own; both of its routes have one now.
+- [x] `daily-events` stays a redirect shim on BOTH routes, and neither target carries the
+      token (`adminToolUrl()`); `daily-events/[projectId]` mirrored on the SSO tree.
+- [x] `/admin/{ADMIN_CAMERA_TOKEN}/<slug>` for an SSO tool → **307** `/admin/<slug>`
+      (query + deep segments preserved) → `/sso/signin`. A bookmark becomes a sign-in.
+      307 not 308: a cached 308 would outlive an `ADMIN_CAMERA_TOKEN` rotation.
+- [x] Not redirected: the three token-only tools, `/admin/embed/*` (portal HMAC),
+      `/api/admin/*` (an XHR that follows a 307 to HTML reports a JSON syntax error), and
+      an invalid token (stays the opaque 404).
+- [x] Legacy `ADMIN_ETICKETS_TOKEN` shim untouched; the two compose legacy → canonical →
+      clean, the second hop being the uncached one.
+- [x] Kill switch `ADMIN_TOKEN_REDIRECT_DISABLED="true"` restores the previous behaviour.
+      **Ships ON** — flags are kill switches, never opt-in gates.
+- [ ] **Deliberate behaviour change to watch on the preview:** `?embedded=1` on a tokened
+      SSO-tool URL now redirects like any other. Nothing in either repo builds such a URL
+      (the portal uses `/admin/embed/*` HMAC), but it is the one row of the golden matrix
+      this branch changed on purpose.
 
 ### PR 1 — `feat/admin-sso` (done, not deployed)
 
@@ -159,12 +199,22 @@ Troubleshooting, in order: `curl -H "Authorization: Bearer $DIAG_SECRET" https:/
 presence (never values), and the last ten sign-in errors. "Signed in but bounced" is almost
 always a missing `fasttrax-admin.access` role in Entra; the page says so with `SSO_E_NO_ROLE`.
 
-### PR 2 — `feat/admin-lockdown` (BLOCKED on owner review of the audit)
+### PR B — `feat/admin-lockdown` (BLOCKED on owner review of the audit)
 
-- [ ] Owner reads [tasks/admin-sso-lockdown.md](admin-sso-lockdown.md) and rules on its seven
-      unresolved items — especially the **briefing wall tablet** (#2), which is the one surface
-      that a page-level lockdown would strand.
-- [ ] Then: the eight-step PR 2 checklist at the end of that file.
+Shorter than it was: the gate lives in `apps/web`, there is no shell to authenticate by
+header, and the redirect lane already stops staff opening a tokened page URL for an SSO
+tool. What is left is deletion and rotation.
+
+- [ ] Owner reads [tasks/admin-sso-lockdown.md](admin-sso-lockdown.md) and rules on its
+      remaining unresolved items. #2 (the briefing tablet) is RESOLVED — `pit` and
+      `briefing` keep the token permanently — but it turned into #2b: the rotation cannot
+      happen until those two and `camera-assign` hold a device credential of their own.
+- [ ] Then the seven-step PR B checklist at the end of that file: delete the `[token]`
+      page routes for the 18 SSO tools (moving their `*Client.tsx` files out first) and
+      the redirect lane with them · retire `apps/admin` + the `tools-website-ft-admin`
+      Vercel project + `ADMIN_PROXY_KEY` · move the nine crons off the static token ·
+      give the three token-only surfaces a device credential · rotate
+      `ADMIN_CAMERA_TOKEN` · delete the leftovers · verify.
 
 ## Mega Thursdays, Sep 3 – end of Oct 2026 (2026-08-25) — branch `worktree-mega-thursdays`
 

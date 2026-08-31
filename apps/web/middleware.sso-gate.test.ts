@@ -45,6 +45,7 @@ const ENV_KEYS = [
   "SALES_API_KEYS",
   "AUTH_SECRET",
   "ADMIN_HOSTS",
+  "ADMIN_TOKEN_REDIRECT_DISABLED",
 ];
 
 function env(vars: Record<string, string | undefined>) {
@@ -61,6 +62,7 @@ beforeEach(() => {
     AUTH_SECRET,
     ADMIN_ETICKETS_TOKEN: undefined,
     ADMIN_HOSTS: undefined,
+    ADMIN_TOKEN_REDIRECT_DISABLED: undefined, // ships ON — the flag is an off switch
   });
 });
 
@@ -316,15 +318,15 @@ describe("SSO gate — the two tools that moved onto sign-in (owner decision 202
     }
   });
 
-  it("keeps their TOKEN url working, with no session, exactly as before", async () => {
-    // The non-negotiable half of the move: nothing was deleted from the v1
-    // tree, so every bookmark, cron and Teams card still resolves.
+  it("sends their TOKEN url to the clean one — the bookmark becomes a sign-in", async () => {
+    // The v1 tree is still there and nothing was deleted, but a staff member
+    // who opens the old bookmark is now bounced to the credential-free URL
+    // rather than served the board with the token still in it. Full rules in
+    // the redirect-lane matrix below.
     for (const slug of MOVED) {
-      expect(await gate(`/admin/${TOKEN}/${slug}`, { nav: true }), slug).toMatchObject({
-        status: 200,
-        adminRoute: "1",
-        via: null,
-      });
+      const r = await gate(`/admin/${TOKEN}/${slug}`, { nav: true });
+      expect(r.status, slug).toBe(307);
+      expect(new URL(r.location!).pathname, slug).toBe(`/admin/${slug}`);
     }
   });
 
@@ -433,9 +435,219 @@ describe("the tools that have not migrated keep exactly today's behaviour", () =
   });
 });
 
+/**
+ * THE FULL MATRIX FOR THE FOURTEEN THAT JOINED ON 2026-08-30 ("move the rest").
+ *
+ * Same reasoning as the `e-tickets` / `videos` block above: the assertions on
+ * `reservations` prove the BRANCH; these prove the REGISTRY actually reaches it
+ * for every slug that moved. Driven off `SSO_ADMIN_TOOLS` so a nineteenth tool
+ * is covered the day it is added — a hand-listed copy would go stale in the
+ * "the gate does not fire" direction, which is the direction that does not
+ * announce itself.
+ */
+describe("SSO gate — every migrated tool, end to end", () => {
+  it("307s an unauthenticated NAVIGATION to /sso/signin, carrying the path asked for", async () => {
+    for (const slug of SSO_ADMIN_TOOLS) {
+      const r = await gate(`/admin/${slug}?q=abc`, { nav: true });
+      expect(r.status, slug).toBe(307);
+      const loc = new URL(r.location!);
+      expect(loc.pathname, slug).toBe("/sso/signin");
+      expect(loc.searchParams.get("callbackUrl"), slug).toBe(`/admin/${slug}?q=abc`);
+    }
+  });
+
+  it("404s an unauthenticated XHR — a board's fetch must not be sent to Microsoft", async () => {
+    for (const slug of SSO_ADMIN_TOOLS) {
+      expect(
+        await gate(`/admin/${slug}`, { headers: { accept: "application/json" } }),
+        slug,
+      ).toMatchObject({ status: 404, contentType: "text/plain" });
+    }
+  });
+
+  it("sends a signed-in user WITHOUT the role to /sso/error, never back to Microsoft", async () => {
+    const cookie = await noRole();
+    for (const slug of SSO_ADMIN_TOOLS) {
+      const r = await gate(`/admin/${slug}`, { nav: true, headers: { cookie } });
+      expect(r.status, slug).toBe(307);
+      const loc = new URL(r.location!);
+      expect(loc.pathname, slug).toBe("/sso/error");
+      expect(loc.searchParams.get("code"), slug).toBe("SSO_E_NO_ROLE");
+    }
+  });
+
+  it("lets a valid session through, stamped with who it is", async () => {
+    const cookie = await staff();
+    for (const slug of SSO_ADMIN_TOOLS) {
+      expect(await gate(`/admin/${slug}`, { nav: true, headers: { cookie } }), slug).toMatchObject({
+        status: 200,
+        adminRoute: "1",
+        via: "sso",
+        email: "eric@headpinz.com",
+      });
+    }
+  });
+});
+
+/**
+ * THE REDIRECT LANE (owner request, 2026-08-30).
+ *
+ * A bookmarked `/admin/{ADMIN_CAMERA_TOKEN}/<slug>` for a tool that now signs
+ * in is sent to the clean URL, where the SSO branch above turns it into a
+ * sign-in. The value of the change is that the tokened URL stops being an
+ * alternative way in for exactly the people who already had the link — and
+ * stops parading the permanent secret in the URL bar of a board somebody
+ * screenshots.
+ *
+ * Every assertion in this block is about what the lane must NOT catch. Each of
+ * the four exclusions is a live surface that a careless widening would break in
+ * a way nobody would notice for days.
+ */
+describe("the redirect lane — a bookmarked token URL becomes a sign-in", () => {
+  it("307s a tokened SSO-tool URL to the clean one, query and deep segments intact", async () => {
+    const r = await gate(`/admin/${TOKEN}/sales?center=fm&from=2026-08-01`, { nav: true });
+    expect(r.status).toBe(307);
+    const loc = new URL(r.location!);
+    expect(loc.pathname).toBe("/admin/sales");
+    expect(loc.searchParams.get("center")).toBe("fm");
+    expect(loc.searchParams.get("from")).toBe("2026-08-01");
+
+    const deep = await gate(`/admin/${TOKEN}/daily-events/12345?date=2026-08-30`, { nav: true });
+    expect(deep.status).toBe(307);
+    const deepLoc = new URL(deep.location!);
+    expect(deepLoc.pathname).toBe("/admin/daily-events/12345");
+    expect(deepLoc.searchParams.get("date")).toBe("2026-08-30");
+  });
+
+  it("307s, never 308 — a cached mapping would outlive a token rotation", async () => {
+    // The lesson apps/admin/proxy.ts already carried: browsers heuristically
+    // cache 308s, so a cached `{token} → clean` entry survives the rotation
+    // that was supposed to retire that token.
+    for (const slug of SSO_ADMIN_TOOLS) {
+      expect((await gate(`/admin/${TOKEN}/${slug}`, { nav: true })).status, slug).toBe(307);
+    }
+  });
+
+  it("lands the redirected visitor on the sign-in, so the bookmark self-heals", async () => {
+    // The two hops in sequence: the tokened bookmark → the clean URL → the
+    // Microsoft sign-in that returns them to the clean URL.
+    const hop1 = await gate(`/admin/${TOKEN}/sales`, { nav: true });
+    const clean = new URL(hop1.location!).pathname;
+    const hop2 = await gate(clean, { nav: true });
+    expect(hop2.status).toBe(307);
+    const loc = new URL(hop2.location!);
+    expect(loc.pathname).toBe("/sso/signin");
+    expect(loc.searchParams.get("callbackUrl")).toBe("/admin/sales");
+  });
+
+  it("does NOT redirect the three token-only surfaces", async () => {
+    // camera-assign is worked trackside between heats; pit and briefing are
+    // wall screens nobody signs into. A 307 for any of the three is a board
+    // that goes blank and stays blank.
+    for (const slug of [...DEVICE_TOKEN_TOOLS, ...TOKEN_ONLY_TOOLS]) {
+      expect(await gate(`/admin/${TOKEN}/${slug}`, { nav: true }), slug).toMatchObject({
+        status: 200,
+        adminRoute: "1",
+        via: null,
+      });
+    }
+    // …including camera-assign's nested track route.
+    expect(await gate(`/admin/${TOKEN}/camera-assign/blue`, { nav: true })).toMatchObject({
+      status: 200,
+      adminRoute: "1",
+      via: null,
+    });
+  });
+
+  it("does NOT redirect /admin/embed/* — the portal's HMAC iframes are untouched", async () => {
+    // Two of the five embed tools (`daily-events`, `daily-events-v2`) are now
+    // SSO slugs, so this is the assertion that keeps the string "daily-events"
+    // one segment away from the embed surface from mattering.
+    env({ ADMIN_EMBED_SECRET: "embed-secret" });
+    const ts = String(Date.now());
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw",
+      enc.encode("embed-secret"),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const sigBytes = new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(ts)));
+    const sig = Array.from(sigBytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    for (const tool of ["bowling", "daily-events", "daily-events-v2", "e-tickets", "videos"]) {
+      const r = await gate(`/admin/embed/${tool}?ts=${ts}&sig=${sig}`, { nav: true });
+      expect(r.status, tool).toBe(200);
+      expect(r.via, tool).toBe("embed-hmac");
+      expect(r.location, tool).toBeNull();
+    }
+  });
+
+  it("does NOT redirect /api/admin/* — a 307 to HTML is a JSON syntax error", async () => {
+    // A board's XHR that follows a redirect to a page parses it as JSON and
+    // reports "Unexpected token <" instead of an auth failure.
+    expect(
+      await gate("/api/admin/sales/list", { headers: { "x-admin-token": TOKEN } }),
+    ).toMatchObject({ status: 200, adminRoute: "1" });
+    expect(await gate(`/api/admin/sales/list?token=${TOKEN}`)).toMatchObject({ status: 200 });
+  });
+
+  it("does NOT redirect an INVALID token — it stays the opaque 404", async () => {
+    // Redirecting an unknown token would answer "does this slug exist?" for
+    // anyone with a wrong guess.
+    for (const p of ["/admin/wrong/sales", "/admin/wrong/kbf", "/admin//sales"]) {
+      expect(await gate(p, { nav: true }), p).toMatchObject({
+        status: 404,
+        contentType: "text/plain",
+      });
+    }
+  });
+
+  it("composes with the legacy 308: legacy → canonical → clean", async () => {
+    // The legacy shim is untouched and fires first (a legacy token is not the
+    // canonical one, so the lane never sees it). Hop two is the lane, and it is
+    // the uncached 307 — so nothing durable maps a bookmark onto a token value.
+    env({ ADMIN_ETICKETS_TOKEN: "l".repeat(32) });
+    const hop1 = await gate(`/admin/${"l".repeat(32)}/e-tickets`, { nav: true });
+    expect(hop1.status).toBe(308);
+    expect(new URL(hop1.location!).pathname).toBe(`/admin/${TOKEN}/e-tickets`);
+
+    const hop2 = await gate(new URL(hop1.location!).pathname, { nav: true });
+    expect(hop2.status).toBe(307);
+    expect(new URL(hop2.location!).pathname).toBe("/admin/e-tickets");
+  });
+
+  it("is off entirely with ADMIN_TOKEN_REDIRECT_DISABLED — the kill switch restores today", async () => {
+    // Flags are kill switches, never opt-in gates: this ships ON and the env
+    // var exists only to put the estate back the way it was without a deploy.
+    env({ ADMIN_TOKEN_REDIRECT_DISABLED: "true" });
+    for (const slug of SSO_ADMIN_TOOLS) {
+      // `daily-events` is a redirect shim in its own right — it renders and
+      // then forwards to daily-events-v2 — so the middleware answer is what is
+      // asserted here: 200 from the static-token branch, no gate redirect.
+      expect(await gate(`/admin/${TOKEN}/${slug}`, { nav: true }), slug).toMatchObject({
+        status: 200,
+        adminRoute: "1",
+        via: null,
+      });
+    }
+  });
+
+  it("only the exact string 'true' disables it — a typo must not open the estate", async () => {
+    for (const value of ["false", "1", "TRUE", "yes", ""]) {
+      env({ ADMIN_TOKEN_REDIRECT_DISABLED: value });
+      expect((await gate(`/admin/${TOKEN}/sales`, { nav: true })).status, value).toBe(307);
+    }
+  });
+});
+
 describe("SSO gate — it does not touch any other credential", () => {
   it("leaves /admin/{token}/* to the static-token branch", async () => {
-    expect(await gate(`/admin/${TOKEN}/${STAFFED}`)).toMatchObject({ status: 200, via: null });
+    // A token-only tool still renders from its tokened path with no session and
+    // no `x-admin-via` — the static branch answered, exactly as it always did.
+    expect(await gate(`/admin/${TOKEN}/camera-assign`)).toMatchObject({ status: 200, via: null });
     // …and an unknown token still 404s rather than being offered a sign-in.
     expect(await gate(`/admin/wrong/${STAFFED}`, { nav: true })).toMatchObject({ status: 404 });
   });
@@ -517,12 +729,19 @@ describe("admin host alias — admin.fasttraxent.com serves the tools and nothin
 
   it("keeps deeper segments and the query string", async () => {
     const cookie = await staff();
-    // Deeper segments ride along on BOTH rewrites. No SSO tool has a nested
-    // route today (camera-assign's `[track]` one went back to the token), so
-    // the legacy form is where a deep path is actually exercised — and it is
-    // the one that matters, since `/daily-events/{projectId}` is a real link.
+    // Deeper segments ride along on BOTH rewrites, and both forms are live:
+    // `/daily-events/{projectId}` is a real portal deep link on an SSO tool, and
+    // `/camera-assign/{track}` is a real trackside URL on the one tool that
+    // kept its token.
     const deep = await gate("/daily-events/12345", { host: HOST, nav: true, headers: { cookie } });
-    expect(new URL(deep.rewrite!).pathname).toBe(`/admin/${TOKEN}/daily-events/12345`);
+    expect(new URL(deep.rewrite!).pathname).toBe("/admin/daily-events/12345");
+
+    const legacyDeep = await gate("/camera-assign/blue", {
+      host: HOST,
+      nav: true,
+      headers: { cookie },
+    });
+    expect(new URL(legacyDeep.rewrite!).pathname).toBe(`/admin/${TOKEN}/camera-assign/blue`);
 
     const q = await gate("/checkin?board=1&loc=ft", { host: HOST, nav: true, headers: { cookie } });
     const rewritten = new URL(q.rewrite!);
@@ -532,16 +751,21 @@ describe("admin host alias — admin.fasttraxent.com serves the tools and nothin
   });
 
   it("keeps an UN-MIGRATED tool working, via the tokened route, behind the same gate", async () => {
-    // `admin.fasttraxent.com/deals` is in staff email going back months and is
-    // what `adminToolUrl()` still produces. The domain moving onto this
-    // deployment must not 404 seventeen boards. Same gate, legacy rewrite.
-    const anon = await gate("/deals", { host: HOST, nav: true });
+    // `admin.fasttraxent.com/camera-assign` is in staff hands and is what
+    // `adminToolUrl()` produces for it. A tool that keeps its token still
+    // resolves at its clean staff URL — same gate, legacy rewrite — because the
+    // list decides the GATE only when there is a v2 page to rewrite onto.
+    const anon = await gate("/camera-assign", { host: HOST, nav: true });
     expect(anon.status).toBe(307);
     expect(new URL(anon.location!).pathname).toBe("/sso/signin");
 
-    const r = await gate("/deals", { host: HOST, nav: true, headers: { cookie: await staff() } });
+    const r = await gate("/camera-assign", {
+      host: HOST,
+      nav: true,
+      headers: { cookie: await staff() },
+    });
     expect(r.status).toBe(200);
-    expect(new URL(r.rewrite!).pathname).toBe(`/admin/${TOKEN}/deals`);
+    expect(new URL(r.rewrite!).pathname).toBe(`/admin/${TOKEN}/camera-assign`);
     expect(r.via).toBe("sso");
   });
 
@@ -557,10 +781,10 @@ describe("admin host alias — admin.fasttraxent.com serves the tools and nothin
   });
 
   it("fails the legacy rewrite CLOSED when ADMIN_CAMERA_TOKEN is unset", async () => {
-    // Rather than rewriting to `/admin//deals` and letting Next decide.
+    // Rather than rewriting to `/admin//camera-assign` and letting Next decide.
     env({ ADMIN_CAMERA_TOKEN: undefined });
     expect(
-      await gate("/deals", { host: HOST, nav: true, headers: { cookie: await staff() } }),
+      await gate("/camera-assign", { host: HOST, nav: true, headers: { cookie: await staff() } }),
     ).toMatchObject({ status: 404, contentType: "text/plain" });
   });
 
@@ -593,9 +817,12 @@ describe("admin host alias — admin.fasttraxent.com serves the tools and nothin
     // `/deals` is both a guest product page and a staff board. On the STAFF
     // host the staff board wins — the guest page keeps its canonical home on
     // headpinz.com, which is where every ad and email points anyway (and where
-    // `publicOrigin()` sends anything built in a browser on this host).
+    // `publicOrigin()` sends anything built in a browser on this host). Since
+    // "move the rest" the board is an SSO tool, so the rewrite is the clean
+    // one — no credential anywhere in the path Next resolves.
     const r = await gate("/deals", { host: HOST, nav: true, headers: { cookie: await staff() } });
-    expect(new URL(r.rewrite!).pathname).toBe(`/admin/${TOKEN}/deals`);
+    expect(new URL(r.rewrite!).pathname).toBe("/admin/deals");
+    expect(r.rewrite).not.toContain(TOKEN);
   });
 
   it("passes assets, /api/*, /sso/* and /api/auth/* through", async () => {

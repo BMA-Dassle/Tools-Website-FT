@@ -1,17 +1,101 @@
 # Admin SSO lockdown — audit report
 
-**Status:** PR 1 (`feat/admin-sso`) implemented. PR 2 (cutover + rotation) NOT started
-and needs the owner's go.
-**Date:** 2026-08-28. **Branch:** `feat/admin-sso` off `main`.
+**Status:** PR A (the gate) is LIVE, in three merges — #45 moved the gate into
+`apps/web`, #46 set the tool split, and `feat/admin-sso-remaining` (this branch)
+moved the remaining fourteen tools and added the redirect lane. PR B (retire the
+shell + rotate) has NOT started and needs the owner's go.
+**Date:** 2026-08-28, revised 2026-08-30. **Branch:** `feat/admin-sso-remaining` off `main`.
 
-The goal of the two-PR sequence is one sentence: **no human reaches a FastTrax admin
-page without signing in with their Microsoft account.** PR 1 makes that possible
-without breaking anyone. PR 2 makes it true, and is the only step that removes
-access.
+The goal of the sequence is one sentence: **no human reaches a FastTrax admin
+page without signing in with their Microsoft account.** PR A makes that true for
+every staffed surface without breaking anyone. PR B removes the static token,
+which is the only step that removes access.
 
-This file is the evidence for PR 2. Every place the codebase touches
+This file is the evidence for PR B. Every place the codebase touches
 `ADMIN_CAMERA_TOKEN`, `ADMIN_ETICKETS_TOKEN`, `x-admin-token` or a `/admin/…` URL
 is classified below, so the cutover can be reasoned about rather than guessed at.
+
+> **Naming.** The original text called the two steps "PR 1" and "PR 2"; the owner
+> now calls them PR A and PR B. Same two steps. Section headings below keep the
+> old numbering where the prose is unchanged.
+
+---
+
+## The tool split, as shipped — 18 SSO / 3 token
+
+Source of truth: `apps/web/src/lib/constants/admin-tools.ts`, drift-pinned to the
+real route directories by `admin-tools.test.ts`.
+
+**SSO-gated (18)** — clean URL `/admin/<slug>`, no credential in the URL; a
+Microsoft session holding `fasttrax-admin.access` is the credential:
+
+`api-docs`, `checkin`, `christmas-in-july`, `daily-events`, `daily-events-v2`,
+`deals`, `deposit-failures`, `discount-codes`, `e-tickets`, `group-approvals`,
+`group-functions`, `healthnet`, `kbf`, `reservations`, `sales`, `signage`,
+`videos`, `web-sales`.
+
+**Token-only (3)** — `/admin/{ADMIN_CAMERA_TOKEN}/<slug>`, PERMANENTLY, and each
+for a stated reason rather than "not yet":
+
+| Slug | Why it keeps the token |
+|---|---|
+| `camera-assign` (+ nested `/[track]`) | Worked TRACKSIDE on shared kiosks, one per track, standing up between heats. A per-person sign-in there is a password typed on a shared device in front of guests. |
+| `pit` | The pit board — a wall screen that is switched on and left running. |
+| `briefing` | The briefing-room wall tablet. Nobody signs a wall screen in every eight hours; an expired session is a blank board every morning. |
+
+Owner decisions: 2026-08-28 (camera-assign back to the token; e-tickets and
+videos to SSO; pit and briefing permanent) and 2026-08-30 ("move the rest" — the
+fourteen office tools).
+
+The test of membership is the FURNITURE, not the data: a desk tool signs in, a
+kiosk or a wall screen does not.
+
+## The redirect lane — a bookmarked token URL becomes a sign-in
+
+`apps/web/middleware.ts`, inside the unified admin gate, after the legacy 308 and
+after the valid-token check.
+
+**What it does.** `/admin/{ADMIN_CAMERA_TOKEN}/<slug>[/…]` where the token is
+VALID and `<slug>` is in `SSO_ADMIN_TOOLS` → **307** to `/admin/<slug>[/…]`,
+query string and deeper segments preserved. The unauthenticated SSO branch then
+sends them to `/sso/signin?callbackUrl=/admin/<slug>`, so an old bookmark turns
+into one sign-in and then updates itself.
+
+**Why it matters.** Without it, moving a tool to SSO changed nothing for the
+people who already had the tokened link — the sign-in was optional for exactly
+that audience — and the permanent secret stayed on display in the URL bar of a
+board that gets screenshotted. Audit item #8 is about the token in the RSC
+payload; this is about the token in the address bar.
+
+**307, not 308.** Browsers heuristically cache 308s, and a cached
+`{token} → clean` mapping outlives the `ADMIN_CAMERA_TOKEN` rotation that was
+supposed to retire that token. `apps/admin/proxy.ts` already carried that lesson.
+
+**What it does NOT cover** — each exclusion is a live surface, each has a test in
+`middleware.sso-gate.test.ts`:
+
+| Not redirected | Why |
+|---|---|
+| `camera-assign`, `pit`, `briefing` (and `camera-assign/[track]`) | They render at their token URL exactly as today. A 307 is a blank board or a kiosk sent to Microsoft between heats. |
+| `/admin/embed/*` | The portal's HMAC iframes. They have no Microsoft session; a sign-in page inside an iframe is a broken embed. Two of the five embed tools (`daily-events`, `daily-events-v2`) are now SSO slugs, so this exclusion is load-bearing. |
+| `/api/admin/*` | A board's XHR that follows a 307 to an HTML page reports "Unexpected token &lt;" instead of an auth failure. API credential handling is unchanged. |
+| an INVALID token | Still the opaque 404. Redirecting an unknown token would answer "does this slug exist?" for anyone with a wrong guess. |
+| everything when `ADMIN_TOKEN_REDIRECT_DISABLED="true"` | The kill switch. Ships ON, per the flags-are-kill-switches rule. |
+
+**Composition with the legacy `ADMIN_ETICKETS_TOKEN` 308:** legacy → canonical →
+clean. The legacy shim is untouched and fires first (a legacy token is not the
+canonical one, so the lane never sees it); the lane is hop two and is the
+uncached 307. Chosen over rewriting the legacy shim to jump straight to the clean
+URL because it leaves the shim's pinned behaviour exactly as it was, and PR B
+deletes the shim anyway.
+
+**One deliberate behaviour change:** `?embedded=1` on a tokened SSO-tool URL now
+redirects like any other. That query param is a legacy frame-ancestors escape
+hatch on the tokened path; the portal has used the `/admin/embed/*` HMAC tree for
+every one of its iframes, and nothing in either repo still builds an
+`?embedded=1` URL (grep, 2026-08-30 — only the middleware, two old docs, and the
+gate test mention it). Exempting it would have made a magic query param a way to
+keep a retired token URL alive. The HMAC tree is untouched.
 
 ---
 
@@ -88,6 +172,15 @@ web-sales}` + `embed/{bowling, daily-events, daily-events-v2, e-tickets, videos}
 
 Three `[token]` pages never passed a token and needed no change: `api-docs`,
 `christmas-in-july`, `healthnet` (all render server-fetched rows).
+
+*Update 2026-08-30:* `api-docs` also had no server-side token CHECK — it was a
+`"use client"` page gated by the middleware alone, which is the case cited three
+paragraphs up. Moving it to SSO split it into `ApiDocsClient.tsx` (the browser
+half) plus `_tools/api-docs/AdminToolPage.tsx` and two route shells, and BOTH
+shells now check a credential: the SSO route asks `requireSsoAdmin()`, the
+`[token]` route compares `ADMIN_CAMERA_TOKEN` like every sibling board. That is
+a hardening, not a port — it can only fire on a path the middleware already
+admitted.
 
 **Pinned by** `apps/web/scripts/check-admin-token-leak.mjs`, wired into
 `npm run test -w fasttrax-web`: it fails the build if any `"use client"` module,
@@ -186,9 +279,12 @@ the middleware early-returns before the admin gate ever sees them. No `.bat`, no
 device config, and no kiosk build in this repo embeds an admin token. Nothing in
 this class breaks at PR 2.
 
-The one device-adjacent surface is the **briefing wall tablet**
-(`/admin/{token}/briefing`), which IS a tokened admin URL on a screen nobody
-signs into daily — see unresolved #2.
+The device-adjacent surfaces are the **briefing wall tablet**
+(`/admin/{token}/briefing`), the **pit board** (`/admin/{token}/pit`) and the
+**trackside camera kiosks** (`/admin/{token}/camera-assign[/{track}]`) — tokened
+admin URLs on screens nobody signs into daily. Those three are exactly the ones
+that keep the token permanently, and the redirect lane skips all of them. See
+unresolved #2.
 
 ---
 
@@ -205,17 +301,26 @@ its caller. *Proposed fix: delete the route in PR 2.* It has served its purpose
 (the gate is understood now), the shell's `/sso/diag` replaces it for the SSO
 era, and no code references it.
 
-**2. The briefing wall tablet needs a credential that survives PR 2.**
-`/admin/{token}/briefing` runs on a tablet mounted in a briefing room. Once PR 2
-requires `x-admin-proxy-key` for pages, that tablet's bookmark dies, and nobody
-is going to complete a Microsoft sign-in on a wall tablet every eight hours.
-*Proposed fix: point the tablet at the shell (`admin.fasttraxent.com/briefing`)
-and let its Auth.js session cookie persist — `maxAge` is already 8h and the
-gateway session is sliding, so a tablet that is never closed stays signed in;
-sign it in once during the cutover window and verify it survives a reboot.* If
-that proves fragile in practice, the alternative is a device-scoped signed token
-(`mintAdminApiToken` with a long TTL, stored in the tablet's URL) accepted for
-that ONE page — but do not build that until the simple answer is shown to fail.
+**2. ~~The briefing wall tablet needs a credential that survives PR 2.~~
+RESOLVED 2026-08-28 by owner decision — and the proposed fix was rejected.**
+The original proposal was to point the tablet at the shell and hope an Auth.js
+cookie outlived a reboot. It won't, and it shouldn't have to. `pit` and
+`briefing` are now `DEVICE_TOKEN_TOOLS`: unattended displays that keep the token
+URL **permanently**. Consequences PR B must not forget:
+
+- PR B **must not** delete `app/admin/[token]/pit` or
+  `app/admin/[token]/briefing`, and must not redirect them to an SSO route. The
+  redirect lane deliberately skips both.
+- PR B **must not** rotate `ADMIN_CAMERA_TOKEN` into uselessness for these two
+  without a device plan first: a device-scoped credential the screens can hold
+  (a long-TTL signed token in the display's bookmark), rotatable on its own
+  schedule and killable without touching staff access. `camera-assign` needs the
+  same treatment for the trackside kiosks, for a different reason — a human does
+  work it, so it is not a device tool, but it is not a desk either.
+
+**2b. So the rotation in PR B is NOT unconditional.** Three surfaces still
+authenticate with the value being rotated. Rotating without giving them
+something first takes down two wall boards and every trackside camera kiosk.
 
 **3. `apps/web/lib/admin-auth.ts` is dead code that documents the wrong gate.**
 Nothing imports `isAdminRequest`, `isTokenValid`, `isIpAllowed` or `getClientIp`
@@ -314,20 +419,54 @@ reaches the RSC payload. (a) is the smaller diff and is recommended for PR 2;
 
 ---
 
-## PR 2 checklist (for when the go is given)
+## PR B checklist (for when the go is given)
 
-1. Set `ADMIN_API_SIGNING_SECRET` (new, random 32 bytes) on `tools-website-ft`.
-   Set `ADMIN_PROXY_KEY` on BOTH projects. — *unresolved #5*
-2. `/admin/{token}/*` **pages** additionally require `x-admin-proxy-key`; token in
-   the path alone → 404. `/admin/embed/*` unchanged (portal HMAC).
-3. `/api/admin/*` accepts proxy key, api-key allowlist, or signed token; the
-   static token via **header only** (`?token=` static no longer accepted).
-4. Kill switch `ADMIN_LOCKDOWN_DISABLED="true"` reverts to PR 1 behaviour —
-   ships ON, per the flags-are-kill-switches rule.
-5. Delete: `app/api/admin-diag`, `lib/admin-auth.ts`, the commented IP block,
-   `ADMIN_ETICKETS_TOKEN` + its 308 shim. — *unresolved #1, #3, #4*
-6. Sign the briefing tablet in and verify it survives a reboot. — *unresolved #2*
-7. Rotate `ADMIN_CAMERA_TOKEN` on both projects.
-8. Verify after rotation: the nine crons in §4 on their next run (Vercel logs);
-   the portal's four iframes and its `x-api-key` services; a VIP voucher QR and a
-   TV player URL still resolve to `headpinz.com`.
+REVISED 2026-08-30. PR A got shorter and PR B got shorter with it. Steps 2–4 of
+the original list are **done or moot**: the gate lives in `apps/web`, there is no
+shell to authenticate by header, and the redirect lane already stops staff using
+a tokened page URL for an SSO tool. What is left is deletion and rotation.
+
+1. **Delete the `[token]` page routes for the 18 SSO tools.**
+   `app/admin/[token]/<slug>/` for every slug in `SSO_ADMIN_TOOLS`, including
+   `daily-events/[projectId]`. Keep `camera-assign` (+ `[track]`), `pit` and
+   `briefing`. `admin-tools.test.ts` walks both trees, so it will hold the line
+   in either direction. The redirect lane can then go too: with no v1 route to
+   serve, `/admin/{token}/sales` is an ordinary 404. Delete the lane, its kill
+   switch, and `ssoCleanPathForTokenPath` in the same commit — a redirect with
+   nothing to redirect from is dead code that reads like policy.
+   *Note the client components live under `[token]/<slug>/*Client.tsx` and are
+   imported by `_tools/<slug>/AdminToolPage.tsx`. Move them to
+   `_tools/<slug>/` (or `src/components/features/<slug>/`) BEFORE deleting the
+   directory, or the build breaks in a way the drift test cannot see.*
+2. **Retire `apps/admin` and the `tools-website-ft-admin` Vercel project.**
+   The proxy shell has no job left: `admin.fasttraxent.com` points at this
+   deployment and `middleware.ts` + `~/features/sso/tools` do what
+   `apps/admin/src/routes.ts` did, in-process. Delete the workspace, drop its
+   Vercel project, and remove `ADMIN_PROXY_KEY` from both sides — including the
+   proxy-key branch in the unified gate, which is a page credential nothing
+   holds any more. Re-point the domain first, verify, then delete.
+3. **Move the crons off the static token.** The nine in §4 accept
+   `?token=<ADMIN_CAMERA_TOKEN>` as a manual-run bypass beside `verifyCron`.
+   Make that `CRON_SECRET`-only and stop accepting the static token on
+   `/api/admin/*` altogether — this is option (a) of the audit addendum to #8,
+   and it is what makes a scraped token open nothing. The three non-`/api/admin/*`
+   routes in §4 (`square/bowling-refund`, `notifications/cancellation`,
+   `bowling/v2/webhook-log`) need the same treatment or their own key.
+4. **Give the three token-only surfaces a device credential.** — *unresolved #2*
+   `pit`, `briefing` and `camera-assign` are the only things left that need
+   `ADMIN_CAMERA_TOKEN` to be a page credential. Until they hold something else,
+   step 5 cannot happen. A long-TTL signed token in each display's bookmark,
+   rotatable on its own schedule, is the shape.
+5. **Rotate `ADMIN_CAMERA_TOKEN`.** Only after 3 and 4. Set
+   `ADMIN_API_SIGNING_SECRET` (new, random 32 bytes) FIRST so the signing key is
+   independent of the rotated value and open boards do not all need a reload.
+   — *unresolved #5*
+6. **Delete the leftovers:** `app/api/admin-diag`, `lib/admin-auth.ts`, the
+   commented-out `ADMIN_ALLOWED_IPS` block in `middleware.ts`,
+   `ADMIN_ETICKETS_TOKEN` + its 308 shim and the three server-side aliases that
+   read it (`e-tickets`, `sales`, `deposit-failures`). — *unresolved #1, #3, #4*
+7. **Verify after rotation:** the nine crons in §4 on their next run (Vercel
+   logs); the portal's five `/admin/embed/*` iframes and its `x-api-key`
+   services; a VIP voucher QR and a TV player URL still resolve to
+   `headpinz.com`; and the two wall boards plus every trackside camera kiosk
+   still come up from a cold start.

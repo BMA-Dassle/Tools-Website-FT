@@ -20,6 +20,13 @@ import { mintAdminApiToken } from "./lib/admin-api-token";
  * NextResponse.next() for all of them, so the header is the only observable
  * difference between "authenticated as the shell" and "authenticated as a
  * cron".
+ *
+ * ONE DELIBERATE CHANGE SINCE, and it is scoped: the redirect lane
+ * (2026-08-30) 307s `/admin/{ADMIN_CAMERA_TOKEN}/<slug>` to `/admin/<slug>`
+ * when the slug is an SSO tool. Every OTHER row of this matrix is untouched,
+ * which is why the page assertions below are written against `pit` — a
+ * token-only wall display — rather than against a migrated board. The lane's
+ * own rules (and what it must not catch) live in `middleware.sso-gate.test.ts`.
  */
 
 const TOKEN = "c".repeat(32);
@@ -193,8 +200,24 @@ describe("admin gate — UNCHANGED: static ADMIN_CAMERA_TOKEN", () => {
   });
 
   it("still sets the portal frame-ancestors CSP on ?embedded=1", async () => {
-    const r = await gate(`/admin/${TOKEN}/reservations?embedded=1`);
+    const r = await gate(`/admin/${TOKEN}/pit?embedded=1`);
     expect(r.csp).toBe("frame-ancestors https://portal.headpinz.com");
+  });
+
+  it("but ?embedded=1 does NOT hold an SSO tool on its token URL", async () => {
+    // A DELIBERATE behaviour change, recorded here rather than left to be
+    // discovered. `?embedded=1` is a legacy frame-ancestors escape hatch on the
+    // tokened path; the portal has used the HMAC tree (`/admin/embed/*`) for
+    // every one of its iframes since, and nothing in either repo still builds
+    // an `?embedded=1` URL (grep, 2026-08-30 — only these tests and two old
+    // docs mention it). Exempting it would have made a magic query param a way
+    // to keep a retired token URL alive, which is the opposite of the point.
+    // The HMAC tree, which the portal actually uses, is untouched.
+    const r = await gate(`/admin/${TOKEN}/reservations?embedded=1`);
+    expect(r.status).toBe(307);
+    const loc = new URL(r.location!);
+    expect(loc.pathname).toBe("/admin/reservations");
+    expect(loc.searchParams.get("embedded")).toBe("1");
   });
 });
 

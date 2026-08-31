@@ -12,6 +12,7 @@ import {
   isSsoToolPath,
   parseAdminHosts,
   resolveAdminHostPath,
+  ssoCleanPathForTokenPath,
 } from "./tools";
 
 /**
@@ -92,6 +93,61 @@ describe("isSsoToolPath — only the migrated tools", () => {
     expect(isSsoToolPath("/admin/checkin", "checkin")).toBe(false);
     // …and claims it again once that token is not configured.
     expect(isSsoToolPath("/admin/checkin", "")).toBe(true);
+  });
+});
+
+describe("ssoCleanPathForTokenPath — the redirect lane, in isolation", () => {
+  it("maps a tokened URL for an SSO tool onto its clean path", () => {
+    expect(ssoCleanPathForTokenPath(`/admin/${TOKEN}/sales`, TOKEN)).toBe("/admin/sales");
+    for (const slug of SSO_ADMIN_TOOLS) {
+      expect(ssoCleanPathForTokenPath(`/admin/${TOKEN}/${slug}`, TOKEN), slug).toBe(
+        `/admin/${slug}`,
+      );
+    }
+  });
+
+  it("carries deeper segments and a trailing slash through", () => {
+    // `/daily-events/{projectId}` is the deep link that has to survive this.
+    expect(ssoCleanPathForTokenPath(`/admin/${TOKEN}/daily-events/12345`, TOKEN)).toBe(
+      "/admin/daily-events/12345",
+    );
+    expect(ssoCleanPathForTokenPath(`/admin/${TOKEN}/sales/`, TOKEN)).toBe("/admin/sales/");
+  });
+
+  it("is NULL for every tool that keeps its token", () => {
+    // The three surfaces that must render at the token URL exactly as today:
+    // two wall screens nobody signs into, and the trackside kiosks.
+    for (const slug of [...DEVICE_TOKEN_TOOLS, ...TOKEN_ONLY_TOOLS]) {
+      expect(ssoCleanPathForTokenPath(`/admin/${TOKEN}/${slug}`, TOKEN), slug).toBeNull();
+    }
+    // …including camera-assign's nested track route.
+    expect(ssoCleanPathForTokenPath(`/admin/${TOKEN}/camera-assign/blue`, TOKEN)).toBeNull();
+  });
+
+  it("is NULL for an INVALID token — an unknown token must stay an opaque 404", () => {
+    // Redirecting one would answer "does this slug exist?" for anybody with a
+    // wrong guess, which is exactly what the fail-closed 404 refuses to say.
+    expect(ssoCleanPathForTokenPath("/admin/wrong/sales", TOKEN)).toBeNull();
+    expect(ssoCleanPathForTokenPath(`/admin/${TOKEN}/sales`, "")).toBeNull();
+    expect(ssoCleanPathForTokenPath("/admin//sales", TOKEN)).toBeNull();
+  });
+
+  it("is NULL for the embed tree and for API traffic", () => {
+    // The portal's HMAC iframes have no Microsoft session, and a board's XHR
+    // that follows a redirect to HTML reports a JSON syntax error.
+    expect(ssoCleanPathForTokenPath("/admin/embed/daily-events-v2", TOKEN)).toBeNull();
+    expect(ssoCleanPathForTokenPath("/admin/embed/videos", TOKEN)).toBeNull();
+    expect(ssoCleanPathForTokenPath(`/api/admin/${TOKEN}/sales`, TOKEN)).toBeNull();
+    expect(ssoCleanPathForTokenPath("/api/admin/sales/list", TOKEN)).toBeNull();
+  });
+
+  it("is NULL for a clean path, a bare /admin/{token}, and a non-admin path", () => {
+    // A clean URL is already where the lane sends people; redirecting it again
+    // would be a loop.
+    expect(ssoCleanPathForTokenPath("/admin/sales", TOKEN)).toBeNull();
+    expect(ssoCleanPathForTokenPath(`/admin/${TOKEN}`, TOKEN)).toBeNull();
+    expect(ssoCleanPathForTokenPath(`/admin/${TOKEN}/`, TOKEN)).toBeNull();
+    expect(ssoCleanPathForTokenPath("/racing", TOKEN)).toBeNull();
   });
 });
 
@@ -183,11 +239,21 @@ describe("resolveAdminHostPath", () => {
     }
   });
 
+  it("maps a MIGRATED tool's deeper segments onto its v2 route too", () => {
+    // `/daily-events/{projectId}` is a real portal deep link, and it is the
+    // only nested route any SSO tool has. Since "move the rest" it resolves to
+    // the credential-free `/admin/daily-events/{projectId}` rather than to the
+    // tokened form — which is the whole point of moving a tool.
+    expect(resolveAdminHostPath("/daily-events/12345")).toEqual({
+      kind: "tool",
+      pathname: "/admin/daily-events/12345",
+    });
+  });
+
   it("keeps EVERY un-migrated tool resolving, on the legacy tokened route", () => {
-    // `admin.fasttraxent.com/deals` works today (the shell proxies it to
-    // /admin/{token}/deals) and is in staff email going back months. Moving the
-    // domain onto this deployment must not 404 seventeen tools. Same gate,
-    // different rewrite target.
+    // `admin.fasttraxent.com/camera-assign` works today and is in staff hands.
+    // Moving the domain onto this deployment must not 404 it. Same gate,
+    // different rewrite target — and the same for the two wall displays.
     for (const slug of [...DEVICE_TOKEN_TOOLS, ...TOKEN_ONLY_TOOLS]) {
       expect(resolveAdminHostPath(`/${slug}`), slug).toEqual({
         kind: "legacy-tool",
@@ -195,11 +261,6 @@ describe("resolveAdminHostPath", () => {
         path: `/${slug}`,
       });
     }
-    expect(resolveAdminHostPath("/daily-events/12345")).toEqual({
-      kind: "legacy-tool",
-      slug: "daily-events",
-      path: "/daily-events/12345",
-    });
     // camera-assign rejoined this group, nested route and all — the clean staff
     // URL keeps working, it just rewrites to the tokened board again.
     expect(resolveAdminHostPath("/camera-assign")).toEqual({

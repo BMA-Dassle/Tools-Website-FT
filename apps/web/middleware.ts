@@ -11,6 +11,7 @@ import {
   isSsoToolPath,
   parseAdminHosts,
   resolveAdminHostPath,
+  ssoCleanPathForTokenPath,
 } from "~/features/sso/tools";
 
 /**
@@ -503,6 +504,44 @@ export async function middleware(request: NextRequest) {
         status: 404,
         headers: { "content-type": "text/plain" },
       });
+    }
+
+    // ── A bookmarked token URL for a tool that now signs in ───────────
+    // The token is VALID and the slug is an SSO tool, so this is a staff
+    // member opening a bookmark from before that tool moved. Send them to the
+    // clean URL; the SSO branch above then takes over on the next request and
+    // turns the bookmark into a sign-in. Query string and deeper segments ride
+    // along, so a deep link lands where it pointed.
+    //
+    // 307, NEVER 308. Browsers heuristically cache 308s, and a cached
+    // `{token} → clean` mapping would outlive an ADMIN_CAMERA_TOKEN rotation —
+    // the trap the legacy-token shim above documents and this repo already
+    // paid for once.
+    //
+    // AFTER the legacy 308 on purpose, so the two compose in the one order
+    // that never needs the legacy value again: legacy → canonical → clean. The
+    // legacy shim is untouched, and the second hop is the uncached one.
+    //
+    // WHAT THIS DELIBERATELY DOES NOT TOUCH — each enforced inside
+    // `ssoCleanPathForTokenPath`, and each with a test:
+    //   - camera-assign, pit and briefing: token-only surfaces, they render.
+    //   - /admin/embed/*: portal HMAC iframes, never bounced to a sign-in.
+    //   - /api/admin/*: an XHR that follows a 307 to HTML parses it as JSON.
+    //   - an INVALID token: already 404'd above, and it must stay a 404.
+    //   - anything carrying `x-admin-proxy-key`: the shell's branch returns far
+    //     above this one, so a machine forwarding a tokened path is served, not
+    //     bounced. A bookmark is a person; a proxy is not.
+    //
+    // KILL SWITCH: ADMIN_TOKEN_REDIRECT_DISABLED="true" restores the previous
+    // behaviour (the tokened URL serves the board). Ships ON, per the
+    // flags-are-kill-switches rule — a flag is an emergency off, not a gate.
+    if (process.env.ADMIN_TOKEN_REDIRECT_DISABLED !== "true") {
+      const clean = ssoCleanPathForTokenPath(pathname, expected);
+      if (clean) {
+        const url = request.nextUrl.clone();
+        url.pathname = clean;
+        return NextResponse.redirect(url, 307);
+      }
     }
 
     // ── IP allowlist for /admin/{token}/ page routes ─────────────────

@@ -1,32 +1,27 @@
-import { notFound, redirect } from "next/navigation";
-import { adminToolUrl } from "~/lib/helpers/admin-url";
+import { notFound } from "next/navigation";
+import AdminEventDetailPage from "@/app/admin/_tools/daily-events/AdminEventDetailPage";
+import type { AdminToolQueryPromise } from "@/app/admin/_tools/query";
 
 /**
- * Portal-URL-scheme parity: the employee portal deep-linked event details at
- * /management/operations/daily-events/{projectId}. This stub keeps that
- * shape working on the website by redirecting to the board's ?event= modal
- * deep link (forwarding location/date hints).
+ * v1: `/admin/{ADMIN_CAMERA_TOKEN}/daily-events/{projectId}` — the portal
+ * deep-link shim.
+ *
+ * The static token in the path is the credential. Kept alongside the SSO route
+ * at `/admin/daily-events/{projectId}` (same shim, no credential in the URL);
+ * the middleware 307s this URL to the clean one, deeper segment intact.
  */
 
 export const dynamic = "force-dynamic";
 
-export default async function Page({
-  params,
-  searchParams,
-}: {
+type Props = {
   params: Promise<{ token: string; projectId: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
+  searchParams: AdminToolQueryPromise;
+};
+
+export default async function Page({ params, searchParams }: Props) {
   const { token, projectId } = await params;
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!expected || token !== expected) notFound();
-  if (!/^-?\d{1,20}$/.test(projectId)) notFound();
 
-  const sp = await searchParams;
-  const location = typeof sp.location === "string" ? sp.location : "";
-  const date = typeof sp.date === "string" ? sp.date : "";
-
-  // Clean shell URL — see the sibling shim: a tokened redirect() target is a
-  // browser-visible copy of the permanent admin secret.
-  redirect(adminToolUrl("daily-events-v2", { event: projectId, location, date }));
+  return <AdminEventDetailPage projectId={projectId} query={await searchParams} />;
 }
