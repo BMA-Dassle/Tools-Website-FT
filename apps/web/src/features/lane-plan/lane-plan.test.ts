@@ -31,6 +31,12 @@ import {
   simulateDay,
   sweepDay,
 } from "./policy";
+import {
+  isSameOperatingDay,
+  laneArrangementCenter,
+  laneArrangementEnabled,
+  shouldArrangeLane,
+} from "./flags";
 import { classifyPinFailure, shouldFailOpen } from "./pin-errors";
 import { createWithLanePlan, describePinOutcome } from "./pin";
 import { scorePlacement, spreadBias } from "./score";
@@ -901,5 +907,80 @@ describe("forecast", () => {
     expect(p.observedPeak).toBe(0);
     expect(p.forecastPeak).toBeGreaterThan(0);
     expect(p.peak).toBeGreaterThan(p.observedPeak);
+  });
+});
+
+describe("the gates that decide whether we touch a booking at all", () => {
+  const et = (s: string) => Date.parse(s);
+
+  it("arranges FastTrax and nothing else", () => {
+    expect(laneArrangementCenter(11542)).toBe(true); // FastTrax duckpin
+    expect(laneArrangementCenter(9172)).toBe(false); // HeadPinz Fort Myers
+    expect(laneArrangementCenter(3148)).toBe(false); // HeadPinz Naples
+  });
+
+  it('is a KILL SWITCH — on unless the env var is exactly "false"', () => {
+    const prev = process.env.LANE_ARRANGEMENT;
+    try {
+      delete process.env.LANE_ARRANGEMENT;
+      expect(laneArrangementEnabled()).toBe(true);
+      process.env.LANE_ARRANGEMENT = "true";
+      expect(laneArrangementEnabled()).toBe(true);
+      // Anything truthy-but-not-"false" must NOT disable it — a flag that turns itself
+      // off on a typo is worse than no flag.
+      process.env.LANE_ARRANGEMENT = "yes";
+      expect(laneArrangementEnabled()).toBe(true);
+      process.env.LANE_ARRANGEMENT = "false";
+      expect(laneArrangementEnabled()).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.LANE_ARRANGEMENT;
+      else process.env.LANE_ARRANGEMENT = prev;
+    }
+  });
+
+  it("only places a booking made FOR the day it was made ON", () => {
+    const now = et("2026-08-22T14:00:00-04:00");
+    expect(isSameOperatingDay(et("2026-08-22T20:00:00-04:00"), now)).toBe(true);
+    // Booked today for tomorrow night — the board we can read is not the board it lands on.
+    expect(isSameOperatingDay(et("2026-08-23T20:00:00-04:00"), now)).toBe(false);
+    expect(isSameOperatingDay(et("2026-09-05T20:00:00-04:00"), now)).toBe(false);
+  });
+
+  it("counts the small hours as the night before, not a new day", () => {
+    // 12:30am Sunday is still Saturday's session — staff, board and guests all agree,
+    // and a calendar rollover mid-shift would strand the last bookings of the night.
+    const lateNight = et("2026-08-23T00:30:00-04:00");
+    const satEvening = et("2026-08-22T22:00:00-04:00");
+    expect(isSameOperatingDay(lateNight, satEvening)).toBe(true);
+    // 5am is genuinely the next day.
+    expect(isSameOperatingDay(et("2026-08-23T05:00:00-04:00"), satEvening)).toBe(false);
+  });
+
+  it("needs EVERY gate — one satisfied condition is not enough", () => {
+    const nowMs = et("2026-08-22T14:00:00-04:00");
+    const sameDay = et("2026-08-22T20:00:00-04:00");
+    const nextDay = et("2026-08-23T20:00:00-04:00");
+    expect(shouldArrangeLane({ centerId: 11542, bookedAtMs: sameDay, nowMs })).toBe(true);
+    // Right day, wrong house.
+    expect(shouldArrangeLane({ centerId: 9172, bookedAtMs: sameDay, nowMs })).toBe(false);
+    // Right house, wrong day.
+    expect(shouldArrangeLane({ centerId: 11542, bookedAtMs: nextDay, nowMs })).toBe(false);
+  });
+
+  it("the kill switch beats every other gate", () => {
+    const prev = process.env.LANE_ARRANGEMENT;
+    try {
+      process.env.LANE_ARRANGEMENT = "false";
+      expect(
+        shouldArrangeLane({
+          centerId: 11542,
+          bookedAtMs: et("2026-08-22T20:00:00-04:00"),
+          nowMs: et("2026-08-22T14:00:00-04:00"),
+        }),
+      ).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.LANE_ARRANGEMENT;
+      else process.env.LANE_ARRANGEMENT = prev;
+    }
   });
 });

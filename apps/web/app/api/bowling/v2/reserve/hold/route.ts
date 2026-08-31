@@ -1,5 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { createReservation } from "@/lib/qamf-bowling";
+import { shouldArrangeLane } from "~/features/lane-plan/flags";
+import { placeReservationOnBestLane } from "~/features/lane-plan/place.server";
 import {
   assertBookable,
   DurationGuardError,
@@ -128,6 +130,24 @@ export async function POST(req: NextRequest) {
       },
       TotalPlayers: players,
     });
+
+    // LANE ARRANGEMENT (FastTrax pilot). The hold now exists on whatever lane QAMF
+    // auto-assigned, which is the answer we ship if anything below goes wrong. Improving
+    // it runs in `after()` so this response is exactly as fast as it was before, and so a
+    // slow QAMF read can never hold up a guest mid-checkout.
+    //
+    // Same-day only, FastTrax only, and off instantly via LANE_ARRANGEMENT="false".
+    if (shouldArrangeLane({ centerId, bookedAtMs: Date.parse(bookedAt), nowMs: Date.now() })) {
+      after(() =>
+        placeReservationOnBestLane({ centerId, reservationId: reservation.Id }).then(
+          (r) =>
+            r.moved &&
+            console.log(
+              `[bowling/v2/reserve/hold] ${reservation.Id} lane ${r.from.join("+")} -> ${r.to.join("+")}`,
+            ),
+        ),
+      );
+    }
 
     return NextResponse.json({
       qamfReservationId: reservation.Id,
