@@ -5094,3 +5094,41 @@ drains on its own within a day of stopping the minting. Do not go probing undocu
 `/auth/logout` shapes to force it — a working call could drop staff off the Office UI
 mid-transaction, and killing sessions on a vendor's box is theirs to authorise. Ask them to reap
 it if the tail matters.
+
+## Moving a tool behind sign-in changes nothing for the people who already have the old URL (2026-08-30)
+
+**What happened:** eighteen admin tools moved from `/admin/{ADMIN_CAMERA_TOKEN}/<slug>` to a
+clean `/admin/<slug>` behind Microsoft SSO. Nothing was deleted from the `[token]` tree —
+correctly, because staff bookmarks, crons and Teams cards outlive any of these decisions. The
+result was a migration that looked complete and was not: **the sign-in was optional for exactly
+the audience that already had the link.** Anyone with the old bookmark kept opening the board
+with the credential still in the path, and the permanent secret stayed on display in the address
+bar of a board that gets screenshotted, shoulder-read and pasted into chat.
+
+The fix is a redirect lane in the gate: a VALID token plus a slug that has moved → **307** to the
+clean URL, which then bounces to `/sso/signin`. The bookmark becomes a sign-in once and then
+updates itself.
+
+**The rules:**
+
+1. **A migration off a URL-borne credential is not done until the OLD url stops serving.**
+   Shipping the new URL is half of it. Ask "who is still using the old one, and what does it hand
+   them?" — if the answer is "the secret", the migration has not started for those people.
+2. **307, never 308, for a redirect whose SOURCE contains a rotatable secret.** Browsers
+   heuristically cache 308s, so a cached `{token} → clean` mapping outlives the rotation that was
+   supposed to retire that token. This repo had already written that down once
+   (`apps/admin/proxy.ts`) and nearly paid for it twice.
+3. **Enumerate what a new redirect must NOT catch, and test each one.** Every exclusion here is a
+   live surface that fails silently for days: unattended wall displays (a 307 is a blank board
+   every morning), the portal's HMAC iframes (a sign-in page inside an iframe), `/api/*` (an XHR
+   that follows a 307 to HTML reports "Unexpected token <", not an auth failure), and an INVALID
+   token (redirecting one answers "does this slug exist?" for anyone with a wrong guess — the
+   opaque 404 exists to refuse that question).
+4. **A "use client" page with no server-side check is a page whose only gate is the matcher.**
+   `api-docs` was one for its whole life. Splitting it to move it behind SSO cost one extra file
+   and got it a real credential check on both of its routes. Any page that renders without asking
+   anyone anything is one `next.config` redirect away from being public.
+5. **Whether a tool signs in is a question about the FURNITURE, not the data.** A desk tool pays
+   one click a shift for taking the credential out of the URL. A kiosk worked standing up between
+   heats, or a wall screen nobody types on, pays a blank board — so those keep a device
+   credential, and the redirect lane must skip them by name.
