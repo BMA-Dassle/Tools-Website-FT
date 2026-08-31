@@ -62,12 +62,40 @@
  *     details and both were on the token, which means their URL was a
  *     forwardable bearer credential for a screen full of customer email
  *     addresses and phone numbers. Those two are the ones worth a sign-in.
+ *
+ * OWNER DECISION, 2026-08-30 — "move the rest". The fourteen remaining office
+ * tools joined the list in one go, leaving exactly three surfaces on the token:
+ * `camera-assign` (trackside kiosks) and the two wall displays. Every one of
+ * the fourteen is worked from a chair: an office laptop or a back-room desktop
+ * running sales reports, approving group functions, editing discount codes,
+ * reading a deposit-failure queue. None of them is between-heats work, and
+ * several paint guest names, phone numbers and card outcomes — the same
+ * argument that moved `e-tickets`, applied to the rest of the estate.
+ *
+ * `daily-events` is on this list as a REDIRECT, not a board: both of its routes
+ * forward to `daily-events-v2` (see `_tools/daily-events`). It stays registered
+ * as an SSO tool because the shim itself must be behind the gate — an open
+ * redirect that names internal tool URLs is still something to sign in for.
  */
 export const SSO_ADMIN_TOOLS: ReadonlySet<string> = new Set([
+  "api-docs",
   "checkin",
+  "christmas-in-july",
+  "daily-events",
+  "daily-events-v2",
+  "deals",
+  "deposit-failures",
+  "discount-codes",
   "e-tickets",
+  "group-approvals",
+  "group-functions",
+  "healthnet",
+  "kbf",
   "reservations",
+  "sales",
+  "signage",
   "videos",
+  "web-sales",
 ]);
 
 /**
@@ -98,35 +126,24 @@ export const DEVICE_TOKEN_TOOLS: ReadonlySet<string> = new Set(["pit", "briefing
 /**
  * Everything else: still reached at `/admin/{ADMIN_CAMERA_TOKEN}/<tool>`.
  *
- * Most are here because the migration is deliberately incremental, not because
- * they are special — they are candidates to move to SSO later, two edits at a
- * time.
+ * As of the 2026-08-30 "move the rest" decision this list holds exactly ONE
+ * slug, and it is here for a REASON — not "not yet".
  *
- * `camera-assign` is here for a REASON, and it is not "not yet". It shipped
- * behind SSO and came back on the owner's first shift with it (2026-08-28): the
- * tool is worked trackside on shared kiosks, standing up between heats, so a
- * per-person Microsoft sign-in is the wrong credential for it in the same way
- * it is wrong for a wall display — just for crowding and shared hardware rather
- * than for nobody being there. It is not a device tool either (a human does
- * work it, and rotating the token must not be blocked on a display plan), so it
- * lives here. Moving it back to SSO needs a new owner decision, not a tidy-up.
+ * `camera-assign` shipped behind SSO and came back on the owner's first shift
+ * with it (2026-08-28): the tool is worked trackside on shared kiosks, standing
+ * up between heats, so a per-person Microsoft sign-in is the wrong credential
+ * for it in the same way it is wrong for a wall display — just for crowding and
+ * shared hardware rather than for nobody being there. It is not a device tool
+ * either (a human does work it, and rotating the token must not be blocked on a
+ * display plan), so it lives here. Moving it back to SSO needs a new owner
+ * decision, not a tidy-up.
+ *
+ * A tool added here in future is a tool the redirect lane in `middleware.ts`
+ * leaves alone: `/admin/{token}/<slug>` renders, it is not bounced to a clean
+ * URL. That is the whole difference between this list and the one above.
  */
 export const TOKEN_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  "api-docs",
   "camera-assign", // incl. the nested /[track] route — owner decision, see above
-  "christmas-in-july",
-  "daily-events",
-  "daily-events-v2",
-  "deals",
-  "deposit-failures",
-  "discount-codes",
-  "group-approvals",
-  "group-functions",
-  "healthnet",
-  "kbf",
-  "sales",
-  "signage",
-  "web-sales",
 ]);
 
 /**

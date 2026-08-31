@@ -73,13 +73,43 @@ describe("the three lists partition the real tool directories", () => {
     }
   });
 
-  it("names the four desk tools and the two wall displays", () => {
+  it("names the eighteen desk tools, the two wall displays and the one kiosk tool", () => {
     // Spelled out rather than derived: this is an owner decision (2026-08-28,
-    // revised the same day after a shift on the shipped gate), so a change to
-    // it should have to change this line and be argued for in the diff, not
-    // slide in as a side effect of an edit somewhere else.
-    expect(sorted(SSO_ADMIN_TOOLS)).toEqual(["checkin", "e-tickets", "reservations", "videos"]);
+    // revised the same day after a shift on the shipped gate, and again on
+    // 2026-08-30 with "move the rest"), so a change to it should have to change
+    // these lines and be argued for in the diff, not slide in as a side effect
+    // of an edit somewhere else.
+    expect(sorted(SSO_ADMIN_TOOLS)).toEqual([
+      "api-docs",
+      "checkin",
+      "christmas-in-july",
+      "daily-events",
+      "daily-events-v2",
+      "deals",
+      "deposit-failures",
+      "discount-codes",
+      "e-tickets",
+      "group-approvals",
+      "group-functions",
+      "healthnet",
+      "kbf",
+      "reservations",
+      "sales",
+      "signage",
+      "videos",
+      "web-sales",
+    ]);
     expect(sorted(DEVICE_TOKEN_TOOLS)).toEqual(["briefing", "pit"]);
+    expect(sorted(TOKEN_ONLY_TOOLS)).toEqual(["camera-assign"]);
+  });
+
+  it("leaves exactly three surfaces reachable by a token URL alone", () => {
+    // The shape of the estate after "move the rest": everything a person works
+    // sitting down signs in, and the only things that do not are two wall
+    // screens nobody types on and one trackside kiosk. Stated as a count so
+    // that quietly parking a nineteenth tool on the token fails here.
+    expect(DEVICE_TOKEN_TOOLS.size + TOKEN_ONLY_TOOLS.size).toBe(3);
+    expect(SSO_ADMIN_TOOLS.size).toBe(ADMIN_TOOL_SLUGS.size - 3);
   });
 
   it("keeps camera-assign on the TOKEN, not behind sign-in", () => {
@@ -103,6 +133,33 @@ describe("the three lists partition the real tool directories", () => {
       expect(SSO_ADMIN_TOOLS.has(slug), slug).toBe(true);
       expect(isSsoAdminTool(slug), slug).toBe(true);
       expect(TOKEN_ONLY_TOOLS.has(slug), slug).toBe(false);
+    }
+  });
+
+  it("puts the fourteen office tools behind sign-in (owner decision 2026-08-30)", () => {
+    // "Move the rest." Every one of these is worked from a chair — an office
+    // laptop or a back-room desktop — and several paint guest names, phone
+    // numbers and card outcomes. Named individually rather than derived so the
+    // decision has to be edited to be reversed.
+    for (const slug of [
+      "api-docs",
+      "christmas-in-july",
+      "daily-events",
+      "daily-events-v2",
+      "deals",
+      "deposit-failures",
+      "discount-codes",
+      "group-approvals",
+      "group-functions",
+      "healthnet",
+      "kbf",
+      "sales",
+      "signage",
+      "web-sales",
+    ]) {
+      expect(isSsoAdminTool(slug), slug).toBe(true);
+      expect(TOKEN_ONLY_TOOLS.has(slug), slug).toBe(false);
+      expect(DEVICE_TOKEN_TOOLS.has(slug), slug).toBe(false);
     }
   });
 
@@ -207,13 +264,15 @@ describe("every SSO tool has a v2 page; nothing else does", () => {
    * when the suite runs without a build (the E2E covers the same property end
    * to end, by actually rendering the board).
    *
-   * Every v2 route is static now that camera-assign's `[track]` one is gone,
-   * so the whole property reduces to the `staticRoutes` membership below.
+   * Every v2 BOARD route is static, so the property reduces to the
+   * `staticRoutes` membership below. One v2 route is legitimately dynamic —
+   * `/admin/daily-events/[projectId]`, the portal deep-link shim — and it does
+   * not compete with `/admin/[token]`: the collision only exists at depth 2,
+   * where `daily-events` is a static segment either way.
    *
-   * Verified 2026-08-28 on this branch:
-   *   staticRoutes:  /admin/checkin, /admin/e-tickets, /admin/reservations,
-   *                  /admin/videos
-   *   dynamicRoutes: /admin/[token]/… only — no /admin/camera-assign/[track].
+   * Verified 2026-08-30 on this branch: all eighteen `/admin/<slug>` routes in
+   * `staticRoutes`; `dynamicRoutes` carries `/admin/[token]/…` plus
+   * `/admin/daily-events/[projectId]` and no `/admin/camera-assign/[track]`.
    */
   const MANIFEST = fileURLToPath(new URL("../../../.next/routes-manifest.json", import.meta.url));
   it.skipIf(!existsSync(MANIFEST))(

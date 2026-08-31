@@ -183,11 +183,21 @@ describe("resolveAdminHostPath", () => {
     }
   });
 
+  it("maps a MIGRATED tool's deeper segments onto its v2 route too", () => {
+    // `/daily-events/{projectId}` is a real portal deep link, and it is the
+    // only nested route any SSO tool has. Since "move the rest" it resolves to
+    // the credential-free `/admin/daily-events/{projectId}` rather than to the
+    // tokened form — which is the whole point of moving a tool.
+    expect(resolveAdminHostPath("/daily-events/12345")).toEqual({
+      kind: "tool",
+      pathname: "/admin/daily-events/12345",
+    });
+  });
+
   it("keeps EVERY un-migrated tool resolving, on the legacy tokened route", () => {
-    // `admin.fasttraxent.com/deals` works today (the shell proxies it to
-    // /admin/{token}/deals) and is in staff email going back months. Moving the
-    // domain onto this deployment must not 404 seventeen tools. Same gate,
-    // different rewrite target.
+    // `admin.fasttraxent.com/camera-assign` works today and is in staff hands.
+    // Moving the domain onto this deployment must not 404 it. Same gate,
+    // different rewrite target — and the same for the two wall displays.
     for (const slug of [...DEVICE_TOKEN_TOOLS, ...TOKEN_ONLY_TOOLS]) {
       expect(resolveAdminHostPath(`/${slug}`), slug).toEqual({
         kind: "legacy-tool",
@@ -195,11 +205,6 @@ describe("resolveAdminHostPath", () => {
         path: `/${slug}`,
       });
     }
-    expect(resolveAdminHostPath("/daily-events/12345")).toEqual({
-      kind: "legacy-tool",
-      slug: "daily-events",
-      path: "/daily-events/12345",
-    });
     // camera-assign rejoined this group, nested route and all — the clean staff
     // URL keeps working, it just rewrites to the tokened board again.
     expect(resolveAdminHostPath("/camera-assign")).toEqual({
