@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { adminToolUrl } from "~/lib/helpers/admin-url";
+import { dailyEventsV2Path } from "@/app/admin/_tools/daily-events/AdminToolPage";
 import type { AdminToolQuery } from "@/app/admin/_tools/query";
 
 /**
@@ -33,7 +33,9 @@ export default async function AdminEventDetailPage({
   const location = typeof query.location === "string" ? query.location : "";
   const date = typeof query.date === "string" ? query.date : "";
 
-  // Clean staff URL — see the sibling shim: a tokened redirect() target is a
-  // browser-visible copy of the permanent admin secret.
-  redirect(adminToolUrl("daily-events-v2", { event: projectId, location, date }));
+  // Clean, SAME-ORIGIN staff path — see the sibling shim for both halves: a
+  // tokened redirect() target is a browser-visible copy of the permanent admin
+  // secret, and a cross-origin one throws away the session the visitor just
+  // signed in for and charges them a second Microsoft round-trip.
+  redirect(dailyEventsV2Path({ event: projectId, location, date }));
 }

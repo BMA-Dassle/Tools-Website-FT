@@ -522,7 +522,16 @@ export async function middleware(request: NextRequest) {
     // that never needs the legacy value again: legacy → canonical → clean. The
     // legacy shim is untouched, and the second hop is the uncached one.
     //
-    // WHAT THIS DELIBERATELY DOES NOT TOUCH — each enforced inside
+    // NAVIGATIONS ONLY, the same rule the other two redirects in this file
+    // obey (`isPageLikeGet`, and the reasoning on its definition). A bookmark
+    // is a page load; a POST, a server action, an RSC fetch or a same-origin
+    // XHR is not, and bouncing one of those to `/admin/<slug>` hands it the
+    // SSO branch's opaque 404 instead of the board it asked for. Without this
+    // guard the first server action added to any of the eighteen boards fails
+    // as a 404 with nothing to explain it. A non-navigation keeps rendering
+    // from the tokened route exactly as it did before the lane existed.
+    //
+    // WHAT THIS DELIBERATELY DOES NOT TOUCH — the rest enforced inside
     // `ssoCleanPathForTokenPath`, and each with a test:
     //   - camera-assign, pit and briefing: token-only surfaces, they render.
     //   - /admin/embed/*: portal HMAC iframes, never bounced to a sign-in.
@@ -535,7 +544,13 @@ export async function middleware(request: NextRequest) {
     // KILL SWITCH: ADMIN_TOKEN_REDIRECT_DISABLED="true" restores the previous
     // behaviour (the tokened URL serves the board). Ships ON, per the
     // flags-are-kill-switches rule — a flag is an emergency off, not a gate.
-    if (process.env.ADMIN_TOKEN_REDIRECT_DISABLED !== "true") {
+    //
+    // FLIPPING IT COSTS A REDEPLOY. This is EDGE middleware, so Next inlines
+    // `process.env.ADMIN_TOKEN_REDIRECT_DISABLED` at build time and a Vercel
+    // env-var change only reaches a NEW deployment. "Emergency off" here means
+    // "set the var and redeploy" — minutes, not seconds. Plan the rollback as
+    // a deploy, and do not describe this flag anywhere as working without one.
+    if (isPageLikeGet(request) && process.env.ADMIN_TOKEN_REDIRECT_DISABLED !== "true") {
       const clean = ssoCleanPathForTokenPath(pathname, expected);
       if (clean) {
         const url = request.nextUrl.clone();

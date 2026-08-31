@@ -7,9 +7,18 @@ shell + rotate) has NOT started and needs the owner's go.
 **Date:** 2026-08-28, revised 2026-08-30. **Branch:** `feat/admin-sso-remaining` off `main`.
 
 The goal of the sequence is one sentence: **no human reaches a FastTrax admin
-page without signing in with their Microsoft account.** PR A makes that true for
-every staffed surface without breaking anyone. PR B removes the static token,
-which is the only step that removes access.
+page without signing in with their Microsoft account.** PR A makes that
+*possible* for every staffed surface without breaking anyone, and bounces the
+bookmarks that would otherwise have skipped it. PR B removes the static token,
+which is the only step that makes it *true*.
+
+That distinction is load-bearing and is not a hedge. After PR A every
+`app/admin/[token]/<slug>/page.tsx` still renders the full board to any request
+carrying `ADMIN_CAMERA_TOKEN`; the redirect lane is a 307, so any client that
+does not follow redirects — a script, `fetch(…, {redirect:"manual"})`, `curl`
+without `-L`, a scanner reading the first response — still gets the board, and
+`ADMIN_TOKEN_REDIRECT_DISABLED="true"` restores it for browsers too. PR A closed
+the *habit*; only rotating the token closes the *hole*.
 
 This file is the evidence for PR B. Every place the codebase touches
 `ADMIN_CAMERA_TOKEN`, `ADMIN_ETICKETS_TOKEN`, `x-admin-token` or a `/admin/…` URL
@@ -80,7 +89,26 @@ supposed to retire that token. `apps/admin/proxy.ts` already carried that lesson
 | `/admin/embed/*` | The portal's HMAC iframes. They have no Microsoft session; a sign-in page inside an iframe is a broken embed. Two of the five embed tools (`daily-events`, `daily-events-v2`) are now SSO slugs, so this exclusion is load-bearing. |
 | `/api/admin/*` | A board's XHR that follows a 307 to an HTML page reports "Unexpected token &lt;" instead of an auth failure. API credential handling is unchanged. |
 | an INVALID token | Still the opaque 404. Redirecting an unknown token would answer "does this slug exist?" for anyone with a wrong guess. |
-| everything when `ADMIN_TOKEN_REDIRECT_DISABLED="true"` | The kill switch. Ships ON, per the flags-are-kill-switches rule. |
+| anything that is not a NAVIGATION | A POST, a server action, an RSC fetch or a same-origin XHR keeps rendering from the tokened route. `isPageLikeGet` — the same guard the gate's other two redirects use. Bouncing a non-navigation lands it on the SSO branch's opaque 404 instead of the board it asked for. |
+| everything when `ADMIN_TOKEN_REDIRECT_DISABLED="true"` | The kill switch. Ships ON, per the flags-are-kill-switches rule. **Flipping it costs a redeploy** — see below. |
+
+**The kill switch is not a soak, and it is not instant.** The lane reads
+`ADMIN_TOKEN_REDIRECT_DISABLED` in EDGE middleware, where Next inlines
+`process.env` at build time — so on Vercel, setting the var only takes effect on
+a NEW deployment. The "emergency off" is itself a redeploy: minutes, not seconds.
+Plan any rollback as a deploy, and do not write anywhere that the flag works
+without one.
+
+**Soak status, stated plainly.** The four tools that soaked behind SSO before the
+lane shipped are `reservations`, `checkin`, `e-tickets` and `videos` (live from
+#45/#46). The other fourteen got their clean `/admin/<slug>` route and the
+redirect off their tokened one in the SAME merge (#47) — no ops sign-off window
+between the two, contrary to the v2 cutover pattern in `CLAUDE.md`. That was a
+knowing deviation, not an oversight, and the mitigations are: the tokened routes
+are untouched and still render (so the rollback is a config flip plus a
+redeploy, not a revert), and the fourteen are office tools with a small,
+reachable audience. **If a fifteenth tool ever moves, ship its
+`app/admin/<slug>/page.tsx` and its lane entry in separate merges.**
 
 **Composition with the legacy `ADMIN_ETICKETS_TOKEN` 308:** legacy → canonical →
 clean. The legacy shim is untouched and fires first (a legacy token is not the
@@ -113,12 +141,16 @@ read per request, not at import — that fixes stale env, not missing env.)
 
 **B. `apps/web` must not ship more than a window ahead of the shell's domain.**
 `src/lib/helpers/admin-url.ts` hard-targets `https://admin.fasttraxent.com`, and
-after PR 1 every staff link goes through it: `adminBoardUrl()` (staff email),
-`vipBoardUrl()` (Teams cards), and both `/admin/{token}/daily-events` redirect
-shims. Until that domain is attached, either attach it in the same window as the
-`tools-website-ft` deploy or set `ADMIN_PUBLIC_URL` on `tools-website-ft` to the
-shell's `.vercel.app` origin. Otherwise every "Open board" button and every
-brand-domain daily-events bookmark points at a domain that does not resolve.
+after PR 1 every staff link goes through it: `adminBoardUrl()` (staff email) and
+`vipBoardUrl()` (Teams cards). Until that domain is attached, either attach it in
+the same window as the `tools-website-ft` deploy or set `ADMIN_PUBLIC_URL` on
+`tools-website-ft` to the shell's `.vercel.app` origin. Otherwise every "Open
+board" button points at a domain that does not resolve.
+
+The two `/admin/{token}/daily-events` redirect shims came OFF that helper
+(2026-08-31) and are now same-origin `/admin/daily-events-v2` — see the note
+under the sweep table — so a brand-domain daily-events bookmark no longer
+depends on the alias resolving at all.
 
 **C. The PR 1 smoke has not been run.** `apps/admin/proxy.test.ts` mocks `./auth`
 wholesale, so the real Auth.js wrapper, the `req.auth` shape, the cookie flags
@@ -196,8 +228,18 @@ fails on a planted leak.
 | `src/features/vip-move-alerts/config.ts` `vipBoardUrl()` | tokened URL inside every Teams card | `adminToolUrl("reservations", {view:"vip"})` |
 | `app/admin/[token]/briefing/BriefingRoomClient.tsx` (×2) | `/admin/${token}/briefing?room=…` — would 404 once the prop became a minted token | `adminToolUrl("briefing", {room})` |
 | `app/admin/[token]/deals/DealsAdminClient.tsx` | `/admin/${token}/web-sales?source=deals` | `adminToolUrl("web-sales", {source:"deals"})` |
-| `app/admin/[token]/daily-events/page.tsx` | `redirect("/admin/${token}/daily-events-v2")` — a token in a browser-visible `Location` header | `adminToolUrl("daily-events-v2", query)` |
-| `app/admin/[token]/daily-events/[projectId]/page.tsx` | same, via the v1 path | `adminToolUrl("daily-events-v2", {event, location, date})` |
+| `app/admin/[token]/daily-events/page.tsx` | `redirect("/admin/${token}/daily-events-v2")` — a token in a browser-visible `Location` header | `dailyEventsV2Path(query)` → `/admin/daily-events-v2?…`, same-origin |
+| `app/admin/[token]/daily-events/[projectId]/page.tsx` | same, via the v1 path | `dailyEventsV2Path({event, location, date})` |
+
+> **Why these two are NOT `adminToolUrl()`.** Both are `redirect()`s the visitor
+> is already mid-journey on, and `adminToolUrl()` is always ABSOLUTE and
+> cross-origin. Auth.js writes host-only session cookies, so a shim that hops to
+> `admin.fasttraxent.com` discards the session the person just signed in for on
+> the brand host and charges a SECOND Microsoft round-trip — which the redirect
+> lane made routine, since a tokened bookmark on `fasttraxent.com` now reaches
+> the shim through a brand-host sign-in. `adminToolUrl()` stays correct for the
+> four rows above it: those are links LEAVING the app (email, Teams cards) or
+> cross-page hrefs, with no origin of their own to be relative to.
 
 `lib/healthnet-almost-here.ts` was on the suspect list and is CLEAR: it uses
 `ADMIN_CAMERA_TOKEN` only as an HMAC key fallback for the guest confirm token

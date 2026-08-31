@@ -87,10 +87,21 @@ wall screen does not.
 - [x] Not redirected: the three token-only tools, `/admin/embed/*` (portal HMAC),
       `/api/admin/*` (an XHR that follows a 307 to HTML reports a JSON syntax error), and
       an invalid token (stays the opaque 404).
+- [x] Not redirected: anything that is not a NAVIGATION — a POST, a server action, an RSC
+      fetch, a HEAD. Same `isPageLikeGet` guard the gate's other two redirects use; without
+      it the first server action on any of the eighteen boards would 404 opaquely.
 - [x] Legacy `ADMIN_ETICKETS_TOKEN` shim untouched; the two compose legacy → canonical →
       clean, the second hop being the uncached one.
 - [x] Kill switch `ADMIN_TOKEN_REDIRECT_DISABLED="true"` restores the previous behaviour.
       **Ships ON** — flags are kill switches, never opt-in gates.
+- [ ] **Flipping the kill switch COSTS A REDEPLOY.** It is read in EDGE middleware, where
+      Next inlines `process.env` at build time, so a Vercel env-var change reaches only a
+      NEW deployment. Plan the rollback as a deploy (minutes), not as a toggle.
+- [ ] **Soak gap, recorded rather than hidden:** the fourteen tools moved in #47 got their
+      clean `/admin/<slug>` route and the redirect off their tokened one in the SAME merge —
+      no ops sign-off window, contrary to the v2 cutover pattern in `CLAUDE.md`. Only
+      `reservations`, `checkin`, `e-tickets` and `videos` soaked (#45/#46). A fifteenth tool
+      ships its page and its lane entry in separate merges.
 - [ ] **Deliberate behaviour change to watch on the preview:** `?embedded=1` on a tokened
       SSO-tool URL now redirects like any other. Nothing in either repo builds such a URL
       (the portal uses `/admin/embed/*` HMAC), but it is the one row of the golden matrix
