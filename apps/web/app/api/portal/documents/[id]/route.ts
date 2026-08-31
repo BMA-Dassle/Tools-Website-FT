@@ -9,7 +9,7 @@ import { formatDocumentDetail } from "@/lib/portal-format";
  * Full contract detail with line items.
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const denied = verifyPortal(req);
+  const denied = await verifyPortal(req);
   if (denied) return denied;
 
   const { id } = await params;

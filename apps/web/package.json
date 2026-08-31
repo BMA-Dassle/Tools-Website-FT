@@ -11,7 +11,8 @@
     "lint:a11y": "node scripts/a11y-gate.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:fast": "tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsbuildinfo-fast.json",
-    "test": "vitest run"
+    "test": "node scripts/check-admin-token-leak.mjs && vitest run",
+    "e2e:sso": "playwright test -c playwright.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.0",
@@ -33,8 +34,10 @@
     "intl-messageformat": "^10.7.0",
     "ioredis": "^5.10.1",
     "next": "16.2.1",
+    "next-auth": "^5.0.0-beta.32",
     "pandadoc-signing": "^1.0.1",
     "pdf-lib": "^1.17.1",
+    "pino": "^10.3.1",
     "qrcode": "^1.5.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -47,6 +50,7 @@
   },
   "devDependencies": {
     "@axe-core/react": "^4.11.2",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",

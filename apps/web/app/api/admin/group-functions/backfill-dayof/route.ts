@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { getGfQuoteByShortId, updateGfQuoteDetails } from "@/lib/group-function-db";
 import { createDayofOrder } from "@/lib/group-function-dayof";
+import { isAdminCredential } from "@/lib/admin-request-auth";
 
 /**
  * POST /api/admin/group-functions/backfill-dayof
@@ -19,13 +20,11 @@ import { createDayofOrder } from "@/lib/group-function-dayof";
  * Do not re-inline it.
  */
 
-const ADMIN_TOKEN = process.env.ADMIN_CAMERA_TOKEN || "";
-
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const { shortId, token } = body as { shortId: string; token: string };
 
-  if (!ADMIN_TOKEN || token !== ADMIN_TOKEN) {
+  if (!(await isAdminCredential(token))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (!shortId) {

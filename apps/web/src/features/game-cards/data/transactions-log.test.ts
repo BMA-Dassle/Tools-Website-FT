@@ -98,6 +98,17 @@ describe("enqueue + replay-set exclusion", () => {
     expect(q).toContain("queue_state IS NULL OR queue_state = 'soap_fallback'");
   });
 
+  it("listPendingLoads gives kiosk new-card rows a 15-minute grace (the kiosk credits them itself)", async () => {
+    // A swipe kiosk persists the swiped account at prepare/claim, so without
+    // the grace a cron tick between the charge and the kiosk's bridge credit
+    // would SOAP-credit the same card — EIS and SOAP share no dedup.
+    const { listPendingLoads } = await import("./transactions-log");
+    await listPendingLoads(10);
+    const q = lastQuery();
+    expect(q).toContain("kind NOT IN ('new_card', 'voucher')");
+    expect(q).toContain("INTERVAL '15 minutes'");
+  });
+
   it("sweeps carry their state guards and age windows", async () => {
     const { sweepStaleQueued, sweepStaleClaimed } = await import("./transactions-log");
     await sweepStaleQueued();

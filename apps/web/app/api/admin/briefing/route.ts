@@ -50,6 +50,7 @@ import { businessDayYmdET } from "@/lib/race-business-day";
 import { isBriefingAssetKey, parseBriefingRoom } from "~/features/signage/briefing/types";
 import { deleteSignageAsset, saveSignageAsset } from "~/features/signage/data/signage-assets-db";
 import { briefingEnabled } from "~/features/signage/flags";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /**
  * Briefing rooms — the control board's API.
@@ -66,15 +67,18 @@ import { briefingEnabled } from "~/features/signage/flags";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function authed(req: NextRequest): boolean {
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected) return false;
-  const token = req.nextUrl.searchParams.get("token") || req.headers.get("x-admin-token") || "";
-  return token === expected;
+/**
+ * Defense in depth behind the middleware gate — see lib/admin-request-auth.
+ * Accepts the static ADMIN_CAMERA_TOKEN (crons, scripts), a signed
+ * short-lived token (what staff browsers now hold), or the SSO shell's
+ * proxy key. Async because signature checks are Web Crypto.
+ */
+async function authed(req: NextRequest): Promise<boolean> {
+  return isAdminApiRequest(req);
 }
 
 export async function GET(req: NextRequest) {
-  if (!authed(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await authed(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const status = await briefingBoardStatus();
   // The push identity travels with the board: the gear needs the public key to
   // register a device, and `configured: false` is what lets it say "not set up"
@@ -148,7 +152,7 @@ async function vacateSessionElsewhere(args: {
 }
 
 export async function POST(req: NextRequest) {
-  if (!authed(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await authed(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   let body: {
     action?: string;

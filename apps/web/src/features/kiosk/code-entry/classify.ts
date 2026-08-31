@@ -84,6 +84,21 @@ const SQ_BALANCE_RE = /^https?:\/\/(?:www\.)?squareup\.com\/gift\/balance\//i;
 /** Bare game-card barcode: all digits, long (the 1D barcode zero-pads to 16).
  *  8+ digits so short numeric promo codes (rare but legal) stay promos. */
 const CARD_DIGITS_RE = /^\d{8,}$/;
+/**
+ * Width of the Intercard card barcode after its zero padding
+ * (`0000000001037356` — the same 16 the mag track carries).
+ *
+ * It is the discriminator between the two padded digit runs a kiosk scanner
+ * produces. Groupon's short code arrives padded SHORTER than this — 8 digits
+ * inside a 12-wide symbol (`000089895632`, owner 2026-08-28) — so a run
+ * narrower than the card barcode whose stripped form is Groupon-shaped is a
+ * Groupon candidate, while a real 7-digit Intercard account sitting inside a
+ * full-width 16 barcode is not. That asymmetry matters because Groupon is
+ * asked FIRST for any candidate (routeWithGrouponFallback): flagging every
+ * card scan would put a vendor round-trip in front of the most common scan on
+ * the kiosk.
+ */
+const ICARD_BARCODE_DIGITS = 16;
 /** MSR track-2 burst: `;6283=<account>?` (6283 = Intercard corp prefix). */
 const TRACK2_RE = /^;?6283=(\d+)\??$/;
 
@@ -131,10 +146,25 @@ export function classifyKioskCode(input: string): ClassifiedCode {
     return { kind: "groupon", value: compact, raw, grouponCandidate: true };
   }
 
+  // The digits a lookup will actually be given: a 1D barcode zero-pads its
+  // payload, and every downstream rail is handed the STRIPPED form.
+  const stripped = compact.replace(/^0+(?=\d)/, "");
+
   // A HINT carried alongside whatever kind the code already had — never a kind
   // of its own, because a 7-/8-character code is genuinely ambiguous and this
   // function may not do I/O. See `grouponCandidate` on ClassifiedCode.
-  const grouponCandidate = GROUPON_CODE_RE.test(compact);
+  //
+  // TESTED ON THE STRIPPED VALUE TOO (owner 2026-08-28: a scanned Groupon was
+  // dead at the kiosk while the same code typed by hand worked). The scanner
+  // hands us `000089895632`; that is 12 characters, so the padded form misses
+  // the 7-8 window, the hint was never set, and the run fell into the
+  // game-card branch below — which never REFUSES, so the Groupon fallback had
+  // nothing to fire on. Stripping first restores the same verdict the typed
+  // `89895632` gets. Excluding the full-width card barcode keeps 7-digit
+  // Intercard accounts (`0000000001037356`) off Groupon's lookup.
+  const grouponCandidate =
+    GROUPON_CODE_RE.test(compact) ||
+    (compact.length < ICARD_BARCODE_DIGITS && GROUPON_CODE_RE.test(stripped));
 
   if (CARD_DIGITS_RE.test(compact)) {
     // Bare long digit run = the game-card barcode; strip the zero padding but
@@ -146,7 +176,7 @@ export function classifyKioskCode(input: string): ClassifiedCode {
     // it falls to the promo catch-all below carrying the same hint.
     return {
       kind: "game-card",
-      value: compact.replace(/^0+(?=\d)/, ""),
+      value: stripped,
       raw,
       ...(grouponCandidate && { grouponCandidate: true }),
     };

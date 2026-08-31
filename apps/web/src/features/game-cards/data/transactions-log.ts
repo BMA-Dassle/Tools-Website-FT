@@ -587,6 +587,16 @@ export async function incrementAttempt(txnId: string): Promise<number> {
  * two credit paths share no dedup, so replaying one of those rows is a
  * double credit. Only never-queued (NULL) and 'soap_fallback' (EIS
  * definitively did not credit) rows are eligible.
+ *
+ * KIOSK new-card rows (`new_card` / comped `voucher`) get a 15-minute grace:
+ * the kiosk that charged them is about to credit them ITSELF through the
+ * on-prem bridge (dispense → load, or — on a swipe kiosk — a load onto the
+ * account persisted at prepare/claim). Until 2026-08-28 those rows carried an
+ * empty account until the kiosk attached one at load, so the cron could never
+ * reach a real card first; a swipe kiosk persists the account up front, and
+ * without the grace a cron tick landing between the charge and the kiosk's
+ * bridge credit would SOAP-credit the same card (double credit). The cron is
+ * the safety net for a kiosk that died, not a competitor for a live one.
  */
 export async function listPendingLoads(limit = 50): Promise<TxnRow[]> {
   if (!isDbConfigured()) return [];
@@ -597,6 +607,7 @@ export async function listPendingLoads(limit = 50): Promise<TxnRow[]> {
       SELECT * FROM intercard_transactions
       WHERE load_state = 'pending' AND state = 'charged'
         AND (queue_state IS NULL OR queue_state = 'soap_fallback')
+        AND (kind NOT IN ('new_card', 'voucher') OR created_at < NOW() - INTERVAL '15 minutes')
       ORDER BY created_at ASC LIMIT ${limit}
     `;
     return rows.map(rowToTxn);

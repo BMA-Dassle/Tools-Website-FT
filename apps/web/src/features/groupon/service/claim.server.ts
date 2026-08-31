@@ -72,7 +72,9 @@ export async function claimGrouponGameZone(input: {
   code: string;
   locationCode: number;
   kioskId?: string | null;
-  /** WEB only: credit a card the guest already holds instead of dispensing. */
+  /** WEB: credit a card the guest already holds instead of dispensing. SWIPE
+   *  kiosk (no dispenser): the blank the guest swiped before this claim,
+   *  persisted on the row now (persist-first). Dispenser kiosks leave it unset. */
   accountNumber?: string;
   source: "kiosk" | "web";
 }): Promise<GrouponGameZoneClaim> {
@@ -136,9 +138,12 @@ export async function claimGrouponGameZone(input: {
       txnId,
       groupId,
       // The kind encodes FULFILMENT: crediting a card the guest already holds
-      // must never look like a fresh blank, or clear-on-encode would wipe their
-      // existing balance.
-      kind: input.accountNumber ? "voucher_reload" : "voucher",
+      // (web) must never look like a fresh blank, or clear-on-encode would wipe
+      // their existing balance. A swipe kiosk's blank IS fresh stock (`voucher`)
+      // that already knows its account — load-card never clears a fresh-blank
+      // row carrying its account, and the cron gives `voucher` rows the kiosk's
+      // grace window.
+      kind: input.source === "web" && input.accountNumber ? "voucher_reload" : "voucher",
       locationCode: input.locationCode,
       accountNumber: input.accountNumber ?? "",
       packageId,

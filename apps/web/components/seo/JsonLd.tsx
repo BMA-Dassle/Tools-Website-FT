@@ -68,16 +68,6 @@ export function LocalBusinessJsonLd() {
           price: "15.99",
           priceCurrency: "USD",
         },
-        {
-          "@type": "Offer",
-          itemOffered: {
-            "@type": "Service",
-            name: "Mini Kart Racing",
-            description: "Electric kart racing for ages 3-6",
-          },
-          price: "9.99",
-          priceCurrency: "USD",
-        },
       ],
     },
     amenityFeature: [
@@ -648,7 +638,7 @@ export function MegaTrackDayJsonLd() {
         const hours = fasttraxHoursFor(window.weekday, occurrence);
         const schema = recurringEventSchema({
           name: `${window.label} at FastTrax`,
-          description: `Every ${window.dayName} FastTrax pulls the barrier between Blue and Red tracks to create Florida's largest indoor racing circuit — the 2,108 ft Mega Track. Adult (all tiers), Junior Pro and Mini karts race for a flat $20.99. Junior racing on Mega is Junior Pro only — Junior Starter and Junior Intermediate do not run on Mega days.`,
+          description: `Every ${window.dayName} FastTrax pulls the barrier between Blue and Red tracks to create Florida's largest indoor racing circuit — the 2,108 ft Mega Track. Adult (all tiers) and Junior Pro karts race for a flat $20.99. Junior racing on Mega is Junior Pro only — Junior Starter and Junior Intermediate do not run on Mega days.`,
           url: "https://fasttraxent.com/racing",
           image:
             "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-racing.webp",

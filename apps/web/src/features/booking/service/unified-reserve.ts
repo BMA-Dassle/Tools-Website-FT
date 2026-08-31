@@ -20,6 +20,7 @@ import { kioskGzCartEnabled, kioskPovCodesEnabled } from "~/features/kiosk/flags
 import { getOrderPaymentInfo } from "~/features/kiosk/service/square-terminal";
 import { kioskAmbientCheckoutEnabled } from "~/features/kiosk/flags";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
+import { assertSwipedBlanks } from "~/features/game-cards/service/swiped-blank-guard";
 import { startTxn, markCharged, markLoadState } from "~/features/game-cards/data/transactions-log";
 import {
   kioskRacePacksEnabled,
@@ -2057,6 +2058,16 @@ async function unifiedReserveInner(
   const gzLocationCode = gzPurchase
     ? centerCodeFor(session.center ?? "fort-myers", session.entryBrand)
     : null;
+  // Swipe kiosk (no dispenser, 2026-08-28): new-card rows arrive with the
+  // account the guest swiped in the Game Zone cart. Confirm each is still a
+  // BLANK server-side on the PREPARE pass — before any row is persisted and
+  // before the reader is armed (the browser's blank check is a claim, not
+  // proof). Never on finalize: money is already captured there, and a
+  // refusal would strand it. Dispenser carts carry no accounts and skip this.
+  if (prepareOnly && gzPurchase?.mode === "new_card" && gzLocationCode != null) {
+    const swiped = gzPurchase.cards.map((c) => c.accountNumber).filter((a) => a.length > 0);
+    if (swiped.length > 0) await assertSwipedBlanks(swiped, gzLocationCode);
+  }
 
   if (depositCents > 0) {
     const ganPrefix = buildGanPrefix("WEB", locationId);

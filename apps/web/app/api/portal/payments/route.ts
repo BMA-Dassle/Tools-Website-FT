@@ -11,7 +11,7 @@ import { formatPaymentSummary } from "@/lib/portal-format";
  * Codes with no website record are omitted from results.
  */
 export async function GET(req: NextRequest) {
-  const denied = verifyPortal(req);
+  const denied = await verifyPortal(req);
   if (denied) return denied;
 
   const raw = req.nextUrl.searchParams.get("bmiCodes") || "";

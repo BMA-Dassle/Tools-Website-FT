@@ -64,3 +64,11 @@ export {
   type SerialMsrConnection,
   type UseSerialMsrOptions,
 } from "./useSerialMsr";
+export {
+  createSwipeWaiter,
+  DEFAULT_SWIPE_WAIT_MS,
+  SwipeWaitError,
+  type SwipeWaiter,
+  type SwipeWaitEnd,
+  type SwipeWaitOptions,
+} from "./swipe-waiter";

@@ -186,6 +186,10 @@ export const VoucherRedeemSchema = z.discriminatedUnion("action", [
     locationCode: z.number().int(),
     center: z.string().trim().max(40).optional(),
     kioskId: z.string().trim().max(120).optional(),
+    /** Swipe kiosk (no dispenser): the blank the guest already swiped for this
+     *  leg. Persisted on the comped row at claim (persist-first) so a load
+     *  that never reaches the server still leaves a row the cron can credit. */
+    accountNumber: accountNumber.optional(),
   }),
   z.object({
     action: z.literal("release"),
@@ -231,6 +235,14 @@ export const LoadCardSchema = z.object({
    * the server credits via SOAP (the fallback when no bridge is reachable).
    */
   preLoaded: z.boolean().optional(),
+  /**
+   * The account came off a card the GUEST presented (swiped on an MSR-only
+   * kiosk — a blank from the holder under the screen), not off a blank the
+   * dispenser pulled from its stacker. A guest-presented card is never
+   * clear-on-encoded: a blank has nothing to clear, and a card that somehow
+   * carries value must keep it (the guest paid for the tokens being added).
+   */
+  swiped: z.boolean().optional(),
 });
 export type LoadCardInput = z.infer<typeof LoadCardSchema>;
 

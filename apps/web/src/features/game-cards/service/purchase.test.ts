@@ -338,6 +338,86 @@ describe("chargeNewCardOrder (buy: charge upfront, no verify/load)", () => {
     expect(order).not.toContain("markLoadState:loaded");
   });
 
+  it("persists a SWIPED blank's account on its row before the charge (no-dispenser kiosk)", async () => {
+    // MSR-only kiosk: the guest swiped each blank BEFORE paying, so the row is
+    // durable WITH its account — a browser death after the charge leaves a row
+    // the reconcile cron can still credit (persist-first).
+    const { intercard, sq } = await loadMocks();
+    const tlog = await import("../data/transactions-log");
+    // The server re-checks a swiped account itself: Intercard has never seen
+    // it (live signature: result 1 → notFound "confirmed") — a true blank.
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: false,
+      accountNumber: "0000000001037356",
+      notFound: "confirmed",
+    });
+    const { chargeNewCardOrder } = await import("./purchase");
+
+    const res = await chargeNewCardOrder({
+      kind: "new_card",
+      locationCode: 12,
+      items: [
+        { packageId: "tok-500", accountNumber: "0000000001037356" },
+        { packageId: "tok-100" }, // dispenser-style row: account attached at load
+      ],
+      cardNonce: "cnon-1",
+    });
+
+    expect(res.rows).toHaveLength(2);
+    const startCalls = (tlog.startTxn as ReturnType<typeof vi.fn>).mock.calls;
+    expect(startCalls[0][0]).toMatchObject({ kind: "new_card", accountNumber: "0000000001037356" });
+    expect(startCalls[1][0]).toMatchObject({ kind: "new_card", accountNumber: "" });
+    // Only the swiped item is checked; the dispenser item has no account yet.
+    expect(intercard.verifyAccount).toHaveBeenCalledTimes(1);
+    expect(sq.authorizeMultiTender).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to sell a 'new card' against a swiped account that already carries value", async () => {
+    // The kiosk's blank check is a claim the server must not take on faith:
+    // an active card gets a 409 BEFORE any row is persisted or money moves.
+    const { intercard, sq } = await loadMocks();
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: true,
+      accountNumber: "1038010",
+      balance: { tokens: 20, bonusTokens: 0, eTickets: 0, timeMinutes: 0 },
+      transactions: [],
+    });
+    const { chargeNewCardOrder } = await import("./purchase");
+
+    await expect(
+      chargeNewCardOrder({
+        kind: "new_card",
+        locationCode: 12,
+        items: [{ packageId: "tok-500", accountNumber: "1038010" }],
+        cardNonce: "cnon-1",
+      }),
+    ).rejects.toMatchObject({ code: "CARD_NOT_BLANK" });
+    expect(order).not.toContain("startTxn");
+    expect(sq.authorizeMultiTender).not.toHaveBeenCalled();
+  });
+
+  it("will not sell a swiped card as new when Intercard could not confirm it is blank", async () => {
+    // -1 (server exception) is AMBIGUOUS, not proof of absence → 503, retry.
+    const { intercard, sq } = await loadMocks();
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: false,
+      accountNumber: "1038010",
+      notFound: "ambiguous",
+    });
+    const { chargeNewCardOrder } = await import("./purchase");
+
+    await expect(
+      chargeNewCardOrder({
+        kind: "new_card",
+        locationCode: 12,
+        items: [{ packageId: "tok-500", accountNumber: "1038010" }],
+        cardNonce: "cnon-1",
+      }),
+    ).rejects.toMatchObject({ code: "VERIFY_UNAVAILABLE" });
+    expect(order).not.toContain("startTxn");
+    expect(sq.authorizeMultiTender).not.toHaveBeenCalled();
+  });
+
   it("marks every row charge-failed and throws on a decline", async () => {
     const { sq } = await loadMocks();
     (sq.authorizeMultiTender as ReturnType<typeof vi.fn>).mockRejectedValueOnce(

@@ -18,7 +18,7 @@ const MAX_CODES = 60;
  * {success, result}.
  */
 export async function GET(req: NextRequest) {
-  const denied = verifyPortal(req);
+  const denied = await verifyPortal(req);
   if (denied) return denied;
 
   const { searchParams } = req.nextUrl;

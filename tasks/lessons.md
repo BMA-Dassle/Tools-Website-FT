@@ -1,5 +1,45 @@
 # Lessons Learned
 
+## A shared secret that forty-five files compare for themselves can never be replaced (2026-08-28)
+
+**What happened (caught in design, not production):** getting `ADMIN_CAMERA_TOKEN` out of
+browsers looked like a page-level change — swap what the `[token]` pages hand their client
+components, done. It was not. Roughly **45 `/api/admin/*` route handlers each carried their own
+copy** of `token === process.env.ADMIN_CAMERA_TOKEN`, deliberate defense in depth behind the
+middleware gate. Every one of them would have answered 401 the moment a page minted a
+short-lived token instead — every board dead, on a change whose diff touched no route.
+
+The same shape hid in the outbound direction. `adminBoardUrl()`, `vipBoardUrl()`, two in-app
+board links and two `redirect()` shims each built `/admin/${token}/…` independently, so the
+token lived in staff inboxes, Teams history and `Location` headers, and rotating it meant
+re-sending the archive.
+
+**The rules:**
+
+1. **A credential compared in N places has N places to update and N chances to miss one.**
+   Before changing what a credential IS, grep for who compares it — the count is the real size
+   of the change. One `isAdminCredential()` that accepts *the set of valid credentials* is what
+   makes the set extensible; `x === env.SECRET` in forty-five files is what freezes it.
+2. **Defense in depth must not mean duplicated logic.** The inline route checks were right to
+   exist (these routes refund cards and write to screens guests see) and they still do — they
+   delegate. What was wrong was that each one hard-coded WHICH credential, not THAT there must
+   be one. Delegating kept the property that a matcher change cannot open the routes, and a
+   forged `x-admin-route: 1` header still proves nothing.
+3. **Never authenticate a route by trusting a header the middleware set.** It is the tempting
+   one-file fix and it converts any future matcher edit into a total bypass. Verify a real
+   secret in the handler, or accept that the middleware is your only gate — do not pretend to
+   have both.
+4. **A URL is a place a secret goes to live forever.** Email, Teams cards, `Location` headers
+   and browser history all outlive the rotation. Build staff links through ONE helper that has
+   no secret to embed (`adminToolUrl()`), so the question "does this link leak?" has a
+   structural answer instead of a per-call-site one.
+5. **New credential schemes must not require a new env var to work on day one.** The signed
+   token's HMAC key falls back to `ADMIN_CAMERA_TOKEN`, which every environment already has, so
+   nothing waited on a Vercel change to keep working. Ship the mechanism, then decouple the key.
+6. **Pin the property, not the instance.** `scripts/check-admin-token-leak.mjs` fails the build
+   if any client-reachable module reads the token env. Fixing 23 pages fixes today; the pin is
+   what stops page 24.
+
 ## A latent fallback goes live the moment a filter widens — and the test that guarded it was asserting the bug (2026-08-19)
 
 **What happened:** every bowling reservation on the kiosk check-in list read four hours late — a
@@ -4540,11 +4580,21 @@ the main deployment with the correct origin, so only the two CLIENT-side sites
    `/reservations` and it would have recorded staff sessions full of customer
    PII. The `x-admin-route` request header is the only truthful signal — the
    root layout gates `<ClarityAnalytics />` on it server-side.
-5. **The admin domain must not be a subdomain of fasttraxent.com /
-   headpinz.com** — `publicOrigin()`'s keep-list would treat it as a guest
-   host (QRs/TV URLs would point at the auth wall), and middleware brand
-   detection keys on `hostname.includes("headpinz.com")`. Use the
-   `*.vercel.app` domain or a dedicated apex.
+5. ~~**The admin domain must not be a subdomain of fasttraxent.com /
+   headpinz.com**~~ — **AMENDED 2026-08-28 (SSO): `admin.fasttraxent.com` is
+   now allowed.** The original ban existed for one reason — `publicOrigin()`'s
+   keep-list would have treated an `admin.` host as a guest host and baked the
+   auth wall into VIP voucher QRs and TV player URLs. `publicOrigin()` now
+   excludes any host whose FIRST label is exactly `admin` before the keep-list
+   runs, so the failure it guarded against cannot happen
+   (`src/lib/helpers/public-origin.ts` + its test). The second half of the old
+   rule still stands and is now the only live constraint: **middleware brand
+   detection keys on `hostname.includes("headpinz.com")`**, so
+   `admin.headpinz.com` would be brand-detected as HeadPinz and `/hp`-rewritten
+   — use `admin.fasttraxent.com` (the shell forwards upstream anyway, so the
+   brand of the shell host is irrelevant to what staff see). Any OTHER new
+   brand subdomain re-opens the original question: check `publicOrigin()` and
+   the brand detection before adding one.
 6. **A trusted-proxy header beats a duplicated secret store.** The main gate
    accepts `x-admin-proxy-key` (env `ADMIN_PROXY_KEY`, additive, inert until
    set) so the shell stays authenticated when `ADMIN_CAMERA_TOKEN` is later
@@ -5044,3 +5094,41 @@ drains on its own within a day of stopping the minting. Do not go probing undocu
 `/auth/logout` shapes to force it — a working call could drop staff off the Office UI
 mid-transaction, and killing sessions on a vendor's box is theirs to authorise. Ask them to reap
 it if the tail matters.
+
+## Moving a tool behind sign-in changes nothing for the people who already have the old URL (2026-08-30)
+
+**What happened:** eighteen admin tools moved from `/admin/{ADMIN_CAMERA_TOKEN}/<slug>` to a
+clean `/admin/<slug>` behind Microsoft SSO. Nothing was deleted from the `[token]` tree —
+correctly, because staff bookmarks, crons and Teams cards outlive any of these decisions. The
+result was a migration that looked complete and was not: **the sign-in was optional for exactly
+the audience that already had the link.** Anyone with the old bookmark kept opening the board
+with the credential still in the path, and the permanent secret stayed on display in the address
+bar of a board that gets screenshotted, shoulder-read and pasted into chat.
+
+The fix is a redirect lane in the gate: a VALID token plus a slug that has moved → **307** to the
+clean URL, which then bounces to `/sso/signin`. The bookmark becomes a sign-in once and then
+updates itself.
+
+**The rules:**
+
+1. **A migration off a URL-borne credential is not done until the OLD url stops serving.**
+   Shipping the new URL is half of it. Ask "who is still using the old one, and what does it hand
+   them?" — if the answer is "the secret", the migration has not started for those people.
+2. **307, never 308, for a redirect whose SOURCE contains a rotatable secret.** Browsers
+   heuristically cache 308s, so a cached `{token} → clean` mapping outlives the rotation that was
+   supposed to retire that token. This repo had already written that down once
+   (`apps/admin/proxy.ts`) and nearly paid for it twice.
+3. **Enumerate what a new redirect must NOT catch, and test each one.** Every exclusion here is a
+   live surface that fails silently for days: unattended wall displays (a 307 is a blank board
+   every morning), the portal's HMAC iframes (a sign-in page inside an iframe), `/api/*` (an XHR
+   that follows a 307 to HTML reports "Unexpected token <", not an auth failure), and an INVALID
+   token (redirecting one answers "does this slug exist?" for anyone with a wrong guess — the
+   opaque 404 exists to refuse that question).
+4. **A "use client" page with no server-side check is a page whose only gate is the matcher.**
+   `api-docs` was one for its whole life. Splitting it to move it behind SSO cost one extra file
+   and got it a real credential check on both of its routes. Any page that renders without asking
+   anyone anything is one `next.config` redirect away from being public.
+5. **Whether a tool signs in is a question about the FURNITURE, not the data.** A desk tool pays
+   one click a shift for taking the credential out of the URL. A kiosk worked standing up between
+   heats, or a wall screen nobody types on, pays a blank board — so those keep a device
+   credential, and the redirect lane must skip them by name.

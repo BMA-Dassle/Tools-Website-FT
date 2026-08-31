@@ -90,7 +90,7 @@ const ftAlternatives: AlternativeData[] = [
       },
       {
         feature: "Youngest age",
-        us: "Age 3 (Mini karts)",
+        us: "Age 7 (Junior karts)",
         them: "All ages welcome, best for kids who can swing a club",
       },
     ],
@@ -108,10 +108,6 @@ const ftAlternatives: AlternativeData[] = [
         body: "Karts + bowling + arcade + shuffleboard + dining. Groups who want to do more than one thing often pick us for the variety.",
       },
       {
-        title: "Mini karts for little kids",
-        body: "Our Mini class (ages 3-6) means 4-year-olds can race. Junior (7-13) and Adult (13+) rounds out the full family.",
-      },
-      {
         title: "Trackside dining at Nemo's",
         body: "Wood-fired pizza, craft cocktails, and a full bar. You can eat and watch heats run from the same table.",
       },
@@ -119,7 +115,7 @@ const ftAlternatives: AlternativeData[] = [
     faqs: [
       {
         q: "How does FastTrax pricing compare to Topgolf?",
-        a: "Our Adult race heat is $20.99, Junior is $15.99, Mini is $9.99 per heat. Topgolf is bay-time based rather than per-heat, so best to compare based on group size and what you're booking. Our group packages bundle multi-activity discounts for corporate/birthday events.",
+        a: "Our Adult race heat is $20.99 and Junior is $15.99 per heat. Topgolf is bay-time based rather than per-heat, so best to compare based on group size and what you're booking. Our group packages bundle multi-activity discounts for corporate/birthday events.",
       },
       {
         q: "Can we book a group event at FastTrax like a Topgolf event?",
@@ -191,7 +187,7 @@ const ftAlternatives: AlternativeData[] = [
       },
       {
         title: "Family-friendly all day",
-        body: "Mini karts start at age 3, Junior from 7, Adult from 13. Arcade is all-ages. Full bar for the adults in the group.",
+        body: "Junior karts start at age 7, Adult from 13. Arcade is all-ages. Full bar for the adults in the group.",
       },
       {
         title: "Real activities beside the arcade",
@@ -205,7 +201,7 @@ const ftAlternatives: AlternativeData[] = [
       },
       {
         q: "Can kids play at FastTrax?",
-        a: "Yes. Mini karts for ages 3-6, Junior for 7-13, Adult for 13+. Arcade is all-ages.",
+        a: "Yes. Junior karts for ages 7-13, Adult for 13+. Arcade is all-ages.",
       },
       {
         q: "Does FastTrax have a bar?",
@@ -213,7 +209,7 @@ const ftAlternatives: AlternativeData[] = [
       },
       {
         q: "How does pricing work?",
-        a: "Arcade is pay-per-play or card-based. Karting is per-heat pricing ($20.99 adult, $15.99 Junior, $9.99 Mini). No ticket-redemption math required for the main activities.",
+        a: "Arcade is pay-per-play or card-based. Karting is per-heat pricing ($20.99 adult, $15.99 Junior). No ticket-redemption math required for the main activities.",
       },
       {
         q: "Are there corporate event packages?",
@@ -291,7 +287,7 @@ const ftAlternatives: AlternativeData[] = [
       },
       {
         q: "How does FastTrax pricing compare?",
-        a: "Duckpin lanes are lane-time based. Karting is per-heat ($20.99 adult, $15.99 Junior, $9.99 Mini). Group packages bundle for fixed per-person rates.",
+        a: "Duckpin lanes are lane-time based. Karting is per-heat ($20.99 adult, $15.99 Junior). Group packages bundle for fixed per-person rates.",
       },
       {
         q: "Can we do a mixed birthday party (bowling + karts)?",
@@ -354,10 +350,6 @@ const ftAlternatives: AlternativeData[] = [
         body: "Nemo's Trackside is a full-service restaurant with a wood-fired pizza oven and a full bar. Groups can eat and socialize between activities.",
       },
       {
-        title: "Mini karts for toddlers",
-        body: "Ages 3-6 race in Mini karts inside the climate-controlled facility — parents like that for very young kids.",
-      },
-      {
         title: "School and field-trip packages",
         body: "Group rates for 20+ students bundle karts, arcade credits, and food. Indoor setting works for any forecast.",
       },
@@ -373,7 +365,7 @@ const ftAlternatives: AlternativeData[] = [
       },
       {
         q: "Is FastTrax kid-friendly?",
-        a: "Yes — Mini karts for ages 3-6 (the smallest kids welcome), Junior for 7-13, Adult for 13+. Indoor setting is a bonus for young kids and hot afternoons.",
+        a: "Yes — Junior karts for ages 7-13 and Adult karts for 13+. Indoor setting is a bonus for kids and hot afternoons.",
       },
       {
         q: "How does kart speed compare?",
@@ -493,7 +485,7 @@ const ftAlternatives: AlternativeData[] = [
         us: "2-300+ (full buyouts, corporate)",
         them: "Typically 2-8 per tee time",
       },
-      { feature: "Kids welcome", us: "Mini karts ages 3-6, Junior 7-13", them: "All ages" },
+      { feature: "Kids welcome", us: "Junior karts 7-13, Adult 13+", them: "All ages" },
       {
         feature: "Food",
         us: "Nemo's Trackside restaurant + full bar",
@@ -507,15 +499,11 @@ const ftAlternatives: AlternativeData[] = [
       },
       {
         title: "Pay-as-you-go pricing",
-        body: "Adult heat is $20.99, Junior $15.99, Mini $9.99. Mix in arcade and duckpin at their own rates. Good fit for families who want to try several things.",
+        body: "Adult heat is $20.99 and Junior $15.99. Mix in arcade and duckpin at their own rates. Good fit for families who want to try several things.",
       },
       {
         title: "Shorter per-activity commitment",
         body: "Race heats are 8-12 minutes, so you can fit karts + bowling + arcade + dinner into one trip.",
-      },
-      {
-        title: "Mini karts for the youngest kids",
-        body: "Ages 3-6 race in Mini karts. Indoor setting makes it comfortable for toddlers and their parents.",
       },
       {
         title: "Full restaurant on-site",
@@ -615,7 +603,7 @@ const ftAlternatives: AlternativeData[] = [
       },
       {
         q: "Which is better for a kids birthday party?",
-        a: "Depends on age. Hi-5 is great for 3-8 year olds who love bumper cars and laser tag. FastTrax works from age 3 (Mini karts) through teens — particularly strong for 7+ when kids can handle Junior or Adult karts.",
+        a: "Depends on age. Hi-5 is great for 3-8 year olds who love bumper cars and laser tag. FastTrax starts at age 7 for Junior karts and runs through teens — best for kids old enough to drive.",
       },
       {
         q: "Does FastTrax have laser tag?",

@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getContractVersions, diffSnapshots } from "@/lib/group-function-db";
-
-const ADMIN_TOKEN = process.env.ADMIN_CAMERA_TOKEN || "";
+import { isAdminCredential } from "@/lib/admin-request-auth";
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") || "";
-  if (!ADMIN_TOKEN || token !== ADMIN_TOKEN) {
+  if (!(await isAdminCredential(token))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

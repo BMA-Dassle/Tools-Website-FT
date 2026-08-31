@@ -182,6 +182,25 @@ describe("classifyEntryScan", () => {
         value: "1063464",
       });
     });
+
+    // Every padded digit run goes to Game Zone, whatever its width. A run that
+    // is ALSO Groupon-shaped briefly detoured to the code screen so Groupon
+    // could be tried first; scanning no longer checks Groupon at all (owner
+    // 2026-08-28 — it is typed), so the detour would only delay real card
+    // scans. Cards scan anywhere; vouchers scan on the voucher screen.
+    it("sends a padded run that is also Groupon-shaped straight to Game Zone", () => {
+      expect(classifyEntryScan("000089895632")).toMatchObject({
+        kind: "game-card",
+        value: "89895632",
+      });
+    });
+
+    it("sends a full-width Intercard barcode straight to Game Zone", () => {
+      expect(classifyEntryScan("0000000001038091")).toMatchObject({
+        kind: "game-card",
+        value: "1038091",
+      });
+    });
   });
 
   describe("coupon QRs recurse into their inner code", () => {

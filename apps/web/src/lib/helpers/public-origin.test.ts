@@ -26,6 +26,28 @@ describe("publicOrigin", () => {
     expect(publicOrigin("https://notfasttraxent.com")).toBe("https://headpinz.com");
   });
 
+  it("never keeps an admin.* host, even under a brand domain", () => {
+    // The SSO staff shell lives at admin.fasttraxent.com. Without this rule the
+    // keep-list would hand a guest's phone (VIP voucher QR) or a wall TV an
+    // auth-walled origin — lessons.md rule #5, now solved here instead of by
+    // banning the subdomain.
+    for (const o of [
+      "https://admin.fasttraxent.com",
+      "https://admin.headpinz.com",
+      "http://admin.fasttraxent.com:3001",
+    ]) {
+      expect(publicOrigin(o), o).toBe("https://headpinz.com");
+    }
+  });
+
+  it("only excludes an exact `admin` first label", () => {
+    // A sibling host that merely starts with "admin" is not the shell.
+    expect(publicOrigin("https://admin-preview.headpinz.com")).toBe(
+      "https://admin-preview.headpinz.com",
+    );
+    expect(publicOrigin("https://fasttraxent.com/admin")).toBe("https://fasttraxent.com/admin");
+  });
+
   it("passes through the SSR empty-string placeholder", () => {
     expect(publicOrigin("")).toBe("");
   });

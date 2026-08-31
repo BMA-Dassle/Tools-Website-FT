@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { buildEditPlan } from "~/features/reservation-edit/plan";
 import { editFlagEnabled, isRefundOnlyPlan } from "~/features/reservation-edit/guards";
 import { EditGuardError, type EditSettlement, type EditSpec } from "~/features/reservation-edit";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 // Live Square reads (order snapshots + orders/calculate per leg) can stack up
 // for combo groups.
@@ -52,8 +53,7 @@ const CONFLICT_CODES = new Set([
  */
 export async function POST(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected || token !== expected) {
+  if (!(await isAdminApiRequest(req, { token: token }))) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

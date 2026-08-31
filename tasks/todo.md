@@ -1,5 +1,232 @@
 # Open Tasks
 
+## Kiosks without a dispenser: new cards by swipe (2026-08-28) — branch `worktree-kiosk-no-dispenser-new-card`
+
+Owner: MSR-only kiosks (no CRT-591) get a holder of blank cards under the screen; the guest takes
+one and swipes it. Reverses the 2026-07-20 reload-only rule. Plus: a "card not found" on Reload /
+Check balance is a NEW card → hand off to set it up; card vouchers fulfil here too.
+
+- [x] Live probe pinned the Intercard not-found signature: result **1** (+ all-zero balance block)
+      = confirmed absent; 0 = found; -1 = exception. `verifyAccount` now reports
+      `notFound: "confirmed" | "ambiguous"` + `cashBalance`; `classifySwipedCard` (blank-card.ts)
+      is the ONE rule for "is this swiped card a blank" (unknown ≠ blank).
+- [x] Swipe BEFORE pay: new-card cart rows swipe + verify first; Pay arms only on all-blank.
+      Post-payment is a pure credit loop; `load-card` `swiped:true` → never clear-on-encode.
+      Persist-first: prepare/purchase rows carry the swiped account (`purchase.ts`, prepare items).
+- [x] `gameZoneCapability` `"reload"` → `"swipe"`; `cardIssueRail` for the receipt; upsell gate
+      `card-issue`; categories tile one copy; staff copy (admin / device check).
+- [x] Reload / balance `notfound` (confirmed only) → "Looks like a new card" + Set up this card
+      (re-verified in the cart); lookup failures stay "couldn't check — swipe again".
+- [x] Voucher run on swipe kiosks: swipe → claim → credit per leg; Cancel + 90 s timeout while
+      nothing is claimed; `creditVoucherCard(..., {swiped})` never presents/retains.
+- [x] `KioskGzFulfillment`: swipe rail (pre-swiped rows load directly; upsell rows prompt a swipe),
+      bounded waits (90 s per card, 60 s device-ready give-up releases the screen — also fixes a
+      never-connecting CRT freezing the confirmation screen), i18n'd.
+- [x] `useSerialMsr` honours `enabled` live (releases the port) — fixes the pay-screen gift-card
+      MSR contention on `msrUse:"both"`; Game Zone holds the port only in the cart phase.
+- [x] Coupon receipt `cardIssue` tri-state: swipe kiosks get "Load my cards" + swipe copy + a
+      swipe leave-warning; only `none` shows the no-dispenser notice.
+- [x] i18n EN+ES for every new string; `SwipeBlankGuide` (Step 1 take a card · Step 2 swipe it).
+- [x] Gates: tsc clean, full vitest 6456 green (new: blank-card, swipe-waiter, load-card
+      swiped/no-clear, intercard not-found split, purchase persist-first), eslint 0 errors on changed
+      files, `next build` + a11y gate green.
+- [x] Post-review hardening (8/28, adversarial review of `34aa14ad7`): reconcile cron gives kiosk
+      `new_card`/`voucher` rows a 15-min grace (persisting the swiped account had made them
+      SOAP-eligible while the kiosk was still bridge-crediting them — double credit);
+      `swiped-blank-guard.ts` re-checks every swiped account server-side before money moves on
+      all three charge rails (terminal-prepare, purchase, reserve-prepare); load-card refuses
+      `ACCOUNT_MISMATCH` on rows that carry an account and never clears a fresh-blank row that
+      already knows its card; swipe-kiosk voucher claims persist the swiped account (`voucher`
+      kind, all issuers); `useSerialMsr` enable/disable races (re-enable during close, late open,
+      stale state stamp) fixed; confirmation-screen device give-up 60 s → 5 min; a verified cart
+      row is never replaced by the next swipe (it adds a card); shared `service/swiped-card.ts`.
+- [ ] Push + PR; owner hardware smoke on an MSR kiosk — no MSR available here. Checklist: New-card
+      tile live · Step 1/2 guide · swipe blank ⇒ "#… new card" · swipe a loaded card ⇒ refused +
+      "Reload this card instead" · pay on the reader ⇒ tokens land · Check balance on a blank ⇒
+      "Looks like a new card" → Set up → cart prefilled · Reload row same · coupon receipt with a
+      card leg ⇒ "Load my card" ⇒ swipe ⇒ loaded; walk away ⇒ Cancel/timeout returns to the basket
+      with nothing claimed · Add to my visit ⇒ confirmation loads the pre-swiped card with no prompt ·
+      checkout upsell ⇒ confirmation prompts a swipe; walk away ⇒ 90 s → Done re-enabled · pay-screen
+      gift-card swipe still works with `msrUse:"both"` · a dispenser kiosk behaves as before (only
+      change: a never-connecting CRT releases the confirmation screen after 60 s).
+## Admin SSO — PR A LIVE, PR B needs the owner's go (2026-08-30) — branch `feat/admin-sso-remaining`
+
+Goal: **no human reaches a FastTrax admin page without a Microsoft sign-in.** Two PRs on
+purpose — PR A cannot break anyone; PR B is the only step that removes access.
+
+Full audit, the shipped tool split, the redirect lane and the "Unresolved before PR B" list:
+[tasks/admin-sso-lockdown.md](admin-sso-lockdown.md).
+
+### The split, as shipped — 18 SSO / 3 token
+
+Source of truth: `apps/web/src/lib/constants/admin-tools.ts`, drift-pinned to the real
+route directories by `admin-tools.test.ts`.
+
+- **SSO (18)** — clean `/admin/<slug>`, a Microsoft session is the credential:
+  `api-docs`, `checkin`, `christmas-in-july`, `daily-events`, `daily-events-v2`, `deals`,
+  `deposit-failures`, `discount-codes`, `e-tickets`, `group-approvals`, `group-functions`,
+  `healthnet`, `kbf`, `reservations`, `sales`, `signage`, `videos`, `web-sales`.
+- **Token, permanently (3)** — `camera-assign` (+ `/[track]`, trackside kiosks), `pit` and
+  `briefing` (wall displays nobody signs into). Owner decisions 2026-08-28 and 2026-08-30.
+
+The test of membership is the FURNITURE, not the data: a desk tool signs in, a kiosk or a
+wall screen does not.
+
+### Redirect lane (2026-08-30, owner request) — `feat/admin-sso-remaining`
+
+- [x] Fourteen office tools moved to SSO, each with the established three-file shape:
+      `_tools/<slug>/AdminToolPage.tsx` + a `[token]` shell that keeps its token check +
+      a new `/admin/<slug>` shell that `await requireSsoAdmin()`.
+- [x] `api-docs` split into `ApiDocsClient.tsx` and a server shell — it was the one page
+      with NO server-side check of its own; both of its routes have one now.
+- [x] `daily-events` stays a redirect shim on BOTH routes, and neither target carries the
+      token (`adminToolUrl()`); `daily-events/[projectId]` mirrored on the SSO tree.
+- [x] `/admin/{ADMIN_CAMERA_TOKEN}/<slug>` for an SSO tool → **307** `/admin/<slug>`
+      (query + deep segments preserved) → `/sso/signin`. A bookmark becomes a sign-in.
+      307 not 308: a cached 308 would outlive an `ADMIN_CAMERA_TOKEN` rotation.
+- [x] Not redirected: the three token-only tools, `/admin/embed/*` (portal HMAC),
+      `/api/admin/*` (an XHR that follows a 307 to HTML reports a JSON syntax error), and
+      an invalid token (stays the opaque 404).
+- [x] Not redirected: anything that is not a NAVIGATION — a POST, a server action, an RSC
+      fetch, a HEAD. Same `isPageLikeGet` guard the gate's other two redirects use; without
+      it the first server action on any of the eighteen boards would 404 opaquely.
+- [x] Legacy `ADMIN_ETICKETS_TOKEN` shim untouched; the two compose legacy → canonical →
+      clean, the second hop being the uncached one.
+- [x] Kill switch `ADMIN_TOKEN_REDIRECT_DISABLED="true"` restores the previous behaviour.
+      **Ships ON** — flags are kill switches, never opt-in gates.
+- [ ] **Flipping the kill switch COSTS A REDEPLOY.** It is read in EDGE middleware, where
+      Next inlines `process.env` at build time, so a Vercel env-var change reaches only a
+      NEW deployment. Plan the rollback as a deploy (minutes), not as a toggle.
+- [ ] **Soak gap, recorded rather than hidden:** the fourteen tools moved in #47 got their
+      clean `/admin/<slug>` route and the redirect off their tokened one in the SAME merge —
+      no ops sign-off window, contrary to the v2 cutover pattern in `CLAUDE.md`. Only
+      `reservations`, `checkin`, `e-tickets` and `videos` soaked (#45/#46). A fifteenth tool
+      ships its page and its lane entry in separate merges.
+- [ ] **Deliberate behaviour change to watch on the preview:** `?embedded=1` on a tokened
+      SSO-tool URL now redirects like any other. Nothing in either repo builds such a URL
+      (the portal uses `/admin/embed/*` HMAC), but it is the one row of the golden matrix
+      this branch changed on purpose.
+
+### PR 1 — `feat/admin-sso` (done, not deployed)
+
+- [x] `apps/admin` gets Auth.js v5 against the HeadPinz SSO gateway (client `fasttrax-admin`,
+      role `access`). `proxy.ts` = `auth((req) => …)`; `/api/auth/*` + `/sso/*` are `self`.
+- [x] `lib/admin-api-token.ts` — signed 8h `<expMs>.<hmac>` credential, Web Crypto so the edge
+      middleware can verify it. Middleware accepts it as `x-admin-via: api-token`.
+- [x] 23 admin pages mint one instead of handing out `ADMIN_CAMERA_TOKEN`; ~45 API routes +
+      `verifyPortal` moved their inline checks to `lib/admin-request-auth.ts`.
+- [x] Staff links (email, Teams cards, in-app board links, the daily-events shims) build clean
+      shell URLs via `adminToolUrl()`.
+- [x] `scripts/check-admin-token-leak.mjs` in `npm run test -w fasttrax-web`.
+- [x] `publicOrigin()` excludes `admin.*` hosts — lessons.md rule #5 amended.
+
+### Runbook — the admin Vercel project (`tools-website-ft-admin`)
+
+Auth is **SSO, not Vercel Authentication**. Env on that project:
+
+| Var | What |
+|---|---|
+| `SSO_ISSUER` | `https://auth.headpinz.com/oidc` (local: `http://localhost:3100/oidc`) |
+| `SSO_CLIENT_ID` | `fasttrax-admin` |
+| `SSO_CLIENT_SECRET` | from the gateway's client registry |
+| `AUTH_SECRET` | Auth.js cookie encryption — `openssl rand -base64 32` |
+| `DIAG_SECRET` | bearer for `GET /sso/diag` |
+| `ADMIN_PROXY_KEY` | shared with `tools-website-ft`; the shell's credential upstream |
+| `ADMIN_CAMERA_TOKEN` | the main site's current token, injected into forwarded paths |
+| `ADMIN_UPSTREAM_ORIGIN` | local dev only (defaults to `https://headpinz.com`) |
+
+**SET THE FOUR SSO VARS BEFORE MERGING PR 1.** `SSO_ISSUER`, `SSO_CLIENT_ID`,
+`SSO_CLIENT_SECRET` and `AUTH_SECRET` must exist on `tools-website-ft-admin` *before* the
+first deploy of this branch, not after it. Auth.js validates its config on the first
+request, so with any of them missing the `auth()` wrapper in `proxy.ts` throws on every
+request — including `/sso/error` and `/api/auth/*` — and the shell answers 500 to
+everything. Today that project is a working Vercel-Authentication wall, so deploying
+without the env block is a straight downgrade from "walled" to "broken".
+
+Deploy order:
+
+1. Set the env block above on `tools-website-ft-admin` (all four SSO vars, plus
+   `ADMIN_CAMERA_TOKEN`). Gateway client `fasttrax-admin` must already list this
+   project's `*.vercel.app` callback.
+2. Deploy the shell and verify on the `.vercel.app` URL (see the smoke list below).
+3. **In the same window**, either attach `admin.fasttraxent.com` (CNAME →
+   `cname.vercel-dns.com`) or set `ADMIN_PUBLIC_URL` on `tools-website-ft` to the shell's
+   `.vercel.app` origin. Every staff link `apps/web` now builds — `adminBoardUrl()`,
+   `vipBoardUrl()`, both `/admin/{token}/daily-events` redirect shims — hard-targets
+   `https://admin.fasttraxent.com` (`src/lib/helpers/admin-url.ts`). Ship the `apps/web`
+   side ahead of one of those two and every "Open board" button in staff email/Teams, and
+   every brand-domain daily-events bookmark, lands on a domain that does not resolve.
+4. Turn Vercel Authentication **off** on the admin project.
+5. Tell staff to use the clean URLs.
+
+**PR 1 smoke — RUN LOCALLY 2026-08-28, 22 of 23 checks pass.** Four servers on this
+machine: mock Entra `:3200` · gateway `:3100` · `fasttrax-web` `:3111` · the shell `:3001`
+with `ADMIN_UPSTREAM_ORIGIN=http://localhost:3111`. It found one real bug (below) before it
+could get past the front door, and one unresolved leak (audit item #8). Still worth
+repeating on the `.vercel.app` preview for the two things localhost cannot show: `Secure`
+cookies and Vercel's own proxy.
+
+**The bug it found: the shell answered every request with "The Proxy file "/proxy" must
+export a function named `proxy` or a default function."** — the entire front door,
+`/sso/error` and `/api/auth/*` included. `auth.ts` passes a config FACTORY to `NextAuth`
+(deliberately, so the config reads the runtime env), and for a function config next-auth's
+`initAuth` returns an `async` wrapper — so `auth(handler)` is a Promise, and Next's proxy
+loader hard-fails on `typeof mod.default !== "function"`. Fixed by awaiting it inside a real
+`proxy` function; pinned by `apps/admin/proxy.contract.test.ts`, which checks the export
+shape against the UNMOCKED module. `proxy.test.ts` could never have caught it — it mocks
+`./auth` to the identity function, which is exactly the blind spot this checklist called out.
+
+- [x] unauthenticated `/pit` → sign-in → returns to `/pit` (not to `/`). Chain:
+      `/pit` → `307 /api/auth/signin?callbackUrl=%2Fpit` → *(Auth.js provider chooser — one
+      provider, still one click; marketing skips this with its own `/sso/signin`)* →
+      `:3100/oidc/auth` → `/interaction/<uid>` → `:3200/authorize` → `/api/interaction/callback`
+      → `/finish` → `/api/auth/callback/headpinz` → `/pit` (200, board rendered)
+- [x] `/api/admin/videos/list` with no session → `401 {"error":"sso_expired"}`, no redirect
+- [x] a user with no `fasttrax-admin.access` → stopped at the **gateway's** `/no-access`
+      (`client=fasttrax-admin`, `role=fasttrax-admin.access`, `rid=…`) — no code is issued,
+      so the shell never sees a session and `/api/*` for that user is `401`, not `403`.
+      **The shell's own `/sso/error?code=SSO_E_NO_ROLE` branch is unreachable through a real
+      gateway by design** (the gateway's `fasttrax-admin.access` and the shell's `access` are
+      the same role): it is defence in depth, covered by `proxy.test.ts`, not a live path.
+      The original wording of this line expected the shell to answer — it does not, and
+      should not.
+- [x] session cookie: `HttpOnly` ✓, `SameSite=Lax` ✓. `Secure` is correctly **false** over
+      `http://localhost` — re-check on the preview, which is the only place it can be true.
+- [x] `/reservations` and `/daily-events-v2` render; `/admin/<token>/pit` → `307 /pit`;
+      `/contract/anything` forwards upstream; `/nonexistent` → `404`, not a redirect
+- [x] `/sso/diag`: `401` without the bearer, `200` with it, and no secret value in the body
+- [~] **the static token appears nowhere in the network log** — true of requests, false of
+      the HTML. Zero occurrences across 79 requests on `/pit` and ~50 on each of six more
+      boards; each board's HTML carries a fresh minted `<expMs>.<hex>` instead. But the
+      static token IS in every board's HTML, twice, via Next's RSC route-segment payload for
+      the upstream `/admin/[token]/…` path. No application code is involved. See
+      [tasks/admin-sso-lockdown.md](admin-sso-lockdown.md) **unresolved #8**.
+- [ ] **a board MUTATES** — not covered. None of the seven boards issues an `/api/admin/*`
+      XHR on load (they are server-rendered and hold the minted token for later), so the
+      minted-token request path is still unexercised. Needs a click on the preview.
+
+Troubleshooting, in order: `curl -H "Authorization: Bearer $DIAG_SECRET" https://admin.fasttraxent.com/sso/diag`
+— it reports discovery/JWKS reachability **with timings**, the caller's session and roles, env
+presence (never values), and the last ten sign-in errors. "Signed in but bounced" is almost
+always a missing `fasttrax-admin.access` role in Entra; the page says so with `SSO_E_NO_ROLE`.
+
+### PR B — `feat/admin-lockdown` (BLOCKED on owner review of the audit)
+
+Shorter than it was: the gate lives in `apps/web`, there is no shell to authenticate by
+header, and the redirect lane already stops staff opening a tokened page URL for an SSO
+tool. What is left is deletion and rotation.
+
+- [ ] Owner reads [tasks/admin-sso-lockdown.md](admin-sso-lockdown.md) and rules on its
+      remaining unresolved items. #2 (the briefing tablet) is RESOLVED — `pit` and
+      `briefing` keep the token permanently — but it turned into #2b: the rotation cannot
+      happen until those two and `camera-assign` hold a device credential of their own.
+- [ ] Then the seven-step PR B checklist at the end of that file: delete the `[token]`
+      page routes for the 18 SSO tools (moving their `*Client.tsx` files out first) and
+      the redirect lane with them · retire `apps/admin` + the `tools-website-ft-admin`
+      Vercel project + `ADMIN_PROXY_KEY` · move the nine crons off the static token ·
+      give the three token-only surfaces a device credential · rotate
+      `ADMIN_CAMERA_TOKEN` · delete the leftovers · verify.
+
 ## Mega Thursdays, Sep 3 – end of Oct 2026 (2026-08-25) — branch `worktree-mega-thursdays`
 
 Owner: "September 3rd through end of october we're adding mega to Thursdays. So that means no
@@ -61,8 +288,8 @@ the tile → PIN sheet) opens the flow for that session. Full booking-session in
 
 ## TVs did not recover from a network loss (2026-08-19) — branch `fix/tv-outage-recovery`
 
-Owner: *"HeadPinz Fort Myers front desk TVs didn't recover nicely from network loss, they
-crashed."*
+Owner: _"HeadPinz Fort Myers front desk TVs didn't recover nicely from network loss, they
+crashed."_
 
 **ROOT CAUSE — the failure is not the outage, it is the NAVIGATION.** Everything on a TV is
 built to ride a network loss out: the feed poll keeps its last good answer, the clock keeps its
@@ -108,7 +335,7 @@ proves the internet is up and says nothing about whether DNS resolves us or Verc
 - [x] **Launcher: a network watchdog that recovers an ALREADY-DEAD board** — one extra minimised
       process, spawned once, checking every 60s. On the **down→up transition** (two consecutive
       failures, then a success) it `taskkill`s Edge; the main loop's `start /wait` returns,
-      `:waitnet` confirms the network, and the board relaunches. Never kills *during* the outage:
+      `:waitnet` confirms the network, and the board relaunches. Never kills _during_ the outage:
       a screen that rode it out is showing its last good board, and recycling it would replace
       that with the launcher's waiting console.
 - [x] **`app/tv/error.tsx`** — there was **no error boundary anywhere in this app**, so a scene
@@ -155,7 +382,7 @@ proves the internet is up and says nothing about whether DNS resolves us or Verc
 - **Two sibling branches are still unmerged and cover adjacent halves of the same subject.** They
   are deliberately NOT folded in here (one PR, one purpose), but neither should be forgotten:
   - `worktree-tv-poll-wedge` (`b95beb9ec`) — a stalled `fetch` has no deadline, so the no-overlap
-    poll loop can stop **forever**; and every hide→show flap forks the loop. That is the *other*
+    poll loop can stop **forever**; and every hide→show flap forks the loop. That is the _other_
     way a wall goes quiet during bad wifi.
   - `fix/tv-poll-when-window-hidden` (`64cf1d918`) — Edge reports a fullscreen player as hidden
     when Windows thinks it is occluded, which stops every poll on the page.
@@ -167,7 +394,7 @@ proves the internet is up and says nothing about whether DNS resolves us or Verc
 
 Owner ask: two screens at HeadPinz Fort Myers labelled **Old Time Left** / **Old Time Right**,
 showing **only the PinBoyz logo on black** for now, **each on its own computer** — plus:
-*"only use shell method for all screens."*
+_"only use shell method for all screens."_
 
 **ON MAIN as `55ae3f525`** (commit `4d0f21ddb`, pushed 2026-08-19 from worktree
 `.claude/worktrees/old-time-lanes-screens`). origin/main moved TWICE mid-push — 8c6158d07 →
@@ -180,7 +407,7 @@ real Edge after the merge (identical DOM).
       Reads no feed, no scope, no vendor: the one scene nothing upstream can blank. Wired into
       `registry.tsx` (switch + `IMPLEMENTED` + `sceneHasData`).
 - [x] **`logo-only` role preset** — logo alone, every interrupt OFF, no `requiresData`.
-      Distinct from `ads-only`, which stays the *degraded* fallback.
+      Distinct from `ads-only`, which stays the _degraded_ fallback.
 - [x] **`logo.ts` mark registry** — asset table + `resolveLogoMark`. Only marks we hold artwork
       for are listed; anything unrecognised resolves to the default rather than to a blank screen.
 - [x] **Asset** `apps/web/public/promo/pinboyz-logo.webp` — 576×636, webp q92 with alpha, 74KB
@@ -209,7 +436,7 @@ real Edge after the merge (identical DOM).
 - [ ] Clean up: `git worktree remove .claude/worktrees/old-time-lanes-screens` and delete the
       local branch `worktree-old-time-lanes-screens`.
 - [ ] Owner call: the platform's **bottom-right identity stamp** (`Old Time Left · HPFM:7 ·
-      v0.8.0`) is on all 19 screens and is still there. "Only a logo" may mean it should go on
+  v0.8.0`) is on all 19 screens and is still there. "Only a logo" may mean it should go on
       these two — one line in `TvShell` if so.
 
 ### Deliberately NOT paired
@@ -224,7 +451,7 @@ player) — a one-line change to the script's `PLAN`.
 
 ### Shell method is now the ONLY method
 
-Owner: *"I only want to use shell method for all screens."* The Run-key route is **gone** from
+Owner: _"I only want to use shell method for all screens."_ The Run-key route is **gone** from
 the setup steps; both launchers (single and dual) now share one `shellMethodSteps()` list, and
 the steps teach **Ctrl+Shift+Esc** (Task Manager is handled by Windows, not the shell, so it
 still opens on a machine whose shell is a batch file) **before** the step that removes the
@@ -719,8 +946,8 @@ the event. See lessons.md § "A derived flag written only at INSERT rots" (third
 instance) and § "Refunding a deposit while its gift card stays funded pays twice".
 
 - [x] **`syncQuoteCenter`** (group-quote-dispatch) re-derives `center_code /
-  center_name / square_location_id / brand / base_url / gan_prefix /
-  hermes_center` on every "Send Contract" pass, gated on
+center_name / square_location_id / brand / base_url / gan_prefix /
+hermes_center` on every "Send Contract" pass, gated on
       `center_code`/`square_location_id` so ~170 legacy `gan_prefix` rows don't churn.
       Audit-logs `center_moved`, writes a BMI private note, folds the move into the
       post-sign `changes[]` set (a venue change can move zero money, which the

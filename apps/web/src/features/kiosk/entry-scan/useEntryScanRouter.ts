@@ -35,6 +35,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { classifyEntryScan, type UnsupportedReason } from "./classify-entry";
 import { stashEntryScan } from "./handoff";
 import { lookupByScan } from "../checkin/service";
+import { accountFromScan, cardIsKnown } from "../service/scanned-card";
 import { gameZoneCapability, type KioskConfig } from "../config";
 import { kioskCheckinEnabled, kioskPromoEnabled } from "../flags";
 import { voucherRedeemEnabled } from "~/features/booking/service/voucher-redeem";
@@ -119,11 +120,32 @@ export function useEntryScanRouter(host: EntryScanRouterHost) {
           setMiss(route.reason);
           return;
 
-        case "game-card":
+        case "game-card": {
           if (!gameZoneOn) return setMiss("no-destination");
-          stashEntryScan({ target: "game-card", raw: route.raw, value: route.value });
-          h.goGameCard();
+          // KNOWN cards only (owner 2026-08-28). The attract screen must not
+          // move a guest anywhere on a card it cannot account for: an unknown
+          // number used to land on the balance screen, fail there, and — on an
+          // MSR kiosk — read as "looks like a new card", offering to SELL a
+          // card off an unrecognised scan. Setting a new card up is now reached
+          // deliberately from the New cards screen and nowhere else, so this
+          // resolves and verifies FIRST and simply says "not recognised" when
+          // it cannot. One lookup, and only for a card-shaped payload.
+          setBusy(true);
+          try {
+            const acct = await accountFromScan(route.value);
+            if (!acct) return setMiss("unknown");
+            const known = await cardIsKnown(acct, h.config);
+            if (known === "no") return setMiss("unknown");
+            // "unsure" (Intercard unreachable) still routes: a lookup outage
+            // must not turn a guest with a real card away at the door — the
+            // balance screen re-runs it and owns the failure copy.
+            stashEntryScan({ target: "game-card", raw: route.raw, value: acct });
+            h.goGameCard();
+          } finally {
+            setBusy(false);
+          }
           return;
+        }
 
         case "code-entry":
           if (!codeEntryOn) return setMiss("no-destination");

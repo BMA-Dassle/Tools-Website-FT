@@ -105,16 +105,6 @@ export const KART_CLASS_CARDS: KartClassCard[] = [
       },
     ],
   },
-  {
-    title: "Mini Karts",
-    color: "rgb(134,82,255)",
-    border: "rgba(134,82,255,0.59)",
-    items: [
-      { label: "Ages", value: "4–6" },
-      { label: "Height", value: "No minimum" },
-      { label: "Hours", value: "Close at 10:00 PM daily" },
-    ],
-  },
 ];
 
 export interface TrackLayoutInfo {

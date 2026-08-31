@@ -7,6 +7,8 @@
  * portal bot (lib/teams-bot.ts) — the bot must be a member of the chat.
  */
 
+import { adminToolUrl } from "~/lib/helpers/admin-url";
+
 export const DEFAULT_CHAT_ID = "19:b6778beb928a4f55a7799e16e0045218@thread.v2";
 
 /** Target chat — env override lets a canary point at a test chat without a deploy. */
@@ -25,11 +27,16 @@ export function vipMoveAlertsEnabled(): boolean {
 export const BETA_DISCLAIMER = "BETA TESTING, WE DO NOT PROMISE RELIABILITY";
 
 /** Deep link to the reservations admin board pre-filtered to ★VIP — the
- *  cards' "Open VIP board" button. Server-only (embeds the admin token);
- *  null when the token env is missing so pure builders just omit the button. */
+ *  cards' "Open VIP board" button.
+ *
+ *  Points at the SSO staff shell and carries NO credential. It used to embed
+ *  ADMIN_CAMERA_TOKEN, which meant every card posted into a Teams chat was a
+ *  copy of the permanent admin secret — visible to everyone in the chat,
+ *  searchable in Teams history, and un-rotatable without breaking the archive.
+ *  The `| null` stays only so the pure card builders keep their omit-the-button
+ *  branch; there is nothing left that can make it null. */
 export function vipBoardUrl(): string | null {
-  const token = process.env.ADMIN_CAMERA_TOKEN;
-  return token ? `https://headpinz.com/admin/${token}/reservations?view=vip` : null;
+  return adminToolUrl("reservations", { view: "vip" });
 }
 
 /** A step that is done by CLOCK only (no QAMF/Pandora truth signal) waits

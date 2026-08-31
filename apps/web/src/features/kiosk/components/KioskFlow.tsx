@@ -683,6 +683,40 @@ export function KioskFlow({
     if (handoff) void Promise.resolve().then(() => setEntryScanHandoff(handoff));
   }, []);
 
+  /**
+   * Pick up a scan stashed by the router a moment ago — the mount effect above
+   * CANNOT (owner 2026-08-28: a card scanned on the chooser landed on the Game
+   * Zone menu instead of its balance). Coming from the attract screen this
+   * component mounts fresh and the effect reads the stash; scanning on the
+   * chooser or a shelf, it is already mounted, the effect has long since run
+   * and found nothing, and the payload sat in sessionStorage unread. So the
+   * destination callbacks consume it at the moment they open the screen.
+   * Harmless from the attract path: the mount effect already cleared the key,
+   * so this is a no-op there.
+   */
+  const takeHandoff = (target: EntryScanHandoff["target"]) => {
+    const h = consumeEntryScan(target);
+    if (h) setEntryScanHandoff(h);
+  };
+
+  // A hand-off belongs to the ONE visit to the screen it opened. Drop it once
+  // that screen closes, so re-opening by TAP starts on the chooser instead of
+  // replaying a card the guest already finished with. `sessionStorage` was
+  // cleared on read, so only this state needs it — and only AFTER a delivery:
+  // clearing whenever nothing is open would race the mount effect above, which
+  // loads the attract-screen payload a microtask before `?goto=` opens the
+  // screen it was addressed to. The ref is that "has been delivered" bit.
+  const handoffDeliveredRef = useRef(false);
+  useEffect(() => {
+    if (codeEntryOpen || gzOpen) {
+      handoffDeliveredRef.current = true;
+      return;
+    }
+    if (!handoffDeliveredRef.current) return;
+    handoffDeliveredRef.current = false;
+    void Promise.resolve().then(() => setEntryScanHandoff(null));
+  }, [codeEntryOpen, gzOpen]);
+
   // Scan-to-start on the chooser + the two shelves. Same router the attract
   // screen uses; only the navigation differs — from here the code screen and
   // Game Zone open IN PLACE, no route change. `codeEntryAvailable` mirrors the
@@ -692,12 +726,19 @@ export function KioskFlow({
     config,
     codeEntryAvailable: promoEnabled || voucherRedeem,
     goCheckin: () => router.push("/kiosk/checkin"),
+    // Take the hand-off BEFORE opening the screen. React batches both setStates
+    // into one render either way, but the order makes that irrelevant: the
+    // destination must never mount for even one render with the payload still
+    // missing, because it reads it in a `useState` initializer (which screen to
+    // open on) that never runs again.
     goCodeEntry: () => {
       clarityEvent("kiosk:code:open");
+      takeHandoff("code-entry");
       setCodeEntryOpen(true);
     },
     goGameCard: () => {
       clarityEvent("kiosk:gamezone:open");
+      takeHandoff("game-card");
       setGzVoucherCodes(null);
       setGzOpen(true);
     },
@@ -1824,8 +1865,10 @@ export function KioskFlow({
             // in cart to trigger upsell"; KBF counts — it's a lane booking),
             // only when NO Game Zone cards ride the cart, once per session,
             // and only when this kiosk can actually sell + fulfill a new card
-            // (cart rail + reader rail + dispenser "full" capability — the
-            // dispenser is a hard requirement, owner re-confirmed 7/21).
+            // (cart rail + reader rail + a way to put a card in the guest's
+            // hand: the dispenser, or — since 2026-08-28 — a swipe reader with
+            // blank stock under the screen; the confirmation screen prompts
+            // the swipe. Superseded the 7/21 dispenser-only requirement).
             // Every gate is named so a device console shows exactly why the
             // page didn't appear.
             // `?upsellPreview=1` on the flow URL bypasses ONLY the hardware
@@ -1850,7 +1893,7 @@ export function KioskFlow({
                 ["no-cards-in-cart", !session.gameCardPurchase?.cards.length],
                 ["gz-cart-flag", kioskGzCartEnabled()],
                 ["reader-paired", upsellPreview || !!config.readerId],
-                ["dispenser-full", upsellPreview || gameZoneCapability(config) === "full"],
+                ["card-issue", upsellPreview || gameZoneCapability(config) !== "none"],
               ] as const
             )
               .filter(([, ok]) => !ok)
@@ -2108,12 +2151,13 @@ export function KioskFlow({
         }}
         appliedPromo={promoEnabled ? session.appliedPromo : null}
         onClearPromo={() => dispatch({ type: "applyPromo", promo: null })}
-        // A kiosk without a dispenser must never promise to print a card.
-        canDispenseCards={gameZoneCapability(config) === "full"}
-        // "Who's here from your booking?" — a reservation-linked voucher
-        // offers its party on the receipt; a tapped chip lands the person on
-        // the SESSION party, so every later people step is prefilled. The
-        // receipt only ever removes members its own chips added.
+        // How a card reaches the guest here (dispenser / swiped blank / not at
+        // all) — the receipt must never promise what this machine can't do.
+        capability={gameZoneCapability(config)}
+        // "Your group is already in" — a reservation-linked voucher AUTO-
+        // LINKS its party onto the SESSION party as the roster resolves
+        // (chips pre-selected, tap to remove), so every later people step is
+        // prefilled. The receipt only ever removes members it added itself.
         party={session.party}
         onPartyAdd={(member) => dispatch({ type: "addPartyMember", member })}
         onPartyRemove={(id) => dispatch({ type: "removePartyMember", id })}
@@ -2128,7 +2172,7 @@ export function KioskFlow({
         <KioskGameZone
           center={config.center}
           brand={config.brand}
-          capability={gameZoneCapability(config) === "reload" ? "reload" : "full"}
+          capability={gameZoneCapability(config) === "swipe" ? "swipe" : "full"}
           initialVoucherCodes={gzVoucherCodes}
           // A game card scanned on the attract screen or the chooser — opens
           // straight on its balance rather than asking for the card again.

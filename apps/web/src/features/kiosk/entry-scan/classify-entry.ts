@@ -157,6 +157,11 @@ export function classifyEntryScan(input: string): EntryScanRoute {
   const code = classifyKioskCode(raw);
   switch (code.kind) {
     case "game-card":
+      // A card scan goes to Game Zone, full stop. It briefly diverted an
+      // ambiguous digit run to the code screen so Groupon could be tried
+      // first; that is gone with scanning-checks-Groupon (owner 2026-08-28 —
+      // Groupon is typed for now), and keeping it would send padded CARD scans
+      // on a detour for a lookup that no longer happens.
       return { kind: "game-card", value: code.value, raw };
     case "gift-card":
       return { kind: "unsupported", reason: "gift-card", raw };

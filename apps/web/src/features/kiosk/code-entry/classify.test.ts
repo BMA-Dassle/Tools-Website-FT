@@ -209,12 +209,50 @@ describe("classifyKioskCode — Groupon", () => {
 
   it("does NOT flag a padded 16-digit game-card barcode", () => {
     // Load-bearing for the 7-char widening: this account number IS 7 digits
-    // once the padding is stripped. The hint is computed on the COMPACT string
-    // (16 digits) and never on the stripped value, so a real game card cannot
-    // acquire a Groupon round-trip by being short.
+    // once the padding is stripped, and the stripped value IS now tested (see
+    // the padded-Groupon cases below). What keeps this card off Groupon's
+    // lookup is the WIDTH — the Intercard barcode fills its full 16, and only
+    // runs narrower than that are stripped-tested. Groupon is asked FIRST for
+    // any candidate, so flagging this shape would put a vendor round-trip in
+    // front of the most common scan on the kiosk.
     const c = classifyKioskCode("0000000001038091");
     expect(c.kind).toBe("game-card");
     expect(c.value).toBe("1038091");
+    expect(c.grouponCandidate).toBeFalsy();
+  });
+
+  // 2026-08-28, owner, on glass: the SCANNED Groupon is zero-padded to 12 while
+  // the same code TYPED is 8. The hint was computed on the padded string, so it
+  // missed the 7-8 window, the run fell into the game-card branch — which never
+  // refuses — and the fallback had nothing to fire on. Typed worked, scanned
+  // was dead.
+  it("flags a scanned Groupon that arrives zero-padded to 12", () => {
+    const c = classifyKioskCode("000089895632");
+    expect(c.kind).toBe("game-card");
+    expect(c.value).toBe("89895632");
+    expect(c.grouponCandidate).toBe(true);
+  });
+
+  it("gives the padded scan the SAME verdict as the typed code", () => {
+    // The bug in one assertion: these two are the same voucher.
+    const scanned = classifyKioskCode("000089895632");
+    const typed = classifyKioskCode("89895632");
+    expect(scanned.value).toBe(typed.value);
+    expect(scanned.grouponCandidate).toBe(typed.grouponCandidate);
+  });
+
+  it("flags a padded 7-digit Groupon too", () => {
+    const c = classifyKioskCode("000003443126");
+    expect(c.value).toBe("3443126");
+    expect(c.grouponCandidate).toBe(true);
+  });
+
+  it("does NOT flag a padded run that strips to something too long to be Groupon", () => {
+    // 9 digits after stripping — outside the 7-8 window, so it stays a plain
+    // game card and spends no Groupon round-trip.
+    const c = classifyKioskCode("000123456789");
+    expect(c.kind).toBe("game-card");
+    expect(c.value).toBe("123456789");
     expect(c.grouponCandidate).toBeFalsy();
   });
 

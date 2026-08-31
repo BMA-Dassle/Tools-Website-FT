@@ -1,6 +1,6 @@
 export type RaceProduct = {
   title: string;
-  category: "adult" | "junior" | "mini";
+  category: "adult" | "junior";
   tier: "starter" | "intermediate" | "pro";
   age: string;
   height: string;

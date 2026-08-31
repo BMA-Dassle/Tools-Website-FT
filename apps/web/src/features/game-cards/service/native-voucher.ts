@@ -351,9 +351,12 @@ export type NativeClaimResult =
  * row to fulfil against.
  *
  * `accountNumber` is set on the WEB path (credit a card the guest already
- * holds); the kiosk leaves it empty and fills it in from the blank it dispenses.
- * Either way the claim is taken BEFORE the ledger row exists, so a lost race
- * can never leave a creditable orphan behind.
+ * holds — kind `voucher_reload`) and on a SWIPE kiosk (no dispenser: the guest
+ * swiped a blank before this claim, persisted now — persist-first — as a
+ * `voucher` row that already knows its card); a dispenser kiosk leaves it empty
+ * and fills it in from the blank it dispenses. Either way the claim is taken
+ * BEFORE the ledger row exists, so a lost race can never leave a creditable
+ * orphan behind.
  */
 export async function claimNativeVoucher(input: {
   code: string;
@@ -438,11 +441,16 @@ export async function claimNativeVoucher(input: {
       txnId,
       groupId,
       // The kind encodes the FULFILMENT, which decides whether the card gets
-      // clear-on-encode. Crediting a guest's own card must never look like a
-      // fresh blank or the clear would wipe their existing balance.
-      kind: input.accountNumber ? "voucher_reload" : "voucher",
+      // clear-on-encode. Crediting a guest's own card (web) must never look like
+      // a fresh blank or the clear would wipe their existing balance. A swipe
+      // kiosk's blank IS fresh stock (`voucher`), just one whose account is
+      // already known — load-card never clears a fresh-blank row that carries
+      // its account, and the reconcile cron gives `voucher` rows the kiosk's
+      // grace window.
+      kind: input.source === "web" && input.accountNumber ? "voucher_reload" : "voucher",
       locationCode: input.locationCode,
-      // Web: the guest's own card, known now. Kiosk: read off the blank later.
+      // Web: the guest's own card. Swipe kiosk: the blank they swiped. Dispenser
+      // kiosk: "" — read off the blank later.
       accountNumber: input.accountNumber ?? "",
       packageId,
       tokens: grant.tokens,

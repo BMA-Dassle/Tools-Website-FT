@@ -127,32 +127,58 @@ describe("claimNativeVoucher", () => {
     );
   });
 
+  it("a SWIPE kiosk's blank rides the claim as a `voucher` row that already knows its card", async () => {
+    // No dispenser: the guest swiped the blank BEFORE the claim, so the row is
+    // persisted WITH its account (persist-first — a load that never reaches
+    // the server still leaves a row the cron can credit). Still a fresh blank
+    // (`voucher`, not the web leg's `voucher_reload`): load-card never clears
+    // a fresh-blank row that carries its account, and the cron gives `voucher`
+    // rows the kiosk's grace window.
+    const { svc, db, log } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue(live);
+    await svc.claimNativeVoucher({
+      code: CODE,
+      locationCode: 12,
+      accountNumber: "0000000001037356",
+      source: "kiosk",
+    });
+    expect(log.startCompedTxn).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "voucher", accountNumber: "0000000001037356" }),
+    );
+  });
+
   it("refuses unknown / voided / expired BEFORE touching the claim", async () => {
     const { svc, db, claims } = await mods();
 
     (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-    expect(await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" })).toEqual({
-      ok: false,
-      reason: "unknown",
-    });
+    expect(await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" })).toEqual(
+      {
+        ok: false,
+        reason: "unknown",
+      },
+    );
 
     (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...live,
       voidedAt: new Date().toISOString(),
     });
-    expect(await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" })).toEqual({
-      ok: false,
-      reason: "voided",
-    });
+    expect(await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" })).toEqual(
+      {
+        ok: false,
+        reason: "voided",
+      },
+    );
 
     (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...live,
       expiresAt: new Date(Date.now() - 1000).toISOString(),
     });
-    expect(await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" })).toEqual({
-      ok: false,
-      reason: "expired",
-    });
+    expect(await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" })).toEqual(
+      {
+        ok: false,
+        reason: "expired",
+      },
+    );
 
     // A cheap refusal must never burn the code.
     expect(claims.claimVoucher).not.toHaveBeenCalled();
@@ -333,7 +359,11 @@ describe("multi-item vouchers (one code, several lines of value)", () => {
 });
 
 describe("attraction-choice items + bill-linked mints", () => {
-  const choice = { kind: "attraction-choice" as const, slugs: ["laser-tag", "gel-blaster"], qty: 1 };
+  const choice = {
+    kind: "attraction-choice" as const,
+    slugs: ["laser-tag", "gel-blaster"],
+    qty: 1,
+  };
 
   it("validates a choice item to the cart rail with an either-keyword coverage name", async () => {
     const { svc, db } = await mods();

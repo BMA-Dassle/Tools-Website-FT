@@ -60,10 +60,7 @@ export const es: Record<CoreKey, string> = {
   "categories.attr.eyebrow": "{count, plural, one {# atracción} other {# atracciones}}",
   "categories.attr.blurb.naples": "Boliche, gel blasters, láser tag y más — elige una hora y listo",
   "categories.attr.blurb.default": "Carreras, boliche, blasters y más — elige una hora y listo",
-  "categories.gameZone.eyebrow.reload": "Recargar · consultar saldo",
   "categories.gameZone.eyebrow.full": "Recargar · comprar · 1 a 10 tarjetas",
-  "categories.gameZone.blurb.reload":
-    "Recarga tu tarjeta de arcade o consulta su saldo — sin esperas",
   "categories.gameZone.blurb.full": "Compra o recarga fichas de arcade — sin esperas",
   "categories.disabled.experience":
     "No disponible en este momento — vuelve más tarde o pregunta a un encargado.",
@@ -135,6 +132,9 @@ export const es: Record<CoreKey, string> = {
   "confirmation.done": "Listo — empezar de nuevo",
   "confirmation.dispensing": "Dispensando tus tarjetas…",
   "confirmation.dispensingHint": "Toma cada tarjeta cuando salga — terminamos automáticamente.",
+  "confirmation.loadingCards": "Cargando tus tarjetas…",
+  "confirmation.loadingCardsHint":
+    "Desliza cada tarjeta nueva cuando se te indique — terminamos automáticamente.",
   "confirmation.returningIn":
     "Volviendo al inicio en {seconds}s — toca en cualquier lugar para quedarte",
   "confirmation.raceCheckin.eyebrow": "Registro de carreras",
@@ -293,7 +293,12 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.placeholder": "Toca aquí para escribirlo",
   "codeEntry.scanHint.lead": "O escanéalo",
   "codeEntry.scanHint.body":
-    "Acerca el código al lector debajo de la pantalla — funcionan cupones impresos, códigos QR de correo y vales.",
+    "Escanea un vale de HeadPinz o FastTrax, o un cupón impreso — acércalo bajo la pantalla.",
+  "codeEntry.groupon.typeOnly":
+    "¿Tienes un Groupon? No lo escanees — toca «Escribir el código» abajo.",
+  "codeEntry.groupon.typeHere": "Los números de Groupon se escriben aquí.",
+  "codeEntry.gamecard.notHere":
+    "Esa es una tarjeta Game Zone — usa la pantalla de Game Zone para las tarjetas. Esta pantalla es para cupones y vales.",
   "codeEntry.apply": "Aplicar código",
   "codeEntry.back": "‹ Atrás",
   "codeEntry.checking": "Verificando tu código…",
@@ -342,9 +347,9 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherGz.pickWarnGo": "Continuar de todos modos",
   "codeEntry.voucherGz.pickWarnStay": "Elegir personas",
   "codeEntry.voucherGz.promoRow": "se aplica al pagar",
-  "codeEntry.voucherGz.partyTitle": "¿Quién vino de tu reserva?",
+  "codeEntry.voucherGz.partyTitle": "Tu grupo ya está incluido",
   "codeEntry.voucherGz.partySub":
-    "Toca a todos los que juegan hoy — tendremos sus nombres listos en cada paso.",
+    "Ya agregamos a todos los de tu reserva — sus nombres estarán listos en cada paso. Toca a quien no haya venido hoy para quitarlo.",
   "codeEntry.voucherGz.partyLoadingTitle": "Revisando tu vale",
   "codeEntry.voucherGz.partyLoadingSub":
     "Si este vale tiene una reserva, traeremos a todos los que están en ella.",
@@ -357,6 +362,11 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherGz.finishCards":
     "Imprimir {n, plural, one {mi tarjeta} other {mis # tarjetas}} y continuar",
   "codeEntry.voucherGz.printNow": "Imprimir {n, plural, one {mi tarjeta} other {mis # tarjetas}}",
+  "codeEntry.voucherGz.loadCards":
+    "Cargar {n, plural, one {mi tarjeta} other {mis # tarjetas}} y continuar",
+  "codeEntry.voucherGz.loadNow": "Cargar {n, plural, one {mi tarjeta} other {mis # tarjetas}}",
+  "codeEntry.voucherGz.printingSubSwipe":
+    "Toma una tarjeta en blanco del portatarjetas de abajo — la deslizarás en la pantalla de Game Zone",
   "codeEntry.voucherGz.done": "Listo",
   "codeEntry.voucherGz.printingSubElsewhere":
     "Recógelas en cualquier quiosco de Game Zone — tu vale sigue válido",
@@ -375,6 +385,8 @@ export const es: Record<CoreKey, string> = {
     "Vale de Groupon aceptado — recoge tus tarjetas en cualquier quiosco de Game Zone",
   "codeEntry.voucherGz.leaveWarn":
     "{n, plural, one {Tu tarjeta de juego aún no se imprime} other {Tus # tarjetas de juego aún no se imprimen}}. No se imprimirán solas después — el botón rosa en la pantalla de inicio te trae de vuelta aquí.",
+  "codeEntry.voucherGz.leaveWarnSwipe":
+    "{n, plural, one {Tu tarjeta de juego aún no se carga} other {Tus # tarjetas de juego aún no se cargan}}. No se cargarán solas después — el botón rosa en la pantalla de inicio te trae de vuelta aquí.",
   "codeEntry.voucherGz.leaveAnyway": "Salir de todos modos",
   "codeEntry.giftcard.title": "Eso es una tarjeta de regalo",
   "codeEntry.giftcard.body":

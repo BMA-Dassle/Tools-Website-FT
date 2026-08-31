@@ -43,7 +43,7 @@ export function TheTracks() {
         </div>
       ))}
 
-      <div className="grid grid-cols-3 gap-[24px]">
+      <div className="grid grid-cols-2 gap-[24px]">
         {KART_CLASS_CARDS.map((kart) => (
           <div
             key={kart.title}
