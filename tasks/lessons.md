@@ -5132,3 +5132,34 @@ updates itself.
    one click a shift for taking the credential out of the URL. A kiosk worked standing up between
    heats, or a wall screen nobody types on, pays a blank board — so those keep a device
    credential, and the redirect lane must skip them by name.
+
+## A destination-screen fix is not a fix if the router never routes there (2026-08-31)
+
+The kiosk's voucher receipt was taught (v1.26.0, `158d86707`) to auto-link a scanned booking
+voucher's party onto the session — exactly what "the VIP QR seeds the players" needs. It shipped,
+and it worked, and the thing it was written for still did not happen: the entry-scan router had
+been sending that QR somewhere else since 2026-08-02, so the new code never ran for the payload
+it was named after.
+
+1. **When a feature "doesn't work", verify the whole path to it before reading the feature.** The
+   screen was correct. The classifier two hops upstream (`entry-scan/classify-entry.ts`) was what
+   decided the screen never mounted. Reading the destination in isolation would have concluded
+   "this looks fine" — and it was fine.
+2. **A routing rule that consults a database fact fires on the DISTRIBUTION, not on the edge case
+   you imagined.** `HPW → resolve-then-code-entry` existed so the server could ask "does this
+   voucher carry a `bill_id`?" and split the answer two ways. Every booking-minted grant carries
+   one — 82 of 82 — so the "sometimes" branch was 100% of real traffic and the other branch was
+   dead code. Before writing a rule that splits on data, query the data and find out whether it
+   splits.
+3. **Auto-loading state into a component-local reducer seeds NOTHING.** `KioskCheckinFlow` runs on
+   its own `useReducer` (commented "LOCAL, non-persisted") while `KioskFlow` runs on a
+   sessionStorage-backed session. Both call `dispatch({type:"addPartyMember"})` and both look like
+   they populate "the party". Only one survives the screen. If a hand-off is meant to outlive a
+   component, name the store it lands in — "we auto-load the roster" is not an answer.
+4. **Two QRs in one email are two different intents.** The reservation QR checks in; `/v/{code}`
+   redeems. Making the redemption QR do the check-in job did not add a convenience, it removed the
+   only route to the legs the voucher was carrying.
+5. **Check whether the path you are about to remove carries traffic — the number is usually
+   available.** `kiosk_checkin_events.verified_via` says how each check-in was opened: 340 rows,
+   `browse-otp` 180 / `otp` 159 / `code` **1**. Reversing an owner routing decision is a much
+   smaller ask when you can say what it has actually been doing.

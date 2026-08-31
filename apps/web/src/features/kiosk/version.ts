@@ -15,6 +15,22 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.27.0 — THE VIP QR NOW REACHES THE SCREEN THAT SEEDS. 1.26.0 made the
+ *         voucher receipt auto-link a booking's party, but a scan on the
+ *         attract screen or the chooser never got there. `/v/{code}` was
+ *         classified `resolve-then-code-entry`, so the router asked whether the
+ *         code resolved to a reservation first — and every VIP grant carries
+ *         `vouchers.bill_id`, so `if (res.ok) return toCheckin()` fired on 100%
+ *         of them. The guest landed in check-in: no game-card legs, no laser
+ *         tag, and no seeding that outlives the screen (check-in's roster
+ *         auto-load writes to a LOCAL, non-persisted reducer, not the kiosk
+ *         booking session). Measured: 340 completed kiosk check-ins, exactly
+ *         ONE ever from a scanned code. An `HPW` is our own unmistakable shape,
+ *         so it is now decided by shape and goes straight to the voucher
+ *         screen, where 1.26.0's auto-link finally runs. Reverses the routing
+ *         half of owner decision #4 of 2026-08-02 ("decide by bill_id"), which
+ *         predates the receipt having anything on it worth reaching; the
+ *         booking's OWN reservation QR still opens check-in, unchanged.
  * 1.26.0 — A SCANNED BOOKING VOUCHER AUTO-LINKS ITS PARTY (owner 2026-08-30:
  *         "we already know who is on it — no need to ask/lookup/create
  *         profiles again"). When a VIP (or any guest holding a reservation-
@@ -1083,7 +1099,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.26.0";
+export const KIOSK_VERSION = "1.27.0";
 
 let bootVersion: string | null = null;
 let captured = false;
