@@ -125,6 +125,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/lane-recheck",
+      "schedule": "*/2 * * * *"
+    },
+    {
       "path": "/api/cron/vip-move-alerts",
       "schedule": "* * * * *"
     },

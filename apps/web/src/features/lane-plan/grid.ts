@@ -282,8 +282,28 @@ export function isMovable(intervals: readonly BusyInterval[], grid: LaneGrid): b
       !FROZEN_LANE.has(b.laneStatus) &&
       !FROZEN_RES.has(b.reservationStatus) &&
       !b.isBlock &&
-      !grid.openLanes.has(b.laneNumber),
+      !runningOnThisLane(grid, b.laneNumber, b.reservationId),
   );
+}
+
+/**
+ * Is the lane physically open because of THIS booking?
+ *
+ * "The lane is open" and "this booking is the one on it" are different facts, and treating
+ * them as one froze the exact bookings that most need moving: a guest due at 6:15 whose
+ * lane is still running the 5pm group is not running anything — they are about to be walked
+ * onto somebody else's lane. That is a repair, not a session in progress.
+ *
+ * Conservative when the floor cannot say: an Open lane we have no detail for is treated as
+ * this booking's and left alone. A lane open with NO reservation behind it is a walk-in
+ * Conqueror opened, which is definitively somebody else.
+ */
+function runningOnThisLane(grid: LaneGrid, lane: number, reservationId: string): boolean {
+  if (!grid.openLanes.has(lane)) return false;
+  const live = grid.liveLanes.find((l) => l.laneNumber === lane);
+  if (!live) return true;
+  if (live.reservationId == null) return false;
+  return live.reservationId === reservationId;
 }
 
 /** Group a grid's intervals by reservation id. */

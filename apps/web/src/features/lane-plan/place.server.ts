@@ -48,6 +48,14 @@ export async function placeReservationOnBestLane(opts: {
   centerId: number;
   reservationId: string;
   policy?: LanePolicy;
+  /**
+   * Skip the `moveCost` gate.
+   *
+   * Set only for a REPAIR, where the lane the booking is on is not actually going to be
+   * free. Staying put is not one of the options, so a marginal score gain is not the
+   * question — anywhere free beats a lane with somebody on it.
+   */
+  force?: boolean;
   /** Injected in tests. */
   now?: number;
 }): Promise<PlaceResult> {
@@ -96,8 +104,10 @@ export async function placeReservationOnBestLane(opts: {
     if (best.lanes.join(",") === current.join(",")) {
       return { moved: false, from: current, to: current, reason: "already on the best lane" };
     }
-    // Staying put is the default. A move has to earn more than the churn it causes.
-    if (gain <= policy.moveCost) {
+    // Staying put is the default. A move has to earn more than the churn it causes —
+    // unless this is a repair, where staying put means walking the guest onto a lane
+    // somebody else is on.
+    if (!opts.force && gain <= policy.moveCost) {
       return {
         moved: false,
         from: current,

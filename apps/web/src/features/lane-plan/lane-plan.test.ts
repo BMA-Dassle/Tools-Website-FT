@@ -42,6 +42,7 @@ import {
   laneArrangementEnabled,
   shouldArrangeLane,
 } from "./flags";
+import { findImminentRepairs, RECHECK_HORIZON_MINUTES } from "./recheck.server";
 import { classifyPinFailure, shouldFailOpen } from "./pin-errors";
 import { createWithLanePlan, describePinOutcome } from "./pin";
 import { scorePlacement, spreadBias } from "./score";
@@ -1072,5 +1073,119 @@ describe("an Open lane is held until ITS OWN session ends, not for a flat 15 min
       chooseLanes(g, req(m), DEFAULT_POLICY).ranked.some((p) => p.lanes.includes(1));
     expect(offers(5)).toBe(false);
     expect(offers(OPEN_LANE_GRACE_MINUTES + 5)).toBe(true);
+  });
+});
+
+/**
+ * The near-start re-check. A lane is chosen once, at hold time, and the board moves after
+ * that — so shortly before a booking starts we ask ONE question: is the lane they are on
+ * actually going to be free? Repair only; a booking that is fine is never touched, because
+ * by this point the guest may already have been shown their lane number.
+ */
+describe("re-checking the lane just before the guest arrives", () => {
+  const MIN = 60_000;
+  const HORIZON = RECHECK_HORIZON_MINUTES * MIN;
+
+  /** Their booking starts in `startsInMin`; lane 1 is still running the previous group. */
+  function board(startsInMin: number, extra: Partial<LaneGrid> = {}) {
+    const startMs = T0 + startsInMin * MIN;
+    const theirs: BusyInterval = {
+      ...busy(1, 0, 1.5, { reservationId: "XMINE" }),
+      startMs,
+      endMs: startMs + 90 * MIN,
+    };
+    // The lane is physically open, running SOMEBODY ELSE's session, past its booked end.
+    const floor: BusyInterval = {
+      ...busy(1, 0, 1, { reservationId: "XOTHER" }),
+      source: "floor",
+      startMs: T0,
+      endMs: T0 + 50 * MIN,
+      isBlock: true,
+      laneStatus: "Running",
+      reservationStatus: "Arrived",
+    };
+    return grid([theirs, floor], 8, {
+      openLanes: new Set([1]),
+      liveLanes: [
+        { laneNumber: 1, status: "Open", closedAtMs: T0, reservationId: "XOTHER" },
+      ] as LaneGrid["liveLanes"],
+      readAtMs: T0,
+      ...extra,
+    });
+  }
+
+  const repairs = (g: LaneGrid) =>
+    findImminentRepairs(g, { nowMs: T0, horizonMs: HORIZON, policy: DEFAULT_POLICY });
+
+  it("flags a guest whose lane is still running the previous group", () => {
+    const found = repairs(board(20));
+    expect(found.map((r) => r.reservationId)).toEqual(["XMINE"]);
+    expect(found[0].blocked).toEqual([1]);
+  });
+
+  it("does NOT freeze them just because their lane is open — somebody else is on it", () => {
+    // The distinction the whole re-check turns on. "The lane is open" and "this booking is
+    // the one running" are different facts; conflating them skips exactly the guest who
+    // needs rescuing.
+    const g = board(20);
+    const theirs = g.busy.filter((b) => b.reservationId === "XMINE");
+    expect(isMovable(theirs, g)).toBe(true);
+  });
+
+  it("DOES freeze a booking that is itself the one running on that lane", () => {
+    const g = board(20, {
+      liveLanes: [
+        { laneNumber: 1, status: "Open", closedAtMs: T0, reservationId: "XMINE" },
+      ] as LaneGrid["liveLanes"],
+    });
+    const theirs = g.busy.filter((b) => b.reservationId === "XMINE");
+    expect(isMovable(theirs, g)).toBe(false);
+    expect(repairs(g)).toHaveLength(0);
+  });
+
+  it("leaves a booking on a genuinely free lane alone — repair only, never re-optimise", () => {
+    // Lane 4 is free and stays free. Another lane might score better; we do not care.
+    const startMs = T0 + 20 * MIN;
+    const g = grid(
+      [{ ...busy(4, 0, 1.5, { reservationId: "XFINE" }), startMs, endMs: startMs + 90 * MIN }],
+      8,
+      { readAtMs: T0 },
+    );
+    expect(repairs(g)).toHaveLength(0);
+  });
+
+  it("ignores bookings beyond the horizon and ones that already started", () => {
+    expect(repairs(board(RECHECK_HORIZON_MINUTES + 15))).toHaveLength(0);
+    expect(repairs(board(-10))).toHaveLength(0);
+  });
+
+  it("never touches a front-desk booking", () => {
+    const startMs = T0 + 20 * MIN;
+    const theirs: BusyInterval = {
+      ...busy(1, 0, 1.5, { reservationId: "C900" }),
+      startMs,
+      endMs: startMs + 90 * MIN,
+    };
+    const floor: BusyInterval = {
+      ...busy(1, 0, 1, { reservationId: "XOTHER" }),
+      source: "floor",
+      startMs: T0,
+      endMs: T0 + 50 * MIN,
+      isBlock: true,
+    };
+    const g = grid([theirs, floor], 8, {
+      openLanes: new Set([1]),
+      liveLanes: [
+        { laneNumber: 1, status: "Open", closedAtMs: T0, reservationId: "XOTHER" },
+      ] as LaneGrid["liveLanes"],
+      readAtMs: T0,
+    });
+    expect(repairs(g)).toHaveLength(0);
+  });
+
+  it("never proposes moving the floor's own lane state", () => {
+    // Floor intervals are lane state, not bookings — there is nobody to move.
+    const found = repairs(board(20));
+    expect(found.some((r) => r.reservationId === "XOTHER")).toBe(false);
   });
 });
