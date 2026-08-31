@@ -254,9 +254,36 @@ you, our checkout has to make it itself.
 re-reads the order before accruing so it uses Square's own view of "paid" and the
 order's authoritative `location_id` (FastTrax, not the reservation's centerCode).
 
-**Backlog.** `scripts/loyalty-race-backfill.mts` re-accrues the missed orders
-against their original order ids, so Square recomputes the correct points rather
-than us inventing a number. Dry-run by default; needs owner approval to `--apply`.
+**Backlog — RUN AND SETTLED 2026-08-31.** `scripts/loyalty-race-backfill.mts`
+re-accrues the missed orders against their original order ids, so Square
+recomputes the correct points rather than us inventing a number. Dry-run by
+default; the apply below was made on owner approval.
+
+| Measure                  | Value                                |
+| ------------------------ | ------------------------------------ |
+| bookings credited        | **1,146**                            |
+| Pinz issued              | **952,580** (~$9,525.80 guest value) |
+| distinct rewards members | ~890                                 |
+| failures                 | 0                                    |
+
+Scope was `--enrolled-only`: a booking is credited only if the guest was already
+a rewards member on the day they raced. That deliberately excludes 114 bookings
+made _before_ the guest joined — nothing was owed on those, so crediting them
+would have been goodwill rather than a correction. Owner decision, 2026-08-31.
+
+**Square computes the number, we do not.** The request sends
+`accumulate_points: { order_id }` and no point value, so Square derives the
+points from the order's own line items and the program's accrual rule. This is
+why the run credited 952,580 Pinz against a naive gross x 10 estimate of
+963,507 — the estimate was ~1% high, and Square's figure is the correct one.
+Re-running is safe: the idempotency key is `backfill-loyalty-{reservationId}`
+and every row is re-checked against `order_filter` before it is credited
+(verified by re-running one row: `already credited: 1, TO CREDIT: 0`).
+
+Verified after the run against Square's ledger, not the script's own report:
+40 rows sampled evenly across all 1,146 each carried an `ACCUMULATE_POINTS`
+event bound to their own order id. The reporting guest's account went from
+200 lifetime points (one in-store order) to 1,820, with all six races credited.
 
 ## Lessons Learned
 
