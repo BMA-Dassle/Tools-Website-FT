@@ -22,7 +22,12 @@ import {
   wholeFreePairs,
 } from "./grid";
 import { bucketOf, buildOccupancyForecast, forecastAt } from "./forecast";
-import { findGridGaps, OPEN_LANE_GRACE_MINUTES, toFloorIntervals } from "./grid.server";
+import {
+  findGridGaps,
+  OPEN_LANE_GRACE_MINUTES,
+  OPEN_LANE_UNKNOWN_HORIZON_MINUTES,
+  toFloorIntervals,
+} from "./grid.server";
 import { deriveLaneGroups, allowedLanesFor, MIN_SAMPLES_FOR_CONFIDENCE } from "./lane-groups";
 import {
   chooseLanes,
@@ -982,5 +987,90 @@ describe("the gates that decide whether we touch a booking at all", () => {
       if (prev === undefined) delete process.env.LANE_ARRANGEMENT;
       else process.env.LANE_ARRANGEMENT = prev;
     }
+  });
+});
+
+/**
+ * The owner's report, 2026-08-31: a kiosk booking landed on FastTrax lane 1 while lane 1
+ * was still open with a session on it, and seven other lanes were free.
+ *
+ * The engine already refused an Open lane — but only for the next FIFTEEN MINUTES, because
+ * it read `ClosedAt` as a scheduled close. It is not one: every lane reports ~the same
+ * instant, Closed lanes included, so `max(ClosedAt, now)` collapsed to `now` and the block
+ * was always exactly the grace period. A guest bowling in half an hour sailed straight past
+ * it onto an occupied lane.
+ */
+describe("an Open lane is held until ITS OWN session ends, not for a flat 15 minutes", () => {
+  const MIN = 60_000;
+  const live = (reservationId: string | null) => [
+    { laneNumber: 1, status: "Open", closedAtMs: T0, reservationId },
+    ...[2, 3, 4, 5, 6, 7, 8].map((n) => ({
+      laneNumber: n,
+      status: "Closed",
+      closedAtMs: T0,
+      reservationId: null,
+    })),
+  ];
+
+  /** Lane 1 is running X3450, which is BOOKED to finish 40 minutes from now. */
+  const runningGrid = () => {
+    const endMs = T0 + 40 * MIN;
+    const schedule = new Map([["X3450", endMs]]);
+    const floor = toFloorIntervals(live("X3450"), T0, schedule);
+    return grid(floor, 8, { openLanes: new Set([1]), readAtMs: T0 });
+  };
+
+  const req = (startsInMin: number) => ({
+    laneCount: 1,
+    startMs: T0 + startsInMin * MIN,
+    endMs: T0 + (startsInMin + 90) * MIN,
+    players: 4,
+    webOfferId: 5,
+    allowedLanes: null,
+  });
+
+  const offersLaneOne = (startsInMin: number) =>
+    chooseLanes(runningGrid(), req(startsInMin), DEFAULT_POLICY).ranked.some((p) =>
+      p.lanes.includes(1),
+    );
+
+  it("refuses the lane for a guest bowling within the next 30 minutes", () => {
+    // THE REGRESSION. 16 and 25 minutes both used to be offered lane 1.
+    expect(offersLaneOne(5)).toBe(false);
+    expect(offersLaneOne(16)).toBe(false);
+    expect(offersLaneOne(25)).toBe(false);
+    expect(offersLaneOne(30)).toBe(false);
+  });
+
+  it("still refuses right up to the session's end plus turnaround", () => {
+    expect(offersLaneOne(40)).toBe(false); // exactly when it is due to finish
+    expect(offersLaneOne(40 + OPEN_LANE_GRACE_MINUTES - 1)).toBe(false);
+  });
+
+  it("releases the lane once that session is genuinely done", () => {
+    // Booked end + turnaround has passed — the lane is sellable again, and must be, or a
+    // lane sitting open all evening would be removed from inventory for the whole night.
+    expect(offersLaneOne(40 + OPEN_LANE_GRACE_MINUTES + 5)).toBe(true);
+  });
+
+  it("holds a lane opened with NO booking behind it for a whole session", () => {
+    // Walk-in opened straight in Conqueror: nothing anywhere says when they finish.
+    const floor = toFloorIntervals(live(null), T0, new Map());
+    const g = grid(floor, 8, { openLanes: new Set([1]), readAtMs: T0 });
+    const offers = (m: number) =>
+      chooseLanes(g, req(m), DEFAULT_POLICY).ranked.some((p) => p.lanes.includes(1));
+    expect(offers(30)).toBe(false);
+    expect(offers(OPEN_LANE_UNKNOWN_HORIZON_MINUTES + OPEN_LANE_GRACE_MINUTES - 5)).toBe(false);
+    expect(offers(OPEN_LANE_UNKNOWN_HORIZON_MINUTES + OPEN_LANE_GRACE_MINUTES + 5)).toBe(true);
+  });
+
+  it("holds an OVERRUNNING session from now, not from the end it blew through", () => {
+    // Booked to finish 30 minutes AGO and still going — the Naples lane 27 case.
+    const floor = toFloorIntervals(live("X3450"), T0, new Map([["X3450", T0 - 30 * MIN]]));
+    const g = grid(floor, 8, { openLanes: new Set([1]), readAtMs: T0 });
+    const offers = (m: number) =>
+      chooseLanes(g, req(m), DEFAULT_POLICY).ranked.some((p) => p.lanes.includes(1));
+    expect(offers(5)).toBe(false);
+    expect(offers(OPEN_LANE_GRACE_MINUTES + 5)).toBe(true);
   });
 });

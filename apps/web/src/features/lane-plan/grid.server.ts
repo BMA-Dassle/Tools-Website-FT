@@ -28,14 +28,23 @@ export const MAX_SESSION_MINUTES = 240;
 const DEAD_STATUSES = new Set(["Canceled", "NoShow"]);
 
 /**
- * How long past a running lane's estimated close we keep treating it as busy.
+ * Turnaround kept after a running session's SCHEDULED end before its lane is sellable.
  *
- * `ClosedAt` is explicitly an ESTIMATE for a lane opened directly in Conqueror, and real
- * sessions overrun: Naples lane 27 at 23:48 on 2026-08-24 was still running a booking
- * whose window ended at 23:45. Handing the next group a lane the last group is still on
- * is far worse than holding it a few extra minutes.
+ * Real sessions overrun: Naples lane 27 at 23:48 on 2026-08-24 was still running a booking
+ * whose window ended at 23:45. Handing the next group a lane the last group is still on is
+ * far worse than holding it a few extra minutes.
  */
 export const OPEN_LANE_GRACE_MINUTES = 15;
+
+/**
+ * How long a lane opened with NO reservation behind it is assumed to stay busy.
+ *
+ * Someone is physically on it (a walk-in opened straight in Conqueror — Naples lane 8,
+ * `Reservation: null`), and no read anywhere tells us when they will finish. A whole
+ * typical session is the honest assumption; the alternative is selling the lane out from
+ * under them in a quarter of an hour.
+ */
+export const OPEN_LANE_UNKNOWN_HORIZON_MINUTES = 45;
 
 /**
  * Occupancy that only the FLOOR knows about.
@@ -48,12 +57,31 @@ export const OPEN_LANE_GRACE_MINUTES = 15;
  * Emitted as real busy intervals so every placement decision respects them, and marked
  * `isBlock` so nothing ever tries to move them.
  */
-export function toFloorIntervals(liveLanes: LaneGrid["liveLanes"], nowMs: number): BusyInterval[] {
+export function toFloorIntervals(
+  liveLanes: LaneGrid["liveLanes"],
+  nowMs: number,
+  /**
+   * Scheduled end per reservation, from the schedule read.
+   *
+   * WITHOUT THIS THE BLOCK IS ONLY EVER 15 MINUTES LONG, and a guest booking 16 minutes
+   * out is handed a lane somebody is still bowling on. `ClosedAt` looked like the answer
+   * but is not: every lane reports ~the same instant, Closed ones included, so it is a
+   * state-as-of stamp and `max(ClosedAt, now)` collapses to `now`. The session's own
+   * booked end is the only real answer to "when is this lane free?".
+   */
+  scheduledEndByReservation?: ReadonlyMap<string, number>,
+): BusyInterval[] {
   const graceMs = OPEN_LANE_GRACE_MINUTES * 60_000;
+  const unknownMs = OPEN_LANE_UNKNOWN_HORIZON_MINUTES * 60_000;
   const out: BusyInterval[] = [];
   for (const l of liveLanes) {
     if (l.status !== "Open") continue;
-    const endMs = Math.max(l.closedAtMs ?? nowMs, nowMs) + graceMs;
+    // When we know which booking is on the lane, its scheduled end is the honest answer,
+    // plus turnaround — and if it has already run past that end, hold from now instead.
+    // With no booking behind the lane, nothing tells us when it frees up: assume a session.
+    const scheduledEnd = l.reservationId ? scheduledEndByReservation?.get(l.reservationId) : null;
+    const endMs =
+      scheduledEnd != null ? Math.max(scheduledEnd, nowMs) + graceMs : nowMs + unknownMs + graceMs;
     out.push({
       source: "floor",
       laneNumber: l.laneNumber,
@@ -153,6 +181,17 @@ export async function buildGrid(
     reservationId: l.Reservation?.Id ?? null,
   }));
 
+  // The two reads meet here: the schedule says when each booking is due to END, the floor
+  // says which lanes are physically still going. An Open lane is held until ITS OWN
+  // booking's end, which is what stops a guest booking half an hour out being handed a
+  // lane the current group is still on.
+  const scheduleBusy = toBusyIntervals(reservations);
+  const scheduledEndByReservation = new Map<string, number>();
+  for (const b of scheduleBusy) {
+    const prev = scheduledEndByReservation.get(b.reservationId);
+    if (prev == null || b.endMs > prev) scheduledEndByReservation.set(b.reservationId, b.endMs);
+  }
+
   return {
     centerId,
     lanes: lanes.map((l) => l.LaneNumber).sort((a, b) => a - b),
@@ -161,7 +200,7 @@ export async function buildGrid(
     liveLanes,
     // Both reads, deliberately. The schedule alone would sell a lane out from under a
     // session that is running over, or one opened in Conqueror with no reservation at all.
-    busy: [...toBusyIntervals(reservations), ...toFloorIntervals(liveLanes, readAtMs)],
+    busy: [...scheduleBusy, ...toFloorIntervals(liveLanes, readAtMs, scheduledEndByReservation)],
     windowStartMs,
     windowEndMs,
     readAtMs,
