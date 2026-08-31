@@ -11,7 +11,8 @@
     "lint:a11y": "node scripts/a11y-gate.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:fast": "tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsbuildinfo-fast.json",
-    "test": "node scripts/check-admin-token-leak.mjs && vitest run"
+    "test": "node scripts/check-admin-token-leak.mjs && vitest run",
+    "e2e:sso": "playwright test -c playwright.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.0",
@@ -49,6 +50,7 @@
   },
   "devDependencies": {
     "@axe-core/react": "^4.11.2",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",
