@@ -245,6 +245,8 @@ export async function POST(req: NextRequest) {
         // order and whether the shine is genuinely in step, both of which can only
         // be judged standing in front of the glass.
         "identify",
+        "arena",
+        "arena-busy",
       ].includes(mode)
     ) {
       await requestScreenDemo(body.screenId, mode);

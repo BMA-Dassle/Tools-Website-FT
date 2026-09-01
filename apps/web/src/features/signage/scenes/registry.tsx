@@ -31,6 +31,8 @@ import { SceneVipShowcase } from "./SceneVipShowcase";
 import { SceneOpenNow } from "./SceneOpenNow";
 import { SceneBowlingCheckin } from "./SceneBowlingCheckin";
 import { SceneVenueLogo } from "./SceneVenueLogo";
+import { SceneArenaCheckin } from "./SceneArenaCheckin";
+import { SceneArenaPromo } from "./SceneArenaPromo";
 import { raceGuideEnabled } from "../flags";
 
 /**
@@ -77,6 +79,10 @@ export function SceneSlot(props: SceneProps) {
     // it is the one scene that cannot be blanked by a feed or a vendor.
     case "venue-logo":
       return <SceneVenueLogo {...props} />;
+    case "arena-checkin":
+      return <SceneArenaCheckin {...props} />;
+    case "arena-promo":
+      return <SceneArenaPromo {...props} />;
     case "event-welcome":
       return <SceneEventWelcome {...props} />;
     // The events wing at rest. Reached through the wing understudy in
@@ -125,6 +131,8 @@ const IMPLEMENTED: ReadonlySet<SceneType> = new Set<SceneType>([
   "pit-board",
   "race-results",
   "race-guide",
+  "arena-checkin",
+  "arena-promo",
   "event-welcome",
   "event-checkin",
   "vip-welcome",
@@ -225,6 +233,18 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
       // that fell out of the rotation would leave a dead panel at the end of the wall
       // — or worse, invite the middle scene to widen and tear the wall (see SceneSpan).
       return true;
+    case "arena-checkin":
+      // NOT always true, unlike every board above it — and this is the one scene
+      // on the platform for which that is right. The arena board's dead time is
+      // ADVERTISING (owner 2026-09-01), so "nothing is checking in" is not an
+      // idle state to design, it is the cue to go back to selling. The director
+      // gates the interrupt on the same answer, so the two cannot disagree.
+      return (feed?.arena?.calls?.length ?? 0) > 0;
+    case "arena-promo":
+      // Only when a film has actually been uploaded. Without this the rotation
+      // would hold two empty slots — eighty seconds of black every couple of
+      // minutes — on a board whose whole job in that window is to sell.
+      return !!feed?.arena?.films["laser-tag"] || !!feed?.arena?.films["gel-blaster"];
     case "race-results":
       // Always true: the last race's result HOLDS until the next one lands, so
       // "no data" only ever means the first race of the day has not finished —

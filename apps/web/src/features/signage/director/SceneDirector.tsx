@@ -152,6 +152,7 @@ export function SceneDirector({
         hasData: (scene) => sceneHasData(scene, feed),
         events: feed?.kioskEvents ?? [],
         seenEventIds: seen,
+        arenaCalls: feed?.arena?.calls,
         asleep,
         isImplemented: isSceneImplemented,
       }),
