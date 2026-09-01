@@ -1,26 +1,29 @@
 /**
  * Lane arrangement — put a freshly created hold on a better lane. FastTrax pilot.
  *
- * WHY MOVE INSTEAD OF PIN AT CREATE
+ * TWO ENTRY POINTS, AND WHICH ONE TO REACH FOR
  *
- * Pinning needs a lane COUNT before QAMF has decided one, and FastTrax is not reliably
- * one-lane-per-party: the Aug 1 and Aug 8 boards each carried a booking spanning two.
- * Guessing wrong costs a 409 per candidate on a request a guest is waiting through, and
- * guessing conservatively means never pinning the parties that matter most.
+ *  - `planLanesForNewBooking` — choose BEFORE the reservation exists, so an unavailable
+ *    lane is never picked in the first place. This is the right one for a walk-up.
+ *  - `placeReservationOnBestLane` — move an existing booking. Repairs a lane that will
+ *    not be free, and improves one QAMF picked when planning failed open.
  *
- * Creating first removes the guess entirely — QAMF's own response says how many lanes the
- * booking got — and it removes the risk with it: the hold EXISTS before we try to improve
- * it, so no failure here can cost a booking. That is a stronger guarantee than the
- * pin-at-create walk gives, not a weaker one.
+ * An earlier version of this file argued that pinning was impossible because it needs a
+ * lane COUNT before QAMF has decided one. That was WRONG: `bowlingLaneCount` (6 players
+ * per lane) is our own rule, already used to price the booking and by the per-lane QR
+ * flow, so the count was never a guess. The correction matters, because "repair it
+ * afterwards" is not good enough for a guest bowling immediately — the owner's 2026-08-31
+ * report was a kiosk walk-up that landed on lane 1 while lane 1 was still running.
  *
- * The move itself is proven live (2026-08-24, X163651 at Fort Myers: 13+14 -> 15+16 ->
- * 13+14, lane Ids intact, times untouched). It is invisible to the guest: no surface names
- * a lane before check-in, and this runs on a Temporary hold that nobody has been told
- * anything about yet.
- *
- * Called from `after()` so the guest's hold returns at exactly the speed it did before.
+ * The move path is still proven live (2026-08-24, X163651 at Fort Myers: 13+14 -> 15+16
+ * -> 13+14, lane Ids intact, times untouched), and still runs from `after()` so a hold
+ * returns at exactly the speed it did before.
  */
 import { getReservation, moveReservationLanes } from "@/lib/qamf-bowling";
+import { getBowlingExperiences } from "@/lib/bowling-db";
+import { bowlingLaneCount } from "~/features/booking/service/bowling-offer";
+import { QAMF_TO_CENTER_CODE } from "~/features/booking/service/bowling-hours";
+import { resolveOptionMinutes } from "~/features/booking/service/duration-feasibility";
 import { buildGrid } from "./grid.server";
 import { chooseLanes } from "./policy";
 import { scorePlacement, spreadBias } from "./score";
@@ -139,5 +142,89 @@ export async function placeReservationOnBestLane(opts: {
     // non-event; losing the booking would not be.
     console.warn(`${tag} lane placement failed (booking unaffected):`, err);
     return skip(err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** Ranked lane sets tried before falling open. Each is one live vendor round-trip. */
+const MAX_CANDIDATES = 3;
+
+/** Planning must never hold up a guest's hold. Past this, take QAMF's lane and move on. */
+export const PLAN_BUDGET_MS = 2_500;
+
+/**
+ * Choose the lane BEFORE the reservation exists, so an unavailable one is never picked.
+ *
+ * The owner's 2026-08-31 report was a walk-up bought at the kiosk that landed on lane 1
+ * while lane 1 was still running — and repairing that after the fact is not good enough
+ * for someone bowling immediately. QAMF auto-assigns off the schedule and fills from the
+ * lowest lane number up; it never consults the physical floor. The grid does, so choosing
+ * here is the difference between preventing the problem and apologising for it.
+ *
+ * The lane COUNT is not a guess: `bowlingLaneCount` (6 players per lane) is our own rule,
+ * already used to price the booking and by the per-lane QR flow.
+ *
+ * Returns ranked lane sets, best first. An EMPTY array means "no opinion" — the caller
+ * creates exactly as it always did and QAMF decides. Never throws.
+ */
+export async function planLanesForNewBooking(opts: {
+  centerId: number;
+  bookedAtMs: number;
+  players: number;
+  webOfferId: number;
+  optionId?: number;
+  optionType?: "Game" | "Time" | "Unlimited";
+  policy?: LanePolicy;
+}): Promise<number[][]> {
+  const policy = opts.policy ?? DEFAULT_POLICY;
+  try {
+    const centerCode = QAMF_TO_CENTER_CODE[opts.centerId];
+    if (!centerCode) return [];
+
+    const experiences = (await getBowlingExperiences(centerCode, undefined, true)).filter(
+      (e) => e.qamfWebOfferId === opts.webOfferId,
+    );
+    const minutes = resolveOptionMinutes(experiences, opts.optionId, opts.optionType);
+    // Game/Unlimited have no bounded window, so we cannot say which lanes stay free for it.
+    // Better to leave the lane to QAMF than to reserve one against a made-up end time.
+    if (minutes == null) return [];
+
+    const startMs = opts.bookedAtMs;
+    const endMs = startMs + minutes * 60_000;
+    const grid = await buildGrid(opts.centerId, startMs - GRID_PAD_MS, endMs + GRID_PAD_MS);
+
+    const req: PlanRequest = {
+      laneCount: bowlingLaneCount(opts.players),
+      startMs,
+      endMs,
+      players: opts.players,
+      webOfferId: opts.webOfferId,
+      // FastTrax sells one offer across every lane — see flags.ts for why this pilot is
+      // scoped to the one house where that is true.
+      allowedLanes: null,
+    };
+
+    const { ranked } = chooseLanes(grid, req, policy);
+    return ranked.slice(0, MAX_CANDIDATES).map((p) => p.lanes);
+  } catch (err) {
+    console.warn("[lane-plan] pre-create planning failed (QAMF will choose):", err);
+    return [];
+  }
+}
+
+/** Plan, but never spend more than the budget on it. Timeout = no opinion. */
+export async function planLanesWithinBudget(
+  opts: Parameters<typeof planLanesForNewBooking>[0] & { budgetMs?: number },
+): Promise<number[][]> {
+  const budget = opts.budgetMs ?? PLAN_BUDGET_MS;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      planLanesForNewBooking(opts),
+      new Promise<number[][]>((resolve) => {
+        timer = setTimeout(() => resolve([]), budget);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }

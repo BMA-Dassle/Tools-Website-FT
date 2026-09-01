@@ -1,7 +1,11 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { createReservation } from "@/lib/qamf-bowling";
 import { shouldArrangeLane } from "~/features/lane-plan/flags";
-import { placeReservationOnBestLane } from "~/features/lane-plan/place.server";
+import {
+  placeReservationOnBestLane,
+  planLanesWithinBudget,
+} from "~/features/lane-plan/place.server";
+import { createWithLanePlan, describePinOutcome } from "~/features/lane-plan/pin";
 import {
   assertBookable,
   DurationGuardError,
@@ -119,25 +123,58 @@ export async function POST(req: NextRequest) {
     console.warn("[bowling/v2/reserve/hold] duration guard errored (fail-open):", err);
   }
 
-  try {
-    const reservation = await createReservation(centerId, {
-      BookedAt: bookedAt,
-      Title: `Hold (${players}p)`,
-      WebOffer: {
-        Id: webOfferId,
-        Options: qamfOptions,
-        Services: [service],
-      },
-      TotalPlayers: players,
-    });
+  // LANE ARRANGEMENT (FastTrax pilot). Same-day only, FastTrax only, off instantly via
+  // LANE_ARRANGEMENT="false".
+  //
+  // The lane is chosen BEFORE the reservation exists. QAMF auto-assigns off the schedule
+  // and fills from the lowest lane number up — it never looks at the physical floor, which
+  // is how a kiosk walk-up landed on lane 1 while lane 1 was still running (2026-08-31).
+  // Our grid reads both, so choosing here prevents that rather than apologising for it.
+  //
+  // Bounded by PLAN_BUDGET_MS: no guest waits on lane planning. A timeout, a slow read or
+  // any failure yields an empty candidate list, and `createWithLanePlan` then creates with
+  // no `Lanes` at all — byte-identical to the behaviour that predates this feature.
+  const arranging = shouldArrangeLane({
+    centerId,
+    bookedAtMs: Date.parse(bookedAt),
+    nowMs: Date.now(),
+  });
+  const candidates = arranging
+    ? await planLanesWithinBudget({
+        centerId,
+        bookedAtMs: Date.parse(bookedAt),
+        players,
+        webOfferId,
+        optionId,
+        optionType,
+      })
+    : [];
 
-    // LANE ARRANGEMENT (FastTrax pilot). The hold now exists on whatever lane QAMF
-    // auto-assigned, which is the answer we ship if anything below goes wrong. Improving
-    // it runs in `after()` so this response is exactly as fast as it was before, and so a
-    // slow QAMF read can never hold up a guest mid-checkout.
-    //
-    // Same-day only, FastTrax only, and off instantly via LANE_ARRANGEMENT="false".
-    if (shouldArrangeLane({ centerId, bookedAtMs: Date.parse(bookedAt), nowMs: Date.now() })) {
+  try {
+    const outcome = await createWithLanePlan({
+      candidates,
+      create: (lanes) =>
+        createReservation(centerId, {
+          BookedAt: bookedAt,
+          Title: `Hold (${players}p)`,
+          WebOffer: {
+            Id: webOfferId,
+            Options: qamfOptions,
+            Services: [service],
+          },
+          TotalPlayers: players,
+          ...(lanes ? { Lanes: lanes.map((LaneNumber) => ({ LaneNumber })) } : {}),
+        }),
+    });
+    const reservation = outcome.reservation;
+
+    if (candidates.length) {
+      console.log(`[bowling/v2/reserve/hold] ${reservation.Id} ${describePinOutcome(outcome)}`);
+    }
+
+    // Only when the pin found no home does QAMF's own choice need improving, and that runs
+    // in `after()` so the response stays exactly as fast as it was.
+    if (arranging && outcome.failedOpen) {
       after(() =>
         placeReservationOnBestLane({ centerId, reservationId: reservation.Id }).then(
           (r) =>
