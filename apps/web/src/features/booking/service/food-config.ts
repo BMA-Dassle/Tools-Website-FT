@@ -28,7 +28,23 @@ export interface ModifierGroup {
   id: string;
   name: string;
   selectionType: "SINGLE" | "MULTIPLE";
-  options: Array<{ id: string; name: string }>;
+  /** 0 = OPTIONAL. Comes from the per-ITEM override, not the list's own value. */
+  minSelected?: number;
+  /** null / undefined = unlimited. */
+  maxSelected?: number | null;
+  options: Array<{ id: string; name: string; priceCents?: number }>;
+}
+
+/** Does this group have to be answered before the guest can continue? */
+export function isRequired(g: ModifierGroup): boolean {
+  return (g.minSelected ?? 0) > 0;
+}
+
+/** How many picks this group still accepts, or null for unlimited. */
+export function remainingPicks(g: ModifierGroup, chosen: number): number | null {
+  if (g.selectionType === "SINGLE") return Math.max(0, 1 - chosen);
+  const max = g.maxSelected ?? null;
+  return max == null ? null : Math.max(0, max - chosen);
 }
 
 /** One configurable $0 package item, plus the groups Square hangs off it. */
@@ -148,14 +164,36 @@ export function extraPicksForLane(food: FoodItem, sel: LaneSelections): number {
   return Math.max(0, picked - food.includedModifierCount);
 }
 
+/**
+ * What one selected OPTION costs, from Square's own modifier price.
+ *
+ * Distinct from the item-level allowance rule below. Two different things are
+ * chargeable and both are real: the pizza's "$1 per topping beyond the first"
+ * is OUR rule (Square lists those toppings at zero), while "All Drums +$2" and
+ * "extra sauce +75c" are prices Square itself carries on the option. Summing
+ * only one of them would undercharge.
+ */
+export function optionCentsForLane(foodItems: readonly FoodItem[], sel: LaneSelections): number {
+  let cents = 0;
+  for (const food of foodItems) {
+    for (const g of food.groups) {
+      for (const id of sel[g.id] ?? []) {
+        cents += g.options.find((o) => o.id === id)?.priceCents ?? 0;
+      }
+    }
+  }
+  return cents;
+}
+
 /** What the guest owes for extras on one lane, across all food items. */
 export function extraCentsForLane(foodItems: readonly FoodItem[], sel: LaneSelections): number {
-  return foodItems.reduce(
+  const allowance = foodItems.reduce(
     (cents, food) =>
       cents +
       (food.extraModifierCents > 0 ? extraPicksForLane(food, sel) * food.extraModifierCents : 0),
     0,
   );
+  return allowance + optionCentsForLane(foodItems, sel);
 }
 
 /** Total extras charge across every lane. */
@@ -179,12 +217,15 @@ export function extraCentsTotal(args: {
  * mid-wizard, which is why `requiredGroupIds` is recorded only once the fetch
  * succeeds.
  *
- * Caveat worth knowing: the catalog-modifiers route does not surface Square's
- * `min_selected_modifiers`, so an OPTIONAL group would be wrongly required.
- * Every group on every package to date is a required choice (topping, drink,
- * heat, dressing). Plumb the min through before shipping an optional one.
+ * Optional groups are simply absent from `requiredGroupIds` — the route now
+ * carries Square's per-item `min_selected_modifiers`, so "Drums or Flats" and
+ * "extra sauce" can sit on the wings without trapping a guest who wants
+ * neither. (Before 2026-08-31 the min was not plumbed through and EVERY
+ * attached list was required, which is why the wings could only carry two.)
  */
 export function foodSelectionIssue(args: {
+  /** Only groups the guest MUST answer — an optional group belongs nowhere near
+   *  this list, or it traps them on the step. */
   requiredGroupIds: readonly string[];
   selections: readonly LaneSelections[];
   laneCount: number;

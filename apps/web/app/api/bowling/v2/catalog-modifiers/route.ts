@@ -19,8 +19,18 @@ import { NextRequest, NextResponse } from "next/server";
  *     id:       string;
  *     name:     string;   — e.g. "Pizza Toppings", "Soda Choice"
  *     selectionType: "SINGLE" | "MULTIPLE"
- *     options: Array<{ id: string; name: string }>
+ *     minSelected: number — 0 = OPTIONAL. Square's -1 ("no limit") normalises
+ *                           to 0 here, because for a REQUIREMENT no-limit means
+ *                           no minimum.
+ *     maxSelected: number | null — null = unlimited
+ *     options: Array<{ id: string; name: string; priceCents: number }>
  *   }>
+ *
+ * minSelected/maxSelected and per-option prices were added 2026-08-31 for the
+ * NFL wings, which mix REQUIRED lists (sauce, dipper, breaded-or-naked) with
+ * OPTIONAL paid ones (drums/flats +$2, extra sauce +75c). Without them the
+ * booking step required a pick in every list and showed no prices — fine while
+ * Pizza Bowl was the only package, wrong the moment a second one arrived.
  */
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
@@ -42,20 +52,34 @@ type SquareCatalogObject = {
     modifier_list_info?: Array<{
       modifier_list_id: string;
       enabled?: boolean;
+      /** PER-ITEM override. Authoritative over the list's own values — the same
+       *  list is "pick 1, required" on one item and optional on another. */
+      min_selected_modifiers?: number;
+      max_selected_modifiers?: number;
+      ordinal?: number;
     }>;
   };
   modifier_list_data?: {
     name?: string;
     selection_type?: "SINGLE" | "MULTIPLE";
+    min_selected_modifiers?: number;
+    max_selected_modifiers?: number;
     modifiers?: Array<{
       type: string;
       id: string;
-      modifier_data?: { name?: string; ordinal?: number };
+      modifier_data?: {
+        name?: string;
+        ordinal?: number;
+        price_money?: { amount?: number; currency?: string };
+      };
     }>;
   };
 };
 
-async function fetchModifierGroups(listIds: string[]) {
+/** Per-item min/max, keyed by modifier list id. */
+type ListOverrides = Map<string, { min?: number; max?: number }>;
+
+async function fetchModifierGroups(listIds: string[], overrides: ListOverrides = new Map()) {
   const batchRes = await fetch(`${SQUARE_BASE}/catalog/batch-retrieve`, {
     method: "POST",
     headers: sqHeaders(),
@@ -87,11 +111,23 @@ async function fetchModifierGroups(listIds: string[]) {
         .map((m) => ({
           id: m.id,
           name: m.modifier_data?.name ?? m.id,
+          priceCents: m.modifier_data?.price_money?.amount ?? 0,
         }));
+      // The PER-ITEM override wins. The same list can be required on one item
+      // and optional on another — "Mixed, Drums or Flats" is min 1 on the
+      // à-la-carte wings and min 0 on the game-day package — so reading the
+      // list's own values would make every package inherit the register's rules.
+      const ov = overrides.get(ml.id) ?? {};
+      // Square uses -1 for "unset / no limit". For a MINIMUM that means no
+      // minimum, i.e. optional — so it normalises to 0, not to "required".
+      const rawMin = ov.min ?? data.min_selected_modifiers ?? -1;
+      const rawMax = ov.max ?? data.max_selected_modifiers ?? -1;
       return {
         id: ml.id,
         name: data.name ?? "Options",
         selectionType: data.selection_type ?? ("SINGLE" as const),
+        minSelected: rawMin > 0 ? rawMin : 0,
+        maxSelected: rawMax > 0 ? rawMax : null,
         options,
       };
     });
@@ -167,16 +203,24 @@ export async function GET(req: NextRequest) {
     }
 
     const modListInfos = itemObject?.item_data?.modifier_list_info ?? [];
-    const enabledListIds = modListInfos
+    const enabled = modListInfos
       .filter((m) => m.enabled !== false)
-      .map((m) => m.modifier_list_id);
+      // Render in the order the item declares, not the order Square returns.
+      .sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
+    const enabledListIds = enabled.map((m) => m.modifier_list_id);
+    const overrides: ListOverrides = new Map(
+      enabled.map((m) => [
+        m.modifier_list_id,
+        { min: m.min_selected_modifiers, max: m.max_selected_modifiers },
+      ]),
+    );
 
     if (enabledListIds.length === 0) {
       console.warn(`[catalog-modifiers] No enabled modifier lists for ${catalogObjectId}`);
       return NextResponse.json([], { status: 200 });
     }
 
-    const groups = await fetchModifierGroups(enabledListIds);
+    const groups = await fetchModifierGroups(enabledListIds, overrides);
     console.log(`[catalog-modifiers] Returning ${groups.length} groups via catalog lookup`);
     return NextResponse.json(groups);
   } catch (err) {

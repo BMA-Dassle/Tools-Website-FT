@@ -1,49 +1,73 @@
 "use client";
 
 /**
- * Package food configuration — "Customize your package".
+ * Package food configuration — "Customise your package".
  *
- * CONFIG-DRIVEN as of 2026-08-25. This step used to hardcode the two Pizza Bowl
- * Square catalog ids, guess which group was the drink with a
- * `/soda|drink|pitcher/i` regex over its NAME, and carry "1 free topping, $1
- * extra" as module constants. Adding a second package (NFL game day: pizza +
- * wings with a heat and a dressing choice + pitcher) would have meant a third
- * hardcode and a second regex.
+ * CONFIG-DRIVEN (2026-08-25) and REDESIGNED (2026-09-01). It used to hardcode
+ * two Square catalog ids, guess the drink group with a `/soda|drink|pitcher/i`
+ * regex over its NAME, and carry "1 free topping, $1 extra" as module consts.
+ * Now the $0 items on the booked experience ARE the configurable food, each with
+ * its own modifier groups and allowance, so a new package is a seed row.
  *
- * Now: the $0 items on the booked experience ARE the configurable food, each
- * with its own Square modifier groups and its own
- * `included_modifier_count` / `extra_modifier_cents`. A new package is a seed
- * row, not a component edit. All the logic lives in
- * ~/features/booking/service/food-config so it can be unit-tested; this file is
- * fetching plus markup.
+ * WHAT THE REDESIGN FIXES (owner, 2026-09-01: "the current pizza bowl one
+ * sucks"). The old screen rendered every lane stacked down one page as
+ * identical unlabelled chip rows, with no way to tell a required choice from an
+ * optional one, no prices on the options that cost money, and no sense of
+ * whether you were finished. On a four-lane party that is twenty-odd chip rows
+ * with nothing to hold on to.
  *
- * Grouping matters: choices are rendered and noted PER FOOD ITEM, so a wings
- * line reads "Mild, Ranch" rather than every choice being smeared across every
- * line the way a single flat group list would.
+ *   - LANE TABS instead of a stack. One lane on screen at a time, each tab
+ *     showing whether it is done. A four-lane party stops being a scroll.
+ *   - REQUIRED vs OPTIONAL is stated, per group, with the pick rule ("Pick 1",
+ *     "Pick up to 2"). Optional groups can now exist at all — the API carries
+ *     Square's per-item min/max as of today, which is what lets the wings offer
+ *     drums-or-flats and extra sauce without trapping anyone.
+ *   - PRICES ON THE OPTION. "All Drums +$2.00" reads on the button, not as a
+ *     surprise at checkout, and a running extras total sits at the bottom.
+ *   - Touch targets sized for the kiosk, which renders this zoomed.
+ *
+ * All the logic lives in ~/features/booking/service/food-config so it stays
+ * unit-testable; this file is fetching plus markup.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { BowlingItem, StepDef } from "~/features/booking";
 import type { BowlingExperienceWithDetails } from "@/lib/bowling-db";
 import { QAMF_TO_CENTER_CODE } from "~/features/booking/service/bowling-hours";
+import { useT } from "~/features/kiosk/i18n/useT";
 import {
-  allGroups,
   buildFoodRawItems,
   configurableFoodItems,
+  extraCentsForLane,
   extraPicksForLane,
   foodSelectionIssue,
+  isRequired,
+  remainingPicks,
   toggleSelection,
   type FoodItem,
+  type LaneSelections,
   type ModifierGroup,
 } from "~/features/booking/service/food-config";
+import { IconCheck } from "@tabler/icons-react";
 
-// Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
-// seems negative"); FastTrax red stays on racing only. VIP keeps gold.
+// Bowling wizard accent — owner 2026-07-19: bowling reads BLUE.
 const BLUE = "#00E2E5";
+const money = (c: number) => `$${(c / 100).toFixed(2)}`;
+
+/** Groups on this lane that still need an answer. */
+function unansweredGroups(foodItems: readonly FoodItem[], sel: LaneSelections): ModifierGroup[] {
+  return foodItems
+    .flatMap((f) => f.groups)
+    .filter((g) => isRequired(g) && (sel[g.id]?.length ?? 0) < (g.minSelected ?? 1));
+}
 
 const BowlingFoodStepComponent: StepDef<BowlingItem>["Component"] = ({ item, onChange }) => {
   const [foodItems, setFoodItems] = useState<FoodItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeLane, setActiveLane] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const t = useT();
+
   const selections = item.pizzaModifierSelections;
   const laneCount = Math.max(1, item.laneCount);
   const centerCode = item.qamfCenterId ? QAMF_TO_CENTER_CODE[item.qamfCenterId] : null;
@@ -57,7 +81,6 @@ const BowlingFoodStepComponent: StepDef<BowlingItem>["Component"] = ({ item, onC
     setLoading(true);
     void (async () => {
       try {
-        // 1. The booked experience, for its item list.
         const expRes = await fetch(`/api/bowling/v2/experiences?centerCode=${centerCode}`);
         const exps: BowlingExperienceWithDetails[] = expRes.ok ? await expRes.json() : [];
         const exp = Array.isArray(exps) ? exps.find((e) => e.id === item.experienceId) : undefined;
@@ -66,10 +89,8 @@ const BowlingFoodStepComponent: StepDef<BowlingItem>["Component"] = ({ item, onC
           if (!cancelled) setLoading(false);
           return;
         }
-
-        // 2. Each $0 item's modifier groups. Fetched per item, not merged into
-        //    one list, so a choice can be attributed back to the item it
-        //    belongs to when the note is written.
+        // Per item, not merged — attributing a choice back to the item it
+        // belongs to is what makes a wings line read "Mild, Ranch".
         const built = await Promise.all(
           configurable.map(async (ci): Promise<FoodItem> => {
             const res = await fetch(
@@ -89,13 +110,17 @@ const BowlingFoodStepComponent: StepDef<BowlingItem>["Component"] = ({ item, onC
         if (cancelled) return;
         setFoodItems(withGroups);
         if (withGroups.length > 0) {
-          // Every loaded group needs a pick before the guest may continue.
-          // Recorded on the item because canAdvance is module-scope and cannot
-          // reach component state. Legacy field name — see food-config.ts.
-          onChange({ pizzaSodaGroupIds: allGroups(withGroups).map((g) => g.id) });
+          // ONLY the required groups. An optional one in this list would trap
+          // the guest on the step with no way to satisfy it.
+          onChange({
+            pizzaSodaGroupIds: withGroups
+              .flatMap((f) => f.groups)
+              .filter(isRequired)
+              .map((g) => g.id),
+          });
         }
       } catch {
-        // Non-fatal — modifiers are a convenience, and canAdvance fails open.
+        if (!cancelled) setError(t("food.err.loadFailed"));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -105,7 +130,34 @@ const BowlingFoodStepComponent: StepDef<BowlingItem>["Component"] = ({ item, onC
     };
   }, [item.experienceId, centerCode]);
 
+  const laneDone = useMemo(
+    () =>
+      Array.from({ length: laneCount }, (_, i) =>
+        foodItems.length === 0
+          ? true
+          : unansweredGroups(foodItems, selections[i] ?? {}).length === 0,
+      ),
+    [foodItems, selections, laneCount],
+  );
+
+  const totalExtras = useMemo(
+    () =>
+      Array.from({ length: laneCount }).reduce<number>(
+        (sum, _, i) => sum + extraCentsForLane(foodItems, selections[i] ?? {}),
+        0,
+      ),
+    [foodItems, selections, laneCount],
+  );
+
   function tap(laneIdx: number, group: ModifierGroup, optionId: string) {
+    const chosen = selections[laneIdx]?.[group.id] ?? [];
+    const isSelected = chosen.includes(optionId);
+    // Respect Square's max: a full MULTIPLE group ignores new taps rather than
+    // silently dropping an earlier choice the guest cannot see them lose.
+    if (!isSelected && group.selectionType === "MULTIPLE") {
+      const left = remainingPicks(group, chosen.length);
+      if (left !== null && left <= 0) return;
+    }
     const next = toggleSelection({
       selections,
       laneIndex: laneIdx,
@@ -133,108 +185,176 @@ const BowlingFoodStepComponent: StepDef<BowlingItem>["Component"] = ({ item, onC
   if (foodItems.length === 0) {
     return (
       <div className="mx-auto max-w-md py-8 text-center">
-        <p className="text-sm text-white/50">Food selections will be taken at the center.</p>
+        <p className="text-sm text-white/50">{error ?? t("food.atCenter")}</p>
       </div>
     );
   }
 
-  const chargeable = foodItems.filter((f) => f.extraModifierCents > 0);
+  const laneSel = selections[activeLane] ?? {};
 
   return (
-    <div className="mx-auto max-w-lg space-y-6">
+    <div className="mx-auto max-w-xl space-y-5">
       <div className="text-center">
         <h2 className="font-display text-2xl uppercase tracking-widest text-white">
-          Customize Your Package
+          {t("food.title")}
         </h2>
-        {chargeable.length > 0 && (
-          <p className="mt-1 text-sm text-white/40">
-            {chargeable[0].includedModifierCount} included per lane &middot; $
-            {(chargeable[0].extraModifierCents / 100).toFixed(2)} each extra
-          </p>
-        )}
+        <p className="mt-1 text-sm text-white/45">{t("food.subtitle")}</p>
       </div>
 
-      {Array.from({ length: laneCount }).map((_, laneIdx) => {
-        const laneSel = selections[laneIdx] ?? {};
+      {/* Lane tabs — one lane on screen, each showing whether it's finished. */}
+      {laneCount > 1 && (
+        <div
+          role="tablist"
+          aria-label={t("food.laneOf", { n: activeLane + 1, total: laneCount })}
+          className="flex gap-2 overflow-x-auto pb-1"
+        >
+          {Array.from({ length: laneCount }).map((_, i) => {
+            const on = i === activeLane;
+            return (
+              <button
+                key={i}
+                role="tab"
+                type="button"
+                aria-selected={on}
+                onClick={() => setActiveLane(i)}
+                className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wider transition-all"
+                style={{
+                  backgroundColor: on ? BLUE : "rgba(255,255,255,0.05)",
+                  color: on ? "#0a1628" : "rgba(255,255,255,0.6)",
+                }}
+              >
+                {t("food.lane", { n: i + 1 })}
+                {laneDone[i] && (
+                  <IconCheck size={14} aria-hidden style={{ color: on ? "#0a1628" : BLUE }} />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {foodItems.map((food) => {
+        const extras = extraPicksForLane(food, laneSel);
+        const allowanceCents = extras * food.extraModifierCents;
         return (
-          <div
-            key={laneIdx}
-            className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-4"
+          <section
+            key={food.catalogObjectId}
+            className="rounded-xl border border-white/10 bg-white/[0.03] p-4"
           >
-            {laneCount > 1 && (
-              <h3 className="text-xs font-bold uppercase tracking-widest text-white/40">
-                Lane {laneIdx + 1}
-              </h3>
-            )}
+            <div className="mb-3 flex items-baseline justify-between gap-2">
+              <h3 className="text-sm font-bold text-white">{food.name}</h3>
+              {food.extraModifierCents > 0 && (
+                <span className="shrink-0 text-[11px] text-white/40">
+                  {t("food.included", { n: food.includedModifierCount })} ·{" "}
+                  {money(food.extraModifierCents)} {t("food.extrasTotal").toLowerCase()}
+                </span>
+              )}
+            </div>
 
-            {foodItems.map((food) => {
-              const extras = extraPicksForLane(food, laneSel);
-              const extraCents = extras * food.extraModifierCents;
-              return (
-                <div key={food.catalogObjectId} className="space-y-3">
-                  {foodItems.length > 1 && (
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-white/50">
-                      {food.name}
-                    </p>
-                  )}
+            <div className="space-y-4">
+              {food.groups.map((group) => {
+                const chosen = laneSel[group.id] ?? [];
+                const required = isRequired(group);
+                const left = remainingPicks(group, chosen.length);
+                const full = left !== null && left <= 0;
+                const satisfied = chosen.length >= (group.minSelected ?? 1);
+                const rule =
+                  group.selectionType === "SINGLE" || group.maxSelected === 1
+                    ? t("food.pickOne")
+                    : group.maxSelected
+                      ? t("food.pickUpTo", { n: group.maxSelected })
+                      : t("food.pickAny");
 
-                  {food.groups.map((group) => {
-                    const selected = laneSel[group.id] ?? [];
-                    const charges = food.extraModifierCents > 0;
-                    return (
-                      <div key={group.id}>
-                        <p className="mb-2 text-xs font-semibold text-white/60">
-                          {group.name}
-                          {charges ? (
-                            <span className="ml-1 text-white/30">
-                              ({selected.length}/{food.includedModifierCount} free)
-                            </span>
-                          ) : (
-                            <span
-                              className="ml-1"
-                              style={{
-                                color: selected.length > 0 ? "rgba(255,255,255,0.3)" : BLUE,
-                              }}
-                            >
-                              (required)
-                            </span>
-                          )}
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {group.options.map((opt) => {
-                            const isSelected = selected.includes(opt.id);
-                            return (
-                              <button
-                                key={opt.id}
-                                type="button"
-                                onClick={() => tap(laneIdx, group, opt.id)}
-                                className="rounded-lg px-3 py-1.5 text-xs font-medium transition-all"
-                                style={{
-                                  backgroundColor: isSelected ? BLUE : "rgba(0,226,229,0.10)",
-                                  color: isSelected ? "#0a1628" : BLUE,
-                                  fontWeight: isSelected ? 700 : 500,
-                                }}
+                return (
+                  <div key={group.id}>
+                    <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <p className="text-xs font-semibold text-white/75">{group.name}</p>
+                      <span
+                        className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+                        style={
+                          required
+                            ? satisfied
+                              ? { backgroundColor: "rgba(0,226,229,0.15)", color: BLUE }
+                              : { backgroundColor: "rgba(251,191,36,0.15)", color: "#fbbf24" }
+                            : {
+                                backgroundColor: "rgba(255,255,255,0.06)",
+                                color: "rgba(255,255,255,0.45)",
+                              }
+                        }
+                      >
+                        {required ? t("food.required") : t("food.optional")}
+                      </span>
+                      <span className="text-[10px] text-white/35">{rule}</span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {group.options.map((opt) => {
+                        const on = chosen.includes(opt.id);
+                        const price = opt.priceCents ?? 0;
+                        const blocked = !on && full;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            aria-pressed={on}
+                            disabled={blocked}
+                            onClick={() => tap(activeLane, group, opt.id)}
+                            // min-h-11 ≈ 44px: this renders zoomed on the kiosk
+                            // and the old chips were a thumb-width too small.
+                            className="min-h-11 rounded-lg px-3 py-2 text-xs font-medium transition-all disabled:cursor-not-allowed disabled:opacity-30"
+                            style={{
+                              backgroundColor: on ? BLUE : "rgba(0,226,229,0.08)",
+                              color: on ? "#0a1628" : BLUE,
+                              fontWeight: on ? 700 : 500,
+                            }}
+                          >
+                            {opt.name}
+                            {price > 0 && (
+                              <span
+                                className="ml-1.5 text-[10px]"
+                                style={{ color: on ? "#0a1628" : "rgba(255,255,255,0.5)" }}
                               >
-                                {opt.name}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
+                                +{money(price)}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
 
-                  {extraCents > 0 && (
-                    <p className="text-xs text-amber-400">
-                      +${(extraCents / 100).toFixed(2)} extra{extras > 1 ? "s" : ""}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+            {allowanceCents > 0 && (
+              <p className="mt-3 text-xs text-amber-400">
+                +{money(allowanceCents)} · {extras} {t("food.extrasTotal").toLowerCase()}
+              </p>
+            )}
+          </section>
         );
       })}
+
+      {(totalExtras > 0 || laneCount > 1) && (
+        <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3">
+          <span className="text-xs uppercase tracking-wider text-white/50">
+            {laneCount > 1 ? t("food.extrasTotal") : t("food.extrasOnLane")}
+          </span>
+          <span className="text-sm font-bold" style={{ color: totalExtras > 0 ? "#fbbf24" : BLUE }}>
+            {totalExtras > 0 ? `+${money(totalExtras)}` : money(0)}
+          </span>
+        </div>
+      )}
+
+      {laneCount > 1 && activeLane < laneCount - 1 && (
+        <button
+          type="button"
+          onClick={() => setActiveLane((n) => n + 1)}
+          className="w-full rounded-lg border border-white/10 py-2.5 text-xs font-bold uppercase tracking-wider text-white/60 transition-colors hover:text-white"
+        >
+          {t("food.nextLane")}
+        </button>
+      )}
     </div>
   );
 };
@@ -244,12 +364,7 @@ const BowlingFoodStepComponent: StepDef<BowlingItem>["Component"] = ({ item, onC
  * rather than a DB read because `isVisible` must be synchronous.
  *
  * Declared ABOVE the StepDef on purpose: a module-scope const referenced from a
- * step callback must initialize before anything can close over it (TDZ lesson —
- * the same trap `isUntouchedBowlingDraft` documents in KioskFlow).
- *
- * Adding a package here also means seeding its $0 items with modifier lists. If
- * the slug matches but nothing configurable comes back, the step renders "Food
- * selections will be taken at the center." — the safe failure.
+ * step callback must initialize before anything closes over it (TDZ lesson).
  */
 const CONFIGURABLE_FOOD_SLUG_PARTS = ["pizza-bowl", "nfl-vip"];
 

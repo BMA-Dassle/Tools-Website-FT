@@ -4,7 +4,9 @@
  *
  *   NFL Ticket on NeoVerse (3 Hrs)   $119.95   no modifiers
  *   Game Day Pizza                   $0.00     One included Topping + Pizza Toppings
- *   Game Day Wings (10)              $0.00     Sauce Selection + Dippers
+ *   Game Day Wings (10)              $0.00     Sauce + Dippers + Breaded/Naked
+ *                                                (required), Drums-or-Flats and
+ *                                                Extra Sauce (optional, priced)
  *   Game Day Soda Pitcher            $0.00     Soda Choice
  *
  * EVERY MODIFIER LIST IS AN EXISTING ONE. Nothing new is created — the wing
@@ -70,12 +72,18 @@ const BASE = "https://connect.squareup.com/v2";
 const LANE_TEMPLATE = "M6SVAMNQNWEMDLLM4SRM2T6C"; // 1.5 Hr Mon-Thur VIP
 const FOOD_TEMPLATE = "NUGESUJBH5C3AEFQGPSWEWF2"; // Pizza Bowl Pizza
 
+// { list, min, max } — min 0 is OPTIONAL, max null is unlimited. These are
+// PER-ITEM overrides: the same list is required on the a-la-carte wings and
+// optional here, which is exactly what the override exists for.
 const MOD = {
-  pizzaIncluded: "J7VKRPRO6TLJOQEVBFQYXZGR",
-  pizzaExtras: "D24QE4DVAPDK5DT7QVG5YIVL",
-  wingSauce: "J66H25NSLZDVOZW2QPZO4EYP",
-  wingDippers: "AHWVRX4UFKBALXTKBPB7PMN5",
-  soda: "NU4UEVMHCNHAYUDKAI6XFEGK",
+  pizzaIncluded: { id: "J7VKRPRO6TLJOQEVBFQYXZGR", min: 1, max: 1 }, // One included Topping
+  pizzaExtras: { id: "D24QE4DVAPDK5DT7QVG5YIVL", min: 0, max: null }, // paid extras, $1 ea
+  wingSauce: { id: "J66H25NSLZDVOZW2QPZO4EYP", min: 1, max: 2 }, // Mild/Medium/Hot +11
+  wingDippers: { id: "AHWVRX4UFKBALXTKBPB7PMN5", min: 1, max: 1 }, // Ranch / Blue Cheese
+  wingBreading: { id: "ERVWHF7QP6XWNPCN4OWPMUNH", min: 1, max: 1 }, // Breaded or Naked
+  wingCut: { id: "TBXFTPA2KHIRG56CDSMGT3WJ", min: 0, max: 1 }, // Drums/Flats, +$2
+  wingExtraSauce: { id: "CKL3GK33VONWE4X5D5GU54MO", min: 0, max: null }, // +75c each
+  soda: { id: "NU4UEVMHCNHAYUDKAI6XFEGK", min: 1, max: 1 }, // Soda Choice
 };
 
 async function getObject(id) {
@@ -100,14 +108,16 @@ function shapeFrom(tpl) {
   };
 }
 
-const modInfo = (ids) =>
-  ids.map((id, ordinal) => ({
-    modifier_list_id: id,
+const modInfo = (mods) =>
+  mods.map((m, ordinal) => ({
+    modifier_list_id: m.id,
     enabled: true,
     hidden_from_customer: false,
     ordinal,
-    min_selected_modifiers: -1,
-    max_selected_modifiers: -1,
+    // -1 is Square's "unset". A min of 0 must be sent as 0, not -1, or the
+    // booking step cannot tell optional from unspecified.
+    min_selected_modifiers: m.min,
+    max_selected_modifiers: m.max ?? -1,
   }));
 
 function buildItem({ key, name, description, priceCents, modifierListIds, shape }) {
@@ -191,9 +201,18 @@ async function main() {
     {
       key: "nfl_wings",
       name: "Game Day Wings (10)",
-      description: "Included with NFL Ticket on NeoVerse. 10 wings, pick a sauce and a dipper.",
+      description:
+        "Included with NFL Ticket on NeoVerse. 10 wings — pick a sauce, a dipper and how they are cooked. Drums-or-flats and extra sauce are optional and priced.",
       priceCents: 0,
-      modifierListIds: [MOD.wingSauce, MOD.wingDippers],
+      // Owner 2026-09-01: breaded-or-naked required, drums/flats and extra
+      // sauce optional. Order is the order the guest answers them.
+      modifierListIds: [
+        MOD.wingSauce,
+        MOD.wingDippers,
+        MOD.wingBreading,
+        MOD.wingCut,
+        MOD.wingExtraSauce,
+      ],
       shape: foodShape,
     },
     {
@@ -214,7 +233,15 @@ async function main() {
       p.existing = existing;
     } else {
       console.log(
-        `  CREATE  "${p.name}"  $${(p.priceCents / 100).toFixed(2)}  mods=[${p.modifierListIds.join(", ") || "none"}]`,
+        `  CREATE  "${p.name}"  $${(p.priceCents / 100).toFixed(2)}\n` +
+          (p.modifierListIds.length
+            ? p.modifierListIds
+                .map(
+                  (m) =>
+                    `            ${m.min > 0 ? "required" : "optional"}  min=${m.min} max=${m.max ?? "∞"}  ${m.id}`,
+                )
+                .join("\n")
+            : "            (no modifier lists)"),
       );
       toCreate.push(buildItem(p));
     }
