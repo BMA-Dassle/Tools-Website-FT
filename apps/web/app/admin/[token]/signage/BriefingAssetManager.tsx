@@ -58,6 +58,20 @@ const ROWS: AssetRow[] = [
     kind: "image",
   },
   {
+    key: "arena-video:laser-tag",
+    label: "Laser Tag promo film",
+    hint: "Played full-bleed on the arena check-in screens between calls, on a loop and always MUTED. MP4 or MOV (H.264). One file serves both Fort Myers and Naples.",
+    accept: "video/mp4,video/quicktime,.mp4,.mov",
+    kind: "video",
+  },
+  {
+    key: "arena-video:gel-blaster",
+    label: "Gel Blaster promo film",
+    hint: "The same, for Gel Blaster. With both uploaded the arena screens alternate them; with one, that one plays every time; with neither, the screens run the static adverts alone.",
+    accept: "video/mp4,video/quicktime,.mp4,.mov",
+    kind: "video",
+  },
+  {
     key: "welcome-back-audio",
     label: "Welcome back audio",
     hint: "The greeting the room TV plays when a returning group walks back in (up to 3 plays, ~10 seconds apart, within 2 minutes of the post-race call). Starter and Intermediate sessions only — Pro returns are silent. MP3 or WAV.",
@@ -84,6 +98,9 @@ export interface BriefingAssetState {
   /** Optional so a page rendered against an older deploy's status simply
    *  shows the slot as empty rather than crashing on a missing field. */
   welcomeBackLingerAudioUrl?: string | null;
+  /** The two HP Arena promo films. Either may be null — the arena board plays
+   *  whichever exist and runs its static slides alone when neither does. */
+  arenaVideoUrls: { "laser-tag": string | null; "gel-blaster": string | null };
 }
 
 export default function BriefingAssetManager({
@@ -111,6 +128,11 @@ export default function BriefingAssetManager({
       if (key === "briefing-video:pro") return assets.videos.pro?.url ?? null;
       if (key === "welcome-back-audio") return assets.welcomeBackAudioUrl;
       if (key === "welcome-back-linger-audio") return assets.welcomeBackLingerAudioUrl ?? null;
+      // EXPLICIT per key, like the Pro film above it — the fallthrough on the
+      // last line is the helmet poster, and letting a new slot reach it is what
+      // once made an empty Pro row claim a film was uploaded.
+      if (key === "arena-video:laser-tag") return assets.arenaVideoUrls?.["laser-tag"] ?? null;
+      if (key === "arena-video:gel-blaster") return assets.arenaVideoUrls?.["gel-blaster"] ?? null;
       return assets.helmetPosterUrl;
     },
     [assets],

@@ -21,6 +21,7 @@ import { spanRange } from "../wall";
 import { TRACK_RESOURCE_IDS } from "../track";
 import type { ResolvedScreenConfig } from "../defaults";
 import type { SceneType, SignageEvent, VipEntry } from "../types";
+import { activeArenaCalls, arenaTakeoverStartMs, type ArenaCall } from "../arena/arena-board";
 
 /** One rotation slot. Locked to the kiosk bank's cycle — see the note above. */
 export const SLOT_MS = BILLBOARD_CYCLE_MS;
@@ -374,6 +375,11 @@ export interface DecisionInput {
   hasData: (scene: SceneType) => boolean;
   events: SignageEvent[];
   seenEventIds: ReadonlySet<string>;
+  /**
+   * Called HP Arena sessions, for the arena board's takeover. Empty (or absent)
+   * everywhere else, which is what keeps this a no-op for every other screen.
+   */
+  arenaCalls?: readonly ArenaCall[];
   /** Venue closed — panel saver wins over everything. */
   asleep?: boolean;
   /** Does this deploy actually have the scene? Defaults to yes. */
@@ -384,7 +390,15 @@ export interface DecisionInput {
  * What the screen shows at this instant.
  *
  * PRECEDENCE, highest first:
- *   sleep  →  celebration  →  billboard crown  →  rotation
+ *   sleep  →  arena check-in  →  celebration  →  billboard crown  →  rotation
+ *
+ * THE ARENA CALL SITS ABOVE CELEBRATION, which is the only inversion on this
+ * board and is deliberate. Everywhere else a celebration is the most important
+ * thing on a screen because it is about somebody standing in front of it. On the
+ * arena board a call is an INSTRUCTION — walk to that desk now, your session has
+ * been called — and an instruction outranks a moment. (The arena preset disables
+ * celebrations outright, so in practice the two never meet; the ordering is here
+ * so that turning them back on cannot quietly bury a call.)
  *
  * VIP is deliberately NOT here (owner 2026-08-11: "it shouldn't just take over
  * everything, that doesn't make sense"). VIP parties are a gold slide the
@@ -401,6 +415,28 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
     // start would remount the scene every decision tick (the VIP freak-out,
     // same mechanism).
     return { scene: "sleep", startedAtMs: 0, durationMs: null, isInterrupt: true };
+  }
+
+  // THE ARENA CALL. Gated on `arenaBoard` rather than on the playlist: this is
+  // an interrupt, so it is not IN the playlist, and every other screen must be
+  // unable to take it however its rotation is configured.
+  if (config.arenaBoard && implemented("arena-checkin")) {
+    const active = activeArenaCalls(input.arenaCalls ?? [], nowMs, config.arenaBoard.holdMs);
+    const startedAtMs = arenaTakeoverStartMs(active);
+    if (startedAtMs !== null) {
+      return {
+        scene: "arena-checkin",
+        // The EARLIEST live call, so a second activity being called joins the
+        // board instead of remounting it — see arenaTakeoverStartMs.
+        startedAtMs,
+        // Open-ended, like every other interrupt: the call holds the wall until
+        // it stops being live, which activeArenaCalls decides from the hold
+        // window. A duration here would be a second, competing answer to the
+        // same question.
+        durationMs: null,
+        isInterrupt: true,
+      };
+    }
   }
 
   const event = celebrationAt(

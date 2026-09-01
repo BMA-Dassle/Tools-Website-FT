@@ -35,6 +35,16 @@ export interface VenueInfo {
    * BOWLING tables are keyed by: `bowling_experience_offers.center_code` holds a
    * Square location id, NOT a center slug. Bridged here rather than re-derived at
    * the call site, which is what this map exists for.
+   *
+   * ALSO WHAT PANDORA KEYS ITS SESSION ENDPOINTS ON, which is not obvious and is
+   * worth writing down: `/v2/bmi/sessions/current/{locationId}` — the arena
+   * board's whole source of truth — takes this string, NOT the numeric Office id
+   * above. The pandora proxy's allowlist and `arena-tickets/constants.ts` (which
+   * calls `TXBSQN0FEKQ11` a Square location id and hands it straight to Pandora)
+   * are the two other places that already rely on this. A separate
+   * `pandoraLocationId` field was written and then deleted here: two fields
+   * holding identical strings is a synchronisation bug waiting to happen, and a
+   * fifth "where" id this repo does not actually have.
    */
   squareLocationId: string;
 }
@@ -246,5 +256,12 @@ export const TV_UPDATE_CHECK_MS = 5 * 60_000;
  *         is the one scene nothing upstream can blank. Also: every player is now
  *         installed ONE way — the launcher as the Windows shell — and the
  *         Run-key alternative is out of the setup steps entirely.
+ * 0.9.0 — HP ARENA CHECK-IN, at HeadPinz Fort Myers and Naples. The Laser Tag /
+ *         Gel Blaster session that has just been called takes the whole wall —
+ *         a panel per activity when more than one is called — and hands it back
+ *         to the arena's own films and the house slides when the hold runs out.
+ *         The first board on the platform whose base rotation is advertising and
+ *         whose real job is an interrupt, because unlike a track board this one
+ *         stands in a lobby with fifteen minutes between sessions.
  */
-export const SIGNAGE_VERSION = "0.8.0";
+export const SIGNAGE_VERSION = "0.9.0";

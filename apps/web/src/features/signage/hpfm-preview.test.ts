@@ -54,6 +54,7 @@ function feedAt(now: number): TvFeed {
     nextAvailable: null,
     reloadAt: null,
     demoMode: null,
+    arena: null,
     degraded: false,
   };
 }

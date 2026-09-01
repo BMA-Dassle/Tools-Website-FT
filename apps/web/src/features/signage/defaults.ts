@@ -19,6 +19,7 @@ import { resolveLogoMark, type LogoMark } from "./logo";
 import { clampHoldMs } from "./race-guide";
 import type { TopTimesRange } from "./top-times";
 import type { PlaylistEntry, ScreenConfig, SceneType, SceneSpan, ScreenWall } from "./types";
+import { clampArenaHoldMs } from "./arena/arena-board";
 
 export type ScreenRole =
   | "kiosk-bank"
@@ -30,6 +31,7 @@ export type ScreenRole =
   | "check-in-guide"
   | "front-desk"
   | "logo-only"
+  | "arena-checkin"
   | "ads-only";
 
 export interface RolePreset {
@@ -292,6 +294,44 @@ const LOGO_ONLY_CONFIG: ScreenConfig = {
   venueLogo: { mark: "pinboyz" },
 };
 
+/**
+ * THE HP ARENA CHECK-IN TV, at HeadPinz Fort Myers and Naples.
+ *
+ * The one board on this platform whose base rotation is ADVERTISING and whose
+ * real job is an interrupt — and that inversion is the owner's ask, not an
+ * accident (2026-09-01: "with video and static ads of laser tag running in its
+ * dead time"). A track board never advertises, because a racer walking up must
+ * not have to wait an advert out. This screen stands in a lobby, its sessions
+ * are about fifteen minutes apart, and for most of the day there is genuinely
+ * nothing to check anybody in for — so the dead time is worth selling into, and
+ * the call takes the wall the moment it comes.
+ *
+ * The rotation is the arena's own films first, then the house slides. `arena-promo`
+ * REQUIRES DATA so a screen with no films uploaded closes over it and runs the
+ * static slides alone, rather than holding two empty slots.
+ *
+ * Nothing else interrupts it. A kiosk celebration cutting across "Session 25 —
+ * Laser Tag, come to the desk" would put confetti over the only instruction this
+ * screen ever gives, and there is no kiosk bank under it to crown.
+ */
+const ARENA_CHECKIN_CONFIG: ScreenConfig = {
+  playlist: [
+    { scene: "arena-promo", slots: 2, requiresData: true },
+    { scene: "ads", slots: 1 },
+  ],
+  interrupts: {
+    "vip-welcome": { enabled: false },
+    celebration: { enabled: false },
+    "billboard-crown": { enabled: false },
+  },
+  arenaBoard: {},
+  // The same eight minutes the track boards count, and for the same reason: the
+  // time on an arena e-ticket is a check-in CUT-OFF, and a countdown from the
+  // call is what moves people.
+  checkinWindowMins: 8,
+  showCheckinCountdown: true,
+};
+
 /** The safe fallback: house ads and nothing else. Needs no data at all, which
  *  is exactly why it is what an unprovisioned or degraded screen falls back to. */
 const ADS_ONLY_CONFIG: ScreenConfig = {
@@ -375,6 +415,14 @@ export const ROLE_PRESETS: RolePreset[] = [
       "One brand mark, centred on black, and nothing else. For a screen that is hung before the content that will fill it. Needs no data, no track and no camera, so it cannot go stale or blank — pick which mark after choosing this.",
     venues: ["FT", "HPFM", "HPN"],
     config: LOGO_ONLY_CONFIG,
+  },
+  {
+    role: "arena-checkin",
+    label: "Arena check-in screen (Laser Tag / Gel Blaster)",
+    description:
+      "At the HP Arena desk. Runs the arena films and house adverts, then takes the whole wall the moment a Laser Tag or Gel Blaster session is called — which session, where to go, and how long they have. Shows a panel per session when more than one is called.",
+    venues: ["HPFM", "HPN"],
+    config: ARENA_CHECKIN_CONFIG,
   },
   {
     role: "ads-only",
@@ -470,6 +518,11 @@ export interface ResolvedScreenConfig {
    * one image can never come up blank.
    */
   venueLogo: { mark: LogoMark };
+  /** Null for anything that is not an HP Arena check-in board. Non-null is what
+   *  makes the feed ask Pandora for called arena sessions AND what lets the
+   *  director take the check-in interrupt — one field, both decisions, so a
+   *  board can never be fed data it will not show or show data it was not fed. */
+  arenaBoard: { holdMs: number } | null;
   /** Percent inset per edge for a panel that crops its own input. 0 on every
    *  screen that has not been told otherwise, so the default path is the
    *  unchanged full-bleed fit. */
@@ -646,6 +699,11 @@ export function resolveScreenConfig(
     // which on a screen whose only content is one image is the difference
     // between the wrong brand and a black panel.
     venueLogo: { mark: resolveLogoMark(c.venueLogo?.mark) },
+    // Present-means-yes, like `raceGuide` above: an arena board is declared by
+    // having this key at all, so `{}` is a complete and valid arena config and
+    // the hold falls back to its default. Through the same clamp the board reads
+    // with, so "how long may a call hold a wall" has one definition.
+    arenaBoard: c.arenaBoard ? { holdMs: clampArenaHoldMs(c.arenaBoard.holdMs) } : null,
     // Clamped through the same helper the stage uses, so "what inset is legal"
     // has exactly one definition. 0 for an absent, negative, non-numeric or
     // absurd value — every one of which means "this panel is fine", which is the

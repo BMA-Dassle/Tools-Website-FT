@@ -44,11 +44,13 @@ import { buildWelcomeBoard } from "./welcome";
 import { resolveResultsBoard } from "./results-board.server";
 import { resolveTopTimes } from "./top-times.server";
 import {
+  arenaBoardEnabled,
   briefingEnabled,
   cameraReturnBarEnabled,
   raceGuideEnabled,
   resultsBoardEnabled,
 } from "../flags";
+import { readCalledArenaSessions } from "../arena/arena-sessions.server";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
 import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
 import { resolveWelcomeBack } from "../briefing/welcome-back.server";
@@ -131,6 +133,7 @@ export async function buildTvFeed(
     raceGuide: null,
     bowlingTonight: null,
     bowlingCheckins: null,
+    arena: null,
     pausedProductIds: safePaused(),
     nextAvailable: null,
     reloadAt: null,
@@ -207,6 +210,11 @@ export async function buildTvFeed(
       ? config.raceGuide.tracks
       : [];
   const configuredResultsTrack = config.resultsBoard?.track ?? null;
+  // THE ARENA BOARD, declared by its own config key rather than inferred from
+  // the playlist — the playlist here is adverts, which every screen has. Reading
+  // the section for a lobby TV would be a Pandora call per poll for a board that
+  // cannot show it.
+  const wantsArena = arenaBoardEnabled() && config.arenaBoard !== null;
   const wantsResults =
     resultsBoardEnabled() &&
     configuredResultsTrack !== null &&
@@ -249,6 +257,7 @@ export async function buildTvFeed(
     guideSection,
     bowlingTonight,
     bowlingCheckins,
+    arena,
   ] = await Promise.all([
     track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
     wantsWelcome
@@ -295,6 +304,10 @@ export async function buildTvFeed(
       : Promise.resolve(null),
     wantsBowling ? buildBowlingTonight(parsed.venue, now).catch(() => null) : Promise.resolve(null),
     wantsCheckins ? buildBowlingCheckins(parsed.venue).catch(() => null) : Promise.resolve(null),
+    // Cached per venue inside the reader, so two arena boards in one building
+    // cost one Pandora call — and, more to the point, cannot show two different
+    // answers about the same call.
+    wantsArena ? buildArenaSection(parsed.venue, now).catch(() => null) : Promise.resolve(null),
   ]);
 
   // Has the heat on the track board already been sent to a briefing room? One
@@ -334,6 +347,7 @@ export async function buildTvFeed(
     raceGuide: guideSection,
     bowlingTonight,
     bowlingCheckins,
+    arena,
     // `vip` (the bowling-leg takeover) lands with the next scene.
     vip: null,
     // Null events mean we could not ask — the welcome entry then self-skips
@@ -627,6 +641,42 @@ async function buildBriefingSection(
       cameraReturn,
     },
     rooms,
+  };
+}
+
+/**
+ * What an HP Arena check-in board needs: what has just been called, and the
+ * films it plays while nothing has.
+ *
+ * BOTH HALVES IN ONE SECTION on purpose. They change on wildly different
+ * timescales — a call every fifteen minutes, an upload a handful of times a year
+ * — but splitting them would mean a second null to reason about on a board that
+ * has exactly one job, and the manifest read is one small Neon SELECT that the
+ * briefing section already pays on every poll for the same reason: a cache
+ * between an upload and the wall is precisely why somebody would stand in front
+ * of a TV wondering where their new video went.
+ *
+ * `calls` ships UNFILTERED by age. The hold window is the client's to apply
+ * (`activeArenaCalls`), so the rule that decides how long an instruction stays
+ * on a wall lives in one pure, tested function instead of being half-enforced
+ * here and half-enforced there.
+ */
+async function buildArenaSection(
+  venue: SignageVenue,
+  nowMs: number,
+): Promise<NonNullable<TvFeed["arena"]>> {
+  const [calls, assets] = await Promise.all([
+    readCalledArenaSessions(venue, nowMs).catch(() => []),
+    loadSignageAssetsSafe(),
+  ]);
+  const laser = assets["arena-video:laser-tag"];
+  const gel = assets["arena-video:gel-blaster"];
+  return {
+    calls,
+    films: {
+      "laser-tag": laser ? { url: laser.url, durationMs: laser.durationMs } : null,
+      "gel-blaster": gel ? { url: gel.url, durationMs: gel.durationMs } : null,
+    },
   };
 }
 
