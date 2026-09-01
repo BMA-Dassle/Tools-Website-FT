@@ -24,6 +24,32 @@ function forceCloud(): boolean {
   return (process.env.NEXT_PUBLIC_INTERCARD_LOAD_MODE || "").trim().toLowerCase() === "cloud";
 }
 
+/** What the ONSITE proxy reports for a center (mirror of the server's OnsiteStatus). */
+export type OnsiteChipStatus = "onsite" | "offline" | "unlicensed" | "error" | "disabled";
+
+/**
+ * Onsite card-system liveness for the GZ status chip.
+ *
+ * Asks OUR server (which holds the Intercard client token — a credential that
+ * must never reach the browser), not the on-prem bridge on 127.0.0.1. The old
+ * `bridgeHealth` below answers for a DIFFERENT path — the EIS socket, which
+ * cannot consolidate or clear — so it says nothing about whether the onsite
+ * proxy is serving this center. Never throws: the chip must render something
+ * for every failure.
+ */
+export async function onsiteHealth(locationCode: number): Promise<OnsiteChipStatus> {
+  try {
+    const res = await fetch(`/api/game-cards/onsite-status?locationCode=${locationCode}`, {
+      signal: AbortSignal.timeout(9_000),
+    });
+    if (!res.ok) return "error";
+    const data = (await res.json().catch(() => ({}))) as { status?: OnsiteChipStatus };
+    return data?.status ?? "error";
+  } catch {
+    return "error";
+  }
+}
+
 /**
  * Local bridge liveness for the GZ status chip: true = the bridge answers on
  * this PC (loads go through the LOCAL card system, instant), false =

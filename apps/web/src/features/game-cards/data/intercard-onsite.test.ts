@@ -11,24 +11,50 @@ interface Captured {
   headers: Record<string, string>;
 }
 
-/** Stub fetch with a fixed JSON response, capturing the outgoing request. */
+// The client talks over node:https, NOT fetch — Api_External's read ops are
+// GET-with-body, which WHATWG fetch refuses outright ("Request with GET/HEAD
+// method cannot have body"). Mocking the transport it actually uses is the
+// whole point: a stubbed `fetch` would happily pass while production failed on
+// every read.
+const httpsMock = vi.hoisted(() => ({ request: vi.fn() }));
+vi.mock("node:https", () => ({
+  request: httpsMock.request,
+  default: { request: httpsMock.request },
+}));
+
+/** Stub node:https with a fixed JSON response, capturing the outgoing request. */
 function stubJson(status: number, payload: unknown, box: { req: Captured | null }) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (url: string, init: RequestInit) => {
-      box.req = {
-        url: String(url),
-        method: String(init.method),
-        body: String(init.body),
-        headers: init.headers as Record<string, string>,
-      };
-      return {
-        ok: status >= 200 && status < 300,
-        status,
-        text: async () => JSON.stringify(payload),
-      } as unknown as Response;
-    }),
-  );
+  httpsMock.request.mockImplementation((opts: any, cb: (res: any) => void) => {
+    let body = "";
+    const res = {
+      statusCode: status,
+      setEncoding() {},
+      on(ev: string, fn: (chunk?: string) => void) {
+        if (ev === "data") fn(JSON.stringify(payload));
+        if (ev === "end") fn();
+        return res;
+      },
+    };
+    return {
+      on(ev: string, fn: (e: Error) => void) {
+        void ev;
+        void fn;
+      },
+      write(chunk: string) {
+        body += chunk;
+      },
+      end() {
+        box.req = {
+          url: `https://${opts.hostname}${opts.path}`,
+          method: String(opts.method),
+          body,
+          headers: opts.headers as Record<string, string>,
+        };
+        cb(res);
+      },
+      destroy() {},
+    };
+  });
 }
 
 const OK_BALANCE = {
@@ -57,7 +83,10 @@ describe("intercard onsite client — auth + envelope", () => {
     box.req = null;
     stubJson(200, OK_BALANCE, box);
   });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    httpsMock.request.mockReset();
+  });
 
   it("sends the three licence headers and the MAC in the BODY (not a header)", async () => {
     const { verifyAccount } = await import("./intercard-onsite");
@@ -118,7 +147,10 @@ describe("intercard onsite client — account number precision", () => {
     box.req = null;
     stubJson(200, { responseCode: 0, responseDescription: "Success" }, box);
   });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    httpsMock.request.mockReset();
+  });
 
   it("keeps a 17-digit account number verbatim as a string (no Number() rounding)", async () => {
     const { creditTokens } = await import("./intercard-onsite");
@@ -195,7 +227,10 @@ describe("intercard onsite client — account number precision", () => {
 
 describe("intercard onsite client — failure modes are distinguishable", () => {
   const box: { req: Captured | null } = { req: null };
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    httpsMock.request.mockReset();
+  });
 
   it("maps 401 to NOT_LICENSED (a config bug, not a site outage)", async () => {
     stubJson(401, { error: "ETPI requires up to date Licensing." }, box);
@@ -240,7 +275,10 @@ describe("intercard onsite client — failure modes are distinguishable", () => 
 
 describe("intercard onsite client — probeOnsite status for the kiosk badge", () => {
   const box: { req: Captured | null } = { req: null };
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    httpsMock.request.mockReset();
+  });
 
   it("reports 'onsite' when the relay answers a gamelist", async () => {
     stubJson(200, { responseCode: 0, responseDescription: "Success", gameList: [] }, box);
@@ -275,7 +313,10 @@ describe("intercard onsite client — probeOnsite status for the kiosk badge", (
 
 describe("intercard onsite client — history", () => {
   const box: { req: Captured | null } = { req: null };
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    httpsMock.request.mockReset();
+  });
 
   it("maps history rows and relabels Consolidation as Web", async () => {
     stubJson(

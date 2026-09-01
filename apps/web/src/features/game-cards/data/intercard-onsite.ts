@@ -32,6 +32,7 @@
  * Number.MAX_SAFE_INTEGER). Money is invariant decimals.
  */
 
+import { request as httpsRequest } from "node:https";
 import {
   macForCenter,
   INTERCARD_ONSITE_URL,
@@ -131,6 +132,58 @@ interface OnsiteEnvelope {
 }
 
 /**
+ * Minimal JSON-over-HTTPS request on `node:https`, NOT `fetch`.
+ *
+ * ⚠️ THIS IS NOT A STYLE CHOICE. Api_External declares its read operations
+ * `[HttpGet]` while binding their payload `[FromBody]` — a GET that carries a
+ * body. WHATWG `fetch` (undici, which is what Node and Next.js provide) rejects
+ * that outright:
+ *
+ *     TypeError: Request with GET/HEAD method cannot have body.
+ *
+ * There is no option to opt out, and the operations are GET-only server-side
+ * (a POST returns 405), so `fetch` cannot express this API's read half at all.
+ * `node:https` has no such restriction. Caught by the live test script, which
+ * is exactly the class of bug a stubbed-`fetch` unit test cannot see.
+ *
+ * Server-only by construction — this module is imported by services and API
+ * routes (runtime "nodejs"), never by a client bundle.
+ */
+function httpJson(
+  url: string,
+  method: "GET" | "POST",
+  headers: Record<string, string>,
+  body: string,
+  timeoutMs: number,
+): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = httpsRequest(
+      {
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: u.pathname + u.search,
+        method,
+        headers: { ...headers, "Content-Length": Buffer.byteLength(body) },
+        timeout: timeoutMs,
+      },
+      (res) => {
+        let data = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, text: data }));
+      },
+    );
+    req.on("error", reject);
+    req.on("timeout", () => {
+      req.destroy(new Error(`Intercard onsite request timed out after ${timeoutMs}ms`));
+    });
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
  * One call to the onsite proxy.
  *
  * NOTE the read operations are declared [HttpGet] yet bind their payload
@@ -157,33 +210,31 @@ async function onsiteCall<T extends OnsiteEnvelope>(
     throw new IntercardError("NO_TOKEN", "Intercard client token is not configured");
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let res: Response;
+  let res: { status: number; text: string };
   try {
-    res = await fetch(`${INTERCARD_ONSITE_URL}/api/v1/tpi/${operation}`, {
+    res = await httpJson(
+      `${INTERCARD_ONSITE_URL}/api/v1/tpi/${operation}`,
       method,
-      headers: {
+      {
         "Content-Type": "application/json",
         Accept: "application/json",
         LocID: String(locationCode),
         ProductCode: intercardProductCode(),
         ClientToken: token,
       },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+      JSON.stringify(body),
+      timeoutMs,
+    );
   } catch (err) {
     throw new IntercardError(
       "NETWORK",
       err instanceof Error ? err.message : "Intercard onsite request failed",
     );
-  } finally {
-    clearTimeout(timer);
   }
 
-  const text = await res.text();
-  if (!res.ok) {
+  const text = res.text;
+  const ok = res.status >= 200 && res.status < 300;
+  if (!ok) {
     // Distinguish the failure modes that matter operationally: a licence
     // problem is a config bug we must page on, whereas an offline relay is a
     // transient site-availability condition a caller may fall back from.
