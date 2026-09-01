@@ -114,17 +114,35 @@ export const TV_WALL_VIP_ART: readonly string[] = [1, 2, 3, 4, 5].map(
 export const NEXUS_REEL = `${BLOB_HOST}/videos/tv-wall/nexus-hero-18s.mp4`;
 
 export const TV_WALL_FILMS = {
-  /** The reel behind the VIP Experience section on headpinz.com/fort-myers, alternating
-   *  with the NeoVerse lane reel — the two halves of what a VIP lane actually looks
-   *  like, which is what the bowling panel is selling. */
+  /**
+   * The reel behind the VIP Experience section on headpinz.com/fort-myers, alternating
+   * with the NeoVerse lane reel — the two halves of what a VIP lane actually looks like,
+   * which is what the bowling panel is selling.
+   *
+   * The HyperBowling one is CUT AT 31.7s (owner 2026-09-01: "the end logo needs cut
+   * out"). Past that the web version runs a HYPER BOWLING logo card and then a HeadPinz
+   * "NOW EXCLUSIVELY AVAILABLE AT… RESERVE YOUR LANES TODAY!" end card — a call to
+   * action that makes sense at the end of a page and not on a loop, where it would sit
+   * on the wall for six of every thirty-two seconds telling a guest already standing in
+   * the building to come to the building.
+   */
   bowling: [
-    `${BLOB_HOST}/videos/headpinz-hyperbowling-v2.mp4`,
+    `${BLOB_HOST}/videos/tv-wall/hyperbowling-32s.mp4`,
     `${BLOB_HOST}/videos/headpinz-neoverse-v2.mp4`,
   ],
   /** The Nexus arena reel — see NEXUS_REEL. */
   nexus: [NEXUS_REEL],
-  /** The reel behind the party packages section. */
-  gameZone: [`${BLOB_HOST}/videos/headpinz-arcade-v2.mp4`],
+  /**
+   * The reel behind the party packages section, CUT AT 27s (owner 2026-09-01).
+   *
+   * Past that it leaves the arcade entirely: eight seconds of AXE THROWING — cages,
+   * wooden targets, a tablet showing "Standard Axe Throwing Rules", "LANE 3" on the
+   * wall — and then a HeadPinz card over bowling lanes. Neither is Game Zone, and this
+   * panel is the one selling Game Zone. Everything kept is arcade: the Game Zone
+   * entrance, the rides, racing cabinets, air hockey, the crane machines, basketball,
+   * Connect 4 Hoops and the ring toss.
+   */
+  gameZone: [`${BLOB_HOST}/videos/tv-wall/gamezone-27s.mp4`],
   /** The FastTrax home-page hero. Genuinely lives under /images/hero/ — not a typo. */
   fastTrax: [`${BLOB_HOST}/images/hero/hero-video.mp4`],
 } as const;
