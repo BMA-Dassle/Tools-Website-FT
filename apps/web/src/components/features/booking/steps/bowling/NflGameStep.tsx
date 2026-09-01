@@ -32,6 +32,10 @@ import { getPublicReopenMinutes } from "@/lib/group-events";
 import { releaseComboBowlingHold } from "~/features/combos/combo-booking";
 import { NFL_WINDOW_MINUTES, buildNflLineItems, maxLanesPerBooking } from "~/features/nfl";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
+// Shared web/kiosk step. useLocale falls back to the default locale when
+// there is no provider, so this renders English on the web and the guest's
+// language on the kiosk without either side needing to know about the other.
+import { useT } from "~/features/kiosk/i18n/useT";
 import { IconBallFootball, IconCheck } from "@tabler/icons-react";
 
 const VIOLET = "#A78BFA"; // v3 Experience-step VIP accent (owner 2026-07-26)
@@ -69,6 +73,7 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
   const [reservingId, setReservingId] = useState<string | null>(null);
   const [soldOutIds, setSoldOutIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const t = useT();
 
   const centerId = item.qamfCenterId ?? qamfCenterIdForCode(session.center);
   const playerCount = item.playerCount;
@@ -95,7 +100,7 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
         setGames(Array.isArray(gData.games) ? gData.games : []);
         setExps(Array.isArray(eData) ? eData : []);
       } catch {
-        if (!cancelled) setError("Couldn't load today's games — please try again.");
+        if (!cancelled) setError(t("nfl.err.loadFailed"));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -115,19 +120,19 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
 
   async function pickGame(g: GameCard) {
     if (centerId == null) {
-      setError("We couldn't tell which location this is for. Go back and re-select your center.");
+      setError(t("nfl.err.noCenter"));
       return;
     }
     const exp = expFor(g);
     if (!exp) {
-      setError("NFL lanes aren't set up for this date yet — please check back soon.");
+      setError(t("nfl.err.notSetUp"));
       return;
     }
     // The 180-min Time option MUST come from the seeded offer row. A missing id
     // means the seed has not run for this center — fail loud rather than fall
     // back to slot.optionId and book a 1-hour lane (Open-Pkg-Duration bug).
     if (exp.qamfOptionId == null) {
-      setError("NFL lanes aren't bookable right now — please check back soon.");
+      setError(t("nfl.err.notBookable"));
       console.error(`[nfl] experience ${exp.slug} has no qamf_option_id seeded`);
       return;
     }
@@ -200,7 +205,7 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
       });
       const holdData = await holdRes.json();
       if (!holdRes.ok || !holdData.qamfReservationId) {
-        setError(holdData.error ?? "Couldn't reserve this game window. Try another game.");
+        setError(holdData.error ?? t("nfl.err.holdFailed"));
         return;
       }
 
@@ -235,7 +240,7 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
       clarityTag("nfl", g.id);
       clarityEvent("nfl:game-held");
     } catch {
-      setError("Couldn't check that game window — please try again.");
+      setError(t("nfl.err.probeFailed"));
     } finally {
       setReservingId(null);
       setBusy?.(false);
@@ -259,19 +264,15 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
         <div className="flex items-center justify-center gap-2">
           <IconBallFootball size={22} style={{ color: VIOLET }} aria-hidden />
           <h2 className="font-display text-2xl uppercase tracking-widest text-white">
-            Pick your game
+            {t("nfl.title")}
           </h2>
         </div>
-        <p className="mt-1.5 text-sm text-white/70">
-          Your game on the NeoVerse LED walls. Lanes open 15 minutes before kickoff and are yours
-          for 3 hours — shoes, a one-topping pizza, 10 wings and a soda pitcher included.
-        </p>
+        <p className="mt-1.5 text-sm text-white/70">{t("nfl.subtitle")}</p>
       </div>
 
       {tooManyLanes && (
         <p className="rounded-lg bg-amber-500/10 p-3 text-center text-sm text-amber-300">
-          {playerCount} bowlers needs {laneCount} lanes, and NFL Ticket seats up to {maxLanes} per
-          booking. Give us a call and we&apos;ll set the group up.
+          {t("nfl.tooManyLanes", { players: playerCount, lanes: laneCount, max: maxLanes })}
         </p>
       )}
 
@@ -280,9 +281,7 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
       )}
 
       {games.length === 0 && !error && (
-        <p className="py-8 text-center text-sm text-white/50">
-          No football on this date — pick another day.
-        </p>
+        <p className="py-8 text-center text-sm text-white/50">{t("nfl.empty")}</p>
       )}
 
       <div className="space-y-2">
@@ -308,7 +307,10 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
                 <div className="min-w-0">
                   <p className="truncate font-semibold text-white">{g.matchup}</p>
                   <p className="mt-0.5 text-xs text-white/50">
-                    {etTime(g.kickoffIso)} kickoff · lanes open {etTime(g.laneOpenIso)}
+                    {t("nfl.card.times", {
+                      kickoff: etTime(g.kickoffIso),
+                      open: etTime(g.laneOpenIso),
+                    })}
                     {g.network ? ` · ${g.network}` : ""}
                   </p>
                 </div>
@@ -316,18 +318,22 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
                   {isPicked ? (
                     <IconCheck size={20} style={{ color: VIOLET }} aria-hidden />
                   ) : isSoldOut ? (
-                    <span className="text-xs font-semibold text-white/40">Sold out</span>
+                    <span className="text-xs font-semibold text-white/40">
+                      {t("nfl.card.soldOut")}
+                    </span>
                   ) : cents != null ? (
                     <span className="text-sm font-bold text-white">
                       ${(cents / 100).toFixed(2)}
-                      <span className="ml-1 text-[10px] font-normal text-white/40">/lane</span>
+                      <span className="ml-1 text-[10px] font-normal text-white/40">
+                        {t("nfl.card.perLane")}
+                      </span>
                     </span>
                   ) : null}
                 </div>
               </div>
               {reservingId === g.id && (
                 <p className="mt-2 text-xs" style={{ color: VIOLET }}>
-                  Holding your lane…
+                  {t("nfl.card.holding")}
                 </p>
               )}
             </button>
@@ -335,10 +341,7 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
         })}
       </div>
 
-      <p className="text-[11px] leading-relaxed text-white/40">
-        Up to 6 bowlers a lane. Game going long? Tell the front desk — we&apos;ll do our best to
-        keep the party going.
-      </p>
+      <p className="text-[11px] leading-relaxed text-white/40">{t("nfl.footer")}</p>
     </div>
   );
 };

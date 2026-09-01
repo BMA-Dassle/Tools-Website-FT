@@ -28,6 +28,7 @@ import { povEn, povEs } from "./parts/pov";
 import { addonsEn, addonsEs } from "./parts/addons";
 import { racesimEn, racesimEs } from "./parts/racesim";
 import { crewEn, crewEs } from "./parts/crew";
+import { nflEn, nflEs } from "./parts/nfl";
 import type { KioskLocale } from "../locales";
 
 /** English source of truth — core + every screen fragment. */
@@ -49,6 +50,7 @@ const EN = {
   ...addonsEn,
   ...racesimEn,
   ...crewEn,
+  ...nflEn,
 };
 
 /** Spanish — each piece is exhaustively typed against its English counterpart. */
@@ -70,6 +72,7 @@ const ES = {
   ...addonsEs,
   ...racesimEs,
   ...crewEs,
+  ...nflEs,
 };
 
 export type MessageKey = keyof typeof EN;
