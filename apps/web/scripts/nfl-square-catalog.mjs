@@ -102,7 +102,12 @@ function shapeFrom(tpl) {
     itemBits: {
       is_taxable: tpl.item_data?.is_taxable ?? true,
       ...(tpl.item_data?.tax_ids ? { tax_ids: tpl.item_data.tax_ids } : {}),
-      ...(tpl.item_data?.categories ? { categories: tpl.item_data.categories } : {}),
+      // Category IDS only — the template's `ordinal` is that item's sort
+      // position within the category, and reusing it across three new items
+      // makes Square reject them as duplicates. Let it assign its own.
+      ...(tpl.item_data?.categories
+        ? { categories: tpl.item_data.categories.map((c) => ({ id: c.id })) }
+        : {}),
       ...(tpl.item_data?.category_id ? { category_id: tpl.item_data.category_id } : {}),
     },
   };
@@ -255,7 +260,7 @@ async function main() {
     );
     return;
   } else {
-    const r = await fetch(`${BASE}/catalog/batch-upsert-catalog-objects`, {
+    const r = await fetch(`${BASE}/catalog/batch-upsert`, {
       method: "POST",
       headers: H,
       body: JSON.stringify({ idempotency_key: randomUUID(), batches: [{ objects: toCreate }] }),

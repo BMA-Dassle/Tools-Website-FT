@@ -73,10 +73,10 @@ const FM = "TXBSQN0FEKQ11"; // HeadPinz Fort Myers
 // into KITCHEN_CATALOG_IDS (lib/bowling-lane-open.ts) and ALLOWED_FOOD
 // (app/api/bowling/v2/reservations/[id]/food/route.ts) or the kitchen never
 // sees the order and the guest cannot edit it afterwards.
-const NFL_CAT_LANE = "REPLACE_ME_NFL_LANE_VARIATION_ID"; // $119.95/lane
-const NFL_CAT_PIZZA = "REPLACE_ME_NFL_PIZZA_VARIATION_ID"; // $0
-const NFL_CAT_WINGS = "REPLACE_ME_NFL_WINGS_VARIATION_ID"; // $0
-const NFL_CAT_SODA = "REPLACE_ME_NFL_SODA_VARIATION_ID"; // $0
+const NFL_CAT_LANE = "3J54FU6J2V3NTYMB46Y2WE4B"; // $119.95/lane — created 2026-09-01
+const NFL_CAT_PIZZA = "ACVRS47ZMZ47LDMMMMTCSAF5"; // $0 — created 2026-09-01
+const NFL_CAT_WINGS = "PLQSNST3SONCMIYDRO4XT3L3"; // $0 — created 2026-09-01
+const NFL_CAT_SODA = "SALTBIACAGWHBN6P5LS543V7"; // $0 — created 2026-09-01
 
 const LANE_PRICE_CENTS = 11995;
 
@@ -256,8 +256,22 @@ async function setItems(experienceId: number): Promise<void> {
   }
 }
 
+/**
+ * The two columns this seed writes live in ensureBowlingSchema(), which only
+ * runs inside the app — so a fresh database (or one the new code has not served
+ * a request from yet) has neither, and the item insert fails on a column that
+ * "does not exist". Idempotent ALTERs here make the seed self-sufficient; the
+ * app's own migration still owns the Pizza Bowl backfill.
+ */
+async function ensureColumns(): Promise<void> {
+  if (DRY_RUN) return;
+  await sql`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS included_modifier_count INTEGER NOT NULL DEFAULT 1`;
+  await sql`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS extra_modifier_cents INTEGER NOT NULL DEFAULT 0`;
+}
+
 async function main() {
   validateInputs();
+  await ensureColumns();
   console.log(`Seeding ${LABEL} — HeadPinz Fort Myers\n`);
 
   console.log("Products");

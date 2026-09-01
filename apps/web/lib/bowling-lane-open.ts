@@ -34,10 +34,14 @@ const KITCHEN_CATALOG_IDS = new Set([
   "LHZXWYO72N5QFX4CGYKRVPZX", // VIP Chips & Salsa
   "2IKZB4O2HQBXWMTSUQ2SEKJY", // Pizza Bowl Pizza ($0 sub-item)
   "SJUBJLB4QGHIHCW5AKTTMLH7", // Pizza Bowl Soda Pitcher ($0 sub-item)
+  "ACVRS47ZMZ47LDMMMMTCSAF5", // Game Day Pizza ($0 sub-item)
+  "PLQSNST3SONCMIYDRO4XT3L3", // Game Day Wings (10) ($0 sub-item)
+  "SALTBIACAGWHBN6P5LS543V7", // Game Day Soda Pitcher ($0 sub-item)
 ]);
 
 // Fallback: match by name when catalog_object_id is absent
-const KITCHEN_NAME_RE = /pizza\s+bowl\s+pizza|pizza\s+bowl\s+soda|chips.+salsa/i;
+const KITCHEN_NAME_RE =
+  /pizza\s+bowl\s+pizza|pizza\s+bowl\s+soda|chips.+salsa|game\s+day\s+(pizza|wings|soda)/i;
 
 // ── Types ──────────────────────────────────────────────────────────
 
