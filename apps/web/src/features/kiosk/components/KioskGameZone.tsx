@@ -312,7 +312,15 @@ function pkgLabel(t: Translate, packageId: string): string {
   return `${p.tokens} ${t("gamezone.tokensUnit")}${bonus} · $${(p.priceCents / 100).toFixed(0)}`;
 }
 
-/** Staff-readable card-system status: local bridge (instant) vs cloud (slower).
+/** Staff-readable card-system status: ONSITE (the site's own card system —
+ *  real-time, instant to the floor) vs CLOUD (Intercard's replicated
+ *  datacenter copy — correct, but slower to reach the readers).
+ *
+ *  "Onsite" (was "Local") is the same word the server-side onsite client uses
+ *  for this path — see `probeOnsite` / `OnsiteStatus` in
+ *  features/game-cards/data/intercard-onsite.ts — so staff, logs, and code all
+ *  name the path identically when something goes wrong.
+ *
  *  Renders nothing until the first health check answers. */
 function BridgeChip({ up }: { up: boolean | null }) {
   if (up === null) return null;
@@ -326,7 +334,7 @@ function BridgeChip({ up }: { up: boolean | null }) {
       <span
         className={`h-[5px] w-[5px] rounded-full ${up ? "bg-emerald-300/80" : "bg-amber-300/80"}`}
       />
-      {up ? "Local" : "Cloud"}
+      {up ? "Onsite" : "Cloud"}
     </span>
   );
 }
@@ -416,8 +424,11 @@ export function KioskGameZone({
   const setBasketRow = (code: string, patch: Partial<VoucherBasketRow>) =>
     updateBasket((rows) => rows.map((r) => (r.code === code ? { ...r, ...patch } : r)));
 
-  // Local bridge status chip (staff-facing, guest-benign): green = loads hit
-  // the local card system instantly; amber = cloud path (slower to the floor).
+  // Onsite card-system status chip (staff-facing, guest-benign): green = loads
+  // hit the site's own card system instantly; amber = cloud path (slower to the
+  // floor). NOTE this drives more than the chip — the Combine-cards button is
+  // cloud-only and keys off `bridgeUp === false`, so anything that changes how
+  // this resolves must keep that gate working (see GC_CONSOLIDATE_LIVE below).
   const [bridgeUp, setBridgeUp] = useState<boolean | null>(null);
   useEffect(() => {
     let cancelled = false;

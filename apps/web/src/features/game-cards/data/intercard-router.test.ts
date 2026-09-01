@@ -1,0 +1,239 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+// Real IntercardError class — the router does `instanceof` checks on it.
+class IntercardError extends Error {
+  constructor(
+    public code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "IntercardError";
+  }
+}
+
+vi.mock("./intercard", () => ({
+  IntercardError,
+  verifyAccount: vi.fn(),
+  creditTokens: vi.fn(),
+  creditAccountValues: vi.fn(),
+  clearAccount: vi.fn(),
+  consolidateAccounts: vi.fn(),
+}));
+
+vi.mock("./intercard-onsite", () => ({
+  verifyAccount: vi.fn(),
+  creditTokens: vi.fn(),
+  creditAccountValues: vi.fn(),
+  clearAccount: vi.fn(),
+  consolidateAccounts: vi.fn(),
+}));
+
+async function mocks() {
+  const cloud = await import("./intercard");
+  const onsite = await import("./intercard-onsite");
+  return { cloud, onsite } as unknown as {
+    cloud: Record<string, ReturnType<typeof vi.fn>>;
+    onsite: Record<string, ReturnType<typeof vi.fn>>;
+  };
+}
+
+const CREDIT = {
+  locationCode: 12,
+  accountNumber: "1098379",
+  tokens: 500,
+  bonusTokens: 100,
+  tpiTransactionID: "reload-abc",
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.unstubAllEnvs();
+});
+afterEach(() => vi.unstubAllEnvs());
+
+describe("intercard router — onsite takes priority", () => {
+  it("reads from onsite and never touches the cloud when onsite answers", async () => {
+    const { cloud, onsite } = await mocks();
+    onsite.verifyAccount.mockResolvedValue({
+      exists: true,
+      accountNumber: "1098379",
+      balance: { tokens: 200, bonusTokens: 0, eTickets: 0, timeMinutes: 0 },
+    });
+
+    const { verifyAccount } = await import("./intercard-router");
+    const res = await verifyAccount("1098379", 12);
+
+    expect(res.transport).toBe("onsite");
+    expect(res.balance?.tokens).toBe(200);
+    expect(onsite.verifyAccount).toHaveBeenCalledTimes(1);
+    expect(cloud.verifyAccount).not.toHaveBeenCalled();
+  });
+
+  it("credits through onsite and never touches the cloud when onsite succeeds", async () => {
+    const { cloud, onsite } = await mocks();
+    onsite.creditTokens.mockResolvedValue({ code: 0 });
+
+    const { creditTokens } = await import("./intercard-router");
+    const res = await creditTokens(CREDIT);
+
+    expect(res).toMatchObject({ code: 0, transport: "onsite" });
+    expect(cloud.creditTokens).not.toHaveBeenCalled();
+  });
+});
+
+describe("intercard router — READS fall back freely", () => {
+  it("falls back to cloud when onsite throws (a stale read beats no read)", async () => {
+    const { cloud, onsite } = await mocks();
+    onsite.verifyAccount.mockRejectedValue(new IntercardError("RELAY_TIMEOUT", "timeout"));
+    cloud.verifyAccount.mockResolvedValue({ exists: true, accountNumber: "1098379" });
+
+    const { verifyAccount } = await import("./intercard-router");
+    const res = await verifyAccount("1098379", 12);
+
+    expect(res.transport).toBe("cloud");
+    expect(cloud.verifyAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT trust an ambiguous onsite 'not found' — the cloud settles it", async () => {
+    // A blank-card sale keys off notFound === "confirmed". Reporting a card as
+    // absent because the onsite service errored would sell a loaded card as new.
+    const { cloud, onsite } = await mocks();
+    onsite.verifyAccount.mockResolvedValue({
+      exists: false,
+      accountNumber: "1098379",
+      notFound: "ambiguous",
+    });
+    cloud.verifyAccount.mockResolvedValue({
+      exists: true,
+      accountNumber: "1098379",
+      balance: { tokens: 500, bonusTokens: 0, eTickets: 0, timeMinutes: 0 },
+    });
+
+    const { verifyAccount } = await import("./intercard-router");
+    const res = await verifyAccount("1098379", 12);
+
+    expect(cloud.verifyAccount).toHaveBeenCalledTimes(1);
+    expect(res.exists).toBe(true);
+    expect(res.transport).toBe("cloud");
+  });
+
+  it("DOES trust a confirmed onsite 'not found' (real-time truth, no cloud call)", async () => {
+    const { cloud, onsite } = await mocks();
+    onsite.verifyAccount.mockResolvedValue({
+      exists: false,
+      accountNumber: "1098379",
+      notFound: "confirmed",
+    });
+
+    const { verifyAccount } = await import("./intercard-router");
+    const res = await verifyAccount("1098379", 12);
+
+    expect(res.notFound).toBe("confirmed");
+    expect(res.transport).toBe("onsite");
+    expect(cloud.verifyAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe("intercard router — WRITES only fall back when provably un-started", () => {
+  it("falls back on RELAY_OFFLINE (404: the relay never accepted the work)", async () => {
+    const { cloud, onsite } = await mocks();
+    onsite.creditTokens.mockRejectedValue(new IntercardError("RELAY_OFFLINE", "no relay"));
+    cloud.creditTokens.mockResolvedValue({ code: 0 });
+
+    const { creditTokens } = await import("./intercard-router");
+    const res = await creditTokens(CREDIT);
+
+    expect(res.transport).toBe("cloud");
+    expect(cloud.creditTokens).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back on NOT_LICENSED (401: rejected at the gate, before dispatch)", async () => {
+    const { cloud, onsite } = await mocks();
+    onsite.creditTokens.mockRejectedValue(new IntercardError("NOT_LICENSED", "licence"));
+    cloud.creditTokens.mockResolvedValue({ code: 0 });
+
+    const { creditTokens } = await import("./intercard-router");
+    expect((await creditTokens(CREDIT)).transport).toBe("cloud");
+  });
+
+  it("NEVER falls back on RELAY_TIMEOUT — the credit may already be applied", async () => {
+    // THE money-safety test. A timeout means the site may have applied the
+    // credit; re-sending it via cloud would double-credit the guest's card.
+    const { cloud, onsite } = await mocks();
+    onsite.creditTokens.mockRejectedValue(new IntercardError("RELAY_TIMEOUT", "timeout"));
+
+    const { creditTokens } = await import("./intercard-router");
+    await expect(creditTokens(CREDIT)).rejects.toMatchObject({ code: "RELAY_TIMEOUT" });
+    expect(cloud.creditTokens).not.toHaveBeenCalled();
+  });
+
+  it("NEVER falls back on a mid-flight NETWORK error (ambiguous)", async () => {
+    const { cloud, onsite } = await mocks();
+    onsite.creditTokens.mockRejectedValue(new IntercardError("NETWORK", "socket hang up"));
+
+    const { creditTokens } = await import("./intercard-router");
+    await expect(creditTokens(CREDIT)).rejects.toMatchObject({ code: "NETWORK" });
+    expect(cloud.creditTokens).not.toHaveBeenCalled();
+  });
+
+  it("NEVER falls back on an HTTP 5xx (ambiguous)", async () => {
+    const { cloud, onsite } = await mocks();
+    onsite.creditTokens.mockRejectedValue(new IntercardError("HTTP_500", "server error"));
+
+    const { creditTokens } = await import("./intercard-router");
+    await expect(creditTokens(CREDIT)).rejects.toMatchObject({ code: "HTTP_500" });
+    expect(cloud.creditTokens).not.toHaveBeenCalled();
+  });
+
+  it("applies the same asymmetry to consolidate (value movement, not just credit)", async () => {
+    const { cloud, onsite } = await mocks();
+    const params = {
+      locationCode: 12,
+      targetAccount: "1098379",
+      sourceAccounts: ["1038010"],
+      tpiTransactionID: "consol-1",
+    };
+
+    onsite.consolidateAccounts.mockRejectedValue(new IntercardError("RELAY_TIMEOUT", "t"));
+    const { consolidateAccounts } = await import("./intercard-router");
+    await expect(consolidateAccounts(params)).rejects.toMatchObject({ code: "RELAY_TIMEOUT" });
+    expect(cloud.consolidateAccounts).not.toHaveBeenCalled();
+
+    onsite.consolidateAccounts.mockRejectedValue(new IntercardError("RELAY_OFFLINE", "o"));
+    cloud.consolidateAccounts.mockResolvedValue({ code: 0 });
+    expect((await consolidateAccounts(params)).transport).toBe("cloud");
+  });
+
+  it("applies the same asymmetry to clearAccount (a clear REMOVES an account)", async () => {
+    const { cloud, onsite } = await mocks();
+    const params = { locationCode: 12, accountNumbers: ["1038010"], tpiTransactionID: "clr-1" };
+
+    onsite.clearAccount.mockRejectedValue(new IntercardError("RELAY_TIMEOUT", "t"));
+    const { clearAccount } = await import("./intercard-router");
+    await expect(clearAccount(params)).rejects.toMatchObject({ code: "RELAY_TIMEOUT" });
+    expect(cloud.clearAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe("intercard router — kill switch", () => {
+  it("INTERCARD_ONSITE_ENABLED=false forces every call back to the proven cloud path", async () => {
+    // Repo rule: flags are kill switches only — default ON, `!== "false"`.
+    vi.stubEnv("INTERCARD_ONSITE_ENABLED", "false");
+    const { cloud, onsite } = await mocks();
+    cloud.creditTokens.mockResolvedValue({ code: 0 });
+    cloud.verifyAccount.mockResolvedValue({ exists: true, accountNumber: "1098379" });
+
+    const { creditTokens, verifyAccount } = await import("./intercard-router");
+    expect((await creditTokens(CREDIT)).transport).toBe("cloud");
+    expect((await verifyAccount("1098379", 12)).transport).toBe("cloud");
+    expect(onsite.creditTokens).not.toHaveBeenCalled();
+    expect(onsite.verifyAccount).not.toHaveBeenCalled();
+  });
+
+  it("is ON by default (absent env var = onsite priority)", async () => {
+    const { onsite } = await mocks();
+    onsite.creditTokens.mockResolvedValue({ code: 0 });
+    const { creditTokens } = await import("./intercard-router");
+    expect((await creditTokens(CREDIT)).transport).toBe("onsite");
+  });
+});

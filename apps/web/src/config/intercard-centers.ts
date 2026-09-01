@@ -37,6 +37,46 @@ export const INTERCARD_BALANCE_URL =
   process.env.INTERCARD_BALANCE_URL ||
   "https://intercard.swflpassport.com/WS_AccountHistory/WebServiceAccountHistory.asmx";
 
+/**
+ * ONSITE REST proxy (Api_External). Same host as the SOAP services, but this
+ * one relays each call live to the SITE'S OWN Transaction Server over SignalR —
+ * real-time truth instead of the replicated datacenter copy. See
+ * `data/intercard-onsite.ts` and docs/intercard-api-external-rest.md.
+ */
+export const INTERCARD_ONSITE_URL =
+  process.env.INTERCARD_ONSITE_URL || "https://intercard.swflpassport.com/Api_External";
+
+/**
+ * The onsite proxy authenticates on FOUR values, not the MAC alone: the
+ * `LocID` + `ProductCode` + `ClientToken` headers plus the MAC in the body. All
+ * four must match a licensed device row or the call 401s with the same generic
+ * "ETPI requires up to date Licensing." regardless of which one is wrong.
+ *
+ * NEVER commit the token — it is a credential, exactly like the MAC. Set
+ * INTERCARD_CLIENT_TOKEN (and INTERCARD_PRODUCT_CODE if it ever differs from
+ * the corp-6283 default) in Vercel. Empty → onsite calls fail closed (NO_TOKEN),
+ * which the kiosk badge surfaces as "unlicensed" rather than a site outage.
+ */
+export function intercardClientToken(): string {
+  return process.env.INTERCARD_CLIENT_TOKEN || "";
+}
+
+export function intercardProductCode(): string {
+  return process.env.INTERCARD_PRODUCT_CODE || "API-0331";
+}
+
+/**
+ * Kill switch for the onsite path (repo rule: flags are kill switches ONLY —
+ * a merged feature is ON, and a flag exists solely to turn it OFF in an
+ * emergency, so it defaults ON via `!== "false"`).
+ *
+ * Set INTERCARD_ONSITE_ENABLED="false" to force every caller back onto the
+ * proven SOAP client if the onsite relay misbehaves in production.
+ */
+export function isOnsiteEnabled(): boolean {
+  return process.env.INTERCARD_ONSITE_ENABLED !== "false";
+}
+
 export type Brand = "headpinz" | "fasttrax";
 
 export interface CenterConfig {
