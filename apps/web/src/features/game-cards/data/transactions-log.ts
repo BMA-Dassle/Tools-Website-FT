@@ -256,114 +256,28 @@ export async function getGroupQueueStates(groupId: string): Promise<GroupLoadSta
   }
 }
 
-/** Queued rows no bridge claimed within 60s (bridge down) → SOAP path. */
-export async function sweepStaleQueued(): Promise<string[]> {
-  if (!isDbConfigured()) return [];
-  try {
-    await ensureSchema();
-    const q = sql();
-    const rows = await q`
-      UPDATE intercard_transactions
-      SET queue_state = 'soap_fallback'
-      WHERE queue_state = 'queued' AND queued_at < NOW() - INTERVAL '60 seconds'
-      RETURNING txn_id
-    `;
-    return rows.map((r) => r.txn_id as string);
-  } catch (err) {
-    console.error(
-      "[game-cards-log] queued sweep failed:",
-      err instanceof Error ? err.message : err,
-    );
-    return [];
-  }
-}
-
 /**
- * Claimed rows whose bridge never acked within the lease (died mid-flight —
- * the EIS credit may or may not have landed) → 'verify'. Never back to the
- * queue and never to SOAP: unknown outcome must not be blindly retried.
+ * Count charged-but-unloaded rows stuck in a legacy EIS ambiguous state
+ * ('claimed'/'verify'). The EIS bridge is retired and its verify machinery is
+ * gone, so nothing advances these automatically any more — they can only be an
+ * already-drained zero (expected: cloud mode has been forced since 2026-07-22)
+ * or a pre-cutover straggler a human must settle against Intercard reports.
+ * The reconcile cron logs loudly whenever this is > 0 so such a straggler can
+ * never strand a guest's money silently. Once it stays 0, the queue_state
+ * column and this check can be dropped.
  */
-export async function sweepStaleClaimed(): Promise<string[]> {
-  if (!isDbConfigured()) return [];
+export async function countStuckLegacyQueueRows(): Promise<number> {
+  if (!isDbConfigured()) return 0;
   try {
     await ensureSchema();
     const q = sql();
     const rows = await q`
-      UPDATE intercard_transactions
-      SET queue_state = 'verify'
-      WHERE queue_state = 'claimed' AND claimed_at < NOW() - INTERVAL '3 minutes'
-        AND load_state = 'pending'
-      RETURNING txn_id
+      SELECT count(*)::int AS n FROM intercard_transactions
+      WHERE queue_state IN ('claimed', 'verify') AND load_state = 'pending'
     `;
-    return rows.map((r) => r.txn_id as string);
-  } catch (err) {
-    console.error(
-      "[game-cards-log] claimed sweep failed:",
-      err instanceof Error ? err.message : err,
-    );
-    return [];
-  }
-}
-
-/** Unknown-outcome rows awaiting history verification, oldest first. */
-export async function listVerifyRows(limit = 50): Promise<TxnRow[]> {
-  if (!isDbConfigured()) return [];
-  try {
-    await ensureSchema();
-    const q = sql();
-    const rows = await q`
-      SELECT * FROM intercard_transactions
-      WHERE queue_state = 'verify' AND load_state = 'pending'
-      ORDER BY queued_at ASC LIMIT ${limit}
-    `;
-    return rows.map(rowToTxn);
+    return (rows[0]?.n as number) ?? 0;
   } catch {
-    return [];
-  }
-}
-
-/** Cloud history showed the EIS credit landed → resolve the verify row loaded. */
-export async function markVerifiedLoaded(txnId: string): Promise<boolean> {
-  if (!isDbConfigured()) return false;
-  try {
-    await ensureSchema();
-    const q = sql();
-    const rows = await q`
-      UPDATE intercard_transactions
-      SET load_state = 'loaded', state = 'completed', completed_at = NOW(), error = NULL,
-          queue_state = 'done', loaded_via = 'verify'
-      WHERE txn_id = ${txnId} AND queue_state = 'verify' AND load_state = 'pending'
-      RETURNING txn_id
-    `;
-    return rows.length > 0;
-  } catch (err) {
-    console.error(
-      "[game-cards-log] verify-loaded failed:",
-      err instanceof Error ? err.message : err,
-    );
-    return false;
-  }
-}
-
-/** Verify row never matched history — flag for staff (check Intercard reports). */
-export async function markVerifyManual(txnId: string, error: string): Promise<boolean> {
-  if (!isDbConfigured()) return false;
-  try {
-    await ensureSchema();
-    const q = sql();
-    const rows = await q`
-      UPDATE intercard_transactions
-      SET load_state = 'load_failed', error = ${error}, queue_state = 'manual'
-      WHERE txn_id = ${txnId} AND queue_state = 'verify' AND load_state = 'pending'
-      RETURNING txn_id
-    `;
-    return rows.length > 0;
-  } catch (err) {
-    console.error(
-      "[game-cards-log] verify-manual failed:",
-      err instanceof Error ? err.message : err,
-    );
-    return false;
+    return 0;
   }
 }
 
@@ -377,6 +291,11 @@ export async function markChargeFailed(txnId: string, error: string): Promise<vo
   });
 }
 
+// Only one door left now that the EIS bridge is gone: every confirmed credit
+// comes through the server (the Intercard router — onsite proxy first, cloud
+// SOAP fallback). "soap" is kept as the label for continuity with historical
+// rows. ("bridge" / "kiosk_bridge" / "verify" are retired; old rows may still
+// carry them, so the type stays permissive for reads.)
 export type LoadedVia = "bridge" | "kiosk_bridge" | "soap" | "verify";
 
 /** Flip load state after the Intercard call (loaded → completed). `via` stamps
@@ -471,7 +390,14 @@ export async function listPendingLoads(limit = 50): Promise<TxnRow[]> {
     const rows = await q`
       SELECT * FROM intercard_transactions
       WHERE load_state = 'pending' AND state = 'charged'
-        AND (queue_state IS NULL OR queue_state = 'soap_fallback')
+        -- Credit anything charged-but-unloaded EXCEPT the legacy EIS states
+        -- whose credit outcome is ambiguous ('claimed'/'verify' — a dead bridge
+        -- may already have credited them; re-crediting would double-charge, and
+        -- neither EIS nor the onsite proxy dedups). 'queued' is safe: a bridge
+        -- would have moved it to 'claimed' before crediting, so a bare 'queued'
+        -- row was never credited and belongs in the replay. (The EIS bridge is
+        -- retired; no new rows enter any of these states.)
+        AND (queue_state IS NULL OR queue_state IN ('soap_fallback', 'queued'))
         AND (kind NOT IN ('new_card', 'voucher') OR created_at < NOW() - INTERVAL '15 minutes')
       ORDER BY created_at ASC LIMIT ${limit}
     `;
