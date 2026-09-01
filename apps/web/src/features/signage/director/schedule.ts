@@ -183,7 +183,13 @@ export function crownActiveAt(
   const cycle = Math.floor(nowMs / unit);
   if (((cycle % crown.joinEvery) + crown.joinEvery) % crown.joinEvery !== 0) return false;
   const t = ((nowMs % unit) + unit) % unit;
-  return t < CROWN_WINDOW_MS;
+  // NEVER MORE THAN A THIRD OF THE SLOT. The window is the bank's own choreography
+  // length (11.9s), which is a fifth of the estate's 40s slot and would be SIXTY PER
+  // CENT of the front-desk wall's 20s one — so the day the crown scene ships, that wall
+  // would spend most of every cycle crowning instead of pricing. Only
+  // `isSceneImplemented` is keeping that from being live today, which is not a guard to
+  // rely on. No effect on a 40s board: min(11_900, 13_333) is unchanged.
+  return t < Math.min(CROWN_WINDOW_MS, unit / 3);
 }
 
 /* ── VIP takeover ─────────────────────────────────────────────────────── */

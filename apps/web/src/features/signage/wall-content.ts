@@ -642,7 +642,7 @@ export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuP
 }
 
 /**
- * The two Game Zone card tiers that carry a BONUS, richest first.
+ * The two Game Zone card tiers that carry a BONUS, cheapest first.
  *
  * The bonus is the offer — every tier below $30 is simply tokens for money, which is
  * not something a wall can sell. So only the tiers carrying one appear.

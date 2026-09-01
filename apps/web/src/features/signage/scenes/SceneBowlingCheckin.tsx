@@ -128,8 +128,12 @@ export function SceneBowlingCheckin({ feed }: SceneProps) {
             // Not an error, and the normal state for a quiet stretch. It says what to do
             // rather than what is missing.
             empty="No reservations due in the next hour."
-            rows={available.map((g) => ({
-              key: `${g.name}-${g.timeLabel}`,
+            rows={available.map((g, i) => ({
+              // THE INDEX IS IN THE KEY because the name is a FIRST NAME. Two guests
+              // called Mike both booked at 7:00 PM is a routine Saturday, and identical
+              // keys let React reconcile the wrong row on the next 15-second poll —
+              // attaching one guest's lane and status to the other's name.
+              key: `${i}-${g.name}-${g.timeLabel}`,
               name: g.name,
               // The LANE is the invitation — "Lane 12, go ahead" beats "you may check in"
               // — so it appears ONLY when the lane is genuinely ready. Otherwise the
@@ -148,8 +152,9 @@ export function SceneBowlingCheckin({ feed }: SceneProps) {
             accent={READY}
             empty="Nobody checked in just yet."
             footer={checkedIn.length > 0 ? "Your shoes are being brought out to you." : null}
-            rows={checkedIn.map((g) => ({
-              key: `${g.name}-${g.lanes}`,
+            rows={checkedIn.map((g, i) => ({
+              // Index-prefixed for the same reason as the column beside it.
+              key: `${i}-${g.name}-${g.lanes}`,
               name: g.name,
               value: laneWords(g.lanes),
               // A lane physically READY reads differently from one merely assigned:

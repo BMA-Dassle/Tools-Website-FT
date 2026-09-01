@@ -70,6 +70,10 @@ export const TV_MOTION_PERIODS_MS: Record<string, number> = {
   "tv-exit-chev": 1400,
   "tv-bday-glow": 1400,
   "tv-chev": 2800,
+  /** The same nod pointing left — the arena strip's wayfinding arrow. Registered
+   *  for the reason at the top of this file rather than because two screens must
+   *  agree: unregistered, it would drift against the beacon in its own band. */
+  "tv-chev-left": 2800,
   "tv-breathe": 2800,
 
   // The boot loader (TvApp's pre-feed state). Registered because the stylesheet

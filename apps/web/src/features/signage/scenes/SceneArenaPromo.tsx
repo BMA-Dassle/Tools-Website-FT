@@ -29,8 +29,9 @@
 import { useEffect, useRef, useState } from "react";
 import { SLOT_MS } from "../director/schedule";
 import { withAlpha } from "../color";
-import { TV_PHOTOS } from "../assets";
+import { NEXUS_REEL, TV_PHOTOS } from "../assets";
 import { ARENA_ACTIVITY_ACCENTS, ARENA_ACTIVITY_LABELS } from "../arena/arena-board";
+import { ARENA_STRIP_H } from "../arena/ArenaDeskStrip";
 import { useArenaFilms } from "../arena/useArenaFilms";
 import type { ArenaActivity } from "~/features/arena-tickets/types";
 import type { SceneProps } from "../director/types";
@@ -50,27 +51,36 @@ export function SceneArenaPromo(props: SceneProps) {
   const { feed, decision } = props;
   const films = useArenaFilms(feed?.arena ?? null, true);
 
-  // BOTH ACTIVITIES ALWAYS, because `useArenaFilms` falls back to the house Nexus reel
-  // when a venue has uploaded nothing — so there is no such thing as an activity with
-  // no film any more. The strip still names them in turn, and neither label is a lie:
-  // the house cut is arena footage of both games.
+  // BOTH ACTIVITIES ALWAYS, because the feed falls back to the house Nexus reel when a
+  // venue has uploaded nothing — so there is no such thing as an activity with no film.
   const available = ORDER;
+
+  /**
+   * IS THE HOUSE CUT WHAT IS PLAYING? Then it is ONE film of BOTH games, and naming it
+   * "Laser Tag" is wrong — the owner watched it do exactly that (2026-09-01: "should
+   * say laser tag and gel blasters if playing this"). Alternating two labels over one
+   * unchanging reel is worse than either label alone: it reads as a board that has lost
+   * track of what it is showing.
+   *
+   * Compared on the SOURCE url rather than on what `srcFor` returns, because that is a
+   * blob: URL once the file is cached locally.
+   */
+  const houseOnly =
+    feed?.arena?.films["laser-tag"]?.url === NEXUS_REEL &&
+    feed?.arena?.films["gel-blaster"]?.url === NEXUS_REEL;
 
   // Off the SEGMENT'S start, not off `nowMs`: the start is constant for the whole
   // segment (rotationAt derives it from the slot boundary), so the reel cannot
   // swap halfway through itself, and every board in the building agrees on which
-  // one is up without any messaging.
-  const activity =
-    available.length > 0
-      ? available[Math.floor(decision.startedAtMs / SLOT_MS) % available.length]
-      : null;
-
-  // The scene requiresData, so the director should never select it with nothing
-  // to play — but a feed can go null between the decision and the render, and a
-  // wall must never be blank because of a race.
-  if (!activity) return null;
+  // one is up without any messaging. Pinned to laser-tag when the house cut is
+  // playing — there is one file, so there is nothing to alternate.
+  const activity = houseOnly
+    ? "laser-tag"
+    : available[Math.floor(decision.startedAtMs / SLOT_MS) % available.length];
 
   const src = films.srcFor(activity);
+  // A feed can go null between the decision and the render, and a wall must never be
+  // blank because of a race.
   if (!src) return null;
 
   return (
@@ -80,18 +90,30 @@ export function SceneArenaPromo(props: SceneProps) {
       // underneath itself.
       key={src}
       src={src}
-      activity={activity}
+      label={houseOnly ? "Laser Tag & Gel Blasters" : ARENA_ACTIVITY_LABELS[activity]}
+      // The neutral blue when the reel is both games — the same accent the desk strip
+      // wears, so the band and the caption above it read as one board.
+      accent={houseOnly ? ARENA_ACTIVITY_ACCENTS.either : ARENA_ACTIVITY_ACCENTS[activity]}
+      fallbackPhoto={FALLBACK_PHOTO[activity]}
     />
   );
 }
 
 /* ── the film ─────────────────────────────────────────────────────────── */
 
-function FilmStage({ src, activity }: { src: string; activity: ArenaActivity }) {
+function FilmStage({
+  src,
+  label,
+  accent,
+  fallbackPhoto,
+}: {
+  src: string;
+  label: string;
+  accent: string;
+  fallbackPhoto: string;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [failed, setFailed] = useState(false);
-  const accent = ARENA_ACTIVITY_ACCENTS[activity];
-  const label = ARENA_ACTIVITY_LABELS[activity];
 
   /**
    * AUTOPLAY CAN STILL BE REFUSED even when muted — a throttled background tab,
@@ -117,7 +139,7 @@ function FilmStage({ src, activity }: { src: string; activity: ArenaActivity }) 
             // reveal an edge — same as the ad rotation's backdrop.
             position: "absolute",
             inset: "-6%",
-            backgroundImage: `url(${FALLBACK_PHOTO[activity]})`,
+            backgroundImage: `url(${fallbackPhoto})`,
             backgroundSize: "cover",
             backgroundPosition: "center",
             filter: "saturate(0.78) brightness(0.82)",
@@ -150,27 +172,34 @@ function FilmStage({ src, activity }: { src: string; activity: ArenaActivity }) 
         />
       )}
 
-      {/* Scrim under the strip only. The film is the message here, unlike the ad
+      {/* Scrim under the caption only. The film is the message here, unlike the ad
           slides where the photograph is atmosphere behind copy — so the frame
-          stays clean and only the bottom band is darkened enough to carry type. */}
+          stays clean and only the bottom band is darkened enough to carry type.
+          Lifted clear of the desk strip for the same reason the caption is. */}
       <div
         aria-hidden
         style={{
           position: "absolute",
           left: 0,
           right: 0,
-          bottom: 0,
+          bottom: ARENA_STRIP_H,
           height: 220,
           background: "linear-gradient(to top, rgba(0,4,24,0.92), transparent)",
         }}
       />
 
+      {/* CLEAR OF THE DESK STRIP. The strip is 104px of near-opaque navy that the
+          DIRECTOR renders over this scene, and it was covering the bottom half of the
+          activity name and all of "Ask at the desk to play" (owner screenshot,
+          2026-09-01: "also its covered"). `ARENA_STRIP_H` is exported for exactly this
+          and had no consumer — this is it. Everything the caption owns now sits above
+          the band rather than under it. */}
       <div
         style={{
           position: "absolute",
           left: 96,
           right: 96,
-          bottom: 54,
+          bottom: ARENA_STRIP_H + 46,
           display: "flex",
           alignItems: "flex-end",
           justifyContent: "space-between",
@@ -204,15 +233,16 @@ function FilmStage({ src, activity }: { src: string; activity: ArenaActivity }) 
         </div>
       </div>
 
-      {/* A thin accent rule along the bottom edge ties the reel to the colour
-          this activity's call will arrive in. */}
+      {/* A thin accent rule tying the reel to the colour this activity's call will
+          arrive in. Sits on TOP of the desk strip rather than behind it, where it was
+          invisible — the strip has its own 4px border and the two now read as one edge. */}
       <div
         aria-hidden
         style={{
           position: "absolute",
           left: 0,
           right: 0,
-          bottom: 0,
+          bottom: ARENA_STRIP_H,
           height: 8,
           background: accent,
           boxShadow: `0 0 40px ${accent}`,

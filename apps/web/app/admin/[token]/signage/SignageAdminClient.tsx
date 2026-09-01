@@ -1409,13 +1409,20 @@ function draftToConfig(d: Draft): ScreenConfig {
     // window would waste the whole point of the screen.
     playlist.push({ scene: "race-results", slots: 1 });
   } else if (d.showArena) {
-    // AN ARENA BOARD IS THE ONE SCREEN WHOSE ROTATION IS ITS ADVERTS. The check-in
-    // scene is an interrupt, so it is deliberately not in this list — the call
-    // takes the wall from whatever is playing. Films first, then the house slides;
-    // the films entry requires data so a venue with nothing uploaded runs the
-    // slides alone rather than holding two black slots.
-    playlist.push({ scene: "arena-promo", slots: 2, requiresData: true });
-    playlist.push({ scene: "ads", slots: 1 });
+    // AN ARENA BOARD'S ROTATION IS ITS OWN FILMS. The check-in scene is an interrupt,
+    // so it is deliberately not in this list — the call takes the wall from whatever is
+    // playing, and the desk strip carries the board's identity underneath.
+    //
+    // READ FROM THE PRESET, NOT RESTATED. This branch used to write
+    // `arena-promo x2 requiresData` + `ads x1`, which was correct until the owner took
+    // the house slides off these screens (2026-09-01) — after which a staff save of
+    // HPFM:9 or HPN:1 from this form would have put the adverts straight back, dropped
+    // the reel from three slots to two, and then failed the provisioning script's own
+    // verify pass, which now asserts their ABSENCE. Exactly the drift the front-desk
+    // branch above already learned; the fix is the same one.
+    for (const entry of rolePreset("arena-checkin").config.playlist ?? []) {
+      playlist.push(entry);
+    }
   } else {
     if (d.showRaceCheckin) playlist.push({ scene: "race-checkin", slots: 3 });
     if (d.showEventWelcome) playlist.push({ scene: "event-welcome", slots: 2, requiresData: true });
@@ -1438,6 +1445,12 @@ function draftToConfig(d: Draft): ScreenConfig {
           },
         }
       : {}),
+    // ONE `resultsBoard` KEY, and it has to stay one. A second spread of the same key
+    // landed here beside the arenaBoard line and, being later, won — so the saved blob
+    // was `{ track }` alone and `resolveScreenConfig` filled the rest back in as
+    // `role: "last-race"`, `ranges: ["month"]`. Effect: opening a top-times scores wall
+    // in this form and saving ANY unrelated field silently converted it to a last-race
+    // board and dropped its ticked windows, with nothing to say so.
     ...(d.showResults && d.resultsTrack
       ? {
           resultsBoard: {
@@ -1451,7 +1464,6 @@ function draftToConfig(d: Draft): ScreenConfig {
           },
         }
       : {}),
-    ...(d.showResults && d.resultsTrack ? { resultsBoard: { track: d.resultsTrack } } : {}),
     // Present-means-yes: this key is what declares the screen an arena board, to
     // the feed and to the director alike. Written in MINUTES × 60_000 because the
     // form asks a human for minutes and the config stores milliseconds.

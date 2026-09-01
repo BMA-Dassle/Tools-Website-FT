@@ -483,6 +483,25 @@
   animation: tv-chev 2.8s ease-in-out infinite;
 }
 
+/* The SAME nod pointing LEFT, for the arena strip's wayfinding arrow — the desk
+   is beside that screen, not under it (owner 2026-09-01). Same 2.8s cresting at
+   50%, so it sits on the beat with the chevrons and beacons it shares a band
+   with; only the axis differs. */
+@keyframes tv-chev-left {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.8;
+  }
+  50% {
+    transform: translate3d(-14px, 0, 0);
+    opacity: 1;
+  }
+}
+.tv-chev-left {
+  animation: tv-chev-left 2.8s ease-in-out infinite;
+}
+
 /* ── the welcome-back exit run ────────────────────────────────────────────
    Four chevrons whose brightness pulse travels toward the white door — the
    direction the feet should go, on the estate's 1.4s beat (same clock as
@@ -589,6 +608,12 @@
     opacity: 0;
   }
 }
+/* A reel fading up over the panel's own still. Reuses the wall dissolve's curve so
+   the two never look like different mechanisms on the same screen. */
+.tv-film-in {
+  animation: tv-enter-soft 700ms linear both;
+}
+
 .tv-frame--wall[data-state="entering"] {
   /* linear, not eased: two panels a beat apart on an eased curve are at very
      different opacities in the middle of it, which is exactly where the eye is. */

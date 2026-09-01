@@ -170,6 +170,38 @@ export function SceneDirector({
     [nowMs, config, feed, asleep, seen],
   );
 
+  /**
+   * LAND EXACTLY ON THE NEXT CUT, instead of up to a tick late.
+   *
+   * The interval above is a SAFETY NET, not the mechanism, and treating it as the
+   * mechanism is what made the wall look out of step (owner 2026-09-01: "timing of the
+   * screens could improve a bit… I'm thinking edge just reacting slow"). It is not the
+   * browser. `setInterval` keeps whatever phase it had when the component mounted, so a
+   * panel notices a boundary 0–250ms after it truly passes — and because that phase
+   * persists, a panel that booted at an unlucky moment sits a fifth of a second behind
+   * its neighbour ALL EVENING rather than jittering either side of it.
+   *
+   * A rotation segment already knows when it ends, so there is nothing to poll for:
+   * schedule a wake for that instant on the SHARED clock and every panel fires within
+   * timer jitter of the same moment. The interval stays for everything that is not
+   * clock-derived — a celebration arriving, a feed going empty, an interrupt clearing.
+   *
+   * Interrupts carry `durationMs: null` (they end when their cause does), so there is no
+   * boundary to aim at and this simply does not arm.
+   */
+  const boundaryMs =
+    decision.durationMs == null ? null : decision.startedAtMs + decision.durationMs;
+  useEffect(() => {
+    if (boundaryMs == null) return;
+    // A few ms PAST it, so the recomputed clock is unambiguously the far side of the
+    // boundary rather than a rounding error short of it — which would re-arm for ~0ms
+    // and spin until it crossed.
+    const delay = boundaryMs - (Date.now() + offset) + 8;
+    if (delay <= 0) return;
+    const t = setTimeout(() => setNowMs(Date.now() + offset), delay);
+    return () => clearTimeout(t);
+  }, [boundaryMs, offset]);
+
   // A celebration is spent once its window closes, so the next one can show.
   const celebrationId = decision.scene === "celebration" ? decision.event?.id : undefined;
   const celebrationEndsAt = decision.startedAtMs + (decision.durationMs ?? 8000);

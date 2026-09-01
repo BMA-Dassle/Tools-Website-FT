@@ -71,22 +71,35 @@ export function ArenaDeskStrip({ upcoming }: { upcoming: ArenaUpcoming[] }) {
         pointerEvents: "none",
       }}
     >
-      <span
-        aria-hidden
-        className="tv-blink"
-        style={{
-          width: 16,
-          height: 16,
-          borderRadius: "50%",
-          background: ACCENT,
-          boxShadow: `0 0 18px ${ACCENT}`,
-          flexShrink: 0,
-        }}
-      />
+      {/* THE ARROW POINTS AT THE DESK, and it replaced a blinking dot (owner
+          2026-09-01: "the check in here is incorrect, check in is located to the left.
+          Show arrow maybe"). The screen does not hang over the desk — it hangs beside
+          it — so "check in here" was pointing at itself, which sends a guest to a TV.
+          A direction is the whole content of this line, so it gets the glyph and the
+          copy says LEFT in words as well: an arrow alone is ambiguous to anyone who
+          reads it as "back the way you came".
 
-      {/* WHAT THIS SCREEN IS FOR, in the words a guest is holding a ticket for.
-          "Check in here" rather than "check-in": it is an instruction about the
-          spot they are standing on, not a label for a department. */}
+          Drawn, not a font glyph — the same rule the rest of the estate follows, and
+          it lets the head sit on the same optical baseline as 46px type. */}
+      <svg
+        aria-hidden
+        width="76"
+        height="52"
+        viewBox="0 0 76 52"
+        fill="none"
+        className="tv-chev-left"
+        style={{ flexShrink: 0, filter: `drop-shadow(0 0 16px ${withAlpha(ACCENT, 0.7)})` }}
+      >
+        <path
+          d="M74 26H8M8 26l22-20M8 26l22 20"
+          stroke={ACCENT}
+          strokeWidth="7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+
+      {/* WHAT THIS SCREEN IS FOR, in the words a guest is holding a ticket for. */}
       <span
         className="tv-display"
         style={{
@@ -96,7 +109,7 @@ export function ArenaDeskStrip({ upcoming }: { upcoming: ArenaUpcoming[] }) {
           textShadow: `0 0 26px ${withAlpha(ACCENT, 0.55)}`,
         }}
       >
-        Laser Tag &amp; Gel Blasters — check in here
+        Laser Tag &amp; Gel Blasters — check in to your left
       </span>
 
       {/* THE PROMISE THAT MAKES A GUEST WAIT HERE rather than wander off, which

@@ -138,8 +138,20 @@ export function useArenaFilms(arena: TvFeed["arena"], enabled: boolean): ArenaFi
     }
   }, [enabled, laserUrl, gelUrl]);
 
+  /**
+   * Sync on mount, and again on a slow beat while anything is still missing.
+   *
+   * Without the interval this ran ONCE PER PAGE LOAD, and the arena board's playlist is
+   * a single scene — so `frameKey` never changes and this hook never remounts. A player
+   * that relaunched during a wifi blip would therefore stream its reel off the network
+   * for the life of the page, which is weeks: the exact pathology video-cache.ts exists
+   * to prevent, since a file this size is evicted from the HTTP cache and re-downloaded
+   * on every loop. `RETRY_FLOOR_MS` had nothing to fire it.
+   */
   useEffect(() => {
     void sync();
+    const iv = setInterval(() => void sync(), RETRY_FLOOR_MS);
+    return () => clearInterval(iv);
   }, [sync, manifestKey]);
 
   // Nothing half-downloaded should outlive the screen.

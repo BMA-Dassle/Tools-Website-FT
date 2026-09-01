@@ -32,9 +32,44 @@ import {
   requestPersistence,
 } from "./video-cache";
 
-/** Re-check after a failed download. Long enough not to chew venue internet on every
- *  15-second poll, short enough to recover within an evening. */
+/** Re-check after a failed download. Long enough not to chew venue internet, short
+ *  enough to recover within an evening. */
 const RETRY_FLOOR_MS = 60_000;
+
+/**
+ * WHAT THIS PLAYER HAS ALREADY TRIED, AND WHAT IS STILL IN FLIGHT — at MODULE scope,
+ * deliberately, and both of these are bug fixes rather than tidiness.
+ *
+ * This scene unmounts every two minutes when the VIP artwork takes the wall, so a ref
+ * would be reborn empty ~700 times a day and neither of these would ever hold:
+ *
+ *   - The retry floor was inert. Every mount started with an empty ledger, so a reel
+ *     that 404s or is CORS-blocked was re-fetched on every single mount, forever, rather
+ *     than backing off for a minute.
+ *   - Worse, a download could never FINISH. The old code aborted the fetch on unmount,
+ *     and a mount lasts about 101 seconds — so any reel that takes longer than that on
+ *     venue wifi was cancelled, committed nothing, and restarted from byte zero two
+ *     minutes later, forever. The FastTrax hero is 30 MB, which is exactly the size that
+ *     loses that race, and exactly the size the HTTP cache refuses to keep.
+ *
+ * Keyed by URL and shared across mounts of this page, which is the right lifetime: it
+ * describes what this BROWSER has done, not what this component instance has.
+ */
+const attemptedAt = new Map<string, number>();
+const inFlight = new Map<string, Promise<boolean>>();
+
+/** Download once per URL per page, however many mounts ask for it. */
+function ensureOnce(url: string): Promise<boolean> {
+  const running = inFlight.get(url);
+  if (running) return running;
+  attemptedAt.set(url, Date.now());
+  // NO AbortSignal: a cache write that completes after this mount is gone is pure
+  // profit — the next turn plays it locally. `cache.put` only ever commits a whole
+  // response, so an interrupted one leaves nothing to clean up.
+  const p = ensureCached(url, undefined, WALL_CACHE).finally(() => inFlight.delete(url));
+  inFlight.set(url, p);
+  return p;
+}
 
 export interface WallFilmSources {
   /** A playable URL — the local copy when it is down, else the blob store. */
@@ -51,8 +86,6 @@ export interface WallFilmSources {
 export function useWallFilms(films: readonly string[], enabled: boolean): WallFilmSources {
   // url → object URL, for everything confirmed on disk.
   const [local, setLocal] = useState<Record<string, string>>({});
-  // url → last attempt, so a failing download backs off instead of retrying every poll.
-  const attemptedAt = useRef<Record<string, number>>({});
   /**
    * THE LIVE LEDGER of what THIS mount adopted: source url → object url.
    *
@@ -67,7 +100,6 @@ export function useWallFilms(films: readonly string[], enabled: boolean): WallFi
   /** False once this mount is gone, so an in-flight disk read cannot pin a film that
    *  the cleanup has already swept past. */
   const aliveRef = useRef(true);
-  const abortRef = useRef<AbortController | null>(null);
 
   // A primitive dependency rather than the array: a fresh array literal every render
   // would restart the sync on every tick of the shared clock.
@@ -90,20 +122,17 @@ export function useWallFilms(films: readonly string[], enabled: boolean): WallFi
       await adopt(url);
     }
 
-    const controller = new AbortController();
-    abortRef.current?.abort();
-    abortRef.current = controller;
-
     const now = Date.now();
-    const due = toFetch.filter((url) => now - (attemptedAt.current[url] ?? 0) >= RETRY_FLOOR_MS);
+    const due = toFetch.filter(
+      (url) => !inFlight.has(url) && now - (attemptedAt.get(url) ?? 0) >= RETRY_FLOOR_MS,
+    );
 
     for (const url of due) {
-      attemptedAt.current[url] = Date.now();
       // Sequential on purpose. Two large downloads racing each other on venue internet
       // both finish later than one after the other, and the first one finishing is what
-      // gets the panel a film.
-      if (controller.signal.aborted) break;
-      if (await ensureCached(url, controller.signal, WALL_CACHE)) await adopt(url);
+      // gets the panel a film. `ensureOnce` is what makes a download outlive the mount
+      // that started it, and what stops two mounts fetching the same file at once.
+      if (await ensureOnce(url)) await adopt(url);
     }
 
     // Prune only AFTER the new files are safely down, so a replaced reel keeps playing
@@ -131,12 +160,20 @@ export function useWallFilms(films: readonly string[], enabled: boolean): WallFi
     }
   }, [enabled, manifestKey]);
 
+  /**
+   * Sync on mount, and again on a slow beat while anything is still missing.
+   *
+   * The interval is what makes a failure recoverable. `sync` runs once per mount, and
+   * the ONLY thing that remounts this hook is the VIP artwork taking the wall — so on a
+   * panel whose reel failed to download, a boot-time wifi blip would otherwise be
+   * permanent for the life of the page, which is weeks. The module-level retry floor
+   * keeps this cheap: a tick with everything cached does one disk read and stops.
+   */
   useEffect(() => {
     void sync();
+    const iv = setInterval(() => void sync(), RETRY_FLOOR_MS);
+    return () => clearInterval(iv);
   }, [sync]);
-
-  // Nothing half-downloaded should outlive the screen.
-  useEffect(() => () => abortRef.current?.abort(), []);
 
   // Revoke on unmount only, FROM THE REF — see `adoptedRef`. Revoking when a URL leaves
   // the manifest would instead pull a reel out from under a panel that is mid-play.

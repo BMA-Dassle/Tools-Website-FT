@@ -1465,12 +1465,17 @@ export async function getBowlingReservationsToPollForLane(
  * kiosk and the desk, so a party the desk has already handled drops off this list
  * without needing a second flag.
  *
- * THE WINDOW IS DELIBERATELY WIDER BEFORE THAN AFTER. Guests arrive early far more
- * often than a reservation is genuinely still checkable an hour late, and the
- * pre-arrival notice already goes out ~30 minutes ahead — so someone who got that text
- * and walked straight over should see themselves listed. An hour and a half afterwards
- * covers a late party without carrying no-shows all evening; `closePastReservationStatuses`
- * eventually flips those to no_show anyway.
+ * THE NEXT HOUR AHEAD, AND AN HOUR OF GRACE BEHIND (owner 2026-09-01: "lanes available
+ * should just be showing reservations within next hour"). The forward bound is the
+ * owner's; the backward one is not symmetry for its own sake — a party that is forty
+ * minutes late is still standing at the desk being checked in, and dropping them off
+ * this list while `checkin_method` is still NULL would take them off the board at the
+ * moment they walked in. `closePastReservationStatuses` eventually flips real no-shows,
+ * so nothing accumulates.
+ *
+ * This was six hours ahead of the owner's ask at 90 minutes behind; the reduction to an
+ * hour is deliberate, and 30 minutes — which an earlier pass used — was too tight for
+ * the reason above.
  */
 export async function getSelfCheckinEligible(
   centerCode: string,
@@ -1490,10 +1495,9 @@ export async function getSelfCheckinEligible(
       -- first name and drops the blanks), but excluding it here keeps the LIMIT
       -- spending its slots on rows that will actually appear.
       AND TRIM(COALESCE(guest_name, '')) <> ''
-      -- THE NEXT HOUR, plus a half-hour grace for a late arrival (owner 2026-09-01:
-      -- "showing reservations within next hour"). Ordered soonest-first so the top of
-      -- the board is whoever is due next.
-      AND booked_at BETWEEN NOW() - INTERVAL '30 minutes' AND NOW() + INTERVAL '60 minutes'
+      -- THE NEXT HOUR, plus an hour of grace behind for a late arrival — see the note
+      -- above. Ordered soonest-first so the top of the board is whoever is due next.
+      AND booked_at BETWEEN NOW() - INTERVAL '60 minutes' AND NOW() + INTERVAL '60 minutes'
     ORDER BY booked_at ASC
     LIMIT ${limit}
   `;
@@ -1543,8 +1547,16 @@ export async function getSelfCheckedInWithLanes(
       AND dayof_order_lane IS NOT NULL
       AND dayof_order_lane <> ''
       AND status NOT IN ('cancelled', 'no_show')
-      AND checked_in_at > NOW() - INTERVAL '30 minutes'
-    ORDER BY checked_in_at DESC
+      -- THIRTY MINUTES FROM WHICHEVER HAPPENED LAST: the check-in, or the lane
+      -- opening. Anchored on checked_in_at alone this dropped exactly the guests who
+      -- most need the board. A guest may self-check-in up to an hour before their slot
+      -- (see getSelfCheckinEligible), but the row only becomes DISPLAYABLE when
+      -- dayof_order_lane is written, which happens when the lane actually opens: check
+      -- in at 19:00 for a 20:00 lane and the number appears 60 minutes after the
+      -- check-in stamp, outside the window, so it never showed at all.
+      AND GREATEST(checked_in_at, COALESCE(lane_ready_sent_at, checked_in_at))
+            > NOW() - INTERVAL '30 minutes'
+    ORDER BY GREATEST(checked_in_at, COALESCE(lane_ready_sent_at, checked_in_at)) DESC
     LIMIT ${limit}
   `;
   return rows.map((r) => rowToReservation(r as Record<string, unknown>));

@@ -23,6 +23,7 @@ import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
 import { displayNameFromFull } from "@/lib/display-name";
 import { loadSignageScreen } from "../data/signage-screens-db";
 import { parseScreenKey, VENUE_INFO, type SignageVenue } from "../constants";
+import { NEXUS_REEL } from "../assets";
 import {
   signageEventsKey,
   readSignageEvents,
@@ -683,12 +684,32 @@ async function buildArenaSection(
   ]);
   const laser = assets["arena-video:laser-tag"];
   const gel = assets["arena-video:gel-blaster"];
+  /**
+   * THE HOUSE REEL IS DEFAULTED HERE, IN THE FEED, and that placement is the fix
+   * rather than a detail.
+   *
+   * It was defaulted on the client, and the arena board went BLANK on the glass
+   * (owner 2026-09-01: "Laser tag board is completly blank"). The players do not
+   * reload on deploy, so that TV was running the PREVIOUS bundle — which filters the
+   * activities down to those with an uploaded film and renders nothing when none has
+   * one — against the NEW stored playlist, which no longer carries the house ad slides
+   * it used to fall back to. Old client, new config, empty screen.
+   *
+   * A default in the feed cannot be skewed that way: every client version, however
+   * old, is simply handed a film and plays it. The feed is the contract between the
+   * server and a browser of unknown age, and anything a screen must never be without
+   * belongs on this side of it.
+   *
+   * `durationMs: null` because the cut's length is not something this side measures —
+   * nothing on the arena board reads it, and inventing a number would be worse.
+   */
+  const house = { url: NEXUS_REEL, durationMs: null };
   return {
     calls,
     upcoming,
     films: {
-      "laser-tag": laser ? { url: laser.url, durationMs: laser.durationMs } : null,
-      "gel-blaster": gel ? { url: gel.url, durationMs: gel.durationMs } : null,
+      "laser-tag": laser ? { url: laser.url, durationMs: laser.durationMs } : house,
+      "gel-blaster": gel ? { url: gel.url, durationMs: gel.durationMs } : house,
     },
   };
 }
