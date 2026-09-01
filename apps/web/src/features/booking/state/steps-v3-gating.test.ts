@@ -153,6 +153,51 @@ describe("bowling v3 registry gating", () => {
   });
 });
 
+describe("NFL Ticket replaces the time step, never doubles it", () => {
+  function visibleFor(slug: string | null): string[] {
+    const session = emptySession({ entryBrand: "headpinz", context: {} });
+    const item = { ...newItem("bowling"), experienceSlug: slug };
+    return STEP_REGISTRY.bowling.filter((s) => s.isVisible(item, session)).map((s) => s.id);
+  }
+
+  it("an NFL item sees the GAME picker and not the time step", () => {
+    const ids = visibleFor("nfl-vip-fri-sun");
+    expect(ids).toContain("nfl-game");
+    expect(ids).not.toContain("bowling-time");
+    // Date and Experience stay — they are how the NFL card is reached.
+    expect(ids).toContain("bowling-date");
+    expect(ids).toContain("bowling-experience");
+  });
+
+  it("the other band slug behaves identically", () => {
+    const ids = visibleFor("nfl-vip-mon-thur");
+    expect(ids).toContain("nfl-game");
+    expect(ids).not.toContain("bowling-time");
+  });
+
+  it("a plain bowling item sees the time step and NOT the game picker", () => {
+    const ids = visibleFor(null);
+    expect(ids).toContain("bowling-time");
+    expect(ids).not.toContain("nfl-game");
+  });
+
+  it("a lookalike slug does not trigger it", () => {
+    // Prefix-keyed, so "vip-fri-sun" and the World Cup rows must not match.
+    for (const slug of ["vip-fri-sun", "world-cup-vip-fri-sun", "pizza-bowl-vip"]) {
+      const ids = visibleFor(slug);
+      expect(ids, slug).not.toContain("nfl-game");
+    }
+  });
+
+  it("exactly ONE of time/game is visible for every slug", () => {
+    for (const slug of [null, "nfl-vip-fri-sun", "nfl-vip-mon-thur", "vip-fri-sun"]) {
+      const ids = visibleFor(slug);
+      const both = [ids.includes("bowling-time"), ids.includes("nfl-game")].filter(Boolean).length;
+      expect(both, `slug=${slug}`).toBe(1);
+    }
+  });
+});
+
 describe("enableBowlingV3 action (persisted-session adoption)", () => {
   it("stamps context and resets bowling/kbf cursors only", async () => {
     const { reducer } = await import("./machine");
