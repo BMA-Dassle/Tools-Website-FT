@@ -14,7 +14,7 @@
  * strict-mode rule).
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { qamfCenterIdForCode } from "~/features/booking";
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
 import type {
@@ -134,53 +134,27 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     leadMinutes: kiosk ? 0 : isFastTraxDuckpinCenter(centerId) ? FASTTRAX_DUCKPIN_LEAD_MINUTES : 15,
   });
 
-  /**
-   * NFL Ticket shows only on days there is actually football.
-   *
-   * days_of_week cannot do this: the rows are banded Fri-Sun / Mon-Thu to match
-   * the Conqueror offers behind them, so a card would appear on every Saturday
-   * of the year. The real gate is whether the schedule has a sellable game that
-   * date, which only the server knows — so ask it, and hide the card until the
-   * answer arrives rather than flashing one that may vanish.
-   */
-  const [nflDate, setNflDate] = useState<string | null>(null);
-  useEffect(() => {
-    const centerId = qamfCenterIdForCode(session.center);
-    if (!centerId || !item.date) return void setNflDate(null);
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(
-          `/api/bowling/v2/nfl/games?centerId=${centerId}&from=${item.date}&to=${item.date}`,
-        );
-        const data = res.ok ? await res.json() : { dates: [] };
-        if (!cancelled) {
-          setNflDate(
-            Array.isArray(data.dates) && data.dates.includes(item.date) ? item.date : null,
-          );
-        }
-      } catch {
-        if (!cancelled) setNflDate(null); // fail closed — no card rather than a dead one
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [item.date, session.center]);
-
-  // Day-of-week + kind + world-cup + NFL filtering (classic parity).
+  // Day-of-week + kind filtering, minus the experiences that have their own
+  // entry (classic parity).
+  //
+  // World Cup and NFL Ticket are both reached by their own URL — ?experience=
+  // world-cup and ?experience=nfl — and their pickers replace this step
+  // outright. Their rows exist here only so the picker can resolve pricing,
+  // offer and items from the same table every other package uses; as CARDS
+  // they would be a second, worse way in, on a screen whose date the package
+  // does not actually let you choose.
   const experiences = useMemo(() => {
     const raw = expQuery.data ?? [];
     const dow = item.date ? new Date(`${item.date}T12:00:00`).getDay() : new Date().getDay();
     return raw
       .filter((e) => !e.slug.startsWith("world-cup-"))
-      .filter((e) => !e.slug.startsWith("nfl-vip-") || nflDate === item.date)
+      .filter((e) => !e.slug.startsWith("nfl-vip-"))
       .filter((e) => (kind === "kbf" ? true : e.kind !== "kbf"))
       .filter(
         (e) =>
           !Array.isArray(e.daysOfWeek) || e.daysOfWeek.length === 0 || e.daysOfWeek.includes(dow),
       );
-  }, [expQuery.data, item.date, kind, nflDate]);
+  }, [expQuery.data, item.date, kind]);
 
   // First accurate slot for an offer, optionally requiring a specific option
   // id to be verified-available at that slot.

@@ -603,6 +603,19 @@ export interface BowlingItem extends BookingItemBase, BowlingCommon {
   /** WORLD_CUP_FIXTURES id of the picked match (persisted to booking metadata). */
   worldCupMatchId?: string | null;
   /**
+   * NFL Ticket entry mode (?experience=nfl): the game picker replaces BOTH
+   * step families — classic Slots/Tier/Offer and v3 Date/Experience/Time —
+   * because a game already carries a date and a time, and the package is a
+   * single fixed VIP experience so there is nothing to choose on those screens.
+   *
+   * Marks the ITEM rather than keying off `experienceSlug`, deliberately. The
+   * slug is only known once a game is picked, so a slug test cannot decide
+   * which steps to show BEFORE the picker has run — that ordering is what put
+   * the first cut of this feature inside the normal wizard. Optional so
+   * sessions persisted before this field hydrate undefined → falsy.
+   */
+  isNfl?: boolean;
+  /**
    * ESPN event id of the picked NFL game.
    *
    * REQUIRED for an NFL Ticket booking, and not derivable from `bookedAt`:
@@ -997,6 +1010,8 @@ export function newItem(activity: Activity): SessionItem {
         discountCode: null,
         isWorldCup: false,
         worldCupMatchId: null,
+        isNfl: false,
+        nflGameId: null,
         isDuckpin: false,
       };
     case "racesim":
