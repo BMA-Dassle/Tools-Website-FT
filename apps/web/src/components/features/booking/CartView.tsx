@@ -1355,7 +1355,7 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
           const vHeats = planVoucherCoverage(session, base).raceHeats;
           if (vHeats.size > 0) base = new Set([...base, ...vHeats]);
         }
-        const bogo = computeBogoScheduledFree(session.items, base);
+        const bogo = computeBogoScheduledFree(session.items, session.party, base);
         if (bogo.heats.size > 0) {
           const sumLines = (ex: Set<RaceHeatAssignment>) =>
             applyPromoToBillLines(raceItemChargeLines(item, ex), session.appliedPromo).reduce(

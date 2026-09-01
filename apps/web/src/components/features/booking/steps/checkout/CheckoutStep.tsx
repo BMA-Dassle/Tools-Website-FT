@@ -673,7 +673,7 @@ export function CheckoutStep({
             const vHeats = planVoucherCoverage(session, base).raceHeats;
             if (vHeats.size > 0) base = new Set([...base, ...vHeats]);
           }
-          const bogo = computeBogoScheduledFree(session.items, base);
+          const bogo = computeBogoScheduledFree(session.items, session.party, base);
           if (bogo.heats.size > 0) {
             const sumLines = (ex: Set<RaceHeatAssignment>) =>
               buildRaceChargeLines(session, ex).reduce((s, l) => s + l.amount, 0);

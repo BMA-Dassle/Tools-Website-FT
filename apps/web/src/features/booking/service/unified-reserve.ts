@@ -545,7 +545,7 @@ export function buildCombinedLineItems(session: BookingSession): {
   // skipped there exactly like the voucher plan.
   const bogoFree: BogoScheduledFree = activeComboSpecial(session)
     ? { heats: new Set(), freeByMember: new Map() }
-    : computeBogoScheduledFree(session.items, coveredBeforeBogo);
+    : computeBogoScheduledFree(session.items, session.party, coveredBeforeBogo);
   const excludedHeats =
     bogoFree.heats.size > 0
       ? new Set([...coveredBeforeBogo, ...bogoFree.heats])

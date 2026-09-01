@@ -69,6 +69,7 @@ import { RaceWarningModal } from "./RaceWarningModal";
 import { racePackTeaserVisible } from "./RacePackTeaser";
 import { RacePackPicker, packFitsMember } from "./RacePackPicker";
 import { bogoSaleActive } from "~/features/booking/data/packs";
+import { racingPassBlocksBogo } from "~/features/booking/service/bogo-scheduled";
 import { IncludedList } from "./PackageCard";
 import {
   livePerRacerPrice,
@@ -831,33 +832,41 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
             collapsed line (owner 2026-08-12: "I don't want to have to click
             into this to find this special"). Keys off the RACE DATE like both
             halves of the promo always have. */}
-        {item.date && bogoSaleActive(item.date) && cheapestSingle != null && (
-          <div className="relative mt-2 flex w-full items-center gap-4 rounded-2xl border-2 border-amber-400 bg-linear-to-br from-amber-400/20 to-amber-400/5 px-5 pb-4 pt-6 text-left">
-            <span className="absolute -top-3 left-5 rounded-full bg-amber-400 px-3 py-1 text-[11px] font-black uppercase italic tracking-wide text-[#241701]">
-              {t("payMode.flashSale")}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="font-display block text-lg font-black uppercase leading-tight">
-                {t("payMode.bogo.title")}
+        {item.date &&
+          bogoSaleActive(item.date) &&
+          cheapestSingle != null &&
+          /* A racing pass (Employee 50%, League 20%) takes priority over the
+             special and never combines — hide the ad from a page whose racers
+             would all be excluded (owner, preview smoke 2026-08-31). */
+          racers.some(
+            (m) => !racingPassBlocksBogo((m as { memberships?: string[] }).memberships),
+          ) && (
+            <div className="relative mt-2 flex w-full items-center gap-4 rounded-2xl border-2 border-amber-400 bg-linear-to-br from-amber-400/20 to-amber-400/5 px-5 pb-4 pt-6 text-left">
+              <span className="absolute -top-3 left-5 rounded-full bg-amber-400 px-3 py-1 text-[11px] font-black uppercase italic tracking-wide text-[#241701]">
+                {t("payMode.flashSale")}
               </span>
-              <span className="mt-0.5 block text-sm text-white/60">{t("payMode.bogo.sub")}</span>
-            </span>
-            {/* This page's OWN tier prices the example (the junior page shows
+              <span className="min-w-0 flex-1">
+                <span className="font-display block text-lg font-black uppercase leading-tight">
+                  {t("payMode.bogo.title")}
+                </span>
+                <span className="mt-0.5 block text-sm text-white/60">{t("payMode.bogo.sub")}</span>
+              </span>
+              {/* This page's OWN tier prices the example (the junior page shows
                 junior money) — 2× the cheapest single, struck through to the
                 price of one. */}
-            <span className="shrink-0 text-right">
-              <span className="block text-xs font-semibold tabular-nums text-white/40 line-through">
-                {money(cheapestSingle.price * 2)}
+              <span className="shrink-0 text-right">
+                <span className="block text-xs font-semibold tabular-nums text-white/40 line-through">
+                  {money(cheapestSingle.price * 2)}
+                </span>
+                <span className="block text-xl font-extrabold tabular-nums">
+                  {money(cheapestSingle.price)}
+                </span>
+                <span className="block text-[10px] font-bold uppercase tracking-wide text-amber-400">
+                  {t("payMode.bogo.forTwo")}
+                </span>
               </span>
-              <span className="block text-xl font-extrabold tabular-nums">
-                {money(cheapestSingle.price)}
-              </span>
-              <span className="block text-[10px] font-bold uppercase tracking-wide text-amber-400">
-                {t("payMode.bogo.forTwo")}
-              </span>
-            </span>
-          </div>
-        )}
+            </div>
+          )}
 
         {/* Race packs — one line until tapped */}
         {packsOn && skus.length > 0 && (

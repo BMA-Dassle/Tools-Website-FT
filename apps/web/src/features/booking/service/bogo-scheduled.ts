@@ -50,7 +50,25 @@
  */
 import { bogoSaleActive } from "../data/packs";
 import { getRaceProductById } from "./race-products";
+import { membershipDiscountsForNames } from "./membership-discounts";
 import type { RaceHeatAssignment } from "../state/types";
+
+/**
+ * Does a racing membership discount BLOCK this racer from BOGO pairing?
+ * Owner 2026-08-31 (preview smoke): "cannot combine employee pass with BOGO
+ * Wednesday — employee pass takes priority." A racer whose memberships grant
+ * any RACING percent-off gets their pass pricing on every heat and no free
+ * races: the two never stack (an Employee Pass 50% pair would otherwise land
+ * at a quarter price). For the Employee Pass specifically the exclusion is
+ * money-neutral by construction — 50% off two races IS buy-one-get-one.
+ * Exported so the pay-mode banner can hide the ad from a party it won't apply
+ * to.
+ */
+export function racingPassBlocksBogo(memberships?: string[]): boolean {
+  return membershipDiscountsForNames(memberships ?? []).some(
+    (d) => d.percentOff > 0 && d.categories.includes("racing"),
+  );
+}
 
 export interface BogoScheduledFree {
   /** The exact heat ASSIGNMENTS the rule prices to $0 (object identity — the
@@ -66,7 +84,10 @@ export interface BogoScheduledFree {
  * `alreadyCovered` = every heat some other instrument prices to $0 first
  * (credit-redeemed, pack-covered, voucher-comped) — those heats neither pair
  * nor go free. Package component heats (per category) and booked combo pack
- * products are excluded exactly like every other coverage walk.
+ * products are excluded exactly like every other coverage walk. `party`
+ * carries each racer's membership names: a racer with a racing pass discount
+ * is excluded entirely (`racingPassBlocksBogo` — the pass takes priority,
+ * never stacks).
  */
 export function computeBogoScheduledFree(
   items: Array<{
@@ -76,11 +97,16 @@ export function computeBogoScheduledFree(
     packageIdJunior?: string | null;
     heats?: RaceHeatAssignment[];
   }>,
+  party: Array<{ id: string; memberships?: string[] }>,
   alreadyCovered: ReadonlySet<RaceHeatAssignment>,
   now: Date = new Date(),
 ): BogoScheduledFree {
   const heats = new Set<RaceHeatAssignment>();
   const freeByMember = new Map<string, number>();
+  // Racers whose pass pricing wins over the special (owner: never combined).
+  const passBlocked = new Set(
+    party.filter((m) => racingPassBlocksBogo(m.memberships)).map((m) => m.id),
+  );
 
   for (const item of items) {
     if (item.kind !== "race" || !item.heats || !item.date) continue;
@@ -90,6 +116,7 @@ export function computeBogoScheduledFree(
     const byMember = new Map<string, RaceHeatAssignment[]>();
     for (const h of item.heats) {
       if (!h.heatId || !h.assignedTo) continue;
+      if (passBlocked.has(h.assignedTo)) continue;
       // Premium bundles price their own races — per CATEGORY, so an adult
       // package never blocks the junior side's singles (computePackCoverage
       // parity).
