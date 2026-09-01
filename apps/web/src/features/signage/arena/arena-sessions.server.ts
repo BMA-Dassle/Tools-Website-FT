@@ -32,9 +32,23 @@ import "server-only";
  */
 import redis from "@/lib/redis";
 import { VENUE_INFO, type SignageVenue } from "../constants";
-import { ARENA_HOLD_MAX_MS, classifyArenaBoardSession, type ArenaCall } from "./arena-board";
+import { businessDayYmdET } from "@/lib/race-business-day";
+import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
+import {
+  ARENA_HOLD_MAX_MS,
+  classifyArenaBoardSession,
+  type ArenaCall,
+  type ArenaUpcoming,
+} from "./arena-board";
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
+
+/** The ONE dayplanner resource both activities run on, at BOTH venues —
+ *  verified by a 30-day sweep on 2026-09-01. Named here rather than imported
+ *  from arena-tickets/constants.ts (`ARENA_RESOURCES`) because that module is
+ *  documented as Fort Myers-only for its ticket dedup keys, and borrowing a
+ *  constant from it would imply this read inherits that limit. It does not. */
+const ARENA_RESOURCE = "HP Arena";
 
 /**
  * Upstream timeout. Short on purpose: this read sits inside the 15-second TV
@@ -199,4 +213,91 @@ export async function readCalledArenaSessions(
 
   cache.set(venue, { at: nowMs, calls });
   return calls;
+}
+
+/* ── what is still to come today ──────────────────────────────────────── */
+
+/**
+ * THE NEXT ARENA SESSION PER ACTIVITY, for the desk strip.
+ *
+ * EMPTY IS THE NORMAL ANSWER, not a failure, and the board is built around that.
+ * HP Arena sessions are created when somebody BOOKS one rather than published as
+ * a timetable: probed 2026-09-01, both venues had zero sessions for the day AND
+ * the day after, while the fortnight behind them ran 1–36 a day. So this is
+ * additive decoration on a strip that reads correctly without it — never
+ * something the strip reserves space for.
+ *
+ * A SEPARATE, SLOWER CACHE from the called-session read. A booking made now
+ * appears in the next couple of minutes, which is soon enough for a wall, and it
+ * keeps the schedule endpoint (the slow one — it answers for a whole day) off
+ * the 15-second poll.
+ */
+const UPCOMING_TTL_MS = 120_000;
+const upcomingCache = new Map<SignageVenue, { at: number; rows: ArenaUpcoming[] }>();
+
+interface PandoraScheduledSession {
+  type?: string;
+  name?: string;
+  scheduledStart?: string | null;
+}
+
+export async function readUpcomingArenaSessions(
+  venue: SignageVenue,
+  nowMs: number,
+): Promise<ArenaUpcoming[]> {
+  const hit = upcomingCache.get(venue);
+  if (hit && nowMs - hit.at < UPCOMING_TTL_MS) return hit.rows;
+
+  const locationId = VENUE_INFO[venue]?.squareLocationId;
+  if (!locationId) return [];
+
+  let rows: ArenaUpcoming[] = [];
+  try {
+    // THE SAME WINDOW SHAPE the pandora proxy's callers use, so this read shares
+    // the cron-warmed cache rather than inventing a private key nothing warms.
+    const ymd = businessDayYmdET();
+    const url =
+      `${PANDORA_URL}/bmi/sessions/${locationId}` +
+      `?startDate=${ymd}T00:00:00&endDate=${ymd}T23:59:59` +
+      `&resourceName=${encodeURIComponent(ARENA_RESOURCE)}`;
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${process.env.SWAGGER_ADMIN_KEY || ""}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    });
+    if (res.ok) {
+      const json = (await res.json()) as { data?: unknown };
+      const list = Array.isArray(json?.data) ? (json.data as PandoraScheduledSession[]) : [];
+      // Soonest first, one per activity, and only what is still ahead of us.
+      const bestByActivity = new Map<string, { ms: number; row: ArenaUpcoming }>();
+      for (const row of list) {
+        const activity = classifyArenaBoardSession(`${row.type || ""} ${row.name || ""}`);
+        if (!activity) continue;
+        const startMs = row.scheduledStart ? Date.parse(row.scheduledStart) : NaN;
+        if (!Number.isFinite(startMs) || startMs <= nowMs) continue;
+        // Z-stamped UTC from Pandora → ET wall-clock → a 12-hour label, the same
+        // pairing the feed already uses. Formatted HERE so no board ever does
+        // timezone maths to tell somebody when to be somewhere.
+        const timeLabel = fmtTime12(toEtWallClock(row.scheduledStart));
+        if (!timeLabel) continue;
+        const held = bestByActivity.get(activity);
+        if (!held || startMs < held.ms) {
+          bestByActivity.set(activity, { ms: startMs, row: { activity, timeLabel } });
+        }
+      }
+      rows = Array.from(bestByActivity.values())
+        .sort((a, b) => a.ms - b.ms)
+        .map((e) => e.row);
+    }
+  } catch {
+    // A schedule we could not read is a strip with no "Next" chips, which is
+    // also what an ordinary quiet day looks like. Nothing to report on a wall.
+    rows = [];
+  }
+
+  upcomingCache.set(venue, { at: nowMs, rows });
+  return rows;
 }

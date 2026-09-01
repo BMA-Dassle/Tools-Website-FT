@@ -19,7 +19,7 @@ import type { CheckinProgressSession } from "./checkin-progress";
 import type { FastPitRoster, PitBoardInfo, PitLanes } from "./pit/pit-board";
 import type { ResultsBoardView } from "./results-board";
 import type { TopTimesView } from "./top-times";
-import type { ArenaCall } from "./arena/arena-board";
+import type { ArenaCall, ArenaUpcoming } from "./arena/arena-board";
 
 /**
  * A scene is one full-screen visual. Adding a scene type is the only reason
@@ -1073,6 +1073,15 @@ export interface TvFeed {
    */
   arena: {
     calls: ArenaCall[];
+    /**
+     * The next session per activity that is still ahead of us today, for the
+     * desk strip's "Next" chips.
+     *
+     * EMPTY IS THE NORMAL ANSWER. Arena sessions are created when somebody books
+     * one, not published as a timetable, so a quiet hour has nothing here and the
+     * strip is written to read correctly without it — see ArenaDeskStrip.
+     */
+    upcoming: ArenaUpcoming[];
     /** The promo films, when they have been uploaded. Either may be null and
      *  the promo scene simply plays the other; both null and the scene
      *  self-skips, leaving the static slides. */
