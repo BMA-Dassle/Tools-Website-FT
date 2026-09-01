@@ -234,7 +234,6 @@ export const LoadCardSchema = z.object({
    * re-crediting through the cloud SOAP path — never double-load. Absent/false →
    * the server credits via SOAP (the fallback when no bridge is reachable).
    */
-  preLoaded: z.boolean().optional(),
   /**
    * The account came off a card the GUEST presented (swiped on an MSR-only
    * kiosk — a blank from the holder under the screen), not off a blank the

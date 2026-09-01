@@ -167,13 +167,13 @@ const nextConfig: NextConfig = {
             "style-src 'self' 'unsafe-inline' https:",
             "font-src 'self' https:",
             "img-src 'self' data: blob: https: http:",
-            // Loopback http entries: the kiosk PC's game-card-bridge
-            // (127.0.0.1:4599) — connect-src has no scheme-wide http allowance,
-            // so without these the kiosk silently falls back to cloud loads.
             // wss://bma-pandora-api… — the pit station's Q-SYS audio feed via
             // Pandora's relay; ws: is the LAN direct-to-Core override. See
             // the admin block above.
-            "connect-src 'self' https: ws: wss://webserver22.sms-timing.com:10015 wss://bma-pandora-api.azurewebsites.net http://127.0.0.1:4599 http://localhost:4599",
+            // (The 127.0.0.1:4599 loopback allowance for the kiosk PC's
+            // game-card-bridge is gone with that bridge — card loads are
+            // server-side now.)
+            "connect-src 'self' https: ws: wss://webserver22.sms-timing.com:10015 wss://bma-pandora-api.azurewebsites.net",
             "frame-src 'self' https://www.cognitoforms.com https://kiosk.bmileisure.com https://*.3cx.us https://profile.squareup.com https://squareup.com https://pci-connect.squareup.com https://web.squarecdn.com https:",
             // *.vmsproxy.com — Nx Witness live camera video, played by the
             // browser straight from the cloud relay because a serverless

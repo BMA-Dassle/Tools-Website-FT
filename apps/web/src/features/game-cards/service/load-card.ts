@@ -133,20 +133,12 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
   }
 
   let loaded = false;
-  if (input.preLoaded) {
-    // The kiosk PC's on-prem bridge already credited the tokens via the local
-    // EIS server — record it, do NOT re-credit through the cloud SOAP path
-    // (the two paths don't share dedup, so double-crediting must be avoided).
-    loaded = true;
-    console.log(
-      `[game-cards] new-card load via on-prem bridge txn=${row.txnId} card=${input.accountNumber}`,
-    );
-  } else {
+  {
     // Clear-on-encode (GC_CLEAR_ON_ENCODE): de-register the card's existing
     // account BEFORE crediting (clearAccount → TPI_ClearAccount), so a RECYCLED
     // card can't stack old value on top of the new load — the credit then
     // re-materializes the account clean (behavior confirmed live 2026-07-23, see
-    // clearAccount). Cloud/SOAP path only (preLoaded=false) and cards taken from
+    // clearAccount). Cards taken from
     // the STACKER only (paid new_card or comped voucher — both are recycled
     // stock) — NEVER a reload (that would wipe the guest's own balance). If the
     // clear doesn't confirm, we must NOT credit (would over-credit an uncleared
@@ -216,7 +208,7 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
     input.txnId,
     loaded ? "loaded" : "pending",
     loaded ? undefined : "load not confirmed",
-    loaded ? (input.preLoaded ? "kiosk_bridge" : "soap") : undefined,
+    loaded ? "soap" : undefined,
   );
 
   let balance: CardBalance | undefined;

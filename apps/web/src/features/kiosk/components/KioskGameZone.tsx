@@ -35,11 +35,7 @@
 import { useEffect, useRef, useState } from "react";
 import PaymentForm from "@/components/square/PaymentForm";
 import { KioskTerminalCheckoutGate } from "./KioskTerminalCheckoutGate";
-import {
-  onsiteHealth,
-  creditTokensViaBridge,
-  type OnsiteChipStatus,
-} from "../service/game-card-bridge";
+import { onsiteHealth, type OnsiteChipStatus } from "../service/game-card-bridge";
 import { kioskGzCartEnabled, kioskVoucherGzEnabled } from "~/features/kiosk/flags";
 import { useQrScanner } from "../qr-scanner/useQrScanner";
 import { useWedgeScan } from "../checkin/wedge-scan";
@@ -1287,16 +1283,10 @@ export function KioskGameZone({
     opts: { swiped?: boolean } = {},
   ): Promise<boolean> => {
     setDispenseMsg(t("gamezone.voucher.loading"));
-    // On-prem bridge first (instant on the floor), cloud SOAP as the fallback —
-    // never both, they share no dedup. A bonus-CASH grant can't ride the bridge
-    // (its /credit speaks tokens only), so it goes straight to SOAP.
-    const bridged = claim.grant.bonusCashDollars
-      ? false
-      : await creditTokensViaBridge({
-          accountNumber: account,
-          tokens: claim.grant.tokens,
-          bonusTokens: claim.grant.bonusTokens,
-        });
+    // The server credits through the Intercard router (onsite first, cloud SOAP
+    // fallback). The on-prem EIS bridge that used to pre-load here is retired:
+    // the onsite proxy reaches the same site card system and, unlike the EIS
+    // socket, also handles bonus cash / clear / consolidate.
     let loaded = false;
     try {
       const res = await fetch("/api/game-cards/load-card", {
@@ -1307,7 +1297,7 @@ export function KioskGameZone({
           txnId: claim.txnId,
           accountNumber: account,
           locationCode,
-          preLoaded: bridged,
+
           swiped: !!opts.swiped,
         }),
       });
@@ -1931,17 +1921,9 @@ export function KioskGameZone({
       }
       setNewCardAt(i, { account, cardStatus: "pending" });
       setDispenseMsg(t("gamezone.loadingOntoCard", { n: i + 1 }));
-      // On-prem bridge FIRST (fast local EIS), cloud SOAP fallback server-side
-      // (preLoaded:false). Never both — no double-credit. `swiped` tells the
-      // server this card is the guest's choice: never clear-on-encode it.
-      const pkg = TOKEN_PACKAGES.find((p) => p.id === newCards[i]?.packageId);
-      const bridged = pkg
-        ? await creditTokensViaBridge({
-            accountNumber: account,
-            tokens: pkg.tokens,
-            bonusTokens: pkg.bonusTokens,
-          })
-        : false;
+      // The server credits through the Intercard router (onsite first, cloud
+      // SOAP fallback). `swiped` tells the server this card is the guest's
+      // choice: never clear-on-encode it.
       let loaded = false;
       let balanceTokens: number | undefined;
       try {
@@ -1953,7 +1935,7 @@ export function KioskGameZone({
             txnId,
             accountNumber: account,
             locationCode,
-            preLoaded: bridged,
+
             swiped: true,
           }),
         });
@@ -2056,17 +2038,8 @@ export function KioskGameZone({
       setDispenseMsg(t("gamezone.loadingOntoCard", { n: i + 1 }));
       let loaded = false;
       let balanceTokens: number | undefined;
-      // On-prem FIRST: load through the kiosk-PC bridge → local EIS server (fast).
-      // If it isn't reachable, the server falls back to the cloud SOAP path
-      // (preLoaded:false). Never both — no double-credit.
-      const pkg = TOKEN_PACKAGES.find((p) => p.id === newCards[i]?.packageId);
-      const bridged = pkg
-        ? await creditTokensViaBridge({
-            accountNumber: account,
-            tokens: pkg.tokens,
-            bonusTokens: pkg.bonusTokens,
-          })
-        : false;
+      // The server credits through the Intercard router (onsite first, cloud
+      // SOAP fallback) — the on-prem EIS bridge is retired.
       try {
         const res = await fetch("/api/game-cards/load-card", {
           method: "POST",
@@ -2076,7 +2049,6 @@ export function KioskGameZone({
             txnId,
             accountNumber: account,
             locationCode,
-            preLoaded: bridged,
           }),
         });
         const data = await res.json();
@@ -2180,22 +2152,16 @@ export function KioskGameZone({
     };
   };
 
-  // reload via the reader: after the charge, load each already-charged card on the
-  // on-prem bridge, then report through /load-card (preLoaded=true → the server
-  // records it without re-crediting via SOAP; preLoaded=false → SOAP fallback). A
-  // failed report leaves the row pending for the reconcile cron — never a
-  // double-credit (the two paths don't share dedup).
+  // reload via the reader: after the charge, credit each already-charged card
+  // through /load-card, which routes to Intercard (onsite first, cloud SOAP
+  // fallback). A failed report leaves the row pending for the reconcile cron —
+  // never a double-credit.
   const loadReloadViaBridge = async (
     groupId: string,
     rows: Array<{ txnId: string; accountNumber: string; tokens: number; bonusTokens: number }>,
   ) => {
     let anyPending = false;
     for (const r of rows) {
-      const bridged = await creditTokensViaBridge({
-        accountNumber: r.accountNumber,
-        tokens: r.tokens,
-        bonusTokens: r.bonusTokens,
-      });
       try {
         const res = await fetch("/api/game-cards/load-card", {
           method: "POST",
@@ -2205,7 +2171,6 @@ export function KioskGameZone({
             txnId: r.txnId,
             accountNumber: r.accountNumber,
             locationCode,
-            preLoaded: bridged,
           }),
         });
         const data = await res.json().catch(() => ({}));
