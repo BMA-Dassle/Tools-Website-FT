@@ -7,6 +7,11 @@ import {
 } from "~/features/lane-plan/place.server";
 import { createWithLanePlan, describePinOutcome } from "~/features/lane-plan/pin";
 import {
+  freeLaneCandidates,
+  immediateLaneGuardEnabled,
+  isImmediateStart,
+} from "~/features/booking/service/immediate-lane-guard";
+import {
   assertBookable,
   DurationGuardError,
   qamfSlotTakenMessage,
@@ -134,21 +139,28 @@ export async function POST(req: NextRequest) {
   // Bounded by PLAN_BUDGET_MS: no guest waits on lane planning. A timeout, a slow read or
   // any failure yields an empty candidate list, and `createWithLanePlan` then creates with
   // no `Lanes` at all — byte-identical to the behaviour that predates this feature.
-  const arranging = shouldArrangeLane({
-    centerId,
-    bookedAtMs: Date.parse(bookedAt),
-    nowMs: Date.now(),
-  });
-  const candidates = arranging
+  const bookedAtMs = Date.parse(bookedAt);
+  const nowMs = Date.now();
+  const arranging = shouldArrangeLane({ centerId, bookedAtMs, nowMs });
+
+  const preferred = arranging
     ? await planLanesWithinBudget({
         centerId,
-        bookedAtMs: Date.parse(bookedAt),
+        bookedAtMs,
         players,
         webOfferId,
         optionId,
         optionType,
       })
     : [];
+
+  // AVAILABILITY GUARD — every centre, always on, independent of the arrangement pilot.
+  // Arrangement decides which free lane is best; this decides whether a lane is usable at
+  // all. For a guest starting now, never offer one somebody is physically still on.
+  const candidates =
+    immediateLaneGuardEnabled() && isImmediateStart(bookedAtMs, nowMs)
+      ? await freeLaneCandidates({ centerId, players, preferred })
+      : preferred;
 
   try {
     const outcome = await createWithLanePlan({
