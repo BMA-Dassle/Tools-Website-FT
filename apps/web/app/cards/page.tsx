@@ -26,8 +26,12 @@ export const metadata: Metadata = {
 const GIFT_CARD_URL = "https://squareup.com/gift/2Z728TECCNWSE/order";
 
 export default function CardsPage() {
+  // NOTE: the root layout (app/layout.tsx) already renders the brand nav (fixed,
+  // ~110px tall) AND wraps this in <main>. So this page must (a) NOT open its own
+  // <main> — that nests <main> inside <main> — and (b) start its content BELOW the
+  // fixed nav. pt-32 sm:pt-36 is the same clearance the /reload flow uses.
   return (
-    <main className="relative min-h-[70vh] bg-[#00041b] px-5 py-14 text-white">
+    <div className="relative min-h-screen bg-[#00041b] px-5 pt-32 pb-16 text-white sm:pt-36">
       <div className="mx-auto max-w-2xl space-y-8">
         <header className="space-y-2 text-center">
           <h1 className="font-heading text-3xl font-extrabold italic uppercase sm:text-4xl">
@@ -76,6 +80,6 @@ export default function CardsPage() {
           Tip: scan the QR on your Game Zone card with your phone to jump straight to it.
         </p>
       </div>
-    </main>
+    </div>
   );
 }
