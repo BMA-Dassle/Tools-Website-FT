@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyPackQty,
   applyPackSelection,
   computePackCoverage,
   coveredMembersPreview,
@@ -8,7 +7,6 @@ import {
   packSkusForRaceDate,
   resolveKioskPacks,
   resolveSessionPacks,
-  selectionQty,
   type ResolvedKioskPack,
 } from "./race-pack-kiosk";
 import { getRacePack } from "../data/packs";
@@ -123,9 +121,6 @@ const packFor = (memberId: string, slug = "3-race-anytime"): ResolvedKioskPack =
     personId: `9${memberId}`,
     memberName: memberId,
     label: pack.name,
-    qty: 1,
-    creditCount: pack.raceCount,
-    unitPriceCents: Math.round(pack.price * 100),
     priceCents: Math.round(pack.price * 100),
   };
 };
@@ -347,9 +342,6 @@ describe("computePackCoverage — weekday pack never covers a weekend-dated item
     personId: "91",
     memberName: "Eric O",
     label: "3-Race Pack (Mon–Thu)",
-    qty: 1,
-    creditCount: 3,
-    unitPriceCents: 4999,
     priceCents: 4999,
   };
 
@@ -407,61 +399,5 @@ describe("applyPackSelection", () => {
 
   it("returns undefined when the result is empty (session stores no key)", () => {
     expect(applyPackSelection([{ slug: WD, memberId: "m1" }], WD, [])).toBeUndefined();
-  });
-
-  it("re-applying the panel keeps an existing holder's quantity (never resets a ×2)", () => {
-    // m1 already holds a ×2 BOGO; checking m2 onto the same slug must not
-    // flatten m1 back to one deal.
-    const picks = [{ slug: "bogo-races-adult", memberId: "m1", qty: 2 }];
-    const next = applyPackSelection(picks, "bogo-races-adult", ["m1", "m2"]);
-    expect(next).toEqual([
-      { slug: "bogo-races-adult", memberId: "m1", qty: 2 },
-      { slug: "bogo-races-adult", memberId: "m2" },
-    ]);
-  });
-});
-
-describe("applyPackQty — the multi-buy stepper", () => {
-  const BOGO = "bogo-races-adult";
-
-  it("sets a quantity on a held multi-buy pack", () => {
-    const next = applyPackQty([{ slug: BOGO, memberId: "m1" }], BOGO, "m1", 2);
-    expect(next).toEqual([{ slug: BOGO, memberId: "m1", qty: 2 }]);
-  });
-
-  it("qty 1 drops the field — the stored pointer keeps its pre-qty shape", () => {
-    const next = applyPackQty([{ slug: BOGO, memberId: "m1", qty: 2 }], BOGO, "m1", 1);
-    expect(next).toEqual([{ slug: BOGO, memberId: "m1" }]);
-  });
-
-  it("clamps to the catalog's maxPerRacer (BOGO: 4) and to a floor of 1", () => {
-    expect(applyPackQty([{ slug: BOGO, memberId: "m1" }], BOGO, "m1", 99)).toEqual([
-      { slug: BOGO, memberId: "m1", qty: 4 },
-    ]);
-    expect(applyPackQty([{ slug: BOGO, memberId: "m1", qty: 2 }], BOGO, "m1", 0)).toEqual([
-      { slug: BOGO, memberId: "m1" },
-    ]);
-  });
-
-  it("a single-buy SKU clamps every quantity back to 1", () => {
-    expect(
-      applyPackQty([{ slug: "3-race-weekday", memberId: "m1" }], "3-race-weekday", "m1", 3),
-    ).toEqual([{ slug: "3-race-weekday", memberId: "m1" }]);
-  });
-
-  it("other members' picks pass through untouched", () => {
-    const picks = [
-      { slug: BOGO, memberId: "m1" },
-      { slug: BOGO, memberId: "m2", qty: 3 },
-    ];
-    expect(applyPackQty(picks, BOGO, "m1", 2)).toEqual([
-      { slug: BOGO, memberId: "m1", qty: 2 },
-      { slug: BOGO, memberId: "m2", qty: 3 },
-    ]);
-  });
-
-  it("selectionQty defaults an absent field to 1", () => {
-    expect(selectionQty({})).toBe(1);
-    expect(selectionQty({ qty: 3 })).toBe(3);
   });
 });

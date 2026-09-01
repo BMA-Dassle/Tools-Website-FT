@@ -752,16 +752,14 @@ export function buildCombinedLineItems(session: BookingSession): {
     totalDepositCents += p.priceCents;
     sqLineItems.push({
       name: `Race Pack — ${p.label} · ${p.memberName}`,
-      // Multi-buy SKUs (BOGO ×N) ride as a real Square quantity so the books
-      // show "2 × $20.99", never a mystery $41.98 unit. qty is 1 elsewhere.
-      quantity: String(p.qty),
+      quantity: "1",
       catalogObjectId: SQUARE_RACE_PACK_CATALOG_ID,
-      basePriceMoney: { amount: p.unitPriceCents, currency: "USD" },
+      basePriceMoney: { amount: p.priceCents, currency: "USD" },
     });
     pricedLines.push({
       name: `Race Pack — ${p.label} · ${p.memberName}`,
-      quantity: p.qty,
-      unitCents: p.unitPriceCents,
+      quantity: 1,
+      unitCents: p.priceCents,
     });
   }
 
@@ -3425,12 +3423,10 @@ async function unifiedReserveInner(
           const usedToday = packCoverage.usedByMember.get(p.memberId) ?? 0;
           return {
             memberName: p.memberName,
-            label: p.qty > 1 ? `${p.label} ×${p.qty}` : p.label,
-            // creditCount = raceCount × qty, so "used today / banked" stays
-            // honest on a multi-buy deal ("2 races today · 2 banked").
-            raceCount: p.creditCount,
+            label: p.label,
+            raceCount: p.pack.raceCount,
             usedToday,
-            banked: p.creditCount - usedToday,
+            banked: p.pack.raceCount - usedToday,
             granted: outcomes.find((o) => o.memberId === p.memberId)?.granted ?? false,
           };
         });

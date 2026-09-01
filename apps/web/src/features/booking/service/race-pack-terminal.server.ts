@@ -179,12 +179,9 @@ export async function prepareStandalonePackPurchase(
         line_items: [
           ...resolved.map((p) => ({
             name: `Race Pack — ${p.label} · ${p.memberName}`,
-            // Standalone sells the standing SKUs only (all maxPerRacer 1), so
-            // qty is always 1 here today — carried anyway so this rail can
-            // never silently flatten a multi-buy line into one unit.
-            quantity: String(p.qty),
+            quantity: "1",
             catalog_object_id: SQUARE_RACE_PACK_CATALOG_ID,
-            base_price_money: { amount: p.unitPriceCents, currency: "USD" },
+            base_price_money: { amount: p.priceCents, currency: "USD" },
           })),
           ...licenseObligations.map((o) => ({
             name: `FastTrax License · ${o.memberName}`,
@@ -325,10 +322,6 @@ export async function finalizeStandalonePackPurchase(input: {
   const resolved: ResolvedKioskPack[] = rows.map((r) => {
     const pack = getRacePack(r.packSlug);
     if (!pack) throw new RacePackHttpError(500, `Unknown pack on ledger: ${r.packSlug}`);
-    // The row's race_count is the TOTAL credits owed (raceCount × qty at
-    // prepare) — the grant reads creditCount, so the ledger stays the single
-    // source of truth for how much the guest paid to receive.
-    const qty = Math.max(1, Math.round(r.raceCount / pack.raceCount));
     return {
       slug: r.packSlug,
       pack,
@@ -336,9 +329,6 @@ export async function finalizeStandalonePackPurchase(input: {
       personId: r.personId,
       memberName: r.memberName ?? "Racer",
       label: r.packLabel ?? racePackLabel(pack),
-      qty,
-      creditCount: r.raceCount,
-      unitPriceCents: Math.round(r.priceCents / qty),
       priceCents: r.priceCents,
     };
   });
@@ -378,7 +368,7 @@ export async function finalizeStandalonePackPurchase(input: {
     packs: resolved.map((p) => ({
       memberName: p.memberName,
       label: p.label,
-      raceCount: p.creditCount,
+      raceCount: p.pack.raceCount,
       granted: outcomes.find((o) => o.memberId === p.memberId)?.granted ?? false,
     })),
     licenses,

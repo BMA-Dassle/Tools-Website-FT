@@ -28,20 +28,6 @@
  *         cloud-only — the onsite path can consolidate, so it shows on every
  *         kiosk with a card backend. The EIS queue + its reconcile machinery are
  *         gone; the reconcile cron is now a dedup-safe recover-forward replay.
- * 1.28.0 — WEDNESDAY BOGO CAN BE BOUGHT MORE THAN ONCE IN ONE ORDER. The
- *         "one pack per racer" rule (right for the standing 3/5/10 SKUs —
- *         two 3-packs is just a worse 5-pack) turned the per-DEAL-priced BOGO
- *         into a queue: a returning racer wanting two deals (4 races) had to
- *         pay, walk back to the attract screen and buy the second as a
- *         separate transaction (guest complaints 2026-08-31). New registry
- *         field `maxPerRacer` (4 on both BOGO SKUs, absent = 1 everywhere
- *         else) + a `qty` on the selection pointer, validated fail-closed in
- *         resolveKioskPacks. UI: −/+ stepper on the pay-mode promoted BOGO
- *         row and on the picker/cart assignment rows (multi-buy SKUs only).
- *         Charge carries a real Square quantity (2 × $20.99, never a mystery
- *         $41.98 unit); the grant loads raceCount × qty credits in one
- *         deposit; coverage caps at the same number, so "×2 + 4 booked heats"
- *         pays $41.98 and covers all four.
  * 1.27.0 — THE VIP QR NOW REACHES THE SCREEN THAT SEEDS. 1.26.0 made the
  *         voucher receipt auto-link a booking's party, but a scan on the
  *         attract screen or the chooser never got there. `/v/{code}` was

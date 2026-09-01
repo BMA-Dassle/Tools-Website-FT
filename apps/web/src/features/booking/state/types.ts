@@ -234,16 +234,13 @@ export interface RaceItem extends BookingItemBase {
   entryMode?: "new" | "existing" | null;
   /**
    * KIOSK race packs (CREDIT packs — owner final design 2026-07-18): selection
-   * POINTERS only ({RACE_PACKS slug, party memberId, optional qty}); every
-   * price/kind/label re-derives server-side (race-pack-kiosk.ts). One pack per
-   * member (replace semantics); `qty` multiplies THAT one pack and is only
-   * honoured on a multi-buy SKU (`RacePack.maxPerRacer` — the BOGO deals),
-   * validated fail-closed at resolve. Absent qty = 1, so sessions persisted
-   * before the field hydrate unchanged. The pack line rides the DAY-OF Square
-   * order; the assignee's today heats are credit-covered post-grant. Absent on
-   * web sessions — additive, no schema bump.
+   * POINTERS only ({RACE_PACKS slug, party memberId}); every price/kind/label
+   * re-derives server-side (race-pack-kiosk.ts). One pack per member (replace
+   * semantics). The pack line rides the DAY-OF Square order; the assignee's
+   * today heats are credit-covered post-grant. Absent on web sessions —
+   * additive, no schema bump.
    */
-  creditPacks?: Array<{ slug: string; memberId: string; qty?: number }>;
+  creditPacks?: Array<{ slug: string; memberId: string }>;
   /**
    * Booking ADD-ONS (retail extras — v1: replacement headsock, owner
    * 2026-08-10): selection POINTERS only ({addon-catalog slug, party

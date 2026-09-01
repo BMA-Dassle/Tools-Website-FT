@@ -1,30 +1,5 @@
 # Open Tasks
 
-## Wednesday BOGO: multiple deals in one order (2026-08-31) — branch `feat/bogo-multi-qty`
-
-Guest complaints (owner relay 8/31): returning racers on Wednesdays could not buy more than one
-BOGO deal per transaction — "one pack per racer" forced pay → walk back to kiosk → pay again.
-Owner direction mid-build: the race GRID should drive it ("just allow more to be picked").
-
-- [x] Registry `maxPerRacer` (4 on both BOGO SKUs; absent = 1 keeps the standing rule for 3/5/10).
-- [x] Selection pointer gains optional `qty`; `resolveKioskPacks` validates fail-closed (cap,
-      non-integer, qty>1 on single-buy all throw); `ResolvedKioskPack` carries qty / creditCount /
-      unitPriceCents; priceCents = line total so every money consumer scales for free.
-- [x] Grant loads raceCount×qty in ONE deposit (NX guard unchanged); ledger row stores the
-      multiplied race_count/price_cents (no schema change); standalone finalize rebuilds qty from
-      the row. Square lines carry a real quantity (2 × $20.99).
-- [x] Coverage caps at creditCount → ×2 covers 4 booked Wednesday heats.
-- [x] **Grid-driven**: `autoRaiseMultiBuyQty` in the reducer — more heats than the held deal
-      covers auto-raises qty (upward only, capped, skips credit-holders, fail-open on bad
-      pointers). Strictly guest-favorable: deal price == the weekday single price it replaces,
-      plus a banked race.
-- [x] UI: −/+ stepper on pay-mode promoted BOGO row (single holder) + picker/cart assignment rows;
-      EN+ES keys; teaser fineprint updated. KIOSK_VERSION 1.28.0.
-- [x] Gates: tsc clean, vitest 6724 green (17 new: resolver qty, applyPackQty, auto-raise,
-      reducer wiring), eslint 0 errors, a11y gate ✓, real `next build` ✓.
-- [ ] Owner smoke on a kiosk + a real Wednesday order (Square line shows qty; credits land ×N).
-- [ ] PR + merge; delete worktree `.worktrees/bogo-multi-qty` after.
-
 ## Kiosks without a dispenser: new cards by swipe (2026-08-28) — branch `worktree-kiosk-no-dispenser-new-card`
 
 Owner: MSR-only kiosks (no CRT-591) get a holder of blank cards under the screen; the guest takes

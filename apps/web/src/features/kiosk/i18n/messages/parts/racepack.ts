@@ -71,7 +71,7 @@ export const racepackEn = {
   "racePack.teaser.saveUpTo": "Save up to {amount}",
   "racePack.teaser.choose": "Choose your pack",
   "racePack.teaser.fineprint":
-    "Credits load right after payment and never expire. One pack per racer (Wednesday BOGO can be taken more than once) · non-transferable · savings vs the {price} single race.",
+    "Credits load right after payment and never expire. One pack per racer · non-transferable · savings vs the {price} single race.",
 
   // --- PICKER (tiles + who's-this-for panel + assignment rows) ---
   "racePack.picker.racesWord": "RACES",
@@ -98,10 +98,6 @@ export const racepackEn = {
   "racePack.picker.selectRacers": "Select racers",
   "racePack.picker.assignment": "{count, plural, one {# race} other {# races}} · {day} · {price}",
   "racePack.picker.removeAria": "Remove {name}’s race pack",
-  // −/+ stepper on a multi-buy deal's assignment row (BOGO: take the deal more
-  // than once in one order). The visible "×2" is a numeral, not copy.
-  "racePack.picker.qtyMoreAria": "Add another of this deal for {name}",
-  "racePack.picker.qtyLessAria": "Remove one of {name}’s deals",
   "racePack.picker.returningOnly":
     "Race packs load onto a racer's account — {names} can join after signing in as a returning racer.",
   "racePack.picker.firstCredit":
@@ -232,7 +228,7 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   "racePack.teaser.saveUpTo": "Ahorra hasta {amount}",
   "racePack.teaser.choose": "Elige tu pack",
   "racePack.teaser.fineprint":
-    "Los créditos se cargan justo después del pago y nunca caducan. Un pack por corredor (el BOGO de miércoles se puede tomar más de una vez) · no transferible · ahorro comparado con la carrera individual de {price}.",
+    "Los créditos se cargan justo después del pago y nunca caducan. Un pack por corredor · no transferible · ahorro comparado con la carrera individual de {price}.",
 
   // --- PICKER (tarjetas + panel de para quién + filas asignadas) ---
   "racePack.picker.racesWord": "CARRERAS",
@@ -254,8 +250,6 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   "racePack.picker.assignment":
     "{count, plural, one {# carrera} other {# carreras}} · {day} · {price}",
   "racePack.picker.removeAria": "Quitar el race pack de {name}",
-  "racePack.picker.qtyMoreAria": "Agregar otra de esta oferta para {name}",
-  "racePack.picker.qtyLessAria": "Quitar una de las ofertas de {name}",
   "racePack.picker.returningOnly":
     "Los race packs se cargan a la cuenta del corredor — {names} puede unirse después de iniciar sesión como corredor que regresa.",
   "racePack.picker.firstCredit":

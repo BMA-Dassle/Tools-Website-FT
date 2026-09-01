@@ -54,7 +54,7 @@ export async function upsertPackPurchases(args: {
       INSERT INTO race_pack_purchases
         (purchase_key, person_id, pack_slug, member_name, pack_label, deposit_kind_id, race_count, price_cents, surface)
       VALUES
-        (${args.purchaseKey}, ${p.personId}, ${p.slug}, ${p.memberName}, ${p.label}, ${p.pack.depositKindId}, ${p.creditCount}, ${p.priceCents}, ${args.surface})
+        (${args.purchaseKey}, ${p.personId}, ${p.slug}, ${p.memberName}, ${p.label}, ${p.pack.depositKindId}, ${p.pack.raceCount}, ${p.priceCents}, ${args.surface})
       ON CONFLICT (purchase_key, person_id, pack_slug) DO UPDATE SET
         member_name = EXCLUDED.member_name,
         deposit_kind_id = EXCLUDED.deposit_kind_id,

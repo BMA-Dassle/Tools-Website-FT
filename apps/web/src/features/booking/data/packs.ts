@@ -81,21 +81,6 @@ export interface RacePack {
   regularPrice?: number;
   /** Short marketing flag rendered on the sell surfaces, e.g. "FLASH SALE". */
   badge?: string;
-  /**
-   * How many of THIS pack one racer may buy in a single order. Omitted = 1 —
-   * the standing owner rule ("one pack per racer", 2026-07-18), which is right
-   * for the 3/5/10 SKUs because two 3-packs is just a worse 5-pack: the catalog
-   * itself is the upgrade path.
-   *
-   * Set (to 4) on the BOGO SKUs, where the rule turned a deal into a queue:
-   * BOGO is per-DEAL pricing ("buy one, get one"), so a returning racer who
-   * wanted two deals (4 races) had to pay, walk back to the attract screen and
-   * buy the second one as a separate transaction (guest complaints,
-   * 2026-08-31). Quantity is carried on the selection pointer and re-validated
-   * fail-closed in `resolveKioskPacks` — a qty above this cap (or any qty > 1
-   * on a pack without it) throws at charge time, never silently charges.
-   */
-  maxPerRacer?: number;
 }
 
 /**
@@ -231,7 +216,6 @@ export const RACE_PACKS: RacePack[] = [
     badge: "WEDNESDAYS",
     category: "adult",
     racerType: "existing",
-    maxPerRacer: 4,
     depositKindId: RACE_PACK_DEPOSIT_KIND.weekday,
     bmiProductId: "",
   },
@@ -245,7 +229,6 @@ export const RACE_PACKS: RacePack[] = [
     badge: "WEDNESDAYS",
     category: "junior",
     racerType: "existing",
-    maxPerRacer: 4,
     depositKindId: RACE_PACK_DEPOSIT_KIND.weekday,
     bmiProductId: "",
   },

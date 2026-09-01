@@ -16,7 +16,7 @@
 import type { AppliedPromo } from "~/features/discount-codes";
 import type { AppliedVoucherState } from "./types";
 import { qamfCenterIdForCode, type CenterCode, type ContactInfo } from "../types";
-import { autoRaiseMultiBuyQty, packSkusForRaceDate } from "../service/race-pack-kiosk";
+import { packSkusForRaceDate } from "../service/race-pack-kiosk";
 import { getPackage, packageFitsRaceDate } from "@/lib/packages";
 import { FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
 import {
@@ -175,64 +175,49 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
       return next;
     }
 
-    case "updateItem": {
-      let packsTouched = false;
-      const items = state.items.map((i) => {
-        if (i.id !== action.id) return i;
-        const next = { ...i, ...action.patch } as SessionItem;
-        // A race DATE change re-validates pack picks against the new day —
-        // a weekday pack pointed at a Fri–Sun race would otherwise sail to
-        // reserve and fail-closed there as an opaque 400 (web can reach
-        // Back → change date; the kiosk never re-dates). Dropping only the
-        // now-ineligible slugs keeps valid picks.
-        if (
-          next.kind === "race" &&
-          "date" in action.patch &&
-          next.date &&
-          (next.creditPacks?.length ?? 0) > 0
-        ) {
-          const offered = new Set(packSkusForRaceDate(next.date).map((p) => p.slug));
-          const kept = (next.creditPacks ?? []).filter((p) => offered.has(p.slug));
-          next.creditPacks = kept.length > 0 ? kept : undefined;
-        }
-        // Same re-validation for a PACKAGE pick, against the bundle's own
-        // recurring day rule (`raceDays` — BOGO runs on Wednesday RACES). A
-        // bundle picked for a Wednesday and then moved to Thursday would
-        // otherwise keep its deal price on a day the deal doesn't run, and
-        // unlike the pack case nothing downstream refuses it: the charge path
-        // resolves packages by id via `getPackage`, which is deliberately NOT
-        // window-gated (expiring one there drops the heats from the Square
-        // lines while BMI still books them at $0 — see lib/packages.ts).
-        // Clearing the pointer sends the guest back through the picker, which
-        // is the only fail-safe direction available here.
-        //
-        // Bundles with no `raceDays` (every standing one) always fit, so this
-        // cannot disturb an Ultimate Qualifier or Rookie Pack pick.
-        if (next.kind === "race" && "date" in action.patch && next.date) {
-          for (const field of ["packageIdAdult", "packageIdJunior"] as const) {
-            const pkg = getPackage(next[field]);
-            if (pkg && !packageFitsRaceDate(pkg, next.date)) next[field] = null;
-          }
-        }
-        // Grid-driven deal quantity: a heats change (or a pack pick landing
-        // after heats exist, or the date filter above changing what's held)
-        // may raise a multi-buy pack's qty — flag it for the pass below.
-        if (
-          next.kind === "race" &&
-          ("heats" in action.patch || "creditPacks" in action.patch || "date" in action.patch)
-        ) {
-          packsTouched = true;
-        }
-        return next;
-      });
+    case "updateItem":
       return {
         ...state,
-        // Picking more Wednesday races on the grid IS asking for more BOGO
-        // deals — upward-only, capped, credit-holders skipped (see
-        // autoRaiseMultiBuyQty for why that is strictly guest-favorable).
-        items: packsTouched ? autoRaiseMultiBuyQty(items, state.party) : items,
+        items: state.items.map((i) => {
+          if (i.id !== action.id) return i;
+          const next = { ...i, ...action.patch } as SessionItem;
+          // A race DATE change re-validates pack picks against the new day —
+          // a weekday pack pointed at a Fri–Sun race would otherwise sail to
+          // reserve and fail-closed there as an opaque 400 (web can reach
+          // Back → change date; the kiosk never re-dates). Dropping only the
+          // now-ineligible slugs keeps valid picks.
+          if (
+            next.kind === "race" &&
+            "date" in action.patch &&
+            next.date &&
+            (next.creditPacks?.length ?? 0) > 0
+          ) {
+            const offered = new Set(packSkusForRaceDate(next.date).map((p) => p.slug));
+            const kept = (next.creditPacks ?? []).filter((p) => offered.has(p.slug));
+            next.creditPacks = kept.length > 0 ? kept : undefined;
+          }
+          // Same re-validation for a PACKAGE pick, against the bundle's own
+          // recurring day rule (`raceDays` — BOGO runs on Wednesday RACES). A
+          // bundle picked for a Wednesday and then moved to Thursday would
+          // otherwise keep its deal price on a day the deal doesn't run, and
+          // unlike the pack case nothing downstream refuses it: the charge path
+          // resolves packages by id via `getPackage`, which is deliberately NOT
+          // window-gated (expiring one there drops the heats from the Square
+          // lines while BMI still books them at $0 — see lib/packages.ts).
+          // Clearing the pointer sends the guest back through the picker, which
+          // is the only fail-safe direction available here.
+          //
+          // Bundles with no `raceDays` (every standing one) always fit, so this
+          // cannot disturb an Ultimate Qualifier or Rookie Pack pick.
+          if (next.kind === "race" && "date" in action.patch && next.date) {
+            for (const field of ["packageIdAdult", "packageIdJunior"] as const) {
+              const pkg = getPackage(next[field]);
+              if (pkg && !packageFitsRaceDate(pkg, next.date)) next[field] = null;
+            }
+          }
+          return next;
+        }),
       };
-    }
 
     case "removeItem": {
       const nextItems = state.items.filter((i) => i.id !== action.id);
