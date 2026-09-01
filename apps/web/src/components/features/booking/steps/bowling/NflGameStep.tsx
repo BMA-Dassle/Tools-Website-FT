@@ -207,6 +207,36 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
     return exp.items.reduce((sum, i) => sum + (i.priceCents ?? 0) * i.quantity, 0);
   };
 
+  /**
+   * The day's games, bucketed by the instant their lanes open.
+   *
+   * Every game in a bucket shares a kickoff, a lane-open time AND a price —
+   * the price because both experience rows cost the same and a single day
+   * never spans the Fri-Sun / Mon-Thu band split. So all three belong to the
+   * heading, and the rows below it carry only what actually differs.
+   */
+  const windows = useMemo(() => {
+    const by = new Map<string, { laneOpenIso: string; kickoffIso: string; games: GameCard[] }>();
+    for (const g of games) {
+      const w = by.get(g.laneOpenIso);
+      if (w) w.games.push(g);
+      else
+        by.set(g.laneOpenIso, { laneOpenIso: g.laneOpenIso, kickoffIso: g.kickoffIso, games: [g] });
+    }
+    return [...by.values()].sort((a, b) => a.laneOpenIso.localeCompare(b.laneOpenIso));
+  }, [games]);
+
+  /** The day's per-lane price, shown ONCE — see `windows`. */
+  const dayPriceCents = useMemo(() => {
+    for (const g of games) {
+      const c = perLaneCents(g);
+      if (c != null) return c;
+    }
+    return null;
+    // perLaneCents reads `exps`, which is the dependency that matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [games, exps]);
+
   /** "Today" / "Tomorrow" / "Sun Sep 13" for a rail chip. */
   const dateChipLabel = useMemo(() => {
     const today = etToday();
@@ -392,6 +422,11 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
           </h2>
         </div>
         <p className="mt-1.5 text-sm text-white/70">{t("nfl.subtitle")}</p>
+        {dayPriceCents != null && (
+          <p className="mt-2 text-sm font-bold" style={{ color: VIOLET }}>
+            {t("nfl.priceLine", { price: `$${(dayPriceCents / 100).toFixed(2)}` })}
+          </p>
+        )}
       </div>
 
       {tooManyLanes && (
@@ -464,61 +499,68 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
             <p className="py-8 text-center text-sm text-white/50">{t("nfl.empty")}</p>
           )}
 
-          <div className="space-y-2">
-            {games.map((g) => {
-              const isSoldOut = g.soldOut || soldOutIds.has(g.id);
-              const isPicked = item.nflGameId === g.id && !!item.qamfReservationId;
-              const cents = perLaneCents(g);
-              return (
-                <button
-                  key={g.id}
-                  type="button"
-                  disabled={isSoldOut || reservingId !== null || tooManyLanes}
-                  onClick={() => void pickGame(g)}
-                  aria-pressed={isPicked}
-                  className="w-full rounded-xl border p-4 text-left transition-all disabled:cursor-not-allowed"
-                  style={{
-                    borderColor: isPicked ? VIOLET : "rgba(255,255,255,0.10)",
-                    backgroundColor: isPicked ? "rgba(167,139,250,0.10)" : "rgba(255,255,255,0.03)",
-                    opacity: isSoldOut || tooManyLanes ? 0.45 : 1,
-                  }}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-white">{g.matchup}</p>
-                      <p className="mt-0.5 text-xs text-white/50">
-                        {t("nfl.card.times", {
-                          kickoff: etTime(g.kickoffIso),
-                          open: etTime(g.laneOpenIso),
-                        })}
-                        {g.network ? ` · ${g.network}` : ""}
-                      </p>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      {isPicked ? (
-                        <IconCheck size={20} style={{ color: VIOLET }} aria-hidden />
-                      ) : isSoldOut ? (
-                        <span className="text-xs font-semibold text-white/40">
-                          {t("nfl.card.soldOut")}
+          {/* Grouped by KICKOFF WINDOW.
+              On a normal Sunday eight games start at 1:00, so a flat list
+              repeats "1:00 PM kickoff · lanes open 12:45 PM" eight times and
+              the price thirteen times — a wall of identical text the guest has
+              to read past to find the only thing that differs, the matchup.
+              The window says the time once, and the rows carry the matchups. */}
+          <div className="space-y-4">
+            {windows.map((w) => (
+              <div key={w.laneOpenIso}>
+                <div className="mb-1.5 flex items-baseline gap-2 border-b border-white/10 pb-1.5">
+                  <span className="text-sm font-bold text-white">{etTime(w.kickoffIso)}</span>
+                  <span className="text-[11px] text-white/45">
+                    {t("nfl.window.opens", { open: etTime(w.laneOpenIso) })}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  {w.games.map((g) => {
+                    const isSoldOut = g.soldOut || soldOutIds.has(g.id);
+                    const isPicked = item.nflGameId === g.id && !!item.qamfReservationId;
+                    return (
+                      <button
+                        key={g.id}
+                        type="button"
+                        disabled={isSoldOut || reservingId !== null || tooManyLanes}
+                        onClick={() => void pickGame(g)}
+                        aria-pressed={isPicked}
+                        className="flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-all disabled:cursor-not-allowed"
+                        style={{
+                          borderColor: isPicked ? VIOLET : "transparent",
+                          backgroundColor: isPicked
+                            ? "rgba(167,139,250,0.12)"
+                            : "rgba(255,255,255,0.03)",
+                          opacity: isSoldOut || tooManyLanes ? 0.4 : 1,
+                        }}
+                      >
+                        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">
+                          {g.matchup}
                         </span>
-                      ) : cents != null ? (
-                        <span className="text-sm font-bold text-white">
-                          ${(cents / 100).toFixed(2)}
-                          <span className="ml-1 text-[10px] font-normal text-white/40">
-                            {t("nfl.card.perLane")}
+                        {g.network && (
+                          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-white/35">
+                            {g.network}
                           </span>
+                        )}
+                        <span className="shrink-0">
+                          {reservingId === g.id ? (
+                            <span className="text-[11px]" style={{ color: VIOLET }}>
+                              {t("nfl.card.holding")}
+                            </span>
+                          ) : isPicked ? (
+                            <IconCheck size={18} style={{ color: VIOLET }} aria-hidden />
+                          ) : isSoldOut ? (
+                            <span className="text-[11px] font-semibold text-white/40">
+                              {t("nfl.card.soldOut")}
+                            </span>
+                          ) : null}
                         </span>
-                      ) : null}
-                    </div>
-                  </div>
-                  {reservingId === g.id && (
-                    <p className="mt-2 text-xs" style={{ color: VIOLET }}>
-                      {t("nfl.card.holding")}
-                    </p>
-                  )}
-                </button>
-              );
-            })}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </>
       )}

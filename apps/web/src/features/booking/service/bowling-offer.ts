@@ -34,6 +34,27 @@ export function isPerLaneExperience(exp: {
 }
 
 /**
+ * Does this experience already include shoe rental in its price?
+ *
+ * ONE definition, imported by both the web shoe step and the kiosk details
+ * step. It lived as a copy-pasted array in each of them, and the copies drifted
+ * the moment a package was added: NFL Ticket lists shoes in its own marketing
+ * copy ("shoes, a one-topping pizza, 10 wings and a soda pitcher included") and
+ * still charged for them, because only two files out of three knew.
+ * Owner, 2026-09-01: "the package includes shoes and its charging."
+ *
+ * NFL matches by PREFIX because the package is sold through two day-banded
+ * slugs — nfl-vip-fri-sun and nfl-vip-mon-thur — and a third band or a second
+ * center must not silently start charging. Note World Cup is deliberately
+ * ABSENT: that package priced shoes separately.
+ */
+export function shoesIncludedInExperience(slug: string | null | undefined): boolean {
+  if (!slug) return false;
+  if (slug.startsWith("nfl-vip-")) return true;
+  return ["fun-4-all", "fun-4-all-vip", "pizza-bowl", "pizza-bowl-vip"].includes(slug);
+}
+
+/**
  * Resolve the Square line items for an experience pick. Primary items
  * (sortOrder 0) scale by lane-or-player count AND the duration multiplier;
  * bundled secondaries scale per lane. Duration overrides (2-hour product

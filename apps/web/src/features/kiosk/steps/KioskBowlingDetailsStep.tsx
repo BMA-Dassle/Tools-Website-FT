@@ -26,16 +26,13 @@ import {
 } from "@/lib/qamf-centers";
 import { useT } from "../i18n";
 import { SHOE_SIZES, SHOE_CATEGORIES, OWN_SHOES, categoryOf } from "../shoe-catalog";
+import { shoesIncludedInExperience } from "~/features/booking/service/bowling-offer";
 
 const QAMF_CENTER_CODES: Record<number, string> = {
   9172: "TXBSQN0FEKQ11",
   3148: "PPTR5G2N0QXF7",
   [FASTTRAX_QAMF_CENTER_ID]: FASTTRAX_CENTER_CODE,
 };
-
-/** Experiences where shoes are bundled in the price — never charge separately
- *  (mirrors BowlingShoesStep). Sizes are still collected for lane setup. */
-const SHOES_INCLUDED_SLUGS = ["fun-4-all", "fun-4-all-vip", "pizza-bowl", "pizza-bowl-vip"];
 
 type RosterPlayer = {
   name: string;
@@ -81,7 +78,9 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
   const roster = rosterOf(item);
   // FastTrax duckpin (center 11542) has no shoes — collect name + bumpers only.
   const hasShoes = centerHasShoeRental(item.qamfCenterId);
-  const shoesIncluded = SHOES_INCLUDED_SLUGS.includes((item as BowlingItem).experienceSlug ?? "");
+  // Bundled-in-the-price experiences never charge for shoes; sizes are still
+  // collected for lane setup.
+  const shoesIncluded = shoesIncludedInExperience((item as BowlingItem).experienceSlug);
   // Shoes are CHARGED (not just collected) when the center rents them and this
   // experience doesn't bundle them into the price.
   const chargeShoes = hasShoes && !shoesIncluded;

@@ -336,11 +336,23 @@ export function BookingFlow({
       return created;
     };
 
+    // A CART RETURN IS NOT A FRESH ENTRY — the same rule the combo branch above
+    // already applies, for the same reason. The landing's "View Cart" (?cart=1)
+    // and "Checkout →" (?checkout=1) route through the cart's existing activity,
+    // so this effect sees what looks like an ordinary /book/bowling/v2 entry.
+    // With an NFL (or World Cup) item in the cart the reuse test below cannot
+    // match it — those shapes are deliberately not interchangeable with a plain
+    // bowling item — so it seeded a SECOND, plain bowling item and opened the
+    // wizard at "how many bowlers", stranding the finished booking behind it.
+    // Owner, 2026-09-01: "it brings me back to the number of bowlers screen like
+    // I didn't do anything."
+    const cartReturn = initialCheckout || initialCartView;
+
     let added: SessionItem | null = null;
     if (session.items.length === 0) {
       added = makeItem();
       dispatch({ type: "addItem", item: added });
-    } else {
+    } else if (!cartReturn) {
       const alreadyInCart = session.items.some((i) => {
         if (i.kind !== activity) return false;
         if (i.kind === "attraction") return (i as AttractionItem).slug === slug;

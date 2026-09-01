@@ -19,6 +19,10 @@ export const nflEn = {
     "Your game on the NeoVerse LED walls. Lanes open 15 minutes before kickoff and are yours for 3 hours — shoes, a one-topping pizza, 10 wings and a soda pitcher included.",
   /** e.g. "1:00 PM kickoff · lanes open 12:45 PM · CBS" */
   "nfl.card.times": "{kickoff} kickoff · lanes open {open}",
+  /** Heading above each kickoff window — the time is said once, not per game. */
+  "nfl.window.opens": "lanes open {open}",
+  /** The day's per-lane price, shown once above the list. */
+  "nfl.priceLine": "{price} per lane",
   "nfl.card.soldOut": "Sold out",
   "nfl.card.perLane": "/lane",
   "nfl.card.holding": "Holding your lane…",
@@ -48,6 +52,8 @@ export const nflEs: Record<keyof typeof nflEn, string> = {
   "nfl.subtitle":
     "Tu partido en las pantallas LED de NeoVerse. Las pistas abren 15 minutos antes del saque inicial y son tuyas por 3 horas — incluye zapatos, una pizza de un ingrediente, 10 alitas y una jarra de refresco.",
   "nfl.card.times": "Saque inicial {kickoff} · pistas abren {open}",
+  "nfl.window.opens": "pistas abren {open}",
+  "nfl.priceLine": "{price} por pista",
   "nfl.card.soldOut": "Agotado",
   "nfl.card.perLane": "/pista",
   "nfl.card.holding": "Apartando tu pista…",
