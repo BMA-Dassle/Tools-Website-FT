@@ -53,6 +53,12 @@ import { reserveBaseKey } from "./reserve-idempotency";
 import { describeDroppedLeg, partitionBookableLegs } from "./bookable";
 import { nowRounded5EtIso } from "./bowl-now";
 import {
+  freeLaneCandidates,
+  immediateLaneGuardEnabled,
+  isImmediateStart,
+} from "./immediate-lane-guard";
+import { createWithLanePlan, describePinOutcome } from "~/features/lane-plan/pin";
+import {
   startReserveAttempt,
   recordReserveCapture,
   finishReserveAttempt,
@@ -2590,6 +2596,43 @@ async function unifiedReserveInner(
       return setReservationStatus(centerId, resId, "Confirmed");
     }
 
+    /**
+     * The fresh-create fallback, used when there is no hold or the hold's confirm failed.
+     *
+     * BOTH fallback paths go through here so the availability guard cannot be added to one
+     * and forgotten on the other — they were byte-identical creates sitting in different
+     * branches, which is exactly how one of them ends up a year behind the other.
+     *
+     * For a booking starting now, candidates come only from lanes nobody is physically on;
+     * QAMF fills from the lowest lane number up off the schedule alone and would otherwise
+     * hand over a lane the previous group is still using. With no opinion — guard off, no
+     * free lanes, floor read failed — this is the create it replaced, unchanged.
+     */
+    async function createFreshReservation() {
+      const candidates =
+        immediateLaneGuardEnabled() && isImmediateStart(Date.parse(bookedAt), Date.now())
+          ? await freeLaneCandidates({ centerId, players: players.length })
+          : [];
+      const outcome = await createWithLanePlan({
+        candidates,
+        create: (lanes) =>
+          createReservation(centerId, {
+            BookedAt: bookedAt,
+            Title: `${guest.name} (${players.length}p)`,
+            Customer: {
+              Guest: { Name: guest.name, PhoneNumber: guest.phone, Email: guest.email },
+            },
+            WebOffer: { Id: webOfferId, Options: qamfOptions, Services: [service] },
+            TotalPlayers: players.length,
+            ...(lanes ? { Lanes: lanes.map((LaneNumber) => ({ LaneNumber })) } : {}),
+          }),
+      });
+      if (candidates.length) {
+        log(`[unified-reserve] ${outcome.reservation.Id} ${describePinOutcome(outcome)}`);
+      }
+      return outcome.reservation;
+    }
+
     try {
       if (item.qamfReservationId) {
         qamfReservationId = item.qamfReservationId;
@@ -2626,15 +2669,7 @@ async function unifiedReserveInner(
 
         if (!qamfConfirmed) {
           log(`[unified-reserve] Hold confirm failed — creating fresh`);
-          const reservation = await createReservation(centerId, {
-            BookedAt: bookedAt,
-            Title: `${guest.name} (${players.length}p)`,
-            Customer: {
-              Guest: { Name: guest.name, PhoneNumber: guest.phone, Email: guest.email },
-            },
-            WebOffer: { Id: webOfferId, Options: qamfOptions, Services: [service] },
-            TotalPlayers: players.length,
-          });
+          const reservation = await createFreshReservation();
           qamfReservationId = reservation.Id;
           qamfLanes = reservation.Lanes ?? [];
           log(`[unified-reserve] Fresh reservation: ${qamfReservationId}`);
@@ -2642,15 +2677,7 @@ async function unifiedReserveInner(
         }
       } else {
         log(`[unified-reserve] No hold — creating fresh`);
-        const reservation = await createReservation(centerId, {
-          BookedAt: bookedAt,
-          Title: `${guest.name} (${players.length}p)`,
-          Customer: {
-            Guest: { Name: guest.name, PhoneNumber: guest.phone, Email: guest.email },
-          },
-          WebOffer: { Id: webOfferId, Options: qamfOptions, Services: [service] },
-          TotalPlayers: players.length,
-        });
+        const reservation = await createFreshReservation();
         qamfReservationId = reservation.Id;
         qamfLanes = reservation.Lanes ?? [];
         qamfConfirmed = await attachAndConfirm(qamfReservationId).catch(() => false);
