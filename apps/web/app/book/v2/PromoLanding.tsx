@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { Fragment, useState, useSyncExternalStore } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -564,16 +564,25 @@ export function PromoLanding({
                 the lead). Self-hides after the final. */}
             {worldCup && <WorldCupCard worldCup={worldCup} gold={HP_GOLD} />}
             {initialOfferings.map((o) => (
-              <AttractionCard
-                key={o.slug}
-                offering={o}
-                href={tileHref(o.slug)}
-                applied={applied}
-                voucherSlugs={voucher?.slugs ?? null}
-                accent={accent}
-                gold={HP_GOLD}
-                pausedNote={pausedNote(o.slug)}
-              />
+              // The Race Sims teaser rides DIRECTLY behind the racing tile, so
+              // it is the third grid child on the live landing (the premium VIP
+              // combo is sm:col-span-2, so VIP + racing fill row one and the
+              // teaser opens row two on both the 3-col and 2-col grids). Keyed
+              // off racing's PRESENCE rather than a fixed index: the sims are
+              // physically at FastTrax FM, so wherever racing is not offered
+              // neither are they, and the two tiles can never drift apart.
+              <Fragment key={o.slug}>
+                <AttractionCard
+                  offering={o}
+                  href={tileHref(o.slug)}
+                  applied={applied}
+                  voucherSlugs={voucher?.slugs ?? null}
+                  accent={accent}
+                  gold={HP_GOLD}
+                  pausedNote={pausedNote(o.slug)}
+                />
+                {o.kind === "race" && <RaceSimsSoonCard />}
+              </Fragment>
             ))}
           </div>
         </div>
@@ -985,6 +994,89 @@ function ComboCard({
       {/* Bottom color bar */}
       <div className="h-0.5 w-full" style={{ backgroundColor: combo.accentColor }} />
     </CardShell>
+  );
+}
+
+/**
+ * Race Sims — a NOT-YET-BOOKABLE teaser tile.
+ *
+ * Deliberately NOT an entry in `activities-catalog.ts`: that catalog is the
+ * source of truth for things a guest can actually buy, and every consumer of it
+ * (promo scope, voucher slugs, `tileHref`) assumes a real `/book/<slug>/v2`
+ * flow behind each row. A slug with no flow would hand those a dead link. So
+ * the teaser follows the WorldCupCard precedent instead — a bespoke card the
+ * grid places itself — and carries no href at all.
+ *
+ * The locked treatment is `CardShell`'s existing `paused` idiom (a plain
+ * `aria-disabled` div, `opacity-55 saturate-50`), which is already how this
+ * grid renders an untappable card, so a Coming Soon tile and a maintenance-
+ * locked tile read as the same kind of thing to a guest. Accent `#ff6b6b` and
+ * the red-track hero match the kiosk's own sim tile, so the product looks like
+ * one product across web and kiosk.
+ *
+ * When sims go bookable this component is DELETED, not edited — the tile
+ * becomes a normal catalog offering with a real flow behind it.
+ */
+function RaceSimsSoonCard() {
+  const accent = "#ff6b6b";
+  return (
+    <div
+      aria-disabled="true"
+      className="group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left opacity-55 saturate-50"
+      style={{ borderColor: "rgba(255,255,255,0.10)" }}
+    >
+      {/* Hero — the kiosk sim tile's red-track shot (same pinned blob asset) */}
+      <div className="relative aspect-16/10 overflow-hidden">
+        <Image
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-kiosk.webp"
+          alt="Race Sims"
+          fill
+          className="object-cover"
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+        />
+        <div className="absolute inset-0 bg-linear-to-t from-[#0a1628] via-[#0a1628]/40 to-transparent" />
+        <div className="absolute right-3 top-3">
+          <span
+            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wider backdrop-blur-sm"
+            style={{ backgroundColor: accent, color: "#2b0404" }}
+          >
+            Coming Soon
+          </span>
+        </div>
+      </div>
+
+      {/* Content — same geometry as AttractionCard so the row stays even */}
+      <div className="flex flex-1 flex-col p-4 sm:p-5">
+        <h3 className="font-display mb-1.5 text-lg font-black uppercase tracking-wider text-white sm:text-xl">
+          Race Sims
+        </h3>
+        <p className="font-body mb-3 flex-1 text-sm leading-relaxed text-white/50">
+          Full-motion racing simulators are on their way to FastTrax Fort Myers.
+        </p>
+
+        {/* Venue badge — sims live in the FastTrax building, same as racing */}
+        <div className="mb-3 flex items-center gap-2">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-white/50">
+            Located within
+          </span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logo/FT_logo.png"
+            alt="FastTrax Entertainment"
+            className="h-5 w-auto"
+          />
+        </div>
+
+        <div className="w-full rounded-xl border border-white/15 bg-white/[0.04] px-4 py-3 text-center">
+          <div className="text-sm font-bold text-white/70">Not yet bookable</div>
+          <div className="font-body mt-1 text-xs leading-snug text-white/45">
+            Check back soon — we&apos;ll open booking here first.
+          </div>
+        </div>
+      </div>
+
+      <div className="h-0.5 w-full" style={{ backgroundColor: accent }} />
+    </div>
   );
 }
 
