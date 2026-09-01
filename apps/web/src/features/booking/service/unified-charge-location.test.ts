@@ -29,7 +29,7 @@ import type { BmiProposal } from "../data/bmi";
 
 const proposal = { blocks: [], productLineId: null } as unknown as BmiProposal;
 
-/** FastTrax dollars: $14/racer weekday (2026-08-24 is a Monday). A sim line is
+/** FastTrax dollars: $15.95/racer, flat every day (owner 2026-09-01). A sim line is
  *  priced PER PICKED SESSION (racing's heats[] shape), so the fixture must
  *  carry one — an empty `sessions` is an unready draft that prices at $0. */
 function simItem(racerCount = 2): RaceSimItem {
@@ -78,7 +78,7 @@ function webSession(items: BookingSession["items"]): BookingSession {
 describe("entityCents attribution", () => {
   it("attributes race-sim value to FastTrax and attraction value to HeadPinz", () => {
     const { entityCents } = buildCombinedLineItems(webSession([simItem(2), attrItem(12)]));
-    expect(entityCents).toEqual({ fasttrax: 2800, headpinz: 1200 });
+    expect(entityCents).toEqual({ fasttrax: 3190, headpinz: 1200 });
   });
 
   it("routes the duck-pin attraction to FastTrax, not HeadPinz", () => {
@@ -106,17 +106,17 @@ describe("resolveChargeLocationId — golden rule", () => {
   it("mixed cart charges at FastTrax when racing holds the most dollars", () => {
     // The live leak shape: a big race line plus one small gel-blaster add-on.
     // The OLD rule sent this to HeadPinz purely because gel-blaster was present.
-    const session = webSession([simItem(8), attrItem(12, 1)]); // $112 FT vs $12 HP
+    const session = webSession([simItem(8), attrItem(12, 1)]); // $127.60 FT vs $12 HP
     expect(resolveChargeLocationId(session)).toBe(SQUARE_LOCATIONS.FASTTRAX_FM);
   });
 
   it("mixed cart charges at HeadPinz when the attraction holds the most dollars", () => {
-    const session = webSession([simItem(1), attrItem(12, 6)]); // $14 FT vs $72 HP
+    const session = webSession([simItem(1), attrItem(12, 6)]); // $15.95 FT vs $72 HP
     expect(resolveChargeLocationId(session)).toBe(SQUARE_LOCATIONS.HEADPINZ_FM);
   });
 
   it("a tie falls back to the day-of owner, so behaviour never flaps", () => {
-    const session = webSession([simItem(1), attrItem(14, 1)]); // $14 vs $14
+    const session = webSession([simItem(1), attrItem(15.95, 1)]); // $15.95 vs $15.95
     // Day-of owner for a cart containing a HeadPinz attraction is HeadPinz.
     expect(resolveChargeLocationId(session)).toBe(SQUARE_LOCATIONS.HEADPINZ_FM);
   });

@@ -30,7 +30,7 @@ export const racesimEn = {
   // Product display names key by catalog slug (race-sims/products.ts).
   "racesim.product.sim-single": "1 Race",
   "racesim.product.single.sub": "One race on the track of your choice.",
-  /** Renders after "$14.00 / " — karting's price row reads "$20.99 / racer". */
+  /** Renders after "$15.95 / " — karting's price row reads "$20.99 / racer". */
   "racesim.product.perRacer": "racer",
   /** Karting's group-math footer: "$20.99 × 3 racers = $62.97 total".
    *  {unit}/{total} pre-formatted, {count} = racers in the party. */

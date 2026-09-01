@@ -1403,7 +1403,7 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
     // (race-sims/products.ts), so the estimate can't drift from the charge.
     const product = getRaceSimProduct(item.productSlug);
     return product
-      ? raceSimPriceFor(product, item.date) * Math.max(1, item.racerCount) * item.sessions.length
+      ? raceSimPriceFor(product) * Math.max(1, item.racerCount) * item.sessions.length
       : 0;
   }
   // bowling / kbf — combo bowling is charged inside the flat combo line.

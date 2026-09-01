@@ -556,7 +556,7 @@ export function CheckoutStep({
         const product = getRaceSimProduct(item.productSlug);
         if (!product) continue;
         const qty = Math.max(1, item.racerCount);
-        const unit = raceSimPriceFor(product, item.date);
+        const unit = raceSimPriceFor(product);
         for (const s of item.sessions) {
           const track = getRaceSimTrack(s.trackKey);
           reviewLines.push({

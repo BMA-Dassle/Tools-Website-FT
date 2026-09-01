@@ -831,7 +831,7 @@ export function buildCombinedLineItems(session: BookingSession): {
     const product = getRaceSimProduct(item.productSlug);
     if (!product) continue; // unready draft — allItemsReady blocks it upstream
     const qty = Math.max(1, item.racerCount);
-    const unitCents = Math.round(raceSimPriceFor(product, item.date) * 100);
+    const unitCents = Math.round(raceSimPriceFor(product) * 100);
     for (const s of item.sessions) {
       const track = getRaceSimTrack(s.trackKey);
       const name = `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""} · ${heatClockLabel(s.slot)}`;
@@ -3357,7 +3357,7 @@ async function unifiedReserveInner(
       })),
       ...racesimItems.flatMap((r) => {
         const product = getRaceSimProduct(r.productSlug);
-        const unitPriceCents = product ? Math.round(raceSimPriceFor(product, r.date) * 100) : 0;
+        const unitPriceCents = product ? Math.round(raceSimPriceFor(product) * 100) : 0;
         return r.sessions.map((s) => {
           const track = getRaceSimTrack(s.trackKey);
           return {
