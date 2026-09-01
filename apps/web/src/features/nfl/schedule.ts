@@ -195,3 +195,43 @@ export function sellableGames(args: {
 export function datesOf(games: readonly NflGame[]): string[] {
   return [...new Set(games.map((g) => g.dateEt))].sort();
 }
+
+/* ─────────────────────── experience slugs / bands ─────────────────────── */
+
+/**
+ * Two experience rows, not one — and not for pricing.
+ *
+ * The package is $119.95 a lane every day of the week. The split exists because
+ * the Conqueror offers we ride are DAY-BANDED and the vendor enforces it: offer
+ * 175 ("Mon-Thur") answers `409 WebOfferUnavailableOpeningHours` for a Sunday,
+ * probed live 2026-08-25. Between them 174 and 175 cover all seven days, and
+ * `bowling_experience_offers` is unique on (experience_id, center_code), so two
+ * offers means two experience rows. The guest sees one card either way.
+ *
+ * NFL plays Thu (175), Sat/Sun (174), Mon (175), plus the odd holiday Wed/Fri.
+ */
+export type NflBand = "mon-thur" | "fri-sun";
+
+export const NFL_SLUG_PREFIX = "nfl-vip-";
+
+export const NFL_SLUGS: Record<NflBand, string> = {
+  "mon-thur": "nfl-vip-mon-thur",
+  "fri-sun": "nfl-vip-fri-sun",
+};
+
+/** Fri(5) / Sat(6) / Sun(0) → fri-sun; Mon-Thu → mon-thur. */
+export function nflBandForDate(dateEt: string): NflBand {
+  // Noon-anchored so a UTC-behind host cannot roll the date backwards and pick
+  // the wrong band — the same guard World Cup's weekendBand carries.
+  const dow = new Date(`${dateEt}T12:00:00`).getDay();
+  return dow === 5 || dow === 6 || dow === 0 ? "fri-sun" : "mon-thur";
+}
+
+/** Which experience slug sells this game, keyed on the day the LANES OPEN. */
+export function nflSlugForGame(g: Pick<NflGame, "kickoffIso">): string {
+  return NFL_SLUGS[nflBandForDate(windowStartDateEt(g))];
+}
+
+export function isNflSlug(slug: string | null | undefined): boolean {
+  return !!slug && slug.startsWith(NFL_SLUG_PREFIX);
+}
