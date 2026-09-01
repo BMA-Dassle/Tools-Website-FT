@@ -48,6 +48,20 @@ export interface ArenaCall {
   calledAtMs: number;
 }
 
+/**
+ * ONE UPCOMING SESSION, for the desk strip's "Next" chips.
+ *
+ * `timeLabel` is PRE-FORMATTED on the server, deliberately. A board must never
+ * do timezone maths to tell somebody when to be somewhere — that is the class of
+ * bug that once rendered an 11:00 AM opening as "7:00 AM" on a wall — and doing
+ * it once server-side means every screen prints the identical string.
+ */
+export interface ArenaUpcoming {
+  activity: ArenaBoardActivity;
+  /** ET wall-clock, e.g. "7:15 PM". */
+  timeLabel: string;
+}
+
 /* ── identity ─────────────────────────────────────────────────────────── */
 
 export const ARENA_ACTIVITY_LABELS: Record<ArenaBoardActivity, string> = {

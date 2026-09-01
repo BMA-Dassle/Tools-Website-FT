@@ -50,7 +50,7 @@ import {
   raceGuideEnabled,
   resultsBoardEnabled,
 } from "../flags";
-import { readCalledArenaSessions } from "../arena/arena-sessions.server";
+import { readCalledArenaSessions, readUpcomingArenaSessions } from "../arena/arena-sessions.server";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
 import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
 import { resolveWelcomeBack } from "../briefing/welcome-back.server";
@@ -674,14 +674,18 @@ async function buildArenaSection(
   venue: SignageVenue,
   nowMs: number,
 ): Promise<NonNullable<TvFeed["arena"]>> {
-  const [calls, assets] = await Promise.all([
+  const [calls, upcoming, assets] = await Promise.all([
     readCalledArenaSessions(venue, nowMs).catch(() => []),
+    // Its own slower cache inside the reader, so a whole-day schedule read does
+    // not ride the 15-second poll.
+    readUpcomingArenaSessions(venue, nowMs).catch(() => []),
     loadSignageAssetsSafe(),
   ]);
   const laser = assets["arena-video:laser-tag"];
   const gel = assets["arena-video:gel-blaster"];
   return {
     calls,
+    upcoming,
     films: {
       "laser-tag": laser ? { url: laser.url, durationMs: laser.durationMs } : null,
       "gel-blaster": gel ? { url: gel.url, durationMs: gel.durationMs } : null,

@@ -248,6 +248,14 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
           },
         ],
         films: feed.arena?.films ?? { "laser-tag": null, "gel-blaster": null },
+        // Two fabricated "Next" chips, so the desk strip is reviewable in the
+        // state it will spend most of its day in — a booked-out evening. The real
+        // strip shows nothing here on a quiet hour, which is the common case and
+        // needs no preview.
+        upcoming: [
+          { activity: "gel-blaster" as const, timeLabel: "7:15 PM" },
+          { activity: "laser-tag" as const, timeLabel: "7:30 PM" },
+        ],
       },
     };
   }

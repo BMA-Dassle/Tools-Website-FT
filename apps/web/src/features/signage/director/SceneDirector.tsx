@@ -26,6 +26,7 @@ import type { TvFeed } from "../types";
 import type { DemoMode } from "../demo";
 import { SceneSlot, sceneHasData, isSceneImplemented } from "../scenes/registry";
 import { TvBrandLogo } from "../components/TvBrandLogo";
+import { ArenaDeskStrip } from "../arena/ArenaDeskStrip";
 import { frameKey, resolveActiveScene, type SceneDecision } from "./schedule";
 
 /** How often the decision is re-evaluated. Matches AttractBillboard's cadence:
@@ -294,6 +295,20 @@ export function SceneDirector({
           <SceneSlot {...props} decision={current} />
           <SceneLogo scene={String(current.scene)} venue={venue} />
         </div>
+
+        {/* THE ARENA DESK STRIP — chrome, not a scene, and that is the whole
+            point of it living here (owner 2026-09-01: "its not showing check
+            in"). A rotation entry would only be up for its slice of the loop,
+            and a guest walks to the desk at a random moment. Rendered over
+            whatever is playing, the board always says what it is.
+
+            NOT over a call, and not over a dark panel: the check-in scene owns
+            the whole wall and says all of this louder, and a sleeping screen is
+            meant to be asleep. Outside the keyed `.tv-frame` divs on purpose —
+            inside one it would be torn down and re-animated at every cut. */}
+        {config.arenaBoard && current.scene !== "arena-checkin" && current.scene !== "sleep" && (
+          <ArenaDeskStrip upcoming={feed?.arena?.upcoming ?? []} />
+        )}
 
         {/* The wipe that covers the cut. Keyed to the incoming scene so it
             replays exactly once per change and unmounts with it.
