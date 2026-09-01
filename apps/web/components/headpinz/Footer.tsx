@@ -148,6 +148,10 @@ export default function HeadPinzFooter() {
               Waiver
             </a>
             <span className="mx-2">&middot;</span>
+            <Link href="/cards" className="hover:text-white/60 transition-colors">
+              Gift &amp; Game Cards
+            </Link>
+            <span className="mx-2">&middot;</span>
             <a
               href="https://bowlandheadpinzfasttrax.applytojob.com/apply"
               target="_blank"

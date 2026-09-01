@@ -36,6 +36,10 @@ const nextConfig: NextConfig = {
     { source: "/book/racing", destination: "/book/race", permanent: true },
     { source: "/book/racing/:path*", destination: "/book/race", permanent: true },
 
+    // Short, shareable alias for the game-card balance/reload flow — staff can
+    // text a guest "/balance". Not permanent: it's an alias we may re-point.
+    { source: "/balance", destination: "/reload", permanent: false },
+
     // ── www → apex 301s ────────────────────────────────────────────
     // Google Search Console was tracking the www and apex hosts as
     // separate URL profiles for both domains, splitting top-page click

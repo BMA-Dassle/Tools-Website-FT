@@ -114,7 +114,7 @@ export default function HeadPinzNav() {
     { label: "Nemo's", href: "/menu" },
     { label: "Leagues", href: currentLoc.leagues },
     { label: "Rewards", href: "/rewards" },
-    { label: "Gift Cards", href: "https://squareup.com/gift/2Z728TECCNWSE/order" },
+    { label: "Gift & Game Cards", href: "/cards" },
     { label: "Waiver", href: currentLoc.waiver },
   ];
 
@@ -141,7 +141,7 @@ export default function HeadPinzNav() {
       ],
     },
     { label: "Rewards", href: "/rewards" },
-    { label: "Gift Cards", href: "https://squareup.com/gift/2Z728TECCNWSE/order" },
+    { label: "Gift & Game Cards", href: "/cards" },
     { label: "Waiver", href: currentLoc.waiver },
   ];
 
