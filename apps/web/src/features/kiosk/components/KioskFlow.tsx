@@ -73,12 +73,14 @@ import {
   kioskMergedCheckoutEnabled,
   kioskCheckoutUpsellEnabled,
   kioskCheckinEnabled,
+  kioskCrewEnabled,
   kioskGroupWaiverEnabled,
   kioskGzCartEnabled,
   kioskPromoEnabled,
   kioskRaceInfoEnabled,
   kioskRaceSimEnabled,
 } from "../flags";
+import { IconChevronRight } from "@tabler/icons-react";
 import { KioskCheckoutScreen } from "./KioskCheckoutScreen";
 import { abandonActiveSplit } from "./split/split-session-registry";
 import { KioskCheckoutUpsell } from "./KioskCheckoutUpsell";
@@ -742,6 +744,18 @@ export function KioskFlow({
       setGzVoucherCodes(null);
       setGzOpen(true);
     },
+    // A racer scanning on the chooser with nothing booked today → the crew
+    // page, where the people step claims the stashed `racer` hand-off itself.
+    // Omitted (not undefined-spread) when the crew kill switch is off, so the
+    // router falls back to the `racer-signed-in` toast — the pre-crew behavior.
+    ...(kioskCrewEnabled()
+      ? {
+          goRacerSignIn: () => {
+            clarityEvent("kiosk:crew:open");
+            router.push("/kiosk/racers");
+          },
+        }
+      : {}),
   });
 
   // Post-hydration seeding: center from device config; ?goto= deep link.
@@ -1499,26 +1513,48 @@ export function KioskFlow({
   // already shows, and the cart link duplicated the footer's Cart pill. The hold
   // countdown rides the right in `inline` mode — same warn/urgent colours and
   // Extend affordance it had as its own band.
+  // The WHO half is a door to /kiosk/racers ("Your Crew" — add/manage players
+  // outside any purchase). ONLY the left span is the button: KioskHoldBar stays
+  // a sibling with its own Extend button, so nothing nests (a11y). With the
+  // crew kill switch off, the strip reverts to the plain non-interactive span.
+  const crewDoor = kioskCrewEnabled();
+  const openCrew = () => {
+    clarityEvent("kiosk:crew:open");
+    router.push("/kiosk/racers");
+  };
+  const bannerWho = (
+    <>
+      <span className="h-[12px] w-[12px] shrink-0 rounded-full bg-[#46d68c]" aria-hidden="true" />
+      {mainGuest ? (
+        <span className="truncate">
+          {t("flow.banner.signedIn")} <strong className="text-white">{mainGuest.firstName}</strong>
+        </span>
+      ) : (
+        <span className="truncate">{t("flow.banner.visitInProgress")}</span>
+      )}
+    </>
+  );
   const sessionBanner =
     (session.party.length > 0 || cartCount > 0 || hasGameCards || showHoldBar) &&
     !cartActive &&
     !checkoutActive &&
     !upsellActive ? (
       <div className="k-glass mx-[48px] mt-[12px] flex shrink-0 items-center gap-[18px] px-[28px] py-[10px] text-left">
-        <span className="flex min-w-0 flex-1 items-center gap-[14px] text-[22px] text-white/70">
-          <span
-            className="h-[12px] w-[12px] shrink-0 rounded-full bg-[#46d68c]"
-            aria-hidden="true"
-          />
-          {mainGuest ? (
-            <span className="truncate">
-              {t("flow.banner.signedIn")}{" "}
-              <strong className="text-white">{mainGuest.firstName}</strong>
-            </span>
-          ) : (
-            <span className="truncate">{t("flow.banner.visitInProgress")}</span>
-          )}
-        </span>
+        {crewDoor ? (
+          <button
+            type="button"
+            aria-label={t("crew.banner.manage")}
+            onClick={openCrew}
+            className="k-tap flex min-w-0 flex-1 items-center gap-[14px] text-left text-[22px] text-white/70"
+          >
+            {bannerWho}
+            <IconChevronRight size={26} className="shrink-0 text-white/40" aria-hidden="true" />
+          </button>
+        ) : (
+          <span className="flex min-w-0 flex-1 items-center gap-[14px] text-[22px] text-white/70">
+            {bannerWho}
+          </span>
+        )}
         {showHoldBar && (
           <KioskHoldBar
             ref={timerRef}
@@ -2237,6 +2273,28 @@ export function KioskFlow({
             with their own listeners, and port opens are exclusive. */}
         <EntryScanListener onScan={entryScan.handleScan} onLicense={entryScan.handleLicense} />
         <EntryScanToast miss={entryScan.miss} busy={entryScan.busy} onDone={entryScan.clearMiss} />
+        {/* The session banner's EMPTY state — CHOOSER ONLY (every other screen
+            returned earlier in this chain), and only when the real banner is
+            absent, i.e. nothing is signed in or held. Same strip, same place,
+            hollow dot: a walk-in group gets a door to /kiosk/racers before
+            picking an activity. Deliberately NOT added to `sessionBanner`
+            itself — mid-wizard and cart screens must not grow a new box. */}
+        {crewDoor && !sessionBanner && (
+          <button
+            type="button"
+            onClick={openCrew}
+            className="k-glass k-tap mx-[48px] mt-[12px] flex shrink-0 items-center gap-[18px] px-[28px] py-[10px] text-left"
+          >
+            <span className="flex min-w-0 flex-1 items-center gap-[14px] text-[22px] text-white/70">
+              <span
+                className="h-[12px] w-[12px] shrink-0 rounded-full border-2 border-white/40"
+                aria-hidden="true"
+              />
+              <span className="truncate">{t("crew.banner.empty")}</span>
+            </span>
+            <IconChevronRight size={26} className="shrink-0 text-white/40" aria-hidden="true" />
+          </button>
+        )}
         <KioskCategories
           brand={config.brand}
           center={config.center}

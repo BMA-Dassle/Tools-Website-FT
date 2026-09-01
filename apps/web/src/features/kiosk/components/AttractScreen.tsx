@@ -26,6 +26,7 @@ import {
 import {
   kioskGroupWaiverEnabled,
   kioskCheckinEnabled,
+  kioskCrewEnabled,
   kioskRaceInfoEnabled,
   kioskBillboardEnabled,
   kioskWelcomeRotateEnabled,
@@ -250,12 +251,14 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
       clarityEvent("kiosk:attract:scan");
       router.push("/kiosk/flow?goto=gamezone");
     },
-    // A racer with nothing booked today. No `?goto=` — they still have to pick
-    // an activity; the stashed code is claimed by the people step once they do.
+    // A racer with nothing booked today → the "Your Crew" page, where the
+    // people step claims the stashed code and signs them in immediately. With
+    // the crew kill switch off, the pre-crew fallback: land on the activity
+    // chooser and let the people step claim the code once they pick something.
     goRacerSignIn: () => {
       clarityTag("kiosk_entry", "scan-racer");
       clarityEvent("kiosk:attract:scan");
-      router.push("/kiosk/flow");
+      router.push(kioskCrewEnabled() ? "/kiosk/racers" : "/kiosk/flow");
     },
   });
 
@@ -537,8 +540,7 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           label; FastTrax keeps its racing one. The race grid stays
           Fort-Myers-only — racing never advertises at Naples (owner 2026-07-25). */}
       {attractLayout === "adzone" &&
-        (kioskCheckinEnabled() ||
-          (config.center === "fort-myers" && kioskRaceInfoEnabled())) && (
+        (kioskCheckinEnabled() || (config.center === "fort-myers" && kioskRaceInfoEnabled())) && (
           <div className="relative z-10 mx-[64px] mb-[8px] flex shrink-0 gap-[16px]">
             {kioskCheckinEnabled() && (
               <button

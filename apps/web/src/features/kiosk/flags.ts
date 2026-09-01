@@ -374,6 +374,23 @@ export function kioskTenderSweepEnabled(): boolean {
   return process.env.KIOSK_TENDER_SWEEP !== "false";
 }
 
+/**
+ * The standalone "Your Crew" page (/kiosk/racers) — kill switch, defaults ON.
+ * A group adds / signs in everyone (accounts + waivers) with no prices and no
+ * cart, then hands the assembled party into the booking flow; it is also where
+ * a scanned racing licence lands when the racer has nothing booked today.
+ * Gates the DOORS only: the session banner's tap-through + its chooser empty
+ * state, and the entry-scan racer arm's navigation (which falls back to the
+ * `entryscan.racerSignedIn` toast, exactly the pre-crew behavior). The
+ * /kiosk/racers page itself stays reachable by typed URL for staff testing.
+ * Set the literal "false" in Vercel + redeploy to withdraw the doors
+ * (NEXT_PUBLIC_* values are build-baked). Read at call time (never module
+ * scope) so tests can stub process.env.
+ */
+export function kioskCrewEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_CREW !== "false";
+}
+
 // kioskSplitTenderEnabled is GONE (owner 2026-07-31) — paying with a gift card
 // (ONE gift card + ONE reader tap, "match web") is unconditional on every kiosk
 // checkout. History: tasks/split-tender-probes.md.

@@ -1,5 +1,25 @@
 # Open Tasks
 
+## Kiosk "Your Crew" page /kiosk/racers (2026-08-31) — branch `worktree-kiosk-crew-page`
+
+Owner: build the 2026-08-06 plan ([kiosk-crew-page-plan.md](kiosk-crew-page-plan.md)), "mature on
+first launch." Add/remove/sign-in everyone (accounts + waivers) on the PERSISTED kiosk session —
+no prices, no cart — then "Book something" lands on the chooser with the party built. Landing pad
+for a no-reservation racing-licence scan. The plan's PR 1 was moot (main landed its own racer-scan
+equivalent `239af574f` on 8/7); PR 3 (staff badge + comp) stays blocked on the employee-lookup
+probe — see the rebase note atop the plan doc.
+
+- [x] Page + flow (`crew/KioskCrewFlow.tsx`, persisted reducer, full H6 teardown), server shell
+      with `isProductPaused("waiver")` gate, `kioskCrewEnabled()` kill switch (default ON).
+- [x] Doors: banner WHO-half button + chevron (hold bar untouched), chooser-only empty state,
+      entry-scan racer arm → `/kiosk/racers` from attract AND chooser. EN+ES (`parts/crew.ts`).
+- [x] KIOSK_VERSION 1.31.0. Tests: crew-session (party-never-items, envelope round trip) +
+      AUTHENTICATE end-to-end pin. tsc 0, eslint 0 new, full suite 6753 green, next build + a11y.
+- [ ] Owner smoke on a provisioned kiosk (checklist in the plan doc) — then PR, merge, delete
+      worktree `.claude/worktrees/kiosk-crew-page` + branch.
+- [ ] Follow-up regardless of PR 3: guardrails on `/api/kiosk/admin action=comp` (positive-only,
+      kind allowlist, cap, audit row) — live and unguarded today; PIN fallback still `"1185"`.
+
 ## BOGO Wednesdays = scheduled-race rule, not a pack (2026-08-31) — branch `feat/bogo-scheduled`
 
 Owner: "this special is here to stay and was never meant to be a race pack — buy one get one,

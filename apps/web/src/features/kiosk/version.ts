@@ -15,6 +15,24 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.31.0 — "YOUR CREW": SIGN EVERYONE IN BEFORE ANYTHING IS BOOKED (owner
+ *         2026-08-31: "I want it mature on first launch"; page planned
+ *         2026-08-06). A standalone /kiosk/racers page mounts the live people
+ *         monolith over the PERSISTED kiosk session — add/remove/sign-in,
+ *         accounts + waivers, no prices and no cart — then "Book something"
+ *         lands on the chooser with the party already built. Three doors, all
+ *         behind the NEXT_PUBLIC_KIOSK_CREW kill switch (default ON): the
+ *         session banner's WHO half becomes a button (hold bar untouched — no
+ *         nested buttons), the chooser gets the strip's new EMPTY state
+ *         ("Nobody signed in yet · Add your people" — chooser only, never a
+ *         new box mid-wizard), and the entry-scan racer arm now navigates
+ *         there from BOTH the attract screen and the chooser instead of
+ *         dumping a no-reservation racer on the activity chooser with a
+ *         stashed code (the people step claims the `racer` hand-off on the
+ *         crew page the moment it mounts). Idle/start-over on the crew page
+ *         runs the FULL teardown (abandonBooking → clearBookingSession →
+ *         resetToKiosk) — the roster is guest PII and must never survive to
+ *         the next group. Fully bilingual (parts/crew.ts).
  * 1.30.0 — BOGO WEDNESDAYS IS A SCHEDULED-RACE RULE, NOT A PACK (owner
  *         2026-08-31: "this special is here to stay and was never meant to be
  *         a race pack — buy one get one, all races must be scheduled").
@@ -1128,7 +1146,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.30.0";
+export const KIOSK_VERSION = "1.31.0";
 
 let bootVersion: string | null = null;
 let captured = false;
