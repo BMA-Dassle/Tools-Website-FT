@@ -66,15 +66,33 @@ export function intercardProductCode(): string {
 }
 
 /**
- * Kill switch for the onsite path (repo rule: flags are kill switches ONLY —
- * a merged feature is ON, and a flag exists solely to turn it OFF in an
- * emergency, so it defaults ON via `!== "false"`).
+ * Which transport the Intercard router prefers.
  *
- * Set INTERCARD_ONSITE_ENABLED="false" to force every caller back onto the
- * proven SOAP client if the onsite relay misbehaves in production.
+ * ONSITE by default (owner 2026-08-31: "onsite takes priority"). The legacy
+ * `INTERCARD_LOAD_MODE` / `NEXT_PUBLIC_INTERCARD_LOAD_MODE` pair is being
+ * retired — it chose between the on-prem EIS bridge and cloud SOAP, a decision
+ * the onsite proxy makes obsolete (it reaches the same site card system and,
+ * unlike the bridge's EIS socket, can consolidate and clear). Deliberately NOT
+ * read here, so removing those vars cannot change this transport.
+ *
+ * Resolution:
+ *   INTERCARD_ONSITE_ENABLED="false" → cloud  (emergency kill switch)
+ *   otherwise                        → onsite
+ *
+ * Per the house rule, that is a kill switch and nothing else: it defaults ON
+ * (`!== "false"`) and exists only to force everything back onto the proven SOAP
+ * path if the onsite relay misbehaves. The cloud path is never disabled — it
+ * stays the recover-forward safety net so paid tokens always land.
  */
+export type IntercardTransportMode = "onsite" | "cloud";
+
+export function intercardTransportMode(): IntercardTransportMode {
+  return process.env.INTERCARD_ONSITE_ENABLED === "false" ? "cloud" : "onsite";
+}
+
+/** True when the router should try the onsite proxy before cloud SOAP. */
 export function isOnsiteEnabled(): boolean {
-  return process.env.INTERCARD_ONSITE_ENABLED !== "false";
+  return intercardTransportMode() === "onsite";
 }
 
 export type Brand = "headpinz" | "fasttrax";

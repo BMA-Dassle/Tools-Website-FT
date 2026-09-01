@@ -237,3 +237,32 @@ describe("intercard router — kill switch", () => {
     expect((await creditTokens(CREDIT)).transport).toBe("onsite");
   });
 });
+
+describe("intercard router — independent of the retired LOAD_MODE vars", () => {
+  // INTERCARD_LOAD_MODE / NEXT_PUBLIC_INTERCARD_LOAD_MODE are being deleted from
+  // Vercel. Removing an env var must never change which card system we talk to,
+  // so the router must ignore them in EVERY state they could be left in.
+  it("ignores INTERCARD_LOAD_MODE entirely — set, unset, or any value", async () => {
+    const { cloud, onsite } = await mocks();
+    onsite.creditTokens.mockResolvedValue({ code: 0 });
+    const { creditTokens } = await import("./intercard-router");
+
+    for (const mode of ["cloud", "local", "auto", ""]) {
+      vi.stubEnv("INTERCARD_LOAD_MODE", mode);
+      expect((await creditTokens(CREDIT)).transport).toBe("onsite");
+    }
+    vi.unstubAllEnvs(); // and with the var absent altogether
+    expect((await creditTokens(CREDIT)).transport).toBe("onsite");
+    expect(cloud.creditTokens).not.toHaveBeenCalled();
+  });
+
+  it("the kill switch still wins over anything LOAD_MODE says", async () => {
+    vi.stubEnv("INTERCARD_LOAD_MODE", "local");
+    vi.stubEnv("INTERCARD_ONSITE_ENABLED", "false");
+    const { cloud, onsite } = await mocks();
+    cloud.creditTokens.mockResolvedValue({ code: 0 });
+    const { creditTokens } = await import("./intercard-router");
+    expect((await creditTokens(CREDIT)).transport).toBe("cloud");
+    expect(onsite.creditTokens).not.toHaveBeenCalled();
+  });
+});
