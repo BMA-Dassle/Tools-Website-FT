@@ -1,6 +1,6 @@
 # Open Tasks
 
-## Kiosk "Your Crew" page /kiosk/racers (2026-08-31) — branch `worktree-kiosk-crew-page`
+## Kiosk "Your Crew" page /kiosk/racers (2026-08-31) — MERGED TO MAIN 2026-09-01
 
 Owner: build the 2026-08-06 plan ([kiosk-crew-page-plan.md](kiosk-crew-page-plan.md)), "mature on
 first launch." Add/remove/sign-in everyone (accounts + waivers) on the PERSISTED kiosk session —
@@ -14,9 +14,14 @@ probe — see the rebase note atop the plan doc.
 - [x] Doors: banner WHO-half button + chevron (hold bar untouched), chooser-only empty state,
       entry-scan racer arm → `/kiosk/racers` from attract AND chooser. EN+ES (`parts/crew.ts`).
 - [x] KIOSK_VERSION 1.31.0. Tests: crew-session (party-never-items, envelope round trip) +
-      AUTHENTICATE end-to-end pin. tsc 0, eslint 0 new, full suite 6753 green, next build + a11y.
-- [ ] Owner smoke on a provisioned kiosk (checklist in the plan doc) — then PR, merge, delete
-      worktree `.claude/worktrees/kiosk-crew-page` + branch.
+      AUTHENTICATE end-to-end pin. tsc 0, eslint 0 new, full suite 6754 green, next build + a11y.
+- [x] Empty-state door placement (owner 2026-09-01: "needs a better spot other than the top").
+      Four mocks; owner picked A — the strip moves off the top of the chooser to just ABOVE the
+      utility-door grid, rendered by `KioskCategories` behind an `onOpenCrew` callback.
+- [x] Owner previewed on the branch deployment and said push to main — merged 2026-09-01.
+- [ ] **On-glass smoke still owed** (it shipped on the owner's call before the full pass): the
+      checklist in the plan doc — cart round trip, idle PII teardown, both scan arms, Spanish,
+      kill switch, vendor outage. Then delete worktree `.claude/worktrees/kiosk-crew-page` + branch.
 - [ ] Follow-up regardless of PR 3: guardrails on `/api/kiosk/admin action=comp` (positive-only,
       kind allowlist, cap, audit row) — live and unguarded today; PIN fallback still `"1185"`.
 
