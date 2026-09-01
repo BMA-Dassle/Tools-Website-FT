@@ -10,3 +10,4 @@
 export * from "./schedule";
 export * from "./blocks";
 export * from "./flags";
+export * from "./service";
