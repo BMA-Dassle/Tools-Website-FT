@@ -51,12 +51,14 @@ export async function grantKioskRacePacks(args: {
       const depositId = await addDeposit({
         personId: p.personId,
         depositKindId: p.pack.depositKindId,
-        amount: p.pack.raceCount,
+        // creditCount = raceCount × qty — a "×2" BOGO deal grants 4, in ONE
+        // deposit, so the NX guard above still covers the whole line.
+        amount: p.creditCount,
         locationId: FASTTRAX_LOCATION_ID,
       });
       await markPackGranted(args.purchaseKey, p.personId, p.slug);
       console.log(
-        `[race-pack] granted ${p.pack.raceCount} (kind ${p.pack.depositKindId}) to person ${p.personId} (${p.memberName}) → deposit ${depositId}`,
+        `[race-pack] granted ${p.creditCount} (kind ${p.pack.depositKindId}) to person ${p.personId} (${p.memberName}) → deposit ${depositId}`,
       );
       out.push({ slug: p.slug, memberId: p.memberId, granted: true });
     } catch (err) {
@@ -84,7 +86,7 @@ export async function grantKioskRacePacks(args: {
         locationId: FASTTRAX_LOCATION_ID,
         personId: p.personId,
         depositKindId: p.pack.depositKindId,
-        amount: p.pack.raceCount,
+        amount: p.creditCount,
         initialError: msg,
         notes: `Kiosk race pack ${p.label} for ${p.memberName}`,
       }).catch((e) => console.error(`[race-pack] enqueue ALSO failed for ${guardKey}:`, e));

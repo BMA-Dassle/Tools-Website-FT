@@ -54,7 +54,9 @@ import {
   type RacerType,
 } from "~/features/booking/service/race-products";
 import {
+  applyPackQty,
   applyPackSelection,
+  selectionQty,
   coveredMembersPreview,
   kioskRacePacksEnabled,
   packSkusForRaceDate,
@@ -836,7 +838,88 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
             const lead = promotedSaleSku(skus, eligible, category);
             if (!lead || packOpen) return null;
             const fits = eligible.filter((m) => packFitsMember(lead, m));
-            const held = picks.some((p) => p.slug === lead.slug);
+            const holders = picks.filter((p) => p.slug === lead.slug);
+            const held = holders.length > 0;
+            // HELD by exactly one racer on a multi-buy deal: the row turns into
+            // a quantity surface — a −/+ stepper right where the guest already
+            // is, because "buy a second BOGO deal" must never require finding
+            // the collapsed picker (the same owner rule that promoted this row
+            // in the first place, 2026-08-12) — let alone paying and walking
+            // back to the kiosk for a second transaction (guest complaints,
+            // 2026-08-31). A <div>, not a <button>: buttons can't nest, and the
+            // stepper and the remove × are the interactive parts now. Multiple
+            // holders keep the plain row below — per-racer quantities live on
+            // the picker's assignment rows.
+            if (held && holders.length === 1 && (lead.maxPerRacer ?? 1) > 1) {
+              const pick = holders[0];
+              const qty = selectionQty(pick);
+              const holder = eligible.find((m) => m.id === pick.memberId);
+              const holderName = holder
+                ? `${holder.firstName} ${holder.lastName ?? ""}`.trim()
+                : "";
+              const setQty = (next: number) =>
+                onChange({ creditPacks: applyPackQty(picks, lead.slug, pick.memberId, next) });
+              return (
+                <div className="relative mt-2 flex w-full items-center gap-4 rounded-2xl border-2 border-amber-400 bg-linear-to-br from-amber-400/20 to-amber-400/5 px-5 pb-4 pt-6 text-left ring-4 ring-amber-400/45">
+                  <span className="absolute -top-3 left-5 rounded-full bg-amber-400 px-3 py-1 text-[11px] font-black uppercase italic tracking-wide text-[#241701]">
+                    {t("payMode.flashSale")}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="font-display block text-lg font-black uppercase leading-tight">
+                      {t("payMode.bogo.title")}
+                    </span>
+                    <span className="mt-0.5 block text-sm text-white/60">
+                      {t("payMode.bogo.sub")}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1 rounded-full border border-amber-400/60 bg-amber-400/10 px-2 py-1">
+                    <button
+                      type="button"
+                      aria-label={t("racePack.picker.qtyLessAria", { name: holderName })}
+                      disabled={qty <= 1}
+                      onClick={() => setQty(qty - 1)}
+                      className="px-2 text-xl font-black leading-none text-white/70 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                      −
+                    </button>
+                    <span className="min-w-[2.5ch] text-center text-base font-extrabold tabular-nums">
+                      ×{qty}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={t("racePack.picker.qtyMoreAria", { name: holderName })}
+                      disabled={qty >= (lead.maxPerRacer ?? 1)}
+                      onClick={() => setQty(qty + 1)}
+                      className="px-2 text-xl font-black leading-none text-white/70 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                      +
+                    </button>
+                  </span>
+                  {/* Totals scale with the stepper — displayed == what the
+                      review and charge derive from the same qty pointer. */}
+                  <span className="shrink-0 text-right">
+                    {typeof lead.regularPrice === "number" && (
+                      <span className="block text-xs font-semibold tabular-nums text-white/40 line-through">
+                        {money(lead.regularPrice * qty)}
+                      </span>
+                    )}
+                    <span className="block text-xl font-extrabold tabular-nums">
+                      {money(lead.price * qty)}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={t("racePack.picker.removeAria", { name: holderName })}
+                    onClick={() =>
+                      onChange({ creditPacks: applyPackSelection(picks, lead.slug, []) })
+                    }
+                    className="shrink-0 text-lg leading-none text-white/50 transition-colors hover:text-red-300"
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            }
             return (
               <button
                 type="button"

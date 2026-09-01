@@ -59,6 +59,37 @@ describe("reducer — cart items", () => {
     expect(s2.items[0]).toMatchObject({ slug: "gel-blaster", qty: 4 });
   });
 
+  it("updateItem with heats raises a multi-buy pack's qty (grid drives the BOGO deal count)", () => {
+    // Wednesday 2026-09-02 — the recurring BOGO promo is live for that race date.
+    const WED = "2026-09-02";
+    const s0 = seedSession();
+    const member = makeMember({ bmiPersonId: "91", isNewRacer: false, category: "adult" });
+    const s1 = reducer(s0, { type: "addPartyMember", member });
+    const race = newItem("race");
+    const s2 = reducer(s1, { type: "addItem", item: race });
+    const s3 = reducer(s2, {
+      type: "updateItem",
+      id: race.id,
+      patch: {
+        date: WED,
+        creditPacks: [{ slug: "bogo-races-adult", memberId: member.id }],
+      } as Partial<RaceItem>,
+    });
+    // One deal covers two heats; picking four on the grid asks for two deals.
+    const gridHeat = (id: string) =>
+      heat({ heatId: id, productId: "24953280", category: "adult", assignedTo: member.id });
+    const s4 = reducer(s3, {
+      type: "updateItem",
+      id: race.id,
+      patch: {
+        heats: [gridHeat("h1"), gridHeat("h2"), gridHeat("h3"), gridHeat("h4")],
+      } as Partial<RaceItem>,
+    });
+    expect((s4.items[0] as RaceItem).creditPacks).toEqual([
+      { slug: "bogo-races-adult", memberId: member.id, qty: 2 },
+    ]);
+  });
+
   it("addItem allows mixed carts (bowling + race)", () => {
     const s0 = seedSession();
     const race = newItem("race");

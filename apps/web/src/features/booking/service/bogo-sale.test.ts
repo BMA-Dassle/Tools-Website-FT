@@ -21,11 +21,14 @@ import {
   racePackLabel,
 } from "../data/packs";
 import {
+  autoRaiseMultiBuyQty,
+  computePackCoverage,
   kioskPackSkus,
   packSkusForRaceDate,
   resolveKioskPacks,
   webPackSkus,
 } from "./race-pack-kiosk";
+import type { RaceHeatAssignment } from "../state/types";
 import {
   packFitsMember,
   promotedSaleSku,
@@ -410,6 +413,164 @@ describe("BOGO — tier and history fail closed in the resolver", () => {
     for (const slug of ["3-race-weekday", "5-race-weekday", "10-race-weekday"]) {
       expect(() => resolveKioskPacks([{ slug, memberId: "n1" }], [rookie], opts)).not.toThrow();
     }
+  });
+});
+
+describe("BOGO — a returning racer can take the deal more than once in ONE order", () => {
+  const adult = {
+    id: "a1",
+    firstName: "Dale",
+    bmiPersonId: "123456789012345678",
+    category: "adult" as const,
+    isNewRacer: false,
+  };
+  const opts = { now: WED_BUYS, raceDate: WED };
+
+  it("qty 2 doubles the money AND the credits — one line, real quantity", () => {
+    const [p] = resolveKioskPacks(
+      [{ slug: "bogo-races-adult", memberId: "a1", qty: 2 }],
+      [adult],
+      opts,
+    );
+    expect(p).toMatchObject({
+      qty: 2,
+      creditCount: 4,
+      unitPriceCents: 2099,
+      priceCents: 4198,
+    });
+  });
+
+  it("an absent qty resolves exactly like before the field existed", () => {
+    const [p] = resolveKioskPacks([{ slug: "bogo-races-adult", memberId: "a1" }], [adult], opts);
+    expect(p).toMatchObject({ qty: 1, creditCount: 2, priceCents: 2099 });
+  });
+
+  it("qty above the catalog cap (4) fails closed at charge time", () => {
+    expect(() =>
+      resolveKioskPacks([{ slug: "bogo-races-adult", memberId: "a1", qty: 5 }], [adult], opts),
+    ).toThrow(/limited to 4 per racer/i);
+  });
+
+  it("qty > 1 on a standing single-buy SKU fails closed — the owner rule holds there", () => {
+    expect(() =>
+      resolveKioskPacks([{ slug: "3-race-weekday", memberId: "a1", qty: 2 }], [adult], opts),
+    ).toThrow(/limited to one per racer/i);
+  });
+
+  it("a forged non-integer or zero qty fails closed", () => {
+    for (const qty of [0, -1, 1.5]) {
+      expect(() =>
+        resolveKioskPacks([{ slug: "bogo-races-adult", memberId: "a1", qty }], [adult], opts),
+      ).toThrow(/invalid quantity/i);
+    }
+  });
+
+  it("×2 covers FOUR booked Wednesday heats — the whole point of the change", () => {
+    const heat = (id: string): RaceHeatAssignment =>
+      ({
+        heatId: id,
+        productId: "24953280",
+        category: "adult",
+        track: "Red",
+        assignedTo: "a1",
+        bmiLineId: null,
+      }) as RaceHeatAssignment;
+    const packs = resolveKioskPacks(
+      [{ slug: "bogo-races-adult", memberId: "a1", qty: 2 }],
+      [adult],
+      opts,
+    );
+    const session = {
+      items: [{ kind: "race", date: WED, heats: [heat("h1"), heat("h2"), heat("h3"), heat("h4")] }],
+    };
+    const cov = computePackCoverage(session, packs, new Set());
+    expect(cov.heats.size).toBe(4);
+    expect(cov.redemptions).toHaveLength(4);
+    expect(cov.usedByMember.get("a1")).toBe(4);
+  });
+});
+
+describe("BOGO — the race grid drives the deal quantity (autoRaiseMultiBuyQty)", () => {
+  const adult = {
+    id: "a1",
+    firstName: "Dale",
+    bmiPersonId: "123456789012345678",
+    category: "adult" as const,
+    isNewRacer: false,
+  };
+  const heat = (id: string, assignedTo = "a1"): RaceHeatAssignment =>
+    ({
+      heatId: id,
+      productId: "24953280",
+      category: "adult",
+      track: "Red",
+      assignedTo,
+      bmiLineId: null,
+    }) as RaceHeatAssignment;
+  const raceItem = (
+    heats: RaceHeatAssignment[],
+    creditPacks: Array<{ slug: string; memberId: string; qty?: number }>,
+  ) => ({ kind: "race", date: WED, heats, creditPacks });
+
+  it("four picked heats raise a held BOGO from ×1 to ×2", () => {
+    const items = [
+      raceItem(
+        [heat("h1"), heat("h2"), heat("h3"), heat("h4")],
+        [{ slug: "bogo-races-adult", memberId: "a1" }],
+      ),
+    ];
+    const next = autoRaiseMultiBuyQty(items, [adult], WED_BUYS);
+    expect(next[0].creditPacks).toEqual([{ slug: "bogo-races-adult", memberId: "a1", qty: 2 }]);
+  });
+
+  it("never LOWERS a manual quantity — banking intent survives removing heats", () => {
+    const items = [raceItem([heat("h1")], [{ slug: "bogo-races-adult", memberId: "a1", qty: 2 }])];
+    expect(autoRaiseMultiBuyQty(items, [adult], WED_BUYS)).toBe(items);
+  });
+
+  it("caps at the catalog's maxPerRacer even with a grid full of heats", () => {
+    const items = [
+      raceItem(
+        Array.from({ length: 12 }, (_, i) => heat(`h${i}`)),
+        [{ slug: "bogo-races-adult", memberId: "a1" }],
+      ),
+    ];
+    const next = autoRaiseMultiBuyQty(items, [adult], WED_BUYS);
+    expect(next[0].creditPacks![0].qty).toBe(4);
+  });
+
+  it("skips a member holding eligible account credits — their heats are the credit rail's", () => {
+    const withCredits = {
+      ...adult,
+      creditBalances: [{ kind: "Weekday Race Credit", balance: 2 }],
+    };
+    const items = [
+      raceItem(
+        [heat("h1"), heat("h2"), heat("h3"), heat("h4")],
+        [{ slug: "bogo-races-adult", memberId: "a1" }],
+      ),
+    ];
+    expect(autoRaiseMultiBuyQty(items, [withCredits], WED_BUYS)).toBe(items);
+  });
+
+  it("standing single-buy packs are never touched, however many heats are picked", () => {
+    const items = [
+      raceItem(
+        [heat("h1"), heat("h2"), heat("h3"), heat("h4")],
+        [{ slug: "3-race-weekday", memberId: "a1" }],
+      ),
+    ];
+    expect(autoRaiseMultiBuyQty(items, [adult], WED_BUYS)).toBe(items);
+  });
+
+  it("a broken pointer changes nothing (fail-open display, fail-closed charge)", () => {
+    const items = [
+      raceItem(
+        [heat("h1"), heat("h2"), heat("h3")],
+        [{ slug: "bogo-races-adult", memberId: "gone" }],
+      ),
+    ];
+    expect(autoRaiseMultiBuyQty(items, [adult], WED_BUYS)).toBe(items);
   });
 });
 

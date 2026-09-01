@@ -26,7 +26,9 @@
  */
 import { useState } from "react";
 import {
+  applyPackQty,
   applyPackSelection,
+  selectionQty,
   type KioskPackSelection,
 } from "~/features/booking/service/race-pack-kiosk";
 import { getRacePack, type RacePack, type RacePackDayType } from "~/features/booking/data/packs";
@@ -141,6 +143,14 @@ export function PackAssignmentList({
       {picks.map((p) => {
         const sku = getRacePack(p.slug);
         const name = nameOf(eligible, p.memberId);
+        const qty = selectionQty(p);
+        // Multi-buy SKU (BOGO deals): the row grows a −/+ stepper so a racer
+        // can take the deal more than once IN THIS ORDER — the complaint this
+        // exists for was "pay, then walk back to the kiosk for the second
+        // one" (2026-08-31). Standing packs (maxPerRacer absent) never render
+        // it, keeping the owner's one-pack rule untouched for them.
+        const maxQty = sku?.maxPerRacer ?? 1;
+        const setQty = (next: number) => onChange(applyPackQty(picks, p.slug, p.memberId, next));
         return (
           <div
             key={`${p.memberId}-${p.slug}`}
@@ -150,23 +160,52 @@ export function PackAssignmentList({
               <span className="font-bold">{name}</span>
               {/* An off-catalog slug can't reach here from the tiles (and would
                   be refused at charge time) — still, render the name + the
-                  remove door rather than inventing a size for it. */}
+                  remove door rather than inventing a size for it. Count and
+                  price show the LINE totals (races × qty, price × qty), the
+                  same numbers the review and the charge will carry. */}
               {sku
                 ? ` — ${t("racePack.picker.assignment", {
-                    count: sku.raceCount,
+                    count: sku.raceCount * qty,
                     day: dayLabel(t, sku),
-                    price: `$${sku.price.toFixed(2)}`,
+                    price: `$${(sku.price * qty).toFixed(2)}`,
                   })}`
                 : ""}
             </span>
-            <button
-              type="button"
-              aria-label={t("racePack.picker.removeAria", { name })}
-              onClick={() => remove(p.memberId)}
-              className="ml-3 text-base leading-none text-white/50 transition-colors hover:text-red-300"
-            >
-              ×
-            </button>
+            <span className="ml-3 flex shrink-0 items-center gap-1.5">
+              {maxQty > 1 && (
+                <span className="flex items-center gap-1 rounded-full border border-amber-400/50 bg-amber-400/10 px-1.5 py-0.5">
+                  <button
+                    type="button"
+                    aria-label={t("racePack.picker.qtyLessAria", { name })}
+                    disabled={qty <= 1}
+                    onClick={() => setQty(qty - 1)}
+                    className="px-1.5 text-base font-black leading-none text-white/70 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    −
+                  </button>
+                  <span className="min-w-[2ch] text-center text-xs font-extrabold tabular-nums">
+                    ×{qty}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={t("racePack.picker.qtyMoreAria", { name })}
+                    disabled={qty >= maxQty}
+                    onClick={() => setQty(qty + 1)}
+                    className="px-1.5 text-base font-black leading-none text-white/70 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    +
+                  </button>
+                </span>
+              )}
+              <button
+                type="button"
+                aria-label={t("racePack.picker.removeAria", { name })}
+                onClick={() => remove(p.memberId)}
+                className="text-base leading-none text-white/50 transition-colors hover:text-red-300"
+              >
+                ×
+              </button>
+            </span>
           </div>
         );
       })}

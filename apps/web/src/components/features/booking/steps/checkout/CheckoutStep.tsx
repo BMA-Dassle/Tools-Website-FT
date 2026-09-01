@@ -575,7 +575,11 @@ export function CheckoutStep({
             const packs = resolveSessionPacks(session);
             for (const p of packs) {
               reviewLines.push({
-                name: `Race Pack — ${p.label} · ${p.memberName}`,
+                // ×N in the NAME (not the quantity column): amount is already
+                // the line TOTAL here, and a quantity the renderer multiplied
+                // would double-charge the display. The Square order carries the
+                // real quantity (unified-reserve builds it from p.qty).
+                name: `Race Pack — ${p.label}${p.qty > 1 ? ` ×${p.qty}` : ""} · ${p.memberName}`,
                 quantity: 1,
                 amount: p.priceCents / 100,
               });

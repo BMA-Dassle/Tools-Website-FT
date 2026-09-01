@@ -10,7 +10,9 @@
  *   - All six SKUs, the same catalog the web sells: 3/5/10 races × Mon–Thu /
  *     Any-Day ($49.99 → $199.99).
  *   - Fri/Sat/Sun (center-local day) HIDE the Mon–Thu packs entirely.
- *   - One pack → one person; new + returning racers both eligible.
+ *   - One pack → one person; new + returning racers both eligible. (A
+ *     MULTI-BUY SKU — `RacePack.maxPerRacer`, the BOGO deals — may carry a
+ *     quantity on that one selection; it is still one pack per person.)
  *   - Two surfaces: race product-step teaser (rides the booking's deposit
  *     order via the GZ extraLines seam) and a LOCKED standalone flow from the
  *     attract screen (own small order on the game-cards terminal rail).
@@ -197,11 +199,24 @@ export function packSkusForRaceDate(
   return skusFor(packSlugsAt(raceDate, now), weekend);
 }
 
-/** A pack purchase pointer as carried by the session/UI — slug + assignee only;
- *  the server re-derives price/kind/label from the catalog at charge time. */
+/** A pack purchase pointer as carried by the session/UI — slug + assignee (+ an
+ *  optional quantity); the server re-derives price/kind/label from the catalog
+ *  at charge time. */
 export interface KioskPackSelection {
   slug: string;
   memberId: string;
+  /**
+   * How many of this pack the racer is buying — absent = 1, so every session
+   * persisted before the field existed hydrates unchanged. Only meaningful on a
+   * `maxPerRacer` SKU (the BOGO deals); `resolveKioskPacks` throws on a qty the
+   * catalog doesn't allow, so a forged pointer can never multiply a charge.
+   */
+  qty?: number;
+}
+
+/** The selection's quantity with the absent-field default applied. */
+export function selectionQty(sel: Pick<KioskPackSelection, "qty">): number {
+  return sel.qty ?? 1;
 }
 
 /**
@@ -219,11 +234,43 @@ export function applyPackSelection(
 ): KioskPackSelection[] | undefined {
   const ids = new Set(memberIds);
   const next = picks.filter((p) => p.slug !== slug && !ids.has(p.memberId));
-  for (const memberId of memberIds) next.push({ slug, memberId });
+  for (const memberId of memberIds) {
+    // A member who already held THIS slug keeps their chosen quantity — the
+    // panel is an edit surface, and re-applying it to add a friend must not
+    // quietly reset a "×2" BOGO back to one deal.
+    const prior = picks.find((p) => p.slug === slug && p.memberId === memberId);
+    next.push(prior ?? { slug, memberId });
+  }
   return next.length > 0 ? next : undefined;
 }
 
-/** Server-resolved pack purchase line (per pack, per person). */
+/**
+ * Set ONE holder's quantity on a pack they already hold (the −/+ stepper on
+ * multi-buy SKUs — see `RacePack.maxPerRacer`). Clamped to [1, maxPerRacer];
+ * `qty === 1` drops the field entirely so the stored pointer stays byte-
+ * identical to the pre-qty shape. A (slug, memberId) pair not currently held
+ * returns the picks unchanged — the stepper only renders on existing rows, so
+ * this is belt-and-braces, not a code path.
+ */
+export function applyPackQty(
+  picks: KioskPackSelection[],
+  slug: string,
+  memberId: string,
+  qty: number,
+): KioskPackSelection[] {
+  const pack = getRacePack(slug);
+  const max = pack?.maxPerRacer ?? 1;
+  const clamped = Math.min(Math.max(Math.trunc(qty), 1), max);
+  return picks.map((p) =>
+    p.slug === slug && p.memberId === memberId
+      ? clamped > 1
+        ? { slug: p.slug, memberId: p.memberId, qty: clamped }
+        : { slug: p.slug, memberId: p.memberId }
+      : p,
+  );
+}
+
+/** Server-resolved pack purchase line (per selection, per person). */
 export interface ResolvedKioskPack {
   slug: string;
   pack: RacePack;
@@ -232,6 +279,17 @@ export interface ResolvedKioskPack {
   personId: string;
   memberName: string;
   label: string;
+  /** How many of this pack the racer is buying (validated against
+   *  `pack.maxPerRacer`; 1 for every non-multi-buy SKU). */
+  qty: number;
+  /** TOTAL credits this line grants = `pack.raceCount × qty` — the grant
+   *  amount, the coverage cap and the ledger row's race_count. */
+  creditCount: number;
+  /** One pack's price (the catalog price) — the Square line's unit price. */
+  unitPriceCents: number;
+  /** LINE TOTAL = `unitPriceCents × qty`. Every money consumer
+   *  (kioskPacksTotalCents, order totals, the ledger row) reads this, so a
+   *  qty > 1 flows through them without any of them knowing about quantities. */
   priceCents: number;
 }
 
@@ -306,11 +364,28 @@ export function resolveKioskPacks(
       );
     }
     // One pack per person (owner) — the UI enforces replace semantics; this is
-    // the server-side backstop.
+    // the server-side backstop. Quantity of a MULTI-BUY pack rides the single
+    // selection's `qty`, never a second entry.
     if (seen.has(member.id)) {
       throw new Error(`${memberName} already has a race pack in this order.`);
     }
     seen.add(member.id);
+    // Quantity — fail-closed against the CATALOG's cap, mirroring every other
+    // check here: the session carries the number, the registry says whether the
+    // SKU allows one at all (`maxPerRacer`, absent = 1 — the standing rule).
+    const qty = selectionQty(sel);
+    const maxQty = pack.maxPerRacer ?? 1;
+    if (!Number.isInteger(qty) || qty < 1) {
+      throw new Error(`${memberName}'s race pack has an invalid quantity.`);
+    }
+    if (qty > maxQty) {
+      throw new Error(
+        maxQty === 1
+          ? `${racePackLabel(pack)} is limited to one per racer — ${memberName} has ${qty} in this order.`
+          : `${racePackLabel(pack)} is limited to ${maxQty} per racer per order — ${memberName} has ${qty}.`,
+      );
+    }
+    const unitPriceCents = Math.round(pack.price * 100);
     return {
       slug: sel.slug,
       pack,
@@ -318,7 +393,10 @@ export function resolveKioskPacks(
       personId: member.bmiPersonId,
       memberName,
       label: racePackLabel(pack),
-      priceCents: Math.round(pack.price * 100),
+      qty,
+      creditCount: pack.raceCount * qty,
+      unitPriceCents,
+      priceCents: unitPriceCents * qty,
     };
   });
 }
@@ -397,7 +475,8 @@ export interface PackCoverage {
  * weekday-locked pack — heats on an item whose race DATE falls Fri–Sun
  * (belt-and-braces under the offer/resolve day rule, which keys off the race
  * date now that the web booking flow sells packs too; a weekday credit can't
- * pay a weekend race). Cap = raceCount.
+ * pay a weekend race). Cap = creditCount (raceCount × qty — a "×2" BOGO deal
+ * can cover four booked heats today).
  */
 export function computePackCoverage(
   session: {
@@ -434,7 +513,7 @@ export function computePackCoverage(
       }
       if (alreadyRedeemed.has(h)) continue;
       const used = usedByMember.get(h.assignedTo) ?? 0;
-      if (used >= pack.pack.raceCount) continue;
+      if (used >= pack.creditCount) continue;
       // Booked multi-race pack products never get credit-covered (their price
       // is already a bundle) — resolvable per-track ids carry packType.
       const prod = getRaceProductById(h.productId);
@@ -496,4 +575,109 @@ export function coveredMembersPreview(
     covered.set(sel.memberId, { source: "cart-pack" });
   }
   return covered;
+}
+
+// ── Grid-driven quantity: picking more Wednesday races IS asking for more deals ──
+
+/**
+ * Raise multi-buy pack quantities to cover the heats their holders have picked
+ * on the race grid — the owner-assumed UX ("just allow more to be picked on the
+ * race grid", 2026-08-31): a returning racer who books four Wednesday heats
+ * holding one BOGO deal is asking for two deals, not for two full-price
+ * singles. The reducer runs this whenever a race item's heats or pack picks
+ * change.
+ *
+ * Strictly guest-favorable by construction, which is why it may act silently:
+ * a BOGO deal costs exactly the weekday single-race price it replaces (packs.ts
+ * pins price = the single rate, regularPrice = 2×), so raising the quantity
+ * charges the same money those uncovered heats would have charged anyway — and
+ * banks a free race each. Three deliberate refusals keep it that way:
+ *
+ *  - UPWARD ONLY, capped at `maxPerRacer`. It never lowers a quantity, so a
+ *    guest who stepped up to ×2 to BANK races (one heat today, three credits
+ *    banked) is never fought by the grid. Removing heats leaves the higher
+ *    quantity visible on the review, where the stepper can take it back down.
+ *  - MEMBERS WITH ELIGIBLE ACCOUNT CREDITS ARE SKIPPED. Their picked heats get
+ *    credit-covered first at checkout (packs never double-cover), so counting
+ *    those heats would buy them a deal they didn't ask for. Ambiguous → leave
+ *    the quantity where the guest put it.
+ *  - RESOLVE FAILURES CHANGE NOTHING (same fail-open as the cart's estimate —
+ *    the reserve stays the enforcement point for bad pointers).
+ *
+ * Coverage is counted by `computePackCoverage` itself at the CATALOG-MAX
+ * quantity — same exclusions as the charge (package component heats, combo
+ * products, weekend-dated items), so the grid and the money can't disagree
+ * about which heats a deal can cover.
+ *
+ * Returns the same `items` reference when nothing changes, so reducer callers
+ * can cheaply keep state identity.
+ */
+export function autoRaiseMultiBuyQty<
+  T extends {
+    kind: string;
+    date?: string | null;
+    packageIdAdult?: string | null;
+    packageIdJunior?: string | null;
+    heats?: RaceHeatAssignment[];
+    creditPacks?: KioskPackSelection[];
+  },
+>(
+  items: T[],
+  party: Array<{
+    id: string;
+    firstName: string;
+    lastName?: string;
+    bmiPersonId?: string | null;
+    category?: "adult" | "junior";
+    isNewRacer?: boolean;
+    creditBalances?: Array<{ kind: string; balance: number }>;
+  }>,
+  now?: Date,
+): T[] {
+  // Coverage at the catalog-max quantity, per item (each against its own race
+  // date, like resolveSessionPacks). A resolve failure skips that item.
+  const resolvedMax: ResolvedKioskPack[] = [];
+  let anyMultiBuy = false;
+  for (const item of items) {
+    if (item.kind !== "race" || (item.creditPacks?.length ?? 0) === 0) continue;
+    const forced = item.creditPacks!.map((p) => {
+      const max = getRacePack(p.slug)?.maxPerRacer ?? 1;
+      if (max > 1) anyMultiBuy = true;
+      return { ...p, qty: max };
+    });
+    try {
+      resolvedMax.push(...resolveKioskPacks(forced, party, { now, raceDate: item.date ?? null }));
+    } catch {
+      /* bad pointer → the reserve refuses the charge; never auto-edit on it */
+    }
+  }
+  if (!anyMultiBuy || resolvedMax.length === 0) return items;
+
+  const coverage = computePackCoverage({ items }, resolvedMax, new Set());
+
+  let changed = false;
+  const next = items.map((item) => {
+    if (item.kind !== "race" || (item.creditPacks?.length ?? 0) === 0) return item;
+    let itemChanged = false;
+    const picks = item.creditPacks!.map((p) => {
+      const pack = getRacePack(p.slug);
+      const max = pack?.maxPerRacer ?? 1;
+      if (!pack || max <= 1) return p;
+      const member = party.find((m) => m.id === p.memberId);
+      if (!member) return p;
+      if (memberEligibleCreditTotal(member.creditBalances, item.date ?? null) > 0) return p;
+      const coverable = coverage.usedByMember.get(p.memberId) ?? 0;
+      const needed = Math.min(Math.max(Math.ceil(coverable / pack.raceCount), 1), max);
+      const cur = selectionQty(p);
+      if (needed <= cur) return p;
+      itemChanged = true;
+      return needed > 1
+        ? { slug: p.slug, memberId: p.memberId, qty: needed }
+        : { slug: p.slug, memberId: p.memberId };
+    });
+    if (!itemChanged) return item;
+    changed = true;
+    return { ...item, creditPacks: picks };
+  });
+  return changed ? next : items;
 }
