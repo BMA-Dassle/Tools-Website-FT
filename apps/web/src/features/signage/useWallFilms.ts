@@ -58,6 +58,39 @@ const RETRY_FLOOR_MS = 60_000;
 const attemptedAt = new Map<string, number>();
 const inFlight = new Map<string, Promise<boolean>>();
 
+/**
+ * source url → object url, ONE PER FILM FOR THE LIFE OF THE PAGE.
+ *
+ * This is module scope for the same reason as the two above, and getting it wrong made
+ * the reels play from the NETWORK every single turn — which is what "the pricing videos
+ * are laggy" was (owner 2026-09-01), on files that were sitting on the disk the whole
+ * time.
+ *
+ * The chain: `local` was per-MOUNT state, so it began empty on every mount and filled
+ * asynchronously (persistence → cache listing → disk read). `PanelFilm` freezes its src
+ * at first render to stop the reel restarting mid-play. First render is always before
+ * that async work lands, so the frozen value was always the blob-store URL — the cache
+ * was written, and then never read.
+ *
+ * A map here is NOT the leak that was fixed earlier. That leak was one NEW object URL
+ * per mount, unbounded, ~700 a day. This is at most one per distinct film — four — and
+ * `video-cache.ts` intends exactly that: create the handle once, keep it, and let every
+ * later turn start from disk on its first frame.
+ */
+const adopted = new Map<string, string>();
+
+/** Release a film's handle — only when it leaves the manifest, never on unmount. */
+function release(url: string) {
+  const objectUrl = adopted.get(url);
+  if (!objectUrl) return;
+  adopted.delete(url);
+  try {
+    URL.revokeObjectURL(objectUrl);
+  } catch {
+    /* nothing to do */
+  }
+}
+
 /** Download once per URL per page, however many mounts ask for it. */
 function ensureOnce(url: string): Promise<boolean> {
   const running = inFlight.get(url);
@@ -84,21 +117,15 @@ export interface WallFilmSources {
  *        a disabled hook touches neither the network nor the disk.
  */
 export function useWallFilms(films: readonly string[], enabled: boolean): WallFilmSources {
-  // url → object URL, for everything confirmed on disk.
-  const [local, setLocal] = useState<Record<string, string>>({});
   /**
-   * THE LIVE LEDGER of what THIS mount adopted: source url → object url.
-   *
-   * A ref and not the `local` state, and that distinction is the whole bug the briefing
-   * hook wrote down (useBriefingAssets.ts): a `[]`-dep cleanup closes over the FIRST
-   * render's state, which is `{}`, so revoking from it revokes nothing. This scene
-   * unmounts every two minutes when the VIP artwork takes the wall, and each remount
-   * adopts afresh — so a leak here is not slow, it is a few hundred pinned reels a day
-   * on a player that runs for weeks.
+   * url → object URL for everything already on disk, SEEDED SYNCHRONOUSLY from the
+   * module map — which is the whole point. A mount that starts with the handles it had
+   * last time hands `PanelFilm` a blob URL on its FIRST render, so the reel plays from
+   * disk from its first frame instead of streaming while the disk read catches up.
    */
-  const adoptedRef = useRef<Map<string, string>>(new Map());
-  /** False once this mount is gone, so an in-flight disk read cannot pin a film that
-   *  the cleanup has already swept past. */
+  const [local, setLocal] = useState<Record<string, string>>(() => Object.fromEntries(adopted));
+  /** False once this mount is gone — only used to skip a pointless setState. The handle
+   *  itself is still recorded, because the next mount wants it. */
   const aliveRef = useRef(true);
 
   // A primitive dependency rather than the array: a fresh array literal every render
@@ -136,27 +163,21 @@ export function useWallFilms(films: readonly string[], enabled: boolean): WallFi
     }
 
     // Prune only AFTER the new files are safely down, so a replaced reel keeps playing
-    // until its successor is completely on disk.
+    // until its successor is completely on disk. Handles for anything that has left the
+    // manifest go with it — that, and not unmount, is when a handle is genuinely dead.
     await pruneCache(manifest, WALL_CACHE);
+    for (const url of [...adopted.keys()]) if (!manifest.includes(url)) release(url);
 
     async function adopt(url: string) {
-      // Re-adopting would leak an object URL per poll.
-      if (adoptedRef.current.has(url)) return;
+      // At most one handle per film, ever — see the module map.
+      if (adopted.has(url)) return;
       const objectUrl = await cachedObjectUrl(url, WALL_CACHE);
       if (!objectUrl) return;
-      if (!aliveRef.current) {
-        // The panel unmounted while the disk read was in flight. The ledger has already
-        // been swept, so writing to it now would pin this reel with nothing left to
-        // release it.
-        try {
-          URL.revokeObjectURL(objectUrl);
-        } catch {
-          /* nothing to do */
-        }
-        return;
-      }
-      adoptedRef.current.set(url, objectUrl);
-      setLocal((prev) => ({ ...prev, [url]: objectUrl }));
+      // Recorded even if this mount is already gone: the handle is what the NEXT turn
+      // needs, and throwing it away here is exactly how the reels ended up streaming
+      // every time. Only the setState is skipped.
+      adopted.set(url, objectUrl);
+      if (aliveRef.current) setLocal((prev) => ({ ...prev, [url]: objectUrl }));
     }
   }, [enabled, manifestKey]);
 
@@ -175,24 +196,23 @@ export function useWallFilms(films: readonly string[], enabled: boolean): WallFi
     return () => clearInterval(iv);
   }, [sync]);
 
-  // Revoke on unmount only, FROM THE REF — see `adoptedRef`. Revoking when a URL leaves
-  // the manifest would instead pull a reel out from under a panel that is mid-play.
+  /**
+   * NOTHING IS REVOKED ON UNMOUNT, and that is the fix rather than an omission.
+   *
+   * Revoking here is what forced every turn to stream: the handle died with the mount,
+   * so the next mount began with nothing and `PanelFilm` froze the network URL before a
+   * fresh handle could arrive. Handles are released when a film leaves the manifest
+   * (see `release` in `sync`), which is the only moment one is really finished with.
+   *
+   * The count is bounded by the number of DISTINCT films a panel plays — four across the
+   * whole wall — not by the number of mounts, which is what the earlier leak was.
+   */
   useEffect(() => {
-    const adopted = adoptedRef.current;
     // Re-arm on (re)mount: StrictMode's dev double-mount runs this cleanup and then the
-    // effect again on the same instance, and without the reset `adopt` would refuse to
-    // work for the whole second life.
+    // effect again on the same instance.
     aliveRef.current = true;
     return () => {
       aliveRef.current = false;
-      for (const objectUrl of adopted.values()) {
-        try {
-          URL.revokeObjectURL(objectUrl);
-        } catch {
-          /* nothing to do */
-        }
-      }
-      adopted.clear();
     };
   }, []);
 
