@@ -130,24 +130,30 @@ export function buildFoodRawItems(args: {
 /**
  * Picks beyond what a food item includes, for one lane.
  *
- * Counted PER GROUP, not pooled across them. Pooling would let a guest take
- * nothing from one group and two free picks from another — for a single-group
- * item like the Pizza Bowl pizza the two are identical, but the per-group rule
- * is the one that stays correct when an item carries several groups (NFL wings:
- * heat + dressing).
+ * POOLED across the item's groups, not counted per group. That is not the
+ * obvious choice, so: the real Pizza Bowl pizza carries TWO lists — a SINGLE
+ * "One included Topping" and a MULTIPLE "Pizza Toppings" for paid extras — and
+ * together they express ONE allowance of one topping. Counting per group gives
+ * each list its own free pick, so 1 included + 2 extras bills $1 instead of $2.
+ *
+ * The old hardcoded step pooled (`countToppings` summed every non-drink group
+ * and subtracted a single free count), and pooling is what keeps this
+ * behaviourally identical. Verified against the live catalog 2026-08-31.
+ *
+ * An item whose groups are genuinely independent (NFL wings: heat + dressing)
+ * is unaffected, because it charges nothing for extras at all.
  */
 export function extraPicksForLane(food: FoodItem, sel: LaneSelections): number {
-  return food.groups.reduce(
-    (n, g) => n + Math.max(0, (sel[g.id] ?? []).length - food.includedModifierCount),
-    0,
-  );
+  const picked = food.groups.reduce((n, g) => n + (sel[g.id] ?? []).length, 0);
+  return Math.max(0, picked - food.includedModifierCount);
 }
 
 /** What the guest owes for extras on one lane, across all food items. */
 export function extraCentsForLane(foodItems: readonly FoodItem[], sel: LaneSelections): number {
   return foodItems.reduce(
     (cents, food) =>
-      cents + (food.extraModifierCents > 0 ? extraPicksForLane(food, sel) * food.extraModifierCents : 0),
+      cents +
+      (food.extraModifierCents > 0 ? extraPicksForLane(food, sel) * food.extraModifierCents : 0),
     0,
   );
 }
@@ -190,7 +196,9 @@ export function foodSelectionIssue(args: {
     const sel = selections[lane] ?? {};
     const missing = requiredGroupIds.some((gid) => (sel[gid]?.length ?? 0) === 0);
     if (missing) {
-      return lanes > 1 ? "Pick an option in every group, for every lane" : "Pick an option in every group";
+      return lanes > 1
+        ? "Pick an option in every group, for every lane"
+        : "Pick an option in every group";
     }
   }
   return null;

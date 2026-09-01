@@ -277,11 +277,46 @@ describe("extras charging", () => {
     expect(extraCentsForLane(PIZZA_BOWL, { grp_top: ["o_pep", "o_sau", "o_mush"] })).toBe(200);
   });
 
-  it("counts extras per group, so an unused group grants no free pick elsewhere", () => {
-    // Two picks on heat (impossible via SINGLE, but the maths must hold) and
-    // none on dressing must still read as ONE extra — pooling would call it free.
+  it("pools the allowance across an item's groups — the REAL Pizza Bowl shape", () => {
+    // Live catalog, 2026-08-31: the pizza carries TWO lists —
+    //   "One included Topping" (SINGLE)  +  "Pizza Toppings" (MULTIPLE, paid)
+    // which together express ONE free topping. Counting per group would give
+    // each list its own free pick and undercharge by a dollar a lane.
+    const realPizza: FoodItem = {
+      catalogObjectId: PIZZA,
+      name: "Pizza Bowl Pizza",
+      includedModifierCount: 1,
+      extraModifierCents: 100,
+      groups: [
+        {
+          id: "grp_included",
+          name: "One included Topping",
+          selectionType: "SINGLE",
+          options: [
+            { id: "o_none", name: "No Topping" },
+            { id: "o_pep", name: "Pepperoni" },
+          ],
+        },
+        { ...TOPPINGS, id: "grp_extra", name: "Pizza Toppings" },
+      ],
+    };
+    // 1 included, nothing extra → free.
+    expect(extraPicksForLane(realPizza, { grp_included: ["o_pep"] })).toBe(0);
+    // 1 included + 2 extras → TWO extras, $2. Per-group maths would say $1.
+    expect(
+      extraPicksForLane(realPizza, { grp_included: ["o_pep"], grp_extra: ["o_sau", "o_mush"] }),
+    ).toBe(2);
+    expect(
+      extraCentsForLane([realPizza], { grp_included: ["o_pep"], grp_extra: ["o_sau", "o_mush"] }),
+    ).toBe(200);
+  });
+
+  it("an item that charges nothing is unaffected by pooling", () => {
+    // NFL wings carry heat + dressing, two genuinely independent choices —
+    // pooled they read as one extra, but extraModifierCents is 0 so no charge.
     const wings = NFL[1];
-    expect(extraPicksForLane(wings, { grp_heat: ["o_mild", "o_hot"], grp_dress: [] })).toBe(1);
+    expect(extraPicksForLane(wings, { grp_heat: ["o_mild"], grp_dress: ["o_ranch"] })).toBe(1);
+    expect(extraCentsForLane([wings], { grp_heat: ["o_mild"], grp_dress: ["o_ranch"] })).toBe(0);
   });
 
   it("an item with extraModifierCents 0 never charges", () => {
