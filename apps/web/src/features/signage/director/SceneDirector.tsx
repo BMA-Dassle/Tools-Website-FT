@@ -34,6 +34,16 @@ import { frameKey, resolveActiveScene, type SceneDecision } from "./schedule";
 const TICK_MS = 250;
 /** Must match the .tv-frame[data-state="exiting"] animation in tv.css. */
 const EXIT_MS = 500;
+/**
+ * The same, for a panel on a VIDEO WALL — must match `.tv-frame--wall`.
+ *
+ * Longer because the wall cross-dissolves instead of cutting: five panels each
+ * decide on their own 250ms tick, so they can begin the same transition a quarter
+ * of a second apart, and a long dissolve is what makes that spread a fraction of
+ * the move rather than the whole of it. Retiring the outgoing frame at 500ms would
+ * chop the dissolve off two-thirds through and put the hard cut straight back.
+ */
+const WALL_EXIT_MS = 1100;
 
 /**
  * THE FASTTRAX MARK ON EVERY BOARD (owner 2026-08-14: "need to find a good spot
@@ -199,12 +209,18 @@ export function SceneDirector({
   }
   const { current, outgoing } = frames;
 
+  // A panel of a video wall dissolves; every other screen keeps the cut it has.
+  const onWall = !!config.wall;
+
   // Retire the outgoing frame once its exit animation has finished.
   useEffect(() => {
     if (!outgoing) return;
-    const t = setTimeout(() => setFrames((f) => ({ current: f.current, outgoing: null })), EXIT_MS);
+    const t = setTimeout(
+      () => setFrames((f) => ({ current: f.current, outgoing: null })),
+      onWall ? WALL_EXIT_MS : EXIT_MS,
+    );
     return () => clearTimeout(t);
-  }, [outgoing]);
+  }, [outgoing, onWall]);
 
   /* ── phase-lock every shared animation ───────────────────────────────
      On mount, on every scene change, and on each clock resync — the same
@@ -261,19 +277,30 @@ export function SceneDirector({
           for hours. Backdrops overdraw the canvas, so this never shows an edge. */}
       <div className="tv-drift">
         {outgoing && (
-          <div className="tv-frame" data-state="exiting" key={frameKey(outgoing)}>
+          <div
+            className={onWall ? "tv-frame tv-frame--wall" : "tv-frame"}
+            data-state="exiting"
+            key={frameKey(outgoing)}
+          >
             <SceneSlot {...props} decision={outgoing} />
           </div>
         )}
 
-        <div className="tv-frame" data-state="entering" key={frameKey(current)}>
+        <div
+          className={onWall ? "tv-frame tv-frame--wall" : "tv-frame"}
+          data-state="entering"
+          key={frameKey(current)}
+        >
           <SceneSlot {...props} decision={current} />
           <SceneLogo scene={String(current.scene)} venue={venue} />
         </div>
 
         {/* The wipe that covers the cut. Keyed to the incoming scene so it
-            replays exactly once per change and unmounts with it. */}
-        {outgoing && (
+            replays exactly once per change and unmounts with it.
+            NOT ON A WALL: a bright bar crossing five panels, each starting on its
+            own 250ms tick, is the one thing that makes the panels' disagreement
+            trackable by eye. The wall dissolves instead — see `.tv-frame--wall`. */}
+        {outgoing && !onWall && (
           <div
             aria-hidden
             key={`wipe-${frameKey(current)}`}

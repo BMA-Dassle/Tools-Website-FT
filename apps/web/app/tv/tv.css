@@ -556,6 +556,47 @@
     transform: scale(1) translate3d(0, 0, 0);
   }
 }
+
+/* ── the WALL cut: a long cross-dissolve, and nothing that moves ──────────
+   A video wall cuts differently from a single screen, and the reason is timing
+   rather than taste. Each panel re-evaluates its own decision on a 250ms tick,
+   so two panels can notice the same cut a quarter of a second apart even with
+   perfectly agreeing clocks — and the default transition ADVERTISES that gap
+   three times over: a scale makes each panel visibly shrink on its own beat, a
+   translate slides it, and the wipe sends a bright bar across five panels at
+   five slightly different moments, which the eye tracks (owner 2026-09-01: "the
+   transition to VIP ads and back could be smoother somehow since the TVs are not
+   always perfectly in sync").
+
+   A pure opacity dissolve has no edge to track and no geometry to disagree
+   about, and at 1100ms a 250ms spread is under a quarter of the transition
+   rather than the whole of it. This is why broadcast dissolves between cameras
+   and wipes only when it wants the cut noticed. The wipe is suppressed on a wall
+   in SceneDirector for the same reason. */
+@keyframes tv-enter-soft {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes tv-exit-soft {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.tv-frame--wall[data-state="entering"] {
+  /* linear, not eased: two panels a beat apart on an eased curve are at very
+     different opacities in the middle of it, which is exactly where the eye is. */
+  animation: tv-enter-soft 1100ms linear both;
+}
+.tv-frame--wall[data-state="exiting"] {
+  animation: tv-exit-soft 1100ms linear both;
+}
 @keyframes tv-exit {
   from {
     opacity: 1;
