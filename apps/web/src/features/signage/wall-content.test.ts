@@ -514,30 +514,40 @@ describe("the other subject panels", () => {
       // Game Zone runs on Intercard, independent of every booking vendor, so it has no
       // bookable slot to track.
       expect(row.tracksAvailability).toBeUndefined();
-      expect(row.name).toMatch(/^\$\d+ card$/);
       expect(row.note).toContain("bonus");
     }
   });
 
-  it("the token TOTAL is a figure with a caption, not a sentence to parse", () => {
-    // `word` + `wordCaption` is what earns it price-sized type; a wall's type scale
-    // should not depend on a regex over "600 tokens".
+  it("THE BIG NUMBER ON THE RIGHT IS ALWAYS MONEY — tokens are the row's name", () => {
+    // Game Zone used to put the token TOTAL in the price position, which made it the
+    // one panel on the wall where the huge right-hand figure was not a price (owner
+    // 2026-09-01, from the live glass: "pricing on right, tokens on left").
     for (const row of menuPanelAt(now, 3, null)!.rows) {
-      expect(row.wordCaption).toBe("tokens");
-      expect(row.word).toMatch(/^[\d,]+$/);
+      expect(row.name).toMatch(/^[\d,]+ tokens$/);
+      expect(row.price).toMatch(/^\$\d+$/);
+      expect(row.word).toBeUndefined();
     }
   });
 
-  it("the Game Zone tiers read cheapest-first and quote the TOTAL, not the price", () => {
-    // A guest choosing a tier compares how many tokens land on the card, so that is the
-    // headline number; the price is the row's name.
+  it("EVERY priced row on the wall puts its money in the same place", () => {
+    // The regression guard for the above, across all four priced panels: a row that
+    // has a price must not also carry a `word`, or the two would compete for the one
+    // position a guest scans down the wall.
+    for (const p of [1, 2, 3, 4]) {
+      for (const row of menuPanelAt(now, p, null)!.rows) {
+        if (row.price) expect(row.word, `${row.name}`).toBeUndefined();
+      }
+    }
+  });
+
+  it("the Game Zone tiers read cheapest-first", () => {
     const rows = menuPanelAt(now, 3, null)!.rows;
-    const dollarsOf = rows.map((r) => Number(r.name.replace(/[^0-9]/g, "")));
-    expect(dollarsOf[0]).toBeLessThan(dollarsOf[1]);
-    // …and the total exceeds the face tokens, which is what the bonus means.
-    const totals = rows.map((r) => Number((r.word ?? "").replace(/[^0-9]/g, "")));
-    expect(totals[0]).toBeGreaterThan(dollarsOf[0] * 10);
-    expect(totals[1]).toBeGreaterThan(dollarsOf[1] * 10);
+    const cents = rows.map((r) => Number((r.price ?? "").replace(/[^0-9]/g, "")));
+    expect(cents[0]).toBeLessThan(cents[1]);
+    // …and the token total exceeds ten per dollar, which is what the bonus means.
+    const totals = rows.map((r) => Number(r.name.replace(/[^0-9]/g, "")));
+    expect(totals[0]).toBeGreaterThan(cents[0] * 10);
+    expect(totals[1]).toBeGreaterThan(cents[1] * 10);
   });
 
   it("the Game Zone prices come from the table the KIOSK charges from", () => {
@@ -545,10 +555,10 @@ describe("the other subject panels", () => {
     const bonusTiers = TOKEN_PACKAGES.filter((t) => t.bonusTokens > 0);
     expect(bonusTiers.length).toBeGreaterThanOrEqual(2);
     for (const row of rows) {
-      const price = Number(row.name.replace(/[^0-9]/g, "")) * 100;
+      const price = Number((row.price ?? "").replace(/[^0-9]/g, "")) * 100;
       const pkg = bonusTiers.find((t) => t.priceCents === price);
-      expect(pkg, `no package priced ${row.name}`).toBeTruthy();
-      expect(row.word).toBe((pkg!.tokens + pkg!.bonusTokens).toLocaleString("en-US"));
+      expect(pkg, `no package priced ${row.price}`).toBeTruthy();
+      expect(row.name).toBe(`${(pkg!.tokens + pkg!.bonusTokens).toLocaleString("en-US")} tokens`);
       expect(row.note).toContain(String(pkg!.bonusTokens));
     }
   });
@@ -618,16 +628,25 @@ describe("the front-desk role preset", () => {
     expect(preset.role).toBe("front-desk");
   });
 
-  it("is 9 slots — SIX MINUTES exactly", () => {
-    // The reason it is nine and not eight: 9 x 40s is 6:00, of which the showcase takes
-    // two slots (80s) and pricing holds the other 4:40. That is the whole "standing
-    // state taken over" rhythm, with no new mechanism.
+  it("runs on TWENTY-second slots, not the estate's forty", () => {
+    // 20s is HALF a standard slot, so "the artwork for 20 seconds" (owner 2026-09-01)
+    // is not expressible in the estate's unit at all — this wall carries its own.
+    expect(preset.config.slotMs).toBe(20_000);
+    // Still divides the kiosk billboard's cycle evenly, so a screen over a bank still
+    // lands on the bank's boundaries every other slot.
+    expect(SLOT_MS % preset.config.slotMs!).toBe(0);
+  });
+
+  it("is 6 slots — TWO MINUTES exactly, with the artwork as the last 20 seconds", () => {
     const slots = (preset.config.playlist ?? []).reduce((n, e) => n + (e.slots ?? 1), 0);
-    expect(slots).toBe(9);
-    expect((slots * SLOT_MS) / 1000).toBe(360);
+    const slotMs = preset.config.slotMs!;
+    expect(slots).toBe(6);
+    expect((slots * slotMs) / 1000).toBe(120);
     const vip = (preset.config.playlist ?? []).find((e) => e.scene === "vip-showcase");
-    expect(vip?.slots).toBe(2);
-    expect(Math.round(((vip!.slots ?? 1) / slots) * 100)).toBe(22);
+    expect(vip?.slots).toBe(1);
+    expect(((vip!.slots ?? 1) * slotMs) / 1000).toBe(20);
+    // A punctuation mark, not a segment: a third of the airtime it had before.
+    expect(Math.round(((vip!.slots ?? 1) / slots) * 100)).toBe(17);
   });
 
   it("BOTH entries span the whole wall — and they mean different things by it", () => {
@@ -667,7 +686,7 @@ describe("the front-desk role preset", () => {
     const fromPreset = (preset.config.playlist ?? []).map(
       (e) => `${e.scene}:${e.slots ?? 1}:${e.span ?? "wall"}:${e.requiresData === true}`,
     );
-    expect(fromPreset).toEqual(["open-now:7:wall:false", "vip-showcase:2:wall:false"]);
+    expect(fromPreset).toEqual(["open-now:5:wall:false", "vip-showcase:1:wall:false"]);
   });
 
   it("THE TEAR INVARIANT: nothing on this playlist is data-gated", () => {

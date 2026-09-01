@@ -320,19 +320,15 @@ export interface MenuRow {
   productId?: string;
   /** A price, when there is a real one to quote. */
   price?: string;
-  /** Instead of a price, when there genuinely isn't one. */
-  word?: string;
   /**
-   * Turns `word` into a FIGURE: it is set at price size with this caption beneath.
+   * Instead of a price, when there genuinely isn't one ("Open now", "Any amount").
    *
-   * The distinction is how big the thing gets to be. "600" + "tokens" is a number a
-   * guest compares against the tier below it, so it earns the same 170px a price
-   * does; "Open now" is a sentence standing in for a number and would shout down the
-   * real prices either side of it on the wall. Carried as two fields rather than
-   * parsed back out of "600 tokens", because a wall's type scale should not depend
-   * on a regex.
+   * Set SMALLER than a price on purpose: it is a sentence standing in for a number,
+   * and at price size it would shout down the real prices either side of it on the
+   * wall. The big right-hand figure is always money — see `bonusTokenRows` for the
+   * one panel that used to break that rule.
    */
-  wordCaption?: string;
+  word?: string;
   /** The quiet qualifier — "per lane", "per 30 min". */
   note?: string;
   /**
@@ -576,9 +572,16 @@ export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuP
  * The two Game Zone card tiers that carry a BONUS, richest first.
  *
  * The bonus is the offer — every tier below $30 is simply tokens for money, which is
- * not something a wall can sell. So the panel shows what a guest GETS rather than what
- * the package is called: "$50 card" against "600 tokens", with the bonus named
- * underneath, because 600-for-500 is the reason to pick that tier over two $25s.
+ * not something a wall can sell. So only the tiers carrying one appear.
+ *
+ * THE BIG NUMBER ON THE RIGHT IS ALWAYS MONEY (owner 2026-09-01, looking at the live
+ * panel: "Game zone needs to follow standard. Pricing on right, tokens on left"). This
+ * row used to lead with the token TOTAL in the price position, on the reasoning that a
+ * guest compares tokens rather than dollars — which made Game Zone the one panel on the
+ * wall where the huge right-hand figure was not a price. Across five panels read from
+ * thirty feet, consistency of POSITION beats a better argument about any single panel:
+ * "600" where "$45" sits on the next screen is read as a price before it is read as
+ * anything else. So the tokens are the row's name and the price is the figure.
  *
  * Read from `TOKEN_PACKAGES`, which is the table the kiosk charges from, so a repricing
  * or a change to the bonus ladder moves the wall with it. Falls back to the plain
@@ -607,13 +610,10 @@ function bonusTokenRows(): MenuRow[] {
   }
 
   return withBonus.map((t) => ({
-    name: `${dollars(t.priceCents)} card`,
+    name: `${(t.tokens + t.bonusTokens).toLocaleString("en-US")} tokens`,
     productId: "game-zone",
-    // The TOTAL is the headline number, not the price — a guest is choosing between
-    // tiers, and what they compare is how many tokens land on the card.
-    word: (t.tokens + t.bonusTokens).toLocaleString("en-US"),
-    wordCaption: "tokens",
-    note: `${t.bonusTokens} bonus free`,
+    price: dollars(t.priceCents),
+    note: `Includes ${t.bonusTokens} bonus tokens`,
   }));
 }
 

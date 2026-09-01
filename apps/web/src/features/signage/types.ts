@@ -320,6 +320,24 @@ export interface ScreenWall {
 /** The per-screen config blob (JSONB in Neon). Every field optional. */
 export interface ScreenConfig {
   playlist?: PlaylistEntry[];
+  /**
+   * How long ONE playlist slot lasts, in ms. Defaults to the kiosk bank's 40s
+   * billboard cycle, which is what every board on the estate but one uses.
+   *
+   * The front-desk wall is the exception: the owner asked for the VIP artwork
+   * "20 seconds about every 2 minutes" (2026-09-01), and 20s is HALF a slot — so
+   * that cadence is simply not expressible in 40s units. This wall runs on 20s
+   * slots instead: pricing x5 then the artwork x1 is exactly 2 minutes.
+   *
+   * ON A WALL THIS IS PART OF THE TEAR INVARIANT. Scene selection is
+   * `floor(now / slotMs) % totalSlots`, so two panels that disagree about the slot
+   * LENGTH drift apart exactly as badly as two that disagree about the count. All
+   * five must carry the same value — the seed script asserts it.
+   *
+   * 20_000 still divides the 40s billboard cycle evenly, so a screen standing over
+   * a kiosk bank still lands on the bank's boundaries every other slot.
+   */
+  slotMs?: number;
   interrupts?: ScreenInterrupts;
   scope?: ScreenScope;
   pairing?: ScreenPairing;
@@ -1006,10 +1024,22 @@ export interface TvFeed {
       timeLabel: string;
       /**
        * "12" or "12, 13" — shown BEFORE check-in, because "Lane 12, go ahead" is a better
-       * invitation than "you can check in". Empty when the booked lane was marked Ready
-       * without numbers being visible yet.
+       * invitation than "you can check in". Empty when the lane is not ready yet, or was
+       * marked Ready without numbers being visible.
        */
       lanes: string;
+      /**
+       * Is the lane actually ready, i.e. will self check-in succeed right now?
+       *
+       * FALSE ROWS ARE SHOWN, NOT DROPPED (owner 2026-09-01: the column should show
+       * "reservations within next hour and whether lane is available or not"). The scene
+       * must therefore make a false row unmistakably NOT an invitation — the 2026-08-19
+       * rule still stands underneath this, that a guest sent to a kiosk which refuses
+       * them never trusts the board again. The difference is that the board now answers
+       * "is my lane ready" out loud instead of silently omitting the guest, which read as
+       * "we have no record of you".
+       */
+      laneReady: boolean;
     }[];
     /** Checked themselves in, with the lane they were given. */
     checkedIn: {

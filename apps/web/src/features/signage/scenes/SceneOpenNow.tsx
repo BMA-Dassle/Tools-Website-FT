@@ -205,43 +205,48 @@ function Row({
               is the honesty guarantee (see rowStatus), and dropping it whenever the
               cache had no entry is exactly how a priced row with nothing left today
               would go on looking bookable. */}
-          {!paused && (
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "baseline",
-                gap: 14,
-                marginTop: 20,
-                borderRadius: 12,
-                background: time ? "rgba(255,255,255,0.08)" : "transparent",
-                padding: time ? "10px 22px" : "10px 0",
-              }}
-            >
-              {time && (
-                <span
+          {!paused &&
+            (() => {
+              const status = time ?? rowStatus(row, cacheWarm);
+              if (!status) return null;
+              return (
+                <div
                   style={{
-                    fontSize: 22,
-                    fontWeight: 700,
-                    letterSpacing: "0.2em",
-                    textTransform: "uppercase",
-                    color: "rgba(245,236,238,0.6)",
+                    display: "inline-flex",
+                    alignItems: "baseline",
+                    gap: 14,
+                    marginTop: 20,
+                    borderRadius: 12,
+                    background: time ? "rgba(255,255,255,0.08)" : "transparent",
+                    padding: time ? "10px 22px" : "10px 0",
                   }}
                 >
-                  Next
-                </span>
-              )}
-              <span
-                className="tv-display"
-                style={{
-                  fontSize: time ? 38 : 30,
-                  color: time ? WALL_ACCENT.gel : "rgba(245,236,238,0.62)",
-                  fontVariantNumeric: "tabular-nums",
-                }}
-              >
-                {time ?? rowStatus(row, cacheWarm)}
-              </span>
-            </div>
-          )}
+                  {time && (
+                    <span
+                      style={{
+                        fontSize: 22,
+                        fontWeight: 700,
+                        letterSpacing: "0.2em",
+                        textTransform: "uppercase",
+                        color: "rgba(245,236,238,0.6)",
+                      }}
+                    >
+                      Next
+                    </span>
+                  )}
+                  <span
+                    className="tv-display"
+                    style={{
+                      fontSize: time ? 38 : 30,
+                      color: time ? WALL_ACCENT.gel : "rgba(245,236,238,0.62)",
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {status}
+                  </span>
+                </div>
+              );
+            })()}
         </div>
 
         <Figure row={row} ink={ink} paused={paused} />
@@ -306,30 +311,6 @@ function Figure({ row, ink, paused }: { row: MenuRow; ink: string; paused: boole
     );
   }
 
-  if (row.word && row.wordCaption) {
-    return (
-      <div
-        style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0 }}
-      >
-        <span className="tv-display" style={big}>
-          {row.word}
-        </span>
-        <span
-          style={{
-            fontSize: 30,
-            fontWeight: 700,
-            letterSpacing: "0.22em",
-            textTransform: "uppercase",
-            color: ink,
-            marginTop: 6,
-          }}
-        >
-          {row.wordCaption}
-        </span>
-      </div>
-    );
-  }
-
   if (!row.word) return null;
   return (
     <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -349,16 +330,23 @@ function Figure({ row, ink, paused }: { row: MenuRow; ink: string; paused: boole
 }
 
 /**
- * NEVER SAY "OPEN" WHEN WE DO NOT KNOW.
+ * NEVER SAY "OPEN" WHEN WE DO NOT KNOW — and never say it when nobody asked.
  *
  * The feed omits a product the availability cache has marked unavailable, so for a
- * row that tracks availability a WARM cache with no entry means there is nothing
+ * row that TRACKS availability a WARM cache with no entry means there is nothing
  * bookable left today — and printing "Open" there sends a guest to a kiosk that will
- * refuse them. A COLD cache is different: we have no signal either way, and the
- * building is plainly open (the wall is lit), so the floor stays "Open" with no time
- * attached, which is the same posture the ad slides already take.
+ * refuse them. That row gets "Ask at the desk".
+ *
+ * Everything else gets NOTHING. A row that tracks no availability (a Game Zone card,
+ * a race) has no question to answer: "Open" under it is a word that cannot become any
+ * other word, so it reads as a label rather than a status and it was cluttering every
+ * card on the wall (owner screenshot, 2026-09-01 — two "OPEN"s on the Game Zone
+ * panel). A cold cache is the same case: no signal either way, and the building is
+ * plainly open because the wall is lit.
+ *
+ * Null means "print no status line at all".
  */
-function rowStatus(row: MenuRow, cacheWarm: boolean): string {
+function rowStatus(row: MenuRow, cacheWarm: boolean): string | null {
   if (row.tracksAvailability && cacheWarm) return "Ask at the desk";
-  return "Open";
+  return null;
 }

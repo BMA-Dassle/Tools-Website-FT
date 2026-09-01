@@ -400,6 +400,13 @@ export async function ensureBowlingSchema(): Promise<void> {
   // Check-in method: 'self' (kiosk/self-service) or 'desk' (front desk staff).
   // Set by admin board; NULL = not yet checked in.
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS checkin_method TEXT`;
+  // WHEN they checked in, as opposed to which way. `checkin_method` has always been a
+  // method with no moment attached, so "checked in within the last half hour" — what the
+  // front-desk wall shows (owner 2026-09-01) — could only be approximated from the booked
+  // SLOT, which is a different thing entirely and drifts from it by however long a guest
+  // was early or late. Backfills as NULL: those rows simply do not appear on that board,
+  // which is the honest answer, and it self-heals on the next check-in.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS checked_in_at TIMESTAMPTZ`;
 
   // Loyalty action during booking: 'signup' (new account), 'existing' (logged in),
   // or NULL (no loyalty interaction). Redemption tracked separately via
@@ -1483,7 +1490,10 @@ export async function getSelfCheckinEligible(
       -- first name and drops the blanks), but excluding it here keeps the LIMIT
       -- spending its slots on rows that will actually appear.
       AND TRIM(COALESCE(guest_name, '')) <> ''
-      AND booked_at BETWEEN NOW() - INTERVAL '90 minutes' AND NOW() + INTERVAL '45 minutes'
+      -- THE NEXT HOUR, plus a half-hour grace for a late arrival (owner 2026-09-01:
+      -- "showing reservations within next hour"). Ordered soonest-first so the top of
+      -- the board is whoever is due next.
+      AND booked_at BETWEEN NOW() - INTERVAL '30 minutes' AND NOW() + INTERVAL '60 minutes'
     ORDER BY booked_at ASC
     LIMIT ${limit}
   `;
@@ -1504,9 +1514,20 @@ export async function getSelfCheckinEligible(
  * than shown as pending: "checked in, lane coming" is a promise the board cannot
  * keep, and an empty lane column reads as a fault.
  *
- * Scoped to the last six hours rather than to a calendar day — the centre trades
- * past midnight on weekend nights, and a business-day boundary would blank the board
- * at the busiest moment (see the e-ticket quiet-hours lesson).
+ * THE LAST THIRTY MINUTES OF CHECK-INS, and windowed on when they CHECKED IN rather
+ * than on the slot they booked (owner 2026-09-01: "checked in should only show lanes
+ * checked in last 30 minutes").
+ *
+ * It was six hours on `booked_at`, which is a very different board from the one it looks
+ * like. Probed live at 02:05 it was still naming guests booked at 20:30 and 21:30 —
+ * people who had finished and left — holding every visible row against anyone actually
+ * arriving. And `booked_at` is the SLOT, so even a tight window on it would drift from
+ * the moment a guest walked in by however early or late they were. `checked_in_at` is
+ * the real thing, added for this.
+ *
+ * Rows checked in before that column existed have NULL and do not appear, which is the
+ * honest answer to "when did they check in" rather than a guess — it self-heals with the
+ * first check-in after deploy.
  */
 export async function getSelfCheckedInWithLanes(
   centerCode: string,
@@ -1522,8 +1543,8 @@ export async function getSelfCheckedInWithLanes(
       AND dayof_order_lane IS NOT NULL
       AND dayof_order_lane <> ''
       AND status NOT IN ('cancelled', 'no_show')
-      AND booked_at > NOW() - INTERVAL '6 hours'
-    ORDER BY booked_at DESC
+      AND checked_in_at > NOW() - INTERVAL '30 minutes'
+    ORDER BY checked_in_at DESC
     LIMIT ${limit}
   `;
   return rows.map((r) => rowToReservation(r as Record<string, unknown>));
@@ -2173,7 +2194,14 @@ export async function updateBowlingReservationBookedAt(
   await q`UPDATE bowling_reservations SET booked_at = ${bookedAt} WHERE id = ${id}`;
 }
 
-/** Set check-in method on a reservation (admin action). */
+/**
+ * Set check-in method on a reservation, and stamp WHEN it happened.
+ *
+ * `COALESCE(checked_in_at, NOW())` keeps the FIRST moment: re-running this — an admin
+ * correcting the method, a retried request — must not push a guest back onto the
+ * front-desk wall's "checked in" board half an hour after they actually arrived.
+ * Clearing the method clears the stamp, so the two can never disagree.
+ */
 export async function updateBowlingCheckinMethod(
   id: number,
   method: "self" | "desk" | null,
@@ -2181,7 +2209,15 @@ export async function updateBowlingCheckinMethod(
   if (!isDbConfigured()) return;
   await ensureBowlingSchema();
   const q = sql();
-  await q`UPDATE bowling_reservations SET checkin_method = ${method} WHERE id = ${id}`;
+  await q`
+    UPDATE bowling_reservations
+    SET checkin_method = ${method},
+        checked_in_at = CASE
+          WHEN ${method}::text IS NULL THEN NULL
+          ELSE COALESCE(checked_in_at, NOW())
+        END
+    WHERE id = ${id}
+  `;
 }
 
 /**

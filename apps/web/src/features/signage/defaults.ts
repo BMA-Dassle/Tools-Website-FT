@@ -20,6 +20,11 @@ import { clampHoldMs } from "./race-guide";
 import type { TopTimesRange } from "./top-times";
 import type { PlaylistEntry, ScreenConfig, SceneType, SceneSpan, ScreenWall } from "./types";
 import { clampArenaHoldMs } from "./arena/arena-board";
+// The estate's default slot. Imported from the kiosk billboard rather than from
+// director/schedule (which re-exports it as SLOT_MS) because schedule.ts already
+// imports this module for its types — taking a VALUE back from it would close the
+// loop into a runtime import cycle.
+import { BILLBOARD_CYCLE_MS } from "~/features/kiosk/attract/billboard";
 
 export type ScreenRole =
   | "kiosk-bank"
@@ -203,8 +208,10 @@ const RACE_GUIDE_CONFIG: ScreenConfig = {
  * already carries the party board, and it is the one scene here that would want
  * gating.
  *
- * 9 slots = 6m00s exactly: the menu board holds seven of them and the VIP showcase
- * takes the other two. See the playlist below for why it is those two numbers.
+ * 6 slots of TWENTY seconds = 2m00s exactly: the menu board holds five of them and
+ * the VIP artwork takes the last one. The slot length is part of the invariant above
+ * — two panels that disagree about how LONG a slot is drift apart exactly as badly as
+ * two that disagree about how many there are. See the playlist below.
  *
  * `billboard-crown: true` is LOAD-BEARING AND MISLEADING, so read this before
  * "tidying" it. The crown scene is declared in SceneType but is NOT in the
@@ -259,9 +266,19 @@ const FRONT_DESK_CONFIG: ScreenConfig = {
   // every pricing panel now, so telling a guest where to buy costs no airtime at all.
   // NO HOUSE ADS EITHER: this wall's job is to price what is on sale tonight, and a
   // generic advert alongside a real price is the weaker of the two.
+  // TWENTY-SECOND SLOTS, not the estate's forty (owner 2026-09-01: the artwork
+  // "should only be 20 seconds about every 2 minutes"). 20s is HALF a standard slot,
+  // so that cadence cannot be expressed in 40s units at all — the wall runs on its
+  // own unit instead. See ScreenConfig.slotMs, and note it is part of the tear
+  // invariant: all five panels must carry the same value.
+  slotMs: 20_000,
+  // 6 slots x 20s = 2:00 EXACTLY. Pricing holds 1:40 of it and the artwork takes the
+  // last 20 seconds. That is a third of the airtime the showcase had before (80s of
+  // every 6 min) and three times as often — it is a punctuation mark now rather than
+  // a segment, which is what a lobby wall wants from a thing everyone has already seen.
   playlist: [
-    { scene: "open-now", slots: 7, span: "wall" },
-    { scene: "vip-showcase", slots: 2, span: "wall" },
+    { scene: "open-now", slots: 5, span: "wall" },
+    { scene: "vip-showcase", slots: 1, span: "wall" },
   ],
   interrupts: {
     // Byte-for-byte KIOSK_BANK_CONFIG's — see the note above, and vipPinned in
@@ -457,6 +474,8 @@ export function rolePreset(role: ScreenRole): RolePreset {
 /** Every default in one place, so a partial config can always be completed. */
 export interface ResolvedScreenConfig {
   playlist: Required<PlaylistEntry>[];
+  /** One slot's length in ms — see ScreenConfig.slotMs. Always a positive number. */
+  slotMs: number;
   vip: { enabled: boolean; leadMins: number; floorMins: number; minShowMs: number };
   celebration: { enabled: boolean; maxAgeSecs: number; showMs: number };
   billboardCrown: { enabled: boolean; joinEvery: number };
@@ -576,6 +595,9 @@ export function resolveScreenConfig(
 
   return {
     playlist: sanitizePlaylist(c.playlist),
+    // A garbage or missing value falls back to the estate's 40s rather than to
+    // zero — a zero slot would divide by nothing and freeze the rotation.
+    slotMs: c.slotMs && c.slotMs > 0 ? c.slotMs : BILLBOARD_CYCLE_MS,
     vip: {
       enabled: vip.enabled !== false,
       leadMins: numOr(vip.leadMins, 10),

@@ -36,9 +36,18 @@ import { TV_PHOTOS } from "../assets";
 import { WallGround } from "../components/WallPanel";
 import { withAlpha } from "../color";
 
-/** How many fit per column before the rows get too short to read across a lobby. The
- *  server asks for eight of each; this is the visual ceiling. */
-const MAX_ROWS = 5;
+/**
+ * How many fit per column before the rows get too short to read across a lobby. The
+ * server asks for eight of each; this is the visual ceiling.
+ *
+ * FOUR, not five (owner 2026-09-01: "the lanes ready board can be bigger text too").
+ * Every size on this panel went up by roughly half, and the height had to come from
+ * somewhere — a name at 62px in a row that also carries a lane and a status is ~130px
+ * tall, so five of them no longer fit between the headline and the footer. Showing the
+ * four most recent large beats five nobody can read from the door, and the window on
+ * the query is now tight enough that a fifth is rarely waiting.
+ */
+const MAX_ROWS = 4;
 
 /** "12" -> "Lane 12", "12, 13" -> "Lanes 12, 13". One spelling for both columns. */
 function laneWords(lanes: string): string {
@@ -69,10 +78,10 @@ export function SceneBowlingCheckin({ feed }: SceneProps) {
         <div
           className="tv-display"
           style={{
-            fontSize: 66,
+            fontSize: 104,
             lineHeight: 0.94,
             color: "#fff",
-            textShadow: `0 0 8px rgba(255,255,255,0.82), 0 0 56px ${READY}`,
+            textShadow: `0 0 10px rgba(255,255,255,0.82), 0 0 64px ${READY}`,
           }}
         >
           Bowling check-in
@@ -92,34 +101,37 @@ export function SceneBowlingCheckin({ feed }: SceneProps) {
           }}
         >
           <Column
-            // EVERY NAME HERE CAN ACTUALLY CHECK IN. Not "everyone due": self check-in
-            // only completes when QAMF reports the lane ready, so listing a guest whose
-            // lane is not ready sends them to a kiosk that turns them away — and the
-            // board that sent them is the last thing they trust afterwards (owner
-            // 2026-08-19). The column is a filter, not a badge.
-            heading="Lane available"
+            // EVERYONE DUE IN THE NEXT HOUR, each saying whether their lane is ready
+            // (owner 2026-09-01). It used to list only the ready ones, on the rule that a
+            // guest sent to a kiosk which refuses them never trusts the board again
+            // (2026-08-19) — that rule is kept HERE instead, in how a not-ready row is
+            // drawn: no lane number, no invitation, and "Lane not ready yet" where the
+            // ready rows say "Check in now". Hiding a guest who is standing in the lobby
+            // reads as "we have no record of you", which is its own kind of wrong.
+            heading="Next hour"
             accent={WAITING}
-            // Not an error, and the normal state for most of an evening. It says what to
-            // do rather than what is missing.
-            empty="No lanes ready to check in just yet."
-            footer={available.length > 0 ? "Check in on your phone or at any kiosk below." : null}
+            // Not an error, and the normal state for a quiet stretch. It says what to do
+            // rather than what is missing.
+            empty="No reservations due in the next hour."
             rows={available.map((g) => ({
               key: `${g.name}-${g.timeLabel}`,
               name: g.name,
-              // The LANE is the invitation — "Lane 12, go ahead" beats "you may check in".
-              // The booked time sits underneath so a guest can pick their own line out of
-              // several with the same lane free.
-              value: g.lanes ? laneWords(g.lanes) : "Ready",
-              status: g.timeLabel,
+              // The LANE is the invitation — "Lane 12, go ahead" beats "you may check in"
+              // — so it appears ONLY when the lane is genuinely ready. Otherwise the
+              // guest gets their booked time, which is what tells them they are in the
+              // right place and simply early.
+              value: g.laneReady && g.lanes ? laneWords(g.lanes) : g.timeLabel,
+              status: g.laneReady ? "Check in now" : "Lane not ready yet",
+              muted: !g.laneReady,
             }))}
           />
 
           <div aria-hidden style={{ background: "rgba(255,255,255,0.14)" }} />
 
           <Column
-            heading="Checked in"
+            heading="Just checked in"
             accent={READY}
-            empty="No lanes assigned yet."
+            empty="Nobody checked in just yet."
             footer={checkedIn.length > 0 ? "Your shoes are being brought out to you." : null}
             rows={checkedIn.map((g) => ({
               key: `${g.name}-${g.lanes}`,
@@ -133,11 +145,39 @@ export function SceneBowlingCheckin({ feed }: SceneProps) {
           />
         </div>
 
-        {/* Under BOTH columns, and true of both: the left column's guests are about to
-            check in, the right column's have. Shoes are the thing self check-in cannot
-            hand over, so it is the one promise worth making standing. */}
-        <div style={{ fontSize: 30, color: "rgba(245,236,238,0.72)", lineHeight: 1.3 }}>
-          We&rsquo;ll bring your shoes out to you.
+        {/* SKIP THE DESK — the point of the whole panel (owner 2026-09-01: "encourage
+            mobile and kiosk check in more"). It was a quiet grey line under one column
+            saying where you *could* check in; it is now the band the panel ends on,
+            naming both ways in and the reason to bother. Shoes get the second half
+            because they are the one thing self check-in cannot hand over, and a guest
+            who does not know they are coming will queue at the desk to ask — which is
+            the very queue this is trying to empty. */}
+        <div
+          style={{
+            flexShrink: 0,
+            borderRadius: 20,
+            border: `3px solid ${withAlpha(READY, 0.5)}`,
+            background: "rgba(3,8,24,0.72)",
+            padding: "24px 30px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          <div
+            className="tv-display"
+            style={{
+              fontSize: 46,
+              color: "#fff",
+              lineHeight: 1,
+              textShadow: `0 0 22px ${withAlpha(READY, 0.5)}`,
+            }}
+          >
+            Skip the desk — check in on your phone or the kiosk below
+          </div>
+          <div style={{ fontSize: 32, color: "rgba(245,236,238,0.72)", lineHeight: 1.25 }}>
+            We&rsquo;ll bring your shoes out to your lane.
+          </div>
         </div>
       </div>
     </div>
@@ -153,7 +193,15 @@ function Column({
 }: {
   heading: string;
   accent: string;
-  rows: { key: string; name: string; value: string; status: string | null }[];
+  rows: {
+    key: string;
+    name: string;
+    value: string;
+    status: string | null;
+    /** This row is NOT an invitation — the lane is not ready. Drawn back so it cannot
+     *  be mistaken across a lobby for one that is. */
+    muted?: boolean;
+  }[];
   /** What the column says with nothing in it. NOT a blank space: an empty half of a
    *  two-column board reads as a fault, whereas a sentence reads as "nobody yet". */
   empty: string;
@@ -163,71 +211,77 @@ function Column({
     <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
       <div
         className="tv-display"
-        style={{ fontSize: 30, letterSpacing: "0.2em", color: accent, flexShrink: 0 }}
+        style={{ fontSize: 40, letterSpacing: "0.2em", color: accent, flexShrink: 0 }}
       >
         {heading}
       </div>
 
       {rows.length === 0 ? (
-        <div style={{ fontSize: 27, color: "rgba(245,236,238,0.45)", lineHeight: 1.3 }}>
-          {empty}
-        </div>
+        <div style={{ fontSize: 34, color: "rgba(245,236,238,0.5)", lineHeight: 1.3 }}>{empty}</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {rows.map((r) => (
-            <div
-              key={r.key}
-              style={{
-                borderLeft: `6px solid ${accent}`,
-                background: "rgba(3,8,24,0.74)",
-                borderRadius: "0 14px 14px 0",
-                padding: "18px 22px",
-                display: "flex",
-                alignItems: "baseline",
-                justifyContent: "space-between",
-                gap: 16,
-              }}
-            >
-              <span
-                className="tv-display"
-                style={{ fontSize: 42, color: "#fff", lineHeight: 1, minWidth: 0 }}
+          {rows.map((r) => {
+            // A muted row keeps its NAME at full strength — the guest must still find
+            // themselves on the board — and loses the colour, the glow and the lane. It
+            // is the same posture the pricing board takes for a paused product.
+            const ink = r.muted ? WALL_ACCENT.quiet : accent;
+            const go = r.status === "Ready now" || r.status === "Check in now";
+            return (
+              <div
+                key={r.key}
+                style={{
+                  borderLeft: `9px solid ${ink}`,
+                  background: "rgba(3,8,24,0.74)",
+                  borderRadius: "0 18px 18px 0",
+                  padding: "22px 26px",
+                  display: "flex",
+                  alignItems: "baseline",
+                  justifyContent: "space-between",
+                  gap: 18,
+                  opacity: r.muted ? 0.62 : 1,
+                }}
               >
-                {r.name}
-              </span>
-              <span style={{ textAlign: "right", flexShrink: 0 }}>
                 <span
                   className="tv-display"
-                  style={{
-                    fontSize: 38,
-                    color: accent,
-                    lineHeight: 1,
-                    fontVariantNumeric: "tabular-nums",
-                    textShadow: `0 0 20px ${withAlpha(accent, 0.45)}`,
-                  }}
+                  style={{ fontSize: 62, color: "#fff", lineHeight: 1, minWidth: 0 }}
                 >
-                  {r.value}
+                  {r.name}
                 </span>
-                {r.status && (
+                <span style={{ textAlign: "right", flexShrink: 0 }}>
                   <span
+                    className="tv-display"
                     style={{
-                      display: "block",
-                      fontSize: 22,
-                      fontWeight: 600,
-                      marginTop: 8,
-                      color: r.status === "Ready now" ? WALL_ACCENT.gel : "rgba(245,236,238,0.5)",
+                      fontSize: 56,
+                      color: ink,
+                      lineHeight: 1,
+                      fontVariantNumeric: "tabular-nums",
+                      textShadow: r.muted ? undefined : `0 0 24px ${withAlpha(accent, 0.45)}`,
                     }}
                   >
-                    {r.status}
+                    {r.value}
                   </span>
-                )}
-              </span>
-            </div>
-          ))}
+                  {r.status && (
+                    <span
+                      style={{
+                        display: "block",
+                        fontSize: 30,
+                        fontWeight: 600,
+                        marginTop: 10,
+                        color: go ? WALL_ACCENT.gel : "rgba(245,236,238,0.55)",
+                      }}
+                    >
+                      {r.status}
+                    </span>
+                  )}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 
       {footer && (
-        <div style={{ fontSize: 24, color: "rgba(245,236,238,0.6)", lineHeight: 1.3 }}>
+        <div style={{ fontSize: 30, color: "rgba(245,236,238,0.62)", lineHeight: 1.3 }}>
           {footer}
         </div>
       )}

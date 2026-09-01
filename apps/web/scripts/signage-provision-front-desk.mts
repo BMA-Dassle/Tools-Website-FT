@@ -196,6 +196,17 @@ async function main() {
     wall.forEach((s, i) => console.log(`      ${s.screenId}: ${playlists[i]}`));
   }
 
+  // 3a. THE OTHER HALF OF THE TEAR INVARIANT: the slot LENGTH. Selection is
+  //     `floor(now / slotMs) % totalSlots`, so five identical playlists on four 20s
+  //     panels and one 40s panel still wrap on different beats. This wall runs 20s.
+  const slots = wall.map((s) => s.config.slotMs ?? 40_000);
+  const distinctSlotMs = [...new Set(slots)];
+  if (distinctSlotMs.length === 1) {
+    pass(`identical slot length — ${distinctSlotMs[0] / 1000}s`);
+  } else {
+    fail(`slot lengths DIFFER across the wall ([${slots.join(", ")}]) — the wall will TEAR`);
+  }
+
   // 3b. no requiresData — it changes totalSlots per screen at runtime, which
   //     tears the wall even when the stored playlists are identical.
   const gated = (wall[0]?.config.playlist ?? []).filter((e) => e.requiresData);

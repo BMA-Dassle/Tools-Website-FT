@@ -390,17 +390,19 @@ async function buildBowlingCheckins(venue: SignageVenue): Promise<TvFeed["bowlin
     checkedIn.push({ name, lanes, laneReady: !!r.laneReadySentAt });
   }
 
-  // ONLY THE ONES WHOSE LANE IS AVAILABLE. A guest who is due but whose lane is not ready
-  // cannot complete self check-in, so listing them would send them to a kiosk that turns
-  // them away — and the board that sent them is the last thing they trust afterwards.
+  // EVERYONE DUE IN THE NEXT HOUR, each carrying whether their lane is ready (owner
+  // 2026-09-01). This used to drop the not-ready ones outright, on the 2026-08-19 rule
+  // that a guest sent to a kiosk which refuses them never trusts the board again — a
+  // rule that still stands, and which the SCENE now honours by saying "not ready yet"
+  // rather than by hiding the row. Silently omitting a guest who is standing in the
+  // lobby reads as "we have no record of you", which is its own kind of wrong.
   //
-  // An EMPTY readiness set therefore empties this column, which is deliberate: it means
-  // either nobody is ready or the cron has not run, and both of those are "do not invite
-  // anybody". The column has designed copy for it.
+  // An empty readiness set now means every row says "not ready yet" instead of the
+  // column going blank — which is the truth when the cron has not run, and is also why
+  // nothing here treats a missing entry as an error.
   const available: NonNullable<TvFeed["bowlingCheckins"]>["available"] = [];
   for (const r of due) {
     const entry = ready.get(r.id);
-    if (!entry) continue;
     const name = displayNameFromFull(r.guestName ?? "");
     if (!name) continue;
     // Their booked time in ET wall-clock — the TIME RULE this file documents for the
@@ -409,8 +411,15 @@ async function buildBowlingCheckins(venue: SignageVenue): Promise<TvFeed["bowlin
     const timeLabel = fmtTime12(toEtWallClock(r.bookedAt)) ?? "";
     if (!timeLabel) continue;
     // The cron's lane numbers win: they are what QAMF said at readiness time, whereas
-    // `dayof_order_lane` is only written once the lane actually opens.
-    available.push({ name, timeLabel, lanes: entry.lanes || laneList(r.dayofOrderLane) });
+    // `dayof_order_lane` is only written once the lane actually opens. A row with no
+    // readiness entry carries no lane number at all — quoting one for a lane that is
+    // not ready would be the invitation this column must not make.
+    available.push({
+      name,
+      timeLabel,
+      lanes: entry ? entry.lanes || laneList(r.dayofOrderLane) : "",
+      laneReady: !!entry,
+    });
   }
 
   // Null only when there is nothing to say on EITHER side. The scene has designed copy for

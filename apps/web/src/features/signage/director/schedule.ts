@@ -145,9 +145,12 @@ export function totalSlots(segments: RotationSegment[]): number {
 export function rotationAt(
   nowMs: number,
   segments: RotationSegment[],
+  /** This screen's slot length. Defaults to the estate's 40s — see ScreenConfig.slotMs. */
+  slotMs: number = SLOT_MS,
 ): { segment: RotationSegment; startedAtMs: number; durationMs: number } {
   const total = totalSlots(segments);
-  const slot = Math.floor(nowMs / SLOT_MS);
+  const unit = slotMs > 0 ? slotMs : SLOT_MS;
+  const slot = Math.floor(nowMs / unit);
   // `%` keeps a negative clock (test fixtures, a wildly wrong RTC) in range.
   const pos = ((slot % total) + total) % total;
   let segment = segments[segments.length - 1];
@@ -158,8 +161,8 @@ export function rotationAt(
     }
   }
   const slotsIntoSegment = pos - segment.startSlot;
-  const startedAtMs = (slot - slotsIntoSegment) * SLOT_MS;
-  return { segment, startedAtMs, durationMs: segment.slots * SLOT_MS };
+  const startedAtMs = (slot - slotsIntoSegment) * unit;
+  return { segment, startedAtMs, durationMs: segment.slots * unit };
 }
 
 /* ── billboard crown ──────────────────────────────────────────────────── */
@@ -173,11 +176,13 @@ export function rotationAt(
 export function crownActiveAt(
   nowMs: number,
   crown: ResolvedScreenConfig["billboardCrown"],
+  slotMs: number = SLOT_MS,
 ): boolean {
   if (!crown.enabled) return false;
-  const cycle = Math.floor(nowMs / SLOT_MS);
+  const unit = slotMs > 0 ? slotMs : SLOT_MS;
+  const cycle = Math.floor(nowMs / unit);
   if (((cycle % crown.joinEvery) + crown.joinEvery) % crown.joinEvery !== 0) return false;
-  const t = ((nowMs % SLOT_MS) + SLOT_MS) % SLOT_MS;
+  const t = ((nowMs % unit) + unit) % unit;
   return t < CROWN_WINDOW_MS;
 }
 
@@ -459,8 +464,12 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
     };
   }
 
-  if (implemented("billboard-crown") && crownActiveAt(nowMs, config.billboardCrown)) {
-    const cycleStart = Math.floor(nowMs / SLOT_MS) * SLOT_MS;
+  // This screen's own slot length — 40s everywhere but the front-desk wall, which
+  // runs on 20s so the VIP artwork can be a 20-second beat (see ScreenConfig.slotMs).
+  const slotMs = config.slotMs;
+
+  if (implemented("billboard-crown") && crownActiveAt(nowMs, config.billboardCrown, slotMs)) {
+    const cycleStart = Math.floor(nowMs / slotMs) * slotMs;
     return {
       scene: "billboard-crown",
       startedAtMs: cycleStart,
@@ -470,7 +479,7 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
   }
 
   const segments = buildRotation(config.playlist, input.hasData, implemented);
-  const { segment, startedAtMs, durationMs } = rotationAt(nowMs, segments);
+  const { segment, startedAtMs, durationMs } = rotationAt(nowMs, segments, slotMs);
 
   // A PANEL OUTSIDE THE RUNNING SCENE'S SPAN SHOWS ITS OWN BOARD.
   //

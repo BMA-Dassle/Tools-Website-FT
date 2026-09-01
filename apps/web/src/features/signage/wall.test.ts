@@ -422,6 +422,63 @@ describe("the wings — what a panel outside the span actually renders", () => {
     }
   });
 
+  describe("the 20-second beat — the artwork is a punctuation mark", () => {
+    // Owner 2026-09-01: the artwork "should only be 20 seconds about every 2 minutes".
+    // 20s is HALF the estate's slot, so this only works if `slotMs` genuinely reaches
+    // the rotation — these are what fail if the threading is ever unpicked.
+    const panel = (position: number) =>
+      resolveScreenConfig(
+        {
+          ...(rolePreset("front-desk").config as object),
+          wall: { ...FD, position },
+        } as never,
+        "HPFM",
+      );
+
+    const sceneAtMs = (nowMs: number, position = 2) =>
+      resolveActiveScene({
+        nowMs,
+        config: panel(position),
+        hasData: () => true,
+        events: [],
+        seenEventIds: new Set(),
+        isImplemented: isSceneImplemented,
+      }).scene;
+
+    it("prices for 100 seconds, then the artwork for 20", () => {
+      // The cycle is 6 x 20s starting at epoch 0: slots 0-4 pricing, slot 5 artwork.
+      for (const s of [0, 1, 2, 3, 4]) {
+        expect(sceneAtMs(s * 20_000 + 5_000), `slot ${s}`).toBe("open-now");
+      }
+      expect(sceneAtMs(5 * 20_000 + 5_000)).toBe("vip-showcase");
+      // …and it wraps back to pricing on the next cycle.
+      expect(sceneAtMs(6 * 20_000 + 5_000)).toBe("open-now");
+    });
+
+    it("the artwork lands on ALL FIVE panels in the same 20 seconds", () => {
+      // A panel reading a different slot LENGTH would drift out of the artwork while
+      // its neighbours were still in it, which tears the one composition that cannot
+      // survive losing a panel.
+      for (const p of [0, 1, 2, 3, 4]) {
+        expect(sceneAtMs(5 * 20_000 + 5_000, p), `panel ${p}`).toBe("vip-showcase");
+      }
+    });
+
+    it("the segment reports a 20-second duration, not 40", () => {
+      // durationMs is what the director uses to schedule the next decision; leaving it
+      // on the estate's 40s would hold the artwork for twice as long as the slot.
+      const d = resolveActiveScene({
+        nowMs: 5 * 20_000 + 5_000,
+        config: panel(2),
+        hasData: () => true,
+        events: [],
+        seenEventIds: new Set(),
+        isImplemented: isSceneImplemented,
+      });
+      expect(d.durationMs).toBe(20_000);
+    });
+  });
+
   it("a screen OFF a wall ignores spans — every existing board is untouched", () => {
     const lone = resolveScreenConfig(
       { playlist: [{ scene: "open-now", slots: 7, span: "middle" }] } as never,

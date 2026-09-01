@@ -1350,6 +1350,8 @@ function resultRangesFromDraft(d: Draft): TopTimesRange[] {
 /** Draft → the config blob the TV actually reads. */
 function draftToConfig(d: Draft): ScreenConfig {
   const playlist: NonNullable<ScreenConfig["playlist"]> = [];
+  /** Left undefined for every board that runs on the estate's default 40s slot. */
+  let slotMs: number | undefined;
   // A BRIEFING SCREEN OWNS ITS WALL. It is ticked alone rather than mixed with
   // the others: a safety briefing that rotates out to an advert halfway through
   // is not a briefing, and the room's idle board is content the next group wants
@@ -1389,6 +1391,12 @@ function draftToConfig(d: Draft): ScreenConfig {
     for (const entry of rolePreset("front-desk").config.playlist ?? []) {
       playlist.push(entry);
     }
+    // AND ITS SLOT LENGTH, for exactly the same reason. This wall runs on 20s slots
+    // rather than the estate's 40s, and selection is `floor(now / slotMs) % totalSlots`
+    // — so a panel saved from this form without it would keep the right playlist and
+    // still wrap on a different beat from its four neighbours. Read from the preset,
+    // never restated, so it cannot drift the way the playlist literal once did.
+    slotMs = rolePreset("front-desk").config.slotMs;
   } else if (d.showVenueLogo) {
     // A HOLDING CARD OWNS ITS WALL, and this is the least arguable case of it:
     // the entire purpose is that ONE mark is on screen and nothing else. An advert
@@ -1419,6 +1427,7 @@ function draftToConfig(d: Draft): ScreenConfig {
 
   return {
     playlist,
+    ...(slotMs ? { slotMs } : {}),
     ...(d.showBriefing && d.briefingRoom ? { briefingRoom: d.briefingRoom } : {}),
     ...(d.showCamera && d.cameraDeviceId.trim()
       ? {
