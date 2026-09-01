@@ -521,7 +521,7 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     const hasJuniors = session.party.some((m) => m.category === "junior");
     const showCategoryBanner = hasAdults && hasJuniors;
 
-    // Per-racer membership racing discount (e.g. Employee Pass 50%, League Racer
+    // Per-racer membership racing discount (e.g. Employee Pass 50%; League Racer 20% retired
     // 20%) — shown only for the racers in THIS category who hold it; others on
     // the bill aren't discounted. Applied for real at checkout (charge-line split).
     const discountRacers = session.party

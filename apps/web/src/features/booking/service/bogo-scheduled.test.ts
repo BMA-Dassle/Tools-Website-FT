@@ -146,9 +146,10 @@ describe("computeBogoScheduledFree — the pairing rule", () => {
     const employee = [{ id: "a1", memberships: ["Employee Pass"] }];
     const heats = [heat("a1", "h1"), heat("a1", "h2"), heat("a1", "h3"), heat("a1", "h4")];
     expect(computeBogoScheduledFree(raceItems(heats), employee, new Set()).heats.size).toBe(0);
-    // League Racer (20% racing) is a racing pass too — same rule, no stacking.
+    // League Racer's discount is RETIRED (owner 2026-09-01) — no pass, so they
+    // pair 2-for-1 like any guest.
     const league = [{ id: "a1", memberships: ["League Racer"] }];
-    expect(computeBogoScheduledFree(raceItems(heats), league, new Set()).heats.size).toBe(0);
+    expect(computeBogoScheduledFree(raceItems(heats), league, new Set()).heats.size).toBe(2);
     // A non-racing membership does NOT block the special.
     const unrelated = [{ id: "a1", memberships: ["Have-A-Ball"] }];
     expect(computeBogoScheduledFree(raceItems(heats), unrelated, new Set()).heats.size).toBe(2);
@@ -165,7 +166,8 @@ describe("computeBogoScheduledFree — the pairing rule", () => {
 
   it("racingPassBlocksBogo reads the racing category only", () => {
     expect(racingPassBlocksBogo(["Employee Pass"])).toBe(true);
-    expect(racingPassBlocksBogo(["League Racer"])).toBe(true);
+    // Retired discount = no pass = no block (owner 2026-09-01).
+    expect(racingPassBlocksBogo(["League Racer"])).toBe(false);
     expect(racingPassBlocksBogo(["Some Bowling Club"])).toBe(false);
     expect(racingPassBlocksBogo([])).toBe(false);
     expect(racingPassBlocksBogo(undefined)).toBe(false);

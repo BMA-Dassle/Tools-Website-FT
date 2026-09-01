@@ -69,16 +69,15 @@ function raceItem(over: Partial<RaceItem> = {}): RaceItem {
 }
 
 describe("membership-discounts config + resolvers", () => {
-  it("detects Employee Pass (50%, racing/gel/laser) and League Racer (20%, racing) by name", () => {
+  it("detects Employee Pass (50%, racing/gel/laser); League Racer is RETIRED (owner 2026-09-01)", () => {
     const emp = membershipDiscountsForNames(["Employee Pass"]);
     expect(emp.map((d) => d.key)).toContain("employee-pass");
     expect(bestPercentOffForCategory(emp, "racing")).toBe(50);
     expect(bestPercentOffForCategory(emp, "laser-tag")).toBe(50);
 
-    const league = membershipDiscountsForNames(["League Racer"]);
-    expect(league.map((d) => d.key)).toContain("league-racer");
-    expect(bestPercentOffForCategory(league, "racing")).toBe(20);
-    expect(bestPercentOffForCategory(league, "gel-blasters")).toBe(0); // league = racing only
+    // League Racer's 20% was discontinued — the disabled entry must never
+    // detect again, however the membership is spelled on the person.
+    expect(membershipDiscountsForNames(["League Racer"])).toEqual([]);
 
     expect(membershipDiscountsForNames(["Default", "Testing"])).toEqual([]);
   });
@@ -140,18 +139,22 @@ describe("buildRaceChargeLines — per-racer membership discount", () => {
     expect(disc?.name).toMatch(/Employee Pass/);
   });
 
-  it("League Racer gets 20% off racing", () => {
+  it("League Racer pays list price — the 20% was retired (owner 2026-09-01)", () => {
     const racer = member("lr", { bmiPersonId: "333", memberships: ["League Racer"] });
     const item = raceItem({ heats: [heat("2026-06-09T13:36:00", "lr")] });
     const session = { ...emptySession({ entryBrand: "fasttrax" }), items: [item], party: [racer] };
-    const disc = buildRaceChargeLines(session).find((l) => l.membershipDiscountPct === 20);
-    expect(disc?.amount).toBeCloseTo(PRICE * 0.8, 2);
+    const lines = buildRaceChargeLines(session);
+    expect(lines.some((l) => l.membershipDiscountPct)).toBe(false);
+    expect(lines[0]?.amount).toBeCloseTo(PRICE, 2);
   });
 
-  it("a redeeming discount-holder KEEPS the discount and the credit zeros that discounted line (repro: Peter, League Racer + 1 Comp → Due $0)", () => {
+  it("a redeeming discount-holder KEEPS the discount and the credit zeros that discounted line (repro: Peter's shape, now on Employee Pass)", () => {
+    // The live repro (2026-07) used League Racer; its 20% is retired, so the
+    // SHAPE — discount survives redemption, credit zeros the discounted line —
+    // is pinned on the remaining racing pass instead.
     const peter = member("peter", {
       bmiPersonId: "409523",
-      memberships: ["League Racer"],
+      memberships: ["Employee Pass"],
       redeemCredits: true,
       creditBalances: [{ kind: "Credit - Race Comp", balance: 1 }],
     });
@@ -159,9 +162,9 @@ describe("buildRaceChargeLines — per-racer membership discount", () => {
     const item = raceItem({ date: "2026-06-13", heats: [heat("2026-06-13T19:36:00", "peter")] });
     const session = { ...emptySession({ entryBrand: "fasttrax" }), items: [item], party: [peter] };
 
-    // The line keeps the 20% League Racer discount ($16.79)...
+    // The line keeps the 50% Employee Pass discount ($10.50)...
     const lines = buildRaceChargeLines(session);
-    expect(lines.find((l) => l.membershipDiscountPct === 20)?.amount).toBeCloseTo(PRICE * 0.8, 2);
+    expect(lines.find((l) => l.membershipDiscountPct === 50)?.amount).toBeCloseTo(10.5, 2);
 
     // ...and redeeming the 1 Comp credit zeros THAT discounted line → Due $0.
     const applied = applyCreditRedemptionsToOverview(overviewFromLines(lines), session);
@@ -171,8 +174,8 @@ describe("buildRaceChargeLines — per-racer membership discount", () => {
   });
 
   it("mixed party: the redeemer's own line is zeroed; the sibling discount-holder still pays discounted cash (no double-redeem)", () => {
-    // A = League Racer, pays cash (discounted). B = no membership, redeems 1 Comp.
-    const a = member("a", { bmiPersonId: "333", memberships: ["League Racer"] });
+    // A = Employee Pass, pays cash (discounted). B = no membership, redeems 1 Comp.
+    const a = member("a", { bmiPersonId: "333", memberships: ["Employee Pass"] });
     const b = member("b", {
       bmiPersonId: "444",
       redeemCredits: true,
@@ -186,8 +189,8 @@ describe("buildRaceChargeLines — per-racer membership discount", () => {
 
     const lines = buildRaceChargeLines(session);
     const applied = applyCreditRedemptionsToOverview(overviewFromLines(lines), session);
-    // B's full-price heat ($20.99) redeemed → $0; A's discounted heat ($16.79) charged.
+    // B's full-price heat ($20.99) redeemed → $0; A's discounted heat ($10.50) charged.
     expect(applied.creditApplied).toBe(1);
-    expect(applied.subtotal).toBeCloseTo(PRICE * 0.8, 2);
+    expect(applied.subtotal).toBeCloseTo(10.5, 2);
   });
 });
