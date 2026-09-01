@@ -125,11 +125,22 @@ import {
 } from "~/features/world-cup";
 import { enrichFixture } from "~/features/world-cup/live-teams";
 import { notifyWorldCupBooked } from "~/features/world-cup/notify.server";
+import { isNflBowlingItem, NflReservationError, nflQamfTitle, nflQamfBanner } from "~/features/nfl";
+import {
+  guardNflBooking,
+  confirmNflBooking,
+  nflBookingMetadata,
+  type NflGuardResult,
+} from "~/features/nfl/guard.server";
+import { centerHoursForDate } from "./bowling-hours";
+import { pinReservationToBlock, type PinOutcome } from "~/features/nfl/pin.server";
+import { qamfCenterIdForCode } from "../types";
 import {
   isMidnightMadnessSlug,
   midnightMadnessWindowError,
   MidnightMadnessWindowError,
 } from "./bowling-offer";
+import { rawFoodItemsToReservationLines } from "./reservation-lines";
 import {
   insertBowlingReservation,
   insertReservationPlayers,
@@ -1775,6 +1786,34 @@ async function unifiedReserveInner(
     }
   }
 
+  // ── 2c-NFL. Validate the game window AND claim a lane block ───────
+  // Two things at once, and both must happen before money moves:
+  //   - the booking sits exactly on a real game's lane-open instant at a center
+  //     that sells the package, inside trading hours (validateNflBooking);
+  //   - a VIP block is RESERVED for that game (claimBlock), because a block is
+  //     four lanes on one TV and can only show one game at a time.
+  // Throws NflReservationError (→ 409 in reserve-all) BEFORE any Square or QAMF
+  // write. If anything downstream fails, the catch below hands the block back;
+  // an un-released claim expires on its own within 30 minutes.
+  const nflGuards = new Map<string, NflGuardResult>();
+  for (const item of bowlingItems) {
+    if (item.kind !== "bowling" || !isNflBowlingItem(item)) continue;
+    if (item.optionId == null) {
+      throw new NflReservationError(
+        "NFL Ticket booking is missing its lane time option — please re-pick your game.",
+      );
+    }
+    const qamfId = item.qamfCenterId ?? qamfCenterIdForCode(session.center);
+    const guard = await guardNflBooking({
+      centerId: qamfId,
+      bookedAt: item.bookedAt,
+      gameId: item.nflGameId,
+      hours: centerHoursForDate(qamfId!, (item.bookedAt ?? "").slice(0, 10)),
+      laneCount: item.laneCount,
+    });
+    nflGuards.set(item.id, guard);
+  }
+
   // ── 2d. Validate Midnight Madness window (fail-closed) ────────────
   // MM shares the all-day Fri-Sun Time offer, so the offer id can't scope its
   // late-night window and the client slot gates are display-only (2026-08-01
@@ -2604,6 +2643,13 @@ async function unifiedReserveInner(
         `guest=${JSON.stringify(guest)}`,
     );
 
+    // The block this item claimed back in guard 2c-NFL, and where it ended up
+    // seated. Declared HERE, above the QAMF section, because the lane pin runs
+    // there — a later declaration is a temporal-dead-zone error, not a style
+    // preference.
+    const nflGuard = nflGuards.get(item.id) ?? null;
+    let nflPin: PinOutcome | null = null;
+
     // ── QAMF confirm — INLINE from v1 bowling reserve (proven working) ──
     let qamfReservationId: string;
     let qamfConfirmed = false;
@@ -2713,6 +2759,25 @@ async function unifiedReserveInner(
         }
       }
 
+      // NFL Ticket: seat the party inside the block their game was claimed on.
+      // QAMF auto-assigns anywhere in the VIP group, so without this a party
+      // can end up under a screen playing someone else's game. Non-fatal — the
+      // booking is already paid and confirmed, and a failure surfaces on the
+      // ops board for front desk rather than throwing.
+      if (nflGuard && qamfLanes.length > 0) {
+        nflPin = await pinReservationToBlock({
+          centerId,
+          reservationId: qamfReservationId,
+          lanes: qamfLanes as Array<{ Id: string; LaneNumber: number }>,
+          block: nflGuard.block,
+        });
+        if (!nflPin.pinned) {
+          console.warn(
+            `[nfl] could not seat ${qamfReservationId} on ${nflGuard.block.id}: ${nflPin.reason} — ${nflPin.detail}`,
+          );
+        }
+      }
+
       // Push player names to QAMF (kiosk rosters carry real bumper choices)
       if (qamfLanes.length > 0) {
         const lane = qamfLanes[0];
@@ -2764,6 +2829,9 @@ async function unifiedReserveInner(
           : null;
       const wcFixture = wcFixtureStatic ? await enrichFixture(wcFixtureStatic) : null;
 
+      // The block this item claimed back in guard 2c-NFL. Present only for an
+      // NFL Ticket item; everything below keys off it being non-null.
+
       let bowlingNeonId: number | null = null;
       try {
         const reservation = await insertBowlingReservation(
@@ -2808,6 +2876,12 @@ async function unifiedReserveInner(
             // capture so ops/admin can tie the lane window to its fixture.
             bookingMetadata: {
               bowling: bowlingBookedPricingStamp(item),
+              // NFL Ticket: WHICH game, and WHICH BLOCK it was seated in. The
+              // block is the half nothing else records — the lane numbers say
+              // where the party sits, not which screen owes them a game.
+              ...(nflGuard
+                ? { nfl: { ...nflBookingMetadata(nflGuard, item.bookedAt ?? ""), pin: nflPin } }
+                : {}),
               ...(wcFixture
                 ? {
                     worldCup: {
@@ -2820,15 +2894,38 @@ async function unifiedReserveInner(
                 : {}),
             },
           },
-          item.lineItems.map((li) => ({
-            squareProductId: li.squareProductId,
-            label: li.label ?? "Bowling",
-            quantity: li.quantity,
-            unitPriceCents: li.priceCents ?? 0,
-          })),
+          [
+            ...item.lineItems.map((li) => ({
+              squareProductId: li.squareProductId,
+              label: li.label ?? "Bowling",
+              quantity: li.quantity,
+              unitPriceCents: li.priceCents ?? 0,
+            })),
+            // Persist the guest's $0 food selections. These were pushed to
+            // SQUARE ONLY here, so a MIXED cart (bowling + a race / attraction
+            // / game-card leg — the ordinary kiosk shape) lost them whenever
+            // they failed to reach the order: the 2026-06-21 Pizza Bowl
+            // incident, recurring on the rail that never got fixed. Shared with
+            // app/api/bowling/v2/reserve so the two can't drift again.
+            ...rawFoodItemsToReservationLines(item.rawItems),
+          ],
         );
         neonIds.push(reservation.id);
         bowlingNeonId = reservation.id;
+
+        // NFL Ticket: the block is now really taken, so promote the claim off
+        // its 30-minute hold and FREEZE this game's kickoff — from here on a
+        // flexed Sunday time is reported for a human rather than written, so
+        // the nightly sync can never move a paid party's lanes. Best-effort:
+        // the guest is already charged and confirmed, so nothing in here may
+        // throw back into the booking.
+        if (nflGuard) {
+          await confirmNflBooking({
+            claimId: nflGuard.claim.id,
+            reservationId: reservation.id,
+            gameId: nflGuard.game.id,
+          });
+        }
 
         // Persist the roster with the reservation when we actually HAVE one
         // (kiosk collects names/shoes/bumpers up front — persist-at-capture);
@@ -2881,7 +2978,9 @@ async function unifiedReserveInner(
         ? `VIP Exp. ${guest.name} (${players.length}p)`
         : wcFixture
           ? worldCupQamfTitle(guest.name, players.length)
-          : `${guest.name} (${players.length}p)`;
+          : nflGuard
+            ? nflQamfTitle(guest.name, players.length)
+            : `${guest.name} (${players.length}p)`;
       const shortCode = shortCodes[shortCodes.length - 1];
 
       const finalParts: string[] = [];
@@ -2891,6 +2990,11 @@ async function unifiedReserveInner(
       }
       // World Cup: lead the notes with the match so front desk sees what this
       // lane window is for (the "VIP Exp." banner precedent).
+      // NFL Ticket: the banner names the BLOCK as well as the game, because the
+      // block is the one thing front desk cannot work out from the lane numbers.
+      if (nflGuard) {
+        finalParts.push(nflQamfBanner(nflGuard.game, nflGuard.block.label));
+      }
       if (wcFixture) {
         finalParts.push(worldCupQamfBanner(wcFixture));
       }

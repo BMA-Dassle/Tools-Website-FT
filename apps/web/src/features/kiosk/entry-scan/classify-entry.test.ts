@@ -131,6 +131,19 @@ describe("classifyEntryScan", () => {
       });
     });
 
+    it("routes the wallet-pass AUTHENTICATE barcode to the racer path", () => {
+      // The pass BARCODE carries the smstim.in authenticate URL, not /r/{code}
+      // (member-qr.test.ts pins the parse itself; this pins it END-TO-END so a
+      // refactor can't silently drop the crew page's main scan arm).
+      const route = classifyEntryScan(
+        "https://smstim.in/908/authenticate/?login_code=6pmyyfhg4397c",
+      );
+      expect(route).toMatchObject({ kind: "racer", value: "6pmyyfhg4397c" });
+      // authenticate parses with clientKey "" (= don't filter the search);
+      // classify must not surface that empty string as a real key.
+      expect("clientKey" in route && route.clientKey).toBeFalsy();
+    });
+
     it("carries NO clientKey for our own barcode — that is what tells them apart", () => {
       const r = classifyEntryScan(`https://headpinz.com/r/${LOGIN_CODE}`);
       expect(r).toMatchObject({ kind: "racer" });

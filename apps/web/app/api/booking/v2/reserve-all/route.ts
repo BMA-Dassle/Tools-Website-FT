@@ -17,6 +17,7 @@ import { CreditRedemptionError } from "~/features/booking/service/race-credit-re
 import { MidnightMadnessWindowError } from "~/features/booking/service/bowling-offer";
 import { RaceSimNotConfiguredError, RaceSimMixedCartError } from "~/features/race-sims/products";
 import { WorldCupReservationError } from "~/features/world-cup";
+import { NflReservationError } from "~/features/nfl";
 import type { BookingSession } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
 
@@ -104,6 +105,12 @@ export async function POST(req: NextRequest) {
       // 409 — a World Cup booking failed the fixture/center validation
       // (disabled center, non-kickoff start, past kickoff). Raised before any
       // Square write; nothing charged.
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
+    if (err instanceof NflReservationError) {
+      // 409 — an NFL Ticket booking failed the game/center validation, or every
+      // VIP block is already committed to other games in that window. Raised
+      // before any Square or QAMF write; nothing charged.
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
     if (err instanceof MidnightMadnessWindowError) {

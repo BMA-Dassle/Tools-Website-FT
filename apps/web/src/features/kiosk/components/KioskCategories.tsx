@@ -15,7 +15,7 @@
  * combo registry): anything enabled online is automatically on the kiosk.
  */
 import { Fragment, useRef, useState } from "react";
-import { IconFlag, IconSignature, IconUserCheck } from "@tabler/icons-react";
+import { IconChevronRight, IconFlag, IconSignature, IconUserCheck } from "@tabler/icons-react";
 import {
   effectiveBrand,
   isOfferingInPromoScope,
@@ -127,6 +127,13 @@ export interface KioskCategoriesProps {
   onOpenCheckin?: () => void;
   onOpenRaceGrid?: () => void;
   onOpenWaiver?: () => void;
+  /** The "Your Crew" EMPTY-state door: a slim strip above the utility grid
+   *  inviting a fresh group to sign everyone in before picking an activity
+   *  (owner 2026-09-01 — "needs a better spot other than the top"; picked
+   *  option A of four mocks). Undefined = no strip; the CALLER owns BOTH gates
+   *  (the crew kill switch AND "session is empty" — once anyone is signed in,
+   *  the chrome's top banner is the door instead). */
+  onOpenCrew?: () => void;
   /** Coupon/voucher entry (kioskPromoEnabled) — undefined hides the chip. */
   onOpenCodeEntry?: () => void;
   /** Race Sims (PLACEHOLDER PHASE 2026-08, FastTrax FM only — the CALLER owns
@@ -168,6 +175,7 @@ export function KioskCategories({
   onOpenCheckin,
   onOpenRaceGrid,
   onOpenWaiver,
+  onOpenCrew,
   onOpenCodeEntry,
   onOpenRaceSim,
   raceSimUnlocked = false,
@@ -481,6 +489,29 @@ export function KioskCategories({
             />
           )}
         </div>
+
+        {/* "Your Crew" door, EMPTY state — the chrome's signed-in strip in the
+            state it never has: nobody yet (hollow dot). Docked HERE, above the
+            utility doors, because it IS one of the "not booking" actions — the
+            top of the screen stays status-only. Gone the moment anyone signs
+            in: the caller stops passing onOpenCrew and the chrome's banner
+            takes over as the door. */}
+        {onOpenCrew && (
+          <button
+            type="button"
+            onClick={onOpenCrew}
+            className="k-glass k-tap mt-[24px] flex w-full shrink-0 items-center gap-[18px] px-[28px] py-[18px] text-left"
+          >
+            <span className="flex min-w-0 flex-1 items-center gap-[14px] text-[22px] text-white/70">
+              <span
+                className="h-[12px] w-[12px] shrink-0 rounded-full border-2 border-white/40"
+                aria-hidden="true"
+              />
+              <span className="truncate">{t("crew.banner.empty")}</span>
+            </span>
+            <IconChevronRight size={26} className="shrink-0 text-white/40" aria-hidden="true" />
+          </button>
+        )}
 
         {/* No shortcut row here (owner 2026-07-28). VIP Experience is dropped —
             the Experiences card already leads to it, so it was a second door

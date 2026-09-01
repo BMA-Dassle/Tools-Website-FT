@@ -12,6 +12,7 @@ import { verifyCron } from "@/lib/cron-auth";
 import { officeReadSessionId } from "@/lib/bmi-office-ids";
 import { getOfficeToken } from "@/lib/bmi-office-token";
 import { officeAgent } from "@/lib/bmi-office-agent";
+import { etOffsetForLocalDate } from "@/lib/et-time";
 import redis from "@/lib/redis";
 import {
   raceSettleGate,
@@ -154,7 +155,7 @@ function normalizeNum(n: string | null | undefined): string {
  * reservation's `booked_at` is the BOOKING time (not the activity time), so we
  * read the real start from booking_metadata: race HEATS (`heatId`) or attraction
  * SLOTS (`slot`). Both are ET wall-clock with NO offset (e.g.
- * "2026-06-09T16:24:00"), so apply the ET offset (DST-approx by month) before
+ * "2026-06-09T16:24:00"), so apply the real IANA ET offset for that date before
  * comparing to now. Returns null when no start time is recorded — the caller
  * must NOT fall back without one (e.g. legacy attraction rows with empty metadata).
  */
@@ -171,9 +172,8 @@ function bmiStartEpoch(r: BowlingReservation): number | null {
   if (times.length === 0) return null;
   let earliest = Infinity;
   for (const t of times) {
-    const month = Number(t.slice(5, 7));
-    const offset = month >= 3 && month <= 11 ? "-04:00" : "-05:00"; // EDT vs EST (approx)
-    const ms = Date.parse(t.replace(/Z$/, "") + offset);
+    const naive = t.replace(/Z$/, "");
+    const ms = Date.parse(naive + etOffsetForLocalDate(naive)); // real EDT/EST, not month-approx
     if (Number.isFinite(ms) && ms < earliest) earliest = ms;
   }
   return Number.isFinite(earliest) ? earliest : null;

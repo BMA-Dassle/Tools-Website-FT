@@ -101,6 +101,7 @@ import BowlingFoodStep from "~/components/features/booking/steps/bowling/Bowling
 import WhosBowlingStep from "~/components/features/booking/steps/bowling/WhosBowlingStep";
 import BowlNowDurationStep from "~/components/features/booking/steps/bowling/BowlNowDurationStep";
 import WorldCupMatchStep from "~/components/features/booking/steps/bowling/WorldCupMatchStep";
+import NflGameStep from "~/components/features/booking/steps/bowling/NflGameStep";
 import KbfIdentityStep from "~/components/features/booking/steps/bowling/KbfIdentityStep";
 import KbfBowlersStep from "~/components/features/booking/steps/bowling/KbfBowlersStep";
 import {
@@ -154,6 +155,23 @@ export function plannedStepsFor(
  * fixed 2.5-hr window). Contact/Players/Shoes run unchanged; Food already
  * self-hides (pizza-bowl slug gate).
  */
+/**
+ * Hide a step for an NFL Ticket item.
+ *
+ * Only the v3 TIME step needs this: the guest reaches NFL by picking its card
+ * on the Experience screen, and the game picker then sets the time for them —
+ * a game IS a time. The Date and Experience steps stay, because they are how
+ * the card is reached in the first place.
+ */
+function hiddenForNfl(step: StepDef): StepDef {
+  return {
+    ...step,
+    isVisible: (item, session) =>
+      !(item.kind === "bowling" && item.experienceSlug?.startsWith("nfl-vip-")) &&
+      step.isVisible(item, session),
+  };
+}
+
 function hiddenForWorldCup(step: StepDef): StepDef {
   return {
     ...step,
@@ -296,7 +314,14 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     // v3 single-time-pick flow (flag ON): date → experience → time+hold.
     hiddenForPlayNow(hiddenInCombo(hiddenForWorldCup(v3Only(BowlingDateStep as StepDef)))),
     hiddenForPlayNow(hiddenInCombo(hiddenForWorldCup(v3Only(BowlingExperienceStep as StepDef)))),
-    hiddenForPlayNow(hiddenInCombo(hiddenForWorldCup(v3Only(BowlingTimeStep as StepDef)))),
+    hiddenForPlayNow(
+      hiddenInCombo(hiddenForWorldCup(hiddenForNfl(v3Only(BowlingTimeStep as StepDef)))),
+    ),
+    // NFL Ticket: the game picker stands in for the Time step. Its own
+    // isVisible keys on the nfl-vip-* slug, so a plain bowling item never sees
+    // it, and it sits AFTER the time step so the wizard order reads
+    // Date -> Experience -> Game.
+    hiddenForPlayNow(hiddenInCombo(v3Only(NflGameStep as StepDef))),
     // FastTrax duckpin has no shoes — skip the shoe-rental step (kiosk clones
     // this list, so this hides it on both web and kiosk).
     hiddenInCombo(hiddenForDuckpin(BowlingShoesStep as StepDef)),

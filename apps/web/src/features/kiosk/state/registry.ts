@@ -28,7 +28,7 @@ import { KioskRaceSimProductStep } from "../steps/KioskRaceSimProductStep";
 import { KioskRaceSimTrackStep } from "../steps/KioskRaceSimTrackStep";
 import { KioskRaceSimSlotStep } from "../steps/KioskRaceSimSlotStep";
 
-export const KIOSK_SCHEMA_VERSION = 14; // v14: RaceSimItem slot/slotProposal/bmiLineId (real booking rail)
+export const KIOSK_SCHEMA_VERSION = 15; // v15: BowlingItem.nflGameId (NFL Ticket game picker)
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
 
 /** Match the web registry's World Cup gating for bowling time steps. */

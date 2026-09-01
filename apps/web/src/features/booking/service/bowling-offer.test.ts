@@ -27,6 +27,8 @@ function makeItem(over: Partial<BowlingExperienceItem> = {}): BowlingExperienceI
     quantity: 1,
     sortOrder: 0,
     productKind: "open",
+    includedModifierCount: 1,
+    extraModifierCents: 0,
     ...over,
   };
 }

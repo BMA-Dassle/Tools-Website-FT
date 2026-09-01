@@ -15,6 +15,53 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.31.1 — THE CARD DISPENSER IS ALREADY CONNECTED WHEN YOU TAP GAME ZONE
+ *         (owner 2026-09-01: "we often click game zone and have to wait for
+ *         this to connect"). The CRT-591 connection was only ever created when
+ *         a screen that USES it mounted, and the first one in the guest flow is
+ *         Game Zone itself — so the tap paid for the whole handshake (open the
+ *         COM port, EOT line-clear, INIT, three identity reads) behind a
+ *         full-screen "Connecting to the card dispenser…" loader. Park-and-adopt
+ *         (2026-07-21) already keeps ONE live connection across screen changes,
+ *         so this only ever bit the first Game Zone entry after a page load —
+ *         which the idle self-update reload makes a daily event, not a one-off.
+ *         A new renderless KioskDispenserPrewarm now opens that connection
+ *         AMBIENTLY — on the attract loop and on every flow screen — and parks
+ *         it, so Game Zone adopts a connection that is already up and the loader
+ *         never appears. Web Serial only needs a user gesture for the port
+ *         PICKER, not to reopen a granted port, which is what the existing
+ *         silent auto-reconnect already relied on.
+ *         The pre-warm tries only ports it can NAME (remembered/saved index,
+ *         saved USB ids, lone grant) and never blind-probes: it runs alongside
+ *         EntryScanListener, and a blind probe opens each granted port and sits
+ *         on it for up to 12s per baud, which would take the scanner's port away
+ *         mid-scan. Game Zone's own connect still scans, so a stale hint costs a
+ *         pre-warm, never a dispense. Gated to kiosks that actually have a
+ *         dispenser (capability "full"), and unmounted while Game Zone is open —
+ *         the reader's busy mutex is per hook INSTANCE, not per client, so two
+ *         live instances must never share the parked connection.
+ *         No guest-facing copy added; the connecting loader survives as the
+ *         fallback for a cold or stale-hint connect.
+ * 1.31.0 — "YOUR CREW": SIGN EVERYONE IN BEFORE ANYTHING IS BOOKED (owner
+ *         2026-08-31: "I want it mature on first launch"; page planned
+ *         2026-08-06). A standalone /kiosk/racers page mounts the live people
+ *         monolith over the PERSISTED kiosk session — add/remove/sign-in,
+ *         accounts + waivers, no prices and no cart — then "Book something"
+ *         lands on the chooser with the party already built. Three doors, all
+ *         behind the NEXT_PUBLIC_KIOSK_CREW kill switch (default ON): the
+ *         session banner's WHO half becomes a button (hold bar untouched — no
+ *         nested buttons), the chooser gets the strip's new EMPTY state
+ *         ("Nobody signed in yet · Add your people") docked ABOVE the utility
+ *         doors, not at the top (owner 2026-09-01: "needs a better spot other
+ *         than the top" — picked option A of four mocks; chooser only, never
+ *         a new box mid-wizard), and the entry-scan racer arm now navigates
+ *         there from BOTH the attract screen and the chooser instead of
+ *         dumping a no-reservation racer on the activity chooser with a
+ *         stashed code (the people step claims the `racer` hand-off on the
+ *         crew page the moment it mounts). Idle/start-over on the crew page
+ *         runs the FULL teardown (abandonBooking → clearBookingSession →
+ *         resetToKiosk) — the roster is guest PII and must never survive to
+ *         the next group. Fully bilingual (parts/crew.ts).
  * 1.30.0 — BOGO WEDNESDAYS IS A SCHEDULED-RACE RULE, NOT A PACK (owner
  *         2026-08-31: "this special is here to stay and was never meant to be
  *         a race pack — buy one get one, all races must be scheduled").
@@ -1128,7 +1175,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.30.0";
+export const KIOSK_VERSION = "1.31.1";
 
 let bootVersion: string | null = null;
 let captured = false;

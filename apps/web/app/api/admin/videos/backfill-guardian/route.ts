@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { etOffsetForLocalDate } from "@/lib/et-time";
 import { listMatchesInRange, updateVideoMatch, type VideoMatch } from "@/lib/video-match";
 import { notifyVideoReady, cameraHistoryEntryFromMatch } from "@/lib/video-notify";
 import type { GuardianContact, Participant } from "@/lib/participant-contact";
@@ -85,14 +86,8 @@ function startOfTodayET(): number {
     month: "2-digit",
     day: "2-digit",
   }).format(now);
-  // EDT (Apr-Oct) = UTC-4, EST = UTC-5. Same DST math the videos/list
-  // route uses — fine for a daily window since DST transitions don't
-  // happen at midnight.
-  const month = parseInt(ymd.slice(5, 7), 10);
-  const isEDT = month >= 4 && month <= 10;
-  const offsetHours = isEDT ? 4 : 5;
-  const baseUtc = Date.parse(`${ymd}T00:00:00Z`);
-  return baseUtc + offsetHours * 60 * 60 * 1000;
+  // Offset from the IANA database, matching the videos/list route.
+  return Date.parse(`${ymd}T00:00:00${etOffsetForLocalDate(ymd)}`);
 }
 
 interface Body {

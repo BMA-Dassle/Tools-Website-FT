@@ -99,6 +99,27 @@ export interface Reservation {
       tier?: string | null;
       category?: string | null;
     }>;
+    /** NFL Ticket on NeoVerse: WHICH game, and WHICH BLOCK it was seated in.
+     *  The block is the half nothing else records — lane numbers say where the
+     *  party sits, not which screen owes them a game. `pin` is the outcome of
+     *  moving them onto that block; a failed pin is a booking front desk must
+     *  reseat by hand. */
+    nfl?: {
+      gameId: string;
+      label: string;
+      kickoffIso: string;
+      laneOpenEt: string;
+      blockId: string;
+      blockLabel: string;
+      claimId: number;
+      pin?: {
+        pinned: boolean;
+        lanes: number[];
+        moved?: boolean;
+        reason?: string;
+        detail?: string;
+      } | null;
+    };
     [k: string]: unknown;
   };
   /** CURRENT scheduled race lines re-read from the BMI bill overview

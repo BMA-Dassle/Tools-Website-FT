@@ -3,6 +3,7 @@ import {
   WORLD_CUP_ENDS_AT_MS,
   WORLD_CUP_FIXTURES,
   WORLD_CUP_POPUP_STARTS_AT_MS,
+  WORLD_CUP_WINDOW_MINUTES,
   findFixture,
   fixtureForBookedAt,
   fixtureKickoffMs,
@@ -15,6 +16,8 @@ import {
   worldCupPopupActive,
   worldCupSlugForDate,
   worldCupWindowActive,
+  worldCupWindowLabel,
+  worldCupWindowLabelShort,
 } from "./fixtures";
 
 const ET = (s: string) => Date.parse(s); // explicit-offset strings only — TZ-independent
@@ -37,8 +40,44 @@ describe("WORLD_CUP_FIXTURES", () => {
     expect([...times].sort((a, b) => a - b)).toEqual(times);
   });
 
-  it("feature end = final kickoff + the 150-min window", () => {
-    expect(WORLD_CUP_ENDS_AT_MS).toBe(ET("2026-07-19T17:30:00-04:00"));
+  it("feature end = final kickoff + whatever window we sell", () => {
+    // Derived, not a literal: the expiry used to be hardcoded to 17:30 (3 PM +
+    // the 150-min window) and silently disagreed with the constant the moment
+    // the window changed.
+    expect(WORLD_CUP_ENDS_AT_MS).toBe(
+      ET("2026-07-19T15:00:00-04:00") + WORLD_CUP_WINDOW_MINUTES * 60_000,
+    );
+  });
+
+  it("sells a 3-hour window (raised from 2.5 on 2026-08-25 to match NFL)", () => {
+    expect(WORLD_CUP_WINDOW_MINUTES).toBe(180);
+  });
+});
+
+describe("window labels", () => {
+  it('renders whole hours without a fraction — the old copy said "3½ hours"', () => {
+    expect(worldCupWindowLabel(180)).toBe("3 hours");
+    expect(worldCupWindowLabel(120)).toBe("2 hours");
+    expect(worldCupWindowLabel(60)).toBe("1 hour");
+  });
+
+  it("still renders the half-hour shape it replaced", () => {
+    expect(worldCupWindowLabel(150)).toBe("2½ hours");
+    expect(worldCupWindowLabel(90)).toBe("1½ hours");
+  });
+
+  it("falls back to explicit minutes for anything else", () => {
+    expect(worldCupWindowLabel(195)).toBe("3 hours 15 minutes");
+  });
+
+  it("defaults to the shipped window", () => {
+    expect(worldCupWindowLabel()).toBe("3 hours");
+    expect(worldCupWindowLabelShort()).toBe("3-hr");
+  });
+
+  it("short form drops the decimal only when it is whole", () => {
+    expect(worldCupWindowLabelShort(180)).toBe("3-hr");
+    expect(worldCupWindowLabelShort(150)).toBe("2.5-hr");
   });
 });
 

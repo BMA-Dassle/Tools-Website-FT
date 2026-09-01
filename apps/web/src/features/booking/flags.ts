@@ -10,14 +10,24 @@ import type { BookingSession } from "./state/types";
  * duration) → Time ("Next Available" hero + accurate slot grid, tap = hold).
  * Replaces the classic Slots → Tier → Offer double-time-pick flow.
  *
- * DARK while the flow bakes: opt-in via `NEXT_PUBLIC_BOWLING_ONE_TIME_FLOW=
- * "true"` in Vercel, or per-session via `?bowlingV3=1` (EntryContext.bowlingV3)
- * for preview-URL testing without env changes. The FLIP PR changes this to a
- * default-on kill switch (`!== "false"`) after ops sign-off — see
- * tasks/bowling-reservation-flow-plan.md §11.
+ * LIVE. This is the flip from tasks/bowling-reservation-flow-plan.md §11 — its
+ * companion steps already landed (web SCHEMA_VERSION 3, KIOSK_SCHEMA_VERSION
+ * well past 11), but the flag itself was left as an opt-in gate and production
+ * ran on a `NEXT_PUBLIC_BOWLING_ONE_TIME_FLOW="true"` row in Vercel for weeks.
+ *
+ * That was the hazard this change removes: with `=== "true"`, deleting or
+ * renaming that one env row silently reverted EVERY guest to the classic flow —
+ * no deploy, no alert, nothing in the repo to explain it. A merged feature is
+ * on; a flag exists only to turn it OFF. Set the var to the literal "false" to
+ * fall back to classic in an emergency.
+ *
+ * `?bowlingV3=1` (EntryContext.bowlingV3) survives as a per-session force-on
+ * for preview URLs. It can only turn v3 ON, never off, so it is a no-op now
+ * that the default is on — kept because it costs nothing and the kill switch is
+ * the env var.
  */
 export function bowlingOneTimeFlowEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_BOWLING_ONE_TIME_FLOW === "true";
+  return process.env.NEXT_PUBLIC_BOWLING_ONE_TIME_FLOW !== "false";
 }
 
 /** Is the v3 bowling flow active for THIS session (env flag or preview param)?

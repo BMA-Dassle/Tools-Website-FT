@@ -58,6 +58,15 @@ import {
 } from "~/features/world-cup";
 import { enrichFixture } from "~/features/world-cup/live-teams";
 import { notifyWorldCupBooked } from "~/features/world-cup/notify.server";
+import { isNflSlug, NflReservationError, nflQamfTitle, nflQamfBanner } from "~/features/nfl";
+import {
+  guardNflBooking,
+  confirmNflBooking,
+  nflBookingMetadata,
+  type NflGuardResult,
+} from "~/features/nfl/guard.server";
+import { centerHoursForDate } from "~/features/booking/service/bowling-hours";
+import { pinReservationToBlock, type PinOutcome } from "~/features/nfl/pin.server";
 import {
   createDepositAndCharge,
   createDepositOrder,
@@ -80,6 +89,7 @@ import {
   kbfAdultPerGameCents,
   buildKbfExtraSquareLineItems,
 } from "~/features/booking/service/kbf-pricing";
+import { rawFoodItemsToReservationLines } from "~/features/booking/service/reservation-lines";
 
 const CONFIRM_RETRY_QUEUE = "qamf:bowling:confirm-retry";
 
@@ -246,6 +256,14 @@ interface ReserveBody {
   /** Experience slug (e.g. "world-cup-vip-mon-thur") — drives the World Cup
    *  fixture/center validation + staff banner when it's a world-cup-* slug. */
   experienceSlug?: string;
+  /**
+   * ESPN event id of the picked NFL game. Required for an nfl-vip-* slug and
+   * NOT derivable from bookedAt: eight games kick off at 1:00 PM on a normal
+   * Sunday, so the time alone cannot say which one — and that is what decides
+   * the block and what the screen shows. Re-fetched server-side from
+   * nfl_games; bookedAt is then validated against THAT row.
+   */
+  nflGameId?: string;
   /** Where the booking originated. Only "kiosk" is accepted from the client
    *  (in-center self-service kiosk); anything else records as "web". */
   bookingSource?: string;
@@ -672,6 +690,35 @@ export async function POST(req: NextRequest) {
     wcFixture = await enrichFixture(wcFixture!);
   }
 
+  // ── NFL Ticket (fail-closed, server-authoritative) ──────────────
+  // Bowling-only carts reserve through THIS route; mixed carts run the same
+  // guard in unified-reserve. Validates the game window AND claims a VIP lane
+  // block — a block is four lanes on one TV, so it can only show one game at a
+  // time. Rejects BEFORE any QAMF confirm or Square write.
+  let nflGuard: NflGuardResult | null = null;
+  if (isNflSlug(body.experienceSlug)) {
+    if (body.optionId == null) {
+      return NextResponse.json(
+        { error: "NFL Ticket booking is missing its lane time option — please re-pick your game." },
+        { status: 400 },
+      );
+    }
+    try {
+      nflGuard = await guardNflBooking({
+        centerId,
+        bookedAt: body.bookedAt,
+        gameId: body.nflGameId,
+        hours: centerHoursForDate(centerId, (body.bookedAt ?? "").slice(0, 10)),
+        laneCount: body.bookingMeta?.laneCount,
+      });
+    } catch (err) {
+      if (err instanceof NflReservationError) {
+        return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
+      }
+      throw err;
+    }
+  }
+
   // ── Load Square products + compute subtotals ────────────────────
   const productItems: { product: BowlingSquareProduct; quantity: number; unitCents: number }[] = [];
   const reservationLines: ReservationLine[] = [];
@@ -804,16 +851,10 @@ export async function POST(req: NextRequest) {
   // drink notes) as reservation lines so the order is SAVED in Neon and stays
   // recoverable / visible on the admin board — previously rawItems were
   // transient (Square-only) and lost when they failed to reach the order.
-  // Pricing is computed from productItems (not reservationLines), so $0 food
-  // lines don't change any total; the product-backed Square map ignores lines
-  // with no squareProductId, so they are not double-added to the day-of order.
-  for (const ri of body.rawItems ?? []) {
-    reservationLines.push({
-      label: ri.note ? `${ri.name} — ${ri.note}` : ri.name,
-      quantity: ri.quantity,
-      unitPriceCents: 0,
-    });
-  }
+  // Shared with the unified rail (see reservation-lines.ts) — this rail was
+  // fixed in 2026-06 and the other was not, which is how the same data loss
+  // came back on mixed carts.
+  reservationLines.push(...rawFoodItemsToReservationLines(body.rawItems));
 
   // Booking fee: $2.99, 100% deposit, catalog item 7VKAFU3HDPRSKY7ZB6CKXTRW
   const BOOKING_FEE_CENTS = 299;
@@ -1110,6 +1151,25 @@ export async function POST(req: NextRequest) {
       qamfLanes = laneRes.Lanes ?? [];
     } catch {
       // Non-fatal
+    }
+  }
+
+  // ── NFL Ticket: seat the party inside its game's block ──────────
+  // QAMF auto-assigns anywhere in the VIP group, so without this a party can
+  // end up under a screen playing someone else's game. Non-fatal — already paid
+  // and confirmed by here; a failure surfaces on the ops board.
+  let nflPin: PinOutcome | null = null;
+  if (nflGuard && qamfLanes.length > 0) {
+    nflPin = await pinReservationToBlock({
+      centerId,
+      reservationId: qamfReservationId,
+      lanes: qamfLanes as Array<{ Id: string; LaneNumber: number }>,
+      block: nflGuard.block,
+    });
+    if (!nflPin.pinned) {
+      console.warn(
+        `[nfl] could not seat ${qamfReservationId} on ${nflGuard.block.id}: ${nflPin.reason} — ${nflPin.detail}`,
+      );
     }
   }
 
@@ -1824,6 +1884,12 @@ export async function POST(req: NextRequest) {
                       },
                     }
                   : {}),
+                // NFL Ticket: WHICH game, and WHICH BLOCK it was seated in.
+                // The block is the half nothing else records — lane numbers say
+                // where the party sits, not which screen owes them a game.
+                ...(nflGuard
+                  ? { nfl: { ...nflBookingMetadata(nflGuard, bookedAt), pin: nflPin } }
+                  : {}),
                 ...(wcFixture
                   ? {
                       worldCup: {
@@ -1843,6 +1909,18 @@ export async function POST(req: NextRequest) {
       reservationLines,
     );
     neonId = row.id;
+
+    // NFL Ticket: promote the claim off its 30-minute hold now the block is
+    // really taken, and FREEZE the kickoff so the nightly ESPN sync can never
+    // move a paid party's lanes when the league flexes a Sunday game.
+    // Best-effort — the guest is charged and confirmed by here.
+    if (nflGuard) {
+      await confirmNflBooking({
+        claimId: nflGuard.claim.id,
+        reservationId: row.id,
+        gameId: nflGuard.game.id,
+      });
+    }
 
     // If QAMF confirmation failed on a paid booking, push to the Redis retry
     // queue so the bowling-confirm-retry cron can attempt again every 5 min.
@@ -2153,11 +2231,16 @@ export async function POST(req: NextRequest) {
     // World Cup: lead the notes with the match + prefix the title so front
     // desk sees what this lane window is for (unified-reserve parity).
     if (wcFixture) finalParts.unshift(worldCupQamfBanner(wcFixture));
+    // NFL Ticket: the banner names the BLOCK as well as the game — the block is
+    // the one thing front desk cannot infer from the lane numbers.
+    if (nflGuard) finalParts.unshift(nflQamfBanner(nflGuard.game, nflGuard.block.label));
 
     const finalNotes = finalParts.join("\n");
     const finalTitle = wcFixture
       ? worldCupQamfTitle(guest.name, players.length)
-      : `${guest.name} (${players.length}p)`;
+      : nflGuard
+        ? nflQamfTitle(guest.name, players.length)
+        : `${guest.name} (${players.length}p)`;
     // Mirror the composed memo into OUR reservation notes FIRST (persist-first
     // rule) so the admin Notes tab shows what Conqueror got. finalNotes already
     // ends with the guest's own notes, so this supersedes the raw value saved

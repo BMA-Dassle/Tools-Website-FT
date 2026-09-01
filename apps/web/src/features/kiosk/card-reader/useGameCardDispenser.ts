@@ -33,10 +33,16 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export interface UseGameCardDispenserOptions {
   /** Kiosk config — supplies the saved baud/port for silent auto-reconnect. */
   config: KioskConfig | null;
+  /** Named ports only, no blind probing — see useCardReader. Pre-warm only. */
+  hintedPortsOnly?: boolean;
   onConnected?: (info: CrtDeviceInfo, portInfo: SerialPortInfo) => void;
 }
 
-export function useGameCardDispenser({ config, onConnected }: UseGameCardDispenserOptions) {
+export function useGameCardDispenser({
+  config,
+  hintedPortsOnly = false,
+  onConnected,
+}: UseGameCardDispenserOptions) {
   // On EVERY successful connect (even one found the slow way by scanning), save
   // WHERE it was — port index + baud — to Neon via the non-gated reader-hint
   // endpoint, so the next boot connects INSTANTLY instead of re-scanning. This is
@@ -89,6 +95,7 @@ export function useGameCardDispenser({ config, onConnected }: UseGameCardDispens
     // Kiosk is provisioned (cardReaderEnabled) → silently auto-reconnect on
     // mount, no picker in front of a guest.
     trustSingleGrant: !!config?.cardReaderEnabled,
+    hintedPortsOnly,
     onConnected: handleConnected,
   });
 

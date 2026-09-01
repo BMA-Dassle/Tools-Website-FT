@@ -104,6 +104,28 @@ export async function ensureBowlingSchema(): Promise<void> {
   await q`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS square_catalog_object_id TEXT`;
   await q`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS center_code TEXT`;
 
+  // ── Configurable food items (2026-08-25) ─────────────────────────
+  // A $0 package item (Pizza Bowl pizza, soda pitcher; NFL wings) can carry
+  // Square modifier groups the guest picks from. These two columns say how many
+  // picks are free and what each extra costs, so BowlingFoodStep is driven by
+  // config instead of the hardcoded catalog ids + name regex it used to carry.
+  //
+  // included_modifier_count defaults to 1: every package to date includes
+  // exactly one choice per group (one topping, one drink, one heat level).
+  await q`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS included_modifier_count INTEGER NOT NULL DEFAULT 1`;
+  await q`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS extra_modifier_cents INTEGER NOT NULL DEFAULT 0`;
+  // Backfill so the behaviour does not change the moment this deploys: the
+  // Pizza Bowl PIZZA item has always charged $1 per extra topping (the old
+  // hardcoded PIZZA_BOWL_FREE_TOPPINGS / EXTRA_TOPPING_CENTS pair). Without
+  // this, extra toppings would silently become free until the seed is re-run.
+  // Guarded on `= 0` so a later deliberate change is never clobbered.
+  await q`
+    UPDATE bowling_experience_items
+       SET extra_modifier_cents = 100
+     WHERE square_catalog_object_id = '2IKZB4O2HQBXWMTSUQ2SEKJY'
+       AND extra_modifier_cents = 0
+  `;
+
   // ── bowling_experience_offers ────────────────────────────────────
   // Maps an experience to the QAMF web offer ID at a specific center.
   // Same experience → different offer IDs per center.
@@ -487,6 +509,10 @@ export interface BowlingExperienceItem {
   quantity: number;
   sortOrder: number;
   productKind: string; // from bowling_square_products.product_kind
+  /** Modifier picks included per group before `extraModifierCents` applies. */
+  includedModifierCount: number;
+  /** Charge per pick beyond `includedModifierCount`. 0 = extras not offered. */
+  extraModifierCents: number;
 }
 
 export interface BowlingExperienceOffer {
@@ -3092,7 +3118,8 @@ async function fetchExperienceItems(
           COALESCE(bei.label_override, bsp.label) AS label,
           bsp.price_cents, bsp.deposit_pct, bsp.square_catalog_object_id,
           bsp.product_kind,
-          bei.quantity, bei.sort_order
+          bei.quantity, bei.sort_order,
+          bei.included_modifier_count, bei.extra_modifier_cents
         FROM bowling_experience_items bei
         JOIN bowling_square_products bsp
           ON bsp.square_catalog_object_id = bei.square_catalog_object_id
@@ -3107,7 +3134,8 @@ async function fetchExperienceItems(
           COALESCE(bei.label_override, bsp.label) AS label,
           bsp.price_cents, bsp.deposit_pct, bsp.square_catalog_object_id,
           bsp.product_kind,
-          bei.quantity, bei.sort_order
+          bei.quantity, bei.sort_order,
+          bei.included_modifier_count, bei.extra_modifier_cents
         FROM bowling_experience_items bei
         JOIN bowling_square_products bsp ON bsp.id = bei.square_product_id
         WHERE bei.experience_id = ANY(${experienceIds})
@@ -3128,6 +3156,8 @@ async function fetchExperienceItems(
       quantity: r.quantity as number,
       sortOrder: r.sort_order as number,
       productKind: r.product_kind as string,
+      includedModifierCount: (r.included_modifier_count as number) ?? 1,
+      extraModifierCents: (r.extra_modifier_cents as number) ?? 0,
     };
     if (!map.has(eid)) map.set(eid, []);
     map.get(eid)!.push(item);

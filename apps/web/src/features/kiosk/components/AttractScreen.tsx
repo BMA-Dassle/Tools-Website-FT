@@ -26,6 +26,7 @@ import {
 import {
   kioskGroupWaiverEnabled,
   kioskCheckinEnabled,
+  kioskCrewEnabled,
   kioskRaceInfoEnabled,
   kioskBillboardEnabled,
   kioskWelcomeRotateEnabled,
@@ -46,6 +47,7 @@ import { ATTRACT_POLL_MS, useKioskAvailability } from "../hooks/useKioskAvailabi
 import { clarityEvent, clarityTag } from "~/lib/clarity";
 import { captureKioskBootVersion, kioskUpdateAvailable } from "../version";
 import { DeviceCheckCard } from "./DeviceCheckCard";
+import { KioskDispenserPrewarm } from "./KioskDispenserPrewarm";
 import { EntryScanListener, EntryScanToast, useEntryScanRouter } from "../entry-scan";
 import { clickableDivProps } from "@/lib/a11y";
 
@@ -250,12 +252,14 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
       clarityEvent("kiosk:attract:scan");
       router.push("/kiosk/flow?goto=gamezone");
     },
-    // A racer with nothing booked today. No `?goto=` — they still have to pick
-    // an activity; the stashed code is claimed by the people step once they do.
+    // A racer with nothing booked today → the "Your Crew" page, where the
+    // people step claims the stashed code and signs them in immediately. With
+    // the crew kill switch off, the pre-crew fallback: land on the activity
+    // chooser and let the people step claim the code once they pick something.
     goRacerSignIn: () => {
       clarityTag("kiosk_entry", "scan-racer");
       clarityEvent("kiosk:attract:scan");
-      router.push("/kiosk/flow");
+      router.push(kioskCrewEnabled() ? "/kiosk/racers" : "/kiosk/flow");
     },
   });
 
@@ -324,6 +328,13 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           own listener (port opens are exclusive). Renders nothing. */}
       <EntryScanListener onScan={entryScan.handleScan} onLicense={entryScan.handleLicense} />
       <EntryScanToast miss={entryScan.miss} busy={entryScan.busy} onDone={entryScan.clearMiss} />
+      {/* Open the card dispenser while the kiosk is still idle, so a guest who
+          taps Game Zone doesn't watch the handshake. The parked connection
+          survives the soft nav into /kiosk/flow (same JS context), where
+          KioskFlow's own pre-warm keeps it alive until Game Zone adopts it.
+          Named ports only — EntryScanListener above holds the scanner's port on
+          this very screen, and blind probing would take it away. */}
+      <KioskDispenserPrewarm />
       {/* Hidden staff entry — 5 taps top-left corner → admin (no visible affordance) */}
       <button
         type="button"
@@ -537,8 +548,7 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           label; FastTrax keeps its racing one. The race grid stays
           Fort-Myers-only — racing never advertises at Naples (owner 2026-07-25). */}
       {attractLayout === "adzone" &&
-        (kioskCheckinEnabled() ||
-          (config.center === "fort-myers" && kioskRaceInfoEnabled())) && (
+        (kioskCheckinEnabled() || (config.center === "fort-myers" && kioskRaceInfoEnabled())) && (
           <div className="relative z-10 mx-[64px] mb-[8px] flex shrink-0 gap-[16px]">
             {kioskCheckinEnabled() && (
               <button

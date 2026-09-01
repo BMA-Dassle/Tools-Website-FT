@@ -105,6 +105,14 @@ export const KIND_BADGE: Record<
     bg: "rgba(212,175,55,0.18)",
     border: "rgba(212,175,55,0.45)",
   },
+  // NeoVerse violet — the v3 Experience step's VIP accent, so the board reads
+  // the same colour the guest saw when they booked.
+  nfl: {
+    label: "NFL",
+    color: "#a78bfa",
+    bg: "rgba(167,139,250,0.18)",
+    border: "rgba(167,139,250,0.45)",
+  },
 };
 
 export const KIND_FULL_LABELS: Record<string, string> = {
