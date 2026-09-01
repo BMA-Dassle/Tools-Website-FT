@@ -22,6 +22,11 @@ export const nflEn = {
   "nfl.card.soldOut": "Sold out",
   "nfl.card.perLane": "/lane",
   "nfl.card.holding": "Holding your lane…",
+  "nfl.pickDate": "Which day?",
+  "nfl.dateToday": "Today",
+  "nfl.dateTomorrow": "Tomorrow",
+  "nfl.noSchedule":
+    "No football on the schedule in the next few weeks. Check back once the next slate is out.",
   "nfl.empty": "No football on this date — pick another day.",
   "nfl.footer":
     "Up to 6 bowlers a lane. Game going long? Tell the front desk — we’ll do our best to keep the party going.",
@@ -46,6 +51,11 @@ export const nflEs: Record<keyof typeof nflEn, string> = {
   "nfl.card.soldOut": "Agotado",
   "nfl.card.perLane": "/pista",
   "nfl.card.holding": "Apartando tu pista…",
+  "nfl.pickDate": "¿Qué día?",
+  "nfl.dateToday": "Hoy",
+  "nfl.dateTomorrow": "Mañana",
+  "nfl.noSchedule":
+    "No hay fútbol americano programado en las próximas semanas. Vuelve cuando salga el próximo calendario.",
   "nfl.empty": "No hay fútbol americano en esta fecha — elige otro día.",
   "nfl.footer":
     "Hasta 6 jugadores por pista. ¿El partido se alarga? Avisa en recepción y haremos lo posible por alargar la fiesta.",

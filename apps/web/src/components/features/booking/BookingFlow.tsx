@@ -41,6 +41,7 @@ import {
   worldCupEnabledCenters,
   worldCupWindowActive,
 } from "~/features/world-cup";
+import { nflCenterEnabled, nflEnabledCenters } from "~/features/nfl";
 import { qamfCenterIdForCode } from "~/features/booking/types";
 import { fasttraxQamfDuckpinActive, playNowActive } from "~/features/booking/flags";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
@@ -269,6 +270,34 @@ export function BookingFlow({
       worldCupWindowActive(Date.now()) &&
       (wcEntryCenter ? worldCupCenterEnabled(wcEntryCenter) : worldCupEnabledCenters().length > 0);
 
+    // NFL Ticket entry (?experience=nfl, or the /book/nfl short link): seed the
+    // bowling item in game-picker mode — VIP tier pinned, hourly per-lane
+    // pricing; NflGameStep replaces the whole date/experience/time front of the
+    // wizard. Same degrade-gracefully shape as World Cup: a stale link at a
+    // center that cannot sell the package falls back to the normal bowling
+    // wizard rather than a dead end. There is no window check — the schedule
+    // itself is the window, and an out-of-season picker simply has no games.
+    const nflEntryCenter = initialContext?.center ?? session.center;
+    const wantNfl =
+      activity === "bowling" &&
+      !!initialContext?.nfl &&
+      (nflEntryCenter
+        ? nflCenterEnabled(qamfCenterIdForCode(nflEntryCenter))
+        : nflEnabledCenters().length > 0);
+
+    // Fort Myers is the only center with a block model, so a center-less NFL
+    // entry seeds it instead of raising the two-center picker — half of whose
+    // options cannot sell the package. Written as "exactly one center can sell
+    // it" rather than a hardcoded FM, so the day Naples is seeded the picker
+    // comes back on its own.
+    if (wantNfl && !session.center) {
+      const sellable = nflEnabledCenters();
+      const fm = qamfCenterIdForCode("fort-myers");
+      if (sellable.length === 1 && sellable[0] === fm) {
+        dispatch({ type: "setCenter", center: "fort-myers" });
+      }
+    }
+
     const makeItem = (): SessionItem => {
       const created = newItem(activity);
       if (created.kind === "attraction" && slug) {
@@ -279,6 +308,12 @@ export function BookingFlow({
         b.variant = "hourly";
         b.tier = "vip";
         b.isWorldCup = true;
+      }
+      if (created.kind === "bowling" && wantNfl) {
+        const b = created as Extract<SessionItem, { kind: "bowling" }>;
+        b.variant = "hourly";
+        b.tier = "vip";
+        b.isNfl = true;
       }
       // FastTrax duckpin: the entry page maps duck-pin → activity "bowling" when
       // the flag is active. Mark the item so it resolves to QAMF 11542 (reducer),
@@ -310,10 +345,16 @@ export function BookingFlow({
         if (i.kind !== activity) return false;
         if (i.kind === "attraction") return (i as AttractionItem).slug === slug;
         if (i.kind === "bowling") {
-          // A World Cup entry doesn't reuse a plain bowling item (and vice
-          // versa) — they run different step lists.
-          const isWc = !!(i as Extract<SessionItem, { kind: "bowling" }>).isWorldCup;
-          return wantWorldCup ? isWc : !isWc;
+          // A World Cup or NFL entry doesn't reuse a plain bowling item (and
+          // vice versa) — the three run different step lists, so reusing one
+          // for another would drop the guest into a half-configured item whose
+          // remaining steps can't produce a bookable state.
+          const b = i as Extract<SessionItem, { kind: "bowling" }>;
+          const isWc = !!b.isWorldCup;
+          const isNfl = !!b.isNfl;
+          if (wantWorldCup) return isWc;
+          if (wantNfl) return isNfl;
+          return !isWc && !isNfl;
         }
         return true;
       });
