@@ -145,7 +145,12 @@ async function main() {
       !!row.config.arenaBoard &&
       row.config.arenaBoard.holdMs === HOLD_MS &&
       scenes.includes("arena-promo") &&
-      scenes.includes("ads") &&
+      // AND NOT the house slides (owner 2026-09-01: "I didn't want the normal ad
+      // rotation on those check in screens"). This asserted their PRESENCE until then —
+      // the dead time was meant to be the films plus the house catalog, and the catalog
+      // was selling bowling and Game Zone from a screen at the arena desk, where the
+      // arena is the only thing a guest standing there can act on.
+      !scenes.includes("ads") &&
       // The check-in scene is an INTERRUPT — finding it in a playlist would mean
       // somebody had turned it into a rotation entry, and the board would cut
       // away from a live instruction to show an advert.
