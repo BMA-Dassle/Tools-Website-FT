@@ -41,6 +41,31 @@ import type { TvFeed } from "../types";
  *  every 15-second poll, short enough to recover within an evening. */
 const RETRY_FLOOR_MS = 60_000;
 
+/**
+ * source url → object url, ONE PER FILM FOR THE LIFE OF THE PAGE — the same shape, and
+ * for the same reason, as the wall's hook (useWallFilms.ts, which carries the full
+ * account).
+ *
+ * It matters here too because this scene is NOT permanent: a called session takes the
+ * board over, so the promo unmounts and remounts after every call. Revoking on unmount
+ * meant the handle died with it, the next mount began with nothing, and the reel streamed
+ * from the network again while the disk read caught up — on a file already sitting on the
+ * disk. Bounded by the number of distinct films, not by the number of calls.
+ */
+const adopted = new Map<string, string>();
+
+/** Release a film's handle — only when it leaves the manifest, never on unmount. */
+function release(url: string) {
+  const objectUrl = adopted.get(url);
+  if (!objectUrl) return;
+  adopted.delete(url);
+  try {
+    URL.revokeObjectURL(objectUrl);
+  } catch {
+    /* nothing to do */
+  }
+}
+
 export interface ArenaFilmSources {
   /** A playable URL for this activity's film, or null when none is uploaded. */
   srcFor: (activity: ArenaActivity) => string | null;
@@ -51,18 +76,14 @@ export interface ArenaFilmSources {
 }
 
 export function useArenaFilms(arena: TvFeed["arena"], enabled: boolean): ArenaFilmSources {
-  // url → object URL, for everything confirmed on disk.
-  const [local, setLocal] = useState<Record<string, string>>({});
+  // Seeded SYNCHRONOUSLY from the module map, so a remount after a call already holds
+  // the handles it had before and plays from disk on its first frame.
+  const [local, setLocal] = useState<Record<string, string>>(() => Object.fromEntries(adopted));
   const [pending, setPending] = useState(0);
   // url → last attempt, so a failing download backs off instead of retrying on
   // every poll.
   const attemptedAt = useRef<Record<string, number>>({});
-  // THE LIVE LEDGER of what this mount adopted: source url → object url. A ref and not
-  // the `local` state, because a []-dep cleanup closes over the FIRST render's state
-  // (`{}`) and would revoke nothing — the leak useBriefingAssets.ts wrote down.
-  const adoptedRef = useRef<Map<string, string>>(new Map());
-  /** False once this mount is gone, so an in-flight disk read cannot pin a film the
-   *  cleanup has already swept past. */
+  /** False once this mount is gone — only used to skip a pointless setState. */
   const aliveRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -116,25 +137,20 @@ export function useArenaFilms(arena: TvFeed["arena"], enabled: boolean): ArenaFi
     }
 
     // Prune only AFTER the new files are safely down, so a replaced film keeps
-    // playing until its successor is completely on disk.
+    // playing until its successor is completely on disk. Handles for anything that has
+    // left the manifest go with it — the only moment one is really finished with.
     await pruneCache(manifest, ARENA_CACHE);
+    for (const url of [...adopted.keys()]) if (!manifest.includes(url)) release(url);
 
     async function adopt(url: string) {
-      // Re-adopting would leak an object URL per poll.
-      if (adoptedRef.current.has(url)) return;
+      // At most one handle per film, ever — see the module map.
+      if (adopted.has(url)) return;
       const objectUrl = await cachedObjectUrl(url, ARENA_CACHE);
       if (!objectUrl) return;
-      if (!aliveRef.current) {
-        // Unmounted while the disk read was in flight; the ledger is already swept.
-        try {
-          URL.revokeObjectURL(objectUrl);
-        } catch {
-          /* nothing to do */
-        }
-        return;
-      }
-      adoptedRef.current.set(url, objectUrl);
-      setLocal((prev) => ({ ...prev, [url]: objectUrl }));
+      // Recorded even if this mount is already gone: the handle is what the next mount
+      // needs. Only the setState is skipped.
+      adopted.set(url, objectUrl);
+      if (aliveRef.current) setLocal((prev) => ({ ...prev, [url]: objectUrl }));
     }
   }, [enabled, laserUrl, gelUrl]);
 
@@ -157,23 +173,14 @@ export function useArenaFilms(arena: TvFeed["arena"], enabled: boolean): ArenaFi
   // Nothing half-downloaded should outlive the screen.
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  // Revoke on unmount only, FROM THE REF — see `adoptedRef`. Revoking when a URL
-  // leaves the manifest would instead pull a film out from under a reel mid-play.
+  // NOTHING IS REVOKED ON UNMOUNT — see the module map above. Handles are released when
+  // a film leaves the manifest, which is the only moment one is really finished with.
   useEffect(() => {
-    const adopted = adoptedRef.current;
     // Re-arm on (re)mount — StrictMode's dev double-mount runs this cleanup and then
     // the effect again on the same instance.
     aliveRef.current = true;
     return () => {
       aliveRef.current = false;
-      for (const objectUrl of adopted.values()) {
-        try {
-          URL.revokeObjectURL(objectUrl);
-        } catch {
-          /* nothing to do */
-        }
-      }
-      adopted.clear();
     };
   }, []);
 

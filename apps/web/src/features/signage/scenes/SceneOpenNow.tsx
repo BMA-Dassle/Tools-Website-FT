@@ -280,10 +280,13 @@ function PanelFilm({ src, accent }: { src: string | null; accent: string }) {
           width: "100%",
           height: "100%",
           objectFit: "cover",
-          // Barely held back. It was brightness(0.7), which cost a third of the
-          // picture before any scrim was painted over it — and the whole complaint
-          // was that the reels could not be seen.
-          filter: "saturate(0.95) brightness(0.92)",
+          // NO CSS `filter` HERE, deliberately. A filter on a full-frame video makes the
+          // compositor re-process every frame instead of handing the decoded surface
+          // straight through, and this element is already inside `.tv-drift`'s permanent
+          // transform with three gradient layers over it — on a mini PC with integrated
+          // graphics that is real per-frame cost, and staff reported the reels as laggy
+          // (2026-09-01). The scrim below does the holding-back for free, because it is a
+          // static layer the compositor paints once.
         }}
       />
       {/* BARELY A SCRIM AT ALL, and only in the two corners that carry words.
