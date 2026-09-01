@@ -15,7 +15,11 @@ import {
 } from "~/features/booking/service/deposit";
 import { CreditRedemptionError } from "~/features/booking/service/race-credit-redeem";
 import { MidnightMadnessWindowError } from "~/features/booking/service/bowling-offer";
-import { RaceSimNotConfiguredError, RaceSimMixedCartError } from "~/features/race-sims/products";
+import {
+  RaceSimNotConfiguredError,
+  RaceSimMixedCartError,
+  RaceSimStaleHoldError,
+} from "~/features/race-sims/products";
 import { WorldCupReservationError } from "~/features/world-cup";
 import { NflReservationError } from "~/features/nfl";
 import type { BookingSession } from "~/features/booking/state/types";
@@ -118,7 +122,11 @@ export async function POST(req: NextRequest) {
       // Raised before any Square or QAMF write; nothing charged.
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
-    if (err instanceof RaceSimNotConfiguredError || err instanceof RaceSimMixedCartError) {
+    if (
+      err instanceof RaceSimNotConfiguredError ||
+      err instanceof RaceSimMixedCartError ||
+      err instanceof RaceSimStaleHoldError
+    ) {
       // 409 — Race Sims guard 2e refused BEFORE any Square write; nothing
       // charged. NOT_CONFIGURED = keys not armed yet (expected during staff
       // testing); MIXED_CART = sims + HeadPinz items on one order (revenue

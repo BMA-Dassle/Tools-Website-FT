@@ -5,7 +5,7 @@
  *
  * One effect keyed on [enabled, itemId, …] owns the session lifecycle: open on
  * mount, poll every 3s (house `alive`-flag pattern), close("done") on cleanup.
- * The two people StepDefs (race-party / kiosk-who) share ONE component, so an
+ * The three people StepDefs (race-party / kiosk-who / racesim-party) share ONE component, so an
  * item switch re-keys the effect — a bare mount/unmount would miss it.
  *
  * Delivery dedupe is by server joinId — the poll returns the CUMULATIVE guest

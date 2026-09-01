@@ -331,8 +331,46 @@ the tile → PIN sheet) opens the flow for that session. Full booking-session in
       (`parts/racesim.ts`), `kioskRaceSimEnabled()` kill switch (default ON).
 - [x] Tests: catalog, pricing builder, cart readiness, cascade, registry pins. Full suite +
       `next build` green.
-- [ ] Owner live smoke on a FastTrax FM kiosk (tile lock, 5-tap+PIN, flow to the 409 at pay,
-      idle relock; HP kiosks show no KBF and no Race Sims tile).
+- [x] Booking rail (merged to main via f512e12a): gel/laser slots on racing-style $0 track keys
+      (one key per track, shared Race Sim resource cap 4), shared Square catalog id ARMED
+      (PZXWYNOY4MUAPXACMBMTFYMD), $14 Mon–Thu / $16 Fri–Sun; guard 2e track-aware + refuses
+      mixed racesim+HeadPinz carts; packs deferred (`bookable:false`).
+- [x] Flow restructured to mirror RACING (owner 2026-08-26, branch `feat/racesim-racing-flow`):
+      Who's racing? (whole party, racing semantics, own id `racesim-party`) → Your Info (the same
+      ContactStep, forward-skipped) → Race Options → Track (TrackInfoBanner cards) → Time
+      (heat-picker layout: 4-col grid, status matrix, capacity bar, tap-to-unpick, 10-min lead,
+      cart + existing-reservation conflicts, `heldQty` re-hold when the party changes). Schema v15.
+      Omitted as karting-only: pay-mode (until sim packs), Race Video & Extras, licence, age-7
+      floor, tier badges. Waiver re-check on advance now blocks sims like racing.
+- [x] **ARMED 2026-08-26:** track keys A 59535405 / B 59537905 / C 59537953 + shared page
+      59716066 in `race-sims/products.ts` — guard 2e passes; sim singles book + charge for real
+      behind the tile's PIN gate. Still unconfirmed: weekend = Fri–Sun; optional resourceId.
+- [x] Track switcher on the Time screen + racing's full scheduling rule set on the sim grid and at
+      reserve (7d31ec77): heatsConflict spacing (sim label "Race Sim" — 30 min vs karts, skip a
+      session vs sims), group-event reopen/window/private-day, cross-reservation guard 0b-sim + cart
+      kart↔sim guard, booked-heats returns prior sims. Product page = karting kiosk card (b80666ad).
+- [x] LIVE BLOCKER RESOLVED 2026-08-26: "no sessions" was BMI-side — the (Web) keys had no planning
+      link to the Race Sim resource; owner fixed it, sessions propose from 08-27 (32/day, cap 4).
+- [x] Test kiosk (99, `context.kioskTest`) rolls the sim Time grid to tomorrow when today settles
+      empty — racing's rig, amber staff banner, never on real kiosks (5b662135).
+- [x] **Multi-session across tracks (owner 2026-08-26, karting parity):** `RaceSimItem.sessions[]`
+      (racing's heats[]; {trackKey, slot, slotProposal, bmiLineId, heldQty}) — picks accumulate on
+      the Time step, track cards only filter, unpick releases one line, one Square line per session
+      × racers, one metadata entry per session. Owner rule: sim-vs-sim = SAME start on any track
+      collides ("Picked on Track A"), back-to-back allowed, no gap; sim-vs-kart/attraction/bowling
+      keeps racing's 30-min spacing. Conflict label per session = "Track A/B/C" (persisted +
+      emitted by raceHeatsForPersonsOnDate). Schema v16.
+- [x] Picks BMI stops proposing still render (f42fe7a8): BMI omits blocks with freeSpots < party
+      and never returns full blocks, so our own hold hid the selected card and hid "4:15 on A" from
+      B's grid — cards are rebuilt from the pick's block ("Picked" / "Picked on Track A").
+- [x] Adversarial review (12 agents, 4 confirmed) fixed: party-change re-hold effect deadlock
+      (ref-serialized, no cancel flag, unconditional teardown); cart sim↔attraction/bowling spacing
+      now server-guarded + web attraction grid sees sim sessions; cart-level sim same-start refused
+      server-side; bookRaceSimSessions threads a reparented bill id forward.
+- [ ] Owner live smoke on kiosk 99 / FastTrax FM kiosk: tile lock, 5-tap+PIN, party → Race Options
+      → Track → Time (tomorrow's grid after close), pick 10:00 A then see 10:00 greyed on B/C and
+      10:15 open, unpick releases the BMI line, pay → Square lines per session, BMI lines on the
+      Race Sim resource; HP kiosks show no KBF and no Race Sims tile.
 - [ ] **Before arming real ids** (all recorded in products.ts header + guard 2e comment):
       decide the vendor booking rail (Square id alone would charge with no reservation);
       fix `resolveLocationId` attribution for mixed racesim+HeadPinz carts; owner prices.

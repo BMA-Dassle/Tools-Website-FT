@@ -180,7 +180,9 @@ const opts = (o) => {
 
 // ── phase 1: read-only inventory ────────────────────────────────────────────
 async function phase1(token) {
-  console.log(`\n${"=".repeat(78)}\nPHASE 1 — READ-ONLY INVENTORY (center ${CENTER})\n${"=".repeat(78)}`);
+  console.log(
+    `\n${"=".repeat(78)}\nPHASE 1 — READ-ONLY INVENTORY (center ${CENTER})\n${"=".repeat(78)}`,
+  );
 
   const r = await req("GET", `/centers/${CENTER}/weboffers`, token);
   if (!r.ok) throw new Error(`listWebOffers ${r.status}: ${r.text.slice(0, 400)}`);
@@ -202,7 +204,9 @@ async function phase1(token) {
       timeOffers.push({ offerId: Number(o.Id), title: o.Title, optionId: Number(t.Id), mins });
     }
     console.log(
-      `${String(o.Id).padEnd(6)}${(enabled ? "Y" : "-").padEnd(5)}${String(o.Title ?? "").slice(0, 40).padEnd(42)}${opts(o)}`,
+      `${String(o.Id).padEnd(6)}${(enabled ? "Y" : "-").padEnd(5)}${String(o.Title ?? "")
+        .slice(0, 40)
+        .padEnd(42)}${opts(o)}`,
     );
   }
 
@@ -240,7 +244,9 @@ async function phase1(token) {
 
 // ── phase 2: off-grid BookedAt (MUTATES — creates + deletes holds) ──────────
 async function phase2(token, timeOffers) {
-  console.log(`\n${"=".repeat(78)}\nPHASE 2 — OFF-GRID BookedAt (creates + deletes real holds)\n${"=".repeat(78)}`);
+  console.log(
+    `\n${"=".repeat(78)}\nPHASE 2 — OFF-GRID BookedAt (creates + deletes real holds)\n${"=".repeat(78)}`,
+  );
 
   // Target the offers we'd ACTUALLY use. 174/175 are the idle World Cup VIP
   // offers and they already carry a 180-min Time option (1390 / 1398), which is
@@ -255,7 +261,9 @@ async function phase2(token, timeOffers) {
   const y = start.getUTCFullYear();
   const mo = start.getUTCMonth() + 1;
   const day = start.getUTCDate();
-  console.log(`  target date: ${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")} (Sunday)\n`);
+  console.log(
+    `  target date: ${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")} (Sunday)\n`,
+  );
 
   const cases = [
     { offer: 174, option: 1390, hh: 12, mm: 45, label: "174 @ 12:45  ON-grid control" },
@@ -317,7 +325,9 @@ async function phase2(token, timeOffers) {
  * send ET wall-clock with the true ET offset (correct under either reading).
  */
 async function phase3(token) {
-  console.log(`\n${"=".repeat(78)}\nPHASE 3 — LANE PINNING via PATCH /lanes (creates + deletes)\n${"=".repeat(78)}`);
+  console.log(
+    `\n${"=".repeat(78)}\nPHASE 3 — LANE PINNING via PATCH /lanes (creates + deletes)\n${"=".repeat(78)}`,
+  );
 
   const start = new Date(Date.now() + 21 * 86400000);
   while (start.getUTCDay() !== 0) start.setUTCDate(start.getUTCDate() + 1);
@@ -341,7 +351,9 @@ async function phase3(token) {
     const res = JSON.parse(cr.text);
     id = res.Id;
     const lane0 = res.Lanes?.[0];
-    console.log(`  created ${id} → auto-assigned lane ${lane0?.LaneNumber}  (${String(lane0?.StartTime).slice(11, 16)}–${String(lane0?.EndTime).slice(11, 16)})`);
+    console.log(
+      `  created ${id} → auto-assigned lane ${lane0?.LaneNumber}  (${String(lane0?.StartTime).slice(11, 16)}–${String(lane0?.EndTime).slice(11, 16)})`,
+    );
 
     const mkLanes = (targetLane) => [
       {
@@ -354,26 +366,44 @@ async function phase3(token) {
 
     // (a) move INSIDE the VIP range — pick a different VIP lane.
     const insideTarget = Number(lane0.LaneNumber) === 11 ? 12 : 11;
-    const mv = await req("PATCH", `/centers/${CENTER}/reservations/${id}/lanes`, token, { Lanes: mkLanes(insideTarget) }, "1.3");
-    console.log(`  move → VIP lane ${insideTarget}: HTTP ${mv.status}${mv.ok ? " OK" : ` ${mv.text.slice(0, 200)}`}`);
+    const mv = await req(
+      "PATCH",
+      `/centers/${CENTER}/reservations/${id}/lanes`,
+      token,
+      { Lanes: mkLanes(insideTarget) },
+      "1.3",
+    );
+    console.log(
+      `  move → VIP lane ${insideTarget}: HTTP ${mv.status}${mv.ok ? " OK" : ` ${mv.text.slice(0, 200)}`}`,
+    );
 
     if (mv.ok) {
       const gr = await req("GET", `/centers/${CENTER}/reservations/${id}`, token);
       if (gr.ok) {
         const after = JSON.parse(gr.text);
-        console.log(`  verify GET → lane(s) now ${(after.Lanes ?? []).map((l) => l.LaneNumber).join(",")}`);
+        console.log(
+          `  verify GET → lane(s) now ${(after.Lanes ?? []).map((l) => l.LaneNumber).join(",")}`,
+        );
       }
     }
 
     // (b) move OUTSIDE the VIP range — must be refused if lane groups bind.
-    const out = await req("PATCH", `/centers/${CENTER}/reservations/${id}/lanes`, token, { Lanes: mkLanes(20) }, "1.3");
+    const out = await req(
+      "PATCH",
+      `/centers/${CENTER}/reservations/${id}/lanes`,
+      token,
+      { Lanes: mkLanes(20) },
+      "1.3",
+    );
     console.log(
       `  move → REGULAR lane 20: HTTP ${out.status}${out.ok ? "  !! ACCEPTED — lane group does NOT bind" : `  refused: ${out.text.slice(0, 160)}`}`,
     );
   } finally {
     if (id) {
       const dr = await req("DELETE", `/centers/${CENTER}/reservations/${id}`, token);
-      console.log(`\n  cleanup: DELETE ${id} → ${dr.status}${dr.ok ? " ok" : "  *** FAILED — DELETE BY HAND ***"}`);
+      console.log(
+        `\n  cleanup: DELETE ${id} → ${dr.status}${dr.ok ? " ok" : "  *** FAILED — DELETE BY HAND ***"}`,
+      );
     }
   }
 }
@@ -382,7 +412,9 @@ async function phase3(token) {
 (async () => {
   const envPath = loadEnv();
   console.log(`env: ${envPath ?? "(none found — relying on process env)"}`);
-  console.log(`center: ${CENTER}   mode: ${RUN_HOLDS ? "PHASE 1 + 2 (mutating)" : "PHASE 1 only (read-only)"}`);
+  console.log(
+    `center: ${CENTER}   mode: ${RUN_HOLDS ? "PHASE 1 + 2 (mutating)" : "PHASE 1 only (read-only)"}`,
+  );
 
   const { token, via } = await tokenFor(CENTER);
   console.log(`token: ok via ${via}`);
@@ -393,7 +425,10 @@ async function phase3(token) {
   // API (which decides whether block enforcement can be verified from code).
   const rawIds = argVal("--raw", null);
   if (rawIds) {
-    for (const idStr of rawIds.split(",").map((s) => s.trim()).filter(Boolean)) {
+    for (const idStr of rawIds
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)) {
       const rr = await req("GET", `/centers/${CENTER}/weboffers/${idStr}`, token);
       console.log(`\n--- offer ${idStr} → HTTP ${rr.status} ---`);
       console.log(rr.ok ? JSON.stringify(JSON.parse(rr.text), null, 2) : rr.text.slice(0, 500));

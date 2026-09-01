@@ -1944,6 +1944,14 @@ export async function raceHeatsForPersonsOnDate(opts: {
   await ensureBowlingSchema();
   const q = sql();
   const excludeBillId = opts.excludeBillId ?? null;
+  // Two branches, one signal: karting heats (booking_metadata.heats[]) and
+  // Race Sim sessions (booking_metadata.racesims[].participants[], persisted
+  // at reserve since 2026-08-26). Sim rows carry the shared sim conflict track
+  // label so heatsConflict treats sim-vs-sim as same-track and sim-vs-kart as
+  // cross-track — the racing picker, the sim grid and both reserve guards all
+  // consume this one list, so a kart heat greys against a booked sim and vice
+  // versa. Sim anchors are product_kind 'attraction' today, hence no kind
+  // filter on the second branch.
   const rows = await q`
     SELECT t.e->>'heatId' AS heat_id, t.e->>'track' AS track,
            t.e->>'bmiPersonId' AS person_id, t.e->>'racer' AS racer
@@ -1956,6 +1964,20 @@ export async function raceHeatsForPersonsOnDate(opts: {
       AND (${excludeBillId}::text IS NULL OR r.bmi_bill_id IS DISTINCT FROM ${excludeBillId})
       AND t.e->>'bmiPersonId' = ANY(${personIds})
       AND left(t.e->>'heatId', 10) = ${opts.date}
+    UNION ALL
+    SELECT s.e->>'slot' AS heat_id, s.e->>'track' AS track,
+           p.e->>'bmiPersonId' AS person_id, p.e->>'name' AS racer
+    FROM bowling_reservations r
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof(r.booking_metadata->'racesims')='array'
+           THEN r.booking_metadata->'racesims' ELSE '[]'::jsonb END) AS s(e)
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof(s.e->'participants')='array'
+           THEN s.e->'participants' ELSE '[]'::jsonb END) AS p(e)
+    WHERE r.status IN ('confirmed','confirm_pending')
+      AND (${excludeBillId}::text IS NULL OR r.bmi_bill_id IS DISTINCT FROM ${excludeBillId})
+      AND p.e->>'bmiPersonId' = ANY(${personIds})
+      AND left(s.e->>'slot', 10) = ${opts.date}
   `;
   return rows
     .map((r) => r as Record<string, unknown>)

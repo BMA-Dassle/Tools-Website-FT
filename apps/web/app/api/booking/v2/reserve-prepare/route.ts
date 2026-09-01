@@ -7,7 +7,11 @@ import {
   CrossCategoryHeatCollisionError,
 } from "~/features/booking/service/unified-reserve";
 import { CreditRedemptionError } from "~/features/booking/service/race-credit-redeem";
-import { RaceSimNotConfiguredError, RaceSimMixedCartError } from "~/features/race-sims/products";
+import {
+  RaceSimNotConfiguredError,
+  RaceSimMixedCartError,
+  RaceSimStaleHoldError,
+} from "~/features/race-sims/products";
 import { WorldCupReservationError } from "~/features/world-cup";
 import type { BookingSession } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
@@ -70,7 +74,11 @@ export async function POST(req: NextRequest) {
     if (err instanceof WorldCupReservationError) {
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
-    if (err instanceof RaceSimNotConfiguredError || err instanceof RaceSimMixedCartError) {
+    if (
+      err instanceof RaceSimNotConfiguredError ||
+      err instanceof RaceSimMixedCartError ||
+      err instanceof RaceSimStaleHoldError
+    ) {
       // 409 — Race Sims guard 2e (keys not armed, or sims mixed with HeadPinz
       // items): refused before the day-of order exists, reader never armed.
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });

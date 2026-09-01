@@ -8,14 +8,16 @@
  * the SAME sessions (shared resource/dayplanner, minitrack-shaped schedule),
  * so the track choice picks WHICH key books, never which times exist.
  *
- * ARMING CHECKLIST (checkout is fail-closed until ALL of these are set):
+ * ARMING CHECKLIST — ALL DONE 2026-08-26; singles are LIVE (behind the kiosk
+ * tile's staff PIN gate until the guest-launch PR removes it):
  *   1. RACE_SIM_SQUARE_CATALOG_ID — DONE 2026-08-23 (owner-pasted, shared by
  *      every sim line; per-line price is overridden at charge time because
  *      pricing is day-of-week based).
- *   2. RACE_SIM_PAGE_ID — the BMI public-booking page the track keys live on.
- *   3. RACE_SIM_TRACKS[*].bmiProductId — the three $0 track keys (RAW digit
- *      strings, copied verbatim from BMI — NEVER through Number()/JSON.parse,
- *      @ft/db BMI id precision rule).
+ *   2. RACE_SIM_PAGE_ID — DONE 2026-08-26 (59716066).
+ *   3. RACE_SIM_TRACKS[*].bmiProductId — DONE 2026-08-26 (59535405 / 59537905
+ *      / 59537953, "Race Sim - Track A/B/C").
+ * To take sims off sale in an emergency, null any one of these — guard 2e
+ * refuses before any Square write (and the kill switch pulls the tile).
  * BMI-side invariants (owner confirmed the setup mirrors racing's): keys carry
  * a $0/credit deposit key — a money key gets the bill's schedules stripped
  * (W57040); the dayplanner draws the SAME capacity pool the desk sees.
@@ -42,15 +44,20 @@ export interface RaceSimTrack {
   bmiProductId: string | null;
 }
 
+// $0 track keys — owner-provided 2026-08-26 (BMI names "Race Sim - Track A/B/C").
+// 8-digit product ids (safe as literals; the 17-digit precision rule is for
+// bill/person ids). Transcribed from a screenshot — verify against BMI once.
 export const RACE_SIM_TRACKS: readonly RaceSimTrack[] = [
-  { key: "a", name: "Track A", bmiProductId: null },
-  { key: "b", name: "Track B", bmiProductId: null },
-  { key: "c", name: "Track C", bmiProductId: null },
+  { key: "a", name: "Track A", bmiProductId: "59535405" },
+  { key: "b", name: "Track B", bmiProductId: "59537905" },
+  { key: "c", name: "Track C", bmiProductId: "59537953" },
 ] as const;
 
-/** BMI public-booking page the track keys live on — null until owner-provided
- *  (racing parity: one shared page for all keys, like BUILD_PAGE_ID). */
-export const RACE_SIM_PAGE_ID: string | null = null;
+/** BMI public-booking page the three track keys live on — owner-provided
+ *  2026-08-26 (racing parity: one shared page for all keys, like BUILD_PAGE_ID).
+ *  With this set, every arming-checklist item is done: booking + charging are
+ *  LIVE behind the kiosk tile's staff PIN gate. */
+export const RACE_SIM_PAGE_ID: string | null = "59716066";
 
 /**
  * ONE Square catalog variation for EVERY sim line (owner 2026-08-23) — the
@@ -176,6 +183,20 @@ export class RaceSimNotConfiguredError extends Error {
  * location, so the sim revenue would land in the HeadPinz account. Until the
  * combo-split-orders treatment covers sims, the cart must be paid separately.
  */
+/**
+ * Thrown by guard 2e when a sim's held BMI line was booked for a different
+ * party size than the cart now carries (racerCount ≠ heldQty): the party
+ * changed after the hold and the re-hold hasn't landed. Charging would
+ * collect for N seats while BMI holds M.
+ */
+export class RaceSimStaleHoldError extends Error {
+  readonly code = "RACESIM_STALE_HOLD" as const;
+  constructor() {
+    super("Your group changed after the time was held — please re-pick your time.");
+    this.name = "RaceSimStaleHoldError";
+  }
+}
+
 export class RaceSimMixedCartError extends Error {
   readonly code = "RACESIM_MIXED_CART" as const;
   constructor() {

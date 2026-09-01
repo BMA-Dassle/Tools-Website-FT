@@ -17,9 +17,11 @@ export const racesimEn = {
   "racesim.tile.comingSoon": "Coming Soon",
   "racesim.tile.comingSoonNote": "Racing simulators are almost here — stay tuned!",
 
-  // --- Product step (1 Race vs Race Packs — karting-product-page layout) ---
-  "racesim.product.intro": "How many races?",
-  "racesim.product.introHelp": "Prices are per racer — pick one option for your group.",
+  // --- Product step (karting KIOSK product page: one simple card per sellable) ---
+  // Karting's heading is "Choose Your Race"; its helper talks about tiers
+  // ("races you've qualified for"), which sims don't have — hence ours.
+  "racesim.product.heading": "Choose Your Race",
+  "racesim.product.helper": "Pick the race that fits your group.",
   // Tier-rung section header's right-side meta (mirrors karting's
   // "Everyone starts here").
   "racesim.product.sectionMeta": "Everyone rides here",
@@ -27,16 +29,13 @@ export const racesimEn = {
   "racesim.product.trackLine": "Runs on 3 rotating tracks — pick yours next",
   // Product display names key by catalog slug (race-sims/products.ts).
   "racesim.product.sim-single": "1 Race",
-  "racesim.product.sim-3-pack": "3-Race Pack",
-  "racesim.product.sim-5-pack": "5-Race Pack",
   "racesim.product.single.sub": "One race on the track of your choice.",
-  /** Deferred-pack column note (packs shown but not sellable yet). */
-  "racesim.product.pack.sub": "More races, better price — mix tracks.",
-  "racesim.product.perRacer": "per racer",
-  /** {price} pre-formatted ("$13.33"), {count} = races in the pack. */
-  "racesim.product.perRace": "{price}/race · {count} races",
-  /** {amount} pre-formatted ("$15") — the amber pack-savings chip. */
-  "racesim.product.save": "Save {amount}",
+  /** Renders after "$14.00 / " — karting's price row reads "$20.99 / racer". */
+  "racesim.product.perRacer": "racer",
+  /** Karting's group-math footer: "$20.99 × 3 racers = $62.97 total".
+   *  {unit}/{total} pre-formatted, {count} = racers in the party. */
+  "racesim.product.groupTotal":
+    "{unit} × {count, plural, one {# racer} other {# racers}} = {total} total",
   "racesim.product.selected": "Selected",
 
   // --- Track step (Track A/B/C, rotating lineup) ---
@@ -44,12 +43,39 @@ export const racesimEn = {
   "racesim.track.a": "Track A",
   "racesim.track.b": "Track B",
   "racesim.track.c": "Track C",
-  "racesim.track.rotates": "Rotating lineup",
+  "racesim.track.tagline": "Rotating layout — a new lineup every week or two.",
+
+  // --- Time step (racing heat-picker layout) ---
+  "racesim.slot.heading": "Pick a Time",
+  "racesim.slot.bookingFor": "Booking for {count, plural, one {# racer} other {# racers}}",
+  "racesim.slot.full": "Full",
+  "racesim.slot.spotsLeft": "{count, plural, one {# spot} other {# spots}} left",
+  "racesim.slot.open": "{free} of {cap} open",
+  "racesim.slot.needOnly": "Need {need}, only {free} left",
+  "racesim.slot.tooClose": "Too close to another activity",
+  "racesim.slot.tooCloseExisting": "Too close to an existing reservation",
+  "racesim.slot.retry": "Retry",
+  "racesim.slot.empty": "No sessions available today.",
+  // Racing's scheduling-rule statuses on the sim grid.
+  "racesim.slot.reservedForEvent": "Reserved for event",
+  "racesim.slot.privateEvent.title": "Private Event",
+  "racesim.slot.privateEvent.body":
+    "Today is reserved for a private event and is not available for public booking.",
+  /** Track switcher helper under the cards — {track} = "Track A". */
+  "racesim.slot.trackHint": "Showing {track} sessions — tap another track to switch.",
+  /** Same start already picked on another sim track — {track} = that track. */
+  "racesim.slot.pickedOtherTrack": "Picked on {track}",
+  /** Status line on a picked card BMI stopped proposing (our hold took the rigs). */
+  "racesim.slot.picked": "Picked",
+  "racesim.slot.pickedCount": "{count, plural, one {# session picked} other {# sessions picked}}",
 
   // --- KioskFlow shell lookups (activity label lives in parts/flow.ts) ---
+  "stepReason.racesimConflict": "That time is too close to another activity — pick another.",
+  "stepReason.racesimSelfConflict":
+    "You picked the same time on two tracks — remove one to continue.",
   "stepTitle.raceOptions": "Race Options",
   "stepTitle.track": "Track",
-  "stepReason.racesimProduct": "Pick 1 Race or a Race Pack.",
+  "stepReason.racesimProduct": "Pick a race to continue.",
   "stepReason.racesimTrack": "Pick a track.",
 } as const;
 
@@ -59,28 +85,47 @@ export const racesimEs: Record<keyof typeof racesimEn, string> = {
   "racesim.tile.comingSoon": "Próximamente",
   "racesim.tile.comingSoonNote": "Los simuladores de carreras ya casi llegan — ¡mantente atento!",
 
-  "racesim.product.intro": "¿Cuántas carreras?",
-  "racesim.product.introHelp": "Los precios son por piloto — elige una opción para tu grupo.",
+  "racesim.product.heading": "Elige tu carrera",
+  "racesim.product.helper": "Elige la carrera que le convenga a tu grupo.",
   "racesim.product.sectionMeta": "Todos corren aquí",
   "racesim.product.trackLine": "Corre en 3 pistas rotativas — elige la tuya después",
   "racesim.product.sim-single": "1 carrera",
-  "racesim.product.sim-3-pack": "Paquete de 3 carreras",
-  "racesim.product.sim-5-pack": "Paquete de 5 carreras",
   "racesim.product.single.sub": "Una carrera en la pista que elijas.",
-  "racesim.product.pack.sub": "Más carreras, mejor precio — combina pistas.",
-  "racesim.product.perRacer": "por piloto",
-  "racesim.product.perRace": "{price}/carrera · {count} carreras",
-  "racesim.product.save": "Ahorra {amount}",
+  "racesim.product.perRacer": "piloto",
+  "racesim.product.groupTotal":
+    "{unit} × {count, plural, one {# piloto} other {# pilotos}} = {total} en total",
   "racesim.product.selected": "Seleccionado",
 
   "racesim.track.intro": "Tres pistas en rotación — alineación nueva cada una o dos semanas.",
   "racesim.track.a": "Pista A",
   "racesim.track.b": "Pista B",
   "racesim.track.c": "Pista C",
-  "racesim.track.rotates": "Alineación rotativa",
+  "racesim.track.tagline": "Trazado rotativo — alineación nueva cada una o dos semanas.",
+
+  "racesim.slot.heading": "Elige una hora",
+  "racesim.slot.bookingFor": "Reserva para {count, plural, one {# piloto} other {# pilotos}}",
+  "racesim.slot.full": "Lleno",
+  "racesim.slot.spotsLeft": "{count, plural, one {Queda # lugar} other {Quedan # lugares}}",
+  "racesim.slot.open": "{free} de {cap} libres",
+  "racesim.slot.needOnly": "Necesitas {need}, solo quedan {free}",
+  "racesim.slot.tooClose": "Muy cerca de otra actividad",
+  "racesim.slot.tooCloseExisting": "Muy cerca de una reserva existente",
+  "racesim.slot.retry": "Reintentar",
+  "racesim.slot.empty": "No hay sesiones disponibles hoy.",
+  "racesim.slot.reservedForEvent": "Reservado para un evento",
+  "racesim.slot.privateEvent.title": "Evento privado",
+  "racesim.slot.privateEvent.body":
+    "Hoy está reservado para un evento privado y no está disponible para reservas públicas.",
+  "racesim.slot.trackHint": "Mostrando sesiones de {track} — toca otra pista para cambiar.",
+  "racesim.slot.pickedOtherTrack": "Elegida en {track}",
+  "racesim.slot.picked": "Elegida",
+  "racesim.slot.pickedCount": "{count, plural, one {# sesión elegida} other {# sesiones elegidas}}",
+  "stepReason.racesimConflict": "Esa hora está muy cerca de otra actividad — elige otra.",
+  "stepReason.racesimSelfConflict":
+    "Elegiste la misma hora en dos pistas — quita una para continuar.",
 
   "stepTitle.raceOptions": "Opciones de carrera",
   "stepTitle.track": "Pista",
-  "stepReason.racesimProduct": "Elige 1 carrera o un paquete.",
+  "stepReason.racesimProduct": "Elige una carrera para continuar.",
   "stepReason.racesimTrack": "Elige una pista.",
 };

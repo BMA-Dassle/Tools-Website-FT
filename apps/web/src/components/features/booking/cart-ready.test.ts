@@ -87,28 +87,31 @@ describe("allItemsReady — unchanged for the other kinds", () => {
   });
 });
 
-describe("allItemsReady — racesim (placeholder phase)", () => {
+describe("allItemsReady — racesim (sessions[])", () => {
   const sim = (patch: Partial<import("~/features/booking").RaceSimItem> = {}) => ({
     ...(newItem("racesim") as import("~/features/booking").RaceSimItem),
     ...patch,
   });
+  const sess = (slot: string, trackKey: "a" | "b" | "c" = "a") => ({
+    trackKey,
+    slot,
+    slotProposal: {
+      blocks: [],
+      productLineId: null,
+    } as unknown as import("~/features/booking/data/bmi").BmiProposal,
+    bmiLineId: null,
+    heldQty: null,
+  });
 
-  it("blocks a fresh draft, and each half-configured state", () => {
+  it("blocks a fresh draft and a product with no sessions picked", () => {
     expect(allItemsReady(session([sim()]))).toBe(false);
     expect(allItemsReady(session([sim({ productSlug: "sim-single" })]))).toBe(false);
-    expect(allItemsReady(session([sim({ trackKey: "a" })]))).toBe(false);
-    // No slot = no session time — the phantom-leg class the bowling gate
-    // exists for; a sim leg must never reach the pay screen without one.
-    expect(
-      allItemsReady(session([sim({ productSlug: "sim-single", trackKey: "a", racerCount: 2 })])),
-    ).toBe(false);
     expect(
       allItemsReady(
         session([
           sim({
             productSlug: "sim-single",
-            trackKey: "a",
-            slot: "2026-08-24T15:00:00",
+            sessions: [sess("2026-08-24T15:00:00")],
             racerCount: 0,
           }),
         ]),
@@ -116,14 +119,13 @@ describe("allItemsReady — racesim (placeholder phase)", () => {
     ).toBe(false);
   });
 
-  it("ready with product + track + slot + racers, and surfaces as firstUnready otherwise", () => {
+  it("ready with product + at least one session + racers; multi-track sessions count", () => {
     expect(
       allItemsReady(
         session([
           sim({
             productSlug: "sim-single",
-            trackKey: "a",
-            slot: "2026-08-24T15:00:00",
+            sessions: [sess("2026-08-24T15:00:00", "a"), sess("2026-08-24T15:15:00", "b")],
             racerCount: 2,
           }),
         ]),

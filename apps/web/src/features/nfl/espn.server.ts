@@ -110,7 +110,7 @@ export async function fetchEspnRange(
 }
 
 export interface SyncResult {
-  ok: boolean
+  ok: boolean;
   error: string | null;
   fetched: number;
   inserted: number;

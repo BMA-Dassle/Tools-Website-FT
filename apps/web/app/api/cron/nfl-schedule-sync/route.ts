@@ -79,7 +79,10 @@ export async function GET(req: NextRequest) {
       `deactivated=${result.deactivated} conflicts=${result.lockedConflicts.length}`,
   );
 
-  return NextResponse.json({ ...result, range: { from: today, to } }, {
-    status: result.ok ? 200 : 502,
-  });
+  return NextResponse.json(
+    { ...result, range: { from: today, to } },
+    {
+      status: result.ok ? 200 : 502,
+    },
+  );
 }

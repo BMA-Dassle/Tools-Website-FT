@@ -32,6 +32,7 @@ import {
   type PartyMember,
   type RaceHeatAssignment,
   type RaceItem,
+  type RaceSimItem,
   type SessionItem,
   type StepDef,
 } from "~/features/booking";
@@ -208,10 +209,12 @@ const NATIVE_STEP_IDS = new Set([
   "bowling-time",
   "kiosk-bowling-details",
   "kiosk-bowling-people",
-  // Race Sims (kiosk-native, canvas px).
-  "racesim-product",
+  // Race Sims (kiosk-native, canvas px). racesim-product is deliberately NOT
+  // here: it is authored in karting's web rem classes and rides the same
+  // kiosk zoom as karting's product page so the two render identically.
   "racesim-track",
   "racesim-slot",
+  "racesim-party",
 ]);
 
 /**
@@ -302,7 +305,10 @@ const STEP_REASON_KEYS: Record<string, MessageKey> = {
   "Select a time slot": "stepReason.selectTimeSlot",
   "Select at least 1 bowler": "stepReason.selectBowler",
   "Select at least one bowler": "stepReason.selectBowlerKbf",
-  "Pick 1 Race or a Race Pack.": "stepReason.racesimProduct",
+  "Pick a race to continue.": "stepReason.racesimProduct",
+  "That time is too close to another activity — pick another.": "stepReason.racesimConflict",
+  "You picked the same time on two tracks — remove one to continue.":
+    "stepReason.racesimSelfConflict",
   "Pick a track.": "stepReason.racesimTrack",
   "Tap a time to hold your lane": "stepReason.holdLane",
   "Verify your KBF pass first": "stepReason.verifyKbf",
@@ -1001,6 +1007,9 @@ export function KioskFlow({
     session.items.some((i) => {
       if (i.kind === "race") return i.heats.some((h) => !!h.bmiLineId);
       if (i.kind === "attraction") return !!(i as AttractionItem).bmiLineId;
+      // Race sims hold a $0 track-key line exactly like an attraction slot —
+      // dropping it as a "draft" would orphan the line on the shared bill.
+      if (i.kind === "racesim") return (i as RaceSimItem).sessions.some((s) => !!s.bmiLineId);
       if (i.kind === "bowling") return !!(i as BowlingItem).qamfReservationId;
       return false; // kbf holds nothing until checkout
     });
@@ -2566,7 +2575,11 @@ export function KioskFlow({
     // product/heat steps gate on current data, not the sign-in snapshot.
     // Field-scoped patches only (safe alongside the mobile-join poll); a
     // refresh hiccup returns an empty map — the flow proceeds on the snapshot.
-    if (currentStep.id === "race-party" || currentStep.id === "kiosk-who") {
+    if (
+      currentStep.id === "race-party" ||
+      currentStep.id === "kiosk-who" ||
+      currentStep.id === "racesim-party"
+    ) {
       let fresh: Map<string, QualificationPatch> = new Map();
       setBookingHeatsProgress(t("flow.progress.checkingInfo"));
       setBookingHeats(true);
@@ -2588,7 +2601,7 @@ export function KioskFlow({
       // this closure. A racer whose waiver just came back INVALID (revoked /
       // expired since sign-in) must re-sign before the race flow advances; the
       // patched member card shows the "waiver needed" setup path.
-      if (activeItem.kind === "race") {
+      if (activeItem.kind === "race" || activeItem.kind === "racesim") {
         const downgraded = session.party.filter(
           (m) => m.waiverValid && fresh.get(m.id)?.waiverValid === false,
         );
@@ -2696,7 +2709,9 @@ export function KioskFlow({
     // never silently kill someone mid-OTP on their own phone). Finished
     // phones (already merged into the roster) don't count.
     if (
-      (currentStep.id === "race-party" || currentStep.id === "kiosk-who") &&
+      (currentStep.id === "race-party" ||
+        currentStep.id === "kiosk-who" ||
+        currentStep.id === "racesim-party") &&
       mobileJoin.status === "open" &&
       mobileJoin.inProgressClients > 0
     ) {

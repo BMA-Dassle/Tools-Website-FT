@@ -133,9 +133,14 @@ try {
   check("a fresh row reports inserted = true", first === true, `got ${JSON.stringify(first)}`);
 
   const second = await upsert({ ...GAME, network: "CBS" });
-  check("the same id again reports inserted = false", second === false, `got ${JSON.stringify(second)}`);
+  check(
+    "the same id again reports inserted = false",
+    second === false,
+    `got ${JSON.stringify(second)}`,
+  );
 
-  const [row] = await sql`SELECT network, date_et, season_type FROM ${sql.unsafe(G)} WHERE game_id = ${GAME.id}`;
+  const [row] =
+    await sql`SELECT network, date_et, season_type FROM ${sql.unsafe(G)} WHERE game_id = ${GAME.id}`;
   check("the update actually took", row.network === "CBS", `network=${row.network}`);
   // The driver returns a DATE column as a JS Date at LOCAL midnight, so read
   // local parts. toISOString() here would roll back a day on a UTC+n host —

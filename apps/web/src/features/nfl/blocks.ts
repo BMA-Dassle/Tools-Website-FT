@@ -49,20 +49,27 @@ const FM = 9172;
  * regular. Regular lanes pair up per TV, which is why the disabled blocks come
  * in twos rather than fours.
  */
-const FORT_MYERS: NflLaneBlock[] = ([
-  { id: "fm-vip-a", label: "VIP A (5-8)", lanes: [5, 6, 7, 8], kind: "vip", enabled: true },
-  { id: "fm-vip-b", label: "VIP B (9-12)", lanes: [9, 10, 11, 12], kind: "vip", enabled: true },
-  // ── Regular pairs: modelled, NOT sellable (see NflLaneBlock.enabled) ──
-  { id: "fm-reg-1", label: "Lanes 13-14", lanes: [13, 14], kind: "regular", enabled: false },
-  { id: "fm-reg-2", label: "Lanes 15-16", lanes: [15, 16], kind: "regular", enabled: false },
-  { id: "fm-reg-3", label: "Lanes 17-18", lanes: [17, 18], kind: "regular", enabled: false },
-  { id: "fm-reg-4", label: "Lanes 19-20", lanes: [19, 20], kind: "regular", enabled: false },
-  { id: "fm-reg-5", label: "Lanes 21-22", lanes: [21, 22], kind: "regular", enabled: false },
-  { id: "fm-reg-6", label: "Lanes 23-24", lanes: [23, 24], kind: "regular", enabled: false },
-  { id: "fm-reg-7", label: "Lanes 25-26", lanes: [25, 26], kind: "regular", enabled: false },
-  { id: "fm-reg-8", label: "Lanes 27-28", lanes: [27, 28], kind: "regular", enabled: false },
-] as const satisfies ReadonlyArray<Omit<NflLaneBlock, "centerId" | "centerCode">>).map(
-  (b): NflLaneBlock => ({ ...b, lanes: [...b.lanes], centerId: FM, centerCode: QAMF_TO_CENTER_CODE[FM] }),
+const FORT_MYERS: NflLaneBlock[] = (
+  [
+    { id: "fm-vip-a", label: "VIP A (5-8)", lanes: [5, 6, 7, 8], kind: "vip", enabled: true },
+    { id: "fm-vip-b", label: "VIP B (9-12)", lanes: [9, 10, 11, 12], kind: "vip", enabled: true },
+    // ── Regular pairs: modelled, NOT sellable (see NflLaneBlock.enabled) ──
+    { id: "fm-reg-1", label: "Lanes 13-14", lanes: [13, 14], kind: "regular", enabled: false },
+    { id: "fm-reg-2", label: "Lanes 15-16", lanes: [15, 16], kind: "regular", enabled: false },
+    { id: "fm-reg-3", label: "Lanes 17-18", lanes: [17, 18], kind: "regular", enabled: false },
+    { id: "fm-reg-4", label: "Lanes 19-20", lanes: [19, 20], kind: "regular", enabled: false },
+    { id: "fm-reg-5", label: "Lanes 21-22", lanes: [21, 22], kind: "regular", enabled: false },
+    { id: "fm-reg-6", label: "Lanes 23-24", lanes: [23, 24], kind: "regular", enabled: false },
+    { id: "fm-reg-7", label: "Lanes 25-26", lanes: [25, 26], kind: "regular", enabled: false },
+    { id: "fm-reg-8", label: "Lanes 27-28", lanes: [27, 28], kind: "regular", enabled: false },
+  ] as const satisfies ReadonlyArray<Omit<NflLaneBlock, "centerId" | "centerCode">>
+).map(
+  (b): NflLaneBlock => ({
+    ...b,
+    lanes: [...b.lanes],
+    centerId: FM,
+    centerCode: QAMF_TO_CENTER_CODE[FM],
+  }),
 );
 
 /**

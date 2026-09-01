@@ -533,6 +533,18 @@ export async function releaseHeatBmiLines(
  * deleted. Uses the exact `bmiLineId` stored at booking (= BMI's orderItemId), so
  * it only removes THIS item's lines, never another item's. Non-fatal per line.
  */
+/** Release the $0 lines of specific sim sessions — a single unpick on the
+ *  multi-session grid (racing's releaseHeatBmiLines, for sims). */
+export async function releaseRaceSimSessionLines(
+  session: BookingSession,
+  sessions: ReadonlyArray<{ bmiLineId: string | null }>,
+): Promise<void> {
+  await removeBmiBillLines(
+    session,
+    sessions.map((s) => s.bmiLineId),
+  );
+}
+
 export async function releaseItemBmiLines(
   session: BookingSession,
   item: SessionItem,
@@ -542,10 +554,14 @@ export async function releaseItemBmiLines(
       session,
       item.heats.map((h) => h.bmiLineId),
     );
-  } else if (item.kind === "attraction" || item.kind === "racesim") {
-    // Race sims hold a $0 track-key line exactly like an attraction slot —
-    // same eager hold, same release.
+  } else if (item.kind === "attraction") {
     await removeBmiBillLines(session, [item.bmiLineId]);
+  } else if (item.kind === "racesim") {
+    // One $0 track-key line per picked session (racing's heats[] shape).
+    await removeBmiBillLines(
+      session,
+      item.sessions.map((s) => s.bmiLineId),
+    );
   }
   // Bowling/KBF are QAMF-vendored (not on the BMI bill) — nothing to release here.
 }
