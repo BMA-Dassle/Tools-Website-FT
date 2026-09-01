@@ -355,6 +355,54 @@ function resolveLocationId(session: BookingSession): string {
   return SQUARE_LOCATIONS.FASTTRAX_FM;
 }
 
+/**
+ * WEB charge location — the GOLDEN RULE (owner 2026-09-01): "how much $ per
+ * location; the highest is where we should charge it."
+ *
+ * The deposit order, the payment against it, and the deposit gift card all book
+ * at the entity holding the LARGEST share of the cart's charged value. Revenue
+ * routing is UNTOUCHED — the day-of order(s) still book to the entity that owns
+ * each product (resolveLocationId / comboOrderGroups).
+ *
+ * Why: a combo mints ONE gift card but funds TWO day-of orders across both
+ * Fort-Myers entities, so whichever entity did NOT sell the card ends up
+ * redeeming against it — an inter-location transfer on Square's gift-card
+ * liability report. The old behaviour (any HeadPinz product in the cart wins)
+ * put the card at the MINORITY entity on every combo — the racing share is
+ * 61.6–67.7% across all four combo variants — which MAXIMISED the transfer:
+ * $48,079 HPFM→FT over 90 days vs $4,350 the other way, measured from Square
+ * gift-card activities 2026-09-01. Charging at the majority entity minimises it.
+ *
+ * NOT used by the kiosk: a paired Square Terminal can only charge orders
+ * created at ITS device's location, so kiosk deposits stay device-driven
+ * (resolveKioskDepositLocationId). That constraint is hardware, not policy.
+ */
+export function resolveChargeLocationId(session: BookingSession): string {
+  // Naples has no FastTrax entity — its "headpinz" side is the Naples location.
+  const headpinzLocation =
+    session.center === "naples" ? SQUARE_LOCATIONS.HEADPINZ_NAP : SQUARE_LOCATIONS.HEADPINZ_FM;
+
+  let fasttrax = 0;
+  let headpinz = 0;
+  const groups = comboOrderGroups(session);
+  if (groups) {
+    // Combo: the registry revenueSplit already states each entity's exact
+    // share — use it rather than re-deriving from the collapsed charge lines
+    // (buildCombinedLineItems routes the whole combo through the race rail).
+    for (const g of groups) {
+      if (g.entity === "fasttrax-fm") fasttrax += g.subtotalCents;
+      else headpinz += g.subtotalCents;
+    }
+  } else {
+    ({ fasttrax, headpinz } = buildCombinedLineItems(session).entityCents);
+  }
+
+  // Tie, or nothing attributable (a fee-only cart) → fall back to the day-of
+  // owner, so every single-entity booking behaves exactly as it did before.
+  if (fasttrax === headpinz) return resolveLocationId(session);
+  return fasttrax > headpinz ? SQUARE_LOCATIONS.FASTTRAX_FM : headpinzLocation;
+}
+
 function resolveBmiClientKey(session: BookingSession): string {
   return session.center === "naples" ? "headpinznaples" : "headpinzftmyers";
 }
@@ -408,9 +456,18 @@ export function buildCombinedLineItems(session: BookingSession): {
   pricedLines: PricedLine[];
   /** Charged subtotal (local-priced lines; catalog-priced fees included). */
   totalPriceCents: number;
+  /** Charged cents per Fort-Myers entity (booking fee excluded — it is
+   *  entity-neutral). Input to the golden-rule charge location. */
+  entityCents: { fasttrax: number; headpinz: number };
 } {
   const sqLineItems: SquareLineItem[] = [];
   const pricedLines: PricedLine[] = [];
+  // Charged cents attributed to each Fort-Myers ENTITY, accumulated ADJACENT to
+  // every totalPriceCents increment below (same discipline as pricedLines) so
+  // the two can only drift if a diff reviewer misses it. Drives the golden-rule
+  // charge location — see resolveChargeLocationId. The entity-neutral booking
+  // fee is deliberately NOT attributed: it must never decide the argmax.
+  const entityCents = { fasttrax: 0, headpinz: 0 };
   let totalPriceCents = 0;
   let totalDepositCents = 0;
   let promoSavingsCents = 0; // USA250 cents removed across all lines (for the ledger)
@@ -430,6 +487,10 @@ export function buildCombinedLineItems(session: BookingSession): {
     // USA250: reduce the price key on priced bowling lines. Catalog-only
     // lines with no local price (fees) carry priceCents 0 → factor 1 → untouched.
     const bowlVisitDate = item.date ?? item.bookedAt?.slice(0, 10) ?? undefined;
+    // FastTrax duckpin is a bowling ITEM whose revenue books to FastTrax —
+    // mirrors the same carve-out in resolveLocationId.
+    const bowlEntity =
+      item.kind === "bowling" && (item as BowlingItem).isDuckpin ? "fasttrax" : "headpinz";
     for (const li of comboActive ? [] : item.lineItems) {
       const fullCents = li.priceCents ?? 0;
       const factor =
@@ -440,6 +501,7 @@ export function buildCombinedLineItems(session: BookingSession): {
       const depPct = li.depositPct ?? 100;
       const lineTotal = priceCents * li.quantity;
       totalPriceCents += lineTotal;
+      entityCents[bowlEntity] += lineTotal;
       totalDepositCents += Math.round(lineTotal * (depPct / 100));
       promoSavingsCents += (fullCents - priceCents) * li.quantity;
 
@@ -568,6 +630,7 @@ export function buildCombinedLineItems(session: BookingSession): {
     const catalogId =
       (bl.bmiProductId ? lookupCatalogId(bl.bmiProductId) : null) ?? lookupCatalogIdByName(bl.name);
     totalPriceCents += totalCents;
+    entityCents.fasttrax += totalCents;
     totalDepositCents += totalCents; // 100% deposit for race
     // Race + combo savings (combo lines flow through here too, pre-stamped).
     promoSavingsCents +=
@@ -683,6 +746,8 @@ export function buildCombinedLineItems(session: BookingSession): {
     const chargedQty = Math.max(0, attr.qty - coveredUnits);
     const lineTotal = unitCents * chargedQty;
     totalPriceCents += lineTotal;
+    entityCents[FASTTRAX_ATTRACTION_SLUGS.has(attr.slug ?? "") ? "fasttrax" : "headpinz"] +=
+      lineTotal;
     totalDepositCents += lineTotal; // 100% deposit for attractions
     promoSavingsCents += (fullUnitCents - unitCents) * chargedQty;
     // Fully voucher-covered: keep the line at $0 (original qty) instead of
@@ -760,6 +825,7 @@ export function buildCombinedLineItems(session: BookingSession): {
     const track = getRaceSimTrack(item.trackKey);
     const name = `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""}`;
     totalPriceCents += unitCents * qty;
+    entityCents.fasttrax += unitCents * qty;
     totalDepositCents += unitCents * qty;
     sqLineItems.push({
       name,
@@ -779,6 +845,7 @@ export function buildCombinedLineItems(session: BookingSession): {
   // (credits grant right after payment, so the deposit must cover them).
   for (const p of kioskPacks) {
     totalPriceCents += p.priceCents;
+    entityCents.fasttrax += p.priceCents;
     totalDepositCents += p.priceCents;
     sqLineItems.push({
       name: `Race Pack — ${p.label} · ${p.memberName}`,
@@ -805,6 +872,7 @@ export function buildCombinedLineItems(session: BookingSession): {
     bogoFree,
     pricedLines,
     totalPriceCents,
+    entityCents,
   };
 }
 
@@ -1487,11 +1555,11 @@ async function unifiedReserveInner(
   // Day-of order → the entity that OWNS the products (revenue split stays
   // exact). Deposit/gift-card/payment → the KIOSK's own location when this is a
   // kiosk session (the paired reader can only charge its device's location);
-  // web sessions keep the single entity location for both.
+  // web sessions charge at the entity holding the most dollars (golden rule).
   const dayofLocationId = resolveLocationId(session);
   const locationId = session.context?.kiosk
     ? resolveKioskDepositLocationId(session)
-    : dayofLocationId;
+    : resolveChargeLocationId(session);
   // Deterministic idempotency seed — same session anchor → same Square keys on
   // every retry, so all 7 keys replay the SAME order / payment / gift card.
   const baseKey = seedSource ? reserveBaseKey(seedSource) : randomBytes(8).toString("hex");
