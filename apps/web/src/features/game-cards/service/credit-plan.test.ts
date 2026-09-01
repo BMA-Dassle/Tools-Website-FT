@@ -3,7 +3,9 @@ import { describe, it, expect, vi } from "vitest";
 // credit-plan imports the Intercard SOAP surface for its type/really for the
 // live callers; the resolver itself is pure. Mock it so the test never reaches
 // for a MAC or a socket.
-vi.mock("../data/intercard", () => ({
+// Mocked at the ROUTER — credit-plan calls through data/intercard-router
+// (onsite first, cloud SOAP fallback), so that is the seam to intercept.
+vi.mock("../data/intercard-router", () => ({
   creditTokens: vi.fn(),
   creditAccountValues: vi.fn(),
   verifyAccount: vi.fn(),

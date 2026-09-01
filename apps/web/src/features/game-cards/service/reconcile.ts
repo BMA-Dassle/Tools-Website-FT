@@ -19,7 +19,10 @@
  * SOAP replay, and every state flip is a single guarded UPDATE (one winner) —
  * two overlapping runs can only duplicate idempotent work.
  */
-import { verifyAccount, parseIntercardTimestamp } from "../data/intercard";
+// Reads go through the router (onsite first, cloud SOAP fallback). The
+// timestamp parser is pure and transport-agnostic, so it stays where it lives.
+import { verifyAccount } from "../data/intercard-router";
+import { parseIntercardTimestamp } from "../data/intercard";
 import { applyCreditPlan, creditPlanForRow, planIsEmpty } from "./credit-plan";
 import { getLiveClaimForTxn } from "../data/voucher-claims-db";
 import {

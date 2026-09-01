@@ -17,7 +17,8 @@ import { getPackage, activationFeeCents, type TokenPackage } from "../constants"
 import { GameCardHttpError } from "../errors";
 import type { PurchaseInput } from "../schemas";
 import type { CardLoadResult, PurchaseResult } from "../types";
-import { creditTokens, verifyAccount, IntercardError } from "../data/intercard";
+// Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
+import { creditTokens, verifyAccount, IntercardError } from "../data/intercard-router";
 import { createReloadOrder } from "../data/square-order";
 import {
   startTxn,

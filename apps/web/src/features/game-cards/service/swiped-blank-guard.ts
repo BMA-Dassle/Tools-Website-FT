@@ -15,7 +15,8 @@
  */
 import { GameCardHttpError } from "../errors";
 import { classifySwipedCard } from "../blank-card";
-import { verifyAccount, IntercardError } from "../data/intercard";
+// Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
+import { verifyAccount, IntercardError } from "../data/intercard-router";
 
 const UNAVAILABLE = new GameCardHttpError(
   503,

@@ -111,8 +111,14 @@ const MAX_BAD_BLANKS = 3;
 const MAX_AUTO_READ_FAILS = 3;
 
 /** Combine cards (consolidation) entry point — ON (owner 2026-07-23). The combine
- *  is TPI_ConsolidateAccounts on the SAME cloud SOAP host as the token loads
- *  (intercard.swflpassport.com; envelope WSDL-exact) — no extra hosts or env.
+ *  runs through the shared Intercard router, which prefers the ONSITE proxy
+ *  (Api_External `consolidatecards`) and falls back to cloud SOAP
+ *  (TPI_ConsolidateAccounts) — same host either way, no extra hosts or env.
+ *
+ *  It used to be CLOUD-ONLY, hidden whenever a kiosk had a local bridge, because
+ *  the bridge's EIS socket had no consolidate op. The onsite path does, so that
+ *  restriction is gone (owner 2026-08-31): Combine now shows on every kiosk
+ *  whose center has a card backend configured.
  *  Flip to false to hide the button. */
 const GC_CONSOLIDATE_LIVE = true;
 
@@ -500,11 +506,13 @@ export function KioskGameZone({
   // 2026-07-23: "it just resets and keeps waiting for a card").
   const [consoHalted, setConsoHalted] = useState<string | null>(null);
   // Backend availability probe (null = checking). The Combine button only
-  // shows when the cloud EIS is actually configured for this center — an
-  // unconfigured backend must never dead-end a guest mid-flow.
+  // shows when a card backend is actually configured for this center — an
+  // unconfigured backend must never dead-end a guest mid-flow. No longer
+  // conditioned on the transport: consolidate runs onsite OR cloud, so the
+  // probe runs on every kiosk (owner 2026-08-31).
   const [consoAvailable, setConsoAvailable] = useState<boolean | null>(null);
   useEffect(() => {
-    if (!GC_CONSOLIDATE_LIVE || bridgeUp !== false) return;
+    if (!GC_CONSOLIDATE_LIVE) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -2401,13 +2409,16 @@ export function KioskGameZone({
               </div>
             </button>
           )}
-          {/* Combine cards — CLOUD ONLY. Appears when this kiosk is on the cloud
-              path (no local bridge, bridgeUp===false); needs the reader to
-              accept + bin sources. Forcing a kiosk to cloud turns this on.
+          {/* Combine cards — ANY TRANSPORT. Was cloud-only while consolidate
+              existed solely as a cloud SOAP op; the onsite proxy has
+              `consolidatecards`, so the bridgeUp===false gate is gone (owner
+              2026-08-31) and the button shows on every kiosk. Still needs the
+              reader (it accepts + bins the source cards) and a configured
+              backend for this center.
               Re-enabled (owner 2026-07-23): the old NEXT_PUBLIC_GC_CONSOLIDATE_DISABLED
               env kill-switch was dropped so a stale Vercel var can't keep the
               button dark — GC_CONSOLIDATE_LIVE (top of file) is the one switch. */}
-          {GC_CONSOLIDATE_LIVE && bridgeUp === false && readerReady && consoAvailable === true && (
+          {GC_CONSOLIDATE_LIVE && readerReady && consoAvailable === true && (
             <button
               type="button"
               onClick={() => {

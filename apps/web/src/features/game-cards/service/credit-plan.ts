@@ -20,7 +20,8 @@
 
 import { getPackage } from "../constants";
 import { gameCardGrantFromPackageId, isVoucherPackageId } from "../vouchers/grants";
-import { creditAccountValues } from "../data/intercard";
+// Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
+import { creditAccountValues } from "../data/intercard-router";
 import type { TxnKind } from "../types";
 
 export interface CreditPlan {

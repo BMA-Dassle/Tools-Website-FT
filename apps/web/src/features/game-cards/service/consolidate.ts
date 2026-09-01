@@ -33,7 +33,12 @@ import { getCenter, macForCenter } from "~/config/intercard-centers";
 import { GameCardHttpError } from "../errors";
 import type { ConsolidateInput } from "../schemas";
 import type { CardBalance } from "../types";
-import { verifyAccount, consolidateAccounts, IntercardError } from "../data/intercard";
+// Routed transport: ONSITE first (real-time truth at the site), cloud SOAP as
+// the fallback. The router returns the same shapes plus a `transport` tag, so
+// this file's logic is unchanged — see data/intercard-router.ts for the
+// asymmetric write-fallback rule that keeps an ambiguous failure from being
+// replayed onto the other transport.
+import { verifyAccount, consolidateAccounts, IntercardError } from "../data/intercard-router";
 import { logConsolidation } from "../data/consolidations-log";
 
 export interface ConsolidateResult {
@@ -190,11 +195,20 @@ function mapVerifyError(err: unknown): never {
 }
 
 /**
- * TPI_ConsolidateAccounts, retrying ONCE on a failed exchange with the SAME
+ * Consolidate, retrying ONCE on a failed exchange with the SAME
  * tpiTransactionID (server-side dedup: the retry either lands the move or
  * returns 0 without re-applying — never a double-apply). Returns the result
  * code, or `{failed}` carrying WHAT went wrong (transport/timeout error text)
  * when both attempts failed to exchange — the caller surfaces it on-screen.
+ *
+ * WHY THE RETRY IS STILL SAFE ON THE ONSITE TRANSPORT, whose id-dedup we have
+ * NOT verified (unlike the SOAP path's documented ST_IsThirdPartyPOS_TransProcessed
+ * check): consolidate moves the source's ENTIRE balance onto the target, so a
+ * replay is a no-op by construction — if attempt 1 actually landed, the source
+ * is already empty and attempt 2 moves 0. That self-idempotence is specific to
+ * consolidate; do NOT copy this retry onto a credit, where a replay would
+ * double-credit the card (the router deliberately refuses to fall a credit over
+ * to the other transport for exactly that reason).
  */
 async function consolidateWithRetry(
   params: Parameters<typeof consolidateAccounts>[0],

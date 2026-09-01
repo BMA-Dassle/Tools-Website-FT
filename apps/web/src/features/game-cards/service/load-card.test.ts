@@ -4,7 +4,10 @@ vi.stubEnv("INTERCARD_MAC", "TESTMAC");
 
 const order: string[] = [];
 
-vi.mock("../data/intercard", () => ({
+// Mocked at the ROUTER, not the SOAP client: loadCard and credit-plan now call
+// through data/intercard-router (onsite first, cloud SOAP fallback), so that is
+// the seam these tests must intercept.
+vi.mock("../data/intercard-router", () => ({
   // loadCard credits through credit-plan.ts → creditAccountValues (one call for
   // tokens + bonus tokens + bonus cash). creditTokens stays mocked because the
   // module is also imported elsewhere.
@@ -48,7 +51,7 @@ const input = {
 };
 
 async function mocks() {
-  const intercard = await import("../data/intercard");
+  const intercard = await import("../data/intercard-router");
   const log = await import("../data/transactions-log");
   const claims = await import("../data/voucher-claims-db");
   return { intercard, log, claims };

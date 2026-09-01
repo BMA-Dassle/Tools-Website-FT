@@ -5,7 +5,8 @@
 import { GameCardHttpError } from "../errors";
 import type { VerifyCardInput } from "../schemas";
 import type { VerifyResult } from "../types";
-import { verifyAccount, IntercardError } from "../data/intercard";
+// Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
+import { verifyAccount, IntercardError } from "../data/intercard-router";
 
 export async function verifyCard(input: VerifyCardInput): Promise<VerifyResult> {
   try {

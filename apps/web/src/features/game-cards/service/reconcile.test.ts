@@ -32,10 +32,10 @@ vi.mock("../data/transactions-log", () => ({
 }));
 
 // Keep the REAL parseIntercardTimestamp (the matcher's behavior under odd
-// vendor formats is part of what's under test); mock only the SOAP calls.
+// vendor formats is part of what's under test) — it is pure and lives in the
+// SOAP module, so that module stays unmocked apart from its call surface.
 vi.mock("../data/intercard", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../data/intercard")>();
-  // The SOAP replay now goes through credit-plan.ts → creditAccountValues.
   return {
     ...actual,
     creditTokens: vi.fn(),
@@ -43,6 +43,15 @@ vi.mock("../data/intercard", async (importOriginal) => {
     verifyAccount: vi.fn(),
   };
 });
+
+// The card reads/replays themselves go through the ROUTER (onsite first, cloud
+// SOAP fallback) — reconcile imports verifyAccount from there, and credit-plan
+// replays credits through it too.
+vi.mock("../data/intercard-router", () => ({
+  creditTokens: vi.fn(),
+  creditAccountValues: vi.fn(),
+  verifyAccount: vi.fn(),
+}));
 
 function row(overrides: Partial<TxnRow>): TxnRow {
   return {
@@ -80,7 +89,9 @@ function row(overrides: Partial<TxnRow>): TxnRow {
 
 async function loadMocks() {
   const tlog = await import("../data/transactions-log");
-  const intercard = await import("../data/intercard");
+  // The router is what reconcile actually calls (verifyAccount) and what
+  // credit-plan replays credits through.
+  const intercard = await import("../data/intercard-router");
   return { tlog, intercard };
 }
 

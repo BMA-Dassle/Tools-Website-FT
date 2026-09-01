@@ -26,7 +26,8 @@ import { getCenter } from "~/config/intercard-centers";
 import { GameCardHttpError } from "../errors";
 import type { LoadCardInput } from "../schemas";
 import type { CardBalance, TxnKind } from "../types";
-import { clearAccount, verifyAccount } from "../data/intercard";
+// Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
+import { clearAccount, verifyAccount } from "../data/intercard-router";
 import { getTxn, markLoadState, setTxnAccount } from "../data/transactions-log";
 import { getLiveClaimForTxn } from "../data/voucher-claims-db";
 import { applyCreditPlan, creditPlanForRow, planIsEmpty } from "./credit-plan";
@@ -166,6 +167,9 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
         const { code } = await clearAccount({
           accountNumbers: [input.accountNumber],
           locationCode: input.locationCode,
+          // The onsite transport stamps an id on every transaction; reuse the
+          // row's txn id so a replay is attributable to this same encode.
+          tpiTransactionID: `clear-${row.txnId}`,
         });
         clearOk = code === 0;
         if (!clearOk) {

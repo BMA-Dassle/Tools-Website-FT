@@ -9,7 +9,9 @@ vi.mock("@/lib/redis", () => ({
 
 const order: string[] = [];
 
-vi.mock("../data/intercard", () => {
+// Mocked at the ROUTER — purchase calls through data/intercard-router
+// (onsite first, cloud SOAP fallback), so that is the seam to intercept.
+vi.mock("../data/intercard-router", () => {
   class IntercardError extends Error {
     code: string;
     constructor(code: string, msg: string) {
@@ -89,7 +91,7 @@ const single: PurchaseInput = {
 };
 
 async function loadMocks() {
-  const intercard = await import("../data/intercard");
+  const intercard = await import("../data/intercard-router");
   const sq = await import("@/lib/square-gift-card");
   return { intercard, sq };
 }
