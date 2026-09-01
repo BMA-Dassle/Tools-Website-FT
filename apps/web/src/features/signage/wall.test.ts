@@ -321,13 +321,18 @@ describe("wallBrand — marks bookend the wall", () => {
 describe("the wings — what a panel outside the span actually renders", () => {
   const FD = { wallId: "hpfm-front-desk", position: 0, count: 5, gapPct: 12 };
 
-  /** The front-desk playlist, resolved: 7 slots of middle-span pricing, 2 of wall-span
-   *  showcase. Position and the wing's own scene vary per panel. */
+  /** The front-desk playlist, resolved: 7 slots of pricing, 2 of the VIP showcase,
+   *  both spanning the whole wall. Position and the wing's own scene vary per panel.
+   *
+   *  BOTH ARE `wall` AND THEY MEAN DIFFERENT THINGS BY IT — the showcase is one
+   *  picture that needs all five, the menu board is five independent panels and is in
+   *  `YIELDS_TO_WINGS`, so the ends keep their own boards when those have something to
+   *  say. These tests are what hold that difference in place. */
   const screen = (position: number, outsideScene?: string) =>
     resolveScreenConfig(
       {
         playlist: [
-          { scene: "open-now", slots: 7, span: "middle" },
+          { scene: "open-now", slots: 7, span: "wall" },
           { scene: "vip-showcase", slots: 2, span: "wall" },
         ],
         wall: { ...FD, position, ...(outsideScene ? { outsideScene } : {}) },
@@ -351,74 +356,70 @@ describe("the wings — what a panel outside the span actually renders", () => {
       isImplemented: isSceneImplemented,
     }).scene;
 
-  it("the MIDDLE three run the menu board through the standing slots", () => {
-    for (const position of [1, 2, 3]) {
+  it("EVERY panel without a board of its own runs the menu board", () => {
+    // Four priced panels instead of three, which is the whole point: a whole TV used
+    // to sit idle while six subjects took turns on the three beside it (owner
+    // 2026-09-01).
+    for (const position of [1, 2, 3, 4]) {
       for (const slot of [0, 1, 2, 3, 4, 5, 6]) {
         expect(sceneAt(position, slot), `panel ${position} slot ${slot}`).toBe("open-now");
       }
     }
   });
 
-  it("the WINGS run their own board through the standing slots", () => {
+  it("THE PRICED WALL REACHES THE LAST PANEL — TV5 is no longer idle", () => {
+    // TV5's own board is the events greeting, which has nothing to show most nights.
+    // Before this it fell to an idle signpost; now it prices.
+    expect(sceneAt(4, 3, "event-welcome", (sc) => sc !== "event-welcome")).toBe("open-now");
+  });
+
+  it("but a panel WITH something of its own to say keeps it", () => {
+    // The check-in list always has something (it owns a designed empty state), so TV1
+    // never joins the pricing board. The events wing joins it only when a party is on.
     expect(sceneAt(0, 3, "bowling-checkin")).toBe("bowling-checkin");
     expect(sceneAt(4, 3, "event-welcome")).toBe("event-welcome");
   });
 
-  it("ALL FIVE run the showcase in the takeover slots — including the wings", () => {
+  it("a yielding panel takes its OWN board, never its idle understudy", () => {
+    // The understudy exists so a wing outside the running scene has something designed
+    // to show instead of a black panel. Here the alternative is real prices, and prices
+    // beat a signpost saying nothing is on — so `event-checkin` must NOT win here.
+    expect(sceneAt(4, 3, "event-welcome", (sc) => sc !== "event-welcome")).not.toBe(
+      "event-checkin",
+    );
+  });
+
+  it("a panel with NO board of its own simply joins the menu board", () => {
+    // It used to fall to house ads, because the board was a THREE-panel composition
+    // and a lone wing rendering it would paint panel 0 of that set and duplicate its
+    // neighbour. The subject is pinned to the physical position now, so every panel
+    // renders its own slice safely and there is nothing to fall back from.
+    expect(sceneAt(0, 3)).toBe("open-now");
+    expect(sceneAt(4, 3)).toBe("open-now");
+  });
+
+  it("an UNBUILT wing scene is ignored, and the panel prices instead of going to ads", () => {
+    // `billboard-crown` IS a SceneType and is deliberately NOT in IMPLEMENTED, which
+    // makes it the honest test of "declared but unbuilt" — the exact state that painted
+    // house ads over HPFM:1 for a third of every cycle in August 2026. An unbuilt name
+    // must never paint as something else; here it simply does not win the panel.
+    expect(sceneAt(0, 3, "billboard-crown")).toBe("open-now");
+    expect(sceneAt(0, 3, "not-a-scene")).toBe("open-now");
+  });
+
+  it("THE SHOWCASE NEVER YIELDS — all five run it, including both wings", () => {
+    // This is the difference between the two `wall` entries, and the one that would
+    // break the owner's artwork if it were ever lost: the showcase is ONE PICTURE and
+    // a panel dropping out takes a piece of the sentence with it. Both wings are given
+    // boards that DO have data, so only YIELDS_TO_WINGS keeps them here.
     for (const position of [0, 1, 2, 3, 4]) {
       for (const slot of [7, 8]) {
         expect(sceneAt(position, slot, "bowling-checkin"), `panel ${position}`).toBe(
           "vip-showcase",
         );
+        expect(sceneAt(position, slot, "event-welcome"), `panel ${position}`).toBe("vip-showcase");
       }
     }
-  });
-
-  it("a wing with NO board of its own falls to house ads, never to the menu board", () => {
-    // Never `open-now`: that is a three-panel composition, so a single wing rendering
-    // it would paint panel 0 of the set and duplicate its neighbour.
-    expect(sceneAt(0, 3)).toBe("ads");
-    expect(sceneAt(4, 3)).toBe("ads");
-  });
-
-  it("the events wing with NOTHING ON TODAY shows the check-in signpost, not ads", () => {
-    // SceneEventWelcome has nothing to draw with no events and no VIPs, and a wing is
-    // substituted directly rather than gated out of the rotation — so without an
-    // answer here TV5 went black on a quiet night, and with ads as the answer it sold
-    // bowling from the panel a guest walks to for check-in (owner 2026-08-20).
-    expect(sceneAt(4, 3, "event-welcome", (sc) => sc !== "event-welcome")).toBe("event-checkin");
-    // And it is the WING that changes, not the wall: the middle three are untouched
-    // by the events board having nothing, because they are inside the running span.
-    for (const position of [1, 2, 3]) {
-      expect(sceneAt(position, 3, undefined, (sc) => sc !== "event-welcome")).toBe("open-now");
-    }
-  });
-
-  it("a wing whose board has NO DATA and NO understudy falls to ads", () => {
-    // The floor is still house ads. `bowling-checkin` owns its own empty state so it
-    // never actually reaches here, which is exactly why it is the honest probe for
-    // "no understudy declared" — WING_IDLE lists only `event-welcome`.
-    expect(sceneAt(0, 3, "bowling-checkin", (sc) => sc !== "bowling-checkin")).toBe("ads");
-  });
-
-  it("the events wing shows its OWN board whenever it has something", () => {
-    // The understudy is the empty state, not a replacement: a night with parties on
-    // still puts the parties on the glass.
-    expect(sceneAt(4, 3, "event-welcome")).toBe("event-welcome");
-  });
-
-  it("the check-in wing keeps its board with nobody checked in", () => {
-    // It owns a designed empty state, so it stays up whether or not anyone has
-    // checked in — and therefore needs no understudy.
-    expect(sceneAt(0, 3, "bowling-checkin")).toBe("bowling-checkin");
-  });
-
-  it("an UNBUILT wing scene falls to ads, like every other unbuilt scene", () => {
-    // `billboard-crown` IS a SceneType and is deliberately NOT in IMPLEMENTED, which
-    // makes it the honest test of "declared but unbuilt" — the exact state that painted
-    // house ads over HPFM:1 for a third of every cycle in August 2026.
-    expect(sceneAt(0, 3, "billboard-crown")).toBe("ads");
-    expect(sceneAt(0, 3, "not-a-scene")).toBe("ads");
   });
 
   it("a screen OFF a wall ignores spans — every existing board is untouched", () => {
@@ -436,6 +437,57 @@ describe("the wings — what a panel outside the span actually renders", () => {
         isImplemented: isSceneImplemented,
       }).scene,
     ).toBe("open-now");
+  });
+
+  describe("a NARROWER span still parks its wings on their own boards", () => {
+    // The front-desk wall no longer runs a middle-span scene, but the mechanism is
+    // general and a future wall will. These keep the understudy and the ads floor
+    // covered rather than letting them rot untested.
+    const middle = (position: number, outsideScene?: string) =>
+      resolveScreenConfig(
+        {
+          playlist: [{ scene: "open-now", slots: 7, span: "middle" }],
+          wall: { ...FD, position, ...(outsideScene ? { outsideScene } : {}) },
+        } as never,
+        "HPFM",
+      );
+
+    const at = (
+      position: number,
+      outsideScene?: string,
+      hasData: (s: SceneType) => boolean = () => true,
+    ) =>
+      resolveActiveScene({
+        nowMs: 3 * SLOT_MS + 5_000,
+        config: middle(position, outsideScene),
+        hasData,
+        events: [],
+        seenEventIds: new Set(),
+        isImplemented: isSceneImplemented,
+      }).scene;
+
+    it("the middle three run the scene and the wings do not", () => {
+      for (const position of [1, 2, 3]) expect(at(position)).toBe("open-now");
+      expect(at(0, "bowling-checkin")).toBe("bowling-checkin");
+    });
+
+    it("a wing with NOTHING ON shows its understudy, not ads", () => {
+      // SceneEventWelcome draws nothing with no events and no VIPs, and a wing outside
+      // the span is substituted directly rather than gated out of the rotation — so
+      // without an answer here that panel went black on a quiet night (owner 2026-08-20).
+      expect(at(4, "event-welcome", (sc) => sc !== "event-welcome")).toBe("event-checkin");
+    });
+
+    it("a wing whose board has NO DATA and NO understudy falls to ads", () => {
+      // The floor is still house ads. `bowling-checkin` owns its own empty state so it
+      // never actually reaches here, which is exactly why it is the honest probe for
+      // "no understudy declared" — WING_IDLE lists only `event-welcome`.
+      expect(at(0, "bowling-checkin", (sc) => sc !== "bowling-checkin")).toBe("ads");
+    });
+
+    it("an unbuilt wing scene falls to ads", () => {
+      expect(at(0, "billboard-crown")).toBe("ads");
+    });
   });
 });
 

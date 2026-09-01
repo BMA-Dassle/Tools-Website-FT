@@ -66,6 +66,27 @@ export const TV_PHOTOS = {
 } as const;
 
 /**
+ * THE VIP WALL ARTWORK — five transparent PNGs that make ONE picture across the
+ * five front-desk panels, left to right.
+ *
+ * Index IS wall position: 0 names the product, 4 carries the QR, and the three
+ * between them are the middle of the sentence. They are laid over a photograph
+ * rather than being complete pictures in themselves — the design is gold artwork
+ * with the venue showing through, which is the whole reason they are PNG and not
+ * JPEG (a JPEG re-encode flattens the alpha to black and hides the photo).
+ *
+ * Uploaded by `scripts/upload-tv-wall-vip-slides.mjs`, which pins these
+ * pathnames — a re-export overwrites in place and these URLs keep working. The
+ * words and numbers burned into the pixels are pinned to the live pack by
+ * VIP_ART_CLAIMS in wall-content.ts; read that before changing either.
+ */
+const VIP_SLIDE_BLOB = (n: number) => `${BLOB_HOST}/images/tv-wall/vip-s1-p${n}.png`;
+
+export const TV_WALL_VIP_ART: readonly string[] = [1, 2, 3, 4, 5].map(
+  (n) => tvImg(VIP_SLIDE_BLOB(n))!,
+);
+
+/**
  * One advertised thing.
  *
  * `productKeys` is what ties a slide to the maintenance gate: when a vendor is

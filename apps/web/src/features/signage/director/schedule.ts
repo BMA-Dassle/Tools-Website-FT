@@ -477,6 +477,31 @@ const WING_IDLE: Partial<Record<SceneType, SceneType>> = {
 };
 
 /**
+ * Scenes that are a SET OF INDEPENDENT PANELS rather than one picture — so a panel
+ * with its own board to show may keep it, and the rest carry on unchanged.
+ *
+ * This is what lets the pricing board cover the whole wall (owner 2026-09-01: a
+ * whole TV sat idle while prices took turns on the ones beside it) WITHOUT evicting
+ * the two boards the ends exist for. TV1 keeps the self check-in list, which always
+ * has something to say; TV5 shows prices all evening and steps aside for a party
+ * greeting when there is one.
+ *
+ * SAFE ONLY BECAUSE THE SUBJECT IS PINNED TO THE PHYSICAL POSITION. `menuPanels`
+ * is indexed by where a panel hangs, not dealt across whichever panels happen to be
+ * participating, so a panel dropping out changes nothing for its neighbours. Deal a
+ * list across the participants instead and this becomes the wall-tearing bug the
+ * span rule exists to prevent — two panels both believing they are leftmost.
+ *
+ * `vip-showcase` is deliberately NOT here: it is one composition across five panels,
+ * and a panel leaving it takes a piece of the sentence with it.
+ *
+ * A SET RATHER THAN A CONFIG FIELD, for the same reason as WING_IDLE below it: this
+ * is a fact about the SCENE, and a field would be one more thing for the admin
+ * form's `draftToConfig` to rebuild and silently drop.
+ */
+const YIELDS_TO_WINGS: ReadonlySet<SceneType> = new Set<SceneType>(["open-now"]);
+
+/**
  * The scene THIS panel actually shows for `segment`.
  *
  * Identity for every screen that is not on a wall, and for every panel inside the
@@ -489,7 +514,21 @@ function substituteOutsideSpan(
   hasData: (scene: SceneType) => boolean,
 ): SceneType {
   const wall = config.wall;
-  if (!wall || segment.span === "wall") return segment.scene;
+  if (!wall) return segment.scene;
+
+  // A PANEL WITH ITS OWN BOARD KEEPS IT, when the running scene is a set of
+  // independent panels (see YIELDS_TO_WINGS).
+  //
+  // The panel's OWN board only — never its idle understudy. The understudy exists so
+  // a wing outside the running scene has something designed to show instead of a
+  // black panel; here the alternative is the pricing board, and prices beat a
+  // signpost saying nothing is on.
+  if (YIELDS_TO_WINGS.has(segment.scene)) {
+    const own = wall.outsideScene;
+    if (own && implemented(own) && hasData(own)) return own;
+  }
+
+  if (segment.span === "wall") return segment.scene;
   const { first, last } = spanRange(segment.span, wall.count);
   if (wall.position >= first && wall.position <= last) return segment.scene;
 

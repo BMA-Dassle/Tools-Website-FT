@@ -201,8 +201,8 @@ const RACE_GUIDE_CONFIG: ScreenConfig = {
  * already carries the party board, and it is the one scene here that would want
  * gating.
  *
- * 8 slots = 5m20s: the VIP showcase gets four (two full passes of its four
- * 20-second sub-slides), the menu board two, the kiosk how-to one, house ads one.
+ * 9 slots = 6m00s exactly: the menu board holds seven of them and the VIP showcase
+ * takes the other two. See the playlist below for why it is those two numbers.
  *
  * `billboard-crown: true` is LOAD-BEARING AND MISLEADING, so read this before
  * "tidying" it. The crown scene is declared in SceneType but is NOT in the
@@ -228,7 +228,7 @@ const RACE_GUIDE_CONFIG: ScreenConfig = {
  * nobody can see until a party is standing in front of one of them.
  *
  * This is the GREETING, which is a specific party by name; the VIP *product* has a
- * four-slide showcase on this wall, which is an advert. Both belong.
+ * five-panel showcase on this wall, which is an advert. Both belong.
  *
  * `wall` itself is NOT in the preset. It is per screen by definition (each panel
  * has its own position) and the seed script writes it around this config.
@@ -236,21 +236,29 @@ const RACE_GUIDE_CONFIG: ScreenConfig = {
 const FRONT_DESK_CONFIG: ScreenConfig = {
   // A STANDING STATE THAT GETS TAKEN OVER (owner 2026-08-19), and the reason this is
   // nine slots rather than a new mechanism: 9 x 40s is SIX MINUTES exactly, of which
-  // the VIP showcase takes two slots — 80 seconds, which is precisely one full pass of
-  // its four 20-second slides, so no slide is ever cut in half. Pricing holds the wall
-  // the other 4m40s. VIP is on 22% of the time, against 50% in the first cut.
+  // the VIP showcase takes two slots — 80 seconds. Pricing holds the wall the other
+  // 4m40s. VIP is on 22% of the time, against 50% in the first cut.
   //
-  // SPANS. The showcase is the hero and takes all five; the menu board runs across the
-  // MIDDLE THREE, which is what frees TV1 for the self-check-in list and TV5 for
-  // tonight's events (their `wall.outsideScene`). A span rides on this byte-identical
-  // playlist, so every panel agrees on it without being told — see SceneSpan.
+  // BOTH ENTRIES NOW SPAN THE WHOLE WALL, and they mean different things by it. The
+  // showcase is ONE PICTURE across five panels — the owner's artwork, a sentence that
+  // is incomplete if any panel drops out. The menu board is FIVE INDEPENDENT PANELS
+  // that happen to run together, so it is in `YIELDS_TO_WINGS` (schedule.ts) and the
+  // two ends keep their own boards whenever those have something to say: TV1 always
+  // has the check-in list, TV5 shows prices until a party needs greeting.
+  //
+  // It used to run across the MIDDLE THREE, which is what left a whole TV idle while
+  // six subjects took turns on the three beside it (owner 2026-09-01). Four subjects
+  // now sit on four panels permanently and nothing rotates.
+  //
+  // A span rides on this byte-identical playlist, so every panel agrees on it without
+  // being told — see SceneSpan.
   //
   // NO SEPARATE KIOSK HOW-TO. "Buy it on the kiosk below" is permanent chrome under
   // every pricing panel now, so telling a guest where to buy costs no airtime at all.
   // NO HOUSE ADS EITHER: this wall's job is to price what is on sale tonight, and a
   // generic advert alongside a real price is the weaker of the two.
   playlist: [
-    { scene: "open-now", slots: 7, span: "middle" },
+    { scene: "open-now", slots: 7, span: "wall" },
     { scene: "vip-showcase", slots: 2, span: "wall" },
   ],
   interrupts: {

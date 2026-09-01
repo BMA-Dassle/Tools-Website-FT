@@ -3,12 +3,18 @@
 /**
  * THE MENU BOARD — what is open, what it costs, and when the next one is.
  *
- * ONE SUBJECT PER PANEL (owner 2026-08-18). The board used to be two tiles on every
- * panel, which made the wall a list that happened to be split five ways; now each
- * panel is about one thing — Bowling, Gel Blasters & Laser Tag, Game Zone, At
- * FastTrax, the VIP Experience — with the subject as the headline and its offers
- * underneath. A guest reading any single panel gets a complete answer instead of a
- * fragment of a menu, which matters on a wall where a player can be down.
+ * READ FROM ACROSS A LOBBY (owner 2026-09-01: "pricing is WAY too small… they're
+ * not being noticed"). The price is now the composition rather than a figure at the
+ * end of a row: 170px against the old 52px, on a panel that carries ONE subject and
+ * at most TWO rows. Everything that had to go to buy that space — a third row, the
+ * two-tiles-per-panel board before it, the six-subject rotation before that — was
+ * detail nobody standing thirty feet away was ever going to read.
+ *
+ * AND NOTHING ROTATES ANY MORE. Four priced subjects sit on four panels
+ * permanently, indexed by physical wall position, so the panel a guest looked at is
+ * still showing the same thing when they look back. That also puts the last TV to
+ * work: it used to sit on an idle signpost while prices took turns on the three
+ * beside it, which is exactly the "a whole TV doing nothing" the owner called out.
  *
  * THE TIMES COME FROM THE CACHE THE KIOSKS SELL FROM. `feed.nextAvailable` is read
  * out of `kiosk:avail:v4:{center}` — the same three-minute entry behind
@@ -30,10 +36,13 @@
  */
 import type { SceneProps } from "../director/types";
 import { choreo } from "../wall";
-import { menuPanelAt, WALL_ACCENT, type MenuRow } from "../wall-content";
+import { menuPanelAt, splitPrice, WALL_ACCENT, type MenuRow } from "../wall-content";
 import { WallGround } from "../components/WallPanel";
 import { KioskCallout } from "../components/KioskCallout";
 import { withAlpha } from "../color";
+
+/** The callout band's own height, plus air. Everything above it stops here. */
+const BAND_CLEARANCE = 150;
 
 export function SceneOpenNow({ feed, nowMs, config }: SceneProps) {
   const { position, count, gapPct } = choreo(config);
@@ -71,43 +80,47 @@ export function SceneOpenNow({ feed, nowMs, config }: SceneProps) {
           inset: 0,
           display: "flex",
           flexDirection: "column",
-          justifyContent: "flex-end",
-          gap: 26,
-          // Room for the callout band, which is permanent chrome here rather than a
-          // scene of its own (owner 2026-08-19).
-          padding: "77px 78px 173px",
+          padding: `88px 110px ${BAND_CLEARANCE}px`,
         }}
       >
-        {/* THE SUBJECT, whole on this panel. The rows beneath it are its offers, so
-            the headline is what makes the panel legible on its own. */}
+        {/* THE SUBJECT, whole on this panel, with the place or the offer named above
+            it. The eyebrow sits ABOVE rather than below because it is the smaller
+            thing: the eye should land on the headline and pick up the qualifier on
+            the way in, not have to travel back up for it. */}
         <div>
+          {panel.eyebrow && (
+            <div
+              style={{
+                fontSize: 32,
+                fontWeight: 700,
+                letterSpacing: "0.3em",
+                textTransform: "uppercase",
+                color: panel.accent,
+              }}
+            >
+              {panel.eyebrow}
+            </div>
+          )}
           <div
             className="tv-display"
             style={{
-              fontSize: 78,
+              fontSize: 148,
               lineHeight: 0.94,
+              marginTop: panel.eyebrow ? 18 : 0,
               color: "#fff",
-              textShadow: `0 0 8px rgba(255,255,255,0.82), 0 0 56px ${panel.accent}`,
+              textShadow: `0 0 10px rgba(255,255,255,0.82), 0 0 70px ${panel.accent}`,
             }}
           >
             {panel.headline}
           </div>
-          {panel.subhead && (
-            <div
-              className="tv-display"
-              style={{
-                fontSize: 32,
-                letterSpacing: "0.2em",
-                color: panel.accent,
-                marginTop: 14,
-              }}
-            >
-              {panel.subhead}
-            </div>
-          )}
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        {/* The rows sit at the BOTTOM of the panel, just above the band — the price
+            is what a guest is looking for, and it should be at the same height on
+            every panel of the wall rather than floating up when a subject has a
+            shorter headline. */}
+        <div style={{ flex: 1 }} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 36 }}>
           {panel.rows.map((row) => (
             <Row
               key={row.name}
@@ -150,110 +163,186 @@ function Row({
   // wall rather than being dropped: a guest who came for laser tag needs to learn it
   // is down, and a row that vanishes teaches them nothing.
   const ink = paused ? WALL_ACCENT.quiet : accent;
-  const figure = paused ? "Back soon" : (row.price ?? row.word);
 
   return (
     <div
       style={{
-        borderLeft: `8px solid ${ink}`,
-        background: "rgba(3,8,24,0.76)",
-        borderRadius: "0 17px 17px 0",
-        padding: "24px 30px",
+        borderRadius: 30,
+        // A drawn metal edge rather than a flat border: at this size a 1px line
+        // disappears and a thick flat one reads as a box. The sheen is what makes the
+        // card look lit from the same direction on all four panels.
+        padding: 4,
+        background: `linear-gradient(140deg, ${withAlpha("#ffffff", 0.72)}, ${ink} 38%, ${withAlpha(ink, 0.3)} 64%, ${withAlpha("#ffffff", 0.5)})`,
+        boxShadow: paused ? undefined : `0 0 46px ${withAlpha(ink, 0.3)}`,
         opacity: paused ? 0.4 : 1,
-        display: "flex",
-        alignItems: "baseline",
-        justifyContent: "space-between",
-        gap: 22,
       }}
     >
-      <div>
-        <div className="tv-display" style={{ fontSize: 46, color: "#fff", lineHeight: 1 }}>
-          {row.name}
-        </div>
-        {!paused && row.note && (
-          <div style={{ fontSize: 26, color: "rgba(245,236,238,0.6)", marginTop: 10 }}>
-            {row.note}
-          </div>
-        )}
-      </div>
-
       <div
         style={{
-          textAlign: "right",
-          flexShrink: 0,
+          borderRadius: 26,
+          background: "rgba(3,8,24,0.84)",
+          padding: "40px 60px",
           display: "flex",
-          flexDirection: "column",
-          alignItems: "flex-end",
-          gap: 12,
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 40,
         }}
       >
-        {figure && (
-          <div
-            className="tv-display"
-            style={{
-              // A word where a price would be ("Any amount", "Open now") is set
-              // smaller: it is a sentence doing a number's job, and at full size it
-              // would outweigh the real prices either side of it on the wall.
-              fontSize: row.price && !paused ? 52 : 34,
-              color: ink,
-              fontVariantNumeric: "tabular-nums",
-              lineHeight: 1,
-              textShadow: paused ? undefined : `0 0 24px ${withAlpha(ink, 0.45)}`,
-            }}
-          >
-            {figure}
+        <div style={{ minWidth: 0 }}>
+          <div className="tv-display" style={{ fontSize: 62, color: "#fff", lineHeight: 1 }}>
+            {row.name}
           </div>
-        )}
-        {/* NEXT AVAILABLE, GIVEN ITS OWN LINE. The board has room now that a panel
-            carries one subject, and the time is the thing that turns a price into a
-            decision — "$12" is an advert, "$12, next at 9:15" is a plan (owner
-            2026-08-19). Labelled rather than left as a bare time, because an unlabelled
-            clock on a price could be read as a closing time. */}
-        {!paused && time ? (
-          <div
-            style={{
-              alignSelf: "flex-end",
-              borderLeft: `5px solid ${ink}`,
-              background: "rgba(255,255,255,0.07)",
-              borderRadius: "0 8px 8px 0",
-              padding: "10px 16px",
-              textAlign: "left",
-            }}
-          >
+          {!paused && row.note && (
+            <div style={{ fontSize: 32, color: "rgba(245,236,238,0.68)", marginTop: 12 }}>
+              {row.note}
+            </div>
+          )}
+          {/* NEXT AVAILABLE, ON THE ROW'S OWN LINE. The time is what turns a price
+              into a decision — "$12" is an advert, "$12, next at 9:15" is a plan
+              (owner 2026-08-19). Labelled rather than left as a bare time, because an
+              unlabelled clock on a price could be read as a closing time.
+              WITH NO TIME THE LINE STILL RENDERS, carrying the status instead — that
+              is the honesty guarantee (see rowStatus), and dropping it whenever the
+              cache had no entry is exactly how a priced row with nothing left today
+              would go on looking bookable. */}
+          {!paused && (
             <div
-              className="tv-display"
               style={{
-                fontSize: 19,
-                letterSpacing: "0.2em",
-                color: "rgba(245,236,238,0.55)",
+                display: "inline-flex",
+                alignItems: "baseline",
+                gap: 14,
+                marginTop: 20,
+                borderRadius: 12,
+                background: time ? "rgba(255,255,255,0.08)" : "transparent",
+                padding: time ? "10px 22px" : "10px 0",
               }}
             >
-              Next available
+              {time && (
+                <span
+                  style={{
+                    fontSize: 22,
+                    fontWeight: 700,
+                    letterSpacing: "0.2em",
+                    textTransform: "uppercase",
+                    color: "rgba(245,236,238,0.6)",
+                  }}
+                >
+                  Next
+                </span>
+              )}
+              <span
+                className="tv-display"
+                style={{
+                  fontSize: time ? 38 : 30,
+                  color: time ? WALL_ACCENT.gel : "rgba(245,236,238,0.62)",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {time ?? rowStatus(row, cacheWarm)}
+              </span>
             </div>
-            <div
-              className="tv-display"
-              style={{
-                fontSize: 34,
-                color: WALL_ACCENT.gel,
-                lineHeight: 1,
-                marginTop: 6,
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {time}
-            </div>
-          </div>
-        ) : (
-          <div
-            style={{
-              fontSize: 26,
-              fontWeight: 600,
-              color: paused ? "rgba(245,236,238,0.32)" : WALL_ACCENT.gel,
-            }}
-          >
-            {rowStatus(row, paused, time, cacheWarm)}
-          </div>
+          )}
+        </div>
+
+        <Figure row={row} ink={ink} paused={paused} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The number, at the size the owner asked for.
+ *
+ * THREE SHAPES, and which one is used says what the row is selling. A real price
+ * splits its cents off so the dollars carry the weight — "$67.50" set whole at this
+ * size makes the cheaper lane three feet away look dearer. A figure with a caption
+ * ("600 tokens") gets the same treatment because it is also a number a guest is
+ * comparing. Anything else is a sentence standing in for a number and is set small,
+ * so it cannot outweigh the real prices along the wall.
+ */
+function Figure({ row, ink, paused }: { row: MenuRow; ink: string; paused: boolean }) {
+  const glow = paused ? undefined : `0 0 14px rgba(255,255,255,0.8), 0 0 80px ${ink}`;
+  const big = {
+    fontSize: 170,
+    color: paused ? "rgba(245,236,238,0.5)" : "#fff",
+    lineHeight: 1,
+    fontVariantNumeric: "tabular-nums" as const,
+    textShadow: glow,
+  };
+
+  if (paused) {
+    return (
+      <div style={{ textAlign: "right", flexShrink: 0 }}>
+        <div className="tv-display" style={{ fontSize: 60, color: WALL_ACCENT.quiet }}>
+          Back soon
+        </div>
+        <div style={{ fontSize: 28, color: "rgba(245,236,238,0.32)", marginTop: 10 }}>
+          See Guest Services
+        </div>
+      </div>
+    );
+  }
+
+  if (row.price) {
+    const { main, cents } = splitPrice(row.price);
+    return (
+      // THE WHOLE PRICE IS THE ACCESSIBLE NAME. Split across two elements it would be
+      // read aloud as two numbers ("sixty-seven, fifty"), so the container carries the
+      // original label and the halves are hidden — the split is a type-size decision,
+      // not a change to what the row costs.
+      <div
+        aria-label={row.price}
+        style={{ display: "flex", alignItems: "flex-start", flexShrink: 0 }}
+      >
+        <span aria-hidden className="tv-display" style={big}>
+          {main}
+        </span>
+        {cents && (
+          <span aria-hidden className="tv-display" style={{ ...big, fontSize: 90, marginTop: 16 }}>
+            {cents}
+          </span>
         )}
+      </div>
+    );
+  }
+
+  if (row.word && row.wordCaption) {
+    return (
+      <div
+        style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0 }}
+      >
+        <span className="tv-display" style={big}>
+          {row.word}
+        </span>
+        <span
+          style={{
+            fontSize: 30,
+            fontWeight: 700,
+            letterSpacing: "0.22em",
+            textTransform: "uppercase",
+            color: ink,
+            marginTop: 6,
+          }}
+        >
+          {row.wordCaption}
+        </span>
+      </div>
+    );
+  }
+
+  if (!row.word) return null;
+  return (
+    <div style={{ textAlign: "right", flexShrink: 0 }}>
+      <div
+        className="tv-display"
+        style={{
+          fontSize: 60,
+          color: ink,
+          lineHeight: 1,
+          textShadow: `0 0 24px ${withAlpha(ink, 0.45)}`,
+        }}
+      >
+        {row.word}
       </div>
     </div>
   );
@@ -269,9 +358,7 @@ function Row({
  * building is plainly open (the wall is lit), so the floor stays "Open" with no time
  * attached, which is the same posture the ad slides already take.
  */
-function rowStatus(row: MenuRow, paused: boolean, time: string | null, cacheWarm: boolean): string {
-  if (paused) return "See Guest Services";
-  if (time) return time;
+function rowStatus(row: MenuRow, cacheWarm: boolean): string {
   if (row.tracksAvailability && cacheWarm) return "Ask at the desk";
   return "Open";
 }
