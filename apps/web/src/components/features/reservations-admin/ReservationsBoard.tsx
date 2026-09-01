@@ -50,6 +50,8 @@ import RescheduleModal from "./modals/RescheduleModal";
 import SquareOrderModal, { type OrderTarget } from "./modals/SquareOrderModal";
 import ManageReservationModal from "./manage/ManageReservationModal";
 import { BOARD_CSS, baThemeCss } from "./theme";
+import NflGameCards from "./NflGameCards";
+import { buildNflGameGroups, isNflReservation } from "~/features/reservations-admin/nfl-board";
 
 /**
  * True for a self-service KIOSK booking made through our booking flow
@@ -95,7 +97,8 @@ export default function ReservationsBoard({
   // ?view=vip deep link (Teams movement cards) opens straight to the ★VIP filter.
   const [kindFilter, setKindFilter] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
-    return new URLSearchParams(window.location.search).get("view") === "vip" ? "vip" : null;
+    const v = new URLSearchParams(window.location.search).get("view");
+    return v === "vip" || v === "nfl" ? v : null;
   });
 
   const {
@@ -269,6 +272,12 @@ export default function ReservationsBoard({
     comboScheduleByKey.get(r.squareDayofOrderId ?? "");
 
   const vipActive = kindFilter === "vip";
+  const nflActive = kindFilter === "nfl";
+
+  // NFL Ticket rows are identified by their booking_metadata stamp, not a
+  // productKind — they ring up as ordinary VIP hourly bowling.
+  const nflReservations = useMemo(() => reservations.filter(isNflReservation), [reservations]);
+  const nflGames = useMemo(() => buildNflGameGroups(nflReservations), [nflReservations]);
 
   // Group events respect the "Active Only" toggle just like reservations do:
   // hide completed events (cancelled/denied are already excluded server-side).
@@ -606,6 +615,7 @@ export default function ReservationsBoard({
       <FilterBar
         reservations={reservations}
         vipReservations={vipReservations}
+        nflReservations={nflReservations}
         hideCancelled={hideCancelled}
         setHideCancelled={setHideCancelled}
         hideWalkins={hideWalkins}
@@ -671,6 +681,19 @@ export default function ReservationsBoard({
           >
             {error}
           </div>
+        ) : nflActive ? (
+          nflGames.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "3rem", color: "var(--ba-muted)" }}>
+              {search ? "No matching NFL bookings." : "No NFL bookings for this date."}
+            </div>
+          ) : (
+            <NflGameCards
+              games={nflGames}
+              onCancelLeg={setCancelTarget}
+              onViewOrder={setOrderTarget}
+              onOpenReservation={openManage}
+            />
+          )
         ) : vipActive ? (
           visibleComboGroups.length === 0 ? (
             <div style={{ textAlign: "center", padding: "3rem", color: "var(--ba-muted)" }}>
