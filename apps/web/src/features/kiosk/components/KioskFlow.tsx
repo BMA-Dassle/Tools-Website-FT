@@ -119,6 +119,7 @@ import { useKioskAvailability } from "../hooks/useKioskAvailability";
 import { KioskHoldBar } from "./KioskHoldBar";
 import { KioskVipOverview } from "./KioskVipOverview";
 import { KioskGameZone } from "./KioskGameZone";
+import { KioskDispenserPrewarm } from "./KioskDispenserPrewarm";
 import { KioskRacePackFlow } from "./KioskRacePackFlow";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { clearPackageForCategory } from "~/features/booking/service/package-selection";
@@ -1729,6 +1730,14 @@ export function KioskFlow({
           shares, so this is the only place it can be mounted once and be true for
           all of them. */}
       {debugOn && <KioskDebugPanel />}
+      {/* Open the card dispenser BEFORE the guest taps Game Zone, so the
+          handshake doesn't happen behind a loader they're watching. Mounted in
+          `chrome` for the same reason the debug panel is — it's the one wrapper
+          every return path shares. Gated OFF while Game Zone is open: that
+          screen runs its own dispenser instance, and the reader's busy mutex is
+          per instance, so the two must never be live at once (unmounting here
+          PARKS the connection, which is exactly what Game Zone then adopts). */}
+      <KioskDispenserPrewarm enabled={!gzOpen} />
       {/* Before <IdleWatcher/>: the idle "Still there?" sheet is the same
           z-[80] — as the later sibling it must paint ON TOP of this confirm. */}
       {confirmSheet}

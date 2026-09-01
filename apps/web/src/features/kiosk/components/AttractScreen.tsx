@@ -47,6 +47,7 @@ import { ATTRACT_POLL_MS, useKioskAvailability } from "../hooks/useKioskAvailabi
 import { clarityEvent, clarityTag } from "~/lib/clarity";
 import { captureKioskBootVersion, kioskUpdateAvailable } from "../version";
 import { DeviceCheckCard } from "./DeviceCheckCard";
+import { KioskDispenserPrewarm } from "./KioskDispenserPrewarm";
 import { EntryScanListener, EntryScanToast, useEntryScanRouter } from "../entry-scan";
 import { clickableDivProps } from "@/lib/a11y";
 
@@ -327,6 +328,13 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           own listener (port opens are exclusive). Renders nothing. */}
       <EntryScanListener onScan={entryScan.handleScan} onLicense={entryScan.handleLicense} />
       <EntryScanToast miss={entryScan.miss} busy={entryScan.busy} onDone={entryScan.clearMiss} />
+      {/* Open the card dispenser while the kiosk is still idle, so a guest who
+          taps Game Zone doesn't watch the handshake. The parked connection
+          survives the soft nav into /kiosk/flow (same JS context), where
+          KioskFlow's own pre-warm keeps it alive until Game Zone adopts it.
+          Named ports only — EntryScanListener above holds the scanner's port on
+          this very screen, and blind probing would take it away. */}
+      <KioskDispenserPrewarm />
       {/* Hidden staff entry — 5 taps top-left corner → admin (no visible affordance) */}
       <button
         type="button"
