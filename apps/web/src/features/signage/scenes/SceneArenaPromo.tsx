@@ -5,11 +5,16 @@
  * plays between calls (owner 2026-09-01: "with video and static ads of laser tag
  * running in its dead time").
  *
- * THE STATIC HALF IS THE ORDINARY `ads` SCENE, which already carries Laser Tag
- * and Gel Blaster slides for both HeadPinz venues. This scene deliberately does
- * NOT reimplement that: the arena board's playlist runs this, then those. Two
- * small scenes, each doing one thing, instead of teaching the house ad rotation
- * about video and changing what every other screen in the estate plays.
+ * IT IS THE WHOLE OF THE DEAD TIME NOW, not half of it. The board used to run this
+ * and then the house `ads` slides; the owner took the slides off these screens
+ * (2026-09-01: "I didn't want the normal ad rotation on those check in screens").
+ * What is left is the arena selling the arena — which is the only thing a guest
+ * standing at the arena desk can act on.
+ *
+ * THERE IS ALWAYS A FILM. `useArenaFilms` falls back to the house Nexus cut when a
+ * venue has uploaded none, which is what makes dropping the slides safe: a
+ * `requiresData` promo with nothing to play would close over and the rotation would
+ * fall straight back to the slides that were just removed.
  *
  * WHICH FILM IS SHOWING is derived from the shared clock — the segment's own
  * start, which every screen computes identically — so two arena boards never
@@ -45,9 +50,11 @@ export function SceneArenaPromo(props: SceneProps) {
   const { feed, decision } = props;
   const films = useArenaFilms(feed?.arena ?? null, true);
 
-  // Only the activities that actually have a film. A venue that has uploaded one
-  // reel plays that one every segment rather than alternating with a blank.
-  const available = ORDER.filter((a) => !!feed?.arena?.films[a]);
+  // BOTH ACTIVITIES ALWAYS, because `useArenaFilms` falls back to the house Nexus reel
+  // when a venue has uploaded nothing — so there is no such thing as an activity with
+  // no film any more. The strip still names them in turn, and neither label is a lie:
+  // the house cut is arena footage of both games.
+  const available = ORDER;
 
   // Off the SEGMENT'S start, not off `nowMs`: the start is constant for the whole
   // segment (rotationAt derives it from the slot boundary), so the reel cannot

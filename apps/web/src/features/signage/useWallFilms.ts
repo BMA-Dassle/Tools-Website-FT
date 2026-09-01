@@ -53,9 +53,20 @@ export function useWallFilms(films: readonly string[], enabled: boolean): WallFi
   const [local, setLocal] = useState<Record<string, string>>({});
   // url → last attempt, so a failing download backs off instead of retrying every poll.
   const attemptedAt = useRef<Record<string, number>>({});
-  // Object URLs we created, so they can be revoked. An un-revoked blob URL pins its
-  // whole file in memory, and this page runs for weeks.
-  const created = useRef<Set<string>>(new Set());
+  /**
+   * THE LIVE LEDGER of what THIS mount adopted: source url → object url.
+   *
+   * A ref and not the `local` state, and that distinction is the whole bug the briefing
+   * hook wrote down (useBriefingAssets.ts): a `[]`-dep cleanup closes over the FIRST
+   * render's state, which is `{}`, so revoking from it revokes nothing. This scene
+   * unmounts every two minutes when the VIP artwork takes the wall, and each remount
+   * adopts afresh — so a leak here is not slow, it is a few hundred pinned reels a day
+   * on a player that runs for weeks.
+   */
+  const adoptedRef = useRef<Map<string, string>>(new Map());
+  /** False once this mount is gone, so an in-flight disk read cannot pin a film that
+   *  the cleanup has already swept past. */
+  const aliveRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
 
   // A primitive dependency rather than the array: a fresh array literal every render
@@ -101,10 +112,21 @@ export function useWallFilms(films: readonly string[], enabled: boolean): WallFi
 
     async function adopt(url: string) {
       // Re-adopting would leak an object URL per poll.
-      if (created.current.has(url)) return;
+      if (adoptedRef.current.has(url)) return;
       const objectUrl = await cachedObjectUrl(url, WALL_CACHE);
       if (!objectUrl) return;
-      created.current.add(url);
+      if (!aliveRef.current) {
+        // The panel unmounted while the disk read was in flight. The ledger has already
+        // been swept, so writing to it now would pin this reel with nothing left to
+        // release it.
+        try {
+          URL.revokeObjectURL(objectUrl);
+        } catch {
+          /* nothing to do */
+        }
+        return;
+      }
+      adoptedRef.current.set(url, objectUrl);
       setLocal((prev) => ({ ...prev, [url]: objectUrl }));
     }
   }, [enabled, manifestKey]);
@@ -116,22 +138,25 @@ export function useWallFilms(films: readonly string[], enabled: boolean): WallFi
   // Nothing half-downloaded should outlive the screen.
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  // Revoke on unmount only. Revoking when a URL leaves the manifest would pull a film
-  // out from under a reel that is mid-play.
+  // Revoke on unmount only, FROM THE REF — see `adoptedRef`. Revoking when a URL leaves
+  // the manifest would instead pull a reel out from under a panel that is mid-play.
   useEffect(() => {
-    const urls = created.current;
-    const map = local;
+    const adopted = adoptedRef.current;
+    // Re-arm on (re)mount: StrictMode's dev double-mount runs this cleanup and then the
+    // effect again on the same instance, and without the reset `adopt` would refuse to
+    // work for the whole second life.
+    aliveRef.current = true;
     return () => {
-      for (const objectUrl of Object.values(map)) {
+      aliveRef.current = false;
+      for (const objectUrl of adopted.values()) {
         try {
           URL.revokeObjectURL(objectUrl);
         } catch {
           /* nothing to do */
         }
       }
-      urls.clear();
+      adopted.clear();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return useMemo(

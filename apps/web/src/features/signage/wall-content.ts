@@ -418,8 +418,10 @@ const MAX_ROWS = 2;
  */
 export const WALL_VIDEO_TURN_MS = 120_000;
 
-/** The wall positions that have anything filmed, left to right. */
-const FILMED_POSITIONS = [1, 3, 4] as const;
+/** The wall positions that have anything filmed, left to right. Pinned to the panels
+ *  that actually carry `films` by a test — a reel on a panel outside this list would
+ *  simply never play, and nothing else would say so. */
+const FILMED_POSITIONS = [1, 2, 3, 4] as const;
 
 export interface WallVideoTurn {
   /** The wall position allowed to play video right now. */
@@ -572,6 +574,7 @@ export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuP
       eyebrow: "One arena · two games",
       photo: TV_PHOTOS.gel,
       accent: A.gel,
+      films: TV_WALL_FILMS.nexus,
       rows: [
         {
           name: "Gel Blasters",

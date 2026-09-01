@@ -618,10 +618,12 @@ describe("the video turn — one panel at a time", () => {
   });
 
   it("every filmed panel gets a turn, and they come round in order", () => {
-    const holders = [0, 1, 2].map((turn) => wallVideoAt(turn * T + 1_000).position);
-    expect(holders).toEqual([1, 3, 4]);
+    // All four priced panels have a reel now — the Nexus arena cut gave TV3 one
+    // (owner 2026-09-01).
+    const holders = [0, 1, 2, 3].map((turn) => wallVideoAt(turn * T + 1_000).position);
+    expect(holders).toEqual([1, 2, 3, 4]);
     // …and it wraps rather than running off the end.
-    expect(wallVideoAt(3 * T + 1_000).position).toBe(1);
+    expect(wallVideoAt(4 * T + 1_000).position).toBe(1);
   });
 
   it("the turn is TWO MINUTES — a panel holds it for a whole cycle", () => {
@@ -637,25 +639,34 @@ describe("the video turn — one panel at a time", () => {
     // would waste the second.
     const bowling = panels[1];
     expect(bowling.films?.length).toBe(2);
+    // Bowling holds turns 0, 4, 8 — one in four, now that all four panels are filmed.
     const first = panelFilmAt(0 * T + 1_000, 1, bowling);
-    const second = panelFilmAt(3 * T + 1_000, 1, bowling);
+    const second = panelFilmAt(4 * T + 1_000, 1, bowling);
     expect(first).toBeTruthy();
     expect(second).toBeTruthy();
     expect(first).not.toBe(second);
     // …and comes back round to the first.
-    expect(panelFilmAt(6 * T + 1_000, 1, bowling)).toBe(first);
+    expect(panelFilmAt(8 * T + 1_000, 1, bowling)).toBe(first);
   });
 
   it("a panel not holding the turn plays NOTHING, even though it has reels", () => {
     // Turn 0 belongs to bowling, so Game Zone must be still.
+    expect(panels[3].films?.length).toBeGreaterThan(0);
     expect(panelFilmAt(1_000, 3, panels[3])).toBeNull();
+  });
+
+  it("the Nexus panel plays the CUT reel, never the 26s master", () => {
+    // The master's tail is a franchise map and a "COMING SOON!" card for an attraction
+    // that is open and priced here — see TV_WALL_FILMS.nexus.
+    const nexus = panelFilmAt(1 * T + 1_000, 2, panels[2]);
+    expect(nexus).toContain("nexus-hero-18s");
   });
 
   it("THE FILMED SET MATCHES THE PANELS THAT ACTUALLY HAVE REELS", () => {
     // The drift guard: giving a panel `films` without adding its position to the
     // rotation would leave a reel that never plays, and nothing else would say so.
     const withFilms = panels.map((p, i) => (p.films?.length ? i : null)).filter((i) => i !== null);
-    const rotated = new Set([0, 1, 2, 3, 4, 5].map((t) => wallVideoAt(t * T).position));
+    const rotated = new Set([0, 1, 2, 3, 4, 5, 6, 7].map((t) => wallVideoAt(t * T).position));
     expect([...rotated].sort()).toEqual(withFilms);
   });
 

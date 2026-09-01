@@ -241,10 +241,14 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
       // gates the interrupt on the same answer, so the two cannot disagree.
       return (feed?.arena?.calls?.length ?? 0) > 0;
     case "arena-promo":
-      // Only when a film has actually been uploaded. Without this the rotation
-      // would hold two empty slots — eighty seconds of black every couple of
-      // minutes — on a board whose whole job in that window is to sell.
-      return !!feed?.arena?.films["laser-tag"] || !!feed?.arena?.films["gel-blaster"];
+      // ALWAYS TRUE NOW. It used to require an uploaded film, so that a venue with
+      // none held eighty seconds of black instead of selling. `useArenaFilms` falls
+      // back to the house Nexus cut, so there is no longer any such thing as no film
+      // — and this MUST stay true, because the arena playlist no longer carries the
+      // house ad slides (owner 2026-09-01). Gated, a venue with no upload would close
+      // over the promo, empty the rotation, and land on the ads floor: exactly the
+      // rotation that was removed.
+      return true;
     case "race-results":
       // Always true: the last race's result HOLDS until the next one lands, so
       // "no data" only ever means the first race of the day has not finished —

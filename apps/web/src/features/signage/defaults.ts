@@ -243,10 +243,10 @@ const RACE_GUIDE_CONFIG: ScreenConfig = {
  * has its own position) and the seed script writes it around this config.
  */
 const FRONT_DESK_CONFIG: ScreenConfig = {
-  // A STANDING STATE THAT GETS TAKEN OVER (owner 2026-08-19), and the reason this is
-  // nine slots rather than a new mechanism: 9 x 40s is SIX MINUTES exactly, of which
-  // the VIP showcase takes two slots — 80 seconds. Pricing holds the wall the other
-  // 4m40s. VIP is on 22% of the time, against 50% in the first cut.
+  // A STANDING STATE THAT GETS TAKEN OVER (owner 2026-08-19) — pricing holds the wall
+  // and the artwork interrupts it. The arithmetic is under `slotMs` below; do not
+  // restate it here, because two slot budgets in one comment block is how the wrong one
+  // gets trusted on a wall where the slot arithmetic IS the tear invariant.
   //
   // BOTH ENTRIES NOW SPAN THE WHOLE WALL, and they mean different things by it. The
   // showcase is ONE PICTURE across five panels — the owner's artwork, a sentence that
@@ -331,19 +331,26 @@ const LOGO_ONLY_CONFIG: ScreenConfig = {
  * nothing to check anybody in for — so the dead time is worth selling into, and
  * the call takes the wall the moment it comes.
  *
- * The rotation is the arena's own films first, then the house slides. `arena-promo`
- * REQUIRES DATA so a screen with no films uploaded closes over it and runs the
- * static slides alone, rather than holding two empty slots.
+ * THE DEAD TIME IS THE ARENA'S OWN FILMS AND NOTHING ELSE (owner 2026-09-01: "I
+ * didn't want the normal ad rotation on those check in screens"). It used to run
+ * the films then the house slides; the slides sold bowling and Game Zone from a
+ * screen at the arena desk, where the only thing a guest can act on is the arena.
+ *
+ * NOT `requiresData` any more, and that pairs with the line above rather than
+ * being a separate decision: `useArenaFilms` falls back to the house Nexus cut, so
+ * there is always a film. Left gated, a venue with no upload would close over the
+ * promo, empty the rotation, and land on `buildRotation`'s house-ads floor — which
+ * is precisely the rotation just removed.
+ *
+ * Three slots of one scene rather than one, so the segment is long enough that a
+ * short reel loops a few times instead of the director re-deciding on every cut.
  *
  * Nothing else interrupts it. A kiosk celebration cutting across "Session 25 —
  * Laser Tag, come to the desk" would put confetti over the only instruction this
  * screen ever gives, and there is no kiosk bank under it to crown.
  */
 const ARENA_CHECKIN_CONFIG: ScreenConfig = {
-  playlist: [
-    { scene: "arena-promo", slots: 2, requiresData: true },
-    { scene: "ads", slots: 1 },
-  ],
+  playlist: [{ scene: "arena-promo", slots: 3 }],
   interrupts: {
     "vip-welcome": { enabled: false },
     celebration: { enabled: false },
@@ -595,9 +602,13 @@ export function resolveScreenConfig(
 
   return {
     playlist: sanitizePlaylist(c.playlist),
-    // A garbage or missing value falls back to the estate's 40s rather than to
-    // zero — a zero slot would divide by nothing and freeze the rotation.
-    slotMs: c.slotMs && c.slotMs > 0 ? c.slotMs : BILLBOARD_CYCLE_MS,
+    // Through `numOr` like every other number here, so a hand-edited config carrying a
+    // string or a boolean cannot land in a field typed `number`. A non-positive value
+    // falls back too — a zero slot divides by nothing and freezes the rotation.
+    slotMs:
+      numOr(c.slotMs, BILLBOARD_CYCLE_MS) > 0
+        ? numOr(c.slotMs, BILLBOARD_CYCLE_MS)
+        : BILLBOARD_CYCLE_MS,
     vip: {
       enabled: vip.enabled !== false,
       leadMins: numOr(vip.leadMins, 10),

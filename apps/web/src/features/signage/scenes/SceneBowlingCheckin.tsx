@@ -46,14 +46,23 @@ import { withAlpha } from "../color";
  * How many fit per column before the rows get too short to read across a lobby. The
  * server asks for eight of each; this is the visual ceiling.
  *
- * FOUR, not five (owner 2026-09-01: "the lanes ready board can be bigger text too").
- * Every size on this panel went up by roughly half, and the height had to come from
- * somewhere — a name at 62px in a row that also carries a lane and a status is ~130px
- * tall, so five of them no longer fit between the headline and the footer. Showing the
- * four most recent large beats five nobody can read from the door, and the window on
- * the query is now tight enough that a fifth is rarely waiting.
+ * THREE, down from five (owner 2026-09-01: "the lanes ready board can be bigger text
+ * too"). Every size on this panel went up by roughly half and the height had to come
+ * from somewhere.
+ *
+ * THE ARITHMETIC, because getting it wrong here paints over the band rather than
+ * clipping: 1080 canvas − 70/80 padding = 930, less two 30px gaps, less the 104px
+ * headline at 0.94 (98), less the 148px skip-the-desk band = 624 for the grid. A row is
+ * 40 of padding plus 107 of baseline-aligned content (a 62px name against a 56px lane
+ * over a 30px status) ≈ 147. Three rows and their gaps come to 468; add the 40px column
+ * heading and the "shoes" footer and the tallest column is ~581. Four rows was 757 — a
+ * hundred and thirty over, and since the band is only 72% opaque the bottom row showed
+ * THROUGH it rather than being hidden.
+ *
+ * The query window is tight enough (30 minutes, next hour) that a fourth is rarely
+ * waiting, and three read large beats four nobody can read from the door.
  */
-const MAX_ROWS = 4;
+const MAX_ROWS = 3;
 
 /** "12" -> "Lane 12", "12, 13" -> "Lanes 12, 13". One spelling for both columns. */
 function laneWords(lanes: string): string {
@@ -214,7 +223,20 @@ function Column({
   footer?: string | null;
 }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
+    // `minHeight: 0` + `overflow: hidden` are a BACKSTOP, not the layout. MAX_ROWS is
+    // sized to fit (see its note); this is what makes a future miscount clip cleanly
+    // inside the column instead of drawing through the 72%-opaque band below, which is
+    // how the four-row version failed — visibly, and only on a busy night.
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 18,
+        minWidth: 0,
+        minHeight: 0,
+        overflow: "hidden",
+      }}
+    >
       <div
         className="tv-display"
         style={{ fontSize: 40, letterSpacing: "0.2em", color: accent, flexShrink: 0 }}
@@ -239,7 +261,7 @@ function Column({
                   borderLeft: `9px solid ${ink}`,
                   background: "rgba(3,8,24,0.74)",
                   borderRadius: "0 18px 18px 0",
-                  padding: "22px 26px",
+                  padding: "20px 26px",
                   display: "flex",
                   alignItems: "baseline",
                   justifyContent: "space-between",

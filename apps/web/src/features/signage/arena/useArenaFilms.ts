@@ -33,6 +33,7 @@ import {
   pruneCache,
   requestPersistence,
 } from "../video-cache";
+import { NEXUS_REEL } from "../assets";
 import type { ArenaActivity } from "~/features/arena-tickets/types";
 import type { TvFeed } from "../types";
 
@@ -56,13 +57,22 @@ export function useArenaFilms(arena: TvFeed["arena"], enabled: boolean): ArenaFi
   // url → last attempt, so a failing download backs off instead of retrying on
   // every poll.
   const attemptedAt = useRef<Record<string, number>>({});
-  // Object URLs we created, so they can be revoked. An un-revoked blob URL pins
-  // its whole file in memory, and this page runs for weeks.
-  const created = useRef<Set<string>>(new Set());
+  // THE LIVE LEDGER of what this mount adopted: source url → object url. A ref and not
+  // the `local` state, because a []-dep cleanup closes over the FIRST render's state
+  // (`{}`) and would revoke nothing — the leak useBriefingAssets.ts wrote down.
+  const adoptedRef = useRef<Map<string, string>>(new Map());
+  /** False once this mount is gone, so an in-flight disk read cannot pin a film the
+   *  cleanup has already swept past. */
+  const aliveRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
 
-  const laserUrl = arena?.films["laser-tag"]?.url ?? null;
-  const gelUrl = arena?.films["gel-blaster"]?.url ?? null;
+  // An uploaded reel wins; otherwise the house Nexus cut, so this board always has
+  // something moving to play. That is what lets the arena playlist drop the house ad
+  // slides entirely (owner 2026-09-01: "I didn't want the normal ad rotation on those
+  // check in screens") — without a guaranteed film, `requiresData` would close over the
+  // promo and the rotation would fall through to exactly the slides being removed.
+  const laserUrl = arena?.films["laser-tag"]?.url ?? NEXUS_REEL;
+  const gelUrl = arena?.films["gel-blaster"]?.url ?? NEXUS_REEL;
 
   // Primitive dependency rather than the object: the feed is a new object every
   // poll, and depending on it would restart the sync every fifteen seconds.
@@ -111,10 +121,19 @@ export function useArenaFilms(arena: TvFeed["arena"], enabled: boolean): ArenaFi
 
     async function adopt(url: string) {
       // Re-adopting would leak an object URL per poll.
-      if (created.current.has(url)) return;
+      if (adoptedRef.current.has(url)) return;
       const objectUrl = await cachedObjectUrl(url, ARENA_CACHE);
       if (!objectUrl) return;
-      created.current.add(url);
+      if (!aliveRef.current) {
+        // Unmounted while the disk read was in flight; the ledger is already swept.
+        try {
+          URL.revokeObjectURL(objectUrl);
+        } catch {
+          /* nothing to do */
+        }
+        return;
+      }
+      adoptedRef.current.set(url, objectUrl);
       setLocal((prev) => ({ ...prev, [url]: objectUrl }));
     }
   }, [enabled, laserUrl, gelUrl]);
@@ -126,22 +145,24 @@ export function useArenaFilms(arena: TvFeed["arena"], enabled: boolean): ArenaFi
   // Nothing half-downloaded should outlive the screen.
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  // Revoke on unmount only. Revoking when a URL leaves the manifest would pull
-  // a film out from under a reel that is mid-play.
+  // Revoke on unmount only, FROM THE REF — see `adoptedRef`. Revoking when a URL
+  // leaves the manifest would instead pull a film out from under a reel mid-play.
   useEffect(() => {
-    const urls = created.current;
-    const map = local;
+    const adopted = adoptedRef.current;
+    // Re-arm on (re)mount — StrictMode's dev double-mount runs this cleanup and then
+    // the effect again on the same instance.
+    aliveRef.current = true;
     return () => {
-      for (const objectUrl of Object.values(map)) {
+      aliveRef.current = false;
+      for (const objectUrl of adopted.values()) {
         try {
           URL.revokeObjectURL(objectUrl);
         } catch {
           /* nothing to do */
         }
       }
-      urls.clear();
+      adopted.clear();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return useMemo(() => {

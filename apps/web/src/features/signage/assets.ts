@@ -97,6 +97,22 @@ export const TV_WALL_VIP_ART: readonly string[] = [1, 2, 3, 4, 5].map(
  *
  * Each panel's list is what IT alternates between, one file per turn.
  */
+/**
+ * THE NEXUS ARENA REEL, CUT TO 18 SECONDS (owner 2026-09-01, who knew where to cut).
+ *
+ * The master on the marketing share runs 26.9s and its tail is two things a guest wall
+ * must never show: a franchise-sales map ("75+ locations contracted by the end of 2025")
+ * and then a "COMING SOON!" card — for an attraction that is open, priced and bookable
+ * in this building today. Everything before 18s is arena footage of both games.
+ *
+ * Cut, stripped of audio and re-encoded by `scripts/upload-tv-wall-film.mjs`, which pins
+ * this pathname so a re-cut overwrites in place and this URL keeps working.
+ *
+ * Used TWICE, deliberately shared rather than copied: the front-desk wall's Nexus
+ * pricing panel, and the arena check-in board's dead time.
+ */
+export const NEXUS_REEL = `${BLOB_HOST}/videos/tv-wall/nexus-hero-18s.mp4`;
+
 export const TV_WALL_FILMS = {
   /** The reel behind the VIP Experience section on headpinz.com/fort-myers, alternating
    *  with the NeoVerse lane reel — the two halves of what a VIP lane actually looks
@@ -105,6 +121,8 @@ export const TV_WALL_FILMS = {
     `${BLOB_HOST}/videos/headpinz-hyperbowling-v2.mp4`,
     `${BLOB_HOST}/videos/headpinz-neoverse-v2.mp4`,
   ],
+  /** The Nexus arena reel — see NEXUS_REEL. */
+  nexus: [NEXUS_REEL],
   /** The reel behind the party packages section. */
   gameZone: [`${BLOB_HOST}/videos/headpinz-arcade-v2.mp4`],
   /** The FastTrax home-page hero. Genuinely lives under /images/hero/ — not a typo. */

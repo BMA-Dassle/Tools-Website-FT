@@ -199,15 +199,21 @@ function PanelFilm({ src, photo, accent }: { src: string | null; photo: string; 
           filter: "saturate(0.85) brightness(0.7)",
         }}
       />
-      {/* The same scrim the still ground paints, so the prices sit on identical
-          contrast whichever is behind them. */}
+      {/* A LIGHTER SCRIM THAN THE STILL GROUND, weighted to the two ends.
+          The photograph's scrim is heavy and even because the photograph is only
+          atmosphere; a reel is the thing being watched, and burying it under 88%
+          navy would be paying for video nobody can see. It can be lighter safely
+          because the price rows carry their OWN 84% background and gold-edged
+          card — they are legible on anything — so only the headline at the top and
+          the callout band at the bottom need help, and the middle of the frame,
+          which is empty spacer, is where the footage gets to show. */}
       <div
         aria-hidden
         style={{
           position: "absolute",
           inset: 0,
           background:
-            "linear-gradient(to top, #000418 6%, rgba(2,10,34,0.88) 46%, rgba(4,14,44,0.5))",
+            "linear-gradient(to top, rgba(0,4,24,0.9) 0%, rgba(0,4,24,0.5) 26%, rgba(0,4,24,0.2) 52%, rgba(0,4,24,0.62) 100%)",
         }}
       />
       <div
