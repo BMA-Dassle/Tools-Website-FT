@@ -62,39 +62,6 @@ export function packFitsMember(pack: RacePack, m: PackEligibleMember): boolean {
 }
 
 /**
- * The limited-time SKU the pay-mode page PROMOTES out of the collapsed Race
- * Packs line, for one category's page — or null when this party/category has
- * none. Cheapest wins among the candidates.
- *
- * The `category` narrowing is the load-bearing part, and it is why this is a
- * function rather than an inline filter. The promoted row auto-applies the pack
- * on a single-fit tap, and `skus` deliberately spans BOTH tiers so a mixed party
- * sees the adult and junior BOGO tiles side by side in the picker below. Without
- * the narrowing, the junior SKU (cheaper: $15.99 vs $20.99) also led the ADULT
- * page: an adult tapping a "$15.99" headline put a junior pack on the kid and
- * nothing on themselves. Each page promotes only its own tier; a badged SKU with
- * no `category` (any future non-tiered promo) still leads both.
- *
- * The party filter stays party-wide because `packFitsMember` already refuses the
- * other category once `category` matches — so `fits` can only be racers this
- * page is for.
- */
-export function promotedSaleSku(
-  skus: RacePack[],
-  eligible: PackEligibleMember[],
-  category: "adult" | "junior",
-): RacePack | null {
-  const sale = skus.filter(
-    (p) =>
-      p.badge &&
-      (!p.category || p.category === category) &&
-      eligible.some((m) => packFitsMember(p, m)),
-  );
-  if (sale.length === 0) return null;
-  return sale.reduce((a, b) => (b.price < a.price ? b : a));
-}
-
-/**
  * What the guest is actually saving, in dollars.
  *
  * Sale SKUs pin their own `regularPrice`; everything else compares against

@@ -15,6 +15,22 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.30.0 — BOGO WEDNESDAYS IS A SCHEDULED-RACE RULE, NOT A PACK (owner
+ *         2026-08-31: "this special is here to stay and was never meant to be
+ *         a race pack — buy one get one, all races must be scheduled").
+ *         Every 2nd scheduled single race on a Wednesday race date is FREE,
+ *         priced directly on the booked heats (every-2nd floor pairing,
+ *         cheaper of each pair goes free, no cap, after credits/packs/
+ *         vouchers so only cash heats pair; a racing pass — Employee 50%,
+ *         League 20% — takes priority and never combines). Nothing banks any
+ *         more. The two BOGO credit-pack SKUs are retired from every sell
+ *         surface (defs kept so old ledger rows resolve; the resolver refuses
+ *         them outright); the pay-mode promoted row is now a static banner —
+ *         the deal applies itself. First-timers keep the bogo-weekday
+ *         PACKAGE, same day rule. Also reverts the unreleased-in-practice
+ *         1.28.0 multi-deal qty machinery (registry maxPerRacer, qty
+ *         pointers, steppers, grid auto-raise) — the scheduled rule makes all
+ *         of it unnecessary: picking more races on the grid IS the deal now.
  * 1.29.0 — GAME-CARD LOADS GO ONSITE; THE ON-PREM EIS BRIDGE IS RETIRED. Card
  *         reads and loads now run through the onsite Intercard proxy (real-time
  *         at the center) with cloud SOAP as the fallback, instead of the local
@@ -1112,7 +1128,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.29.0";
+export const KIOSK_VERSION = "1.30.0";
 
 let bootVersion: string | null = null;
 let captured = false;

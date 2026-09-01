@@ -1,5 +1,33 @@
 # Open Tasks
 
+## BOGO Wednesdays = scheduled-race rule, not a pack (2026-08-31) — branch `feat/bogo-scheduled`
+
+Owner: "this special is here to stay and was never meant to be a race pack — buy one get one,
+all races must be scheduled." Decisions: every 2nd race free (floor pairing), no cap,
+first-timers keep the `bogo-weekday` PACKAGE. Replaces (and reverts) the same-day 1.28.0
+multi-deal-qty machinery, which was live in prod for ~1h and never guest-used.
+
+- [x] Revert `147e572d3` (qty pointers, maxPerRacer stepper, grid auto-raise) — the scheduled
+      rule makes all of it unnecessary.
+- [x] `service/bogo-scheduled.ts` — pure rule: per racer, per Wednesday-dated race item,
+      eligible single heats pair in session order; cheaper of each pair free; runs AFTER
+      credits/packs/vouchers (cash heats only); package-per-category + combo + covered excluded.
+- [x] Charge: `buildCombinedLineItems` excludes the free heats and emits tagged $0 lines
+      (`coverage.kind: "bogo-special"`, label "BOGO Wednesday"); returns `bogoFree` for tests.
+- [x] Review (CheckoutStep negative line) + cart estimate (CartView) difference the SAME
+      buildRaceChargeLines/raceItemChargeLines calls — displayed == charged everywhere.
+- [x] Sell-side retirement: BOGO SKUs out of every catalog accessor (defs kept for old ledger
+      rows; resolver refuses the slugs on any day); pay-mode promoted row → static banner
+      (tier-priced example, EN+ES); picker/teaser untouched otherwise. KIOSK_VERSION 1.29.0.
+- [x] Tests (owner: "MAKE SURE YOU FULLY TEST THESE NEW FLOWS"): 18 new — pairing unit tests
+      (odd counts, cap-free, cheaper-of-pair both orders, per-racer, covered/package/combo
+      exclusions, Thursday/undated) + charge end-to-end ($41.98 for 4 Wednesday races, Thursday
+      control, odd count, two racers, sq==priced==total parity). bogo-sale.test reshaped to pin
+      the SKUs NEVER sellable. Full suite 6735 green; tsc, eslint 0 errors, a11y, next build.
+- [ ] Owner smoke on preview/glass before Wednesday 9/3 — first live day for the new rule
+      (9/2 hits only if this merges before then).
+- [ ] Merge; then delete worktree `.worktrees/bogo-scheduled` + branch.
+
 ## Kiosks without a dispenser: new cards by swipe (2026-08-28) — branch `worktree-kiosk-no-dispenser-new-card`
 
 Owner: MSR-only kiosks (no CRT-591) get a holder of blank cards under the screen; the guest takes

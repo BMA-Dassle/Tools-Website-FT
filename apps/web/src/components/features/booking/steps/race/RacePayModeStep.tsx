@@ -54,7 +54,6 @@ import {
   type RacerType,
 } from "~/features/booking/service/race-products";
 import {
-  applyPackSelection,
   coveredMembersPreview,
   kioskRacePacksEnabled,
   packSkusForRaceDate,
@@ -68,7 +67,8 @@ import {
 import { useT, type Translate } from "~/features/kiosk/i18n";
 import { RaceWarningModal } from "./RaceWarningModal";
 import { racePackTeaserVisible } from "./RacePackTeaser";
-import { RacePackPicker, packFitsMember, promotedSaleSku } from "./RacePackPicker";
+import { RacePackPicker, packFitsMember } from "./RacePackPicker";
+import { bogoSaleActive } from "~/features/booking/data/packs";
 import { IncludedList } from "./PackageCard";
 import {
   livePerRacerPrice,
@@ -821,85 +821,43 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
           </button>
         )}
 
-        {/* Flash-sale pack, promoted OUT of the collapsed Race Packs line.
-            The sale is the reason a returning racer is on this page today, and
-            behind "› Race Packs" it was invisible until a tap (owner
-            2026-08-12: "I don't want to have to click into this to find this
-            special"). Same picker, same flow — this is a door, not a second
-            rail: tapping opens the very block below, pre-expanded.
-            Disappears with the sale, because `skus` is already window-filtered. */}
-        {packsOn &&
-          (() => {
-            // Only SKUs someone in THIS party can buy, and only ones belonging
-            // to THIS page's tier — see `promotedSaleSku` for why both filters
-            // are load-bearing on a row that auto-applies the pack.
-            const lead = promotedSaleSku(skus, eligible, category);
-            if (!lead || packOpen) return null;
-            const fits = eligible.filter((m) => packFitsMember(lead, m));
-            const held = picks.some((p) => p.slug === lead.slug);
-            return (
-              <button
-                type="button"
-                aria-pressed={held}
-                onClick={() => {
-                  // SELECT it, don't just reveal it. This row IS the offer, so a
-                  // tap that only expanded the picker asked the guest to choose
-                  // the same thing twice. Mirrors the picker's own one-person
-                  // shortcut: a single eligible racer applies straight away, and
-                  // only a party with a real choice to make gets the
-                  // "who's this for?" panel.
-                  if (held) {
-                    onChange({
-                      creditPacks: applyPackSelection(picks, lead.slug, []),
-                    });
-                    return;
-                  }
-                  if (fits.length === 1) {
-                    // A pack IS the payment for today's race — same rule the
-                    // picker applies, so it cancels the "pay per race" row
-                    // rather than stacking with it.
-                    setSingleChosen(false);
-                    onChange({
-                      creditPacks: applyPackSelection(picks, lead.slug, [fits[0].id]),
-                    });
-                    return;
-                  }
-                  setPackOpen(true);
-                }}
-                className={`relative mt-2 flex w-full items-center gap-4 rounded-2xl border-2 border-amber-400 bg-linear-to-br from-amber-400/20 to-amber-400/5 px-5 pb-4 pt-6 text-left ${
-                  held ? "ring-4 ring-amber-400/45" : ""
-                }`}
-              >
-                <span className="absolute -top-3 left-5 rounded-full bg-amber-400 px-3 py-1 text-[11px] font-black uppercase italic tracking-wide text-[#241701]">
-                  {t("payMode.flashSale")}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="font-display block text-lg font-black uppercase leading-tight">
-                    {t("payMode.bogo.title")}
-                  </span>
-                  <span className="mt-0.5 block text-sm text-white/60">
-                    {t("payMode.bogo.sub")}
-                  </span>
-                </span>
-                <span className="shrink-0 text-right">
-                  {typeof lead.regularPrice === "number" && (
-                    <span className="block text-xs font-semibold tabular-nums text-white/40 line-through">
-                      {money(lead.regularPrice)}
-                    </span>
-                  )}
-                  <span className="block text-xl font-extrabold tabular-nums">
-                    {money(lead.price)}
-                  </span>
-                </span>
-                <span
-                  aria-hidden
-                  className={`shrink-0 ${held ? "text-amber-300" : "text-white/50"}`}
-                >
-                  {held ? "✓" : "›"}
-                </span>
-              </button>
-            );
-          })()}
+        {/* BOGO Wednesdays — a static ADVERTISEMENT, not a purchasable row.
+            The special stopped being a credit pack on 2026-08-31 (owner:
+            "never meant to be a race pack; buy one get one, all races must be
+            scheduled"): every 2nd scheduled race today prices to $0
+            automatically (service/bogo-scheduled.ts), so there is nothing to
+            select here — the banner just has to be impossible to miss, for
+            the same reason the old promoted row was pulled out of the
+            collapsed line (owner 2026-08-12: "I don't want to have to click
+            into this to find this special"). Keys off the RACE DATE like both
+            halves of the promo always have. */}
+        {item.date && bogoSaleActive(item.date) && cheapestSingle != null && (
+          <div className="relative mt-2 flex w-full items-center gap-4 rounded-2xl border-2 border-amber-400 bg-linear-to-br from-amber-400/20 to-amber-400/5 px-5 pb-4 pt-6 text-left">
+            <span className="absolute -top-3 left-5 rounded-full bg-amber-400 px-3 py-1 text-[11px] font-black uppercase italic tracking-wide text-[#241701]">
+              {t("payMode.flashSale")}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="font-display block text-lg font-black uppercase leading-tight">
+                {t("payMode.bogo.title")}
+              </span>
+              <span className="mt-0.5 block text-sm text-white/60">{t("payMode.bogo.sub")}</span>
+            </span>
+            {/* This page's OWN tier prices the example (the junior page shows
+                junior money) — 2× the cheapest single, struck through to the
+                price of one. */}
+            <span className="shrink-0 text-right">
+              <span className="block text-xs font-semibold tabular-nums text-white/40 line-through">
+                {money(cheapestSingle.price * 2)}
+              </span>
+              <span className="block text-xl font-extrabold tabular-nums">
+                {money(cheapestSingle.price)}
+              </span>
+              <span className="block text-[10px] font-bold uppercase tracking-wide text-amber-400">
+                {t("payMode.bogo.forTwo")}
+              </span>
+            </span>
+          </div>
+        )}
 
         {/* Race packs — one line until tapped */}
         {packsOn && skus.length > 0 && (

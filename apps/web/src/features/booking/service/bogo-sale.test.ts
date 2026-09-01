@@ -27,10 +27,6 @@ import {
   webPackSkus,
 } from "./race-pack-kiosk";
 import {
-  packFitsMember,
-  promotedSaleSku,
-} from "~/components/features/booking/steps/race/RacePackPicker";
-import {
   eligiblePackages,
   getPackage,
   packageFitsRaceDate,
@@ -264,17 +260,23 @@ describe("BOGO — the day rule is enforced server-side, not just hidden", () =>
     ).not.toContain("bogo-weekday");
   });
 
-  it("credit-pack slugs are in the offered catalog only on the promo's days", () => {
-    expect(packSkusForRaceDate(WED, TUE_BUYS).map((p) => p.slug)).toEqual(
-      expect.arrayContaining([...BOGO_SALE_SLUGS]),
-    );
-    const thursday = packSkusForRaceDate(THU, WED_BUYS).map((p) => p.slug);
-    for (const slug of BOGO_SALE_SLUGS) expect(thursday).not.toContain(slug);
+  it("credit-pack slugs are NEVER in the offered catalog — retired 2026-08-31", () => {
+    // The promo is a scheduled-race pricing rule now (bogo-scheduled.ts);
+    // the SKU defs remain only for old ledger rows/labels.
+    for (const [raceDate, buys] of [
+      [WED, TUE_BUYS],
+      [WED, WED_BUYS],
+      [THU, WED_BUYS],
+    ] as const) {
+      const offered = packSkusForRaceDate(raceDate, buys).map((p) => p.slug);
+      for (const slug of BOGO_SALE_SLUGS) expect(offered).not.toContain(slug);
+    }
   });
 
-  it("resolveKioskPacks REFUSES a BOGO slug for an off-day race, not just hides it", () => {
-    // The session carries slug pointers only, so a cached screen or a forged
-    // POST is the real threat model — the resolver is the enforcement point.
+  it("resolveKioskPacks REFUSES a BOGO slug on EVERY day — Wednesday included", () => {
+    // The session carries slug pointers only, so a cached screen (a kiosk tab
+    // from the pack era) or a forged POST is the real threat model — the
+    // resolver is the enforcement point, and the pack must never sell again.
     const party = [
       {
         id: "m1",
@@ -284,19 +286,13 @@ describe("BOGO — the day rule is enforced server-side, not just hidden", () =>
         isNewRacer: false,
       },
     ];
-    expect(() =>
-      resolveKioskPacks([{ slug: "bogo-races-adult", memberId: "m1" }], party, {
-        now: WED_BUYS,
-        raceDate: THU,
-      }),
-    ).toThrow(/isn't available/i);
-    // Same slug, same purchase instant, Wednesday race → sells.
-    expect(() =>
-      resolveKioskPacks([{ slug: "bogo-races-adult", memberId: "m1" }], party, {
-        now: WED_BUYS,
-        raceDate: WED,
-      }),
-    ).not.toThrow();
+    for (const raceDate of [WED, THU]) {
+      for (const slug of BOGO_SALE_SLUGS) {
+        expect(() =>
+          resolveKioskPacks([{ slug, memberId: "m1" }], party, { now: WED_BUYS, raceDate }),
+        ).toThrow(/isn't available/i);
+      }
+    }
   });
 
   /**
@@ -323,88 +319,23 @@ describe("BOGO — the day rule is enforced server-side, not just hidden", () =>
  * not just a cosmetic price. Making BOGO weekly turns this from a two-day
  * exposure into every Wednesday, which is why it is pinned here.
  */
-describe("BOGO — the promoted row leads with the page's OWN tier", () => {
-  const adult = { id: "a1", firstName: "Dale", category: "adult" as const, isNewRacer: false };
-  const junior = { id: "j1", firstName: "Suzy", category: "junior" as const, isNewRacer: false };
-  const mixed = [adult, junior];
-  const skus = packSkusForRaceDate(WED, WED_BUYS);
+// (The promoted-row describe died with `promotedSaleSku` on 2026-08-31: the
+// pay-mode BOGO row is a static banner now — the scheduled-race rule applies
+// itself, so there is no SKU to promote and nothing a tap could mis-assign.)
 
-  it("a mixed party's ADULT page promotes the adult SKU, not the cheaper junior one", () => {
-    // The bug this pins: junior $15.99 < adult $20.99, so the junior SKU used to
-    // win the "cheapest" reduce on BOTH pages. An adult tapping that row put a
-    // junior pack on the kid and nothing on themselves.
-    const lead = promotedSaleSku(skus, mixed, "adult");
-    expect(lead?.slug).toBe("bogo-races-adult");
-    expect(lead?.price).toBe(20.99);
-  });
-
-  it("the same party's JUNIOR page promotes the junior SKU", () => {
-    const lead = promotedSaleSku(skus, mixed, "junior");
-    expect(lead?.slug).toBe("bogo-races-junior");
-    expect(lead?.price).toBe(15.99);
-  });
-
-  it("the promoted SKU can only land on racers the page is for", () => {
-    for (const category of ["adult", "junior"] as const) {
-      const lead = promotedSaleSku(skus, mixed, category)!;
-      const fits = mixed.filter((m) => packFitsMember(lead, m));
-      expect(fits.map((m) => m.category)).toEqual([category]);
-    }
-  });
-
-  it("a party with nobody eligible for the promo gets no row", () => {
-    const rookies = [{ ...adult, isNewRacer: true }];
-    // Credit packs are returning-racer-only; a first-timer gets the PACKAGE.
-    expect(promotedSaleSku(skus, rookies, "adult")).toBeNull();
-    // An all-adult party never leads with the junior SKU either.
-    expect(promotedSaleSku(skus, [adult], "junior")).toBeNull();
-  });
-
-  it("off a promo day there is nothing to promote at all", () => {
-    const thursday = packSkusForRaceDate(THU, WED_BUYS);
-    expect(promotedSaleSku(thursday, mixed, "adult")).toBeNull();
-    expect(promotedSaleSku(thursday, mixed, "junior")).toBeNull();
-  });
-});
-
-describe("BOGO — tier and history fail closed in the resolver", () => {
-  const adult = {
-    id: "a1",
-    firstName: "Dale",
+describe("BOGO — retiring the pack SKUs never touched the standing catalog", () => {
+  // (The tier/history fail-closed tests died with the retirement: the resolver
+  // now refuses the BOGO slugs one check EARLIER — "isn't available", pinned
+  // above — so the tier/history branches are unreachable for them. The generic
+  // checks themselves still guard any future restricted SKU.)
+  const rookie = {
+    id: "n1",
+    firstName: "Newt",
     bmiPersonId: "123456789012345678",
     category: "adult" as const,
-    isNewRacer: false,
+    isNewRacer: true,
   };
-  const junior = {
-    id: "j1",
-    firstName: "Suzy",
-    bmiPersonId: "123456789012345679",
-    category: "junior" as const,
-    isNewRacer: false,
-  };
-  const rookie = { ...adult, id: "n1", firstName: "Newt", isNewRacer: true };
   const opts = { now: WED_BUYS, raceDate: WED };
-
-  it("an adult cannot buy the cheaper junior SKU", () => {
-    expect(() =>
-      resolveKioskPacks([{ slug: "bogo-races-junior", memberId: "a1" }], [adult], opts),
-    ).toThrow(/junior racers/i);
-  });
-
-  it("a junior cannot be charged the adult SKU", () => {
-    expect(() =>
-      resolveKioskPacks([{ slug: "bogo-races-junior", memberId: "j1" }], [junior], opts),
-    ).not.toThrow();
-    expect(() =>
-      resolveKioskPacks([{ slug: "bogo-races-adult", memberId: "j1" }], [junior], opts),
-    ).toThrow(/adult racers/i);
-  });
-
-  it("a first-time racer cannot buy the returning-only credit pack", () => {
-    expect(() =>
-      resolveKioskPacks([{ slug: "bogo-races-adult", memberId: "n1" }], [rookie], opts),
-    ).toThrow(/returning racers/i);
-  });
 
   it("standing 3/5/10 packs are unrestricted — no regression", () => {
     for (const slug of ["3-race-weekday", "5-race-weekday", "10-race-weekday"]) {
@@ -479,12 +410,13 @@ describe("BOGO — never on the standalone walk-up screen", () => {
     }
   });
 
-  it("the in-booking catalog still carries the promo on the same instant", () => {
-    // The fix must not have darkened the promo where it IS sold — the pay-mode
-    // page is per category and its picker filters by racer.
-    expect(packSkusForRaceDate(WED, WED_BUYS).map((p) => p.slug)).toEqual(
-      expect.arrayContaining([...BOGO_SALE_SLUGS]),
-    );
+  it("the in-booking catalog is the standing six too — the promo is a heat rule now", () => {
+    // Until 2026-08-31 this pinned the opposite (the in-booking surfaces were
+    // where the credit packs sold). The promo now prices the scheduled heats
+    // themselves (bogo-scheduled.ts), so NO surface sells a BOGO SKU.
+    const inBooking = packSkusForRaceDate(WED, WED_BUYS).map((p) => p.slug);
+    expect(inBooking).toEqual(kioskPackSkus(WED_BUYS).map((p) => p.slug));
+    for (const slug of BOGO_SALE_SLUGS) expect(inBooking).not.toContain(slug);
   });
 
   it("the resolver REFUSES a BOGO slug on the standalone rail on a promo day", () => {

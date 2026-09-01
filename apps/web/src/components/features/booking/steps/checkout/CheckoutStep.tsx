@@ -79,6 +79,7 @@ import {
   resolveSessionPacks,
   computePackCoverage,
 } from "~/features/booking/service/race-pack-kiosk";
+import { computeBogoScheduledFree } from "~/features/booking/service/bogo-scheduled";
 import { buildRaceChargeLines } from "~/features/booking/service/checkout";
 import { redeemedHeatSet } from "~/features/booking/data/race-credits";
 import type { RaceHeatAssignment } from "~/features/booking";
@@ -647,6 +648,48 @@ export function CheckoutStep({
           );
         } catch {
           /* voucher display is best-effort; the reserve verifies coverage */
+        }
+      }
+
+      // BOGO Wednesdays — every 2nd SCHEDULED race free (owner 2026-08-31):
+      // ONE negative line, differenced from the same buildRaceChargeLines call
+      // the reserve charges with (the pack block's pattern), so display and
+      // charge cannot drift. Runs AFTER credits/packs/vouchers, exactly like
+      // the charge builder — the rule pairs only heats paid in cash.
+      if (!activeComboSpecial(session)) {
+        try {
+          let base = redeemedHeatSet(sessionForReserve);
+          if (kioskRacePacksEnabled()) {
+            const packSel = session.items.flatMap((i) =>
+              i.kind === "race" ? (i.creditPacks ?? []) : [],
+            );
+            if (packSel.length > 0) {
+              const packs = resolveSessionPacks(session);
+              const cov = computePackCoverage(sessionForReserve, packs, base);
+              if (cov.heats.size > 0) base = new Set([...base, ...cov.heats]);
+            }
+          }
+          if (sessionVouchers(session).length > 0) {
+            const vHeats = planVoucherCoverage(session, base).raceHeats;
+            if (vHeats.size > 0) base = new Set([...base, ...vHeats]);
+          }
+          const bogo = computeBogoScheduledFree(session.items, base);
+          if (bogo.heats.size > 0) {
+            const sumLines = (ex: Set<RaceHeatAssignment>) =>
+              buildRaceChargeLines(session, ex).reduce((s, l) => s + l.amount, 0);
+            const free =
+              Math.round((sumLines(base) - sumLines(new Set([...base, ...bogo.heats]))) * 100) /
+              100;
+            if (free > 0) {
+              reviewLines.push({
+                name: "BOGO Wednesdays — every 2nd race free",
+                quantity: 1,
+                amount: -free,
+              });
+            }
+          }
+        } catch {
+          /* display best-effort; the reserve prices authoritatively */
         }
       }
 

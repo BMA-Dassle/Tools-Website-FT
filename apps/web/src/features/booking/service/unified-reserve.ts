@@ -113,6 +113,7 @@ import { mintComboVoucherIfNeeded } from "~/features/combos/combo-voucher";
 import type { VoucherItem } from "~/features/game-cards/data/vouchers-db";
 import { redemptionsFromSession, redeemedHeatSet } from "../data/race-credits";
 import { validateCreditRedemptions, deductCreditRedemptions } from "./race-credit-redeem";
+import { computeBogoScheduledFree, type BogoScheduledFree } from "./bogo-scheduled";
 import {
   isWorldCupBowlingItem,
   validateWorldCupBooking,
@@ -374,7 +375,7 @@ export interface PricedLine {
   catalogPricedCents?: number;
   /** Why a $0 line is $0. Absent = a genuinely charged (or $0-value) line. */
   coverage?: {
-    kind: "race-credit" | "race-pack" | "voucher" | "combo-inclusion";
+    kind: "race-credit" | "race-pack" | "voucher" | "combo-inclusion" | "bogo-special";
     /** Display tag, e.g. "Credit" · "Race Pack" · "Voucher …Z4SX". */
     label: string;
   };
@@ -389,6 +390,8 @@ export function buildCombinedLineItems(session: BookingSession): {
   promoSavingsCents: number;
   kioskPacks: ResolvedKioskPack[];
   packCoverage: PackCoverage;
+  /** BOGO Wednesdays: the scheduled heats the special priced to $0. */
+  bogoFree: BogoScheduledFree;
   /** The quote/display mirror — accumulated ADJACENT to every Square-line
    *  push above it, so the two can only drift if a diff reviewer misses it. */
   pricedLines: PricedLine[];
@@ -530,10 +533,23 @@ export function buildCombinedLineItems(session: BookingSession): {
   const voucherPlan = activeComboSpecial(session)
     ? null
     : planVoucherCoverage(session, creditAndPackHeats);
-  const excludedHeats =
+  const coveredBeforeBogo =
     voucherPlan && voucherPlan.raceHeats.size > 0
       ? new Set([...creditAndPackHeats, ...voucherPlan.raceHeats])
       : creditAndPackHeats;
+  // BOGO Wednesdays — every 2nd SCHEDULED race free (owner 2026-08-31: "never
+  // meant to be a race pack; buy one get one, all races must be scheduled").
+  // Runs LAST in the coverage order, so it pairs only heats that would
+  // otherwise be paid in cash — a credit/pack/voucher-covered heat neither
+  // goes free nor anchors a pair. Combo carts are flat-priced, so the rule is
+  // skipped there exactly like the voucher plan.
+  const bogoFree: BogoScheduledFree = activeComboSpecial(session)
+    ? { heats: new Set(), freeByMember: new Map() }
+    : computeBogoScheduledFree(session.items, coveredBeforeBogo);
+  const excludedHeats =
+    bogoFree.heats.size > 0
+      ? new Set([...coveredBeforeBogo, ...bogoFree.heats])
+      : coveredBeforeBogo;
 
   for (const bl of buildRaceChargeLines(session, excludedHeats)) {
     const totalCents = Math.round(bl.amount * 100);
@@ -575,7 +591,7 @@ export function buildCombinedLineItems(session: BookingSession): {
     }
     const covered: Array<{
       set: ReadonlySet<RaceHeatAssignment>;
-      kind: "race-credit" | "race-pack" | "voucher";
+      kind: "race-credit" | "race-pack" | "voucher" | "bogo-special";
       labelFor: (h: RaceHeatAssignment) => string;
     }> = [
       { set: redeemedHeats, kind: "race-credit", labelFor: () => "Credit" },
@@ -588,6 +604,9 @@ export function buildCombinedLineItems(session: BookingSession): {
           return code ? `Voucher …${code.slice(-4)}` : "Voucher";
         },
       },
+      // The Wednesday special's free heats — tagged so the review/e-ticket say
+      // WHY the line is $0, same as every other covered heat.
+      { set: bogoFree.heats, kind: "bogo-special", labelFor: () => "BOGO Wednesday" },
     ];
     for (const { set, kind, labelFor } of covered) {
       const groups = new Map<string, { name: string; label: string; qty: number }>();
@@ -772,6 +791,7 @@ export function buildCombinedLineItems(session: BookingSession): {
     promoSavingsCents,
     kioskPacks,
     packCoverage,
+    bogoFree,
     pricedLines,
     totalPriceCents,
   };
