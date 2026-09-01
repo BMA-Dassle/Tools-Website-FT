@@ -10,6 +10,7 @@ import { releaseComboBowlingHold } from "~/features/combos/combo-booking";
 import {
   WORLD_CUP_FIXTURES,
   WORLD_CUP_WINDOW_MINUTES,
+  worldCupWindowLabel,
   buildWorldCupLineItems,
   fixtureLabel,
   fixtureDayLabel,
@@ -276,9 +277,8 @@ const WorldCupMatchStepComponent: StepDef<BowlingItem>["Component"] = ({
           </h3>
         </div>
         <p className="mt-1.5 text-sm text-white/70">
-          A VIP lane for {Math.floor(WORLD_CUP_WINDOW_MINUTES / 60)}½ hours from kickoff — the match
-          on our NeoVerse LED video walls, chips &amp; salsa included. Shoe rental is extra (added
-          on the next step).
+          A VIP lane for {worldCupWindowLabel()} from kickoff — the match on our NeoVerse LED video
+          walls, chips &amp; salsa included. Shoe rental is extra (added on the next step).
         </p>
         <p className="mt-1 text-xs text-white/50">
           {playerCount} {playerCount === 1 ? "bowler" : "bowlers"} · {laneCount}{" "}
@@ -406,9 +406,9 @@ const WorldCupMatchStepComponent: StepDef<BowlingItem>["Component"] = ({
         ))
       )}
       <p className="text-[11px] leading-relaxed text-white/40">
-        Windows run {Math.floor(WORLD_CUP_WINDOW_MINUTES / 60)} hours 30 minutes from kickoff at
-        normal VIP lane rates. Match going to extra time? Tell the front desk at our bowling center
-        — we&apos;ll do our best to keep the party going.
+        Windows run {worldCupWindowLabel()} from kickoff at normal VIP lane rates. Match going to
+        extra time? Tell the front desk at our bowling center — we&apos;ll do our best to keep the
+        party going.
       </p>
     </div>
   );

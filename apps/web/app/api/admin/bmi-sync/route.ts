@@ -8,6 +8,7 @@ import {
   syncStateForReservations,
 } from "~/features/reservations-admin/bmi-sync-view";
 import { dismissSyncRow } from "@/lib/bmi-sync-queue";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /**
  * GET /api/admin/bmi-sync?token=…&refs=bill1,bill2,…
@@ -29,8 +30,7 @@ const MAX_REFS = 400;
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected || sp.get("token") !== expected) {
+  if (!(await isAdminApiRequest(req, { token: sp.get("token") }))) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
@@ -109,8 +109,7 @@ const DismissSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected || req.nextUrl.searchParams.get("token") !== expected) {
+  if (!(await isAdminApiRequest(req, { token: req.nextUrl.searchParams.get("token") }))) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 

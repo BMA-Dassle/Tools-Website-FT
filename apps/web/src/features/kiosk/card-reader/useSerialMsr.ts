@@ -173,19 +173,33 @@ export function useSerialMsr(opts: UseSerialMsrOptions = {}) {
     [flushBurst],
   );
 
+  // The close in flight, if any — a re-enable awaits it before reopening (a
+  // second open on a port still closing would fail and burn the backoff ladder).
+  const closePromiseRef = useRef<Promise<void> | null>(null);
   const closePort = useCallback(async () => {
     closingRef.current = true;
-    try {
-      await readerRef.current?.cancel();
-    } catch {
-      /* already gone */
-    }
-    try {
-      await portRef.current?.close();
-    } catch {
-      /* already gone */
-    }
+    // Detach SYNCHRONOUSLY so nothing else (a late reconnect, a second close)
+    // can touch this port through the refs while it is being torn down.
+    const port = portRef.current;
+    const reader = readerRef.current;
     portRef.current = null;
+    readerRef.current = null;
+    if (!port && !reader) return;
+    const closing = (async () => {
+      try {
+        await reader?.cancel();
+      } catch {
+        /* already gone */
+      }
+      try {
+        await port?.close();
+      } catch {
+        /* already gone */
+      }
+    })();
+    closePromiseRef.current = closing;
+    await closing;
+    if (closePromiseRef.current === closing) closePromiseRef.current = null;
   }, []);
 
   /** Open + listen. Returns true once listening. */
@@ -213,6 +227,18 @@ export function useSerialMsr(opts: UseSerialMsrOptions = {}) {
         }
         return false;
       }
+      // A disable landed while open() was pending — this port is not wanted.
+      // Close it now rather than reporting "listening" on a port the stream-
+      // ended handler would immediately tear down again.
+      if (closingRef.current) {
+        try {
+          await port.close();
+        } catch {
+          /* already gone */
+        }
+        setConnection({ state: "disconnected", hadPortGrant: true });
+        return false;
+      }
       portRef.current = port;
       setConnection({ state: "listening" });
       onConnectedRef.current?.(port.getInfo(), baud ?? MSR_DEFAULT_BAUD);
@@ -224,6 +250,9 @@ export function useSerialMsr(opts: UseSerialMsrOptions = {}) {
           await closePort();
           if (deliberate) return;
           if (enabledRef.current) {
+            // closePort raised closingRef to stop loops; an unplug is not a
+            // deliberate close, so lower it or the reconnect bails at once.
+            closingRef.current = false;
             setConnection({ state: "connecting" });
             attemptReconnectRef.current();
           } else {
@@ -262,23 +291,32 @@ export function useSerialMsr(opts: UseSerialMsrOptions = {}) {
     return (await openPort(match, { silent: true })) ? "connected" : "failed";
   }, [portInfo, openPort]);
 
+  // One reconnect loop at a time — the `enabled` effect below and the
+  // stream-ended handler can both ask for one.
+  const reconnectingRef = useRef(false);
   const attemptReconnect = useCallback(async () => {
-    for (const backoff of RECONNECT_BACKOFFS) {
-      if (portRef.current || closingRef.current) return;
-      const r = await reopenSilently();
-      if (r === "connected") return;
-      if (r === "no-grant") {
-        // Never granted (fresh kiosk) — that's not a fault, just not set up yet.
-        setConnection({ state: "disconnected", hadPortGrant: false });
-        return;
+    if (reconnectingRef.current) return;
+    reconnectingRef.current = true;
+    try {
+      for (const backoff of RECONNECT_BACKOFFS) {
+        if (portRef.current || closingRef.current) return;
+        const r = await reopenSilently();
+        if (r === "connected") return;
+        if (r === "no-grant") {
+          // Never granted (fresh kiosk) — that's not a fault, just not set up yet.
+          setConnection({ state: "disconnected", hadPortGrant: false });
+          return;
+        }
+        await delay(backoff);
       }
-      await delay(backoff);
-    }
-    if (!portRef.current) {
-      setConnection({
-        state: "error",
-        message: "The card swipe reader is offline and couldn't reconnect.",
-      });
+      if (!portRef.current && !closingRef.current) {
+        setConnection({
+          state: "error",
+          message: "The card swipe reader is offline and couldn't reconnect.",
+        });
+      }
+    } finally {
+      reconnectingRef.current = false;
     }
   }, [reopenSilently]);
   useEffect(() => {
@@ -297,20 +335,46 @@ export function useSerialMsr(opts: UseSerialMsrOptions = {}) {
       typeof navigator !== "undefined" && "serial" in navigator
         ? (await navigator.serial.getPorts().catch(() => [])).length > 0
         : false;
+    // A re-enable may have reopened (or be reopening) the port while we awaited
+    // — never stamp "disconnected" over a live or in-progress connection.
+    if (portRef.current || reconnectingRef.current) return;
     setConnection({ state: "disconnected", hadPortGrant });
   }, [closePort]);
 
-  // Feature-detect + provisioned auto-connect on mount; close on unmount.
-  const triedAutoRef = useRef(false);
+  // Feature-detect, then follow `enabled` LIVE: true → provisioned auto-connect
+  // (silent grant reuse); false → let the port GO. The MSR is one COM port that
+  // several consumers want at different moments — Game Zone buy/reload/balance,
+  // the pay screen's gift-card capture (msrUse "both"), the admin test surface
+  // — and only one can hold it open. A consumer that is done listening must
+  // release it, not merely ignore bursts. (Until 2026-08-28 the auto-connect
+  // was mount-only and a disabled hook kept the port, which starved the
+  // gift-card flow on the pay screen after a Game Zone sale.)
+  // `disconnect` also flips closingRef, which stops an in-flight reconnect loop
+  // and makes a port that finishes opening late close itself (openPort checks
+  // it after open() resolves).
   useEffect(() => {
     if (typeof navigator === "undefined" || !("serial" in navigator)) {
       setConnection({ state: "unsupported" });
       return;
     }
-    if (!enabled || triedAutoRef.current) return;
-    triedAutoRef.current = true;
-    void attemptReconnect();
-  }, [enabled, attemptReconnect]);
+    if (enabled) {
+      void (async () => {
+        // A disable may still be closing the port (Pay → Back within a few
+        // hundred ms): let it finish, or the reopen would fail against a port
+        // that is half-closed and the backoff ladder would eat seconds.
+        await closePromiseRef.current;
+        if (!enabledRef.current || portRef.current) return; // flipped back / already open
+        // A prior disable left closingRef raised to stop loops; lower it or
+        // attemptReconnect bails on its first check.
+        closingRef.current = false;
+        void attemptReconnect();
+      })();
+      return;
+    }
+    // Nothing held and no loop running → nothing to release (mount-while-
+    // disabled is the common case: a dispenser kiosk, a reload payload).
+    if (portRef.current || reconnectingRef.current) void disconnect();
+  }, [enabled, attemptReconnect, disconnect]);
   useEffect(() => {
     return () => {
       void closePort();

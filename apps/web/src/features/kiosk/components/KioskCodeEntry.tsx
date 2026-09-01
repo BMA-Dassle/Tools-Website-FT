@@ -32,7 +32,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppliedPromo } from "~/features/discount-codes";
 import type { PartyMember } from "~/features/booking";
 import { useKioskConfig } from "../KioskConfigContext";
-import { kioskDeviceKey } from "../config";
+import { kioskDeviceKey, type GameZoneCapability } from "../config";
 import { useQrScanner } from "../qr-scanner/useQrScanner";
 import { useWedgeScan } from "../checkin/wedge-scan";
 import { classifyKioskCode, type KioskCodeKind } from "../code-entry/classify";
@@ -162,7 +162,7 @@ export function KioskCodeEntry({
   onGzCardRemoveOne,
   appliedPromo = null,
   onClearPromo,
-  canDispenseCards = true,
+  capability = "full",
   party = [],
   onPartyAdd,
   onPartyRemove,
@@ -221,18 +221,25 @@ export function KioskCodeEntry({
    *  the receipt is up must never replace it. */
   appliedPromo?: AppliedPromo | null;
   onClearPromo?: () => void;
-  /** FALSE on kiosks without a card dispenser (MSR-only / none): the receipt
-   *  still accepts card vouchers but says to collect at the front kiosk /
-   *  Guest Services, offers no print action and no leave warning — a machine
-   *  that cannot print must never promise to (owner 2026-07-30 screenshot:
-   *  "GAME ZONE CARDS NOT AVAILABLE ON THIS KIOSK" yet the flow offered
-   *  "get my card"). */
-  canDispenseCards?: boolean;
-  /** The session party — the "Who's here from your booking?" chips derive
-   *  selected/disabled state from it (session truth, remount-proof). */
+  /** This kiosk's Game Zone hardware (config.gameZoneCapability) — how a NEW
+   *  card reaches the guest:
+   *  "full"  — the CRT dispenser hands it out ("Print my cards");
+   *  "swipe" — no dispenser; the guest takes a blank from the holder under the
+   *            screen and swipes it at the Game Zone screen ("Load my cards",
+   *            owner 2026-08-28);
+   *  "none"  — no card hardware: the receipt still accepts card vouchers but
+   *            says to collect at another Game Zone kiosk / Guest Services,
+   *            offers no issue action and no leave warning — a machine that
+   *            cannot hand over a card must never promise to (owner 2026-07-30
+   *            screenshot: "GAME ZONE CARDS NOT AVAILABLE ON THIS KIOSK" yet the
+   *            flow offered "get my card"). */
+  capability?: GameZoneCapability;
+  /** The session party — the booking-roster chips derive selected/disabled
+   *  state from it (session truth, remount-proof). */
   party?: PartyMember[];
-  /** Parent dispatches addPartyMember — a tapped booking-roster chip lands the
-   *  person on the session party, so every later people step is prefilled. */
+  /** Parent dispatches addPartyMember — the booking's roster AUTO-LINKS
+   *  through this the moment it resolves (and a re-tapped chip re-adds), so
+   *  every later people step is prefilled. */
   onPartyAdd?: (member: PartyMember) => void;
   /** Parent dispatches removePartyMember — called ONLY for members this
    *  screen's chips added (removePartyMember cascade-clears assignments). */
@@ -309,7 +316,9 @@ export function KioskCodeEntry({
   const [leaveWarn, setLeaveWarn] = useState(false);
   // "Start picking" with a booking party offered but NOBODY selected → ask
   // first (owner 2026-08-02). Print/Done paths are exempt — cards don't care
-  // who's playing.
+  // who's playing. Since the roster auto-links (2026-08-30) this only fires
+  // after the guest removed every auto-added chip — kept as the safety net
+  // for exactly that deliberate case.
   const [pickWarn, setPickWarn] = useState(false);
   // "Add another" starts as a compact button (owner 2026-08-02: the always-
   // open panel ate the bottom of the screen and clipped the list). Expanding
@@ -332,13 +341,15 @@ export function KioskCodeEntry({
   }, []);
   const noDispenseReportedRef = useRef(false);
   useEffect(() => {
-    if (canDispenseCards || pendingGzCards.length === 0 || noDispenseReportedRef.current) return;
+    if (capability !== "none" || pendingGzCards.length === 0 || noDispenseReportedRef.current) {
+      return;
+    }
     noDispenseReportedRef.current = true;
     clarityEvent("kiosk:receipt:no-dispenser");
     console.warn(
-      `[kiosk] card voucher accepted on a NO-DISPENSER kiosk — guest directed to front kiosk / Guest Services`,
+      `[kiosk] card voucher accepted on a kiosk with NO card hardware — guest directed to another Game Zone kiosk / Guest Services`,
     );
-  }, [canDispenseCards, pendingGzCards.length]);
+  }, [capability, pendingGzCards.length]);
   /** Native codes already handled this session — a re-scan is a no-op. Seeded
    *  with everything the parent already holds so a remount can't re-add it. */
   const processedNativeRef = useRef<Set<string>>(
@@ -412,6 +423,43 @@ export function KioskCodeEntry({
     // Mount-only: later scans call loadVoucherRoster directly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // AUTO-LINK the roster the moment it lands (owner 2026-08-30: "we already
+  // know who is on it — no need to ask / look up / create profiles again").
+  // Every person a scanned voucher's booking knows joins the session party
+  // through the SAME prefill rail a chip tap uses, so a returning VIP's
+  // people are simply there at every later step — names recognised, BMI ids
+  // attached, nobody re-typed or re-minted. The chips render pre-selected and
+  // stay tap-to-REMOVE for anyone who didn't come today. Mirrors check-in's
+  // auto-load (KioskCheckinFlow, owner 2026-08-07: "why were they just not
+  // auto loaded in list"). Ref-gated per person key so a deliberate removal is
+  // never undone by a re-run; someone already on the party (phone sign-in,
+  // check-in prefill) is left alone — session truth wins, same as a tap.
+  const autoLinkedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!onPartyAdd) return;
+    const people = mergeRosters(voucherRosters);
+    if (people.length === 0) return;
+    // Accumulate adds across the loop so two rosters landing together can't
+    // hand prefillPartyMembers the same stale party and add near-duplicates.
+    const partyView = [...party];
+    const added: Record<string, string> = {};
+    for (const person of people) {
+      if (autoLinkedRef.current.has(person.key)) continue;
+      autoLinkedRef.current.add(person.key);
+      if (personChipState(person, party, addedIds).state !== "idle") continue;
+      const [member] = prefillPartyMembers(partyView, [person]);
+      if (!member) continue;
+      partyView.push(member);
+      onPartyAdd(member);
+      added[person.key] = member.id;
+    }
+    const n = Object.keys(added).length;
+    if (n === 0) return;
+    console.log(`[kiosk] receipt party: auto-linked ${n} guest(s) from booking voucher`);
+    clarityEvent("kiosk:receipt:party-autolink");
+    setAddedIds((prev) => ({ ...prev, ...added }));
+  }, [voucherRosters, party, addedIds, onPartyAdd]);
 
   /** One line per rejected code — reason + kind, never silent. */
   const logReject = (kind: string, code: string, reason: string) => {
@@ -710,13 +758,14 @@ export function KioskCodeEntry({
         return;
       }
       if (kind === "game-card") {
-        // Receipt up → an existing game card is a pointer, not a result worth
-        // replacing the guest's card list for. Inline note instead.
-        if (panelRef.current?.kind === "voucher-gamecard") {
-          setInfo(t("codeEntry.gamecard.body"));
-          return;
-        }
-        setPanel({ kind: "game-card" });
+        // NOT a destination from this screen (owner 2026-08-28: "voucher page
+        // no cards"). It used to open a panel whose button walked the guest to
+        // Game Zone; this screen is for coupons and vouchers, so a card is
+        // named and refused where they stand — no panel, no navigation. The
+        // Game Zone screens (and the attract scan, for a card we know) are
+        // where a card belongs.
+        logReject("game-card", code, "not-on-this-screen");
+        setInfo(t("codeEntry.gamecard.notHere"));
         return;
       }
       if (kind === "gift-card") {
@@ -835,6 +884,32 @@ export function KioskCodeEntry({
     [routeClassified, t, tryGroupon],
   );
 
+  /**
+   * SCANNED payloads skip the Groupon lookup entirely (owner 2026-08-28:
+   * "any scanning no longer has to check groupon first" — Groupon is TYPED on
+   * this kiosk for now, and the screen says so).
+   *
+   * The speculative lookup only ever existed because a 7-8 character code is
+   * ambiguous on shape. Taking scanning out of that guess removes the whole
+   * cost: no vendor round-trip in front of a game card, a HeadPinz voucher or
+   * a promo, and no chance of a scan being claimed by the wrong rail. The
+   * unambiguous printed `VS-` form still routes to Groupon if it is ever
+   * scanned — that shape is Groupon or nothing, so it is not a guess.
+   *
+   * Deliberately temporary: the owner expects to revisit scanning Groupons.
+   * When that returns, point `handleRaw` back at routeWithGrouponFallback.
+   */
+  const routeScanned = useCallback(
+    async (c: ReturnType<typeof classifyKioskCode>) => {
+      if (c.kind === "groupon") {
+        await routeWithGrouponFallback(c);
+        return;
+      }
+      await routeClassified(c.kind, c.value);
+    },
+    [routeClassified, routeWithGrouponFallback],
+  );
+
   const handleRaw = useCallback(
     (raw: string) => {
       // A terminal panel swallows scans; the voucher list welcomes them.
@@ -847,9 +922,9 @@ export function KioskCodeEntry({
           ? c.value
           : "",
       );
-      void routeWithGrouponFallback(c);
+      void routeScanned(c);
     },
-    [panel, routeWithGrouponFallback],
+    [panel, routeScanned],
   );
 
   /** Replay a scan that happened on an entry screen before we existed. Ref-
@@ -903,20 +978,22 @@ export function KioskCodeEntry({
    * — and, just as importantly, that redeeming the rest here is still fine.
    *
    * Informational, not an error: it uses the amber/among-friends treatment and
-   * never blocks the input. `canDispenseCards` is
-   * `gameZoneCapability(config) === "full"`, so this also covers a kiosk whose
-   * CRT is merely toggled off, not just one that never had hardware.
+   * never blocks the input. Only for `capability === "none"` — a kiosk with a
+   * swipe reader DOES hand over cards (the guest swipes a blank), and a kiosk
+   * whose CRT is merely toggled off reads as "none" too, not just one that
+   * never had hardware.
    */
-  const noDispenserNotice = canDispenseCards ? null : (
-    <div className="mt-[20px] rounded-[18px] border border-[rgba(255,176,32,0.45)] bg-[rgba(255,176,32,0.08)] px-[28px] py-[18px] text-left">
-      <div className="text-[28px] font-semibold text-[#ffb020]">
-        {t("codeEntry.noDispenser.title")}
+  const noDispenserNotice =
+    capability !== "none" ? null : (
+      <div className="mt-[20px] rounded-[18px] border border-[rgba(255,176,32,0.45)] bg-[rgba(255,176,32,0.08)] px-[28px] py-[18px] text-left">
+        <div className="text-[28px] font-semibold text-[#ffb020]">
+          {t("codeEntry.noDispenser.title")}
+        </div>
+        <div className="mt-[6px] text-[24px] leading-[1.35] text-white/70">
+          {t("codeEntry.noDispenser.body")}
+        </div>
       </div>
-      <div className="mt-[6px] text-[24px] leading-[1.35] text-white/70">
-        {t("codeEntry.noDispenser.body")}
-      </div>
-    </div>
-  );
+    );
 
   // ── Result panels ──
   if (panel) {
@@ -1087,7 +1164,7 @@ export function KioskCodeEntry({
       // its verdict to copy and callbacks.
       const plan = receiptPlan({
         cardCodes: codes.length,
-        canDispense: canDispenseCards,
+        canIssue: capability !== "none",
         cartVouchers: cartLabels.length,
         promoApplied: !!appliedPromo,
       });
@@ -1119,12 +1196,26 @@ export function KioskCodeEntry({
         }
         leaveTo("start-picking");
       };
+      // "Print" on a dispenser kiosk; "Load" on a swipe kiosk — nothing prints
+      // there, the guest swipes a blank and the tokens load onto it.
+      const swipeIssue = capability === "swipe";
       const finish =
         plan.primary === "print"
-          ? { label: t("codeEntry.voucherGz.printNow", { n: cardCount }), onClick: startPrint }
+          ? {
+              label: t(
+                swipeIssue ? "codeEntry.voucherGz.loadNow" : "codeEntry.voucherGz.printNow",
+                {
+                  n: cardCount,
+                },
+              ),
+              onClick: startPrint,
+            }
           : plan.primary === "print-continue"
             ? {
-                label: t("codeEntry.voucherGz.finishCards", { n: cardCount }),
+                label: t(
+                  swipeIssue ? "codeEntry.voucherGz.loadCards" : "codeEntry.voucherGz.finishCards",
+                  { n: cardCount },
+                ),
                 onClick: startPrint,
               }
             : plan.primary === "start-picking"
@@ -1162,9 +1253,11 @@ export function KioskCodeEntry({
                   {t("codeEntry.voucherGz.printingTitle", { n: Math.max(gzCards.length, 1) })}
                 </div>
                 <div className="mt-[4px] text-[20px] text-white/45">
-                  {canDispenseCards
+                  {capability === "full"
                     ? t("codeEntry.voucherGz.printingSub")
-                    : t("codeEntry.voucherGz.printingSubElsewhere")}
+                    : capability === "swipe"
+                      ? t("codeEntry.voucherGz.printingSubSwipe")
+                      : t("codeEntry.voucherGz.printingSubElsewhere")}
                 </div>
                 <ul className="mt-[14px] space-y-[10px]">
                   {gzGroups.map((g) => {
@@ -1198,10 +1291,11 @@ export function KioskCodeEntry({
                               })}
                             </span>
                           )}
-                          {/* Steppers only where a card can actually come out.
-                              Choosing a quantity of something this machine will
-                              not hand you is theatre. */}
-                          {canDispenseCards && (
+                          {/* Steppers only where a card can actually reach the
+                              guest (dispensed, or a swiped blank). Choosing a
+                              quantity of something this machine will not hand
+                              you is theatre. */}
+                          {capability !== "none" && (
                             <>
                               <button
                                 type="button"
@@ -1350,10 +1444,11 @@ export function KioskCodeEntry({
                 </ul>
               </section>
             )}
-            {/* Who's here from your booking? — the voucher's reservation
-                offers its people as tap-to-include chips. Selection lands on
-                the SESSION party (prefills every later people step); waiver
-                signing still happens where it always has. */}
+            {/* Your group from your booking — the voucher's reservation
+                AUTO-LINKS its people onto the SESSION party the moment the
+                roster lands (prefills every later people step); the chips
+                render pre-selected and a tap removes anyone who didn't come
+                today. Waiver signing still happens where it always has. */}
             {(partyPeople.length > 0 || partyLoading) && (
               <section>
                 {/* Until a roster actually lands, the header stays
@@ -1512,11 +1607,16 @@ export function KioskCodeEntry({
           </div>
 
           {leaveWarn && warnOnBack ? (
-            /* Back with unprinted cards: cards do NOT print later on their
-               own, so say it and offer the right exit both ways. */
+            /* Back with unissued cards: cards do NOT print / load later on
+               their own, so say it and offer the right exit both ways. */
             <div className="mt-auto rounded-[20px] border border-[#ff8c7a]/45 bg-[#ff8c7a]/[0.08] px-[28px] py-[20px]">
               <div className="text-center text-[26px] leading-[1.35] text-[#ffb3a6]">
-                {t("codeEntry.voucherGz.leaveWarn", { n: cardCount })}
+                {t(
+                  capability === "swipe"
+                    ? "codeEntry.voucherGz.leaveWarnSwipe"
+                    : "codeEntry.voucherGz.leaveWarn",
+                  { n: cardCount },
+                )}
               </div>
               <div className="mt-[16px] flex gap-[24px]">
                 <button
@@ -1533,7 +1633,12 @@ export function KioskCodeEntry({
                   {t("codeEntry.voucherGz.leaveAnyway")}
                 </button>
                 <button type="button" onClick={startPrint} className="k-btn-primary k-tap">
-                  {t("codeEntry.voucherGz.printNow", { n: cardCount })}
+                  {t(
+                    capability === "swipe"
+                      ? "codeEntry.voucherGz.loadNow"
+                      : "codeEntry.voucherGz.printNow",
+                    { n: cardCount },
+                  )}
                 </button>
               </div>
             </div>
@@ -1660,23 +1765,33 @@ export function KioskCodeEntry({
       <div className="flex h-full flex-col items-center px-[64px] pb-[40px] pt-[96px] text-center">
         <div className="k-eyebrow">{t("codeEntry.eyebrow")}</div>
         <h1 className="k-display mt-[24px] text-[84px]">{t("codeEntry.scanTitle")}</h1>
-        <p className="mt-[20px] max-w-[24ch] text-[30px] leading-[1.4] text-white/70">
+        {/* THE INSTRUCTIONS ARE THE SCREEN (owner 2026-08-28: "make
+            instructions much bigger, can make scanner image smaller"). A guest
+            holding a Groupon and a guest holding a HeadPinz voucher do two
+            DIFFERENT things here, and the old copy said neither — it described
+            the scanner. Both paths are now named, at a size that reads from
+            arm's length, and the scan target shrinks to make room: it is an
+            affordance, not the content. */}
+        <p className="mt-[24px] max-w-[22ch] text-[42px] font-semibold leading-[1.25] text-white/90">
           {t("codeEntry.scanHint.body")}
+        </p>
+        <p className="mt-[20px] max-w-[24ch] text-[34px] font-semibold leading-[1.3] text-[#ffb020]">
+          {t("codeEntry.groupon.typeOnly")}
         </p>
         {noDispenserNotice}
 
-        {/* The scan target — dead center. The kiosk's scanner sits below the
-            screen; the pulsing frame is the "present it here" affordance. */}
+        {/* The scan target — the kiosk's scanner sits below the screen; the
+            pulsing frame is the "present it here" affordance. */}
         <div className="flex min-h-0 flex-1 items-center justify-center">
-          <div className="relative h-[460px] w-[460px]">
-            <span className="absolute left-0 top-0 h-[88px] w-[88px] rounded-tl-[28px] border-l-[10px] border-t-[10px] border-[#00e2e5]" />
-            <span className="absolute right-0 top-0 h-[88px] w-[88px] rounded-tr-[28px] border-r-[10px] border-t-[10px] border-[#00e2e5]" />
-            <span className="absolute bottom-0 left-0 h-[88px] w-[88px] rounded-bl-[28px] border-b-[10px] border-l-[10px] border-[#00e2e5]" />
-            <span className="absolute bottom-0 right-0 h-[88px] w-[88px] rounded-br-[28px] border-b-[10px] border-r-[10px] border-[#00e2e5]" />
-            <div className="absolute inset-[28px] flex items-center justify-center rounded-[20px] border border-dashed border-[rgba(0,226,229,0.3)]">
-              <ScanGlyph size={200} />
+          <div className="relative h-[300px] w-[300px]">
+            <span className="absolute left-0 top-0 h-[60px] w-[60px] rounded-tl-[22px] border-l-[8px] border-t-[8px] border-[#00e2e5]" />
+            <span className="absolute right-0 top-0 h-[60px] w-[60px] rounded-tr-[22px] border-r-[8px] border-t-[8px] border-[#00e2e5]" />
+            <span className="absolute bottom-0 left-0 h-[60px] w-[60px] rounded-bl-[22px] border-b-[8px] border-l-[8px] border-[#00e2e5]" />
+            <span className="absolute bottom-0 right-0 h-[60px] w-[60px] rounded-br-[22px] border-b-[8px] border-r-[8px] border-[#00e2e5]" />
+            <div className="absolute inset-[22px] flex items-center justify-center rounded-[16px] border border-dashed border-[rgba(0,226,229,0.3)]">
+              <ScanGlyph size={130} />
             </div>
-            <div className="absolute inset-x-[36px] top-1/2 h-[6px] rounded-full bg-[#00e2e5] shadow-[0_0_30px_rgba(0,226,229,0.9)] motion-safe:animate-pulse" />
+            <div className="absolute inset-x-[26px] top-1/2 h-[5px] rounded-full bg-[#00e2e5] shadow-[0_0_24px_rgba(0,226,229,0.9)] motion-safe:animate-pulse" />
           </div>
         </div>
 
@@ -1702,6 +1817,11 @@ export function KioskCodeEntry({
     <div className="flex h-full flex-col px-[64px] pb-[40px] pt-[104px]">
       <div className="k-eyebrow">{t("codeEntry.eyebrow")}</div>
       <h1 className="k-display mt-[24px] text-[80px]">{t("codeEntry.title")}</h1>
+      {/* The other half of the steer on the scan screen: this IS where a
+          Groupon number goes. */}
+      <p className="mt-[10px] text-[26px] leading-[1.35] text-white/60">
+        {t("codeEntry.groupon.typeHere")}
+      </p>
       {noDispenserNotice}
 
       <input

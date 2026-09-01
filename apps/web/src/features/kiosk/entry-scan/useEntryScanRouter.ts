@@ -10,22 +10,23 @@
  * one conditional lookup, flag gating, and the toast.
  *
  * HOW MANY ROUND TRIPS. Most routable outcomes need ZERO network: a game card,
- * a BMI voucher, and a structurally-certain reservation handle (signed URL, /s
- * link, W-number) all go straight to their screen. A certain reservation
- * deliberately does NOT pre-resolve — the check-in flow runs the same lookup on
- * arrival and already has proper copy for every failure (not found / cancelled
- * / needs OTP) plus the phone and browse fallbacks, so pre-flighting it here
- * would only add latency and duplicate that copy.
+ * either voucher shape, and a structurally-certain reservation handle (signed
+ * URL, /s link, W-number) all go straight to their screen. A certain
+ * reservation deliberately does NOT pre-resolve — the check-in flow runs the
+ * same lookup on arrival and already has proper copy for every failure (not
+ * found / cancelled / needs OTP) plus the phone and browse fallbacks, so
+ * pre-flighting it here would only add latency and duplicate that copy.
  *
  * TWO outcomes must spend a lookup, both for the same reason — the payload's
  * DESTINATION is a database fact, not a code shape:
  *
- *   resolve-then-code-entry  an `HPW` voucher (does it carry a `bill_id`?) or a
- *                            bare 6–16-char token (reservation short code, or a
- *                            coupon that merely looks like one). `ok === true`
- *                            means it IS a reservation — including
+ *   resolve-then-code-entry  a bare 6–16-char token: a reservation short code,
+ *                            or a coupon that merely looks like one. `ok ===
+ *                            true` means it IS a reservation — including
  *                            `reason: "needs-otp"`, an unproven-but-real
- *                            booking — so that is the whole test.
+ *                            booking — so that is the whole test. An `HPW`
+ *                            voucher was ALSO on this path until 2026-08-31;
+ *                            it is now decided by shape (see classify-entry).
  *   racer                    a licence/member code identifies a PERSON. Whether
  *                            that person has a booking here today decides
  *                            between check-in and sign-in, and only the server
@@ -35,6 +36,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { classifyEntryScan, type UnsupportedReason } from "./classify-entry";
 import { stashEntryScan } from "./handoff";
 import { lookupByScan } from "../checkin/service";
+import { accountFromScan, cardIsKnown } from "../service/scanned-card";
 import { gameZoneCapability, type KioskConfig } from "../config";
 import { kioskCheckinEnabled, kioskPromoEnabled } from "../flags";
 import { voucherRedeemEnabled } from "~/features/booking/service/voucher-redeem";
@@ -119,11 +121,32 @@ export function useEntryScanRouter(host: EntryScanRouterHost) {
           setMiss(route.reason);
           return;
 
-        case "game-card":
+        case "game-card": {
           if (!gameZoneOn) return setMiss("no-destination");
-          stashEntryScan({ target: "game-card", raw: route.raw, value: route.value });
-          h.goGameCard();
+          // KNOWN cards only (owner 2026-08-28). The attract screen must not
+          // move a guest anywhere on a card it cannot account for: an unknown
+          // number used to land on the balance screen, fail there, and — on an
+          // MSR kiosk — read as "looks like a new card", offering to SELL a
+          // card off an unrecognised scan. Setting a new card up is now reached
+          // deliberately from the New cards screen and nowhere else, so this
+          // resolves and verifies FIRST and simply says "not recognised" when
+          // it cannot. One lookup, and only for a card-shaped payload.
+          setBusy(true);
+          try {
+            const acct = await accountFromScan(route.value);
+            if (!acct) return setMiss("unknown");
+            const known = await cardIsKnown(acct, h.config);
+            if (known === "no") return setMiss("unknown");
+            // "unsure" (Intercard unreachable) still routes: a lookup outage
+            // must not turn a guest with a real card away at the door — the
+            // balance screen re-runs it and owns the failure copy.
+            stashEntryScan({ target: "game-card", raw: route.raw, value: acct });
+            h.goGameCard();
+          } finally {
+            setBusy(false);
+          }
           return;
+        }
 
         case "code-entry":
           if (!codeEntryOn) return setMiss("no-destination");

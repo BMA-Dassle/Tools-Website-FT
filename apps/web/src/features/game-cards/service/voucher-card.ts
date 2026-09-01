@@ -130,6 +130,11 @@ export async function claimGameCardVoucher(input: {
   locationCode: number;
   center: string | null | undefined;
   kioskId?: string | null;
+  /** Swipe kiosk: the blank the guest swiped BEFORE this claim — persisted on
+   *  the row now, not at load, so a load that never arrives still leaves a
+   *  creditable row (persist-first). Dispenser kiosks leave it unset: the
+   *  account is read off the blank as it's dispensed. */
+  accountNumber?: string | null;
 }): Promise<VoucherRedeemResult> {
   const code = input.code.trim().toUpperCase();
   const resolved = await resolveGameCardComp(input);
@@ -169,7 +174,9 @@ export async function claimGameCardVoucher(input: {
       groupId,
       kind: "voucher",
       locationCode: input.locationCode,
-      accountNumber: "", // read off the blank as it's dispensed
+      // "" on a dispenser kiosk (read off the blank as it's dispensed); the
+      // swiped blank's number on a swipe kiosk.
+      accountNumber: input.accountNumber?.trim() || "",
       packageId: grant.packageId,
       tokens: grant.tokens,
       bonusTokens: grant.bonusTokens,

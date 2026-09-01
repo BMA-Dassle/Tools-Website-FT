@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { guestPatchSchema } from "~/features/reservations-admin/schemas";
 import { updateGuestContactService } from "~/features/reservations-admin/service";
+import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
 /**
  * PATCH /api/admin/reservations/guest?token=…
@@ -17,8 +18,7 @@ import { updateGuestContactService } from "~/features/reservations-admin/service
  */
 export async function PATCH(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
-  const expected = process.env.ADMIN_CAMERA_TOKEN || "";
-  if (!expected || token !== expected) {
+  if (!(await isAdminApiRequest(req, { token: token }))) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

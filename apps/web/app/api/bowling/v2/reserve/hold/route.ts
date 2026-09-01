@@ -10,6 +10,12 @@ import {
   midnightMadnessWindowError,
 } from "~/features/booking/service/bowling-offer";
 import { FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
+import {
+  freeLaneCandidates,
+  immediateLaneGuardEnabled,
+  isImmediateStart,
+} from "~/features/booking/service/immediate-lane-guard";
+import { createWithLanePlan, describePinOutcome } from "~/features/lane-plan/pin";
 
 /**
  * POST /api/bowling/v2/reserve/hold
@@ -117,17 +123,36 @@ export async function POST(req: NextRequest) {
     console.warn("[bowling/v2/reserve/hold] duration guard errored (fail-open):", err);
   }
 
+  // AVAILABILITY GUARD. QAMF auto-assigns off the SCHEDULE and fills from the lowest lane
+  // number up; it never reads which lanes are physically running. For a guest starting now
+  // that hands over a lane the previous group is still on — a kiosk walk-up was given
+  // FastTrax lane 1 on 2026-08-31 with seven lanes free. Candidates here come only from
+  // lanes nobody is on. With no opinion, this creates exactly as it always did.
+  const candidates =
+    immediateLaneGuardEnabled() && isImmediateStart(Date.parse(bookedAt), Date.now())
+      ? await freeLaneCandidates({ centerId, players })
+      : [];
+
   try {
-    const reservation = await createReservation(centerId, {
-      BookedAt: bookedAt,
-      Title: `Hold (${players}p)`,
-      WebOffer: {
-        Id: webOfferId,
-        Options: qamfOptions,
-        Services: [service],
-      },
-      TotalPlayers: players,
+    const outcome = await createWithLanePlan({
+      candidates,
+      create: (lanes) =>
+        createReservation(centerId, {
+          BookedAt: bookedAt,
+          Title: `Hold (${players}p)`,
+          WebOffer: {
+            Id: webOfferId,
+            Options: qamfOptions,
+            Services: [service],
+          },
+          TotalPlayers: players,
+          ...(lanes ? { Lanes: lanes.map((LaneNumber) => ({ LaneNumber })) } : {}),
+        }),
     });
+    const reservation = outcome.reservation;
+    if (candidates.length) {
+      console.log(`[bowling/v2/reserve/hold] ${reservation.Id} ${describePinOutcome(outcome)}`);
+    }
 
     return NextResponse.json({
       qamfReservationId: reservation.Id,

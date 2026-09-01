@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listGfQuotes } from "@/lib/group-function-db";
+import { isAdminCredential } from "@/lib/admin-request-auth";
 
 /**
  * GET /api/admin/group-functions/pending-approvals?token=...
@@ -7,11 +8,9 @@ import { listGfQuotes } from "@/lib/group-function-db";
  * Returns all group function quotes awaiting management approval (post-paid accounts).
  */
 
-const ADMIN_TOKEN = process.env.ADMIN_CAMERA_TOKEN || "";
-
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") || "";
-  if (!ADMIN_TOKEN || token !== ADMIN_TOKEN) {
+  if (!(await isAdminCredential(token))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

@@ -32,6 +32,7 @@
  * Pure derivation only — fetching lives in the admin reservations route.
  */
 import { etWallMs } from "./format";
+import { etOffsetForLocalDate } from "@/lib/et-time";
 
 /** Where a race heat sits in the track's real lifecycle. */
 export type RaceLiveState = "finished" | "on_track" | "called" | "not_called";
@@ -256,11 +257,11 @@ export function raceSettleGate(args: {
   return { eligible: true, reason };
 }
 
-/** Naive ET ISO → real epoch ms, using the same month-approx DST offset as
+/** Naive ET ISO → real epoch ms, using the same IANA-derived DST offset as
  *  race-dayof-pay's bmiStartEpoch (deliberate parity — the gate and the cron
- *  must agree on when "start + grace" falls). */
+ *  must agree on when "start + grace" falls; both moved off the month
+ *  approximation together so that parity is preserved). */
 function etNaiveEpochMs(iso: string): number {
-  const month = Number(iso.slice(5, 7));
-  const offset = month >= 3 && month <= 11 ? "-04:00" : "-05:00"; // EDT vs EST (approx)
-  return Date.parse(iso.replace(/Z$/, "") + offset);
+  const naive = iso.replace(/Z$/, "");
+  return Date.parse(naive + etOffsetForLocalDate(naive));
 }

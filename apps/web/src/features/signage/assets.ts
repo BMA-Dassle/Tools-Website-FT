@@ -66,6 +66,88 @@ export const TV_PHOTOS = {
 } as const;
 
 /**
+ * THE VIP WALL ARTWORK — five transparent PNGs that make ONE picture across the
+ * five front-desk panels, left to right.
+ *
+ * Index IS wall position: 0 names the product, 4 carries the QR, and the three
+ * between them are the middle of the sentence. They are laid over a photograph
+ * rather than being complete pictures in themselves — the design is gold artwork
+ * with the venue showing through, which is the whole reason they are PNG and not
+ * JPEG (a JPEG re-encode flattens the alpha to black and hides the photo).
+ *
+ * Uploaded by `scripts/upload-tv-wall-vip-slides.mjs`, which pins these
+ * pathnames — a re-export overwrites in place and these URLs keep working. The
+ * words and numbers burned into the pixels are pinned to the live pack by
+ * VIP_ART_CLAIMS in wall-content.ts; read that before changing either.
+ */
+const VIP_SLIDE_BLOB = (n: number) => `${BLOB_HOST}/images/tv-wall/vip-s1-p${n}.png`;
+
+export const TV_WALL_VIP_ART: readonly string[] = [1, 2, 3, 4, 5].map(
+  (n) => tvImg(VIP_SLIDE_BLOB(n))!,
+);
+
+/**
+ * THE WALL'S MOVING PICTURES — the site's own marketing reels, on the pricing panels
+ * (owner 2026-09-01: "the pricing boards can show video of what they're selling").
+ *
+ * These are the SAME FILES the public website plays, referenced rather than re-cut, so
+ * a re-shoot that lands on headpinz.com reaches the wall with it. Raw blob URLs and NOT
+ * `tvImg` — that is the image optimizer, and it neither handles nor should be handed a
+ * video; these are fetched once into Cache Storage instead (see useWallFilms).
+ *
+ * Each panel's list is what IT alternates between, one file per turn.
+ */
+/**
+ * THE NEXUS ARENA REEL, CUT TO 18 SECONDS (owner 2026-09-01, who knew where to cut).
+ *
+ * The master on the marketing share runs 26.9s and its tail is two things a guest wall
+ * must never show: a franchise-sales map ("75+ locations contracted by the end of 2025")
+ * and then a "COMING SOON!" card — for an attraction that is open, priced and bookable
+ * in this building today. Everything before 18s is arena footage of both games.
+ *
+ * Cut, stripped of audio and re-encoded by `scripts/upload-tv-wall-film.mjs`, which pins
+ * this pathname so a re-cut overwrites in place and this URL keeps working.
+ *
+ * Used TWICE, deliberately shared rather than copied: the front-desk wall's Nexus
+ * pricing panel, and the arena check-in board's dead time.
+ */
+export const NEXUS_REEL = `${BLOB_HOST}/videos/tv-wall/nexus-hero-18s.mp4`;
+
+export const TV_WALL_FILMS = {
+  /**
+   * The reel behind the VIP Experience section on headpinz.com/fort-myers, alternating
+   * with the NeoVerse lane reel — the two halves of what a VIP lane actually looks like,
+   * which is what the bowling panel is selling.
+   *
+   * The HyperBowling one is CUT AT 31.7s (owner 2026-09-01: "the end logo needs cut
+   * out"). Past that the web version runs a HYPER BOWLING logo card and then a HeadPinz
+   * "NOW EXCLUSIVELY AVAILABLE AT… RESERVE YOUR LANES TODAY!" end card — a call to
+   * action that makes sense at the end of a page and not on a loop, where it would sit
+   * on the wall for six of every thirty-two seconds telling a guest already standing in
+   * the building to come to the building.
+   */
+  bowling: [
+    `${BLOB_HOST}/videos/tv-wall/hyperbowling-32s.mp4`,
+    `${BLOB_HOST}/videos/headpinz-neoverse-v2.mp4`,
+  ],
+  /** The Nexus arena reel — see NEXUS_REEL. */
+  nexus: [NEXUS_REEL],
+  /**
+   * The reel behind the party packages section, CUT AT 27s (owner 2026-09-01).
+   *
+   * Past that it leaves the arcade entirely: eight seconds of AXE THROWING — cages,
+   * wooden targets, a tablet showing "Standard Axe Throwing Rules", "LANE 3" on the
+   * wall — and then a HeadPinz card over bowling lanes. Neither is Game Zone, and this
+   * panel is the one selling Game Zone. Everything kept is arcade: the Game Zone
+   * entrance, the rides, racing cabinets, air hockey, the crane machines, basketball,
+   * Connect 4 Hoops and the ring toss.
+   */
+  gameZone: [`${BLOB_HOST}/videos/tv-wall/gamezone-27s.mp4`],
+  /** The FastTrax home-page hero. Genuinely lives under /images/hero/ — not a typo. */
+  fastTrax: [`${BLOB_HOST}/images/hero/hero-video.mp4`],
+} as const;
+
+/**
  * One advertised thing.
  *
  * `productKeys` is what ties a slide to the maintenance gate: when a vendor is

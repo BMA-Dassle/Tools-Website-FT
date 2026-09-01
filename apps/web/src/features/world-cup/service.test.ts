@@ -231,7 +231,7 @@ describe("staff strings", () => {
 
   it("QAMF banner leads with the match", () => {
     expect(worldCupQamfBanner(findFixture("r16-6")!)).toBe(
-      "*** WORLD CUP: USA vs Belgium — Mon, Jul 6 8 PM (2.5-hr window, paid online) ***",
+      "*** WORLD CUP: USA vs Belgium — Mon, Jul 6 8 PM (3-hr window, paid online) ***",
     );
   });
 });

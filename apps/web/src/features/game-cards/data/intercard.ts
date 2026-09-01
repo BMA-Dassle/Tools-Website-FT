@@ -491,9 +491,16 @@ export async function verifyAccount(
 
   const resultRaw = extractTag(resp, "AcountHistoryWithPhotoXMLResult");
   const result = resultRaw == null ? NaN : Number(resultRaw);
-  // Non-zero result or no balance block → treat as not found (do not charge).
+  // Non-zero result or no balance block → not found (do not charge). HOW we
+  // know matters to the swipe-to-buy rail (blank-card.ts): probed LIVE
+  // 2026-08-28 — an account Intercard has never seen answers result **1** with
+  // an all-zero <AccountBalance> (Firstused 0001-01-01, no <statusText>); a
+  // real card answers 0 with statusText Active/Expired; -1 is a server
+  // exception and -2 an unregistered MAC. Only the 1 is a CONFIRMED absence
+  // (a blank card has no account until its first credit); everything else is
+  // ambiguous and must never be sold as "new".
   if (result !== 0 || !/<(?:\w+:)?AccountBalance\b/.test(resp)) {
-    return { exists: false, accountNumber };
+    return { exists: false, accountNumber, notFound: result === 1 ? "confirmed" : "ambiguous" };
   }
 
   const num = (tag: string): number => {
@@ -508,6 +515,10 @@ export async function verifyAccount(
     eTickets: num("PointBalance"),
     timeMinutes: num("TPLY_Duration"),
   };
+  // Cash buckets (dollars) — not part of CardBalance (nothing displays them),
+  // but a card holding cash is somebody's card: the swipe-to-buy blank check
+  // must not read it as empty stock.
+  const cashBalance = num("CashBalance") + num("BonusCashBalance");
   const rawName = (extractTag(resp, "Name") || "").replace(/[\s,]+/g, " ").trim();
 
   // Recent activity: each <AccountTransactions> block carries per-transaction
@@ -533,5 +544,12 @@ export async function verifyAccount(
       location: (extractTag(b, "Location") || "").trim(),
     }));
 
-  return { exists: true, accountNumber, balance, name: rawName || undefined, transactions };
+  return {
+    exists: true,
+    accountNumber,
+    balance,
+    name: rawName || undefined,
+    transactions,
+    ...(cashBalance > 0 ? { cashBalance } : {}),
+  };
 }

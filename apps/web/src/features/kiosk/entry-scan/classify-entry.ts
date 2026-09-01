@@ -28,13 +28,23 @@
  * ignored and the payload falls through to the reservation classifier, whose
  * own catch-all then lands on the ambiguous path.
  *
- * WHAT CANNOT BE DECIDED HERE. An `HPW` voucher is meaningful two ways: one
- * minted at booking carries `vouchers.bill_id` and proves a reservation (the
- * VIP combo QR), while a standalone comp voucher is purely redeemable. That is
- * a database fact, not a code shape, so it becomes `resolve-then-code-entry`:
- * the caller tries the reservation lookup and falls back to the code screen.
- * Bare 6–16-char tokens are ambiguous for the same structural reason and take
- * the same path. Owner decision 2026-08-02: "decide by bill_id".
+ * WHY AN `HPW` VOUCHER GOES STRAIGHT TO REDEMPTION. It is meaningful two ways
+ * — one minted at booking carries `vouchers.bill_id` and so also identifies a
+ * reservation (the VIP combo QR), while a standalone comp is purely redeemable
+ * — and it used to be `resolve-then-code-entry` so the server could decide by
+ * `bill_id` (owner 2026-08-02). That routed the booking-minted ones to CHECK-IN,
+ * which is wrong for the payload: `/v/{code}` is the REDEMPTION link, and the
+ * booking already has its own reservation QR in the same email for checking in.
+ * Every VIP grant carries a `bill_id`, so the divert fired on 100% of them and
+ * the redemption screen — the only surface that names the game-card and
+ * laser-tag legs, and the only one that seeds the party onto the PERSISTED
+ * kiosk session — was unreachable by scanning the QR printed for it.
+ * (Check-in's own roster auto-load writes to a local, non-persisted reducer, so
+ * the divert did not seed the booking flow either.) Measured before changing
+ * it: 340 completed kiosk check-ins, exactly ONE ever reached via a scanned
+ * code — so the diverted path was carrying no traffic worth preserving. Owner
+ * approved the reversal 2026-08-31. Bare 6–16-char tokens stay ambiguous for a
+ * genuinely structural reason and keep the resolve-first path.
  *
  * WHY A RACER HANDLE IS A URL AND NEVER A BARE CODE. A BMI login code is ~13
  * alphanumeric characters (`3tn4d694p6z94`), which is exactly `SHORT_CODE_RE`
@@ -58,13 +68,16 @@ export type EntryScanRoute =
    *  W-number). A miss is a real miss — never falls back to the code screen. */
   | { kind: "reservation"; value: string; raw: string }
   /** A voucher or coupon. `KioskCodeEntry` re-classifies the raw payload, so
-   *  BMI vouchers, native vouchers and promos all share this destination. */
+   *  BMI vouchers, native vouchers and promos all share this destination —
+   *  which also auto-links a booking-minted voucher's party onto the session. */
   | { kind: "code-entry"; value: string; raw: string }
   /** An Intercard game card → Game Zone. `value` is the account number, kept a
    *  STRING (Intercard accounts exceed float-safe ranges upstream). */
   | { kind: "game-card"; value: string; raw: string }
   /** Could be either. Try the reservation lookup; on a miss, open the code
-   *  screen with `raw`. Covers HPW vouchers and bare short tokens. */
+   *  screen with `raw`. Bare 6–16-char tokens only — a reservation short code
+   *  and a promo code share that shape exactly. (HPW vouchers used to ride
+   *  this too; they now go straight to `code-entry` — see the header.) */
   | { kind: "resolve-then-code-entry"; value: string; raw: string }
   /** A racer identifying themselves — the SMS-Timing app QR or our `/r/{code}`
    *  wallet-licence barcode. `value` is the Office search token. Resolves to a
@@ -157,6 +170,11 @@ export function classifyEntryScan(input: string): EntryScanRoute {
   const code = classifyKioskCode(raw);
   switch (code.kind) {
     case "game-card":
+      // A card scan goes to Game Zone, full stop. It briefly diverted an
+      // ambiguous digit run to the code screen so Groupon could be tried
+      // first; that is gone with scanning-checks-Groupon (owner 2026-08-28 —
+      // Groupon is typed for now), and keeping it would send padded CARD scans
+      // on a detour for a lookup that no longer happens.
       return { kind: "game-card", value: code.value, raw };
     case "gift-card":
       return { kind: "unsupported", reason: "gift-card", raw };
@@ -164,8 +182,11 @@ export function classifyEntryScan(input: string): EntryScanRoute {
       // 24 chars of strict letter/digit alternation — cannot be anything else.
       return { kind: "code-entry", value: code.value, raw };
     case "native-voucher":
-      // HPW: redeemable, but a booking-minted one also proves a reservation.
-      return { kind: "resolve-then-code-entry", value: code.value, raw };
+      // HPW is OURS and unmistakable, so it needs no lookup to place: the
+      // voucher screen redeems it AND auto-links its booking's party. A
+      // booking-minted one also identifies a reservation, but check-in is
+      // reached by that booking's own QR — see the header.
+      return { kind: "code-entry", value: code.value, raw };
     case "promo":
     case "unknown":
       break; // fall through — pass 2 owns these
@@ -194,8 +215,9 @@ export function classifyEntryScan(input: string): EntryScanRoute {
         ? { kind: "reservation", value: scan.value, raw }
         : { kind: "resolve-then-code-entry", value: scan.value, raw };
     case "voucher":
-      // Pass 1 already caught every HPW form; defensive only.
-      return { kind: "resolve-then-code-entry", value: scan.value, raw };
+      // Pass 1 already caught every HPW form; defensive only. Same destination
+      // as pass 1's, so the two classifiers cannot disagree about a voucher.
+      return { kind: "code-entry", value: scan.value, raw };
     case "code":
       // The opaque-reservationCode catch-all. Try the booking index, but let a
       // long coupon code that landed here still reach the code screen.

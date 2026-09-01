@@ -181,7 +181,8 @@ export function SalesLeadForm({
   const [eventType, setEventType] = useState(defaultEventType);
   const [preferredDate, setPreferredDate] = useState("");
   const [preferredTime, setPreferredTime] = useState("");
-  const [guestCount, setGuestCount] = useState<string>("15");
+  /** Starts empty — no default headcount is pre-filled for the guest. */
+  const [guestCount, setGuestCount] = useState<string>("");
   const [activityInterest, setActivityInterest] = useState<string[]>([]);
   const [preferredContactMethod, setPreferredContactMethod] = useState<ContactMethod>("phone");
   const [bestTimeToCall, setBestTimeToCall] = useState<BestTime>("Afternoon");
@@ -270,8 +271,9 @@ export function SalesLeadForm({
    *
    * Threshold flips on event type; reset ack when threshold no longer
    * violated so a later re-trigger warns again. Fires on the Step 1
-   * "Continue" click rather than on mount so the default guestCount
-   * ("15", below the group threshold) doesn't ambush the user.
+   * "Continue" click rather than on change so the guest isn't warned
+   * mid-typing (e.g. the "1" of "15"). An empty field counts as 0, so it
+   * never warns — Continue stays disabled until a count is entered.
    */
   const guestMinimum = eventType === "birthday-kid" ? 12 : 20;
   const belowMinimum = Number(guestCount) > 0 && Number(guestCount) < guestMinimum;
@@ -585,6 +587,7 @@ export function SalesLeadForm({
                     min={1}
                     max={500}
                     required
+                    placeholder="How many guests?"
                     value={guestCount}
                     onChange={(e) => setGuestCount(e.target.value)}
                     className={inputCls(accent)}

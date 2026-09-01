@@ -23,7 +23,7 @@ function megaColumnHeading(): string {
 export const metadata: Metadata = {
   title: "Go-Kart Racing Prices, Combos & Packages – FastTrax Fort Myers",
   description:
-    "FastTrax go-kart racing rates: Adults from $20.99, Juniors from $15.99, Mini Karts from $9.99. Combo deals with gel blaster, bowling & arcade. Cheaper than Topgolf, more thrilling than Dave & Buster's. Book online at Fort Myers' best entertainment value.",
+    "FastTrax go-kart racing rates: Adults from $20.99, Juniors from $15.99. Combo deals with gel blaster, bowling & arcade. Cheaper than Topgolf, more thrilling than Dave & Buster's. Book online at Fort Myers' best entertainment value.",
   keywords: [
     "go kart prices Fort Myers",
     "indoor go kart cost",
@@ -326,32 +326,6 @@ export default function PricingPage() {
                     style={{ fontSize: "16px", color: "rgb(255,255,255)" }}
                   >
                     $20.99
-                  </td>
-                </tr>
-                <tr style={{ backgroundColor: "rgba(7,16,39,0.6)" }}>
-                  <td
-                    className="px-5 py-4 font-body"
-                    style={{ fontSize: "16px", color: "rgb(255,255,255)" }}
-                  >
-                    Mini Karts (Ages 4-6)
-                  </td>
-                  <td
-                    className="px-5 py-4 font-body"
-                    style={{ fontSize: "16px", color: "rgb(255,255,255)" }}
-                  >
-                    $9.99
-                  </td>
-                  <td
-                    className="px-5 py-4 font-body"
-                    style={{ fontSize: "16px", color: "rgb(255,255,255)" }}
-                  >
-                    $14.99
-                  </td>
-                  <td
-                    className="px-5 py-4 font-body"
-                    style={{ fontSize: "16px", color: "rgb(255,255,255)" }}
-                  >
-                    N/A
                   </td>
                 </tr>
               </tbody>

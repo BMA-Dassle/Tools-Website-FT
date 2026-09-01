@@ -24,7 +24,9 @@ interface PersistedEnvelope {
   session: BookingSession;
 }
 
-function readSession(storageKey: string, schemaVersion: number): BookingSession | null {
+/** Exported for tests (the kiosk crew page round-trips a party through this
+ *  envelope) — production reads go through the hook / peekBookingSession. */
+export function readSession(storageKey: string, schemaVersion: number): BookingSession | null {
   try {
     const raw = sessionStorage.getItem(storageKey);
     if (!raw) return null;

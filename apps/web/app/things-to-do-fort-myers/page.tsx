@@ -41,7 +41,7 @@ export const metadata: Metadata = {
 const activities = [
   {
     title: "Indoor electric kart racing",
-    body: "Florida's largest indoor electric kart track runs year-round in climate control. Adult, Junior, and Mini classes welcome ages 3+.",
+    body: "Florida's largest indoor electric kart track runs year-round in climate control. Adult and Junior classes welcome ages 7+.",
     href: "/racing",
   },
   {
@@ -84,7 +84,7 @@ const byOccasion = [
   },
   {
     heading: "Kids birthday party?",
-    body: "Mini karts for ages 3-6, bowling packages, arcade, laser tag. Packages available for 10-60+ guests.",
+    body: "Junior karts from age 7, bowling packages, arcade, laser tag. Packages available for 10-60+ guests.",
     href: "/group-events",
   },
   {
@@ -99,7 +99,7 @@ const byOccasion = [
   },
   {
     heading: "Family with young kids?",
-    body: "Mini karts start at age 3. Indoor setting means no sun exposure, no heat, no mosquitoes.",
+    body: "Junior karts start at age 7. Indoor setting means no sun exposure, no heat, no mosquitoes.",
     href: "/attractions",
   },
   {

@@ -27,6 +27,7 @@ import {
   resolveKioskPacks,
   type KioskPackSelection,
 } from "~/features/booking/service/race-pack-kiosk";
+import { computeBogoScheduledFree } from "~/features/booking/service/bogo-scheduled";
 import { redeemedHeatSet } from "~/features/booking/data/race-credits";
 import { getBookingAddon } from "~/features/booking/data/addon-catalog";
 import {
@@ -1334,11 +1335,46 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
         /* same fail-open as packs — the reserve is the enforcement point */
       }
     }
+    // BOGO Wednesdays — every 2nd scheduled race free: the same rule the
+    // charge builder prices with, differenced against THIS item's own lines
+    // (the packs/vouchers pattern above), so the Est. total can't drift from
+    // the pay screen. Same coverage order too: credits → packs → vouchers →
+    // BOGO on the cash remainder.
+    let bogoFreeTotal = 0;
+    if (!session.comboSpecialId) {
+      try {
+        let base = redeemedHeatSet(session);
+        if (kioskRacePacksEnabled() && (item.creditPacks?.length ?? 0) > 0) {
+          const packs = resolveKioskPacks(item.creditPacks ?? [], session.party, {
+            raceDate: item.date ?? null,
+          });
+          const cov = computePackCoverage(session, packs, base);
+          if (cov.heats.size > 0) base = new Set([...base, ...cov.heats]);
+        }
+        if (sessionVouchers(session).length > 0) {
+          const vHeats = planVoucherCoverage(session, base).raceHeats;
+          if (vHeats.size > 0) base = new Set([...base, ...vHeats]);
+        }
+        const bogo = computeBogoScheduledFree(session.items, session.party, base);
+        if (bogo.heats.size > 0) {
+          const sumLines = (ex: Set<RaceHeatAssignment>) =>
+            applyPromoToBillLines(raceItemChargeLines(item, ex), session.appliedPromo).reduce(
+              (s, l) => s + l.amount,
+              0,
+            );
+          bogoFreeTotal =
+            Math.round((sumLines(base) - sumLines(new Set([...base, ...bogo.heats]))) * 100) / 100;
+        }
+      } catch {
+        /* same fail-open — the reserve prices authoritatively */
+      }
+    }
     return (
       raceLinesTotal +
       packsTotal -
       packCoveredTotal -
-      voucherCoveredTotal +
+      voucherCoveredTotal -
+      bogoFreeTotal +
       licenseTotal +
       povTotal +
       addonsTotal +

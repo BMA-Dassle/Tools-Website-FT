@@ -1,9 +1,11 @@
 /**
- * Load value onto ONE just-dispensed card (buy flow phase 2, and voucher
- * redemption) or report a reload.
+ * Load value onto ONE new card (buy flow phase 2, and voucher redemption) or
+ * report a reload. The new card is either a blank the DISPENSER just pulled
+ * from its stacker, or — on an MSR-only kiosk — a blank the GUEST took from
+ * the holder under the screen and swiped (`swiped: true`).
  *
  * For a PAID row the charge already happened up front (chargeNewCardOrder) —
- * this attaches the account read off the dispensed blank to its ledger row and
+ * this attaches the account read off the blank to its ledger row and
  * credits it. Keyed by the row's stable `tpi_transaction_id` (Intercard
  * dedups), so a retry is safe. A load that doesn't confirm leaves a `pending`
  * row for the reconcile cron — never an auto-refund (same recover-forward
@@ -24,7 +26,8 @@ import { getCenter } from "~/config/intercard-centers";
 import { GameCardHttpError } from "../errors";
 import type { LoadCardInput } from "../schemas";
 import type { CardBalance, TxnKind } from "../types";
-import { clearAccount, verifyAccount } from "../data/intercard";
+// Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
+import { clearAccount, verifyAccount } from "../data/intercard-router";
 import { getTxn, markLoadState, setTxnAccount } from "../data/transactions-log";
 import { getLiveClaimForTxn } from "../data/voucher-claims-db";
 import { applyCreditPlan, creditPlanForRow, planIsEmpty } from "./credit-plan";
@@ -105,34 +108,37 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
     }
   }
 
-  // new_card: attach the account read off the blank (the row was charged with an
-  // empty account). reload: the account was known at purchase — guard it matches
-  // rather than overwrite, so a mixed-up client payload can't credit a stranger.
-  if (isFreshBlank) {
-    await setTxnAccount(input.txnId, input.accountNumber);
-  } else if (row.accountNumber && row.accountNumber !== input.accountNumber) {
+  // Any row that ALREADY carries an account — a reload (known at purchase) or a
+  // swiped blank (persisted at prepare / claim, persist-first) — must be loaded
+  // onto THAT account: guard it matches rather than overwrite, so a mixed-up
+  // client payload can't redirect a paid credit to a stranger's card. Only a
+  // dispenser blank (account "" until the CRT reads it) attaches its account here.
+  if (row.accountNumber && row.accountNumber !== input.accountNumber) {
     throw new GameCardHttpError(
       400,
       "ACCOUNT_MISMATCH",
       "The card doesn't match this transaction.",
     );
   }
+  /**
+   * A card the GUEST presented (swiped on an MSR-only kiosk) rather than a
+   * blank the dispenser pulled from its stacker. Known two ways: the client
+   * says so (`swiped`), or — stronger, the server's own record — the fresh-
+   * blank row already carried its account before this call, which only a
+   * swipe kiosk does. Either way it is never clear-on-encoded (below).
+   */
+  const guestPresented = !!input.swiped || (isFreshBlank && !!row.accountNumber);
+  if (isFreshBlank && !row.accountNumber) {
+    await setTxnAccount(input.txnId, input.accountNumber);
+  }
 
   let loaded = false;
-  if (input.preLoaded) {
-    // The kiosk PC's on-prem bridge already credited the tokens via the local
-    // EIS server — record it, do NOT re-credit through the cloud SOAP path
-    // (the two paths don't share dedup, so double-crediting must be avoided).
-    loaded = true;
-    console.log(
-      `[game-cards] new-card load via on-prem bridge txn=${row.txnId} card=${input.accountNumber}`,
-    );
-  } else {
+  {
     // Clear-on-encode (GC_CLEAR_ON_ENCODE): de-register the card's existing
     // account BEFORE crediting (clearAccount → TPI_ClearAccount), so a RECYCLED
     // card can't stack old value on top of the new load — the credit then
     // re-materializes the account clean (behavior confirmed live 2026-07-23, see
-    // clearAccount). Cloud/SOAP path only (preLoaded=false) and cards taken from
+    // clearAccount). Cards taken from
     // the STACKER only (paid new_card or comped voucher — both are recycled
     // stock) — NEVER a reload (that would wipe the guest's own balance). If the
     // clear doesn't confirm, we must NOT credit (would over-credit an uncleared
@@ -140,12 +146,22 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
     // it, and the kiosk retains the blank + routes to an attendant (payment is
     // safe). (Owner 2026-07-22: the vendor's 24h-before-reuse guidance is
     // intentionally ignored here — clears immediately before the credit.)
-    if (isFreshBlank && process.env.GC_CLEAR_ON_ENCODE === "1") {
+    //
+    // NEVER for a guest-PRESENTED card (swiped on an MSR-only kiosk, 2026-08-28):
+    // the guest took a blank from the holder and swiped it, so the card is theirs
+    // to choose. A true blank has no account to clear; and if the blank check was
+    // wrong and the card carries value, wiping it would destroy a guest's balance
+    // to add the tokens they just paid for — stacking is the harmless outcome,
+    // clearing is not. So a swiped card only ever gains value here.
+    if (isFreshBlank && !guestPresented && process.env.GC_CLEAR_ON_ENCODE === "1") {
       let clearOk = false;
       try {
         const { code } = await clearAccount({
           accountNumbers: [input.accountNumber],
           locationCode: input.locationCode,
+          // The onsite transport stamps an id on every transaction; reuse the
+          // row's txn id so a replay is attributable to this same encode.
+          tpiTransactionID: `clear-${row.txnId}`,
         });
         clearOk = code === 0;
         if (!clearOk) {
@@ -192,7 +208,7 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
     input.txnId,
     loaded ? "loaded" : "pending",
     loaded ? undefined : "load not confirmed",
-    loaded ? (input.preLoaded ? "kiosk_bridge" : "soap") : undefined,
+    loaded ? "soap" : undefined,
   );
 
   let balance: CardBalance | undefined;

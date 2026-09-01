@@ -114,6 +114,9 @@ export async function POST(req: NextRequest) {
       locationCode: parsed.data.locationCode,
       center: parsed.data.center,
       kioskId: parsed.data.kioskId,
+      // Swipe kiosk (no dispenser): the blank the guest already swiped for this
+      // leg — persisted on the comped row at claim (persist-first).
+      accountNumber: parsed.data.accountNumber,
       source: "kiosk",
     });
     return jsonOk({ ...result });

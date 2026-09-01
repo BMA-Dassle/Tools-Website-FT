@@ -34,6 +34,7 @@ import {
   type LocationKey,
 } from "~/features/booking/service/attractions";
 import { getStaticProducts } from "@/app/book/race/data";
+import { etOffsetForLocalDate } from "@/lib/et-time";
 import { isProductPaused } from "~/features/maintenance";
 import { kioskExperienceAvailEnabled } from "../flags";
 import type { FirstOpen } from "./first-available";
@@ -314,13 +315,12 @@ async function qamfFirstOpenToday(
 
 /** Server-safe ms for BMI's zone-less ET wall-clock ("2026-07-19T22:30:00").
  *  The kiosk client leans on the PC clock being ET; this runs on UTC Lambdas,
- *  so the ET offset is applied explicitly (same month-based DST approximation
- *  the bowling availability route uses). */
+ *  so the ET offset is applied explicitly — from the IANA database, matching
+ *  the bowling availability route. (Both used to share a month-based
+ *  approximation that mis-called all of November as EDT.) */
 function naiveEtStartMs(start: string): number {
   const naive = start.replace(/Z$/, "").replace(/[+-]\d{2}:\d{2}$/, "");
-  const month = parseInt(naive.slice(5, 7), 10);
-  const tz = month >= 3 && month <= 11 ? "-04:00" : "-05:00";
-  return new Date(`${naive}${tz}`).getTime();
+  return new Date(`${naive}${etOffsetForLocalDate(naive)}`).getTime();
 }
 
 /** The EARLIEST future slot with capacity today for one BMI product, or null if

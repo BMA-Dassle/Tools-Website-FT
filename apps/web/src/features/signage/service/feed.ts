@@ -23,6 +23,7 @@ import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
 import { displayNameFromFull } from "@/lib/display-name";
 import { loadSignageScreen } from "../data/signage-screens-db";
 import { parseScreenKey, VENUE_INFO, type SignageVenue } from "../constants";
+import { NEXUS_REEL } from "../assets";
 import {
   signageEventsKey,
   readSignageEvents,
@@ -44,11 +45,13 @@ import { buildWelcomeBoard } from "./welcome";
 import { resolveResultsBoard } from "./results-board.server";
 import { resolveTopTimes } from "./top-times.server";
 import {
+  arenaBoardEnabled,
   briefingEnabled,
   cameraReturnBarEnabled,
   raceGuideEnabled,
   resultsBoardEnabled,
 } from "../flags";
+import { readCalledArenaSessions, readUpcomingArenaSessions } from "../arena/arena-sessions.server";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
 import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
 import { resolveWelcomeBack } from "../briefing/welcome-back.server";
@@ -131,6 +134,7 @@ export async function buildTvFeed(
     raceGuide: null,
     bowlingTonight: null,
     bowlingCheckins: null,
+    arena: null,
     pausedProductIds: safePaused(),
     nextAvailable: null,
     reloadAt: null,
@@ -207,6 +211,11 @@ export async function buildTvFeed(
       ? config.raceGuide.tracks
       : [];
   const configuredResultsTrack = config.resultsBoard?.track ?? null;
+  // THE ARENA BOARD, declared by its own config key rather than inferred from
+  // the playlist — the playlist here is adverts, which every screen has. Reading
+  // the section for a lobby TV would be a Pandora call per poll for a board that
+  // cannot show it.
+  const wantsArena = arenaBoardEnabled() && config.arenaBoard !== null;
   const wantsResults =
     resultsBoardEnabled() &&
     configuredResultsTrack !== null &&
@@ -249,6 +258,7 @@ export async function buildTvFeed(
     guideSection,
     bowlingTonight,
     bowlingCheckins,
+    arena,
   ] = await Promise.all([
     track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
     wantsWelcome
@@ -295,6 +305,10 @@ export async function buildTvFeed(
       : Promise.resolve(null),
     wantsBowling ? buildBowlingTonight(parsed.venue, now).catch(() => null) : Promise.resolve(null),
     wantsCheckins ? buildBowlingCheckins(parsed.venue).catch(() => null) : Promise.resolve(null),
+    // Cached per venue inside the reader, so two arena boards in one building
+    // cost one Pandora call — and, more to the point, cannot show two different
+    // answers about the same call.
+    wantsArena ? buildArenaSection(parsed.venue, now).catch(() => null) : Promise.resolve(null),
   ]);
 
   // Has the heat on the track board already been sent to a briefing room? One
@@ -334,6 +348,7 @@ export async function buildTvFeed(
     raceGuide: guideSection,
     bowlingTonight,
     bowlingCheckins,
+    arena,
     // `vip` (the bowling-leg takeover) lands with the next scene.
     vip: null,
     // Null events mean we could not ask — the welcome entry then self-skips
@@ -376,17 +391,19 @@ async function buildBowlingCheckins(venue: SignageVenue): Promise<TvFeed["bowlin
     checkedIn.push({ name, lanes, laneReady: !!r.laneReadySentAt });
   }
 
-  // ONLY THE ONES WHOSE LANE IS AVAILABLE. A guest who is due but whose lane is not ready
-  // cannot complete self check-in, so listing them would send them to a kiosk that turns
-  // them away — and the board that sent them is the last thing they trust afterwards.
+  // EVERYONE DUE IN THE NEXT HOUR, each carrying whether their lane is ready (owner
+  // 2026-09-01). This used to drop the not-ready ones outright, on the 2026-08-19 rule
+  // that a guest sent to a kiosk which refuses them never trusts the board again — a
+  // rule that still stands, and which the SCENE now honours by saying "not ready yet"
+  // rather than by hiding the row. Silently omitting a guest who is standing in the
+  // lobby reads as "we have no record of you", which is its own kind of wrong.
   //
-  // An EMPTY readiness set therefore empties this column, which is deliberate: it means
-  // either nobody is ready or the cron has not run, and both of those are "do not invite
-  // anybody". The column has designed copy for it.
+  // An empty readiness set now means every row says "not ready yet" instead of the
+  // column going blank — which is the truth when the cron has not run, and is also why
+  // nothing here treats a missing entry as an error.
   const available: NonNullable<TvFeed["bowlingCheckins"]>["available"] = [];
   for (const r of due) {
     const entry = ready.get(r.id);
-    if (!entry) continue;
     const name = displayNameFromFull(r.guestName ?? "");
     if (!name) continue;
     // Their booked time in ET wall-clock — the TIME RULE this file documents for the
@@ -395,8 +412,15 @@ async function buildBowlingCheckins(venue: SignageVenue): Promise<TvFeed["bowlin
     const timeLabel = fmtTime12(toEtWallClock(r.bookedAt)) ?? "";
     if (!timeLabel) continue;
     // The cron's lane numbers win: they are what QAMF said at readiness time, whereas
-    // `dayof_order_lane` is only written once the lane actually opens.
-    available.push({ name, timeLabel, lanes: entry.lanes || laneList(r.dayofOrderLane) });
+    // `dayof_order_lane` is only written once the lane actually opens. A row with no
+    // readiness entry carries no lane number at all — quoting one for a lane that is
+    // not ready would be the invitation this column must not make.
+    available.push({
+      name,
+      timeLabel,
+      lanes: entry ? entry.lanes || laneList(r.dayofOrderLane) : "",
+      laneReady: !!entry,
+    });
   }
 
   // Null only when there is nothing to say on EITHER side. The scene has designed copy for
@@ -627,6 +651,66 @@ async function buildBriefingSection(
       cameraReturn,
     },
     rooms,
+  };
+}
+
+/**
+ * What an HP Arena check-in board needs: what has just been called, and the
+ * films it plays while nothing has.
+ *
+ * BOTH HALVES IN ONE SECTION on purpose. They change on wildly different
+ * timescales — a call every fifteen minutes, an upload a handful of times a year
+ * — but splitting them would mean a second null to reason about on a board that
+ * has exactly one job, and the manifest read is one small Neon SELECT that the
+ * briefing section already pays on every poll for the same reason: a cache
+ * between an upload and the wall is precisely why somebody would stand in front
+ * of a TV wondering where their new video went.
+ *
+ * `calls` ships UNFILTERED by age. The hold window is the client's to apply
+ * (`activeArenaCalls`), so the rule that decides how long an instruction stays
+ * on a wall lives in one pure, tested function instead of being half-enforced
+ * here and half-enforced there.
+ */
+async function buildArenaSection(
+  venue: SignageVenue,
+  nowMs: number,
+): Promise<NonNullable<TvFeed["arena"]>> {
+  const [calls, upcoming, assets] = await Promise.all([
+    readCalledArenaSessions(venue, nowMs).catch(() => []),
+    // Its own slower cache inside the reader, so a whole-day schedule read does
+    // not ride the 15-second poll.
+    readUpcomingArenaSessions(venue, nowMs).catch(() => []),
+    loadSignageAssetsSafe(),
+  ]);
+  const laser = assets["arena-video:laser-tag"];
+  const gel = assets["arena-video:gel-blaster"];
+  /**
+   * THE HOUSE REEL IS DEFAULTED HERE, IN THE FEED, and that placement is the fix
+   * rather than a detail.
+   *
+   * It was defaulted on the client, and the arena board went BLANK on the glass
+   * (owner 2026-09-01: "Laser tag board is completly blank"). The players do not
+   * reload on deploy, so that TV was running the PREVIOUS bundle — which filters the
+   * activities down to those with an uploaded film and renders nothing when none has
+   * one — against the NEW stored playlist, which no longer carries the house ad slides
+   * it used to fall back to. Old client, new config, empty screen.
+   *
+   * A default in the feed cannot be skewed that way: every client version, however
+   * old, is simply handed a film and plays it. The feed is the contract between the
+   * server and a browser of unknown age, and anything a screen must never be without
+   * belongs on this side of it.
+   *
+   * `durationMs: null` because the cut's length is not something this side measures —
+   * nothing on the arena board reads it, and inventing a number would be worse.
+   */
+  const house = { url: NEXUS_REEL, durationMs: null };
+  return {
+    calls,
+    upcoming,
+    films: {
+      "laser-tag": laser ? { url: laser.url, durationMs: laser.durationMs } : house,
+      "gel-blaster": gel ? { url: gel.url, durationMs: gel.durationMs } : house,
+    },
   };
 }
 

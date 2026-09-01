@@ -897,7 +897,7 @@ type RacingDiscountFor = (racerId?: string | null) => { percent: number; label: 
 const NO_DISCOUNT: RacingDiscountFor = () => ({ percent: 0, label: null });
 
 /** Raw per-racer racing discount (% + label) from the racer's active memberships
- *  (Employee Pass 50%, League Racer 20%, …). Credit-redemption status is NOT a
+ *  (Employee Pass 50%; League Racer 20% retired 2026-09-01). Credit-redemption status is NOT a
  *  factor: a redeeming racer keeps the discount on any heats they pay cash for,
  *  and `applyCreditRedemptionsToOverview` attributes each credit to the matching
  *  (productId, discount%) line — so displayed == charged whether they redeem all,
@@ -1077,7 +1077,7 @@ export function buildRaceChargeLines(
   if (comboLines) lines.push(...comboLines);
 
   // Per-racer racing discount from the racer's own active BMI memberships (e.g.
-  // Employee Pass 50%, League Racer 20%). ONLY the membership-holder's own heats
+  // Employee Pass 50%; League Racer 20% retired 2026-09-01). ONLY the membership-holder's own heats
   // are discounted — others on the bill pay full price. A redeeming racer KEEPS
   // the discount on any heats they pay cash for; the credit-redeemed heats are
   // attributed to this same (productId, discount%) line by

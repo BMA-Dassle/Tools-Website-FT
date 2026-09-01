@@ -558,7 +558,7 @@ function DeviceTab({
         </p>
       </Field>
       <Toggle
-        label="Game Zone card reader (MSR) — reload only"
+        label="Game Zone card reader (MSR) — swipe to buy, reload, check balance"
         on={!!draft.msrEnabled}
         onToggle={(v) => patch({ msrEnabled: v })}
       />
@@ -567,7 +567,7 @@ function DeviceTab({
         {draft.cardReaderEnabled && draft.dispenserId
           ? "CRT-591 enabled + dispenser present → full Game Zone (buy + reload); MSR ignored."
           : draft.msrEnabled
-            ? "MSR only → Game Zone is RELOAD ONLY on this kiosk."
+            ? "MSR only → Game Zone: NEW cards by swipe (keep blank stock in the holder under the screen) + reload + balance check."
             : "No enabled CRT-591 or MSR → Game Zone cards are UNAVAILABLE on this kiosk."}
       </p>
       <SectionLabel>Cameras</SectionLabel>

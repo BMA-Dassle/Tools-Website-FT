@@ -1,15 +1,15 @@
 import { notFound } from "next/navigation";
-import { adminPoppins } from "~/components/features/admin-skin/font";
-import DiscountCodesClient from "./DiscountCodesClient";
+import AdminToolPage from "@/app/admin/_tools/discount-codes/AdminToolPage";
 
 /**
- * Admin: Discount-code management.
+ * v1: `/admin/{ADMIN_CAMERA_TOKEN}/discount-codes`.
  *
- * Token-gated by middleware (ADMIN_CAMERA_TOKEN). The page just unwraps the
- * route param and hands the (already-validated) token to the client so it can
- * authenticate its API calls.
+ * The static token in the path is the credential. Kept alongside the SSO route
+ * at `/admin/discount-codes` (same component, no credential in the URL) per the
+ * v2 cutover pattern; the middleware 307s this URL to the clean one.
  *
- * URL: /admin/{ADMIN_CAMERA_TOKEN}/discount-codes
+ * The token check below is belt-and-braces with the middleware's unified gate,
+ * unchanged from before the split.
  */
 
 export const dynamic = "force-dynamic";
@@ -21,9 +21,6 @@ export default async function Page({ params }: Props) {
   const { token } = await params;
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!expected || token !== expected) notFound();
-  return (
-    <div className={adminPoppins.variable}>
-      <DiscountCodesClient token={token} />
-    </div>
-  );
+
+  return <AdminToolPage />;
 }

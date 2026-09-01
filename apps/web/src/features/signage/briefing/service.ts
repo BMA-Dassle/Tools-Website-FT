@@ -514,6 +514,16 @@ export interface BriefingBoardStatus {
    *  and a lingering room is simply not narrated. */
   welcomeBackLingerAudioUrl: string | null;
   /**
+   * The HP Arena promo films — null until uploaded.
+   *
+   * Carried on the BRIEFING board's payload, which reads oddly until you see
+   * what this field is for: it is the ADMIN asset manager's state, and that one
+   * component owns every slot in `signage_assets`. Reporting the arena films
+   * from a second endpoint would mean two places that can disagree about
+   * whether a file exists. The briefing ROOMS never read this.
+   */
+  arenaVideoUrls: { "laser-tag": string | null; "gel-blaster": string | null };
+  /**
    * THE PIT LANE, PER TRACK — who is in holding, who is out racing, and whether
    * the lane is still held (owner 2026-08-13).
    *
@@ -794,6 +804,10 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     helmetPosterUrl: assets["briefing-helmet-poster"]?.url ?? null,
     welcomeBackAudioUrl: assets["welcome-back-audio"]?.url ?? null,
     welcomeBackLingerAudioUrl: assets["welcome-back-linger-audio"]?.url ?? null,
+    arenaVideoUrls: {
+      "laser-tag": assets["arena-video:laser-tag"]?.url ?? null,
+      "gel-blaster": assets["arena-video:gel-blaster"]?.url ?? null,
+    },
     lanes,
     autoHolding: { enabled: autoHolding },
     greetingByMotion: { enabled: greetingByMotion },

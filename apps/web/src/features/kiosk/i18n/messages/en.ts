@@ -67,9 +67,9 @@ export const en = {
   "categories.attr.eyebrow": "{count, plural, one {# attraction} other {# attractions}}",
   "categories.attr.blurb.naples": "Bowling, gel blasters, laser tag & more — pick a time and go",
   "categories.attr.blurb.default": "Racing, bowling, blasters & more — pick a time and go",
-  "categories.gameZone.eyebrow.reload": "Reload · check balance",
+  // One tile copy for dispenser AND swipe kiosks — both buy + reload + balance
+  // (owner 2026-08-28: no-dispenser kiosks sell new cards by swipe).
   "categories.gameZone.eyebrow.full": "Reload · buy · 1 to 10 cards",
-  "categories.gameZone.blurb.reload": "Reload your arcade card or check its balance — no waiting",
   "categories.gameZone.blurb.full": "Buy or reload arcade tokens — no waiting",
   "categories.disabled.experience":
     "Not available right now — please check back or ask an attendant.",
@@ -164,6 +164,10 @@ export const en = {
   "confirmation.done": "Done — start over",
   "confirmation.dispensing": "Dispensing your cards…",
   "confirmation.dispensingHint": "Grab each card as it comes out — we’ll finish up automatically.",
+  // Kiosk without a dispenser: the guest swipes a blank per card instead.
+  "confirmation.loadingCards": "Loading your cards…",
+  "confirmation.loadingCardsHint":
+    "Swipe each new card when asked — we’ll finish up automatically.",
   "confirmation.returningIn": "Returning to start in {seconds}s — touch anywhere to stay",
   "confirmation.raceCheckin.eyebrow": "Race check-in",
   "confirmation.raceCheckin.title": "What to expect",
@@ -327,8 +331,20 @@ export const en = {
   "codeEntry.inputLabel": "Coupon or voucher code",
   "codeEntry.placeholder": "Tap here to type it",
   "codeEntry.scanHint.lead": "Or scan it",
+  // NAME the two paths (owner 2026-08-28). "Vouchers" alone left a guest with a
+  // Groupon waving it at a reader that will never recognise it. Brand nouns
+  // (HeadPinz, FastTrax, Groupon) stay English in both catalogs.
   "codeEntry.scanHint.body":
-    "Hold the code under the screen — paper coupons, e-mail QR codes and vouchers all work.",
+    "Scan a HeadPinz or FastTrax voucher, or a printed coupon — hold it under the screen.",
+  // Groupon is TYPED on this kiosk: its short code is 7-8 characters with
+  // nothing to separate it from a promo or a card number, so scanning no
+  // longer guesses.
+  "codeEntry.groupon.typeOnly": "Groupon? Don’t scan it — tap “Type the code instead” below.",
+  "codeEntry.groupon.typeHere": "Groupon numbers are typed here.",
+  // A Game Zone card scanned on the coupon screen: named, and refused where the
+  // guest stands. This screen is coupons and vouchers; cards belong to Game Zone.
+  "codeEntry.gamecard.notHere":
+    "That's a Game Zone card — use the Game Zone screen for cards. This screen is for coupons and vouchers.",
   "codeEntry.apply": "Apply code",
   "codeEntry.back": "‹ Back",
   "codeEntry.checking": "Checking your code…",
@@ -395,11 +411,13 @@ export const en = {
   // The session promo shown INLINE on the receipt (a coupon scanned/typed
   // mid-receipt must never replace the guest's card list).
   "codeEntry.voucherGz.promoRow": "applies at checkout",
-  // "Who's here from your booking?" — a reservation-linked voucher offers the
-  // booking's people as tap-to-include chips (prefills the session party).
-  "codeEntry.voucherGz.partyTitle": "Who’s here from your booking?",
+  // "Your group is already in" — a reservation-linked voucher AUTO-LINKS the
+  // booking's people onto the session party the moment its roster resolves
+  // (no re-asking, no re-typing); the chips render pre-selected and a tap
+  // removes anyone who didn't come today.
+  "codeEntry.voucherGz.partyTitle": "Your group is already in",
   "codeEntry.voucherGz.partySub":
-    "Tap everyone playing today — we’ll have their names ready at every step.",
+    "Everyone from your booking is loaded — their names will be ready at every step. Tap anyone who isn’t here today to take them off.",
   // The roster lookup runs through BMI and can take most of a minute — the
   // section shows the branded loader meanwhile, under a header that doesn't
   // promise a booking we haven't found yet.
@@ -417,6 +435,12 @@ export const en = {
   // "& continue" (there's an order to go back to); no dispenser → Done.
   "codeEntry.voucherGz.finishCards": "Print my {n, plural, one {card} other {# cards}} & continue",
   "codeEntry.voucherGz.printNow": "Print my {n, plural, one {card} other {# cards}}",
+  // Kiosk without a dispenser (swipe kiosk): nothing prints — the guest swipes a
+  // blank from the holder and the tokens LOAD onto it.
+  "codeEntry.voucherGz.loadCards": "Load my {n, plural, one {card} other {# cards}} & continue",
+  "codeEntry.voucherGz.loadNow": "Load my {n, plural, one {card} other {# cards}}",
+  "codeEntry.voucherGz.printingSubSwipe":
+    "Take a blank card from the holder below — you’ll swipe it at the Game Zone screen",
   "codeEntry.voucherGz.done": "Done",
   // This kiosk has no dispenser — cards are collected elsewhere; the voucher
   // stays live (nothing was claimed here).
@@ -450,6 +474,8 @@ export const en = {
   // the pink home-screen tile is the way back.
   "codeEntry.voucherGz.leaveWarn":
     "{n, plural, one {Your game card hasn’t printed yet} other {Your # game cards haven’t printed yet}}. Nothing prints on its own later — the pink button on the home screen brings you back here.",
+  "codeEntry.voucherGz.leaveWarnSwipe":
+    "{n, plural, one {Your game card hasn’t been loaded yet} other {Your # game cards haven’t been loaded yet}}. Nothing loads on its own later — the pink button on the home screen brings you back here.",
   "codeEntry.voucherGz.leaveAnyway": "Leave anyway",
   "codeEntry.giftcard.title": "That’s a gift card",
   "codeEntry.giftcard.body":

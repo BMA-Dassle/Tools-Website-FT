@@ -3,6 +3,7 @@ import { sql, isDbConfigured } from "@/lib/db";
 import { type GroupFunctionQuote } from "@/lib/group-function-db";
 import { serviceChargeCentsFromLineItems } from "@/lib/service-charge";
 import { firePortalWebhook, type PortalWebhookEvent } from "@/lib/portal-webhook";
+import { isAdminCredential } from "@/lib/admin-request-auth";
 
 /**
  * Admin: re-fire portal webhooks so the portal re-pulls events and grabs their
@@ -23,11 +24,9 @@ import { firePortalWebhook, type PortalWebhookEvent } from "@/lib/portal-webhook
  * Only events that actually have a service charge are re-fired.
  */
 
-const ADMIN_TOKEN = process.env.ADMIN_CAMERA_TOKEN || "";
-
 export async function POST(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") || "";
-  if (!ADMIN_TOKEN || token !== ADMIN_TOKEN) {
+  if (!(await isAdminCredential(token))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (!isDbConfigured()) {

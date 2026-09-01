@@ -74,12 +74,14 @@ import {
   kioskMergedCheckoutEnabled,
   kioskCheckoutUpsellEnabled,
   kioskCheckinEnabled,
+  kioskCrewEnabled,
   kioskGroupWaiverEnabled,
   kioskGzCartEnabled,
   kioskPromoEnabled,
   kioskRaceInfoEnabled,
   kioskRaceSimEnabled,
 } from "../flags";
+import { IconChevronRight } from "@tabler/icons-react";
 import { KioskCheckoutScreen } from "./KioskCheckoutScreen";
 import { abandonActiveSplit } from "./split/split-session-registry";
 import { KioskCheckoutUpsell } from "./KioskCheckoutUpsell";
@@ -118,6 +120,7 @@ import { useKioskAvailability } from "../hooks/useKioskAvailability";
 import { KioskHoldBar } from "./KioskHoldBar";
 import { KioskVipOverview } from "./KioskVipOverview";
 import { KioskGameZone } from "./KioskGameZone";
+import { KioskDispenserPrewarm } from "./KioskDispenserPrewarm";
 import { KioskRacePackFlow } from "./KioskRacePackFlow";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { clearPackageForCategory } from "~/features/booking/service/package-selection";
@@ -267,6 +270,7 @@ const STEP_TITLE_KEYS: Record<string, MessageKey> = {
   Time: "stepTitle.time",
   Bowlers: "stepTitle.bowlers",
   Package: "stepTitle.package",
+  "Pick Your Game": "stepTitle.pickYourGame",
   "Who's bowling?": "stepTitle.whosBowling",
   "Who's playing?": "stepTitle.whosPlaying",
   "Who's racing?": "stepTitle.whosRacing",
@@ -309,6 +313,7 @@ const STEP_REASON_KEYS: Record<string, MessageKey> = {
   "Tap a time to hold your lane": "stepReason.holdLane",
   "Verify your KBF pass first": "stepReason.verifyKbf",
   "Pick your match to hold a VIP lane": "stepReason.worldCupMatch",
+  "Pick your game to hold a VIP lane": "stepReason.nflGame",
   "Pick a start time": "stepReason.comboStart",
   "Choose new or returning racer to continue.": "stepReason.raceEntryMode",
   "Add at least one racer to continue.": "stepReason.addRacer",
@@ -689,6 +694,40 @@ export function KioskFlow({
     if (handoff) void Promise.resolve().then(() => setEntryScanHandoff(handoff));
   }, []);
 
+  /**
+   * Pick up a scan stashed by the router a moment ago — the mount effect above
+   * CANNOT (owner 2026-08-28: a card scanned on the chooser landed on the Game
+   * Zone menu instead of its balance). Coming from the attract screen this
+   * component mounts fresh and the effect reads the stash; scanning on the
+   * chooser or a shelf, it is already mounted, the effect has long since run
+   * and found nothing, and the payload sat in sessionStorage unread. So the
+   * destination callbacks consume it at the moment they open the screen.
+   * Harmless from the attract path: the mount effect already cleared the key,
+   * so this is a no-op there.
+   */
+  const takeHandoff = (target: EntryScanHandoff["target"]) => {
+    const h = consumeEntryScan(target);
+    if (h) setEntryScanHandoff(h);
+  };
+
+  // A hand-off belongs to the ONE visit to the screen it opened. Drop it once
+  // that screen closes, so re-opening by TAP starts on the chooser instead of
+  // replaying a card the guest already finished with. `sessionStorage` was
+  // cleared on read, so only this state needs it — and only AFTER a delivery:
+  // clearing whenever nothing is open would race the mount effect above, which
+  // loads the attract-screen payload a microtask before `?goto=` opens the
+  // screen it was addressed to. The ref is that "has been delivered" bit.
+  const handoffDeliveredRef = useRef(false);
+  useEffect(() => {
+    if (codeEntryOpen || gzOpen) {
+      handoffDeliveredRef.current = true;
+      return;
+    }
+    if (!handoffDeliveredRef.current) return;
+    handoffDeliveredRef.current = false;
+    void Promise.resolve().then(() => setEntryScanHandoff(null));
+  }, [codeEntryOpen, gzOpen]);
+
   // Scan-to-start on the chooser + the two shelves. Same router the attract
   // screen uses; only the navigation differs — from here the code screen and
   // Game Zone open IN PLACE, no route change. `codeEntryAvailable` mirrors the
@@ -698,15 +737,34 @@ export function KioskFlow({
     config,
     codeEntryAvailable: promoEnabled || voucherRedeem,
     goCheckin: () => router.push("/kiosk/checkin"),
+    // Take the hand-off BEFORE opening the screen. React batches both setStates
+    // into one render either way, but the order makes that irrelevant: the
+    // destination must never mount for even one render with the payload still
+    // missing, because it reads it in a `useState` initializer (which screen to
+    // open on) that never runs again.
     goCodeEntry: () => {
       clarityEvent("kiosk:code:open");
+      takeHandoff("code-entry");
       setCodeEntryOpen(true);
     },
     goGameCard: () => {
       clarityEvent("kiosk:gamezone:open");
+      takeHandoff("game-card");
       setGzVoucherCodes(null);
       setGzOpen(true);
     },
+    // A racer scanning on the chooser with nothing booked today → the crew
+    // page, where the people step claims the stashed `racer` hand-off itself.
+    // Omitted (not undefined-spread) when the crew kill switch is off, so the
+    // router falls back to the `racer-signed-in` toast — the pre-crew behavior.
+    ...(kioskCrewEnabled()
+      ? {
+          goRacerSignIn: () => {
+            clarityEvent("kiosk:crew:open");
+            router.push("/kiosk/racers");
+          },
+        }
+      : {}),
   });
 
   // Post-hydration seeding: center from device config; ?goto= deep link.
@@ -1467,26 +1525,48 @@ export function KioskFlow({
   // already shows, and the cart link duplicated the footer's Cart pill. The hold
   // countdown rides the right in `inline` mode — same warn/urgent colours and
   // Extend affordance it had as its own band.
+  // The WHO half is a door to /kiosk/racers ("Your Crew" — add/manage players
+  // outside any purchase). ONLY the left span is the button: KioskHoldBar stays
+  // a sibling with its own Extend button, so nothing nests (a11y). With the
+  // crew kill switch off, the strip reverts to the plain non-interactive span.
+  const crewDoor = kioskCrewEnabled();
+  const openCrew = () => {
+    clarityEvent("kiosk:crew:open");
+    router.push("/kiosk/racers");
+  };
+  const bannerWho = (
+    <>
+      <span className="h-[12px] w-[12px] shrink-0 rounded-full bg-[#46d68c]" aria-hidden="true" />
+      {mainGuest ? (
+        <span className="truncate">
+          {t("flow.banner.signedIn")} <strong className="text-white">{mainGuest.firstName}</strong>
+        </span>
+      ) : (
+        <span className="truncate">{t("flow.banner.visitInProgress")}</span>
+      )}
+    </>
+  );
   const sessionBanner =
     (session.party.length > 0 || cartCount > 0 || hasGameCards || showHoldBar) &&
     !cartActive &&
     !checkoutActive &&
     !upsellActive ? (
       <div className="k-glass mx-[48px] mt-[12px] flex shrink-0 items-center gap-[18px] px-[28px] py-[10px] text-left">
-        <span className="flex min-w-0 flex-1 items-center gap-[14px] text-[22px] text-white/70">
-          <span
-            className="h-[12px] w-[12px] shrink-0 rounded-full bg-[#46d68c]"
-            aria-hidden="true"
-          />
-          {mainGuest ? (
-            <span className="truncate">
-              {t("flow.banner.signedIn")}{" "}
-              <strong className="text-white">{mainGuest.firstName}</strong>
-            </span>
-          ) : (
-            <span className="truncate">{t("flow.banner.visitInProgress")}</span>
-          )}
-        </span>
+        {crewDoor ? (
+          <button
+            type="button"
+            aria-label={t("crew.banner.manage")}
+            onClick={openCrew}
+            className="k-tap flex min-w-0 flex-1 items-center gap-[14px] text-left text-[22px] text-white/70"
+          >
+            {bannerWho}
+            <IconChevronRight size={26} className="shrink-0 text-white/40" aria-hidden="true" />
+          </button>
+        ) : (
+          <span className="flex min-w-0 flex-1 items-center gap-[14px] text-[22px] text-white/70">
+            {bannerWho}
+          </span>
+        )}
         {showHoldBar && (
           <KioskHoldBar
             ref={timerRef}
@@ -1659,6 +1739,14 @@ export function KioskFlow({
           shares, so this is the only place it can be mounted once and be true for
           all of them. */}
       {debugOn && <KioskDebugPanel />}
+      {/* Open the card dispenser BEFORE the guest taps Game Zone, so the
+          handshake doesn't happen behind a loader they're watching. Mounted in
+          `chrome` for the same reason the debug panel is — it's the one wrapper
+          every return path shares. Gated OFF while Game Zone is open: that
+          screen runs its own dispenser instance, and the reader's busy mutex is
+          per instance, so the two must never be live at once (unmounting here
+          PARKS the connection, which is exactly what Game Zone then adopts). */}
+      <KioskDispenserPrewarm enabled={!gzOpen} />
       {/* Before <IdleWatcher/>: the idle "Still there?" sheet is the same
           z-[80] — as the later sibling it must paint ON TOP of this confirm. */}
       {confirmSheet}
@@ -1833,8 +1921,10 @@ export function KioskFlow({
             // in cart to trigger upsell"; KBF counts — it's a lane booking),
             // only when NO Game Zone cards ride the cart, once per session,
             // and only when this kiosk can actually sell + fulfill a new card
-            // (cart rail + reader rail + dispenser "full" capability — the
-            // dispenser is a hard requirement, owner re-confirmed 7/21).
+            // (cart rail + reader rail + a way to put a card in the guest's
+            // hand: the dispenser, or — since 2026-08-28 — a swipe reader with
+            // blank stock under the screen; the confirmation screen prompts
+            // the swipe. Superseded the 7/21 dispenser-only requirement).
             // Every gate is named so a device console shows exactly why the
             // page didn't appear.
             // `?upsellPreview=1` on the flow URL bypasses ONLY the hardware
@@ -1859,7 +1949,7 @@ export function KioskFlow({
                 ["no-cards-in-cart", !session.gameCardPurchase?.cards.length],
                 ["gz-cart-flag", kioskGzCartEnabled()],
                 ["reader-paired", upsellPreview || !!config.readerId],
-                ["dispenser-full", upsellPreview || gameZoneCapability(config) === "full"],
+                ["card-issue", upsellPreview || gameZoneCapability(config) !== "none"],
               ] as const
             )
               .filter(([, ok]) => !ok)
@@ -2117,12 +2207,13 @@ export function KioskFlow({
         }}
         appliedPromo={promoEnabled ? session.appliedPromo : null}
         onClearPromo={() => dispatch({ type: "applyPromo", promo: null })}
-        // A kiosk without a dispenser must never promise to print a card.
-        canDispenseCards={gameZoneCapability(config) === "full"}
-        // "Who's here from your booking?" — a reservation-linked voucher
-        // offers its party on the receipt; a tapped chip lands the person on
-        // the SESSION party, so every later people step is prefilled. The
-        // receipt only ever removes members its own chips added.
+        // How a card reaches the guest here (dispenser / swiped blank / not at
+        // all) — the receipt must never promise what this machine can't do.
+        capability={gameZoneCapability(config)}
+        // "Your group is already in" — a reservation-linked voucher AUTO-
+        // LINKS its party onto the SESSION party as the roster resolves
+        // (chips pre-selected, tap to remove), so every later people step is
+        // prefilled. The receipt only ever removes members it added itself.
         party={session.party}
         onPartyAdd={(member) => dispatch({ type: "addPartyMember", member })}
         onPartyRemove={(id) => dispatch({ type: "removePartyMember", id })}
@@ -2137,7 +2228,7 @@ export function KioskFlow({
         <KioskGameZone
           center={config.center}
           brand={config.brand}
-          capability={gameZoneCapability(config) === "reload" ? "reload" : "full"}
+          capability={gameZoneCapability(config) === "swipe" ? "swipe" : "full"}
           initialVoucherCodes={gzVoucherCodes}
           // A game card scanned on the attract screen or the chooser — opens
           // straight on its balance rather than asking for the card again.
@@ -2261,6 +2352,13 @@ export function KioskFlow({
               ? () => router.push("/kiosk/checkin")
               : undefined
           }
+          // "Your Crew" EMPTY-state door — a strip above the utility grid, not
+          // at the top (owner 2026-09-01: "needs a better spot other than the
+          // top"; picked option A of four mocks). Both gates live HERE like
+          // every other door: the kill switch, and "the session is empty" —
+          // once anyone signs in (or holds a cart), `sessionBanner` renders in
+          // the chrome and its tappable WHO half is the door instead.
+          onOpenCrew={crewDoor && !sessionBanner ? openCrew : undefined}
           onOpenRaceGrid={
             config.center === "fort-myers" && kioskRaceInfoEnabled()
               ? () => {

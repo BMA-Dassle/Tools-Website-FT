@@ -27,6 +27,7 @@ export interface BoardStats {
 export default function FilterBar({
   reservations,
   vipReservations,
+  nflReservations,
   hideCancelled,
   setHideCancelled,
   hideWalkins,
@@ -46,6 +47,7 @@ export default function FilterBar({
 }: {
   reservations: Reservation[];
   vipReservations: Reservation[];
+  nflReservations: Reservation[];
   hideCancelled: boolean;
   setHideCancelled: Dispatch<SetStateAction<boolean>>;
   hideWalkins: boolean;
@@ -64,6 +66,7 @@ export default function FilterBar({
   stats: BoardStats;
 }) {
   const vipActive = kindFilter === "vip";
+  const nflActive = kindFilter === "nfl";
   const {
     activeCount,
     totalHidden,
@@ -172,6 +175,32 @@ export default function FilterBar({
             </button>
           );
         })()}
+        {/* NFL Ticket — like the VIP special, not a productKind. Hidden
+            entirely on days with no NFL bookings, so the bar does not grow a
+            permanently-zero chip for a package that only sells in season. */}
+        {nflReservations.length > 0 &&
+          (() => {
+            const badge = KIND_BADGE.nfl;
+            const count = new Set(nflReservations.map((r) => r.squareDayofOrderId || `id-${r.id}`))
+              .size;
+            return (
+              <button
+                type="button"
+                onClick={() => setKindFilter(nflActive ? null : "nfl")}
+                style={{
+                  ...NAV_BTN,
+                  fontSize: "0.7rem",
+                  fontWeight: 700,
+                  backgroundColor: nflActive ? badge.bg : "var(--ba-input-bg)",
+                  borderColor: nflActive ? badge.border : "var(--ba-input-border)",
+                  color: nflActive ? badge.color : "var(--ba-muted)",
+                }}
+              >
+                {badge.label}
+                <span style={{ marginLeft: 3, opacity: 0.7, fontSize: "0.6rem" }}>({count})</span>
+              </button>
+            );
+          })()}
         {/* Date navigation — kept together as one non-wrapping cluster so the
             ← / → arrows never split onto separate lines on mobile (owner
             2026-07-18: the arrows were landing on different rows). The whole

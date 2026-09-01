@@ -1,19 +1,16 @@
 import { notFound } from "next/navigation";
-import { adminPoppins } from "~/components/features/admin-skin/font";
-import SalesAdminClient from "./SalesAdminClient";
+import AdminToolPage from "@/app/admin/_tools/sales/AdminToolPage";
 
 /**
- * Sales / web-reservations admin page.
+ * v1: `/admin/{ADMIN_CAMERA_TOKEN}/sales`.
  *
- * Guarded by middleware.ts (unified ADMIN_CAMERA_TOKEN). This page
- * double-checks server-side as defense-in-depth — same pattern as
- * the e-ticket and videos admin pages.
+ * The static token in the path is the credential. Kept alongside the SSO route
+ * at `/admin/sales` (same component, no credential in the URL) per the v2
+ * cutover pattern; the middleware 307s this URL to the clean one.
  *
- * URL shape: /admin/{ADMIN_CAMERA_TOKEN}/sales
- *
- * Powered by /api/admin/sales/list which reads sales:log:{date}
- * keyed entries. Every confirmed reservation since the deploy of
- * lib/sales-log.ts is captured.
+ * Legacy `ADMIN_ETICKETS_TOKEN` is still accepted server-side as a soft alias
+ * during the bookmark-rotation window, unchanged from before the split. That
+ * alias is this route's business alone — the SSO route has no token to alias.
  */
 
 export const dynamic = "force-dynamic"; // never static — auth depends on request
@@ -29,9 +26,5 @@ export default async function Page({ params }: Props) {
     (!!cameraToken && token === cameraToken) || (!!legacyToken && token === legacyToken);
   if (!tokenOk) notFound();
 
-  return (
-    <div className={adminPoppins.variable}>
-      <SalesAdminClient token={token} />
-    </div>
-  );
+  return <AdminToolPage />;
 }

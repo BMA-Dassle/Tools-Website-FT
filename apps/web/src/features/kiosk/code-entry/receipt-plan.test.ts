@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { receiptPlan } from "./receipt-plan";
 
-const base = { cardCodes: 0, canDispense: true, cartVouchers: 0, promoApplied: false };
+const base = { cardCodes: 0, canIssue: true, cartVouchers: 0, promoApplied: false };
 
 describe("receiptPlan", () => {
   it("cards only, dispenser here → print, and Back warns", () => {
@@ -36,16 +36,16 @@ describe("receiptPlan", () => {
   });
 
   it("NO dispenser: cards never promise printing — cards-only reads done", () => {
-    expect(receiptPlan({ ...base, cardCodes: 3, canDispense: false })).toEqual({
+    expect(receiptPlan({ ...base, cardCodes: 3, canIssue: false })).toEqual({
       primary: "done",
       warnOnBack: false,
     });
   });
 
   it("NO dispenser: cards + cart legs → start picking (order still real)", () => {
-    expect(
-      receiptPlan({ ...base, cardCodes: 1, cartVouchers: 1, canDispense: false }).primary,
-    ).toBe("start-picking");
+    expect(receiptPlan({ ...base, cardCodes: 1, cartVouchers: 1, canIssue: false }).primary).toBe(
+      "start-picking",
+    );
   });
 
   it("empty receipt → done", () => {

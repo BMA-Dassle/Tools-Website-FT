@@ -206,6 +206,49 @@ export default function RacingPage() {
                 </div>
               </div>
             ))}
+            {/* Mini Karts retired — the class is gone, the space is being rebuilt. */}
+            <div
+              className="flex flex-col h-full"
+              style={{
+                backgroundColor: "rgba(7,16,39,0.5)",
+                border: "1.78px dashed rgba(245,236,238,0.28)",
+                borderRadius: "8px",
+                padding: "24px 20px",
+              }}
+            >
+              <span
+                className="font-heading uppercase self-start"
+                style={{
+                  color: "rgba(245,236,238,0.55)",
+                  fontSize: "12px",
+                  letterSpacing: "1.6px",
+                  border: "1px solid rgba(245,236,238,0.25)",
+                  borderRadius: "555px",
+                  padding: "4px 12px",
+                  marginBottom: "12px",
+                }}
+              >
+                Permanently Closed
+              </span>
+              <h3
+                className="font-heading uppercase mb-4"
+                style={{
+                  color: "rgba(245,236,238,0.75)",
+                  fontSize: "24px",
+                  letterSpacing: "1.2px",
+                }}
+              >
+                Mini Karts
+              </h3>
+              <p
+                className="font-body"
+                style={{ color: "rgba(245,236,238,0.7)", fontSize: "15px", lineHeight: "1.6" }}
+              >
+                The Mini Track has closed permanently to make way for a brand-new attraction. Mini
+                Karts are no longer available to book or race. Watch this space — something bigger
+                is coming.
+              </p>
+            </div>
           </div>
 
           <p

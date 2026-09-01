@@ -599,14 +599,14 @@ export async function emailDealGiftReceipt(args: {
  * Recipients are an env list so adding someone is a Vercel change, not a deploy.
  * "for now" is the operative phrase — this is a launch-watching email, and the
  * sales board is the durable answer, so the whole mail is built around one
- * button that OPENS it: a real, tokenised `/admin/{token}/deals` URL from
- * `adminBoardUrl`, not the `<token>` placeholder this shipped with (owner
- * 2026-08-03: "should contain real URL with admin token"). Chrome comes from the
- * shared admin-email shell, so it reads on a phone and looks like the board it
- * links to.
+ * button that OPENS it: a real, working URL from `adminBoardUrl`, not the
+ * `<token>` placeholder this shipped with (owner 2026-08-03: "should contain
+ * real URL"). Chrome comes from the shared admin-email shell, so it reads on a
+ * phone and looks like the board it links to.
  *
- * The mail carries an admin token, which is a bearer credential — it may only
- * ever go to the internal recipient list.
+ * The button now points at the SSO staff shell and carries NO credential — the
+ * reader's own Microsoft sign-in opens the board (2026-08-28). It is still
+ * internal mail: the body itself holds voucher codes and money facts.
  */
 export async function notifyStaffDealSale(args: {
   dealName: string;

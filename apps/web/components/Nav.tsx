@@ -21,7 +21,7 @@ const links = [
   { label: "Pricing", href: "/pricing" },
   { label: "Nemo's Trackside", href: "/menu" },
   { label: "Leaderboards", href: "/leaderboards" },
-  { label: "Gift Cards", href: "https://squareup.com/gift/2Z728TECCNWSE/order" },
+  { label: "Gift & Game Cards", href: "/cards" },
   // First-party /waiver. This nav is FastTrax, which is in the Fort Myers metro —
   // same center the FastTrax footer passes. (Missed by the nav/footer cutover in
   // 332bd1c2, which only reached components/Footer.tsx and components/headpinz/*.)

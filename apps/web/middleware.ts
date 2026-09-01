@@ -4,6 +4,102 @@ import { HEADPINZ_FM_CENTER_CODE, HEADPINZ_NAPLES_CENTER_CODE } from "@/lib/qamf
 import { googleReviewUrl } from "~/lib/constants/review-links";
 import { maintenanceRedirectForPath, SERVICE_NOTICE_PATH } from "~/features/maintenance";
 import { isChromeFreePath, isMobileBarFreePath } from "~/lib/constants/chrome-routes";
+import { verifyAdminApiToken } from "@/lib/admin-api-token";
+import { hasSsoAccess, readSsoSession } from "~/features/sso/session";
+import {
+  isAdminHost,
+  isSsoToolPath,
+  parseAdminHosts,
+  resolveAdminHostPath,
+  ssoCleanPathForTokenPath,
+} from "~/features/sso/tools";
+
+/**
+ * Headers that state WHO the request is from. The gate is the only thing
+ * entitled to write them; they are stripped off every inbound request before
+ * the gate sets its own. Add to this list, never replace it.
+ *
+ * DELETE BEFORE SET, ALWAYS. `requestHeaders` starts as a copy of the
+ * VISITOR's headers, so any `x-sso-*` they send arrives here. Setting only when
+ * the session has the field would forward the visitor's own value whenever it
+ * does not — a signed-in temp typing one header could sign the audit trail as
+ * anyone. These headers must be OURS or absent, never the caller's. Any future
+ * identity header goes in this list on the same day it is added.
+ */
+const SSO_IDENTITY_HEADERS = ["x-sso-email", "x-sso-name"] as const;
+
+/** The gate's opaque fail-closed answer. Identical to the token gate's, so an
+ *  admin URL is indistinguishable from a typo whichever branch refused it. */
+function adminNotFound(): NextResponse {
+  return new NextResponse("Not found", {
+    status: 404,
+    headers: { "content-type": "text/plain" },
+  });
+}
+
+/**
+ * A navigation a human can be bounced from. Anything else (a POST, an XHR, a
+ * subresource) must NOT be turned into a sign-in redirect: a board's fetch that
+ * follows a 307 to Microsoft parses an HTML login page as JSON and reports a
+ * syntax error instead of "your session ended". `Sec-Fetch-Mode: navigate` is
+ * the browser's own statement that this is a page load; the Accept header is
+ * the fallback for clients that omit it.
+ */
+function isPageLikeGet(request: NextRequest): boolean {
+  if (request.method !== "GET") return false;
+  const mode = request.headers.get("sec-fetch-mode");
+  if (mode) return mode === "navigate";
+  return (request.headers.get("accept") || "").includes("text/html");
+}
+
+/**
+ * The SSO decision for one admin page request: a response to return, or the
+ * request headers to forward with.
+ *
+ * THREE OUTCOMES FOR NO SESSION, because "redirect to sign-in" is right for
+ * exactly one of them — a navigation goes to `/sso/signin` carrying the URL
+ * they actually asked for (so a bookmarked board reopens itself), and anything
+ * else gets the same opaque 404 the token gate gives, because neither an XHR
+ * nor a stylesheet can sign anyone in.
+ *
+ * A session WITHOUT the role is a DIFFERENT failure: signing in again cannot
+ * fix it, so never loop them back to Microsoft. A navigation gets
+ * `/sso/error?code=SSO_E_NO_ROLE`, which names who can grant it.
+ */
+async function ssoAdminGate(
+  request: NextRequest,
+): Promise<{ response: NextResponse } | { headers: Headers }> {
+  const session = await readSsoSession(request);
+
+  if (!session) {
+    if (!isPageLikeGet(request)) return { response: adminNotFound() };
+    const url = request.nextUrl.clone();
+    url.pathname = "/sso/signin";
+    url.search = "";
+    // The path they asked for on THIS host — on the admin host that is the
+    // clean `/pit`, not the rewritten `/admin/pit`, so they land where they
+    // started rather than on a URL they have never seen.
+    url.searchParams.set("callbackUrl", request.nextUrl.pathname + request.nextUrl.search);
+    return { response: NextResponse.redirect(url, 307) };
+  }
+
+  if (!hasSsoAccess(session)) {
+    if (!isPageLikeGet(request)) return { response: adminNotFound() };
+    const url = request.nextUrl.clone();
+    url.pathname = "/sso/error";
+    url.search = "";
+    url.searchParams.set("code", "SSO_E_NO_ROLE");
+    return { response: NextResponse.redirect(url, 307) };
+  }
+
+  const headers = new Headers(request.headers);
+  headers.set("x-admin-route", "1");
+  headers.set("x-admin-via", "sso");
+  for (const h of SSO_IDENTITY_HEADERS) headers.delete(h);
+  if (session.email) headers.set("x-sso-email", session.email);
+  if (session.name) headers.set("x-sso-name", session.name);
+  return { headers };
+}
 
 /**
  * Stamp the chrome decision for a path onto a request-header set. ONE rule for
@@ -66,6 +162,70 @@ export async function middleware(request: NextRequest) {
     const target = new URL("https://headpinz.com/reload");
     if (/^\d{1,19}$/.test(id)) target.searchParams.set("id", id);
     return NextResponse.redirect(target, 307);
+  }
+
+  // ── The SSO plumbing answers for itself, on every host ───────────────────
+  // `/sso/*` and `/api/auth/*` must be reachable WITHOUT a session — gating the
+  // sign-in route on being signed in is an infinite redirect — and `/sso/*`
+  // must also skip the /hp rewrite below, which would turn /sso/error into
+  // /hp/sso/error and 404 the one page that explains a failed sign-in.
+  // (`/api/auth/*` is already excluded from that rewrite by the /api test.)
+  if (pathname === "/sso" || pathname.startsWith("/sso/")) {
+    const ssoHeaders = new Headers(request.headers);
+    ssoHeaders.set("x-no-chrome", "1");
+    ssoHeaders.set("x-no-mobile-bar", "1");
+    return NextResponse.next({ request: { headers: ssoHeaders } });
+  }
+
+  // ── Admin host alias (admin.fasttraxent.com) ─────────────────────────────
+  // The staff domain used to be its own Vercel project that proxied every
+  // request here with the admin token in the path. It now points at THIS
+  // deployment, and the clean URLs staff bookmark (/checkin, /reservations) are
+  // served by rewriting them onto the SSO-gated /admin/<tool> routes.
+  //
+  // The default is 404, not "serve it": this deployment is also the storefront,
+  // and a guest route rendering on the staff domain would put the booking
+  // funnel behind a Microsoft sign-in wall and split every canonical URL in
+  // two. Brand detection is untouched — `admin.fasttraxent.com` was never a
+  // HeadPinz host, and `isHeadPinz` is computed above from the raw hostname
+  // either way.
+  if (isAdminHost(host, parseAdminHosts(process.env.ADMIN_HOSTS))) {
+    const decision = resolveAdminHostPath(pathname);
+    if (decision.kind === "not-found") return adminNotFound();
+    if (decision.kind === "tool" || decision.kind === "legacy-tool") {
+      const gated = await ssoAdminGate(request);
+      if ("response" in gated) return gated.response;
+      const url = request.nextUrl.clone();
+      if (decision.kind === "tool") {
+        url.pathname = decision.pathname;
+      } else {
+        // A tool that has not moved to SSO yet. It still renders from its
+        // `[token]` route, so the rewrite carries the token — exactly what the
+        // shell does today, and the reason `admin.fasttraxent.com/deals` keeps
+        // working the day the domain moves onto this project. Server-side only:
+        // the browser asked for `/deals` and never sees this path.
+        //
+        // FAIL CLOSED when the token is unset, rather than rewriting to
+        // `/admin//deals` and letting Next decide what that means.
+        const expectedToken = process.env.ADMIN_CAMERA_TOKEN || "";
+        if (!expectedToken) return adminNotFound();
+        url.pathname = `/admin/${expectedToken}${decision.path}`;
+      }
+      return NextResponse.rewrite(url, { request: { headers: gated.headers } });
+    }
+    // "self" and "pass" serve normally. `pass` covers assets, /api/* (whose
+    // own credentials the unified gate below still checks on a later pass),
+    // already-canonical /admin/* URLs (including the two wall displays'
+    // `/admin/{token}/pit` and `/admin/{token}/briefing`), and the two
+    // owner-approved staff previews (/contract/{id}, /v/{code}) that admin
+    // boards link to with relative hrefs.
+    if (decision.kind === "self") return NextResponse.next();
+    if (!pathname.startsWith("/admin/") && !pathname.startsWith("/api/admin/")) {
+      const passHeaders = new Headers(request.headers);
+      applyChromeFlags(passHeaders, pathname);
+      return NextResponse.next({ request: { headers: passHeaders } });
+    }
+    // /admin/* and /api/admin/* fall through to the unified gate below.
   }
 
   // Apple Pay domain verification — rewrite to API route that serves per-domain file
@@ -236,6 +396,70 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next({ request: { headers: requestHeaders } });
     }
 
+    // ── SSO admin pages (staff humans) ────────────────────────────────
+    // `/admin/<tool>[/...]` where <tool> is one of SSO_ADMIN_TOOLS
+    // (`~/lib/constants/admin-tools`) — the v2 routes that carry no credential
+    // in the URL at all. A Microsoft session holding the `access` role is the
+    // credential.
+    //
+    // WHY THIS BRANCH CANNOT WIDEN THE GATE. It fires only on paths that 404
+    // TODAY: `/admin/reservations` has no token in segment 2, so the
+    // static-token check below already refuses it. `/admin/{token}/*` (segment
+    // 2 IS the token), `/admin/embed/*` and every `/api/admin/*` path are
+    // excluded by `isSsoToolPath`, so their behaviour is bit-for-bit what it
+    // was — pinned by the golden matrix in middleware.admin-gate.test.ts, which
+    // did not change in this PR.
+    //
+    // AND IT MUST NOT WIDEN TO THE WALL DISPLAYS. `pit` and `briefing` are
+    // absent from SSO_ADMIN_TOOLS on purpose (owner decision 2026-08-28): they
+    // are screens nobody signs into, and a 307 to Microsoft is a blank board.
+    // They stay on `/admin/{token}/…`, which this branch never sees.
+    //
+    // DELIBERATELY AFTER the proxy key: while the shell still runs it must
+    // keep authenticating by header on any path, without a Microsoft session.
+    // BEFORE the signed API token, which is scoped to `/api/admin/*` and is
+    // explicitly not a page credential.
+    if (isSsoToolPath(pathname, expected)) {
+      const gated = await ssoAdminGate(request);
+      if ("response" in gated) return gated.response;
+      return NextResponse.next({ request: { headers: gated.headers } });
+    }
+
+    // ── Signed, short-lived API token (staff browsers) ────────────────
+    // Admin pages no longer hand ADMIN_CAMERA_TOKEN to their client
+    // components; they mint an 8-hour HMAC credential instead (see
+    // lib/admin-api-token.ts) and the client sends it in the SAME place it
+    // always sent the static one — `x-admin-token` or `?token=`. Accepting
+    // it here is what got the permanent bearer secret out of ~20 browser
+    // bundles without changing a single client component.
+    //
+    // `/api/admin/*` ONLY, and that scope is load-bearing. This credential
+    // lives in a browser for 8 hours and travels in query strings, so it is
+    // exactly the thing that gets copied out of a URL bar, a devtools log or
+    // a shared screenshot. lib/admin-api-token.ts says it in one line: "it is
+    // NOT a page credential." Honouring that here is what keeps a leaked
+    // minted token from rendering /admin/<anything>/api-docs — a "use client"
+    // page with no server-side token check of its own — and what leaves PR 2's
+    // "pages require x-admin-proxy-key" lockdown with something to lock down.
+    // The page credentials stay the proxy key (above) and the static token
+    // (below).
+    //
+    // Additive: a request carrying the static token, the proxy key, an
+    // api-key or an embed signature never reaches this branch's failure
+    // path — every one of those is decided above or below, untouched. An
+    // expired or forged signed token simply falls through to the static
+    // check and then to the standard 404.
+    if (pathname.startsWith("/api/admin/")) {
+      const signedCandidate =
+        request.headers.get("x-admin-token") || request.nextUrl.searchParams.get("token") || "";
+      if (signedCandidate && (await verifyAdminApiToken(signedCandidate))) {
+        const requestHeaders = new Headers(request.headers);
+        requestHeaders.set("x-admin-route", "1");
+        requestHeaders.set("x-admin-via", "api-token");
+        return NextResponse.next({ request: { headers: requestHeaders } });
+      }
+    }
+
     // Token extraction: for /admin/{token}/..., token is the 2nd
     // path segment. For /api/admin/..., we accept header
     // `x-admin-token` OR query `?token=...`.
@@ -280,6 +504,59 @@ export async function middleware(request: NextRequest) {
         status: 404,
         headers: { "content-type": "text/plain" },
       });
+    }
+
+    // ── A bookmarked token URL for a tool that now signs in ───────────
+    // The token is VALID and the slug is an SSO tool, so this is a staff
+    // member opening a bookmark from before that tool moved. Send them to the
+    // clean URL; the SSO branch above then takes over on the next request and
+    // turns the bookmark into a sign-in. Query string and deeper segments ride
+    // along, so a deep link lands where it pointed.
+    //
+    // 307, NEVER 308. Browsers heuristically cache 308s, and a cached
+    // `{token} → clean` mapping would outlive an ADMIN_CAMERA_TOKEN rotation —
+    // the trap the legacy-token shim above documents and this repo already
+    // paid for once.
+    //
+    // AFTER the legacy 308 on purpose, so the two compose in the one order
+    // that never needs the legacy value again: legacy → canonical → clean. The
+    // legacy shim is untouched, and the second hop is the uncached one.
+    //
+    // NAVIGATIONS ONLY, the same rule the other two redirects in this file
+    // obey (`isPageLikeGet`, and the reasoning on its definition). A bookmark
+    // is a page load; a POST, a server action, an RSC fetch or a same-origin
+    // XHR is not, and bouncing one of those to `/admin/<slug>` hands it the
+    // SSO branch's opaque 404 instead of the board it asked for. Without this
+    // guard the first server action added to any of the eighteen boards fails
+    // as a 404 with nothing to explain it. A non-navigation keeps rendering
+    // from the tokened route exactly as it did before the lane existed.
+    //
+    // WHAT THIS DELIBERATELY DOES NOT TOUCH — the rest enforced inside
+    // `ssoCleanPathForTokenPath`, and each with a test:
+    //   - camera-assign, pit and briefing: token-only surfaces, they render.
+    //   - /admin/embed/*: portal HMAC iframes, never bounced to a sign-in.
+    //   - /api/admin/*: an XHR that follows a 307 to HTML parses it as JSON.
+    //   - an INVALID token: already 404'd above, and it must stay a 404.
+    //   - anything carrying `x-admin-proxy-key`: the shell's branch returns far
+    //     above this one, so a machine forwarding a tokened path is served, not
+    //     bounced. A bookmark is a person; a proxy is not.
+    //
+    // KILL SWITCH: ADMIN_TOKEN_REDIRECT_DISABLED="true" restores the previous
+    // behaviour (the tokened URL serves the board). Ships ON, per the
+    // flags-are-kill-switches rule — a flag is an emergency off, not a gate.
+    //
+    // FLIPPING IT COSTS A REDEPLOY. This is EDGE middleware, so Next inlines
+    // `process.env.ADMIN_TOKEN_REDIRECT_DISABLED` at build time and a Vercel
+    // env-var change only reaches a NEW deployment. "Emergency off" here means
+    // "set the var and redeploy" — minutes, not seconds. Plan the rollback as
+    // a deploy, and do not describe this flag anywhere as working without one.
+    if (isPageLikeGet(request) && process.env.ADMIN_TOKEN_REDIRECT_DISABLED !== "true") {
+      const clean = ssoCleanPathForTokenPath(pathname, expected);
+      if (clean) {
+        const url = request.nextUrl.clone();
+        url.pathname = clean;
+        return NextResponse.redirect(url, 307);
+      }
     }
 
     // ── IP allowlist for /admin/{token}/ page routes ─────────────────
@@ -691,6 +968,10 @@ export async function middleware(request: NextRequest) {
     // chrome is host-aware. Without this the /hp rewrite 404s it on HeadPinz.
     pathname === "/reload" ||
     pathname.startsWith("/reload/") ||
+    // Gift & Game Cards hub — the discoverable home for the reload/balance flow,
+    // linked from both brands' nav/footer (the old "Gift Cards" slot). Same
+    // host-aware chrome as /reload; without this the /hp rewrite 404s it.
+    pathname === "/cards" ||
     // Kiosk mobile-join phone page — QR codes on in-center kiosks land here
     // on EITHER brand domain; brand comes from the join-session record, not
     // the host. Without this the /hp rewrite turns it into a 404 on HeadPinz.

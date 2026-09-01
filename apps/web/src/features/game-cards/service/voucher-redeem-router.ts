@@ -145,7 +145,9 @@ export async function claimAnyVoucher(input: {
   code: string;
   locationCode: number;
   center?: string | null;
-  /** WEB only: credit the card the guest already holds (no dispense). */
+  /** WEB: credit the card the guest already holds (no dispense). KIOSK without
+   *  a dispenser: the blank the guest swiped before claiming — persisted on the
+   *  row at claim (persist-first); a dispenser kiosk leaves it unset. */
   accountNumber?: string;
   kioskId?: string | null;
   source: "kiosk" | "web";
@@ -205,6 +207,7 @@ export async function claimAnyVoucher(input: {
     locationCode: input.locationCode,
     center: input.center,
     kioskId: input.kioskId,
+    accountNumber: input.accountNumber,
   });
   if (!res.ok) return { ok: false, issuer, reason: res.reason };
   return {

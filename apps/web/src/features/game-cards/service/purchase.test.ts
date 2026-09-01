@@ -9,7 +9,9 @@ vi.mock("@/lib/redis", () => ({
 
 const order: string[] = [];
 
-vi.mock("../data/intercard", () => {
+// Mocked at the ROUTER — purchase calls through data/intercard-router
+// (onsite first, cloud SOAP fallback), so that is the seam to intercept.
+vi.mock("../data/intercard-router", () => {
   class IntercardError extends Error {
     code: string;
     constructor(code: string, msg: string) {
@@ -89,7 +91,7 @@ const single: PurchaseInput = {
 };
 
 async function loadMocks() {
-  const intercard = await import("../data/intercard");
+  const intercard = await import("../data/intercard-router");
   const sq = await import("@/lib/square-gift-card");
   return { intercard, sq };
 }
@@ -211,106 +213,6 @@ describe("purchase order engine (cart)", () => {
   });
 });
 
-describe("bridge-queue mode (GAME_CARD_EIS_QUEUE_CENTERS flag)", () => {
-  beforeEach(async () => {
-    vi.stubEnv("GAME_CARD_EIS_QUEUE_CENTERS", "12");
-    // Re-pin the default: clearAllMocks doesn't undo a prior test's
-    // mockImplementation, and a leaked "loaded" queue poisons later tests.
-    const tlog = await import("../data/transactions-log");
-    (tlog.getGroupQueueStates as ReturnType<typeof vi.fn>).mockImplementation(async () => []);
-  });
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.stubEnv("INTERCARD_MAC", "TESTMAC");
-    vi.useRealTimers();
-  });
-
-  it("queued center: charge+enqueue fused, bridge-loaded rows report loaded, SOAP never called", async () => {
-    const { intercard } = await loadMocks();
-    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
-      exists: true,
-      accountNumber: "1038010",
-      balance: { tokens: 0, bonusTokens: 0, eTickets: 0, timeMinutes: 0 },
-    });
-    const tlog = await import("../data/transactions-log");
-    // The bridge loads the row before the wait loop's first poll.
-    (tlog.getGroupQueueStates as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-      const txnId = (tlog.startTxn as ReturnType<typeof vi.fn>).mock.calls[0][0].txnId as string;
-      return [{ txnId, loadState: "loaded", queueState: "done" }];
-    });
-    const { purchase } = await import("./purchase");
-
-    const res = await purchase(single);
-    expect(res.results[0]).toMatchObject({ loaded: true, creditPending: false });
-    expect(res.anyPending).toBe(false);
-    // Queue mode NEVER credits via SOAP in the request.
-    expect(intercard.creditTokens).not.toHaveBeenCalled();
-    expect(order).toContain("markChargedQueued");
-    expect(order).not.toContain("markCharged");
-    // No balance re-read for queue-loaded rows (cloud history lags the EIS).
-    expect(res.results[0].balance).toBeUndefined();
-    expect(intercard.verifyAccount).toHaveBeenCalledTimes(1); // pre-charge verify only
-  });
-
-  it("queued center: no bridge pickup → creditPending, never credits inline (cron owns fallback)", async () => {
-    vi.useFakeTimers();
-    const { intercard } = await loadMocks();
-    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
-      exists: true,
-      accountNumber: "1038010",
-      balance: { tokens: 0, bonusTokens: 0, eTickets: 0, timeMinutes: 0 },
-    });
-    const { purchase } = await import("./purchase");
-
-    const pending = purchase(single);
-    await vi.advanceTimersByTimeAsync(15_000); // past the 12s observation window
-    const res = await pending;
-
-    expect(res.results[0]).toMatchObject({ loaded: false, creditPending: true });
-    expect(res.anyPending).toBe(true);
-    expect(intercard.creditTokens).not.toHaveBeenCalled();
-    // Queue rows are never markLoadState'd by the request — the row is already
-    // 'queued' and the reconcile cron owns every transition from here.
-    expect(order.filter((o) => o.startsWith("markLoadState"))).toHaveLength(0);
-  });
-
-  it("non-queued center: byte-for-byte v1 behavior (markCharged + inline SOAP)", async () => {
-    const { intercard } = await loadMocks();
-    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
-      exists: true,
-      accountNumber: "1038010",
-      balance: { tokens: 0, bonusTokens: 0, eTickets: 0, timeMinutes: 0 },
-    });
-    (intercard.creditTokens as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0 });
-    const { purchase } = await import("./purchase");
-
-    // Flag lists center 12 only; this reload is at 13 (FastTrax FM).
-    const res = await purchase({ ...single, locationCode: 13 });
-    expect(res.results[0].loaded).toBe(true);
-    expect(intercard.creditTokens).toHaveBeenCalledTimes(1);
-    expect(order).toContain("markCharged");
-    expect(order).not.toContain("markChargedQueued");
-  });
-
-  it("INTERCARD_LOAD_MODE=cloud overrides the flag: a queue center falls back to inline SOAP", async () => {
-    vi.stubEnv("INTERCARD_LOAD_MODE", "cloud"); // beforeEach still lists center 12 in the flag
-    const { intercard } = await loadMocks();
-    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
-      exists: true,
-      accountNumber: "1038010",
-      balance: { tokens: 0, bonusTokens: 0, eTickets: 0, timeMinutes: 0 },
-    });
-    (intercard.creditTokens as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0 });
-    const { purchase } = await import("./purchase");
-
-    const res = await purchase(single); // center 12 IS flagged, but cloud mode wins
-    expect(res.results[0].loaded).toBe(true);
-    expect(intercard.creditTokens).toHaveBeenCalledTimes(1);
-    expect(order).toContain("markCharged");
-    expect(order).not.toContain("markChargedQueued");
-  });
-});
-
 describe("chargeNewCardOrder (buy: charge upfront, no verify/load)", () => {
   it("charges once for the basket, persists a row per card, never verifies or loads", async () => {
     const { intercard, sq } = await loadMocks();
@@ -336,6 +238,86 @@ describe("chargeNewCardOrder (buy: charge upfront, no verify/load)", () => {
     expect(intercard.verifyAccount).not.toHaveBeenCalled();
     expect(intercard.creditTokens).not.toHaveBeenCalled();
     expect(order).not.toContain("markLoadState:loaded");
+  });
+
+  it("persists a SWIPED blank's account on its row before the charge (no-dispenser kiosk)", async () => {
+    // MSR-only kiosk: the guest swiped each blank BEFORE paying, so the row is
+    // durable WITH its account — a browser death after the charge leaves a row
+    // the reconcile cron can still credit (persist-first).
+    const { intercard, sq } = await loadMocks();
+    const tlog = await import("../data/transactions-log");
+    // The server re-checks a swiped account itself: Intercard has never seen
+    // it (live signature: result 1 → notFound "confirmed") — a true blank.
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: false,
+      accountNumber: "0000000001037356",
+      notFound: "confirmed",
+    });
+    const { chargeNewCardOrder } = await import("./purchase");
+
+    const res = await chargeNewCardOrder({
+      kind: "new_card",
+      locationCode: 12,
+      items: [
+        { packageId: "tok-500", accountNumber: "0000000001037356" },
+        { packageId: "tok-100" }, // dispenser-style row: account attached at load
+      ],
+      cardNonce: "cnon-1",
+    });
+
+    expect(res.rows).toHaveLength(2);
+    const startCalls = (tlog.startTxn as ReturnType<typeof vi.fn>).mock.calls;
+    expect(startCalls[0][0]).toMatchObject({ kind: "new_card", accountNumber: "0000000001037356" });
+    expect(startCalls[1][0]).toMatchObject({ kind: "new_card", accountNumber: "" });
+    // Only the swiped item is checked; the dispenser item has no account yet.
+    expect(intercard.verifyAccount).toHaveBeenCalledTimes(1);
+    expect(sq.authorizeMultiTender).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to sell a 'new card' against a swiped account that already carries value", async () => {
+    // The kiosk's blank check is a claim the server must not take on faith:
+    // an active card gets a 409 BEFORE any row is persisted or money moves.
+    const { intercard, sq } = await loadMocks();
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: true,
+      accountNumber: "1038010",
+      balance: { tokens: 20, bonusTokens: 0, eTickets: 0, timeMinutes: 0 },
+      transactions: [],
+    });
+    const { chargeNewCardOrder } = await import("./purchase");
+
+    await expect(
+      chargeNewCardOrder({
+        kind: "new_card",
+        locationCode: 12,
+        items: [{ packageId: "tok-500", accountNumber: "1038010" }],
+        cardNonce: "cnon-1",
+      }),
+    ).rejects.toMatchObject({ code: "CARD_NOT_BLANK" });
+    expect(order).not.toContain("startTxn");
+    expect(sq.authorizeMultiTender).not.toHaveBeenCalled();
+  });
+
+  it("will not sell a swiped card as new when Intercard could not confirm it is blank", async () => {
+    // -1 (server exception) is AMBIGUOUS, not proof of absence → 503, retry.
+    const { intercard, sq } = await loadMocks();
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: false,
+      accountNumber: "1038010",
+      notFound: "ambiguous",
+    });
+    const { chargeNewCardOrder } = await import("./purchase");
+
+    await expect(
+      chargeNewCardOrder({
+        kind: "new_card",
+        locationCode: 12,
+        items: [{ packageId: "tok-500", accountNumber: "1038010" }],
+        cardNonce: "cnon-1",
+      }),
+    ).rejects.toMatchObject({ code: "VERIFY_UNAVAILABLE" });
+    expect(order).not.toContain("startTxn");
+    expect(sq.authorizeMultiTender).not.toHaveBeenCalled();
   });
 
   it("marks every row charge-failed and throws on a decline", async () => {

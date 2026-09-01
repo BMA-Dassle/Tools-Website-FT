@@ -128,13 +128,13 @@ export const racepackEn = {
   "payMode.flashSale": "★ BOGO — EVERY WEDNESDAY",
   "payMode.selected": "✓ Selected",
   "payMode.bogo.title": "2 Races for the Price of 1",
-  // Says BOTH days on purpose: the promo runs on Wednesday races, but the free
-  // credit lands on the Mon–Thu deposit kind and really is good on any of those
-  // days (packs.ts explains why it is not narrowed to Wednesdays). Naming only
-  // "Wednesday" here would understate the credit; naming only "Mon–Thu" would
-  // read as though the deal itself ran all week.
+  // Scheduled-race BOGO (owner 2026-08-31): nothing banks any more — the free
+  // race is the second SCHEDULED race, priced to $0 automatically at checkout.
+  // The copy's job is to make the guest schedule two.
   "payMode.bogo.sub":
-    "Buy one race on a Wednesday, get one free — the second banks to your account for any Mon–Thu visit.",
+    "Buy one race on a Wednesday, get one free — schedule both today and every second race is free at checkout.",
+  /** The banner's price example footer: "$20.99 [struck $41.98] for 2 races". */
+  "payMode.bogo.forTwo": "for 2 races",
   "payMode.raceWord": "{count, plural, one {race} other {races}}",
   "payMode.incl.prefix": "incl. {list}",
   "payMode.incl.license": "license",
@@ -277,7 +277,8 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   "payMode.selected": "✓ Seleccionado",
   "payMode.bogo.title": "2 Carreras por el Precio de 1",
   "payMode.bogo.sub":
-    "Compra una carrera un miércoles y llévate otra gratis — la segunda se guarda en tu cuenta para cualquier visita de lun–jue.",
+    "Compra una carrera un miércoles y llévate otra gratis — agenda las dos hoy y cada segunda carrera es gratis al pagar.",
+  "payMode.bogo.forTwo": "por 2 carreras",
   "payMode.raceWord": "{count, plural, one {carrera} other {carreras}}",
   "payMode.incl.prefix": "incluye {list}",
   "payMode.incl.license": "licencia",

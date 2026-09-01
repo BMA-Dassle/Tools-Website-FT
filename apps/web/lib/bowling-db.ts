@@ -104,6 +104,28 @@ export async function ensureBowlingSchema(): Promise<void> {
   await q`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS square_catalog_object_id TEXT`;
   await q`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS center_code TEXT`;
 
+  // ── Configurable food items (2026-08-25) ─────────────────────────
+  // A $0 package item (Pizza Bowl pizza, soda pitcher; NFL wings) can carry
+  // Square modifier groups the guest picks from. These two columns say how many
+  // picks are free and what each extra costs, so BowlingFoodStep is driven by
+  // config instead of the hardcoded catalog ids + name regex it used to carry.
+  //
+  // included_modifier_count defaults to 1: every package to date includes
+  // exactly one choice per group (one topping, one drink, one heat level).
+  await q`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS included_modifier_count INTEGER NOT NULL DEFAULT 1`;
+  await q`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS extra_modifier_cents INTEGER NOT NULL DEFAULT 0`;
+  // Backfill so the behaviour does not change the moment this deploys: the
+  // Pizza Bowl PIZZA item has always charged $1 per extra topping (the old
+  // hardcoded PIZZA_BOWL_FREE_TOPPINGS / EXTRA_TOPPING_CENTS pair). Without
+  // this, extra toppings would silently become free until the seed is re-run.
+  // Guarded on `= 0` so a later deliberate change is never clobbered.
+  await q`
+    UPDATE bowling_experience_items
+       SET extra_modifier_cents = 100
+     WHERE square_catalog_object_id = '2IKZB4O2HQBXWMTSUQ2SEKJY'
+       AND extra_modifier_cents = 0
+  `;
+
   // ── bowling_experience_offers ────────────────────────────────────
   // Maps an experience to the QAMF web offer ID at a specific center.
   // Same experience → different offer IDs per center.
@@ -378,6 +400,13 @@ export async function ensureBowlingSchema(): Promise<void> {
   // Check-in method: 'self' (kiosk/self-service) or 'desk' (front desk staff).
   // Set by admin board; NULL = not yet checked in.
   await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS checkin_method TEXT`;
+  // WHEN they checked in, as opposed to which way. `checkin_method` has always been a
+  // method with no moment attached, so "checked in within the last half hour" — what the
+  // front-desk wall shows (owner 2026-09-01) — could only be approximated from the booked
+  // SLOT, which is a different thing entirely and drifts from it by however long a guest
+  // was early or late. Backfills as NULL: those rows simply do not appear on that board,
+  // which is the honest answer, and it self-heals on the next check-in.
+  await q`ALTER TABLE bowling_reservations ADD COLUMN IF NOT EXISTS checked_in_at TIMESTAMPTZ`;
 
   // Loyalty action during booking: 'signup' (new account), 'existing' (logged in),
   // or NULL (no loyalty interaction). Redemption tracked separately via
@@ -487,6 +516,10 @@ export interface BowlingExperienceItem {
   quantity: number;
   sortOrder: number;
   productKind: string; // from bowling_square_products.product_kind
+  /** Modifier picks included per group before `extraModifierCents` applies. */
+  includedModifierCount: number;
+  /** Charge per pick beyond `includedModifierCount`. 0 = extras not offered. */
+  extraModifierCents: number;
 }
 
 export interface BowlingExperienceOffer {
@@ -1432,12 +1465,17 @@ export async function getBowlingReservationsToPollForLane(
  * kiosk and the desk, so a party the desk has already handled drops off this list
  * without needing a second flag.
  *
- * THE WINDOW IS DELIBERATELY WIDER BEFORE THAN AFTER. Guests arrive early far more
- * often than a reservation is genuinely still checkable an hour late, and the
- * pre-arrival notice already goes out ~30 minutes ahead — so someone who got that text
- * and walked straight over should see themselves listed. An hour and a half afterwards
- * covers a late party without carrying no-shows all evening; `closePastReservationStatuses`
- * eventually flips those to no_show anyway.
+ * THE NEXT HOUR AHEAD, AND AN HOUR OF GRACE BEHIND (owner 2026-09-01: "lanes available
+ * should just be showing reservations within next hour"). The forward bound is the
+ * owner's; the backward one is not symmetry for its own sake — a party that is forty
+ * minutes late is still standing at the desk being checked in, and dropping them off
+ * this list while `checkin_method` is still NULL would take them off the board at the
+ * moment they walked in. `closePastReservationStatuses` eventually flips real no-shows,
+ * so nothing accumulates.
+ *
+ * This was six hours ahead of the owner's ask at 90 minutes behind; the reduction to an
+ * hour is deliberate, and 30 minutes — which an earlier pass used — was too tight for
+ * the reason above.
  */
 export async function getSelfCheckinEligible(
   centerCode: string,
@@ -1457,7 +1495,9 @@ export async function getSelfCheckinEligible(
       -- first name and drops the blanks), but excluding it here keeps the LIMIT
       -- spending its slots on rows that will actually appear.
       AND TRIM(COALESCE(guest_name, '')) <> ''
-      AND booked_at BETWEEN NOW() - INTERVAL '90 minutes' AND NOW() + INTERVAL '45 minutes'
+      -- THE NEXT HOUR, plus an hour of grace behind for a late arrival — see the note
+      -- above. Ordered soonest-first so the top of the board is whoever is due next.
+      AND booked_at BETWEEN NOW() - INTERVAL '60 minutes' AND NOW() + INTERVAL '60 minutes'
     ORDER BY booked_at ASC
     LIMIT ${limit}
   `;
@@ -1478,9 +1518,20 @@ export async function getSelfCheckinEligible(
  * than shown as pending: "checked in, lane coming" is a promise the board cannot
  * keep, and an empty lane column reads as a fault.
  *
- * Scoped to the last six hours rather than to a calendar day — the centre trades
- * past midnight on weekend nights, and a business-day boundary would blank the board
- * at the busiest moment (see the e-ticket quiet-hours lesson).
+ * THE LAST THIRTY MINUTES OF CHECK-INS, and windowed on when they CHECKED IN rather
+ * than on the slot they booked (owner 2026-09-01: "checked in should only show lanes
+ * checked in last 30 minutes").
+ *
+ * It was six hours on `booked_at`, which is a very different board from the one it looks
+ * like. Probed live at 02:05 it was still naming guests booked at 20:30 and 21:30 —
+ * people who had finished and left — holding every visible row against anyone actually
+ * arriving. And `booked_at` is the SLOT, so even a tight window on it would drift from
+ * the moment a guest walked in by however early or late they were. `checked_in_at` is
+ * the real thing, added for this.
+ *
+ * Rows checked in before that column existed have NULL and do not appear, which is the
+ * honest answer to "when did they check in" rather than a guess — it self-heals with the
+ * first check-in after deploy.
  */
 export async function getSelfCheckedInWithLanes(
   centerCode: string,
@@ -1496,8 +1547,16 @@ export async function getSelfCheckedInWithLanes(
       AND dayof_order_lane IS NOT NULL
       AND dayof_order_lane <> ''
       AND status NOT IN ('cancelled', 'no_show')
-      AND booked_at > NOW() - INTERVAL '6 hours'
-    ORDER BY booked_at DESC
+      -- THIRTY MINUTES FROM WHICHEVER HAPPENED LAST: the check-in, or the lane
+      -- opening. Anchored on checked_in_at alone this dropped exactly the guests who
+      -- most need the board. A guest may self-check-in up to an hour before their slot
+      -- (see getSelfCheckinEligible), but the row only becomes DISPLAYABLE when
+      -- dayof_order_lane is written, which happens when the lane actually opens: check
+      -- in at 19:00 for a 20:00 lane and the number appears 60 minutes after the
+      -- check-in stamp, outside the window, so it never showed at all.
+      AND GREATEST(checked_in_at, COALESCE(lane_ready_sent_at, checked_in_at))
+            > NOW() - INTERVAL '30 minutes'
+    ORDER BY GREATEST(checked_in_at, COALESCE(lane_ready_sent_at, checked_in_at)) DESC
     LIMIT ${limit}
   `;
   return rows.map((r) => rowToReservation(r as Record<string, unknown>));
@@ -2169,7 +2228,14 @@ export async function updateBowlingReservationBookedAt(
   await q`UPDATE bowling_reservations SET booked_at = ${bookedAt} WHERE id = ${id}`;
 }
 
-/** Set check-in method on a reservation (admin action). */
+/**
+ * Set check-in method on a reservation, and stamp WHEN it happened.
+ *
+ * `COALESCE(checked_in_at, NOW())` keeps the FIRST moment: re-running this — an admin
+ * correcting the method, a retried request — must not push a guest back onto the
+ * front-desk wall's "checked in" board half an hour after they actually arrived.
+ * Clearing the method clears the stamp, so the two can never disagree.
+ */
 export async function updateBowlingCheckinMethod(
   id: number,
   method: "self" | "desk" | null,
@@ -2177,7 +2243,15 @@ export async function updateBowlingCheckinMethod(
   if (!isDbConfigured()) return;
   await ensureBowlingSchema();
   const q = sql();
-  await q`UPDATE bowling_reservations SET checkin_method = ${method} WHERE id = ${id}`;
+  await q`
+    UPDATE bowling_reservations
+    SET checkin_method = ${method},
+        checked_in_at = CASE
+          WHEN ${method}::text IS NULL THEN NULL
+          ELSE COALESCE(checked_in_at, NOW())
+        END
+    WHERE id = ${id}
+  `;
 }
 
 /**
@@ -3114,7 +3188,8 @@ async function fetchExperienceItems(
           COALESCE(bei.label_override, bsp.label) AS label,
           bsp.price_cents, bsp.deposit_pct, bsp.square_catalog_object_id,
           bsp.product_kind,
-          bei.quantity, bei.sort_order
+          bei.quantity, bei.sort_order,
+          bei.included_modifier_count, bei.extra_modifier_cents
         FROM bowling_experience_items bei
         JOIN bowling_square_products bsp
           ON bsp.square_catalog_object_id = bei.square_catalog_object_id
@@ -3129,7 +3204,8 @@ async function fetchExperienceItems(
           COALESCE(bei.label_override, bsp.label) AS label,
           bsp.price_cents, bsp.deposit_pct, bsp.square_catalog_object_id,
           bsp.product_kind,
-          bei.quantity, bei.sort_order
+          bei.quantity, bei.sort_order,
+          bei.included_modifier_count, bei.extra_modifier_cents
         FROM bowling_experience_items bei
         JOIN bowling_square_products bsp ON bsp.id = bei.square_product_id
         WHERE bei.experience_id = ANY(${experienceIds})
@@ -3150,6 +3226,8 @@ async function fetchExperienceItems(
       quantity: r.quantity as number,
       sortOrder: r.sort_order as number,
       productKind: r.product_kind as string,
+      includedModifierCount: (r.included_modifier_count as number) ?? 1,
+      extraModifierCents: (r.extra_modifier_cents as number) ?? 0,
     };
     if (!map.has(eid)) map.set(eid, []);
     map.get(eid)!.push(item);

@@ -319,6 +319,33 @@
   animation: k-slot-glow 2.4s ease-in-out infinite;
 }
 
+/* Swipe guide (SwipeBlankGuide.tsx — kiosks WITHOUT a dispenser): the card
+   glides through the reader slot on a loop, fading in at the left and out at
+   the right, so "swipe it" reads as a motion, not a picture of a card. */
+@keyframes k-swipe-card {
+  0%,
+  8% {
+    transform: translateX(-64px);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  68%,
+  76% {
+    transform: translateX(64px);
+    opacity: 1;
+  }
+  86%,
+  100% {
+    transform: translateX(64px);
+    opacity: 0;
+  }
+}
+.k-swipe-card {
+  animation: k-swipe-card 3s ease-in-out infinite;
+}
+
 /* Mobile-join box (KioskSignInBoxes): amber breathing glow while a phone is
    mid sign-in — the kiosk is visibly waiting on someone even with the QR
    sheet closed. */
@@ -387,7 +414,8 @@
   .kiosk-ad-rumble,
   .kiosk-attract-chev,
   .k-slot-card,
-  .k-slot-glow {
+  .k-slot-glow,
+  .k-swipe-card {
     animation: none;
   }
 }

@@ -1,139 +1,156 @@
 "use client";
 
 /**
- * THE VIP EXPERIENCE, ACROSS FIVE PANELS — four sub-slides, 2m40s.
+ * THE VIP EXPERIENCE, ACROSS FIVE PANELS — one picture, held for the whole slot.
  *
- * The front-desk wall's anchor scene. Each panel renders ITS SLICE of one
- * composition: the statement, then the three legs of the night, then what is
- * included, then the price. Five panels of the same card would be a hall of
- * mirrors; five panels of one sentence is the reason the wall exists.
+ * The front-desk wall's anchor scene, and since 2026-09-01 it is the owner's
+ * EXPORTED ARTWORK rather than a composition drawn in code. Each panel carries its
+ * own transparent PNG over a venue photograph, and the five together read as one
+ * sentence: the product is named on the left, the offer runs through the middle,
+ * and the right-hand panel is the ask.
  *
- * WHICH SLIDE IS UP COMES FROM THE SHARED CLOCK, never a local counter. 20s
- * divides the 40s slot evenly so a slide can never straddle a boundary, and the
- * scene's 4 slots are two full passes. A panel that reboots mid-showcase rejoins
- * on the same slide as its neighbours, because there is no position to restore.
+ * IT NO LONGER CYCLES. The old showcase ran four sub-slides of 20s on every panel;
+ * this is a single frame that holds for the full window. That is not a reduction —
+ * the four slides said in TIME what the five panels now say in SPACE, which is the
+ * one thing a wall can do that a single screen cannot, and a guest walking past
+ * gets the whole offer in one look instead of a quarter of it.
  *
- * NO SLIDE IS AN ORPHAN. The gold identity rail names the product and its price on
- * every panel of every slide — a guest who walks up during "1.5 hrs VIP bowling"
- * would otherwise be looking at five panels of legs belonging to nothing (owner
- * 2026-08-17). See `identityRail` for why the name and the price each land whole on
- * one panel rather than spanning.
+ * WHAT MOVES IS THE PHOTOGRAPH. The artwork is fixed; the picture behind it pans,
+ * which is the whole reason the PNGs are transparent. A wall the owner told us
+ * "isn't being noticed" needs life in it, and this is life that cannot smear the
+ * words — the type is in the art and the art does not move.
  *
- * GOLD RUNS THROUGHOUT THIS SCENE and nowhere else but the one resting slide,
- * because gold means All Access and a show is when it is on.
+ * THE QR IS LIVE, NOT BAKED. Panel 5 ships with a code drawn into the export by the
+ * design tool, pointing wherever it pointed the day it was made. This scene paints a
+ * real one over that plate, generated from the ACTIVE pack's own booking URL, so the
+ * wall can never send a lobby full of people to a dead link.
+ *
+ * THE PRICES ARE NOW PIXELS. Nothing here can read them, so `VIP_ART_CLAIMS` in
+ * wall-content.ts writes them down and a test pins them to the live pack — including
+ * the case where no pack is on sale at all, which must fail the build rather than
+ * leave the wall advertising a retired product.
  */
+import { useEffect, useState } from "react";
+import QRCode from "qrcode";
 import type { SceneProps } from "../director/types";
-import { choreo, wallBrand } from "../wall";
-import { identityRail, vipSlideIndex, vipSlidePanel, vipWallPrice } from "../wall-content";
-import { activeVipCombo } from "~/features/combos/combo-specials";
-import { TV_PHOTOS } from "../assets";
-import {
-  RAIL_H,
-  WallCard,
-  WallGround,
-  WallIdentityRail,
-  WallPoster,
-} from "../components/WallPanel";
+import { choreo } from "../wall";
+import { vipSlideArtAt, vipBookingUrl, VIP_QR_PLATE, WALL_ACCENT } from "../wall-content";
+import { WallGround } from "../components/WallPanel";
 
-/**
- * The FALLBACK backdrop per panel, for a slide whose panels carry words rather than
- * things — the statement and the price. Held per POSITION so the ground stays put
- * while the words change, because a picture that cuts every 20 seconds under a
- * changing headline reads as churn.
- *
- * A slide whose panels ARE things overrides this per panel: each of the five parts
- * of the VIP night gets its own picture (owner 2026-08-18), which is what
- * `CardPanel.photo` is for.
- *
- * Deliberately avoids TV_PHOTOS.vipLanes — it has words burned into the frame.
- */
-const PANEL_PHOTO = [
-  TV_PHOTOS.race,
-  TV_PHOTOS.bowl,
-  TV_PHOTOS.redTrack,
-  TV_PHOTOS.arcade,
-  TV_PHOTOS.duck,
-];
-
-/** A beat of stagger per panel, so a slide's words light left to right along the
- *  wall — the kiosk bank's own handoff, at wall scale. Well inside the 620ms
- *  tv-rise, so the whole wall has landed within a second of the cut. */
-const STAGGER_MS = 130;
-
-export function SceneVipShowcase({ nowMs, config }: SceneProps) {
+export function SceneVipShowcase({ config }: SceneProps) {
   const { position, count, gapPct } = choreo(config);
-  const slide = vipSlideIndex(nowMs);
-  const price = vipWallPrice(nowMs);
-  const panel = vipSlidePanel(slide, position, price);
-  const rail = identityRail(position, price, slide);
-  // The panel's own picture when its subject has one, else the panel's standing
-  // ground. Reading it off the content rather than the position is what lets one
-  // slide be five things and another be five words.
-  const photo =
-    (panel?.layout === "card" ? panel.photo : undefined) ??
-    PANEL_PHOTO[position % PANEL_PHOTO.length];
-  const delayMs = position * STAGGER_MS;
-  // WHICH mark this end carries comes from config, falling back to derived-from-
-  // the-ends. It has to: which brand goes on which end depends on which way the
-  // room faces, and that must be swappable from the admin form rather than by a
-  // deploy (plan, open decision 1). Null on an inner panel and on an end whose
-  // mark was explicitly silenced.
-  const mark = wallBrand(position, count, config.wall?.brand);
-  const vipName = activeVipCombo()?.name;
+  const slide = vipSlideArtAt(position);
 
-  // Keyed by slide so React remounts on every cut and the staggered entrance
-  // replays — a sub-slide change is a new frame to the eye, but not to the
-  // director (frameKey is the scene name), so the remount has to happen here.
-  const key = `${slide}:${position}:${count}`;
+  // A wall wider than the artwork leaves its extra panels on the bare gold ground.
+  // The set is a sentence; a repeated fragment at the end of it reads as a stutter,
+  // and a black panel reads as a dead player.
+  if (!slide) {
+    return (
+      <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
+        <WallGround accent={WALL_ACCENT.vip} gold underArt wall={{ position, count, gapPct }} />
+      </div>
+    );
+  }
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
       <WallGround
-        photo={photo}
-        accent={panel?.accent ?? "#d4af37"}
+        photo={slide.photo}
+        accent={WALL_ACCENT.vip}
         gold
-        deepScrim
+        underArt
+        kenburns
         wall={{ position, count, gapPct }}
       />
 
-      {panel?.layout === "poster" && (
-        <WallPoster
-          key={key}
-          bigBrand={panel.bigBrand ? mark : null}
-          smallBrand={panel.smallBrand}
-          // An END panel asked for a brand lockup but given no mark — an explicit
-          // "No mark" in the admin form — falls back to naming the product, rather
-          // than rendering an empty stack. A blank panel at the end of a wall reads
-          // as a dead player, which is the one thing a wall must never fake.
-          //
-          // The PRODUCT NAME with the badge under it, never the badge alone (owner
-          // 2026-08-19): "All Access" is the wall's word for the thing, and a guest who
-          // reads only that cannot ask for it at the desk or find it on a kiosk.
-          word={panel.bigBrand && !mark ? (vipName ?? "VIP Experience") : panel.word}
-          accent={panel.accent}
-          rule={panel.bigBrand && !mark ? "All Access" : panel.rule}
-          railed
-          delayMs={delayMs}
-        />
-      )}
+      {/* The artwork itself, at 1:1 on the 1920×1080 canvas. `tv-rise` is
+          deliberately NOT used: five panels of one picture must land together, and a
+          staggered entrance would tear the sentence apart at the joins. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={slide.art}
+        alt={slide.alt}
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", zIndex: 2 }}
+      />
 
-      {panel?.layout === "card" && (
-        <WallCard
-          key={key}
-          eyebrow={panel.eyebrow}
-          word={panel.word}
-          line={panel.line}
-          accent={panel.accent}
-          bottomInset={RAIL_H + 46}
-          delayMs={delayMs}
-        />
-      )}
+      {slide.qr && <BookingQr />}
+    </div>
+  );
+}
 
-      {/* A panel with nothing of its own to say still carries the rail, so the wall
-          identifies itself end to end. Nothing renders a placeholder headline: an
-          empty gold panel between two full ones reads as part of the design, while
-          "—" reads as broken. */}
-      {rail && <WallIdentityRail cell={rail} />}
+/**
+ * The live booking code, laid exactly on the artwork's own white plate.
+ *
+ * Painted opaque white across the whole plate before the code goes down, so the
+ * baked-in QR underneath is covered rather than showed through — two QRs a few
+ * pixels apart is a code that scans as neither.
+ *
+ * Renders NOTHING when no pack is on sale. That leaves the exported code showing,
+ * which is the lesser wrong of two bad states and is unreachable in practice: the
+ * copy-pin test fails the build if this wall is live with no active pack.
+ */
+function BookingQr() {
+  const url = vipBookingUrl();
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!url) return;
+    let alive = true;
+    QRCode.toDataURL(url, {
+      // Generated well above the rendered size so it stays crisp when the canvas is
+      // scaled up onto a 4K panel.
+      width: 1024,
+      margin: 1,
+      // Dark-on-white, always. A gold-tinted code would sit better in the artwork
+      // and scan worse, and a code that does not scan is worse than no code.
+      color: { dark: "#000418", light: "#ffffff" },
+    })
+      .then((d) => {
+        if (alive) setDataUrl(d);
+      })
+      .catch(() => {
+        // Leave the plate alone rather than painting a white hole in the artwork.
+        if (alive) setDataUrl(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [url]);
+
+  if (!url || !dataUrl) return null;
+
+  const inset = 30;
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: VIP_QR_PLATE.left,
+        top: VIP_QR_PLATE.top,
+        width: VIP_QR_PLATE.width,
+        height: VIP_QR_PLATE.height,
+        // Above the artwork — this replaces part of it.
+        zIndex: 3,
+        background: "#ffffff",
+        // MORE rounded than the artwork's own plate (~16px), never less. These bounds
+        // are the plate's widest extent, so a squarer corner here would paint white
+        // outside the artwork's white and onto its navy frame; a rounder one stays
+        // inside it, and white drawn over white is invisible.
+        borderRadius: 20,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={dataUrl}
+        alt="Scan to book the VIP Experience"
+        style={{
+          display: "block",
+          width: VIP_QR_PLATE.width - inset * 2,
+          height: VIP_QR_PLATE.width - inset * 2,
+        }}
+      />
     </div>
   );
 }

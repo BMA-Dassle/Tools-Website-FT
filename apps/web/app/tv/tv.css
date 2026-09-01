@@ -483,6 +483,25 @@
   animation: tv-chev 2.8s ease-in-out infinite;
 }
 
+/* The SAME nod pointing LEFT, for the arena strip's wayfinding arrow — the desk
+   is beside that screen, not under it (owner 2026-09-01). Same 2.8s cresting at
+   50%, so it sits on the beat with the chevrons and beacons it shares a band
+   with; only the axis differs. */
+@keyframes tv-chev-left {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.8;
+  }
+  50% {
+    transform: translate3d(-14px, 0, 0);
+    opacity: 1;
+  }
+}
+.tv-chev-left {
+  animation: tv-chev-left 2.8s ease-in-out infinite;
+}
+
 /* ── the welcome-back exit run ────────────────────────────────────────────
    Four chevrons whose brightness pulse travels toward the white door — the
    direction the feet should go, on the estate's 1.4s beat (same clock as
@@ -555,6 +574,53 @@
     opacity: 1;
     transform: scale(1) translate3d(0, 0, 0);
   }
+}
+
+/* ── the WALL cut: a long cross-dissolve, and nothing that moves ──────────
+   A video wall cuts differently from a single screen, and the reason is timing
+   rather than taste. Each panel re-evaluates its own decision on a 250ms tick,
+   so two panels can notice the same cut a quarter of a second apart even with
+   perfectly agreeing clocks — and the default transition ADVERTISES that gap
+   three times over: a scale makes each panel visibly shrink on its own beat, a
+   translate slides it, and the wipe sends a bright bar across five panels at
+   five slightly different moments, which the eye tracks (owner 2026-09-01: "the
+   transition to VIP ads and back could be smoother somehow since the TVs are not
+   always perfectly in sync").
+
+   A pure opacity dissolve has no edge to track and no geometry to disagree
+   about, and at 1100ms a 250ms spread is under a quarter of the transition
+   rather than the whole of it. This is why broadcast dissolves between cameras
+   and wipes only when it wants the cut noticed. The wipe is suppressed on a wall
+   in SceneDirector for the same reason. */
+@keyframes tv-enter-soft {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes tv-exit-soft {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+/* A reel fading up over the panel's own still. Reuses the wall dissolve's curve so
+   the two never look like different mechanisms on the same screen. */
+.tv-film-in {
+  animation: tv-enter-soft 700ms linear both;
+}
+
+.tv-frame--wall[data-state="entering"] {
+  /* linear, not eased: two panels a beat apart on an eased curve are at very
+     different opacities in the middle of it, which is exactly where the eye is. */
+  animation: tv-enter-soft 1100ms linear both;
+}
+.tv-frame--wall[data-state="exiting"] {
+  animation: tv-exit-soft 1100ms linear both;
 }
 @keyframes tv-exit {
   from {

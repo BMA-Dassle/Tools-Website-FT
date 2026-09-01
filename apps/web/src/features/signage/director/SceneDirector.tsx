@@ -26,6 +26,7 @@ import type { TvFeed } from "../types";
 import type { DemoMode } from "../demo";
 import { SceneSlot, sceneHasData, isSceneImplemented } from "../scenes/registry";
 import { TvBrandLogo } from "../components/TvBrandLogo";
+import { ArenaDeskStrip } from "../arena/ArenaDeskStrip";
 import { frameKey, resolveActiveScene, type SceneDecision } from "./schedule";
 
 /** How often the decision is re-evaluated. Matches AttractBillboard's cadence:
@@ -34,6 +35,16 @@ import { frameKey, resolveActiveScene, type SceneDecision } from "./schedule";
 const TICK_MS = 250;
 /** Must match the .tv-frame[data-state="exiting"] animation in tv.css. */
 const EXIT_MS = 500;
+/**
+ * The same, for a panel on a VIDEO WALL — must match `.tv-frame--wall`.
+ *
+ * Longer because the wall cross-dissolves instead of cutting: five panels each
+ * decide on their own 250ms tick, so they can begin the same transition a quarter
+ * of a second apart, and a long dissolve is what makes that spread a fraction of
+ * the move rather than the whole of it. Retiring the outgoing frame at 500ms would
+ * chop the dissolve off two-thirds through and put the hard cut straight back.
+ */
+const WALL_EXIT_MS = 1100;
 
 /**
  * THE FASTTRAX MARK ON EVERY BOARD (owner 2026-08-14: "need to find a good spot
@@ -152,11 +163,44 @@ export function SceneDirector({
         hasData: (scene) => sceneHasData(scene, feed),
         events: feed?.kioskEvents ?? [],
         seenEventIds: seen,
+        arenaCalls: feed?.arena?.calls,
         asleep,
         isImplemented: isSceneImplemented,
       }),
     [nowMs, config, feed, asleep, seen],
   );
+
+  /**
+   * LAND EXACTLY ON THE NEXT CUT, instead of up to a tick late.
+   *
+   * The interval above is a SAFETY NET, not the mechanism, and treating it as the
+   * mechanism is what made the wall look out of step (owner 2026-09-01: "timing of the
+   * screens could improve a bit… I'm thinking edge just reacting slow"). It is not the
+   * browser. `setInterval` keeps whatever phase it had when the component mounted, so a
+   * panel notices a boundary 0–250ms after it truly passes — and because that phase
+   * persists, a panel that booted at an unlucky moment sits a fifth of a second behind
+   * its neighbour ALL EVENING rather than jittering either side of it.
+   *
+   * A rotation segment already knows when it ends, so there is nothing to poll for:
+   * schedule a wake for that instant on the SHARED clock and every panel fires within
+   * timer jitter of the same moment. The interval stays for everything that is not
+   * clock-derived — a celebration arriving, a feed going empty, an interrupt clearing.
+   *
+   * Interrupts carry `durationMs: null` (they end when their cause does), so there is no
+   * boundary to aim at and this simply does not arm.
+   */
+  const boundaryMs =
+    decision.durationMs == null ? null : decision.startedAtMs + decision.durationMs;
+  useEffect(() => {
+    if (boundaryMs == null) return;
+    // A few ms PAST it, so the recomputed clock is unambiguously the far side of the
+    // boundary rather than a rounding error short of it — which would re-arm for ~0ms
+    // and spin until it crossed.
+    const delay = boundaryMs - (Date.now() + offset) + 8;
+    if (delay <= 0) return;
+    const t = setTimeout(() => setNowMs(Date.now() + offset), delay);
+    return () => clearTimeout(t);
+  }, [boundaryMs, offset]);
 
   // A celebration is spent once its window closes, so the next one can show.
   const celebrationId = decision.scene === "celebration" ? decision.event?.id : undefined;
@@ -198,12 +242,18 @@ export function SceneDirector({
   }
   const { current, outgoing } = frames;
 
+  // A panel of a video wall dissolves; every other screen keeps the cut it has.
+  const onWall = !!config.wall;
+
   // Retire the outgoing frame once its exit animation has finished.
   useEffect(() => {
     if (!outgoing) return;
-    const t = setTimeout(() => setFrames((f) => ({ current: f.current, outgoing: null })), EXIT_MS);
+    const t = setTimeout(
+      () => setFrames((f) => ({ current: f.current, outgoing: null })),
+      onWall ? WALL_EXIT_MS : EXIT_MS,
+    );
     return () => clearTimeout(t);
-  }, [outgoing]);
+  }, [outgoing, onWall]);
 
   /* ── phase-lock every shared animation ───────────────────────────────
      On mount, on every scene change, and on each clock resync — the same
@@ -260,19 +310,44 @@ export function SceneDirector({
           for hours. Backdrops overdraw the canvas, so this never shows an edge. */}
       <div className="tv-drift">
         {outgoing && (
-          <div className="tv-frame" data-state="exiting" key={frameKey(outgoing)}>
+          <div
+            className={onWall ? "tv-frame tv-frame--wall" : "tv-frame"}
+            data-state="exiting"
+            key={frameKey(outgoing)}
+          >
             <SceneSlot {...props} decision={outgoing} />
           </div>
         )}
 
-        <div className="tv-frame" data-state="entering" key={frameKey(current)}>
+        <div
+          className={onWall ? "tv-frame tv-frame--wall" : "tv-frame"}
+          data-state="entering"
+          key={frameKey(current)}
+        >
           <SceneSlot {...props} decision={current} />
           <SceneLogo scene={String(current.scene)} venue={venue} />
         </div>
 
+        {/* THE ARENA DESK STRIP — chrome, not a scene, and that is the whole
+            point of it living here (owner 2026-09-01: "its not showing check
+            in"). A rotation entry would only be up for its slice of the loop,
+            and a guest walks to the desk at a random moment. Rendered over
+            whatever is playing, the board always says what it is.
+
+            NOT over a call, and not over a dark panel: the check-in scene owns
+            the whole wall and says all of this louder, and a sleeping screen is
+            meant to be asleep. Outside the keyed `.tv-frame` divs on purpose —
+            inside one it would be torn down and re-animated at every cut. */}
+        {config.arenaBoard && current.scene !== "arena-checkin" && current.scene !== "sleep" && (
+          <ArenaDeskStrip upcoming={feed?.arena?.upcoming ?? []} />
+        )}
+
         {/* The wipe that covers the cut. Keyed to the incoming scene so it
-            replays exactly once per change and unmounts with it. */}
-        {outgoing && (
+            replays exactly once per change and unmounts with it.
+            NOT ON A WALL: a bright bar crossing five panels, each starting on its
+            own 250ms tick, is the one thing that makes the panels' disagreement
+            trackable by eye. The wall dissolves instead — see `.tv-frame--wall`. */}
+        {outgoing && !onWall && (
           <div
             aria-hidden
             key={`wipe-${frameKey(current)}`}

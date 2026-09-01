@@ -2,9 +2,13 @@
  * Admin-proxy route registry — the ONE place that answers "what does a path
  * do on the staff admin domain?".
  *
- * This app is a pure authenticated front door: it owns NO pages and NO API
- * routes. Vercel Authentication guards the domain; proxy.ts executes the
- * decision made here — forwarding staff-tool URLs to the main deployment
+ * This app is an authenticated front door. It owns almost nothing: the ONLY
+ * routes it serves itself are its own sign-in plumbing (`/api/auth/*`, from
+ * Auth.js) and the two SSO surfaces staff or a script can land on (`/sso/error`,
+ * `/sso/diag`) — the `self` decision below. Everything else is proxied.
+ * SSO guards the domain (it replaced Vercel Authentication 2026-08-28);
+ * proxy.ts executes the decision made here — forwarding staff-tool URLs to
+ * the main deployment
  * (fasttraxent.com / headpinz.com — where ALL secrets and server code live)
  * with ADMIN_CAMERA_TOKEN injected into the path, and 404ing everything that
  * is not a staff surface. Because the main deployment executes every
@@ -71,10 +75,22 @@ function isAssetPath(p: string): boolean {
 }
 
 export type AdminProxyDecision =
+  | { kind: "self" } // THIS app answers it (Auth.js + the /sso surfaces)
   | { kind: "forward"; pathname: string } // proxy to the upstream, same path
   | { kind: "forward-admin"; pathname: string } // proxy to the tokened admin path
   | { kind: "redirect"; pathname: string } // 307 on THIS domain (query preserved by caller)
   | { kind: "not-found" }; // this domain serves nothing else
+
+/**
+ * The routes this project serves itself. They must be decided BEFORE the
+ * `/api/` forward below, or the sign-in callback would be proxied to the main
+ * site — which has no idea what Auth.js is — and no one could ever sign in.
+ * They are also the paths proxy.ts must let through UNAUTHENTICATED: gating
+ * the sign-in route on being signed in is an infinite redirect.
+ */
+function isSelfPath(p: string): boolean {
+  return p === "/api/auth" || p.startsWith("/api/auth/") || p === "/sso" || p.startsWith("/sso/");
+}
 
 /**
  * Route a request on the admin domain. `expectedToken` is ADMIN_CAMERA_TOKEN
@@ -82,6 +98,10 @@ export type AdminProxyDecision =
  */
 export function resolveAdminProxyPath(pathname: string, expectedToken: string): AdminProxyDecision {
   const p = normalize(pathname);
+
+  // 0. Our own sign-in plumbing and SSO surfaces. FIRST, ahead of the /api
+  //    forward — /api/auth/callback/headpinz is an /api path.
+  if (isSelfPath(p)) return { kind: "self" };
 
   // 1. Framework assets + API traffic go upstream untouched. /api/admin/*
   //    keeps its ?token= gate on the main deployment; the proxy key header

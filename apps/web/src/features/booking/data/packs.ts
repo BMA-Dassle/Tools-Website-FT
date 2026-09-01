@@ -116,7 +116,9 @@ export interface RacePack {
  */
 export const BOGO_SALE_RULE: RecurringDayRule = { days: [3], from: "2026-08-19" };
 
-/** Slugs the promo adds to the catalog on its days. */
+/** The RETIRED credit-pack slugs (see the LEGACY note on their entries below).
+ *  Kept exported for the ledger/label paths and the tests that pin they are
+ *  never sellable again. */
 export const BOGO_SALE_SLUGS = ["bogo-races-adult", "bogo-races-junior"] as const;
 
 /**
@@ -195,7 +197,16 @@ export const RACE_PACKS: RacePack[] = [
   // tier (adult $20.99 / junior $15.99 in service/race-products.ts), so each
   // tier gets a true buy-one-get-one rather than one flat price that would
   // shortchange juniors. `category` is what stops an adult buying the cheaper
-  // junior SKU. Sold only while `bogoSaleActive()` — see BOGO_SALE_DAYS.
+  // junior SKU.
+  //
+  // ⚠ LEGACY — RETIRED AS SELLABLE ITEMS 2026-08-31 (owner: "this special was
+  // never meant to be a race pack"). BOGO Wednesdays is a SCHEDULED-RACE
+  // pricing rule now (service/bogo-scheduled.ts): every 2nd booked Wednesday
+  // race is free, nothing banks. NO catalog accessor offers these slugs any
+  // more, so `resolveKioskPacks` refuses them fail-closed on every surface.
+  // The entries stay ONLY so old `race_pack_purchases` ledger rows, deposit
+  // retry sweeps and Square line labels from the pack era still resolve —
+  // credits already banked under the old deal keep redeeming unchanged.
   //
   // `badge` is an ENGLISH marker the sell surfaces branch on, NEVER printed —
   // the visible ribbon comes from the i18n catalog (`racePack.picker.flashSale`

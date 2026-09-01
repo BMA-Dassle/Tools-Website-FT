@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { useKioskConfig } from "../KioskConfigContext";
+import { gameZoneCapability } from "../config";
 import { resetToKiosk } from "../version";
 import { BrandLogo } from "./BrandLogo";
 import { readGzFulfillment, type GzFulfillmentPayload } from "../service/gz-fulfillment";
@@ -811,11 +812,17 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         style={{ flex: "0 0 auto" }}
         className="k-btn-primary k-tap relative mt-[16px] h-[112px] w-full max-w-[70%] text-[36px] disabled:opacity-40"
       >
-        {gzBusy ? t("confirmation.dispensing") : t("confirmation.done")}
+        {gzBusy
+          ? gameZoneCapability(config) === "swipe"
+            ? t("confirmation.loadingCards")
+            : t("confirmation.dispensing")
+          : t("confirmation.done")}
       </button>
       <p className="relative text-[24px] text-white/40 tabular-nums">
         {gzBusy
-          ? t("confirmation.dispensingHint")
+          ? gameZoneCapability(config) === "swipe"
+            ? t("confirmation.loadingCardsHint")
+            : t("confirmation.dispensingHint")
           : t("confirmation.returningIn", { seconds: secondsLeft })}
       </p>
       <BrandLogo

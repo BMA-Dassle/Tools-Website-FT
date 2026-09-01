@@ -17,19 +17,13 @@ import { getPackage, activationFeeCents, type TokenPackage } from "../constants"
 import { GameCardHttpError } from "../errors";
 import type { PurchaseInput } from "../schemas";
 import type { CardLoadResult, PurchaseResult } from "../types";
-import { creditTokens, verifyAccount, IntercardError } from "../data/intercard";
+// Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
+import { creditTokens, verifyAccount, IntercardError } from "../data/intercard-router";
 import { createReloadOrder } from "../data/square-order";
-import {
-  startTxn,
-  markCharged,
-  markChargedQueued,
-  markChargeFailed,
-  markLoadState,
-  getGroupQueueStates,
-} from "../data/transactions-log";
+import { startTxn, markCharged, markChargeFailed, markLoadState } from "../data/transactions-log";
 import { linkCard } from "../data/customer-cards";
 import { saveCardOnFile } from "~/features/account/data/cards";
-import { isEisQueueCenter } from "./bridge-queue";
+import { assertSwipedBlanks } from "./swiped-blank-guard";
 
 /**
  * Optional signed-in context. `verifiedCustomerId` is resolved by the route
@@ -74,10 +68,14 @@ export interface NewCardChargeResult {
 
 /**
  * BUY (new cards): charge ONCE for a basket of blanks, then hand back one
- * ledger row per card. The account numbers aren't known yet — each blank is
- * dispensed + read + loaded afterward via `loadCard()` (service/load-card.ts).
- * No verify (nothing to verify) and NO load here — that's the whole point of
- * the split (charge must land before we dispense; load lands per card after).
+ * ledger row per card. On a DISPENSER kiosk the account numbers aren't known
+ * yet — each blank is dispensed + read + loaded afterward via `loadCard()`
+ * (service/load-card.ts). On an MSR-only kiosk the guest swiped each blank
+ * BEFORE paying, so the item carries its `accountNumber` and the row is
+ * persisted with it (persist-first: a browser death after the charge leaves a
+ * row the reconcile cron can still credit). No verify (nothing to verify) and
+ * NO load here — that's the whole point of the split (charge must land before
+ * we dispense/credit; load lands per card after).
  */
 export async function chargeNewCardOrder(
   input: PurchaseInput,
@@ -92,8 +90,16 @@ export async function chargeNewCardOrder(
   const resolved = input.items.map((it) => {
     const pkg = getPackage(it.packageId);
     if (!pkg) throw new GameCardHttpError(400, "UNKNOWN_PACKAGE", "That package isn't available.");
-    return { pkg };
+    // "" on a dispenser kiosk (read off the blank at load); the swiped blank's
+    // number on an MSR-only kiosk.
+    return { pkg, accountNumber: it.accountNumber ?? "" };
   });
+  // Swiped blanks are re-checked server-side before anything is persisted or
+  // charged — see swiped-blank-guard.ts. Dispenser items (no account) skip it.
+  await assertSwipedBlanks(
+    resolved.map((r) => r.accountNumber).filter((a) => a.length > 0),
+    input.locationCode,
+  );
 
   const groupId = randomUUID();
   const baseKey = randomBytes(8).toString("hex");
@@ -104,7 +110,8 @@ export async function chargeNewCardOrder(
     resolved.reduce((sum, r) => sum + r.pkg.priceCents, 0) +
     activationFeeCents("new_card", resolved.length);
 
-  // Persist one row per card BEFORE charging (account attached later at load).
+  // Persist one row per card BEFORE charging (account attached later at load
+  // when the dispenser reads it; already known when the guest swiped it).
   const rows: NewCardRow[] = [];
   const txnByRow: { txnId: string }[] = [];
   for (const r of resolved) {
@@ -114,7 +121,7 @@ export async function chargeNewCardOrder(
       groupId,
       kind: "new_card",
       locationCode: input.locationCode,
-      accountNumber: "", // filled at load time (setTxnAccount)
+      accountNumber: r.accountNumber,
       packageId: r.pkg.id,
       tokens: r.pkg.tokens,
       bonusTokens: r.pkg.bonusTokens,
@@ -142,7 +149,7 @@ export async function chargeNewCardOrder(
       lines: resolved.map((r) => ({
         label: r.pkg.label,
         amountCents: r.pkg.priceCents,
-        accountNumber: "",
+        accountNumber: r.accountNumber,
       })),
     });
   } catch {
@@ -320,14 +327,11 @@ export async function purchase(
     throw err;
   }
 
-  // Bridge-queue mode (flag-gated per center): mark charged AND enqueue in ONE
-  // statement — a separate enqueue update would leave a (charged, pending,
-  // queue_state NULL) window the reconcile cron could SOAP-credit before the
-  // bridge claims, and the two credit paths share no dedup.
-  const useQueue = input.kind === "reload" && isEisQueueCenter(input.locationCode);
+  // The EIS bridge queue is retired: loads now credit through the Intercard
+  // router (onsite first, cloud SOAP fallback), so a charged row is simply
+  // charged — there is no second credit path to hand it off to.
   for (const row of rows) {
-    if (useQueue) await markChargedQueued(row.txnId, orderId, paymentIds);
-    else await markCharged(row.txnId, orderId, paymentIds);
+    await markCharged(row.txnId, orderId, paymentIds);
   }
 
   // ── 3b. Signed-in perks (best-effort; never block/undo a settled charge) ──
@@ -364,9 +368,7 @@ export async function purchase(
   }
 
   // ── 4. Load each card independently (recover forward per card) ────────────
-  const results: CardLoadResult[] = useQueue
-    ? await awaitQueueOutcome(rows, groupId)
-    : await loadCardsInline(rows, input.locationCode);
+  const results: CardLoadResult[] = await loadCardsInline(rows, input.locationCode);
 
   return {
     ok: true,
@@ -432,39 +434,4 @@ async function loadCardsInline(rows: CartRow[], locationCode: number): Promise<C
     });
   }
   return results;
-}
-
-/** Wait-loop bounds for the bridge-queue path (bridge polls every ~2.5s). */
-const QUEUE_WAIT_MS = 12_000;
-const QUEUE_POLL_MS = 1_500;
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-/**
- * OBSERVE the bridge queue for this group — deliberately no SOAP here (owner
- * decision 2026-07-20): if no bridge claims the job the guest sees "Credit
- * pending" and the reconcile cron flips the stale row to the SOAP path. This
- * request never credits in queue mode, so the EIS/SOAP double-credit window
- * doesn't exist here. Rows the bridge loads inside the window report as
- * loaded; no balance re-read — the cloud history endpoint won't reflect a
- * local EIS credit yet, and a stale balance on the success screen reads as a
- * failure.
- */
-async function awaitQueueOutcome(rows: CartRow[], groupId: string): Promise<CardLoadResult[]> {
-  const deadline = Date.now() + QUEUE_WAIT_MS;
-  const loaded = new Set<string>();
-  for (;;) {
-    const states = await getGroupQueueStates(groupId);
-    for (const s of states) if (s.loadState === "loaded") loaded.add(s.txnId);
-    if (loaded.size === rows.length || Date.now() >= deadline) break;
-    await sleep(Math.min(QUEUE_POLL_MS, Math.max(50, deadline - Date.now())));
-  }
-  return rows.map((row) => ({
-    txnId: row.txnId,
-    accountNumber: row.accountNumber,
-    tokens: row.pkg.tokens,
-    bonusTokens: row.pkg.bonusTokens,
-    loaded: loaded.has(row.txnId),
-    creditPending: !loaded.has(row.txnId),
-  }));
 }

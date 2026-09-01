@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch } from "react";
 import { clarityEvent, clarityTag } from "~/lib/clarity";
 import type { Action } from "~/features/booking/state/machine";
@@ -79,6 +79,7 @@ import {
   resolveSessionPacks,
   computePackCoverage,
 } from "~/features/booking/service/race-pack-kiosk";
+import { computeBogoScheduledFree } from "~/features/booking/service/bogo-scheduled";
 import { buildRaceChargeLines } from "~/features/booking/service/checkout";
 import { redeemedHeatSet } from "~/features/booking/data/race-credits";
 import type { RaceHeatAssignment } from "~/features/booking";
@@ -254,6 +255,21 @@ export function CheckoutStep({
     return n;
   };
 
+  // BOGO Wednesdays: racers whose scheduled races are pairing 2-for-1 default
+  // to KEEPING their banked credits (owner 2026-08-31: credits "should be off
+  // by default" when BOGO applies) — spending a credit on a race whose partner
+  // would have been free is bad value. They can still opt in, and the coverage
+  // ORDER (credits first, then BOGO pairs only the cash remainder) already
+  // guarantees a credit-covered heat never also goes free — no free race from
+  // a free race, whatever they choose. Computed with NO exclusions so the
+  // answer is "is BOGO doing anything for this racer today", independent of
+  // the toggle it seeds. A lone single race (nothing pairs) keeps the ON
+  // default so a credit still covers it.
+  const bogoPairing = useMemo(
+    () => computeBogoScheduledFree(session.items, session.party, new Set()).freeByMember,
+    [session.items, session.party],
+  );
+
   // personId -> redeem-with-credits opt-in. Default ON: pre-enable each eligible
   // racer so their credits apply automatically (they can untick it). At charge time
   // their heats are covered by combining their eligible credits in priority order
@@ -264,6 +280,7 @@ export function CheckoutStep({
     for (const m of session.party) {
       if (!m.bmiPersonId || m.isNewRacer) continue;
       if (heatCountForMember(m.id) <= 0) continue;
+      if ((bogoPairing.get(m.id) ?? 0) > 0) continue; // BOGO pairing → default OFF
       if (memberEligibleCreditTotal(m.creditBalances, raceDate) > 0) init[m.bmiPersonId] = true;
     }
     return init;
@@ -371,8 +388,15 @@ export function CheckoutStep({
         const fresh = creditBalancesFromDeposits(await res.json());
         dispatch({ type: "updatePartyMember", id, patch: { creditBalances: fresh } });
         // Newly eligible → default their opt-in ON (the creditChoices mount
-        // initializer ran before this fetch landed).
-        if (seeded && !seeded.has(pid) && memberEligibleCreditTotal(fresh, raceDate) > 0) {
+        // initializer ran before this fetch landed) — unless BOGO is pairing
+        // their races, which defaults the toggle OFF (same rule as the mount
+        // seeding above).
+        if (
+          seeded &&
+          !seeded.has(pid) &&
+          memberEligibleCreditTotal(fresh, raceDate) > 0 &&
+          (bogoPairing.get(id) ?? 0) === 0
+        ) {
           seeded.add(pid);
           setCreditChoices((prev) => ({ ...prev, [pid]: true }));
         }
@@ -649,6 +673,48 @@ export function CheckoutStep({
           );
         } catch {
           /* voucher display is best-effort; the reserve verifies coverage */
+        }
+      }
+
+      // BOGO Wednesdays — every 2nd SCHEDULED race free (owner 2026-08-31):
+      // ONE negative line, differenced from the same buildRaceChargeLines call
+      // the reserve charges with (the pack block's pattern), so display and
+      // charge cannot drift. Runs AFTER credits/packs/vouchers, exactly like
+      // the charge builder — the rule pairs only heats paid in cash.
+      if (!activeComboSpecial(session)) {
+        try {
+          let base = redeemedHeatSet(sessionForReserve);
+          if (kioskRacePacksEnabled()) {
+            const packSel = session.items.flatMap((i) =>
+              i.kind === "race" ? (i.creditPacks ?? []) : [],
+            );
+            if (packSel.length > 0) {
+              const packs = resolveSessionPacks(session);
+              const cov = computePackCoverage(sessionForReserve, packs, base);
+              if (cov.heats.size > 0) base = new Set([...base, ...cov.heats]);
+            }
+          }
+          if (sessionVouchers(session).length > 0) {
+            const vHeats = planVoucherCoverage(session, base).raceHeats;
+            if (vHeats.size > 0) base = new Set([...base, ...vHeats]);
+          }
+          const bogo = computeBogoScheduledFree(session.items, session.party, base);
+          if (bogo.heats.size > 0) {
+            const sumLines = (ex: Set<RaceHeatAssignment>) =>
+              buildRaceChargeLines(session, ex).reduce((s, l) => s + l.amount, 0);
+            const free =
+              Math.round((sumLines(base) - sumLines(new Set([...base, ...bogo.heats]))) * 100) /
+              100;
+            if (free > 0) {
+              reviewLines.push({
+                name: "BOGO Wednesdays — every 2nd race free",
+                quantity: 1,
+                amount: -free,
+              });
+            }
+          }
+        } catch {
+          /* display best-effort; the reserve prices authoritatively */
         }
       }
 

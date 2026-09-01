@@ -19,6 +19,12 @@ import { resolveLogoMark, type LogoMark } from "./logo";
 import { clampHoldMs } from "./race-guide";
 import type { TopTimesRange } from "./top-times";
 import type { PlaylistEntry, ScreenConfig, SceneType, SceneSpan, ScreenWall } from "./types";
+import { clampArenaHoldMs } from "./arena/arena-board";
+// The estate's default slot. Imported from the kiosk billboard rather than from
+// director/schedule (which re-exports it as SLOT_MS) because schedule.ts already
+// imports this module for its types — taking a VALUE back from it would close the
+// loop into a runtime import cycle.
+import { BILLBOARD_CYCLE_MS } from "~/features/kiosk/attract/billboard";
 
 export type ScreenRole =
   | "kiosk-bank"
@@ -30,6 +36,7 @@ export type ScreenRole =
   | "check-in-guide"
   | "front-desk"
   | "logo-only"
+  | "arena-checkin"
   | "ads-only";
 
 export interface RolePreset {
@@ -201,8 +208,10 @@ const RACE_GUIDE_CONFIG: ScreenConfig = {
  * already carries the party board, and it is the one scene here that would want
  * gating.
  *
- * 8 slots = 5m20s: the VIP showcase gets four (two full passes of its four
- * 20-second sub-slides), the menu board two, the kiosk how-to one, house ads one.
+ * 6 slots of TWENTY seconds = 2m00s exactly: the menu board holds five of them and
+ * the VIP artwork takes the last one. The slot length is part of the invariant above
+ * — two panels that disagree about how LONG a slot is drift apart exactly as badly as
+ * two that disagree about how many there are. See the playlist below.
  *
  * `billboard-crown: true` is LOAD-BEARING AND MISLEADING, so read this before
  * "tidying" it. The crown scene is declared in SceneType but is NOT in the
@@ -228,30 +237,48 @@ const RACE_GUIDE_CONFIG: ScreenConfig = {
  * nobody can see until a party is standing in front of one of them.
  *
  * This is the GREETING, which is a specific party by name; the VIP *product* has a
- * four-slide showcase on this wall, which is an advert. Both belong.
+ * five-panel showcase on this wall, which is an advert. Both belong.
  *
  * `wall` itself is NOT in the preset. It is per screen by definition (each panel
  * has its own position) and the seed script writes it around this config.
  */
 const FRONT_DESK_CONFIG: ScreenConfig = {
-  // A STANDING STATE THAT GETS TAKEN OVER (owner 2026-08-19), and the reason this is
-  // nine slots rather than a new mechanism: 9 x 40s is SIX MINUTES exactly, of which
-  // the VIP showcase takes two slots — 80 seconds, which is precisely one full pass of
-  // its four 20-second slides, so no slide is ever cut in half. Pricing holds the wall
-  // the other 4m40s. VIP is on 22% of the time, against 50% in the first cut.
+  // A STANDING STATE THAT GETS TAKEN OVER (owner 2026-08-19) — pricing holds the wall
+  // and the artwork interrupts it. The arithmetic is under `slotMs` below; do not
+  // restate it here, because two slot budgets in one comment block is how the wrong one
+  // gets trusted on a wall where the slot arithmetic IS the tear invariant.
   //
-  // SPANS. The showcase is the hero and takes all five; the menu board runs across the
-  // MIDDLE THREE, which is what frees TV1 for the self-check-in list and TV5 for
-  // tonight's events (their `wall.outsideScene`). A span rides on this byte-identical
-  // playlist, so every panel agrees on it without being told — see SceneSpan.
+  // BOTH ENTRIES NOW SPAN THE WHOLE WALL, and they mean different things by it. The
+  // showcase is ONE PICTURE across five panels — the owner's artwork, a sentence that
+  // is incomplete if any panel drops out. The menu board is FIVE INDEPENDENT PANELS
+  // that happen to run together, so it is in `YIELDS_TO_WINGS` (schedule.ts) and the
+  // two ends keep their own boards whenever those have something to say: TV1 always
+  // has the check-in list, TV5 shows prices until a party needs greeting.
+  //
+  // It used to run across the MIDDLE THREE, which is what left a whole TV idle while
+  // six subjects took turns on the three beside it (owner 2026-09-01). Four subjects
+  // now sit on four panels permanently and nothing rotates.
+  //
+  // A span rides on this byte-identical playlist, so every panel agrees on it without
+  // being told — see SceneSpan.
   //
   // NO SEPARATE KIOSK HOW-TO. "Buy it on the kiosk below" is permanent chrome under
   // every pricing panel now, so telling a guest where to buy costs no airtime at all.
   // NO HOUSE ADS EITHER: this wall's job is to price what is on sale tonight, and a
   // generic advert alongside a real price is the weaker of the two.
+  // TWENTY-SECOND SLOTS, not the estate's forty (owner 2026-09-01: the artwork
+  // "should only be 20 seconds about every 2 minutes"). 20s is HALF a standard slot,
+  // so that cadence cannot be expressed in 40s units at all — the wall runs on its
+  // own unit instead. See ScreenConfig.slotMs, and note it is part of the tear
+  // invariant: all five panels must carry the same value.
+  slotMs: 20_000,
+  // 6 slots x 20s = 2:00 EXACTLY. Pricing holds 1:40 of it and the artwork takes the
+  // last 20 seconds. That is a third of the airtime the showcase had before (80s of
+  // every 6 min) and three times as often — it is a punctuation mark now rather than
+  // a segment, which is what a lobby wall wants from a thing everyone has already seen.
   playlist: [
-    { scene: "open-now", slots: 7, span: "middle" },
-    { scene: "vip-showcase", slots: 2, span: "wall" },
+    { scene: "open-now", slots: 5, span: "wall" },
+    { scene: "vip-showcase", slots: 1, span: "wall" },
   ],
   interrupts: {
     // Byte-for-byte KIOSK_BANK_CONFIG's — see the note above, and vipPinned in
@@ -290,6 +317,51 @@ const LOGO_ONLY_CONFIG: ScreenConfig = {
     "billboard-crown": { enabled: false },
   },
   venueLogo: { mark: "pinboyz" },
+};
+
+/**
+ * THE HP ARENA CHECK-IN TV, at HeadPinz Fort Myers and Naples.
+ *
+ * The one board on this platform whose base rotation is ADVERTISING and whose
+ * real job is an interrupt — and that inversion is the owner's ask, not an
+ * accident (2026-09-01: "with video and static ads of laser tag running in its
+ * dead time"). A track board never advertises, because a racer walking up must
+ * not have to wait an advert out. This screen stands in a lobby, its sessions
+ * are about fifteen minutes apart, and for most of the day there is genuinely
+ * nothing to check anybody in for — so the dead time is worth selling into, and
+ * the call takes the wall the moment it comes.
+ *
+ * THE DEAD TIME IS THE ARENA'S OWN FILMS AND NOTHING ELSE (owner 2026-09-01: "I
+ * didn't want the normal ad rotation on those check in screens"). It used to run
+ * the films then the house slides; the slides sold bowling and Game Zone from a
+ * screen at the arena desk, where the only thing a guest can act on is the arena.
+ *
+ * NOT `requiresData` any more, and that pairs with the line above rather than
+ * being a separate decision: `useArenaFilms` falls back to the house Nexus cut, so
+ * there is always a film. Left gated, a venue with no upload would close over the
+ * promo, empty the rotation, and land on `buildRotation`'s house-ads floor — which
+ * is precisely the rotation just removed.
+ *
+ * Three slots of one scene rather than one, so the segment is long enough that a
+ * short reel loops a few times instead of the director re-deciding on every cut.
+ *
+ * Nothing else interrupts it. A kiosk celebration cutting across "Session 25 —
+ * Laser Tag, come to the desk" would put confetti over the only instruction this
+ * screen ever gives, and there is no kiosk bank under it to crown.
+ */
+const ARENA_CHECKIN_CONFIG: ScreenConfig = {
+  playlist: [{ scene: "arena-promo", slots: 3 }],
+  interrupts: {
+    "vip-welcome": { enabled: false },
+    celebration: { enabled: false },
+    "billboard-crown": { enabled: false },
+  },
+  arenaBoard: {},
+  // The same eight minutes the track boards count, and for the same reason: the
+  // time on an arena e-ticket is a check-in CUT-OFF, and a countdown from the
+  // call is what moves people.
+  checkinWindowMins: 8,
+  showCheckinCountdown: true,
 };
 
 /** The safe fallback: house ads and nothing else. Needs no data at all, which
@@ -377,6 +449,14 @@ export const ROLE_PRESETS: RolePreset[] = [
     config: LOGO_ONLY_CONFIG,
   },
   {
+    role: "arena-checkin",
+    label: "Arena check-in screen (Laser Tag / Gel Blaster)",
+    description:
+      "At the HP Arena desk. Runs the arena films and house adverts, then takes the whole wall the moment a Laser Tag or Gel Blaster session is called — which session, where to go, and how long they have. Shows a panel per session when more than one is called.",
+    venues: ["HPFM", "HPN"],
+    config: ARENA_CHECKIN_CONFIG,
+  },
+  {
     role: "ads-only",
     label: "Advertising only",
     description: "House advertising on a loop. No guest data on screen.",
@@ -401,6 +481,8 @@ export function rolePreset(role: ScreenRole): RolePreset {
 /** Every default in one place, so a partial config can always be completed. */
 export interface ResolvedScreenConfig {
   playlist: Required<PlaylistEntry>[];
+  /** One slot's length in ms — see ScreenConfig.slotMs. Always a positive number. */
+  slotMs: number;
   vip: { enabled: boolean; leadMins: number; floorMins: number; minShowMs: number };
   celebration: { enabled: boolean; maxAgeSecs: number; showMs: number };
   billboardCrown: { enabled: boolean; joinEvery: number };
@@ -470,6 +552,11 @@ export interface ResolvedScreenConfig {
    * one image can never come up blank.
    */
   venueLogo: { mark: LogoMark };
+  /** Null for anything that is not an HP Arena check-in board. Non-null is what
+   *  makes the feed ask Pandora for called arena sessions AND what lets the
+   *  director take the check-in interrupt — one field, both decisions, so a
+   *  board can never be fed data it will not show or show data it was not fed. */
+  arenaBoard: { holdMs: number } | null;
   /** Percent inset per edge for a panel that crops its own input. 0 on every
    *  screen that has not been told otherwise, so the default path is the
    *  unchanged full-bleed fit. */
@@ -515,6 +602,13 @@ export function resolveScreenConfig(
 
   return {
     playlist: sanitizePlaylist(c.playlist),
+    // Through `numOr` like every other number here, so a hand-edited config carrying a
+    // string or a boolean cannot land in a field typed `number`. A non-positive value
+    // falls back too — a zero slot divides by nothing and freezes the rotation.
+    slotMs:
+      numOr(c.slotMs, BILLBOARD_CYCLE_MS) > 0
+        ? numOr(c.slotMs, BILLBOARD_CYCLE_MS)
+        : BILLBOARD_CYCLE_MS,
     vip: {
       enabled: vip.enabled !== false,
       leadMins: numOr(vip.leadMins, 10),
@@ -646,6 +740,11 @@ export function resolveScreenConfig(
     // which on a screen whose only content is one image is the difference
     // between the wrong brand and a black panel.
     venueLogo: { mark: resolveLogoMark(c.venueLogo?.mark) },
+    // Present-means-yes, like `raceGuide` above: an arena board is declared by
+    // having this key at all, so `{}` is a complete and valid arena config and
+    // the hold falls back to its default. Through the same clamp the board reads
+    // with, so "how long may a call hold a wall" has one definition.
+    arenaBoard: c.arenaBoard ? { holdMs: clampArenaHoldMs(c.arenaBoard.holdMs) } : null,
     // Clamped through the same helper the stage uses, so "what inset is legal"
     // has exactly one definition. 0 for an absent, negative, non-numeric or
     // absurd value — every one of which means "this panel is fine", which is the

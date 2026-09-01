@@ -1,17 +1,16 @@
 import { notFound } from "next/navigation";
-import { adminPoppins } from "~/components/features/admin-skin/font";
-import DepositFailuresClient from "./DepositFailuresClient";
+import AdminToolPage from "@/app/admin/_tools/deposit-failures/AdminToolPage";
 
 /**
- * Admin: BMI deposit failure retry queue.
+ * v1: `/admin/{ADMIN_CAMERA_TOKEN}/deposit-failures`.
  *
- * Surfaces every row in `bmi_deposit_failures` so staff can see when
- * a customer was charged but no credits landed (race packs) or POV
- * codes were issued without the matching BMI deduct (POV claims).
+ * The static token in the path is the credential. Kept alongside the SSO route
+ * at `/admin/deposit-failures` (same component, no credential in the URL) per
+ * the v2 cutover pattern; the middleware 307s this URL to the clean one.
  *
- * Actions: per-row retry, bulk backfill from sales_log.
- *
- * URL shape: /admin/{ADMIN_CAMERA_TOKEN}/deposit-failures
+ * Legacy `ADMIN_ETICKETS_TOKEN` is still accepted server-side as a soft alias
+ * during the bookmark-rotation window, unchanged from before the split. That
+ * alias is this route's business alone — the SSO route has no token to alias.
  */
 
 export const dynamic = "force-dynamic";
@@ -27,9 +26,5 @@ export default async function Page({ params }: Props) {
     (!!cameraToken && token === cameraToken) || (!!legacyToken && token === legacyToken);
   if (!tokenOk) notFound();
 
-  return (
-    <div className={adminPoppins.variable}>
-      <DepositFailuresClient token={token} />
-    </div>
-  );
+  return <AdminToolPage />;
 }

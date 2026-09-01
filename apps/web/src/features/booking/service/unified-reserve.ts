@@ -20,6 +20,7 @@ import { kioskGzCartEnabled, kioskPovCodesEnabled } from "~/features/kiosk/flags
 import { getOrderPaymentInfo } from "~/features/kiosk/service/square-terminal";
 import { kioskAmbientCheckoutEnabled } from "~/features/kiosk/flags";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
+import { assertSwipedBlanks } from "~/features/game-cards/service/swiped-blank-guard";
 import { startTxn, markCharged, markLoadState } from "~/features/game-cards/data/transactions-log";
 import {
   kioskRacePacksEnabled,
@@ -61,6 +62,12 @@ import { confirmBmiPayment, getBmiBillStatus } from "./bmi-confirm";
 import { reserveBaseKey } from "./reserve-idempotency";
 import { describeDroppedLeg, partitionBookableLegs } from "./bookable";
 import { nowRounded5EtIso } from "./bowl-now";
+import {
+  freeLaneCandidates,
+  immediateLaneGuardEnabled,
+  isImmediateStart,
+} from "./immediate-lane-guard";
+import { createWithLanePlan, describePinOutcome } from "~/features/lane-plan/pin";
 import {
   startReserveAttempt,
   recordReserveCapture,
@@ -116,6 +123,7 @@ import { mintComboVoucherIfNeeded } from "~/features/combos/combo-voucher";
 import type { VoucherItem } from "~/features/game-cards/data/vouchers-db";
 import { redemptionsFromSession, redeemedHeatSet } from "../data/race-credits";
 import { validateCreditRedemptions, deductCreditRedemptions } from "./race-credit-redeem";
+import { computeBogoScheduledFree, type BogoScheduledFree } from "./bogo-scheduled";
 import {
   isWorldCupBowlingItem,
   validateWorldCupBooking,
@@ -127,11 +135,22 @@ import {
 } from "~/features/world-cup";
 import { enrichFixture } from "~/features/world-cup/live-teams";
 import { notifyWorldCupBooked } from "~/features/world-cup/notify.server";
+import { isNflBowlingItem, NflReservationError, nflQamfTitle, nflQamfBanner } from "~/features/nfl";
+import {
+  guardNflBooking,
+  confirmNflBooking,
+  nflBookingMetadata,
+  type NflGuardResult,
+} from "~/features/nfl/guard.server";
+import { centerHoursForDate } from "./bowling-hours";
+import { pinReservationToBlock, type PinOutcome } from "~/features/nfl/pin.server";
+import { qamfCenterIdForCode } from "../types";
 import {
   isMidnightMadnessSlug,
   midnightMadnessWindowError,
   MidnightMadnessWindowError,
 } from "./bowling-offer";
+import { rawFoodItemsToReservationLines } from "./reservation-lines";
 import {
   insertBowlingReservation,
   insertReservationPlayers,
@@ -346,6 +365,54 @@ function resolveLocationId(session: BookingSession): string {
   return SQUARE_LOCATIONS.FASTTRAX_FM;
 }
 
+/**
+ * WEB charge location — the GOLDEN RULE (owner 2026-09-01): "how much $ per
+ * location; the highest is where we should charge it."
+ *
+ * The deposit order, the payment against it, and the deposit gift card all book
+ * at the entity holding the LARGEST share of the cart's charged value. Revenue
+ * routing is UNTOUCHED — the day-of order(s) still book to the entity that owns
+ * each product (resolveLocationId / comboOrderGroups).
+ *
+ * Why: a combo mints ONE gift card but funds TWO day-of orders across both
+ * Fort-Myers entities, so whichever entity did NOT sell the card ends up
+ * redeeming against it — an inter-location transfer on Square's gift-card
+ * liability report. The old behaviour (any HeadPinz product in the cart wins)
+ * put the card at the MINORITY entity on every combo — the racing share is
+ * 61.6–67.7% across all four combo variants — which MAXIMISED the transfer:
+ * $48,079 HPFM→FT over 90 days vs $4,350 the other way, measured from Square
+ * gift-card activities 2026-09-01. Charging at the majority entity minimises it.
+ *
+ * NOT used by the kiosk: a paired Square Terminal can only charge orders
+ * created at ITS device's location, so kiosk deposits stay device-driven
+ * (resolveKioskDepositLocationId). That constraint is hardware, not policy.
+ */
+export function resolveChargeLocationId(session: BookingSession): string {
+  // Naples has no FastTrax entity — its "headpinz" side is the Naples location.
+  const headpinzLocation =
+    session.center === "naples" ? SQUARE_LOCATIONS.HEADPINZ_NAP : SQUARE_LOCATIONS.HEADPINZ_FM;
+
+  let fasttrax = 0;
+  let headpinz = 0;
+  const groups = comboOrderGroups(session);
+  if (groups) {
+    // Combo: the registry revenueSplit already states each entity's exact
+    // share — use it rather than re-deriving from the collapsed charge lines
+    // (buildCombinedLineItems routes the whole combo through the race rail).
+    for (const g of groups) {
+      if (g.entity === "fasttrax-fm") fasttrax += g.subtotalCents;
+      else headpinz += g.subtotalCents;
+    }
+  } else {
+    ({ fasttrax, headpinz } = buildCombinedLineItems(session).entityCents);
+  }
+
+  // Tie, or nothing attributable (a fee-only cart) → fall back to the day-of
+  // owner, so every single-entity booking behaves exactly as it did before.
+  if (fasttrax === headpinz) return resolveLocationId(session);
+  return fasttrax > headpinz ? SQUARE_LOCATIONS.FASTTRAX_FM : headpinzLocation;
+}
+
 function resolveBmiClientKey(session: BookingSession): string {
   return session.center === "naples" ? "headpinznaples" : "headpinzftmyers";
 }
@@ -377,7 +444,7 @@ export interface PricedLine {
   catalogPricedCents?: number;
   /** Why a $0 line is $0. Absent = a genuinely charged (or $0-value) line. */
   coverage?: {
-    kind: "race-credit" | "race-pack" | "voucher" | "combo-inclusion";
+    kind: "race-credit" | "race-pack" | "voucher" | "combo-inclusion" | "bogo-special";
     /** Display tag, e.g. "Credit" · "Race Pack" · "Voucher …Z4SX". */
     label: string;
   };
@@ -392,14 +459,25 @@ export function buildCombinedLineItems(session: BookingSession): {
   promoSavingsCents: number;
   kioskPacks: ResolvedKioskPack[];
   packCoverage: PackCoverage;
+  /** BOGO Wednesdays: the scheduled heats the special priced to $0. */
+  bogoFree: BogoScheduledFree;
   /** The quote/display mirror — accumulated ADJACENT to every Square-line
    *  push above it, so the two can only drift if a diff reviewer misses it. */
   pricedLines: PricedLine[];
   /** Charged subtotal (local-priced lines; catalog-priced fees included). */
   totalPriceCents: number;
+  /** Charged cents per Fort-Myers entity (booking fee excluded — it is
+   *  entity-neutral). Input to the golden-rule charge location. */
+  entityCents: { fasttrax: number; headpinz: number };
 } {
   const sqLineItems: SquareLineItem[] = [];
   const pricedLines: PricedLine[] = [];
+  // Charged cents attributed to each Fort-Myers ENTITY, accumulated ADJACENT to
+  // every totalPriceCents increment below (same discipline as pricedLines) so
+  // the two can only drift if a diff reviewer misses it. Drives the golden-rule
+  // charge location — see resolveChargeLocationId. The entity-neutral booking
+  // fee is deliberately NOT attributed: it must never decide the argmax.
+  const entityCents = { fasttrax: 0, headpinz: 0 };
   let totalPriceCents = 0;
   let totalDepositCents = 0;
   let promoSavingsCents = 0; // USA250 cents removed across all lines (for the ledger)
@@ -419,6 +497,10 @@ export function buildCombinedLineItems(session: BookingSession): {
     // USA250: reduce the price key on priced bowling lines. Catalog-only
     // lines with no local price (fees) carry priceCents 0 → factor 1 → untouched.
     const bowlVisitDate = item.date ?? item.bookedAt?.slice(0, 10) ?? undefined;
+    // FastTrax duckpin is a bowling ITEM whose revenue books to FastTrax —
+    // mirrors the same carve-out in resolveLocationId.
+    const bowlEntity =
+      item.kind === "bowling" && (item as BowlingItem).isDuckpin ? "fasttrax" : "headpinz";
     for (const li of comboActive ? [] : item.lineItems) {
       const fullCents = li.priceCents ?? 0;
       const factor =
@@ -429,6 +511,7 @@ export function buildCombinedLineItems(session: BookingSession): {
       const depPct = li.depositPct ?? 100;
       const lineTotal = priceCents * li.quantity;
       totalPriceCents += lineTotal;
+      entityCents[bowlEntity] += lineTotal;
       totalDepositCents += Math.round(lineTotal * (depPct / 100));
       promoSavingsCents += (fullCents - priceCents) * li.quantity;
 
@@ -533,10 +616,23 @@ export function buildCombinedLineItems(session: BookingSession): {
   const voucherPlan = activeComboSpecial(session)
     ? null
     : planVoucherCoverage(session, creditAndPackHeats);
-  const excludedHeats =
+  const coveredBeforeBogo =
     voucherPlan && voucherPlan.raceHeats.size > 0
       ? new Set([...creditAndPackHeats, ...voucherPlan.raceHeats])
       : creditAndPackHeats;
+  // BOGO Wednesdays — every 2nd SCHEDULED race free (owner 2026-08-31: "never
+  // meant to be a race pack; buy one get one, all races must be scheduled").
+  // Runs LAST in the coverage order, so it pairs only heats that would
+  // otherwise be paid in cash — a credit/pack/voucher-covered heat neither
+  // goes free nor anchors a pair. Combo carts are flat-priced, so the rule is
+  // skipped there exactly like the voucher plan.
+  const bogoFree: BogoScheduledFree = activeComboSpecial(session)
+    ? { heats: new Set(), freeByMember: new Map() }
+    : computeBogoScheduledFree(session.items, session.party, coveredBeforeBogo);
+  const excludedHeats =
+    bogoFree.heats.size > 0
+      ? new Set([...coveredBeforeBogo, ...bogoFree.heats])
+      : coveredBeforeBogo;
 
   for (const bl of buildRaceChargeLines(session, excludedHeats)) {
     const totalCents = Math.round(bl.amount * 100);
@@ -544,6 +640,7 @@ export function buildCombinedLineItems(session: BookingSession): {
     const catalogId =
       (bl.bmiProductId ? lookupCatalogId(bl.bmiProductId) : null) ?? lookupCatalogIdByName(bl.name);
     totalPriceCents += totalCents;
+    entityCents.fasttrax += totalCents;
     totalDepositCents += totalCents; // 100% deposit for race
     // Race + combo savings (combo lines flow through here too, pre-stamped).
     promoSavingsCents +=
@@ -578,7 +675,7 @@ export function buildCombinedLineItems(session: BookingSession): {
     }
     const covered: Array<{
       set: ReadonlySet<RaceHeatAssignment>;
-      kind: "race-credit" | "race-pack" | "voucher";
+      kind: "race-credit" | "race-pack" | "voucher" | "bogo-special";
       labelFor: (h: RaceHeatAssignment) => string;
     }> = [
       { set: redeemedHeats, kind: "race-credit", labelFor: () => "Credit" },
@@ -591,6 +688,9 @@ export function buildCombinedLineItems(session: BookingSession): {
           return code ? `Voucher …${code.slice(-4)}` : "Voucher";
         },
       },
+      // The Wednesday special's free heats — tagged so the review/e-ticket say
+      // WHY the line is $0, same as every other covered heat.
+      { set: bogoFree.heats, kind: "bogo-special", labelFor: () => "BOGO Wednesday" },
     ];
     for (const { set, kind, labelFor } of covered) {
       const groups = new Map<string, { name: string; label: string; qty: number }>();
@@ -656,6 +756,8 @@ export function buildCombinedLineItems(session: BookingSession): {
     const chargedQty = Math.max(0, attr.qty - coveredUnits);
     const lineTotal = unitCents * chargedQty;
     totalPriceCents += lineTotal;
+    entityCents[FASTTRAX_ATTRACTION_SLUGS.has(attr.slug ?? "") ? "fasttrax" : "headpinz"] +=
+      lineTotal;
     totalDepositCents += lineTotal; // 100% deposit for attractions
     promoSavingsCents += (fullUnitCents - unitCents) * chargedQty;
     // Fully voucher-covered: keep the line at $0 (original qty) instead of
@@ -734,6 +836,7 @@ export function buildCombinedLineItems(session: BookingSession): {
       const track = getRaceSimTrack(s.trackKey);
       const name = `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""} · ${heatClockLabel(s.slot)}`;
       totalPriceCents += unitCents * qty;
+      entityCents.fasttrax += unitCents * qty;
       totalDepositCents += unitCents * qty;
       sqLineItems.push({
         name,
@@ -754,6 +857,7 @@ export function buildCombinedLineItems(session: BookingSession): {
   // (credits grant right after payment, so the deposit must cover them).
   for (const p of kioskPacks) {
     totalPriceCents += p.priceCents;
+    entityCents.fasttrax += p.priceCents;
     totalDepositCents += p.priceCents;
     sqLineItems.push({
       name: `Race Pack — ${p.label} · ${p.memberName}`,
@@ -777,8 +881,10 @@ export function buildCombinedLineItems(session: BookingSession): {
     promoSavingsCents,
     kioskPacks,
     packCoverage,
+    bogoFree,
     pricedLines,
     totalPriceCents,
+    entityCents,
   };
 }
 
@@ -1464,11 +1570,11 @@ async function unifiedReserveInner(
   // Day-of order → the entity that OWNS the products (revenue split stays
   // exact). Deposit/gift-card/payment → the KIOSK's own location when this is a
   // kiosk session (the paired reader can only charge its device's location);
-  // web sessions keep the single entity location for both.
+  // web sessions charge at the entity holding the most dollars (golden rule).
   const dayofLocationId = resolveLocationId(session);
   const locationId = session.context?.kiosk
     ? resolveKioskDepositLocationId(session)
-    : dayofLocationId;
+    : resolveChargeLocationId(session);
   // Deterministic idempotency seed — same session anchor → same Square keys on
   // every retry, so all 7 keys replay the SAME order / payment / gift card.
   const baseKey = seedSource ? reserveBaseKey(seedSource) : randomBytes(8).toString("hex");
@@ -1830,6 +1936,34 @@ async function unifiedReserveInner(
     }
   }
 
+  // ── 2c-NFL. Validate the game window AND claim a lane block ───────
+  // Two things at once, and both must happen before money moves:
+  //   - the booking sits exactly on a real game's lane-open instant at a center
+  //     that sells the package, inside trading hours (validateNflBooking);
+  //   - a VIP block is RESERVED for that game (claimBlock), because a block is
+  //     four lanes on one TV and can only show one game at a time.
+  // Throws NflReservationError (→ 409 in reserve-all) BEFORE any Square or QAMF
+  // write. If anything downstream fails, the catch below hands the block back;
+  // an un-released claim expires on its own within 30 minutes.
+  const nflGuards = new Map<string, NflGuardResult>();
+  for (const item of bowlingItems) {
+    if (item.kind !== "bowling" || !isNflBowlingItem(item)) continue;
+    if (item.optionId == null) {
+      throw new NflReservationError(
+        "NFL Ticket booking is missing its lane time option — please re-pick your game.",
+      );
+    }
+    const qamfId = item.qamfCenterId ?? qamfCenterIdForCode(session.center);
+    const guard = await guardNflBooking({
+      centerId: qamfId,
+      bookedAt: item.bookedAt,
+      gameId: item.nflGameId,
+      hours: centerHoursForDate(qamfId!, (item.bookedAt ?? "").slice(0, 10)),
+      laneCount: item.laneCount,
+    });
+    nflGuards.set(item.id, guard);
+  }
+
   // ── 2d. Validate Midnight Madness window (fail-closed) ────────────
   // MM shares the all-day Fri-Sun Time offer, so the offer id can't scope its
   // late-night window and the client slot gates are display-only (2026-08-01
@@ -2151,6 +2285,16 @@ async function unifiedReserveInner(
   const gzLocationCode = gzPurchase
     ? centerCodeFor(session.center ?? "fort-myers", session.entryBrand)
     : null;
+  // Swipe kiosk (no dispenser, 2026-08-28): new-card rows arrive with the
+  // account the guest swiped in the Game Zone cart. Confirm each is still a
+  // BLANK server-side on the PREPARE pass — before any row is persisted and
+  // before the reader is armed (the browser's blank check is a claim, not
+  // proof). Never on finalize: money is already captured there, and a
+  // refusal would strand it. Dispenser carts carry no accounts and skip this.
+  if (prepareOnly && gzPurchase?.mode === "new_card" && gzLocationCode != null) {
+    const swiped = gzPurchase.cards.map((c) => c.accountNumber).filter((a) => a.length > 0);
+    if (swiped.length > 0) await assertSwipedBlanks(swiped, gzLocationCode);
+  }
 
   if (depositCents > 0) {
     const ganPrefix = buildGanPrefix("WEB", locationId);
@@ -2661,6 +2805,13 @@ async function unifiedReserveInner(
         `guest=${JSON.stringify(guest)}`,
     );
 
+    // The block this item claimed back in guard 2c-NFL, and where it ended up
+    // seated. Declared HERE, above the QAMF section, because the lane pin runs
+    // there — a later declaration is a temporal-dead-zone error, not a style
+    // preference.
+    const nflGuard = nflGuards.get(item.id) ?? null;
+    let nflPin: PinOutcome | null = null;
+
     // ── QAMF confirm — INLINE from v1 bowling reserve (proven working) ──
     let qamfReservationId: string;
     let qamfConfirmed = false;
@@ -2671,6 +2822,43 @@ async function unifiedReserveInner(
         Guest: { Name: guest.name, PhoneNumber: guest.phone, Email: guest.email },
       });
       return setReservationStatus(centerId, resId, "Confirmed");
+    }
+
+    /**
+     * The fresh-create fallback, used when there is no hold or the hold's confirm failed.
+     *
+     * BOTH fallback paths go through here so the availability guard cannot be added to one
+     * and forgotten on the other — they were byte-identical creates sitting in different
+     * branches, which is exactly how one of them ends up a year behind the other.
+     *
+     * For a booking starting now, candidates come only from lanes nobody is physically on;
+     * QAMF fills from the lowest lane number up off the schedule alone and would otherwise
+     * hand over a lane the previous group is still using. With no opinion — guard off, no
+     * free lanes, floor read failed — this is the create it replaced, unchanged.
+     */
+    async function createFreshReservation() {
+      const candidates =
+        immediateLaneGuardEnabled() && isImmediateStart(Date.parse(bookedAt), Date.now())
+          ? await freeLaneCandidates({ centerId, players: players.length })
+          : [];
+      const outcome = await createWithLanePlan({
+        candidates,
+        create: (lanes) =>
+          createReservation(centerId, {
+            BookedAt: bookedAt,
+            Title: `${guest.name} (${players.length}p)`,
+            Customer: {
+              Guest: { Name: guest.name, PhoneNumber: guest.phone, Email: guest.email },
+            },
+            WebOffer: { Id: webOfferId, Options: qamfOptions, Services: [service] },
+            TotalPlayers: players.length,
+            ...(lanes ? { Lanes: lanes.map((LaneNumber) => ({ LaneNumber })) } : {}),
+          }),
+      });
+      if (candidates.length) {
+        log(`[unified-reserve] ${outcome.reservation.Id} ${describePinOutcome(outcome)}`);
+      }
+      return outcome.reservation;
     }
 
     try {
@@ -2709,15 +2897,7 @@ async function unifiedReserveInner(
 
         if (!qamfConfirmed) {
           log(`[unified-reserve] Hold confirm failed — creating fresh`);
-          const reservation = await createReservation(centerId, {
-            BookedAt: bookedAt,
-            Title: `${guest.name} (${players.length}p)`,
-            Customer: {
-              Guest: { Name: guest.name, PhoneNumber: guest.phone, Email: guest.email },
-            },
-            WebOffer: { Id: webOfferId, Options: qamfOptions, Services: [service] },
-            TotalPlayers: players.length,
-          });
+          const reservation = await createFreshReservation();
           qamfReservationId = reservation.Id;
           qamfLanes = reservation.Lanes ?? [];
           log(`[unified-reserve] Fresh reservation: ${qamfReservationId}`);
@@ -2725,15 +2905,7 @@ async function unifiedReserveInner(
         }
       } else {
         log(`[unified-reserve] No hold — creating fresh`);
-        const reservation = await createReservation(centerId, {
-          BookedAt: bookedAt,
-          Title: `${guest.name} (${players.length}p)`,
-          Customer: {
-            Guest: { Name: guest.name, PhoneNumber: guest.phone, Email: guest.email },
-          },
-          WebOffer: { Id: webOfferId, Options: qamfOptions, Services: [service] },
-          TotalPlayers: players.length,
-        });
+        const reservation = await createFreshReservation();
         qamfReservationId = reservation.Id;
         qamfLanes = reservation.Lanes ?? [];
         qamfConfirmed = await attachAndConfirm(qamfReservationId).catch(() => false);
@@ -2746,6 +2918,25 @@ async function unifiedReserveInner(
           qamfLanes = laneRes.Lanes ?? [];
         } catch {
           /* non-fatal */
+        }
+      }
+
+      // NFL Ticket: seat the party inside the block their game was claimed on.
+      // QAMF auto-assigns anywhere in the VIP group, so without this a party
+      // can end up under a screen playing someone else's game. Non-fatal — the
+      // booking is already paid and confirmed, and a failure surfaces on the
+      // ops board for front desk rather than throwing.
+      if (nflGuard && qamfLanes.length > 0) {
+        nflPin = await pinReservationToBlock({
+          centerId,
+          reservationId: qamfReservationId,
+          lanes: qamfLanes as Array<{ Id: string; LaneNumber: number }>,
+          block: nflGuard.block,
+        });
+        if (!nflPin.pinned) {
+          console.warn(
+            `[nfl] could not seat ${qamfReservationId} on ${nflGuard.block.id}: ${nflPin.reason} — ${nflPin.detail}`,
+          );
         }
       }
 
@@ -2800,6 +2991,9 @@ async function unifiedReserveInner(
           : null;
       const wcFixture = wcFixtureStatic ? await enrichFixture(wcFixtureStatic) : null;
 
+      // The block this item claimed back in guard 2c-NFL. Present only for an
+      // NFL Ticket item; everything below keys off it being non-null.
+
       let bowlingNeonId: number | null = null;
       try {
         const reservation = await insertBowlingReservation(
@@ -2844,6 +3038,12 @@ async function unifiedReserveInner(
             // capture so ops/admin can tie the lane window to its fixture.
             bookingMetadata: {
               bowling: bowlingBookedPricingStamp(item),
+              // NFL Ticket: WHICH game, and WHICH BLOCK it was seated in. The
+              // block is the half nothing else records — the lane numbers say
+              // where the party sits, not which screen owes them a game.
+              ...(nflGuard
+                ? { nfl: { ...nflBookingMetadata(nflGuard, item.bookedAt ?? ""), pin: nflPin } }
+                : {}),
               ...(wcFixture
                 ? {
                     worldCup: {
@@ -2856,15 +3056,38 @@ async function unifiedReserveInner(
                 : {}),
             },
           },
-          item.lineItems.map((li) => ({
-            squareProductId: li.squareProductId,
-            label: li.label ?? "Bowling",
-            quantity: li.quantity,
-            unitPriceCents: li.priceCents ?? 0,
-          })),
+          [
+            ...item.lineItems.map((li) => ({
+              squareProductId: li.squareProductId,
+              label: li.label ?? "Bowling",
+              quantity: li.quantity,
+              unitPriceCents: li.priceCents ?? 0,
+            })),
+            // Persist the guest's $0 food selections. These were pushed to
+            // SQUARE ONLY here, so a MIXED cart (bowling + a race / attraction
+            // / game-card leg — the ordinary kiosk shape) lost them whenever
+            // they failed to reach the order: the 2026-06-21 Pizza Bowl
+            // incident, recurring on the rail that never got fixed. Shared with
+            // app/api/bowling/v2/reserve so the two can't drift again.
+            ...rawFoodItemsToReservationLines(item.rawItems),
+          ],
         );
         neonIds.push(reservation.id);
         bowlingNeonId = reservation.id;
+
+        // NFL Ticket: the block is now really taken, so promote the claim off
+        // its 30-minute hold and FREEZE this game's kickoff — from here on a
+        // flexed Sunday time is reported for a human rather than written, so
+        // the nightly sync can never move a paid party's lanes. Best-effort:
+        // the guest is already charged and confirmed, so nothing in here may
+        // throw back into the booking.
+        if (nflGuard) {
+          await confirmNflBooking({
+            claimId: nflGuard.claim.id,
+            reservationId: reservation.id,
+            gameId: nflGuard.game.id,
+          });
+        }
 
         // Persist the roster with the reservation when we actually HAVE one
         // (kiosk collects names/shoes/bumpers up front — persist-at-capture);
@@ -2917,7 +3140,9 @@ async function unifiedReserveInner(
         ? `VIP Exp. ${guest.name} (${players.length}p)`
         : wcFixture
           ? worldCupQamfTitle(guest.name, players.length)
-          : `${guest.name} (${players.length}p)`;
+          : nflGuard
+            ? nflQamfTitle(guest.name, players.length)
+            : `${guest.name} (${players.length}p)`;
       const shortCode = shortCodes[shortCodes.length - 1];
 
       const finalParts: string[] = [];
@@ -2927,6 +3152,11 @@ async function unifiedReserveInner(
       }
       // World Cup: lead the notes with the match so front desk sees what this
       // lane window is for (the "VIP Exp." banner precedent).
+      // NFL Ticket: the banner names the BLOCK as well as the game, because the
+      // block is the one thing front desk cannot work out from the lane numbers.
+      if (nflGuard) {
+        finalParts.push(nflQamfBanner(nflGuard.game, nflGuard.block.label));
+      }
       if (wcFixture) {
         finalParts.push(worldCupQamfBanner(wcFixture));
       }

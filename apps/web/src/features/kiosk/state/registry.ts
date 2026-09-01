@@ -29,7 +29,11 @@ import { KioskRaceSimTrackStep } from "../steps/KioskRaceSimTrackStep";
 import { KioskRaceSimSlotStep } from "../steps/KioskRaceSimSlotStep";
 import { ContactStep } from "~/components/features/booking/steps/ContactStep";
 
-export const KIOSK_SCHEMA_VERSION = 16; // v15: racesim flow mirrors racing (people-first, contact, track, time)
+// v17: the merge of two independent v15 bumps — main's BowlingItem.nflGameId
+// (NFL Ticket game picker) and this branch's racesim flow + RaceSimItem.sessions[]
+// (v15→v16 here). A stored 15 or 16 could be EITHER shape, so both are stale:
+// readSession discards on `v !== KIOSK_SCHEMA_VERSION`, and 17 invalidates both.
+export const KIOSK_SCHEMA_VERSION = 17;
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
 
 /** Match the web registry's World Cup gating for bowling time steps. */

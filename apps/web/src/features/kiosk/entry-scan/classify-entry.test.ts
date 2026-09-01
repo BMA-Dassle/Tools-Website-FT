@@ -78,26 +78,40 @@ describe("classifyEntryScan", () => {
     });
   });
 
-  describe("HPW vouchers — bill_id decides, so the server must resolve", () => {
-    it("sends a bare HPW code down the resolve path", () => {
+  describe("HPW vouchers — our own shape, so redemption without a lookup", () => {
+    it("sends a bare HPW code to the voucher screen", () => {
       expect(classifyEntryScan(HPW)).toMatchObject({
-        kind: "resolve-then-code-entry",
+        kind: "code-entry",
         value: HPW,
       });
     });
 
-    it("sends the /v/{code} voucher QR down the resolve path", () => {
+    it("sends the /v/{code} voucher QR to the voucher screen", () => {
       expect(classifyEntryScan(`https://headpinz.com/v/${HPW}`)).toMatchObject({
-        kind: "resolve-then-code-entry",
+        kind: "code-entry",
         value: HPW,
       });
     });
 
     it("normalizes the hyphenated printed form", () => {
       expect(classifyEntryScan("hpw-z96r-z4sx")).toMatchObject({
-        kind: "resolve-then-code-entry",
+        kind: "code-entry",
         value: HPW,
       });
+    });
+
+    // THE REGRESSION THIS FILE EXISTS TO PREVENT. A booking-minted VIP grant
+    // resolves to a real reservation, so while HPW rode `resolve-then-code-
+    // entry` the router's `if (res.ok) return toCheckin()` fired on 100% of
+    // them — and the voucher receipt is the ONLY screen that names the
+    // game-card / laser-tag legs and auto-links the party onto the PERSISTED
+    // kiosk session. `code-entry` is not merely one acceptable answer here; a
+    // verdict that costs a lookup is the bug.
+    it("never emits a verdict that lets a reservation lookup divert a VIP grant", () => {
+      for (const payload of [HPW, `https://headpinz.com/v/${HPW}`, "hpw-z96r-z4sx"]) {
+        expect(classifyEntryScan(payload).kind).not.toBe("resolve-then-code-entry");
+        expect(classifyEntryScan(payload).kind).not.toBe("reservation");
+      }
     });
   });
 
@@ -115,6 +129,19 @@ describe("classifyEntryScan", () => {
         value: "3f59bc35-0548-46df-ba0c-f8cdedc6568d",
         clientKey: "headpinzftmyers",
       });
+    });
+
+    it("routes the wallet-pass AUTHENTICATE barcode to the racer path", () => {
+      // The pass BARCODE carries the smstim.in authenticate URL, not /r/{code}
+      // (member-qr.test.ts pins the parse itself; this pins it END-TO-END so a
+      // refactor can't silently drop the crew page's main scan arm).
+      const route = classifyEntryScan(
+        "https://smstim.in/908/authenticate/?login_code=6pmyyfhg4397c",
+      );
+      expect(route).toMatchObject({ kind: "racer", value: "6pmyyfhg4397c" });
+      // authenticate parses with clientKey "" (= don't filter the search);
+      // classify must not surface that empty string as a real key.
+      expect("clientKey" in route && route.clientKey).toBeFalsy();
     });
 
     it("carries NO clientKey for our own barcode — that is what tells them apart", () => {
@@ -180,6 +207,25 @@ describe("classifyEntryScan", () => {
       expect(classifyEntryScan("https://swflpassport.com/?id=1063464")).toMatchObject({
         kind: "game-card",
         value: "1063464",
+      });
+    });
+
+    // Every padded digit run goes to Game Zone, whatever its width. A run that
+    // is ALSO Groupon-shaped briefly detoured to the code screen so Groupon
+    // could be tried first; scanning no longer checks Groupon at all (owner
+    // 2026-08-28 — it is typed), so the detour would only delay real card
+    // scans. Cards scan anywhere; vouchers scan on the voucher screen.
+    it("sends a padded run that is also Groupon-shaped straight to Game Zone", () => {
+      expect(classifyEntryScan("000089895632")).toMatchObject({
+        kind: "game-card",
+        value: "89895632",
+      });
+    });
+
+    it("sends a full-width Intercard barcode straight to Game Zone", () => {
+      expect(classifyEntryScan("0000000001038091")).toMatchObject({
+        kind: "game-card",
+        value: "1038091",
       });
     });
   });

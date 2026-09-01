@@ -50,3 +50,13 @@ _preview-welcome.ts
 
 # Local-only recipient data (PII) for one-shot blasts — never commit
 scripts/.data/
+
+# Loyalty backfill plans/results — carry guest names + phones, never commit
+loyalty-race-backfill-plan.*
+loyalty-race-backfill-result.json
+
+# Playwright (apps/web/playwright.config.ts) — run artefacts, never committed.
+/test-results/
+/playwright-report/
+/blob-report/
+/.playwright/

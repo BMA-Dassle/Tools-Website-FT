@@ -23,9 +23,11 @@ import { getCenter } from "~/config/intercard-centers";
 import { getPackage, activationFeeCents } from "../constants";
 import { GameCardHttpError } from "../errors";
 import type { TerminalPrepareInput, TerminalFinalizeInput } from "../schemas";
-import { verifyAccount, IntercardError } from "../data/intercard";
+// Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
+import { verifyAccount, IntercardError } from "../data/intercard-router";
 import { createReloadOrder, readSquarePaymentSettled } from "../data/square-order";
 import { startTxn, markCharged, markLoadState, getTxn } from "../data/transactions-log";
+import { assertSwipedBlanks } from "./swiped-blank-guard";
 
 export interface TerminalPreparedRow {
   txnId: string;
@@ -33,7 +35,9 @@ export interface TerminalPreparedRow {
   tokens: number;
   bonusTokens: number;
   amountCents: number;
-  /** "" for a new_card (account attached when the blank is dispensed). */
+  /** "" for a new_card on a dispenser kiosk (account attached when the blank
+   *  is dispensed); the swiped blank's number on an MSR-only kiosk, where the
+   *  guest swipes BEFORE paying and the row is persisted with it. */
   accountNumber: string;
 }
 
@@ -69,6 +73,18 @@ export async function prepareTerminalPurchase(
     }
     return { pkg, accountNumber: it.accountNumber ?? "" };
   });
+
+  // New cards on a SWIPE kiosk arrive with the account the guest swiped: confirm
+  // each is still a blank server-side BEFORE a row is persisted or the reader
+  // is armed (the browser's blank check is a claim, not proof — a $2 activation
+  // on somebody's active card is the mistake this refuses). Dispenser items
+  // carry no account and skip this.
+  if (input.kind === "new_card") {
+    await assertSwipedBlanks(
+      resolved.map((r) => r.accountNumber).filter((a) => a.length > 0),
+      input.locationCode,
+    );
+  }
 
   // Reload: verify EVERY card (read-only) BEFORE arming the reader.
   if (input.kind === "reload") {

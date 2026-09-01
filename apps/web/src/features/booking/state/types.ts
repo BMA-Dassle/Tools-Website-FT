@@ -603,6 +603,20 @@ export interface BowlingItem extends BookingItemBase, BowlingCommon {
   /** WORLD_CUP_FIXTURES id of the picked match (persisted to booking metadata). */
   worldCupMatchId?: string | null;
   /**
+   * ESPN event id of the picked NFL game.
+   *
+   * REQUIRED for an NFL Ticket booking, and not derivable from `bookedAt`:
+   * eight games kick off at 1:00 PM on a normal Sunday, so they share a
+   * lane-open instant and the time alone cannot say which one the party came
+   * for — which is exactly what decides their block and what the screen shows.
+   *
+   * The server re-fetches this id from `nfl_games` and validates `bookedAt`
+   * against THAT row, so it is an index into our own data rather than anything
+   * the client is trusted on. Optional so sessions persisted before this field
+   * hydrate undefined → falsy.
+   */
+  nflGameId?: string | null;
+  /**
    * FastTrax duckpin (QAMF center 11542). FastTrax and HeadPinz FM share the
    * "fort-myers" CenterCode, so this item-level marker — not session.center —
    * is what routes the item to 11542 (see reducer) and drives duckpin-specific
@@ -751,8 +765,14 @@ export interface SelectedRewardTier {
  * Square Loyalty state. Populated during checkout when the customer's
  * phone resolves to a HeadPinz Rewards account (or they enroll).
  *
- * Earning: `customerId` is attached to the Square day-of order so
- * points auto-accrue (10 Pinz per $1). No verification needed.
+ * Earning: `customerId` is attached to the Square day-of order, which is
+ * NECESSARY BUT NOT SUFFICIENT — Square does not accrue on its own for an
+ * Orders-API order. The points (10 Pinz per $1) are only credited when a
+ * settle rail explicitly calls AccumulateLoyaltyPoints via
+ * `accrueLoyaltyPoints` (features/loyalty) once the order is fully paid:
+ * processLaneOpen for bowling, race-dayof-pay for races/attractions. No
+ * verification needed to EARN. This comment used to claim auto-accrual, and
+ * that belief is why racing credited nobody for three months.
  *
  * Redeeming: requires SMS verification to prove ownership. After
  * verify, reward tiers become selectable to reduce the deposit.

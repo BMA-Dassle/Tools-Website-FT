@@ -135,36 +135,6 @@ export const TerminalFinalizeSchema = z.object({
 });
 export type TerminalFinalizeInput = z.infer<typeof TerminalFinalizeSchema>;
 
-/**
- * On-prem bridge queue (web reloads → local EIS credit). The bridge on each
- * center's kiosk PC polls POST /api/game-card-bridge/claim outbound, runs the
- * EIS credit locally, then reports via /ack. Auth is a shared-secret header
- * checked in the routes — these schemas are the payloads only.
- */
-export const BridgeClaimSchema = z.object({
-  locationCode: z.number().int(),
-  /** Stable per-process id (hostname-pid) — pins acks to the claiming bridge. */
-  workerId: z.string().trim().min(1).max(80),
-  max: z.number().int().min(1).max(5).default(3),
-});
-export type BridgeClaimInput = z.infer<typeof BridgeClaimSchema>;
-
-export const BridgeAckSchema = z.object({
-  txnId: z.string().uuid(),
-  workerId: z.string().trim().min(1).max(80),
-  /**
-   * ok       EIS ResponseCode 0 — credited
-   * declined EIS replied non-0 — definitively NOT credited
-   * no_attempt the request never reached the EIS (connect failed / stale claim)
-   * unknown  request written but no/partial reply — outcome ambiguous; the row
-   *          goes to 'verify' and is NEVER blindly retried (no EIS dedup)
-   */
-  outcome: z.enum(["ok", "declined", "no_attempt", "unknown"]),
-  code: z.string().max(16).optional(),
-  description: z.string().max(300).optional(),
-});
-export type BridgeAckInput = z.infer<typeof BridgeAckSchema>;
-
 /** Success-screen poll: has each card in this purchase group loaded yet?
  *  The groupId is a server-minted UUID (capability token — unguessable). */
 export const LoadStatusSchema = z.object({
@@ -186,6 +156,10 @@ export const VoucherRedeemSchema = z.discriminatedUnion("action", [
     locationCode: z.number().int(),
     center: z.string().trim().max(40).optional(),
     kioskId: z.string().trim().max(120).optional(),
+    /** Swipe kiosk (no dispenser): the blank the guest already swiped for this
+     *  leg. Persisted on the comped row at claim (persist-first) so a load
+     *  that never reaches the server still leaves a row the cron can credit. */
+    accountNumber: accountNumber.optional(),
   }),
   z.object({
     action: z.literal("release"),
@@ -230,7 +204,14 @@ export const LoadCardSchema = z.object({
    * re-crediting through the cloud SOAP path — never double-load. Absent/false →
    * the server credits via SOAP (the fallback when no bridge is reachable).
    */
-  preLoaded: z.boolean().optional(),
+  /**
+   * The account came off a card the GUEST presented (swiped on an MSR-only
+   * kiosk — a blank from the holder under the screen), not off a blank the
+   * dispenser pulled from its stacker. A guest-presented card is never
+   * clear-on-encoded: a blank has nothing to clear, and a card that somehow
+   * carries value must keep it (the guest paid for the tokens being added).
+   */
+  swiped: z.boolean().optional(),
 });
 export type LoadCardInput = z.infer<typeof LoadCardSchema>;
 

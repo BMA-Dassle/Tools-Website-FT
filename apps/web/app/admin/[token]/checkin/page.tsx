@@ -1,13 +1,22 @@
 import { notFound } from "next/navigation";
-import CheckInClient from "./CheckInClient";
-import { adminPoppins } from "~/components/features/admin-skin/font";
+import AdminToolPage from "@/app/admin/_tools/checkin/AdminToolPage";
+import type { AdminToolQueryPromise } from "@/app/admin/_tools/query";
+
+/**
+ * v1: `/admin/{ADMIN_CAMERA_TOKEN}/checkin`.
+ *
+ * The static token in the path is the credential. Kept alongside the SSO route
+ * at `/admin/checkin` (same component, no credential in the URL) per the v2
+ * cutover pattern. The token check below is belt-and-braces with the
+ * middleware's unified gate, unchanged from before the split.
+ */
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type Props = {
   params: Promise<{ token: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
+  searchParams: AdminToolQueryPromise;
 };
 
 export default async function Page({ params, searchParams }: Props) {
@@ -15,30 +24,5 @@ export default async function Page({ params, searchParams }: Props) {
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
   if (!expected || token !== expected) notFound();
 
-  const sha = process.env.VERCEL_GIT_COMMIT_SHA || "";
-  const version = sha ? sha.slice(0, 7) : "dev";
-
-  /**
-   * `?board=1` ADDS the briefing-room controls to this station.
-   *
-   * It is a flag on the check-in page, not a different page: the same staff
-   * member checks racers in and sends the heat to a briefing room, and the
-   * scanner, the session counts and the scan flash all stay exactly as they are.
-   */
-  const query = await searchParams;
-  const boardMode = query.board === "1";
-
-  /**
-   * `?loc=ft|hpfm|naples` scopes the session-counts strip to one building —
-   * each desk bookmarks its own URL. View-only: scanning accepts every
-   * payload regardless (licence codes and FT QRs carry no location).
-   * No `?loc=` (or an unknown value) keeps the all-venues view.
-   */
-  const locFilter = typeof query.loc === "string" ? query.loc : undefined;
-
-  return (
-    <div className={adminPoppins.variable}>
-      <CheckInClient token={token} version={version} boardMode={boardMode} locFilter={locFilter} />
-    </div>
-  );
+  return <AdminToolPage query={await searchParams} />;
 }

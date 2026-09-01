@@ -33,7 +33,12 @@ import { getCenter, macForCenter } from "~/config/intercard-centers";
 import { GameCardHttpError } from "../errors";
 import type { ConsolidateInput } from "../schemas";
 import type { CardBalance } from "../types";
-import { verifyAccount, consolidateAccounts, IntercardError } from "../data/intercard";
+// Routed transport: ONSITE first (real-time truth at the site), cloud SOAP as
+// the fallback. The router returns the same shapes plus a `transport` tag, so
+// this file's logic is unchanged — see data/intercard-router.ts for the
+// asymmetric write-fallback rule that keeps an ambiguous failure from being
+// replayed onto the other transport.
+import { verifyAccount, consolidateAccounts, IntercardError } from "../data/intercard-router";
 import { logConsolidation } from "../data/consolidations-log";
 
 export interface ConsolidateResult {
@@ -190,11 +195,27 @@ function mapVerifyError(err: unknown): never {
 }
 
 /**
- * TPI_ConsolidateAccounts, retrying ONCE on a failed exchange with the SAME
- * tpiTransactionID (server-side dedup: the retry either lands the move or
- * returns 0 without re-applying — never a double-apply). Returns the result
- * code, or `{failed}` carrying WHAT went wrong (transport/timeout error text)
- * when both attempts failed to exchange — the caller surfaces it on-screen.
+ * Consolidate, retrying ONCE on a failed exchange with the SAME
+ * tpiTransactionID. Returns the result code, or `{failed}` carrying WHAT went
+ * wrong (transport/timeout error text) when both attempts failed to exchange —
+ * the caller surfaces it on-screen.
+ *
+ * WHY THE RETRY IS SAFE — and note it is NOT because of id-dedup.
+ *
+ * The SOAP path documents a dedup check (ST_IsThirdPartyPOS_TransProcessed),
+ * but the ONSITE relay demonstrably has none: a live probe on 2026-08-31
+ * credited the same transactionID twice and the balance moved 200 → 205 → 210,
+ * rc=0 both times. So "the id protects us" is FALSE on the transport we now
+ * prefer.
+ *
+ * The retry is safe for a different reason, specific to this operation:
+ * consolidate moves the source's ENTIRE balance onto the target, so a replay is
+ * a no-op by construction — if attempt 1 landed, the source is already empty
+ * and attempt 2 moves 0.
+ *
+ * Do NOT copy this retry onto a credit. There the replay adds the value a
+ * second time (measured above), which is exactly why the router refuses to fall
+ * an ambiguous credit over to the other transport.
  */
 async function consolidateWithRetry(
   params: Parameters<typeof consolidateAccounts>[0],

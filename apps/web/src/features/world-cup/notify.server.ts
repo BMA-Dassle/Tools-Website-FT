@@ -10,7 +10,12 @@
  * booking. HeadPinz-only offer → HeadPinz recipients (no fasttraxent.com).
  */
 import { sendEmail } from "@/lib/sendgrid";
-import { fixtureStaffLabel, fixtureTimeLabel, type WorldCupFixture } from "./fixtures";
+import {
+  fixtureStaffLabel,
+  fixtureTimeLabel,
+  worldCupWindowLabelShort,
+  type WorldCupFixture,
+} from "./fixtures";
 
 // Per-center recipients (owner 7/6): each center's own crew gets its own
 // bookings — never jeff/jamil@fasttraxent (racing side). Lists live in the
@@ -42,7 +47,7 @@ export async function notifyWorldCupBooked(args: {
     const lanes = Math.max(1, Math.ceil(args.players / 6));
     const match = fixtureStaffLabel(args.fixture);
     const total = `$${(args.totalCents / 100).toFixed(2)}`;
-    const window = `${fixtureTimeLabel(args.fixture)} kickoff · 2.5-hr VIP lane window`;
+    const window = `${fixtureTimeLabel(args.fixture)} kickoff · ${worldCupWindowLabelShort()} VIP lane window`;
 
     const subject = `⚽ World Cup VIP booked — ${args.guestName} · ${match} · ${centerName}`;
     const html = [
