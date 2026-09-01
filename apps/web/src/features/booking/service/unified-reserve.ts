@@ -133,6 +133,7 @@ import {
   type NflGuardResult,
 } from "~/features/nfl/guard.server";
 import { centerHoursForDate } from "./bowling-hours";
+import { pinReservationToBlock, type PinOutcome } from "~/features/nfl/pin.server";
 import { qamfCenterIdForCode } from "../types";
 import {
   isMidnightMadnessSlug,
@@ -2642,6 +2643,13 @@ async function unifiedReserveInner(
         `guest=${JSON.stringify(guest)}`,
     );
 
+    // The block this item claimed back in guard 2c-NFL, and where it ended up
+    // seated. Declared HERE, above the QAMF section, because the lane pin runs
+    // there — a later declaration is a temporal-dead-zone error, not a style
+    // preference.
+    const nflGuard = nflGuards.get(item.id) ?? null;
+    let nflPin: PinOutcome | null = null;
+
     // ── QAMF confirm — INLINE from v1 bowling reserve (proven working) ──
     let qamfReservationId: string;
     let qamfConfirmed = false;
@@ -2751,6 +2759,25 @@ async function unifiedReserveInner(
         }
       }
 
+      // NFL Ticket: seat the party inside the block their game was claimed on.
+      // QAMF auto-assigns anywhere in the VIP group, so without this a party
+      // can end up under a screen playing someone else's game. Non-fatal — the
+      // booking is already paid and confirmed, and a failure surfaces on the
+      // ops board for front desk rather than throwing.
+      if (nflGuard && qamfLanes.length > 0) {
+        nflPin = await pinReservationToBlock({
+          centerId,
+          reservationId: qamfReservationId,
+          lanes: qamfLanes as Array<{ Id: string; LaneNumber: number }>,
+          block: nflGuard.block,
+        });
+        if (!nflPin.pinned) {
+          console.warn(
+            `[nfl] could not seat ${qamfReservationId} on ${nflGuard.block.id}: ${nflPin.reason} — ${nflPin.detail}`,
+          );
+        }
+      }
+
       // Push player names to QAMF (kiosk rosters carry real bumper choices)
       if (qamfLanes.length > 0) {
         const lane = qamfLanes[0];
@@ -2804,7 +2831,6 @@ async function unifiedReserveInner(
 
       // The block this item claimed back in guard 2c-NFL. Present only for an
       // NFL Ticket item; everything below keys off it being non-null.
-      const nflGuard = nflGuards.get(item.id) ?? null;
 
       let bowlingNeonId: number | null = null;
       try {
@@ -2853,7 +2879,9 @@ async function unifiedReserveInner(
               // NFL Ticket: WHICH game, and WHICH BLOCK it was seated in. The
               // block is the half nothing else records — the lane numbers say
               // where the party sits, not which screen owes them a game.
-              ...(nflGuard ? { nfl: nflBookingMetadata(nflGuard, item.bookedAt ?? "") } : {}),
+              ...(nflGuard
+                ? { nfl: { ...nflBookingMetadata(nflGuard, item.bookedAt ?? ""), pin: nflPin } }
+                : {}),
               ...(wcFixture
                 ? {
                     worldCup: {

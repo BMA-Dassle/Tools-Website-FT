@@ -66,6 +66,7 @@ import {
   type NflGuardResult,
 } from "~/features/nfl/guard.server";
 import { centerHoursForDate } from "~/features/booking/service/bowling-hours";
+import { pinReservationToBlock, type PinOutcome } from "~/features/nfl/pin.server";
 import {
   createDepositAndCharge,
   createDepositOrder,
@@ -1153,6 +1154,25 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── NFL Ticket: seat the party inside its game's block ──────────
+  // QAMF auto-assigns anywhere in the VIP group, so without this a party can
+  // end up under a screen playing someone else's game. Non-fatal — already paid
+  // and confirmed by here; a failure surfaces on the ops board.
+  let nflPin: PinOutcome | null = null;
+  if (nflGuard && qamfLanes.length > 0) {
+    nflPin = await pinReservationToBlock({
+      centerId,
+      reservationId: qamfReservationId,
+      lanes: qamfLanes as Array<{ Id: string; LaneNumber: number }>,
+      block: nflGuard.block,
+    });
+    if (!nflPin.pinned) {
+      console.warn(
+        `[nfl] could not seat ${qamfReservationId} on ${nflGuard.block.id}: ${nflPin.reason} — ${nflPin.detail}`,
+      );
+    }
+  }
+
   // ── Push player names to QAMF (KBF has names from registration) ──
   // For KBF bookings we know every player name from the pass. Push them
   // to QAMF so Conqueror shows real names instead of "Player 1".
@@ -1867,7 +1887,9 @@ export async function POST(req: NextRequest) {
                 // NFL Ticket: WHICH game, and WHICH BLOCK it was seated in.
                 // The block is the half nothing else records — lane numbers say
                 // where the party sits, not which screen owes them a game.
-                ...(nflGuard ? { nfl: nflBookingMetadata(nflGuard, bookedAt) } : {}),
+                ...(nflGuard
+                  ? { nfl: { ...nflBookingMetadata(nflGuard, bookedAt), pin: nflPin } }
+                  : {}),
                 ...(wcFixture
                   ? {
                       worldCup: {
