@@ -188,6 +188,19 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
 
   const expFor = (g: GameCard) => exps.find((e) => e.slug === g.experienceSlug);
 
+  /**
+   * Is the package sellable at this center at all?
+   *
+   * The nfl-vip-* experience rows carry the price, the Conqueror offer and the
+   * four Square items. `is_active = FALSE` on them is the package's kill switch
+   * — no deploy, one UPDATE — so when they are absent NOTHING here can be
+   * bought. Fail closed and say so ONCE, up front: a rail of games that each
+   * error on tap is a worse answer than "not bookable", and it invites a guest
+   * to keep trying different days for a reason that has nothing to do with the
+   * day.
+   */
+  const sellable = exps.some((e) => e.slug.startsWith("nfl-vip-"));
+
   const perLaneCents = (g: GameCard): number | null => {
     const exp = expFor(g);
     if (!exp?.items?.length) return null;
@@ -361,6 +374,14 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
     );
   }
 
+  if (!sellable) {
+    return (
+      <p className="mx-auto max-w-lg rounded-lg bg-white/5 p-4 text-center text-sm text-white/60">
+        {t("nfl.err.notBookable")}
+      </p>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-lg space-y-5">
       <div className="text-center">
@@ -392,9 +413,12 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
             {t("nfl.pickDate")}
           </p>
           {/* Horizontal scroll: a busy month is ~14 chips, which will not fit a
-              kiosk column, and wrapping them buries the games below the fold. */}
+              kiosk column, and wrapping them buries the games below the fold.
+              scrollbar-hide because the site's ::-webkit-scrollbar is bowling
+              cyan — under a row of chips it reads as a stray progress bar
+              rather than a scrollbar (the utility exists for exactly this). */}
           <div
-            className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
+            className="scrollbar-hide -mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
             role="tablist"
             aria-label={t("nfl.pickDate")}
           >
@@ -407,7 +431,10 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
                   role="tab"
                   aria-selected={on}
                   disabled={reservingId !== null}
-                  onClick={() => setActiveDate(d)}
+                  onClick={() => {
+                    setActiveDate(d);
+                    setError(null); // a failure on Sunday says nothing about Monday
+                  }}
                   className="shrink-0 rounded-lg border px-3 py-2 text-xs font-semibold transition-all disabled:cursor-not-allowed"
                   style={{
                     borderColor: on ? VIOLET : "rgba(255,255,255,0.10)",
