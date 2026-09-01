@@ -15,6 +15,19 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.29.0 — GAME-CARD LOADS GO ONSITE; THE ON-PREM EIS BRIDGE IS RETIRED. Card
+ *         reads and loads now run through the onsite Intercard proxy (real-time
+ *         at the center) with cloud SOAP as the fallback, instead of the local
+ *         EIS bridge on the kiosk PC. Loads are synchronous — no more charging a
+ *         card and deferring the credit into a queue that hoped a bridge showed
+ *         up; a dispensed blank is still captured, never handed over, if the
+ *         load doesn't confirm. The card-system chip now reads Onsite / Cloud /
+ *         Unlicensed (a red Unlicensed flags a MAC/token config fault instead of
+ *         hiding it as a normal cloud fallback), driven by a real onsite probe
+ *         rather than the old 127.0.0.1 bridge health. Combine cards is no longer
+ *         cloud-only — the onsite path can consolidate, so it shows on every
+ *         kiosk with a card backend. The EIS queue + its reconcile machinery are
+ *         gone; the reconcile cron is now a dedup-safe recover-forward replay.
  * 1.28.0 — WEDNESDAY BOGO CAN BE BOUGHT MORE THAN ONCE IN ONE ORDER. The
  *         "one pack per racer" rule (right for the standing 3/5/10 SKUs —
  *         two 3-packs is just a worse 5-pack) turned the per-DEAL-priced BOGO
@@ -1113,7 +1126,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.28.0";
+export const KIOSK_VERSION = "1.29.0";
 
 let bootVersion: string | null = null;
 let captured = false;
