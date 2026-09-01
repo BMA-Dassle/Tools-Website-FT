@@ -3,20 +3,26 @@
 /**
  * THE CHECK-IN STORY, IN TWO COLUMNS — the front-desk wall's left panel.
  *
- * Left: whose LANE IS AVAILABLE, so they can check in this minute. Right: who already
- * has, and which lane they got.
+ * Left: who is DUE IN THE NEXT HOUR, and whether their lane is ready. Right: who has
+ * just checked themselves in, and which lane they got.
  *
  * Both halves, because either alone only speaks to half the lobby. The "checked in" list
- * answers what a guest asks AFTER they have worked out what to do; the "lane available"
- * list tells someone walking through the door that their lane is waiting and they can go
+ * answers what a guest asks AFTER they have worked out what to do; the left-hand list
+ * tells someone walking through the door that we have them, and whether they can go
  * straight to a kiosk instead of queueing at the desk. Read left to right it is the whole
  * journey, which is what earns this a panel of its own rather than a turn in the rotation.
  *
- * THE LEFT COLUMN IS A FILTER, NOT A LIST OF EVERYONE DUE. Self check-in only completes
- * when QAMF reports the lane ready, so a guest listed without a ready lane walks to a
- * kiosk and is refused — and the board that sent them is the last thing they will trust
- * afterwards (owner 2026-08-19). Readiness is decided once a minute by the
- * `bowling-lane-ready` cron and cached; this scene never asks a vendor anything.
+ * THE LEFT COLUMN LISTS EVERYONE DUE, AND SAYS WHICH LANES ARE READY (owner 2026-09-01).
+ * It used to be a FILTER — only guests whose lane QAMF had reported ready, because self
+ * check-in cannot complete without one, and a guest sent to a kiosk that refuses them
+ * never trusts the board again (owner 2026-08-19). That rule still holds; what changed is
+ * where it is kept. Omitting a guest who is standing in the lobby reads as "we have no
+ * record of you", so the row is drawn instead — greyed, with NO lane number and no
+ * invitation, saying "Lane not ready yet" where a ready row says "Check in now". The
+ * number is the invitation, so the number is what a not-ready row must not have.
+ *
+ * Readiness is decided once a minute by the `bowling-lane-ready` cron and cached; this
+ * scene never asks a vendor anything.
  *
  * A guest who checked in at a kiosk was never told a lane number by a person, so the
  * right column is the only place they learn it — and it answers what they ask next,
