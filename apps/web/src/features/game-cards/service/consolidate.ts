@@ -196,19 +196,26 @@ function mapVerifyError(err: unknown): never {
 
 /**
  * Consolidate, retrying ONCE on a failed exchange with the SAME
- * tpiTransactionID (server-side dedup: the retry either lands the move or
- * returns 0 without re-applying — never a double-apply). Returns the result
- * code, or `{failed}` carrying WHAT went wrong (transport/timeout error text)
- * when both attempts failed to exchange — the caller surfaces it on-screen.
+ * tpiTransactionID. Returns the result code, or `{failed}` carrying WHAT went
+ * wrong (transport/timeout error text) when both attempts failed to exchange —
+ * the caller surfaces it on-screen.
  *
- * WHY THE RETRY IS STILL SAFE ON THE ONSITE TRANSPORT, whose id-dedup we have
- * NOT verified (unlike the SOAP path's documented ST_IsThirdPartyPOS_TransProcessed
- * check): consolidate moves the source's ENTIRE balance onto the target, so a
- * replay is a no-op by construction — if attempt 1 actually landed, the source
- * is already empty and attempt 2 moves 0. That self-idempotence is specific to
- * consolidate; do NOT copy this retry onto a credit, where a replay would
- * double-credit the card (the router deliberately refuses to fall a credit over
- * to the other transport for exactly that reason).
+ * WHY THE RETRY IS SAFE — and note it is NOT because of id-dedup.
+ *
+ * The SOAP path documents a dedup check (ST_IsThirdPartyPOS_TransProcessed),
+ * but the ONSITE relay demonstrably has none: a live probe on 2026-08-31
+ * credited the same transactionID twice and the balance moved 200 → 205 → 210,
+ * rc=0 both times. So "the id protects us" is FALSE on the transport we now
+ * prefer.
+ *
+ * The retry is safe for a different reason, specific to this operation:
+ * consolidate moves the source's ENTIRE balance onto the target, so a replay is
+ * a no-op by construction — if attempt 1 landed, the source is already empty
+ * and attempt 2 moves 0.
+ *
+ * Do NOT copy this retry onto a credit. There the replay adds the value a
+ * second time (measured above), which is exactly why the router refuses to fall
+ * an ambiguous credit over to the other transport.
  */
 async function consolidateWithRetry(
   params: Parameters<typeof consolidateAccounts>[0],

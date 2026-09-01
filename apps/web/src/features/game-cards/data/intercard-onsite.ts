@@ -286,12 +286,17 @@ export interface CreditAccountValuesParams {
 /**
  * Credit values onto a card — the onsite twin of `creditAccountValues`.
  *
- * ⚠️ IDEMPOTENCY IS NOT GUARANTEED HERE THE WAY IT IS ON SOAP. The relay keys
- * its pending work by a server-generated GUID and performs NO dedup of its own;
- * whatever dedup exists lives further downstream in the Transaction Server. So
- * treat an ambiguous failure (RELAY_TIMEOUT / NETWORK / HTTP 5xx) as UNKNOWN,
- * NOT as "did not apply": re-read the balance before retrying, or you may
- * double-credit. Same rule the BMI/Intercard money paths already follow.
+ * ⚠️ THIS PATH DOES NOT DEDUP — VERIFIED LIVE 2026-08-31, not assumed.
+ * Crediting +5 tokens twice with the SAME transactionID on card 1098379 moved
+ * the balance 200 → 205 → 210: the replay applied in full, rc=0 both times.
+ * (The SOAP path's documented ST_IsThirdPartyPOS_TransProcessed check does NOT
+ * cover this relay.)
+ *
+ * So a retry here is a DOUBLE CREDIT, full stop. Treat any ambiguous failure
+ * (RELAY_TIMEOUT / NETWORK / HTTP 5xx) as UNKNOWN, never as "did not apply":
+ * re-read the balance and decide from what the card actually holds. The router
+ * enforces this by refusing to fall an ambiguous write over to the other
+ * transport; callers must not defeat it with a retry loop.
  */
 export async function creditAccountValues(
   params: CreditAccountValuesParams,
