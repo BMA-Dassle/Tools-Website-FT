@@ -83,6 +83,18 @@ export interface SceneDecision {
  */
 export function frameKey(d: SceneDecision): string {
   if (!d.isInterrupt) return d.scene;
+  // THE ARENA TAKEOVER IS ONE FRAME FOR AS LONG AS ANY CALL IS LIVE, so it keys on the
+  // scene alone. Its `startedAtMs` is the EARLIEST live call — which is what stops a
+  // second activity being called from remounting the board — but that anchor MOVES when
+  // the earliest call ages out of the hold, and keying on it meant the board tore itself
+  // down and replayed both entrances while the remaining group was still reading their
+  // instruction. The same jump happens if Pandora times out intermittently and the
+  // reader alternates between the live list and its Redis carry: startedAtMs would
+  // oscillate every fifteen-second poll and the board would hard-cut on each one.
+  //
+  // Keying on the scene keeps the entrance where it belongs — the transition INTO the
+  // takeover from whatever was playing — and makes everything after it a re-render.
+  if (d.scene === "arena-checkin") return d.scene;
   const identity = d.event?.id;
   return identity ? `${d.scene}:${identity}` : `${d.scene}:${d.startedAtMs}`;
 }

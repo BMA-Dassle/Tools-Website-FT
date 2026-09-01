@@ -569,6 +569,38 @@ describe("resolveActiveScene — the arena board", () => {
     expect(frameKey(after)).toBe(frameKey(before));
   });
 
+  it("keeps the same frame when the EARLIEST call ages out — the untested half", () => {
+    // The join case above was covered; the leave case is the common one, since two
+    // calls almost never expire together. `startedAtMs` is the earliest live call, so
+    // it JUMPS when that call drops — and keying on it tore the board down and replayed
+    // both entrances while the remaining group was still reading their instruction.
+    const early = arenaCall({ sessionId: "1", calledAtMs: now - 9 * 60_000 });
+    const later = arenaCall({
+      sessionId: "2",
+      activity: "gel-blaster" as const,
+      calledAtMs: now - 60_000,
+    });
+    const both = resolveActiveScene({ ...base, arenaCalls: [early, later] });
+    // Ten-minute hold, so `early` is gone and only `later` is live.
+    const onlyLater = resolveActiveScene({
+      ...base,
+      nowMs: now + 2 * 60_000,
+      arenaCalls: [early, later],
+    });
+    expect(onlyLater.scene).toBe("arena-checkin");
+    expect(onlyLater.startedAtMs).not.toBe(both.startedAtMs);
+    expect(frameKey(onlyLater)).toBe(frameKey(both));
+  });
+
+  it("but a takeover STARTING is still a new frame", () => {
+    // Keying on the scene must not cost the entrance where it belongs: the cut in from
+    // whatever was playing.
+    const quiet = resolveActiveScene({ ...base, arenaCalls: [] });
+    const called = resolveActiveScene({ ...base, arenaCalls: [arenaCall({ calledAtMs: now })] });
+    expect(quiet.scene).not.toBe("arena-checkin");
+    expect(frameKey(called)).not.toBe(frameKey(quiet));
+  });
+
   it("still loses to sleep — a closed venue calls nothing", () => {
     const d = resolveActiveScene({
       ...base,
