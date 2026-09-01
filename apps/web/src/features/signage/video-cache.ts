@@ -35,6 +35,10 @@
  */
 export const BRIEFING_CACHE = "briefing-videos-v1";
 export const ARENA_CACHE = "arena-videos-v1";
+/** The front-desk wall's marketing reels. Its own store for the same reason as the
+ *  other two: `pruneCache` drops whatever the caller's manifest omits, so a shared
+ *  store would have two features deleting each other's films. */
+export const WALL_CACHE = "wall-videos-v1";
 
 /** Default for every existing caller, so the briefing path is byte-identical. */
 const CACHE_NAME = BRIEFING_CACHE;

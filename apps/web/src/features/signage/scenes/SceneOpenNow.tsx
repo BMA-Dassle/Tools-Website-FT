@@ -34,11 +34,13 @@
  * uses — the row goes quiet and says where to ask, rather than quoting a price Guest
  * Services will then have to explain.
  */
+import { useState } from "react";
 import type { SceneProps } from "../director/types";
 import { choreo } from "../wall";
-import { menuPanelAt, splitPrice, WALL_ACCENT, type MenuRow } from "../wall-content";
+import { menuPanelAt, panelFilmAt, splitPrice, WALL_ACCENT, type MenuRow } from "../wall-content";
 import { WallGround } from "../components/WallPanel";
 import { KioskCallout } from "../components/KioskCallout";
+import { useWallFilms } from "../useWallFilms";
 import { withAlpha } from "../color";
 
 /** The callout band's own height, plus air. Everything above it stops here. */
@@ -47,6 +49,10 @@ const BAND_CLEARANCE = 150;
 export function SceneOpenNow({ feed, nowMs, config }: SceneProps) {
   const { position, count, gapPct } = choreo(config);
   const panel = menuPanelAt(nowMs, position, feed?.bowlingTonight ?? null);
+  // This panel's own reels, cached locally. Enabled only where there is something
+  // filmed, so four of the five panels touch neither the network nor the disk.
+  const films = useWallFilms(panel?.films ?? [], !!panel?.films?.length);
+  const film = panel ? panelFilmAt(nowMs, position, panel) : null;
   const paused = new Set(feed?.pausedProductIds ?? []);
   const times = config.showNextAvailable ? (feed?.nextAvailable ?? null) : null;
   // Whether the availability cache answered AT ALL this poll. It matters because the
@@ -67,12 +73,20 @@ export function SceneOpenNow({ feed, nowMs, config }: SceneProps) {
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
-      <WallGround
-        photo={panel.photo}
-        accent={panel.accent}
-        deepScrim
-        wall={{ position, count, gapPct }}
-      />
+      {/* THE REEL REPLACES THE PHOTOGRAPH, never sits over it — a still under a moving
+          picture is a frame nobody sees and a decode nobody needs. The scrim, bloom and
+          light pass stay either way, so the panel's words are laid on exactly the same
+          treatment whether it is holding the video turn or not. */}
+      {film ? (
+        <PanelFilm src={films.srcFor(film)} photo={panel.photo} accent={panel.accent} />
+      ) : (
+        <WallGround
+          photo={panel.photo}
+          accent={panel.accent}
+          deepScrim
+          wall={{ position, count, gapPct }}
+        />
+      )}
 
       <div
         style={{
@@ -140,6 +154,71 @@ export function SceneOpenNow({ feed, nowMs, config }: SceneProps) {
           scene was deleted rather than kept alongside. */}
       <KioskCallout accent={panel.accent} text={panel.band} />
     </div>
+  );
+}
+
+/**
+ * The panel's reel, with the still photograph as its safety net.
+ *
+ * FALLS BACK RATHER THAN FAILS. Autoplay can be refused even when muted, a cached file
+ * can be evicted between the plan and the play, and venue wifi can drop a stream — so
+ * `onError` swaps to the photograph the panel would have shown anyway. A black rectangle
+ * behind live prices is the one outcome worth this much defensiveness, and it is what
+ * the arena promo board learned the same way.
+ *
+ * `muted` is a hard requirement and not a default: it is what makes gesture-free
+ * autoplay legal, and this wall stands over a staff desk. `objectFit: cover` over
+ * `contain` because pillarbox bars on a lobby TV read as a broken player.
+ */
+function PanelFilm({ src, photo, accent }: { src: string | null; photo: string; accent: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (!src || failed) {
+    return <WallGround photo={photo} accent={accent} deepScrim />;
+  }
+
+  return (
+    <>
+      <video
+        // Keyed on the source so a change rebuilds the element rather than swapping
+        // `src` underneath a playing decoder.
+        key={src}
+        src={src}
+        loop
+        muted
+        autoPlay
+        playsInline
+        preload="auto"
+        onError={() => setFailed(true)}
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          filter: "saturate(0.85) brightness(0.7)",
+        }}
+      />
+      {/* The same scrim the still ground paints, so the prices sit on identical
+          contrast whichever is behind them. */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          background:
+            "linear-gradient(to top, #000418 6%, rgba(2,10,34,0.88) 46%, rgba(4,14,44,0.5))",
+        }}
+      />
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: `radial-gradient(62% 38% at 50% 30%, ${withAlpha(accent, 0.22)}, transparent 68%)`,
+        }}
+      />
+    </>
   );
 }
 

@@ -25,7 +25,7 @@ import { activeVipCombo } from "~/features/combos/combo-specials";
 import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import { ATTRACTIONS } from "@/lib/attractions-data";
 import { TOKEN_PACKAGES } from "~/features/game-cards";
-import { TV_PHOTOS, TV_WALL_VIP_ART } from "./assets";
+import { TV_PHOTOS, TV_WALL_FILMS, TV_WALL_VIP_ART } from "./assets";
 import { atWallPosition } from "./wall";
 import type { TvFeed } from "./types";
 
@@ -385,10 +385,77 @@ export interface MenuPanel {
    * names the one machine under this panel.
    */
   band: string;
+  /**
+   * The marketing reels this panel alternates between when it holds the video turn.
+   *
+   * Absent on a panel with nothing filmed. Present does NOT mean "playing" — see
+   * `wallVideoAt`, which grants the turn to ONE panel at a time.
+   */
+  films?: readonly string[];
 }
 
 /** How many rows a panel may carry — see `MenuPanel.rows`. */
 const MAX_ROWS = 2;
+
+/* ── the video turn ───────────────────────────────────────────────────── */
+
+/**
+ * ONE PANEL AT A TIME, AND WHICH ONE IS DERIVED FROM THE CLOCK.
+ *
+ * "No more than one TV should play a video ad at the same time so have them rotate
+ * through" (owner 2026-09-01). Two reasons that is the right constraint and not just a
+ * taste: five reels playing at once is five simultaneous decodes on three player PCs,
+ * and — the real one — a wall where everything moves has nothing for the eye to land
+ * on. One moving panel among four still ones is a focal point; four is noise.
+ *
+ * Derived, never assigned. The turn is `floor(now / WALL_VIDEO_TURN_MS) % holders`, so
+ * all five panels agree on who is playing with no message passing between them, exactly
+ * as they agree on which scene is up. There is no token to hand over and nothing to
+ * resynchronise after a panel reboots.
+ *
+ * Two minutes a turn, matching one full pricing-plus-artwork cycle, so a panel holds the
+ * video for its whole stretch rather than starting one halfway through.
+ */
+export const WALL_VIDEO_TURN_MS = 120_000;
+
+/** The wall positions that have anything filmed, left to right. */
+const FILMED_POSITIONS = [1, 3, 4] as const;
+
+export interface WallVideoTurn {
+  /** The wall position allowed to play video right now. */
+  position: number;
+  /** Which of that panel's films — it advances each time the turn comes round, so a
+   *  panel with two reels alternates rather than replaying the same one. */
+  filmIndex: number;
+}
+
+export function wallVideoAt(nowMs: number): WallVideoTurn {
+  const turn = Math.floor(nowMs / WALL_VIDEO_TURN_MS);
+  const n = FILMED_POSITIONS.length;
+  // `%` twice keeps a negative clock (a wildly wrong RTC) in range.
+  const slot = ((turn % n) + n) % n;
+  return {
+    position: FILMED_POSITIONS[slot],
+    // How many complete rounds have passed = how many turns THIS panel has had.
+    filmIndex: Math.max(0, Math.floor(turn / n)),
+  };
+}
+
+/**
+ * The film this panel should be playing right now, or null.
+ *
+ * Null for every panel that is not holding the turn, for a panel with nothing filmed,
+ * and — deliberately — for the whole wall during the VIP artwork, which the caller
+ * expresses by simply not rendering this scene. The reels stop because the element is
+ * unmounted, not because it is hidden: a paused-but-mounted video still holds its
+ * decoder (owner: "they should stop for the VIP ad that shows on all screens").
+ */
+export function panelFilmAt(nowMs: number, position: number, panel: MenuPanel): string | null {
+  if (!panel.films || panel.films.length === 0) return null;
+  const turn = wallVideoAt(nowMs);
+  if (turn.position !== position) return null;
+  return panel.films[turn.filmIndex % panel.films.length] ?? null;
+}
 
 /**
  * The bowling panel: tonight's package, and the VIP tier of it underneath.
@@ -453,6 +520,7 @@ function bowlingPanel(bowling: BowlingTonight | null): MenuPanel {
     accent: A.bowl,
     rows: rows.slice(0, MAX_ROWS),
     band: "Buy it on the kiosk below",
+    films: TV_WALL_FILMS.bowling,
   };
 }
 
@@ -533,6 +601,7 @@ export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuP
       accent: A.arcade,
       rows: bonusTokenRows(),
       band: "Load it on the kiosk below",
+      films: TV_WALL_FILMS.gameZone,
     },
     {
       // THE OTHER BUILDING. Racing and duckpin are both FastTrax-side products, so the
@@ -564,6 +633,7 @@ export function menuPanels(nowMs: number, bowling: BowlingTonight | null): MenuP
         },
       ],
       band: "Book it on the kiosk below",
+      films: TV_WALL_FILMS.fastTrax,
     },
   ];
 }

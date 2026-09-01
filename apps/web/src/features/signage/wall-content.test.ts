@@ -3,7 +3,10 @@ import {
   dollars,
   menuPanels,
   menuPanelAt,
+  panelFilmAt,
   splitPrice,
+  wallVideoAt,
+  WALL_VIDEO_TURN_MS,
   vipBookingUrl,
   vipSlideArtAt,
   vipWallPrice,
@@ -595,6 +598,71 @@ describe("the other subject panels", () => {
     const panel = menuPanelAt(now, 0, null)!;
     expect(panel.rows[0].name).toContain("$");
     expect(panel.rows[0].note).toContain(String(COMBO.minHeadcount ?? 2));
+  });
+});
+
+describe("the video turn — one panel at a time", () => {
+  const now = 1000 * SLOT_MS + 5_000;
+  const panels = menuPanels(now, null);
+  const T = WALL_VIDEO_TURN_MS;
+
+  it("grants the turn to exactly ONE panel at any instant", () => {
+    // Owner 2026-09-01: "no more than one TV should play a video ad at the same time".
+    // Five reels at once is five decodes on three player PCs, and a wall where
+    // everything moves has nothing for the eye to land on.
+    for (const turn of [0, 1, 2, 3, 4, 5, 6]) {
+      const t = turn * T + 1_000;
+      const playing = panels.filter((p, i) => panelFilmAt(t, i, p) !== null);
+      expect(playing).toHaveLength(1);
+    }
+  });
+
+  it("every filmed panel gets a turn, and they come round in order", () => {
+    const holders = [0, 1, 2].map((turn) => wallVideoAt(turn * T + 1_000).position);
+    expect(holders).toEqual([1, 3, 4]);
+    // …and it wraps rather than running off the end.
+    expect(wallVideoAt(3 * T + 1_000).position).toBe(1);
+  });
+
+  it("the turn is TWO MINUTES — a panel holds it for a whole cycle", () => {
+    // Matching the playlist's 2:00 means a panel holds the video for its entire pricing
+    // stretch rather than starting one halfway through.
+    expect(WALL_VIDEO_TURN_MS).toBe(120_000);
+    expect(wallVideoAt(0).position).toBe(wallVideoAt(T - 1).position);
+    expect(wallVideoAt(T).position).not.toBe(wallVideoAt(0).position);
+  });
+
+  it("a panel with TWO reels alternates between them across its turns", () => {
+    // Bowling is the only one with a pair; replaying the same reel every six minutes
+    // would waste the second.
+    const bowling = panels[1];
+    expect(bowling.films?.length).toBe(2);
+    const first = panelFilmAt(0 * T + 1_000, 1, bowling);
+    const second = panelFilmAt(3 * T + 1_000, 1, bowling);
+    expect(first).toBeTruthy();
+    expect(second).toBeTruthy();
+    expect(first).not.toBe(second);
+    // …and comes back round to the first.
+    expect(panelFilmAt(6 * T + 1_000, 1, bowling)).toBe(first);
+  });
+
+  it("a panel not holding the turn plays NOTHING, even though it has reels", () => {
+    // Turn 0 belongs to bowling, so Game Zone must be still.
+    expect(panelFilmAt(1_000, 3, panels[3])).toBeNull();
+  });
+
+  it("THE FILMED SET MATCHES THE PANELS THAT ACTUALLY HAVE REELS", () => {
+    // The drift guard: giving a panel `films` without adding its position to the
+    // rotation would leave a reel that never plays, and nothing else would say so.
+    const withFilms = panels.map((p, i) => (p.films?.length ? i : null)).filter((i) => i !== null);
+    const rotated = new Set([0, 1, 2, 3, 4, 5].map((t) => wallVideoAt(t * T).position));
+    expect([...rotated].sort()).toEqual(withFilms);
+  });
+
+  it("a negative clock still lands on a real panel", () => {
+    const turn = wallVideoAt(-T * 3 - 1_000);
+    expect(turn.position).toBeGreaterThanOrEqual(0);
+    expect(turn.filmIndex).toBeGreaterThanOrEqual(0);
   });
 });
 

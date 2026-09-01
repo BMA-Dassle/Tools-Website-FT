@@ -87,6 +87,31 @@ export const TV_WALL_VIP_ART: readonly string[] = [1, 2, 3, 4, 5].map(
 );
 
 /**
+ * THE WALL'S MOVING PICTURES — the site's own marketing reels, on the pricing panels
+ * (owner 2026-09-01: "the pricing boards can show video of what they're selling").
+ *
+ * These are the SAME FILES the public website plays, referenced rather than re-cut, so
+ * a re-shoot that lands on headpinz.com reaches the wall with it. Raw blob URLs and NOT
+ * `tvImg` — that is the image optimizer, and it neither handles nor should be handed a
+ * video; these are fetched once into Cache Storage instead (see useWallFilms).
+ *
+ * Each panel's list is what IT alternates between, one file per turn.
+ */
+export const TV_WALL_FILMS = {
+  /** The reel behind the VIP Experience section on headpinz.com/fort-myers, alternating
+   *  with the NeoVerse lane reel — the two halves of what a VIP lane actually looks
+   *  like, which is what the bowling panel is selling. */
+  bowling: [
+    `${BLOB_HOST}/videos/headpinz-hyperbowling-v2.mp4`,
+    `${BLOB_HOST}/videos/headpinz-neoverse-v2.mp4`,
+  ],
+  /** The reel behind the party packages section. */
+  gameZone: [`${BLOB_HOST}/videos/headpinz-arcade-v2.mp4`],
+  /** The FastTrax home-page hero. Genuinely lives under /images/hero/ — not a typo. */
+  fastTrax: [`${BLOB_HOST}/images/hero/hero-video.mp4`],
+} as const;
+
+/**
  * One advertised thing.
  *
  * `productKeys` is what ties a slide to the maintenance gate: when a vendor is
