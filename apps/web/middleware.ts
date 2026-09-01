@@ -968,6 +968,10 @@ export async function middleware(request: NextRequest) {
     // chrome is host-aware. Without this the /hp rewrite 404s it on HeadPinz.
     pathname === "/reload" ||
     pathname.startsWith("/reload/") ||
+    // Gift & Game Cards hub — the discoverable home for the reload/balance flow,
+    // linked from both brands' nav/footer (the old "Gift Cards" slot). Same
+    // host-aware chrome as /reload; without this the /hp rewrite 404s it.
+    pathname === "/cards" ||
     // Kiosk mobile-join phone page — QR codes on in-center kiosks land here
     // on EITHER brand domain; brand comes from the join-session record, not
     // the host. Without this the /hp rewrite turns it into a 404 on HeadPinz.
