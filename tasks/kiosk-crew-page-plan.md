@@ -17,9 +17,11 @@
 >   flow's two-component split is gone on main, but the crew page keeps its own split because its
 >   reducer is PERSISTED (a null config must never seed entryBrand/center — H2); the session banner
 >   lost its tap-to-cart and now carries `KioskHoldBar` INLINE, so only the WHO half became the
->   door (no nested buttons); the empty state renders in the chooser branch of `KioskFlow`, not in
->   the shared `sessionBanner`; schema is v14 (both surfaces import it from `state/registry.ts`);
->   expect a pre-populated party on mount (the 1.26.0 voucher auto-link rail).
+>   door (no nested buttons); the empty state is a strip rendered by `KioskCategories` ABOVE the
+>   utility-door grid, gated by an `onOpenCrew` callback from `KioskFlow` (owner 2026-09-01:
+>   "needs a better spot other than the top" — picked option A of four placement mocks; the first
+>   cut had it at the top of the chooser); schema is v14 (both surfaces import it from
+>   `state/registry.ts`); expect a pre-populated party on mount (the 1.26.0 voucher auto-link rail).
 > - **PR 3 stays blocked, premises updated 2026-08-31:** the new onsite Api_External REST surface
 >   (31 ops, `docs/intercard-api-external-rest.md`) has NO employee-lookup endpoint — it only
 >   *accepts* an asserted `employeeID` (today the constant `WebReload`) and adds a `POST /compcard`

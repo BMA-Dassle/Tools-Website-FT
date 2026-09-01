@@ -2273,28 +2273,6 @@ export function KioskFlow({
             with their own listeners, and port opens are exclusive. */}
         <EntryScanListener onScan={entryScan.handleScan} onLicense={entryScan.handleLicense} />
         <EntryScanToast miss={entryScan.miss} busy={entryScan.busy} onDone={entryScan.clearMiss} />
-        {/* The session banner's EMPTY state — CHOOSER ONLY (every other screen
-            returned earlier in this chain), and only when the real banner is
-            absent, i.e. nothing is signed in or held. Same strip, same place,
-            hollow dot: a walk-in group gets a door to /kiosk/racers before
-            picking an activity. Deliberately NOT added to `sessionBanner`
-            itself — mid-wizard and cart screens must not grow a new box. */}
-        {crewDoor && !sessionBanner && (
-          <button
-            type="button"
-            onClick={openCrew}
-            className="k-glass k-tap mx-[48px] mt-[12px] flex shrink-0 items-center gap-[18px] px-[28px] py-[10px] text-left"
-          >
-            <span className="flex min-w-0 flex-1 items-center gap-[14px] text-[22px] text-white/70">
-              <span
-                className="h-[12px] w-[12px] shrink-0 rounded-full border-2 border-white/40"
-                aria-hidden="true"
-              />
-              <span className="truncate">{t("crew.banner.empty")}</span>
-            </span>
-            <IconChevronRight size={26} className="shrink-0 text-white/40" aria-hidden="true" />
-          </button>
-        )}
         <KioskCategories
           brand={config.brand}
           center={config.center}
@@ -2354,6 +2332,13 @@ export function KioskFlow({
               ? () => router.push("/kiosk/checkin")
               : undefined
           }
+          // "Your Crew" EMPTY-state door — a strip above the utility grid, not
+          // at the top (owner 2026-09-01: "needs a better spot other than the
+          // top"; picked option A of four mocks). Both gates live HERE like
+          // every other door: the kill switch, and "the session is empty" —
+          // once anyone signs in (or holds a cart), `sessionBanner` renders in
+          // the chrome and its tappable WHO half is the door instead.
+          onOpenCrew={crewDoor && !sessionBanner ? openCrew : undefined}
           onOpenRaceGrid={
             config.center === "fort-myers" && kioskRaceInfoEnabled()
               ? () => {

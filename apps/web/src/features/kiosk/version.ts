@@ -24,8 +24,10 @@
  *         behind the NEXT_PUBLIC_KIOSK_CREW kill switch (default ON): the
  *         session banner's WHO half becomes a button (hold bar untouched — no
  *         nested buttons), the chooser gets the strip's new EMPTY state
- *         ("Nobody signed in yet · Add your people" — chooser only, never a
- *         new box mid-wizard), and the entry-scan racer arm now navigates
+ *         ("Nobody signed in yet · Add your people") docked ABOVE the utility
+ *         doors, not at the top (owner 2026-09-01: "needs a better spot other
+ *         than the top" — picked option A of four mocks; chooser only, never
+ *         a new box mid-wizard), and the entry-scan racer arm now navigates
  *         there from BOTH the attract screen and the chooser instead of
  *         dumping a no-reservation racer on the activity chooser with a
  *         stashed code (the people step claims the `racer` hand-off on the
