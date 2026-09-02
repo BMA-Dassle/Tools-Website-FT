@@ -70,6 +70,17 @@ export interface EntryContext {
    */
   worldCup?: true;
   /**
+   * NFL Ticket on NeoVerse entry (`?experience=nfl`, or the short `/book/nfl`
+   * link that redirects to it) — seeds the bowling item in game-picker mode.
+   *
+   * Its OWN entry, not a card inside the bowling wizard. The package fixes the
+   * tier, the duration, the price and the food, and the game fixes the date and
+   * the time, so every step the normal flow would ask is already answered —
+   * routing a guest through them asks four questions with one legal answer
+   * each. Ignored when no center can sell it (nflEnabledCenters is empty).
+   */
+  nfl?: true;
+  /**
    * Session started on an in-center self-service kiosk (/kiosk). Read by the
    * reserve path to stamp bookingSource="kiosk" (admin board badge) and by
    * steps that behave differently on a shared public device.

@@ -18,6 +18,9 @@ import {
   worldCupWindowActive,
 } from "~/features/world-cup";
 import { fixturesWithLiveTeams } from "~/features/world-cup/live-teams";
+import { nflTileData } from "~/features/nfl/landing.server";
+import { qamfCenterIdForCode } from "~/features/booking/types";
+import { QAMF_TO_CENTER_CODE } from "~/features/booking/service/bowling-hours";
 import { activeOutages, outageForProduct } from "~/features/maintenance";
 import { PromoLanding } from "./PromoLanding";
 
@@ -112,6 +115,27 @@ export default async function BookV2LandingPage({
   // enabled). A center-less landing must NOT force fort-myers (owner bug 7/6) —
   // the wizard's center picker asks instead.
   const wcHrefCenter = center ?? (wcCenters.length === 1 ? wcCenters[0] : null);
+  // NFL Ticket on NeoVerse — HeadPinz brand only, Fort Myers only for now
+  // (nflCenterEnabled fails closed for a centre with no lane-block model, so
+  // Naples shows nothing at all rather than a teaser it cannot honour).
+  //
+  // The tile has TWO states off ONE switch: a live link while the nfl-vip-*
+  // experience rows are active, a Coming Soon card while they are not. Both
+  // this and /book/nfl read nflTileData, so the tile and the link it points at
+  // can never disagree — which is the failure a hardcoded teaser would invite
+  // the moment someone flipped the rows.
+  const nflCenterCode: CenterCode = center ?? "fort-myers";
+  const nflQamfId = qamfCenterIdForCode(nflCenterCode);
+  const nflSquareCode = nflQamfId != null ? (QAMF_TO_CENTER_CODE[nflQamfId] ?? null) : null;
+  const nfl =
+    entryBrand === "headpinz"
+      ? await nflTileData({
+          centerCode: nflSquareCode,
+          qamfCenterId: nflQamfId,
+          locationParam: center,
+        })
+      : null;
+
   const worldCup = showWorldCup
     ? {
         href: `/book/bowling/v2?experience=world-cup${wcHrefCenter ? `&location=${wcHrefCenter}` : ""}`,
@@ -163,6 +187,7 @@ export default async function BookV2LandingPage({
       allOfferings={initialOfferings}
       combos={combos}
       worldCup={worldCup}
+      nfl={nfl}
       pausedNotes={pausedNotes}
       outageNotice={outage ? { heading: outage.web.heading, body: outage.web.body } : null}
     />

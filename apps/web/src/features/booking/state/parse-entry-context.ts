@@ -13,6 +13,7 @@
  *   ?referrer=NAME / ?ref / ?utm_source → referrer
  *   ?location=naples|fort-myers|...     → center (CenterCode)
  *   ?experience=world-cup               → worldCup (match-picker bowling mode)
+ *   ?experience=nfl                     → nfl (NFL Ticket game-picker mode)
  *   ?voucher=HPW-AAAA-BBBB[,…]          → voucherCodes (prepaid deal-pack hand-off)
  *
  * Unknown params are silently ignored. The parser is intentionally
@@ -77,7 +78,11 @@ export function parseEntryContextFromSearchParams(sp: RawSearchParams): EntryCon
 
   // World Cup VIP Bowling entry mode. Only the exact value counts — any other
   // ?experience= value is ignored (marketing links must never 500 a wizard).
-  if (first(sp.experience) === "world-cup") out.worldCup = true;
+  const experience = first(sp.experience);
+  if (experience === "world-cup") out.worldCup = true;
+  // NFL Ticket on NeoVerse entry mode — the game picker replaces the whole
+  // date/experience/time front of the wizard. Same exact-match discipline.
+  if (experience === "nfl") out.nfl = true;
 
   // Single-time-pick bowling flow preview opt-in (dark-flag testing on
   // Vercel previews). Only the exact value counts.

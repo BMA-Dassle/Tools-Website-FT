@@ -67,6 +67,23 @@ describe("parseEntryContextFromSearchParams", () => {
     expect(parseEntryContextFromSearchParams({ experience: "   " })).toBe(EMPTY_ENTRY_CONTEXT);
   });
 
+  it("extracts nfl from ?experience=nfl only", () => {
+    expect(parseEntryContextFromSearchParams({ experience: "nfl" })).toEqual({ nfl: true });
+    expect(
+      parseEntryContextFromSearchParams({ experience: "nfl", location: "fort-myers" }),
+    ).toEqual({ nfl: true, center: "fort-myers" });
+    // The two entries are mutually exclusive: one ?experience= value, one mode.
+    // Reaching NFL must never also flip World Cup on, because BookingFlow tests
+    // wantWorldCup FIRST and the guest would land in the fixture picker.
+    expect(parseEntryContextFromSearchParams({ experience: "nfl" })).not.toHaveProperty("worldCup");
+    expect(parseEntryContextFromSearchParams({ experience: "world-cup" })).not.toHaveProperty(
+      "nfl",
+    );
+    // Near-misses are ignored, same as any other unknown value.
+    expect(parseEntryContextFromSearchParams({ experience: "NFL" })).toBe(EMPTY_ENTRY_CONTEXT);
+    expect(parseEntryContextFromSearchParams({ experience: "nfl-vip" })).toBe(EMPTY_ENTRY_CONTEXT);
+  });
+
   it("composes a fully prefilled session", () => {
     expect(
       parseEntryContextFromSearchParams({
@@ -108,9 +125,9 @@ describe("?voucher= prepaid deal-pack hand-off", () => {
   });
 
   it("accepts a comma-separated list for a multi-pack buy", () => {
-    expect(
-      parseEntryContextFromSearchParams({ voucher: "HPW-4K7M-9PQR,HPW-AAAA-BBBB" }),
-    ).toEqual({ voucherCodes: ["HPW4K7M9PQR", "HPWAAAABBBB"] });
+    expect(parseEntryContextFromSearchParams({ voucher: "HPW-4K7M-9PQR,HPW-AAAA-BBBB" })).toEqual({
+      voucherCodes: ["HPW4K7M9PQR", "HPWAAAABBBB"],
+    });
   });
 
   it("drops anything that isn't a well-formed HPW code", () => {
@@ -128,9 +145,9 @@ describe("?voucher= prepaid deal-pack hand-off", () => {
   });
 
   it("dedupes and caps the list so a hostile URL can't fan out server peeks", () => {
-    expect(
-      parseEntryContextFromSearchParams({ voucher: "HPW-4K7M-9PQR,HPW-4K7M-9PQR" }),
-    ).toEqual({ voucherCodes: ["HPW4K7M9PQR"] });
+    expect(parseEntryContextFromSearchParams({ voucher: "HPW-4K7M-9PQR,HPW-4K7M-9PQR" })).toEqual({
+      voucherCodes: ["HPW4K7M9PQR"],
+    });
 
     // 12 distinct valid codes → capped at the 10 a buyer could legitimately hold.
     const many = Array.from({ length: 12 }, (_, i) => `HPW4K7M9PQ${i.toString(36).toUpperCase()}`);

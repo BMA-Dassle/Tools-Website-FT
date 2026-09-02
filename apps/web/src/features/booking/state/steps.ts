@@ -156,18 +156,25 @@ export function plannedStepsFor(
  * self-hides (pizza-bowl slug gate).
  */
 /**
- * Hide a step for an NFL Ticket item.
+ * Hide a step for an NFL Ticket item (?experience=nfl).
  *
- * Only the v3 TIME step needs this: the guest reaches NFL by picking its card
- * on the Experience screen, and the game picker then sets the time for them —
- * a game IS a time. The Date and Experience steps stay, because they are how
- * the card is reached in the first place.
+ * NFL is its own entry, like World Cup — NOT a card inside the bowling wizard.
+ * So this hides the ENTIRE front of both step families: classic
+ * Slots/Tier/Offer and v3 Date/Experience/Time. NflGameStep stands in for all
+ * of them, because by the time a guest is on this entry every question those
+ * screens ask already has exactly one answer: the tier is VIP, the experience
+ * is the NFL package, and the game supplies both the date and the time.
+ *
+ * Keys on `item.isNfl`, never on `experienceSlug`. The slug is only known AFTER
+ * a game is picked, so a slug test cannot hide the steps that come BEFORE the
+ * picker — that inversion is what put the first cut of this feature inside the
+ * normal flow (owner, 2026-09-01).
  */
 function hiddenForNfl(step: StepDef): StepDef {
   return {
     ...step,
     isVisible: (item, session) =>
-      !(item.kind === "bowling" && item.experienceSlug?.startsWith("nfl-vip-")) &&
+      !(item.kind === "bowling" && (item as { isNfl?: boolean }).isNfl) &&
       step.isVisible(item, session),
   };
 }
@@ -306,22 +313,33 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     // the lane at the fixture kickoff itself); its own isVisible gates on
     // item.isWorldCup so plain bowling items never see it.
     hiddenInCombo(WorldCupMatchStep as StepDef),
+    // NFL Ticket mode: the game picker replaces the whole date/experience/time
+    // front of BOTH flows (a game is a date and a time; the package fixes the
+    // rest). Its own isVisible gates on item.isNfl so plain bowling items never
+    // see it. NOT v3Only — like the World Cup picker it stands on its own and
+    // must work whichever flow flag is live.
+    hiddenInCombo(NflGameStep as StepDef),
     // Classic flow (flag OFF): date+hour → tier → package+time-confirm.
-    hiddenForPlayNow(hiddenInCombo(hiddenForWorldCup(classicOnly(BowlingSlotsStep as StepDef)))),
-    // Duckpin has a single non-VIP offer — skip the Tier (Regular/VIP) step.
-    hiddenInCombo(hiddenForWorldCup(hiddenForDuckpin(classicOnly(BowlingTierStep as StepDef)))),
-    hiddenForPlayNow(hiddenInCombo(hiddenForWorldCup(classicOnly(BowlingOfferStep as StepDef)))),
-    // v3 single-time-pick flow (flag ON): date → experience → time+hold.
-    hiddenForPlayNow(hiddenInCombo(hiddenForWorldCup(v3Only(BowlingDateStep as StepDef)))),
-    hiddenForPlayNow(hiddenInCombo(hiddenForWorldCup(v3Only(BowlingExperienceStep as StepDef)))),
     hiddenForPlayNow(
-      hiddenInCombo(hiddenForWorldCup(hiddenForNfl(v3Only(BowlingTimeStep as StepDef)))),
+      hiddenInCombo(hiddenForNfl(hiddenForWorldCup(classicOnly(BowlingSlotsStep as StepDef)))),
     ),
-    // NFL Ticket: the game picker stands in for the Time step. Its own
-    // isVisible keys on the nfl-vip-* slug, so a plain bowling item never sees
-    // it, and it sits AFTER the time step so the wizard order reads
-    // Date -> Experience -> Game.
-    hiddenForPlayNow(hiddenInCombo(v3Only(NflGameStep as StepDef))),
+    // Duckpin has a single non-VIP offer — skip the Tier (Regular/VIP) step.
+    hiddenInCombo(
+      hiddenForNfl(hiddenForWorldCup(hiddenForDuckpin(classicOnly(BowlingTierStep as StepDef)))),
+    ),
+    hiddenForPlayNow(
+      hiddenInCombo(hiddenForNfl(hiddenForWorldCup(classicOnly(BowlingOfferStep as StepDef)))),
+    ),
+    // v3 single-time-pick flow (flag ON): date → experience → time+hold.
+    hiddenForPlayNow(
+      hiddenInCombo(hiddenForNfl(hiddenForWorldCup(v3Only(BowlingDateStep as StepDef)))),
+    ),
+    hiddenForPlayNow(
+      hiddenInCombo(hiddenForNfl(hiddenForWorldCup(v3Only(BowlingExperienceStep as StepDef)))),
+    ),
+    hiddenForPlayNow(
+      hiddenInCombo(hiddenForNfl(hiddenForWorldCup(v3Only(BowlingTimeStep as StepDef)))),
+    ),
     // FastTrax duckpin has no shoes — skip the shoe-rental step (kiosk clones
     // this list, so this hides it on both web and kiosk).
     hiddenInCombo(hiddenForDuckpin(BowlingShoesStep as StepDef)),

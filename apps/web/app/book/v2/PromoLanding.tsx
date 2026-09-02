@@ -17,6 +17,7 @@ import { isNativeVoucherCode } from "~/features/game-cards/vouchers/codes";
 import { BMI_VOUCHER_RE, voucherTarget } from "~/features/booking/service/voucher-redeem";
 import type { ComboSpecial } from "~/features/combos";
 import type { WorldCupTeamRef } from "~/features/world-cup";
+import type { NflTileData } from "~/features/nfl/landing.server";
 
 /** Customer-facing "valid on" label for a promo's booking-date window (null = any day). */
 function promoValidLabel(start: string | null, end: string | null): string | null {
@@ -81,6 +82,7 @@ export interface PromoLandingProps {
    *  tournament window is over, the brand isn't HeadPinz, or every in-scope
    *  center's kill switch is off. Computed server-side in page.tsx. */
   worldCup?: WorldCupTileData | null;
+  nfl?: NflTileData | null;
   /**
    * Product id → the one-line reason it's unavailable, for every offering/combo
    * whose VENDOR is down (maintenance mode). Presence in the map means paused, so
@@ -108,6 +110,7 @@ export function PromoLanding({
   initialOfferings,
   combos = [],
   worldCup = null,
+  nfl = null,
   pausedNotes = {},
   outageNotice = null,
 }: PromoLandingProps) {
@@ -563,6 +566,7 @@ export function PromoLanding({
                 specials (owner 7/6: "small box second row", Ultimate VIP keeps
                 the lead). Self-hides after the final. */}
             {worldCup && <WorldCupCard worldCup={worldCup} gold={HP_GOLD} />}
+            {nfl && <NflCard nfl={nfl} />}
             {initialOfferings.map((o) => (
               // The Race Sims teaser rides DIRECTLY behind the racing tile, so
               // it is the third grid child on the live landing (the premium VIP
@@ -1077,6 +1081,119 @@ function RaceSimsSoonCard() {
 
       <div className="h-0.5 w-full" style={{ backgroundColor: accent }} />
     </div>
+  );
+}
+
+/**
+ * NFL Ticket on NeoVerse — one card with TWO states off one switch.
+ *
+ * `nfl.comingSoon` comes from `nflTileData`, which reads the same
+ * `bowling_experiences.is_active` rows the booking flow reads. So the tile
+ * cannot advertise a package the flow will refuse, and cannot sit locked while
+ * the flow quietly takes money.
+ *
+ * That is the one way this differs from its neighbour `RaceSimsSoonCard`, and
+ * the difference is not stylistic: sims have no booking flow at all, so a
+ * hardcoded teaser has nothing to contradict and is simply deleted on launch.
+ * NFL has a full flow behind `/book/nfl`, so a hardcoded tile would drift the
+ * moment anyone flipped the rows.
+ *
+ * The locked treatment is the same `aria-disabled` + `opacity-55 saturate-50`
+ * idiom the sims teaser and a maintenance-locked card use, so all three read as
+ * the same kind of thing to a guest. Violet is this package's own accent on the
+ * Experience step and in its picker (owner 2026-07-26).
+ *
+ * Bespoke rather than an `activities-catalog.ts` row, following WorldCupCard:
+ * that catalog's consumers (promo scope, voucher slugs, `tileHref`) all assume
+ * a `/book/<slug>/v2` flow behind every entry, and this package's entry is
+ * `/book/nfl`.
+ */
+function NflCard({ nfl }: { nfl: NflTileData }) {
+  const accent = "#A78BFA";
+  const soon = nfl.comingSoon;
+
+  const body = (
+    <>
+      <div className="relative aspect-16/10 overflow-hidden">
+        <Image
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp"
+          alt="NFL Ticket on NeoVerse"
+          fill
+          className="object-cover"
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+        />
+        <div className="absolute inset-0 bg-linear-to-t from-[#0a1628] via-[#0a1628]/40 to-transparent" />
+        <div className="absolute right-3 top-3">
+          <span
+            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wider backdrop-blur-sm"
+            style={{ backgroundColor: accent, color: "#1b1033" }}
+          >
+            {soon ? "Coming Soon" : "NFL Ticket"}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex flex-1 flex-col p-4 sm:p-5">
+        <h3 className="font-display mb-1.5 text-lg font-black uppercase tracking-wider text-white sm:text-xl">
+          NFL Ticket on NeoVerse
+        </h3>
+        <p className="font-body mb-3 flex-1 text-sm leading-relaxed text-white/50">
+          Pick your game, not a time. Your VIP lane opens 15 minutes before kickoff and is yours
+          for 3 hours — shoes, a one-topping pizza, 10 wings and a soda pitcher included.
+        </p>
+
+        {nfl.nextGame && (
+          <div className="mb-3">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-white/40">
+              Next up
+            </span>
+            <p className="font-body mt-0.5 text-xs leading-snug" style={{ color: accent }}>
+              {nfl.nextGame}
+            </p>
+          </div>
+        )}
+
+        {soon ? (
+          <div className="w-full rounded-xl border border-white/15 bg-white/[0.04] px-4 py-3 text-center">
+            <div className="text-sm font-bold text-white/70">Not yet bookable</div>
+            <div className="font-body mt-1 text-xs leading-snug text-white/45">
+              Check back soon — we&apos;ll open booking here first.
+            </div>
+          </div>
+        ) : (
+          <div
+            className="w-full rounded-xl px-4 py-3 text-center text-sm font-bold"
+            style={{ backgroundColor: accent, color: "#1b1033" }}
+          >
+            Pick your game
+          </div>
+        )}
+      </div>
+
+      <div className="h-0.5 w-full" style={{ backgroundColor: accent }} />
+    </>
+  );
+
+  if (soon || !nfl.href) {
+    return (
+      <div
+        aria-disabled="true"
+        className="group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left opacity-55 saturate-50"
+        style={{ borderColor: "rgba(255,255,255,0.10)" }}
+      >
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      href={nfl.href}
+      className="group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all hover:border-white/25"
+      style={{ borderColor: "rgba(255,255,255,0.10)" }}
+    >
+      {body}
+    </Link>
   );
 }
 
