@@ -15,6 +15,8 @@
  */
 import type { Reservation } from "@/lib/qamf-bowling";
 
+import { sectionForObservedLanes } from "./sections";
+
 export interface LaneGroupEvidence {
   webOfferId: number;
   /** Lanes that survive the frequency filter — our best guess at the real group. */
@@ -118,10 +120,29 @@ export function allowedLanesFor(
   return g.lanes;
 }
 
-/** Convert evidence into the plain map `sweepDay` takes. */
-export function toLaneGroupMap(groups: Map<number, LaneGroupEvidence>): Map<number, number[]> {
+/**
+ * Convert evidence into the plain map `sweepDay` takes.
+ *
+ * Pass a `centerId` and the owner-given SECTIONS take over: history only votes on which
+ * section an offer belongs to, and the section's real boundaries become the allowed lanes.
+ * That is strictly better than the frequency filter it replaces — a booking staff moved by
+ * hand inside Conqueror can cost a vote, but it can no longer widen a group onto a lane the
+ * offer cannot be sold on, which is what earned a live 409 on 2026-08-25.
+ *
+ * Without a centerId, or for an offer whose section cannot be told apart, it falls back to
+ * the derived lanes exactly as before.
+ */
+export function toLaneGroupMap(
+  groups: Map<number, LaneGroupEvidence>,
+  centerId?: number,
+): Map<number, number[]> {
   const out = new Map<number, number[]>();
   for (const [offer, g] of groups) {
+    const section = centerId != null ? sectionForObservedLanes(centerId, g.counts) : null;
+    if (section) {
+      out.set(offer, [...section.lanes]);
+      continue;
+    }
     if (g.confident) out.set(offer, g.lanes);
   }
   return out;

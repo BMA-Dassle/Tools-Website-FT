@@ -28,7 +28,12 @@ import {
   OPEN_LANE_UNKNOWN_HORIZON_MINUTES,
   toFloorIntervals,
 } from "./grid.server";
-import { deriveLaneGroups, allowedLanesFor, MIN_SAMPLES_FOR_CONFIDENCE } from "./lane-groups";
+import {
+  deriveLaneGroups,
+  allowedLanesFor,
+  toLaneGroupMap,
+  MIN_SAMPLES_FOR_CONFIDENCE,
+} from "./lane-groups";
 import {
   chooseLanes,
   enumerateCandidates,
@@ -1243,5 +1248,62 @@ describe("the spread dial is scaled to the offer's section, not the house", () =
     const g = grid(busyRegular, 28);
     expect(spreadBias(g, req(FM_VIP), DEFAULT_POLICY)).toBe(1);
     expect(spreadBias(g, req(FM_REGULAR), DEFAULT_POLICY)).toBeLessThanOrEqual(0);
+  });
+});
+
+describe("owner-given sections beat inferred lane groups", () => {
+  const counts = (m: Record<number, number>) =>
+    new Map(Object.entries(m).map(([l, n]) => [Number(l), n]));
+  const evidence = (webOfferId: number, c: Record<number, number>, confident = true) =>
+    new Map([
+      [
+        webOfferId,
+        {
+          webOfferId,
+          lanes: Object.keys(c).map(Number),
+          counts: counts(c),
+          outliers: [],
+          samples: 100,
+          confident,
+        },
+      ],
+    ]);
+
+  it("puts a Regular offer on 13-28 even though a stray put it on lane 6", () => {
+    // The exact 2026-08-25 failure: offer 154 had been SEEN on lane 6 because staff moved a
+    // booking there in Conqueror, so the derived group included it and QAMF answered 409.
+    const g = toLaneGroupMap(evidence(154, { 13: 90, 14: 80, 20: 60, 6: 1 }), 9172);
+    expect(g.get(154)).toEqual([13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]);
+    expect(g.get(154)).not.toContain(6);
+  });
+
+  it("puts a VIP offer on 5-12 and an Old Time offer on 1-4", () => {
+    expect(toLaneGroupMap(evidence(159, { 5: 40, 9: 30 }), 9172).get(159)).toEqual([
+      5, 6, 7, 8, 9, 10, 11, 12,
+    ]);
+    expect(toLaneGroupMap(evidence(176, { 1: 8, 2: 5 }), 9172).get(176)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("knows Naples splits at 25, not where Fort Myers does", () => {
+    expect(toLaneGroupMap(evidence(300, { 26: 20, 30: 15 }), 3148).get(300)).toEqual([
+      25, 26, 27, 28, 29, 30, 31, 32,
+    ]);
+    expect(toLaneGroupMap(evidence(301, { 6: 20 }), 3148).get(301)).toEqual(
+      Array.from({ length: 24 }, (_, i) => i + 1),
+    );
+  });
+
+  it("falls back to the derived group when no centre is given — strays and all", () => {
+    // Without a section map the lane-6 stray survives, which is precisely the failure mode
+    // the owner's boundaries remove above.
+    const fallback = toLaneGroupMap(evidence(154, { 13: 90, 6: 1 })).get(154)!;
+    expect(fallback).toContain(13);
+    expect(fallback).toContain(6);
+  });
+
+  it("does not restrict an offer it cannot place, rather than guessing", () => {
+    // Nothing observed at all: no section can win, and an unconfident group stays out — so
+    // `allowedLanes` is absent and the booking may use any lane.
+    expect(toLaneGroupMap(evidence(999, {}, false), 9172).has(999)).toBe(false);
   });
 });
