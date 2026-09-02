@@ -50,9 +50,21 @@ describe("classifySwipedCard", () => {
     ).toBe("active");
   });
 
-  it("exists with all-zero balances and no history is recycled zero stock — blank", () => {
+  it("exists, all-zero, and history CAME BACK EMPTY is recycled zero stock — blank", () => {
     expect(classifySwipedCard({ exists: true, balance: zero, transactions: [] })).toBe("blank");
-    expect(classifySwipedCard({ exists: true, balance: zero })).toBe("blank");
+  });
+
+  it("exists, all-zero, but history UNAVAILABLE → unknown, never blank", () => {
+    // `undefined` is not "no history" — it is "we could not read the history".
+    // The onsite proxy serves balance and history as two separate calls, so the
+    // balance can answer while history fails. Treating that as "no history" made
+    // every SPENT-OUT card look like fresh stock the moment onsite became the
+    // default transport (measured 2026-09-01: 0 of 36 production reads carried
+    // any history), which would sell a guest their own card as a new one.
+    expect(classifySwipedCard({ exists: true, balance: zero })).toBe("unknown");
+    expect(classifySwipedCard({ exists: true, balance: zero, transactions: undefined })).toBe(
+      "unknown",
+    );
   });
 
   it("exists but no balance block we could read → unknown, not blank", () => {

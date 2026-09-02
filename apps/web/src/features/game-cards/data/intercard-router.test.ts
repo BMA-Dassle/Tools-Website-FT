@@ -22,6 +22,7 @@ vi.mock("./intercard", () => ({
 
 vi.mock("./intercard-onsite", () => ({
   verifyAccount: vi.fn(),
+  accountHistory: vi.fn(),
   creditTokens: vi.fn(),
   creditAccountValues: vi.fn(),
   clearAccount: vi.fn(),
@@ -264,5 +265,110 @@ describe("intercard router — independent of the retired LOAD_MODE vars", () =>
     const { creditTokens } = await import("./intercard-router");
     expect((await creditTokens(CREDIT)).transport).toBe("cloud");
     expect(onsite.creditTokens).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * SOAP returned balance and history from ONE operation; the onsite proxy splits
+ * them, and `onsite.verifyAccount` only does the balance half. Until 2026-09-01
+ * the router shipped that half straight through, so `transactions` was
+ * `undefined` on every onsite read in production (measured: 0 of 36).
+ */
+describe("intercard router — onsite reads carry history, not just balance", () => {
+  const BAL = {
+    exists: true,
+    accountNumber: "1098379",
+    balance: { tokens: 0, bonusTokens: 0, eTickets: 0, timeMinutes: 0 },
+  };
+  const TXN = {
+    device: "Hot Wheels",
+    transType: "Game Play",
+    tokens: -20,
+    bonusTokens: 0,
+    points: 0,
+    cash: 0,
+    timeStamp: "2026-09-01 22:26:08",
+    location: "FastTrax Fort Myers",
+  };
+
+  it("attaches the onsite account history to an onsite balance read", async () => {
+    const { cloud, onsite } = await mocks();
+    onsite.verifyAccount.mockResolvedValue(BAL);
+    onsite.accountHistory.mockResolvedValue([TXN]);
+
+    const { verifyAccount } = await import("./intercard-router");
+    const res = await verifyAccount("1098379", 13);
+
+    expect(res.transport).toBe("onsite");
+    expect(res.transactions).toEqual([TXN]);
+    expect(onsite.accountHistory).toHaveBeenCalledWith("1098379", 13);
+    expect(cloud.verifyAccount).not.toHaveBeenCalled();
+  });
+
+  it("defaults the history location the same way the balance call does", async () => {
+    const { onsite } = await mocks();
+    onsite.verifyAccount.mockResolvedValue(BAL);
+    onsite.accountHistory.mockResolvedValue([]);
+
+    const { verifyAccount } = await import("./intercard-router");
+    await verifyAccount("1098379");
+
+    expect(onsite.accountHistory).toHaveBeenCalledWith("1098379", 12);
+  });
+
+  it("an EMPTY history is reported as [] — that is 'we looked, there is none'", async () => {
+    const { onsite } = await mocks();
+    onsite.verifyAccount.mockResolvedValue(BAL);
+    onsite.accountHistory.mockResolvedValue([]);
+
+    const { verifyAccount } = await import("./intercard-router");
+    expect((await verifyAccount("1098379", 12)).transactions).toEqual([]);
+  });
+
+  it("a FAILED history leaves transactions undefined — and never downgrades the read to cloud", async () => {
+    const { cloud, onsite } = await mocks();
+    onsite.verifyAccount.mockResolvedValue(BAL);
+    onsite.accountHistory.mockRejectedValue(new IntercardError("RELAY_TIMEOUT", "no answer"));
+
+    const { verifyAccount } = await import("./intercard-router");
+    const res = await verifyAccount("1098379", 12);
+
+    // The balance is the critical path: history is supplementary and its
+    // failure must not cost us the real-time balance.
+    expect(res.transport).toBe("onsite");
+    expect(res.balance?.tokens).toBe(0);
+    expect(res.transactions).toBeUndefined();
+    expect(cloud.verifyAccount).not.toHaveBeenCalled();
+  });
+
+  it("a history call that throws SYNCHRONOUSLY is contained too", async () => {
+    const { cloud, onsite } = await mocks();
+    onsite.verifyAccount.mockResolvedValue(BAL);
+    onsite.accountHistory.mockImplementation(() => {
+      throw new TypeError("boom");
+    });
+
+    const { verifyAccount } = await import("./intercard-router");
+    const res = await verifyAccount("1098379", 12);
+
+    expect(res.transport).toBe("onsite");
+    expect(res.transactions).toBeUndefined();
+    expect(cloud.verifyAccount).not.toHaveBeenCalled();
+  });
+
+  it("does not chase history for an account that does not exist", async () => {
+    const { onsite } = await mocks();
+    onsite.verifyAccount.mockResolvedValue({
+      exists: false,
+      accountNumber: "1098379",
+      notFound: "confirmed",
+    });
+    onsite.accountHistory.mockResolvedValue([]);
+
+    const { verifyAccount } = await import("./intercard-router");
+    const res = await verifyAccount("1098379", 12);
+
+    expect(res.exists).toBe(false);
+    expect(res.transactions).toBeUndefined();
   });
 });

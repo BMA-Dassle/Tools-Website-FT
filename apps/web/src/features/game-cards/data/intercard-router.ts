@@ -36,7 +36,7 @@ import { isOnsiteEnabled } from "~/config/intercard-centers";
 import { IntercardError } from "./intercard";
 import * as cloud from "./intercard";
 import * as onsite from "./intercard-onsite";
-import type { VerifyResult } from "../types";
+import type { CardTxn, VerifyResult } from "../types";
 
 /** Which transport served a call — for logging and the kiosk status chip. */
 export type IntercardTransport = "onsite" | "cloud";
@@ -60,21 +60,65 @@ function isSafeWriteFallback(err: unknown): boolean {
   return err instanceof IntercardError && WRITE_SAFE_TO_FALL_BACK.has(err.code);
 }
 
+/** Same default the onsite/cloud clients use when no location is passed. */
+const DEFAULT_LOC = 12;
+
 /**
- * Read a card's balance. Onsite first (real-time), cloud on ANY onsite failure —
- * a read cannot corrupt anything, so the fallback is unconditional.
+ * Onsite history that can never reject and never throw — `undefined` on any
+ * failure, which callers must read as "could not check", not "there is none".
+ * (blank-card.ts turns that distinction into a money decision.)
+ */
+async function onsiteHistoryOrUndefined(
+  accountNumber: string,
+  locationCode: number,
+): Promise<CardTxn[] | undefined> {
+  try {
+    return await onsite.accountHistory(accountNumber, locationCode);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Read a card's balance AND its recent on-card activity. Onsite first
+ * (real-time), cloud on ANY onsite failure — a read cannot corrupt anything, so
+ * the fallback is unconditional.
+ *
+ * ⚠️ THE HISTORY CALL IS NOT OPTIONAL. SOAP returned balance and transactions
+ * from one operation; the onsite proxy splits them (`balanceinquiry` carries no
+ * history at all). `onsite.verifyAccount` only does the balance half, so when
+ * onsite became the default transport every caller's `transactions` silently
+ * went `undefined` — measured 2026-09-01: 0 of 36 production reads carried any.
+ * That empties the guest-facing activity lists, and it disarms half of
+ * `classifySwipedCard`, which `assertSwipedBlanks` uses to refuse selling a
+ * guest's own spent card back to them as a new one. So both halves are fetched
+ * here, in parallel (same wall clock, one extra concurrent read).
+ *
+ * `transactions` stays `undefined` when the history call FAILED, and is `[]`
+ * only when the service answered with nothing. Callers must not conflate the
+ * two — see blank-card.ts.
  */
 export async function verifyAccount(
   accountNumber: string,
   locationCode?: number,
 ): Promise<VerifyResult & { transport: IntercardTransport }> {
   if (onsiteFirst()) {
+    // Started first so it runs alongside the balance call (same wall clock),
+    // but fully isolated: the balance read is the critical path and must never
+    // be downgraded to cloud just because history was unavailable. The wrapper
+    // swallows synchronous throws too, so this can only ever resolve.
+    const historyPromise = onsiteHistoryOrUndefined(accountNumber, locationCode ?? DEFAULT_LOC);
     try {
       const res = await onsite.verifyAccount(accountNumber, locationCode);
       // An ambiguous onsite answer is not authoritative — let the cloud copy
       // settle it rather than reporting a card as absent on thin evidence.
       if (!(res.exists === false && res.notFound === "ambiguous")) {
-        return { ...res, transport: "onsite" };
+        const txns = res.exists ? await historyPromise : undefined;
+        return {
+          ...res,
+          ...(txns ? { transactions: txns } : {}),
+          transport: "onsite",
+        };
       }
     } catch {
       // fall through to cloud

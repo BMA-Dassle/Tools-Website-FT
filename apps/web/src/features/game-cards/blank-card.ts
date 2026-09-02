@@ -26,9 +26,11 @@
  * account it has never seen — that is the "confirmed" not-found verifyAccount
  * reports; -1 (server exception) is "ambiguous".
  *
- * Money safety does NOT hang on this rule: a swiped card is never
- * clear-on-encoded (load-card.ts), so a misclassification costs wrong copy,
- * not a wiped balance.
+ * A misclassification never WIPES value — a swiped card is never
+ * clear-on-encoded (load-card.ts). But it does gate a sale: calling a guest's
+ * own card "blank" sells them a new-card package plus the activation fee on a
+ * card they already own (assertSwipedBlanks). So the rule fails closed —
+ * anything it cannot establish is "unknown", never "blank".
  */
 import type { VerifyResult } from "./types";
 
@@ -46,6 +48,15 @@ export function classifySwipedCard(
     b.eTickets > 0 ||
     b.timeMinutes > 0 ||
     (v.cashBalance ?? 0) > 0;
-  const hasHistory = (v.transactions?.length ?? 0) > 0;
-  return hasValue || hasHistory ? "active" : "blank";
+  if (hasValue) return "active";
+  // Zero balance. History is the ONLY thing separating a recycled blank from a
+  // card the guest has already spent down to zero, so an unreadable history is
+  // not the same as no history: `undefined` means the lookup could not say
+  // (the onsite proxy serves balance and history as separate calls and only one
+  // may have answered), `[]` means it answered and there is genuinely nothing.
+  // Treating `undefined` as "no history" is what made every spent-out card look
+  // blank once onsite became the default transport — so it must fail to
+  // "unknown", which callers turn into "swipe it again", never into a sale.
+  if (v.transactions === undefined) return "unknown";
+  return v.transactions.length > 0 ? "active" : "blank";
 }
