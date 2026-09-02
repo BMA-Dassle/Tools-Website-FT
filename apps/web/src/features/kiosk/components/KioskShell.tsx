@@ -43,14 +43,19 @@ function KioskChrome({ children }: { children: React.ReactNode }) {
     const isLocal =
       typeof window !== "undefined" &&
       (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
-    // The staff admin screen must NOT auto-fullscreen on tap: requestFullscreen()
+    // The staff screens must NOT auto-fullscreen on tap: requestFullscreen()
     // consumes the click's transient activation, which then starves the Web
     // Serial chooser (requestPort → SecurityError "browser blocked access").
-    // Admin also legitimately needs browser dialogs (the serial port picker),
-    // so the guest lockdown doesn't apply here.
-    const isAdmin =
-      typeof window !== "undefined" && window.location.pathname.startsWith("/kiosk/admin");
-    const noFullscreen = isLocal || isAdmin;
+    // They also legitimately need browser dialogs (the serial port picker), so
+    // the guest lockdown doesn't apply. BOTH staff surfaces are listed — the
+    // /kiosk/staff dispenser panel drives the same CRT-591 over Web Serial, so
+    // omitting it here would break Connect on exactly the screen whose job is
+    // fixing the dispenser.
+    const isStaffSurface =
+      typeof window !== "undefined" &&
+      (window.location.pathname.startsWith("/kiosk/admin") ||
+        window.location.pathname.startsWith("/kiosk/staff"));
+    const noFullscreen = isLocal || isStaffSurface;
 
     let wakeLock: { release: () => Promise<void>; addEventListener?: unknown } | null = null;
 

@@ -430,8 +430,15 @@ export function KioskCategories({
             canvas is transformed (so fixed resolves against it) and .k-flow-body
             scrolls, so a fixed switcher gets clipped at the body edge and landed
             under the util bar, untappable (owner 2026-07-28). */}
-        {/* Hidden staff entry: 5 taps in the header area → admin. */}
-        <AdminTapZone />
+        {/* Hidden staff entries: 5 taps in the header area. The strip is split
+            down the middle so the two gestures can never count each other's
+            taps — LEFT half opens full admin (provisioning), RIGHT half opens
+            the staff floor tools (dispenser / lanes / card loads). */}
+        <AdminTapZone className="absolute left-0 top-0 z-20 h-[220px] w-1/2 opacity-0" />
+        <AdminTapZone
+          className="absolute right-0 top-0 z-20 h-[220px] w-1/2 opacity-0"
+          target="/kiosk/staff"
+        />
         <h1 className="k-display mb-[32px] text-[82px]">
           {hasCart ? t("categories.heading.addAnything") : t("categories.heading.whatToday")}
         </h1>
