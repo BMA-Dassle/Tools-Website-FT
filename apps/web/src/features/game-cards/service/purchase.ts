@@ -20,7 +20,13 @@ import type { CardLoadResult, PurchaseResult } from "../types";
 // Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
 import { creditTokens, verifyAccount, IntercardError } from "../data/intercard-router";
 import { createReloadOrder } from "../data/square-order";
-import { startTxn, markCharged, markChargeFailed, markLoadState } from "../data/transactions-log";
+import {
+  startTxn,
+  markCharged,
+  markChargeFailed,
+  markLoadState,
+  type LoadedVia,
+} from "../data/transactions-log";
 import { linkCard } from "../data/customer-cards";
 import { saveCardOnFile } from "~/features/account/data/cards";
 import { assertSwipedBlanks } from "./swiped-blank-guard";
@@ -385,14 +391,16 @@ async function loadCardsInline(rows: CartRow[], locationCode: number): Promise<C
   const results: CardLoadResult[] = [];
   for (const row of rows) {
     let loaded = false;
+    let via: LoadedVia | undefined;
     try {
-      const { code } = await creditTokens({
+      const { code, transport } = await creditTokens({
         locationCode,
         accountNumber: row.accountNumber,
         tokens: row.pkg.tokens,
         bonusTokens: row.pkg.bonusTokens,
         tpiTransactionID: row.tpiTransactionId,
       });
+      via = transport;
       if (code === 0) loaded = true;
       else
         console.error(
@@ -408,7 +416,7 @@ async function loadCardsInline(rows: CartRow[], locationCode: number): Promise<C
       row.txnId,
       loaded ? "loaded" : "pending",
       loaded ? undefined : "load not confirmed",
-      loaded ? "soap" : undefined,
+      loaded ? via : undefined,
     );
 
     let balance;

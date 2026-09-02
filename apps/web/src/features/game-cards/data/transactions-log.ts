@@ -122,8 +122,10 @@ async function ensureSchema(): Promise<void> {
   await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS acked_at TIMESTAMPTZ`;
   await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS eis_code TEXT`;
   await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS eis_description TEXT`;
-  // Which door delivered the credit: 'bridge' (web queue, on-prem EIS),
-  // 'kiosk_bridge' (kiosk fast path), 'soap' (cloud), 'verify' (history match).
+  // Which door delivered the credit — 'onsite' (the site's own card system) or
+  // 'cloud' (SOAP). Rows before 2026-09-01 carry the retired labels 'bridge',
+  // 'kiosk_bridge', 'verify', and 'soap' — the last of which was written
+  // unconditionally and therefore records nothing. See LoadedVia below.
   await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS loaded_via TEXT`;
   // Round 4: BMI comp vouchers dispensed as cards (kind='voucher', amount 0).
   await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS voucher_code TEXT`;
@@ -293,10 +295,13 @@ export async function markChargeFailed(txnId: string, error: string): Promise<vo
 
 // Only one door left now that the EIS bridge is gone: every confirmed credit
 // comes through the server (the Intercard router — onsite proxy first, cloud
-// SOAP fallback). "soap" is kept as the label for continuity with historical
-// rows. ("bridge" / "kiosk_bridge" / "verify" are retired; old rows may still
-// carry them, so the type stays permissive for reads.)
-export type LoadedVia = "bridge" | "kiosk_bridge" | "soap" | "verify";
+// SOAP fallback), so the label records WHICH of the two actually delivered:
+// "onsite" or "cloud". Before 2026-09-01 every confirmed load was stamped
+// "soap" unconditionally, which recorded nothing — the transport the router
+// returned was dropped in applyCreditPlan. Historical rows keep their old
+// labels. ("bridge" / "kiosk_bridge" / "verify" / "soap" are retired for
+// writes; old rows still carry them, so the type stays permissive for reads.)
+export type LoadedVia = "onsite" | "cloud" | "bridge" | "kiosk_bridge" | "soap" | "verify";
 
 /** Flip load state after the Intercard call (loaded → completed). `via` stamps
  *  which door delivered a confirmed load (diagnostics; never guest-facing). */

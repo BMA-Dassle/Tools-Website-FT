@@ -21,7 +21,7 @@
 import { getPackage } from "../constants";
 import { gameCardGrantFromPackageId, isVoucherPackageId } from "../vouchers/grants";
 // Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
-import { creditAccountValues } from "../data/intercard-router";
+import { creditAccountValues, type IntercardTransport } from "../data/intercard-router";
 import type { TxnKind } from "../types";
 
 export interface CreditPlan {
@@ -76,11 +76,16 @@ export function planIsEmpty(plan: CreditPlan): boolean {
  * Issue the credit. Single Intercard call for every bucket (TPICreditAccounts
  * takes them together), idempotent on `tpiTransactionID` — the caller must pass
  * the row's stored, stable id so a replay never double-credits.
+ *
+ * Returns the router's `transport` alongside the result code so the caller can
+ * record WHICH door delivered the load. This used to be dropped here, which is
+ * why every row in the ledger was stamped `loaded_via = 'soap'` regardless of
+ * the path actually taken (see transactions-log.ts LoadedVia).
  */
 export async function applyCreditPlan(
   plan: CreditPlan,
   args: { locationCode: number; accountNumber: string; tpiTransactionID: string },
-): Promise<{ code: number }> {
+): Promise<{ code: number; transport: IntercardTransport }> {
   return creditAccountValues({
     locationCode: args.locationCode,
     accountNumber: args.accountNumber,

@@ -22,7 +22,7 @@ import { verifyAccount } from "../data/intercard-router";
 import { getTxn } from "../data/transactions-log";
 import { claimNativeVoucher, releaseNativeVoucher } from "./native-voucher";
 import { applyCreditPlan, creditPlanForRow, planIsEmpty } from "./credit-plan";
-import { markLoadState } from "../data/transactions-log";
+import { markLoadState, type LoadedVia } from "../data/transactions-log";
 import { logVoucherEvent } from "../data/vouchers-db";
 import { isNativeVoucherCode, normalizeVoucherCode } from "../vouchers/codes";
 
@@ -82,13 +82,15 @@ export async function redeemVoucherToCard(input: {
   }
 
   let credited = false;
+  let via: LoadedVia | undefined;
   try {
-    const { code: rc } = await applyCreditPlan(plan, {
+    const { code: rc, transport } = await applyCreditPlan(plan, {
       locationCode: input.locationCode,
       accountNumber: account,
       tpiTransactionID: row.tpiTransactionId,
     });
     credited = rc === 0;
+    via = transport;
     if (!credited) {
       console.error(`[voucher-web] credit code ${rc} txn=${row.txnId} card=${account} — pending`);
     }
@@ -100,7 +102,7 @@ export async function redeemVoucherToCard(input: {
     row.txnId,
     credited ? "loaded" : "pending",
     credited ? undefined : "web voucher credit not confirmed",
-    credited ? "soap" : undefined,
+    credited ? via : undefined,
   );
   await logVoucherEvent(code, credited ? "redeem" : "scan", {
     txnId: row.txnId,

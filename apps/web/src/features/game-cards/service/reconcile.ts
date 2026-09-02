@@ -108,13 +108,13 @@ export async function reconcilePendingLoads(dryRun = false): Promise<ReconcileSu
 
     const attempt = await incrementAttempt(row.txnId);
     try {
-      const { code } = await applyCreditPlan(plan, {
+      const { code, transport } = await applyCreditPlan(plan, {
         locationCode: row.locationCode,
         accountNumber: row.accountNumber,
         tpiTransactionID: row.tpiTransactionId,
       });
       if (code === 0) {
-        await markLoadState(row.txnId, "loaded", undefined, "soap");
+        await markLoadState(row.txnId, "loaded", undefined, transport);
         summary.loaded++;
         continue;
       }
