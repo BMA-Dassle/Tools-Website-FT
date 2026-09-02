@@ -25,9 +25,10 @@ import { bowlingLaneCount } from "~/features/booking/service/bowling-offer";
 import { QAMF_TO_CENTER_CODE } from "~/features/booking/service/bowling-hours";
 import { resolveOptionMinutes } from "~/features/booking/service/duration-feasibility";
 import { buildGrid } from "./grid.server";
+import { sectionForObservedLanes } from "./sections";
 import { chooseLanes } from "./policy";
 import { scorePlacement, spreadBias } from "./score";
-import { DEFAULT_POLICY, type LanePolicy, type PlanRequest } from "./types";
+import { DEFAULT_POLICY, type LaneGrid, type LanePolicy, type PlanRequest } from "./types";
 
 /** How much board to read either side of the booking — enough for neighbours and pair-mates. */
 const GRID_PAD_MS = 4 * 60 * 60_000;
@@ -92,10 +93,10 @@ export async function placeReservationOnBestLane(opts: {
       endMs,
       players: reservation.TotalPlayers ?? rows.reduce((n, l) => n + (l.Players?.length ?? 0), 0),
       webOfferId: reservation.WebOffer?.Id ?? null,
-      // FastTrax sells ONE offer across all eight lanes, so there is no group to respect
-      // and deriving one would cost a 60-day history read per hold for no information.
-      // This is the assumption that keeps the pilot to FastTrax — see flags.ts.
-      allowedLanes: null,
+      // The booking's CURRENT lanes name its section exactly — no lookup, no inference, no
+      // vendor call. Keeping it inside its own section is also the only correct move: the
+      // offer cannot be sold outside it, and QAMF would answer 409 LanesNotCompatible.
+      allowedLanes: sectionLanesFrom(opts.centerId, new Map(rows.map((l) => [l.LaneNumber, 1]))),
     };
 
     const bias = spreadBias(grid, req, policy);
@@ -143,6 +144,22 @@ export async function placeReservationOnBestLane(opts: {
     console.warn(`${tag} lane placement failed (booking unaffected):`, err);
     return skip(err instanceof Error ? err.message : String(err));
   }
+}
+
+/** Lanes of the section these observations fall in, or null when it cannot be told. */
+function sectionLanesFrom(centerId: number, counts: Map<number, number>): number[] | null {
+  const section = sectionForObservedLanes(centerId, counts);
+  return section ? [...section.lanes] : null;
+}
+
+/** Where this offer is already being sold on the board in hand. */
+function offerLaneCounts(grid: LaneGrid, webOfferId: number): Map<number, number> {
+  const counts = new Map<number, number>();
+  for (const b of grid.busy) {
+    if (b.webOfferId !== webOfferId) continue;
+    counts.set(b.laneNumber, (counts.get(b.laneNumber) ?? 0) + 1);
+  }
+  return counts;
 }
 
 /** Ranked lane sets tried before falling open. Each is one live vendor round-trip. */
@@ -198,9 +215,14 @@ export async function planLanesForNewBooking(opts: {
       endMs,
       players: opts.players,
       webOfferId: opts.webOfferId,
-      // FastTrax sells one offer across every lane — see flags.ts for why this pilot is
-      // scoped to the one house where that is true.
-      allowedLanes: null,
+      // Which section this offer sells in, judged by where the grid ALREADY shows it being
+      // sold. Free — the grid is in hand — and the boundaries come from the owner, so a
+      // stray booking staff moved by hand can only lose a vote, never widen the section.
+      //
+      // This is what stops candidates being proposed in the wrong section. At Fort Myers,
+      // free lanes ascending starts 1,2,3 — all Old Time — so a Regular booking would spend
+      // its whole retry budget on 409s and fall open to QAMF's choice anyway.
+      allowedLanes: sectionLanesFrom(opts.centerId, offerLaneCounts(grid, opts.webOfferId)),
     };
 
     const { ranked } = chooseLanes(grid, req, policy);

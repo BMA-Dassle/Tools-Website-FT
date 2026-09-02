@@ -924,10 +924,13 @@ describe("forecast", () => {
 describe("the gates that decide whether we touch a booking at all", () => {
   const et = (s: string) => Date.parse(s);
 
-  it("arranges FastTrax and nothing else", () => {
+  it("arranges all three centres, and nothing else", () => {
+    // HeadPinz joined 2026-09-01 once the section-scoped spread dial and the owner's real
+    // lane boundaries were in — the two things that made a multi-section house unsafe.
     expect(laneArrangementCenter(11542)).toBe(true); // FastTrax duckpin
-    expect(laneArrangementCenter(9172)).toBe(false); // HeadPinz Fort Myers
-    expect(laneArrangementCenter(3148)).toBe(false); // HeadPinz Naples
+    expect(laneArrangementCenter(9172)).toBe(true); // HeadPinz Fort Myers
+    expect(laneArrangementCenter(3148)).toBe(true); // HeadPinz Naples
+    expect(laneArrangementCenter(99999)).toBe(false); // anything else
   });
 
   it('is a KILL SWITCH — on unless the env var is exactly "false"', () => {
@@ -972,8 +975,8 @@ describe("the gates that decide whether we touch a booking at all", () => {
     const sameDay = et("2026-08-22T20:00:00-04:00");
     const nextDay = et("2026-08-23T20:00:00-04:00");
     expect(shouldArrangeLane({ centerId: 11542, bookedAtMs: sameDay, nowMs })).toBe(true);
-    // Right day, wrong house.
-    expect(shouldArrangeLane({ centerId: 9172, bookedAtMs: sameDay, nowMs })).toBe(false);
+    // Right day, unknown house.
+    expect(shouldArrangeLane({ centerId: 99999, bookedAtMs: sameDay, nowMs })).toBe(false);
     // Right house, wrong day.
     expect(shouldArrangeLane({ centerId: 11542, bookedAtMs: nextDay, nowMs })).toBe(false);
   });

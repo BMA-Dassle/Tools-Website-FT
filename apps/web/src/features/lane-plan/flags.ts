@@ -12,15 +12,28 @@
  * contradict itself day to day.
  */
 import { FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
+import { HEADPINZ_FM_CENTER_ID, HEADPINZ_NAPLES_CENTER_ID } from "./sections";
 
 /** Emergency off switch. Anything other than the literal "false" leaves it on. */
 export function laneArrangementEnabled(): boolean {
   return process.env.LANE_ARRANGEMENT !== "false";
 }
 
-/** Centers the engine is allowed to arrange. FastTrax only, for now. */
+/**
+ * Centres the engine is allowed to arrange.
+ *
+ * HeadPinz joined on 2026-09-01, once the two things that made it unsafe were closed: the
+ * spread dial now scales to the offer's SECTION rather than the whole house, and the
+ * sections themselves are given by the owner instead of inferred from sixty days of
+ * history. Fort Myers is also where the problem actually lives — 84.3% of single-lane
+ * parties seated against an occupied pair-mate on 2026-08-22, against 10.0% at FastTrax.
+ */
 export function laneArrangementCenter(centerId: number): boolean {
-  return centerId === FASTTRAX_QAMF_CENTER_ID;
+  return (
+    centerId === FASTTRAX_QAMF_CENTER_ID ||
+    centerId === HEADPINZ_FM_CENTER_ID ||
+    centerId === HEADPINZ_NAPLES_CENTER_ID
+  );
 }
 
 /**
