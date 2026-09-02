@@ -52,6 +52,20 @@ const CURRENT_BUILD = (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || "dev").s
 interface LoadState {
   screens: SignageScreen[];
   seen: Record<string, { at: string; build: string | null } | null>;
+  /** What has thrown on the screens lately — see CrashPanel. Absent on an older API. */
+  crashes?: ScreenCrash[];
+}
+
+/** One entry from the screens' black box recorder (features/signage/crash-log.server). */
+interface ScreenCrash {
+  at: string;
+  screen: string | null;
+  build: string | null;
+  scene: string | null;
+  origin: "scene" | "route";
+  message: string;
+  stack: string | null;
+  digest: string | null;
 }
 
 /** One camera in the picker, from GET /api/admin/signage/cameras. */
@@ -72,7 +86,7 @@ const TRACK_OPTIONS: { label: string; resourceId: string }[] = [
 ];
 
 export default function SignageAdminClient({ token }: { token: string }) {
-  const [data, setData] = useState<LoadState>({ screens: [], seen: {} });
+  const [data, setData] = useState<LoadState>({ screens: [], seen: {}, crashes: [] });
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -363,8 +377,119 @@ export default function SignageAdminClient({ token }: { token: string }) {
         )}
       </section>
 
+      <CrashPanel crashes={data.crashes ?? []} nowMs={loadedAt} />
+
       <BriefingAssetManager token={token} assets={assets} onChanged={() => void loadAssets()} />
     </div>
+  );
+}
+
+/* ── crash panel ──────────────────────────────────────────────────────── */
+
+/**
+ * WHAT HAS THROWN ON THE SCREENS, in front of the people who look after them.
+ *
+ * A wall panel's exception used to reach exactly one place: a browser console on a
+ * mini PC nobody stands at. So when five front-desk TVs went black together and came
+ * back through the boot loader (2026-09-01), there was no stack, no scene name, and
+ * no way to tell a render throw from a reload — the honest answer to "why did they
+ * crash" was "we cannot see it", which is not an answer anyone can act on.
+ *
+ * Two origins, and the difference is the first thing to read:
+ *
+ *   SCENE  one scene could not render and was skipped for its turn. The panel kept
+ *          running and showed house ads instead — a degraded board, not a dead one.
+ *   ROUTE  the whole page threw and reloaded itself. That is the one that looks like
+ *          a screen crashing, because it is.
+ *
+ * QUIET WHEN THERE IS NOTHING, deliberately: an empty panel here every day is what
+ * makes a non-empty one worth noticing. Stacks are minified in production, so the
+ * scene name and the message carry the signal — the stack is for confirming a hunch.
+ */
+function CrashPanel({ crashes, nowMs }: { crashes: ScreenCrash[]; nowMs: number }) {
+  const [open, setOpen] = useState(false);
+  if (crashes.length === 0) return null;
+
+  const routeCount = crashes.filter((c) => c.origin === "route").length;
+
+  return (
+    <section style={{ marginTop: 28 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: "100%",
+          textAlign: "left",
+          background: PORTAL_DARK.card,
+          border: `1px solid ${routeCount > 0 ? "#b4533f" : PORTAL_DARK.border}`,
+          borderRadius: 10,
+          padding: "12px 14px",
+          color: PORTAL_DARK.fg,
+          cursor: "pointer",
+          font: "inherit",
+        }}
+      >
+        <strong>
+          {crashes.length} recent screen error{crashes.length === 1 ? "" : "s"}
+        </strong>
+        {routeCount > 0 && (
+          <span style={{ color: "#e08a76" }}> · {routeCount} rebooted a panel</span>
+        )}
+        <span style={{ color: PORTAL_DARK.muted }}> · {open ? "hide" : "show"}</span>
+      </button>
+
+      {open && (
+        <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+          {crashes.map((c, i) => (
+            <div
+              key={`${c.at}-${i}`}
+              style={{
+                background: PORTAL_DARK.card,
+                border: `1px solid ${PORTAL_DARK.border}`,
+                borderRadius: 10,
+                padding: "10px 12px",
+              }}
+            >
+              <div style={{ fontSize: 13, color: PORTAL_DARK.muted }}>
+                <span
+                  style={{
+                    color: c.origin === "route" ? "#e08a76" : "#e8b14c",
+                    fontWeight: 600,
+                  }}
+                >
+                  {c.origin === "route" ? "PANEL REBOOTED" : `scene: ${c.scene ?? "?"}`}
+                </span>
+                {" · "}
+                {c.screen ?? "unknown screen"}
+                {c.build ? ` · build ${c.build}` : ""}
+                {" · "}
+                {timeAgo(c.at, nowMs)}
+              </div>
+              <div style={{ marginTop: 4, fontFamily: "ui-monospace, monospace", fontSize: 13 }}>
+                {c.message}
+              </div>
+              {c.stack && (
+                <details style={{ marginTop: 6 }}>
+                  <summary style={{ color: PORTAL_DARK.muted, fontSize: 12, cursor: "pointer" }}>
+                    stack (minified in production)
+                  </summary>
+                  <pre
+                    style={{
+                      margin: "6px 0 0",
+                      whiteSpace: "pre-wrap",
+                      fontSize: 11,
+                      color: PORTAL_DARK.muted,
+                    }}
+                  >
+                    {c.stack}
+                  </pre>
+                </details>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

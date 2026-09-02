@@ -24,6 +24,7 @@ import { resolvePair, pairProblem } from "~/features/signage/pairing";
 import type { ScreenConfig } from "~/features/signage/types";
 import { demoIsMegaDay } from "~/features/signage/demo";
 import { isAdminApiRequest } from "@/lib/admin-request-auth";
+import { readCrashes } from "~/features/signage/crash-log.server";
 
 /**
  * Screen management for staff.
@@ -163,13 +164,18 @@ export async function GET(req: NextRequest) {
   }
 
   const screens = await listSignageScreens();
-  const [seen, previewEntries] = await Promise.all([
+  const [seen, previewEntries, crashes] = await Promise.all([
     lastSeen(screens.map((s) => s.screenId)),
     Promise.all(screens.map(async (s) => [s.screenId, await demoStatusFor(s.screenId)] as const)),
+    // WHAT HAS THROWN, where staff can actually see it. A screen's exception used to
+    // reach nothing but a console nobody stands at — which is how five TVs rebooting in
+    // the lobby stayed unexplained for an evening (2026-09-01). Never throws: a crash
+    // log that could fail the screen list would be a poor trade.
+    readCrashes(12),
   ]);
   const previews = Object.fromEntries(previewEntries);
   return NextResponse.json(
-    { screens, seen, previews },
+    { screens, seen, previews, crashes },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
