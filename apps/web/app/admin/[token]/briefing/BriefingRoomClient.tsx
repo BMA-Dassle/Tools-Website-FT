@@ -2071,7 +2071,7 @@ ${film}
                 )}
               </p>
               <p style={{ fontSize: 14, color: PORTAL_DARK.muted }}>
-                {occupantIsOurs ? "This room's group — in the seats" : "In the seats"}
+                {occupantIsOurs ? "This room's group — in holding" : "In holding"}
                 {/* Only ever counted from a stamp we actually have; a missing
                     atMs prints nothing rather than "in the seats 0:00". */}
                 {occupantSinceMs != null && (

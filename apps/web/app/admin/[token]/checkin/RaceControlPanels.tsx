@@ -3029,7 +3029,7 @@ function OutOfRoomPanel({
                       <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color }}>
                         {holding.heatNumber != null
                           ? `Session ${holding.heatNumber}`
-                          : "In the seats"}
+                          : "In holding"}
                       </span>
                       {holding.raceType && (
                         <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
@@ -3050,8 +3050,14 @@ function OutOfRoomPanel({
               }
               clock={
                 holding ? (
+                  /* "In holding", not "in the seats" (owner 2026-08-24, and
+                     again 2026-09-01 pointing at this row: "that's confusing").
+                     The row is already labelled HOLDING, and the seats are only
+                     where holding happens to put them — a group standing at the
+                     fence is in holding too. stage-rail.ts was corrected at the
+                     time; this copy of the same rail was missed. */
                   <Stat
-                    label="In the seats"
+                    label="In holding"
                     value={formatClock(heldMs)}
                     tone={holdLive ? AMBER : GREEN}
                   />
@@ -4315,7 +4321,7 @@ function CameraLightbox({
             <>
               <div>
                 <div className="rc-num" style={{ fontSize: 22, fontWeight: 800, color: INK }}>
-                  {holding.heatNumber != null ? `Session ${holding.heatNumber}` : "In the seats"}
+                  {holding.heatNumber != null ? `Session ${holding.heatNumber}` : "In holding"}
                 </div>
                 <div style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
                   {holding.raceType ?? ""}
@@ -4323,7 +4329,7 @@ function CameraLightbox({
                 </div>
               </div>
               <Stat
-                label="In the seats"
+                label="In holding"
                 value={formatClock(Math.max(0, nowMs - holding.atMs))}
                 unit="since the briefing"
                 big
