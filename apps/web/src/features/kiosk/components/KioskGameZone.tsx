@@ -482,6 +482,10 @@ export function KioskGameZone({
   // flag that pauses the auto-arm once they pile up so a bad/stuck card can't
   // loop the gate forever. Reset on a clean read or an explicit retry tap.
   const autoReadFailsRef = useRef(0);
+  /** Bumped whenever a card arrives by SCAN or SWIPE. A dispenser read that
+   *  started before the bump is stale and must not write state — see
+   *  `routeCardNumber`. */
+  const cardArrivedRef = useRef(0);
   const [autoReadBlocked, setAutoReadBlocked] = useState(false);
   // Balance check (mode "balance") — ONE card at a time (owner rule).
   const [balCard, setBalCard] = useState<BalanceCard | null>(null);
@@ -770,7 +774,9 @@ export function KioskGameZone({
   // acceptAndRead closes the entry gate before we present, so the unit can't
   // auto-swallow the returned card (the "it takes it" bug).
   const readReloadCard = async (i: number) => {
+    const seq = cardArrivedRef.current;
     const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
+    if (cardArrivedRef.current !== seq) return; // superseded by a scan/swipe
     await presentIfCardPresent(); // hand back a real card; never eject on a no-card timeout
     if (!r.ok) {
       // Read/absent-card fault. Bound the auto-arm: after a few misses stop
@@ -830,6 +836,7 @@ export function KioskGameZone({
     // here too: the reader is very likely still looking at it, and its next
     // read would arrive at this freshly-mounted screen as a "new" card.
     holdScanGate();
+    cardArrivedRef.current++; // arrived by scan, not by the slot
     // The `mode` initializer above covers a card that is present at MOUNT (the
     // attract screen, which routes here). Scanning on the CHOOSER opens this
     // screen and delivers the card in the same batch, so that path is covered
@@ -859,8 +866,10 @@ export function KioskGameZone({
   }, [initialCardAccount]);
 
   const readBalanceCard = async () => {
+    const seq = cardArrivedRef.current;
     setBalCard({ accountNumber: "", status: "reading" });
     const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
+    if (cardArrivedRef.current !== seq) return; // superseded by a scan/swipe
     await presentIfCardPresent(); // give a real card straight back; never eject on a no-card timeout
     if (!r.ok) {
       if (++autoReadFailsRef.current >= MAX_AUTO_READ_FAILS) setAutoReadBlocked(true);
@@ -1011,6 +1020,15 @@ export function KioskGameZone({
    * expanded reload row, the balance check, or the new-card cart.
    */
   const routeCardNumber = (acct: string) => {
+    // A card has ARRIVED some other way than the slot. Any dispenser read
+    // still waiting on that slot is now stale: it holds the gate open for up
+    // to 30s, and when it finally times out its failure handling used to run
+    // anyway — wiping the balance the guest was already reading back to
+    // "Insert your card to check it", and burning the auto-read budget on a
+    // read that was never needed. Bumping this makes the waiter return
+    // without touching state (owner 2026-09-02: the insert prompt has to go
+    // away when you scan).
+    cardArrivedRef.current++;
     if (swipeWaiter.feed(acct)) return;
     if (phase !== "cart") return; // never mid-payment/loading
     setMsrBadSwipe(false);
