@@ -79,7 +79,7 @@ import {
   kioskGzCartEnabled,
   kioskPromoEnabled,
   kioskRaceInfoEnabled,
-  kioskRaceSimEnabled,
+  kioskRaceSimDoorOpen,
 } from "../flags";
 import { IconChevronRight } from "@tabler/icons-react";
 import { KioskCheckoutScreen } from "./KioskCheckoutScreen";
@@ -2319,14 +2319,11 @@ export function KioskFlow({
             clarityEvent("kiosk:packs:open");
             setPacksOpen(true);
           }}
-          // Race Sims (PLACEHOLDER PHASE 2026-08, FastTrax FM only): the tile
-          // replaces KBF's kiosk slot. Caller-owns-gating like every other
-          // door — the callbacks only arrive on a FastTrax FM kiosk with the
-          // kill switch on; the tile itself renders locked ("Coming Soon")
-          // until the kiosk-admin PIN unlocks it for this session.
-          {...(config.brand === "fasttrax" &&
-          config.center === "fort-myers" &&
-          kioskRaceSimEnabled()
+          // Race Sims — EVERY Fort Myers kiosk, both brands (owner 2026-09-01:
+          // "SIMS need to show on the kiosk at headpinz fort myers"). Venue
+          // rule + kill switch live together in kioskRaceSimDoorOpen() so the
+          // answer is testable; caller-owns-gating like every other door.
+          {...(kioskRaceSimDoorOpen(config.center)
             ? {
                 raceSimUnlocked,
                 onRaceSimUnlock: () => setRaceSimUnlocked(true),

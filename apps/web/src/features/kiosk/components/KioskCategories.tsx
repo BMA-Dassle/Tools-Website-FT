@@ -719,8 +719,11 @@ export function KioskCategories({
                   )}
                 </Fragment>
               ))}
-              {/* Defensive: no racing tile on this kiosk (shouldn't happen on
-                  FastTrax FM) — the tile still gets a slot at the end. */}
+              {/* Defensive: no racing tile on this kiosk. Shouldn't happen at
+                  Fort Myers on EITHER brand — activities-catalog pins `race`
+                  in both landingOfferingsFor("fasttrax"|"headpinz",
+                  "fort-myers") lists — but if it ever goes missing the tile
+                  still gets a slot at the end rather than vanishing. */}
               {showRaceSims && !offerings.some((o) => o.slug === "race") && (
                 <RaceSimTile
                   unlocked={raceSimUnlocked}
