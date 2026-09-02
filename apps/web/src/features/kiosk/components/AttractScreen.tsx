@@ -437,8 +437,9 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
             it → on top, like it's the road) once per slide. Clock-locked like
             the other glow fx, but STAGGERED by bank position so the bank of
             kiosks hands the car off screen-to-screen, right to left (matching
-            the physical lineup). Starts are spread so the whole relay fits
-            one 8s cycle — see vehiclePhaseMs. */}
+            the physical lineup). Starts sit exactly one crossing apart, so this
+            screen picks the car up as its right-hand neighbour drops it and the
+            row never shows two — see vehiclePhaseMs. */}
             {config.brand === "fasttrax" && (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img

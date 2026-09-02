@@ -5315,3 +5315,42 @@ different.
    Module scope is the correct scope for "the kiosk already accepted a scan". But keep it out of
    the transports: those also carry the ~35-line AAMVA licence burst, one `onScan` per line, which
    a per-line cooldown destroys.
+
+## A relay hands off on the crossing's LENGTH, not on how you space the starts (2026-09-02)
+
+The attract bank's race car (FastTrax) and bowling ball (HeadPinz) "start on the next screen
+before finishing the previous". Third time this choreography has been reported wrong, and the
+first two fixes were both the same mistake: they retuned the phase offsets while leaving the
+crossing at a fixed 2s of the 8s slide. `(position % 4) * 2000` gave seven screens four phases
+(everything fired at once); `slot × (0.75·cycle)/(count−1)` fitted the relay inside the cycle but
+squeezed the starts to 1000ms against a 2000ms crossing, so every screen lit its vehicle while its
+neighbour was half-way across.
+
+1. **A handoff has exactly one equation: `spacing = crossing`.** Anything else is an overlap or a
+   gap, and the overlap is `crossing − spacing`, so it scales with the row. Fort Myers' five
+   screens overlapped 500ms, FastTrax's seven overlapped 1000ms — and Naples' four overlapped by
+   nothing, because `6000/3` happened to land on 2000. A bug that vanishes at one venue because
+   its arithmetic coincides is a bug you will "fix" twice.
+2. **When the starts cannot be spaced far enough apart, the crossing is the variable — not the
+   phases.** `N × crossing ≤ cycle` was unsatisfiable at seven screens with a 2s crossing, so no
+   phase formula could have worked. The crossing now lasts one slot of the LONGEST row
+   (`VEHICLE_CROSS_FRACTION = 1 / MAX_BANK_SIZE`), which makes the constraint an identity.
+3. **Prefer the constant that keeps the CSS static.** Sizing the crossing per-venue is
+   arithmetically nicer (no rest between laps on a short row) but the crossing window is a keyframe
+   PERCENTAGE, and so is the `kiosk-ad-rumble` rattle tuned to sit inside it — per-venue timing
+   means per-venue keyframes or runtime-injected CSS. One fraction for the estate keeps both static
+   and gives every venue the same road speed; a short row just rests until the next lap.
+4. **A constant duplicated into a stylesheet needs a test that reads the stylesheet.** TS and CSS
+   cannot import each other, and a silent drift between them is this exact bug again on a screen
+   nobody is watching. The relay tests now `readFileSync` `kiosk.css` and assert the `@keyframes`
+   park stop equals `(1 − VEHICLE_CROSS_FRACTION) × 100`, and `MAX_BANK_SIZE` is DERIVED from the
+   bank map — so adding an eighth kiosk fails the test instead of quietly re-breaking the row.
+5. **Shortening a crossing silently breaks whatever was tuned to its old length.** Two companions
+   moved with it: the rattle's twelve keyframe stops (remapped `85.714 + (old − 75) × 14.286/25`,
+   which keeps it anchored to the car rather than to a percentage) and the ball's spin, whose total
+   had to go `1800° → 3150°` to show the same 450° of roll in a window that is now 4/7 as long.
+   Leave the spin alone and the ball skids across without turning.
+6. **Assert the failure before believing the fix.** Reverting just the phase formula, then also the
+   fraction, reproduced the reported overlap to the millisecond (500ms at Fort Myers) and tripped
+   the CSS lock — proof the new tests bite, rather than a green suite that would have passed
+   against the broken code too.
