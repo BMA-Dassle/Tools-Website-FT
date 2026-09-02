@@ -129,6 +129,27 @@ export async function verifyAccount(
 }
 
 /**
+ * Balance read pinned to the ON-SITE server — NO cloud fallback, and it throws
+ * rather than falling through when onsite cannot answer.
+ *
+ * This exists for exactly one caller: the post-credit readback in load-card.ts.
+ * `verifyAccount` above falls to the cloud copy on any onsite failure, which is
+ * right for a display lookup but WRONG as proof that a load landed. The floor's
+ * redemption games read the on-site server; a credit that only reached the
+ * divergent datacenter copy is money the guest can never spend. Confirming a
+ * fresh load against cloud would call such a card "loaded" and hand over dead
+ * plastic. So the load readback must interrogate the same server the games do,
+ * and treat "onsite won't answer" as "not confirmed", never as "good".
+ */
+export async function verifyAccountOnsite(
+  accountNumber: string,
+  locationCode?: number,
+): Promise<VerifyResult & { transport: IntercardTransport }> {
+  const res = await onsite.verifyAccount(accountNumber, locationCode);
+  return { ...res, transport: "onsite" };
+}
+
+/**
  * Credit tokens onto a card. Onsite first; cloud ONLY when the onsite attempt
  * provably never reached the site (see WRITE_SAFE_TO_FALL_BACK).
  */

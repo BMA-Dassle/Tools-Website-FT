@@ -29,7 +29,7 @@ import { GameCardHttpError } from "../errors";
 import type { LoadCardInput } from "../schemas";
 import type { CardBalance, TxnKind } from "../types";
 // Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
-import { clearAccount, verifyAccount } from "../data/intercard-router";
+import { clearAccount, verifyAccount, verifyAccountOnsite } from "../data/intercard-router";
 import { getTxn, markLoadState, setTxnAccount, type LoadedVia } from "../data/transactions-log";
 import { getLiveClaimForTxn } from "../data/voucher-claims-db";
 import { applyCreditPlan, creditPlanForRow, planIsEmpty, type CreditPlan } from "./credit-plan";
@@ -238,46 +238,79 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
    * already said success. That is strictly worse than a visible failure: the
    * guest walks away with a dead card and no row to find them by.
    *
-   * Only POSITIVE evidence of an empty card downgrades the row. An unreadable
-   * card leaves the code-0 verdict standing, so a flaky read can never retain a
-   * card that is actually good.
+   * The readback is pinned to the ON-SITE server (verifyAccountOnsite, no cloud
+   * fallback), because that is the copy the redemption games read. On 2026-09-02
+   * two FastTrax new cards were credited code-0 after clear-on-encode and the
+   * value landed on NEITHER the onsite nor the cloud copy — a plain
+   * onsite-first-then-cloud readback could have "confirmed" such a card against
+   * a stale cloud reading and handed over dead plastic. Confirming against the
+   * same server the credit targets closes that.
+   *
+   * For a fresh blank (dispenser stock, cleared then credited) we require
+   * POSITIVE onsite confirmation: an empty read OR an onsite that won't answer
+   * both fail closed, because clear-on-encode has already zeroed the card, so
+   * "unconfirmed" here means "possibly a cleared, dead card". The kiosk retains
+   * it and routes to an attendant — the payment is safe.
+   *
+   * A reload or a guest-presented card keeps the narrower rule: only POSITIVE
+   * evidence of an empty card downgrades it. We can't retain a card that is in
+   * the guest's hand, and a reload lands on top of existing value, so "empty" is
+   * not unambiguous and "unreadable" is not evidence.
    */
   let balance: CardBalance | undefined;
+  let onsiteReadFailed = false;
   let emptyAfterCredit = false;
   if (loaded) {
     try {
-      balance = (await verifyAccount(input.accountNumber, input.locationCode)).balance;
+      balance = (await verifyAccountOnsite(input.accountNumber, input.locationCode)).balance;
       emptyAfterCredit = creditLandedNothing(balance, plan);
     } catch {
-      /* non-fatal — an unreadable card is not evidence of a failed load */
+      onsiteReadFailed = true;
     }
   }
-  if (emptyAfterCredit) {
+  /**
+   * A fresh blank that the on-site server won't positively confirm. Only meaningful
+   * when the plan actually credits tokens (a bonus-cash-only grant has nothing in
+   * CardBalance to confirm and is left to the narrow empty-check, as before).
+   */
+  const freshBlankUnconfirmed =
+    loaded &&
+    isFreshBlank &&
+    !guestPresented &&
+    (plan.tokens > 0 || plan.bonusTokens > 0) &&
+    (onsiteReadFailed || !balance);
+  const retainAsFailed = emptyAfterCredit || freshBlankUnconfirmed;
+  if (retainAsFailed) {
     loaded = false;
     balance = undefined;
     console.error(
       `[game-cards] MANUAL INTERVENTION REQUIRED txn=${row.txnId} card=${input.accountNumber}: ` +
-        `credit reported success via ${via ?? "?"} but the card reads EMPTY ` +
+        `credit reported success via ${via ?? "?"} but the on-site server ` +
+        `${emptyAfterCredit ? "reads the card EMPTY" : "would not confirm the credit"} ` +
         `(expected ${plan.tokens}+${plan.bonusTokens}) — card retained, not handed over`,
     );
   }
 
   /**
-   * `load_failed` (terminal), NOT `pending`, when the readback proved the card
-   * empty. `listPendingLoads` only replays `pending` rows, and a replay now
-   * rides the router — whose onsite leg has NO idempotency (measured
-   * 2026-08-31: the same transactionID credited twice applied twice). So an
-   * auto-retry of a row we cannot explain risks double-crediting. Surface it
-   * for a human instead.
+   * `load_failed` (terminal), NOT `pending`, whenever the readback did not
+   * positively confirm. `listPendingLoads` only replays `pending` rows, and a
+   * replay rides the router reusing this row's stable `tpi_transaction_id` —
+   * whose onsite leg has NO idempotency (measured 2026-08-31: the same
+   * transactionID credited twice applied twice) and whose cloud leg DEDUPS on
+   * it, so a replay either double-credits or no-ops against the wrong copy.
+   * Either way it cannot safely recover a clear-on-encode miss. Surface it for a
+   * human instead.
    */
   await markLoadState(
     input.txnId,
-    loaded ? "loaded" : emptyAfterCredit ? "load_failed" : "pending",
+    loaded ? "loaded" : retainAsFailed ? "load_failed" : "pending",
     loaded
       ? undefined
       : emptyAfterCredit
         ? "credit reported success but the card read back empty"
-        : "load not confirmed",
+        : freshBlankUnconfirmed
+          ? "credit reported success but the on-site server would not confirm it"
+          : "load not confirmed",
     loaded ? via : undefined,
   );
 

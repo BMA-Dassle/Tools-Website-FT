@@ -7,15 +7,25 @@ const order: string[] = [];
 // Mocked at the ROUTER, not the SOAP client: loadCard and credit-plan now call
 // through data/intercard-router (onsite first, cloud SOAP fallback), so that is
 // the seam these tests must intercept.
-vi.mock("../data/intercard-router", () => ({
+vi.mock("../data/intercard-router", () => {
   // loadCard credits through credit-plan.ts → creditAccountValues (one call for
   // tokens + bonus tokens + bonus cash). creditTokens stays mocked because the
   // module is also imported elsewhere.
-  creditTokens: vi.fn(),
-  creditAccountValues: vi.fn(),
-  verifyAccount: vi.fn(),
-  clearAccount: vi.fn(),
-}));
+  const verifyAccount = vi.fn();
+  return {
+    creditTokens: vi.fn(),
+    creditAccountValues: vi.fn(),
+    verifyAccount,
+    // The post-credit readback is pinned to the on-site server. In these tests
+    // it mirrors verifyAccount, so a case that configures the readback via
+    // `verifyAccount.mockResolvedValue(...)` drives the onsite readback too;
+    // `verifyAccountOnsite.mockRejectedValue(...)` can still override it to
+    // simulate an on-site server that won't answer. (clearAllMocks keeps this
+    // implementation; it only clears call history.)
+    verifyAccountOnsite: vi.fn((...args: unknown[]) => verifyAccount(...args)),
+    clearAccount: vi.fn(),
+  };
+});
 
 vi.mock("../data/voucher-claims-db", () => ({
   getLiveClaimForTxn: vi.fn(),
@@ -69,9 +79,17 @@ const voucherRow = {
   tpiTransactionId: "gzvoucher-abc",
 };
 
-beforeEach(() => {
+beforeEach(async () => {
   order.length = 0;
   vi.clearAllMocks();
+  // Re-establish the onsite-readback → verifyAccount delegation. clearAllMocks
+  // clears call history but NOT implementations, so a test that overrides
+  // verifyAccountOnsite (e.g. mockRejectedValue to simulate an unresponsive
+  // server) would otherwise leak that into the next test. Reset it every time.
+  const intercard = await import("../data/intercard-router");
+  (intercard.verifyAccountOnsite as ReturnType<typeof vi.fn>).mockImplementation(
+    (...args: unknown[]) => (intercard.verifyAccount as ReturnType<typeof vi.fn>)(...args),
+  );
 });
 
 describe("loadCard (buy: per-card load after charge)", () => {
@@ -476,14 +494,41 @@ describe("loadCard readback — a code-0 credit must actually reach the card", (
     expect((await loadCard(input)).loaded).toBe(true);
   });
 
-  it("an UNREADABLE card leaves the code-0 verdict standing — a flaky read never retains a good card", async () => {
+  it("a FRESH BLANK the on-site server won't confirm is RETAINED — clear-on-encode already zeroed it, so 'unconfirmed' may be a dead card", async () => {
+    // 2026-09-02: two FastTrax new cards were credited code-0 after
+    // clear-on-encode and the value landed on NEITHER the onsite nor the cloud
+    // copy. A fresh blank is cleared before crediting, so an on-site server that
+    // won't confirm the value means the card may be dead on the floor. Fail
+    // closed: retain it. (The readback is onsite-only, so a relay wobble here IS
+    // the unconfirmed case — it can no longer be papered over by a cloud read.)
     const { intercard, log } = await mocks();
     (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(chargedRow);
     (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockResolvedValue({
       code: 0,
       transport: "onsite",
     });
-    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockRejectedValue(
+    (intercard.verifyAccountOnsite as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("relay down"),
+    );
+    const { loadCard } = await import("./load-card");
+
+    expect((await loadCard(input)).loaded).toBe(false);
+    expect(order).toContain("markLoadState:load_failed");
+    expect(order).not.toContain("markLoadState:loaded");
+  });
+
+  it("a RELOAD the on-site server won't confirm KEEPS the code-0 verdict — the card is in the guest's hand and was never cleared", async () => {
+    // A reload is never clear-on-encoded and can't be retained (it's the guest's
+    // own card), and it lands on top of whatever they already had, so an
+    // unreadable readback is not evidence of a failed load. The narrow rule
+    // holds: only a positively-empty read would downgrade it.
+    const { intercard, log } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue({ ...chargedRow, kind: "reload" });
+    (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      transport: "onsite",
+    });
+    (intercard.verifyAccountOnsite as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("relay down"),
     );
     const { loadCard } = await import("./load-card");
