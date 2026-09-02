@@ -60,6 +60,20 @@ describe("intercard router — onsite takes priority", () => {
       accountNumber: "1098379",
       balance: { tokens: 200, bonusTokens: 0, eTickets: 0, timeMinutes: 0 },
     });
+    // Onsite history present, so the history failover (empty→cloud) doesn't fire
+    // and the read stays entirely onsite.
+    onsite.accountHistory.mockResolvedValue([
+      {
+        device: "x",
+        transType: "Game Play",
+        tokens: -10,
+        bonusTokens: 0,
+        points: 0,
+        cash: 0,
+        timeStamp: "",
+        location: "",
+      },
+    ]);
 
     const { verifyAccount } = await import("./intercard-router");
     const res = await verifyAccount("1098379", 12);
@@ -231,6 +245,38 @@ describe("intercard router — kill switch", () => {
     expect(onsite.verifyAccount).not.toHaveBeenCalled();
   });
 
+  it("the SOAP revert also reroutes the load-confirm read and the encode clear to cloud", async () => {
+    // verifyAccountOnsite / clearAccountOnsite are onsite-only by default, but a
+    // full SOAP revert (kill switch) must leave NOTHING on onsite — including the
+    // clear. With the switch off they go cloud SOAP too.
+    vi.stubEnv("INTERCARD_ONSITE_ENABLED", "false");
+    const { cloud, onsite } = await mocks();
+    cloud.verifyAccount.mockResolvedValue({
+      exists: true,
+      accountNumber: "1098379",
+      balance: { tokens: 0, bonusTokens: 0, eTickets: 0, timeMinutes: 0 },
+    });
+    cloud.clearAccount.mockResolvedValue({ code: 0 });
+
+    const { verifyAccountOnsite, clearAccountOnsite } = await import("./intercard-router");
+    const v = await verifyAccountOnsite("1098379", 13);
+    const c = await clearAccountOnsite({
+      accountNumbers: ["1098379"],
+      locationCode: 13,
+      tpiTransactionID: "x",
+    });
+
+    expect(v.transport).toBe("cloud");
+    expect(c.transport).toBe("cloud");
+    expect(onsite.verifyAccount).not.toHaveBeenCalled();
+    expect(onsite.clearAccount).not.toHaveBeenCalled();
+    // tpiTransactionID is dropped for the cloud clear (SOAP doesn't take it).
+    expect(cloud.clearAccount).toHaveBeenCalledWith({
+      locationCode: 13,
+      accountNumbers: ["1098379"],
+    });
+  });
+
   it("is ON by default (absent env var = onsite priority)", async () => {
     const { onsite } = await mocks();
     onsite.creditTokens.mockResolvedValue({ code: 0 });
@@ -316,44 +362,52 @@ describe("intercard router — onsite reads carry history, not just balance", ()
     expect(onsite.accountHistory).toHaveBeenCalledWith("1098379", 12);
   });
 
-  it("an EMPTY history is reported as [] — that is 'we looked, there is none'", async () => {
-    const { onsite } = await mocks();
-    onsite.verifyAccount.mockResolvedValue(BAL);
-    onsite.accountHistory.mockResolvedValue([]);
-
-    const { verifyAccount } = await import("./intercard-router");
-    expect((await verifyAccount("1098379", 12)).transactions).toEqual([]);
-  });
-
-  it("a FAILED history leaves transactions undefined — and never downgrades the read to cloud", async () => {
+  it("fails an EMPTY onsite history over to the cloud SOAP copy (FastTrax serves none)", async () => {
     const { cloud, onsite } = await mocks();
     onsite.verifyAccount.mockResolvedValue(BAL);
-    onsite.accountHistory.mockRejectedValue(new IntercardError("RELAY_TIMEOUT", "no answer"));
+    onsite.accountHistory.mockResolvedValue([]); // on-site says "none"
+    cloud.verifyAccount.mockResolvedValue({ ...BAL, transactions: [TXN] });
 
     const { verifyAccount } = await import("./intercard-router");
     const res = await verifyAccount("1098379", 12);
 
-    // The balance is the critical path: history is supplementary and its
-    // failure must not cost us the real-time balance.
-    expect(res.transport).toBe("onsite");
-    expect(res.balance?.tokens).toBe(0);
-    expect(res.transactions).toBeUndefined();
-    expect(cloud.verifyAccount).not.toHaveBeenCalled();
+    expect(res.transport).toBe("onsite"); // balance is still the onsite one
+    expect(res.transactions).toEqual([TXN]); // history came from cloud
+    expect(res.historyFromCloud).toBe(true);
+    expect(cloud.verifyAccount).toHaveBeenCalledTimes(1);
   });
 
-  it("a history call that throws SYNCHRONOUSLY is contained too", async () => {
+  it("a FAILED onsite history fails over to cloud but KEEPS the onsite balance", async () => {
+    const { cloud, onsite } = await mocks();
+    onsite.verifyAccount.mockResolvedValue(BAL);
+    onsite.accountHistory.mockRejectedValue(new IntercardError("RELAY_TIMEOUT", "no answer"));
+    cloud.verifyAccount.mockResolvedValue({ ...BAL, transactions: [TXN] });
+
+    const { verifyAccount } = await import("./intercard-router");
+    const res = await verifyAccount("1098379", 12);
+
+    // The balance stays the real-time onsite one; only the history is sourced
+    // from the datacenter copy.
+    expect(res.transport).toBe("onsite");
+    expect(res.balance?.tokens).toBe(0);
+    expect(res.transactions).toEqual([TXN]);
+    expect(res.historyFromCloud).toBe(true);
+  });
+
+  it("a history call that throws SYNCHRONOUSLY is contained, then fails over to cloud", async () => {
     const { cloud, onsite } = await mocks();
     onsite.verifyAccount.mockResolvedValue(BAL);
     onsite.accountHistory.mockImplementation(() => {
       throw new TypeError("boom");
     });
+    cloud.verifyAccount.mockResolvedValue({ ...BAL, transactions: [TXN] });
 
     const { verifyAccount } = await import("./intercard-router");
     const res = await verifyAccount("1098379", 12);
 
     expect(res.transport).toBe("onsite");
-    expect(res.transactions).toBeUndefined();
-    expect(cloud.verifyAccount).not.toHaveBeenCalled();
+    expect(res.transactions).toEqual([TXN]);
+    expect(res.historyFromCloud).toBe(true);
   });
 
   it("does not chase history for an account that does not exist", async () => {

@@ -80,6 +80,27 @@ async function onsiteHistoryOrUndefined(
 }
 
 /**
+ * Cloud SOAP history (WS_AccountHistory), never throws — `undefined` on any
+ * failure. The HISTORY failover: some on-site servers (FastTrax, confirmed
+ * 2026-09-02) return an empty `accounthistory` even for cards that plainly have
+ * activity, while their balance is correct. The datacenter SOAP copy serves the
+ * history reliably, so when onsite gives nothing we read the transactions from
+ * here. Balance is NOT taken from this — only transactions — so the divergent
+ * cloud balance never overrides the authoritative onsite one (see the
+ * cloud-copy-diverges lesson).
+ */
+async function cloudHistoryOrUndefined(
+  accountNumber: string,
+  locationCode?: number,
+): Promise<CardTxn[] | undefined> {
+  try {
+    return (await cloud.verifyAccount(accountNumber, locationCode)).transactions;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Read a card's balance AND its recent on-card activity. Onsite first
  * (real-time), cloud on ANY onsite failure — a read cannot corrupt anything, so
  * the fallback is unconditional.
@@ -101,7 +122,7 @@ async function onsiteHistoryOrUndefined(
 export async function verifyAccount(
   accountNumber: string,
   locationCode?: number,
-): Promise<VerifyResult & { transport: IntercardTransport }> {
+): Promise<VerifyResult & { transport: IntercardTransport; historyFromCloud?: boolean }> {
   if (onsiteFirst()) {
     // Started first so it runs alongside the balance call (same wall clock),
     // but fully isolated: the balance read is the critical path and must never
@@ -113,19 +134,35 @@ export async function verifyAccount(
       // An ambiguous onsite answer is not authoritative — let the cloud copy
       // settle it rather than reporting a card as absent on thin evidence.
       if (!(res.exists === false && res.notFound === "ambiguous")) {
-        const txns = res.exists ? await historyPromise : undefined;
+        let txns = res.exists ? await historyPromise : undefined;
+        let historyFromCloud = false;
+        // HISTORY-ONLY failover to cloud SOAP. Onsite balance stays
+        // authoritative; only the transaction list comes from the datacenter
+        // when the on-site server serves none (FastTrax does this even for
+        // active cards). The cloud copy can lag up to ~5 min, so we flag it so
+        // the UI can warn and offer a refresh.
+        if (res.exists && (txns === undefined || txns.length === 0)) {
+          const cloudTxns = await cloudHistoryOrUndefined(accountNumber, locationCode);
+          if (cloudTxns && cloudTxns.length > 0) {
+            txns = cloudTxns;
+            historyFromCloud = true;
+          }
+        }
         return {
           ...res,
           ...(txns ? { transactions: txns } : {}),
           transport: "onsite",
+          ...(historyFromCloud ? { historyFromCloud: true } : {}),
         };
       }
     } catch {
       // fall through to cloud
     }
   }
+  // Whole read served by cloud — balance AND history are the datacenter copy,
+  // so the history is inherently as stale as the copy; flag it.
   const res = await cloud.verifyAccount(accountNumber, locationCode);
-  return { ...res, transport: "cloud" };
+  return { ...res, transport: "cloud", historyFromCloud: true };
 }
 
 /**
@@ -145,6 +182,16 @@ export async function verifyAccountOnsite(
   accountNumber: string,
   locationCode?: number,
 ): Promise<VerifyResult & { transport: IntercardTransport }> {
+  // Single transport, NO mid fallback — and it follows the kill switch. When the
+  // onsite path is live it reads onsite (the load-confirmation read must hit the
+  // same server the games read). When onsite is killed
+  // (INTERCARD_ONSITE_ENABLED=false, the full-SOAP revert) it reads cloud SOAP,
+  // so nothing in the load path is left on onsite. Named for its onsite role;
+  // it is never an onsite→cloud fallback pair.
+  if (!onsiteFirst()) {
+    const res = await cloud.verifyAccount(accountNumber, locationCode);
+    return { ...res, transport: "cloud" };
+  }
   const res = await onsite.verifyAccount(accountNumber, locationCode);
   return { ...res, transport: "onsite" };
 }
@@ -166,6 +213,17 @@ export async function verifyAccountOnsite(
 export async function clearAccountOnsite(
   params: onsite.ClearAccountParams,
 ): Promise<{ code: number; transport: IntercardTransport }> {
+  // Same kill-switch rule as verifyAccountOnsite. Onsite mode: clear via the
+  // on-site clearcard ONLY (never the cloud clear, which syncs back and wipes an
+  // onsite credit). SOAP-revert mode (INTERCARD_ONSITE_ENABLED=false): clear via
+  // cloud SOAP, so the clear-on-encode also reverts to SOAP with the rest.
+  if (!onsiteFirst()) {
+    const res = await cloud.clearAccount({
+      locationCode: params.locationCode,
+      accountNumbers: params.accountNumbers,
+    });
+    return { ...res, transport: "cloud" };
+  }
   const res = await onsite.clearAccount(params);
   return { ...res, transport: "onsite" };
 }

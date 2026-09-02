@@ -69,6 +69,11 @@ export interface VerifyResult {
   name?: string;
   /** Recent on-card activity, newest first (for the expandable history section). */
   transactions?: CardTxn[];
+  /** True when `transactions` was served by the datacenter SOAP copy because the
+   *  on-site server returned none (FastTrax does this even for active cards).
+   *  That copy can lag up to ~5 minutes, so the UI should note the activity may
+   *  be delayed and offer a refresh. Balance is never taken from that copy. */
+  historyFromCloud?: boolean;
 }
 
 /** Client-facing view of a package (no server-only fields to hide, but keeps the boundary clean). */
