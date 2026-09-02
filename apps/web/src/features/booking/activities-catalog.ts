@@ -31,6 +31,7 @@
  *   different physical buildings at the Fort Myers complex with separate
  *   BMI product sets.
  */
+import { isKbfOffered } from "@/lib/kbf-schedule";
 import type { AppliedPromo } from "~/features/discount-codes";
 import type { Activity, Brand, CenterCode } from "./types";
 import type { BookingSession } from "./state/types";
@@ -75,6 +76,25 @@ export interface ActivityOffering {
   heroImage?: string;
   accentColor?: string;
   durationLabel?: string;
+  /**
+   * Seasonal gate — omit for the year-round offerings (the common case).
+   *
+   * When present and false, the offering is dropped from every SURFACING
+   * helper below: the `/book/v2` landing grid, the cart cross-sell and the
+   * kiosk shelf. `findOffering()` deliberately still returns it, so the
+   * route, the cart's display names and every existing reservation keep
+   * resolving their slug after the season closes.
+   *
+   * Evaluated per call, never memoised — see the note on `isKbfOffered`.
+   */
+  isOffered?: (now: Date) => boolean;
+}
+
+/** The offerings on sale right now — the seasonal ones filtered out when
+ *  they're between seasons. The one place `isOffered` is consulted. */
+function offeredNow(list: readonly ActivityOffering[]): ActivityOffering[] {
+  const now = new Date();
+  return list.filter((o) => o.isOffered?.(now) ?? true);
 }
 
 const CATALOG: ActivityOffering[] = [
@@ -162,6 +182,10 @@ const CATALOG: ActivityOffering[] = [
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-girl-bowling.jpg",
     accentColor: "#FFD700",
     durationLabel: "Mon–Fri only",
+    // The only seasonal offering. KBF runs a fixed summer window
+    // (KBF_PROGRAM_START_YMD → KBF_PROGRAM_END_YMD) and the flow behind
+    // this tile has nothing to sell outside it, so the tile goes with it.
+    isOffered: isKbfOffered,
   },
   {
     slug: "gel-blaster",
@@ -199,19 +223,26 @@ const CATALOG: ActivityOffering[] = [
   },
 ];
 
-/** Look up an offering by URL slug. */
+/**
+ * Look up an offering by URL slug.
+ *
+ * NOT season-filtered, on purpose. A closed season hides the TILE; it must
+ * never stop a slug resolving, or the route that renders the "we're back
+ * next summer" notice, the cart's display names and every reservation
+ * already taken for that activity would all lose their labels.
+ */
 export function findOffering(slug: string): ActivityOffering | undefined {
   return CATALOG.find((o) => o.slug === slug);
 }
 
-/** All offerings, in display order. */
+/** All offerings on sale right now, in display order. */
 export function allOfferings(): readonly ActivityOffering[] {
-  return CATALOG;
+  return offeredNow(CATALOG);
 }
 
-/** Offerings available at a given center. */
+/** Offerings on sale right now at a given center. */
 export function offeringsAt(center: CenterCode): ActivityOffering[] {
-  return CATALOG.filter((o) => o.centers.includes(center));
+  return offeredNow(CATALOG).filter((o) => o.centers.includes(center));
 }
 
 /** Centers shared by every center in `set` — used for cart constraint checks. */

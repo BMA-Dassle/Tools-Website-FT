@@ -8,6 +8,7 @@ import HeadPinzNav from "@/components/headpinz/Nav";
 import { ATTRACTIONS, type AttractionConfig } from "@/lib/attractions-data";
 import { getBookingLocation } from "@/lib/booking-location";
 import { hasActiveCart, clearAllCarts } from "@/lib/cart-clear";
+import { isKbfOffered } from "@/lib/kbf-schedule";
 import { modalBackdropProps } from "@/lib/a11y";
 
 /**
@@ -202,9 +203,13 @@ export default function HeadPinzBookLandingPage() {
   // Explicit HP attraction order: bowling first (own QAMF flow),
   // then Kids Bowl Free (also QAMF, gated by pass lookup), then the
   // multi-location attractions on the shared BMI flow.
+  // Kids Bowl Free is seasonal: its tile is here only while the program has a
+  // bookable date to offer (lib/kbf-schedule). Evaluated during render rather
+  // than at module scope so a long-lived tab or a prerendered copy can't pin
+  // it to a stale season.
   const hpAttractions: AttractionConfig[] = [
     ATTRACTIONS.bowling,
-    ATTRACTIONS["kids-bowl-free"],
+    ...(isKbfOffered() ? [ATTRACTIONS["kids-bowl-free"]] : []),
     ATTRACTIONS.shuffly,
     ATTRACTIONS["laser-tag"],
     ATTRACTIONS["gel-blaster"],

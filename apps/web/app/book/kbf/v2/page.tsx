@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { isKbfOffered, KBF_OFFSEASON_PATH } from "@/lib/kbf-schedule";
 import { BookingFlow } from "~/components/features/booking";
 import { findOffering, isOfferingInPromoScope, type EntryContext } from "~/features/booking";
 import { parseEntryContextFromSearchParams } from "~/features/booking/state/parse-entry-context";
@@ -29,6 +31,14 @@ export default async function KbfV2Page({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
+
+  // Off-season: there is no bookable date to reach, so don't open the wizard
+  // on a dead end. This is also the catch-all for every LEGACY KBF booking
+  // URL — middleware's v1→v2 cutover funnels /book/kids-bowl-free* and
+  // /hp/book/kids-bowl-free* here first, so one gate covers the emails, the
+  // QR codes and the bookmarks as well as this route.
+  if (!isKbfOffered()) redirect(KBF_OFFSEASON_PATH);
+
   const initialContext: EntryContext = parseEntryContextFromSearchParams(sp);
 
   const codeRaw = sp.code;
