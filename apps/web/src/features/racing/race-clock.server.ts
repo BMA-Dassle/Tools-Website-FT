@@ -123,6 +123,28 @@ export interface RaceClockSnapshot {
   clocks: RaceClockView[];
 }
 
+/**
+ * ONE race's clock, by id — a single GET for a caller that already knows which
+ * race it is asking about.
+ *
+ * Separate from `readRaceClocks` on purpose: that one exists to paint every
+ * screen in the building and pays a ZRANGEBYSCORE plus an MGET to do it. The
+ * pit lane asks a much narrower question — "has THIS session gone green" — on
+ * a 2-second pulse, and folding it into the index read would make every board's
+ * poll drag the whole day's races behind it.
+ *
+ * Swallows, like every other read on the lane's path: a Redis blip costs one
+ * pulse's opinion, never a staff action.
+ */
+export async function readRaceClock(raceId: string): Promise<RaceClockState | null> {
+  if (!raceId) return null;
+  try {
+    return parseState(await redis.get(KEY(raceId)));
+  } catch {
+    return null;
+  }
+}
+
 /** Every race still worth showing, newest activity first. */
 export async function readRaceClocks(nowMs = Date.now()): Promise<RaceClockSnapshot> {
   let ids: string[] = [];
