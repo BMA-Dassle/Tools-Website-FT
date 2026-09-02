@@ -39,6 +39,7 @@ import { onsiteHealth, type OnsiteChipStatus } from "../service/game-card-bridge
 import { kioskGzCartEnabled, kioskVoucherGzEnabled } from "~/features/kiosk/flags";
 import { useQrScanner } from "../qr-scanner/useQrScanner";
 import { holdScanGate, takeScanGate } from "../qr-scanner/scan-gate";
+import { playScanSound } from "../sound";
 import { useWedgeScan } from "../checkin/wedge-scan";
 import { classifyKioskCode } from "../code-entry/classify";
 /** What the redeem route reports back — issuer-agnostic (ours or BMI's). */
@@ -1663,13 +1664,29 @@ export function KioskGameZone({
     // One accepted scan per cooldown (owner 2026-09-02). Claimed BEFORE the
     // resolve round-trip below, so a reader still looking at the same card
     // cannot queue a second lookup behind the first.
-    if (!takeScanGate()) return;
+    const verdict = takeScanGate(payload);
+    if (verdict !== "ok") {
+      // Scanning again during the grace period earns the negative tone — the
+      // guest gets told they were heard and to wait. A reader's repeat read of
+      // the same code is NOT that, and stays silent (see scan-gate.ts).
+      if (verdict === "cooldown") playScanSound("error");
+      return;
+    }
     if (mode === "voucher") {
-      if (voucherScanArmed) void addVoucherToBasket(payload);
+      // The GZ voucher screen was silent even though the coupon screen has had
+      // tones since 2026-08-20 — same act, same feedback.
+      if (voucherScanArmed) {
+        void addVoucherToBasket(payload).then((row) => playScanSound(row ? "success" : "error"));
+      }
       return;
     }
     void (async () => {
       const acct = await accountFromScan(payload);
+      // The tone answers "did the beam read my card", so it fires on the READ,
+      // not on the Intercard lookup that follows — waiting for a round trip
+      // would give up the immediacy that makes the tone worth having, and a
+      // card that reads but isn't found already has its own on-screen copy.
+      playScanSound(acct ? "success" : "error");
       if (acct) routeCardNumber(acct);
     })();
   };
