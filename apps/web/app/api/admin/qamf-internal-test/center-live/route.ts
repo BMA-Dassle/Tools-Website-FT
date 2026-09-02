@@ -78,14 +78,11 @@ export async function GET(req: NextRequest) {
   const offers = await timed<unknown>("listWebOffers", () => listWebOffers(centerId));
   const lanes = await timed<Lane[]>("listLanes", () => listLanes(centerId));
 
-  // listWebOffers does NOT unwrap the QAMF { WebOffers: [...] } envelope (unlike
-  // listLanes), so coerce to an array here rather than calling .filter/.map on
-  // the raw object — that would throw outside timed() and 500 the whole route.
+  // listWebOffers unwraps the QAMF { WebOffers: [...] } envelope itself now, the same way
+  // listLanes does. Still guarded, because a failed call leaves data undefined.
   const offerList: WebOfferDetail[] = Array.isArray(offers.data)
     ? (offers.data as WebOfferDetail[])
-    : Array.isArray((offers.data as { WebOffers?: WebOfferDetail[] } | undefined)?.WebOffers)
-      ? (offers.data as { WebOffers: WebOfferDetail[] }).WebOffers
-      : [];
+    : [];
 
   const live = offers.ok && lanes.ok;
   return NextResponse.json({

@@ -48,7 +48,26 @@ export type BookedLaneStatus =
   | "Ready"
   | "Running"
   | "Completed";
-export type ReservationStatus = "Temporary" | "Confirmed" | "Arrived" | "Completed";
+/**
+ * Every status the API can REPORT (spec v1.4). `Canceled` / `NoShow` never appeared here
+ * before because we only ever read reservations we had just created — `reservations/search`
+ * returns historic ones too, and treating a canceled booking as live occupancy would fence
+ * off lanes that are actually free.
+ */
+export type ReservationStatus =
+  | "None"
+  | "Canceled"
+  | "NoShow"
+  | "Temporary"
+  | "Provisional"
+  | "Confirmed"
+  | "Arrived"
+  | "Completed";
+
+/** The subset we are allowed to transition a reservation TO. Deliberately narrower than
+ *  what the API reports — nothing should be able to PATCH a booking to "Canceled" here
+ *  (deletion is its own endpoint) or invent "None". */
+export type SettableReservationStatus = "Temporary" | "Confirmed" | "Arrived" | "Completed";
 export type Service = "PlayNow" | "BookForLater";
 export type OpenType = "None" | "Time" | "Game" | "Unlimited";
 
@@ -73,6 +92,22 @@ export interface BookedLane {
   StartTime: string;
   EndTime: string;
   Players?: Player[];
+  /** Lane duration in minutes. Present on search results; QAMF recomputes it from
+   *  players × games on Game-type offers, so never treat it as authoritative input. */
+  Minutes?: number;
+}
+
+/** Where a reservation came from. `Conqueror` = created at the front desk, invisible to
+ *  Neon until its lane opens. Our own kiosk reports as `ExternalApi` — separate web from
+ *  kiosk by reservation-id prefix (`X` API, `C` Conqueror, `K` kiosk), not by this. */
+export type ReservationSource = "None" | "Web" | "Kiosk" | "Conqueror" | "ExternalApi";
+
+/** Conqueror-side reservation category — "Walk-in > Classic", "League", "Maintenance",
+ *  "Non-bookable", "Birthday Party", … Free text configured per center. */
+export interface ReservationType {
+  Id?: string;
+  Description?: string;
+  Service?: boolean;
 }
 
 export interface Guest {
@@ -99,6 +134,11 @@ export interface Reservation {
   TotalPlayers?: number;
   GamesPerPlayer?: number;
   Lanes?: BookedLane[];
+  Type?: ReservationType;
+  /** NOT a real arrival stamp — it mirrors the booked time (428/428 on a sampled FM
+   *  Saturday read "at or before slot"). Do not build punctuality logic on it. */
+  CheckInAt?: string | null;
+  PromotionalCode?: string | null;
 }
 
 export interface NewReservationInput {
@@ -154,6 +194,39 @@ function withNormalizedGuestPhone<
     ...customer,
     Guest: { ...customer.Guest, PhoneNumber: normalizeGuestPhone(customer.Guest.PhoneNumber) },
   };
+}
+
+/**
+ * Render an instant as center-local wall-clock ISO with the real UTC offset,
+ * e.g. "2026-07-15T15:30:00-04:00".
+ *
+ * REQUIRED for the lanes PATCH: Conqueror takes the wall-clock portion as CENTER-LOCAL
+ * and ignores the offset (probed live 2026-07-14 — a Z-rendered 15:30 ET instant landed at
+ * 7:30 PM ET, and the immediate GET echoed the requested instant, so a same-moment verify
+ * can't catch it). Writing local wall-clock + true offset is correct under both readings.
+ * Also the right shape for `searchReservations` bounds. All three centers are Eastern.
+ *
+ * Lives here rather than in a caller because every vendor wire format decision belongs
+ * with the vendor client — `qamf-reschedule.ts` and the lane-plan grid share this one
+ * definition so they cannot drift.
+ */
+export function toCenterLocalIso(ms: number): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZoneName: "longOffset",
+  }).formatToParts(new Date(ms));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  // timeZoneName is "GMT-04:00" (or "GMT" for a zero offset).
+  const gmt = get("timeZoneName");
+  const offset = /GMT([+-]\d{2}:\d{2})/.exec(gmt)?.[1] ?? "+00:00";
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}${offset}`;
 }
 
 /**
@@ -243,6 +316,45 @@ export async function listLanes(centerId: number): Promise<Lane[]> {
   return Array.isArray(res) ? res : [];
 }
 
+/**
+ * POST /centers/{centerId}/reservations/search — EVERY booking in a window.
+ *
+ * This is the only complete view of lane occupancy we have. It returns front-desk
+ * (`Source: "Conqueror"`) reservations, leagues, maintenance and non-bookable blocks —
+ * none of which reach Neon, because `bowling_reservations` only learns about a Conqueror
+ * booking when its lane OPENS. Any lane-occupancy decision must be built on this, never
+ * on our own DB. Verified live on all three centers 2026-08-24.
+ *
+ * Two traps:
+ *  - The filter shape is `Filter.Lanes[0].StartTimeRange`, NOT `BookedAtRange`. The older
+ *    `qamf-duration-probe.mts` sent the latter, which is why §7 P3 of the bowling flow plan
+ *    was never actually answered.
+ *  - Semantics are "reservations with at least one lane whose START falls in the range", so
+ *    a session already running at `startAt` is NOT returned. Callers wanting true
+ *    point-in-time occupancy must widen the leading edge by the longest possible session —
+ *    `buildGrid` does this via `MAX_SESSION_MINUTES`.
+ *
+ * Requires Conqueror >= 15.17 (all three centers as of 2026-08-24); older centers 412
+ * with `VersionRequired`. Pinned to the bare `"1.4"` — the date-suffixed `2025-12-01.1.4`
+ * is a trap that silently serves old semantics.
+ */
+export async function searchReservations(
+  centerId: number,
+  /** Center-local ISO with a true offset, e.g. `2026-08-29T11:00:00.000-04:00`. */
+  startAt: string,
+  endAt: string,
+): Promise<Reservation[]> {
+  const res = await call<{ Reservations?: Reservation[] }>({
+    method: "POST",
+    path: `/centers/${centerId}/reservations/search`,
+    body: { Filter: { Lanes: [{ StartTimeRange: { StartAt: startAt, EndAt: endAt } }] } },
+    errLabel: `searchReservations(${centerId})`,
+    centerId,
+    apiVersion: "1.4",
+  });
+  return res?.Reservations ?? [];
+}
+
 /** GET /centers/{centerId}/weboffers — every configured web offer */
 export interface WebOfferDetail {
   Id: string | number;
@@ -258,13 +370,28 @@ export interface WebOfferDetail {
   };
   Services: Service[];
 }
+/**
+ * QAMF wraps this as `{ WebOffers: [...] }`. The declared return type has always said
+ * array, so callers that trusted it got an object and threw — `qamf-internal-test/center-live`
+ * carries a hand-rolled unwrap and a comment about exactly this. Unwrap here instead, the
+ * same way `listLanes` already does, so the type stops lying. The bare-array fallback keeps
+ * an envelope-less response working.
+ */
 export async function listWebOffers(centerId: number): Promise<WebOfferDetail[]> {
-  return call({
+  const res = await call<{ WebOffers?: WebOfferDetail[] } | WebOfferDetail[]>({
     method: "GET",
     path: `/centers/${centerId}/weboffers`,
     errLabel: `listWebOffers(${centerId})`,
     centerId,
   });
+  if (
+    res &&
+    !Array.isArray(res) &&
+    Array.isArray((res as { WebOffers?: WebOfferDetail[] }).WebOffers)
+  ) {
+    return (res as { WebOffers: WebOfferDetail[] }).WebOffers;
+  }
+  return Array.isArray(res) ? res : [];
 }
 
 /** GET /centers/{centerId}/weboffers/{id} — single web-offer detail */
@@ -305,11 +432,22 @@ export async function searchAvailability(
   });
 }
 
-/** POST /centers/{centerId}/reservations — create a temporary
- *  reservation. Returns the new Reservation with `Id` (Xnnn). */
+/**
+ * POST /centers/{centerId}/reservations — create a temporary reservation.
+ * Returns the new Reservation with `Id` (Xnnn).
+ *
+ * `input.Lanes` pins the reservation to specific lane numbers instead of letting QAMF
+ * auto-assign. The field has always been in our type and no caller has ever populated it,
+ * so every booking we have ever made took whatever lane QAMF chose. `apiVersion` exists
+ * because the pinned default (`2025-12-01.1.0`) predates the pin being documented — pass
+ * `"1.4"` when sending `Lanes`, and check the response rather than assuming it was
+ * honored: a version that does not understand the field will happily ignore it and
+ * auto-assign anyway.
+ */
 export async function createReservation(
   centerId: number,
   input: NewReservationInput,
+  apiVersion?: string,
 ): Promise<Reservation> {
   return call({
     method: "POST",
@@ -321,6 +459,7 @@ export async function createReservation(
     },
     errLabel: `createReservation(${centerId})`,
     centerId,
+    apiVersion,
   });
 }
 
@@ -388,7 +527,7 @@ export async function setReservationCustomer(
 export async function setReservationStatus(
   centerId: number,
   reservationId: string,
-  status: ReservationStatus,
+  status: SettableReservationStatus,
 ): Promise<boolean> {
   try {
     await call({
@@ -418,7 +557,7 @@ export async function setReservationStatus(
 export async function patchReservation(
   centerId: number,
   reservationId: string,
-  fields: { Title?: string; Notes?: string; Status?: ReservationStatus },
+  fields: { Title?: string; Notes?: string; Status?: SettableReservationStatus },
 ): Promise<void> {
   await call({
     method: "PATCH",
