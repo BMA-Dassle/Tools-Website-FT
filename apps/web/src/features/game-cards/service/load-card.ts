@@ -9,7 +9,9 @@
  * credits it. Keyed by the row's stable `tpi_transaction_id` (Intercard
  * dedups), so a retry is safe. A load that doesn't confirm leaves a `pending`
  * row for the reconcile cron — never an auto-refund (same recover-forward
- * doctrine as reload).
+ * doctrine as reload). A load that reports success but reads back EMPTY is a
+ * different animal: it lands `load_failed` (terminal, never auto-replayed) so a
+ * human sees it — see creditLandedNothing below.
  *
  * FREE LOADS ARE STILL FORBIDDEN. `kind='voucher'` rows carry no money, so the
  * "was it charged?" gate is replaced — not removed — by "is the BMI comp
@@ -28,9 +30,27 @@ import type { LoadCardInput } from "../schemas";
 import type { CardBalance, TxnKind } from "../types";
 // Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
 import { clearAccount, verifyAccount } from "../data/intercard-router";
-import { getTxn, markLoadState, setTxnAccount } from "../data/transactions-log";
+import { getTxn, markLoadState, setTxnAccount, type LoadedVia } from "../data/transactions-log";
 import { getLiveClaimForTxn } from "../data/voucher-claims-db";
-import { applyCreditPlan, creditPlanForRow, planIsEmpty } from "./credit-plan";
+import { applyCreditPlan, creditPlanForRow, planIsEmpty, type CreditPlan } from "./credit-plan";
+
+/**
+ * Did a credit that reported success actually put nothing on the card?
+ *
+ * Deliberately narrow — this only fires on a card where EVERY balance component
+ * is zero, which no successful token credit can produce. It is not a
+ * reconciliation of expected-vs-actual: a recycled blank can carry residue and a
+ * reload lands on top of whatever the guest already had, so anything short of
+ * "wholly empty" is not unambiguous proof and is left alone.
+ *
+ * Returns false for a plan that credits no tokens at all (e.g. a bonus-cash-only
+ * voucher) — there is nothing to prove and cash is not in CardBalance.
+ */
+function creditLandedNothing(b: CardBalance | undefined, plan: CreditPlan): boolean {
+  if (!b) return false;
+  if (plan.tokens <= 0 && plan.bonusTokens <= 0) return false;
+  return b.tokens === 0 && b.bonusTokens === 0 && b.eTickets === 0 && b.timeMinutes === 0;
+}
 
 export interface LoadCardResult {
   loaded: boolean;
@@ -133,6 +153,8 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
   }
 
   let loaded = false;
+  /** Which door delivered the credit — recorded on the row (see LoadedVia). */
+  let via: LoadedVia | undefined;
   {
     // Clear-on-encode (GC_CLEAR_ON_ENCODE): de-register the card's existing
     // account BEFORE crediting (clearAccount → TPI_ClearAccount), so a RECYCLED
@@ -186,15 +208,16 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
       }
     }
     try {
-      const { code } = await applyCreditPlan(plan, {
+      const res = await applyCreditPlan(plan, {
         locationCode: input.locationCode,
         accountNumber: input.accountNumber,
         tpiTransactionID: row.tpiTransactionId,
       });
-      loaded = code === 0;
+      loaded = res.code === 0;
+      via = res.transport;
       if (!loaded) {
         console.error(
-          `[game-cards] new-card load code ${code} txn=${row.txnId} card=${input.accountNumber} — pending`,
+          `[game-cards] new-card load code ${res.code} txn=${row.txnId} card=${input.accountNumber} — pending`,
         );
       }
     } catch (err) {
@@ -204,21 +227,59 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
       );
     }
   }
-  await markLoadState(
-    input.txnId,
-    loaded ? "loaded" : "pending",
-    loaded ? undefined : "load not confirmed",
-    loaded ? "soap" : undefined,
-  );
 
+  /**
+   * Read the card back BEFORE committing "loaded" to the ledger.
+   *
+   * A result code of 0 is NOT proof the value landed. On 2026-09-01 two cards
+   * (loc 6, $30 for 300+50; loc 13, $10 for 100+0) were stamped `loaded` off a
+   * code-0 credit and read back completely empty — no tokens, no bonus, no
+   * tickets, no history — and nothing ever flagged them, because the ledger
+   * already said success. That is strictly worse than a visible failure: the
+   * guest walks away with a dead card and no row to find them by.
+   *
+   * Only POSITIVE evidence of an empty card downgrades the row. An unreadable
+   * card leaves the code-0 verdict standing, so a flaky read can never retain a
+   * card that is actually good.
+   */
   let balance: CardBalance | undefined;
+  let emptyAfterCredit = false;
   if (loaded) {
     try {
       balance = (await verifyAccount(input.accountNumber, input.locationCode)).balance;
+      emptyAfterCredit = creditLandedNothing(balance, plan);
     } catch {
-      /* non-fatal — the load is what matters */
+      /* non-fatal — an unreadable card is not evidence of a failed load */
     }
   }
+  if (emptyAfterCredit) {
+    loaded = false;
+    balance = undefined;
+    console.error(
+      `[game-cards] MANUAL INTERVENTION REQUIRED txn=${row.txnId} card=${input.accountNumber}: ` +
+        `credit reported success via ${via ?? "?"} but the card reads EMPTY ` +
+        `(expected ${plan.tokens}+${plan.bonusTokens}) — card retained, not handed over`,
+    );
+  }
+
+  /**
+   * `load_failed` (terminal), NOT `pending`, when the readback proved the card
+   * empty. `listPendingLoads` only replays `pending` rows, and a replay now
+   * rides the router — whose onsite leg has NO idempotency (measured
+   * 2026-08-31: the same transactionID credited twice applied twice). So an
+   * auto-retry of a row we cannot explain risks double-crediting. Surface it
+   * for a human instead.
+   */
+  await markLoadState(
+    input.txnId,
+    loaded ? "loaded" : emptyAfterCredit ? "load_failed" : "pending",
+    loaded
+      ? undefined
+      : emptyAfterCredit
+        ? "credit reported success but the card read back empty"
+        : "load not confirmed",
+    loaded ? via : undefined,
+  );
 
   return {
     loaded,

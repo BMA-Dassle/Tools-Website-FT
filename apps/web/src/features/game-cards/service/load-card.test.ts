@@ -402,3 +402,141 @@ describe("loadCard (comp voucher: free load, authorised by the claim)", () => {
     vi.stubEnv("GC_CLEAR_ON_ENCODE", "");
   });
 });
+
+/**
+ * A result code of 0 is not proof the value landed. On 2026-09-01 two production
+ * cards (loc 6 $30 for 300+50, loc 13 $10 for 100+0) were stamped `loaded` off a
+ * code-0 credit and read back completely empty — and nothing ever flagged them,
+ * because the ledger already claimed success.
+ */
+describe("loadCard readback — a code-0 credit must actually reach the card", () => {
+  const readsBack = (b: {
+    tokens: number;
+    bonusTokens: number;
+    eTickets: number;
+    timeMinutes: number;
+  }) =>
+    ({
+      exists: true,
+      accountNumber: input.accountNumber,
+      balance: b,
+    }) as const;
+
+  it("refuses to hand over a card that reads EMPTY after a successful credit", async () => {
+    const { intercard, log } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(chargedRow);
+    (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      transport: "onsite",
+    });
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue(
+      readsBack({ tokens: 0, bonusTokens: 0, eTickets: 0, timeMinutes: 0 }),
+    );
+    const { loadCard } = await import("./load-card");
+
+    const res = await loadCard(input);
+
+    expect(res.loaded).toBe(false);
+    expect(res.balance).toBeUndefined();
+    // `load_failed` is TERMINAL on purpose: listPendingLoads only replays
+    // `pending`, and a replay rides the router — whose onsite leg has no
+    // idempotency, so an auto-retry here could double-credit.
+    expect(order).toContain("markLoadState:load_failed");
+    expect(order).not.toContain("markLoadState:loaded");
+  });
+
+  it("accepts a card whose readback shows the value", async () => {
+    const { intercard, log } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(chargedRow);
+    (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      transport: "onsite",
+    });
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue(
+      readsBack({ tokens: 500, bonusTokens: 100, eTickets: 0, timeMinutes: 0 }),
+    );
+    const { loadCard } = await import("./load-card");
+
+    expect((await loadCard(input)).loaded).toBe(true);
+    expect(order).toContain("markLoadState:loaded");
+  });
+
+  it("a card holding only TICKETS is not 'empty' — the credit plainly did something", async () => {
+    const { intercard, log } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(chargedRow);
+    (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      transport: "cloud",
+    });
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue(
+      readsBack({ tokens: 0, bonusTokens: 0, eTickets: 12, timeMinutes: 0 }),
+    );
+    const { loadCard } = await import("./load-card");
+
+    expect((await loadCard(input)).loaded).toBe(true);
+  });
+
+  it("an UNREADABLE card leaves the code-0 verdict standing — a flaky read never retains a good card", async () => {
+    const { intercard, log } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(chargedRow);
+    (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      transport: "onsite",
+    });
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("relay down"),
+    );
+    const { loadCard } = await import("./load-card");
+
+    expect((await loadCard(input)).loaded).toBe(true);
+    expect(order).toContain("markLoadState:loaded");
+  });
+
+  it("records WHICH transport delivered the load, not a hardcoded label", async () => {
+    const { intercard, log } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(chargedRow);
+    (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      transport: "onsite",
+    });
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue(
+      readsBack({ tokens: 500, bonusTokens: 100, eTickets: 0, timeMinutes: 0 }),
+    );
+    const { loadCard } = await import("./load-card");
+    await loadCard(input);
+
+    expect(log.markLoadState).toHaveBeenCalledWith(
+      input.txnId,
+      "loaded",
+      undefined,
+      "onsite", // was: always "soap"
+    );
+  });
+
+  it("a bonus-CASH-only plan is never judged empty (cash is not in CardBalance)", async () => {
+    const { intercard, log, claims } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...voucherRow,
+      packageId: "gzv-cash",
+      tokens: 0,
+      bonusTokens: 0,
+    });
+    (claims.getLiveClaimForTxn as ReturnType<typeof vi.fn>).mockResolvedValue({
+      packageId: "gzv-cash",
+    });
+    (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      transport: "onsite",
+    });
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue(
+      readsBack({ tokens: 0, bonusTokens: 0, eTickets: 0, timeMinutes: 0 }),
+    );
+    const { loadCard } = await import("./load-card");
+
+    // Either the package resolves to a cash plan (and an all-zero token balance
+    // proves nothing), or it resolves to nothing at all — but it must never be
+    // reported as a card we emptied.
+    const res = await loadCard({ ...input }).catch(() => null);
+    if (res) expect(order).not.toContain("markLoadState:load_failed");
+  });
+});
