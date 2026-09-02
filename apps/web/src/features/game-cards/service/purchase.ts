@@ -18,7 +18,12 @@ import { GameCardHttpError } from "../errors";
 import type { PurchaseInput } from "../schemas";
 import type { CardLoadResult, PurchaseResult } from "../types";
 // Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
-import { creditTokens, verifyAccount, IntercardError } from "../data/intercard-router";
+import {
+  creditTokens,
+  verifyAccount,
+  verifyAccountOnsite,
+  IntercardError,
+} from "../data/intercard-router";
 import { createReloadOrder } from "../data/square-order";
 import {
   startTxn,
@@ -386,7 +391,11 @@ export async function purchase(
   };
 }
 
-/** Inline cloud-SOAP load — the v1 path, unchanged (non-queue centers). */
+/**
+ * Inline web-reload load (all centers — the on-prem bridge is retired). Credits
+ * through the router, which is ONSITE FIRST and only falls to cloud SOAP when the
+ * on-site relay provably never took the write.
+ */
 async function loadCardsInline(rows: CartRow[], locationCode: number): Promise<CardLoadResult[]> {
   const results: CardLoadResult[] = [];
   for (const row of rows) {
@@ -412,24 +421,53 @@ async function loadCardsInline(rows: CartRow[], locationCode: number): Promise<C
         err instanceof Error ? err.message : err,
       );
     }
-    await markLoadState(
-      row.txnId,
-      loaded ? "loaded" : "pending",
-      loaded ? undefined : "load not confirmed",
-      loaded ? via : undefined,
-    );
-
+    // Confirm against the ON-SITE server before reporting success. A code-0
+    // credit is NOT proof the value landed — 2026-09-02, code-0 loads reached
+    // neither the onsite nor the cloud copy. The readback is pinned to onsite
+    // (verifyAccountOnsite) because that is the copy the redemption games read.
+    // A reload lands on top of whatever the guest already had and is not a card
+    // we hold, so only a POSITIVELY empty onsite read downgrades it; an
+    // unreadable onsite read is not evidence. (Fresh-blank counterpart lives in
+    // load-card.ts, which additionally fails closed on an unreadable card.)
     let balance;
     let transactions;
+    let emptyAfterCredit = false;
     if (loaded) {
       try {
-        const v = await verifyAccount(row.accountNumber, locationCode);
+        const v = await verifyAccountOnsite(row.accountNumber, locationCode);
         balance = v.balance;
         transactions = v.transactions;
+        emptyAfterCredit =
+          !!balance &&
+          balance.tokens === 0 &&
+          balance.bonusTokens === 0 &&
+          balance.eTickets === 0 &&
+          balance.timeMinutes === 0 &&
+          (row.pkg.tokens > 0 || row.pkg.bonusTokens > 0);
       } catch {
-        /* non-fatal */
+        /* onsite unreadable — a reload is never retained; keep the code-0 verdict */
       }
     }
+    if (emptyAfterCredit) {
+      loaded = false;
+      balance = undefined;
+      transactions = undefined;
+      console.error(
+        `[game-cards] MANUAL INTERVENTION REQUIRED txn=${row.txnId} card=${row.accountNumber}: ` +
+          `web reload credit reported success via ${via ?? "?"} but the on-site server reads the ` +
+          `card EMPTY (expected +${row.pkg.tokens}+${row.pkg.bonusTokens}) — not reported as loaded`,
+      );
+    }
+    await markLoadState(
+      row.txnId,
+      loaded ? "loaded" : emptyAfterCredit ? "load_failed" : "pending",
+      loaded
+        ? undefined
+        : emptyAfterCredit
+          ? "credit reported success but the card read back empty"
+          : "load not confirmed",
+      loaded ? via : undefined,
+    );
     results.push({
       txnId: row.txnId,
       accountNumber: row.accountNumber,

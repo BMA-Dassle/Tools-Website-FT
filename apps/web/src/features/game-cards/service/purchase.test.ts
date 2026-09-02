@@ -19,7 +19,16 @@ vi.mock("../data/intercard-router", () => {
       this.code = code;
     }
   }
-  return { IntercardError, verifyAccount: vi.fn(), creditTokens: vi.fn() };
+  return {
+    IntercardError,
+    verifyAccount: vi.fn(),
+    // Post-credit readback, pinned to the on-site server. Separate from
+    // verifyAccount: the pre-charge blank check legitimately reads a zero
+    // balance, whereas an all-zero readback here means the credit did not land.
+    // Defaulted to a confirming (non-empty) balance in beforeEach.
+    verifyAccountOnsite: vi.fn(),
+    creditTokens: vi.fn(),
+  };
 });
 
 vi.mock("../data/square-order", () => ({
@@ -96,9 +105,17 @@ async function loadMocks() {
   return { intercard, sq };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   order.length = 0;
   vi.clearAllMocks();
+  // Default: the on-site readback confirms the credit landed. A test that needs
+  // to simulate a code-0 credit that reached nothing overrides this.
+  const intercard = await import("../data/intercard-router");
+  (intercard.verifyAccountOnsite as ReturnType<typeof vi.fn>).mockResolvedValue({
+    exists: true,
+    accountNumber: "x",
+    balance: { tokens: 500, bonusTokens: 0, eTickets: 0, timeMinutes: 0 },
+  });
 });
 
 describe("purchase order engine (cart)", () => {
@@ -210,6 +227,42 @@ describe("purchase order engine (cart)", () => {
     expect(res.anyPending).toBe(true);
     expect(order).toContain("markLoadState:loaded");
     expect(order).toContain("markLoadState:pending");
+  });
+
+  it("web reload: a code-0 credit that the on-site server reads EMPTY is NOT reported loaded", async () => {
+    // The web-reload twin of the kiosk empty-card fix. creditTokens returns
+    // success, but the on-site server (the copy the games read) shows the card
+    // still empty, so the value never landed — must not tell the guest it did.
+    const { intercard } = await loadMocks();
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: true,
+      accountNumber: "555",
+      balance: { tokens: 0, bonusTokens: 0, timeMinutes: 0 },
+    });
+    (intercard.creditTokens as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      transport: "onsite",
+    });
+    // On-site reads the card back empty despite the code-0 credit.
+    (intercard.verifyAccountOnsite as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: true,
+      accountNumber: "555",
+      balance: { tokens: 0, bonusTokens: 0, eTickets: 0, timeMinutes: 0 },
+    });
+    const { purchase } = await import("./purchase");
+
+    const res = await purchase({
+      kind: "reload",
+      locationCode: 12,
+      items: [{ accountNumber: "555", packageId: "tok-500" }],
+      cardNonce: "cnon-1",
+    });
+
+    const r = res.results.find((x) => x.accountNumber === "555")!;
+    expect(r.loaded).toBe(false);
+    expect(res.anyPending).toBe(true);
+    expect(order).toContain("markLoadState:load_failed");
+    expect(order).not.toContain("markLoadState:loaded");
   });
 });
 
