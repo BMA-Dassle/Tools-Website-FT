@@ -63,6 +63,9 @@ const BURST_IDLE_MS = 150;
 const BURST_MAX_CHARS = 512;
 /** Backoff between silent reconnect attempts after the port drops. */
 const RECONNECT_BACKOFFS = [1_000, 2_000, 4_000, 8_000] as const;
+/** How long a close waits for the read loop to give the stream lock back
+ *  before giving up on a graceful release (see `closePort`). */
+const LOOP_DRAIN_TIMEOUT_MS = 1_500;
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -96,6 +99,8 @@ export function useSerialMsr(opts: UseSerialMsrOptions = {}) {
   const portRef = useRef<SerialPort | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const closingRef = useRef(false);
+  /** The live read loop. `closePort` MUST await it — see the comment there. */
+  const loopRef = useRef<Promise<void> | null>(null);
   const enabledRef = useRef(enabled);
   useEffect(() => {
     enabledRef.current = enabled;
@@ -185,16 +190,33 @@ export function useSerialMsr(opts: UseSerialMsrOptions = {}) {
     portRef.current = null;
     readerRef.current = null;
     if (!port && !reader) return;
+    const loop = loopRef.current;
+    loopRef.current = null;
     const closing = (async () => {
       try {
         await reader?.cancel();
       } catch {
         /* already gone */
       }
+      // `port.close()` REJECTS while `port.readable` is locked, and cancelling
+      // the reader does NOT release that lock — the read loop's `finally` does
+      // (`releaseLock()`), one microtask later. Closing without waiting for the
+      // loop therefore always rejects, and because the rejection is swallowed
+      // the port stays OPEN for the life of the page while this hook believes
+      // it is closed — the next surface to want the reader gets
+      // InvalidStateError on a handle nobody can reach any more. (Diagnosed on
+      // the QR scanner 2026-09-02; identical shape here.) Race a short timeout
+      // so a wedged reader can never make an unmount hang.
+      if (loop) {
+        await Promise.race([
+          loop.catch(() => undefined),
+          new Promise<void>((r) => setTimeout(r, LOOP_DRAIN_TIMEOUT_MS)),
+        ]);
+      }
       try {
         await port?.close();
       } catch {
-        /* already gone */
+        /* already gone, or still locked — openPort recovers it */
       }
     })();
     closePromiseRef.current = closing;
@@ -208,8 +230,24 @@ export function useSerialMsr(opts: UseSerialMsrOptions = {}) {
       if (portRef.current) return true;
       closingRef.current = false;
       setConnection({ state: "connecting" });
+      const line = { baudRate: baud ?? MSR_DEFAULT_BAUD };
       try {
-        await port.open({ baudRate: baud ?? MSR_DEFAULT_BAUD });
+        try {
+          await port.open(line);
+        } catch (first) {
+          // "Already open" is the one open failure we can fix ourselves: an
+          // earlier consumer of this grant left it open because its close
+          // could not release the stream lock. The grant is ours and that
+          // handle is unreachable now, so close it properly and open once
+          // more. Every other failure is real and falls through.
+          if (!(first instanceof DOMException) || first.name !== "InvalidStateError") throw first;
+          try {
+            await port.close();
+          } catch {
+            /* nothing to reclaim — the rethrow below reports the real state */
+          }
+          await port.open(line);
+        }
       } catch (err) {
         if (o.silent) {
           setConnection({ state: "disconnected", hadPortGrant: true });
@@ -242,26 +280,26 @@ export function useSerialMsr(opts: UseSerialMsrOptions = {}) {
       portRef.current = port;
       setConnection({ state: "listening" });
       onConnectedRef.current?.(port.getInfo(), baud ?? MSR_DEFAULT_BAUD);
-      void readLoop(port)
-        .catch(() => undefined)
-        .then(async () => {
-          // Stream ended: deliberate close, or the reader was unplugged.
-          const deliberate = closingRef.current;
-          await closePort();
-          if (deliberate) return;
-          if (enabledRef.current) {
-            // closePort raised closingRef to stop loops; an unplug is not a
-            // deliberate close, so lower it or the reconnect bails at once.
-            closingRef.current = false;
-            setConnection({ state: "connecting" });
-            attemptReconnectRef.current();
-          } else {
-            setConnection({
-              state: "error",
-              message: "MSR disconnected — check the cable, then reconnect.",
-            });
-          }
-        });
+      const loop = readLoop(port).catch(() => undefined);
+      loopRef.current = loop;
+      void loop.then(async () => {
+        // Stream ended: deliberate close, or the reader was unplugged.
+        const deliberate = closingRef.current;
+        await closePort();
+        if (deliberate) return;
+        if (enabledRef.current) {
+          // closePort raised closingRef to stop loops; an unplug is not a
+          // deliberate close, so lower it or the reconnect bails at once.
+          closingRef.current = false;
+          setConnection({ state: "connecting" });
+          attemptReconnectRef.current();
+        } else {
+          setConnection({
+            state: "error",
+            message: "MSR disconnected — check the cable, then reconnect.",
+          });
+        }
+      });
       return true;
     },
     [baud, readLoop, closePort],

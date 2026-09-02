@@ -70,6 +70,12 @@ export interface UseQrScannerOptions {
 const SCAN_HISTORY_MAX = 100;
 /** Backoff between silent reconnect attempts after the port drops. */
 const RECONNECT_BACKOFFS = [1_000, 2_000, 4_000, 8_000] as const;
+/** How long a close waits for the read loop to give the stream lock back
+ *  before giving up on a graceful release (see `closePort`). */
+const LOOP_DRAIN_TIMEOUT_MS = 1_500;
+/** Slow retry while armed but not listening — outlasts another device's
+ *  blind port probe (up to 12s per baud on the CRT-591 hunt). */
+const IDLE_RETRY_MS = 20_000;
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -107,6 +113,8 @@ export function useQrScanner(opts: UseQrScannerOptions = {}) {
   const portRef = useRef<SerialPort | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const closingRef = useRef(false);
+  /** The live read loop. `closePort` MUST await it — see the comment there. */
+  const loopRef = useRef<Promise<void> | null>(null);
   // Each successful open gets a session id; a stale read-loop completion (from
   // a port we already closed to re-open at a new baud) must not tear down or
   // "reconnect" over the live session.
@@ -162,6 +170,28 @@ export function useQrScanner(opts: UseQrScannerOptions = {}) {
     [model.framing, emit],
   );
 
+  /**
+   * Release the port for real.
+   *
+   * `port.close()` REJECTS with InvalidStateError while `port.readable` is
+   * still locked, and `reader.cancel()` does NOT release that lock — it only
+   * makes the pending `read()` resolve `{ done: true }`. The lock goes back in
+   * the read loop's `finally` (`releaseLock()`), a LATER microtask, so a
+   * close that only awaits `cancel()` always resumes with the stream still
+   * locked, always rejects, and — because the rejection was swallowed and
+   * `portRef` nulled anyway — leaves the COM port OPEN for the life of the
+   * page while this hook believes it is closed.
+   *
+   * That is not theoretical: it is why scanning inside Game Zone did nothing
+   * (2026-09-02). The entry-screen listener unmounted, "closed" its port, and
+   * every later surface's `port.open()` hit InvalidStateError on a port
+   * nobody could reach any more. So: cancel, AWAIT THE LOOP (that is what
+   * unlocks the stream), then close.
+   *
+   * The loop is raced against a short timeout so a wedged reader can never
+   * make an unmount hang — a close we could not finish is still reported, and
+   * `openPort`'s InvalidStateError recovery takes the port back on the way in.
+   */
   const closePort = useCallback(async () => {
     closingRef.current = true;
     try {
@@ -169,12 +199,21 @@ export function useQrScanner(opts: UseQrScannerOptions = {}) {
     } catch {
       /* already gone */
     }
-    try {
-      await portRef.current?.close();
-    } catch {
-      /* already gone */
+    const loop = loopRef.current;
+    loopRef.current = null;
+    if (loop) {
+      await Promise.race([
+        loop.catch(() => undefined),
+        new Promise<void>((r) => setTimeout(r, LOOP_DRAIN_TIMEOUT_MS)),
+      ]);
     }
+    const port = portRef.current;
     portRef.current = null;
+    try {
+      await port?.close();
+    } catch {
+      /* already gone, or still locked — openPort recovers it */
+    }
   }, []);
 
   /** Open + listen. Returns true once listening. */
@@ -183,13 +222,30 @@ export function useQrScanner(opts: UseQrScannerOptions = {}) {
       if (portRef.current) return true;
       closingRef.current = false;
       setConnection({ state: "connecting" });
+      const line = {
+        baudRate: effectiveBaud,
+        dataBits: model.lineSettings?.dataBits ?? 8,
+        parity: model.lineSettings?.parity ?? "none",
+        stopBits: model.lineSettings?.stopBits ?? 1,
+      } as const;
       try {
-        await port.open({
-          baudRate: effectiveBaud,
-          dataBits: model.lineSettings?.dataBits ?? 8,
-          parity: model.lineSettings?.parity ?? "none",
-          stopBits: model.lineSettings?.stopBits ?? 1,
-        });
+        try {
+          await port.open(line);
+        } catch (first) {
+          // "Already open" is the ONE open failure we can fix ourselves: an
+          // earlier listener on this page (the entry screen, another surface)
+          // holds this grant open because its own close could not release the
+          // stream lock. The grant is ours and no other surface can reach that
+          // handle any more, so take it back — close it properly, then open
+          // once more. Any other failure is a real one and falls through.
+          if (!(first instanceof DOMException) || first.name !== "InvalidStateError") throw first;
+          try {
+            await port.close();
+          } catch {
+            /* nothing to reclaim — the rethrow below reports the real state */
+          }
+          await port.open(line);
+        }
       } catch (err) {
         if (o.silent) {
           setConnection({ state: "disconnected", hadPortGrant: true });
@@ -218,25 +274,25 @@ export function useQrScanner(opts: UseQrScannerOptions = {}) {
       };
       setConnection({ state: "listening", info });
       onConnectedRef.current?.(info, raw);
-      void readLoop(port)
-        .catch(() => undefined)
-        .then(async () => {
-          // Stream ended: deliberate close (incl. a baud-change reopen), or the
-          // scanner was unplugged. A stale session must not touch the new one.
-          if (sessionSeq.current !== session) return;
-          const deliberate = closingRef.current;
-          await closePort();
-          if (deliberate) return;
-          if (enabledRef.current) {
-            setConnection({ state: "connecting" });
-            attemptReconnectRef.current();
-          } else {
-            setConnection({
-              state: "error",
-              message: "Scanner disconnected — check the USB lead, then reconnect.",
-            });
-          }
-        });
+      const loop = readLoop(port).catch(() => undefined);
+      loopRef.current = loop;
+      void loop.then(async () => {
+        // Stream ended: deliberate close (incl. a baud-change reopen), or the
+        // scanner was unplugged. A stale session must not touch the new one.
+        if (sessionSeq.current !== session) return;
+        const deliberate = closingRef.current;
+        await closePort();
+        if (deliberate) return;
+        if (enabledRef.current) {
+          setConnection({ state: "connecting" });
+          attemptReconnectRef.current();
+        } else {
+          setConnection({
+            state: "error",
+            message: "Scanner disconnected — check the USB lead, then reconnect.",
+          });
+        }
+      });
       return true;
     },
     [effectiveBaud, model, readLoop, closePort],
@@ -330,16 +386,44 @@ export function useQrScanner(opts: UseQrScannerOptions = {}) {
     })();
   }, [model.id, effectiveBaud, closePort, openPort]);
 
-  // Feature-detect + provisioned auto-connect on mount; close on unmount.
-  const triedAutoRef = useRef(false);
+  // Feature-detect + provisioned auto-connect; close on unmount.
+  //
+  // Retried on EVERY enable, not once per mount. A consumer that arms the
+  // reader only on certain screens (Game Zone: off on its menu, on for the
+  // card surfaces) flips `enabled` mid-life, and a single terminal attempt
+  // meant one unlucky first try — a port a previous surface had not finished
+  // releasing — left the scanner dead for the rest of the visit with nothing
+  // able to try again. `attemptingRef` guards overlapping runs; it is NOT a
+  // once-ever latch. An open port short-circuits, so this never re-grabs a
+  // reader that is already listening.
+  const attemptingRef = useRef(false);
   useEffect(() => {
     if (typeof navigator === "undefined" || !("serial" in navigator)) {
       setConnection({ state: "unsupported" });
       return;
     }
-    if (!enabled || triedAutoRef.current) return;
-    triedAutoRef.current = true;
-    void attemptReconnect();
+    if (!enabled || portRef.current || attemptingRef.current) return;
+    attemptingRef.current = true;
+    void attemptReconnect().finally(() => {
+      attemptingRef.current = false;
+    });
+  }, [enabled, attemptReconnect]);
+
+  // Keep trying, slowly, while armed but not listening. The backoff ladder
+  // above spans ~15s and another device on this kiosk can hold a port for
+  // longer than that — the CRT-591 hunt blind-probes each granted port for up
+  // to 12s per baud. Whoever loses that race must be able to come back rather
+  // than stay dark for the rest of the guest's visit.
+  useEffect(() => {
+    if (!enabled || typeof navigator === "undefined" || !("serial" in navigator)) return;
+    const id = setInterval(() => {
+      if (portRef.current || attemptingRef.current) return;
+      attemptingRef.current = true;
+      void attemptReconnect().finally(() => {
+        attemptingRef.current = false;
+      });
+    }, IDLE_RETRY_MS);
+    return () => clearInterval(id);
   }, [enabled, attemptReconnect]);
   useEffect(() => {
     return () => {

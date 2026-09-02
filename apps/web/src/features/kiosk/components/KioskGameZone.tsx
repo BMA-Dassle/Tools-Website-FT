@@ -38,6 +38,7 @@ import { KioskTerminalCheckoutGate } from "./KioskTerminalCheckoutGate";
 import { onsiteHealth, type OnsiteChipStatus } from "../service/game-card-bridge";
 import { kioskGzCartEnabled, kioskVoucherGzEnabled } from "~/features/kiosk/flags";
 import { useQrScanner } from "../qr-scanner/useQrScanner";
+import { holdScanGate, takeScanGate } from "../qr-scanner/scan-gate";
 import { useWedgeScan } from "../checkin/wedge-scan";
 import { classifyKioskCode } from "../code-entry/classify";
 /** What the redeem route reports back — issuer-agnostic (ours or BMI's). */
@@ -825,6 +826,10 @@ export function KioskGameZone({
   useEffect(() => {
     if (seededCardRef.current || !initialCardAccount) return;
     seededCardRef.current = true;
+    // This card came from a scan on the previous screen, so start the cooldown
+    // here too: the reader is very likely still looking at it, and its next
+    // read would arrive at this freshly-mounted screen as a "new" card.
+    holdScanGate();
     // The `mode` initializer above covers a card that is present at MOUNT (the
     // attract screen, which routes here). Scanning on the CHOOSER opens this
     // screen and delivers the card in the same batch, so that path is covered
@@ -1636,11 +1641,15 @@ export function KioskGameZone({
     phase === "cart" && (mode === "balance" || mode === "reload" || mode === "newcard");
   const scanArmed = voucherScanArmed || cardScanArmed;
   const onScanPayload = (payload: string) => {
+    if (mode !== "voucher" && !cardScanArmed) return;
+    // One accepted scan per cooldown (owner 2026-09-02). Claimed BEFORE the
+    // resolve round-trip below, so a reader still looking at the same card
+    // cannot queue a second lookup behind the first.
+    if (!takeScanGate()) return;
     if (mode === "voucher") {
       if (voucherScanArmed) void addVoucherToBasket(payload);
       return;
     }
-    if (!cardScanArmed) return;
     void (async () => {
       const acct = await accountFromScan(payload);
       if (acct) routeCardNumber(acct);

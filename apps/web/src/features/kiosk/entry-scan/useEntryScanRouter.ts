@@ -37,6 +37,7 @@ import { classifyEntryScan, type UnsupportedReason } from "./classify-entry";
 import { stashEntryScan } from "./handoff";
 import { lookupByScan } from "../checkin/service";
 import { accountFromScan, cardIsKnown } from "../service/scanned-card";
+import { takeScanGate } from "../qr-scanner/scan-gate";
 import { gameZoneCapability, type KioskConfig } from "../config";
 import { kioskCheckinEnabled, kioskPromoEnabled } from "../flags";
 import { voucherRedeemEnabled } from "~/features/booking/service/voucher-redeem";
@@ -94,6 +95,12 @@ export function useEntryScanRouter(host: EntryScanRouterHost) {
 
   const handleScan = useCallback(async (raw: string) => {
     if (routingRef.current) return;
+    // One accepted scan per cooldown, kiosk-wide. `routingRef` only covers
+    // THIS component while it is routing; an auto-sense reader keeps firing
+    // and the screen it routes to mounts a fresh listener with fresh state,
+    // which would take the reader's second look at the same card as a new
+    // one. The gate is module-level precisely so it survives that hand-off.
+    if (!takeScanGate()) return;
     const h = hostRef.current;
 
     const checkinOn = kioskCheckinEnabled();

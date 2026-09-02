@@ -19,6 +19,7 @@ export {
   type SerialLineScannerModel,
 } from "./models";
 export { LineAccumulator } from "./line-accumulator";
+export { SCAN_COOLDOWN_MS, holdScanGate, resetScanGate, takeScanGate } from "./scan-gate";
 export { matchScannerPort, type PortLike } from "./port-matching";
 export { deriveScannerCheck, type ScannerCheck, type SerialGrantProbe } from "./scanner-check";
 export { AamvaBurst, parseAamvaLines, type AamvaLicense } from "./aamva";
