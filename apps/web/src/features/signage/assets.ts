@@ -125,9 +125,29 @@ export const TV_WALL_FILMS = {
    * action that makes sense at the end of a page and not on a loop, where it would sit
    * on the wall for six of every thirty-two seconds telling a guest already standing in
    * the building to come to the building.
+   *
+   * AND RETIMED TO 30fps, which is what "the pricing videos are laggy… bowling video is
+   * still lagging" turned out to be (owner 2026-09-01). It was never the file size and
+   * never the cache — the panels had the cache fix and the reel is the LIGHTEST file on
+   * the wall (754 kbps). The web master is 25fps, and the panels run at 60Hz: 60/25 is
+   * 2.4, so a player must hold each frame for two refreshes or three, alternating
+   * 33ms/50ms forever. That irregular cadence is visible, and "laggy" is exactly how a
+   * person describes it. Its own panel-mate below is 30fps — a clean 2:2 — and was never
+   * once reported, which is what isolated it.
+   *
+   * Motion-INTERPOLATED rather than frame-duplicated (`minterpolate=mci:aobmc:bidir`):
+   * duplicating every fifth frame would hold five frames for 33ms and one for 66ms,
+   * trading one irregular cadence for a worse one. Interpolation synthesises genuine
+   * intermediate moments, so every frame is a distinct instant on an even beat.
+   *
+   * A NEW PATHNAME, not an overwrite of the old one, and that part is load-bearing:
+   * `planCacheOps` keys on the URL, so re-cutting in place would leave five panels
+   * playing the 25fps copy off their own disks forever, with nothing to tell them the
+   * bytes behind the URL had changed. A new URL leaves the old one out of the manifest,
+   * where `pruneCache` collects it.
    */
   bowling: [
-    `${BLOB_HOST}/videos/tv-wall/hyperbowling-32s.mp4`,
+    `${BLOB_HOST}/videos/tv-wall/hyperbowling-32s-30fps.mp4`,
     `${BLOB_HOST}/videos/headpinz-neoverse-v2.mp4`,
   ],
   /** The Nexus arena reel — see NEXUS_REEL. */

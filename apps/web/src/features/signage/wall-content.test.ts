@@ -655,6 +655,24 @@ describe("the video turn — one panel at a time", () => {
     expect(panelFilmAt(1_000, 3, panels[3])).toBeNull();
   });
 
+  it("the bowling panel plays the RETIMED HyperBowling reel, never the 25fps master", () => {
+    /**
+     * WHY A FRAME RATE IS A CORRECTNESS PROPERTY HERE, and not a detail of the file:
+     * the panels run at 60Hz, and 60/25 is 2.4 — a player must hold each frame for two
+     * refreshes or three, alternating forever. That irregular cadence is what "bowling
+     * video is still lagging" was (owner 2026-09-01), on the LIGHTEST file on the wall
+     * and after the cache fix had already landed. Its 30fps panel-mate was never once
+     * reported.
+     *
+     * Pinned by URL because that is all a unit test can see — but the rule it stands for
+     * is: anything re-cut for this wall lands at 30fps. A future re-cut that quietly goes
+     * back to the 25fps web master would look like a fresh, unexplained regression.
+     */
+    const bowling = panelFilmAt(0 * T + 1_000, 1, panels[1]);
+    expect(bowling).toContain("hyperbowling-32s-30fps");
+    expect(bowling).not.toMatch(/hyperbowling-32s\.mp4/);
+  });
+
   it("the Nexus panel plays the CUT reel, never the 26s master", () => {
     // The master's tail is a franchise map and a "COMING SOON!" card for an attraction
     // that is open and priced here — see TV_WALL_FILMS.nexus.
