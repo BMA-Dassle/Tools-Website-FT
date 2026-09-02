@@ -2840,7 +2840,7 @@ async function unifiedReserveInner(
     async function createFreshReservation() {
       const candidates =
         immediateLaneGuardEnabled() && isImmediateStart(Date.parse(bookedAt), Date.now())
-          ? await freeLaneCandidates({ centerId, players: players.length })
+          ? (await freeLaneCandidates({ centerId, players: players.length })).candidates
           : [];
       const outcome = await createWithLanePlan({
         candidates,

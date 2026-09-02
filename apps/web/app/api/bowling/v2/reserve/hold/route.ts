@@ -1,5 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { createReservation } from "@/lib/qamf-bowling";
+import { shouldArrangeLane } from "~/features/lane-plan/flags";
+import {
+  placeReservationOnBestLane,
+  planLanesWithinBudget,
+} from "~/features/lane-plan/place.server";
+import { createWithLanePlan, describePinOutcome } from "~/features/lane-plan/pin";
+import { recordLaneDecision } from "@/lib/lane-decisions-db";
+import {
+  freeLaneCandidates,
+  immediateLaneGuardEnabled,
+  isImmediateStart,
+} from "~/features/booking/service/immediate-lane-guard";
 import {
   assertBookable,
   DurationGuardError,
@@ -10,12 +22,6 @@ import {
   midnightMadnessWindowError,
 } from "~/features/booking/service/bowling-offer";
 import { FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
-import {
-  freeLaneCandidates,
-  immediateLaneGuardEnabled,
-  isImmediateStart,
-} from "~/features/booking/service/immediate-lane-guard";
-import { createWithLanePlan, describePinOutcome } from "~/features/lane-plan/pin";
 
 /**
  * POST /api/bowling/v2/reserve/hold
@@ -123,15 +129,40 @@ export async function POST(req: NextRequest) {
     console.warn("[bowling/v2/reserve/hold] duration guard errored (fail-open):", err);
   }
 
-  // AVAILABILITY GUARD. QAMF auto-assigns off the SCHEDULE and fills from the lowest lane
-  // number up; it never reads which lanes are physically running. For a guest starting now
-  // that hands over a lane the previous group is still on — a kiosk walk-up was given
-  // FastTrax lane 1 on 2026-08-31 with seven lanes free. Candidates here come only from
-  // lanes nobody is on. With no opinion, this creates exactly as it always did.
-  const candidates =
-    immediateLaneGuardEnabled() && isImmediateStart(Date.parse(bookedAt), Date.now())
-      ? await freeLaneCandidates({ centerId, players })
-      : [];
+  // LANE ARRANGEMENT (FastTrax pilot). Same-day only, FastTrax only, off instantly via
+  // LANE_ARRANGEMENT="false".
+  //
+  // The lane is chosen BEFORE the reservation exists. QAMF auto-assigns off the schedule
+  // and fills from the lowest lane number up — it never looks at the physical floor, which
+  // is how a kiosk walk-up landed on lane 1 while lane 1 was still running (2026-08-31).
+  // Our grid reads both, so choosing here prevents that rather than apologising for it.
+  //
+  // Bounded by PLAN_BUDGET_MS: no guest waits on lane planning. A timeout, a slow read or
+  // any failure yields an empty candidate list, and `createWithLanePlan` then creates with
+  // no `Lanes` at all — byte-identical to the behaviour that predates this feature.
+  const bookedAtMs = Date.parse(bookedAt);
+  const nowMs = Date.now();
+  const arranging = shouldArrangeLane({ centerId, bookedAtMs, nowMs });
+
+  const preferred = arranging
+    ? await planLanesWithinBudget({
+        centerId,
+        bookedAtMs,
+        players,
+        webOfferId,
+        optionId,
+        optionType,
+      })
+    : [];
+
+  // AVAILABILITY GUARD — every centre, always on, independent of the arrangement pilot.
+  // Arrangement decides which free lane is best; this decides whether a lane is usable at
+  // all. For a guest starting now, never offer one somebody is physically still on.
+  const guard =
+    immediateLaneGuardEnabled() && isImmediateStart(bookedAtMs, nowMs)
+      ? await freeLaneCandidates({ centerId, players, preferred })
+      : { candidates: preferred, freeLanes: [] as number[] };
+  const candidates = guard.candidates;
 
   try {
     const outcome = await createWithLanePlan({
@@ -150,8 +181,45 @@ export async function POST(req: NextRequest) {
         }),
     });
     const reservation = outcome.reservation;
+
     if (candidates.length) {
       console.log(`[bowling/v2/reserve/hold] ${reservation.Id} ${describePinOutcome(outcome)}`);
+    }
+
+    // Write the decision down. Everything needed to answer "why that lane?" without
+    // reconstructing the board from memory: what was free, what we were willing to ask for,
+    // what the vendor said, and where the guest ended up. Fired in `after()` so the log can
+    // never be the reason a hold is slow, and it swallows its own errors either way.
+    after(() =>
+      recordLaneDecision({
+        centerId,
+        kind: "place",
+        reservationId: reservation.Id,
+        bookedAt,
+        players,
+        webOfferId,
+        freeLanes: guard.freeLanes,
+        allowedLanes: preferred.length ? preferred.flat() : null,
+        candidates,
+        chosenLanes: outcome.pinnedTo ?? (reservation.Lanes ?? []).map((l) => l.LaneNumber),
+        failedOpen: outcome.failedOpen,
+        attempts: outcome.attempts,
+        outcome: candidates.length ? describePinOutcome(outcome) : "no opinion — QAMF chose",
+      }),
+    );
+
+    // Only when the pin found no home does QAMF's own choice need improving, and that runs
+    // in `after()` so the response stays exactly as fast as it was.
+    if (arranging && outcome.failedOpen) {
+      after(() =>
+        placeReservationOnBestLane({ centerId, reservationId: reservation.Id }).then(
+          (r) =>
+            r.moved &&
+            console.log(
+              `[bowling/v2/reserve/hold] ${reservation.Id} lane ${r.from.join("+")} -> ${r.to.join("+")}`,
+            ),
+        ),
+      );
     }
 
     return NextResponse.json({

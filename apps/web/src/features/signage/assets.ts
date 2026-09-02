@@ -125,9 +125,29 @@ export const TV_WALL_FILMS = {
    * action that makes sense at the end of a page and not on a loop, where it would sit
    * on the wall for six of every thirty-two seconds telling a guest already standing in
    * the building to come to the building.
+   *
+   * AND RETIMED TO 30fps, which is what "the pricing videos are laggy… bowling video is
+   * still lagging" turned out to be (owner 2026-09-01). It was never the file size and
+   * never the cache — the panels had the cache fix and the reel is the LIGHTEST file on
+   * the wall (754 kbps). The web master is 25fps, and the panels run at 60Hz: 60/25 is
+   * 2.4, so a player must hold each frame for two refreshes or three, alternating
+   * 33ms/50ms forever. That irregular cadence is visible, and "laggy" is exactly how a
+   * person describes it. Its own panel-mate below is 30fps — a clean 2:2 — and was never
+   * once reported, which is what isolated it.
+   *
+   * Motion-INTERPOLATED rather than frame-duplicated (`minterpolate=mci:aobmc:bidir`):
+   * duplicating every fifth frame would hold five frames for 33ms and one for 66ms,
+   * trading one irregular cadence for a worse one. Interpolation synthesises genuine
+   * intermediate moments, so every frame is a distinct instant on an even beat.
+   *
+   * A NEW PATHNAME, not an overwrite of the old one, and that part is load-bearing:
+   * `planCacheOps` keys on the URL, so re-cutting in place would leave five panels
+   * playing the 25fps copy off their own disks forever, with nothing to tell them the
+   * bytes behind the URL had changed. A new URL leaves the old one out of the manifest,
+   * where `pruneCache` collects it.
    */
   bowling: [
-    `${BLOB_HOST}/videos/tv-wall/hyperbowling-32s.mp4`,
+    `${BLOB_HOST}/videos/tv-wall/hyperbowling-32s-30fps.mp4`,
     `${BLOB_HOST}/videos/headpinz-neoverse-v2.mp4`,
   ],
   /** The Nexus arena reel — see NEXUS_REEL. */
@@ -143,8 +163,27 @@ export const TV_WALL_FILMS = {
    * Connect 4 Hoops and the ring toss.
    */
   gameZone: [`${BLOB_HOST}/videos/tv-wall/gamezone-27s.mp4`],
-  /** The FastTrax home-page hero. Genuinely lives under /images/hero/ — not a typo. */
-  fastTrax: [`${BLOB_HOST}/images/hero/hero-video.mp4`],
+  /**
+   * The FastTrax home-page hero, RE-CUT FOR THE WALL.
+   *
+   * The website master is 1764×1176 at 25 Mbps — 30 MB for ten seconds, and 33× the
+   * bitrate of every other reel here. It is a home-page hero doing a home page's job,
+   * where it is fetched once by a visitor on a phone and thrown away; on a wall it is a
+   * panel decoding a 25 Mbps stream all evening, and it is the one file `useWallFilms`
+   * names as the size that loses the download race and that the HTTP cache refuses to
+   * keep. 1200×800 at 3 Mbps is 8× smaller and indistinguishable at six feet — frames
+   * sampled from both are identical down to the kart numbers and the "138" on the tarmac.
+   *
+   * A WALL COPY, NOT AN OVERWRITE. This master is served to headpinz.com/fort-myers as
+   * well; re-cutting in place would quietly change the public site's hero to a signage
+   * encode. The wall gets its own file under `videos/tv-wall/` and the website keeps its
+   * master untouched.
+   *
+   * Kept at 24fps deliberately, unlike the bowling reel above: 24 on a 60Hz panel is
+   * ordinary 2:3 cinema pulldown, which the eye is trained on. 25 is the rate that
+   * judders, and interpolating a film that nobody has reported would be risk for nothing.
+   */
+  fastTrax: [`${BLOB_HOST}/videos/tv-wall/fasttrax-hero-10s.mp4`],
 } as const;
 
 /**

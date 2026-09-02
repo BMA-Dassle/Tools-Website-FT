@@ -85,30 +85,44 @@ export function isImmediateStart(bookedAtMs: number, nowMs: number): boolean {
  * occupied. Never throws — an empty list means "no opinion", and the caller then books
  * exactly as it always did.
  */
+export interface FreeLaneChoice {
+  /** Ranked lane sets we are willing to ask for. Empty means "no opinion". */
+  candidates: number[][];
+  /** Every lane the floor said was free when we looked — the evidence behind the choice,
+   *  and the thing you need to answer "why that lane?" a day later. */
+  freeLanes: number[];
+}
+
 export async function freeLaneCandidates(opts: {
   centerId: number;
   players: number;
   /** Ranked lane sets from the arrangement engine, if this centre is piloted. */
   preferred?: number[][];
-}): Promise<number[][]> {
+}): Promise<FreeLaneChoice> {
   try {
     const lanes = await listLanes(opts.centerId);
     const free = openLanesFrom(lanes);
-    if (free.length === 0) return [];
+    if (free.length === 0) return { candidates: [], freeLanes: [] };
     const freeSet = new Set(free);
 
     // With a plan, keep its ORDER and drop anything the floor says is occupied — the two
     // reads happen moments apart and can disagree.
     if (opts.preferred?.length) {
       const kept = opts.preferred.filter((set) => set.every((n) => freeSet.has(n)));
-      if (kept.length) return kept.slice(0, MAX_GUARD_CANDIDATES);
+      if (kept.length) return { candidates: kept.slice(0, MAX_GUARD_CANDIDATES), freeLanes: free };
     }
 
-    return laneSetsOfSize(free, bowlingLaneCount(opts.players)).slice(0, MAX_GUARD_CANDIDATES);
+    return {
+      candidates: laneSetsOfSize(free, bowlingLaneCount(opts.players)).slice(
+        0,
+        MAX_GUARD_CANDIDATES,
+      ),
+      freeLanes: free,
+    };
   } catch (err) {
     // A lane preference must never cost a booking. If we cannot read the floor we simply
     // do not have an opinion, and the vendor assigns as it always has.
     console.warn("[immediate-lane-guard] floor read failed (vendor will choose):", err);
-    return [];
+    return { candidates: [], freeLanes: [] };
   }
 }

@@ -23,7 +23,9 @@ export async function GET(req: NextRequest) {
 
   try {
     const offers = await listWebOffers(centerId);
-    return NextResponse.json(offers);
+    // listWebOffers now unwraps QAMF's envelope; re-wrap so this endpoint's documented
+    // shape is unchanged for anyone calling it by hand.
+    return NextResponse.json({ WebOffers: offers });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
     return NextResponse.json({ error: msg }, { status: 502 });

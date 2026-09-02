@@ -35,6 +35,7 @@ import { afterResponse } from "../after-response.server";
 import { primeFastRoster } from "./fast-roster.server";
 import { bookmarkBriefingEndAfter } from "../briefing/bookmarks.server";
 import { recordBriefingEvent, type BriefingEndReason } from "../briefing/events-db";
+import { readRaceClock } from "../../racing/race-clock.server";
 import { readRaceFinishedMarker, readRaceStartedMarker } from "../briefing/race-finish.server";
 import { liveHeatKey, type LiveHeat } from "../briefing/race-state-watch.server";
 import { briefingReadyForHolding, briefingTimelineAt } from "../briefing/phase";
@@ -300,6 +301,53 @@ async function liveSaysGoneOut(
 }
 
 /**
+ * HAS THIS SESSION TAKEN THE GREEN? The witness the lane never had (2026-09-01,
+ * Mega heat 58).
+ *
+ * THE NIGHT THIS EXISTS FOR. On a Mega day the two witnesses above are both
+ * blind. `race:live-heat:<track>` is published by the pause watcher, which
+ * samples `["blue","red"]` only — mega is excluded so the joined circuit is not
+ * pause-marked twice, so `readLiveHeat("mega")` is null on every read of every
+ * mega night and `liveSaysGoneOut` can never return true. That leaves the
+ * finish marker as the only promotion witness, and a finish is by definition
+ * too late: a group stayed in `karts` for the entire duration of their own race
+ * and `racing` sat empty all evening. Heat 58 went green at 21:45:50 and was
+ * still shown in the karts at 21:49, while the desk board — reading this very
+ * clock — correctly said ON TRACK. Staff could see the two screens disagree and
+ * had to move every group by hand from Override.
+ *
+ * WHY THE CLOCK AND NOT THE START MARKER. `pit:race-started` is written from
+ * the venue's `ActualStart`, which is stamped at PHASE ONE — karts rolling out,
+ * clock armed and static, stragglers still being walked to their karts. That is
+ * why starts were deliberately excluded from this promotion, and that reasoning
+ * still stands: measured on 2026-09-01, heat 58 armed at 21:44:22 and went
+ * green at 21:45:50, an 88-second window in which promoting would have emptied
+ * the holding seats out from under staff mid-strap-in.
+ *
+ * The race clock draws exactly that distinction and nothing else does:
+ * `clockStartMs` is anchored on the SECOND RaceStart, and `phase` leaves
+ * `armed` only when it lands (race-clock.ts, "ARMED -> this is the green flag.
+ * THE anchor"). The desk board was rewired onto it on 2026-08-15 and has read
+ * correctly ever since; the lane simply was never told.
+ *
+ * `phase !== "armed"` rather than a `clockStartMs` null-check, deliberately:
+ * `paused` and `finished` both mean the race went green and then did something
+ * else, and a mid-race join — the bridge restarting and replaying a race whose
+ * `ActualStart` is already four minutes old — lands in `running` with an
+ * estimated anchor. An estimated anchor is a poor countdown and perfectly good
+ * proof that the karts are out, which is the only question asked here.
+ *
+ * TRACK-AGNOSTIC, and that is the point: it is keyed on the session rather than
+ * on a track's socket sample, so blue, red and mega all get the same witness
+ * and there is no per-track blind spot left to rediscover.
+ */
+async function clockSaysGoneOut(sessionId: string | null): Promise<boolean> {
+  if (!sessionId) return false;
+  const clock = await readRaceClock(sessionId).catch(() => null);
+  return clock != null && clock.phase !== "armed";
+}
+
+/**
  * WHEN THIS HEAT FINISHED, according to the socket — the other half of the same
  * fallback, and the half that was missing.
  *
@@ -522,10 +570,13 @@ async function resolveLane(stored: StoredPitLane | null, track: TrackKey): Promi
     // it must NOT promote. That phase IS "they are in the karts", which is
     // exactly the stage In Karts now names.
     const finished = await readRaceFinishedMarker(staged.sessionId).catch(() => null);
-    // Either witness will do: the broadcast's own finish marker, or the timing
-    // socket showing this heat on track (or a later one loaded).
+    // Any of three witnesses will do: the broadcast's own finish marker, this
+    // session's race clock having left the arming window, or the timing socket
+    // showing this heat on track (or a later one loaded).
     const goneOut =
-      finished == null && (await liveSaysGoneOut(track, live, staged.heatNumber, staged.sessionId));
+      finished == null &&
+      ((await clockSaysGoneOut(staged.sessionId)) ||
+        (await liveSaysGoneOut(track, live, staged.heatNumber, staged.sessionId)));
     /**
      * THE LANE DOES NOT ADVANCE PAST AN UNPAID POST (2026-08-16).
      *
