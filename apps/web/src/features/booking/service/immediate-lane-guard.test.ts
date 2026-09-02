@@ -72,7 +72,7 @@ describe("candidates come only from lanes nobody is on", () => {
       lane(7, "Closed"),
       lane(8, "Closed"),
     ]);
-    const sets = await freeLaneCandidates({ centerId: 11542, players: 4 });
+    const { candidates: sets } = await freeLaneCandidates({ centerId: 11542, players: 4 });
     expect(sets.length).toBeGreaterThan(0);
     expect(sets.flat()).not.toContain(1);
     expect(sets[0]).toEqual([4]); // ascending — the vendor's own preference, minus the busy ones
@@ -80,14 +80,14 @@ describe("candidates come only from lanes nobody is on", () => {
 
   it("skips Error and unknown lane states too, not just Open", async () => {
     listLanes.mockResolvedValue([lane(1, "Error"), lane(2, "Running"), lane(3, "Closed")]);
-    const sets = await freeLaneCandidates({ centerId: 9172, players: 2 });
+    const { candidates: sets } = await freeLaneCandidates({ centerId: 9172, players: 2 });
     expect(sets.flat()).toEqual([3]);
   });
 
   it("gives a big party the lanes it needs, together", async () => {
     listLanes.mockResolvedValue([1, 2, 3, 4, 5, 6, 7, 8].map((n) => lane(n, "Closed")));
     // 8 players at 6 per lane = 2 lanes, and they must sit next to each other.
-    const sets = await freeLaneCandidates({ centerId: 11542, players: 8 });
+    const { candidates: sets } = await freeLaneCandidates({ centerId: 11542, players: 8 });
     expect(sets[0]).toHaveLength(2);
     expect(sets[0][1] - sets[0][0]).toBe(1);
   });
@@ -100,7 +100,7 @@ describe("candidates come only from lanes nobody is on", () => {
       lane(6, "Closed"),
       lane(7, "Closed"),
     ]);
-    const sets = await freeLaneCandidates({
+    const { candidates: sets } = await freeLaneCandidates({
       centerId: 11542,
       players: 4,
       preferred: [[1], [6], [2]],
@@ -110,11 +110,11 @@ describe("candidates come only from lanes nobody is on", () => {
 
   it("has NO opinion when every lane is busy — the vendor still takes the booking", async () => {
     listLanes.mockResolvedValue([lane(1, "Open"), lane(2, "Open")]);
-    expect(await freeLaneCandidates({ centerId: 11542, players: 4 })).toEqual([]);
+    expect((await freeLaneCandidates({ centerId: 11542, players: 4 })).candidates).toEqual([]);
   });
 
   it("has NO opinion when the floor read fails — a lane preference never costs a booking", async () => {
     listLanes.mockRejectedValueOnce(new Error("QAMF timeout"));
-    expect(await freeLaneCandidates({ centerId: 11542, players: 4 })).toEqual([]);
+    expect((await freeLaneCandidates({ centerId: 11542, players: 4 })).candidates).toEqual([]);
   });
 });
