@@ -566,15 +566,22 @@ export function PromoLanding({
                 specials (owner 7/6: "small box second row", Ultimate VIP keeps
                 the lead). Self-hides after the final. */}
             {worldCup && <WorldCupCard worldCup={worldCup} gold={HP_GOLD} />}
-            {nfl && <NflCard nfl={nfl} />}
             {initialOfferings.map((o) => (
-              // The Race Sims teaser rides DIRECTLY behind the racing tile, so
-              // it is the third grid child on the live landing (the premium VIP
-              // combo is sm:col-span-2, so VIP + racing fill row one and the
-              // teaser opens row two on both the 3-col and 2-col grids). Keyed
-              // off racing's PRESENCE rather than a fixed index: the sims are
-              // physically at FastTrax FM, so wherever racing is not offered
-              // neither are they, and the two tiles can never drift apart.
+              // Two teasers ride DIRECTLY behind the tile they belong to, so
+              // each is the grid child straight after its parent product: Race
+              // Sims behind racing, NFL Ticket behind bowling. The premium VIP
+              // combo is sm:col-span-2, so its parent tile finishes row one and
+              // the teaser opens row two on both the 3-col and 2-col grids.
+              //
+              // Owner, 2026-09-01: "I want NFL Ticket on NeoVerse kept on the
+              // second line. Bowling needs brought back up to first." Rendering
+              // NFL ahead of this map took the row-one slot bowling had, and
+              // pushed bowling down a row.
+              //
+              // Keyed off the parent's PRESENCE rather than a fixed index. The
+              // sims are physically at FastTrax FM and the NFL package needs a
+              // lane-block model, so wherever the parent is not offered the
+              // teaser is not either, and a pair can never drift apart.
               <Fragment key={o.slug}>
                 <AttractionCard
                   offering={o}
@@ -586,6 +593,7 @@ export function PromoLanding({
                   pausedNote={pausedNote(o.slug)}
                 />
                 {o.kind === "race" && <RaceSimsSoonCard />}
+                {o.kind === "bowling" && nfl && <NflCard nfl={nfl} />}
               </Fragment>
             ))}
           </div>
@@ -1138,8 +1146,8 @@ function NflCard({ nfl }: { nfl: NflTileData }) {
           NFL Ticket on NeoVerse
         </h3>
         <p className="font-body mb-3 flex-1 text-sm leading-relaxed text-white/50">
-          Pick your game, not a time. Your VIP lane opens 15 minutes before kickoff and is yours
-          for 3 hours — shoes, a one-topping pizza, 10 wings and a soda pitcher included.
+          Pick your game, not a time. Your VIP lane opens 15 minutes before kickoff and is yours for
+          3 hours — shoes, a one-topping pizza, 10 wings and a soda pitcher included.
         </p>
 
         {nfl.nextGame && (
