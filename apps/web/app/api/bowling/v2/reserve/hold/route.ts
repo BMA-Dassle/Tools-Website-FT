@@ -6,6 +6,7 @@ import {
   planLanesWithinBudget,
 } from "~/features/lane-plan/place.server";
 import { createWithLanePlan, describePinOutcome } from "~/features/lane-plan/pin";
+import { recordLaneDecision } from "@/lib/lane-decisions-db";
 import {
   freeLaneCandidates,
   immediateLaneGuardEnabled,
@@ -157,10 +158,11 @@ export async function POST(req: NextRequest) {
   // AVAILABILITY GUARD — every centre, always on, independent of the arrangement pilot.
   // Arrangement decides which free lane is best; this decides whether a lane is usable at
   // all. For a guest starting now, never offer one somebody is physically still on.
-  const candidates =
+  const guard =
     immediateLaneGuardEnabled() && isImmediateStart(bookedAtMs, nowMs)
       ? await freeLaneCandidates({ centerId, players, preferred })
-      : preferred;
+      : { candidates: preferred, freeLanes: [] as number[] };
+  const candidates = guard.candidates;
 
   try {
     const outcome = await createWithLanePlan({
@@ -183,6 +185,28 @@ export async function POST(req: NextRequest) {
     if (candidates.length) {
       console.log(`[bowling/v2/reserve/hold] ${reservation.Id} ${describePinOutcome(outcome)}`);
     }
+
+    // Write the decision down. Everything needed to answer "why that lane?" without
+    // reconstructing the board from memory: what was free, what we were willing to ask for,
+    // what the vendor said, and where the guest ended up. Fired in `after()` so the log can
+    // never be the reason a hold is slow, and it swallows its own errors either way.
+    after(() =>
+      recordLaneDecision({
+        centerId,
+        kind: "place",
+        reservationId: reservation.Id,
+        bookedAt,
+        players,
+        webOfferId,
+        freeLanes: guard.freeLanes,
+        allowedLanes: preferred.length ? preferred.flat() : null,
+        candidates,
+        chosenLanes: outcome.pinnedTo ?? (reservation.Lanes ?? []).map((l) => l.LaneNumber),
+        failedOpen: outcome.failedOpen,
+        attempts: outcome.attempts,
+        outcome: candidates.length ? describePinOutcome(outcome) : "no opinion — QAMF chose",
+      }),
+    );
 
     // Only when the pin found no home does QAMF's own choice need improving, and that runs
     // in `after()` so the response stays exactly as fast as it was.

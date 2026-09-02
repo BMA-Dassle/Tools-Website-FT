@@ -3,6 +3,7 @@ import { verifyCron } from "@/lib/cron-auth";
 import { FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
 import { laneArrangementEnabled } from "~/features/lane-plan/flags";
 import { recheckImminentLanes, RECHECK_HORIZON_MINUTES } from "~/features/lane-plan/recheck.server";
+import { recordLaneDecision } from "@/lib/lane-decisions-db";
 
 /**
  * GET /api/cron/lane-recheck
@@ -41,6 +42,27 @@ export async function GET(req: NextRequest) {
           .join(" ") +
         report.failed.map((f) => ` !${f.reservationId}:${f.reason}`).join(""),
     );
+  }
+
+  // Write down every repair. A move that happens minutes before a guest walks up is the
+  // one the desk is most likely to ask about later, so it is the one that most needs a row.
+  for (const m of report.moved) {
+    await recordLaneDecision({
+      centerId: FASTTRAX_QAMF_CENTER_ID,
+      kind: "recheck",
+      reservationId: m.reservationId,
+      fromLanes: m.from,
+      chosenLanes: m.to,
+      outcome: `lane would not have been free — moved ${m.from.join("+")} -> ${m.to.join("+")}`,
+    });
+  }
+  for (const f of report.failed) {
+    await recordLaneDecision({
+      centerId: FASTTRAX_QAMF_CENTER_ID,
+      kind: "recheck",
+      reservationId: f.reservationId,
+      outcome: `could not repair: ${f.reason}`,
+    });
   }
 
   return NextResponse.json({
