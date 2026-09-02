@@ -457,6 +457,7 @@ export async function claimNativeVoucher(input: {
       bonusTokens: grant.bonusTokens,
       tpiTransactionId: `hpwvoucher-${txnId}`,
       voucherCode: code,
+      kioskId: input.kioskId,
     });
   } catch (err) {
     await releaseVoucherClaim(code, txnId, "ledger row insert failed").catch(() => {});

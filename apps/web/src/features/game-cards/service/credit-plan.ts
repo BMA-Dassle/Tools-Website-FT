@@ -80,7 +80,8 @@ export function planIsEmpty(plan: CreditPlan): boolean {
  * Returns the router's `transport` alongside the result code so the caller can
  * record WHICH door delivered the load. This used to be dropped here, which is
  * why every row in the ledger was stamped `loaded_via = 'soap'` regardless of
- * the path actually taken (see transactions-log.ts LoadedVia).
+ * the path actually taken (see transactions-log.ts LoadedVia). Callers stamp
+ * this onto the ledger row; do not narrow the return type again.
  */
 export async function applyCreditPlan(
   plan: CreditPlan,

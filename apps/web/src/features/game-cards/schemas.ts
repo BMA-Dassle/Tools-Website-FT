@@ -90,6 +90,13 @@ export const PurchaseSchema = z
     saveCard: z.boolean().optional(),
     squareCustomerId: z.string().max(128).optional(),
     contact: contact.optional(),
+    /**
+     * WHICH kiosk rang this up (`kioskDeviceKey` → `FT:1`). Sent only by kiosk
+     * clients; web checkouts omit it and the ledger row stays NULL, which is the
+     * truthful answer. Untrusted — it is a device label for the staff card-load
+     * view, never an authorisation input.
+     */
+    kioskId: z.string().trim().max(120).optional(),
   })
   .refine((v) => !!v.cardNonce || !!v.giftCardNonce, {
     message: "A card or gift card is required",
@@ -115,6 +122,9 @@ export const TerminalPrepareSchema = z.object({
   locationCode: z.number().int(),
   items: z.array(PurchaseItemSchema).min(1).max(10),
   contact: contact.optional(),
+  /** Which kiosk — see PurchaseSchema.kioskId. This is THE kiosk rail, so it is
+   *  the path that actually populates the staff card-load view. */
+  kioskId: z.string().trim().max(120).optional(),
 });
 export type TerminalPrepareInput = z.infer<typeof TerminalPrepareSchema>;
 

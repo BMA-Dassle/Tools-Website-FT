@@ -50,6 +50,15 @@ export interface TxnStart {
   amountCents: number;
   tpiTransactionId: string;
   contact?: unknown;
+  /**
+   * WHICH kiosk rang this up — `kioskDeviceKey(config)`, e.g. `FT:1`, `HPFM:3`.
+   *
+   * Absent for web/booking/Groupon rows, which is the honest answer: no kiosk
+   * was involved. Only ever set from a kiosk client, so a NULL never means "we
+   * lost it" for a web sale. Rows predating the column are NULL too, and the
+   * staff card-load view labels those "unknown kiosk" rather than guessing.
+   */
+  kioskId?: string | null;
 }
 
 export interface TxnRow {
@@ -82,6 +91,8 @@ export interface TxnRow {
   loadedVia: string | null;
   /** BMI comp voucher that authorised this row (kind='voucher' only). */
   voucherCode: string | null;
+  /** Which kiosk rang it up (`FT:1`); NULL for web sales and pre-column rows. */
+  kioskId: string | null;
 }
 
 let schemaReady = false;
@@ -129,7 +140,17 @@ async function ensureSchema(): Promise<void> {
   await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS loaded_via TEXT`;
   // Round 4: BMI comp vouchers dispensed as cards (kind='voucher', amount 0).
   await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS voucher_code TEXT`;
+  // Round 5: WHICH kiosk sold it (`FT:1` / `HPFM:3`). NULL = not a kiosk sale,
+  // or a row that predates the column — the staff view distinguishes the two by
+  // date, never by inventing an attribution.
+  await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS kiosk_id TEXT`;
   await q`CREATE INDEX IF NOT EXISTS ict_acct ON intercard_transactions (account_number)`;
+  // The staff card-load list: one kiosk's rows, newest first.
+  await q`
+    CREATE INDEX IF NOT EXISTS ict_kiosk
+    ON intercard_transactions (kiosk_id, created_at DESC)
+    WHERE kiosk_id IS NOT NULL
+  `;
   await q`CREATE INDEX IF NOT EXISTS ict_group ON intercard_transactions (group_id)`;
   // Partial index the reconcile cron scans: charged-but-not-loaded rows.
   await q`
@@ -157,11 +178,11 @@ export async function startTxn(ev: TxnStart): Promise<void> {
     INSERT INTO intercard_transactions (
       txn_id, group_id, kind, location_code, account_number, package_id,
       tokens, bonus_tokens, amount_cents, tpi_transaction_id, contact,
-      state, load_state
+      kiosk_id, state, load_state
     ) VALUES (
       ${ev.txnId}, ${ev.groupId}, ${ev.kind}, ${ev.locationCode}, ${ev.accountNumber}, ${ev.packageId},
       ${ev.tokens}, ${ev.bonusTokens}, ${ev.amountCents}, ${ev.tpiTransactionId},
-      ${ev.contact ? JSON.stringify(ev.contact) : null}, 'started', 'pending'
+      ${ev.contact ? JSON.stringify(ev.contact) : null}, ${ev.kioskId ?? null}, 'started', 'pending'
     )
     ON CONFLICT (txn_id) DO NOTHING
   `;
@@ -196,11 +217,12 @@ export async function startCompedTxn(
     INSERT INTO intercard_transactions (
       txn_id, group_id, kind, location_code, account_number, package_id,
       tokens, bonus_tokens, amount_cents, tpi_transaction_id, contact,
-      voucher_code, state, load_state
+      voucher_code, kiosk_id, state, load_state
     ) VALUES (
       ${ev.txnId}, ${ev.groupId}, ${ev.kind}, ${ev.locationCode}, ${ev.accountNumber}, ${ev.packageId},
       ${ev.tokens}, ${ev.bonusTokens}, 0, ${ev.tpiTransactionId},
-      ${ev.contact ? JSON.stringify(ev.contact) : null}, ${ev.voucherCode}, 'charged', 'pending'
+      ${ev.contact ? JSON.stringify(ev.contact) : null}, ${ev.voucherCode}, ${ev.kioskId ?? null},
+      'charged', 'pending'
     )
     ON CONFLICT (txn_id) DO NOTHING
   `;
@@ -424,6 +446,59 @@ export async function getTxn(txnId: string): Promise<TxnRow | null> {
   }
 }
 
+export interface KioskLoadQuery {
+  /** `kioskDeviceKey(config)` — `FT:1`. Required; identity of the asking kiosk. */
+  kioskId: string;
+  /** Intercard location code — the center-wide fallback's scope. */
+  locationCode: number;
+  /**
+   * `false` (default) → only THIS kiosk's rows.
+   * `true`  → every row at this center, including web sales and rows that
+   *           predate the kiosk_id column. Staff toggle it when a guest walks
+   *           up saying "I bought it at the other machine".
+   */
+  centerWide?: boolean;
+  limit?: number;
+  /** Oldest row to return, epoch ms. Defaults to the last 24 hours. */
+  sinceMs?: number;
+}
+
+/**
+ * The staff card-load list: what this kiosk sold, newest first.
+ *
+ * Read-only and swallowing — a staff diagnostic must never be the thing that
+ * throws. Returns `[]` when the DB is unconfigured, matching the file's other
+ * reads.
+ *
+ * Scope is the kiosk BY DEFAULT because that is the question being asked at the
+ * machine ("did the card I just sold load?"). The center-wide toggle exists
+ * because `kiosk_id` is NULL on every row written before this column shipped:
+ * without it, a kiosk's own history would look empty on day one.
+ */
+export async function listKioskLoads(query: KioskLoadQuery): Promise<TxnRow[]> {
+  if (!isDbConfigured()) return [];
+  const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
+  const since = new Date(query.sinceMs ?? Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  try {
+    await ensureSchema();
+    const q = sql();
+    const rows = query.centerWide
+      ? await q`
+          SELECT * FROM intercard_transactions
+          WHERE location_code = ${query.locationCode} AND created_at >= ${since}
+          ORDER BY created_at DESC LIMIT ${limit}
+        `
+      : await q`
+          SELECT * FROM intercard_transactions
+          WHERE kiosk_id = ${query.kioskId} AND created_at >= ${since}
+          ORDER BY created_at DESC LIMIT ${limit}
+        `;
+    return rows.map(rowToTxn);
+  } catch {
+    return [];
+  }
+}
+
 async function safeUpdate(fn: (q: ReturnType<typeof sql>) => Promise<void>): Promise<void> {
   if (!isDbConfigured()) return;
   try {
@@ -465,6 +540,7 @@ function rowToTxn(r: any): TxnRow {
     eisDescription: r.eis_description ?? null,
     loadedVia: r.loaded_via ?? null,
     voucherCode: r.voucher_code ?? null,
+    kioskId: r.kiosk_id ?? null,
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

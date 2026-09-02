@@ -559,6 +559,12 @@ export function KioskGameZone({
   const dispenser = useGameCardDispenser({ config });
   const readerReady = dispenser.ready;
 
+  // Which machine this is (`FT:1`), stamped onto every ledger row this kiosk
+  // creates so /kiosk/staff can answer "did the card I just sold load?" for
+  // THIS kiosk instead of the whole lobby. `undefined` on an unprovisioned
+  // device — the row still writes, it just carries no attribution.
+  const kioskId = config ? kioskDeviceKey(config) : undefined;
+
   // KIOSK cart mode: with activities already in the cart, "Add to my visit"
   // hands the cards to the booking so they ride the ONE shared checkout the
   // Square reader charges (fulfillment on the confirmation screen). Requires
@@ -1122,6 +1128,7 @@ export function KioskGameZone({
           locationCode,
           items: newCardItems(),
           cardNonce,
+          kioskId,
         }),
       });
       const data = await res.json();
@@ -2093,6 +2100,7 @@ export function KioskGameZone({
             packageId: c.packageId,
           })),
           cardNonce,
+          kioskId,
         }),
       });
       const data = await res.json();
@@ -2134,7 +2142,7 @@ export function KioskGameZone({
     const res = await fetch("/api/game-cards/terminal-prepare", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ kind, locationCode, items }),
+      body: JSON.stringify({ kind, locationCode, items, kioskId }),
     });
     const data = await res.json();
     if (!res.ok || !data.orderId || !(data.totalCents > 0)) {

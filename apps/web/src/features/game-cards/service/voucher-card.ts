@@ -182,6 +182,7 @@ export async function claimGameCardVoucher(input: {
       bonusTokens: grant.bonusTokens,
       tpiTransactionId: `gzvoucher-${txnId}`,
       voucherCode: code,
+      kioskId: input.kioskId,
     });
   } catch (err) {
     // Give the code back — nothing was dispensed, so the guest must be able to

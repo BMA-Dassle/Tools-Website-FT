@@ -53,6 +53,7 @@ function row(overrides: Partial<TxnRow>): TxnRow {
     eisDescription: null,
     loadedVia: null,
     voucherCode: null,
+    kioskId: null,
     ...overrides,
   };
 }
