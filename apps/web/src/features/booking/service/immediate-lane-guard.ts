@@ -24,7 +24,6 @@
 import { listLanes } from "@/lib/qamf-bowling";
 import { openLanesFrom } from "./bowl-now";
 import { bowlingLaneCount } from "./bowling-offer";
-import { enumerateCandidates } from "~/features/lane-plan/policy";
 
 /**
  * How close to the start counts as "buying now".
@@ -45,6 +44,29 @@ export const MAX_GUARD_CANDIDATES = 3;
  */
 export function immediateLaneGuardEnabled(): boolean {
   return process.env.IMMEDIATE_LANE_GUARD !== "false";
+}
+
+/**
+ * Lane sets of `count` lanes drawn from `free`, contiguous first.
+ *
+ * A party's lanes have to sit together, so adjacent runs are offered before scattered
+ * ones — and scattered ones are still offered, because a big group split across the house
+ * beats a big group refused. Kept local rather than shared with the arrangement engine:
+ * this guard is correctness and ships on its own, and it must not acquire a dependency on
+ * a feature that is still a pilot.
+ */
+function laneSetsOfSize(free: number[], count: number): number[][] {
+  if (count <= 0) return [];
+  if (count === 1) return free.map((l) => [l]);
+
+  const contiguous: number[][] = [];
+  const loose: number[][] = [];
+  for (let i = 0; i + count <= free.length; i++) {
+    const set = free.slice(i, i + count);
+    if (set[count - 1] - set[0] === count - 1) contiguous.push(set);
+    else loose.push(set);
+  }
+  return contiguous.length ? contiguous : loose;
 }
 
 /** Is this booking starting now-ish, i.e. is the guest about to walk to the lane? */
@@ -82,7 +104,7 @@ export async function freeLaneCandidates(opts: {
       if (kept.length) return kept.slice(0, MAX_GUARD_CANDIDATES);
     }
 
-    return enumerateCandidates(free, bowlingLaneCount(opts.players)).slice(0, MAX_GUARD_CANDIDATES);
+    return laneSetsOfSize(free, bowlingLaneCount(opts.players)).slice(0, MAX_GUARD_CANDIDATES);
   } catch (err) {
     // A lane preference must never cost a booking. If we cannot read the floor we simply
     // do not have an opinion, and the vendor assigns as it always has.

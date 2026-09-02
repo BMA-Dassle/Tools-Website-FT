@@ -14,7 +14,8 @@
  * fresh mount (new React key) re-runs the tests.
  */
 import { useEffect, useState } from "react";
-import { bridgeHealth } from "../service/game-card-bridge";
+import { onsiteHealth, type OnsiteChipStatus } from "../service/game-card-bridge";
+import { centerCodeFor } from "~/config/intercard-centers";
 import { cameraPermissionState, type CameraPermission } from "../camera";
 import { venueSlug, type KioskConfig } from "../config";
 import { deriveScannerCheck, getScannerModel, type SerialGrantProbe } from "../qr-scanner";
@@ -22,25 +23,31 @@ import { deriveScannerCheck, getScannerModel, type SerialGrantProbe } from "../q
 type Tone = "ok" | "warn" | "dim" | "test";
 
 export function DeviceCheckCard({ config }: { config: KioskConfig | null }) {
-  const [gameZone, setGameZone] = useState<"testing" | "local" | "cloud">("testing");
+  const [gameZone, setGameZone] = useState<"testing" | OnsiteChipStatus>("testing");
   const [serialGrants, setSerialGrants] = useState<SerialGrantProbe>("testing");
   const [cams, setCams] = useState<"testing" | number>("testing");
   const [camPerm, setCamPerm] = useState<CameraPermission>("unknown");
 
   useEffect(() => {
     let alive = true;
-    // Game Zone reload path: does the on-prem bridge answer on this PC? Right
-    // after a reboot the bridge service is still starting, so a single early
-    // probe falsely reads "cloud" — retry a few times before concluding.
+    // Game Zone card path: is the ONSITE card system serving this center? The
+    // site's relay can be momentarily reconnecting, so retry a few times before
+    // concluding it isn't there. (This replaced a probe of the on-prem EIS
+    // bridge, which is retired — see service/game-card-bridge.ts.)
     void (async () => {
+      if (!config) return;
+      const code = centerCodeFor(config.center, config.brand);
       for (let i = 0; i < 6 && alive; i++) {
-        if (await bridgeHealth()) {
-          if (alive) setGameZone("local");
+        const status = await onsiteHealth(code);
+        // Only "error" is worth retrying — offline/unlicensed/disabled are
+        // settled answers, not a warm-up race.
+        if (status !== "error") {
+          if (alive) setGameZone(status);
           return;
         }
         await new Promise((r) => setTimeout(r, 2500));
       }
-      if (alive) setGameZone("cloud");
+      if (alive) setGameZone("error");
     })();
     // Serial grants: persisted grants need no prompt — presence = likely wired.
     // Store each port's getInfo() so the CRT-591 row AND the QR-scanner row
@@ -108,10 +115,23 @@ export function DeviceCheckCard({ config }: { config: KioskConfig | null }) {
       value:
         gameZone === "testing"
           ? "checking…"
-          : gameZone === "local"
-            ? "LOCAL bridge — instant"
-            : "CLOUD queue (slower to floor)",
-      tone: gameZone === "testing" ? "test" : gameZone === "local" ? "ok" : "warn",
+          : gameZone === "onsite"
+            ? "ONSITE — instant"
+            : gameZone === "unlicensed"
+              ? "UNLICENSED — check MAC/token"
+              : gameZone === "disabled"
+                ? "CLOUD (onsite switched off)"
+                : "CLOUD (onsite unreachable — slower to floor)",
+      // Unlicensed is a config fault someone must fix, so it must not read as
+      // the same benign amber as a normal cloud fallback.
+      tone:
+        gameZone === "testing"
+          ? "test"
+          : gameZone === "onsite"
+            ? "ok"
+            : gameZone === "unlicensed"
+              ? "warn"
+              : "warn",
     },
     {
       label: "Card device",

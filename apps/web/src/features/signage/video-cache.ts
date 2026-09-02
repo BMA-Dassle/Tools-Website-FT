@@ -25,7 +25,23 @@
  * a cache.
  */
 
-const CACHE_NAME = "briefing-videos-v1";
+/**
+ * WHICH STORE. Named per FEATURE, not shared, and that is load-bearing rather
+ * than tidy: `pruneCache` drops everything the caller's manifest does not
+ * mention, so two features sharing one store would delete each other's films on
+ * alternate polls. The briefing rooms and the arena boards run on different
+ * machines in different buildings today — this makes it safe if they ever do
+ * not.
+ */
+export const BRIEFING_CACHE = "briefing-videos-v1";
+export const ARENA_CACHE = "arena-videos-v1";
+/** The front-desk wall's marketing reels. Its own store for the same reason as the
+ *  other two: `pruneCache` drops whatever the caller's manifest omits, so a shared
+ *  store would have two features deleting each other's films. */
+export const WALL_CACHE = "wall-videos-v1";
+
+/** Default for every existing caller, so the briefing path is byte-identical. */
+const CACHE_NAME = BRIEFING_CACHE;
 
 /** Cache Storage is unavailable on insecure origins and in some locked-down
  *  profiles. Feature-detected rather than assumed, because the failure mode is
@@ -34,10 +50,10 @@ function cacheSupported(): boolean {
   return typeof window !== "undefined" && typeof caches !== "undefined";
 }
 
-async function openCache(): Promise<Cache | null> {
+async function openCache(cacheName: string = CACHE_NAME): Promise<Cache | null> {
   if (!cacheSupported()) return null;
   try {
-    return await caches.open(CACHE_NAME);
+    return await caches.open(cacheName);
   } catch {
     return null;
   }
@@ -73,8 +89,8 @@ export async function storageEstimate(): Promise<{ usageMb: number; quotaMb: num
 }
 
 /** Is this URL already on disk, complete? */
-export async function isCached(url: string): Promise<boolean> {
-  const cache = await openCache();
+export async function isCached(url: string, cacheName?: string): Promise<boolean> {
+  const cache = await openCache(cacheName);
   if (!cache) return false;
   try {
     return !!(await cache.match(url));
@@ -92,8 +108,12 @@ export async function isCached(url: string): Promise<boolean> {
  * could be played. That is why the caller can treat "cached" as "safe to play
  * from disk" with no further checks.
  */
-export async function ensureCached(url: string, signal?: AbortSignal): Promise<boolean> {
-  const cache = await openCache();
+export async function ensureCached(
+  url: string,
+  signal?: AbortSignal,
+  cacheName?: string,
+): Promise<boolean> {
+  const cache = await openCache(cacheName);
   if (!cache) return false;
   try {
     if (await cache.match(url)) return true;
@@ -148,8 +168,8 @@ export function retypeForPlayback(blob: Blob): Blob {
  * an un-revoked blob URL pins the whole file in memory, and this page runs for
  * weeks at a time.
  */
-export async function cachedObjectUrl(url: string): Promise<string | null> {
-  const cache = await openCache();
+export async function cachedObjectUrl(url: string, cacheName?: string): Promise<string | null> {
+  const cache = await openCache(cacheName);
   if (!cache) return null;
   try {
     const hit = await cache.match(url);
@@ -180,9 +200,9 @@ export function planCacheOps(
   };
 }
 
-/** Every URL currently held in the briefing cache. */
-export async function cachedUrls(): Promise<string[]> {
-  const cache = await openCache();
+/** Every URL currently held in the named cache (the briefing store by default). */
+export async function cachedUrls(cacheName?: string): Promise<string[]> {
+  const cache = await openCache(cacheName);
   if (!cache) return [];
   try {
     return (await cache.keys()).map((req) => req.url);
@@ -194,11 +214,12 @@ export async function cachedUrls(): Promise<string[]> {
 /** Drop entries the manifest no longer references. */
 export async function pruneCache(
   keepUrls: readonly (string | null | undefined)[],
+  cacheName?: string,
 ): Promise<number> {
-  const cache = await openCache();
+  const cache = await openCache(cacheName);
   if (!cache) return 0;
   try {
-    const { drop } = planCacheOps(await cachedUrls(), keepUrls);
+    const { drop } = planCacheOps(await cachedUrls(cacheName), keepUrls);
     let removed = 0;
     for (const url of drop) {
       if (await cache.delete(url)) removed += 1;

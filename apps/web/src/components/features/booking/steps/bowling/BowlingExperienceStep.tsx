@@ -134,12 +134,21 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     leadMinutes: kiosk ? 0 : isFastTraxDuckpinCenter(centerId) ? FASTTRAX_DUCKPIN_LEAD_MINUTES : 15,
   });
 
-  // Day-of-week + kind + world-cup filtering (classic parity).
+  // Day-of-week + kind filtering, minus the experiences that have their own
+  // entry (classic parity).
+  //
+  // World Cup and NFL Ticket are both reached by their own URL — ?experience=
+  // world-cup and ?experience=nfl — and their pickers replace this step
+  // outright. Their rows exist here only so the picker can resolve pricing,
+  // offer and items from the same table every other package uses; as CARDS
+  // they would be a second, worse way in, on a screen whose date the package
+  // does not actually let you choose.
   const experiences = useMemo(() => {
     const raw = expQuery.data ?? [];
     const dow = item.date ? new Date(`${item.date}T12:00:00`).getDay() : new Date().getDay();
     return raw
       .filter((e) => !e.slug.startsWith("world-cup-"))
+      .filter((e) => !e.slug.startsWith("nfl-vip-"))
       .filter((e) => (kind === "kbf" ? true : e.kind !== "kbf"))
       .filter(
         (e) =>

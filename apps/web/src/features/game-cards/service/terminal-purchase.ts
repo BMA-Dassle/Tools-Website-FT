@@ -23,7 +23,8 @@ import { getCenter } from "~/config/intercard-centers";
 import { getPackage, activationFeeCents } from "../constants";
 import { GameCardHttpError } from "../errors";
 import type { TerminalPrepareInput, TerminalFinalizeInput } from "../schemas";
-import { verifyAccount, IntercardError } from "../data/intercard";
+// Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
+import { verifyAccount, IntercardError } from "../data/intercard-router";
 import { createReloadOrder, readSquarePaymentSettled } from "../data/square-order";
 import { startTxn, markCharged, markLoadState, getTxn } from "../data/transactions-log";
 import { assertSwipedBlanks } from "./swiped-blank-guard";

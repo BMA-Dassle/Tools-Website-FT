@@ -15,8 +15,13 @@ import {
 } from "~/features/booking/service/deposit";
 import { CreditRedemptionError } from "~/features/booking/service/race-credit-redeem";
 import { MidnightMadnessWindowError } from "~/features/booking/service/bowling-offer";
-import { RaceSimNotConfiguredError, RaceSimMixedCartError } from "~/features/race-sims/products";
+import {
+  RaceSimNotConfiguredError,
+  RaceSimMixedCartError,
+  RaceSimStaleHoldError,
+} from "~/features/race-sims/products";
 import { WorldCupReservationError } from "~/features/world-cup";
+import { NflReservationError } from "~/features/nfl";
 import type { BookingSession } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
 
@@ -106,12 +111,22 @@ export async function POST(req: NextRequest) {
       // Square write; nothing charged.
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
+    if (err instanceof NflReservationError) {
+      // 409 — an NFL Ticket booking failed the game/center validation, or every
+      // VIP block is already committed to other games in that window. Raised
+      // before any Square or QAMF write; nothing charged.
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
     if (err instanceof MidnightMadnessWindowError) {
       // 409 — a Midnight Madness leg starts outside Fri/Sat 11:45 PM+ ET.
       // Raised before any Square or QAMF write; nothing charged.
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
-    if (err instanceof RaceSimNotConfiguredError || err instanceof RaceSimMixedCartError) {
+    if (
+      err instanceof RaceSimNotConfiguredError ||
+      err instanceof RaceSimMixedCartError ||
+      err instanceof RaceSimStaleHoldError
+    ) {
       // 409 — Race Sims guard 2e refused BEFORE any Square write; nothing
       // charged. NOT_CONFIGURED = keys not armed yet (expected during staff
       // testing); MIXED_CART = sims + HeadPinz items on one order (revenue

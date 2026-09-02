@@ -84,8 +84,16 @@ export function resolveFilmTier(
   return requested;
 }
 
-/** The assets a briefing room needs. Keys are stable — they are the
- *  primary key in `signage_assets`, so renaming one orphans an upload. */
+/**
+ * EVERY SLOT IN THE `signage_assets` MANIFEST. Keys are stable — they are the
+ * primary key in that table, so renaming one orphans an upload.
+ *
+ * NAMED `BriefingAssetKey` FOR HISTORY, NOT FOR SCOPE. The manifest started as
+ * the briefing room's films and has since grown the welcome-back jingle and, now,
+ * the arena's promo films — it is the signage asset manifest, and every uploader,
+ * reader and admin row is generic over this union. Renaming the type would touch
+ * a dozen files to say what this paragraph says, which is a poor trade.
+ */
 export type BriefingAssetKey =
   | "briefing-video:starter"
   | "briefing-video:intermediate"
@@ -97,7 +105,20 @@ export type BriefingAssetKey =
   /** Played ONCE when a returned group is still moving in the room three
    *  minutes after they walked in — "another group is waiting" (owner
    *  2026-08-23). Optional: no upload, no nag. Audio, not video. */
-  | "welcome-back-linger-audio";
+  | "welcome-back-linger-audio"
+  /**
+   * The HP Arena promo films — the moving half of what the arena check-in board
+   * plays between calls (owner 2026-09-01: "video and static ads of laser tag
+   * running in its dead time").
+   *
+   * ONE PAIR FOR BOTH VENUES, not one per venue. `signage_assets` is keyed on the
+   * slot alone, and the two arenas run the same Nexus branding and the same two
+   * activities — a Naples-specific cut would be a different feature, not a
+   * different row. Both are optional: the board plays whichever exist and falls
+   * back to the static slides when neither does.
+   */
+  | "arena-video:laser-tag"
+  | "arena-video:gel-blaster";
 
 export const BRIEFING_ASSET_KEYS: readonly BriefingAssetKey[] = [
   "briefing-video:starter",
@@ -106,6 +127,8 @@ export const BRIEFING_ASSET_KEYS: readonly BriefingAssetKey[] = [
   "briefing-helmet-poster",
   "welcome-back-audio",
   "welcome-back-linger-audio",
+  "arena-video:laser-tag",
+  "arena-video:gel-blaster",
 ] as const;
 
 export function isBriefingAssetKey(raw: unknown): raw is BriefingAssetKey {

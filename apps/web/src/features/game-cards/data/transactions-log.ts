@@ -84,16 +84,6 @@ export interface TxnRow {
   voucherCode: string | null;
 }
 
-/** One claimed credit job, as handed to the on-prem bridge. */
-export interface BridgeJob {
-  txnId: string;
-  accountNumber: string;
-  tokens: number;
-  bonusTokens: number;
-}
-
-export type BridgeAckOutcome = "ok" | "declined" | "no_attempt" | "unknown";
-
 let schemaReady = false;
 async function ensureSchema(): Promise<void> {
   if (schemaReady) return;
@@ -230,131 +220,6 @@ export async function markCharged(
   });
 }
 
-/**
- * `markCharged` + enqueue for the on-prem bridge, fused into ONE statement.
- * The fuse matters: a separate "set queued" update after markCharged would
- * leave a window where the row is (charged, pending, queue_state NULL) —
- * exactly what the reconcile cron SOAP-replays. EIS and SOAP share no dedup,
- * so a bridge claiming after that replay would double-credit. One statement
- * = one atomic transition, no window.
- */
-export async function markChargedQueued(
-  txnId: string,
-  squareOrderId: string | null,
-  squarePaymentIds: unknown,
-): Promise<void> {
-  await safeUpdate(async (q) => {
-    await q`
-      UPDATE intercard_transactions
-      SET state = 'charged', square_order_id = ${squareOrderId},
-          square_payment_ids = ${squarePaymentIds ? JSON.stringify(squarePaymentIds) : null},
-          queue_state = 'queued', queued_at = NOW()
-      WHERE txn_id = ${txnId}
-    `;
-  });
-}
-
-/**
- * Atomically claim up to `max` queued jobs for one center. Single statement:
- * the sub-select's FOR UPDATE SKIP LOCKED gives concurrent bridges (multiple
- * kiosk PCs per center) disjoint rows — each job is claimed exactly once.
- * The state/load_state guards keep claims off anything the SOAP path owns.
- * Returns [] on any error (the bridge just polls again).
- */
-export async function claimQueuedJobs(
-  locationCode: number,
-  workerId: string,
-  max: number,
-): Promise<BridgeJob[]> {
-  if (!isDbConfigured()) return [];
-  try {
-    await ensureSchema();
-    const q = sql();
-    const rows = await q`
-      UPDATE intercard_transactions
-      SET queue_state = 'claimed', claimed_by = ${workerId}, claimed_at = NOW()
-      WHERE txn_id IN (
-        SELECT txn_id FROM intercard_transactions
-        WHERE queue_state = 'queued' AND location_code = ${locationCode}
-          AND state = 'charged' AND load_state = 'pending'
-        ORDER BY queued_at ASC
-        LIMIT ${max}
-        FOR UPDATE SKIP LOCKED
-      )
-      RETURNING txn_id, account_number, tokens, bonus_tokens
-    `;
-    return rows.map((r) => ({
-      txnId: r.txn_id as string,
-      accountNumber: r.account_number as string,
-      tokens: r.tokens as number,
-      bonusTokens: r.bonus_tokens as number,
-    }));
-  } catch (err) {
-    console.error("[game-cards-log] claim failed:", err instanceof Error ? err.message : err);
-    return [];
-  }
-}
-
-/**
- * Apply a bridge's ack — one guarded UPDATE per outcome (state table in the
- * module header). Acks are accepted from 'verify' too: a bridge that outlived
- * its lease is still the authority on what the EIS actually did. The
- * load_state guard on declined/no_attempt means a verify row already resolved
- * `loaded` can never re-enter the SOAP replay set. `applied:false` = the row
- * already transitioned (idempotent; the bridge stops retrying on any 2xx).
- */
-export async function ackQueuedJob(p: {
-  txnId: string;
-  workerId: string;
-  outcome: BridgeAckOutcome;
-  code?: string;
-  description?: string;
-}): Promise<{ applied: boolean }> {
-  if (!isDbConfigured()) return { applied: false };
-  try {
-    await ensureSchema();
-    const q = sql();
-    const code = p.code ?? null;
-    const desc = p.description ?? null;
-    let rows: Record<string, unknown>[];
-    if (p.outcome === "ok") {
-      // Fuses markLoadState('loaded') semantics with the queue fields.
-      rows = await q`
-        UPDATE intercard_transactions
-        SET load_state = 'loaded', state = 'completed', completed_at = NOW(), error = NULL,
-            queue_state = 'done', acked_at = NOW(), loaded_via = 'bridge',
-            eis_code = ${code}, eis_description = ${desc}
-        WHERE txn_id = ${p.txnId} AND claimed_by = ${p.workerId}
-          AND queue_state IN ('claimed', 'verify')
-        RETURNING txn_id
-      `;
-    } else if (p.outcome === "unknown") {
-      rows = await q`
-        UPDATE intercard_transactions
-        SET queue_state = 'verify', acked_at = NOW(),
-            eis_code = ${code}, eis_description = ${desc}
-        WHERE txn_id = ${p.txnId} AND claimed_by = ${p.workerId}
-          AND queue_state = 'claimed'
-        RETURNING txn_id
-      `;
-    } else {
-      // declined | no_attempt: the EIS definitively did NOT credit.
-      rows = await q`
-        UPDATE intercard_transactions
-        SET queue_state = 'soap_fallback', acked_at = NOW(),
-            eis_code = ${code}, eis_description = ${desc}
-        WHERE txn_id = ${p.txnId} AND claimed_by = ${p.workerId}
-          AND queue_state IN ('claimed', 'verify') AND load_state = 'pending'
-        RETURNING txn_id
-      `;
-    }
-    return { applied: rows.length > 0 };
-  } catch (err) {
-    console.error("[game-cards-log] ack failed:", err instanceof Error ? err.message : err);
-    return { applied: false };
-  }
-}
-
 export interface GroupLoadStatus {
   txnId: string;
   accountNumber: string;
@@ -391,114 +256,28 @@ export async function getGroupQueueStates(groupId: string): Promise<GroupLoadSta
   }
 }
 
-/** Queued rows no bridge claimed within 60s (bridge down) → SOAP path. */
-export async function sweepStaleQueued(): Promise<string[]> {
-  if (!isDbConfigured()) return [];
-  try {
-    await ensureSchema();
-    const q = sql();
-    const rows = await q`
-      UPDATE intercard_transactions
-      SET queue_state = 'soap_fallback'
-      WHERE queue_state = 'queued' AND queued_at < NOW() - INTERVAL '60 seconds'
-      RETURNING txn_id
-    `;
-    return rows.map((r) => r.txn_id as string);
-  } catch (err) {
-    console.error(
-      "[game-cards-log] queued sweep failed:",
-      err instanceof Error ? err.message : err,
-    );
-    return [];
-  }
-}
-
 /**
- * Claimed rows whose bridge never acked within the lease (died mid-flight —
- * the EIS credit may or may not have landed) → 'verify'. Never back to the
- * queue and never to SOAP: unknown outcome must not be blindly retried.
+ * Count charged-but-unloaded rows stuck in a legacy EIS ambiguous state
+ * ('claimed'/'verify'). The EIS bridge is retired and its verify machinery is
+ * gone, so nothing advances these automatically any more — they can only be an
+ * already-drained zero (expected: cloud mode has been forced since 2026-07-22)
+ * or a pre-cutover straggler a human must settle against Intercard reports.
+ * The reconcile cron logs loudly whenever this is > 0 so such a straggler can
+ * never strand a guest's money silently. Once it stays 0, the queue_state
+ * column and this check can be dropped.
  */
-export async function sweepStaleClaimed(): Promise<string[]> {
-  if (!isDbConfigured()) return [];
+export async function countStuckLegacyQueueRows(): Promise<number> {
+  if (!isDbConfigured()) return 0;
   try {
     await ensureSchema();
     const q = sql();
     const rows = await q`
-      UPDATE intercard_transactions
-      SET queue_state = 'verify'
-      WHERE queue_state = 'claimed' AND claimed_at < NOW() - INTERVAL '3 minutes'
-        AND load_state = 'pending'
-      RETURNING txn_id
+      SELECT count(*)::int AS n FROM intercard_transactions
+      WHERE queue_state IN ('claimed', 'verify') AND load_state = 'pending'
     `;
-    return rows.map((r) => r.txn_id as string);
-  } catch (err) {
-    console.error(
-      "[game-cards-log] claimed sweep failed:",
-      err instanceof Error ? err.message : err,
-    );
-    return [];
-  }
-}
-
-/** Unknown-outcome rows awaiting history verification, oldest first. */
-export async function listVerifyRows(limit = 50): Promise<TxnRow[]> {
-  if (!isDbConfigured()) return [];
-  try {
-    await ensureSchema();
-    const q = sql();
-    const rows = await q`
-      SELECT * FROM intercard_transactions
-      WHERE queue_state = 'verify' AND load_state = 'pending'
-      ORDER BY queued_at ASC LIMIT ${limit}
-    `;
-    return rows.map(rowToTxn);
+    return (rows[0]?.n as number) ?? 0;
   } catch {
-    return [];
-  }
-}
-
-/** Cloud history showed the EIS credit landed → resolve the verify row loaded. */
-export async function markVerifiedLoaded(txnId: string): Promise<boolean> {
-  if (!isDbConfigured()) return false;
-  try {
-    await ensureSchema();
-    const q = sql();
-    const rows = await q`
-      UPDATE intercard_transactions
-      SET load_state = 'loaded', state = 'completed', completed_at = NOW(), error = NULL,
-          queue_state = 'done', loaded_via = 'verify'
-      WHERE txn_id = ${txnId} AND queue_state = 'verify' AND load_state = 'pending'
-      RETURNING txn_id
-    `;
-    return rows.length > 0;
-  } catch (err) {
-    console.error(
-      "[game-cards-log] verify-loaded failed:",
-      err instanceof Error ? err.message : err,
-    );
-    return false;
-  }
-}
-
-/** Verify row never matched history — flag for staff (check Intercard reports). */
-export async function markVerifyManual(txnId: string, error: string): Promise<boolean> {
-  if (!isDbConfigured()) return false;
-  try {
-    await ensureSchema();
-    const q = sql();
-    const rows = await q`
-      UPDATE intercard_transactions
-      SET load_state = 'load_failed', error = ${error}, queue_state = 'manual'
-      WHERE txn_id = ${txnId} AND queue_state = 'verify' AND load_state = 'pending'
-      RETURNING txn_id
-    `;
-    return rows.length > 0;
-  } catch (err) {
-    console.error(
-      "[game-cards-log] verify-manual failed:",
-      err instanceof Error ? err.message : err,
-    );
-    return false;
+    return 0;
   }
 }
 
@@ -512,6 +291,11 @@ export async function markChargeFailed(txnId: string, error: string): Promise<vo
   });
 }
 
+// Only one door left now that the EIS bridge is gone: every confirmed credit
+// comes through the server (the Intercard router — onsite proxy first, cloud
+// SOAP fallback). "soap" is kept as the label for continuity with historical
+// rows. ("bridge" / "kiosk_bridge" / "verify" are retired; old rows may still
+// carry them, so the type stays permissive for reads.)
 export type LoadedVia = "bridge" | "kiosk_bridge" | "soap" | "verify";
 
 /** Flip load state after the Intercard call (loaded → completed). `via` stamps
@@ -606,7 +390,14 @@ export async function listPendingLoads(limit = 50): Promise<TxnRow[]> {
     const rows = await q`
       SELECT * FROM intercard_transactions
       WHERE load_state = 'pending' AND state = 'charged'
-        AND (queue_state IS NULL OR queue_state = 'soap_fallback')
+        -- Credit anything charged-but-unloaded EXCEPT the legacy EIS states
+        -- whose credit outcome is ambiguous ('claimed'/'verify' — a dead bridge
+        -- may already have credited them; re-crediting would double-charge, and
+        -- neither EIS nor the onsite proxy dedups). 'queued' is safe: a bridge
+        -- would have moved it to 'claimed' before crediting, so a bare 'queued'
+        -- row was never credited and belongs in the replay. (The EIS bridge is
+        -- retired; no new rows enter any of these states.)
+        AND (queue_state IS NULL OR queue_state IN ('soap_fallback', 'queued'))
         AND (kind NOT IN ('new_card', 'voucher') OR created_at < NOW() - INTERVAL '15 minutes')
       ORDER BY created_at ASC LIMIT ${limit}
     `;

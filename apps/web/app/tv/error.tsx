@@ -33,6 +33,7 @@ import { BrandedLoader } from "~/features/kiosk/components/BrandedLoader";
 import { parseScreenKey } from "~/features/signage/constants";
 import { originReachable, startGatedReload } from "~/features/signage/reload-gate";
 import { browserCrashStore, noteCrashAndShouldRecover } from "~/features/signage/crash-breaker";
+import { reportCrash } from "~/features/signage/crash-report";
 
 /** Long enough that a guest reads the loader as a boot, short enough to be a blink. */
 const RECOVER_AFTER_MS = 8_000;
@@ -48,9 +49,12 @@ export default function TvError({ error }: { error: Error & { digest?: string } 
       : "headpinz";
 
   useEffect(() => {
-    // Nobody is at the wall to read a console, and the boundary itself is the
-    // only place this exception is ever observable.
+    // Nobody is at the wall to read a console, so the console is not enough on its
+    // own: the report is what makes this exception observable from anywhere other
+    // than standing in the lobby. Sent with `keepalive`, because the next thing
+    // this component does is reload the tab out from under the request.
     console.error("[tv] scene crashed", error?.digest ?? "", error);
+    reportCrash({ error, scene: null, origin: "route" });
 
     if (!noteCrashAndShouldRecover(Date.now(), browserCrashStore())) return;
 

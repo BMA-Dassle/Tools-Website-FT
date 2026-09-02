@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
 import { listAlternatives } from "@/lib/alternatives-data";
 import { getAllPosts } from "@/lib/blog/posts";
+import { isKbfOffered } from "@/lib/kbf-schedule";
 import { DEAL_CATALOG, dealIsSellable } from "~/features/deals";
 
 /**
@@ -102,7 +103,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${hp}/menu`, lastModified: now, changeFrequency: "weekly", priority: 0.85 },
     { url: `${hp}/pricing`, lastModified: now, changeFrequency: "weekly", priority: 0.85 },
     { url: `${hp}/rewards`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
-    { url: `${hp}/kids-bowl-free`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
+    // Kids Bowl Free is seasonal — listed only while the program is actually
+    // bookable, the same "listing follows the product" rule the deal pages use
+    // below. Off-season the URL still RESOLVES (it serves a "back next summer"
+    // notice, and carries its own noindex), so the inbound links from
+    // kidsbowlfree.com and old emails keep working; we just stop asking Google
+    // to crawl and rank a page that can't give a parent a free lane. Reopening
+    // the season puts it back here on the next request.
+    ...(isKbfOffered()
+      ? [
+          {
+            url: `${hp}/kids-bowl-free`,
+            lastModified: now,
+            changeFrequency: "monthly" as const,
+            priority: 0.7,
+          },
+        ]
+      : []),
     { url: `${hp}/book/bowling`, lastModified: now, changeFrequency: "weekly", priority: 0.95 },
     { url: `${hp}/book/gel-blaster`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
     { url: `${hp}/book/laser-tag`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },

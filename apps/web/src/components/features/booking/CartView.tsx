@@ -27,6 +27,7 @@ import {
   resolveKioskPacks,
   type KioskPackSelection,
 } from "~/features/booking/service/race-pack-kiosk";
+import { computeBogoScheduledFree } from "~/features/booking/service/bogo-scheduled";
 import { redeemedHeatSet } from "~/features/booking/data/race-credits";
 import { getBookingAddon } from "~/features/booking/data/addon-catalog";
 import {
@@ -1334,11 +1335,46 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
         /* same fail-open as packs — the reserve is the enforcement point */
       }
     }
+    // BOGO Wednesdays — every 2nd scheduled race free: the same rule the
+    // charge builder prices with, differenced against THIS item's own lines
+    // (the packs/vouchers pattern above), so the Est. total can't drift from
+    // the pay screen. Same coverage order too: credits → packs → vouchers →
+    // BOGO on the cash remainder.
+    let bogoFreeTotal = 0;
+    if (!session.comboSpecialId) {
+      try {
+        let base = redeemedHeatSet(session);
+        if (kioskRacePacksEnabled() && (item.creditPacks?.length ?? 0) > 0) {
+          const packs = resolveKioskPacks(item.creditPacks ?? [], session.party, {
+            raceDate: item.date ?? null,
+          });
+          const cov = computePackCoverage(session, packs, base);
+          if (cov.heats.size > 0) base = new Set([...base, ...cov.heats]);
+        }
+        if (sessionVouchers(session).length > 0) {
+          const vHeats = planVoucherCoverage(session, base).raceHeats;
+          if (vHeats.size > 0) base = new Set([...base, ...vHeats]);
+        }
+        const bogo = computeBogoScheduledFree(session.items, session.party, base);
+        if (bogo.heats.size > 0) {
+          const sumLines = (ex: Set<RaceHeatAssignment>) =>
+            applyPromoToBillLines(raceItemChargeLines(item, ex), session.appliedPromo).reduce(
+              (s, l) => s + l.amount,
+              0,
+            );
+          bogoFreeTotal =
+            Math.round((sumLines(base) - sumLines(new Set([...base, ...bogo.heats]))) * 100) / 100;
+        }
+      } catch {
+        /* same fail-open — the reserve prices authoritatively */
+      }
+    }
     return (
       raceLinesTotal +
       packsTotal -
       packCoveredTotal -
-      voucherCoveredTotal +
+      voucherCoveredTotal -
+      bogoFreeTotal +
       licenseTotal +
       povTotal +
       addonsTotal +
@@ -1366,7 +1402,9 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
     // Same catalog + day-of-week helper the charge builder reads
     // (race-sims/products.ts), so the estimate can't drift from the charge.
     const product = getRaceSimProduct(item.productSlug);
-    return product ? raceSimPriceFor(product, item.date) * Math.max(1, item.racerCount) : 0;
+    return product
+      ? raceSimPriceFor(product) * Math.max(1, item.racerCount) * item.sessions.length
+      : 0;
   }
   // bowling / kbf — combo bowling is charged inside the flat combo line.
   if (session.comboSpecialId && item.kind === "bowling") return 0;
@@ -1408,7 +1446,7 @@ export function allItemsReady(session: BookingSession): boolean {
       case "racesim":
         // Slot required (attraction parity): a sim leg with no session time
         // must never reach the pay screen (the 2026-07-28 phantom-leg class).
-        return !!item.productSlug && !!item.trackKey && !!item.slot && item.racerCount > 0;
+        return !!item.productSlug && item.sessions.length > 0 && item.racerCount > 0;
     }
   });
 }
@@ -1453,6 +1491,12 @@ export function itemSortMs(item: SessionItem): number {
         return Date.parse(`${item.date}T${String(item.hour % 24).padStart(2, "0")}:00:00`) || FAR;
       }
       return FAR;
+    }
+    case "racesim": {
+      const starts = item.sessions
+        .map((s) => Date.parse(s.slot.replace(/Z$/, "")))
+        .filter((n) => Number.isFinite(n));
+      return starts.length ? Math.min(...starts) : FAR;
     }
     default:
       return FAR;
@@ -1520,8 +1564,11 @@ function otherItemSummary(item: SessionItem): string {
     case "racesim":
       return [
         fmtCartDate(item.date),
-        fmtCartIsoTime(item.slot),
-        getRaceSimTrack(item.trackKey)?.name ?? null,
+        ...[...item.sessions]
+          .sort((a, b) => a.slot.localeCompare(b.slot))
+          .map((s) =>
+            `${fmtCartIsoTime(s.slot) ?? ""} ${getRaceSimTrack(s.trackKey)?.name ?? ""}`.trim(),
+          ),
         `${item.racerCount} racer${item.racerCount === 1 ? "" : "s"}`,
       ]
         .filter(Boolean)

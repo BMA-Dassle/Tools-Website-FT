@@ -603,6 +603,33 @@ export interface BowlingItem extends BookingItemBase, BowlingCommon {
   /** WORLD_CUP_FIXTURES id of the picked match (persisted to booking metadata). */
   worldCupMatchId?: string | null;
   /**
+   * NFL Ticket entry mode (?experience=nfl): the game picker replaces BOTH
+   * step families — classic Slots/Tier/Offer and v3 Date/Experience/Time —
+   * because a game already carries a date and a time, and the package is a
+   * single fixed VIP experience so there is nothing to choose on those screens.
+   *
+   * Marks the ITEM rather than keying off `experienceSlug`, deliberately. The
+   * slug is only known once a game is picked, so a slug test cannot decide
+   * which steps to show BEFORE the picker has run — that ordering is what put
+   * the first cut of this feature inside the normal wizard. Optional so
+   * sessions persisted before this field hydrate undefined → falsy.
+   */
+  isNfl?: boolean;
+  /**
+   * ESPN event id of the picked NFL game.
+   *
+   * REQUIRED for an NFL Ticket booking, and not derivable from `bookedAt`:
+   * eight games kick off at 1:00 PM on a normal Sunday, so they share a
+   * lane-open instant and the time alone cannot say which one the party came
+   * for — which is exactly what decides their block and what the screen shows.
+   *
+   * The server re-fetches this id from `nfl_games` and validates `bookedAt`
+   * against THAT row, so it is an index into our own data rather than anything
+   * the client is trusted on. Optional so sessions persisted before this field
+   * hydrate undefined → falsy.
+   */
+  nflGameId?: string | null;
+  /**
    * FastTrax duckpin (QAMF center 11542). FastTrax and HeadPinz FM share the
    * "fort-myers" CenterCode, so this item-level marker — not session.center —
    * is what routes the item to 11542 (see reducer) and drives duckpin-specific
@@ -643,6 +670,23 @@ export interface KbfItem extends BookingItemBase, BowlingCommon {
  * `item.lineItems` breaks at COMPILE time instead of silently treating a sim
  * as a bookable lane.
  */
+/** One picked sim session — racing's RaceHeatAssignment for sims: the whole
+ *  group rides this session on this track, as ONE $0 track-key line on the
+ *  shared bill. Picks accumulate across tracks (karting parity); the only
+ *  sim-vs-sim rule is that one start time can't be picked on two tracks. */
+export interface RaceSimSession {
+  trackKey: "a" | "b" | "c";
+  /** ISO start (BMI block.start) — wall-clock, naive. */
+  slot: string;
+  /** The block's BMI proposal — needed for booking. JSON-safe. */
+  slotProposal: BmiProposal;
+  /** BMI bill line id once held. releaseItemBmiLines keys off it. */
+  bmiLineId: string | null;
+  /** Quantity the held line was booked with. racerCount follows the roster
+   *  live; a mismatch means re-hold (grid) / refuse (reserve guard 2e). */
+  heldQty: number | null;
+}
+
 export interface RaceSimItem extends BookingItemBase {
   kind: "racesim";
   /** YYYY-MM-DD — kiosk stamps today at creation (walk-up). */
@@ -657,14 +701,10 @@ export interface RaceSimItem extends BookingItemBase {
   trackKey: "a" | "b" | "c" | null;
   /** Racers on this product; the people step keeps it = assignedTo.length. */
   racerCount: number;
-  /** ISO start of the chosen sim session (attraction parity — the kiosk slot
-   *  step writes it; all three track keys share the same sessions). */
-  slot: string | null;
-  /** The chosen slot's BMI proposal — needed for booking. JSON-safe. */
-  slotProposal: BmiProposal | null;
-  /** BMI bill line id — set after the $0 track-key line books (eager hold on
-   *  slot pick, gel/laser semantics). releaseItemBmiLines keys off it. */
-  bmiLineId: string | null;
+  /** Picked sessions across tracks — racing's heats[]. Each holds its own $0
+   *  track-key line; `trackKey` above is only the track the time grid is
+   *  currently showing. */
+  sessions: RaceSimSession[];
   /**
    * KIOSK-ONLY (optional — web never writes it): session.party member ids
    * participating in THIS sim line, AttractionItem.participants parity so
@@ -738,8 +778,14 @@ export interface SelectedRewardTier {
  * Square Loyalty state. Populated during checkout when the customer's
  * phone resolves to a HeadPinz Rewards account (or they enroll).
  *
- * Earning: `customerId` is attached to the Square day-of order so
- * points auto-accrue (10 Pinz per $1). No verification needed.
+ * Earning: `customerId` is attached to the Square day-of order, which is
+ * NECESSARY BUT NOT SUFFICIENT — Square does not accrue on its own for an
+ * Orders-API order. The points (10 Pinz per $1) are only credited when a
+ * settle rail explicitly calls AccumulateLoyaltyPoints via
+ * `accrueLoyaltyPoints` (features/loyalty) once the order is fully paid:
+ * processLaneOpen for bowling, race-dayof-pay for races/attractions. No
+ * verification needed to EARN. This comment used to claim auto-accrual, and
+ * that belief is why racing credited nobody for three months.
  *
  * Redeeming: requires SMS verification to prove ownership. After
  * verify, reward tiers become selectable to reduce the deposit.
@@ -964,6 +1010,8 @@ export function newItem(activity: Activity): SessionItem {
         discountCode: null,
         isWorldCup: false,
         worldCupMatchId: null,
+        isNfl: false,
+        nflGameId: null,
         isDuckpin: false,
       };
     case "racesim":
@@ -975,9 +1023,7 @@ export function newItem(activity: Activity): SessionItem {
         productSlug: null,
         trackKey: null,
         racerCount: 1,
-        slot: null,
-        slotProposal: null,
-        bmiLineId: null,
+        sessions: [],
         assignedTo: [],
       };
     case "kbf":

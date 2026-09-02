@@ -58,13 +58,19 @@ interface Plan {
   pair?: { groupId: string; position: number };
   brand?: "fasttrax" | "headpinz";
   /**
-   * What this panel shows when the running scene does not reach it — only the two WING
-   * panels have one.
+   * THIS PANEL'S OWN BOARD — the thing it shows in preference to the pricing wall.
    *
-   * The pricing board spans the middle three, which is what frees the ends to do their
-   * own jobs: the self check-in list on the left (nearest the lanes, and the only place
-   * a kiosk check-in learns its lane number) and today's events on the right. Absent on
-   * the middle three, which are never outside a span.
+   * Only the two ends have one: the self check-in list on the left (nearest the lanes,
+   * and the only place a kiosk check-in learns its lane number) and today's events on
+   * the right. The middle three have no job but pricing.
+   *
+   * It is no longer a span that frees them. Both playlist entries now span the whole
+   * wall, and the pricing board is in `YIELDS_TO_WINGS` (director/schedule.ts) — so a
+   * panel with a board of its own keeps it WHEN THAT BOARD HAS DATA, and joins the
+   * prices when it does not. The check-in list always has something (it owns a designed
+   * empty state), so TV1 never prices; the events board is usually quiet, so TV5 prices
+   * all evening and steps aside for a party greeting when there is one (owner
+   * 2026-09-01: a whole TV sat idle while prices took turns on the ones beside it).
    */
   outsideScene?: "bowling-checkin" | "event-welcome";
 }
@@ -190,6 +196,17 @@ async function main() {
     wall.forEach((s, i) => console.log(`      ${s.screenId}: ${playlists[i]}`));
   }
 
+  // 3a. THE OTHER HALF OF THE TEAR INVARIANT: the slot LENGTH. Selection is
+  //     `floor(now / slotMs) % totalSlots`, so five identical playlists on four 20s
+  //     panels and one 40s panel still wrap on different beats. This wall runs 20s.
+  const slots = wall.map((s) => s.config.slotMs ?? 40_000);
+  const distinctSlotMs = [...new Set(slots)];
+  if (distinctSlotMs.length === 1) {
+    pass(`identical slot length — ${distinctSlotMs[0] / 1000}s`);
+  } else {
+    fail(`slot lengths DIFFER across the wall ([${slots.join(", ")}]) — the wall will TEAR`);
+  }
+
   // 3b. no requiresData — it changes totalSlots per screen at runtime, which
   //     tears the wall even when the stored playlists are identical.
   const gated = (wall[0]?.config.playlist ?? []).filter((e) => e.requiresData);
@@ -215,26 +232,28 @@ async function main() {
     fail(`brand marks are [${marks.join(", ")}] — expected fasttrax, …, headpinz`);
   }
 
-  // 6. the WINGS carry their own boards, the middle three do not
+  // 6. the TWO ENDS carry their own boards, the middle three do not
   const wings = wall.map((w) => w.config.wall!.outsideScene ?? null);
   if (
     wings[0] === "bowling-checkin" &&
     wings[COUNT - 1] === "event-welcome" &&
     wings.slice(1, -1).every((w) => w == null)
   ) {
-    pass("wings carry their own boards (check-in left, events right); middle three do not");
+    pass("ends carry their own boards (check-in left, events right); middle three do not");
   } else {
-    fail(`off-span scenes are [${wings.join(", ")}] - expected bowling-checkin, ..., event-welcome`);
+    fail(`own-board scenes are [${wings.join(", ")}] - expected bowling-checkin, ..., event-welcome`);
   }
 
-  // 7. the playlist's SPANS are what frees the wings in the first place. Without
-  //    `open-now: middle` the pricing board covers all five and the two end panels
-  //    never get a turn at their own job, however they are configured.
+  // 7. BOTH ENTRIES SPAN THE WHOLE WALL, and they mean different things by it. The
+  //    showcase is one picture that needs all five panels; the pricing board is five
+  //    independent panels, freed to reach the ends by YIELDS_TO_WINGS rather than by a
+  //    narrower span. A stored `open-now: middle` here is the OLD wall — the pricing
+  //    board would stop at TV4 and TV5 would sit on an idle signpost again.
   const spans = (wall[0]?.config.playlist ?? []).map((e) => `${e.scene}:${e.span ?? "wall"}`);
-  if (spans.includes("open-now:middle") && spans.includes("vip-showcase:wall")) {
-    pass("pricing spans the middle three, the showcase spans the whole wall");
+  if (spans.includes("open-now:wall") && spans.includes("vip-showcase:wall")) {
+    pass("pricing and the showcase both span the whole wall");
   } else {
-    fail(`spans are [${spans.join(", ")}] - the wings are only free if pricing is "middle"`);
+    fail(`spans are [${spans.join(", ")}] - expected open-now:wall and vip-showcase:wall`);
   }
 
   console.log(`\n── preview these five side by side BEFORE hanging anything ──`);

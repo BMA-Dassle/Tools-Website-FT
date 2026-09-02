@@ -35,7 +35,7 @@
 import { useEffect, useRef, useState } from "react";
 import PaymentForm from "@/components/square/PaymentForm";
 import { KioskTerminalCheckoutGate } from "./KioskTerminalCheckoutGate";
-import { bridgeHealth, creditTokensViaBridge } from "../service/game-card-bridge";
+import { onsiteHealth, type OnsiteChipStatus } from "../service/game-card-bridge";
 import { kioskGzCartEnabled, kioskVoucherGzEnabled } from "~/features/kiosk/flags";
 import { useQrScanner } from "../qr-scanner/useQrScanner";
 import { useWedgeScan } from "../checkin/wedge-scan";
@@ -111,8 +111,14 @@ const MAX_BAD_BLANKS = 3;
 const MAX_AUTO_READ_FAILS = 3;
 
 /** Combine cards (consolidation) entry point — ON (owner 2026-07-23). The combine
- *  is TPI_ConsolidateAccounts on the SAME cloud SOAP host as the token loads
- *  (intercard.swflpassport.com; envelope WSDL-exact) — no extra hosts or env.
+ *  runs through the shared Intercard router, which prefers the ONSITE proxy
+ *  (Api_External `consolidatecards`) and falls back to cloud SOAP
+ *  (TPI_ConsolidateAccounts) — same host either way, no extra hosts or env.
+ *
+ *  It used to be CLOUD-ONLY, hidden whenever a kiosk had a local bridge, because
+ *  the bridge's EIS socket had no consolidate op. The onsite path does, so that
+ *  restriction is gone (owner 2026-08-31): Combine now shows on every kiosk
+ *  whose center has a card backend configured.
  *  Flip to false to hide the button. */
 const GC_CONSOLIDATE_LIVE = true;
 
@@ -312,21 +318,40 @@ function pkgLabel(t: Translate, packageId: string): string {
   return `${p.tokens} ${t("gamezone.tokensUnit")}${bonus} · $${(p.priceCents / 100).toFixed(0)}`;
 }
 
-/** Staff-readable card-system status: local bridge (instant) vs cloud (slower).
+/** Staff-readable card-system status: ONSITE (the site's own card system —
+ *  real-time, instant to the floor) vs CLOUD (Intercard's replicated
+ *  datacenter copy — correct, but slower to reach the readers).
+ *
+ *  "Onsite" (was "Local") is the same word the server-side onsite client uses
+ *  for this path — see `probeOnsite` / `OnsiteStatus` in
+ *  features/game-cards/data/intercard-onsite.ts — so staff, logs, and code all
+ *  name the path identically when something goes wrong.
+ *
  *  Renders nothing until the first health check answers. */
-function BridgeChip({ up }: { up: boolean | null }) {
-  if (up === null) return null;
+function BridgeChip({ status }: { status: OnsiteChipStatus | null }) {
+  if (status === null) return null;
+  // Three states worth distinguishing to staff:
+  //   onsite     — green:  the site's own card system is serving; instant.
+  //   unlicensed — red:    a CONFIG fault (MAC/token/licence mismatch). Loads
+  //                        still land via cloud, but someone must fix it, so it
+  //                        must not hide behind the same amber as a normal
+  //                        cloud fallback.
+  //   otherwise  — amber:  riding the cloud path (relay offline, kill switch
+  //                        on, or probe failed) — correct, just slower to the
+  //                        floor.
+  const tone =
+    status === "onsite"
+      ? { pill: "bg-emerald-400/10 text-emerald-300/70", dot: "bg-emerald-300/80", label: "Onsite" }
+      : status === "unlicensed"
+        ? { pill: "bg-red-400/10 text-red-300/80", dot: "bg-red-300/80", label: "Unlicensed" }
+        : { pill: "bg-amber-400/10 text-amber-300/70", dot: "bg-amber-300/80", label: "Cloud" };
   // Deliberately tiny — a staff glance-check, not a guest-facing element.
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-[2px] text-[9px] font-medium uppercase leading-none tracking-wide ${
-        up ? "bg-emerald-400/10 text-emerald-300/70" : "bg-amber-400/10 text-amber-300/70"
-      }`}
+      className={`inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-[2px] text-[9px] font-medium uppercase leading-none tracking-wide ${tone.pill}`}
     >
-      <span
-        className={`h-[5px] w-[5px] rounded-full ${up ? "bg-emerald-300/80" : "bg-amber-300/80"}`}
-      />
-      {up ? "Local" : "Cloud"}
+      <span className={`h-[5px] w-[5px] rounded-full ${tone.dot}`} />
+      {tone.label}
     </span>
   );
 }
@@ -416,14 +441,21 @@ export function KioskGameZone({
   const setBasketRow = (code: string, patch: Partial<VoucherBasketRow>) =>
     updateBasket((rows) => rows.map((r) => (r.code === code ? { ...r, ...patch } : r)));
 
-  // Local bridge status chip (staff-facing, guest-benign): green = loads hit
-  // the local card system instantly; amber = cloud path (slower to the floor).
-  const [bridgeUp, setBridgeUp] = useState<boolean | null>(null);
+  // Onsite card-system status chip (staff-facing, guest-benign). Asks OUR
+  // server about the ONSITE proxy for this center — not the old on-prem bridge
+  // on 127.0.0.1, whose health describes a different path (the EIS socket,
+  // which cannot consolidate or clear) and so says nothing about whether the
+  // real-time card system is serving us.
+  //
+  // centerCodeFor(...) is called INSIDE the effect on purpose: `locationCode`
+  // is declared further down this component, and referencing it here would be
+  // a temporal-dead-zone error at render.
+  const [onsiteStatus, setOnsiteStatus] = useState<OnsiteChipStatus | null>(null);
   useEffect(() => {
     let cancelled = false;
     const check = async () => {
-      const up = await bridgeHealth();
-      if (!cancelled) setBridgeUp(up);
+      const s = await onsiteHealth(centerCodeFor(center, brand));
+      if (!cancelled) setOnsiteStatus(s);
     };
     void check();
     const id = setInterval(check, 30_000);
@@ -431,7 +463,7 @@ export function KioskGameZone({
       cancelled = true;
       clearInterval(id);
     };
-  }, []);
+  }, [center, brand]);
   const [cards, setCards] = useState<CartCard[]>([
     { accountNumber: "", packageId: TOKEN_PACKAGES[1].id, status: "unverified" },
   ]);
@@ -489,11 +521,13 @@ export function KioskGameZone({
   // 2026-07-23: "it just resets and keeps waiting for a card").
   const [consoHalted, setConsoHalted] = useState<string | null>(null);
   // Backend availability probe (null = checking). The Combine button only
-  // shows when the cloud EIS is actually configured for this center — an
-  // unconfigured backend must never dead-end a guest mid-flow.
+  // shows when a card backend is actually configured for this center — an
+  // unconfigured backend must never dead-end a guest mid-flow. No longer
+  // conditioned on the transport: consolidate runs onsite OR cloud, so the
+  // probe runs on every kiosk (owner 2026-08-31).
   const [consoAvailable, setConsoAvailable] = useState<boolean | null>(null);
   useEffect(() => {
-    if (!GC_CONSOLIDATE_LIVE || bridgeUp !== false) return;
+    if (!GC_CONSOLIDATE_LIVE) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -516,7 +550,7 @@ export function KioskGameZone({
     return () => {
       cancelled = true;
     };
-  }, [bridgeUp, locationCode]);
+  }, [locationCode]);
 
   // The CRT-591 dispenser owns ONE connection for the whole Game Zone session
   // (this component stays mounted until the guest exits). Auto-reconnects
@@ -1249,16 +1283,10 @@ export function KioskGameZone({
     opts: { swiped?: boolean } = {},
   ): Promise<boolean> => {
     setDispenseMsg(t("gamezone.voucher.loading"));
-    // On-prem bridge first (instant on the floor), cloud SOAP as the fallback —
-    // never both, they share no dedup. A bonus-CASH grant can't ride the bridge
-    // (its /credit speaks tokens only), so it goes straight to SOAP.
-    const bridged = claim.grant.bonusCashDollars
-      ? false
-      : await creditTokensViaBridge({
-          accountNumber: account,
-          tokens: claim.grant.tokens,
-          bonusTokens: claim.grant.bonusTokens,
-        });
+    // The server credits through the Intercard router (onsite first, cloud SOAP
+    // fallback). The on-prem EIS bridge that used to pre-load here is retired:
+    // the onsite proxy reaches the same site card system and, unlike the EIS
+    // socket, also handles bonus cash / clear / consolidate.
     let loaded = false;
     try {
       const res = await fetch("/api/game-cards/load-card", {
@@ -1269,7 +1297,7 @@ export function KioskGameZone({
           txnId: claim.txnId,
           accountNumber: account,
           locationCode,
-          preLoaded: bridged,
+
           swiped: !!opts.swiped,
         }),
       });
@@ -1893,17 +1921,9 @@ export function KioskGameZone({
       }
       setNewCardAt(i, { account, cardStatus: "pending" });
       setDispenseMsg(t("gamezone.loadingOntoCard", { n: i + 1 }));
-      // On-prem bridge FIRST (fast local EIS), cloud SOAP fallback server-side
-      // (preLoaded:false). Never both — no double-credit. `swiped` tells the
-      // server this card is the guest's choice: never clear-on-encode it.
-      const pkg = TOKEN_PACKAGES.find((p) => p.id === newCards[i]?.packageId);
-      const bridged = pkg
-        ? await creditTokensViaBridge({
-            accountNumber: account,
-            tokens: pkg.tokens,
-            bonusTokens: pkg.bonusTokens,
-          })
-        : false;
+      // The server credits through the Intercard router (onsite first, cloud
+      // SOAP fallback). `swiped` tells the server this card is the guest's
+      // choice: never clear-on-encode it.
       let loaded = false;
       let balanceTokens: number | undefined;
       try {
@@ -1915,7 +1935,7 @@ export function KioskGameZone({
             txnId,
             accountNumber: account,
             locationCode,
-            preLoaded: bridged,
+
             swiped: true,
           }),
         });
@@ -2018,17 +2038,8 @@ export function KioskGameZone({
       setDispenseMsg(t("gamezone.loadingOntoCard", { n: i + 1 }));
       let loaded = false;
       let balanceTokens: number | undefined;
-      // On-prem FIRST: load through the kiosk-PC bridge → local EIS server (fast).
-      // If it isn't reachable, the server falls back to the cloud SOAP path
-      // (preLoaded:false). Never both — no double-credit.
-      const pkg = TOKEN_PACKAGES.find((p) => p.id === newCards[i]?.packageId);
-      const bridged = pkg
-        ? await creditTokensViaBridge({
-            accountNumber: account,
-            tokens: pkg.tokens,
-            bonusTokens: pkg.bonusTokens,
-          })
-        : false;
+      // The server credits through the Intercard router (onsite first, cloud
+      // SOAP fallback) — the on-prem EIS bridge is retired.
       try {
         const res = await fetch("/api/game-cards/load-card", {
           method: "POST",
@@ -2038,7 +2049,6 @@ export function KioskGameZone({
             txnId,
             accountNumber: account,
             locationCode,
-            preLoaded: bridged,
           }),
         });
         const data = await res.json();
@@ -2142,22 +2152,16 @@ export function KioskGameZone({
     };
   };
 
-  // reload via the reader: after the charge, load each already-charged card on the
-  // on-prem bridge, then report through /load-card (preLoaded=true → the server
-  // records it without re-crediting via SOAP; preLoaded=false → SOAP fallback). A
-  // failed report leaves the row pending for the reconcile cron — never a
-  // double-credit (the two paths don't share dedup).
+  // reload via the reader: after the charge, credit each already-charged card
+  // through /load-card, which routes to Intercard (onsite first, cloud SOAP
+  // fallback). A failed report leaves the row pending for the reconcile cron —
+  // never a double-credit.
   const loadReloadViaBridge = async (
     groupId: string,
     rows: Array<{ txnId: string; accountNumber: string; tokens: number; bonusTokens: number }>,
   ) => {
     let anyPending = false;
     for (const r of rows) {
-      const bridged = await creditTokensViaBridge({
-        accountNumber: r.accountNumber,
-        tokens: r.tokens,
-        bonusTokens: r.bonusTokens,
-      });
       try {
         const res = await fetch("/api/game-cards/load-card", {
           method: "POST",
@@ -2167,7 +2171,6 @@ export function KioskGameZone({
             txnId: r.txnId,
             accountNumber: r.accountNumber,
             locationCode,
-            preLoaded: bridged,
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -2390,13 +2393,16 @@ export function KioskGameZone({
               </div>
             </button>
           )}
-          {/* Combine cards — CLOUD ONLY. Appears when this kiosk is on the cloud
-              path (no local bridge, bridgeUp===false); needs the reader to
-              accept + bin sources. Forcing a kiosk to cloud turns this on.
+          {/* Combine cards — ANY TRANSPORT. Was cloud-only while consolidate
+              existed solely as a cloud SOAP op; the onsite proxy has
+              `consolidatecards`, so the bridgeUp===false gate is gone (owner
+              2026-08-31) and the button shows on every kiosk. Still needs the
+              reader (it accepts + bins the source cards) and a configured
+              backend for this center.
               Re-enabled (owner 2026-07-23): the old NEXT_PUBLIC_GC_CONSOLIDATE_DISABLED
               env kill-switch was dropped so a stale Vercel var can't keep the
               button dark — GC_CONSOLIDATE_LIVE (top of file) is the one switch. */}
-          {GC_CONSOLIDATE_LIVE && bridgeUp === false && readerReady && consoAvailable === true && (
+          {GC_CONSOLIDATE_LIVE && readerReady && consoAvailable === true && (
             <button
               type="button"
               onClick={() => {
@@ -3401,7 +3407,7 @@ export function KioskGameZone({
             <h1 className="font-heading text-4xl font-extrabold italic">
               {t("gamezone.newCards.title")}
             </h1>
-            <BridgeChip up={bridgeUp} />
+            <BridgeChip status={onsiteStatus} />
           </span>
           <button
             type="button"
@@ -3694,7 +3700,7 @@ export function KioskGameZone({
           <h1 className="font-heading text-4xl font-extrabold italic">
             {t("gamezone.reload.title")}
           </h1>
-          <BridgeChip up={bridgeUp} />
+          <BridgeChip status={onsiteStatus} />
         </span>
         <button
           type="button"

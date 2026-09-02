@@ -115,6 +115,10 @@ export default function SignageAdminClient({ token }: { token: string }) {
         helmetPosterUrl: json.helmetPosterUrl,
         welcomeBackAudioUrl: json.welcomeBackAudioUrl ?? null,
         welcomeBackLingerAudioUrl: json.welcomeBackLingerAudioUrl ?? null,
+        // `?? {...}` rather than a bare read: this page can be open against a
+        // deploy that predates the arena slots, and a missing key must render as
+        // "not uploaded", never crash the whole asset panel.
+        arenaVideoUrls: json.arenaVideoUrls ?? { "laser-tag": null, "gel-blaster": null },
       });
     } catch {
       /* the section simply shows "not uploaded" */
@@ -453,6 +457,10 @@ function ScreenRow({
   const canBriefing = resolved.playlist.some((p) => p.scene === "briefing");
   const canResults = resolved.playlist.some((p) => p.scene === "race-results");
   const canGuide = resolved.playlist.some((p) => p.scene === "race-guide");
+  // The arena board is the one screen whose capability is NOT a playlist entry —
+  // its check-in scene is an interrupt. Asked of the config key, the same thing
+  // the feed and the director gate on.
+  const canArena = resolved.arenaBoard !== null;
   const online = heartbeat ? nowMs - Date.parse(heartbeat.at) < 60_000 : false;
   const scopedTrack = screen.config.scope?.resourceIds?.[0];
   const trackName =
@@ -813,6 +821,44 @@ function ScreenRow({
                 Preview arrow
               </button>
             )}
+            {/* Two arena previews rather than one: the ordinary two-panel board,
+                and the rare three-panel one a birthday party makes. The tight
+                layout is exactly the one nobody would otherwise see until it was
+                already on a wall in front of guests. */}
+            {canArena && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSimulate(
+                    "preview",
+                    { screenId: screen.screenId, mode: "arena" },
+                    `Arena check-in pushed to ${screen.screenId} — Laser Tag and Gel Blaster called together.`,
+                  )
+                }
+                style={btn}
+                disabled={busy}
+                title="Show the called-session takeover without waiting for a real call"
+              >
+                Preview arena call
+              </button>
+            )}
+            {canArena && (
+              <button
+                type="button"
+                onClick={() =>
+                  onSimulate(
+                    "preview",
+                    { screenId: screen.screenId, mode: "arena-busy" },
+                    `Busy arena board pushed to ${screen.screenId} — both games plus a birthday party.`,
+                  )
+                }
+                style={btn}
+                disabled={busy}
+                title="The tightest layout: three sessions called at once, including a party booked as either game"
+              >
+                Preview arena (busy)
+              </button>
+            )}
             {canResults && (
               <button
                 type="button"
@@ -1059,6 +1105,12 @@ interface Draft {
   resultsRangeMonth: boolean;
   resultsRangeYear: boolean;
   resultsRangeAlltime: boolean;
+  /** HP Arena check-in board. Unlike the boards above it, this one does NOT own
+   *  its wall: adverts are its base rotation and the call is an interrupt. */
+  showArena: boolean;
+  /** Minutes a called arena session holds the wall before the board goes back to
+   *  selling. Clamped 2–20 by the resolver. */
+  arenaHoldMins: number;
   /** Check-in guide wall — owns its wall too. */
   showGuide: boolean;
   /** Which tracks the ONE check-in screen covers. */
@@ -1141,6 +1193,8 @@ function newDraft(): Draft {
     resultsRangeMonth: true,
     resultsRangeYear: false,
     resultsRangeAlltime: false,
+    showArena: false,
+    arenaHoldMins: 10,
     showGuide: false,
     guideTracks: "both",
     guideArrow: "left",
@@ -1204,6 +1258,11 @@ function draftFromScreen(s: SignageScreen): Draft {
         : "",
     showPitBoard: scenes.has("pit-board"),
     showResults: scenes.has("race-results"),
+    // Read off the CONFIG KEY, not the playlist — the arena board's playlist is
+    // adverts, which every screen has, and its check-in scene is an interrupt
+    // that never appears in one.
+    showArena: !!c.arenaBoard,
+    arenaHoldMins: Math.round((c.arenaBoard?.holdMs ?? 10 * 60_000) / 60_000),
     showGuide: scenes.has("race-guide"),
     // Read back for the same reason every other field here is: draftToConfig
     // REBUILDS the blob, so anything the form does not carry is dropped by
@@ -1291,6 +1350,8 @@ function resultRangesFromDraft(d: Draft): TopTimesRange[] {
 /** Draft → the config blob the TV actually reads. */
 function draftToConfig(d: Draft): ScreenConfig {
   const playlist: NonNullable<ScreenConfig["playlist"]> = [];
+  /** Left undefined for every board that runs on the estate's default 40s slot. */
+  let slotMs: number | undefined;
   // A BRIEFING SCREEN OWNS ITS WALL. It is ticked alone rather than mixed with
   // the others: a safety briefing that rotates out to an advert halfway through
   // is not a briefing, and the room's idle board is content the next group wants
@@ -1330,6 +1391,12 @@ function draftToConfig(d: Draft): ScreenConfig {
     for (const entry of rolePreset("front-desk").config.playlist ?? []) {
       playlist.push(entry);
     }
+    // AND ITS SLOT LENGTH, for exactly the same reason. This wall runs on 20s slots
+    // rather than the estate's 40s, and selection is `floor(now / slotMs) % totalSlots`
+    // — so a panel saved from this form without it would keep the right playlist and
+    // still wrap on a different beat from its four neighbours. Read from the preset,
+    // never restated, so it cannot drift the way the playlist literal once did.
+    slotMs = rolePreset("front-desk").config.slotMs;
   } else if (d.showVenueLogo) {
     // A HOLDING CARD OWNS ITS WALL, and this is the least arguable case of it:
     // the entire purpose is that ONE mark is on screen and nothing else. An advert
@@ -1341,6 +1408,21 @@ function draftToConfig(d: Draft): ScreenConfig {
     // has thirty seconds on the walk past, and rotating an advert across that
     // window would waste the whole point of the screen.
     playlist.push({ scene: "race-results", slots: 1 });
+  } else if (d.showArena) {
+    // AN ARENA BOARD'S ROTATION IS ITS OWN FILMS. The check-in scene is an interrupt,
+    // so it is deliberately not in this list — the call takes the wall from whatever is
+    // playing, and the desk strip carries the board's identity underneath.
+    //
+    // READ FROM THE PRESET, NOT RESTATED. This branch used to write
+    // `arena-promo x2 requiresData` + `ads x1`, which was correct until the owner took
+    // the house slides off these screens (2026-09-01) — after which a staff save of
+    // HPFM:9 or HPN:1 from this form would have put the adverts straight back, dropped
+    // the reel from three slots to two, and then failed the provisioning script's own
+    // verify pass, which now asserts their ABSENCE. Exactly the drift the front-desk
+    // branch above already learned; the fix is the same one.
+    for (const entry of rolePreset("arena-checkin").config.playlist ?? []) {
+      playlist.push(entry);
+    }
   } else {
     if (d.showRaceCheckin) playlist.push({ scene: "race-checkin", slots: 3 });
     if (d.showEventWelcome) playlist.push({ scene: "event-welcome", slots: 2, requiresData: true });
@@ -1352,6 +1434,7 @@ function draftToConfig(d: Draft): ScreenConfig {
 
   return {
     playlist,
+    ...(slotMs ? { slotMs } : {}),
     ...(d.showBriefing && d.briefingRoom ? { briefingRoom: d.briefingRoom } : {}),
     ...(d.showCamera && d.cameraDeviceId.trim()
       ? {
@@ -1362,6 +1445,12 @@ function draftToConfig(d: Draft): ScreenConfig {
           },
         }
       : {}),
+    // ONE `resultsBoard` KEY, and it has to stay one. A second spread of the same key
+    // landed here beside the arenaBoard line and, being later, won — so the saved blob
+    // was `{ track }` alone and `resolveScreenConfig` filled the rest back in as
+    // `role: "last-race"`, `ranges: ["month"]`. Effect: opening a top-times scores wall
+    // in this form and saving ANY unrelated field silently converted it to a last-race
+    // board and dropped its ticked windows, with nothing to say so.
     ...(d.showResults && d.resultsTrack
       ? {
           resultsBoard: {
@@ -1375,6 +1464,10 @@ function draftToConfig(d: Draft): ScreenConfig {
           },
         }
       : {}),
+    // Present-means-yes: this key is what declares the screen an arena board, to
+    // the feed and to the director alike. Written in MINUTES × 60_000 because the
+    // form asks a human for minutes and the config stores milliseconds.
+    ...(d.showArena ? { arenaBoard: { holdMs: d.arenaHoldMins * 60_000 } } : {}),
     ...(d.showGuide
       ? {
           raceGuide: {
@@ -1472,6 +1565,7 @@ function ScreenForm({
       wallId: scenes.has("vip-showcase") ? draft.wallId || "hpfm-front-desk" : draft.wallId,
       wallCount: scenes.has("vip-showcase") ? 5 : draft.wallCount,
       wallGapPct: scenes.has("vip-showcase") ? 12 : draft.wallGapPct,
+      showArena: !!preset.config.arenaBoard,
       // Picking the briefing role at FastTrax defaults the venue too — the rooms
       // only exist there, and a briefing screen saved as HeadPinz would get no
       // briefing data at all (the pulse skips the lookup off-venue). Same for a
@@ -1488,7 +1582,16 @@ function ScreenForm({
             // read the wrong venue's ad catalog and brand.
             scenes.has("vip-showcase")
             ? "HPFM"
-            : draft.venue,
+            : // Otherwise keep the venue that is already picked, UNLESS the role is
+              // not legal there — `venues` on the preset is the source of truth for
+              // where a role may hang, so this asks it rather than hard-coding a
+              // third list that could drift from the picker's own filter. It is what
+              // snaps an arena board off FastTrax: there is no arena there, so a
+              // board saved that way would ask Pandora for called sessions at a
+              // location that never has any and sit on its adverts forever.
+              preset.venues.includes(draft.venue)
+              ? draft.venue
+              : preset.venues[0],
       vipEnabled: preset.config.interrupts?.["vip-welcome"]?.enabled !== false,
       celebrationEnabled: preset.config.interrupts?.celebration?.enabled !== false,
       crownEnabled: preset.config.interrupts?.["billboard-crown"]?.enabled === true,
@@ -1634,6 +1737,12 @@ function ScreenForm({
           label="Logo on black"
           hint="A holding card: one brand mark, centred on black, and nothing else. For a screen hung before the content that will fill it. Needs no data, so it cannot go stale or blank. Takes the whole screen; pick the mark below."
         />
+        <Check
+          checked={draft.showArena}
+          onChange={(v) => set("showArena", v)}
+          label="Arena check-in (Laser Tag / Gel Blaster)"
+          hint="For the HP Arena desk. Runs the arena films and house adverts, then takes the whole screen the moment a session is called — which session, where to go, and how long they have. Shows every activity called, side by side. HeadPinz only."
+        />
       </fieldset>
 
       {draft.showVenueLogo && (
@@ -1659,6 +1768,26 @@ function ScreenForm({
             </p>
           </Field>
         </fieldset>
+      )}
+
+      {draft.showArena && (
+        <Field label="How long does a called session hold the screen?">
+          <input
+            type="number"
+            min={2}
+            max={20}
+            value={draft.arenaHoldMins}
+            onChange={(e) => set("arenaHoldMins", Number(e.target.value))}
+            style={input}
+          />
+          <p style={hint}>
+            Minutes from the moment the session is called. Karting lets go of a heat when staff send
+            it to a briefing room; there is no equivalent press here, so this timer is what hands
+            the screen back to the adverts. Ten minutes is the default &mdash; longer than the walk
+            from anywhere in the building, shorter than the gap to the next session. Anything
+            outside 2&ndash;20 is corrected when the screen reads it.
+          </p>
+        </Field>
       )}
 
       {draft.showGuide && (

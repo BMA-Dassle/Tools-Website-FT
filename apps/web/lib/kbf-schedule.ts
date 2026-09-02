@@ -129,6 +129,49 @@ export function bookableDateRange(now: Date = new Date()): string[] {
 }
 
 /**
+ * Should Kids Bowl Free be OFFERED to guests at all right now?
+ *
+ * True exactly when a parent could pick something — i.e. at least one
+ * bookable date inside the picker horizon. That makes one rule cover
+ * both ends of the year with no second source of truth:
+ *
+ *   post-season  the day after `KBF_PROGRAM_END_YMD` the range empties
+ *                and every KBF surface goes dark by itself.
+ *   pre-season   it comes back ~`KBF_DATE_PICKER_HORIZON` days before
+ *                `KBF_PROGRAM_START_YMD` — the moment the first date is
+ *                genuinely bookable, which is the honest time to start
+ *                advertising it.
+ *
+ * So the tile is visible if and only if the flow behind it works.
+ * Reopening the program next spring is editing the two date constants
+ * above; nothing here or downstream needs touching.
+ *
+ * Callers must evaluate this PER REQUEST, never at module scope — a
+ * value captured once at build/boot time freezes the season into the
+ * deploy and would keep KBF hidden into next summer.
+ */
+export function isKbfOffered(now: Date = new Date()): boolean {
+  return bookableDateRange(now).length > 0;
+}
+
+/**
+ * Where an off-season KBF visitor lands: the program's own page, which
+ * renders a short "back next summer" notice instead of the marketing
+ * pitch once `isKbfOffered()` is false.
+ *
+ * Deliberately the `/hp`-prefixed path and not the pretty
+ * `/kids-bowl-free`: the bare path only resolves on headpinz.com (the
+ * /hp rewrite in middleware.ts is host-gated), while `/hp/kids-bowl-free`
+ * is a real route that serves on BOTH brand hosts and on preview
+ * deployments. `/book/kbf/v2` is shared chrome and gets hit from the
+ * FastTrax side too, so its redirect target has to work everywhere.
+ *
+ * A redirect rather than a 404 because kidsbowlfree.com, Google and
+ * years of emails all point here — they deserve an answer, not a wall.
+ */
+export const KBF_OFFSEASON_PATH = "/hp/kids-bowl-free";
+
+/**
  * Is this exact slot start time (ISO `YYYY-MM-DDTHH:mm`, ET local)
  * within the KBF window for that day?
  *

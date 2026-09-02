@@ -18,14 +18,7 @@
  * Everything money-facing stays server-re-derived from RACE_PACKS by slug —
  * the session/UI carries pointers only (displayed == charged rule).
  */
-import {
-  RACE_PACKS,
-  BOGO_SALE_SLUGS,
-  bogoSaleActive,
-  getRacePack,
-  racePackLabel,
-  type RacePack,
-} from "../data/packs";
+import { RACE_PACKS, getRacePack, racePackLabel, type RacePack } from "../data/packs";
 import { dayBucket, memberEligibleCreditTotal } from "../data/race-credits";
 import { getRaceProductById } from "./race-products";
 import type { RaceHeatAssignment } from "../state/types";
@@ -81,36 +74,21 @@ const STANDING_PACK_SLUGS: readonly string[] = [
 ];
 
 /**
- * The standing catalog plus any live limited-time SKUs, for a race on
- * `raceDate` — IN-BOOKING surfaces only (`packSkusForRaceDate`).
+ * The sellable catalog is THE STANDING SIX on every surface since 2026-08-31.
  *
- * A limited-time SKU is deliberately NOT in the standalone walk-up catalog
- * (`kioskPackSkus`). The two BOGO SKUs are tier-restricted (adult $20.99 /
- * junior $15.99) and the standalone screen has no tier to restrict against: it
- * lists every SKU per racer with no eligibility filter, so both landed as two
- * identical "2 RACES / Mon–Thu" tiles differing only in price. Live 2026-08-13,
- * that mis-sold juniors the ADULT price when they tapped the first tile and
- * dead-ended them at prepare when they tapped their own. Owner: BOGO does not
- * belong on that screen. In-booking surfaces DO carry a tier (the pay-mode page
- * is per category, and the picker filters by `packFitsMember`), which is where
- * the sale is sold.
- *
- * ONE list still feeds the in-booking sell surfaces AND `resolveKioskPacks`'s
- * fail-closed slug check, so the promo's day rule is enforced on the SERVER by
- * construction: a cached page or a hand-rolled POST that still names a BOGO slug
- * for a non-Wednesday race — or on the standalone rail at all — gets "isn't
- * available" from the resolver rather than a discounted charge. That is also why
- * the day rule is not merely a UI condition: the session carries slug pointers
- * only, and the server re-derives the price.
- *
- * `raceDate` is what the BOGO promo keys off (it runs on Wednesday RACES, not
- * Wednesday purchases — see `bogoSaleActive`). Null falls back to the ET wall
- * clock at `now`, matching the day rule directly below.
+ * The two BOGO credit-pack SKUs were RETIRED as sellable items when the owner
+ * re-shaped the promo ("this special was never meant to be a race pack"):
+ * BOGO Wednesdays is now a SCHEDULED-RACE pricing rule — every 2nd booked
+ * Wednesday race is free (service/bogo-scheduled.ts) — not a purchasable pack
+ * that banked a credit. The SKU definitions stay in `RACE_PACKS` so old ledger
+ * rows, retry sweeps and Square labels still resolve, but no list here offers
+ * them, which means `resolveKioskPacks`'s fail-closed slug check refuses them
+ * outright — a cached screen or hand-rolled POST naming a BOGO slug gets
+ * "isn't available", never a charge. (That check is one list by construction:
+ * the sell surfaces and the resolver read the same catalog.)
  */
-function packSlugsAt(raceDate: string | null | undefined, now: Date): readonly string[] {
-  return bogoSaleActive(raceDate, now)
-    ? [...STANDING_PACK_SLUGS, ...BOGO_SALE_SLUGS]
-    : STANDING_PACK_SLUGS;
+function packSlugsAt(): readonly string[] {
+  return STANDING_PACK_SLUGS;
 }
 
 /** Catalog order for a sell surface: smallest pack first, weekday before
@@ -185,16 +163,16 @@ export function webPackSkus(): RacePack[] {
  * split the credit-redeem rail uses). Null (no date picked yet) falls back to
  * the wall clock.
  *
- * The race date also decides whether a limited-time SKU is live at all — BOGO
- * runs on Wednesday RACES (`bogoSaleActive`), so both halves of this function
- * read the same date and a date change can only add or remove SKUs together.
+ * (Until 2026-08-31 this list also carried the live limited-time SKUs — the
+ * BOGO credit packs. That promo is a scheduled-race pricing rule now, so the
+ * in-booking catalog is the standing six like every other surface.)
  */
 export function packSkusForRaceDate(
   raceDate: string | null | undefined,
   now: Date = new Date(),
 ): RacePack[] {
   const weekend = raceDate ? dayBucket(raceDate) === "weekend" : isWeekendForPacks(now);
-  return skusFor(packSlugsAt(raceDate, now), weekend);
+  return skusFor(packSlugsAt(), weekend);
 }
 
 /** A pack purchase pointer as carried by the session/UI — slug + assignee only;

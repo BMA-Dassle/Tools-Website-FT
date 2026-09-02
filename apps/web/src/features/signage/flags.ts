@@ -98,3 +98,26 @@ export function resultsBoardEnabled(): boolean {
 export function raceGuideEnabled(): boolean {
   return process.env.NEXT_PUBLIC_SIGNAGE_GUIDE_ENABLED !== "false";
 }
+
+/**
+ * HP Arena check-in board kill switch — the called-session takeover at
+ * HeadPinz Fort Myers and Naples, and the Pandora read behind it.
+ *
+ * Same house rule: defaults ON, read at call time. Turning it OFF stops the feed
+ * carrying the `arena` section, so the board never takes the check-in interrupt
+ * and simply runs its films and house slides — which is a perfectly good lobby
+ * screen, just not a check-in one. That is the point: the failure mode of this
+ * switch is a screen that sells rather than a screen that is wrong.
+ *
+ * The switch to pull if `sessions/current` ever starts reporting a called
+ * session that is not really called. An arena board is an INSTRUCTION — it
+ * tells a group to walk to a desk — and an instruction nobody at that desk is
+ * expecting is worse than an advert.
+ *
+ * NOT a NEXT_PUBLIC_ var: only the server decides whether to build the section,
+ * and the scene is never selected without it. Flipping it is an env change with
+ * no rebuild.
+ */
+export function arenaBoardEnabled(): boolean {
+  return process.env.SIGNAGE_ARENA_ENABLED !== "false";
+}

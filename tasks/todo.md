@@ -1,5 +1,110 @@
 # Open Tasks
 
+## Hide Kids Bowl Free off-season (2026-09-01) — worktree `kbf-offseason-hide`
+
+Owner: "Disable / hide Kids Bowl Free from booking sites." Scope confirmed with owner:
+BOTH the booking surfaces AND the marketing pages. Mechanism confirmed: **season-derived,
+automatic** — no env var, no flag. `lib/kbf-schedule.ts` already carries
+`KBF_PROGRAM_START_YMD` / `KBF_PROGRAM_END_YMD` (`2026-05-14` → `2026-08-28`), so the
+season ended three days before this task. Bump those two dates next spring and every
+surface below turns itself back on.
+
+The single predicate is `isKbfOffered(now)` = "is there at least one bookable KBF date
+inside the 90-day picker horizon". Visible exactly when something is bookable — pre-season
+it reappears ~90 days before the start date, post-season it goes dark the day after the end
+date. No second source of truth.
+
+- [x] `lib/kbf-schedule.ts` — `isKbfOffered()` + `KBF_OFFSEASON_PATH` (`/hp/kids-bowl-free`,
+      the one URL that resolves on BOTH brand hosts, so no brand sniffing is needed).
+- [x] `src/features/booking/activities-catalog.ts` — generic optional `isOffered?(now)` on
+      `ActivityOffering`, honoured by `allOfferings()` / `offeringsAt()`, so the `/book/v2`
+      landing tile and the cart cross-sell both drop KBF off-season. `findOffering()` stays
+      UNFILTERED — the route, the cart labels and existing reservations still resolve "kbf".
+- [x] `app/hp/book/page.tsx` — drop the KBF tile from the v1 HeadPinz booking hub.
+- [x] `app/hp/book/layout.tsx` — drop the KBF `ListItem` from the booking JSON-LD.
+- [x] Route gates (server-side `redirect()` to `KBF_OFFSEASON_PATH`): `/book/kbf/v2`,
+      `/hp/kids-bowl-free/book`, `/hp/kids-bowl-free/register`, `/hp/book/kids-bowl-free`.
+      Every v1 KBF booking URL already funnels into `/book/kbf/v2` via the middleware
+      cutover, so `middleware.ts` needs NO change.
+- [x] `app/hp/kids-bowl-free/page.tsx` — off-season renders a short "back next summer"
+      notice instead of the marketing page, and goes `noindex`. It is the redirect
+      terminus, so inbound links from kidsbowlfree.com / Google / old emails get an honest
+      answer instead of a 404.
+- [x] `app/sitemap.ts` — stop advertising `/kids-bowl-free` off-season.
+- [x] `app/service-notice/page.tsx` — drop KBF from the outage page's "what you CAN book".
+- [x] Tests: `lib/kbf-schedule.test.ts` (new) for the season boundaries;
+      `activities-catalog.test.ts` for tile-hidden / findOffering-still-resolves.
+- [x] Gates: `tsc`, eslint, full vitest, `next build`.
+
+DELIBERATELY NOT TOUCHED (each is a decision, not an omission):
+
+- **Post-purchase surfaces** — `BowlingConfirmation`'s KBF "Change Date & Time" / info links.
+  The maintenance feature sets the house precedent in `bookingProductForPath`: never gate a
+  `/confirmation` or `/checkin` surface, because that hides a reservation that is perfectly
+  valid. A guest holding a KBF confirmation must keep reading it.
+- **`/api/kbf/*`, the admin console, `kbf-sync` cron** — the data rails stay up. Existing
+  reservations, the CSV sync and staff lookups must keep working off-season.
+- **`kbf-welcome-email.ts`** — its booking CTA now points at a redirect, but suppressing
+  outbound mail is a comms decision, not a "hide it from the site" one. Flagged for the owner.
+- **`/hp/book/kids-bowl-free-old`** — unlinked legacy; its own date picker already yields
+  zero bookable dates off-season. Gating it means moving a 3,000-line client file to make
+  room for a server wrapper — that belongs in a delete-the-old-routes PR, not this one.
+- **Prose mentions** on `/hp/pricing` ("we run Kids Bowl Free in summer") and
+  `/hp/fort-myers/attractions` — both already say "summer", so they read correctly off-season.
+
+## Kiosk "Your Crew" page /kiosk/racers (2026-08-31) — MERGED TO MAIN 2026-09-01
+
+Owner: build the 2026-08-06 plan ([kiosk-crew-page-plan.md](kiosk-crew-page-plan.md)), "mature on
+first launch." Add/remove/sign-in everyone (accounts + waivers) on the PERSISTED kiosk session —
+no prices, no cart — then "Book something" lands on the chooser with the party built. Landing pad
+for a no-reservation racing-licence scan. The plan's PR 1 was moot (main landed its own racer-scan
+equivalent `239af574f` on 8/7); PR 3 (staff badge + comp) stays blocked on the employee-lookup
+probe — see the rebase note atop the plan doc.
+
+- [x] Page + flow (`crew/KioskCrewFlow.tsx`, persisted reducer, full H6 teardown), server shell
+      with `isProductPaused("waiver")` gate, `kioskCrewEnabled()` kill switch (default ON).
+- [x] Doors: banner WHO-half button + chevron (hold bar untouched), chooser-only empty state,
+      entry-scan racer arm → `/kiosk/racers` from attract AND chooser. EN+ES (`parts/crew.ts`).
+- [x] KIOSK_VERSION 1.31.0. Tests: crew-session (party-never-items, envelope round trip) +
+      AUTHENTICATE end-to-end pin. tsc 0, eslint 0 new, full suite 6754 green, next build + a11y.
+- [x] Empty-state door placement (owner 2026-09-01: "needs a better spot other than the top").
+      Four mocks; owner picked A — the strip moves off the top of the chooser to just ABOVE the
+      utility-door grid, rendered by `KioskCategories` behind an `onOpenCrew` callback.
+- [x] Owner previewed on the branch deployment and said push to main — merged 2026-09-01.
+- [ ] **On-glass smoke still owed** (it shipped on the owner's call before the full pass): the
+      checklist in the plan doc — cart round trip, idle PII teardown, both scan arms, Spanish,
+      kill switch, vendor outage. Then delete worktree `.claude/worktrees/kiosk-crew-page` + branch.
+- [ ] Follow-up regardless of PR 3: guardrails on `/api/kiosk/admin action=comp` (positive-only,
+      kind allowlist, cap, audit row) — live and unguarded today; PIN fallback still `"1185"`.
+
+## BOGO Wednesdays = scheduled-race rule, not a pack (2026-08-31) — branch `feat/bogo-scheduled`
+
+Owner: "this special is here to stay and was never meant to be a race pack — buy one get one,
+all races must be scheduled." Decisions: every 2nd race free (floor pairing), no cap,
+first-timers keep the `bogo-weekday` PACKAGE. Replaces (and reverts) the same-day 1.28.0
+multi-deal-qty machinery, which was live in prod for ~1h and never guest-used.
+
+- [x] Revert `147e572d3` (qty pointers, maxPerRacer stepper, grid auto-raise) — the scheduled
+      rule makes all of it unnecessary.
+- [x] `service/bogo-scheduled.ts` — pure rule: per racer, per Wednesday-dated race item,
+      eligible single heats pair in session order; cheaper of each pair free; runs AFTER
+      credits/packs/vouchers (cash heats only); package-per-category + combo + covered excluded.
+- [x] Charge: `buildCombinedLineItems` excludes the free heats and emits tagged $0 lines
+      (`coverage.kind: "bogo-special"`, label "BOGO Wednesday"); returns `bogoFree` for tests.
+- [x] Review (CheckoutStep negative line) + cart estimate (CartView) difference the SAME
+      buildRaceChargeLines/raceItemChargeLines calls — displayed == charged everywhere.
+- [x] Sell-side retirement: BOGO SKUs out of every catalog accessor (defs kept for old ledger
+      rows; resolver refuses the slugs on any day); pay-mode promoted row → static banner
+      (tier-priced example, EN+ES); picker/teaser untouched otherwise. KIOSK_VERSION 1.29.0.
+- [x] Tests (owner: "MAKE SURE YOU FULLY TEST THESE NEW FLOWS"): 18 new — pairing unit tests
+      (odd counts, cap-free, cheaper-of-pair both orders, per-racer, covered/package/combo
+      exclusions, Thursday/undated) + charge end-to-end ($41.98 for 4 Wednesday races, Thursday
+      control, odd count, two racers, sq==priced==total parity). bogo-sale.test reshaped to pin
+      the SKUs NEVER sellable. Full suite 6735 green; tsc, eslint 0 errors, a11y, next build.
+- [ ] Owner smoke on preview/glass before Wednesday 9/3 — first live day for the new rule
+      (9/2 hits only if this merges before then).
+- [ ] Merge; then delete worktree `.worktrees/bogo-scheduled` + branch.
+
 ## Kiosks without a dispenser: new cards by swipe (2026-08-28) — branch `worktree-kiosk-no-dispenser-new-card`
 
 Owner: MSR-only kiosks (no CRT-591) get a holder of blank cards under the screen; the guest takes
@@ -278,8 +383,46 @@ the tile → PIN sheet) opens the flow for that session. Full booking-session in
       (`parts/racesim.ts`), `kioskRaceSimEnabled()` kill switch (default ON).
 - [x] Tests: catalog, pricing builder, cart readiness, cascade, registry pins. Full suite +
       `next build` green.
-- [ ] Owner live smoke on a FastTrax FM kiosk (tile lock, 5-tap+PIN, flow to the 409 at pay,
-      idle relock; HP kiosks show no KBF and no Race Sims tile).
+- [x] Booking rail (merged to main via f512e12a): gel/laser slots on racing-style $0 track keys
+      (one key per track, shared Race Sim resource cap 4), shared Square catalog id ARMED
+      (PZXWYNOY4MUAPXACMBMTFYMD), $14 Mon–Thu / $16 Fri–Sun; guard 2e track-aware + refuses
+      mixed racesim+HeadPinz carts; packs deferred (`bookable:false`).
+- [x] Flow restructured to mirror RACING (owner 2026-08-26, branch `feat/racesim-racing-flow`):
+      Who's racing? (whole party, racing semantics, own id `racesim-party`) → Your Info (the same
+      ContactStep, forward-skipped) → Race Options → Track (TrackInfoBanner cards) → Time
+      (heat-picker layout: 4-col grid, status matrix, capacity bar, tap-to-unpick, 10-min lead,
+      cart + existing-reservation conflicts, `heldQty` re-hold when the party changes). Schema v15.
+      Omitted as karting-only: pay-mode (until sim packs), Race Video & Extras, licence, age-7
+      floor, tier badges. Waiver re-check on advance now blocks sims like racing.
+- [x] **ARMED 2026-08-26:** track keys A 59535405 / B 59537905 / C 59537953 + shared page
+      59716066 in `race-sims/products.ts` — guard 2e passes; sim singles book + charge for real
+      behind the tile's PIN gate. Still unconfirmed: weekend = Fri–Sun; optional resourceId.
+- [x] Track switcher on the Time screen + racing's full scheduling rule set on the sim grid and at
+      reserve (7d31ec77): heatsConflict spacing (sim label "Race Sim" — 30 min vs karts, skip a
+      session vs sims), group-event reopen/window/private-day, cross-reservation guard 0b-sim + cart
+      kart↔sim guard, booked-heats returns prior sims. Product page = karting kiosk card (b80666ad).
+- [x] LIVE BLOCKER RESOLVED 2026-08-26: "no sessions" was BMI-side — the (Web) keys had no planning
+      link to the Race Sim resource; owner fixed it, sessions propose from 08-27 (32/day, cap 4).
+- [x] Test kiosk (99, `context.kioskTest`) rolls the sim Time grid to tomorrow when today settles
+      empty — racing's rig, amber staff banner, never on real kiosks (5b662135).
+- [x] **Multi-session across tracks (owner 2026-08-26, karting parity):** `RaceSimItem.sessions[]`
+      (racing's heats[]; {trackKey, slot, slotProposal, bmiLineId, heldQty}) — picks accumulate on
+      the Time step, track cards only filter, unpick releases one line, one Square line per session
+      × racers, one metadata entry per session. Owner rule: sim-vs-sim = SAME start on any track
+      collides ("Picked on Track A"), back-to-back allowed, no gap; sim-vs-kart/attraction/bowling
+      keeps racing's 30-min spacing. Conflict label per session = "Track A/B/C" (persisted +
+      emitted by raceHeatsForPersonsOnDate). Schema v16.
+- [x] Picks BMI stops proposing still render (f42fe7a8): BMI omits blocks with freeSpots < party
+      and never returns full blocks, so our own hold hid the selected card and hid "4:15 on A" from
+      B's grid — cards are rebuilt from the pick's block ("Picked" / "Picked on Track A").
+- [x] Adversarial review (12 agents, 4 confirmed) fixed: party-change re-hold effect deadlock
+      (ref-serialized, no cancel flag, unconditional teardown); cart sim↔attraction/bowling spacing
+      now server-guarded + web attraction grid sees sim sessions; cart-level sim same-start refused
+      server-side; bookRaceSimSessions threads a reparented bill id forward.
+- [ ] Owner live smoke on kiosk 99 / FastTrax FM kiosk: tile lock, 5-tap+PIN, party → Race Options
+      → Track → Time (tomorrow's grid after close), pick 10:00 A then see 10:00 greyed on B/C and
+      10:15 open, unpick releases the BMI line, pay → Square lines per session, BMI lines on the
+      Race Sim resource; HP kiosks show no KBF and no Race Sims tile.
 - [ ] **Before arming real ids** (all recorded in products.ts header + guard 2e comment):
       decide the vendor booking rail (Square id alone would charge with no reservation);
       fix `resolveLocationId` attribution for mixed racesim+HeadPinz carts; owner prices.

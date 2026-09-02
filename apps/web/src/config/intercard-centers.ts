@@ -37,6 +37,64 @@ export const INTERCARD_BALANCE_URL =
   process.env.INTERCARD_BALANCE_URL ||
   "https://intercard.swflpassport.com/WS_AccountHistory/WebServiceAccountHistory.asmx";
 
+/**
+ * ONSITE REST proxy (Api_External). Same host as the SOAP services, but this
+ * one relays each call live to the SITE'S OWN Transaction Server over SignalR —
+ * real-time truth instead of the replicated datacenter copy. See
+ * `data/intercard-onsite.ts` and docs/intercard-api-external-rest.md.
+ */
+export const INTERCARD_ONSITE_URL =
+  process.env.INTERCARD_ONSITE_URL || "https://intercard.swflpassport.com/Api_External";
+
+/**
+ * The onsite proxy authenticates on FOUR values, not the MAC alone: the
+ * `LocID` + `ProductCode` + `ClientToken` headers plus the MAC in the body. All
+ * four must match a licensed device row or the call 401s with the same generic
+ * "ETPI requires up to date Licensing." regardless of which one is wrong.
+ *
+ * NEVER commit the token — it is a credential, exactly like the MAC. Set
+ * INTERCARD_CLIENT_TOKEN (and INTERCARD_PRODUCT_CODE if it ever differs from
+ * the corp-6283 default) in Vercel. Empty → onsite calls fail closed (NO_TOKEN),
+ * which the kiosk badge surfaces as "unlicensed" rather than a site outage.
+ */
+export function intercardClientToken(): string {
+  return process.env.INTERCARD_CLIENT_TOKEN || "";
+}
+
+export function intercardProductCode(): string {
+  return process.env.INTERCARD_PRODUCT_CODE || "API-0331";
+}
+
+/**
+ * Which transport the Intercard router prefers.
+ *
+ * ONSITE by default (owner 2026-08-31: "onsite takes priority"). The legacy
+ * `INTERCARD_LOAD_MODE` / `NEXT_PUBLIC_INTERCARD_LOAD_MODE` pair is being
+ * retired — it chose between the on-prem EIS bridge and cloud SOAP, a decision
+ * the onsite proxy makes obsolete (it reaches the same site card system and,
+ * unlike the bridge's EIS socket, can consolidate and clear). Deliberately NOT
+ * read here, so removing those vars cannot change this transport.
+ *
+ * Resolution:
+ *   INTERCARD_ONSITE_ENABLED="false" → cloud  (emergency kill switch)
+ *   otherwise                        → onsite
+ *
+ * Per the house rule, that is a kill switch and nothing else: it defaults ON
+ * (`!== "false"`) and exists only to force everything back onto the proven SOAP
+ * path if the onsite relay misbehaves. The cloud path is never disabled — it
+ * stays the recover-forward safety net so paid tokens always land.
+ */
+export type IntercardTransportMode = "onsite" | "cloud";
+
+export function intercardTransportMode(): IntercardTransportMode {
+  return process.env.INTERCARD_ONSITE_ENABLED === "false" ? "cloud" : "onsite";
+}
+
+/** True when the router should try the onsite proxy before cloud SOAP. */
+export function isOnsiteEnabled(): boolean {
+  return intercardTransportMode() === "onsite";
+}
+
 export type Brand = "headpinz" | "fasttrax";
 
 export interface CenterConfig {

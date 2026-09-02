@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { searchAvailability } from "@/lib/qamf-bowling";
 import { getBowlingExperiences, type BowlingExperienceKind } from "@/lib/bowling-db";
 import { HP_LOCATIONS } from "@/lib/headpinz-locations";
+import { etOffsetForLocalDate } from "@/lib/et-time";
 import {
   earliestProbeMin,
   etNowDateAndMinutes,
@@ -327,9 +328,11 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Both centers are in Southwest Florida (Eastern time).
-  const month = parseInt(startDate.slice(5, 7), 10);
-  const tzOffset = month >= 3 && month <= 11 ? "-04:00" : "-05:00";
+  // Both centers are in Southwest Florida (Eastern time). Offset comes from the
+  // IANA database, never a month approximation: the old `month >= 3 && <= 11`
+  // test called all of November EDT, so every booking from Nov 2 (the Sunday
+  // DST ends) through Nov 30 was built an hour off — and Mar 1-7 with it.
+  const tzOffset = etOffsetForLocalDate(startDate);
 
   // ── Build probe times ────────────────────────────────────────────
   const hasSelectedTime = hourStr !== null && minuteStr !== null;

@@ -43,6 +43,17 @@ export interface UseCardReaderOptions {
    * picker from staff who granted the wrong COM port on the first try.
    */
   trustSingleGrant?: boolean;
+  /**
+   * Try ONLY ports we can name (the remembered/saved index, a saved USB-id
+   * match, or a lone grant) and never blind-probe the rest. For the ambient
+   * PRE-WARM, which runs on screens where `EntryScanListener` holds the QR
+   * scanner's port: a blind probe opens each granted port and sits on it for
+   * up to 12s per baud, so it would take the scanner's port away mid-scan.
+   * A named port that turns out to be wrong is still probe-verified and
+   * released, and the guest flow's own connect (which DOES scan) remains the
+   * fallback — so the worst case here is just "no pre-warm this time".
+   */
+  hintedPortsOnly?: boolean;
   /** portIndex = the connected port's position in getPorts(), to save for next time. */
   onConnected?: (info: CrtDeviceInfo, portInfo: SerialPortInfo, portIndex: number) => void;
 }
@@ -242,6 +253,7 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     portInfo = null,
     portIndex = null,
     trustSingleGrant = false,
+    hintedPortsOnly = false,
     onConnected,
   } = opts;
 
@@ -597,6 +609,11 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     // first every port at the SAVED baud only (fast — the saved index may just
     // have shifted, e.g. Bluetooth COM ports enumerate late after Windows boots
     // and reorder getPorts()), then the full auto-baud sweep as the last resort.
+    //
+    // The ambient PRE-WARM stops here: blind-probing holds each port for
+    // seconds, and it runs alongside the entry scanner. Game Zone's own connect
+    // still scans, so a stale hint costs a pre-warm, never a dispense.
+    if (hintedPortsOnly) return false;
     if (preferredBaud) {
       for (const p of granted) {
         if (stopReconnectRef.current || clientRef.current) break;
@@ -610,7 +627,7 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
       if (clientRef.current) return true;
     }
     return clientRef.current != null;
-  }, [portInfo, portIndex, preferredBaud, beginConnect]);
+  }, [portInfo, portIndex, preferredBaud, hintedPortsOnly, beginConnect]);
 
   // Auto-reconnect loop (provisioned kiosks): retry the silent reopen with
   // backoff. Succeeds → connected (unavailable cleared in beginConnect). Gives

@@ -6,6 +6,19 @@ import { emptySession, newItem } from "./types";
 // The v3 single-time-pick bowling flow coexists with the classic flow in one
 // registry; exactly one set may be visible per session. A session that saw
 // both (or neither) would double-ask for the time or dead-end the wizard.
+//
+// v3 is now the DEFAULT (kill switch, 2026-08-25): absence of
+// NEXT_PUBLIC_BOWLING_ONE_TIME_FLOW means v3, and only the literal "false"
+// falls back to classic. These tests used to read "flag dark → classic", which
+// was the opt-in-gate era; they now set the kill switch explicitly to reach the
+// classic flow. The `?bowlingV3=1` context flag can still force v3 ON even with
+// the switch thrown, which is why the mixed classic/v3 assertions below still
+// work inside a single `="false"` block.
+
+/** Throw the kill switch for one test; afterEach clears it. */
+function killSwitchOff(): void {
+  process.env.NEXT_PUBLIC_BOWLING_ONE_TIME_FLOW = "false";
+}
 
 const CLASSIC_IDS = ["bowling-slots", "bowling-tier", "bowling-offer"];
 const V3_IDS = ["bowling-date", "bowling-experience", "bowling-time"];
@@ -24,10 +37,33 @@ afterEach(() => {
 });
 
 describe("bowling v3 registry gating", () => {
-  it("flag dark + no preview param → classic steps only", () => {
+  it("no env var, no preview param → V3 steps (the merged flow is the default)", () => {
+    delete process.env.NEXT_PUBLIC_BOWLING_ONE_TIME_FLOW;
+    const ids = visibleBowlingIds(false);
+    for (const id of V3_IDS) expect(ids).toContain(id);
+    for (const id of CLASSIC_IDS) expect(ids).not.toContain(id);
+  });
+
+  it("kill switch thrown → classic steps only", () => {
+    killSwitchOff();
     const ids = visibleBowlingIds(false);
     for (const id of CLASSIC_IDS) expect(ids).toContain(id);
     for (const id of V3_IDS) expect(ids).not.toContain(id);
+  });
+
+  it("exactly one flow is visible in every env state — never both, never neither", () => {
+    for (const value of [undefined, "false", "true", "", "FALSE"]) {
+      if (value === undefined) delete process.env.NEXT_PUBLIC_BOWLING_ONE_TIME_FLOW;
+      else process.env.NEXT_PUBLIC_BOWLING_ONE_TIME_FLOW = value;
+      for (const preview of [false, true]) {
+        const ids = visibleBowlingIds(preview);
+        const classicSeen = CLASSIC_IDS.filter((id) => ids.includes(id)).length;
+        const v3Seen = V3_IDS.filter((id) => ids.includes(id)).length;
+        const label = `env=${String(value)} preview=${preview}`;
+        // One full set, and only one.
+        expect([classicSeen, v3Seen].sort(), label).toEqual([0, 3]);
+      }
+    }
   });
 
   it("?bowlingV3=1 session → v3 steps only", () => {
@@ -64,6 +100,7 @@ describe("bowling v3 registry gating", () => {
   });
 
   it("kiosk registry: classic session sees the kiosk time/tier steps, never v3", () => {
+    killSwitchOff();
     const session = emptySession({ entryBrand: "headpinz", context: { kiosk: true } });
     const item = newItem("bowling");
     const ids = KIOSK_STEP_REGISTRY.bowling
@@ -98,6 +135,9 @@ describe("bowling v3 registry gating", () => {
   });
 
   it("kiosk KBF registry gates the same way", () => {
+    // Switch thrown so the flag-less session is classic; the other session
+    // still reaches v3 through the preview flag, which only forces ON.
+    killSwitchOff();
     const v3 = emptySession({ entryBrand: "headpinz", context: { kiosk: true, bowlingV3: true } });
     const classic = emptySession({ entryBrand: "headpinz", context: { kiosk: true } });
     const item = newItem("kbf");
@@ -112,6 +152,16 @@ describe("bowling v3 registry gating", () => {
     expect(classicIds).not.toContain("bowling-time");
   });
 });
+
+// NFL Ticket's step gating moved OUT of this file on 2026-09-01.
+//
+// It used to be tested here as a v3 concern — "the game picker replaces the
+// TIME step" — because NFL was reached by tapping a card on the v3 Experience
+// screen. The owner rejected that shape: NFL has its own entry, like the World
+// Cup one, and the picker replaces the whole date/experience/time front of BOTH
+// flows. It is therefore no longer a v3 coexistence question at all.
+//
+// See steps-nfl-gating.test.ts.
 
 describe("enableBowlingV3 action (persisted-session adoption)", () => {
   it("stamps context and resets bowling/kbf cursors only", async () => {

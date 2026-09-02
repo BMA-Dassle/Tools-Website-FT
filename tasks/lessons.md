@@ -1,5 +1,54 @@
 # Lessons Learned
 
+## A behaviour that is invisible on scattered screens becomes the loudest thing in the room on a video wall (2026-09-01)
+
+**What happened:** staff reported that a kiosk check-in "crashed all five front-desk TVs and
+they rebooted." Nothing crashed. Nothing threw. Every scene on the celebration path was read
+line by line and none of them has a render throw.
+
+It was the deploy reload. `safeToReload` is false while an interrupt is on screen, so a pending
+update is HELD by a celebration — and the five panels of the wall share a clock, a config and a
+scene decision, so they answer that gate at the *same instant*. The welcome ends, the hold
+releases on all five together, and the whole fixture goes dark and boots. From the lobby that is
+indistinguishable from a crash, and it is exactly how it was reported.
+
+The mechanism had been correct and harmless for months, because the estate was screens scattered
+around a building where one blinking is invisible. `TvShell` even had the shape of it written
+down already — _"on every screen of a wall at once, since they share an uptime"_ — but only as a
+note about reloading into a dead network, never about what a guest sees.
+
+**How to apply:**
+
+- **When a wall is introduced, re-audit every SYNCHRONISED behaviour for how it reads as one
+  object.** The tear invariant makes five panels agree frame-for-frame; that is the feature, and
+  it applies just as faithfully to going black. Anything derived from the shared clock now
+  happens five times at once in one field of view. Reloads, retries, error states, cache evictions,
+  "reconnecting" banners — each was a blink and is now an event.
+- **Stagger planned, coordinated actions across a wall; never stagger recovery.** A deploy reload
+  and the nightly recycle ripple by panel position (`WALL_RELOAD_STAGGER_MS`). The self-heal does
+  not: that board is already dark to the guest, and holding it dark longer to be tidy is the
+  wrong trade.
+- **Apply the stagger AFTER the safety gate, not before it.** Delaying the latch is defeated by
+  the exact case that matters — panels whose offsets expire while a celebration holds the wall
+  come off that hold together anyway, and reload in unison after all.
+- **"It crashed" is a report of what was SEEN, not a diagnosis.** Reboot, reload, recycle and
+  render-throw all look identical on a screen nobody is standing at. Establish which one it was
+  before fixing anything: here, `signage:seen:{screenId}` showed all twenty screens healthy on one
+  build, which is not what a crash loop looks like.
+
+**Also fixed in the same pass, because the investigation exposed them:**
+
+- **One error boundary at the route meant any scene's throw destroyed the whole page** — the
+  pricing board, the check-in list, the cached films and the phase lock included, none of which
+  were broken. Each frame now has its own boundary (`SceneBoundary`): the scene is skipped for its
+  own frame, house ads take the slot, the next frame gets a clean attempt. Blast radius belongs to
+  the thing that failed.
+- **A client-side crash on a screen was completely unobservable.** `app/tv/error.tsx` said so in
+  its own header and wrote to a console nobody reads. Both boundaries now post scene, build,
+  screen and stack to `/api/tv/crash` with `keepalive` (so the report survives the reload that
+  follows it); `scripts/signage-crashes.mts` reads them back. An unobservable failure cannot be
+  root-caused, only guessed at — and guessing is what cost this investigation its first hour.
+
 ## A shared secret that forty-five files compare for themselves can never be replaced (2026-08-28)
 
 **What happened (caught in design, not production):** getting `ADMIN_CAMERA_TOKEN` out of
@@ -5132,3 +5181,34 @@ updates itself.
    one click a shift for taking the credential out of the URL. A kiosk worked standing up between
    heats, or a wall screen nobody types on, pays a blank board — so those keep a device
    credential, and the redirect lane must skip them by name.
+
+## A destination-screen fix is not a fix if the router never routes there (2026-08-31)
+
+The kiosk's voucher receipt was taught (v1.26.0, `158d86707`) to auto-link a scanned booking
+voucher's party onto the session — exactly what "the VIP QR seeds the players" needs. It shipped,
+and it worked, and the thing it was written for still did not happen: the entry-scan router had
+been sending that QR somewhere else since 2026-08-02, so the new code never ran for the payload
+it was named after.
+
+1. **When a feature "doesn't work", verify the whole path to it before reading the feature.** The
+   screen was correct. The classifier two hops upstream (`entry-scan/classify-entry.ts`) was what
+   decided the screen never mounted. Reading the destination in isolation would have concluded
+   "this looks fine" — and it was fine.
+2. **A routing rule that consults a database fact fires on the DISTRIBUTION, not on the edge case
+   you imagined.** `HPW → resolve-then-code-entry` existed so the server could ask "does this
+   voucher carry a `bill_id`?" and split the answer two ways. Every booking-minted grant carries
+   one — 82 of 82 — so the "sometimes" branch was 100% of real traffic and the other branch was
+   dead code. Before writing a rule that splits on data, query the data and find out whether it
+   splits.
+3. **Auto-loading state into a component-local reducer seeds NOTHING.** `KioskCheckinFlow` runs on
+   its own `useReducer` (commented "LOCAL, non-persisted") while `KioskFlow` runs on a
+   sessionStorage-backed session. Both call `dispatch({type:"addPartyMember"})` and both look like
+   they populate "the party". Only one survives the screen. If a hand-off is meant to outlive a
+   component, name the store it lands in — "we auto-load the roster" is not an answer.
+4. **Two QRs in one email are two different intents.** The reservation QR checks in; `/v/{code}`
+   redeems. Making the redemption QR do the check-in job did not add a convenience, it removed the
+   only route to the legs the voucher was carrying.
+5. **Check whether the path you are about to remove carries traffic — the number is usually
+   available.** `kiosk_checkin_events.verified_via` says how each check-in was opened: 340 rows,
+   `browse-otp` 180 / `otp` 159 / `code` **1**. Reversing an owner routing decision is a much
+   smaller ask when you can say what it has actually been doing.

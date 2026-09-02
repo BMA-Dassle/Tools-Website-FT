@@ -29,6 +29,7 @@ import {
   heatsConflict,
 } from "~/features/booking/service/conflict";
 import { evaluateRaceRestrictions } from "~/features/booking/service/race-restriction-rules";
+import { raceSimConflictTrack } from "~/features/race-sims/scheduling";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
 import { useCrossTierBlocks } from "./useCrossTierBlocks";
@@ -484,7 +485,23 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     const categoryRacerIds = new Set(racers.map((r) => r.id));
     const cartConflictBlocks = item.heats
       .filter((h) => h.heatId && h.assignedTo && categoryRacerIds.has(h.assignedTo))
-      .map((h) => ({ heatId: h.heatId as string, track: h.track as TrackOrNull }));
+      .map((h) => ({ heatId: h.heatId as string, track: h.track as TrackOrNull }))
+      // Race Sim sessions held in this cart (kiosk): the whole party rides
+      // the sim, so every racer here is that rider — a kart heat within
+      // 30 min of it is the same cross-track rule as jumping tracks. The
+      // sim grid checks kart heats the same way; this closes the reverse
+      // direction (racing picked AFTER the sim). "Race Sim" is not a karting
+      // track; heatsConflict only needs the label to differ from red/blue/mega.
+      .concat(
+        session.items.flatMap((i) =>
+          i.kind === "racesim"
+            ? i.sessions.map((s) => ({
+                heatId: s.slot,
+                track: raceSimConflictTrack(s.trackKey) as TrackOrNull,
+              }))
+            : [],
+        ),
+      );
     // Cross-category same-slot: the OTHER category's held sessions anywhere in
     // the cart (adults on the junior grid and vice versa) — exact (track,
     // start) match only, NOT the spacing rules (different racers still never

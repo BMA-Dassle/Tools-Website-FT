@@ -86,7 +86,7 @@ export function kioskRaceInfoEnabled(): boolean {
 }
 
 /**
- * Race Sims tile on the FastTrax FM kiosk — kill switch, defaults ON. The tile
+ * Race Sims tile on the Fort Myers kiosks — kill switch, defaults ON. The tile
  * carries its own staff gate during the placeholder phase (guests see a locked
  * "Coming Soon" card; the kiosk admin PIN opens the flow), so this switch is
  * NOT the exposure gate — it exists only to pull the tile entirely in an
@@ -96,6 +96,24 @@ export function kioskRaceInfoEnabled(): boolean {
  */
 export function kioskRaceSimEnabled(): boolean {
   return process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS !== "false";
+}
+
+/**
+ * Does the Race Sims door open on THIS kiosk? Venue rule + kill switch in one
+ * named place, so the answer is testable and cannot drift between surfaces.
+ *
+ * Keyed on the CENTER, not the brand (owner 2026-09-01: "SIMS need to show on
+ * the kiosk at headpinz fort myers"). The sims sit in the FastTrax building,
+ * but HeadPinz FM is the same complex serving the same guests, so both brands'
+ * Fort Myers kiosks show the tile — the FT:* fleet and the nine HPFM:* units.
+ * Naples (HPN:*) is a different building and the center check alone excludes
+ * it. Same shape as the Race Info hub's door, which is already brand-agnostic.
+ *
+ * This governs who SEES the tile, never who can book: the tile renders locked
+ * ("Coming Soon") until the kiosk-admin PIN unlocks it for that session.
+ */
+export function kioskRaceSimDoorOpen(center: string | null | undefined): boolean {
+  return center === "fort-myers" && kioskRaceSimEnabled();
 }
 
 /**
@@ -372,6 +390,23 @@ export function kioskAmbientCheckoutEnabled(): boolean {
  */
 export function kioskTenderSweepEnabled(): boolean {
   return process.env.KIOSK_TENDER_SWEEP !== "false";
+}
+
+/**
+ * The standalone "Your Crew" page (/kiosk/racers) — kill switch, defaults ON.
+ * A group adds / signs in everyone (accounts + waivers) with no prices and no
+ * cart, then hands the assembled party into the booking flow; it is also where
+ * a scanned racing licence lands when the racer has nothing booked today.
+ * Gates the DOORS only: the session banner's tap-through + its chooser empty
+ * state, and the entry-scan racer arm's navigation (which falls back to the
+ * `entryscan.racerSignedIn` toast, exactly the pre-crew behavior). The
+ * /kiosk/racers page itself stays reachable by typed URL for staff testing.
+ * Set the literal "false" in Vercel + redeploy to withdraw the doors
+ * (NEXT_PUBLIC_* values are build-baked). Read at call time (never module
+ * scope) so tests can stub process.env.
+ */
+export function kioskCrewEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_CREW !== "false";
 }
 
 // kioskSplitTenderEnabled is GONE (owner 2026-07-31) — paying with a gift card

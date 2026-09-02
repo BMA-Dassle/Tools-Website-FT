@@ -22,6 +22,18 @@ import {
 } from "./schedule";
 import type { SceneDecision } from "./schedule";
 import type { SceneType } from "../types";
+import type { ArenaCall } from "../arena/arena-board";
+
+function arenaCall(over: Partial<ArenaCall> = {}): ArenaCall {
+  return {
+    sessionId: "9001",
+    activity: "laser-tag",
+    heatNumber: 25,
+    scheduledStart: null,
+    calledAtMs: 0,
+    ...over,
+  };
+}
 
 const always = () => true;
 const never = () => false;
@@ -477,6 +489,146 @@ describe("resolveActiveScene precedence", () => {
     const d = resolveActiveScene({ ...base, hasData: never, nowMs: 0 + CROWN_WINDOW_MS + 1 });
     expect(d.scene).toBe("ads");
     expect(d.isInterrupt).toBe(false);
+  });
+
+  it("a screen that is not an arena board can never take the arena interrupt", () => {
+    // The gate is `config.arenaBoard`, not the playlist — which matters because
+    // every screen's rotation contains ads, and the arena board's rotation IS
+    // ads. Passing calls to a lobby TV must change nothing.
+    const d = resolveActiveScene({
+      ...base,
+      hasData: never,
+      nowMs: 0 + CROWN_WINDOW_MS + 1,
+      arenaCalls: [arenaCall({ calledAtMs: 0 + CROWN_WINDOW_MS })],
+    });
+    expect(d.scene).toBe("ads");
+  });
+});
+
+describe("resolveActiveScene — the arena board", () => {
+  // The shipped preset: adverts as the rotation, the call as an interrupt, and
+  // celebrations deliberately off.
+  const config = resolveScreenConfig(
+    {
+      playlist: [
+        { scene: "arena-promo", slots: 2, requiresData: true },
+        { scene: "ads", slots: 1 },
+      ],
+      arenaBoard: { holdMs: 10 * 60_000 },
+      interrupts: { celebration: { enabled: false } },
+    },
+    "HPFM",
+  );
+  const now = Date.parse("2026-08-30T23:00:00.000Z");
+  const base = {
+    nowMs: now,
+    config,
+    hasData: always,
+    events: [] as SignageEvent[],
+    seenEventIds: new Set<string>(),
+  };
+
+  it("runs its adverts when nothing is called — dead time is for selling", () => {
+    const d = resolveActiveScene({ ...base, arenaCalls: [] });
+    expect(d.isInterrupt).toBe(false);
+    expect(["arena-promo", "ads"]).toContain(d.scene);
+  });
+
+  it("takes the whole wall the moment a session is called", () => {
+    const d = resolveActiveScene({
+      ...base,
+      arenaCalls: [arenaCall({ calledAtMs: now - 30_000 })],
+    });
+    expect(d.scene).toBe("arena-checkin");
+    expect(d.isInterrupt).toBe(true);
+    // Open-ended: activeArenaCalls owns when it ends, so a duration here would
+    // be a second answer to the same question.
+    expect(d.durationMs).toBeNull();
+  });
+
+  it("hands the wall back once the hold has run out", () => {
+    const d = resolveActiveScene({
+      ...base,
+      arenaCalls: [arenaCall({ calledAtMs: now - 11 * 60_000 })],
+    });
+    expect(d.scene).not.toBe("arena-checkin");
+  });
+
+  it("keeps the SAME frame when a second activity is called", () => {
+    // The whole point of anchoring startedAtMs on the earliest call: the board
+    // must not tear itself down and replay both entrances because the desk
+    // called something else.
+    const first = arenaCall({ sessionId: "1", calledAtMs: now - 3 * 60_000 });
+    const second = arenaCall({
+      sessionId: "2",
+      activity: "gel-blaster" as const,
+      calledAtMs: now,
+    });
+    const before = resolveActiveScene({ ...base, arenaCalls: [first] });
+    const after = resolveActiveScene({ ...base, arenaCalls: [first, second] });
+    expect(frameKey(after)).toBe(frameKey(before));
+  });
+
+  it("keeps the same frame when the EARLIEST call ages out — the untested half", () => {
+    // The join case above was covered; the leave case is the common one, since two
+    // calls almost never expire together. `startedAtMs` is the earliest live call, so
+    // it JUMPS when that call drops — and keying on it tore the board down and replayed
+    // both entrances while the remaining group was still reading their instruction.
+    const early = arenaCall({ sessionId: "1", calledAtMs: now - 9 * 60_000 });
+    const later = arenaCall({
+      sessionId: "2",
+      activity: "gel-blaster" as const,
+      calledAtMs: now - 60_000,
+    });
+    const both = resolveActiveScene({ ...base, arenaCalls: [early, later] });
+    // Ten-minute hold, so `early` is gone and only `later` is live.
+    const onlyLater = resolveActiveScene({
+      ...base,
+      nowMs: now + 2 * 60_000,
+      arenaCalls: [early, later],
+    });
+    expect(onlyLater.scene).toBe("arena-checkin");
+    expect(onlyLater.startedAtMs).not.toBe(both.startedAtMs);
+    expect(frameKey(onlyLater)).toBe(frameKey(both));
+  });
+
+  it("but a takeover STARTING is still a new frame", () => {
+    // Keying on the scene must not cost the entrance where it belongs: the cut in from
+    // whatever was playing.
+    const quiet = resolveActiveScene({ ...base, arenaCalls: [] });
+    const called = resolveActiveScene({ ...base, arenaCalls: [arenaCall({ calledAtMs: now })] });
+    expect(quiet.scene).not.toBe("arena-checkin");
+    expect(frameKey(called)).not.toBe(frameKey(quiet));
+  });
+
+  it("still loses to sleep — a closed venue calls nothing", () => {
+    const d = resolveActiveScene({
+      ...base,
+      asleep: true,
+      arenaCalls: [arenaCall({ calledAtMs: now })],
+    });
+    expect(d.scene).toBe("sleep");
+  });
+
+  it("outranks a celebration — an instruction beats a moment", () => {
+    // The preset turns celebrations off, so in practice the two never meet.
+    // This asserts the ORDERING, so that turning them back on cannot quietly
+    // bury a call telling a group to walk to a desk.
+    const withCelebrations = resolveScreenConfig(
+      {
+        playlist: [{ scene: "ads", slots: 1 }],
+        arenaBoard: { holdMs: 10 * 60_000 },
+        interrupts: { celebration: { enabled: true } },
+      },
+      "HPFM",
+    );
+    const d = resolveActiveScene({
+      ...base,
+      config: withCelebrations,
+      events: [evt({ atMs: now - 1_000, kind: "booking-completed" })],
+      arenaCalls: [arenaCall({ calledAtMs: now - 30_000 })],
+    });
+    expect(d.scene).toBe("arena-checkin");
   });
 });
 

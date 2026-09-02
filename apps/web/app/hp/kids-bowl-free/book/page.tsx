@@ -1,7 +1,13 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import KbfEligibilityNotice from "@/components/kbf/EligibilityNotice";
+import { isKbfOffered, KBF_OFFSEASON_PATH } from "@/lib/kbf-schedule";
+
+/** Hourly re-render so the season gate below is never baked into a deploy —
+ *  see the same note on the parent /hp/kids-bowl-free page. */
+export const revalidate = 3600;
 
 export const metadata: Metadata = {
   title: "Book Kids Bowl Free Lane | HeadPinz",
@@ -60,6 +66,10 @@ const steps = [
 ];
 
 export default function KBFBookPage() {
+  // Off-season every "Book Now" on this chooser leads to a wizard with no
+  // bookable dates. Send the parent to the one page that explains why.
+  if (!isKbfOffered()) redirect(KBF_OFFSEASON_PATH);
+
   return (
     <div className="bg-[#0a1628]">
       {/* ====== HERO ====== */}

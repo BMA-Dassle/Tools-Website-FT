@@ -32,6 +32,7 @@ import {
   type PartyMember,
   type RaceHeatAssignment,
   type RaceItem,
+  type RaceSimItem,
   type SessionItem,
   type StepDef,
 } from "~/features/booking";
@@ -73,12 +74,14 @@ import {
   kioskMergedCheckoutEnabled,
   kioskCheckoutUpsellEnabled,
   kioskCheckinEnabled,
+  kioskCrewEnabled,
   kioskGroupWaiverEnabled,
   kioskGzCartEnabled,
   kioskPromoEnabled,
   kioskRaceInfoEnabled,
-  kioskRaceSimEnabled,
+  kioskRaceSimDoorOpen,
 } from "../flags";
+import { IconChevronRight } from "@tabler/icons-react";
 import { KioskCheckoutScreen } from "./KioskCheckoutScreen";
 import { abandonActiveSplit } from "./split/split-session-registry";
 import { KioskCheckoutUpsell } from "./KioskCheckoutUpsell";
@@ -117,6 +120,7 @@ import { useKioskAvailability } from "../hooks/useKioskAvailability";
 import { KioskHoldBar } from "./KioskHoldBar";
 import { KioskVipOverview } from "./KioskVipOverview";
 import { KioskGameZone } from "./KioskGameZone";
+import { KioskDispenserPrewarm } from "./KioskDispenserPrewarm";
 import { KioskRacePackFlow } from "./KioskRacePackFlow";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { clearPackageForCategory } from "~/features/booking/service/package-selection";
@@ -205,10 +209,12 @@ const NATIVE_STEP_IDS = new Set([
   "bowling-time",
   "kiosk-bowling-details",
   "kiosk-bowling-people",
-  // Race Sims (kiosk-native, canvas px).
-  "racesim-product",
+  // Race Sims (kiosk-native, canvas px). racesim-product is deliberately NOT
+  // here: it is authored in karting's web rem classes and rides the same
+  // kiosk zoom as karting's product page so the two render identically.
   "racesim-track",
   "racesim-slot",
+  "racesim-party",
 ]);
 
 /**
@@ -264,6 +270,7 @@ const STEP_TITLE_KEYS: Record<string, MessageKey> = {
   Time: "stepTitle.time",
   Bowlers: "stepTitle.bowlers",
   Package: "stepTitle.package",
+  "Pick Your Game": "stepTitle.pickYourGame",
   "Who's bowling?": "stepTitle.whosBowling",
   "Who's playing?": "stepTitle.whosPlaying",
   "Who's racing?": "stepTitle.whosRacing",
@@ -298,11 +305,15 @@ const STEP_REASON_KEYS: Record<string, MessageKey> = {
   "Select a time slot": "stepReason.selectTimeSlot",
   "Select at least 1 bowler": "stepReason.selectBowler",
   "Select at least one bowler": "stepReason.selectBowlerKbf",
-  "Pick 1 Race or a Race Pack.": "stepReason.racesimProduct",
+  "Pick a race to continue.": "stepReason.racesimProduct",
+  "That time is too close to another activity — pick another.": "stepReason.racesimConflict",
+  "You picked the same time on two tracks — remove one to continue.":
+    "stepReason.racesimSelfConflict",
   "Pick a track.": "stepReason.racesimTrack",
   "Tap a time to hold your lane": "stepReason.holdLane",
   "Verify your KBF pass first": "stepReason.verifyKbf",
   "Pick your match to hold a VIP lane": "stepReason.worldCupMatch",
+  "Pick your game to hold a VIP lane": "stepReason.nflGame",
   "Pick a start time": "stepReason.comboStart",
   "Choose new or returning racer to continue.": "stepReason.raceEntryMode",
   "Add at least one racer to continue.": "stepReason.addRacer",
@@ -742,6 +753,18 @@ export function KioskFlow({
       setGzVoucherCodes(null);
       setGzOpen(true);
     },
+    // A racer scanning on the chooser with nothing booked today → the crew
+    // page, where the people step claims the stashed `racer` hand-off itself.
+    // Omitted (not undefined-spread) when the crew kill switch is off, so the
+    // router falls back to the `racer-signed-in` toast — the pre-crew behavior.
+    ...(kioskCrewEnabled()
+      ? {
+          goRacerSignIn: () => {
+            clarityEvent("kiosk:crew:open");
+            router.push("/kiosk/racers");
+          },
+        }
+      : {}),
   });
 
   // Post-hydration seeding: center from device config; ?goto= deep link.
@@ -984,6 +1007,9 @@ export function KioskFlow({
     session.items.some((i) => {
       if (i.kind === "race") return i.heats.some((h) => !!h.bmiLineId);
       if (i.kind === "attraction") return !!(i as AttractionItem).bmiLineId;
+      // Race sims hold a $0 track-key line exactly like an attraction slot —
+      // dropping it as a "draft" would orphan the line on the shared bill.
+      if (i.kind === "racesim") return (i as RaceSimItem).sessions.some((s) => !!s.bmiLineId);
       if (i.kind === "bowling") return !!(i as BowlingItem).qamfReservationId;
       return false; // kbf holds nothing until checkout
     });
@@ -1499,26 +1525,48 @@ export function KioskFlow({
   // already shows, and the cart link duplicated the footer's Cart pill. The hold
   // countdown rides the right in `inline` mode — same warn/urgent colours and
   // Extend affordance it had as its own band.
+  // The WHO half is a door to /kiosk/racers ("Your Crew" — add/manage players
+  // outside any purchase). ONLY the left span is the button: KioskHoldBar stays
+  // a sibling with its own Extend button, so nothing nests (a11y). With the
+  // crew kill switch off, the strip reverts to the plain non-interactive span.
+  const crewDoor = kioskCrewEnabled();
+  const openCrew = () => {
+    clarityEvent("kiosk:crew:open");
+    router.push("/kiosk/racers");
+  };
+  const bannerWho = (
+    <>
+      <span className="h-[12px] w-[12px] shrink-0 rounded-full bg-[#46d68c]" aria-hidden="true" />
+      {mainGuest ? (
+        <span className="truncate">
+          {t("flow.banner.signedIn")} <strong className="text-white">{mainGuest.firstName}</strong>
+        </span>
+      ) : (
+        <span className="truncate">{t("flow.banner.visitInProgress")}</span>
+      )}
+    </>
+  );
   const sessionBanner =
     (session.party.length > 0 || cartCount > 0 || hasGameCards || showHoldBar) &&
     !cartActive &&
     !checkoutActive &&
     !upsellActive ? (
       <div className="k-glass mx-[48px] mt-[12px] flex shrink-0 items-center gap-[18px] px-[28px] py-[10px] text-left">
-        <span className="flex min-w-0 flex-1 items-center gap-[14px] text-[22px] text-white/70">
-          <span
-            className="h-[12px] w-[12px] shrink-0 rounded-full bg-[#46d68c]"
-            aria-hidden="true"
-          />
-          {mainGuest ? (
-            <span className="truncate">
-              {t("flow.banner.signedIn")}{" "}
-              <strong className="text-white">{mainGuest.firstName}</strong>
-            </span>
-          ) : (
-            <span className="truncate">{t("flow.banner.visitInProgress")}</span>
-          )}
-        </span>
+        {crewDoor ? (
+          <button
+            type="button"
+            aria-label={t("crew.banner.manage")}
+            onClick={openCrew}
+            className="k-tap flex min-w-0 flex-1 items-center gap-[14px] text-left text-[22px] text-white/70"
+          >
+            {bannerWho}
+            <IconChevronRight size={26} className="shrink-0 text-white/40" aria-hidden="true" />
+          </button>
+        ) : (
+          <span className="flex min-w-0 flex-1 items-center gap-[14px] text-[22px] text-white/70">
+            {bannerWho}
+          </span>
+        )}
         {showHoldBar && (
           <KioskHoldBar
             ref={timerRef}
@@ -1691,6 +1739,14 @@ export function KioskFlow({
           shares, so this is the only place it can be mounted once and be true for
           all of them. */}
       {debugOn && <KioskDebugPanel />}
+      {/* Open the card dispenser BEFORE the guest taps Game Zone, so the
+          handshake doesn't happen behind a loader they're watching. Mounted in
+          `chrome` for the same reason the debug panel is — it's the one wrapper
+          every return path shares. Gated OFF while Game Zone is open: that
+          screen runs its own dispenser instance, and the reader's busy mutex is
+          per instance, so the two must never be live at once (unmounting here
+          PARKS the connection, which is exactly what Game Zone then adopts). */}
+      <KioskDispenserPrewarm enabled={!gzOpen} />
       {/* Before <IdleWatcher/>: the idle "Still there?" sheet is the same
           z-[80] — as the later sibling it must paint ON TOP of this confirm. */}
       {confirmSheet}
@@ -2263,14 +2319,11 @@ export function KioskFlow({
             clarityEvent("kiosk:packs:open");
             setPacksOpen(true);
           }}
-          // Race Sims (PLACEHOLDER PHASE 2026-08, FastTrax FM only): the tile
-          // replaces KBF's kiosk slot. Caller-owns-gating like every other
-          // door — the callbacks only arrive on a FastTrax FM kiosk with the
-          // kill switch on; the tile itself renders locked ("Coming Soon")
-          // until the kiosk-admin PIN unlocks it for this session.
-          {...(config.brand === "fasttrax" &&
-          config.center === "fort-myers" &&
-          kioskRaceSimEnabled()
+          // Race Sims — EVERY Fort Myers kiosk, both brands (owner 2026-09-01:
+          // "SIMS need to show on the kiosk at headpinz fort myers"). Venue
+          // rule + kill switch live together in kioskRaceSimDoorOpen() so the
+          // answer is testable; caller-owns-gating like every other door.
+          {...(kioskRaceSimDoorOpen(config.center)
             ? {
                 raceSimUnlocked,
                 onRaceSimUnlock: () => setRaceSimUnlocked(true),
@@ -2296,6 +2349,13 @@ export function KioskFlow({
               ? () => router.push("/kiosk/checkin")
               : undefined
           }
+          // "Your Crew" EMPTY-state door — a strip above the utility grid, not
+          // at the top (owner 2026-09-01: "needs a better spot other than the
+          // top"; picked option A of four mocks). Both gates live HERE like
+          // every other door: the kill switch, and "the session is empty" —
+          // once anyone signs in (or holds a cart), `sessionBanner` renders in
+          // the chrome and its tappable WHO half is the door instead.
+          onOpenCrew={crewDoor && !sessionBanner ? openCrew : undefined}
           onOpenRaceGrid={
             config.center === "fort-myers" && kioskRaceInfoEnabled()
               ? () => {
@@ -2512,7 +2572,11 @@ export function KioskFlow({
     // product/heat steps gate on current data, not the sign-in snapshot.
     // Field-scoped patches only (safe alongside the mobile-join poll); a
     // refresh hiccup returns an empty map — the flow proceeds on the snapshot.
-    if (currentStep.id === "race-party" || currentStep.id === "kiosk-who") {
+    if (
+      currentStep.id === "race-party" ||
+      currentStep.id === "kiosk-who" ||
+      currentStep.id === "racesim-party"
+    ) {
       let fresh: Map<string, QualificationPatch> = new Map();
       setBookingHeatsProgress(t("flow.progress.checkingInfo"));
       setBookingHeats(true);
@@ -2534,7 +2598,7 @@ export function KioskFlow({
       // this closure. A racer whose waiver just came back INVALID (revoked /
       // expired since sign-in) must re-sign before the race flow advances; the
       // patched member card shows the "waiver needed" setup path.
-      if (activeItem.kind === "race") {
+      if (activeItem.kind === "race" || activeItem.kind === "racesim") {
         const downgraded = session.party.filter(
           (m) => m.waiverValid && fresh.get(m.id)?.waiverValid === false,
         );
@@ -2642,7 +2706,9 @@ export function KioskFlow({
     // never silently kill someone mid-OTP on their own phone). Finished
     // phones (already merged into the roster) don't count.
     if (
-      (currentStep.id === "race-party" || currentStep.id === "kiosk-who") &&
+      (currentStep.id === "race-party" ||
+        currentStep.id === "kiosk-who" ||
+        currentStep.id === "racesim-party") &&
       mobileJoin.status === "open" &&
       mobileJoin.inProgressClients > 0
     ) {

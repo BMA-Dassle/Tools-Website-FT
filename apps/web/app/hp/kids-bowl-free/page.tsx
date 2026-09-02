@@ -4,33 +4,61 @@ import Link from "next/link";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { HEADPINZ_OG } from "@/lib/seo";
 import KbfEligibilityNotice from "@/components/kbf/EligibilityNotice";
+import { isKbfOffered } from "@/lib/kbf-schedule";
+import KbfOffSeasonNotice from "./OffSeasonNotice";
 
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 
-export const metadata: Metadata = {
-  title: "Kids Bowl Free - Free Summer Bowling for Kids | HeadPinz & FastTrax",
-  description:
-    "Kids 15 and under bowl 2 free games every weekday this summer at HeadPinz Fort Myers, HeadPinz Naples, and FastTrax Fort Myers. Register today!",
-  keywords: [
-    "kids bowl free Fort Myers",
-    "kids bowl free Naples",
-    "free bowling kids",
-    "kids bowling Fort Myers",
-    "summer bowling kids",
-    "free summer activities Fort Myers",
-    "kids activities Fort Myers",
-    "family fun Fort Myers",
-  ],
-  openGraph: {
-    title: "Kids Bowl Free - HeadPinz & FastTrax",
+/**
+ * Re-render hourly so the season boundary can't be frozen into a deploy.
+ * Without this the page is prerendered once at build time and would keep
+ * advertising a closed program (or keep hiding an open one) until the next
+ * push. An hour of slack on a date that changes twice a year is plenty, and
+ * it keeps the marketing page cacheable the other 364 days.
+ */
+export const revalidate = 3600;
+
+/** Season-aware, so the off-season page can't keep pulling "register today"
+ *  search traffic. `generateMetadata` (not a static `metadata` export)
+ *  because the answer has to be computed per request, like the body. */
+export async function generateMetadata(): Promise<Metadata> {
+  if (!isKbfOffered()) {
+    return {
+      title: "Kids Bowl Free - Back Next Summer | HeadPinz & FastTrax",
+      description:
+        "Kids Bowl Free has finished for this summer. The program returns next year at HeadPinz Fort Myers, HeadPinz Naples, and FastTrax Fort Myers.",
+      // Off-season the page is a courtesy landing for existing links, not
+      // something we want ranking for "free bowling kids" — that would send
+      // parents here all winter expecting free lanes.
+      robots: { index: false, follow: true },
+      alternates: { canonical: "https://headpinz.com/kids-bowl-free" },
+    };
+  }
+  return {
+    title: "Kids Bowl Free - Free Summer Bowling for Kids | HeadPinz & FastTrax",
     description:
-      "2 free games every weekday for kids 15 and under. Three locations in Southwest Florida.",
-    type: "website",
-    url: "https://headpinz.com/kids-bowl-free",
-    images: [...HEADPINZ_OG],
-  },
-  alternates: { canonical: "https://headpinz.com/kids-bowl-free" },
-};
+      "Kids 15 and under bowl 2 free games every weekday this summer at HeadPinz Fort Myers, HeadPinz Naples, and FastTrax Fort Myers. Register today!",
+    keywords: [
+      "kids bowl free Fort Myers",
+      "kids bowl free Naples",
+      "free bowling kids",
+      "kids bowling Fort Myers",
+      "summer bowling kids",
+      "free summer activities Fort Myers",
+      "kids activities Fort Myers",
+      "family fun Fort Myers",
+    ],
+    openGraph: {
+      title: "Kids Bowl Free - HeadPinz & FastTrax",
+      description:
+        "2 free games every weekday for kids 15 and under. Three locations in Southwest Florida.",
+      type: "website",
+      url: "https://headpinz.com/kids-bowl-free",
+      images: [...HEADPINZ_OG],
+    },
+    alternates: { canonical: "https://headpinz.com/kids-bowl-free" },
+  };
+}
 
 const features = [
   {
@@ -51,6 +79,12 @@ const features = [
 ];
 
 export default function KidsBowlFreePage() {
+  // Between seasons the pitch itself is the problem — "Register Now" and
+  // "Book a Lane" both lead somewhere that has nothing to give. Swap the
+  // whole page for the notice; it is also the redirect terminus for every
+  // other KBF URL while the program is closed.
+  if (!isKbfOffered()) return <KbfOffSeasonNotice />;
+
   return (
     <>
       <BreadcrumbJsonLd

@@ -42,8 +42,18 @@ import {
   raceSimItemConfigured,
   RaceSimNotConfiguredError,
   RaceSimMixedCartError,
+  RaceSimStaleHoldError,
   RACE_SIM_SQUARE_CATALOG_ID,
 } from "~/features/race-sims/products";
+import {
+  raceSimCartPersonHeats,
+  raceSimBookingConflictMessage,
+  findCartKartSimConflict,
+  cartKartSimConflictMessage,
+  isRaceSimTrackLabel,
+  findRaceSimCrossBookingConflict,
+  findRaceSimSelfConflict,
+} from "~/features/race-sims/scheduling";
 import { centerCodeFor } from "~/config/intercard-centers";
 import { formatPersonName } from "~/lib/helpers/name-format";
 import { after } from "next/server";
@@ -113,6 +123,7 @@ import { mintComboVoucherIfNeeded } from "~/features/combos/combo-voucher";
 import type { VoucherItem } from "~/features/game-cards/data/vouchers-db";
 import { redemptionsFromSession, redeemedHeatSet } from "../data/race-credits";
 import { validateCreditRedemptions, deductCreditRedemptions } from "./race-credit-redeem";
+import { computeBogoScheduledFree, type BogoScheduledFree } from "./bogo-scheduled";
 import {
   isWorldCupBowlingItem,
   validateWorldCupBooking,
@@ -124,11 +135,23 @@ import {
 } from "~/features/world-cup";
 import { enrichFixture } from "~/features/world-cup/live-teams";
 import { notifyWorldCupBooked } from "~/features/world-cup/notify.server";
+import { isNflBowlingItem, NflReservationError, nflQamfTitle, nflQamfBanner } from "~/features/nfl";
+import {
+  guardNflBooking,
+  confirmNflBooking,
+  nflBookingMetadata,
+  type NflGuardResult,
+} from "~/features/nfl/guard.server";
+import { centerHoursForDate } from "./bowling-hours";
+import { pinReservationToBlock, type PinOutcome } from "~/features/nfl/pin.server";
+import { qamfCenterIdForCode } from "../types";
 import {
   isMidnightMadnessSlug,
   midnightMadnessWindowError,
   MidnightMadnessWindowError,
+  shoesIncludedInExperience,
 } from "./bowling-offer";
+import { rawFoodItemsToReservationLines } from "./reservation-lines";
 import {
   insertBowlingReservation,
   insertReservationPlayers,
@@ -343,6 +366,54 @@ function resolveLocationId(session: BookingSession): string {
   return SQUARE_LOCATIONS.FASTTRAX_FM;
 }
 
+/**
+ * WEB charge location — the GOLDEN RULE (owner 2026-09-01): "how much $ per
+ * location; the highest is where we should charge it."
+ *
+ * The deposit order, the payment against it, and the deposit gift card all book
+ * at the entity holding the LARGEST share of the cart's charged value. Revenue
+ * routing is UNTOUCHED — the day-of order(s) still book to the entity that owns
+ * each product (resolveLocationId / comboOrderGroups).
+ *
+ * Why: a combo mints ONE gift card but funds TWO day-of orders across both
+ * Fort-Myers entities, so whichever entity did NOT sell the card ends up
+ * redeeming against it — an inter-location transfer on Square's gift-card
+ * liability report. The old behaviour (any HeadPinz product in the cart wins)
+ * put the card at the MINORITY entity on every combo — the racing share is
+ * 61.6–67.7% across all four combo variants — which MAXIMISED the transfer:
+ * $48,079 HPFM→FT over 90 days vs $4,350 the other way, measured from Square
+ * gift-card activities 2026-09-01. Charging at the majority entity minimises it.
+ *
+ * NOT used by the kiosk: a paired Square Terminal can only charge orders
+ * created at ITS device's location, so kiosk deposits stay device-driven
+ * (resolveKioskDepositLocationId). That constraint is hardware, not policy.
+ */
+export function resolveChargeLocationId(session: BookingSession): string {
+  // Naples has no FastTrax entity — its "headpinz" side is the Naples location.
+  const headpinzLocation =
+    session.center === "naples" ? SQUARE_LOCATIONS.HEADPINZ_NAP : SQUARE_LOCATIONS.HEADPINZ_FM;
+
+  let fasttrax = 0;
+  let headpinz = 0;
+  const groups = comboOrderGroups(session);
+  if (groups) {
+    // Combo: the registry revenueSplit already states each entity's exact
+    // share — use it rather than re-deriving from the collapsed charge lines
+    // (buildCombinedLineItems routes the whole combo through the race rail).
+    for (const g of groups) {
+      if (g.entity === "fasttrax-fm") fasttrax += g.subtotalCents;
+      else headpinz += g.subtotalCents;
+    }
+  } else {
+    ({ fasttrax, headpinz } = buildCombinedLineItems(session).entityCents);
+  }
+
+  // Tie, or nothing attributable (a fee-only cart) → fall back to the day-of
+  // owner, so every single-entity booking behaves exactly as it did before.
+  if (fasttrax === headpinz) return resolveLocationId(session);
+  return fasttrax > headpinz ? SQUARE_LOCATIONS.FASTTRAX_FM : headpinzLocation;
+}
+
 function resolveBmiClientKey(session: BookingSession): string {
   return session.center === "naples" ? "headpinznaples" : "headpinzftmyers";
 }
@@ -374,7 +445,7 @@ export interface PricedLine {
   catalogPricedCents?: number;
   /** Why a $0 line is $0. Absent = a genuinely charged (or $0-value) line. */
   coverage?: {
-    kind: "race-credit" | "race-pack" | "voucher" | "combo-inclusion";
+    kind: "race-credit" | "race-pack" | "voucher" | "combo-inclusion" | "bogo-special";
     /** Display tag, e.g. "Credit" · "Race Pack" · "Voucher …Z4SX". */
     label: string;
   };
@@ -389,14 +460,25 @@ export function buildCombinedLineItems(session: BookingSession): {
   promoSavingsCents: number;
   kioskPacks: ResolvedKioskPack[];
   packCoverage: PackCoverage;
+  /** BOGO Wednesdays: the scheduled heats the special priced to $0. */
+  bogoFree: BogoScheduledFree;
   /** The quote/display mirror — accumulated ADJACENT to every Square-line
    *  push above it, so the two can only drift if a diff reviewer misses it. */
   pricedLines: PricedLine[];
   /** Charged subtotal (local-priced lines; catalog-priced fees included). */
   totalPriceCents: number;
+  /** Charged cents per Fort-Myers entity (booking fee excluded — it is
+   *  entity-neutral). Input to the golden-rule charge location. */
+  entityCents: { fasttrax: number; headpinz: number };
 } {
   const sqLineItems: SquareLineItem[] = [];
   const pricedLines: PricedLine[] = [];
+  // Charged cents attributed to each Fort-Myers ENTITY, accumulated ADJACENT to
+  // every totalPriceCents increment below (same discipline as pricedLines) so
+  // the two can only drift if a diff reviewer misses it. Drives the golden-rule
+  // charge location — see resolveChargeLocationId. The entity-neutral booking
+  // fee is deliberately NOT attributed: it must never decide the argmax.
+  const entityCents = { fasttrax: 0, headpinz: 0 };
   let totalPriceCents = 0;
   let totalDepositCents = 0;
   let promoSavingsCents = 0; // USA250 cents removed across all lines (for the ledger)
@@ -416,6 +498,10 @@ export function buildCombinedLineItems(session: BookingSession): {
     // USA250: reduce the price key on priced bowling lines. Catalog-only
     // lines with no local price (fees) carry priceCents 0 → factor 1 → untouched.
     const bowlVisitDate = item.date ?? item.bookedAt?.slice(0, 10) ?? undefined;
+    // FastTrax duckpin is a bowling ITEM whose revenue books to FastTrax —
+    // mirrors the same carve-out in resolveLocationId.
+    const bowlEntity =
+      item.kind === "bowling" && (item as BowlingItem).isDuckpin ? "fasttrax" : "headpinz";
     for (const li of comboActive ? [] : item.lineItems) {
       const fullCents = li.priceCents ?? 0;
       const factor =
@@ -426,6 +512,7 @@ export function buildCombinedLineItems(session: BookingSession): {
       const depPct = li.depositPct ?? 100;
       const lineTotal = priceCents * li.quantity;
       totalPriceCents += lineTotal;
+      entityCents[bowlEntity] += lineTotal;
       totalDepositCents += Math.round(lineTotal * (depPct / 100));
       promoSavingsCents += (fullCents - priceCents) * li.quantity;
 
@@ -530,10 +617,23 @@ export function buildCombinedLineItems(session: BookingSession): {
   const voucherPlan = activeComboSpecial(session)
     ? null
     : planVoucherCoverage(session, creditAndPackHeats);
-  const excludedHeats =
+  const coveredBeforeBogo =
     voucherPlan && voucherPlan.raceHeats.size > 0
       ? new Set([...creditAndPackHeats, ...voucherPlan.raceHeats])
       : creditAndPackHeats;
+  // BOGO Wednesdays — every 2nd SCHEDULED race free (owner 2026-08-31: "never
+  // meant to be a race pack; buy one get one, all races must be scheduled").
+  // Runs LAST in the coverage order, so it pairs only heats that would
+  // otherwise be paid in cash — a credit/pack/voucher-covered heat neither
+  // goes free nor anchors a pair. Combo carts are flat-priced, so the rule is
+  // skipped there exactly like the voucher plan.
+  const bogoFree: BogoScheduledFree = activeComboSpecial(session)
+    ? { heats: new Set(), freeByMember: new Map() }
+    : computeBogoScheduledFree(session.items, session.party, coveredBeforeBogo);
+  const excludedHeats =
+    bogoFree.heats.size > 0
+      ? new Set([...coveredBeforeBogo, ...bogoFree.heats])
+      : coveredBeforeBogo;
 
   for (const bl of buildRaceChargeLines(session, excludedHeats)) {
     const totalCents = Math.round(bl.amount * 100);
@@ -541,6 +641,7 @@ export function buildCombinedLineItems(session: BookingSession): {
     const catalogId =
       (bl.bmiProductId ? lookupCatalogId(bl.bmiProductId) : null) ?? lookupCatalogIdByName(bl.name);
     totalPriceCents += totalCents;
+    entityCents.fasttrax += totalCents;
     totalDepositCents += totalCents; // 100% deposit for race
     // Race + combo savings (combo lines flow through here too, pre-stamped).
     promoSavingsCents +=
@@ -575,7 +676,7 @@ export function buildCombinedLineItems(session: BookingSession): {
     }
     const covered: Array<{
       set: ReadonlySet<RaceHeatAssignment>;
-      kind: "race-credit" | "race-pack" | "voucher";
+      kind: "race-credit" | "race-pack" | "voucher" | "bogo-special";
       labelFor: (h: RaceHeatAssignment) => string;
     }> = [
       { set: redeemedHeats, kind: "race-credit", labelFor: () => "Credit" },
@@ -588,6 +689,9 @@ export function buildCombinedLineItems(session: BookingSession): {
           return code ? `Voucher …${code.slice(-4)}` : "Voucher";
         },
       },
+      // The Wednesday special's free heats — tagged so the review/e-ticket say
+      // WHY the line is $0, same as every other covered heat.
+      { set: bogoFree.heats, kind: "bogo-special", labelFor: () => "BOGO Wednesday" },
     ];
     for (const { set, kind, labelFor } of covered) {
       const groups = new Map<string, { name: string; label: string; qty: number }>();
@@ -653,6 +757,8 @@ export function buildCombinedLineItems(session: BookingSession): {
     const chargedQty = Math.max(0, attr.qty - coveredUnits);
     const lineTotal = unitCents * chargedQty;
     totalPriceCents += lineTotal;
+    entityCents[FASTTRAX_ATTRACTION_SLUGS.has(attr.slug ?? "") ? "fasttrax" : "headpinz"] +=
+      lineTotal;
     totalDepositCents += lineTotal; // 100% deposit for attractions
     promoSavingsCents += (fullUnitCents - unitCents) * chargedQty;
     // Fully voucher-covered: keep the line at $0 (original qty) instead of
@@ -714,34 +820,37 @@ export function buildCombinedLineItems(session: BookingSession): {
     });
   }
 
-  // Race Sims: priced from the in-code catalog (race-sims/products.ts —
-  // day-of-week pricing keyed on item.date), collected in FULL (the BMI line
-  // is a $0 track key; Square owns the money). ONE shared Square catalog id
-  // for every sim line (owner 2026-08-23) with the price as a per-line
-  // override + the track riding the line name — the race-pack pattern.
-  // Guard 2e (unifiedReserveInner) still refuses BEFORE any Square write
-  // until the BMI keys are armed, so an un-armed line can only reach the quote.
+  // Race Sims: ONE line per picked session (racing's heats[] shape), priced
+  // from the in-code catalog (race-sims/products.ts — day-of-week rate keyed
+  // on item.date) × racers, collected in FULL (the BMI line is a $0 track
+  // key; Square owns the money). ONE shared Square catalog id for every sim
+  // line (owner 2026-08-23) with the price as a per-line override and the
+  // track + time riding the line name — the race-pack pattern. Guard 2e
+  // refuses BEFORE any Square write until every session's key is armed.
   for (const item of session.items) {
     if (item.kind !== "racesim") continue;
     const product = getRaceSimProduct(item.productSlug);
     if (!product) continue; // unready draft — allItemsReady blocks it upstream
     const qty = Math.max(1, item.racerCount);
-    const unitCents = Math.round(raceSimPriceFor(product, item.date) * 100);
-    const track = getRaceSimTrack(item.trackKey);
-    const name = `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""}`;
-    totalPriceCents += unitCents * qty;
-    totalDepositCents += unitCents * qty;
-    sqLineItems.push({
-      name,
-      quantity: String(qty),
-      ...(RACE_SIM_SQUARE_CATALOG_ID
-        ? {
-            catalogObjectId: RACE_SIM_SQUARE_CATALOG_ID,
-            basePriceMoney: { amount: unitCents, currency: "USD" },
-          }
-        : { basePriceMoney: { amount: unitCents, currency: "USD" } }),
-    });
-    pricedLines.push({ name, quantity: qty, unitCents });
+    const unitCents = Math.round(raceSimPriceFor(product) * 100);
+    for (const s of item.sessions) {
+      const track = getRaceSimTrack(s.trackKey);
+      const name = `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""} · ${heatClockLabel(s.slot)}`;
+      totalPriceCents += unitCents * qty;
+      entityCents.fasttrax += unitCents * qty;
+      totalDepositCents += unitCents * qty;
+      sqLineItems.push({
+        name,
+        quantity: String(qty),
+        ...(RACE_SIM_SQUARE_CATALOG_ID
+          ? {
+              catalogObjectId: RACE_SIM_SQUARE_CATALOG_ID,
+              basePriceMoney: { amount: unitCents, currency: "USD" },
+            }
+          : { basePriceMoney: { amount: unitCents, currency: "USD" } }),
+      });
+      pricedLines.push({ name, quantity: qty, unitCents });
+    }
   }
 
   // Pack lines LAST (after every booked-thing line) — one revenue line per
@@ -749,6 +858,7 @@ export function buildCombinedLineItems(session: BookingSession): {
   // (credits grant right after payment, so the deposit must cover them).
   for (const p of kioskPacks) {
     totalPriceCents += p.priceCents;
+    entityCents.fasttrax += p.priceCents;
     totalDepositCents += p.priceCents;
     sqLineItems.push({
       name: `Race Pack — ${p.label} · ${p.memberName}`,
@@ -772,8 +882,10 @@ export function buildCombinedLineItems(session: BookingSession): {
     promoSavingsCents,
     kioskPacks,
     packCoverage,
+    bogoFree,
     pricedLines,
     totalPriceCents,
+    entityCents,
   };
 }
 
@@ -1188,11 +1300,14 @@ export class CrossCategoryHeatCollisionError extends Error {
 /** Rejection copy for a cross-reservation spacing conflict. */
 export function existingBookingConflictMessage(conflict: {
   cart: { heatId: string | null; racer?: string | null };
-  existing: { heatId: string };
+  existing: { heatId: string; track?: string | null };
 }): string {
   const who = conflict.cart.racer || "One of your racers";
   const cartLabel = conflict.cart.heatId ? heatClockLabel(conflict.cart.heatId) : "the selected";
-  return `${who} already has a race booked at ${heatClockLabel(conflict.existing.heatId)} — too close to the ${cartLabel} heat. Please pick a different time.`;
+  // The blocker can be a Race Sim session (raceHeatsForPersonsOnDate returns
+  // both) — name it honestly instead of calling every booking a race.
+  const what = isRaceSimTrackLabel(conflict.existing.track) ? "a sim session" : "a race";
+  return `${who} already has ${what} booked at ${heatClockLabel(conflict.existing.heatId)} — too close to the ${cartLabel} heat. Please pick a different time.`;
 }
 
 // ── Main orchestrator ─────────────────────────────────────────────────
@@ -1456,11 +1571,11 @@ async function unifiedReserveInner(
   // Day-of order → the entity that OWNS the products (revenue split stays
   // exact). Deposit/gift-card/payment → the KIOSK's own location when this is a
   // kiosk session (the paired reader can only charge its device's location);
-  // web sessions keep the single entity location for both.
+  // web sessions charge at the entity holding the most dollars (golden rule).
   const dayofLocationId = resolveLocationId(session);
   const locationId = session.context?.kiosk
     ? resolveKioskDepositLocationId(session)
-    : dayofLocationId;
+    : resolveChargeLocationId(session);
   // Deterministic idempotency seed — same session anchor → same Square keys on
   // every retry, so all 7 keys replay the SAME order / payment / gift card.
   const baseKey = seedSource ? reserveBaseKey(seedSource) : randomBytes(8).toString("hex");
@@ -1582,7 +1697,12 @@ async function unifiedReserveInner(
         : {}),
       ...(i.kind === "race" ? { heatCount: i.heats.length } : {}),
       ...(i.kind === "attraction" ? { slug: i.slug } : {}),
-      ...(i.kind === "racesim" ? { slug: i.productSlug, trackKey: i.trackKey, slot: i.slot } : {}),
+      ...(i.kind === "racesim"
+        ? {
+            slug: i.productSlug,
+            sessions: i.sessions.map((s) => ({ trackKey: s.trackKey, slot: s.slot })),
+          }
+        : {}),
     })),
     comboSpecialId: session.comboSpecialId ?? null,
   };
@@ -1656,6 +1776,68 @@ async function unifiedReserveInner(
       } catch (err) {
         if (err instanceof ExistingBookingConflictError) throw err;
         console.error("[unifiedReserve] cross-reservation check errored (failing open):", err);
+      }
+    }
+  }
+
+  // ── 0b-sim. Guard: cross-reservation spacing for Race Sims ─────────
+  // The same rule as 0b, on the sim session: a rider must not sit a sim too
+  // close to a kart heat or another sim they hold in a SEPARATE reservation
+  // (racing's heatsConflict — 30 min cross-track vs a kart heat, skip-a-slot
+  // vs another sim; race-sims/scheduling.ts). raceHeatsForPersonsOnDate
+  // returns karting heats AND prior sim sessions, so this is symmetric with
+  // 0b. Fail-open on a query error, fail-closed on a conflict — before any
+  // Square write.
+  if (racesimItems.length > 0) {
+    // Cart-internal first (pure cart data — NOT fail-open): a kart heat and a
+    // sim session in THIS cart too close together. Racing's own grid can't
+    // see a cart sim, so this is the last gate before money moves.
+    const cartClash = findCartKartSimConflict(session.items);
+    if (cartClash) {
+      console.error(
+        `[unifiedReserve] EXISTING_BOOKING_CONFLICT (cart kart↔sim) — sim ${cartClash.simSlot} vs heat ${cartClash.heatId}`,
+      );
+      throw new ExistingBookingConflictError(cartKartSimConflictMessage(cartClash));
+    }
+    // Two sim sessions on ONE start across the cart (same four rigs) — the
+    // grid greys it and canAdvance gates it; the server still refuses.
+    const simSelfClash = findRaceSimSelfConflict(racesimItems.flatMap((r) => r.sessions));
+    if (simSelfClash) {
+      console.error(
+        `[unifiedReserve] EXISTING_BOOKING_CONFLICT (sim same start) — ${simSelfClash.a.slot} on ${simSelfClash.a.trackKey}/${simSelfClash.b.trackKey}`,
+      );
+      throw new ExistingBookingConflictError(
+        "You picked the same time on two sim tracks — the sims share the same rigs. Please remove one of them.",
+      );
+    }
+    const cartSims = racesimItems.flatMap((r) => raceSimCartPersonHeats(r, session.party));
+    const simPersonIds = [
+      ...new Set(cartSims.map((h) => h.bmiPersonId).filter((id): id is string => !!id)),
+    ];
+    const simDates = [...new Set(cartSims.map((h) => h.heatId.slice(0, 10)))];
+    if (simPersonIds.length > 0) {
+      try {
+        const existing = (
+          await Promise.all(
+            simDates.map((date) =>
+              raceHeatsForPersonsOnDate({
+                date,
+                personIds: simPersonIds,
+                excludeBillId: session.bmiBillId,
+              }),
+            ),
+          )
+        ).flat();
+        const conflict = findRaceSimCrossBookingConflict(cartSims, existing);
+        if (conflict) {
+          console.error(
+            `[unifiedReserve] EXISTING_BOOKING_CONFLICT (sim) — person ${conflict.cart.bmiPersonId} cart ${conflict.cart.heatId} vs booked ${conflict.existing.heatId}`,
+          );
+          throw new ExistingBookingConflictError(raceSimBookingConflictMessage(conflict));
+        }
+      } catch (err) {
+        if (err instanceof ExistingBookingConflictError) throw err;
+        console.error("[unifiedReserve] sim cross-reservation check errored (failing open):", err);
       }
     }
   }
@@ -1755,6 +1937,34 @@ async function unifiedReserveInner(
     }
   }
 
+  // ── 2c-NFL. Validate the game window AND claim a lane block ───────
+  // Two things at once, and both must happen before money moves:
+  //   - the booking sits exactly on a real game's lane-open instant at a center
+  //     that sells the package, inside trading hours (validateNflBooking);
+  //   - a VIP block is RESERVED for that game (claimBlock), because a block is
+  //     four lanes on one TV and can only show one game at a time.
+  // Throws NflReservationError (→ 409 in reserve-all) BEFORE any Square or QAMF
+  // write. If anything downstream fails, the catch below hands the block back;
+  // an un-released claim expires on its own within 30 minutes.
+  const nflGuards = new Map<string, NflGuardResult>();
+  for (const item of bowlingItems) {
+    if (item.kind !== "bowling" || !isNflBowlingItem(item)) continue;
+    if (item.optionId == null) {
+      throw new NflReservationError(
+        "NFL Ticket booking is missing its lane time option — please re-pick your game.",
+      );
+    }
+    const qamfId = item.qamfCenterId ?? qamfCenterIdForCode(session.center);
+    const guard = await guardNflBooking({
+      centerId: qamfId,
+      bookedAt: item.bookedAt,
+      gameId: item.nflGameId,
+      hours: centerHoursForDate(qamfId!, (item.bookedAt ?? "").slice(0, 10)),
+      laneCount: item.laneCount,
+    });
+    nflGuards.set(item.id, guard);
+  }
+
   // ── 2d. Validate Midnight Madness window (fail-closed) ────────────
   // MM shares the all-day Fri-Sun Time offer, so the offer id can't scope its
   // late-night window and the client slot gates are display-only (2026-08-01
@@ -1783,8 +1993,20 @@ async function unifiedReserveInner(
   // treatment covers sims. Races + duckpin are FastTrax — those mix fine.
   if (racesimItems.length > 0) {
     for (const item of racesimItems) {
-      if (!raceSimItemConfigured(item)) {
+      if (item.sessions.length === 0) {
         throw new RaceSimNotConfiguredError(item.productSlug);
+      }
+      for (const s of item.sessions) {
+        // Each session books through ITS track's key — every one must be armed.
+        if (!raceSimItemConfigured({ productSlug: item.productSlug, trackKey: s.trackKey })) {
+          throw new RaceSimNotConfiguredError(item.productSlug);
+        }
+        // The held line's quantity must match the cart's racer count — a
+        // party change after the hold (racerCount follows the roster) without
+        // the re-hold landing would charge N seats while BMI holds M.
+        if (s.bmiLineId && s.heldQty != null && s.heldQty !== Math.max(1, item.racerCount)) {
+          throw new RaceSimStaleHoldError();
+        }
       }
     }
     const hasHeadpinzItem = session.items.some(
@@ -2584,6 +2806,13 @@ async function unifiedReserveInner(
         `guest=${JSON.stringify(guest)}`,
     );
 
+    // The block this item claimed back in guard 2c-NFL, and where it ended up
+    // seated. Declared HERE, above the QAMF section, because the lane pin runs
+    // there — a later declaration is a temporal-dead-zone error, not a style
+    // preference.
+    const nflGuard = nflGuards.get(item.id) ?? null;
+    let nflPin: PinOutcome | null = null;
+
     // ── QAMF confirm — INLINE from v1 bowling reserve (proven working) ──
     let qamfReservationId: string;
     let qamfConfirmed = false;
@@ -2693,6 +2922,25 @@ async function unifiedReserveInner(
         }
       }
 
+      // NFL Ticket: seat the party inside the block their game was claimed on.
+      // QAMF auto-assigns anywhere in the VIP group, so without this a party
+      // can end up under a screen playing someone else's game. Non-fatal — the
+      // booking is already paid and confirmed, and a failure surfaces on the
+      // ops board for front desk rather than throwing.
+      if (nflGuard && qamfLanes.length > 0) {
+        nflPin = await pinReservationToBlock({
+          centerId,
+          reservationId: qamfReservationId,
+          lanes: qamfLanes as Array<{ Id: string; LaneNumber: number }>,
+          block: nflGuard.block,
+        });
+        if (!nflPin.pinned) {
+          console.warn(
+            `[nfl] could not seat ${qamfReservationId} on ${nflGuard.block.id}: ${nflPin.reason} — ${nflPin.detail}`,
+          );
+        }
+      }
+
       // Push player names to QAMF (kiosk rosters carry real bumper choices)
       if (qamfLanes.length > 0) {
         const lane = qamfLanes[0];
@@ -2744,6 +2992,9 @@ async function unifiedReserveInner(
           : null;
       const wcFixture = wcFixtureStatic ? await enrichFixture(wcFixtureStatic) : null;
 
+      // The block this item claimed back in guard 2c-NFL. Present only for an
+      // NFL Ticket item; everything below keys off it being non-null.
+
       let bowlingNeonId: number | null = null;
       try {
         const reservation = await insertBowlingReservation(
@@ -2788,6 +3039,12 @@ async function unifiedReserveInner(
             // capture so ops/admin can tie the lane window to its fixture.
             bookingMetadata: {
               bowling: bowlingBookedPricingStamp(item),
+              // NFL Ticket: WHICH game, and WHICH BLOCK it was seated in. The
+              // block is the half nothing else records — the lane numbers say
+              // where the party sits, not which screen owes them a game.
+              ...(nflGuard
+                ? { nfl: { ...nflBookingMetadata(nflGuard, item.bookedAt ?? ""), pin: nflPin } }
+                : {}),
               ...(wcFixture
                 ? {
                     worldCup: {
@@ -2800,15 +3057,38 @@ async function unifiedReserveInner(
                 : {}),
             },
           },
-          item.lineItems.map((li) => ({
-            squareProductId: li.squareProductId,
-            label: li.label ?? "Bowling",
-            quantity: li.quantity,
-            unitPriceCents: li.priceCents ?? 0,
-          })),
+          [
+            ...item.lineItems.map((li) => ({
+              squareProductId: li.squareProductId,
+              label: li.label ?? "Bowling",
+              quantity: li.quantity,
+              unitPriceCents: li.priceCents ?? 0,
+            })),
+            // Persist the guest's $0 food selections. These were pushed to
+            // SQUARE ONLY here, so a MIXED cart (bowling + a race / attraction
+            // / game-card leg — the ordinary kiosk shape) lost them whenever
+            // they failed to reach the order: the 2026-06-21 Pizza Bowl
+            // incident, recurring on the rail that never got fixed. Shared with
+            // app/api/bowling/v2/reserve so the two can't drift again.
+            ...rawFoodItemsToReservationLines(item.rawItems),
+          ],
         );
         neonIds.push(reservation.id);
         bowlingNeonId = reservation.id;
+
+        // NFL Ticket: the block is now really taken, so promote the claim off
+        // its 30-minute hold and FREEZE this game's kickoff — from here on a
+        // flexed Sunday time is reported for a human rather than written, so
+        // the nightly sync can never move a paid party's lanes. Best-effort:
+        // the guest is already charged and confirmed, so nothing in here may
+        // throw back into the booking.
+        if (nflGuard) {
+          await confirmNflBooking({
+            claimId: nflGuard.claim.id,
+            reservationId: reservation.id,
+            gameId: nflGuard.game.id,
+          });
+        }
 
         // Persist the roster with the reservation when we actually HAVE one
         // (kiosk collects names/shoes/bumpers up front — persist-at-capture);
@@ -2861,7 +3141,9 @@ async function unifiedReserveInner(
         ? `VIP Exp. ${guest.name} (${players.length}p)`
         : wcFixture
           ? worldCupQamfTitle(guest.name, players.length)
-          : `${guest.name} (${players.length}p)`;
+          : nflGuard
+            ? nflQamfTitle(guest.name, players.length)
+            : `${guest.name} (${players.length}p)`;
       const shortCode = shortCodes[shortCodes.length - 1];
 
       const finalParts: string[] = [];
@@ -2871,6 +3153,11 @@ async function unifiedReserveInner(
       }
       // World Cup: lead the notes with the match so front desk sees what this
       // lane window is for (the "VIP Exp." banner precedent).
+      // NFL Ticket: the banner names the BLOCK as well as the game, because the
+      // block is the one thing front desk cannot work out from the lane numbers.
+      if (nflGuard) {
+        finalParts.push(nflQamfBanner(nflGuard.game, nflGuard.block.label));
+      }
       if (wcFixture) {
         finalParts.push(worldCupQamfBanner(wcFixture));
       }
@@ -2883,10 +3170,11 @@ async function unifiedReserveInner(
         const hasShoeAddOn = item.lineItems.some((li) =>
           (li.label ?? "").toLowerCase().includes("shoe"),
         );
-        const shoesIncluded =
-          !!combo ||
-          item.experienceSlug?.includes("fun-4-all") ||
-          item.experienceSlug?.includes("pizza-bowl");
+        // THIRD copy of "does this package include shoes" — this one drives the
+        // note the front desk reads off the QAMF reservation, so a wrong answer
+        // here charges the guest AT THE COUNTER for shoes they already bought.
+        // NFL Ticket printed "SHOES NOT INCLUDED". Now it asks the one predicate.
+        const shoesIncluded = !!combo || shoesIncludedInExperience(item.experienceSlug);
         let shoeLine: string;
         if (combo) {
           shoeLine = "Shoes included (VIP)";
@@ -3069,14 +3357,17 @@ async function unifiedReserveInner(
         quantity: a.qty,
         unitPriceCents: Math.round(a.price * 100),
       })),
-      ...racesimItems.map((r) => {
+      ...racesimItems.flatMap((r) => {
         const product = getRaceSimProduct(r.productSlug);
-        const track = getRaceSimTrack(r.trackKey);
-        return {
-          label: `Race Sims — ${product?.name ?? "Race"}${track ? ` · ${track.name}` : ""}`,
-          quantity: Math.max(1, r.racerCount),
-          unitPriceCents: product ? Math.round(raceSimPriceFor(product, r.date) * 100) : 0,
-        };
+        const unitPriceCents = product ? Math.round(raceSimPriceFor(product) * 100) : 0;
+        return r.sessions.map((s) => {
+          const track = getRaceSimTrack(s.trackKey);
+          return {
+            label: `Race Sims — ${product?.name ?? "Race"}${track ? ` · ${track.name}` : ""} · ${heatClockLabel(s.slot)}`,
+            quantity: Math.max(1, r.racerCount),
+            unitPriceCents,
+          };
+        });
       }),
     ];
 
@@ -3129,27 +3420,35 @@ async function unifiedReserveInner(
     // start (for day-of tooling), track, racer count, and the who's-riding
     // roster, all on the reservation record itself.
     if (racesimItems.length > 0) {
-      bookingMetadata.racesims = racesimItems
-        .filter((r) => r.slot)
-        .map((r) => ({
+      // Race sims — same persist-at-capture treatment as attractions, ONE
+      // entry per picked session: slot start (day-of tooling), track, racer
+      // count, and the who's-riding roster WITH BMI ids — this is what
+      // raceHeatsForPersonsOnDate reads to grey/refuse a later booking at the
+      // same time (cross-reservation rule), so it is ALWAYS written.
+      bookingMetadata.racesims = racesimItems.flatMap((r) => {
+        const ids =
+          r.assignedTo.length > 0
+            ? r.assignedTo
+            : r.participants && r.participants.length > 0
+              ? r.participants
+              : session.party.map((m) => m.id);
+        const participants = ids
+          .map((id) => session.party.find((m) => m.id === id))
+          .filter((m): m is NonNullable<typeof m> => Boolean(m))
+          .map((m) => ({
+            name: `${m.firstName} ${m.lastName ?? ""}`.trim(),
+            bmiPersonId: m.bmiPersonId ?? null,
+            waiverValid: m.waiverValid ?? false,
+          }));
+        return r.sessions.map((s) => ({
           slug: r.productSlug,
-          trackKey: r.trackKey,
-          track: getRaceSimTrack(r.trackKey)?.name ?? null,
-          slot: r.slot,
+          trackKey: s.trackKey,
+          track: getRaceSimTrack(s.trackKey)?.name ?? null,
+          slot: s.slot,
           racerCount: Math.max(1, r.racerCount),
-          ...(r.participants && r.participants.length > 0
-            ? {
-                participants: r.participants
-                  .map((id) => session.party.find((m) => m.id === id))
-                  .filter((m): m is NonNullable<typeof m> => Boolean(m))
-                  .map((m) => ({
-                    name: `${m.firstName} ${m.lastName ?? ""}`.trim(),
-                    bmiPersonId: m.bmiPersonId ?? null,
-                    waiverValid: m.waiverValid ?? false,
-                  })),
-              }
-            : {}),
+          participants,
         }));
+      });
     }
 
     // ── Durable anchor (confirm_pending) BEFORE BMI confirm ───────────

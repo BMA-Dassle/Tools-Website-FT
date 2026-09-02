@@ -533,6 +533,18 @@ export async function releaseHeatBmiLines(
  * deleted. Uses the exact `bmiLineId` stored at booking (= BMI's orderItemId), so
  * it only removes THIS item's lines, never another item's. Non-fatal per line.
  */
+/** Release the $0 lines of specific sim sessions — a single unpick on the
+ *  multi-session grid (racing's releaseHeatBmiLines, for sims). */
+export async function releaseRaceSimSessionLines(
+  session: BookingSession,
+  sessions: ReadonlyArray<{ bmiLineId: string | null }>,
+): Promise<void> {
+  await removeBmiBillLines(
+    session,
+    sessions.map((s) => s.bmiLineId),
+  );
+}
+
 export async function releaseItemBmiLines(
   session: BookingSession,
   item: SessionItem,
@@ -542,10 +554,14 @@ export async function releaseItemBmiLines(
       session,
       item.heats.map((h) => h.bmiLineId),
     );
-  } else if (item.kind === "attraction" || item.kind === "racesim") {
-    // Race sims hold a $0 track-key line exactly like an attraction slot —
-    // same eager hold, same release.
+  } else if (item.kind === "attraction") {
     await removeBmiBillLines(session, [item.bmiLineId]);
+  } else if (item.kind === "racesim") {
+    // One $0 track-key line per picked session (racing's heats[] shape).
+    await removeBmiBillLines(
+      session,
+      item.sessions.map((s) => s.bmiLineId),
+    );
   }
   // Bowling/KBF are QAMF-vendored (not on the BMI bill) — nothing to release here.
 }
@@ -881,7 +897,7 @@ type RacingDiscountFor = (racerId?: string | null) => { percent: number; label: 
 const NO_DISCOUNT: RacingDiscountFor = () => ({ percent: 0, label: null });
 
 /** Raw per-racer racing discount (% + label) from the racer's active memberships
- *  (Employee Pass 50%, League Racer 20%, …). Credit-redemption status is NOT a
+ *  (Employee Pass 50%; League Racer 20% retired 2026-09-01). Credit-redemption status is NOT a
  *  factor: a redeeming racer keeps the discount on any heats they pay cash for,
  *  and `applyCreditRedemptionsToOverview` attributes each credit to the matching
  *  (productId, discount%) line — so displayed == charged whether they redeem all,
@@ -1061,7 +1077,7 @@ export function buildRaceChargeLines(
   if (comboLines) lines.push(...comboLines);
 
   // Per-racer racing discount from the racer's own active BMI memberships (e.g.
-  // Employee Pass 50%, League Racer 20%). ONLY the membership-holder's own heats
+  // Employee Pass 50%; League Racer 20% retired 2026-09-01). ONLY the membership-holder's own heats
   // are discounted — others on the bill pay full price. A redeeming racer KEEPS
   // the discount on any heats they pay cash for; the credit-redeemed heats are
   // attributed to this same (productId, discount%) line by

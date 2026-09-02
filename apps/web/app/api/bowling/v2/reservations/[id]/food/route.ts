@@ -36,7 +36,19 @@ const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
 
 const PIZZA_CATALOG_ID = "2IKZB4O2HQBXWMTSUQ2SEKJY";
 const SODA_CATALOG_ID = "SJUBJLB4QGHIHCW5AKTTMLH7";
-const ALLOWED_FOOD = new Set([PIZZA_CATALOG_ID, SODA_CATALOG_ID]);
+// NFL Ticket on NeoVerse, created 2026-09-01. A $0 package item missing from
+// this allowlist cannot be EDITED after booking — the request 400s and the
+// guest is stuck with whatever they picked first.
+const NFL_PIZZA_CATALOG_ID = "ACVRS47ZMZ47LDMMMMTCSAF5";
+const NFL_WINGS_CATALOG_ID = "PLQSNST3SONCMIYDRO4XT3L3";
+const NFL_SODA_CATALOG_ID = "SALTBIACAGWHBN6P5LS543V7";
+const ALLOWED_FOOD = new Set([
+  PIZZA_CATALOG_ID,
+  SODA_CATALOG_ID,
+  NFL_PIZZA_CATALOG_ID,
+  NFL_WINGS_CATALOG_ID,
+  NFL_SODA_CATALOG_ID,
+]);
 const EXTRA_TOPPING_NAME = "Extra Pizza Topping";
 const EXTRA_TOPPING_CENTS = 100;
 const EXTRA_TOPPING_RE = /extra\s+pizza\s+topping/i;
@@ -109,7 +121,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   const rawItems = (body.rawItems ?? []).filter((ri) => ri && ALLOWED_FOOD.has(ri.catalogObjectId));
   if (rawItems.length === 0) {
-    return NextResponse.json({ error: "no pizza/soda items provided" }, { status: 400 });
+    return NextResponse.json({ error: "no editable food items provided" }, { status: 400 });
   }
   const newExtraCents = Math.max(0, Math.round(body.extraToppingsCents ?? 0));
 
@@ -262,10 +274,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   // ── 6. Persist the new food selection to Neon (best-effort) ─────────
   try {
     const q = sql();
+    // Delete-then-insert, so the label filter MUST cover every package whose
+    // food is editable. A package missing here does not fail loudly — its old
+    // rows survive the delete and the re-insert DUPLICATES them.
     await q`
       DELETE FROM bowling_reservation_lines
       WHERE reservation_id = ${neonId}
         AND (label ILIKE 'Pizza Bowl Pizza%' OR label ILIKE 'Pizza Bowl Soda%'
+             OR label ILIKE 'Game Day %'
              OR label ILIKE 'Extra Pizza Topping%')
     `;
     for (const ri of rawItems) {

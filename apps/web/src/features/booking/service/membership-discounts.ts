@@ -66,7 +66,13 @@ export const MEMBERSHIP_DISCOUNTS: MembershipDiscount[] = [
     membershipName: "League Racer",
     percentOff: 20,
     categories: ["racing"],
-    enabled: true,
+    // RETIRED (owner 2026-09-01: "League racer discount needs to be
+    // discontinued"). Disabling here is the whole cut: detection, the line
+    // pricing, and the BOGO-Wednesday pass-priority exclusion all read this
+    // flag through `membershipDiscountsForNames`, so League Racers now pay
+    // list price AND pair 2-for-1 on Wednesdays like any guest. The entry
+    // stays for history/re-enable; the BMI membership itself is untouched.
+    enabled: false,
   },
 ];
 

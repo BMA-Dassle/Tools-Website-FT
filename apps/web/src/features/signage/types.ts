@@ -19,6 +19,7 @@ import type { CheckinProgressSession } from "./checkin-progress";
 import type { FastPitRoster, PitBoardInfo, PitLanes } from "./pit/pit-board";
 import type { ResultsBoardView } from "./results-board";
 import type { TopTimesView } from "./top-times";
+import type { ArenaCall, ArenaUpcoming } from "./arena/arena-board";
 
 /**
  * A scene is one full-screen visual. Adding a scene type is the only reason
@@ -87,6 +88,11 @@ import type { TopTimesView } from "./top-times";
  *                     comes from `venueLogo.mark` — a logo screen is not tied to
  *                     its venue's brand (the Old Time Lanes pair stands inside
  *                     HeadPinz Fort Myers and wears the PinBoyz mark)
+ *  - `arena-checkin`  the HP Arena check-in TV: the Laser Tag / Gel Blaster
+ *                     session that has just been called, and where to walk.
+ *                     An INTERRUPT, not a rotation entry — see below
+ *  - `arena-promo`    the arena's own films, full-bleed, in the long gaps
+ *                     between calls. The moving half of "video and static ads"
  *  - `sleep`          venue closed — panel/power saver
  */
 export type SceneType =
@@ -106,6 +112,8 @@ export type SceneType =
   | "open-now"
   | "bowling-checkin"
   | "venue-logo"
+  | "arena-checkin"
+  | "arena-promo"
   | "sleep";
 
 /** Scenes a screen rotates through on its base loop (interrupts are separate). */
@@ -120,6 +128,7 @@ export const ROTATION_SCENE_TYPES = [
   "race-guide",
   "vip-showcase",
   "open-now",
+  "arena-promo",
 ] as const satisfies readonly SceneType[];
 
 /** Scenes that PREEMPT the rotation when their trigger fires. */
@@ -127,6 +136,13 @@ export const INTERRUPT_SCENE_TYPES = [
   "vip-welcome",
   "celebration",
   "billboard-crown",
+  // The arena call. An interrupt rather than a playlist entry BECAUSE of what
+  // the owner asked for: this board sells in its dead time (owner 2026-09-01,
+  // "video and static ads of laser tag running in its dead time"), so ads are
+  // its base rotation — and a rotation entry would then cut away from a live
+  // instruction to show an advert every forty seconds. The call takes the wall,
+  // holds it, and hands it back.
+  "arena-checkin",
 ] as const satisfies readonly SceneType[];
 
 /**
@@ -304,6 +320,24 @@ export interface ScreenWall {
 /** The per-screen config blob (JSONB in Neon). Every field optional. */
 export interface ScreenConfig {
   playlist?: PlaylistEntry[];
+  /**
+   * How long ONE playlist slot lasts, in ms. Defaults to the kiosk bank's 40s
+   * billboard cycle, which is what every board on the estate but one uses.
+   *
+   * The front-desk wall is the exception: the owner asked for the VIP artwork
+   * "20 seconds about every 2 minutes" (2026-09-01), and 20s is HALF a slot — so
+   * that cadence is simply not expressible in 40s units. This wall runs on 20s
+   * slots instead: pricing x5 then the artwork x1 is exactly 2 minutes.
+   *
+   * ON A WALL THIS IS PART OF THE TEAR INVARIANT. Scene selection is
+   * `floor(now / slotMs) % totalSlots`, so two panels that disagree about the slot
+   * LENGTH drift apart exactly as badly as two that disagree about the count. All
+   * five must carry the same value — the seed script asserts it.
+   *
+   * 20_000 still divides the 40s billboard cycle evenly, so a screen standing over
+   * a kiosk bank still lands on the bank's boundaries every other slot.
+   */
+  slotMs?: number;
   interrupts?: ScreenInterrupts;
   scope?: ScreenScope;
   pairing?: ScreenPairing;
@@ -436,6 +470,25 @@ export interface ScreenConfig {
    * image must not go black over a typo in a text field.
    */
   venueLogo?: { mark?: string };
+  /**
+   * THE HP ARENA CHECK-IN BOARD — which is to say, "this screen is one".
+   *
+   * Present ⇒ arena board; absent ⇒ every other screen, which never asks Pandora
+   * for called arena sessions and never takes the check-in interrupt. Its own
+   * field rather than an inference from the playlist for the same reason
+   * `resultsBoard` is: one knob, one meaning.
+   *
+   * `holdMs` is how long a called session owns the wall before the board goes
+   * back to selling. Clamped at read time (2–20 min, `clampArenaHoldMs`) — see
+   * the note on ARENA_HOLD_DEFAULT_MS for why this board has to hold on a
+   * timer at all when the karting one does not.
+   *
+   * NO `scope.resourceIds`, deliberately. There is one arena per venue and both
+   * activities run off the one dayplanner resource, so the venue IS the scope —
+   * and setting a scope would also wire in kiosk scan events this board has no
+   * use for.
+   */
+  arenaBoard?: { holdMs?: number };
   /**
    * HOW MUCH OF THIS PANEL'S EDGE IS CROPPED — the one thing about a TV that the
    * TV cannot work out for itself.
@@ -971,10 +1024,22 @@ export interface TvFeed {
       timeLabel: string;
       /**
        * "12" or "12, 13" — shown BEFORE check-in, because "Lane 12, go ahead" is a better
-       * invitation than "you can check in". Empty when the booked lane was marked Ready
-       * without numbers being visible yet.
+       * invitation than "you can check in". Empty when the lane is not ready yet, or was
+       * marked Ready without numbers being visible.
        */
       lanes: string;
+      /**
+       * Is the lane actually ready, i.e. will self check-in succeed right now?
+       *
+       * FALSE ROWS ARE SHOWN, NOT DROPPED (owner 2026-09-01: the column should show
+       * "reservations within next hour and whether lane is available or not"). The scene
+       * must therefore make a false row unmistakably NOT an invitation — the 2026-08-19
+       * rule still stands underneath this, that a guest sent to a kiosk which refuses
+       * them never trusts the board again. The difference is that the board now answers
+       * "is my lane ready" out loud instead of silently omitting the guest, which read as
+       * "we have no record of you".
+       */
+      laneReady: boolean;
     }[];
     /** Checked themselves in, with the lane they were given. */
     checkedIn: {
@@ -986,6 +1051,44 @@ export interface TvFeed {
        *  physically ready and they can walk over. */
       laneReady: boolean;
     }[];
+  } | null;
+  /**
+   * Arena-board extra: which Laser Tag / Gel Blaster sessions have just been
+   * called, and the films this screen plays between calls.
+   *
+   * PII POSTURE — THE STRICTEST SECTION ON THE FEED. No names at all, not even
+   * first names. The karting boards carry first names because a racer scans and
+   * wants to see themselves land; nobody scans here (owner 2026-09-01: "we
+   * simply call and check them in"), so there is no moment a name would serve
+   * and no reason to put one on a lobby wall. A session number, an activity and
+   * two timestamps.
+   *
+   * `calls` is EVERY currently-called arena session, unfiltered by age — the
+   * hold window is applied on the client by `activeArenaCalls`, so the rule
+   * lives in one pure, tested place rather than being split across the wire.
+   *
+   * Null for every screen that is not an arena board, and when the kill switch
+   * is off — the board then falls through to its ads, which is the right
+   * failure mode for a screen in a lobby.
+   */
+  arena: {
+    calls: ArenaCall[];
+    /**
+     * The next session per activity that is still ahead of us today, for the
+     * desk strip's "Next" chips.
+     *
+     * EMPTY IS THE NORMAL ANSWER. Arena sessions are created when somebody books
+     * one, not published as a timetable, so a quiet hour has nothing here and the
+     * strip is written to read correctly without it — see ArenaDeskStrip.
+     */
+    upcoming: ArenaUpcoming[];
+    /** The promo films, when they have been uploaded. Either may be null and
+     *  the promo scene simply plays the other; both null and the scene
+     *  self-skips, leaving the static slides. */
+    films: {
+      "laser-tag": { url: string; durationMs: number | null } | null;
+      "gel-blaster": { url: string; durationMs: number | null } | null;
+    };
   } | null;
   /** Product ids currently off-sale — never advertise a paused product. */
   pausedProductIds: string[];

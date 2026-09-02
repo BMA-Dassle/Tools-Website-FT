@@ -17,7 +17,8 @@
 
 import { getCenter } from "~/config/intercard-centers";
 import { GameCardHttpError } from "../errors";
-import { verifyAccount } from "../data/intercard";
+// Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
+import { verifyAccount } from "../data/intercard-router";
 import { getTxn } from "../data/transactions-log";
 import { claimNativeVoucher, releaseNativeVoucher } from "./native-voucher";
 import { applyCreditPlan, creditPlanForRow, planIsEmpty } from "./credit-plan";

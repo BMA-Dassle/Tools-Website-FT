@@ -21,6 +21,7 @@ import { spanRange } from "../wall";
 import { TRACK_RESOURCE_IDS } from "../track";
 import type { ResolvedScreenConfig } from "../defaults";
 import type { SceneType, SignageEvent, VipEntry } from "../types";
+import { activeArenaCalls, arenaTakeoverStartMs, type ArenaCall } from "../arena/arena-board";
 
 /** One rotation slot. Locked to the kiosk bank's cycle — see the note above. */
 export const SLOT_MS = BILLBOARD_CYCLE_MS;
@@ -82,6 +83,18 @@ export interface SceneDecision {
  */
 export function frameKey(d: SceneDecision): string {
   if (!d.isInterrupt) return d.scene;
+  // THE ARENA TAKEOVER IS ONE FRAME FOR AS LONG AS ANY CALL IS LIVE, so it keys on the
+  // scene alone. Its `startedAtMs` is the EARLIEST live call — which is what stops a
+  // second activity being called from remounting the board — but that anchor MOVES when
+  // the earliest call ages out of the hold, and keying on it meant the board tore itself
+  // down and replayed both entrances while the remaining group was still reading their
+  // instruction. The same jump happens if Pandora times out intermittently and the
+  // reader alternates between the live list and its Redis carry: startedAtMs would
+  // oscillate every fifteen-second poll and the board would hard-cut on each one.
+  //
+  // Keying on the scene keeps the entrance where it belongs — the transition INTO the
+  // takeover from whatever was playing — and makes everything after it a re-render.
+  if (d.scene === "arena-checkin") return d.scene;
   const identity = d.event?.id;
   return identity ? `${d.scene}:${identity}` : `${d.scene}:${d.startedAtMs}`;
 }
@@ -144,9 +157,12 @@ export function totalSlots(segments: RotationSegment[]): number {
 export function rotationAt(
   nowMs: number,
   segments: RotationSegment[],
+  /** This screen's slot length. Defaults to the estate's 40s — see ScreenConfig.slotMs. */
+  slotMs: number = SLOT_MS,
 ): { segment: RotationSegment; startedAtMs: number; durationMs: number } {
   const total = totalSlots(segments);
-  const slot = Math.floor(nowMs / SLOT_MS);
+  const unit = slotMs > 0 ? slotMs : SLOT_MS;
+  const slot = Math.floor(nowMs / unit);
   // `%` keeps a negative clock (test fixtures, a wildly wrong RTC) in range.
   const pos = ((slot % total) + total) % total;
   let segment = segments[segments.length - 1];
@@ -157,8 +173,8 @@ export function rotationAt(
     }
   }
   const slotsIntoSegment = pos - segment.startSlot;
-  const startedAtMs = (slot - slotsIntoSegment) * SLOT_MS;
-  return { segment, startedAtMs, durationMs: segment.slots * SLOT_MS };
+  const startedAtMs = (slot - slotsIntoSegment) * unit;
+  return { segment, startedAtMs, durationMs: segment.slots * unit };
 }
 
 /* ── billboard crown ──────────────────────────────────────────────────── */
@@ -172,12 +188,20 @@ export function rotationAt(
 export function crownActiveAt(
   nowMs: number,
   crown: ResolvedScreenConfig["billboardCrown"],
+  slotMs: number = SLOT_MS,
 ): boolean {
   if (!crown.enabled) return false;
-  const cycle = Math.floor(nowMs / SLOT_MS);
+  const unit = slotMs > 0 ? slotMs : SLOT_MS;
+  const cycle = Math.floor(nowMs / unit);
   if (((cycle % crown.joinEvery) + crown.joinEvery) % crown.joinEvery !== 0) return false;
-  const t = ((nowMs % SLOT_MS) + SLOT_MS) % SLOT_MS;
-  return t < CROWN_WINDOW_MS;
+  const t = ((nowMs % unit) + unit) % unit;
+  // NEVER MORE THAN A THIRD OF THE SLOT. The window is the bank's own choreography
+  // length (11.9s), which is a fifth of the estate's 40s slot and would be SIXTY PER
+  // CENT of the front-desk wall's 20s one — so the day the crown scene ships, that wall
+  // would spend most of every cycle crowning instead of pricing. Only
+  // `isSceneImplemented` is keeping that from being live today, which is not a guard to
+  // rely on. No effect on a 40s board: min(11_900, 13_333) is unchanged.
+  return t < Math.min(CROWN_WINDOW_MS, unit / 3);
 }
 
 /* ── VIP takeover ─────────────────────────────────────────────────────── */
@@ -374,6 +398,11 @@ export interface DecisionInput {
   hasData: (scene: SceneType) => boolean;
   events: SignageEvent[];
   seenEventIds: ReadonlySet<string>;
+  /**
+   * Called HP Arena sessions, for the arena board's takeover. Empty (or absent)
+   * everywhere else, which is what keeps this a no-op for every other screen.
+   */
+  arenaCalls?: readonly ArenaCall[];
   /** Venue closed — panel saver wins over everything. */
   asleep?: boolean;
   /** Does this deploy actually have the scene? Defaults to yes. */
@@ -384,7 +413,15 @@ export interface DecisionInput {
  * What the screen shows at this instant.
  *
  * PRECEDENCE, highest first:
- *   sleep  →  celebration  →  billboard crown  →  rotation
+ *   sleep  →  arena check-in  →  celebration  →  billboard crown  →  rotation
+ *
+ * THE ARENA CALL SITS ABOVE CELEBRATION, which is the only inversion on this
+ * board and is deliberate. Everywhere else a celebration is the most important
+ * thing on a screen because it is about somebody standing in front of it. On the
+ * arena board a call is an INSTRUCTION — walk to that desk now, your session has
+ * been called — and an instruction outranks a moment. (The arena preset disables
+ * celebrations outright, so in practice the two never meet; the ordering is here
+ * so that turning them back on cannot quietly bury a call.)
  *
  * VIP is deliberately NOT here (owner 2026-08-11: "it shouldn't just take over
  * everything, that doesn't make sense"). VIP parties are a gold slide the
@@ -401,6 +438,28 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
     // start would remount the scene every decision tick (the VIP freak-out,
     // same mechanism).
     return { scene: "sleep", startedAtMs: 0, durationMs: null, isInterrupt: true };
+  }
+
+  // THE ARENA CALL. Gated on `arenaBoard` rather than on the playlist: this is
+  // an interrupt, so it is not IN the playlist, and every other screen must be
+  // unable to take it however its rotation is configured.
+  if (config.arenaBoard && implemented("arena-checkin")) {
+    const active = activeArenaCalls(input.arenaCalls ?? [], nowMs, config.arenaBoard.holdMs);
+    const startedAtMs = arenaTakeoverStartMs(active);
+    if (startedAtMs !== null) {
+      return {
+        scene: "arena-checkin",
+        // The EARLIEST live call, so a second activity being called joins the
+        // board instead of remounting it — see arenaTakeoverStartMs.
+        startedAtMs,
+        // Open-ended, like every other interrupt: the call holds the wall until
+        // it stops being live, which activeArenaCalls decides from the hold
+        // window. A duration here would be a second, competing answer to the
+        // same question.
+        durationMs: null,
+        isInterrupt: true,
+      };
+    }
   }
 
   const event = celebrationAt(
@@ -423,8 +482,12 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
     };
   }
 
-  if (implemented("billboard-crown") && crownActiveAt(nowMs, config.billboardCrown)) {
-    const cycleStart = Math.floor(nowMs / SLOT_MS) * SLOT_MS;
+  // This screen's own slot length — 40s everywhere but the front-desk wall, which
+  // runs on 20s so the VIP artwork can be a 20-second beat (see ScreenConfig.slotMs).
+  const slotMs = config.slotMs;
+
+  if (implemented("billboard-crown") && crownActiveAt(nowMs, config.billboardCrown, slotMs)) {
+    const cycleStart = Math.floor(nowMs / slotMs) * slotMs;
     return {
       scene: "billboard-crown",
       startedAtMs: cycleStart,
@@ -434,7 +497,7 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
   }
 
   const segments = buildRotation(config.playlist, input.hasData, implemented);
-  const { segment, startedAtMs, durationMs } = rotationAt(nowMs, segments);
+  const { segment, startedAtMs, durationMs } = rotationAt(nowMs, segments, slotMs);
 
   // A PANEL OUTSIDE THE RUNNING SCENE'S SPAN SHOWS ITS OWN BOARD.
   //
@@ -477,6 +540,31 @@ const WING_IDLE: Partial<Record<SceneType, SceneType>> = {
 };
 
 /**
+ * Scenes that are a SET OF INDEPENDENT PANELS rather than one picture — so a panel
+ * with its own board to show may keep it, and the rest carry on unchanged.
+ *
+ * This is what lets the pricing board cover the whole wall (owner 2026-09-01: a
+ * whole TV sat idle while prices took turns on the ones beside it) WITHOUT evicting
+ * the two boards the ends exist for. TV1 keeps the self check-in list, which always
+ * has something to say; TV5 shows prices all evening and steps aside for a party
+ * greeting when there is one.
+ *
+ * SAFE ONLY BECAUSE THE SUBJECT IS PINNED TO THE PHYSICAL POSITION. `menuPanels`
+ * is indexed by where a panel hangs, not dealt across whichever panels happen to be
+ * participating, so a panel dropping out changes nothing for its neighbours. Deal a
+ * list across the participants instead and this becomes the wall-tearing bug the
+ * span rule exists to prevent — two panels both believing they are leftmost.
+ *
+ * `vip-showcase` is deliberately NOT here: it is one composition across five panels,
+ * and a panel leaving it takes a piece of the sentence with it.
+ *
+ * A SET RATHER THAN A CONFIG FIELD, for the same reason as WING_IDLE below it: this
+ * is a fact about the SCENE, and a field would be one more thing for the admin
+ * form's `draftToConfig` to rebuild and silently drop.
+ */
+const YIELDS_TO_WINGS: ReadonlySet<SceneType> = new Set<SceneType>(["open-now"]);
+
+/**
  * The scene THIS panel actually shows for `segment`.
  *
  * Identity for every screen that is not on a wall, and for every panel inside the
@@ -489,7 +577,21 @@ function substituteOutsideSpan(
   hasData: (scene: SceneType) => boolean,
 ): SceneType {
   const wall = config.wall;
-  if (!wall || segment.span === "wall") return segment.scene;
+  if (!wall) return segment.scene;
+
+  // A PANEL WITH ITS OWN BOARD KEEPS IT, when the running scene is a set of
+  // independent panels (see YIELDS_TO_WINGS).
+  //
+  // The panel's OWN board only — never its idle understudy. The understudy exists so
+  // a wing outside the running scene has something designed to show instead of a
+  // black panel; here the alternative is the pricing board, and prices beat a
+  // signpost saying nothing is on.
+  if (YIELDS_TO_WINGS.has(segment.scene)) {
+    const own = wall.outsideScene;
+    if (own && implemented(own) && hasData(own)) return own;
+  }
+
+  if (segment.span === "wall") return segment.scene;
   const { first, last } = spanRange(segment.span, wall.count);
   if (wall.position >= first && wall.position <= last) return segment.scene;
 

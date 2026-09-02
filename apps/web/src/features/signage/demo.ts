@@ -49,6 +49,8 @@ export type DemoMode =
    *  fabricated-data preview like the others — it decorates NOTHING and reads the
    *  panel's own state, which is why it is safe to leave running while staff work. */
   | "identify"
+  | "arena"
+  | "arena-busy"
   | "off";
 
 export function parseDemoMode(raw: string | null): DemoMode {
@@ -65,7 +67,9 @@ export function parseDemoMode(raw: string | null): DemoMode {
     raw === "results-mega" ||
     raw === "top-times" ||
     raw === "guide-arrow" ||
-    raw === "identify"
+    raw === "identify" ||
+    raw === "arena" ||
+    raw === "arena-busy"
   ) {
     return raw;
   }
@@ -194,6 +198,67 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
   // reviewed in the state that is hardest to get right, and two groups sent
   // within a couple of minutes is an ordinary Saturday. Red is stamped a beat
   // later, so Red takes the wall and Blue is named along the bottom.
+  // THE ARENA TAKEOVER, without waiting for a call. Fabricates only the two
+  // CALL RECORDS — the hold window, which panel is which, the countdown and the
+  // just-called treatment are all decided by the shipped rules against them, so
+  // a preview exercises the production board rather than a picture of it.
+  //
+  // BOTH ACTIVITIES AT ONCE, deliberately: that is the layout worth reviewing
+  // (a single call is the same board with one panel), and it is an ordinary
+  // Saturday at Fort Myers. Gel Blaster is stamped a beat later so it takes the
+  // leftmost panel and the just-called treatment is live on arrival.
+  //
+  // The films are left ALONE — a preview must not claim a reel is uploaded when
+  // none is, or the promo scene would be reviewed against a file that does not
+  // exist.
+  if (mode === "arena" || mode === "arena-busy") {
+    return {
+      ...feed,
+      arena: {
+        calls: [
+          // `arena-busy` adds a birthday booked as "either game" — the third
+          // panel, the tightest layout the board can be asked for, and the one
+          // that would otherwise only ever be seen for the first time in front
+          // of guests. Rare in the day (10 of 494 sessions over 30 days), so it
+          // is its own preview rather than the default one.
+          ...(mode === "arena-busy"
+            ? [
+                {
+                  sessionId: "demo-arena-party",
+                  activity: "either" as const,
+                  heatNumber: 28,
+                  scheduledStart: new Date(nowMs + 4 * 60_000).toISOString(),
+                  calledAtMs: nowMs - 60_000,
+                },
+              ]
+            : []),
+          {
+            sessionId: "demo-arena-laser",
+            activity: "laser-tag" as const,
+            heatNumber: 25,
+            scheduledStart: new Date(nowMs + 6 * 60_000).toISOString(),
+            calledAtMs: nowMs - 30_000,
+          },
+          {
+            sessionId: "demo-arena-gel",
+            activity: "gel-blaster" as const,
+            heatNumber: 26,
+            scheduledStart: new Date(nowMs + 9 * 60_000).toISOString(),
+            calledAtMs: nowMs - 5_000,
+          },
+        ],
+        films: feed.arena?.films ?? { "laser-tag": null, "gel-blaster": null },
+        // Two fabricated "Next" chips, so the desk strip is reviewable in the
+        // state it will spend most of its day in — a booked-out evening. The real
+        // strip shows nothing here on a quiet hour, which is the common case and
+        // needs no preview.
+        upcoming: [
+          { activity: "gel-blaster" as const, timeLabel: "7:15 PM" },
+          { activity: "laser-tag" as const, timeLabel: "7:30 PM" },
+        ],
+      },
+    };
+  }
   if (mode === "guide-arrow") {
     return {
       ...feed,

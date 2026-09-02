@@ -34,6 +34,7 @@ describe("isChromeFreePath", () => {
       "/racing",
       "/rewards",
       "/reload",
+      "/cards",
       "/racer",
       "/waiver-3",
       "/book",

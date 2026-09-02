@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   allOfferings,
   crossSellFor,
@@ -10,9 +10,33 @@ import {
   offeringsAt,
   squareBookingActivity,
 } from "./activities-catalog";
+import { addDaysYmd, KBF_PROGRAM_END_YMD, KBF_PROGRAM_START_YMD } from "@/lib/kbf-schedule";
 import { emptySession, newItem } from "./state/types";
 import type { BookingSession, AttractionItem } from "./state/types";
 import type { AppliedPromo } from "~/features/discount-codes";
+
+/**
+ * The catalog now has a seasonal offering (kbf), so "what's in the catalog"
+ * depends on the date. Pin the clock for the whole file rather than letting
+ * these assertions quietly change meaning every September.
+ *
+ * Both anchors are DERIVED from the schedule constants, so moving the program
+ * to a new year moves the tests with it — a hardcoded 2026 date would turn
+ * into a false failure the moment someone opens next season.
+ */
+/** 15:00Z ≈ 11am ET on the program's opening day — unambiguously in season. */
+const IN_SEASON = new Date(`${KBF_PROGRAM_START_YMD}T15:00:00Z`);
+/** The morning after the program closes — the state this repo is in today. */
+const OFF_SEASON = new Date(`${addDaysYmd(KBF_PROGRAM_END_YMD, 1)}T15:00:00Z`);
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(IN_SEASON);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function sessionWithItems(args: {
   center?: BookingSession["center"];
@@ -320,5 +344,49 @@ describe("kiosk Spanish copy (repo rule: guest-facing copy ships EN + ES togethe
     }
     // Descriptive titles DO translate.
     expect(findOffering("race")?.es?.displayName).toBe("Carreras eléctricas de alta velocidad");
+  });
+});
+
+describe("seasonal offerings (Kids Bowl Free)", () => {
+  it("in season, kbf surfaces on the landing, at each center, and in cross-sell", () => {
+    expect(allOfferings().map((o) => o.slug)).toContain("kbf");
+    expect(offeringsAt("fort-myers").map((o) => o.slug)).toContain("kbf");
+    expect(offeringsAt("naples").map((o) => o.slug)).toContain("kbf");
+    expect(landingOfferingsFor("headpinz", null).map((o) => o.slug)).toContain("kbf");
+    expect(crossSellFor(sessionWithItems({})).map((o) => o.slug)).toContain("kbf");
+  });
+
+  describe("out of season", () => {
+    beforeEach(() => {
+      vi.setSystemTime(OFF_SEASON);
+    });
+
+    it("drops kbf from every surface a guest can book from", () => {
+      expect(allOfferings().map((o) => o.slug)).not.toContain("kbf");
+      expect(offeringsAt("fort-myers").map((o) => o.slug)).not.toContain("kbf");
+      expect(offeringsAt("naples").map((o) => o.slug)).not.toContain("kbf");
+      expect(landingOfferingsFor("headpinz", null).map((o) => o.slug)).not.toContain("kbf");
+      expect(landingOfferingsFor("headpinz", "naples").map((o) => o.slug)).not.toContain("kbf");
+      expect(landingOfferingsFor("fasttrax", null).map((o) => o.slug)).not.toContain("kbf");
+      expect(crossSellFor(sessionWithItems({})).map((o) => o.slug)).not.toContain("kbf");
+      expect(initialOfferingsFor(null).map((o) => o.slug)).not.toContain("kbf");
+    });
+
+    it("still RESOLVES the kbf slug — the route, cart labels and taken reservations need it", () => {
+      // The most important line in this file. Filtering findOffering would
+      // strip the display name off every KBF item already in a cart and off
+      // every reservation taken during the season.
+      const kbf = findOffering("kbf");
+      expect(kbf?.kind).toBe("kbf");
+      expect(kbf?.displayName).toBe("Kids Bowl Free");
+    });
+
+    it("takes nothing else off sale", () => {
+      const slugs = allOfferings().map((o) => o.slug);
+      const yearRound = ["race", "duck-pin", "shuffly", "bowling", "gel-blaster", "laser-tag"];
+      for (const slug of yearRound) {
+        expect(slugs, `${slug} is not seasonal and must stay bookable`).toContain(slug);
+      }
+    });
   });
 });

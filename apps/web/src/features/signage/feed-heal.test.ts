@@ -259,7 +259,7 @@ describe("the self-heal gate is wired the one way that cannot deadlock", () => {
      */
     const src = readFileSync(TV_SHELL, "utf8");
     expect(src).toMatch(/useGatedReload\(\s*healArmed\s*,\s*true\s*\)/);
-    expect(src).toMatch(/useGatedReload\(updatePending && safeToReload\)/);
+    expect(src).toMatch(/useGatedReload\(wantsReload && staggerCleared\)/);
   });
 
   it("is actually reading the shell it claims to be", () => {
@@ -268,6 +268,52 @@ describe("the self-heal gate is wired the one way that cannot deadlock", () => {
     expect(src).toContain("export function TvShell");
     // The OTHER gate must still be the guarded one — this pin would otherwise
     // pass just as happily on a shell that had dropped safeToReload entirely.
-    expect(src).toContain("useGatedReload(updatePending && safeToReload)");
+    expect(src).toContain("const wantsReload = updatePending && safeToReload;");
+  });
+});
+
+describe("a video wall reloads in a ripple, never in unison", () => {
+  /**
+   * WHAT THIS PROTECTS, and why a comment was not enough to hold it: five panels
+   * share a clock, a config and a scene decision, so they answer `safeToReload`
+   * at the same instant — and the instant they answer it is usually the END of an
+   * interrupt. A guest at a kiosk checks in, the wall says welcome, and then the
+   * whole fixture goes black together and boots. It reads as a crash and it was
+   * reported as one (owner 2026-09-01), with nothing having thrown.
+   */
+  it("spaces the planned reload by the panel's position on the wall", () => {
+    const src = readFileSync(TV_SHELL, "utf8");
+    expect(src).toContain("WALL_RELOAD_STAGGER_MS");
+    expect(src).toMatch(/Math\.max\(0, wallPosition \?\? 0\) \* WALL_RELOAD_STAGGER_MS/);
+  });
+
+  it("applies the stagger AFTER the safety gate, not before it", () => {
+    /**
+     * The distinction is the whole fix. Delaying the LATCH (`updatePending`)
+     * instead would be defeated by exactly the case that matters: several panels
+     * whose offsets expired while a celebration held the wall would come off that
+     * hold together anyway, and reload in unison after all.
+     */
+    const src = readFileSync(TV_SHELL, "utf8");
+    // The stagger timer must be conditioned on the already-gated `wantsReload`.
+    expect(src).toMatch(/if \(!wantsReload \|\| staggerCleared\) return;/);
+    // And it must sit below the gate it depends on.
+    expect(src.indexOf("const wantsReload =")).toBeLessThan(
+      src.indexOf("Math.max(0, wallPosition ?? 0)"),
+    );
+  });
+
+  it("never delays the SELF-HEAL, which is a board already dark to the guest", () => {
+    const src = readFileSync(TV_SHELL, "utf8");
+    // healArmed reaches its gate unconjoined — no stagger, no safeToReload.
+    expect(src).toMatch(/useGatedReload\(\s*healArmed\s*[,)]/);
+    expect(src).not.toMatch(/healArmed\s*&&\s*staggerCleared/);
+    expect(src).not.toMatch(/staggerCleared\s*&&\s*healArmed/);
+  });
+
+  it("leaves a screen that stands on its own exactly as it was", () => {
+    // A null position must mean zero delay, not "no reload" and not NaN.
+    const src = readFileSync(TV_SHELL, "utf8");
+    expect(src).toContain("wallPosition ?? 0");
   });
 });

@@ -31,6 +31,8 @@ import { SceneVipShowcase } from "./SceneVipShowcase";
 import { SceneOpenNow } from "./SceneOpenNow";
 import { SceneBowlingCheckin } from "./SceneBowlingCheckin";
 import { SceneVenueLogo } from "./SceneVenueLogo";
+import { SceneArenaCheckin } from "./SceneArenaCheckin";
+import { SceneArenaPromo } from "./SceneArenaPromo";
 import { raceGuideEnabled } from "../flags";
 
 /**
@@ -77,6 +79,10 @@ export function SceneSlot(props: SceneProps) {
     // it is the one scene that cannot be blanked by a feed or a vendor.
     case "venue-logo":
       return <SceneVenueLogo {...props} />;
+    case "arena-checkin":
+      return <SceneArenaCheckin {...props} />;
+    case "arena-promo":
+      return <SceneArenaPromo {...props} />;
     case "event-welcome":
       return <SceneEventWelcome {...props} />;
     // The events wing at rest. Reached through the wing understudy in
@@ -125,6 +131,8 @@ const IMPLEMENTED: ReadonlySet<SceneType> = new Set<SceneType>([
   "pit-board",
   "race-results",
   "race-guide",
+  "arena-checkin",
+  "arena-promo",
   "event-welcome",
   "event-checkin",
   "vip-welcome",
@@ -224,6 +232,22 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
       // has a designed empty state telling guests to check in at a kiosk, and a wing
       // that fell out of the rotation would leave a dead panel at the end of the wall
       // — or worse, invite the middle scene to widen and tear the wall (see SceneSpan).
+      return true;
+    case "arena-checkin":
+      // NOT always true, unlike every board above it — and this is the one scene
+      // on the platform for which that is right. The arena board's dead time is
+      // ADVERTISING (owner 2026-09-01), so "nothing is checking in" is not an
+      // idle state to design, it is the cue to go back to selling. The director
+      // gates the interrupt on the same answer, so the two cannot disagree.
+      return (feed?.arena?.calls?.length ?? 0) > 0;
+    case "arena-promo":
+      // ALWAYS TRUE NOW. It used to require an uploaded film, so that a venue with
+      // none held eighty seconds of black instead of selling. `useArenaFilms` falls
+      // back to the house Nexus cut, so there is no longer any such thing as no film
+      // — and this MUST stay true, because the arena playlist no longer carries the
+      // house ad slides (owner 2026-09-01). Gated, a venue with no upload would close
+      // over the promo, empty the rotation, and land on the ads floor: exactly the
+      // rotation that was removed.
       return true;
     case "race-results":
       // Always true: the last race's result HOLDS until the next one lands, so

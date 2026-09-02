@@ -15,6 +15,98 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.31.1 — THE CARD DISPENSER IS ALREADY CONNECTED WHEN YOU TAP GAME ZONE
+ *         (owner 2026-09-01: "we often click game zone and have to wait for
+ *         this to connect"). The CRT-591 connection was only ever created when
+ *         a screen that USES it mounted, and the first one in the guest flow is
+ *         Game Zone itself — so the tap paid for the whole handshake (open the
+ *         COM port, EOT line-clear, INIT, three identity reads) behind a
+ *         full-screen "Connecting to the card dispenser…" loader. Park-and-adopt
+ *         (2026-07-21) already keeps ONE live connection across screen changes,
+ *         so this only ever bit the first Game Zone entry after a page load —
+ *         which the idle self-update reload makes a daily event, not a one-off.
+ *         A new renderless KioskDispenserPrewarm now opens that connection
+ *         AMBIENTLY — on the attract loop and on every flow screen — and parks
+ *         it, so Game Zone adopts a connection that is already up and the loader
+ *         never appears. Web Serial only needs a user gesture for the port
+ *         PICKER, not to reopen a granted port, which is what the existing
+ *         silent auto-reconnect already relied on.
+ *         The pre-warm tries only ports it can NAME (remembered/saved index,
+ *         saved USB ids, lone grant) and never blind-probes: it runs alongside
+ *         EntryScanListener, and a blind probe opens each granted port and sits
+ *         on it for up to 12s per baud, which would take the scanner's port away
+ *         mid-scan. Game Zone's own connect still scans, so a stale hint costs a
+ *         pre-warm, never a dispense. Gated to kiosks that actually have a
+ *         dispenser (capability "full"), and unmounted while Game Zone is open —
+ *         the reader's busy mutex is per hook INSTANCE, not per client, so two
+ *         live instances must never share the parked connection.
+ *         No guest-facing copy added; the connecting loader survives as the
+ *         fallback for a cold or stale-hint connect.
+ * 1.31.0 — "YOUR CREW": SIGN EVERYONE IN BEFORE ANYTHING IS BOOKED (owner
+ *         2026-08-31: "I want it mature on first launch"; page planned
+ *         2026-08-06). A standalone /kiosk/racers page mounts the live people
+ *         monolith over the PERSISTED kiosk session — add/remove/sign-in,
+ *         accounts + waivers, no prices and no cart — then "Book something"
+ *         lands on the chooser with the party already built. Three doors, all
+ *         behind the NEXT_PUBLIC_KIOSK_CREW kill switch (default ON): the
+ *         session banner's WHO half becomes a button (hold bar untouched — no
+ *         nested buttons), the chooser gets the strip's new EMPTY state
+ *         ("Nobody signed in yet · Add your people") docked ABOVE the utility
+ *         doors, not at the top (owner 2026-09-01: "needs a better spot other
+ *         than the top" — picked option A of four mocks; chooser only, never
+ *         a new box mid-wizard), and the entry-scan racer arm now navigates
+ *         there from BOTH the attract screen and the chooser instead of
+ *         dumping a no-reservation racer on the activity chooser with a
+ *         stashed code (the people step claims the `racer` hand-off on the
+ *         crew page the moment it mounts). Idle/start-over on the crew page
+ *         runs the FULL teardown (abandonBooking → clearBookingSession →
+ *         resetToKiosk) — the roster is guest PII and must never survive to
+ *         the next group. Fully bilingual (parts/crew.ts).
+ * 1.30.0 — BOGO WEDNESDAYS IS A SCHEDULED-RACE RULE, NOT A PACK (owner
+ *         2026-08-31: "this special is here to stay and was never meant to be
+ *         a race pack — buy one get one, all races must be scheduled").
+ *         Every 2nd scheduled single race on a Wednesday race date is FREE,
+ *         priced directly on the booked heats (every-2nd floor pairing,
+ *         cheaper of each pair goes free, no cap, after credits/packs/
+ *         vouchers so only cash heats pair; a racing pass — Employee 50%,
+ *         League 20% — takes priority and never combines). Nothing banks any
+ *         more. The two BOGO credit-pack SKUs are retired from every sell
+ *         surface (defs kept so old ledger rows resolve; the resolver refuses
+ *         them outright); the pay-mode promoted row is now a static banner —
+ *         the deal applies itself. First-timers keep the bogo-weekday
+ *         PACKAGE, same day rule. Also reverts the unreleased-in-practice
+ *         1.28.0 multi-deal qty machinery (registry maxPerRacer, qty
+ *         pointers, steppers, grid auto-raise) — the scheduled rule makes all
+ *         of it unnecessary: picking more races on the grid IS the deal now.
+ * 1.29.0 — GAME-CARD LOADS GO ONSITE; THE ON-PREM EIS BRIDGE IS RETIRED. Card
+ *         reads and loads now run through the onsite Intercard proxy (real-time
+ *         at the center) with cloud SOAP as the fallback, instead of the local
+ *         EIS bridge on the kiosk PC. Loads are synchronous — no more charging a
+ *         card and deferring the credit into a queue that hoped a bridge showed
+ *         up; a dispensed blank is still captured, never handed over, if the
+ *         load doesn't confirm. The card-system chip now reads Onsite / Cloud /
+ *         Unlicensed (a red Unlicensed flags a MAC/token config fault instead of
+ *         hiding it as a normal cloud fallback), driven by a real onsite probe
+ *         rather than the old 127.0.0.1 bridge health. Combine cards is no longer
+ *         cloud-only — the onsite path can consolidate, so it shows on every
+ *         kiosk with a card backend. The EIS queue + its reconcile machinery are
+ *         gone; the reconcile cron is now a dedup-safe recover-forward replay.
+ * 1.27.0 — THE VIP QR NOW REACHES THE SCREEN THAT SEEDS. 1.26.0 made the
+ *         voucher receipt auto-link a booking's party, but a scan on the
+ *         attract screen or the chooser never got there. `/v/{code}` was
+ *         classified `resolve-then-code-entry`, so the router asked whether the
+ *         code resolved to a reservation first — and every VIP grant carries
+ *         `vouchers.bill_id`, so `if (res.ok) return toCheckin()` fired on 100%
+ *         of them. The guest landed in check-in: no game-card legs, no laser
+ *         tag, and no seeding that outlives the screen (check-in's roster
+ *         auto-load writes to a LOCAL, non-persisted reducer, not the kiosk
+ *         booking session). Measured: 340 completed kiosk check-ins, exactly
+ *         ONE ever from a scanned code. An `HPW` is our own unmistakable shape,
+ *         so it is now decided by shape and goes straight to the voucher
+ *         screen, where 1.26.0's auto-link finally runs. Reverses the routing
+ *         half of owner decision #4 of 2026-08-02 ("decide by bill_id"), which
+ *         predates the receipt having anything on it worth reaching; the
+ *         booking's OWN reservation QR still opens check-in, unchanged.
  * 1.26.0 — A SCANNED BOOKING VOUCHER AUTO-LINKS ITS PARTY (owner 2026-08-30:
  *         "we already know who is on it — no need to ask/lookup/create
  *         profiles again"). When a VIP (or any guest holding a reservation-
@@ -1083,7 +1175,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.26.0";
+export const KIOSK_VERSION = "1.31.1";
 
 let bootVersion: string | null = null;
 let captured = false;

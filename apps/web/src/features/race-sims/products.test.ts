@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  RACE_SIM_DEPOSIT_KIND,
   RACE_SIM_PRODUCTS,
   RACE_SIM_TRACKS,
   RACE_SIM_PAGE_ID,
@@ -10,7 +11,10 @@ import {
   getRaceSimTrack,
   raceSimBookingTarget,
   raceSimItemConfigured,
+  raceSimPackPerRace,
+  raceSimPackSaving,
   raceSimPriceFor,
+  raceSimSinglePrice,
 } from "./products";
 
 describe("race-sims catalog", () => {
@@ -34,29 +38,82 @@ describe("race-sims catalog", () => {
     expect(getRaceSimTrack(null)).toBeNull();
   });
 
-  it("prices $14 Mon–Thu and $16 Fri–Sun (house day-split), weekend on bad dates", () => {
+  it("prices the single at a FLAT $15.95 — no day-split (owner 2026-09-01)", () => {
+    // Race-pack parity: a race single is one price per tier and the day
+    // dimension lives in the pack VARIANTS, never as a split on one SKU. The
+    // old $14/$16 split is what made the pack "% off" false on weekdays.
     const single = getRaceSimProduct("sim-single")!;
-    expect(raceSimPriceFor(single, "2026-08-24")).toBe(14); // Monday
-    expect(raceSimPriceFor(single, "2026-08-27")).toBe(14); // Thursday
-    expect(raceSimPriceFor(single, "2026-08-28")).toBe(16); // Friday
-    expect(raceSimPriceFor(single, "2026-08-29")).toBe(16); // Saturday
-    expect(raceSimPriceFor(single, "2026-08-23")).toBe(16); // Sunday
-    // Never undercharge on a missing/garbage date.
-    expect(raceSimPriceFor(single, null)).toBe(16);
-    expect(raceSimPriceFor(single, "garbage")).toBe(16);
+    expect(single.price).toBe(15.95);
+    expect(raceSimPriceFor(single)).toBe(15.95);
+    expect(raceSimSinglePrice()).toBe(15.95);
   });
 
-  it("FAIL-CLOSED: no item is configured while the BMI keys/page are null", () => {
-    // The Square id IS armed (owner-pasted 2026-08-23) — that alone must
-    // never open checkout: a Square id with no BMI key would charge with no
-    // reservation behind it.
-    expect(RACE_SIM_SQUARE_CATALOG_ID).toBe("PZXWYNOY4MUAPXACMBMTFYMD");
-    expect(RACE_SIM_PAGE_ID).toBeNull();
-    for (const track of RACE_SIM_TRACKS) {
-      expect(track.bmiProductId).toBeNull();
-      expect(raceSimBookingTarget(track.key)).toBeNull();
+  it("carries the owner's 3/5/10 pack prices at $14/$13/$12 a race", () => {
+    const expected = [
+      { slug: "sim-3-pack", raceCount: 3, price: 41.99, perRace: 14 },
+      { slug: "sim-5-pack", raceCount: 5, price: 64.99, perRace: 13 },
+      { slug: "sim-10-pack", raceCount: 10, price: 119.99, perRace: 12 },
+    ];
+    for (const e of expected) {
+      const p = getRaceSimProduct(e.slug)!;
+      expect(p, e.slug).toBeTruthy();
+      expect(p.kind).toBe("pack");
+      expect(p.raceCount).toBe(e.raceCount);
+      expect(p.price).toBe(e.price);
+      // Per-race rounds to the advertised whole dollar (41.99/3 = 13.9967).
+      expect(raceSimPackPerRace(p)).toBeCloseTo(e.perRace, 1);
     }
-    expect(raceSimItemConfigured({ productSlug: "sim-single", trackKey: "a" })).toBe(false);
+  });
+
+  it("keeps every published % off within a point of the real saving", () => {
+    // The badge is the OWNER's number, hand-rounded (18.51 → 18, 24.77 → 25).
+    // This holds it honest against the catalog: move the single price and
+    // whichever claim stops being true fails here instead of on the tile.
+    for (const p of RACE_SIM_PRODUCTS.filter((x) => x.kind === "pack")) {
+      expect(p.pctOff, `${p.slug} must publish a % off`).toBeGreaterThan(0);
+      const real = raceSimPackSaving(p) * 100;
+      expect(
+        Math.abs(real - p.pctOff!),
+        `${p.slug}: claims ${p.pctOff}%, really ${real.toFixed(2)}%`,
+      ).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("refuses a pack while its credit deposit kind is unminted", () => {
+    // A pack sells CREDITS. Charging with nowhere to bank them takes the
+    // guest's money and gives nothing, so the guard must refuse on the missing
+    // deposit kind in its own right — not merely because `bookable` is false.
+    expect(RACE_SIM_DEPOSIT_KIND.anytime).toBeNull();
+    for (const p of RACE_SIM_PRODUCTS.filter((x) => x.kind === "pack")) {
+      expect(p.depositKindId ?? null, `${p.slug} deposit kind`).toBeNull();
+      expect(raceSimItemConfigured({ productSlug: p.slug, trackKey: "a" })).toBe(false);
+    }
+  });
+
+  it("ARMED 2026-08-26: every money id is set and singles are configured per track", () => {
+    // Pins the live wiring so a stray edit can't silently unarm (or re-arm
+    // with a wrong id) what the owner provided: shared Square id, one $0 key
+    // per track, one shared public-booking page.
+    expect(RACE_SIM_SQUARE_CATALOG_ID).toBe("PZXWYNOY4MUAPXACMBMTFYMD");
+    expect(RACE_SIM_PAGE_ID).toBe("59716066");
+    expect(RACE_SIM_TRACKS.map((t) => t.bmiProductId)).toEqual([
+      "59535405",
+      "59537905",
+      "59537953",
+    ]);
+    for (const track of RACE_SIM_TRACKS) {
+      expect(raceSimBookingTarget(track.key)).toEqual({
+        productId: track.bmiProductId,
+        pageId: "59716066",
+      });
+      expect(raceSimItemConfigured({ productSlug: "sim-single", trackKey: track.key })).toBe(true);
+    }
+  });
+
+  it("FAIL-CLOSED edges stay closed: no track picked, unknown track, unknown product", () => {
+    expect(raceSimItemConfigured({ productSlug: "sim-single", trackKey: null })).toBe(false);
+    expect(raceSimItemConfigured({ productSlug: "sim-single", trackKey: "x" })).toBe(false);
+    expect(raceSimItemConfigured({ productSlug: "nope", trackKey: "a" })).toBe(false);
   });
 
   it("a deferred pack is never configured, even with every id armed", () => {
@@ -65,8 +122,7 @@ describe("race-sims catalog", () => {
     expect(raceSimItemConfigured({ productSlug: "sim-3-pack", trackKey: "a" })).toBe(false);
   });
 
-  it("booking target requires BOTH the track key and the shared page", () => {
-    expect(raceSimBookingTarget("a")).toBeNull();
+  it("booking target misses safely for no/unknown track", () => {
     expect(raceSimBookingTarget(null)).toBeNull();
     expect(raceSimBookingTarget("x")).toBeNull();
   });

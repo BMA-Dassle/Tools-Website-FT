@@ -19,7 +19,7 @@
  *     Nothing QAMF-side remains before launch at either center.
  *
  *  2. DEDICATED mode only: TWO Square catalog variation ids for the item
- *     "World Cup VIP Match Window (2.5 Hrs)" (create in Square Dashboard,
+ *     "World Cup VIP Match Window (3 Hrs)" (create in Square Dashboard,
  *     present at all locations, same category/tax setup as the 1.5-hr VIP
  *     item BESYYLCKLOVD7YE4GYJU24HR):
  *       variation "Mon–Thur" $112.50 → WC_CAT_MON_THUR
@@ -46,7 +46,7 @@
  *                            world-cup-vip-fri-sun  (days Fri–Sun, sort 61)
  *                            — both labeled "World Cup VIP Bowling", VIP, hourly
  *  bowling_experience_offers 4 rows (2 experiences × 2 centers), each carrying
- *                            the 150-min qamf_option_id ON THE OFFER ROW
+ *                            the 180-min qamf_option_id ON THE OFFER ROW
  *  bowling_experience_items  per experience: window rate item(s) + the $0
  *                            "VIP Chips & Salsa" (LHZXWYO72N5QFX4CGYKRVPZX —
  *                            already in KITCHEN_CATALOG_IDS, fires to KDS)
@@ -114,10 +114,23 @@ const HOURLY_1_5_FRI_VIP = "UFD6XVXU6GKCIRCLRUFLSKMJ"; // $82.50/lane
 const HOURLY_1_FRI_VIP = "OSOZ7RJ6WW7G4CEFL55U7LXF"; // $55.00/lane
 const CHIPS_SALSA = "LHZXWYO72N5QFX4CGYKRVPZX"; // $0.00 comp
 
-// ── QAMF web offers + 150-min Time options ───────────────────────────────────
+// Lane window sold per match. Mirrors WORLD_CUP_WINDOW_MINUTES in
+// src/features/world-cup/fixtures.ts — this script is standalone tsx and does
+// not import from src, so the two must be changed together.
+const WINDOW_MINUTES = 180;
+
+// ── QAMF web offers + 180-min Time options ───────────────────────────────────
 // DEDICATED World Cup web offers (owner 7/3) — separate from the shared VIP
-// offers (155/159/119/125) because of the 2.5-hr duration. Each offer also
-// carries a 180-min option we deliberately don't use.
+// offers (155/159/119/125) because of the longer duration.
+//
+// 2026-08-25: window raised 150 → 180 min to match the NFL game-day package
+// (owner). NO Conqueror work was needed — every one of these offers ALREADY
+// carried a 180-min option beside its 150 (this comment used to say we
+// "deliberately don't use" them). Re-probed live before switching:
+//   FM     174 → 1390    FM     175 → 1398
+//   Naples 139 → 1110    Naples 141 → 1126
+// Their Conqueror TITLES still read "2.5hr" — cosmetic, but worth an ops
+// rename so the reservation grid doesn't mislead the front desk.
 //
 // ALL FOUR LIVE-VERIFIED end-to-end (kickoff-time test hold → VIP lane →
 // deleted clean): FM 175/174 on 2026-07-03 (lane 7); Naples 141/139 on
@@ -126,12 +139,12 @@ const CHIPS_SALSA = "LHZXWYO72N5QFX4CGYKRVPZX"; // $0.00 comp
 // at both centers.
 const QAMF = {
   monThur: {
-    fm: { webOfferId: 175, optionId: 1397 }, // HeadPinz Fort Myers — World Cup Mon–Thur, 150 min
-    naples: { webOfferId: 141, optionId: 1125 }, // HeadPinz Naples — World Cup Mon–Thur, 150 min
+    fm: { webOfferId: 175, optionId: 1398 }, // HeadPinz Fort Myers — World Cup Mon–Thur, 180 min
+    naples: { webOfferId: 141, optionId: 1126 }, // HeadPinz Naples — World Cup Mon–Thur, 180 min
   },
   friSun: {
-    fm: { webOfferId: 174, optionId: 1389 }, // HeadPinz Fort Myers — World Cup Fri–Sun, 150 min
-    naples: { webOfferId: 139, optionId: 1109 }, // HeadPinz Naples — World Cup Fri–Sun, 150 min
+    fm: { webOfferId: 174, optionId: 1390 }, // HeadPinz Fort Myers — World Cup Fri–Sun, 180 min
+    naples: { webOfferId: 139, optionId: 1110 }, // HeadPinz Naples — World Cup Fri–Sun, 180 min
   },
 };
 
@@ -142,7 +155,7 @@ function validateInputs(): void {
     for (const [center, cfg] of Object.entries(centers)) {
       if (!cfg.optionId) {
         problems.push(
-          `QAMF.${band}.${center}.optionId is unset — read the 150-min Time option id under web offer ${cfg.webOfferId} once it activates in Conqueror`,
+          `QAMF.${band}.${center}.optionId is unset — read the ${WINDOW_MINUTES}-min Time option id under web offer ${cfg.webOfferId} once it activates in Conqueror`,
         );
       }
     }
@@ -233,7 +246,7 @@ async function upsertOffer(o: {
     INSERT INTO bowling_experience_offers
       (experience_id, center_code, qamf_web_offer_id, qamf_option_type, qamf_option_id, duration_minutes, is_active)
     VALUES
-      (${o.experienceId}, ${o.centerCode}, ${o.qamfWebOfferId}, 'Time', ${o.qamfOptionId}, 150, TRUE)
+      (${o.experienceId}, ${o.centerCode}, ${o.qamfWebOfferId}, 'Time', ${o.qamfOptionId}, ${WINDOW_MINUTES}, TRUE)
     ON CONFLICT (experience_id, center_code) DO UPDATE SET
       qamf_web_offer_id = EXCLUDED.qamf_web_offer_id,
       qamf_option_type  = EXCLUDED.qamf_option_type,
@@ -242,7 +255,7 @@ async function upsertOffer(o: {
       is_active         = EXCLUDED.is_active
   `;
   console.log(
-    `              offer      ${o.centerCode === FM ? "FM    " : "Naples"} qamfOfferId=${o.qamfWebOfferId} 150-min optId=${o.qamfOptionId}`,
+    `              offer      ${o.centerCode === FM ? "FM    " : "Naples"} qamfOfferId=${o.qamfWebOfferId} ${WINDOW_MINUTES}-min optId=${o.qamfOptionId}`,
   );
 }
 
@@ -325,7 +338,7 @@ async function main() {
 
   const description =
     "Watch the match on the NeoVerse LED video walls from the semi-private VIP suite — " +
-    "a 2.5-hour lane starting at kickoff, chips & salsa included. Shoes not included.";
+    "a 3-hour lane starting at kickoff, chips & salsa included. Shoes not included.";
 
   // ── World Cup VIP — Mon-Thur band ($112.50/lane) ──────────────────────────
   console.log("── World Cup VIP Mon-Thur");
@@ -398,18 +411,18 @@ async function main() {
   );
 
   // Deliberately NO duration-option rows (load-bearing): zero options ⇒ no
-  // duration picker ⇒ the offer row's 150-min qamf_option_id is used.
+  // duration picker ⇒ the offer row's 180-min qamf_option_id is used.
   await sql`
     DELETE FROM bowling_experience_duration_options
     WHERE experience_id IN (${monThurId}, ${friSunId})
   `;
-  console.log("\n  Cleared duration options (fixed 150-min window rides the offer rows)");
+  console.log("\n  Cleared duration options (fixed 180-min window rides the offer rows)");
 
   console.log(`
 Done. Verify:
   GET /api/bowling/v2/experiences?centerCode=${FM}
   GET /api/bowling/v2/experiences?centerCode=${NAPLES}
-  → both world-cup rows present, offers carry the 150-min qamf_option_id,
+  → both world-cup rows present, offers carry the 180-min qamf_option_id,
     durationOptions empty.
 
 Launch reminders:

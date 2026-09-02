@@ -125,7 +125,7 @@ interface LinkedSuggestion {
   waiverValid: boolean;
 }
 
-const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
+const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Component"] = ({
   item,
   session,
   onChange,
@@ -140,6 +140,12 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   // strings (they run outside React, no `t` in scope) — see the module-scope
   // TODO(i18n) below.
   const isRace = item.kind === "race";
+  // Race Sims ride the RACING roster semantics (owner 2026-08-26: "follow
+  // racing as close as possible"): the whole party rides, no per-person
+  // toggle, no split-payment warning, mobile-join as a race. Karting FACTS
+  // stay keyed on isRace alone — the age-7 kart floor, tier badges, licence
+  // line and Mega notice describe karts, not sims.
+  const wholeParty = isRace || item.kind === "racesim";
   const party = session.party;
   // CENTER FIRST: the Naples kiosk registers people, fetches waiver templates,
   // and checks waiver validity at the NAPLES Pandora location. Brand alone maps
@@ -155,7 +161,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
 
   // Racing races the whole party; an attraction toggles who's in THIS one.
   const included = new Set(
-    isRace ? party.map((m) => m.id) : (attractionItem.participants ?? party.map((m) => m.id)),
+    wholeParty ? party.map((m) => m.id) : (attractionItem.participants ?? party.map((m) => m.id)),
   );
 
   const [form, setForm] = useState<FormState>(null);
@@ -175,7 +181,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   const splitWarnedRef = useRef(false);
   const [splitWarn, setSplitWarn] = useState<(() => void) | null>(null);
   const guardAdd = (action: () => void) => {
-    if (!isRace && party.length >= 3 && !splitWarnedRef.current) {
+    if (!wholeParty && party.length >= 3 && !splitWarnedRef.current) {
       splitWarnedRef.current = true;
       setSplitWarn(() => action);
       return;
@@ -318,14 +324,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   }, [lookupOpen, form, busy, setBusy, checkingIds, guardianFlow, licenseBusy, licenseMatches]);
 
   const setIncluded = (ids: Set<string>) => {
-    if (isRace) return;
+    if (wholeParty) return;
     onChange({
       participants: Array.from(ids),
       qty: Math.max(ids.size, 1),
     } as Partial<AttractionItem>);
   };
   const toggle = (id: string) => {
-    if (isRace) return;
+    if (wholeParty) return;
     const next = new Set(included);
     if (next.has(id)) next.delete(id);
     else next.add(id);
@@ -372,7 +378,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       }
     });
     dispatch({ type: "removePartyMember", id });
-    if (!isRace) {
+    if (!wholeParty) {
       const next = new Set(included);
       next.delete(id);
       setIncluded(next);
@@ -392,7 +398,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     kioskId: kioskCfg ? kioskId(kioskCfg) : null,
     center: kioskCfg?.center ?? null,
     brand: kioskCfg?.brand ?? null,
-    stepKind: isRace ? "race" : "attraction",
+    stepKind: wholeParty ? "race" : "attraction",
     onGuests: (guests) => {
       const { toAdd, promoteGuardians, alreadyPresent } = mergeJoinedGuests(
         party,
@@ -446,7 +452,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           dispatch({ type: "setContact", patch: { phoneVerified: true } });
         }
       }
-      if (!isRace) {
+      if (!wholeParty) {
         const newIds = [...toAdd, ...promoteGuardians].map((m) => m.id);
         if (newIds.length) setIncluded(new Set([...included, ...newIds]));
       }
@@ -641,7 +647,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       });
       dispatch({ type: "addPartyMember", member });
       if (isMain) setContactFrom(member); // main person → booking contact
-      if (!isRace) setIncluded(new Set([...included, member.id]));
+      if (!wholeParty) setIncluded(new Set([...included, member.id]));
       resetForm();
       if (!result.waiverValid && result.template) {
         if (rMinor) {
@@ -1337,7 +1343,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   const joinGuardian = (g: PartyMember) => {
     dispatch({ type: "addPartyMember", member: g });
     dispatch({ type: "removeGuardian", id: g.id });
-    if (!isRace) setIncluded(new Set([...included, g.id]));
+    if (!wholeParty) setIncluded(new Set([...included, g.id]));
   };
 
   const removeGuardianEntry = (id: string) => {
@@ -1463,7 +1469,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       waiverValid: lp.waiverValid,
     });
     dispatch({ type: "addPartyMember", member });
-    if (!isRace) setIncluded(new Set([...included, member.id]));
+    if (!wholeParty) setIncluded(new Set([...included, member.id]));
     setLinked((prev) => prev.filter((l) => l.id !== lp.id));
   };
 
@@ -1509,7 +1515,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       email: normalizeEmail(person.email ?? "") || undefined,
     });
     dispatch({ type: "addPartyMember", member });
-    if (!isRace) setIncluded(new Set([...included, member.id]));
+    if (!wholeParty) setIncluded(new Set([...included, member.id]));
     if (isMain) setContactFrom(member); // main person → booking contact
     setLookupOpen(false);
     const alreadyIds = new Set(
@@ -1834,14 +1840,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             <div
               key={m.id}
               className={`k-glass relative overflow-hidden p-[24px] ${
-                !isRace && !isIn ? "opacity-55" : ""
+                !wholeParty && !isIn ? "opacity-55" : ""
               }`}
               style={{
                 borderLeft: `8px solid ${ready ? "#46d68c" : checking ? "#00e2e5" : "#f0b341"}`,
               }}
             >
               <div className="flex items-center gap-[20px]">
-                {!isRace && (
+                {!wholeParty && (
                   <button
                     type="button"
                     onClick={() => toggle(m.id)}
@@ -2548,7 +2554,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                     agreementNote={t("peopleUi.waiverAgreementNote")}
                     signLabel={t("peopleUi.waiverSignBelow")}
                     clearLabel={t("peopleUi.waiverClear")}
-                    heading={isRace ? t("peopleUi.racingWaiver") : t("peopleUi.activityWaiver")}
+                    heading={wholeParty ? t("peopleUi.racingWaiver") : t("peopleUi.activityWaiver")}
                     subheading={
                       waiverFor.signerName
                         ? t("peopleUi.waiverSubSigner", {
@@ -2753,38 +2759,28 @@ export const KioskAttractionPeopleStep: StepDef<AttractionItem> = {
 };
 
 /**
- * Race Sims (placeholder phase 2026-08): the SAME people list, attraction
- * style — toggle who's riding the sims, everyone set up + waivered. The shared
- * component patches attraction fields ({participants, qty}), so this wrapper
- * remaps them onto RaceSimItem (participants + assignedTo + racerCount) —
- * cart readiness reads racerCount and the removePartyMember cascade scrubs
- * assignedTo, so both must track the toggle.
+ * Race Sims — RACING roster semantics (owner 2026-08-26: "follow racing as
+ * close as possible"): the whole party rides, no per-person toggle
+ * (PeopleStepComponent's `wholeParty` branch). Racing writes nothing to its
+ * item here (racers are stamped at the heat pick); a sim item carries ONE
+ * line for the group, so this wrapper mirrors the roster onto racerCount +
+ * assignedTo whenever the party changes — cart readiness reads racerCount,
+ * the removePartyMember cascade scrubs assignedTo, and the slot step's hold
+ * quantity follows the party (re-holding if it changed after a pick).
  */
 const RaceSimPeopleComponent: StepDef<RaceSimItem>["Component"] = (props) => {
   const { item, session, onChange } = props;
-  // First render with a party but no explicit selection: default EVERYONE in
-  // (the component displays exactly that), so racerCount/assignedTo match what
-  // the guest sees even if they never touch a toggle.
   useEffect(() => {
-    if (!item.participants && session.party.length > 0) {
-      const ids = session.party.map((m) => m.id);
-      onChange({ participants: ids, assignedTo: ids, racerCount: ids.length });
-    }
-  }, [item.participants, session.party, onChange]);
-
-  const mapped = (patch: Partial<AttractionItem>) => {
-    const out: Partial<RaceSimItem> = {};
-    if (patch.participants) {
-      out.participants = patch.participants;
-      out.assignedTo = patch.participants;
-    }
-    if (patch.qty != null) out.racerCount = Math.max(1, patch.qty);
-    if (Object.keys(out).length > 0) onChange(out);
-  };
+    const ids = session.party.map((m) => m.id);
+    const same =
+      ids.length === item.assignedTo.length && ids.every((id, i) => item.assignedTo[i] === id);
+    if (same && item.racerCount === Math.max(1, ids.length)) return;
+    onChange({ assignedTo: ids, racerCount: Math.max(1, ids.length) });
+  }, [session.party, item.assignedTo, item.racerCount, onChange]);
   const Base = PeopleStepComponent as unknown as ComponentType<{
     item: RaceSimItem;
     session: typeof session;
-    onChange: (patch: Partial<AttractionItem>) => void;
+    onChange: (patch: Partial<RaceSimItem>) => void;
     dispatch: typeof props.dispatch;
     setBusy?: (busy: boolean) => void;
     requestAdvance?: () => void;
@@ -2793,7 +2789,7 @@ const RaceSimPeopleComponent: StepDef<RaceSimItem>["Component"] = (props) => {
     <Base
       item={item}
       session={session}
-      onChange={mapped}
+      onChange={onChange}
       dispatch={props.dispatch}
       setBusy={props.setBusy}
       requestAdvance={props.requestAdvance}
@@ -2801,15 +2797,19 @@ const RaceSimPeopleComponent: StepDef<RaceSimItem>["Component"] = (props) => {
   );
 };
 
+/** Race Sims: the whole party rides — KioskRacePeopleStep's contract on a
+ *  sim item. Own id (not "race-party") so KioskFlow's kart-only intercept
+ *  (the 59"/age attestation) stays off; the roster intercepts that DO apply
+ *  (mobile-join confirm, waiver re-check on advance) list this id beside
+ *  racing's. */
 export const KioskRaceSimPeopleStep: StepDef<RaceSimItem> = {
-  // Reuses the attraction people id — inherits NATIVE_STEP_IDS canvas sizing
-  // in KioskFlow; step ids only need to be unique within one kind's list.
-  id: "kiosk-who",
+  id: "racesim-party",
   title: "Who's racing?",
   Component: RaceSimPeopleComponent,
   isVisible: () => true,
-  canAdvance: (item, session) => {
-    const ids = item.participants ?? session.party.map((m) => m.id);
-    return peopleReady(session.party, ids);
-  },
+  canAdvance: (_item, session) =>
+    peopleReady(
+      session.party,
+      session.party.map((m) => m.id),
+    ),
 };

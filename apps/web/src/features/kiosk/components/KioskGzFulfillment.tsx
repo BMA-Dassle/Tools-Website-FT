@@ -41,7 +41,6 @@ import {
   type FaultBehavior,
 } from "../card-reader";
 import { acquireBlankBySwipe } from "../service/swiped-card";
-import { creditTokensViaBridge } from "../service/game-card-bridge";
 import { clearGzFulfillment, type GzFulfillmentPayload } from "../service/gz-fulfillment";
 import { KioskDispenserHold } from "./KioskDispenserHold";
 import { SwipeBlankGuide } from "./SwipeBlankGuide";
@@ -208,9 +207,9 @@ export function KioskGzFulfillment({
       tokens: number,
       bonusTokens: number,
     ): Promise<{ loaded: boolean; balanceTokens?: number }> => {
-      // On-prem bridge FIRST (fast local EIS); /load-card records it (preLoaded)
-      // or falls back to cloud SOAP server-side — never both, no double-credit.
-      const bridged = await creditTokensViaBridge({ accountNumber, tokens, bonusTokens });
+      // /load-card credits through the Intercard router (onsite first, cloud
+      // SOAP fallback). The on-prem EIS bridge that used to pre-load here is
+      // retired — the onsite proxy reaches the same site card system.
       try {
         const res = await fetch("/api/game-cards/load-card", {
           method: "POST",
@@ -220,7 +219,7 @@ export function KioskGzFulfillment({
             txnId,
             accountNumber,
             locationCode: payload.locationCode,
-            preLoaded: bridged,
+
             swiped,
           }),
         });
