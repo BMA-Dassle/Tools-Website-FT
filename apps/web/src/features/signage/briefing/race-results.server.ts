@@ -23,7 +23,14 @@ import "server-only";
  */
 import redis from "@/lib/redis";
 import { recordRaceLapResults } from "~/features/racing/data/race-lap-results-db";
+import { readRaceBestLaps } from "~/features/racing/data/race-best-laps-db";
 import { captureTrackResults } from "./results-capture.server";
+import {
+  driversFromBestLaps,
+  driversFromScores,
+  heatNameFromScores,
+  type PandoraScoreRow,
+} from "./results-fallback";
 import type { ResultsDriver } from "./results-frame";
 import type { TrackKey } from "../track";
 
@@ -68,10 +75,65 @@ export async function readRecordedResults(sessionId: string): Promise<RecordedRe
   return null;
 }
 
+/** Kill switch for the non-wire standings sources (Pandora scores +
+ *  race_best_laps). A merged feature is ON; this exists only to turn the
+ *  fallback OFF in an emergency (owner rule 2026-07-31). */
+function resultsFallbackEnabled(): boolean {
+  return process.env.RESULTS_FALLBACK !== "false";
+}
+
+const PANDORA_HOST = "https://bma-pandora-api.azurewebsites.net";
+const PANDORA_LOCATION = "LAB52GY480CJF";
+
+/**
+ * The session's OFFICIAL scores, straight from Pandora — positions, laps and
+ * best times as the venue's record keeps them. Addressed by session id, so
+ * unlike a wire frame it can never be a different heat's numbers.
+ *
+ * persId/parId are 17-digit BMI ids: they are stripped from the raw text
+ * BEFORE JSON.parse so they can never round through a double (CLAUDE.md §
+ * BMI ID Precision) — nothing on a wall wants them anyway.
+ */
+async function fetchPandoraScores(sessionId: string): Promise<PandoraScoreRow[] | null> {
+  try {
+    const res = await fetch(
+      `${PANDORA_HOST}/v2/bmi/records/scores/${PANDORA_LOCATION}/${sessionId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.SWAGGER_ADMIN_KEY || ""}`,
+          Accept: "application/json",
+        },
+        signal: AbortSignal.timeout(6000),
+        cache: "no-store",
+      },
+    );
+    if (!res.ok) return null;
+    const text = (await res.text()).replace(/"(persId|parId)"\s*:\s*(\d+)/g, '"$1":"$2"');
+    const parsed = JSON.parse(text) as { data?: PandoraScoreRow[] };
+    return Array.isArray(parsed?.data) && parsed.data.length > 0 ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function loadOrCaptureResults(args: {
   track: TrackKey;
   sessionId: string;
   heatNumber: number | null;
+  /** The venue's stamped ActualEnd, when the caller has one. Its presence is
+   *  what unlocks the fallback sources: during the pending-finish window karts
+   *  are still completing their final lap, and folding standings then would
+   *  freeze pre-final laps for 48h (review 2026-08-12). The wire capture needs
+   *  no such gate — its frame carries its own finished state. */
+  stampedEndMs?: number | null;
+  /** What the record should be called if a fallback source has to supply it
+   *  and Pandora's rows don't name the session. */
+  heatName?: string | null;
+  /** Set false to skip the wire grab — the results board's walk-back reads
+   *  older races through here, and opening a socket per stale race per poll
+   *  just gets told the frame is a different heat. Fallback sources are
+   *  addressed by session id, so they still apply. */
+  wire?: boolean;
 }): Promise<RecordedResults | null> {
   if (!args.sessionId) return null;
   const key = resultsKey(args.sessionId);
@@ -79,12 +141,15 @@ export async function loadOrCaptureResults(args: {
   const stored = await readRecordedResults(args.sessionId);
   if (stored) return stored;
 
-  // Without a heat number there is no match gate, and without the gate a
-  // capture is a guess. Skip — never record a guess.
-  if (args.heatNumber === null) return null;
+  const wantWire = args.wire !== false && args.heatNumber !== null;
+  const wantFallback = resultsFallbackEnabled() && args.stampedEndMs != null;
+  // Without a heat number the wire has no match gate (a capture would be a
+  // guess), and without a stamped end the fallbacks may not run — nothing
+  // left to try.
+  if (!wantWire && !wantFallback) return null;
 
-  // One capturer per tick: both room screens poll on the same 15s cadence, and
-  // two simultaneous socket grabs of the same frame are waste. The loser's next
+  // One recorder per tick: both room screens poll on the same 15s cadence, and
+  // two simultaneous grabs of the same standings are waste. The loser's next
   // poll reads the winner's record.
   try {
     const claimed = await redis.set(`${key}:claim`, "1", "EX", 8, "NX");
@@ -93,19 +158,60 @@ export async function loadOrCaptureResults(args: {
     return null;
   }
 
-  const frame = await captureTrackResults(args.track);
-  // Heat match AND finished (state >= 3): a frame captured during the
-  // pending-finish window still has karts completing their final lap, and a
-  // best lap set on that final lap is ordinary — recording early would put a
-  // qualifier under "didn't qualify" for 48h (review 2026-08-12). Recording
-  // nothing here is safe: the next push or TV poll simply tries again.
-  if (!frame || frame.heatNumber !== args.heatNumber || frame.state < 3) return null;
+  let record: RecordedResults | null = null;
 
-  const record: RecordedResults = {
-    heatName: frame.heatName,
-    capturedAtMs: Date.now(),
-    drivers: frame.drivers,
-  };
+  if (wantWire) {
+    const frame = await captureTrackResults(args.track);
+    // Heat match AND finished (state >= 3): a frame captured during the
+    // pending-finish window still has karts completing their final lap, and a
+    // best lap set on that final lap is ordinary — recording early would put a
+    // qualifier under "didn't qualify" for 48h (review 2026-08-12). Recording
+    // nothing here is safe: the next push or TV poll simply tries again.
+    if (frame && frame.heatNumber === args.heatNumber && frame.state >= 3) {
+      record = { heatName: frame.heatName, capturedAtMs: Date.now(), drivers: frame.drivers };
+    }
+  }
+
+  /**
+   * THE WIRE IS NOT THE ONLY WITNESS (2026-09-01: webserver22:10015 went dark
+   * at 19:36 ET and heats 46-66 finished in front of an idle card). With a
+   * STAMPED end in hand the standings are final, so two more sources apply,
+   * in order of authority:
+   *
+   *   1. Pandora's scores — the official positions, the numbers the venue's
+   *      own record keeps. Karts aren't in the payload; race_best_laps (folded
+   *      live off the broadcast) supplies them by name.
+   *   2. race_best_laps alone — ranked by best lap, the vendor's own ordering
+   *      for an arrive-and-drive heat (proven identical to a real capture on
+   *      heat 44, 2026-09-01). Survives even a full vendor-cloud outage.
+   */
+  if (!record && wantFallback) {
+    const bestLaps = await readRaceBestLaps(args.sessionId).catch(() => []);
+    const scores = await fetchPandoraScores(args.sessionId);
+    if (scores) {
+      const kartByName = new Map<string, string>();
+      for (const row of bestLaps) {
+        if (row.kart) kartByName.set(row.participantName, row.kart);
+      }
+      const drivers = driversFromScores(scores, kartByName);
+      if (drivers.length > 0) {
+        record = {
+          heatName: heatNameFromScores(scores) ?? args.heatName ?? "",
+          capturedAtMs: Date.now(),
+          drivers,
+        };
+      }
+    }
+    if (!record && bestLaps.length > 0) {
+      const drivers = driversFromBestLaps(bestLaps);
+      if (drivers.length > 0) {
+        record = { heatName: args.heatName ?? "", capturedAtMs: Date.now(), drivers };
+      }
+    }
+  }
+
+  if (!record) return null;
+
   try {
     await redis.set(key, JSON.stringify(record), "EX", RESULTS_TTL_SECONDS);
   } catch {
@@ -127,8 +233,8 @@ export async function loadOrCaptureResults(args: {
    */
   await recordRaceLapResults({
     sessionId: args.sessionId,
-    heatName: frame.heatName,
-    heatNumber: frame.heatNumber,
+    heatName: record.heatName || args.heatName || null,
+    heatNumber: args.heatNumber,
     track: args.track,
     capturedAtMs: record.capturedAtMs,
     drivers: record.drivers,

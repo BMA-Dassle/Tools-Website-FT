@@ -443,6 +443,12 @@ export async function handleVenueMessage(message: unknown): Promise<void> {
           track: f.track as "blue" | "red" | "mega",
           sessionId: f.raceId,
           heatNumber: f.heatNumber,
+          // The stamped end is what unlocks the non-wire sources (Pandora
+          // scores, race_best_laps) when the cloud socket has nothing — the
+          // outage of 2026-09-01, where heats 46-66 finished in front of an
+          // idle card while this exact branch ran with a dead socket.
+          stampedEndMs: f.actualEndMs,
+          heatName: f.heatName || null,
         }).catch(() => null);
       }
     }

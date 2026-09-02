@@ -42,7 +42,7 @@ import redis from "@/lib/redis";
 import { calendarYmdET } from "@/lib/race-business-day";
 import { fetchTrackSessions } from "~/features/reservations-admin/race-live-state.server";
 import { listRaceTimings } from "~/features/racing/data/race-timings-db";
-import { loadOrCaptureResults, readRecordedResults } from "../briefing/race-results.server";
+import { loadOrCaptureResults } from "../briefing/race-results.server";
 import { readRaceFinishedMarker } from "../briefing/race-finish.server";
 import { megaModeActive } from "./mega-mode.server";
 import {
@@ -205,6 +205,19 @@ async function buildBoard(
   const merged = mergeCandidates([fromPandora, fromPandoraMega, fromNeon]);
 
   /**
+   * WHICH ENDS ARE STAMPED, decided BEFORE the marker probe below fills any
+   * in. Pandora's actualEnd and race_timings' ended_at are the venue's own
+   * stamp — the race is fully over and its standings final. A marker-filled
+   * end is the phase-one push, ~40s early, while karts are still completing
+   * their last lap — final enough to rank on, NOT final enough to unlock the
+   * fallback standings sources (see loadOrCaptureResults.stampedEndMs).
+   */
+  const stampedEnds = new Map<string, number>();
+  for (const c of merged) {
+    if (c.endedAtMs !== null) stampedEnds.set(c.sessionId, c.endedAtMs);
+  }
+
+  /**
    * THE FAST PATH, and the only reason a just-finished race reaches this wall
    * before Pandora stamps it: the venue broadcast's own finish marker, ~40s
    * ahead of the stamp. Probed only for sessions still showing as unfinished,
@@ -230,18 +243,23 @@ async function buildBoard(
   for (let i = 0; i < ranked.length; i++) {
     const race = ranked[i];
     // Only the NEWEST race is plausibly still on the timing wire, so only it
-    // is worth a capture attempt; the rest are read-only. See the header.
-    const recorded =
-      i === 0
-        ? await loadOrCaptureResults({
-            // The RACE's track, not the board's: the capture reads that track's
-            // timing feed, and asking Blue's feed for a Mega heat would capture
-            // nothing at all.
-            track: race.track,
-            sessionId: race.sessionId,
-            heatNumber: race.heatNumber,
-          }).catch(() => null)
-        : await readRecordedResults(race.sessionId).catch(() => null);
+    // gets the socket grab (`wire`); older races go through the same call with
+    // the wire off — opening a socket per stale race per poll just gets told
+    // the frame is a different heat. The fallback sources (Pandora scores,
+    // race_best_laps) are addressed by session id, so they apply to every
+    // stamped race in the walk-back — which is what kept this wall alive
+    // through the 2026-09-01 cloud-socket outage's shape of failure.
+    const recorded = await loadOrCaptureResults({
+      // The RACE's track, not the board's: the capture reads that track's
+      // timing feed, and asking Blue's feed for a Mega heat would capture
+      // nothing at all.
+      track: race.track,
+      sessionId: race.sessionId,
+      heatNumber: race.heatNumber,
+      stampedEndMs: stampedEnds.get(race.sessionId) ?? null,
+      heatName: race.heatName,
+      wire: i === 0,
+    }).catch(() => null);
 
     if (!recorded || recorded.drivers.length === 0) continue;
 
