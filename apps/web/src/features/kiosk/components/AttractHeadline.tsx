@@ -152,7 +152,8 @@ export function AttractHeadline({
 
   // Physical bank position drives the vehicle stagger, so the handoff follows
   // where a kiosk STANDS (HPFM runs 3·2·6·1·4) rather than its number, and the
-  // phase is spread across the REAL bank size — see vehiclePhaseMs.
+  // starts sit exactly one crossing apart, so this screen picks the vehicle up
+  // as its right-hand neighbour drops it — see vehiclePhaseMs.
   const position = bankPosition(venue, config.kioskNumber ?? 1);
   const phaseMs = vehiclePhaseMs(position, bankSize(venue), config.kioskNumber ?? 1);
 

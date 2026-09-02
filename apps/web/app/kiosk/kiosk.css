@@ -70,10 +70,17 @@
 /* FastTrax attract ad zone: the race car zips right→left along the bottom
    once per ad slide, then parks offscreen for the rest of it. The element is
    anchored at left:100% (x=1080), so translateX(0) is fully hidden and
-   -1500px clears the canvas plus the ~380px rendered car width. */
+   -1500px clears the canvas plus the ~380px rendered car width.
+
+   The crossing occupies the LAST 1/7 of the cycle (85.714% → 100%), which is
+   VEHICLE_CROSS_FRACTION in src/features/kiosk/attract/rotation.ts — one slot
+   of the longest kiosk row. Screens start one crossing apart, so a screen picks
+   the car up exactly as its right-hand neighbour drops it; a longer crossing
+   put two cars on the row at once (owner 2026-09-02). Change this stop and that
+   constant together — a test reads this file and fails if they drift. */
 @keyframes kiosk-racecar {
   0%,
-  75% {
+  85.714% {
     transform: translateX(0);
   }
   100% {
@@ -93,7 +100,7 @@
    data-glow-phase-ms); the INNER sprite spins so the ball visibly rolls. */
 @keyframes kiosk-bowlball {
   0%,
-  75% {
+  85.714% {
     transform: translateX(0);
   }
   100% {
@@ -110,8 +117,14 @@
   }
   to {
     /* rolling leftward = counterclockwise; free-running, not in the sync
-       table — rotation phase is invisible across kiosks */
-    transform: rotate(-1800deg);
+       table — rotation phase is invisible across kiosks.
+
+       The spin runs the whole 8s but is only SEEN during the crossing, so the
+       total is what keeps the roll looking right: at 1800deg the ball turned
+       450deg over a quarter-cycle crossing. The crossing is now 1/7 of the
+       cycle, so 1800 × 7/4 keeps that same 450deg of visible roll — leave it
+       at 1800 and the ball skids across without turning. */
+    transform: rotate(-3150deg);
   }
 }
 .kiosk-bowlball-sprite {
@@ -199,49 +212,55 @@
 }
 
 /* Banner text rattles while the race car (kiosk-racecar, same 8s cycle and the
-   same per-kiosk data-glow-phase-ms stagger) drives over it: the car crosses
-   during 72–97% of the cycle and is over the centered text ~78–90%. */
+   same per-kiosk data-glow-phase-ms stagger) drives over it.
+
+   Every stop below is the old 75–100% tuning mapped onto the shorter crossing
+   — new = 85.714 + (old − 75) × (14.286 / 25) — so the rattle still starts as
+   the car clears the right edge and dies once it is past the centred text. The
+   car now crosses during 85.7–100% of the cycle and is over that text roughly
+   91–94.5%. It is a faster car, so it is a faster rattle: ~46ms a step instead
+   of ~80ms. Retune these WITH the kiosk-racecar stop, never alone. */
 @keyframes kiosk-ad-rumble {
   0%,
-  77.5%,
-  90.5%,
+  87.143%,
+  94.571%,
   100% {
     transform: translate(0, 0) rotate(0);
   }
-  78.5% {
+  87.714% {
     transform: translate(-3px, 2px) rotate(-0.4deg);
   }
-  79.5% {
+  88.286% {
     transform: translate(3px, -2px) rotate(0.4deg);
   }
-  80.5% {
+  88.857% {
     transform: translate(-3px, -2px) rotate(-0.3deg);
   }
-  81.5% {
+  89.429% {
     transform: translate(3px, 2px) rotate(0.4deg);
   }
-  82.5% {
+  90% {
     transform: translate(-2px, 2px) rotate(-0.4deg);
   }
-  83.5% {
+  90.571% {
     transform: translate(3px, -2px) rotate(0.3deg);
   }
-  84.5% {
+  91.143% {
     transform: translate(-3px, 2px) rotate(-0.4deg);
   }
-  85.5% {
+  91.714% {
     transform: translate(2px, -2px) rotate(0.4deg);
   }
-  86.5% {
+  92.286% {
     transform: translate(-3px, -2px) rotate(-0.3deg);
   }
-  87.5% {
+  92.857% {
     transform: translate(3px, 2px) rotate(0.4deg);
   }
-  88.5% {
+  93.429% {
     transform: translate(-2px, -2px) rotate(-0.4deg);
   }
-  89.5% {
+  94% {
     transform: translate(2px, 2px) rotate(0.3deg);
   }
 }
@@ -408,6 +427,12 @@
   .kiosk-sweep,
   .kiosk-pulse,
   .kiosk-racecar,
+  /* the ball is the car's HeadPinz mirror and was missed here: with reduced
+     motion set, FastTrax's car froze while HeadPinz's ball kept rolling AND
+     spinning. Both halves of the sprite have to stop — the outer element
+     travels, the inner one rotates. */
+  .kiosk-bowlball,
+  .kiosk-bowlball-sprite,
   .kiosk-ad-flicker,
   .kiosk-ad-sheen,
   .kiosk-ad-blink,

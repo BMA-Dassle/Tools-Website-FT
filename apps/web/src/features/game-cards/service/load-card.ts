@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Load value onto ONE new card (buy flow phase 2, and voucher redemption) or
  * report a reload. The new card is either a blank the DISPENSER just pulled
  * from its stacker, or — on an MSR-only kiosk — a blank the GUEST took from

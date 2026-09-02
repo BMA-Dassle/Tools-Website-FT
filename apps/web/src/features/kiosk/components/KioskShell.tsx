@@ -25,6 +25,7 @@ import { useEffect, useRef } from "react";
 import { KioskConfigProvider, useKioskConfig } from "../KioskConfigContext";
 import { LocaleProvider, useLocale, LOCALE_BCP47 } from "../i18n";
 import { captureKioskBootVersion, KIOSK_VERSION } from "../version";
+import { unlockKioskSounds } from "../sound";
 import { OnScreenKeyboardHost } from "./OnScreenKeyboard";
 import { KioskStage } from "./KioskStage";
 
@@ -43,14 +44,19 @@ function KioskChrome({ children }: { children: React.ReactNode }) {
     const isLocal =
       typeof window !== "undefined" &&
       (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
-    // The staff admin screen must NOT auto-fullscreen on tap: requestFullscreen()
+    // The staff screens must NOT auto-fullscreen on tap: requestFullscreen()
     // consumes the click's transient activation, which then starves the Web
     // Serial chooser (requestPort → SecurityError "browser blocked access").
-    // Admin also legitimately needs browser dialogs (the serial port picker),
-    // so the guest lockdown doesn't apply here.
-    const isAdmin =
-      typeof window !== "undefined" && window.location.pathname.startsWith("/kiosk/admin");
-    const noFullscreen = isLocal || isAdmin;
+    // They also legitimately need browser dialogs (the serial port picker), so
+    // the guest lockdown doesn't apply. BOTH staff surfaces are listed — the
+    // /kiosk/staff dispenser panel drives the same CRT-591 over Web Serial, so
+    // omitting it here would break Connect on exactly the screen whose job is
+    // fixing the dispenser.
+    const isStaffSurface =
+      typeof window !== "undefined" &&
+      (window.location.pathname.startsWith("/kiosk/admin") ||
+        window.location.pathname.startsWith("/kiosk/staff"));
+    const noFullscreen = isLocal || isStaffSurface;
 
     let wakeLock: { release: () => Promise<void>; addEventListener?: unknown } | null = null;
 
@@ -76,6 +82,16 @@ function KioskChrome({ children }: { children: React.ReactNode }) {
     };
 
     const onPointerDown = () => {
+      // Prime the scan tones on the FIRST touch, whatever screen it lands on.
+      // Autoplay is blocked until the page has seen a gesture, and the scan
+      // that most needs a tone is the one nobody touched anything for — a card
+      // or voucher presented on the attract screen. `unlockKioskSounds` has
+      // said "call me from the first user gesture" since 2026-08-20 and
+      // nothing ever did, so those tones were at the mercy of the guest having
+      // happened to tap something first. Runs on the admin screen too: it is
+      // idempotent, silent, and does not consume the transient activation that
+      // Web Serial's requestPort needs (play-then-pause at zero volume).
+      unlockKioskSounds();
       // First tap is the user gesture fullscreen + wake lock both need. On the
       // admin screen we do neither, so a button's click keeps its transient
       // activation for APIs that need it (Web Serial requestPort).

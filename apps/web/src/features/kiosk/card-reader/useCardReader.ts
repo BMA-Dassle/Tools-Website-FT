@@ -54,6 +54,26 @@ export interface UseCardReaderOptions {
    * fallback — so the worst case here is just "no pre-warm this time".
    */
   hintedPortsOnly?: boolean;
+  /**
+   * USB ids of ports that belong to OTHER devices on this kiosk — the QR
+   * scanner, the MSR. Excluded from the blind probe below.
+   *
+   * `hintedPortsOnly` protects the ambient pre-warm from stealing the
+   * scanner's port, but the guest flow's own connect still scans, and on a
+   * DISPENSER kiosk that is a live bug: hunting the CRT-591 opens the
+   * scanner's COM port and sits on it for up to 12s per baud, so the Game Zone
+   * scanner never gets to listen and scanning a card on reload / balance does
+   * nothing (floor report 2026-09-02, dispenser kiosks only — swipe kiosks run
+   * no probe and scan fine). A port we can NAME as another device's is never a
+   * CRT-591 candidate, so skipping it costs nothing and keeps that device up.
+   *
+   * Only entries carrying a usbVendorId can be matched; a native COM port with
+   * no ids is unnameable and stays in the probe set. Ids equal to this
+   * reader's own saved `portInfo` are ignored (same model both sides), and if
+   * the filter would leave nothing to probe the full list is used — dispensing
+   * must never become unreachable to protect a scanner.
+   */
+  reservedPortInfo?: readonly ({ usbVendorId?: number; usbProductId?: number } | null)[] | null;
   /** portIndex = the connected port's position in getPorts(), to save for next time. */
   onConnected?: (info: CrtDeviceInfo, portInfo: SerialPortInfo, portIndex: number) => void;
 }
@@ -254,8 +274,16 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     portIndex = null,
     trustSingleGrant = false,
     hintedPortsOnly = false,
+    reservedPortInfo = null,
     onConnected,
   } = opts;
+  // Stable key so the reconnect callback isn't re-created every render by a
+  // fresh array literal from the caller.
+  const reservedKey = (reservedPortInfo ?? [])
+    .map((r) => (r?.usbVendorId != null ? `${r.usbVendorId}:${r.usbProductId ?? "*"}` : ""))
+    .filter(Boolean)
+    .sort()
+    .join(",");
 
   const [ring] = useState(() => new LogRing(300));
 
@@ -614,20 +642,48 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     // seconds, and it runs alongside the entry scanner. Game Zone's own connect
     // still scans, so a stale hint costs a pre-warm, never a dispense.
     if (hintedPortsOnly) return false;
+
+    // Leave OTHER devices' ports alone (see `reservedPortInfo`): probing one
+    // takes that device offline for seconds and it can never be the reader.
+    // Own-ids matches are not exclusions, and an empty candidate set falls
+    // back to everything — the dispenser must stay reachable.
+    const reserved = (reservedPortInfo ?? []).filter(
+      (r): r is { usbVendorId: number; usbProductId?: number } =>
+        r?.usbVendorId != null &&
+        !(
+          portInfo?.usbVendorId === r.usbVendorId &&
+          (portInfo?.usbProductId ?? null) === (r.usbProductId ?? null)
+        ),
+    );
+    const isReserved = (p: SerialPort) => {
+      const info = p.getInfo();
+      if (info.usbVendorId == null) return false; // unnameable — still a candidate
+      return reserved.some(
+        (r) =>
+          info.usbVendorId === r.usbVendorId &&
+          (r.usbProductId == null || info.usbProductId === r.usbProductId),
+      );
+    };
+    const filtered = granted.filter((p) => !isReserved(p));
+    const candidates = filtered.length > 0 ? filtered : granted;
+
     if (preferredBaud) {
-      for (const p of granted) {
+      for (const p of candidates) {
         if (stopReconnectRef.current || clientRef.current) break;
         await beginConnect(p, { silent: true, quickBaud: true });
         if (clientRef.current) return true;
       }
     }
-    for (const p of granted) {
+    for (const p of candidates) {
       if (stopReconnectRef.current || clientRef.current) break;
       await beginConnect(p, { silent: true });
       if (clientRef.current) return true;
     }
     return clientRef.current != null;
-  }, [portInfo, portIndex, preferredBaud, hintedPortsOnly, beginConnect]);
+    // `reservedKey` stands in for the caller's array literal; `reservedPortInfo`
+    // is read through it and is intentionally not a dep of its own.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [portInfo, portIndex, preferredBaud, hintedPortsOnly, reservedKey, beginConnect]);
 
   // Auto-reconnect loop (provisioned kiosks): retry the silent reopen with
   // backoff. Succeeds → connected (unavailable cleared in beginConnect). Gives

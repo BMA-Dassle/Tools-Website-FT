@@ -138,6 +138,7 @@ export async function prepareTerminalPurchase(
       amountCents: r.pkg.priceCents,
       tpiTransactionId,
       contact: input.contact,
+      kioskId: input.kioskId,
     });
     rows.push({
       txnId,

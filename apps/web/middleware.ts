@@ -848,6 +848,15 @@ export async function middleware(request: NextRequest) {
     kioskHeaders.set("x-no-chrome", "1");
     kioskHeaders.set("x-no-mobile-bar", "1");
     kioskHeaders.set("x-kiosk", "1");
+    // The two kiosk STAFF surfaces are staff views of customer data — the card
+    // ledger carries guest contact details and account numbers, and admin shows
+    // device secrets. Session replay must never see either (hard rule: no
+    // replay on staff surfaces), and root layout keys that off x-admin-route,
+    // which no /kiosk path sets otherwise. Presentation only: admin AUTH never
+    // trusts this header (see lib/admin-request-auth.ts), so it grants nothing.
+    if (pathname.startsWith("/kiosk/admin") || pathname.startsWith("/kiosk/staff")) {
+      kioskHeaders.set("x-admin-route", "1");
+    }
     if (isHeadPinz) kioskHeaders.set("x-brand", "headpinz");
     return NextResponse.next({ request: { headers: kioskHeaders } });
   }

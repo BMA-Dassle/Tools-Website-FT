@@ -37,6 +37,8 @@ import { classifyEntryScan, type UnsupportedReason } from "./classify-entry";
 import { stashEntryScan } from "./handoff";
 import { lookupByScan } from "../checkin/service";
 import { accountFromScan, cardIsKnown } from "../service/scanned-card";
+import { takeScanGate } from "../qr-scanner/scan-gate";
+import { playScanSound } from "../sound";
 import { gameZoneCapability, type KioskConfig } from "../config";
 import { kioskCheckinEnabled, kioskPromoEnabled } from "../flags";
 import { voucherRedeemEnabled } from "~/features/booking/service/voucher-redeem";
@@ -94,6 +96,18 @@ export function useEntryScanRouter(host: EntryScanRouterHost) {
 
   const handleScan = useCallback(async (raw: string) => {
     if (routingRef.current) return;
+    // One accepted scan per cooldown, kiosk-wide. `routingRef` only covers
+    // THIS component while it is routing; an auto-sense reader keeps firing
+    // and the screen it routes to mounts a fresh listener with fresh state,
+    // which would take the reader's second look at the same card as a new
+    // one. The gate is module-level precisely so it survives that hand-off.
+    const verdict = takeScanGate(raw);
+    if (verdict !== "ok") {
+      // Scanning again during the grace period gets the negative tone; a
+      // reader's repeat read of the same code stays silent (see scan-gate.ts).
+      if (verdict === "cooldown") playScanSound("error");
+      return;
+    }
     const h = hostRef.current;
 
     const checkinOn = kioskCheckinEnabled();
@@ -118,11 +132,17 @@ export function useEntryScanRouter(host: EntryScanRouterHost) {
     try {
       switch (route.kind) {
         case "unsupported":
+          // The beam read something this kiosk has no use for (a Square gift
+          // card, a licence). Nothing moves, so the tone is the feedback.
+          playScanSound("error");
           setMiss(route.reason);
           return;
 
         case "game-card": {
-          if (!gameZoneOn) return setMiss("no-destination");
+          if (!gameZoneOn) {
+            playScanSound("error");
+            return setMiss("no-destination");
+          }
           // KNOWN cards only (owner 2026-08-28). The attract screen must not
           // move a guest anywhere on a card it cannot account for: an unknown
           // number used to land on the balance screen, fail there, and — on an
@@ -134,12 +154,22 @@ export function useEntryScanRouter(host: EntryScanRouterHost) {
           setBusy(true);
           try {
             const acct = await accountFromScan(route.value);
-            if (!acct) return setMiss("unknown");
+            if (!acct) {
+              playScanSound("error");
+              return setMiss("unknown");
+            }
             const known = await cardIsKnown(acct, h.config);
-            if (known === "no") return setMiss("unknown");
+            if (known === "no") {
+              playScanSound("error");
+              return setMiss("unknown");
+            }
             // "unsure" (Intercard unreachable) still routes: a lookup outage
             // must not turn a guest with a real card away at the door — the
             // balance screen re-runs it and owns the failure copy.
+            // This branch already resolved AND verified the card, so unlike the
+            // in-Game-Zone handler the tone here can be the real verdict for
+            // free — no extra round trip to wait on.
+            playScanSound("success");
             stashEntryScan({ target: "game-card", raw: route.raw, value: acct });
             h.goGameCard();
           } finally {
@@ -229,6 +259,7 @@ export function useEntryScanRouter(host: EntryScanRouterHost) {
   /** A driver's licence went under the scanner. */
   const handleLicense = useCallback(() => {
     if (routingRef.current) return;
+    playScanSound("error"); // nothing moves — the tone is the feedback
     setMiss("license");
   }, []);
 

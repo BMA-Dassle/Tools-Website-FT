@@ -4,44 +4,71 @@
  * Pure so the rules can be pinned by tests: they are small, easy to get subtly
  * wrong, and wrong in ways nobody notices for a whole lap.
  */
+import { MAX_BANK_SIZE } from "./billboard";
 
 /** How long each attract slide holds. The CSS crossing/rumble keyframes and
  *  KIOSK_GLOW_PERIODS_MS are locked to this — change all three together. */
 export const AD_ROTATE_MS = 8000;
 
-/** Fraction of the cycle the vehicle is actually on screen — the
- *  kiosk-racecar / kiosk-bowlball keyframes run the crossing over the LAST
- *  quarter (75% → 100%) of the cycle. Locked to kiosk.css like AD_ROTATE_MS. */
-export const VEHICLE_CROSS_FRACTION = 0.25;
+/**
+ * Fraction of the cycle the vehicle is actually on screen — the kiosk-racecar /
+ * kiosk-bowlball keyframes park it offscreen until (1 − this) of the way
+ * through the cycle, then run the crossing to the end.
+ *
+ * ONE SLOT OF THE BIGGEST BANK, not of the local one. The crossing has to fit a
+ * slot on the longest row or that row cannot hand the vehicle off cleanly (see
+ * vehiclePhaseMs), and sizing it per-venue would mean per-venue keyframes: the
+ * crossing window is a keyframe PERCENTAGE, and so is the kiosk-ad-rumble
+ * rattle tuned to sit inside it. One fraction keeps both static, and gives
+ * every venue the same road speed. A shorter row simply finishes its pass and
+ * rests until the next lap.
+ *
+ * Locked to kiosk.css like AD_ROTATE_MS — the relay tests read the stylesheet
+ * and fail if the two drift apart.
+ */
+export const VEHICLE_CROSS_FRACTION = 1 / MAX_BANK_SIZE;
+
+/** How long one screen's crossing lasts — the vehicle's whole visible life on
+ *  this screen, and therefore the gap between neighbouring screens' starts. */
+export function vehicleCrossMs(cycleMs: number = AD_ROTATE_MS): number {
+  return cycleMs * VEHICLE_CROSS_FRACTION;
+}
 
 /**
  * Phase offset for THIS screen's vehicle crossing, so the bank hands the car
  * (or ball) along the row instead of every screen firing at once.
  *
- * Spread across the ACTUAL bank size rather than a fixed 4 slots. The old
- * `(position % 4) * 2000` predates FastTrax having seven kiosks: with 7
- * screens it hands out only 4 distinct phases, so kiosks 1&5, 2&6 and 3&7
- * crossed simultaneously — which reads as "they all roll at the same time"
- * (owner 2026-07-28).
+ * ONE CROSSING APART, exactly. A screen begins its crossing on the same frame
+ * its right-hand neighbour ends one: the vehicle's tail leaves that screen as
+ * its nose enters this one, so the row only ever shows ONE car (or ball),
+ * walking itself right-to-left.
  *
- * The relay must also FIT the cycle. Starts are spread across the cycle MINUS
- * the crossing itself — `slot × (0.75·cycle)/(count−1)` — so the leftmost
- * screen's crossing ends exactly at the cycle boundary, right as the
- * rightmost begins its next lap. The earlier `slot × cycle/count` spread
- * overshot on any bank bigger than four: FastTrax's seventh screen was still
- * mid-crossing 857ms into the next lap, so two vehicles were on the row at
- * once (owner 2026-08-10: "starting before it ends on the last kiosk").
- * 7 screens → 1000ms apart, 5 → 1500ms, 4 → 2000ms.
+ * Three spreads have now been tried and the first two failed the same way —
+ * they spaced the STARTS without matching the crossing's LENGTH, which is the
+ * only number a handoff actually depends on:
+ *  - `(position % 4) * 2000` predated FastTrax's seventh kiosk: seven screens,
+ *    four phases, so 1&5, 2&6 and 3&7 fired together — "they all roll at the
+ *    same time" (owner 2026-07-28).
+ *  - `slot × (0.75·cycle)/(count−1)` fitted the whole relay inside one cycle,
+ *    but squeezed the starts to 1000ms on seven screens against a crossing that
+ *    still lasted 2000ms. Every screen lit its vehicle while its neighbour was
+ *    only half-way across: two cars on the row, one lagging the other by half a
+ *    screen (owner 2026-09-02, FastTrax and HeadPinz Fort Myers both: "the race
+ *    car … is starting on next screen before it finishes the previous").
+ *    The overlap was the crossing minus the spacing, so it scaled with the row:
+ *    1000ms on FastTrax's seven, 500ms on Fort Myers' five, and none at all on
+ *    Naples' four, where 6000/3 happened to land exactly on the crossing.
+ *
+ * So the crossing is what moved: it now lasts one slot of the longest row
+ * (VEHICLE_CROSS_FRACTION) and the starts are spaced by exactly that. Seven
+ * screens fill the cycle end to end; a shorter row completes its pass and the
+ * whole bank rests until the next lap — a beat, not a stutter, and never two
+ * vehicles at once.
  *
  * A larger phase is FURTHER ALONG the shared cycle, so it fires EARLIER
  * (syncGlowPhase seeks to `(now + phase) % period`). Position 0 is the
  * leftmost screen and gets no offset, so the rightmost fires first and the
  * wave travels right-to-left — matching the car art, which faces left.
- *
- * The crossing lasts a quarter of the cycle (2s of 8s), which is longer than
- * one slot on a big bank, so neighbouring screens overlap slightly. That is
- * deliberate: an overlap reads as one vehicle travelling the row, where a gap
- * reads as separate screens taking turns.
  *
  * `position` is the PHYSICAL bank index (HPFM stands 3·2·6·1·4, so kiosk
  * number is not position). null = this kiosk is not in the bank map; it falls
@@ -56,9 +83,7 @@ export function vehiclePhaseMs(
   const count = Math.max(1, bankCount);
   const raw = position ?? kioskNumber - 1;
   const slot = (((raw % count) + count) % count) | 0; // negatives → in range
-  if (count === 1) return 0;
-  const spreadMs = cycleMs * (1 - VEHICLE_CROSS_FRACTION);
-  return Math.round(slot * (spreadMs / (count - 1)));
+  return Math.round(slot * vehicleCrossMs(cycleMs));
 }
 
 /**

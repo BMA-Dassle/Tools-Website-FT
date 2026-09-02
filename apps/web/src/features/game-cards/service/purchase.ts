@@ -139,6 +139,7 @@ export async function chargeNewCardOrder(
       amountCents: r.pkg.priceCents,
       tpiTransactionId: `newcard-${txnId}`,
       contact: input.contact,
+      kioskId: input.kioskId,
     });
     rows.push({
       txnId,
@@ -284,6 +285,7 @@ export async function purchase(
       amountCents: r.pkg.priceCents,
       tpiTransactionId,
       contact: input.contact,
+      kioskId: input.kioskId,
     });
     rows.push({ accountNumber: r.accountNumber, pkg: r.pkg, txnId, tpiTransactionId });
   }

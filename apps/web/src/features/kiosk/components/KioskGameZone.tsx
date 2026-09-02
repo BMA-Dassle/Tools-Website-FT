@@ -38,6 +38,8 @@ import { KioskTerminalCheckoutGate } from "./KioskTerminalCheckoutGate";
 import { onsiteHealth, type OnsiteChipStatus } from "../service/game-card-bridge";
 import { kioskGzCartEnabled, kioskVoucherGzEnabled } from "~/features/kiosk/flags";
 import { useQrScanner } from "../qr-scanner/useQrScanner";
+import { holdScanGate, takeScanGate } from "../qr-scanner/scan-gate";
+import { playScanSound } from "../sound";
 import { useWedgeScan } from "../checkin/wedge-scan";
 import { classifyKioskCode } from "../code-entry/classify";
 /** What the redeem route reports back — issuer-agnostic (ours or BMI's). */
@@ -481,6 +483,10 @@ export function KioskGameZone({
   // flag that pauses the auto-arm once they pile up so a bad/stuck card can't
   // loop the gate forever. Reset on a clean read or an explicit retry tap.
   const autoReadFailsRef = useRef(0);
+  /** Bumped whenever a card arrives by SCAN or SWIPE. A dispenser read that
+   *  started before the bump is stale and must not write state — see
+   *  `routeCardNumber`. */
+  const cardArrivedRef = useRef(0);
   const [autoReadBlocked, setAutoReadBlocked] = useState(false);
   // Balance check (mode "balance") — ONE card at a time (owner rule).
   const [balCard, setBalCard] = useState<BalanceCard | null>(null);
@@ -558,6 +564,12 @@ export function KioskGameZone({
   const { config } = useKioskConfig();
   const dispenser = useGameCardDispenser({ config });
   const readerReady = dispenser.ready;
+
+  // Which machine this is (`FT:1`), stamped onto every ledger row this kiosk
+  // creates so /kiosk/staff can answer "did the card I just sold load?" for
+  // THIS kiosk instead of the whole lobby. `undefined` on an unprovisioned
+  // device — the row still writes, it just carries no attribution.
+  const kioskId = config ? kioskDeviceKey(config) : undefined;
 
   // KIOSK cart mode: with activities already in the cart, "Add to my visit"
   // hands the cards to the booking so they ride the ONE shared checkout the
@@ -763,7 +775,9 @@ export function KioskGameZone({
   // acceptAndRead closes the entry gate before we present, so the unit can't
   // auto-swallow the returned card (the "it takes it" bug).
   const readReloadCard = async (i: number) => {
+    const seq = cardArrivedRef.current;
     const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
+    if (cardArrivedRef.current !== seq) return; // superseded by a scan/swipe
     await presentIfCardPresent(); // hand back a real card; never eject on a no-card timeout
     if (!r.ok) {
       // Read/absent-card fault. Bound the auto-arm: after a few misses stop
@@ -819,6 +833,11 @@ export function KioskGameZone({
   useEffect(() => {
     if (seededCardRef.current || !initialCardAccount) return;
     seededCardRef.current = true;
+    // This card came from a scan on the previous screen, so start the cooldown
+    // here too: the reader is very likely still looking at it, and its next
+    // read would arrive at this freshly-mounted screen as a "new" card.
+    holdScanGate();
+    cardArrivedRef.current++; // arrived by scan, not by the slot
     // The `mode` initializer above covers a card that is present at MOUNT (the
     // attract screen, which routes here). Scanning on the CHOOSER opens this
     // screen and delivers the card in the same batch, so that path is covered
@@ -848,8 +867,10 @@ export function KioskGameZone({
   }, [initialCardAccount]);
 
   const readBalanceCard = async () => {
+    const seq = cardArrivedRef.current;
     setBalCard({ accountNumber: "", status: "reading" });
     const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
+    if (cardArrivedRef.current !== seq) return; // superseded by a scan/swipe
     await presentIfCardPresent(); // give a real card straight back; never eject on a no-card timeout
     if (!r.ok) {
       if (++autoReadFailsRef.current >= MAX_AUTO_READ_FAILS) setAutoReadBlocked(true);
@@ -1000,6 +1021,15 @@ export function KioskGameZone({
    * expanded reload row, the balance check, or the new-card cart.
    */
   const routeCardNumber = (acct: string) => {
+    // A card has ARRIVED some other way than the slot. Any dispenser read
+    // still waiting on that slot is now stale: it holds the gate open for up
+    // to 30s, and when it finally times out its failure handling used to run
+    // anyway — wiping the balance the guest was already reading back to
+    // "Insert your card to check it", and burning the auto-read budget on a
+    // read that was never needed. Bumping this makes the waiter return
+    // without touching state (owner 2026-09-02: the insert prompt has to go
+    // away when you scan).
+    cardArrivedRef.current++;
     if (swipeWaiter.feed(acct)) return;
     if (phase !== "cart") return; // never mid-payment/loading
     setMsrBadSwipe(false);
@@ -1122,6 +1152,7 @@ export function KioskGameZone({
           locationCode,
           items: newCardItems(),
           cardNonce,
+          kioskId,
         }),
       });
       const data = await res.json();
@@ -1629,13 +1660,33 @@ export function KioskGameZone({
     phase === "cart" && (mode === "balance" || mode === "reload" || mode === "newcard");
   const scanArmed = voucherScanArmed || cardScanArmed;
   const onScanPayload = (payload: string) => {
-    if (mode === "voucher") {
-      if (voucherScanArmed) void addVoucherToBasket(payload);
+    if (mode !== "voucher" && !cardScanArmed) return;
+    // One accepted scan per cooldown (owner 2026-09-02). Claimed BEFORE the
+    // resolve round-trip below, so a reader still looking at the same card
+    // cannot queue a second lookup behind the first.
+    const verdict = takeScanGate(payload);
+    if (verdict !== "ok") {
+      // Scanning again during the grace period earns the negative tone — the
+      // guest gets told they were heard and to wait. A reader's repeat read of
+      // the same code is NOT that, and stays silent (see scan-gate.ts).
+      if (verdict === "cooldown") playScanSound("error");
       return;
     }
-    if (!cardScanArmed) return;
+    if (mode === "voucher") {
+      // The GZ voucher screen was silent even though the coupon screen has had
+      // tones since 2026-08-20 — same act, same feedback.
+      if (voucherScanArmed) {
+        void addVoucherToBasket(payload).then((row) => playScanSound(row ? "success" : "error"));
+      }
+      return;
+    }
     void (async () => {
       const acct = await accountFromScan(payload);
+      // The tone answers "did the beam read my card", so it fires on the READ,
+      // not on the Intercard lookup that follows — waiting for a round trip
+      // would give up the immediacy that makes the tone worth having, and a
+      // card that reads but isn't found already has its own on-screen copy.
+      playScanSound(acct ? "success" : "error");
       if (acct) routeCardNumber(acct);
     })();
   };
@@ -2093,6 +2144,7 @@ export function KioskGameZone({
             packageId: c.packageId,
           })),
           cardNonce,
+          kioskId,
         }),
       });
       const data = await res.json();
@@ -2134,7 +2186,7 @@ export function KioskGameZone({
     const res = await fetch("/api/game-cards/terminal-prepare", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ kind, locationCode, items }),
+      body: JSON.stringify({ kind, locationCode, items, kioskId }),
     });
     const data = await res.json();
     if (!res.ok || !data.orderId || !(data.totalCents > 0)) {

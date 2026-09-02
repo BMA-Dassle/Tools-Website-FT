@@ -33,6 +33,17 @@ export function bankSize(venue: VenueSlug): number {
 }
 
 /**
+ * The longest row in the estate (FastTrax's seven).
+ *
+ * The vehicle relay sizes its crossing to one slot of THIS, not of the local
+ * bank, so a single static keyframe serves every venue — see
+ * VEHICLE_CROSS_FRACTION in ./rotation. Derived, not typed in: growing a bank
+ * past seven moves this number and the CSS-lock test then fails until
+ * kiosk.css is retuned to match.
+ */
+export const MAX_BANK_SIZE = Math.max(...Object.values(BANK_ORDER).map((row) => row.length));
+
+/**
  * Physical position (0 = leftmost) of a kiosk in its venue's bank, or null
  * when the kiosk isn't in the map — unmapped kiosks sit OUT of the bank
  * choreography (owner 2026-07-26: "don't include kiosks not in the bank map

@@ -5,6 +5,7 @@
  * happily paints a missing headline as an empty 150px line, and a bad video key
  * would only surface as a silent black backdrop on a kiosk nobody is watching.
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { kioskAdSlidesFor, KIOSK_VIDEOS } from "../assets";
 import { formatMessage } from "../i18n/format";
@@ -13,11 +14,18 @@ import { parseKioskConfigFromSearchParams, resolveKioskConfig } from "../config"
 import {
   BILLBOARD_LEAD_MS,
   BILLBOARD_SLIDES,
+  MAX_BANK_SIZE,
   bankSize,
   billboardPhase,
   billboardStage,
 } from "./billboard";
-import { AD_ROTATE_MS, VEHICLE_CROSS_FRACTION, slidePlaysVideo, vehiclePhaseMs } from "./rotation";
+import {
+  AD_ROTATE_MS,
+  VEHICLE_CROSS_FRACTION,
+  slidePlaysVideo,
+  vehicleCrossMs,
+  vehiclePhaseMs,
+} from "./rotation";
 
 const VENUES = ["fort-myers", "naples"] as const;
 
@@ -118,6 +126,16 @@ describe("video/still alternation", () => {
 });
 
 describe("vehicle relay hands off across the bank", () => {
+  /** Wall-clock window [start, end) in which the screen at `position` shows its
+   *  vehicle. syncGlowPhase seeks the animation to `(now + phase) % cycle`, and
+   *  the keyframes cross over the LAST VEHICLE_CROSS_FRACTION of that, so a
+   *  bigger phase means an earlier crossing. */
+  const crossWindow = (position: number, count: number) => {
+    const phase = vehiclePhaseMs(position, count, position + 1);
+    const end = AD_ROTATE_MS - phase;
+    return { start: end - vehicleCrossMs(), end };
+  };
+
   // The bug this replaces: a fixed `(position % 4) * 2000` gave FastTrax's
   // SEVEN kiosks only four phases, so 1&5, 2&6 and 3&7 crossed simultaneously
   // and the row looked like it fired in unison.
@@ -128,32 +146,73 @@ describe("vehicle relay hands off across the bank", () => {
     }
   });
 
-  it("phases march evenly across one slide, never past it", () => {
-    const count = 7; // FastTrax
-    const phases = Array.from({ length: count }, (_, p) => vehiclePhaseMs(p, count, p + 1));
-    expect(phases[0]).toBe(0);
-    for (const ph of phases) expect(ph).toBeLessThan(AD_ROTATE_MS);
-    // Even spacing — the wave should not bunch up at one end of the row.
-    const spread = AD_ROTATE_MS * (1 - VEHICLE_CROSS_FRACTION);
-    const gaps = phases.slice(1).map((ph, i) => ph - phases[i]);
-    for (const g of gaps) expect(Math.abs(g - spread / (count - 1))).toBeLessThanOrEqual(1);
+  it("a screen starts exactly as its right-hand neighbour finishes", () => {
+    // THE bug (owner 2026-09-02): starts were squeezed to 1000ms on FastTrax's
+    // seven screens while the crossing still ran 2000ms, so every screen lit
+    // its car while the neighbour was half-way across — "starting on next
+    // screen before it finishes the previous". A handoff depends on the
+    // crossing's LENGTH, so the two must be the same number.
+    for (const count of [4, 5, 7]) {
+      for (let p = 0; p < count - 1; p++) {
+        // p is further LEFT than p+1, and the wave travels right to left.
+        const left = crossWindow(p, count);
+        const right = crossWindow(p + 1, count);
+        expect(
+          Math.abs(left.start - right.end),
+          `bank of ${count}: screen ${p} overlaps ${p + 1} by ${right.end - left.start}ms`,
+        ).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("only one vehicle is ever on the row", () => {
+    for (const count of [4, 5, 7]) {
+      const windows = Array.from({ length: count }, (_, p) => crossWindow(p, count));
+      for (const a of windows) {
+        for (const b of windows) {
+          if (a === b) continue;
+          const overlap = Math.min(a.end, b.end) - Math.max(a.start, b.start);
+          expect(overlap, `bank of ${count}: two crossings overlap by ${overlap}ms`).toBeLessThan(
+            1,
+          );
+        }
+      }
+    }
   });
 
   it("the relay fits one cycle — the next lap never starts mid-crossing", () => {
-    // The bug this pins: with starts spread over the FULL cycle, any bank
-    // bigger than four had the leftmost screen still crossing when the
-    // rightmost began its next lap — two vehicles on the row at once
-    // (owner 2026-08-10). Largest phase = earliest wall-clock start, so the
-    // leftmost screen (phase 0) must finish by the cycle boundary: every
-    // start phase must leave room for the crossing itself.
-    const crossMs = AD_ROTATE_MS * VEHICLE_CROSS_FRACTION;
-    for (const count of [2, 4, 5, 7, 9]) {
-      const phases = Array.from({ length: count }, (_, p) => vehiclePhaseMs(p, count, p + 1));
-      for (const ph of phases) {
-        expect(ph, `bank of ${count}: phase ${ph} overruns the cycle`).toBeLessThanOrEqual(
-          AD_ROTATE_MS - crossMs,
+    // The earlier bug (owner 2026-08-10): the leftmost screen was still
+    // crossing when the rightmost began its next lap. Every real bank must fit,
+    // which holds precisely while it is no longer than the row the crossing is
+    // sized for — so assert that, rather than trusting it.
+    for (const venue of ["FT", "HPFM", "HPN"] as const) {
+      const count = bankSize(venue);
+      expect(count, `${venue} outgrew the static CSS crossing`).toBeLessThanOrEqual(MAX_BANK_SIZE);
+      for (let p = 0; p < count; p++) {
+        const { start, end } = crossWindow(p, count);
+        expect(start, `${venue}: screen ${p} starts before the lap does`).toBeGreaterThanOrEqual(
+          -1,
         );
+        expect(end, `${venue}: screen ${p} runs past the lap`).toBeLessThanOrEqual(AD_ROTATE_MS);
       }
+    }
+  });
+
+  it("the CSS crossing keyframe still matches VEHICLE_CROSS_FRACTION", () => {
+    // The fraction lives in two places that cannot import each other: this
+    // module and the @keyframes park stop. A silent drift between them is the
+    // overlap bug all over again, on a screen nobody is watching.
+    const css = readFileSync(new URL("../../../../app/kiosk/kiosk.css", import.meta.url), "utf8");
+    for (const name of ["kiosk-racecar", "kiosk-bowlball"]) {
+      const block = new RegExp(`@keyframes ${name}\\s*\\{[^}]*?([\\d.]+)%\\s*\\{`).exec(css);
+      expect(block, `${name} keyframes not found`).not.toBeNull();
+      const parkStop = Number(block![1]);
+      expect(
+        Math.abs(parkStop - (1 - VEHICLE_CROSS_FRACTION) * 100),
+        `${name} parks until ${parkStop}%, but VEHICLE_CROSS_FRACTION says ${
+          (1 - VEHICLE_CROSS_FRACTION) * 100
+        }%`,
+      ).toBeLessThan(0.01);
     }
   });
 

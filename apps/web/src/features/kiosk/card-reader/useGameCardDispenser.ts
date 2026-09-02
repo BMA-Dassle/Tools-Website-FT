@@ -96,6 +96,11 @@ export function useGameCardDispenser({
     // mount, no picker in front of a guest.
     trustSingleGrant: !!config?.cardReaderEnabled,
     hintedPortsOnly,
+    // The QR scanner and the MSR are named devices on this kiosk — never
+    // blind-probe their ports while hunting the CRT-591. Probing the
+    // scanner's port is what stopped a guest scanning a card on Game Zone's
+    // reload / balance screens (dispenser kiosks only — 2026-09-02).
+    reservedPortInfo: [config?.qrScannerPortInfo ?? null, config?.msrPortInfo ?? null],
     onConnected: handleConnected,
   });
 

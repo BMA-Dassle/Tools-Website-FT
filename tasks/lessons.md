@@ -5257,3 +5257,100 @@ it was named after.
    available.** `kiosk_checkin_events.verified_via` says how each check-in was opened: 340 rows,
    `browse-otp` 180 / `otp` 159 / `code` **1**. Reversing an owner routing decision is a much
    smaller ask when you can say what it has actually been doing.
+
+## The permanently-dirty main checkout hands you superseded code (2026-09-02)
+
+Asked why scanning a game card did nothing on Game Zone's reload screen, I read
+`KioskGameZone.tsx` in the primary checkout at `C:\GIT\Tools-Website-FT`, concluded the scanner was
+never armed for reload at all, and started designing the arming code. It was already there. The
+main checkout is permanently dirty by design (dozens of in-flight WIP files), and its working copy
+of that file was **behind `origin/main` by five commits** — including `2f12b6e15`, the commit that
+armed exactly the thing I was about to "add". The real bug was three layers down and completely
+different.
+
+1. **Read the tree you will ship from, not the tree you happen to be standing in.** The worktree
+   rule already says never EDIT the main checkout. It is equally a rule about READING: that tree's
+   contents are a snapshot of somebody's unfinished work, not the state of the repo. First read of
+   any file in a diagnosis goes to the worktree (freshly branched from `origin/main`), and a
+   diagnosis formed before the worktree exists is provisional.
+2. **The tell is cheap and I skipped it.** `git log --oneline -6 -- <the file>` next to
+   `git log -1 origin/main` takes one call. When a file's recent history mentions the exact
+   behaviour under investigation, the feature exists and the question changes from "why was this
+   never built" to "why does the built thing not fire."
+3. **"It was never wired up" is the most expensive wrong answer available.** It licenses writing a
+   feature instead of finding a bug, and the new code looks correct in review because it *is*
+   correct — it just isn't the fix. Before concluding a mechanism is absent, grep for its
+   vocabulary across the whole feature (`grep -n "useQrScanner\|cardScanArmed"`) rather than
+   reading one component top to bottom.
+4. **A user's narrowing detail is a diagnostic gift, not a footnote.** "This is only happening on
+   scanners with a card dispenser" eliminated every theory that lived in shared code and pointed
+   straight at the one hook that only dispenser kiosks run. Ask which kiosks / which centre /
+   which hardware BEFORE theorising, because the asymmetry usually names the file.
+5. **Web Serial: `port.close()` rejects while the stream is locked, and `reader.cancel()` does not
+   unlock it.** The read loop's `finally { reader.releaseLock() }` does, one microtask later. A
+   close that awaits only `cancel()` therefore rejects **every time** — deterministically, not
+   flakily — and code that swallows the rejection while nulling its own port ref leaves the COM
+   port open for the life of the page, believing it closed. Await the read loop (raced against a
+   short drain timeout so an unmount can't hang), then close. Both `useQrScanner` and
+   `useSerialMsr` had this.
+6. **A once-per-mount connect latch is a permanent outage for a consumer that arms per screen.**
+   `triedAutoRef` meant one unlucky attempt — a port another device was mid-probe on — left the
+   scanner dark for the rest of the guest's visit with nothing able to retry. When `enabled`
+   toggles during a component's life, the guard belongs on *concurrent* attempts, not on ever
+   trying again.
+7. **A hazard documented on one caller is not fixed for the others.** `useCardReader` already spelt
+   out that its blind probe "opens each granted port and sits on it for up to 12s per baud, so it
+   would take the scanner's port away mid-scan" — and guarded only the ambient pre-warm with
+   `hintedPortsOnly`. The guest flow's own connect kept probing. A comment that names a hazard is
+   a to-do list for every call site, and a device whose port we can NAME from config should never
+   be a probe candidate.
+8. **An uncancellable long-running op needs a generation stamp, not hope.** `acceptAndRead` waits
+   30s on the card slot with no cancel. When the card arrived by scan instead, the orphaned read
+   still ran its failure path on timeout — `setBalCard(null)` wiped the balance the guest was
+   reading, back to "Insert your card to check it". Stamp the intent when the work is superseded
+   and have the waiter check the stamp before it touches any state.
+9. **A cooldown that must survive a screen change cannot live in component state.** The scan that
+   routes a guest from the chooser into Game Zone unmounts one listener and mounts another, so a
+   per-hook guard starts clean and takes the reader's second look at the same card as a new scan.
+   Module scope is the correct scope for "the kiosk already accepted a scan". But keep it out of
+   the transports: those also carry the ~35-line AAMVA licence burst, one `onScan` per line, which
+   a per-line cooldown destroys.
+
+## A relay hands off on the crossing's LENGTH, not on how you space the starts (2026-09-02)
+
+The attract bank's race car (FastTrax) and bowling ball (HeadPinz) "start on the next screen
+before finishing the previous". Third time this choreography has been reported wrong, and the
+first two fixes were both the same mistake: they retuned the phase offsets while leaving the
+crossing at a fixed 2s of the 8s slide. `(position % 4) * 2000` gave seven screens four phases
+(everything fired at once); `slot × (0.75·cycle)/(count−1)` fitted the relay inside the cycle but
+squeezed the starts to 1000ms against a 2000ms crossing, so every screen lit its vehicle while its
+neighbour was half-way across.
+
+1. **A handoff has exactly one equation: `spacing = crossing`.** Anything else is an overlap or a
+   gap, and the overlap is `crossing − spacing`, so it scales with the row. Fort Myers' five
+   screens overlapped 500ms, FastTrax's seven overlapped 1000ms — and Naples' four overlapped by
+   nothing, because `6000/3` happened to land on 2000. A bug that vanishes at one venue because
+   its arithmetic coincides is a bug you will "fix" twice.
+2. **When the starts cannot be spaced far enough apart, the crossing is the variable — not the
+   phases.** `N × crossing ≤ cycle` was unsatisfiable at seven screens with a 2s crossing, so no
+   phase formula could have worked. The crossing now lasts one slot of the LONGEST row
+   (`VEHICLE_CROSS_FRACTION = 1 / MAX_BANK_SIZE`), which makes the constraint an identity.
+3. **Prefer the constant that keeps the CSS static.** Sizing the crossing per-venue is
+   arithmetically nicer (no rest between laps on a short row) but the crossing window is a keyframe
+   PERCENTAGE, and so is the `kiosk-ad-rumble` rattle tuned to sit inside it — per-venue timing
+   means per-venue keyframes or runtime-injected CSS. One fraction for the estate keeps both static
+   and gives every venue the same road speed; a short row just rests until the next lap.
+4. **A constant duplicated into a stylesheet needs a test that reads the stylesheet.** TS and CSS
+   cannot import each other, and a silent drift between them is this exact bug again on a screen
+   nobody is watching. The relay tests now `readFileSync` `kiosk.css` and assert the `@keyframes`
+   park stop equals `(1 − VEHICLE_CROSS_FRACTION) × 100`, and `MAX_BANK_SIZE` is DERIVED from the
+   bank map — so adding an eighth kiosk fails the test instead of quietly re-breaking the row.
+5. **Shortening a crossing silently breaks whatever was tuned to its old length.** Two companions
+   moved with it: the rattle's twelve keyframe stops (remapped `85.714 + (old − 75) × 14.286/25`,
+   which keeps it anchored to the car rather than to a percentage) and the ball's spin, whose total
+   had to go `1800° → 3150°` to show the same 450° of roll in a window that is now 4/7 as long.
+   Leave the spin alone and the ball skids across without turning.
+6. **Assert the failure before believing the fix.** Reverting just the phase formula, then also the
+   fraction, reproduced the reported overlap to the millisecond (500ms at Fort Myers) and tripped
+   the CSS lock — proof the new tests bite, rather than a green suite that would have passed
+   against the broken code too.
