@@ -427,6 +427,12 @@
   .kiosk-sweep,
   .kiosk-pulse,
   .kiosk-racecar,
+  /* the ball is the car's HeadPinz mirror and was missed here: with reduced
+     motion set, FastTrax's car froze while HeadPinz's ball kept rolling AND
+     spinning. Both halves of the sprite have to stop — the outer element
+     travels, the inner one rotates. */
+  .kiosk-bowlball,
+  .kiosk-bowlball-sprite,
   .kiosk-ad-flicker,
   .kiosk-ad-sheen,
   .kiosk-ad-blink,
