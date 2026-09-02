@@ -617,6 +617,32 @@ describe("the video turn — one panel at a time", () => {
     }
   });
 
+  it("THE TURN TAKES THE CLOCK AND NOTHING ELSE", () => {
+    /**
+     * THE REFACTOR THIS EXISTS TO STOP, because it looks like an improvement:
+     * one turn in four is spent on TV5, which steps aside for a party greeting when
+     * there is one — so that turn plays no video at all, and handing it to the next
+     * panel instead is the obvious tidy-up.
+     *
+     * It would tear the wall. Availability is a fact about the FEED, and the five
+     * players poll on independent 15s phases, so they can briefly disagree about
+     * whether there is a party today. Two panels that disagree about who is skipped
+     * both believe they hold the turn, and two reels play at once on a bezel-to-bezel
+     * wall — the exact opposite of what was asked for, visible from the front door.
+     *
+     * A quiet wall for two minutes is much cheaper than a wall that tears.
+     */
+    // Arity is the guard: a feed, a config or a panel list could only arrive as an
+    // argument, so a signature that still takes exactly one is a signature that
+    // cannot have started consulting anything but the clock.
+    expect(wallVideoAt).toHaveLength(1);
+
+    // And it is genuinely pure — same instant, same answer, whatever else has moved.
+    const t = 7 * WALL_VIDEO_TURN_MS + 3_210;
+    expect(wallVideoAt(t)).toEqual(wallVideoAt(t));
+    expect(wallVideoAt(t).position).toBe(wallVideoAt(t).position);
+  });
+
   it("every filmed panel gets a turn, and they come round in order", () => {
     // All four priced panels have a reel now — the Nexus arena cut gave TV3 one
     // (owner 2026-09-01).

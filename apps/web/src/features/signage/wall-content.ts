@@ -415,6 +415,24 @@ const MAX_ROWS = 2;
  *
  * Two minutes a turn, matching one full pricing-plus-artwork cycle, so a panel holds the
  * video for its whole stretch rather than starting one halfway through.
+ *
+ * ONE TURN IN FOUR IS SOMETIMES SPENT ON A PANEL THAT IS NOT SHOWING PRICES, and that
+ * is a deliberate trade rather than an oversight. TV5 steps aside for a party greeting
+ * when there is one (see YIELDS_TO_WINGS), so when its turn comes round the wall simply
+ * plays no video for two minutes.
+ *
+ * THE OBVIOUS FIX IS THE ONE THING THAT MUST NOT BE DONE: hand the turn to the next
+ * panel when this one is unavailable. Availability is a fact about the FEED — whether
+ * there is a party today — and the five players poll on independent fifteen-second
+ * phases, so they can briefly disagree about it. Two panels that disagree about who is
+ * skipped are two panels that both believe they hold the turn, and the result is two
+ * reels playing at once on a bezel-to-bezel wall: precisely the thing the owner asked
+ * for the opposite of, and visible from the front door.
+ *
+ * So this takes the clock and NOTHING ELSE. It is passed no feed, no config and no
+ * panel state, and it must stay that way — a quiet wall for two minutes is a much
+ * smaller price than a wall that tears. (Pinned by a test, which is the only thing that
+ * makes an argument like this survive a plausible-looking refactor.)
  */
 export const WALL_VIDEO_TURN_MS = 120_000;
 
