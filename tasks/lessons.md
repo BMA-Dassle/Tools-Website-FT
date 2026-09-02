@@ -5257,3 +5257,61 @@ it was named after.
    available.** `kiosk_checkin_events.verified_via` says how each check-in was opened: 340 rows,
    `browse-otp` 180 / `otp` 159 / `code` **1**. Reversing an owner routing decision is a much
    smaller ask when you can say what it has actually been doing.
+
+## The permanently-dirty main checkout hands you superseded code (2026-09-02)
+
+Asked why scanning a game card did nothing on Game Zone's reload screen, I read
+`KioskGameZone.tsx` in the primary checkout at `C:\GIT\Tools-Website-FT`, concluded the scanner was
+never armed for reload at all, and started designing the arming code. It was already there. The
+main checkout is permanently dirty by design (dozens of in-flight WIP files), and its working copy
+of that file was **behind `origin/main` by five commits** — including `2f12b6e15`, the commit that
+armed exactly the thing I was about to "add". The real bug was three layers down and completely
+different.
+
+1. **Read the tree you will ship from, not the tree you happen to be standing in.** The worktree
+   rule already says never EDIT the main checkout. It is equally a rule about READING: that tree's
+   contents are a snapshot of somebody's unfinished work, not the state of the repo. First read of
+   any file in a diagnosis goes to the worktree (freshly branched from `origin/main`), and a
+   diagnosis formed before the worktree exists is provisional.
+2. **The tell is cheap and I skipped it.** `git log --oneline -6 -- <the file>` next to
+   `git log -1 origin/main` takes one call. When a file's recent history mentions the exact
+   behaviour under investigation, the feature exists and the question changes from "why was this
+   never built" to "why does the built thing not fire."
+3. **"It was never wired up" is the most expensive wrong answer available.** It licenses writing a
+   feature instead of finding a bug, and the new code looks correct in review because it *is*
+   correct — it just isn't the fix. Before concluding a mechanism is absent, grep for its
+   vocabulary across the whole feature (`grep -n "useQrScanner\|cardScanArmed"`) rather than
+   reading one component top to bottom.
+4. **A user's narrowing detail is a diagnostic gift, not a footnote.** "This is only happening on
+   scanners with a card dispenser" eliminated every theory that lived in shared code and pointed
+   straight at the one hook that only dispenser kiosks run. Ask which kiosks / which centre /
+   which hardware BEFORE theorising, because the asymmetry usually names the file.
+5. **Web Serial: `port.close()` rejects while the stream is locked, and `reader.cancel()` does not
+   unlock it.** The read loop's `finally { reader.releaseLock() }` does, one microtask later. A
+   close that awaits only `cancel()` therefore rejects **every time** — deterministically, not
+   flakily — and code that swallows the rejection while nulling its own port ref leaves the COM
+   port open for the life of the page, believing it closed. Await the read loop (raced against a
+   short drain timeout so an unmount can't hang), then close. Both `useQrScanner` and
+   `useSerialMsr` had this.
+6. **A once-per-mount connect latch is a permanent outage for a consumer that arms per screen.**
+   `triedAutoRef` meant one unlucky attempt — a port another device was mid-probe on — left the
+   scanner dark for the rest of the guest's visit with nothing able to retry. When `enabled`
+   toggles during a component's life, the guard belongs on *concurrent* attempts, not on ever
+   trying again.
+7. **A hazard documented on one caller is not fixed for the others.** `useCardReader` already spelt
+   out that its blind probe "opens each granted port and sits on it for up to 12s per baud, so it
+   would take the scanner's port away mid-scan" — and guarded only the ambient pre-warm with
+   `hintedPortsOnly`. The guest flow's own connect kept probing. A comment that names a hazard is
+   a to-do list for every call site, and a device whose port we can NAME from config should never
+   be a probe candidate.
+8. **An uncancellable long-running op needs a generation stamp, not hope.** `acceptAndRead` waits
+   30s on the card slot with no cancel. When the card arrived by scan instead, the orphaned read
+   still ran its failure path on timeout — `setBalCard(null)` wiped the balance the guest was
+   reading, back to "Insert your card to check it". Stamp the intent when the work is superseded
+   and have the waiter check the stamp before it touches any state.
+9. **A cooldown that must survive a screen change cannot live in component state.** The scan that
+   routes a guest from the chooser into Game Zone unmounts one listener and mounts another, so a
+   per-hook guard starts clean and takes the reader's second look at the same card as a new scan.
+   Module scope is the correct scope for "the kiosk already accepted a scan". But keep it out of
+   the transports: those also carry the ~35-line AAMVA licence burst, one `onScan` per line, which
+   a per-line cooldown destroys.
