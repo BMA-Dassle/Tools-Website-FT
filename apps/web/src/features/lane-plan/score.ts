@@ -54,18 +54,56 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
  * nothing, because there is no unseen demand left. That is correct, and it means the
  * backtest measures the policy rather than the forecast.
  */
+/**
+ * Whole pairs this offer can actually be sold on.
+ *
+ * A pair counts only when BOTH its lanes are inside the offer's section — which is exactly
+ * how `wholeFreePairs` counts the free ones, so supply and capacity are finally measured in
+ * the same unit.
+ */
+export function sellablePairs(grid: LaneGrid, allowed: readonly number[] | null): number {
+  const pool = allowed && allowed.length ? new Set(allowed) : new Set(grid.lanes);
+  const seen = new Set<number>();
+  let count = 0;
+  for (const lane of pool) {
+    const p = pairOf(lane);
+    if (seen.has(p)) continue;
+    seen.add(p);
+    if (pool.has(mateOf(lane))) count++;
+  }
+  return count;
+}
+
 export function spreadBias(grid: LaneGrid, req: PlanRequest, policy: LanePolicy): number {
-  const totalPairs = Math.max(1, Math.floor(grid.lanes.length / 2));
+  // EVERYTHING HERE IS MEASURED IN THE OFFER'S SECTION, NOT THE WHOLE HOUSE.
+  //
+  // It used to mix the two: `fresh` counted free pairs inside `allowedLanes`, but the scale
+  // it was divided by came from `grid.lanes.length` — all 28 lanes at Fort Myers, 14 pairs.
+  // A Regular booking can only ever use 8 of those pairs and a VIP one 4, so the ratio was
+  // a section's supply over the whole house's capacity: two different units.
+  //
+  // The effect is that the dial read LOW for any restricted offer — it behaved as though
+  // the house were fuller than it was and backfilled sooner than the policy intends. At its
+  // sharpest, a VIP booking at Fort Myers could NEVER see a full-spread signal even with the
+  // entire VIP section empty: 4 free pairs over a span built from 14 tops out at 0.82.
+  // Old Time (lanes 1-4, two pairs) is worse still.
+  //
+  // Invisible at FastTrax, where one offer covers every lane and section == house — which is
+  // exactly why a single-section pilot could never have surfaced it.
+  const totalPairs = Math.max(1, sellablePairs(grid, req.allowedLanes));
+  const sectionLanes = req.allowedLanes?.length || grid.lanes.length;
   const fresh = wholeFreePairs(grid, req.startMs, req.endMs, req.reservationId, req.allowedLanes);
 
-  // Demand this weekday historically still gains beyond what we can see, in lanes.
+  // Demand this weekday historically still gains beyond what we can see, in lanes. Scaled to
+  // the section on the same assumption the rest of the term makes — that unseen demand
+  // arrives in roughly the proportion the sections are sized.
   const { peak, observedPeak } = projectedOccupancy(
     grid,
     req.startMs,
     req.endMs,
     req.reservationId,
   );
-  const unseenLanes = Math.max(0, peak - observedPeak) * grid.lanes.length;
+  const unseenLanes = Math.max(0, peak - observedPeak) * sectionLanes;
   // Only the multi-lane share of that demand actually needs a WHOLE pair.
   const reserve = Math.min(totalPairs, Math.round((unseenLanes * policy.multiLaneShare) / 2));
 

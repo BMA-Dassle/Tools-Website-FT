@@ -45,7 +45,7 @@ import {
 import { findImminentRepairs, RECHECK_HORIZON_MINUTES } from "./recheck.server";
 import { classifyPinFailure, shouldFailOpen } from "./pin-errors";
 import { createWithLanePlan, describePinOutcome } from "./pin";
-import { scorePlacement, spreadBias } from "./score";
+import { scorePlacement, sellablePairs, spreadBias } from "./score";
 import { DEFAULT_POLICY, type BusyInterval, type LaneGrid } from "./types";
 
 const HOUR = 3600_000;
@@ -1187,5 +1187,61 @@ describe("re-checking the lane just before the guest arrives", () => {
     // Floor intervals are lane state, not bookings — there is nobody to move.
     const found = repairs(board(20));
     expect(found.some((r) => r.reservationId === "XOTHER")).toBe(false);
+  });
+});
+
+/**
+ * Owner-confirmed sections, 2026-09-01:
+ *   HeadPinz Fort Myers  1-4 Old Time · 5-12 VIP · 13-28 Regular
+ *   HeadPinz Naples      1-24 Regular · 25-32 VIP
+ *
+ * The spread dial measured a SECTION's free pairs against the WHOLE HOUSE's capacity, so it
+ * read low for every restricted offer and backfilled sooner than the policy intends.
+ */
+describe("the spread dial is scaled to the offer's section, not the house", () => {
+  const FM_VIP = [5, 6, 7, 8, 9, 10, 11, 12];
+  const FM_REGULAR = [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28];
+  const FM_OLD_TIME = [1, 2, 3, 4];
+
+  const req = (allowedLanes: number[] | null) => ({
+    laneCount: 1,
+    startMs: T0,
+    endMs: T0 + 1.5 * HOUR,
+    players: 4,
+    webOfferId: 158,
+    allowedLanes,
+  });
+
+  it("counts only pairs whose BOTH lanes the offer can be sold on", () => {
+    const g = grid([], 28);
+    expect(sellablePairs(g, FM_VIP)).toBe(4);
+    expect(sellablePairs(g, FM_REGULAR)).toBe(8);
+    expect(sellablePairs(g, FM_OLD_TIME)).toBe(2);
+    expect(sellablePairs(g, null)).toBe(14); // the whole house
+    // A ragged section: (1,2) is whole, lane 4's mate is outside it.
+    expect(sellablePairs(g, [1, 2, 4])).toBe(1);
+  });
+
+  it("gives an EMPTY section full spread — the case that was impossible before", () => {
+    // 4 free VIP pairs over a span built from 14 house pairs topped out at 0.82, so a VIP
+    // booking never saw "spread freely" even with the whole VIP section empty.
+    const g = grid([], 28);
+    expect(spreadBias(g, req(FM_VIP), DEFAULT_POLICY)).toBe(1);
+    expect(spreadBias(g, req(FM_OLD_TIME), DEFAULT_POLICY)).toBe(1);
+    expect(spreadBias(g, req(FM_REGULAR), DEFAULT_POLICY)).toBe(1);
+  });
+
+  it("still winds down to backfill as that section's own pairs are spent", () => {
+    // One lane taken in every VIP pair: nothing fresh left IN THE SECTION.
+    const spent = FM_VIP.filter((l) => l % 2 === 1).map((l) => busy(l, 0, 2));
+    expect(spreadBias(grid(spent, 28), req(FM_VIP), DEFAULT_POLICY)).toBeLessThanOrEqual(0);
+  });
+
+  it("is not fooled by a busy section next door", () => {
+    // Regular (13-28) is hammered; VIP is untouched. A VIP guest should still be spread.
+    const busyRegular = FM_REGULAR.map((l) => busy(l, 0, 2));
+    const g = grid(busyRegular, 28);
+    expect(spreadBias(g, req(FM_VIP), DEFAULT_POLICY)).toBe(1);
+    expect(spreadBias(g, req(FM_REGULAR), DEFAULT_POLICY)).toBeLessThanOrEqual(0);
   });
 });
