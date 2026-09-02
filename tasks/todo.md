@@ -1,5 +1,57 @@
 # Open Tasks
 
+## Hide Kids Bowl Free off-season (2026-09-01) — worktree `kbf-offseason-hide`
+
+Owner: "Disable / hide Kids Bowl Free from booking sites." Scope confirmed with owner:
+BOTH the booking surfaces AND the marketing pages. Mechanism confirmed: **season-derived,
+automatic** — no env var, no flag. `lib/kbf-schedule.ts` already carries
+`KBF_PROGRAM_START_YMD` / `KBF_PROGRAM_END_YMD` (`2026-05-14` → `2026-08-28`), so the
+season ended three days before this task. Bump those two dates next spring and every
+surface below turns itself back on.
+
+The single predicate is `isKbfOffered(now)` = "is there at least one bookable KBF date
+inside the 90-day picker horizon". Visible exactly when something is bookable — pre-season
+it reappears ~90 days before the start date, post-season it goes dark the day after the end
+date. No second source of truth.
+
+- [x] `lib/kbf-schedule.ts` — `isKbfOffered()` + `KBF_OFFSEASON_PATH` (`/hp/kids-bowl-free`,
+      the one URL that resolves on BOTH brand hosts, so no brand sniffing is needed).
+- [x] `src/features/booking/activities-catalog.ts` — generic optional `isOffered?(now)` on
+      `ActivityOffering`, honoured by `allOfferings()` / `offeringsAt()`, so the `/book/v2`
+      landing tile and the cart cross-sell both drop KBF off-season. `findOffering()` stays
+      UNFILTERED — the route, the cart labels and existing reservations still resolve "kbf".
+- [x] `app/hp/book/page.tsx` — drop the KBF tile from the v1 HeadPinz booking hub.
+- [x] `app/hp/book/layout.tsx` — drop the KBF `ListItem` from the booking JSON-LD.
+- [x] Route gates (server-side `redirect()` to `KBF_OFFSEASON_PATH`): `/book/kbf/v2`,
+      `/hp/kids-bowl-free/book`, `/hp/kids-bowl-free/register`, `/hp/book/kids-bowl-free`.
+      Every v1 KBF booking URL already funnels into `/book/kbf/v2` via the middleware
+      cutover, so `middleware.ts` needs NO change.
+- [x] `app/hp/kids-bowl-free/page.tsx` — off-season renders a short "back next summer"
+      notice instead of the marketing page, and goes `noindex`. It is the redirect
+      terminus, so inbound links from kidsbowlfree.com / Google / old emails get an honest
+      answer instead of a 404.
+- [x] `app/sitemap.ts` — stop advertising `/kids-bowl-free` off-season.
+- [x] `app/service-notice/page.tsx` — drop KBF from the outage page's "what you CAN book".
+- [x] Tests: `lib/kbf-schedule.test.ts` (new) for the season boundaries;
+      `activities-catalog.test.ts` for tile-hidden / findOffering-still-resolves.
+- [x] Gates: `tsc`, eslint, full vitest, `next build`.
+
+DELIBERATELY NOT TOUCHED (each is a decision, not an omission):
+
+- **Post-purchase surfaces** — `BowlingConfirmation`'s KBF "Change Date & Time" / info links.
+  The maintenance feature sets the house precedent in `bookingProductForPath`: never gate a
+  `/confirmation` or `/checkin` surface, because that hides a reservation that is perfectly
+  valid. A guest holding a KBF confirmation must keep reading it.
+- **`/api/kbf/*`, the admin console, `kbf-sync` cron** — the data rails stay up. Existing
+  reservations, the CSV sync and staff lookups must keep working off-season.
+- **`kbf-welcome-email.ts`** — its booking CTA now points at a redirect, but suppressing
+  outbound mail is a comms decision, not a "hide it from the site" one. Flagged for the owner.
+- **`/hp/book/kids-bowl-free-old`** — unlinked legacy; its own date picker already yields
+  zero bookable dates off-season. Gating it means moving a 3,000-line client file to make
+  room for a server wrapper — that belongs in a delete-the-old-routes PR, not this one.
+- **Prose mentions** on `/hp/pricing` ("we run Kids Bowl Free in summer") and
+  `/hp/fort-myers/attractions` — both already say "summer", so they read correctly off-season.
+
 ## Kiosk "Your Crew" page /kiosk/racers (2026-08-31) — MERGED TO MAIN 2026-09-01
 
 Owner: build the 2026-08-06 plan ([kiosk-crew-page-plan.md](kiosk-crew-page-plan.md)), "mature on

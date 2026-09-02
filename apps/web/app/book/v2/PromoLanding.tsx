@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { Fragment, useState, useSyncExternalStore } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -17,6 +17,7 @@ import { isNativeVoucherCode } from "~/features/game-cards/vouchers/codes";
 import { BMI_VOUCHER_RE, voucherTarget } from "~/features/booking/service/voucher-redeem";
 import type { ComboSpecial } from "~/features/combos";
 import type { WorldCupTeamRef } from "~/features/world-cup";
+import type { NflTileData } from "~/features/nfl/landing.server";
 
 /** Customer-facing "valid on" label for a promo's booking-date window (null = any day). */
 function promoValidLabel(start: string | null, end: string | null): string | null {
@@ -81,6 +82,7 @@ export interface PromoLandingProps {
    *  tournament window is over, the brand isn't HeadPinz, or every in-scope
    *  center's kill switch is off. Computed server-side in page.tsx. */
   worldCup?: WorldCupTileData | null;
+  nfl?: NflTileData | null;
   /**
    * Product id → the one-line reason it's unavailable, for every offering/combo
    * whose VENDOR is down (maintenance mode). Presence in the map means paused, so
@@ -108,6 +110,7 @@ export function PromoLanding({
   initialOfferings,
   combos = [],
   worldCup = null,
+  nfl = null,
   pausedNotes = {},
   outageNotice = null,
 }: PromoLandingProps) {
@@ -564,16 +567,34 @@ export function PromoLanding({
                 the lead). Self-hides after the final. */}
             {worldCup && <WorldCupCard worldCup={worldCup} gold={HP_GOLD} />}
             {initialOfferings.map((o) => (
-              <AttractionCard
-                key={o.slug}
-                offering={o}
-                href={tileHref(o.slug)}
-                applied={applied}
-                voucherSlugs={voucher?.slugs ?? null}
-                accent={accent}
-                gold={HP_GOLD}
-                pausedNote={pausedNote(o.slug)}
-              />
+              // Two teasers ride DIRECTLY behind the tile they belong to, so
+              // each is the grid child straight after its parent product: Race
+              // Sims behind racing, NFL Ticket behind bowling. The premium VIP
+              // combo is sm:col-span-2, so its parent tile finishes row one and
+              // the teaser opens row two on both the 3-col and 2-col grids.
+              //
+              // Owner, 2026-09-01: "I want NFL Ticket on NeoVerse kept on the
+              // second line. Bowling needs brought back up to first." Rendering
+              // NFL ahead of this map took the row-one slot bowling had, and
+              // pushed bowling down a row.
+              //
+              // Keyed off the parent's PRESENCE rather than a fixed index. The
+              // sims are physically at FastTrax FM and the NFL package needs a
+              // lane-block model, so wherever the parent is not offered the
+              // teaser is not either, and a pair can never drift apart.
+              <Fragment key={o.slug}>
+                <AttractionCard
+                  offering={o}
+                  href={tileHref(o.slug)}
+                  applied={applied}
+                  voucherSlugs={voucher?.slugs ?? null}
+                  accent={accent}
+                  gold={HP_GOLD}
+                  pausedNote={pausedNote(o.slug)}
+                />
+                {o.kind === "race" && <RaceSimsSoonCard />}
+                {o.kind === "bowling" && nfl && <NflCard nfl={nfl} />}
+              </Fragment>
             ))}
           </div>
         </div>
@@ -985,6 +1006,202 @@ function ComboCard({
       {/* Bottom color bar */}
       <div className="h-0.5 w-full" style={{ backgroundColor: combo.accentColor }} />
     </CardShell>
+  );
+}
+
+/**
+ * Race Sims — a NOT-YET-BOOKABLE teaser tile.
+ *
+ * Deliberately NOT an entry in `activities-catalog.ts`: that catalog is the
+ * source of truth for things a guest can actually buy, and every consumer of it
+ * (promo scope, voucher slugs, `tileHref`) assumes a real `/book/<slug>/v2`
+ * flow behind each row. A slug with no flow would hand those a dead link. So
+ * the teaser follows the WorldCupCard precedent instead — a bespoke card the
+ * grid places itself — and carries no href at all.
+ *
+ * The locked treatment is `CardShell`'s existing `paused` idiom (a plain
+ * `aria-disabled` div, `opacity-55 saturate-50`), which is already how this
+ * grid renders an untappable card, so a Coming Soon tile and a maintenance-
+ * locked tile read as the same kind of thing to a guest. Accent `#ff6b6b` and
+ * the red-track hero match the kiosk's own sim tile, so the product looks like
+ * one product across web and kiosk.
+ *
+ * When sims go bookable this component is DELETED, not edited — the tile
+ * becomes a normal catalog offering with a real flow behind it.
+ */
+function RaceSimsSoonCard() {
+  const accent = "#ff6b6b";
+  return (
+    <div
+      aria-disabled="true"
+      className="group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left opacity-55 saturate-50"
+      style={{ borderColor: "rgba(255,255,255,0.10)" }}
+    >
+      {/* Hero — the kiosk sim tile's red-track shot (same pinned blob asset) */}
+      <div className="relative aspect-16/10 overflow-hidden">
+        <Image
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-kiosk.webp"
+          alt="Race Sims"
+          fill
+          className="object-cover"
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+        />
+        <div className="absolute inset-0 bg-linear-to-t from-[#0a1628] via-[#0a1628]/40 to-transparent" />
+        <div className="absolute right-3 top-3">
+          <span
+            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wider backdrop-blur-sm"
+            style={{ backgroundColor: accent, color: "#2b0404" }}
+          >
+            Coming Soon
+          </span>
+        </div>
+      </div>
+
+      {/* Content — same geometry as AttractionCard so the row stays even */}
+      <div className="flex flex-1 flex-col p-4 sm:p-5">
+        <h3 className="font-display mb-1.5 text-lg font-black uppercase tracking-wider text-white sm:text-xl">
+          Race Sims
+        </h3>
+        <p className="font-body mb-3 flex-1 text-sm leading-relaxed text-white/50">
+          Full-motion racing simulators are on their way to FastTrax Fort Myers.
+        </p>
+
+        {/* Venue badge — sims live in the FastTrax building, same as racing */}
+        <div className="mb-3 flex items-center gap-2">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-white/50">
+            Located within
+          </span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/logo/FT_logo.png"
+            alt="FastTrax Entertainment"
+            className="h-5 w-auto"
+          />
+        </div>
+
+        <div className="w-full rounded-xl border border-white/15 bg-white/[0.04] px-4 py-3 text-center">
+          <div className="text-sm font-bold text-white/70">Not yet bookable</div>
+          <div className="font-body mt-1 text-xs leading-snug text-white/45">
+            Check back soon — we&apos;ll open booking here first.
+          </div>
+        </div>
+      </div>
+
+      <div className="h-0.5 w-full" style={{ backgroundColor: accent }} />
+    </div>
+  );
+}
+
+/**
+ * NFL Ticket on NeoVerse — one card with TWO states off one switch.
+ *
+ * `nfl.comingSoon` comes from `nflTileData`, which reads the same
+ * `bowling_experiences.is_active` rows the booking flow reads. So the tile
+ * cannot advertise a package the flow will refuse, and cannot sit locked while
+ * the flow quietly takes money.
+ *
+ * That is the one way this differs from its neighbour `RaceSimsSoonCard`, and
+ * the difference is not stylistic: sims have no booking flow at all, so a
+ * hardcoded teaser has nothing to contradict and is simply deleted on launch.
+ * NFL has a full flow behind `/book/nfl`, so a hardcoded tile would drift the
+ * moment anyone flipped the rows.
+ *
+ * The locked treatment is the same `aria-disabled` + `opacity-55 saturate-50`
+ * idiom the sims teaser and a maintenance-locked card use, so all three read as
+ * the same kind of thing to a guest. Violet is this package's own accent on the
+ * Experience step and in its picker (owner 2026-07-26).
+ *
+ * Bespoke rather than an `activities-catalog.ts` row, following WorldCupCard:
+ * that catalog's consumers (promo scope, voucher slugs, `tileHref`) all assume
+ * a `/book/<slug>/v2` flow behind every entry, and this package's entry is
+ * `/book/nfl`.
+ */
+function NflCard({ nfl }: { nfl: NflTileData }) {
+  const accent = "#A78BFA";
+  const soon = nfl.comingSoon;
+
+  const body = (
+    <>
+      <div className="relative aspect-16/10 overflow-hidden">
+        <Image
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp"
+          alt="NFL Ticket on NeoVerse"
+          fill
+          className="object-cover"
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+        />
+        <div className="absolute inset-0 bg-linear-to-t from-[#0a1628] via-[#0a1628]/40 to-transparent" />
+        <div className="absolute right-3 top-3">
+          <span
+            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wider backdrop-blur-sm"
+            style={{ backgroundColor: accent, color: "#1b1033" }}
+          >
+            {soon ? "Coming Soon" : "NFL Ticket"}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex flex-1 flex-col p-4 sm:p-5">
+        <h3 className="font-display mb-1.5 text-lg font-black uppercase tracking-wider text-white sm:text-xl">
+          NFL Ticket on NeoVerse
+        </h3>
+        <p className="font-body mb-3 flex-1 text-sm leading-relaxed text-white/50">
+          Pick your game, not a time. Your VIP lane opens 15 minutes before kickoff and is yours for
+          3 hours — shoes, a one-topping pizza, 10 wings and a soda pitcher included.
+        </p>
+
+        {nfl.nextGame && (
+          <div className="mb-3">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-white/40">
+              Next up
+            </span>
+            <p className="font-body mt-0.5 text-xs leading-snug" style={{ color: accent }}>
+              {nfl.nextGame}
+            </p>
+          </div>
+        )}
+
+        {soon ? (
+          <div className="w-full rounded-xl border border-white/15 bg-white/[0.04] px-4 py-3 text-center">
+            <div className="text-sm font-bold text-white/70">Not yet bookable</div>
+            <div className="font-body mt-1 text-xs leading-snug text-white/45">
+              Check back soon — we&apos;ll open booking here first.
+            </div>
+          </div>
+        ) : (
+          <div
+            className="w-full rounded-xl px-4 py-3 text-center text-sm font-bold"
+            style={{ backgroundColor: accent, color: "#1b1033" }}
+          >
+            Pick your game
+          </div>
+        )}
+      </div>
+
+      <div className="h-0.5 w-full" style={{ backgroundColor: accent }} />
+    </>
+  );
+
+  if (soon || !nfl.href) {
+    return (
+      <div
+        aria-disabled="true"
+        className="group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left opacity-55 saturate-50"
+        style={{ borderColor: "rgba(255,255,255,0.10)" }}
+      >
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      href={nfl.href}
+      className="group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all hover:border-white/25"
+      style={{ borderColor: "rgba(255,255,255,0.10)" }}
+    >
+      {body}
+    </Link>
   );
 }
 

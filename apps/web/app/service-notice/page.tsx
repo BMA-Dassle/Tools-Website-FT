@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { IconAlertTriangle, IconArrowRight, IconPhone } from "@tabler/icons-react";
+import { isKbfOffered } from "@/lib/kbf-schedule";
 import { activeOutages, isProductPaused, outageForProduct } from "~/features/maintenance";
 
 /**
@@ -116,7 +117,12 @@ export default async function ServiceNoticePage({
   const hdrs = await headers();
   const isHeadPinz = hdrs.get("x-brand") === "headpinz";
   const accent = isHeadPinz ? "#fd5b56" : "#00E2E5";
-  const open = ALTERNATIVES.filter((a) => !isProductPaused(a.product));
+  // Paused by an outage OR closed for the season — either way it isn't
+  // something to offer a guest who is already standing at a wall. KBF is the
+  // only seasonal row; the rest are year-round and short-circuit on `true`.
+  const open = ALTERNATIVES.filter(
+    (a) => !isProductPaused(a.product) && (a.product !== "kbf" || isKbfOffered()),
+  );
 
   return (
     <div className={`${isHeadPinz ? "brand-headpinz" : "brand-fasttrax"} min-h-screen px-4 py-14`}>

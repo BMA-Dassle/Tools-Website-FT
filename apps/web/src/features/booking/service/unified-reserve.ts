@@ -149,6 +149,7 @@ import {
   isMidnightMadnessSlug,
   midnightMadnessWindowError,
   MidnightMadnessWindowError,
+  shoesIncludedInExperience,
 } from "./bowling-offer";
 import { rawFoodItemsToReservationLines } from "./reservation-lines";
 import {
@@ -831,7 +832,7 @@ export function buildCombinedLineItems(session: BookingSession): {
     const product = getRaceSimProduct(item.productSlug);
     if (!product) continue; // unready draft — allItemsReady blocks it upstream
     const qty = Math.max(1, item.racerCount);
-    const unitCents = Math.round(raceSimPriceFor(product, item.date) * 100);
+    const unitCents = Math.round(raceSimPriceFor(product) * 100);
     for (const s of item.sessions) {
       const track = getRaceSimTrack(s.trackKey);
       const name = `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""} · ${heatClockLabel(s.slot)}`;
@@ -3169,10 +3170,11 @@ async function unifiedReserveInner(
         const hasShoeAddOn = item.lineItems.some((li) =>
           (li.label ?? "").toLowerCase().includes("shoe"),
         );
-        const shoesIncluded =
-          !!combo ||
-          item.experienceSlug?.includes("fun-4-all") ||
-          item.experienceSlug?.includes("pizza-bowl");
+        // THIRD copy of "does this package include shoes" — this one drives the
+        // note the front desk reads off the QAMF reservation, so a wrong answer
+        // here charges the guest AT THE COUNTER for shoes they already bought.
+        // NFL Ticket printed "SHOES NOT INCLUDED". Now it asks the one predicate.
+        const shoesIncluded = !!combo || shoesIncludedInExperience(item.experienceSlug);
         let shoeLine: string;
         if (combo) {
           shoeLine = "Shoes included (VIP)";
@@ -3357,7 +3359,7 @@ async function unifiedReserveInner(
       })),
       ...racesimItems.flatMap((r) => {
         const product = getRaceSimProduct(r.productSlug);
-        const unitPriceCents = product ? Math.round(raceSimPriceFor(product, r.date) * 100) : 0;
+        const unitPriceCents = product ? Math.round(raceSimPriceFor(product) * 100) : 0;
         return r.sessions.map((s) => {
           const track = getRaceSimTrack(s.trackKey);
           return {

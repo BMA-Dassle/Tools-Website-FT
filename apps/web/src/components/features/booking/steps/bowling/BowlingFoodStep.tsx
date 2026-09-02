@@ -267,27 +267,37 @@ const BowlingFoodStepComponent: StepDef<BowlingItem>["Component"] = ({ item, onC
 
                 return (
                   <div key={group.id}>
-                    <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <p className="text-xs font-semibold text-white/75">{group.name}</p>
-                      <span
-                        className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-                        style={
-                          required
-                            ? satisfied
-                              ? { backgroundColor: "rgba(0,226,229,0.15)", color: BLUE }
-                              : { backgroundColor: "rgba(251,191,36,0.15)", color: "#fbbf24" }
-                            : {
-                                backgroundColor: "rgba(255,255,255,0.06)",
-                                color: "rgba(255,255,255,0.45)",
-                              }
-                        }
-                      >
-                        {required ? t("food.required") : t("food.optional")}
+                    {/* One quiet line, not three competing badges. A REQUIRED
+                        pill only earns its colour while it is UNANSWERED: once
+                        the guest has picked, shouting "required" at them is
+                        noise, and a screen of amber pills makes the one thing
+                        still owed impossible to spot. */}
+                    <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      <p className="text-xs font-semibold text-white/80">{group.name}</p>
+                      {required && !satisfied && (
+                        <span
+                          className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+                          style={{ backgroundColor: "rgba(251,191,36,0.15)", color: "#fbbf24" }}
+                        >
+                          {t("food.required")}
+                        </span>
+                      )}
+                      {required && satisfied && (
+                        <IconCheck size={13} aria-hidden style={{ color: BLUE }} />
+                      )}
+                      <span className="text-[10px] text-white/35">
+                        {required ? rule : `${t("food.optional")} \u00b7 ${rule}`}
                       </span>
-                      <span className="text-[10px] text-white/35">{rule}</span>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
+                    {/* An even GRID, not flex-wrap. Toppings run 4-13 items of
+                        wildly different name lengths, and wrapping them ragged
+                        (a 3-wide row, then 5, then a lone orphan) makes a list
+                        you hunt through rather than scan down. Fixed columns
+                        give every option the same target and the same left
+                        edge, which matters twice over on the kiosk where these
+                        are thumb targets. */}
+                    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
                       {group.options.map((opt) => {
                         const on = chosen.includes(opt.id);
                         const price = opt.priceCents ?? 0;
@@ -301,18 +311,23 @@ const BowlingFoodStepComponent: StepDef<BowlingItem>["Component"] = ({ item, onC
                             onClick={() => tap(activeLane, group, opt.id)}
                             // min-h-11 ≈ 44px: this renders zoomed on the kiosk
                             // and the old chips were a thumb-width too small.
-                            className="min-h-11 rounded-lg px-3 py-2 text-xs font-medium transition-all disabled:cursor-not-allowed disabled:opacity-30"
+                            className="flex min-h-11 items-center justify-between gap-1 rounded-lg border px-2.5 py-2 text-left text-xs transition-all disabled:cursor-not-allowed disabled:opacity-25"
                             style={{
-                              backgroundColor: on ? BLUE : "rgba(0,226,229,0.08)",
-                              color: on ? "#0a1628" : BLUE,
+                              // Unselected is NEUTRAL. Rendering every option in
+                              // full cyan made a screen where nothing stood out
+                              // and a chosen topping was hard to find; the accent
+                              // now means "picked".
+                              borderColor: on ? BLUE : "rgba(255,255,255,0.10)",
+                              backgroundColor: on ? BLUE : "rgba(255,255,255,0.03)",
+                              color: on ? "#0a1628" : "rgba(255,255,255,0.85)",
                               fontWeight: on ? 700 : 500,
                             }}
                           >
-                            {opt.name}
+                            <span className="min-w-0 truncate">{opt.name}</span>
                             {price > 0 && (
                               <span
-                                className="ml-1.5 text-[10px]"
-                                style={{ color: on ? "#0a1628" : "rgba(255,255,255,0.5)" }}
+                                className="shrink-0 text-[10px] tabular-nums"
+                                style={{ color: on ? "#0a1628" : "rgba(255,255,255,0.45)" }}
                               >
                                 +{money(price)}
                               </span>

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
 import type { BowlingSquareProduct } from "@/lib/bowling-db";
 import { FASTTRAX_QAMF_CENTER_ID, FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
+import { shoesIncludedInExperience } from "~/features/booking/service/bowling-offer";
 
 // Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
 // seems negative"); FastTrax red stays on racing only. VIP keeps gold.
@@ -220,13 +221,11 @@ const BowlingShoesStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item
   );
 };
 
-const SHOES_INCLUDED_SLUGS = ["fun-4-all", "fun-4-all-vip", "pizza-bowl", "pizza-bowl-vip"];
-
 const BowlingShoesStep: StepDef<BowlingItem> = {
   id: "bowling-shoes",
   title: "Shoes",
   Component: BowlingShoesStepComponent as StepDef<BowlingItem>["Component"],
-  isVisible: (item) => !SHOES_INCLUDED_SLUGS.includes(item.experienceSlug ?? ""),
+  isVisible: (item) => !shoesIncludedInExperience(item.experienceSlug),
   canAdvance: () => true,
 };
 

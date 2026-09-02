@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { HEADPINZ_OG, HEADPINZ_OG_IMAGE } from "@/lib/seo";
+import { isKbfOffered } from "@/lib/kbf-schedule";
 
 /**
  * /hp/book — HeadPinz booking hub. URL surfaces as `/book` on
@@ -45,20 +46,22 @@ export const metadata: Metadata = {
   alternates: { canonical: "https://headpinz.com/book" },
 };
 
+/** Hourly re-render so the seasonal item below can't be frozen into a deploy
+ *  — the same reason /hp/kids-bowl-free carries one. */
+export const revalidate = 3600;
+
 /**
  * Schema.org ItemList of bookable experiences. Each item is a distinct
  * /hp/book/* URL so Google can surface them as Book-Now sub-sitelinks.
  * Order matches the on-page card order in page.tsx.
+ *
+ * A FUNCTION, not a const: Kids Bowl Free is seasonal, and structured data
+ * that advertises a Service we can't deliver is exactly the mismatch between
+ * markup and page content that costs a rich result. Built per render so the
+ * list — and `numberOfItems` with it — follows the season.
  */
-const bookingItemList = {
-  "@context": "https://schema.org",
-  "@type": "ItemList",
-  name: "Book HeadPinz Online",
-  description:
-    "Bookable experiences at HeadPinz Fort Myers and Naples — bowling, laser tag, gel blasters, shuffleboard and arcade.",
-  itemListOrder: "https://schema.org/ItemListOrderAscending",
-  numberOfItems: 5,
-  itemListElement: [
+function buildBookingItemList() {
+  const itemListElement = [
     {
       "@type": "ListItem",
       position: 1,
@@ -113,28 +116,46 @@ const bookingItemList = {
         url: "https://headpinz.com/book/shuffly",
       },
     },
-    {
-      "@type": "ListItem",
-      position: 5,
-      name: "Kids Bowl Free",
-      url: "https://headpinz.com/book/kids-bowl-free",
-      item: {
-        "@type": "Service",
-        name: "Kids Bowl Free Summer Program",
-        description: "Free summer bowling for registered kids. Two games per day, all summer long.",
-        provider: { "@type": "Organization", name: "HeadPinz" },
-        url: "https://headpinz.com/book/kids-bowl-free",
-      },
-    },
-  ],
-};
+    // Seasonal — drops out of the markup the day the program closes, and
+    // comes back when KBF_PROGRAM_START/END say it's bookable again.
+    ...(isKbfOffered()
+      ? [
+          {
+            "@type": "ListItem",
+            position: 5,
+            name: "Kids Bowl Free",
+            url: "https://headpinz.com/book/kids-bowl-free",
+            item: {
+              "@type": "Service",
+              name: "Kids Bowl Free Summer Program",
+              description:
+                "Free summer bowling for registered kids. Two games per day, all summer long.",
+              provider: { "@type": "Organization", name: "HeadPinz" },
+              url: "https://headpinz.com/book/kids-bowl-free",
+            },
+          },
+        ]
+      : []),
+  ];
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: "Book HeadPinz Online",
+    description:
+      "Bookable experiences at HeadPinz Fort Myers and Naples — bowling, laser tag, gel blasters, shuffleboard and arcade.",
+    itemListOrder: "https://schema.org/ItemListOrderAscending",
+    numberOfItems: itemListElement.length,
+    itemListElement,
+  };
+}
 
 export default function HeadPinzBookLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(bookingItemList) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(buildBookingItemList()) }}
       />
       {children}
     </>

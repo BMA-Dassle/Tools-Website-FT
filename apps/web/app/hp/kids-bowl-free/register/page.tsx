@@ -1,9 +1,15 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import KbfEligibilityNotice from "@/components/kbf/EligibilityNotice";
+import { isKbfOffered, KBF_OFFSEASON_PATH } from "@/lib/kbf-schedule";
 
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
+
+/** Hourly re-render so the season gate below is never baked into a deploy —
+ *  see the same note on the parent /hp/kids-bowl-free page. */
+export const revalidate = 3600;
 
 export const metadata: Metadata = {
   title: "Register for Kids Bowl Free | HeadPinz & FastTrax",
@@ -44,6 +50,10 @@ const locations = [
 ];
 
 export default function KBFRegisterPage() {
+  // Off-season this page walks a parent out to kidsbowlfree.com to sign up
+  // for a program that isn't running. Send them to the notice instead.
+  if (!isKbfOffered()) redirect(KBF_OFFSEASON_PATH);
+
   return (
     <div className="bg-[#0a1628]">
       {/* ====== HERO ====== */}

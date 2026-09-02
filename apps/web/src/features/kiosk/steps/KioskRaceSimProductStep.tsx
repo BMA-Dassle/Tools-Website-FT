@@ -36,7 +36,6 @@ import {
   raceSimPriceFor,
   type RaceSimProduct,
 } from "~/features/race-sims/products";
-import { todayYmd } from "../service/first-available";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
 
@@ -66,9 +65,8 @@ const KioskRaceSimProductStepComponent: StepDef<RaceSimItem>["Component"] = ({
   onChange,
 }) => {
   const t = useT();
-  // Kiosk = walk-up: TODAY's rate ($14 Mon–Thu / $16 Fri–Sun); the charge
-  // reads the same helper off item.date, so displayed == charged.
-  const today = todayYmd();
+  // One flat rate every day (owner 2026-09-01), and the charge reads the same
+  // helper, so displayed == charged without the step knowing today's date.
   const racers = session.party.length;
   const sellable = RACE_SIM_PRODUCTS.filter((p) => p.bookable);
 
@@ -76,7 +74,7 @@ const KioskRaceSimProductStepComponent: StepDef<RaceSimItem>["Component"] = ({
     const isSelected = item.productSlug === product.slug;
     const nameKey = PRODUCT_NAME_KEYS[product.slug];
     const name = nameKey ? t(nameKey) : product.name;
-    const price = raceSimPriceFor(product, today);
+    const price = raceSimPriceFor(product);
     return (
       <button
         key={product.slug}
