@@ -18,6 +18,22 @@
  *                                                QAMF refuses a double-book even when we
  *                                                ask for one.
  *
+ *   409 `ReservationItemOverlappedConcurrency`   "One or more resources are already booked
+ *                                                for the selected time range" — somebody
+ *                                                took the lane between our floor read and
+ *                                                our create. Seen in PRODUCTION at Naples
+ *                                                on 2026-08-31 and again 2026-09-01.
+ *
+ *   409 `BookingConflict`                        "Lanes already booked on Conqueror." The
+ *                                                front desk is holding it and the web
+ *                                                schedule had not caught up. Same nights.
+ *
+ * THE LAST TWO WERE MISSING, AND THE OMISSION UNDID THE GUARD. They are the refusals QAMF
+ * actually returns under contention, and treating them as unrecognised meant one refusal
+ * ended the walk and handed the choice back to QAMF — which auto-assigns off the schedule
+ * and would happily return the occupied lane we had just avoided. A guest could be sent to
+ * a lane somebody was on, by the very code meant to prevent it.
+ *
  * Anything else is not something a different lane would fix, so stop trying lanes and fall
  * open: drop `Lanes` and let QAMF assign. A lane preference is never worth a lost booking.
  */
@@ -50,9 +66,20 @@ export function classifyPinFailure(message: string): PinFailure {
     };
   }
 
-  // "Not enough resources available for the request" is what QAMF returns when the lane is
-  // occupied for the window. `LanesNotAvailable` covers the same ground on other endpoints.
-  if (m.includes("not enough resources") || m.includes("lanesnotavailable")) {
+  // Every way the vendor says "that lane is taken". The first two come from the spec; the
+  // last three are what production actually returns, which is not the same list — matching
+  // on `detail` as well as `code` because the two disagree.
+  //
+  // `already booked` deliberately catches BOTH observed details, since they differ only in
+  // who took it: "One or more resources are already booked for the selected time range"
+  // (another guest, mid-flight) and "Lanes already booked on Conqueror." (the front desk).
+  if (
+    m.includes("not enough resources") ||
+    m.includes("lanesnotavailable") ||
+    m.includes("already booked") ||
+    m.includes("overlapped") ||
+    m.includes("bookingconflict")
+  ) {
     return {
       tryNextLane: true,
       code: "lane_unavailable",

@@ -138,3 +138,62 @@ describe("walking candidates without losing the booking", () => {
     expect(describePinOutcome(out)).toBe("pinned to 19 after 25 (lane_unavailable) refused");
   });
 });
+
+/**
+ * The refusals PRODUCTION actually returns, verbatim from Vercel runtime logs at Naples on
+ * 2026-08-31 and 2026-09-01. The classifier only knew the two from the spec, so these ended
+ * the candidate walk and handed the lane choice back to QAMF — which auto-assigns off the
+ * schedule and can return the occupied lane the guard had just refused to offer.
+ */
+describe("the refusals QAMF really sends under contention", () => {
+  const OVERLAP =
+    'qamf-bowling createReservation(3148) failed: 409 {"title":"Conflict","status":409,' +
+    '"detail":"One or more resources are already booked for the selected time range",' +
+    '"code":"ReservationItemOverlappedConcurrency"}';
+  const CONQUEROR =
+    'qamf-bowling createReservation(3148) failed: 409 {"title":"Conflict","status":409,' +
+    '"detail":"Lanes already booked on Conqueror.","code":"BookingConflict"}';
+
+  it("treats a concurrent grab as try-the-next-lane, not give-up", () => {
+    const f = classifyPinFailure(OVERLAP);
+    expect(f.tryNextLane).toBe(true);
+    expect(f.code).toBe("lane_unavailable");
+    expect(shouldFailOpen(OVERLAP)).toBe(false);
+  });
+
+  it("treats a front-desk Conqueror hold the same way", () => {
+    const f = classifyPinFailure(CONQUEROR);
+    expect(f.tryNextLane).toBe(true);
+    expect(f.code).toBe("lane_unavailable");
+    expect(shouldFailOpen(CONQUEROR)).toBe(false);
+  });
+
+  it("actually walks to the next lane on a real refusal instead of stopping", async () => {
+    // THE REGRESSION. Lane 4 is taken; lane 5 is free. Before this, the first refusal broke
+    // the loop and QAMF chose — which is how the guard could hand back the occupied lane.
+    const tried: (readonly number[] | null)[] = [];
+    const out = await createWithLanePlan({
+      candidates: [[4], [5], [6]],
+      create: async (lanes) => {
+        tried.push(lanes);
+        if (lanes?.[0] === 4) throw new Error(OVERLAP);
+        return { Id: "X1", Lanes: lanes };
+      },
+    });
+    expect(tried).toEqual([[4], [5]]);
+    expect(out.pinnedTo).toEqual([5]);
+    expect(out.failedOpen).toBe(false);
+  });
+
+  it("still falls open when no lane can help — a booking is never lost to a preference", async () => {
+    const out = await createWithLanePlan({
+      candidates: [[4], [5]],
+      create: async (lanes) => {
+        if (lanes) throw new Error("500 something else entirely");
+        return { Id: "X2", Lanes: null };
+      },
+    });
+    expect(out.failedOpen).toBe(true);
+    expect(out.reservation).toEqual({ Id: "X2", Lanes: null });
+  });
+});
