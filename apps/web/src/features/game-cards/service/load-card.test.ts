@@ -23,7 +23,10 @@ vi.mock("../data/intercard-router", () => {
     // simulate an on-site server that won't answer. (clearAllMocks keeps this
     // implementation; it only clears call history.)
     verifyAccountOnsite: vi.fn((...args: unknown[]) => verifyAccount(...args)),
+    // Clear-on-encode now uses the ONSITE clear (no cloud fallback). The plain
+    // router clearAccount stays mocked in case anything else imports it.
     clearAccount: vi.fn(),
+    clearAccountOnsite: vi.fn(),
   };
 });
 
@@ -182,7 +185,7 @@ describe("loadCard clear-on-encode (GC_CLEAR_ON_ENCODE=1)", () => {
   it("clears the new card FIRST, then credits, when the clear confirms (code 0)", async () => {
     const { intercard, log } = await mocks();
     (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(chargedRow);
-    (intercard.clearAccount as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+    (intercard.clearAccountOnsite as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       order.push("clearAccount");
       return { code: 0 };
     });
@@ -201,7 +204,7 @@ describe("loadCard clear-on-encode (GC_CLEAR_ON_ENCODE=1)", () => {
     expect(res.loaded).toBe(true);
     // Clear must run strictly before the credit.
     expect(order.indexOf("clearAccount")).toBeLessThan(order.indexOf("creditAccountValues"));
-    expect(intercard.clearAccount).toHaveBeenCalledWith(
+    expect(intercard.clearAccountOnsite).toHaveBeenCalledWith(
       expect.objectContaining({ accountNumbers: [input.accountNumber], locationCode: 12 }),
     );
     expect(order).toContain("markLoadState:loaded");
@@ -210,7 +213,7 @@ describe("loadCard clear-on-encode (GC_CLEAR_ON_ENCODE=1)", () => {
   it("does NOT credit and marks load_failed when the clear doesn't confirm", async () => {
     const { intercard, log } = await mocks();
     (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(chargedRow);
-    (intercard.clearAccount as ReturnType<typeof vi.fn>).mockResolvedValue({ code: -1 });
+    (intercard.clearAccountOnsite as ReturnType<typeof vi.fn>).mockResolvedValue({ code: -1 });
     const { loadCard } = await import("./load-card");
 
     const res = await loadCard(input);
@@ -238,7 +241,7 @@ describe("loadCard clear-on-encode (GC_CLEAR_ON_ENCODE=1)", () => {
 
     const res = await loadCard({ ...input, swiped: true });
     expect(res.loaded).toBe(true);
-    expect(intercard.clearAccount).not.toHaveBeenCalled();
+    expect(intercard.clearAccountOnsite).not.toHaveBeenCalled();
     // Still a fresh-blank row: the swiped account is attached and credited once.
     expect(log.setTxnAccount).toHaveBeenCalledWith(input.txnId, input.accountNumber);
     expect(intercard.creditAccountValues).toHaveBeenCalledTimes(1);
@@ -261,7 +264,7 @@ describe("loadCard clear-on-encode (GC_CLEAR_ON_ENCODE=1)", () => {
 
     const res = await loadCard(input); // no `swiped` — the server's own record decides
     expect(res.loaded).toBe(true);
-    expect(intercard.clearAccount).not.toHaveBeenCalled();
+    expect(intercard.clearAccountOnsite).not.toHaveBeenCalled();
     // The account is already on the row — nothing to attach.
     expect(log.setTxnAccount).not.toHaveBeenCalled();
     expect(intercard.creditAccountValues).toHaveBeenCalledTimes(1);
@@ -280,7 +283,7 @@ describe("loadCard clear-on-encode (GC_CLEAR_ON_ENCODE=1)", () => {
     await expect(
       loadCard({ ...input, accountNumber: "1038091", swiped: true }),
     ).rejects.toMatchObject({ code: "ACCOUNT_MISMATCH" });
-    expect(intercard.clearAccount).not.toHaveBeenCalled();
+    expect(intercard.clearAccountOnsite).not.toHaveBeenCalled();
     expect(intercard.creditAccountValues).not.toHaveBeenCalled();
     expect(log.setTxnAccount).not.toHaveBeenCalled();
   });
@@ -298,7 +301,7 @@ describe("loadCard clear-on-encode (GC_CLEAR_ON_ENCODE=1)", () => {
 
     const res = await loadCard(input);
     expect(res.loaded).toBe(true);
-    expect(intercard.clearAccount).not.toHaveBeenCalled();
+    expect(intercard.clearAccountOnsite).not.toHaveBeenCalled();
   });
 });
 
@@ -375,7 +378,7 @@ describe("loadCard (comp voucher: free load, authorised by the claim)", () => {
       packageId: "gzv-100",
       status: "claimed",
     });
-    (intercard.clearAccount as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+    (intercard.clearAccountOnsite as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       order.push("clearAccount");
       return { code: 0 };
     });
@@ -415,7 +418,7 @@ describe("loadCard (comp voucher: free load, authorised by the claim)", () => {
 
     const res = await loadCard({ ...input, swiped: true });
     expect(res.loaded).toBe(true);
-    expect(intercard.clearAccount).not.toHaveBeenCalled();
+    expect(intercard.clearAccountOnsite).not.toHaveBeenCalled();
     expect(intercard.creditAccountValues).toHaveBeenCalledTimes(1);
     vi.stubEnv("GC_CLEAR_ON_ENCODE", "");
   });

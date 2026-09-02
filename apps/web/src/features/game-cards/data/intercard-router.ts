@@ -150,6 +150,27 @@ export async function verifyAccountOnsite(
 }
 
 /**
+ * Clear accounts on the ON-SITE server ONLY — NO cloud fallback, throws when
+ * onsite cannot do it.
+ *
+ * This exists for clear-on-encode (load-card.ts). `clearAccount` above falls
+ * back to the cloud SOAP `clearcard` when the onsite relay hiccups — and a cloud
+ * clear is DESTRUCTIVE here: it zeroes/de-registers the datacenter copy, which
+ * then replicates back to the site 2-5 minutes later and WIPES the onsite credit
+ * we just applied. Observed live 2026-09-02 at FastTrax: new cards read the full
+ * balance at load (readback confirmed) then went empty minutes later, because
+ * the clear had run on cloud and synced back over the load. A clear that can't
+ * reach the on-site server must FAIL (caller retains the card and does not
+ * credit), never fall to cloud.
+ */
+export async function clearAccountOnsite(
+  params: onsite.ClearAccountParams,
+): Promise<{ code: number; transport: IntercardTransport }> {
+  const res = await onsite.clearAccount(params);
+  return { ...res, transport: "onsite" };
+}
+
+/**
  * Credit tokens onto a card. Onsite first; cloud ONLY when the onsite attempt
  * provably never reached the site (see WRITE_SAFE_TO_FALL_BACK).
  */

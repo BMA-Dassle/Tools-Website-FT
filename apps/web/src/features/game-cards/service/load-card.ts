@@ -29,7 +29,7 @@ import { GameCardHttpError } from "../errors";
 import type { LoadCardInput } from "../schemas";
 import type { CardBalance, TxnKind } from "../types";
 // Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
-import { clearAccount, verifyAccount, verifyAccountOnsite } from "../data/intercard-router";
+import { clearAccountOnsite, verifyAccount, verifyAccountOnsite } from "../data/intercard-router";
 import { getTxn, markLoadState, setTxnAccount, type LoadedVia } from "../data/transactions-log";
 import { getLiveClaimForTxn } from "../data/voucher-claims-db";
 import { applyCreditPlan, creditPlanForRow, planIsEmpty, type CreditPlan } from "./credit-plan";
@@ -178,7 +178,14 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
     if (isFreshBlank && !guestPresented && process.env.GC_CLEAR_ON_ENCODE === "1") {
       let clearOk = false;
       try {
-        const { code } = await clearAccount({
+        // ONSITE clear ONLY (clearAccountOnsite → /api/v1/tpi/clearcard). NEVER
+        // the router's cloud-fallback clear: a cloud clear zeroes the datacenter
+        // copy, which replicates back to the site 2-5 min later and WIPES the
+        // onsite credit we're about to apply (observed live 2026-09-02 at
+        // FastTrax — new cards read full at load, empty minutes later). If the
+        // on-site server can't clear, we FAIL CLOSED below (no credit, retain the
+        // card) rather than clear on cloud.
+        const { code } = await clearAccountOnsite({
           accountNumbers: [input.accountNumber],
           locationCode: input.locationCode,
           // The onsite transport stamps an id on every transaction; reuse the
