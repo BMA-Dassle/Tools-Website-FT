@@ -1,5 +1,54 @@
 # Lessons Learned
 
+## A behaviour that is invisible on scattered screens becomes the loudest thing in the room on a video wall (2026-09-01)
+
+**What happened:** staff reported that a kiosk check-in "crashed all five front-desk TVs and
+they rebooted." Nothing crashed. Nothing threw. Every scene on the celebration path was read
+line by line and none of them has a render throw.
+
+It was the deploy reload. `safeToReload` is false while an interrupt is on screen, so a pending
+update is HELD by a celebration — and the five panels of the wall share a clock, a config and a
+scene decision, so they answer that gate at the *same instant*. The welcome ends, the hold
+releases on all five together, and the whole fixture goes dark and boots. From the lobby that is
+indistinguishable from a crash, and it is exactly how it was reported.
+
+The mechanism had been correct and harmless for months, because the estate was screens scattered
+around a building where one blinking is invisible. `TvShell` even had the shape of it written
+down already — _"on every screen of a wall at once, since they share an uptime"_ — but only as a
+note about reloading into a dead network, never about what a guest sees.
+
+**How to apply:**
+
+- **When a wall is introduced, re-audit every SYNCHRONISED behaviour for how it reads as one
+  object.** The tear invariant makes five panels agree frame-for-frame; that is the feature, and
+  it applies just as faithfully to going black. Anything derived from the shared clock now
+  happens five times at once in one field of view. Reloads, retries, error states, cache evictions,
+  "reconnecting" banners — each was a blink and is now an event.
+- **Stagger planned, coordinated actions across a wall; never stagger recovery.** A deploy reload
+  and the nightly recycle ripple by panel position (`WALL_RELOAD_STAGGER_MS`). The self-heal does
+  not: that board is already dark to the guest, and holding it dark longer to be tidy is the
+  wrong trade.
+- **Apply the stagger AFTER the safety gate, not before it.** Delaying the latch is defeated by
+  the exact case that matters — panels whose offsets expire while a celebration holds the wall
+  come off that hold together anyway, and reload in unison after all.
+- **"It crashed" is a report of what was SEEN, not a diagnosis.** Reboot, reload, recycle and
+  render-throw all look identical on a screen nobody is standing at. Establish which one it was
+  before fixing anything: here, `signage:seen:{screenId}` showed all twenty screens healthy on one
+  build, which is not what a crash loop looks like.
+
+**Also fixed in the same pass, because the investigation exposed them:**
+
+- **One error boundary at the route meant any scene's throw destroyed the whole page** — the
+  pricing board, the check-in list, the cached films and the phase lock included, none of which
+  were broken. Each frame now has its own boundary (`SceneBoundary`): the scene is skipped for its
+  own frame, house ads take the slot, the next frame gets a clean attempt. Blast radius belongs to
+  the thing that failed.
+- **A client-side crash on a screen was completely unobservable.** `app/tv/error.tsx` said so in
+  its own header and wrote to a console nobody reads. Both boundaries now post scene, build,
+  screen and stack to `/api/tv/crash` with `keepalive` (so the report survives the reload that
+  follows it); `scripts/signage-crashes.mts` reads them back. An unobservable failure cannot be
+  root-caused, only guessed at — and guessing is what cost this investigation its first hour.
+
 ## A shared secret that forty-five files compare for themselves can never be replaced (2026-08-28)
 
 **What happened (caught in design, not production):** getting `ADMIN_CAMERA_TOKEN` out of
