@@ -34,6 +34,17 @@ import {
 } from "../feed-heal";
 import type { TvFeedHealth } from "../useTvFeed";
 
+/**
+ * How far apart the panels of a video wall reload.
+ *
+ * Long enough that the wall RIPPLES rather than blinks — a guest reads one panel
+ * rebooting as one panel rebooting, and five at once as the system going down
+ * (which is exactly how it was read: owner 2026-09-01, "the welcome crashed all
+ * the screens and they rebooted"). Short enough that the whole wall is on the new
+ * build inside twenty seconds.
+ */
+const WALL_RELOAD_STAGGER_MS = 4_000;
+
 export function TvShell({
   screenLabel,
   /** False while an interrupt is on screen — the reload waits for a calm beat. */
@@ -44,6 +55,11 @@ export function TvShell({
   health,
   /** True when the viewport is not filling its monitor — see usePanelFill. */
   windowed,
+  /**
+   * This panel's place on a video wall, or null for a screen standing on its own.
+   * The ONLY thing it is used for is spacing planned reloads apart — see below.
+   */
+  wallPosition,
   children,
 }: {
   screenLabel: string;
@@ -51,6 +67,7 @@ export function TvShell({
   screenId: string | null;
   health: TvFeedHealth;
   windowed: boolean;
+  wallPosition: number | null;
   children: React.ReactNode;
 }) {
   const [updatePending, setUpdatePending] = useState(false);
@@ -173,7 +190,44 @@ export function TvShell({
   // at 3am into a dead network — on every screen of a wall at once, since they
   // share an uptime. The latch stays set and the gate retries, so the reload
   // lands the moment the network does.
-  const heldForNetwork = useGatedReload(updatePending && safeToReload);
+  /* ── A VIDEO WALL RELOADS IN A RIPPLE, NEVER IN UNISON ──────────────────
+     Five panels share a clock, a config and a scene decision, so they answer
+     `safeToReload` identically — and the note above already knew it ("on every
+     screen of a wall at once, since they share an uptime"). Every reload path
+     therefore fires on all five within a tick of each other: a deploy, the
+     nightly recycle, and a staff press alike.
+
+     ON SCATTERED SCREENS THAT IS INVISIBLE, which is why it stood for months. On
+     a five-panel wall in the lobby it is the whole fixture going black together
+     and coming back through the boot loader, and it reads as a crash — the more
+     so because the release instant is usually the END OF AN INTERRUPT. A
+     celebration holds the reload on all five panels (`safeToReload` is false for
+     an interrupt), so a pending update lands the moment the welcome finishes, and
+     what a guest sees is: somebody checks in, the wall says welcome, the wall
+     dies. That is the reported fault, and nothing had thrown.
+
+     The stagger is applied AFTER the safety gate, deliberately. Delaying the
+     latch instead would be defeated by exactly the case that matters: three
+     panels whose offsets expired during a celebration would come off the hold
+     together anyway.
+
+     NOT ON THE SELF-HEAL PATH BELOW. A board that has lost its feed is already
+     blank to the guest, and holding it dark another sixteen seconds to be tidy
+     would be the wrong trade — that one goes back as fast as it can. */
+  const wantsReload = updatePending && safeToReload;
+  const [staggerCleared, setStaggerCleared] = useState(false);
+  useEffect(() => {
+    if (!wantsReload || staggerCleared) return;
+    // Always through the timer, even at zero: a setState in an effect BODY
+    // cascades renders on a page that runs for weeks (see the note further down).
+    const t = setTimeout(
+      () => setStaggerCleared(true),
+      Math.max(0, wallPosition ?? 0) * WALL_RELOAD_STAGGER_MS,
+    );
+    return () => clearTimeout(t);
+  }, [wantsReload, staggerCleared, wallPosition]);
+
+  const heldForNetwork = useGatedReload(wantsReload && staggerCleared);
 
   /* ── self-heal: a board nobody is hearing from reloads itself ─────────
      Read feed-heal.ts before changing any of this. The three rules that are not

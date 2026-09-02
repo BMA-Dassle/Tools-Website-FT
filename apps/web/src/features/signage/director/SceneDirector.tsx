@@ -27,6 +27,7 @@ import type { DemoMode } from "../demo";
 import { SceneSlot, sceneHasData, isSceneImplemented } from "../scenes/registry";
 import { TvBrandLogo } from "../components/TvBrandLogo";
 import { ArenaDeskStrip } from "../arena/ArenaDeskStrip";
+import { SceneBoundary } from "./SceneBoundary";
 import { frameKey, resolveActiveScene, type SceneDecision } from "./schedule";
 
 /** How often the decision is re-evaluated. Matches AttractBillboard's cadence:
@@ -304,6 +305,16 @@ export function SceneDirector({
 
   const props = { feed, nowMs, offset, venue, config, demo };
 
+  /**
+   * What a frame shows when its scene throws: house advertising, on this frame's
+   * own timings so the fallback lands on the beat rather than restarting the ad
+   * rotation from zero. Ads need no feed, no vendor and no config — which is why
+   * every other degraded path in this surface falls here too.
+   */
+  const adsInstead = (d: SceneDecision) => (
+    <SceneSlot {...props} decision={{ ...d, scene: "ads" }} />
+  );
+
   return (
     <div ref={rootRef} style={{ position: "absolute", inset: 0 }}>
       {/* Everything rides a slow figure-8 so no pixel holds a bright element
@@ -315,7 +326,13 @@ export function SceneDirector({
             data-state="exiting"
             key={frameKey(outgoing)}
           >
-            <SceneSlot {...props} decision={outgoing} />
+            <SceneBoundary
+              frameKey={frameKey(outgoing)}
+              scene={String(outgoing.scene)}
+              fallback={adsInstead(outgoing)}
+            >
+              <SceneSlot {...props} decision={outgoing} />
+            </SceneBoundary>
           </div>
         )}
 
@@ -324,7 +341,16 @@ export function SceneDirector({
           data-state="entering"
           key={frameKey(current)}
         >
-          <SceneSlot {...props} decision={current} />
+          {/* PER SCENE, NOT PER PAGE. A scene that cannot render is skipped for its
+              own turn and the panel keeps running — see SceneBoundary for why the
+              route boundary was the wrong place to absorb this. */}
+          <SceneBoundary
+            frameKey={frameKey(current)}
+            scene={String(current.scene)}
+            fallback={adsInstead(current)}
+          >
+            <SceneSlot {...props} decision={current} />
+          </SceneBoundary>
           <SceneLogo scene={String(current.scene)} venue={venue} />
         </div>
 

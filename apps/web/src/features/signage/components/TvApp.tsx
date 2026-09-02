@@ -400,6 +400,10 @@ export function TvApp({ initialScreenId = null }: { initialScreenId?: string | n
         screenId={screenId}
         health={health}
         windowed={windowed}
+        // So the panels of a wall reload in a ripple instead of all at once —
+        // see WALL_RELOAD_STAGGER_MS. Null for a screen standing on its own,
+        // which keeps every other board's timing exactly as it was.
+        wallPosition={config.wall?.position ?? null}
       >
         {/* THE POLL STAMPS, DOWN TO THE FOOTER OF THE SCORES WALL. They are
             read here because this is where the feed is polled, and the board
