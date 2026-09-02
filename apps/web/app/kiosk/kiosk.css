@@ -913,6 +913,40 @@
   font-size: 26px;
   font-variant-numeric: tabular-nums;
 }
+/* "It went in the cart" — the pill blinks when an activity lands in it and the
+   guest is back on the category chooser (owner 2026-09-02). Driven by
+   KioskFlow's `cartPulse`, which times itself out; the class is simply absent
+   the rest of the time, so nothing animates while a guest reads the screen.
+
+   Animates the BORDER, the glow and the fill — not `transform`. The pill sits
+   in a flex row pinned right with `ml-auto`, and scaling it nudges its
+   neighbours; a colour/shadow pulse draws the eye without moving the layout
+   (the k-tap :active scale stays the only transform on this element). */
+@keyframes k-cart-pulse {
+  0%,
+  100% {
+    border-color: rgba(0, 226, 229, 0.5);
+    background: transparent;
+    box-shadow: 0 0 0 0 rgba(0, 226, 229, 0);
+  }
+  50% {
+    border-color: rgba(0, 226, 229, 1);
+    background: rgba(0, 226, 229, 0.16);
+    box-shadow: 0 0 26px 4px rgba(0, 226, 229, 0.45);
+  }
+}
+.kiosk-canvas .k-cart-pill-pulse {
+  animation: k-cart-pulse 600ms ease-in-out 4;
+}
+/* A guest who has asked the OS for less motion still needs to be told the
+   cart changed — hold the emphasised state instead of flashing it. */
+@media (prefers-reduced-motion: reduce) {
+  .kiosk-canvas .k-cart-pill-pulse {
+    animation: none;
+    border-color: rgba(0, 226, 229, 1);
+    background: rgba(0, 226, 229, 0.16);
+  }
+}
 .kiosk-canvas .k-cart-badge {
   min-width: 40px;
   height: 40px;

@@ -186,6 +186,11 @@ function activityLabelFor(t: Translate, item: SessionItem): string {
   return key ? t(key) : t("flow.activity.generic");
 }
 
+/** How long the cart pill blinks after something lands in it. Four beats of
+ *  the 600ms keyframe — long enough for a guest looking at the category cards
+ *  to catch it in peripheral vision, short enough that it stops before it
+ *  becomes part of the furniture. */
+const CART_PULSE_MS = 2_400;
 const IDLE_FLOW_MS = 120_000;
 const IDLE_CHECKOUT_MS = 180_000;
 
@@ -879,6 +884,52 @@ export function KioskFlow({
 
   const activeItem = getActiveItem(session);
 
+  // ── Guarded exits (owner 2026-07-18: confirm before anything is lost) ──
+  // Which surface is showing follows the render precedence below: checkout →
+  // cart → game zone → VIP overview → categories → wizard.
+  //
+  // Declared HERE, above the `!hydrated || !config` early return, because the
+  // cart-pulse hooks below depend on them and hooks may not sit after a return.
+  const inWizard = !!activeItem && !cartActive && !checkoutActive && !gzOpen;
+  const onCategories = !activeItem && !cartActive && !checkoutActive && !gzOpen && !vipCombo;
+  // Game Zone cards count as a cart entry (owner 2026-07-18: race + cards
+  // showed "1 item") — they're paid at the same checkout, so the pill/banner
+  // must reflect them.
+  const cartCount = session.items.length + (session.gameCardPurchase?.cards.length ? 1 : 0);
+
+  // ── "It went in the cart" — blink the pill (owner 2026-09-02) ──────────────
+  //
+  // Finishing an activity drops the guest back on "What are we doing today?",
+  // and the only thing that changed is a small pill in the util strip counting
+  // up. Guests miss it and re-add the thing they just booked.
+  //
+  // A LATCH, not an effect on the count. The add happens while the guest is
+  // still deep in the wizard (a step commits it, then the flow unwinds), so
+  // blinking the moment the count rises would spend the animation on a screen
+  // where the pill is beside the point. This remembers that something went in
+  // and blinks when — and only when — the chooser is what the guest is looking
+  // at, which is the owner's condition exactly. `assistActive` holds it back
+  // too: that overlay covers the strip, so a blink underneath is wasted.
+  const [cartPulse, setCartPulse] = useState(false);
+  const prevCartCountRef = useRef(cartCount);
+  const cartGrewRef = useRef(false);
+  useEffect(() => {
+    if (cartCount > prevCartCountRef.current) cartGrewRef.current = true;
+    prevCartCountRef.current = cartCount;
+  }, [cartCount]);
+  useEffect(() => {
+    if (!cartGrewRef.current || !onCategories || assistActive || cartCount === 0) return;
+    cartGrewRef.current = false;
+    setCartPulse(true);
+    const id = setTimeout(() => setCartPulse(false), CART_PULSE_MS);
+    return () => clearTimeout(id);
+  }, [onCategories, assistActive, cartCount]);
+  // Gated on `onCategories` at RENDER, not cleared by an effect watching the
+  // cart screen. Walking off the chooser mid-blink — opening the cart, which
+  // answers the question the blink was asking — stops it with no extra state
+  // to keep in sync, and no fifth `setCartActive(true)` path can forget to.
+  const cartPulsing = cartPulse && onCategories;
+
   const bowlingHoldItem = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
   const qamfHoldId =
     bowlingHoldItem && (bowlingHoldItem.kind === "bowling" || bowlingHoldItem.kind === "kbf")
@@ -1302,10 +1353,6 @@ export function KioskFlow({
     if (index >= 0) dispatch({ type: "goto", index });
   };
 
-  // Game Zone cards count as a cart entry (owner 2026-07-18: race + cards
-  // showed "1 item") — they're paid at the same checkout, so the pill/banner
-  // must reflect them.
-  const cartCount = session.items.length + (session.gameCardPurchase?.cards.length ? 1 : 0);
   const openCart = () => {
     clarityEvent("kiosk:cart:open");
     setCheckoutActive(false);
@@ -1313,12 +1360,6 @@ export function KioskFlow({
     setCartActive(true);
     dispatch({ type: "setActiveItem", id: null });
   };
-
-  // ── Guarded exits (owner 2026-07-18: confirm before anything is lost) ──
-  // Which surface is showing follows the render precedence below: checkout →
-  // cart → game zone → VIP overview → categories → wizard.
-  const inWizard = !!activeItem && !cartActive && !checkoutActive && !gzOpen;
-  const onCategories = !activeItem && !cartActive && !checkoutActive && !gzOpen && !vipCombo;
 
   /** Close every screen, back to the category chooser. Cart contents are kept. */
   const goHome = () => {
@@ -1488,7 +1529,7 @@ export function KioskFlow({
         <button
           type="button"
           onClick={requestOpenCart}
-          className="k-cart-pill k-tap ml-auto shrink-0"
+          className={`k-cart-pill k-tap ml-auto shrink-0${cartPulsing ? " k-cart-pill-pulse" : ""}`}
         >
           <svg
             className="h-[28px] w-[28px]"
