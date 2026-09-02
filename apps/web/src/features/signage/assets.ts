@@ -163,8 +163,27 @@ export const TV_WALL_FILMS = {
    * Connect 4 Hoops and the ring toss.
    */
   gameZone: [`${BLOB_HOST}/videos/tv-wall/gamezone-27s.mp4`],
-  /** The FastTrax home-page hero. Genuinely lives under /images/hero/ — not a typo. */
-  fastTrax: [`${BLOB_HOST}/images/hero/hero-video.mp4`],
+  /**
+   * The FastTrax home-page hero, RE-CUT FOR THE WALL.
+   *
+   * The website master is 1764×1176 at 25 Mbps — 30 MB for ten seconds, and 33× the
+   * bitrate of every other reel here. It is a home-page hero doing a home page's job,
+   * where it is fetched once by a visitor on a phone and thrown away; on a wall it is a
+   * panel decoding a 25 Mbps stream all evening, and it is the one file `useWallFilms`
+   * names as the size that loses the download race and that the HTTP cache refuses to
+   * keep. 1200×800 at 3 Mbps is 8× smaller and indistinguishable at six feet — frames
+   * sampled from both are identical down to the kart numbers and the "138" on the tarmac.
+   *
+   * A WALL COPY, NOT AN OVERWRITE. This master is served to headpinz.com/fort-myers as
+   * well; re-cutting in place would quietly change the public site's hero to a signage
+   * encode. The wall gets its own file under `videos/tv-wall/` and the website keeps its
+   * master untouched.
+   *
+   * Kept at 24fps deliberately, unlike the bowling reel above: 24 on a 60Hz panel is
+   * ordinary 2:3 cinema pulldown, which the eye is trained on. 25 is the rate that
+   * judders, and interpolating a film that nobody has reported would be risk for nothing.
+   */
+  fastTrax: [`${BLOB_HOST}/videos/tv-wall/fasttrax-hero-10s.mp4`],
 } as const;
 
 /**
