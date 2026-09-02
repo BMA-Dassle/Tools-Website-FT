@@ -12,8 +12,8 @@
  *    it back, clear a jam, gate control, reject-bin counter).
  *  - Lanes: live bowling + duckpin occupancy from QAMF (never Neon — walk-ins,
  *    leagues and maintenance blocks don't reach our DB).
- *  - Card loads: this kiosk's sales ledger with truthful outcomes, live card
- *    lookup, and the money-guarded clear-card action.
+ *  - Card loads: this kiosk's sales ledger with truthful outcomes and live card
+ *    lookup. Read-only — nothing here can change a card's value.
  *
  * Staff surface → hardcoded English (house precedent; the i18n rule exempts
  * staff surfaces). Styling mirrors KioskAdmin's dark panel language with a

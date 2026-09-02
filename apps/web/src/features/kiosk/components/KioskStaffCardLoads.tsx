@@ -8,12 +8,12 @@
  *     (loadOutcome) and the transport that actually delivered the credit.
  *     A center-wide toggle exists because rows written before kiosk_id shipped
  *     are NULL — and because guests walk over from the other machine.
- *  2. Card lookup — live Intercard balance + real on-card history (the
- *     router's accountHistory, which asks the onsite relay explicitly).
- *  3. Clear card — TPI_ClearAccount behind the server's money guards: balance
- *     shown first, value-holding cards refused without an explicit override,
- *     confirmation by typing the full account number, never retried on an
- *     ambiguous outcome (the server logs it and says to re-read the card).
+ *  2. Card lookup — live Intercard balance + real on-card history.
+ *
+ * READ-ONLY. A clear-card action shipped here on 2026-09-02 and was pulled the
+ * same day (owner): de-registering an account destroys whatever value it holds,
+ * which does not belong behind a floor PIN on a machine guests stand at. Staff
+ * diagnose here and clear, when it is genuinely needed, in Intercard's own tools.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { staffFetch } from "./KioskStaff";
@@ -80,11 +80,6 @@ export function KioskStaffCardLoads({
   const [cardError, setCardError] = useState<string | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
 
-  const [confirmAccount, setConfirmAccount] = useState("");
-  const [override, setOverride] = useState(false);
-  const [clearing, setClearing] = useState(false);
-  const [clearMsg, setClearMsg] = useState<{ ok: boolean; text: string } | null>(null);
-
   const aliveRef = useRef(true);
   useEffect(() => {
     aliveRef.current = true;
@@ -135,9 +130,6 @@ export function KioskStaffCardLoads({
       }
       setLookingUp(true);
       setCardError(null);
-      setClearMsg(null);
-      setConfirmAccount("");
-      setOverride(false);
       const { ok, data } = await staffFetch(
         pin,
         `/api/kiosk/staff?action=card&account=${encodeURIComponent(a)}&locationCode=${locationCode}`,
@@ -155,43 +147,7 @@ export function KioskStaffCardLoads({
     [pin, locationCode],
   );
 
-  const clearCard = useCallback(async () => {
-    if (!card || locationCode == null || clearing) return;
-    setClearing(true);
-    setClearMsg(null);
-    const { ok, data } = await staffFetch(pin, "/api/kiosk/staff", {
-      method: "POST",
-      body: JSON.stringify({
-        action: "clear-card",
-        accountNumber: card.verify.accountNumber,
-        confirmAccount: confirmAccount.trim(),
-        locationCode,
-        kioskId,
-        override,
-      }),
-    });
-    if (!aliveRef.current) return;
-    setClearing(false);
-    if (ok) {
-      setClearMsg({ ok: true, text: "Cleared. Re-checking the card…" });
-      // Prove it: the follow-up read should say the account no longer exists.
-      void lookUp(card.verify.accountNumber);
-    } else {
-      setClearMsg({
-        ok: false,
-        text: typeof data?.error === "string" ? data.error : "Clear failed.",
-      });
-    }
-  }, [pin, card, confirmAccount, override, locationCode, kioskId, clearing, lookUp]);
-
   const balance = card?.verify.balance;
-  const holdsValue =
-    !!card?.verify.exists &&
-    ((balance?.tokens ?? 0) > 0 ||
-      (balance?.bonusTokens ?? 0) > 0 ||
-      (balance?.eTickets ?? 0) > 0 ||
-      (balance?.timeMinutes ?? 0) > 0 ||
-      (card?.verify.cashBalance ?? 0) > 0);
 
   if (!kioskId || locationCode == null) {
     return (
@@ -311,57 +267,6 @@ export function KioskStaffCardLoads({
                 </div>
               )}
             </div>
-
-            {/* ── Clear card (danger zone) ────────────────────────── */}
-            {card.verify.exists && (
-              <div className="rounded-xl border border-red-400/30 bg-red-400/5 p-4">
-                <div className="text-xs font-bold uppercase tracking-widest text-red-300/70">
-                  Clear this card in Intercard
-                </div>
-                <p className="mt-1 text-xs text-white/50">
-                  De-registers the account — any value on it is destroyed and cannot be recovered.
-                  Every attempt is logged with the balance shown above.
-                </p>
-                {holdsValue && (
-                  <label className="mt-3 flex items-center gap-2 text-sm text-amber-200">
-                    <input
-                      type="checkbox"
-                      checked={override}
-                      onChange={(e) => setOverride(e.target.checked)}
-                      className="h-5 w-5"
-                    />
-                    This card still holds value — a manager approved destroying it.
-                  </label>
-                )}
-                <div className="mt-3 flex gap-2">
-                  <input
-                    inputMode="numeric"
-                    data-osk-layout="numeric"
-                    value={confirmAccount}
-                    onChange={(e) => setConfirmAccount(e.target.value)}
-                    placeholder="Type the full account number to confirm"
-                    className="min-w-0 flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 font-mono text-sm text-white focus:border-red-400 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void clearCard()}
-                    disabled={
-                      clearing ||
-                      confirmAccount.trim() !== card.verify.accountNumber ||
-                      (holdsValue && !override)
-                    }
-                    className="rounded-xl border border-red-400/60 bg-red-400/20 px-5 py-2.5 text-sm font-bold text-red-200 disabled:opacity-30"
-                  >
-                    {clearing ? "Clearing…" : "Clear card"}
-                  </button>
-                </div>
-                {clearMsg && (
-                  <p className={`mt-2 text-sm ${clearMsg.ok ? "text-[#46d68c]" : "text-red-300"}`}>
-                    {clearMsg.text}
-                  </p>
-                )}
-              </div>
-            )}
           </div>
         )}
       </div>
