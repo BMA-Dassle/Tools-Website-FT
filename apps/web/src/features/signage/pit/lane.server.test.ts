@@ -113,6 +113,44 @@ function putLiveHeat(heatNumber: number, state: string) {
   store.set("race:live-heat:blue", JSON.stringify({ heatNumber, state, atMs: Date.now() }));
 }
 
+/**
+ * This session's RACE CLOCK, the third promotion witness.
+ *
+ * Written straight into the mocked Redis rather than mocked at the module
+ * boundary, so these cases exercise `readRaceClock`'s own parse — the field it
+ * keys on (`phase`) and the one it must NOT key on (`actualStartMs`, the arm)
+ * are both really there and really read.
+ */
+function putRaceClock(
+  sessionId: string,
+  phase: "armed" | "running" | "paused" | "finished",
+  opts: { actualStartMs?: number | null; clockStartMs?: number | null } = {},
+) {
+  store.set(
+    `kart:raceclock:${sessionId}`,
+    JSON.stringify({
+      raceId: sessionId,
+      heatName: "Heat 44",
+      heatNumber: 44,
+      track: "blue",
+      phase,
+      actualStartMs: opts.actualStartMs ?? null,
+      clockStartMs: opts.clockStartMs ?? null,
+      anchorEstimated: false,
+      lastStartRecordVersion: null,
+      durationMs: 12 * 60_000,
+      pausedTotalMs: 0,
+      pausedSinceMs: null,
+      actualEndMs: null,
+      updatedAtMs: Date.now(),
+    }),
+  );
+}
+
+/* Mega heat 58, 2026-09-01 — the real arm→green window, to the second. */
+const ARMED_AT = Date.parse("2026-09-02T01:44:22Z");
+const GREEN_AT = Date.parse("2026-09-02T01:45:50Z");
+
 beforeEach(() => {
   store.clear();
   finishedMarkers.clear();
@@ -682,6 +720,121 @@ describe("resolveLane — one predicate, two source slots", () => {
 });
 
 /* ── the trigger ────────────────────────────────────────────────────────── */
+
+/**
+ * THE GREEN FLAG IS A WITNESS IN ITS OWN RIGHT (2026-09-01, Mega heat 58).
+ *
+ * Every case here is asserted from BOTH staged slots, same as the block above:
+ * if the seats and the karts ever disagree about what a green flag means,
+ * someone has grown a second copy of the rule.
+ *
+ * The fixture times are the real ones off the live venue that night — armed
+ * 21:44:22, green 21:45:50 — because the 88 seconds between them is the whole
+ * reason this witness reads `phase` and not the start marker.
+ */
+describe("resolveLane — the race clock says they went green", () => {
+  for (const slot of ["holding", "karts"] as const) {
+    describe(`from ${slot}`, () => {
+      it("does NOT promote while the clock is merely ARMED", async () => {
+        // Phase one: karts rolling out, clock armed and static, stragglers
+        // still being walked to their karts. Promoting here empties the seats
+        // out from under staff mid-strap-in — which is exactly why the start
+        // marker was never allowed to promote.
+        putLane({ [slot]: group("s1", 44), racing: null, pitted: null });
+        putRaceClock("s1", "armed", { actualStartMs: ARMED_AT });
+
+        const lane = await readPitLane("blue");
+
+        expect(lane.racing).toBeNull();
+        expect(lane[slot]?.sessionId).toBe("s1");
+      });
+
+      it("promotes once the clock has gone GREEN — no live heat, no finish marker", async () => {
+        putLane({ [slot]: group("s1", 44), racing: null, pitted: null });
+        putRaceClock("s1", "running", { actualStartMs: ARMED_AT, clockStartMs: GREEN_AT });
+
+        const lane = await readPitLane("blue");
+
+        expect(lane.racing?.sessionId).toBe("s1");
+        expect(lane[slot]).toBeNull();
+      });
+
+      it("treats PAUSED as gone out — a race cannot pause before it starts", async () => {
+        putLane({ [slot]: group("s1", 44), racing: null, pitted: null });
+        putRaceClock("s1", "paused", { actualStartMs: ARMED_AT, clockStartMs: GREEN_AT });
+
+        const lane = await readPitLane("blue");
+
+        expect(lane.racing?.sessionId).toBe("s1");
+      });
+
+      it("has NO OPINION when no clock record exists", async () => {
+        // The witness must add promotions, never remove the old behaviour: a
+        // session the bridge has never mentioned falls through to the two
+        // witnesses that were always there.
+        putLane({ [slot]: group("s1", 44), racing: null, pitted: null });
+
+        const lane = await readPitLane("blue");
+
+        expect(lane.racing).toBeNull();
+        expect(lane[slot]?.sessionId).toBe("s1");
+      });
+    });
+  }
+
+  /**
+   * THE REPORTED BUG, end to end (owner 2026-09-01: "the race moves to on track
+   * but the actual race itself in the override menu never moves").
+   *
+   * Mega gets no `race:live-heat` key at all — the pause watcher samples blue
+   * and red only — so before this witness the lane had exactly one way to learn
+   * a mega heat had run, and it was the finish. A group sat in the karts for
+   * the whole of their own race while the desk board, reading this same clock,
+   * correctly showed them ON TRACK.
+   */
+  it("promotes a MEGA heat with no live-heat key in existence", async () => {
+    store.set(
+      "pit:lane:FT:mega",
+      JSON.stringify({
+        holding: group("s59", 59),
+        karts: group("s58", 58),
+        racing: null,
+        pitted: null,
+      }),
+    );
+    putRaceClock("s58", "running", { actualStartMs: ARMED_AT, clockStartMs: GREEN_AT });
+    // Deliberately absent: race:live-heat:mega is written by nothing, ever.
+    expect(store.get("race:live-heat:mega")).toBeUndefined();
+
+    const lane = await readPitLane("mega");
+
+    expect(lane.racing?.sessionId).toBe("s58");
+    expect(lane.karts).toBeNull();
+    // The group behind them is untouched — they have not gone anywhere.
+    expect(lane.holding?.sessionId).toBe("s59");
+  });
+
+  it("leaves the group behind in the seats — only the staged group is promoted", async () => {
+    // 59 is seated with 58 out on track. 59's own clock does not exist yet, and
+    // must not be invented from the track's state.
+    store.set(
+      "pit:lane:FT:mega",
+      JSON.stringify({
+        holding: group("s59", 59),
+        karts: group("s58", 58),
+        racing: null,
+        pitted: null,
+      }),
+    );
+    putRaceClock("s58", "running", { actualStartMs: ARMED_AT, clockStartMs: GREEN_AT });
+    putRaceClock("s59", "armed", { actualStartMs: null });
+
+    const lane = await readPitLane("mega");
+
+    expect(lane.racing?.sessionId).toBe("s58");
+    expect(lane.holding?.sessionId).toBe("s59");
+  });
+});
 
 describe("markInKarts", () => {
   it("frees the seats and takes the karts slot", async () => {
