@@ -347,7 +347,47 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
 
   const result = await claimAndPlay(track, "pre", subject.sessionId, clip);
   if (result.outcome === "failed") return { ok: false, error: result.error };
+
+  /**
+   * THE LANE MOVE RIDES EVERY SUCCESSFUL PRESS, A REPLAY INCLUDED (2026-09-01).
+   *
+   * Defined once and called from both exits. It used to live only on the path
+   * below, under the `already` return — so the SECOND press of Play Pre, which
+   * is the one staff make when the board did not move the first time, could
+   * never move it either. The cue is a one-shot: once a session has its stamp
+   * every later press returns `already` and stopped short of the lane write.
+   *
+   * That is the trap this file already documents from the other side (see
+   * markInKarts, red 19/20 on 2026-08-16): a group whose cue had sounded but
+   * whose slot had not moved was unrecoverable from any button, because the only
+   * button that moves them refuses to speak twice. Making the move idempotent
+   * rather than once-only is what gives staff a retry.
+   *
+   * markInKarts is idempotent by design — it returns ok on a session already in
+   * the slot — so calling it on a replay costs a Redis read and changes nothing
+   * when there is nothing to change.
+   *
+   * NOT for a late pre played to a group already racing: they left the karts
+   * long ago, and markInKarts would (rightly) refuse a session in `racing`.
+   */
+  const moveIntoKarts = async (): Promise<void> => {
+    if (lateForRacing) return;
+    await markInKarts({
+      track,
+      sessionId: subject.sessionId,
+      heatNumber: subject.heatNumber,
+      raceType: subject.raceType,
+      room: subject.room,
+      // Defined above the `already` narrowing, so this is `number | null` here
+      // where the old single call site saw a plain `number`. markInKarts reads
+      // an absent stamp as "now", which is the right reading for a claim that
+      // came back without one.
+      atMs: result.atMs ?? undefined,
+    }).catch(() => {});
+  };
+
   if (result.outcome === "already") {
+    await moveIntoKarts();
     return {
       ok: true,
       alreadyPlayed: true,
@@ -392,17 +432,13 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
    *
    * NOT for a late pre played to a group already racing — they left the karts
    * long ago, and markInKarts would (rightly) refuse a session in `racing`.
+   *
+   * The call itself is `moveIntoKarts` above, which the replayed-press exit also
+   * uses. The ORDERING described here is what keeps it at this point on the
+   * fresh path rather than beside its definition: the insurance row goes to Neon
+   * first, and only then does the lane move.
    */
-  if (!lateForRacing) {
-    await markInKarts({
-      track,
-      sessionId: subject.sessionId,
-      heatNumber: subject.heatNumber,
-      raceType: subject.raceType,
-      room: subject.room,
-      atMs: result.atMs,
-    }).catch(() => {});
-  }
+  await moveIntoKarts();
 
   return { ok: true, atMs: result.atMs, sessionId: subject.sessionId };
 }
