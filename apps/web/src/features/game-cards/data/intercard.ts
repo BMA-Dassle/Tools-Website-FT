@@ -16,7 +16,7 @@
  * decimals. Auth is the MAC alone.
  */
 
-import { macForCenter, INTERCARD_TPI_URL, INTERCARD_BALANCE_URL } from "~/config/intercard-centers";
+import { soapMac, INTERCARD_TPI_URL, INTERCARD_BALANCE_URL } from "~/config/intercard-centers";
 import type { CardBalance, CardTxn, VerifyResult } from "../types";
 
 const TEMPURI = "http://tempuri.org/";
@@ -289,7 +289,7 @@ export async function creditAccountValues(
   const tokenBonus = params.tokenBonus ?? 0;
   const points = params.points ?? 0;
   const duration = params.durationMinutes ?? 0;
-  const mac = macForCenter(locationCode); // per-location registration
+  const mac = soapMac(); // SOAP client id (INTERCARD_MAC), NOT the per-location onsite MAC
   const now = new Date();
   const stamp = sqlDateTime(now, CENTER_TZ);
 
@@ -359,7 +359,7 @@ export async function clearAccount(params: ClearAccountParams): Promise<{ code: 
   if (accountNumbers.length === 0) {
     throw new IntercardError("NO_ACCOUNTS", "clearAccount requires at least one account number");
   }
-  const mac = macForCenter(locationCode);
+  const mac = soapMac();
   const now = new Date();
 
   // Array of account numbers. The item element is <long>, NOT <string>: the
@@ -426,7 +426,7 @@ export async function consolidateAccounts(
   if (sourceAccounts.length === 0) {
     throw new IntercardError("NO_ACCOUNTS", "consolidateAccounts requires a source account");
   }
-  const mac = macForCenter(locationCode); // per-location registration
+  const mac = soapMac(); // SOAP client id (INTERCARD_MAC), NOT the per-location onsite MAC
   const now = new Date();
 
   // WSDL sequence: MAC_ID, sourceAccounts, targetAccount, tpiSessionID,
@@ -476,7 +476,7 @@ export async function verifyAccount(
   const now = new Date();
   const isoNow = sqlDateTime(now, "UTC").replace(" ", "T");
   const loc = locationCode ?? 12; // balance is account-global; LocID is just history context
-  const mac = macForCenter(loc); // per-location registration
+  const mac = soapMac(); // SOAP client id (INTERCARD_MAC), NOT the per-location onsite MAC
 
   const inner =
     macXml(mac) +

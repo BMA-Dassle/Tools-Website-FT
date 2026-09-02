@@ -29,6 +29,26 @@ export function macForCenter(code: number): string {
   return process.env[`INTERCARD_MAC_${code}`] || INTERCARD_MAC || "";
 }
 
+/**
+ * MAC for the LEGACY SOAP services (WS_ThirdPartyInterface / WS_AccountHistory).
+ *
+ * The SOAP path authenticates with a single registered CLIENT IDENTIFIER
+ * (`INTERCARD_MAC`, e.g. "HDPNZEXTRACT") for every centre — the LocID in the
+ * SOAP body selects the location. This is DISTINCT from the Api_External onsite
+ * path, which needs the per-location HARDWARE MAC (`macForCenter`).
+ *
+ * SOAP calls must use THIS, not macForCenter: once the per-location onsite MACs
+ * (INTERCARD_MAC_12/13/6) were added to Vercel, macForCenter began returning
+ * those for the SOAP path too, and the SOAP service rejects them with
+ * "MAC Address not found" — which took every kiosk down the moment the onsite
+ * kill switch was flipped. Verified live 2026-09-02: TPICreditAccounts and
+ * TPI_ClearAccount both return code 0 with INTERCARD_MAC ("HDPNZEXTRACT"), and
+ * "MAC Address not found" with a per-location hardware MAC.
+ */
+export function soapMac(): string {
+  return INTERCARD_MAC;
+}
+
 /** Data-center SOAP endpoints (overridable via env; defaults are the live hosts). */
 export const INTERCARD_TPI_URL =
   process.env.INTERCARD_TPI_URL ||
