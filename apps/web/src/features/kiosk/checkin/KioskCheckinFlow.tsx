@@ -62,7 +62,8 @@ import { prefillPartyMembers } from "./party-prefill";
 import { kioskVoucherPrefillEnabled } from "../flags";
 import { CheckinBowlingDetails } from "./CheckinBowlingDetails";
 import { useWedgeScan } from "./wedge-scan";
-import { useQrScanner } from "../qr-scanner";
+import { useQrScanner, takeScanGate } from "../qr-scanner";
+import { playScanSound } from "../sound";
 import { heatsConflict } from "~/features/booking/service/conflict";
 import { resolveRaceClass } from "./category";
 import { autoAssignRaces } from "./race-autofill";
@@ -593,7 +594,26 @@ export function KioskCheckinFlow() {
     );
   };
 
-  const wedge = useWedgeScan(onScan);
+  /**
+   * A PHYSICAL scan on this screen, as opposed to `onScan` — which also
+   * replays the entry-screen hand-off and must NOT be gated (the router took
+   * the gate for that payload a moment ago, so the replay would come back
+   * `repeat` and the guest would be asked to scan again).
+   *
+   * Check-in is a scan DESTINATION: the router sends a reservation QR here and
+   * its own listener unmounts, so without a gate the reader's next read of the
+   * same code lands on this fresh listener and runs the lookup again.
+   */
+  const handleScannedRaw = (raw: string) => {
+    const verdict = takeScanGate(raw);
+    if (verdict !== "ok") {
+      if (verdict === "cooldown") playScanSound("error");
+      return;
+    }
+    void onScan(raw);
+  };
+
+  const wedge = useWedgeScan(handleScannedRaw);
 
   // Arrived here from a scan on the attract screen or the category chooser:
   // replay it through the SAME path a scan on the find screen takes, so the
@@ -758,7 +778,7 @@ export function KioskCheckinFlow() {
       {(stage === "find" || stage === "matches" || stage === "browse") && (
         <CheckinScanListener
           onScan={(raw) => {
-            if (!busy) void onScan(raw);
+            if (!busy) handleScannedRaw(raw);
           }}
           onLicenseLike={() =>
             setError(
@@ -984,9 +1004,7 @@ export function KioskCheckinFlow() {
                 // straight to bowler details. Everything else keeps the party
                 // (waiver/sign-in) step first.
                 onClick={() =>
-                  setStage(
-                    bowlingOnly && bowlingDetailActivities.length > 0 ? "bowling" : "party",
-                  )
+                  setStage(bowlingOnly && bowlingDetailActivities.length > 0 ? "bowling" : "party")
                 }
                 className="k-btn-primary k-tap h-[112px] w-full text-[36px]"
               >
@@ -1094,9 +1112,7 @@ export function KioskCheckinFlow() {
             onCheckIn={
               bowlingDetailActivities.length > 0 ? () => setStage("bowling") : checkInEveryone
             }
-            checkInLabel={
-              bowlingDetailActivities.length > 0 ? t("checkin.bowl.next") : undefined
-            }
+            checkInLabel={bowlingDetailActivities.length > 0 ? t("checkin.bowl.next") : undefined}
             onBackToParty={() => setStage("party")}
             autoFilled={autoFilled}
             binding={binding}

@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { SCAN_COOLDOWN_MS, holdScanGate, resetScanGate, takeScanGate } from "./scan-gate";
+import {
+  SCAN_COOLDOWN_MS,
+  SCAN_ECHO_MS,
+  holdScanGate,
+  peekScanGate,
+  resetScanGate,
+  takeScanGate,
+} from "./scan-gate";
 
 /** The payloads a real reader hands over — a padded card barcode and a voucher. */
 const CARD = "0000000001063464";
@@ -68,6 +75,36 @@ describe("scan gate", () => {
       expect(takeScanGate(CARD, SCAN_COOLDOWN_MS, t + 120)).toBe("repeat");
     });
 
+    // THE REPORT (owner 2026-09-02: "doesn't seem to work … should do negative
+    // noise"). Payload-only matching made a deliberate re-scan of the same card
+    // silent for the whole 3.5s, which is exactly how anyone tests this.
+    it("a deliberate re-scan of the same card AFTER the echo window buzzes", () => {
+      const t = 1_000_000;
+      takeScanGate(CARD, SCAN_COOLDOWN_MS, t);
+      expect(takeScanGate(CARD, SCAN_COOLDOWN_MS, t + SCAN_ECHO_MS + 1)).toBe("cooldown");
+    });
+
+    // ...but a guest who simply HOLDS the card under the beam produces an
+    // unbroken stream of the same payload, and must not be buzzed at for it.
+    // The window slides on every sighting, so the stream stays silent however
+    // long they hold — this is what makes the test above safe.
+    it("stays silent for a held card, however long it is held", () => {
+      const t = 1_000_000;
+      takeScanGate(CARD, SCAN_COOLDOWN_MS, t);
+      // The reader re-fires every 300ms for three seconds.
+      for (let dt = 300; dt <= 3_000; dt += 300) {
+        expect(takeScanGate(CARD, SCAN_COOLDOWN_MS, t + dt)).toBe("repeat");
+      }
+    });
+
+    it("a gap wider than the window ends the stream — the next one buzzes", () => {
+      const t = 1_000_000;
+      takeScanGate(CARD, SCAN_COOLDOWN_MS, t);
+      expect(takeScanGate(CARD, SCAN_COOLDOWN_MS, t + 300)).toBe("repeat"); // held
+      // Card taken away, then presented again — a second act.
+      expect(takeScanGate(CARD, SCAN_COOLDOWN_MS, t + 300 + SCAN_ECHO_MS + 1)).toBe("cooldown");
+    });
+
     it("calls a DIFFERENT payload a cooldown, so the guest is told to wait", () => {
       const t = 1_000_000;
       takeScanGate(CARD, SCAN_COOLDOWN_MS, t);
@@ -97,6 +134,34 @@ describe("scan gate", () => {
       // Same card, but the guest deliberately re-presented it later — that is a
       // real scan and must be acted on, not swallowed as a reader echo.
       expect(takeScanGate(CARD, SCAN_COOLDOWN_MS, t + SCAN_COOLDOWN_MS)).toBe("ok");
+    });
+  });
+
+  // The entry router refuses re-entry while it is still routing the previous
+  // scan — a card scan spends two network round trips in there. It has to be
+  // able to ask what the guest should HEAR without shortening the cooldown of
+  // the scan it is busy with; that silent early return was most of the report.
+  describe("peek — a verdict without consuming the gate", () => {
+    it("agrees with take about what a refused scan is", () => {
+      const t = 1_000_000;
+      takeScanGate(CARD, SCAN_COOLDOWN_MS, t);
+      expect(peekScanGate(OTHER_CARD, t + 200)).toBe("cooldown");
+      expect(peekScanGate(CARD, t + 200)).toBe("repeat");
+    });
+
+    it("does not shut the gate, so the routing scan keeps its full window", () => {
+      const t = 1_000_000;
+      expect(peekScanGate(CARD, t)).toBe("ok"); // open, and still open after
+      expect(takeScanGate(CARD, SCAN_COOLDOWN_MS, t)).toBe("ok");
+    });
+
+    it("does not extend the cooldown it reports on", () => {
+      const t = 1_000_000;
+      takeScanGate(CARD, SCAN_COOLDOWN_MS, t);
+      // Peeked at repeatedly while routing — the window must still expire on
+      // schedule, measured from the accepted scan.
+      for (let dt = 100; dt < SCAN_COOLDOWN_MS; dt += 100) peekScanGate(OTHER_CARD, t + dt);
+      expect(takeScanGate(OTHER_CARD, SCAN_COOLDOWN_MS, t + SCAN_COOLDOWN_MS)).toBe("ok");
     });
   });
 });

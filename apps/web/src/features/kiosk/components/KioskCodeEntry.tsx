@@ -37,6 +37,7 @@ import { useQrScanner } from "../qr-scanner/useQrScanner";
 import { useWedgeScan } from "../checkin/wedge-scan";
 import { classifyKioskCode, type KioskCodeKind } from "../code-entry/classify";
 import { playScanSound } from "../sound";
+import { takeScanGate } from "../qr-scanner/scan-gate";
 import { receiptPlan } from "../code-entry/receipt-plan";
 import {
   ghostCartGroups,
@@ -941,6 +942,29 @@ export function KioskCodeEntry({
    *  panel is terminal, so scanning into it would be noise. */
   const panelAcceptsScans = panel?.kind === "voucher-gamecard";
 
+  /**
+   * A PHYSICAL scan, as opposed to `handleRaw` — which also replays the
+   * hand-off from the entry screen and must never be gated (the router took
+   * the gate for that exact payload a moment ago, so the replay would come
+   * back `repeat` and the code would vanish).
+   *
+   * This screen is a scan destination: the entry router sends a voucher here
+   * and its listener unmounts, so without a gate here the reader's next read
+   * lands on a brand-new listener and is processed as a fresh code. That is
+   * how the cooldown looked like it did nothing (owner 2026-09-02).
+   */
+  const handleScannedRaw = useCallback(
+    (raw: string) => {
+      const verdict = takeScanGate(raw);
+      if (verdict !== "ok") {
+        if (verdict === "cooldown") playScanSound("error");
+        return;
+      }
+      handleRaw(raw);
+    },
+    [handleRaw],
+  );
+
   // Serial QR scanner — same provisioning knobs as the license scan.
   useQrScanner({
     enabled: !!config?.qrScannerEnabled && (!panel || panelAcceptsScans),
@@ -948,13 +972,13 @@ export function KioskCodeEntry({
     baudRate: config?.qrScannerBaud ?? null,
     portInfo: config?.qrScannerPortInfo ?? null,
     allowLoneGrantFallback: false,
-    onScan: (scan) => handleRaw(scan.payload),
+    onScan: (scan) => handleScannedRaw(scan.payload),
   });
 
   // Keyboard-wedge scanner: the burst capture disarms itself after 15s (it
   // shares the keyboard with the OSK + IdleWatcher), so keep re-arming while
   // this screen is up and no result panel is showing.
-  const wedge = useWedgeScan(handleRaw);
+  const wedge = useWedgeScan(handleScannedRaw);
   const wedgeArm = wedge.arm;
   useEffect(() => {
     if ((panel && !panelAcceptsScans) || !config?.scannerEnabled) return;

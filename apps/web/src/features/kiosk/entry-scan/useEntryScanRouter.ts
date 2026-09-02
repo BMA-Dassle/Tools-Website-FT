@@ -37,7 +37,7 @@ import { classifyEntryScan, type UnsupportedReason } from "./classify-entry";
 import { stashEntryScan } from "./handoff";
 import { lookupByScan } from "../checkin/service";
 import { accountFromScan, cardIsKnown } from "../service/scanned-card";
-import { takeScanGate } from "../qr-scanner/scan-gate";
+import { peekScanGate, takeScanGate } from "../qr-scanner/scan-gate";
 import { playScanSound } from "../sound";
 import { gameZoneCapability, type KioskConfig } from "../config";
 import { kioskCheckinEnabled, kioskPromoEnabled } from "../flags";
@@ -95,7 +95,19 @@ export function useEntryScanRouter(host: EntryScanRouterHost) {
   const clearMiss = useCallback(() => setMiss(null), []);
 
   const handleScan = useCallback(async (raw: string) => {
-    if (routingRef.current) return;
+    if (routingRef.current) {
+      // A scan arriving while the PREVIOUS one is still resolving. This used to
+      // return in silence, and it is the reason the cooldown looked dead on the
+      // attraction screens: routing a card spends TWO network round trips here
+      // (accountFromScan, then cardIsKnown), so `routingRef` is up for a second
+      // or three — the exact window a guest scans again in — and every one of
+      // those scans was dropped before the gate was ever asked. It is a scan
+      // inside the grace period, so it must sound like one. Peek, never take:
+      // consuming the gate here would shorten the window for the scan that is
+      // actually being routed.
+      if (peekScanGate(raw) === "cooldown") playScanSound("error");
+      return;
+    }
     // One accepted scan per cooldown, kiosk-wide. `routingRef` only covers
     // THIS component while it is routing; an auto-sense reader keeps firing
     // and the screen it routes to mounts a fresh listener with fresh state,
@@ -258,8 +270,10 @@ export function useEntryScanRouter(host: EntryScanRouterHost) {
 
   /** A driver's licence went under the scanner. */
   const handleLicense = useCallback(() => {
+    // Sounded either way — a licence under the beam is never a destination, and
+    // silence while the previous scan routes is the same gap fixed above.
+    playScanSound("error");
     if (routingRef.current) return;
-    playScanSound("error"); // nothing moves — the tone is the feedback
     setMiss("license");
   }, []);
 

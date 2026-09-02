@@ -23,7 +23,8 @@
  */
 import { useEffect, useRef } from "react";
 import { useKioskConfig } from "../../KioskConfigContext";
-import { extractGanCandidate, useQrScanner } from "../../qr-scanner";
+import { extractGanCandidate, takeScanGate, useQrScanner } from "../../qr-scanner";
+import { playScanSound } from "../../sound";
 
 /** Quiet gap that ends one physical scan's line burst (mirrors useLicenseScan). */
 const SCAN_BURST_QUIET_MS = 350;
@@ -68,6 +69,14 @@ export function GiftCardScanListener(props: {
           return;
         }
         if (lines.length !== 1) return;
+        // One scan per cooldown, kiosk-wide. This runs on the PAY step, where
+        // a double-read is worst: the same gift card re-read a moment later
+        // starts a second balance lookup against a card already tendered.
+        const verdict = takeScanGate(lines[0]);
+        if (verdict !== "ok") {
+          if (verdict === "cooldown") playScanSound("error");
+          return;
+        }
         const result = extractGanCandidate(lines[0]);
         if (result.kind === "candidate") propsRef.current.onCandidate(result.gan);
         else if (result.kind === "license") propsRef.current.onReject("license");
