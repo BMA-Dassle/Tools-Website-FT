@@ -135,6 +135,13 @@ export const racepackEn = {
     "Buy one race on a Wednesday, get one free — schedule both today and every second race is free at checkout.",
   /** The banner's price example footer: "$20.99 [struck $41.98] for 2 races". */
   "payMode.bogo.forTwo": "for 2 races",
+  /** Strip INSIDE the Single race card (owner 2026-09-02 — the floating banner
+   *  between two tappable rows read as a product that wouldn't tap). Lead-in is
+   *  payMode.flashSale; this is the sentence after it. */
+  "payMode.bogo.strip":
+    "Book 2 races today and your 2nd is free at checkout — every second race, no cap.",
+  /** The strip's price: "$20.99 for 2", under the struck 2× price. */
+  "payMode.bogo.for2": "{price} for 2",
   "payMode.raceWord": "{count, plural, one {race} other {races}}",
   "payMode.incl.prefix": "incl. {list}",
   "payMode.incl.license": "license",
@@ -145,6 +152,10 @@ export const racepackEn = {
   "payMode.incl.appetizer": "appetizer",
   "payMode.say.qualifier":
     "Starter now, then your Intermediate spot saved for later — faster karts, same visit.",
+  /** The BOGO bundle as the Wednesday hero (owner 2026-09-02) — the UQ's pitch
+   *  grammar with the deal in it, since it IS the same two races. */
+  "payMode.say.bogo":
+    "Starter now, then Intermediate — two races for the price of one, same visit.",
   "payMode.say.rookie": "One Starter race with the in-kart video of it.",
   "payMode.single.anyRace": "Single race",
   "payMode.single.orUse": "Pay per race — or use credits, comps, or a pack",
@@ -279,6 +290,9 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   "payMode.bogo.sub":
     "Compra una carrera un miércoles y llévate otra gratis — agenda las dos hoy y cada segunda carrera es gratis al pagar.",
   "payMode.bogo.forTwo": "por 2 carreras",
+  "payMode.bogo.strip":
+    "Agenda 2 carreras hoy y la segunda es gratis al pagar — cada segunda carrera, sin límite.",
+  "payMode.bogo.for2": "{price} por 2",
   "payMode.raceWord": "{count, plural, one {carrera} other {carreras}}",
   "payMode.incl.prefix": "incluye {list}",
   "payMode.incl.license": "licencia",
@@ -287,6 +301,8 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   "payMode.incl.appetizer": "aperitivo",
   "payMode.say.qualifier":
     "Starter ahora y te guardamos tu lugar de Intermediate para más tarde — karts más rápidos, misma visita.",
+  "payMode.say.bogo":
+    "Starter ahora y luego Intermediate — dos carreras por el precio de una, misma visita.",
   "payMode.say.rookie": "Una carrera Starter con el video desde el kart.",
   "payMode.single.anyRace": "Carrera individual",
   "payMode.single.orUse": "Paga por carrera — o usa créditos, cortesías o un pack",

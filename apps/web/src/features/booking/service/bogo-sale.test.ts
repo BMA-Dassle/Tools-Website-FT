@@ -29,6 +29,7 @@ import {
 import {
   eligiblePackages,
   getPackage,
+  packageFamilySuperseded,
   packageFitsRaceDate,
   packagePerRacerPrice,
 } from "@/lib/packages";
@@ -515,5 +516,76 @@ describe("BOGO — never on the web race-pack page", () => {
     const weekendWalkUp = kioskPackSkus(SAT_BUYS).map((p) => p.slug);
     expect(weekendWalkUp).not.toContain("3-race-weekday");
     expect(webPackSkus().map((p) => p.slug)).toContain("3-race-weekday");
+  });
+});
+
+describe("BOGO — supersedes the Ultimate Qualifier only where the deal itself is offered", () => {
+  /**
+   * The two are the SAME Starter + Intermediate SKUs, so on a Wednesday the
+   * $49.97 house recommendation sat directly above the identical races at
+   * $20.99 (owner 2026-09-02: hide the UQ while BOGO runs). The rule is DATA
+   * (`supersedes` on the BOGO bundles) applied inside eligiblePackages after
+   * every other gate — so it can only fire in contexts where BOGO survived
+   * them, and every surface reading the accessor (web pay-mode, kiosk
+   * pay-mode, product step, Experiences shelf) agrees for free.
+   */
+  const ctx = { racerType: "new", schedule: "weekday" } as const;
+
+  it("Wednesday new racers: BOGO in, every Ultimate Qualifier variant out — both categories", () => {
+    for (const category of ["adult", "junior"] as const) {
+      const ids = eligiblePackages({ ...ctx, category, raceDate: WED, now: TUE_BUYS }).map(
+        (p) => p.id,
+      );
+      expect(ids).toContain(category === "junior" ? "bogo-weekday-junior" : "bogo-weekday");
+      expect(ids.filter((id) => id.startsWith("ultimate-qualifier"))).toHaveLength(0);
+    }
+  });
+
+  it("any other day: the UQ is back and no badge bundle shadows it", () => {
+    for (const raceDate of [THU, MON]) {
+      const ids = eligiblePackages({ ...ctx, category: "adult", raceDate, now: WED_BUYS }).map(
+        (p) => p.id,
+      );
+      expect(ids.some((id) => id.startsWith("ultimate-qualifier"))).toBe(true);
+      expect(ids).not.toContain("bogo-weekday");
+    }
+  });
+
+  it("keeps the UQ if a mega day ever landed on a Wednesday — BOGO's schedules never included mega", () => {
+    // HYPOTHETICAL calendar guard (no mega day falls on a Wednesday today):
+    // the supersession must key off "is the deal on offer HERE", not "is it
+    // Wednesday" — on a mega schedule the weekday-priced BOGO SKUs are not
+    // sellable, so hiding the UQ would leave new racers with no bundle at all.
+    const ids = eligiblePackages({
+      racerType: "new",
+      schedule: "mega",
+      category: "adult",
+      raceDate: WED,
+      now: TUE_BUYS,
+    }).map((p) => p.id);
+    expect(ids.some((id) => id.startsWith("ultimate-qualifier"))).toBe(true);
+    expect(ids).not.toContain("bogo-weekday");
+  });
+
+  it("returning racers were never offered either bundle — nothing changes for them", () => {
+    const ids = eligiblePackages({
+      racerType: "existing",
+      schedule: "weekday",
+      category: "adult",
+      raceDate: WED,
+      now: TUE_BUYS,
+    }).map((p) => p.id);
+    expect(ids).not.toContain("bogo-weekday");
+    expect(ids.some((id) => id.startsWith("ultimate-qualifier"))).toBe(false);
+  });
+
+  it("packageFamilySuperseded says WHY the shelf tile hides: Wednesday yes, Thursday no", () => {
+    // The kiosk Experiences tile HIDES on supersession instead of locking with
+    // uqAvailable's "not enough time left today" — the wrong words for
+    // "there's a better deal" (owner 2026-09-02).
+    expect(packageFamilySuperseded("ultimate-qualifier", WED, TUE_BUYS)).toBe(true);
+    expect(packageFamilySuperseded("ultimate-qualifier", LATER_WED, LATER_BUYS)).toBe(true);
+    expect(packageFamilySuperseded("ultimate-qualifier", THU, WED_BUYS)).toBe(false);
+    expect(packageFamilySuperseded("ultimate-qualifier", SAT, SAT_BUYS)).toBe(false);
   });
 });

@@ -152,6 +152,7 @@ function inclusions(t: Translate, pkg: PackageDefinition): string {
  *  falls back to its own `shortDescription` instead of rendering nothing. */
 function bundleSay(t: Translate, pkg: PackageDefinition): string {
   if (pkg.id.startsWith("ultimate-qualifier")) return t("payMode.say.qualifier");
+  if (pkg.id.startsWith("bogo-")) return t("payMode.say.bogo");
   if (pkg.id.startsWith("rookie-pack")) return t("payMode.say.rookie");
   return pkg.shortDescription;
 }
@@ -212,6 +213,21 @@ const KIOSK_S = {
   packBody:
     "rounded-b-2xl border-[1.5px] border-t-0 border-[#00E2E5]/32 bg-[#00E2E5]/[0.03] px-5 py-4",
   perRacer: "text-center text-[18px] text-white/40",
+  // ── Added 2026-09-02 (owner-approved BOGO mockups) — NEW slots only; every
+  // literal above is untouched. heroWas: struck retail on a sale hero.
+  // singleWrap/singleBtn + bogoStrip*: the Single race card grows an attached
+  // BOGO strip on Wednesdays (returning racers) — wrapper carries the border
+  // the lone button otherwise carries itself.
+  heroWas: "block text-[20px] font-semibold tabular-nums text-white/40 line-through",
+  singleWrap: "w-full rounded-2xl border-2",
+  singleBtn: "flex w-full items-center gap-4 px-5 py-3 text-left",
+  bogoStrip:
+    "flex w-full items-center gap-4 rounded-b-[14px] border-t border-dashed border-amber-400/45 bg-amber-400/10 px-5 py-3.5 text-left",
+  bogoLead: "mr-1 font-bold uppercase not-italic text-amber-300",
+  bogoText: "min-w-0 flex-1 text-[18px] leading-snug text-amber-100/85",
+  bogoPriceCol: "shrink-0 text-right",
+  bogoWas: "block text-[16px] font-semibold tabular-nums text-white/40 line-through",
+  bogoNow: "block text-[20px] font-extrabold italic tabular-nums text-amber-200",
 } as const;
 
 const WEB_S = {
@@ -269,6 +285,16 @@ const WEB_S = {
   packBody:
     "rounded-b-xl border-[1.5px] border-t-0 border-[#00E2E5]/32 bg-[#00E2E5]/[0.03] px-4 py-3",
   perRacer: "text-center text-xs text-white/40",
+  heroWas: "block text-sm font-semibold tabular-nums text-white/40 line-through",
+  singleWrap: "w-full rounded-xl border-2",
+  singleBtn: "flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-left",
+  bogoStrip:
+    "flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-b-[10px] border-t border-dashed border-amber-400/45 bg-amber-400/10 px-4 py-2.5 text-left",
+  bogoLead: "mr-1 font-bold uppercase not-italic text-amber-300",
+  bogoText: "min-w-0 flex-1 basis-40 text-xs leading-snug text-amber-100/85",
+  bogoPriceCol: "ml-auto shrink-0 text-right",
+  bogoWas: "block text-[11px] font-semibold tabular-nums text-white/40 line-through",
+  bogoNow: "block text-sm font-extrabold italic tabular-nums text-amber-200",
 } as const satisfies Record<keyof typeof KIOSK_S, string>;
 
 const money = (n: number) => `$${n.toFixed(2)}`;
@@ -365,6 +391,7 @@ function HeroBundleCard({
 }) {
   const { blocked, perRacer } = useBundlePricing(pkg, item.date, racerCount);
   const [inclOpen, setInclOpen] = useState(false);
+  const incl = inclusions(t, pkg);
   const selectBtn = (
     <button
       type="button"
@@ -400,8 +427,17 @@ function HeroBundleCard({
         )}
       </span>
       <span className={S.heroPriceCol}>
+        {/* A sale hero shows what it WAS — same live-price guard as BundleRow:
+            never a strike that isn't strictly above the price shown. */}
+        {!blocked && pkg.retailPrice != null && pkg.retailPrice > perRacer && (
+          <span className={S.heroWas}>{money(pkg.retailPrice)}</span>
+        )}
         <span className={S.heroPrice}>{money(perRacer)}</span>
-        <span className={S.heroIncl}>{inclusions(t, pkg)}</span>
+        {/* Empty for a bundle with no inclusions (BOGO) — the card deliberately
+            does NOT call out what it lacks (owner 2026-09-02: "doesn't include
+            license or POV — doesn't need to say that"); checkout itemizes the
+            first-timer license as its own line either way. */}
+        {incl && <span className={S.heroIncl}>{incl}</span>}
       </span>
     </button>
   );
@@ -562,7 +598,12 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
     const offered = bundlesFor(item, session, category);
     const bundles =
       selected && !offered.some((p) => p.id === selected.id) ? [selected, ...offered] : offered;
-    const hero = bundles.find((p) => p.recommended) ?? null;
+    // A live deal (badge) takes the hero slot over the standing house
+    // recommendation — since the supersession rule (lib/packages.ts) the two
+    // never coexist, but this keeps the pill + strike-through pricing on the
+    // gold card even if a future badge bundle runs alongside the UQ. The UQ
+    // takes the card straight back the day the deal's `raceDays` don't match.
+    const hero = bundles.find((p) => p.badge) ?? bundles.find((p) => p.recommended) ?? null;
     const others = bundles.filter((p) => p !== hero);
     const memberships = racers.flatMap((m) => m.memberships ?? []);
 
@@ -741,7 +782,7 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
           </p>
         )}
 
-        {/* HERO — the house recommendation */}
+        {/* HERO — the house recommendation, or the live deal when one runs */}
         {hero && (
           <HeroBundleCard
             pkg={hero}
@@ -771,102 +812,121 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
           />
         ))}
 
-        {/* The plain single race */}
-        {cheapestSingle && baseline != null && (
-          <button
-            type="button"
-            onClick={chooseSingle}
-            aria-pressed={singleChosen}
-            // rowCard carries the border-2/rounded on web (the bundle rows get
-            // them from their wrapper div) — without it the selected state was
-            // an invisible 3%→7% bg tint (owner 2026-08-10: "doesn't highlight").
-            className={`${S.rowCard} ${S.row} ${singleChosen ? S.rowSelected : S.rowIdle}`}
-          >
-            <CountBadge n={1} t={t} S={S} />
-            <span className={S.rowBody}>
-              {/* Never names a TIER: the tier is what page 2 asks for, and a
-                  guest who hasn't been there yet reads "Starter race" as a
-                  product they're being sold (owner 2026-08-04). */}
-              <span className={S.rowName}>{t("payMode.single.anyRace")}</span>
-              {/* This row is ALSO the only path for a guest whose race is already
-                  covered — banked credits, a comp, or the pack they just added —
-                  so it can't read as "pay again" (owner 2026-08-04). The web
-                  variant doesn't mention packs until the pack rail is on. */}
-              <span className={S.rowSay}>
-                {kiosk || packsOn ? t("payMode.single.orUse") : t("payMode.single.orUse.web")}
-              </span>
-            </span>
-            <span className={S.singlePriceCol}>
-              {/* Always "from": the tiers on offer can differ in price, and
-                  credits / comps / a pack can take it to $0. `baseline` keeps the
-                  licence in it when every racer owes one, so the +$ deltas on the
-                  bundle rows above still add up against this number. */}
-              <span className={S.singlePrice}>
-                {t("payMode.single.fromRacer", { price: money(baseline) })}
-              </span>
-              {allOweLicense ? (
-                <span className={S.singleNote}>
-                  {t("payMode.incl.prefix", { list: t("payMode.incl.license") })}
+        {/* The plain single race. On BOGO Wednesdays it grows an attached amber
+            STRIP (owner-approved mockups 2026-09-02): the scheduled-race special
+            (every 2nd Wednesday race prices to $0 automatically at checkout —
+            service/bogo-scheduled.ts) is a fact ABOUT this choice, and the old
+            free-floating ad banner between two tappable rows read as a fifth
+            product that wouldn't tap. The strip is its own button (a nested
+            button is invalid HTML) doing exactly what the row does, so the
+            whole card is one tap target. NEW racers never see the strip — for
+            them the offer IS the buyable badge bundle above (`bundles.every`
+            below), which also de-dupes the old banner+bundle double-render.
+            Keys off the RACE DATE like both halves of the promo always have;
+            a racing pass (Employee 50%) takes priority and never combines, so
+            the strip hides when every racer on the page holds one (owner,
+            preview smoke 2026-08-31). */}
+        {cheapestSingle &&
+          baseline != null &&
+          (() => {
+            const bogoStripOn =
+              !!item.date &&
+              bogoSaleActive(item.date) &&
+              bundles.every((b) => !b.badge) &&
+              racers.some(
+                (m) => !racingPassBlocksBogo((m as { memberships?: string[] }).memberships),
+              );
+            const rowInner = (
+              <>
+                <CountBadge n={1} t={t} S={S} />
+                <span className={S.rowBody}>
+                  {/* Never names a TIER: the tier is what page 2 asks for, and a
+                      guest who hasn't been there yet reads "Starter race" as a
+                      product they're being sold (owner 2026-08-04). */}
+                  <span className={S.rowName}>{t("payMode.single.anyRace")}</span>
+                  {/* This row is ALSO the only path for a guest whose race is already
+                      covered — banked credits, a comp, or the pack they just added —
+                      so it can't read as "pay again" (owner 2026-08-04). The web
+                      variant doesn't mention packs until the pack rail is on. */}
+                  <span className={S.rowSay}>
+                    {kiosk || packsOn ? t("payMode.single.orUse") : t("payMode.single.orUse.web")}
+                  </span>
                 </span>
-              ) : owesLicense.length > 0 ? (
-                <span className={S.singleNote}>
-                  {t("payMode.license.plus", {
-                    price: money(LICENSE_PRICE),
-                    names: owesLicense
-                      .map((m) => (m as { firstName: string }).firstName)
-                      .join(" & "),
-                  })}
+                <span className={S.singlePriceCol}>
+                  {/* Always "from": the tiers on offer can differ in price, and
+                      credits / comps / a pack can take it to $0. `baseline` keeps the
+                      licence in it when every racer owes one, so the +$ deltas on the
+                      bundle rows above still add up against this number. */}
+                  <span className={S.singlePrice}>
+                    {t("payMode.single.fromRacer", { price: money(baseline) })}
+                  </span>
+                  {allOweLicense ? (
+                    <span className={S.singleNote}>
+                      {t("payMode.incl.prefix", { list: t("payMode.incl.license") })}
+                    </span>
+                  ) : owesLicense.length > 0 ? (
+                    <span className={S.singleNote}>
+                      {t("payMode.license.plus", {
+                        price: money(LICENSE_PRICE),
+                        names: owesLicense
+                          .map((m) => (m as { firstName: string }).firstName)
+                          .join(" & "),
+                      })}
+                    </span>
+                  ) : null}
                 </span>
-              ) : null}
-            </span>
-          </button>
-        )}
-
-        {/* BOGO Wednesdays — a static ADVERTISEMENT, not a purchasable row.
-            The special stopped being a credit pack on 2026-08-31 (owner:
-            "never meant to be a race pack; buy one get one, all races must be
-            scheduled"): every 2nd scheduled race today prices to $0
-            automatically (service/bogo-scheduled.ts), so there is nothing to
-            select here — the banner just has to be impossible to miss, for
-            the same reason the old promoted row was pulled out of the
-            collapsed line (owner 2026-08-12: "I don't want to have to click
-            into this to find this special"). Keys off the RACE DATE like both
-            halves of the promo always have. */}
-        {item.date &&
-          bogoSaleActive(item.date) &&
-          cheapestSingle != null &&
-          /* A racing pass (Employee 50%, League 20%) takes priority over the
-             special and never combines — hide the ad from a page whose racers
-             would all be excluded (owner, preview smoke 2026-08-31). */
-          racers.some(
-            (m) => !racingPassBlocksBogo((m as { memberships?: string[] }).memberships),
-          ) && (
-            <div className="relative mt-2 flex w-full items-center gap-4 rounded-2xl border-2 border-amber-400 bg-linear-to-br from-amber-400/20 to-amber-400/5 px-5 pb-4 pt-6 text-left">
-              <span className="absolute -top-3 left-5 rounded-full bg-amber-400 px-3 py-1 text-[11px] font-black uppercase italic tracking-wide text-[#241701]">
-                {t("payMode.flashSale")}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="font-display block text-lg font-black uppercase leading-tight">
-                  {t("payMode.bogo.title")}
-                </span>
-                <span className="mt-0.5 block text-sm text-white/60">{t("payMode.bogo.sub")}</span>
-              </span>
-              {/* This page's OWN tier prices the example (the junior page shows
-                junior money) — 2× the cheapest single, struck through to the
-                price of one. */}
-              <span className="shrink-0 text-right">
-                <span className="block text-xs font-semibold tabular-nums text-white/40 line-through">
-                  {money(cheapestSingle.price * 2)}
-                </span>
-                <span className="block text-xl font-extrabold tabular-nums">
-                  {money(cheapestSingle.price)}
-                </span>
-                <span className="block text-[10px] font-bold uppercase tracking-wide text-amber-400">
-                  {t("payMode.bogo.forTwo")}
-                </span>
-              </span>
-            </div>
-          )}
+              </>
+            );
+            if (!bogoStripOn) {
+              return (
+                <button
+                  type="button"
+                  onClick={chooseSingle}
+                  aria-pressed={singleChosen}
+                  // rowCard carries the border-2/rounded on web (the bundle rows get
+                  // them from their wrapper div) — without it the selected state was
+                  // an invisible 3%→7% bg tint (owner 2026-08-10: "doesn't highlight").
+                  className={`${S.rowCard} ${S.row} ${singleChosen ? S.rowSelected : S.rowIdle}`}
+                >
+                  {rowInner}
+                </button>
+              );
+            }
+            return (
+              // The wrapper carries the border/selected tint the lone button
+              // otherwise carries itself — the bundle rows' web grammar.
+              <div className={`${S.singleWrap} ${singleChosen ? S.rowSelected : S.rowIdle}`}>
+                <button
+                  type="button"
+                  onClick={chooseSingle}
+                  aria-pressed={singleChosen}
+                  className={S.singleBtn}
+                >
+                  {rowInner}
+                </button>
+                <button
+                  type="button"
+                  onClick={chooseSingle}
+                  aria-pressed={singleChosen}
+                  className={S.bogoStrip}
+                >
+                  <span className={S.bogoText}>
+                    <span className={S.bogoLead}>{t("payMode.flashSale")}</span>{" "}
+                    {t("payMode.bogo.strip")}
+                  </span>
+                  {/* This page's OWN tier prices the example (the junior page
+                      shows junior money) — 2× the cheapest single, struck
+                      through to the price of one. */}
+                  <span className={S.bogoPriceCol}>
+                    <span className={S.bogoWas}>{money(cheapestSingle.price * 2)}</span>
+                    <span className={S.bogoNow}>
+                      {t("payMode.bogo.for2", { price: money(cheapestSingle.price) })}
+                    </span>
+                  </span>
+                </button>
+              </div>
+            );
+          })()}
 
         {/* Race packs — one line until tapped */}
         {packsOn && skus.length > 0 && (

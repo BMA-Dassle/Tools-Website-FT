@@ -193,6 +193,21 @@ export interface PackageDefinition {
    * the i18n catalog (EN + ES) rather than printing this string raw.
    */
   badge?: string;
+  /**
+   * Package-family id prefix this deal REPLACES while it is on offer — "while
+   * BOGO Races is buyable, don't also show the Ultimate Qualifier" (owner
+   * 2026-09-02: the two are the same Starter + Intermediate SKUs, so on a
+   * Wednesday the $49.97 recommendation sat directly above the identical races
+   * at $20.99). Applied inside `eligiblePackages` AFTER every other gate, so
+   * the supersession only fires in contexts where this deal itself is offered:
+   * a Mega-schedule Wednesday (BOGO's `schedules` excludes "mega") or a
+   * returning-racer party keeps the superseded family untouched.
+   *
+   * DATA, not a component heuristic, for the same reason `badge` is — and one
+   * direction only: the deal names what it hides; the standing package never
+   * knows the deal exists.
+   */
+  supersedes?: string;
   /** Eligibility — `"any"` matches both new and existing racers. */
   racerType: "new" | "existing" | "any";
   /** When this package is bookable. Empty array means never. */
@@ -755,6 +770,10 @@ const PACKAGES: PackageDefinition[] = [
     // the RACE clock this bundle is actually gated by. See the field's docs.
     raceDays: BOGO_RACE_DAYS,
     badge: "WEDNESDAYS",
+    // Same two race SKUs as the Ultimate Qualifier — while this deal is
+    // buyable the UQ is hidden, or the house recommendation is a $24-worse
+    // duplicate (owner 2026-09-02). See the field's docs.
+    supersedes: "ultimate-qualifier",
     racerType: "new",
     schedules: ["weekday"],
     category: "adult",
@@ -823,6 +842,8 @@ const PACKAGES: PackageDefinition[] = [
     enabled: true,
     raceDays: BOGO_RACE_DAYS,
     badge: "WEDNESDAYS",
+    // Mirrors the adult variant — see its `supersedes` note.
+    supersedes: "ultimate-qualifier",
     racerType: "new",
     schedules: ["weekday"],
     category: "junior",
@@ -1084,7 +1105,7 @@ export function packageFitsRaceDate(
  *  by `displayOrder` ascending so featured packages float to the
  *  top of the picker. Ties fall back to registry order. */
 export function eligiblePackages(ctx: EligibilityContext): PackageDefinition[] {
-  return PACKAGES.filter((p) => {
+  const list = PACKAGES.filter((p) => {
     if (!p.enabled) return false;
     if ((p.bookableFrom || p.bookableUntil) && !withinBookableWindow(p, ctx.now ?? new Date())) {
       return false;
@@ -1101,6 +1122,35 @@ export function eligiblePackages(ctx: EligibilityContext): PackageDefinition[] {
     if (p.category !== "any" && ctx.category && p.category !== ctx.category) return false;
     return true;
   }).sort((a, b) => (a.displayOrder ?? 100) - (b.displayOrder ?? 100));
+  // Supersession pass — AFTER every gate above, so a deal only hides its
+  // standing twin in contexts where the deal itself survived (see the
+  // `supersedes` field docs). A superseder never hides itself.
+  const superseded = list.flatMap((p) => (p.supersedes ? [p.supersedes] : []));
+  if (superseded.length === 0) return list;
+  return list.filter((p) => !superseded.some((family) => p.id.startsWith(family)));
+}
+
+/**
+ * Is `family` (an id prefix, e.g. "ultimate-qualifier") hidden on `raceDate`
+ * because an active deal supersedes it? For SHELF surfaces that advertise a
+ * package family outside any one booking context (the kiosk Experiences tile):
+ * `eligiblePackages` already hides the family from every picker, but a shelf
+ * tile locked by that hide would otherwise claim "nothing fits today" — the
+ * wrong words. Checked across BOTH categories with no qualified-tier gate,
+ * because the tile itself is shown to everyone.
+ */
+export function packageFamilySuperseded(
+  family: string,
+  raceDate: string,
+  now: Date = new Date(),
+): boolean {
+  return eligiblePackages({
+    // null skips the racer-type gate — the shelf doesn't know who's tapping.
+    racerType: null,
+    schedule: scheduleForDate(raceDate),
+    raceDate,
+    now,
+  }).some((p) => p.supersedes === family);
 }
 
 /** Per-racer total for a package. When the package didn't pin an

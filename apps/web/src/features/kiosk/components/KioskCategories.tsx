@@ -29,10 +29,13 @@ import type { AppliedPromo } from "~/features/discount-codes";
 import type { AppliedVoucherState } from "~/features/booking/state/types";
 import { KioskVoucherSummary } from "./KioskVoucherSheet";
 import { enabledCombos, type ComboSpecial } from "~/features/combos";
-import { packageFamilyFromPrice } from "~/features/booking/service/packages";
+import {
+  packageFamilyFromPrice,
+  packageFamilySuperseded,
+} from "~/features/booking/service/packages";
 import { KIOSK_LOGOS, KIOSK_PHOTOS, kioskImg } from "../assets";
 import { useResilientImage } from "../hooks/useResilientImage";
-import { slotLabel, type FirstOpen } from "../service/first-available";
+import { slotLabel, todayYmd, type FirstOpen } from "../service/first-available";
 import { AdminTapZone } from "./AdminTapZone";
 import { UTIL_TILE_BORDER_ALPHA, UTIL_TILE_CLASS, UtilityTile } from "./UtilityTile";
 import { useKioskConfig } from "../KioskConfigContext";
@@ -199,8 +202,16 @@ export function KioskCategories({
   const offerings = landingOfferingsFor(brand, center).filter((o) => o.kind !== "kbf");
   const combos = enabledCombos().filter((c) => c.center === center);
   // The Ultimate Qualifier is a premium FastTrax racing PACKAGE (not a combo);
-  // surface it in Experiences wherever racing is offered.
-  const showQualifier = offerings.some((o) => o.kind === "race");
+  // surface it in Experiences wherever racing is offered — EXCEPT on days a
+  // deal supersedes it (BOGO Wednesdays sells the same two races for less;
+  // owner 2026-09-02). HIDDEN rather than locked: `uqAvailable`'s disabled
+  // note says "not enough time left today", the wrong words for "there's a
+  // better deal on the racing flow". todayYmd() is the kiosk's operating day —
+  // the same day every race item is stamped with (KioskFlow stampToday), so
+  // the shelf and the pay-mode screen can't disagree about the promo day.
+  const showQualifier =
+    offerings.some((o) => o.kind === "race") &&
+    !packageFamilySuperseded("ultimate-qualifier", todayYmd());
   // Per-day-tier "From $X/person" teasers = lowest enabled Ultimate Qualifier
   // variant for each tier (junior variants price the floor). Mega Tuesday is a
   // Mon–Thu day. Same computed prices the picker/checkout use — display only.

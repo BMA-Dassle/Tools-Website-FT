@@ -15,6 +15,7 @@ export {
   getPackage,
   getPackageIgnoreFlag,
   eligiblePackages,
+  packageFamilySuperseded,
   packagePerRacerPrice,
   packageBundleTotal,
   packageRetailTotal,
