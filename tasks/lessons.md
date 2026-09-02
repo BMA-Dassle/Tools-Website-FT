@@ -1,5 +1,50 @@
 # Lessons Learned
 
+## "Laggy" was a frame rate, and it sent us hunting through file size, compression and caching for an evening (2026-09-01)
+
+**What happened:** staff reported the front-desk pricing videos as laggy. The obvious
+suspects were all wrong, and each cost a round trip: compression (the re-cut is identical
+in shape to the untouched original), file size, and the video cache (the fix had already
+shipped — confirmed with `git merge-base --is-ancestor a701c8848 181888587`, i.e. the build
+the screens were actually reporting). Owner, after the cache fix: _"Bowling video is still
+lagging do we compress it?"_
+
+Measuring all five wall films side by side is what settled it:
+
+| film | size | fps | bitrate |
+| --- | --- | --- | --- |
+| hyperbowling-32s | 720×406 | **25** | 754 kbps |
+| neoverse | 720×406 | 30 | 758 kbps |
+| gamezone-27s | 720×406 | 23.976 | 1132 kbps |
+| hero-video | 1764×1176 | 24 | **25316 kbps** |
+
+The bowling reel was the **lightest file on the wall**. It was also the only 25fps one.
+The panels run at 60Hz and 60/25 is 2.4, so a player holds each frame for two refreshes or
+three, alternating 33ms/50ms forever. Its own panel-mate `neoverse` — same panel, same
+size, same bitrate, 30fps and a clean 2:2 — was never once reported. That is what isolated
+it, and no amount of compression or caching could ever have touched it.
+
+**How to apply:**
+
+- **Everything cut for a wall lands at 30fps.** 24/23.976 is fine (cinema 2:3, what the eye
+  expects); 30/29.97 is fine (2:2); **25 is the one that judders** on 60Hz.
+- **Retime with motion interpolation, never frame duplication.**
+  `minterpolate=fps=30:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1`. Duplicating every
+  fifth frame holds five frames for 33ms and one for 66ms — trading one irregular cadence
+  for a worse one.
+- **Verify by looking at the frames.** Extract the same timestamps from source and output,
+  tile them, and actually view them. Title cards are where interpolation artifacts show worst.
+- **Upload under a NEW pathname, never re-cut in place.** `planCacheOps` keys on the URL, so
+  an overwrite leaves every panel playing the old copy off its own disk forever, with nothing
+  to tell it the bytes behind the URL changed.
+- **When a symptom word is imprecise — "laggy", "slow", "broken" — measure the whole set and
+  look for the outlier before theorising about any one member of it.** One `ffprobe` sweep
+  answered what three rounds of reasoning about compression could not.
+
+**Still owed:** the FastTrax hero is 1764×1176 at 25 Mbps — 30 MB for ten seconds, 33× the
+bitrate of every other reel. Only its own panel caches it, so it is not behind this report,
+but it has no business on a signage wall.
+
 ## A behaviour that is invisible on scattered screens becomes the loudest thing in the room on a video wall (2026-09-01)
 
 **What happened:** staff reported that a kiosk check-in "crashed all five front-desk TVs and
