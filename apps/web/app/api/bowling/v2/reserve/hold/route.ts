@@ -6,6 +6,7 @@ import {
   planLanesWithinBudget,
 } from "~/features/lane-plan/place.server";
 import { createWithLanePlan, describePinOutcome } from "~/features/lane-plan/pin";
+import { laneSectionForOffer } from "~/features/lane-plan/offer-section.server";
 import { recordLaneDecision } from "@/lib/lane-decisions-db";
 import {
   freeLaneCandidates,
@@ -144,6 +145,12 @@ export async function POST(req: NextRequest) {
   const nowMs = Date.now();
   const arranging = shouldArrangeLane({ centerId, bookedAtMs, nowMs });
 
+  // The lanes this product may be sold on, from OUR catalog — resolved once and given to
+  // both the engine and the guard. Neither may work it out for itself: the engine used to
+  // infer it from today's board, which a single booking on lane 1 could poison, and the
+  // guard did not consider sections at all.
+  const sectionLanes = await laneSectionForOffer(centerId, webOfferId);
+
   const preferred = arranging
     ? await planLanesWithinBudget({
         centerId,
@@ -152,6 +159,7 @@ export async function POST(req: NextRequest) {
         webOfferId,
         optionId,
         optionType,
+        allowedLanes: sectionLanes,
       })
     : [];
 
@@ -160,7 +168,7 @@ export async function POST(req: NextRequest) {
   // all. For a guest starting now, never offer one somebody is physically still on.
   const guard =
     immediateLaneGuardEnabled() && isImmediateStart(bookedAtMs, nowMs)
-      ? await freeLaneCandidates({ centerId, players, preferred })
+      ? await freeLaneCandidates({ centerId, players, preferred, allowedLanes: sectionLanes })
       : { candidates: preferred, freeLanes: [] as number[] };
   const candidates = guard.candidates;
 
@@ -199,7 +207,7 @@ export async function POST(req: NextRequest) {
         players,
         webOfferId,
         freeLanes: guard.freeLanes,
-        allowedLanes: preferred.length ? preferred.flat() : null,
+        allowedLanes: sectionLanes,
         candidates,
         chosenLanes: outcome.pinnedTo ?? (reservation.Lanes ?? []).map((l) => l.LaneNumber),
         failedOpen: outcome.failedOpen,

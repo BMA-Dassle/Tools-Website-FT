@@ -68,6 +68,7 @@ import {
   isImmediateStart,
 } from "./immediate-lane-guard";
 import { createWithLanePlan, describePinOutcome } from "~/features/lane-plan/pin";
+import { laneSectionForOffer } from "~/features/lane-plan/offer-section.server";
 import {
   startReserveAttempt,
   recordReserveCapture,
@@ -2840,7 +2841,13 @@ async function unifiedReserveInner(
     async function createFreshReservation() {
       const candidates =
         immediateLaneGuardEnabled() && isImmediateStart(Date.parse(bookedAt), Date.now())
-          ? (await freeLaneCandidates({ centerId, players: players.length })).candidates
+          ? (
+              await freeLaneCandidates({
+                centerId,
+                players: players.length,
+                allowedLanes: await laneSectionForOffer(centerId, webOfferId),
+              })
+            ).candidates
           : [];
       const outcome = await createWithLanePlan({
         candidates,

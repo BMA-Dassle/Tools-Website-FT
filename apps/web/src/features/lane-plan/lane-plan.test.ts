@@ -41,6 +41,7 @@ import {
   simulateDay,
   sweepDay,
 } from "./policy";
+import { sectionForExperience } from "./sections";
 import {
   isSameOperatingDay,
   laneArrangementCenter,
@@ -1308,5 +1309,61 @@ describe("owner-given sections beat inferred lane groups", () => {
     // Nothing observed at all: no section can win, and an unconfident group stays out — so
     // `allowedLanes` is absent and the booking may use any lane.
     expect(toLaneGroupMap(evidence(999, {}, false), 9172).has(999)).toBe(false);
+  });
+});
+
+/**
+ * Which section a PRODUCT sells in, taken from our own catalog rather than from where the
+ * offer happens to sit on today's board.
+ *
+ * The board-derived version failed twice in production on 2026-09-02: on a quiet stretch
+ * the offer was absent, so it resolved to "any lane" and a Regular booking was offered
+ * lanes 1, 2, 3 — Old Time — three guaranteed refusals. And ONE stray booking on lane 1 was
+ * enough to make the vote say Old Time for every later booking of that offer, which is why
+ * staff found that moving that reservation off lane 1 "made it work".
+ */
+describe("a product's section comes from the catalog, not the board", () => {
+  it("routes Fort Myers products to the right lanes", () => {
+    const fm = (e: { isVip?: boolean; slug: string }) => sectionForExperience(9172, e)?.lanes;
+    expect(fm({ slug: "regular-fri-sun", isVip: false })).toEqual([
+      13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
+    ]);
+    expect(fm({ slug: "vip-fri-sun", isVip: true })).toEqual([5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(fm({ slug: "pinboyz-mon-thur", isVip: false })).toEqual([1, 2, 3, 4]);
+    // Same offer id serves several products; they all sell in the same section.
+    expect(fm({ slug: "pizza-bowl", isVip: false })).toEqual(
+      fm({ slug: "fun-4-all", isVip: false }),
+    );
+    expect(fm({ slug: "midnight-madness-vip", isVip: true })).toEqual(
+      fm({ slug: "vip-mon-thur", isVip: true }),
+    );
+  });
+
+  it("knows Naples splits at 25, not where Fort Myers does", () => {
+    expect(sectionForExperience(3148, { slug: "vip-fri-sun", isVip: true })?.lanes).toEqual([
+      25, 26, 27, 28, 29, 30, 31, 32,
+    ]);
+    expect(
+      sectionForExperience(3148, { slug: "regular-fri-sun", isVip: false })?.lanes,
+    ).toHaveLength(24);
+  });
+
+  it("gives FastTrax the whole house — one product, no choosing", () => {
+    expect(sectionForExperience(11542, { slug: "duckpin", isVip: false })?.lanes).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8,
+    ]);
+  });
+
+  it("cannot be poisoned by a booking — the same product always resolves the same", () => {
+    // The old inference read the board; this reads the row. There is no input here that a
+    // stray reservation on lane 1 could change.
+    const before = sectionForExperience(9172, { slug: "regular-fri-sun", isVip: false })?.lanes;
+    const after = sectionForExperience(9172, { slug: "regular-fri-sun", isVip: false })?.lanes;
+    expect(after).toEqual(before);
+    expect(after).not.toContain(1);
+  });
+
+  it("says nothing for a centre it has no section map for", () => {
+    expect(sectionForExperience(99999, { slug: "regular-fri-sun", isVip: false })).toBeNull();
   });
 });

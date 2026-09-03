@@ -118,3 +118,48 @@ describe("candidates come only from lanes nobody is on", () => {
     expect((await freeLaneCandidates({ centerId: 11542, players: 4 })).candidates).toEqual([]);
   });
 });
+
+describe("the guard never offers a lane outside the product's section", () => {
+  const FM_REGULAR = [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28];
+
+  it("skips free Old Time lanes for a Regular booking", async () => {
+    // The 2026-09-02 bug exactly: lanes 1-4 free, so ascending offered 1, 2, 3 — all Old
+    // Time, all refused, budget gone, fall open. Production logged 18 such refusals in a day.
+    listLanes.mockResolvedValue([1, 2, 3, 4, 5, 13, 15, 19].map((n) => lane(n, "Closed")));
+    const { candidates } = await freeLaneCandidates({
+      centerId: 9172,
+      players: 4,
+      allowedLanes: FM_REGULAR,
+    });
+    expect(candidates.flat()).not.toContain(1);
+    expect(candidates.flat()).not.toContain(5); // VIP either
+    expect(candidates).toEqual([[13], [15], [19]]);
+  });
+
+  it("has no opinion when the section is full, rather than reaching outside it", async () => {
+    // Old Time and VIP are wide open; a Regular booking still must not be sent there.
+    listLanes.mockResolvedValue([1, 2, 3, 4, 5, 6].map((n) => lane(n, "Closed")));
+    const { candidates } = await freeLaneCandidates({
+      centerId: 9172,
+      players: 4,
+      allowedLanes: FM_REGULAR,
+    });
+    expect(candidates).toEqual([]);
+  });
+
+  it("still drops a section lane the floor says is occupied", async () => {
+    listLanes.mockResolvedValue([lane(13, "Open"), lane(15, "Closed"), lane(19, "Closed")]);
+    const { candidates } = await freeLaneCandidates({
+      centerId: 9172,
+      players: 4,
+      allowedLanes: FM_REGULAR,
+    });
+    expect(candidates).toEqual([[15], [19]]);
+  });
+
+  it("is unrestricted when no section is known — never refuses a lane it should offer", async () => {
+    listLanes.mockResolvedValue([1, 2, 3].map((n) => lane(n, "Closed")));
+    const { candidates } = await freeLaneCandidates({ centerId: 9172, players: 4 });
+    expect(candidates).toEqual([[1], [2], [3]]);
+  });
+});

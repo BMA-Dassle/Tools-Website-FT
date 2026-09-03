@@ -98,10 +98,20 @@ export async function freeLaneCandidates(opts: {
   players: number;
   /** Ranked lane sets from the arrangement engine, if this centre is piloted. */
   preferred?: number[][];
+  /**
+   * Lanes this product may be sold on. `null` = no restriction.
+   *
+   * WITHOUT THIS THE FALLBACK IS SECTION-BLIND: free lanes ascending starts at lane 1, which
+   * at Fort Myers is Old Time, so a Regular booking was offered 1, 2 and 3 — three
+   * guaranteed `lanes_not_compatible` refusals before falling open. Measured in production
+   * 2026-09-02: 18 such refusals in a day.
+   */
+  allowedLanes?: number[] | null;
 }): Promise<FreeLaneChoice> {
   try {
     const lanes = await listLanes(opts.centerId);
-    const free = openLanesFrom(lanes);
+    const sellable = opts.allowedLanes?.length ? new Set(opts.allowedLanes) : null;
+    const free = openLanesFrom(lanes).filter((l) => !sellable || sellable.has(l));
     if (free.length === 0) return { candidates: [], freeLanes: [] };
     const freeSet = new Set(free);
 

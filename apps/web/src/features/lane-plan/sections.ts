@@ -93,3 +93,35 @@ export function sectionForObservedLanes(
 export function knownSectionLanes(centerId: number): number[] {
   return sectionsFor(centerId).flatMap((s) => [...s.lanes]);
 }
+
+/**
+ * Which section a PRODUCT sells in, from our own catalog row.
+ *
+ * This replaces working it out from where the offer happens to appear on today's board.
+ * That inference had two failure modes, both seen in production on 2026-09-02:
+ *
+ *   - On a quiet stretch the offer is not on the board at all, so it resolved to "any
+ *     lane" and candidates started at lane 1 — Old Time — for a Regular booking. Three
+ *     bookings burned their whole retry budget on `lanes_not_compatible` that day.
+ *   - Worse, ONE stray booking poisons it. A Regular booking sitting on lane 1 is the only
+ *     observation, so the vote says Old Time and every subsequent Regular booking is aimed
+ *     at Old Time. Which is exactly why staff found that moving a reservation off lane 1
+ *     "made it work" — they were clearing the vote without knowing it.
+ *
+ * A catalog row cannot be poisoned by a booking and does not depend on the board being
+ * busy. `isVip` is the flag the rest of the booking stack already trusts; `pinboyz` is the
+ * Old Time product, matched by prefix so a second day-band cannot quietly go unrouted.
+ */
+export function sectionForExperience(
+  centerId: number,
+  experience: { isVip?: boolean | null; slug?: string | null },
+): LaneSection | null {
+  const sections = sectionsFor(centerId);
+  if (!sections.length) return null;
+  // One product across the whole house — nothing to choose between.
+  if (sections.length === 1) return sections[0];
+
+  const slug = (experience.slug ?? "").toLowerCase();
+  const want = slug.startsWith("pinboyz") ? "Old Time" : experience.isVip ? "VIP" : "Regular";
+  return sections.find((s) => s.name === want) ?? null;
+}
