@@ -1,3 +1,5 @@
+import { isMegaDay } from "~/features/racing/mega-calendar";
+
 // ── Core types ───────────────────────────────────────────────────────────────
 
 export type RaceTier = "starter" | "intermediate" | "pro";
@@ -822,11 +824,11 @@ export function getStaticProducts(date: string, racerType: RacerType = "new"): C
   const [y, m, d] = date.split("T")[0].split("-").map(Number);
   const dow = new Date(y, m - 1, d).getDay(); // 0=Sun, 6=Sat
   let schedule: Schedule;
-  if (dow === 2)
-    schedule = "mega"; // Tuesday
+  if (isMegaDay(date))
+    schedule = "mega"; // the Mega calendar owns which dates run Mega — never a weekday literal
   else if (dow === 0 || dow === 5 || dow === 6)
     schedule = "weekend"; // Fri-Sun
-  else schedule = "weekday"; // Mon, Wed, Thu
+  else schedule = "weekday";
 
   return RACE_PRODUCTS.filter((p) => p.schedule === schedule && p.racerType === racerType).map(
     (p) => ({
