@@ -2431,6 +2431,7 @@ function RoomColumn({
           room={room}
           color={color}
           state={state}
+          host={status?.host ?? null}
           timeline={timeline}
           nowMs={nowMs}
           locked={locked}
@@ -3226,6 +3227,7 @@ function InRoom({
   room,
   color,
   state,
+  host,
   timeline,
   nowMs,
   locked,
@@ -3243,6 +3245,8 @@ function InRoom({
   room: BriefingRoom;
   color: string;
   state: BriefingRoomState | null;
+  /** Staff member running this room's group, first name only. */
+  host?: string | null;
   timeline: BriefingTimeline;
   nowMs: number;
   locked: boolean;
@@ -3321,6 +3325,12 @@ function InRoom({
                 </span>
                 {state?.raceType && (
                   <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{state.raceType}</span>
+                )}
+                {/* WHO IS RUNNING THE ROOM (owner 2026-09-03). */}
+                {host && (
+                  <span style={{ fontSize: 12, color: PORTAL_DARK.muted, opacity: 0.75 }}>
+                    {host}
+                  </span>
                 )}
                 {state?.tier && (
                   <span style={{ fontSize: 11, color: PORTAL_DARK.muted }}>
@@ -4349,6 +4359,7 @@ function CameraLightbox({
                 </div>
                 <div style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
                   {holding.raceType ?? ""}
+                  {holding.host ? ` · ${holding.host}` : ""}
                   {holding.room ? ` · from the ${holding.room} room` : ""}
                 </div>
               </div>

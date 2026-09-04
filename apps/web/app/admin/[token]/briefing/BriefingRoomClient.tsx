@@ -2129,6 +2129,15 @@ ${film}
                 {occupant.raceType && (
                   <span style={{ fontSize: 20, fontWeight: 700 }}> · {occupant.raceType}</span>
                 )}
+                {/* WHO HAS THEM (owner 2026-09-03). Useful precisely here: this
+                    is the group in the SEATS, who may not be this room's, so the
+                    name says whom to ask about them. */}
+                {occupant.host && (
+                  <span style={{ fontSize: 20, fontWeight: 700, opacity: 0.6 }}>
+                    {" "}
+                    · {occupant.host}
+                  </span>
+                )}
               </p>
               <p style={{ fontSize: 14, color: PORTAL_DARK.muted }}>
                 {occupantIsOurs ? "This room's group — in holding" : "In holding"}

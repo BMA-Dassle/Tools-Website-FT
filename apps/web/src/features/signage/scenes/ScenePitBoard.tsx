@@ -1555,6 +1555,7 @@ function Rail({
     briefedRoom: "red" | "blue" | null;
     briefedAtMs: number | null;
     inHolding: boolean;
+    host: string | null;
     preRaceAtMs: number | null;
     preRaceDurationS: number | null;
   } | null;
@@ -1580,6 +1581,7 @@ function Rail({
     heatNumber: number | null;
     sessionId: string;
     atMs: number;
+    host?: string | null;
     preRaceAtMs: number | null;
     preRaceDurationS: number | null;
   } | null;
@@ -1591,6 +1593,7 @@ function Rail({
      *  (owner: "as they come back, indicate which briefing they need to go
      *  to" — this chip is the one place they see it, walking past this wall). */
     room: "red" | "blue" | null;
+    host?: string | null;
     postRaceAtMs: number | null;
     postRaceDurationS: number | null;
   } | null;
@@ -1599,18 +1602,28 @@ function Rail({
     session?.heatNumber != null ? `Session ${session.heatNumber}` : "Next session";
   const kartsName = karts?.heatNumber != null ? `Session ${karts.heatNumber}` : "They";
 
+  /**
+   * WHOSE GROUP THE RAIL IS TALKING ABOUT (owner 2026-09-03).
+   *
+   * The rail's subject is `karts ?? holding`, so the name has to come from the
+   * SAME slot the sentence names — a karts line wearing the seated group's host
+   * would be about the wrong people, the exact bug the pill note above records.
+   */
+  const railHost = karts ? (karts.host ?? null) : (session?.host ?? null);
+  const withHost = (text: string) => (railHost ? `${text} · ${railHost}` : text);
+
   /** The left half's instruction, from the same four states as before. */
   const leftText = karts
-    ? `${kartsName} in karts`
+    ? withHost(`${kartsName} in karts`)
     : !session
       ? "Nothing to seat"
       : kind === "racing"
-        ? `${sessionName} racing`
+        ? withHost(`${sessionName} racing`)
         : session.inHolding
-          ? `Seat ${sessionName} now`
+          ? withHost(`Seat ${sessionName} now`)
           : session.briefedAtMs != null
-            ? `In briefing${session.briefedRoom ? ` · ${session.briefedRoom} room` : ""}`
-            : `${sessionName} checking in`;
+            ? withHost(`In briefing${session.briefedRoom ? ` · ${session.briefedRoom} room` : ""}`)
+            : withHost(`${sessionName} checking in`);
   // Not a call to action while somebody is strapped in — the green "go" belongs
   // to the seat instruction, and there is nothing to seat until the karts clear.
   const leftGo = !karts && kind === "seat" && session?.inHolding === true;
@@ -1724,6 +1737,17 @@ function Rail({
             <span className="tv-display" style={{ fontSize: 36, whiteSpace: "nowrap" }}>
               {pitIn.heatNumber != null ? `Session ${pitIn.heatNumber}` : "A race"}
             </span>
+            {/* WHO OWES THIS GROUP THEIR POST-RACE — the name beside the
+                session, so the marshal reading the lane knows who to chase for
+                the announcement rather than working it out from the room. */}
+            {pitIn.host && (
+              <span
+                className="tv-display"
+                style={{ fontSize: 26, whiteSpace: "nowrap", color: "rgba(245,236,238,0.5)" }}
+              >
+                {pitIn.host}
+              </span>
+            )}
             <PostRacePill pitIn={pitIn} nowMs={nowMs} />
             {/* WHERE THEY WALK NEXT — the room their results and video are in,
                 in that room's own colour so "red" reads across the pit lane
