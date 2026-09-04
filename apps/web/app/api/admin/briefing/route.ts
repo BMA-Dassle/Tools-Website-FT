@@ -18,6 +18,7 @@ import {
   setCalledRace,
 } from "~/features/signage/briefing/called-override.server";
 import { readBriefingRoom } from "~/features/signage/briefing/state.server";
+import { backfillAssignmentStaff } from "~/features/signage/briefing/assignments-db";
 import { verifyPunchId } from "~/features/staff/service";
 import { assignSessionHost } from "~/features/staff/session-host";
 import type { StaffIdentity } from "~/features/staff/punch-index";
@@ -634,7 +635,11 @@ export async function POST(req: NextRequest) {
      *
      * Still NX inside, so it defers to whoever pulled them into the room.
      */
-    if (acting && result.ok) await assignSessionHost(sessionId, acting);
+    if (acting && result.ok) {
+      const host = await assignSessionHost(sessionId, acting);
+      // Same back-fill as startBriefing: the row predates the claim.
+      await backfillAssignmentStaff(sessionId, host.userId, host.firstName).catch(() => {});
+    }
     // A refusal is not a server fault — it is the guard doing its job — but it
     // must not read as success, or the page will say "sent to holding" for a
     // press that deliberately did nothing.

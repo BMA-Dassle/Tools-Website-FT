@@ -28,6 +28,7 @@ import { resolveScreenConfig } from "../defaults";
 import type { SignageVenue } from "../constants";
 import { trackFromResourceIds } from "../track";
 import {
+  backfillAssignmentStaff,
   listBriefingAssignments,
   recordBriefingAssignment,
   type BriefingAssignment,
@@ -308,7 +309,13 @@ export async function startBriefing(
    * Still first-press-wins (assignSessionHost is NX), so pressing Play it again
    * cannot hand the group to a passing manager.
    */
-  if (staff && current.sessionId) await assignSessionHost(current.sessionId, staff);
+  if (staff && current.sessionId) {
+    const host = await assignSessionHost(current.sessionId, staff);
+    // AND ONTO THE DURABLE ROW, which was written at the pull — before anybody
+    // had identified themselves. Whoever actually holds the group after the NX
+    // is the name the record gets, so the row and the boards cannot disagree.
+    await backfillAssignmentStaff(current.sessionId, host.userId, host.firstName).catch(() => {});
+  }
 
   const assets = await loadSignageAssetsSafe();
   // Re-resolved at Start too: the film may have been uploaded (or removed) while

@@ -1,3 +1,4 @@
+import { readSessionHost } from "~/features/staff/session-host";
 import "server-only";
 
 /**
@@ -308,6 +309,26 @@ export async function resolveWelcomeBack(
     return null;
   }
 
+  /**
+   * THE ROW FIRST, THE LIVE CLAIM SECOND.
+   *
+   * The row is the durable answer and survives the session-host key expiring, so
+   * it wins when it has one. But it is WRITTEN AT THE PULL, before anybody has
+   * typed an ID — most groups are claimed at Start video a minute later — so on
+   * 2026-09-04 it was null for 24 of 25 groups while Redis knew every name, and
+   * this board greeted them by nobody.
+   *
+   * `backfillAssignmentStaff` now fills the row at claim time, which makes this
+   * fallback redundant going forward. It stays for the rows already written
+   * without one, and because a board that can read the name two ways is a board
+   * that keeps working when either half is behind.
+   */
+  const marshalName =
+    subject.staffFirstName ??
+    (await readSessionHost(subject.sessionId)
+      .then((h) => h?.firstName ?? null)
+      .catch(() => null));
+
   const target = nextLevelTarget(track, subject.raceType);
   const split = recorded ? splitByTarget(recorded.drivers, target?.ms ?? null) : null;
 
@@ -315,7 +336,7 @@ export async function resolveWelcomeBack(
     heatNumber: subject.heatNumber,
     raceType: subject.raceType,
     track,
-    marshal: subject.staffFirstName ?? null,
+    marshal: marshalName,
     endedAtMs: actualEndMs as number,
     postPlayedAtMs: postStamp?.atMs ?? null,
     arrivedAtMs: arrival.arrivedAtMs,

@@ -141,6 +141,37 @@ export async function recordBriefingAssignment(args: {
   `;
 }
 
+/**
+ * BACK-FILL WHO RAN A GROUP, onto a row already written.
+ *
+ * THE ROW IS WRITTEN BEFORE THE HOST IS KNOWN, and that is the normal case, not
+ * an edge one: `recordBriefingAssignment` runs at the PULL, while most groups
+ * are claimed at Start video a minute later. Without this, the durable record
+ * stayed null for 24 of 25 groups on 2026-09-04 while Redis knew every one of
+ * them — and the welcome-back board, which reads the row, greeted them by
+ * nobody.
+ *
+ * FIRST CLAIM WINS HERE TOO (`staff_user_id IS NULL`), matching the NX on the
+ * Redis key, so a later press cannot rewrite the record of who ran the group.
+ *
+ * Scoped to the session's OWN rows: one group can occupy two rows on a Mega
+ * night (both rooms), and both should name the same person.
+ */
+export async function backfillAssignmentStaff(
+  sessionId: string,
+  staffUserId: number,
+  staffFirstName: string,
+): Promise<void> {
+  if (!isDbConfigured() || !sessionId) return;
+  await ensureSchema();
+  const q = sql();
+  await q`
+    UPDATE briefing_assignments
+    SET staff_user_id = ${staffUserId}, staff_first_name = ${staffFirstName}
+    WHERE session_id = ${sessionId} AND staff_user_id IS NULL
+  `;
+}
+
 /** Everything sent today, newest first — the control board's history strip. */
 export async function listBriefingAssignments(
   venue: string,
