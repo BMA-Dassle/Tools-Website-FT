@@ -323,14 +323,17 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
             target={state?.track ? nextLevelTarget(state.track, state.raceType) : null}
           />
         ) : timeline.phase === "video" && videoSrc && !videoUnplayable ? (
-          <BriefingVideo
-            // Keyed on the send, so a NEW briefing remounts the element and starts
-            // its own playback — and a re-render inside one briefing does not.
-            key={`${state?.sessionId ?? "none"}:${state?.triggeredAtMs ?? 0}`}
-            src={videoSrc}
-            seekToMs={timeline.videoOffsetMs}
-            onUnplayable={markUnplayable}
-          />
+          <>
+            <BriefingVideo
+              // Keyed on the send, so a NEW briefing remounts the element and starts
+              // its own playback — and a re-render inside one briefing does not.
+              key={`${state?.sessionId ?? "none"}:${state?.triggeredAtMs ?? 0}`}
+              src={videoSrc}
+              seekToMs={timeline.videoOffsetMs}
+              onUnplayable={markUnplayable}
+            />
+            <MarshalOverlay name={state?.marshal ?? null} />
+          </>
         ) : showWelcomeBack ? (
           // THE GROUP IS BACK (owner 2026-08-11): their session's actualEnd is
           // stamped, so the wall greets them — kit return, who levelled up and
@@ -1218,11 +1221,94 @@ function QualifyTarget({
  * is PRESERVED below (WelcomeBackQualifiers) behind its own preview mode —
  * "save the qualifiers page case we ever want it back".
  */
+/**
+ * THEIR MARSHAL, OVER THE FILM (owner 2026-09-04: "add the marshall name to
+ * overlay the briefing video in the top left").
+ *
+ * TOP LEFT AND SMALL, over a safety film a room full of people is watching.
+ * This is an introduction, not a caption: it names the person who will be with
+ * them for the next half hour, and then gets out of the way of the film. The
+ * same name greets them again on the welcome-back board when they walk back in,
+ * which is the whole point — one person, start to finish.
+ *
+ * NO BOX, NO CHROME. A panel would read as a system notification over a video
+ * the room is meant to be paying attention to; a soft gradient behind the text
+ * keeps it legible over a bright frame without drawing a rectangle on the film.
+ *
+ * ABSENT, NOT BLANK, with no marshal: a label with nothing under it is worse
+ * than no label, and plenty of groups will have nobody signed for them.
+ */
+function MarshalOverlay({ name }: { name: string | null }) {
+  if (!name) return null;
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        padding: "34px 64px 64px 44px",
+        // Fades to nothing rather than ending on an edge — see the header.
+        background:
+          "linear-gradient(135deg, rgba(4,7,13,0.72) 0%, rgba(4,7,13,0.42) 45%, rgba(4,7,13,0) 100%)",
+        pointerEvents: "none",
+        zIndex: 3,
+      }}
+    >
+      <div
+        className="tv-eyebrow"
+        style={{
+          fontSize: 20,
+          letterSpacing: "0.18em",
+          color: "rgba(245,236,238,0.62)",
+        }}
+      >
+        YOUR MARSHAL
+      </div>
+      <div
+        className="tv-display"
+        style={{ fontSize: 54, lineHeight: 1.02, color: "#fff", marginTop: 4 }}
+      >
+        {name}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * THE SAME PERSON, NAMED AGAIN ON THE WAY OUT (owner 2026-09-04: "again when
+ * they return to briefing room at end of race").
+ *
+ * The film introduced them; this closes the loop. Worded as a hand-off rather
+ * than a label — "Alex will get you sorted" tells a group who to look for and
+ * what for, where "Marshal: Alex" only tells them a fact they cannot use.
+ *
+ * ONE COMPONENT FOR BOTH welcome-back layouts (plain and qualification), so the
+ * two boards can never greet the same group with different words.
+ */
+function MarshalReturnLine({ name, size }: { name: string | null; size: number }) {
+  if (!name) return null;
+  return (
+    <p
+      className="tv-rise"
+      style={{
+        fontSize: size,
+        color: "rgba(245,236,238,0.85)",
+        margin: 0,
+        flexShrink: 0,
+      }}
+    >
+      <b style={{ color: "#fff" }}>{name}</b> will get you sorted — see them for your times.
+    </p>
+  );
+}
+
 /** What the welcome-back feed section carries — see types.ts for field notes. */
 interface WelcomeBackInfo {
   heatNumber: number | null;
   raceType: string | null;
   track: "blue" | "red" | "mega";
+  /** Their marshal, first name only — the name the film introduced. */
+  marshal: string | null;
   endedAtMs: number;
   postPlayedAtMs: number | null;
   arrivedAtMs: number | null;
@@ -1935,6 +2021,7 @@ function WelcomeBackExit({
         >
           Welcome back!
         </div>
+        <MarshalReturnLine name={info.marshal} size={40} />
 
         {/* THE MIDDLE OWNS THE SLACK: checklist beside the exit hero, laid so
             the door end of the ROW is the door end of the ROOM. Everything
@@ -2085,6 +2172,7 @@ function WelcomeBackQualifiers({
         >
           Welcome back!
         </div>
+        <MarshalReturnLine name={info.marshal} size={hasNames ? 38 : 52} />
 
         {/* Kit return — the two things staff otherwise repeat to every group.
             One line when the name board needs the vertical room. */}

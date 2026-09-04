@@ -173,6 +173,15 @@ export interface BriefingRoomState {
    *                `triggeredAtMs`. After that the room is free.
    */
   kind: "assigned" | "timeline";
+  /**
+   * THEIR MARSHAL, first name only (owner 2026-09-04) — named over the film on
+   * the way in, and again on the welcome-back board on the way out.
+   *
+   * NOT WRITTEN AT SEND, joined onto the state by the feed builder, so the one
+   * place a host is claimed stays the one place it lives. Optional because the
+   * Redis room state is written without it and read back by other callers.
+   */
+  marshal?: string | null;
   /** Which video the timeline plays. */
   tier: BriefingTier | null;
   /** Track the session belongs to — shown on the pre-video board. */

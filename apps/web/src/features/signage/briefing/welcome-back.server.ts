@@ -60,6 +60,15 @@ export interface WelcomeBackInfo {
   heatNumber: number | null;
   raceType: string | null;
   track: "blue" | "red" | "mega";
+  /**
+   * THEIR MARSHAL, first name only (owner 2026-09-04) — the same person the
+   * briefing film named on the way in, named again on the way out.
+   *
+   * Straight off the assignment row, which is the durable record of who ran
+   * this group; no Redis read, and it survives the session-host key expiring
+   * overnight. Null for a group nobody signed for.
+   */
+  marshal: string | null;
   /** The timing system's own end stamp, ms — what opened the window. */
   endedAtMs: number;
   /** When this race's POST-RACE cue played (pit/audio-stamps), null until it
@@ -306,6 +315,7 @@ export async function resolveWelcomeBack(
     heatNumber: subject.heatNumber,
     raceType: subject.raceType,
     track,
+    marshal: subject.staffFirstName ?? null,
     endedAtMs: actualEndMs as number,
     postPlayedAtMs: postStamp?.atMs ?? null,
     arrivedAtMs: arrival.arrivedAtMs,

@@ -1,3 +1,5 @@
+import { readSessionHosts } from "~/features/staff/session-host";
+import type { BriefingRoomState } from "../briefing/types";
 import "server-only";
 
 /**
@@ -620,6 +622,20 @@ async function buildBriefingSection(
   const pro = assets["briefing-video:pro"];
   const poster = assets["briefing-helmet-poster"];
 
+  /**
+   * THE MARSHAL ON THE ROOM'S OWN STATE — joined here rather than written into
+   * Redis at send time, so there is still exactly one place a host is claimed
+   * and the room TV cannot show a name the boards disagree with. One `mget` for
+   * the two rooms, on a feed the TV already pays for.
+   */
+  const roomHosts = await readSessionHosts([
+    rooms.red?.sessionId ?? null,
+    rooms.blue?.sessionId ?? null,
+  ]).catch(() => ({}) as Record<string, { firstName: string }>);
+  const withMarshal = (st: BriefingRoomState | null): BriefingRoomState | null =>
+    st ? { ...st, marshal: roomHosts[st.sessionId]?.firstName ?? null } : null;
+  const roomsWithMarshal = { red: withMarshal(rooms.red), blue: withMarshal(rooms.blue) };
+
   return {
     section: {
       videos: {
@@ -635,6 +651,7 @@ async function buildBriefingSection(
             heatNumber: welcomeBack.heatNumber,
             raceType: welcomeBack.raceType,
             track: welcomeBack.track,
+            marshal: welcomeBack.marshal,
             endedAtMs: welcomeBack.endedAtMs,
             postPlayedAtMs: welcomeBack.postPlayedAtMs,
             arrivedAtMs: welcomeBack.arrivedAtMs,
@@ -650,7 +667,7 @@ async function buildBriefingSection(
         : null,
       cameraReturn,
     },
-    rooms,
+    rooms: roomsWithMarshal,
   };
 }
 

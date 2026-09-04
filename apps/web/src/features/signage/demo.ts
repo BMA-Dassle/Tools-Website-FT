@@ -673,6 +673,9 @@ function demoBriefingSection(feed: TvFeed, mode: DemoMode): TvFeed["briefing"] {
             heatNumber: 58,
             raceType: "Starter",
             track: "red",
+            // A named marshal, because the whole point of the preview is to
+            // review the line staff will actually read on the wall.
+            marshal: "Alex",
             // A fresh end with post already called, so a preview with the
             // jingle uploaded also plays it (its 2-minute window is anchored
             // here). No audio in previews otherwise — same silent board a

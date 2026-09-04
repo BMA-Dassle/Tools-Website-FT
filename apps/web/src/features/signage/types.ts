@@ -774,6 +774,10 @@ export interface TvFeed {
       heatNumber: number | null;
       raceType: string | null;
       track: "blue" | "red" | "mega";
+      /** THEIR MARSHAL, first name only — the same name the film showed on the
+       *  way in, so the greeting on the way out comes from a person rather than
+       *  a room. Null for a group nobody signed for. */
+      marshal: string | null;
       /** The timing system's end stamp that opened this window — the anchor
        *  for the greeting audio's 2-minute cap, server-stamped so both room
        *  TVs and a mid-window reboot all stop at the same moment. */

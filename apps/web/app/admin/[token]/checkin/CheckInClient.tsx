@@ -617,6 +617,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
     total: number | null;
     /** The count is the last one read rather than a fresh one — shown dimmed. */
     stale?: boolean;
+    /** Staff member running this heat, first name only. */
+    host?: string | null;
     /** Square location id — rows now span FT/HP-FM AND Naples, whose
      *  separate BMI server can mint numerically identical sessionIds,
      *  so sessionId alone is not a unique row identity. */
@@ -1728,6 +1730,14 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                   <p className="text-xs font-bold uppercase" style={{ color }}>
                     {s.track} {s.raceType} {s.heatNumber ? `#${s.heatNumber}` : ""}
                   </p>
+                  {/* WHO HAS THEM (owner 2026-09-04) — its own line rather than
+                      squeezed onto the track/level row, which is already three
+                      facts wide on a strip that scrolls horizontally. */}
+                  {s.host && (
+                    <p className="text-[10px] font-semibold" style={{ color: PORTAL_DARK.muted }}>
+                      {s.host}
+                    </p>
+                  )}
                   {s.scheduledStart && (
                     <p className="text-[10px]" style={{ color: PORTAL_DARK.muted }}>
                       {new Date(s.scheduledStart).toLocaleTimeString("en-US", {

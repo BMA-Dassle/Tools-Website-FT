@@ -1,4 +1,4 @@
-import { readSessionHost } from "~/features/staff/session-host";
+import { readSessionHost, readSessionHosts } from "~/features/staff/session-host";
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { parseCheckinQr } from "@/lib/qr-checkin";
@@ -1462,6 +1462,9 @@ interface SessionStat {
   heatNumber: number;
   sessionId: number | string;
   scheduledStart: string;
+  /** Staff member running this heat, first name only. Null until claimed —
+   *  a called heat has had no press yet. Racing rows only; arena has no rail. */
+  host?: string | null;
   /**
    * NULL MEANS WE DO NOT KNOW, and the board prints "—" for it. It does NOT
    * mean nobody is booked; see roster-count.ts for why that distinction cost us
@@ -1812,6 +1815,9 @@ async function rosterFor(s: SessionStat): Promise<RosterCount> {
 
 async function buildSessionStats(): Promise<SessionStat[]> {
   const sessions: SessionStat[] = [];
+  // Filled after the racing rows are pushed — one mget for all three tracks
+  // rather than a read per row on a 15-second poll from several stations.
+  const racingRows: SessionStat[] = [];
 
   // Racing — currently-called heats per track, from the carry.
   const current = await fetchCurrentRaces("stats");
@@ -1824,7 +1830,7 @@ async function buildSessionStats(): Promise<SessionStat[]> {
       scheduledStart?: string;
     };
     if (!d.sessionId) continue;
-    sessions.push({
+    const row: SessionStat = {
       track,
       raceType: d.raceType ?? "",
       heatNumber: d.heatNumber ?? 0,
@@ -1834,7 +1840,21 @@ async function buildSessionStats(): Promise<SessionStat[]> {
       total: null,
       stale: false,
       locationId: FASTTRAX_LOCATION_ID,
-    });
+    };
+    sessions.push(row);
+    racingRows.push(row);
+  }
+
+  // WHO IS RUNNING EACH CALLED HEAT. Mutates the rows already pushed, so the
+  // arena rows below are untouched — they have no briefing rail and so never
+  // have a marshal.
+  if (racingRows.length) {
+    try {
+      const hosts = await readSessionHosts(racingRows.map((r) => String(r.sessionId)));
+      for (const r of racingRows) r.host = hosts[String(r.sessionId)]?.firstName ?? null;
+    } catch {
+      /* a nameless strip is the strip we shipped for a year */
+    }
   }
 
   // HP Arena — currently-called sessions per active center (FM + Naples;
