@@ -305,43 +305,60 @@ export function mergePitRoster(fast: FastPitRow[], slow: PitRosterEntry[]): PitR
  * FREE once a group is in the karts. A flag would have left them occupying the
  * seats on every board that reads this.
  */
+/**
+ * THE STAFF MEMBER RUNNING A LANE SLOT'S GROUP — first name only, stamped onto
+ * every slot by `readPitLanes` so the boards that list the state of each race
+ * can name who owns it (owner 2026-09-03).
+ *
+ * OPTIONAL, and read as "not joined" rather than "nobody": `readPitLane`
+ * (singular) does not join it, and a lane cached before this shipped has no
+ * such field. Every consumer already treats a missing name as no name.
+ */
+export interface PitLaneHost {
+  host?: string | null;
+}
+
 export interface PitLaneFeed {
-  holding: {
-    sessionId: string;
-    heatNumber: number | null;
-    raceType: string | null;
-    /** Which briefing room they came from — the room this send freed. */
-    room: "red" | "blue" | null;
-    atMs: number;
-  } | null;
+  holding:
+    | ({
+        sessionId: string;
+        heatNumber: number | null;
+        raceType: string | null;
+        /** Which briefing room they came from — the room this send freed. */
+        room: "red" | "blue" | null;
+        atMs: number;
+      } & PitLaneHost)
+    | null;
   /** Seated in the karts, waiting on the green. Same shape as `holding` so
    *  every consumer can treat the two as one "staged" group. */
-  karts: {
-    sessionId: string;
-    heatNumber: number | null;
-    raceType: string | null;
-    room: "red" | "blue" | null;
-    /** When they got into the karts — the pre-race call, not the send. */
-    atMs: number;
-    /**
-     * THEIR OWN PRE STAMP, so the rail can pill the group it actually names
-     * (owner 2026-08-16: "it just says session in karts nothing about pre or
-     * anything… that rail for in karts should still have the same blinks of
-     * ready to send as well").
-     *
-     * The rail follows `karts ?? holding` while the grid follows `holding ??
-     * karts`, so once somebody is strapped in the two halves are describing
-     * different groups — and a pill sourced from the grid's session would have
-     * been about the wrong one. Suppressing it instead left the rail bare and
-     * killed the READY TO SEND flash, which is exactly the moment staff most
-     * want it: pre played and the race armed means the seats are free for the
-     * next group.
-     *
-     * Same shape and same reason as `pitIn`'s post stamps.
-     */
-    preRaceAtMs: number | null;
-    preRaceDurationS: number | null;
-  } | null;
+  karts:
+    | ({
+        sessionId: string;
+        heatNumber: number | null;
+        raceType: string | null;
+        room: "red" | "blue" | null;
+        /** When they got into the karts — the pre-race call, not the send. */
+        atMs: number;
+        /**
+         * THEIR OWN PRE STAMP, so the rail can pill the group it actually names
+         * (owner 2026-08-16: "it just says session in karts nothing about pre or
+         * anything… that rail for in karts should still have the same blinks of
+         * ready to send as well").
+         *
+         * The rail follows `karts ?? holding` while the grid follows `holding ??
+         * karts`, so once somebody is strapped in the two halves are describing
+         * different groups — and a pill sourced from the grid's session would have
+         * been about the wrong one. Suppressing it instead left the rail bare and
+         * killed the READY TO SEND flash, which is exactly the moment staff most
+         * want it: pre played and the race armed means the seats are free for the
+         * next group.
+         *
+         * Same shape and same reason as `pitIn`'s post stamps.
+         */
+        preRaceAtMs: number | null;
+        preRaceDurationS: number | null;
+      } & PitLaneHost)
+    | null;
   /**
    * ON TRACK, AND ONLY ON TRACK (owner 2026-08-15: "on track only is when
    * they're really out on track").
@@ -353,31 +370,33 @@ export interface PitLaneFeed {
    * the only record that a post announcement was still owed. Those two facts
    * live on `pitIn` now, where they describe a group that is actually in the pit.
    */
-  racing: {
-    sessionId: string;
-    heatNumber: number | null;
-    /** The level they are running, same vocabulary as every other slot. Null
-     *  only for a group promoted from a lane written before this field existed,
-     *  or placed on track by hand from Override with nothing to copy from. */
-    raceType: string | null;
-    /**
-     * THE ROOM THEY WILL WALK BACK INTO (owner 2026-08-17: "for mega keep a pill
-     * next to the race on what room they will be returning to").
-     *
-     * The other three slots have always carried it and this one dropped it on
-     * the wire — the stored lane knows it the whole time (it travels with the
-     * group through the promotion), so the room simply vanished off every
-     * screen for the fourteen minutes a heat is out and reappeared at `pitIn`.
-     * That is exactly the window in which staff are deciding which room to
-     * clear, which is what the tracker exists to answer.
-     *
-     * A group welcomes back into the SAME room it was briefed in
-     * (briefing/welcome-back.ts), so this is a fact about the future, not just
-     * the past. Null for a group placed on track by hand from Override with no
-     * staged slot to copy from — the pill is then absent rather than guessed.
-     */
-    room: "red" | "blue" | null;
-  } | null;
+  racing:
+    | ({
+        sessionId: string;
+        heatNumber: number | null;
+        /** The level they are running, same vocabulary as every other slot. Null
+         *  only for a group promoted from a lane written before this field existed,
+         *  or placed on track by hand from Override with nothing to copy from. */
+        raceType: string | null;
+        /**
+         * THE ROOM THEY WILL WALK BACK INTO (owner 2026-08-17: "for mega keep a pill
+         * next to the race on what room they will be returning to").
+         *
+         * The other three slots have always carried it and this one dropped it on
+         * the wire — the stored lane knows it the whole time (it travels with the
+         * group through the promotion), so the room simply vanished off every
+         * screen for the fourteen minutes a heat is out and reappeared at `pitIn`.
+         * That is exactly the window in which staff are deciding which room to
+         * clear, which is what the tracker exists to answer.
+         *
+         * A group welcomes back into the SAME room it was briefed in
+         * (briefing/welcome-back.ts), so this is a fact about the future, not just
+         * the past. Null for a group placed on track by hand from Override with no
+         * staged slot to copy from — the pill is then absent rather than guessed.
+         */
+        room: "red" | "blue" | null;
+      } & PitLaneHost)
+    | null;
   /**
    * BACK IN THE PIT, WAITING ON THE POST ANNOUNCEMENT (owner 2026-08-15: "the
    * inbound race that is still sitting in karts waiting for post announcements
@@ -395,23 +414,25 @@ export interface PitLaneFeed {
    * end of the race: karts is pre-flag and clears on the green, pitIn is
    * post-flag and clears on the post announcement.
    */
-  pitIn: {
-    sessionId: string;
-    heatNumber: number | null;
-    raceType: string | null;
-    room: "red" | "blue" | null;
-    /** The venue's own end signal, or the socket's first sighting of it. Null
-     *  when they were succeeded onto the track without any witness at all. */
-    finishedAtMs: number | null;
-    /** When they entered this stage — the finish when we have one, else the
-     *  moment the next group took the track. */
-    atMs: number;
-    /** The post announcement's stamp and clip length, so the board can say
-     *  due -> playing -> played instead of the group simply vanishing when the
-     *  cue fires (owner 2026-08-15, the split rail). */
-    postRaceAtMs: number | null;
-    postRaceDurationS: number | null;
-  } | null;
+  pitIn:
+    | ({
+        sessionId: string;
+        heatNumber: number | null;
+        raceType: string | null;
+        room: "red" | "blue" | null;
+        /** The venue's own end signal, or the socket's first sighting of it. Null
+         *  when they were succeeded onto the track without any witness at all. */
+        finishedAtMs: number | null;
+        /** When they entered this stage — the finish when we have one, else the
+         *  moment the next group took the track. */
+        atMs: number;
+        /** The post announcement's stamp and clip length, so the board can say
+         *  due -> playing -> played instead of the group simply vanishing when the
+         *  cue fires (owner 2026-08-15, the split rail). */
+        postRaceAtMs: number | null;
+        postRaceDurationS: number | null;
+      } & PitLaneHost)
+    | null;
   /**
    * THE PRE-RACE DEBT, and whether the next group may be seated (owner
    * 2026-08-16: "if we go green and still haven't played pre, we should put up a

@@ -382,6 +382,27 @@ export function StageRailView({
                 </span>
               )}
               {/*
+                WHO IS RUNNING THIS GROUP (owner 2026-09-03: "where we list the
+                state of each race on the assignment boards").
+
+                AFTER the level and BEFORE the room pill, which is the order the
+                row already reads in: what the race IS, then who has it, then
+                where it goes. Dimmer than the level, because a marshal scanning
+                this rail is looking for a session number first and a name only
+                once they have found the row.
+
+                NEVER BESIDE A "—", same rule as the room pill: a name floating
+                against an empty stage would be about nobody.
+              */}
+              {r.host && !empty && (
+                <span
+                  className="tv-eyebrow"
+                  style={{ fontSize: s.type, color: "rgba(245,236,238,0.42)" }}
+                >
+                  {r.host}
+                </span>
+              )}
+              {/*
                 THE ROOM THIS RACE COMES BACK TO (owner 2026-08-17: "for mega
                 keep a pill next to the race on what room they will be returning
                 to"). Beside the session and not out at the right-hand edge,

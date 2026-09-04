@@ -3036,6 +3036,14 @@ function OutOfRoomPanel({
                           {holding.raceType}
                         </span>
                       )}
+                      {/* WHO HAS THIS GROUP (owner 2026-09-03). Beside the level,
+                          dimmer than it — the desk reads the session number
+                          first. */}
+                      {holding.host && (
+                        <span style={{ fontSize: 12, color: PORTAL_DARK.muted, opacity: 0.75 }}>
+                          {holding.host}
+                        </span>
+                      )}
                       <RoomPill room={pillRoom(holding)} />
                     </div>
                     {/* NO PROSE ON AN OCCUPIED ROW. "Hold them — karts are still
@@ -3084,6 +3092,14 @@ function OutOfRoomPanel({
                       {karts.raceType && (
                         <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
                           {karts.raceType}
+                        </span>
+                      )}
+                      {/* WHO HAS THIS GROUP (owner 2026-09-03). Beside the level,
+                          dimmer than it — the desk reads the session number
+                          first. */}
+                      {karts.host && (
+                        <span style={{ fontSize: 12, color: PORTAL_DARK.muted, opacity: 0.75 }}>
+                          {karts.host}
                         </span>
                       )}
                       <RoomPill room={pillRoom(karts)} />
@@ -3155,6 +3171,14 @@ function OutOfRoomPanel({
                       {pitIn.raceType && (
                         <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
                           {pitIn.raceType}
+                        </span>
+                      )}
+                      {/* WHO HAS THIS GROUP (owner 2026-09-03). Beside the level,
+                          dimmer than it — the desk reads the session number
+                          first. */}
+                      {pitIn.host && (
+                        <span style={{ fontSize: 12, color: PORTAL_DARK.muted, opacity: 0.75 }}>
+                          {pitIn.host}
                         </span>
                       )}
                       <RoomPill room={pillRoom(pitIn)} />

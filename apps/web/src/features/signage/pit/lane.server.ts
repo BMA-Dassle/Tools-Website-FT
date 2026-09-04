@@ -30,6 +30,7 @@ import "server-only";
  * cost a wall animation, never a staff action that already wrote its row.
  */
 import redis from "@/lib/redis";
+import { readSessionHosts } from "~/features/staff/session-host";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { afterResponse } from "../after-response.server";
 import { primeFastRoster } from "./fast-roster.server";
@@ -796,9 +797,51 @@ export async function readPitLanes(): Promise<PitLanes> {
         }
       }),
     );
+
+    /**
+     * WHO IS RUNNING EACH GROUP, joined once for all three tracks (owner
+     * 2026-09-03: the boards that list the state of each race name the staff
+     * member too). ONE `mget` for up to twelve slots — a per-slot read here
+     * would be a dozen Redis calls on the 2-second pulse.
+     *
+     * Stamped after `resolveLane` rather than inside it, because resolveLane is
+     * the rail's state machine and has no business knowing about staff; this is
+     * a label hung on its answer.
+     */
+    await stampLaneHosts(out);
     return out;
   } catch {
     return empty;
+  }
+}
+
+/** The four slots a lane can fill. Named once so the stamp below cannot miss one. */
+const LANE_SLOTS = ["holding", "karts", "racing", "pitIn"] as const;
+
+/**
+ * Hang each slot's staff first name on it, in place. Never throws: a lane
+ * without names is the lane we shipped for a year, and a Redis blip must not
+ * cost the board its state.
+ */
+async function stampLaneHosts(lanes: PitLanes): Promise<void> {
+  try {
+    const ids: string[] = [];
+    for (const track of PIT_TRACKS) {
+      for (const slot of LANE_SLOTS) {
+        const id = lanes[track]?.[slot]?.sessionId;
+        if (id) ids.push(id);
+      }
+    }
+    if (!ids.length) return;
+    const hosts = await readSessionHosts(ids);
+    for (const track of PIT_TRACKS) {
+      for (const slot of LANE_SLOTS) {
+        const held = lanes[track]?.[slot];
+        if (held?.sessionId) held.host = hosts[held.sessionId]?.firstName ?? null;
+      }
+    }
+  } catch {
+    /* no names is a strictly smaller board, never a broken one */
   }
 }
 

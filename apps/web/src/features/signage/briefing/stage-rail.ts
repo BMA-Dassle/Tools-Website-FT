@@ -96,6 +96,15 @@ export interface StageRow {
   value: string;
   /** The session's own level, when a stage can vouch for it. */
   type?: string;
+  /**
+   * THE STAFF MEMBER RUNNING THIS GROUP — first name only (owner 2026-09-03:
+   * the boards that list the state of each race name who has it).
+   *
+   * Absent, not "—", when nobody has claimed the group: an empty stage already
+   * prints a dash for its value, and a second one would read as a missing
+   * person rather than a missing stage.
+   */
+  host?: string | null;
   /** What it is DOING — distinct from what it IS. */
   detail?: string;
   /**
@@ -433,6 +442,7 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
     label: "Holding",
     value: sessionLabel(holding?.heatNumber),
     type: holding?.raceType ?? undefined,
+    host: holding?.host ?? null,
     // "In holding", not "in the seats" (owner 2026-08-24). The row is already
     // labelled HOLDING, and the seats are only where holding happens to put
     // them — a group standing at the fence is in holding too.
@@ -451,6 +461,7 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
     label: "In karts",
     value: sessionLabel(karts?.heatNumber),
     type: karts?.raceType ?? undefined,
+    host: karts?.host ?? null,
     detail: karts ? "seated — waiting on the green" : undefined,
     heatNumber: karts?.heatNumber ?? null,
     tone: karts ? "good" : "none",
@@ -472,6 +483,7 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
     label: "On track",
     value: sessionLabel(onTrackHeat),
     type: racing?.raceType ?? undefined,
+    host: racing?.host ?? null,
     detail: trackDetail,
     heatNumber: onTrackHeat,
     tone: "none",
@@ -487,6 +499,7 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
     label: "Pit in",
     value: sessionLabel(pitIn?.heatNumber),
     type: pitIn?.raceType ?? undefined,
+    host: pitIn?.host ?? null,
     detail: pitIn
       ? sinceFinishMs != null && sinceFinishMs >= 0 && fmt
         ? `karts in — post-race owed · ${fmt(sinceFinishMs)}`
