@@ -404,6 +404,7 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
             // The lap THIS room's group has to beat. They sit through the helmet and
             // next-race boards, which is when there is actually time to read it.
             target={state?.track ? nextLevelTarget(state.track, state.raceType) : null}
+            marshal={state?.marshal ?? null}
           />
         )}
       </div>
@@ -781,6 +782,7 @@ function Board({
   posterSrc,
   heatNumber,
   target,
+  marshal,
 }: {
   accent: string;
   room: BriefingRoom;
@@ -788,6 +790,8 @@ function Board({
   posterSrc: string | null;
   heatNumber: number | null;
   target: { level: string; ms: number } | null;
+  /** Their marshal, first name only — a peer of the session and qualify chips. */
+  marshal: string | null;
 }) {
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
@@ -826,6 +830,9 @@ function Board({
         posterSrc={posterSrc}
         heatNumber={phase === "helmet" ? heatNumber : null}
         target={target}
+        // Only alongside a session chip, for the same reason the heat number is
+        // suppressed off-phase: an idle room's helmet board is about nobody.
+        marshal={phase === "helmet" ? marshal : null}
       />
     </div>
   );
@@ -844,12 +851,14 @@ function HelmetBoard({
   posterSrc,
   heatNumber,
   target,
+  marshal,
 }: {
   accent: string;
   room: BriefingRoom;
   posterSrc: string | null;
   heatNumber: number | null;
   target: { level: string; ms: number } | null;
+  marshal: string | null;
 }) {
   if (posterSrc) {
     return (
@@ -927,6 +936,29 @@ function HelmetBoard({
             <span />
           )}
           {target && <QualifyTarget accent={accent} target={target} compact solid />}
+          {/* THEIR MARSHAL, a third chip in the same row (owner 2026-09-04).
+              APPENDED, never inserted: the session/qualify pair and its 40px
+              ground are a placement the owner settled on 2026-08-12 against the
+              real poster, and sliding a chip between them would re-open a
+              question that is already answered. The row wraps, so a long name on
+              a narrow panel drops to its own line rather than crushing the two
+              chips that were there first. */}
+          {marshal && (
+            <div
+              className="tv-display"
+              style={{
+                fontSize: 40,
+                color: "#fff",
+                padding: "10px 30px",
+                borderRadius: 999,
+                background: "rgba(0, 4, 24, 0.82)",
+                border: `2px solid ${withAlpha(accent, 0.8)}`,
+                whiteSpace: "nowrap",
+              }}
+            >
+              Your marshal · {marshal}
+            </div>
+          )}
         </div>
       </>
     );
@@ -959,6 +991,13 @@ function HelmetBoard({
         Race scores are posted outside the briefing room, near check-in and Red Track.
       </p>
       {target && <QualifyTarget accent={accent} target={target} />}
+      {/* The posterless board is prose, not chips — so the marshal is a line
+          like the others rather than a pill floating in a column of sentences. */}
+      {marshal && (
+        <p style={{ fontSize: 40, color: "rgba(245,236,238,0.6)", margin: 0 }}>
+          Your marshal today is <b style={{ color: "#fff" }}>{marshal}</b>.
+        </p>
+      )}
 
       <div
         aria-hidden
