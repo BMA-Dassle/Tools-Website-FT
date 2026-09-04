@@ -1278,9 +1278,13 @@ function MarshalOverlay({ name }: { name: string | null }) {
  * THE SAME PERSON, NAMED AGAIN ON THE WAY OUT (owner 2026-09-04: "again when
  * they return to briefing room at end of race").
  *
- * The film introduced them; this closes the loop. Worded as a hand-off rather
- * than a label — "Alex will get you sorted" tells a group who to look for and
- * what for, where "Marshal: Alex" only tells them a fact they cannot use.
+ * The film introduced them; this closes the loop. Two short sentences, past
+ * tense, and no instruction: the race is over, and a line promising the group
+ * that somebody is standing there would be wrong the moment they are not.
+ *
+ * NO DASH. It sits directly under a 92px "Welcome back!", and a clause hung off
+ * a dash reads as written copy at that size where two plain sentences read as
+ * somebody talking.
  *
  * ONE COMPONENT FOR BOTH welcome-back layouts (plain and qualification), so the
  * two boards can never greet the same group with different words.
@@ -1297,7 +1301,7 @@ function MarshalReturnLine({ name, size }: { name: string | null; size: number }
         flexShrink: 0,
       }}
     >
-      <b style={{ color: "#fff" }}>{name}</b> will get you sorted — see them for your times.
+      Thanks for racing. <b style={{ color: "#fff" }}>{name}</b> was your marshal.
     </p>
   );
 }
